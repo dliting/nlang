@@ -4,7 +4,7 @@
 
 仓库自0.12.9发布（8bc79ee9，11-07）起双线并行：
 
-- **master线**：泛型完善系列（0.13.1a静态引用T全面化＋游离函数泛型、0.13.1b结构体值相等批次、0.13.1c抽象函数＋泛型接口），共77个提交未进dev。语言面还包括：拼写歧义具名指向探针、数值宽度别名全家族、试验保留字`elseif`/`state`移除、单进程编译运行宿主的描述符驻留池根治。线格式NCU v2.14→v2.19（泛型类尾、接口尾、抽象旗标）。VERSION=0.13.1c。
+- **master线**：泛型完善系列（0.13.1a静态引用T全面化＋游离函数泛型、0.13.2泛型递延打磨、0.13.3抽象函数＋泛型接口），共77个提交未进dev。语言面还包括：拼写歧义具名指向探针、数值宽度别名全家族、试验保留字`elseif`/`state`移除、单进程编译运行宿主的描述符驻留池根治。线格式NCU v2.14→v2.19（泛型类尾、接口尾、抽象旗标）。VERSION=0.13.3。
 - **dev线**：0.13.4日期时间并入、0.13.5 HTTP库、0.13.6 net/http性能优化、0.13.7进行中（位运算`& ^ | ~`＋复合赋值已落，regex库Task 3-12已落、13-18待做）。线格式停留在v2.14。VERSION=0.13.7。
 
 目标：master并入dev后单线承载0.13.7交付，例行四门禁全绿，到达发布时点流程（终检、制品、推送、本地部署）。合并是roadmap 0.13.7条目第3项，不在dev侧计划内，归master会话执行。
@@ -14,7 +14,7 @@
 - 冲突面：master相对祖先改336个文件，dev改437个，交集78个。热点家族：语法（nlang.y/nlang.l）、VM后端（BytecodeOps.h、OpCodeTable.cpp、Disassembler.cpp、EmitCall.cpp、EmitExprBinary.cpp、VmExecutor*）、手册specification/vm-architecture的en/zh成对页、测试（test_nculoader、test_generic_decl、test_vm、manifest.txt、CMakeLists）、CHANGELOG/VERSION/roadmap/SYNC_BASELINE。
 - opcode：master追加7件（OP_AllocArrayN、OP_AssembleArrayN、OP_CheckCast、OP_CallStaticOut、OP_Eq_struct、OP_Ne_struct、OP_CheckArrayType）并修改OP_CallStatic与OP_New的操作数布局（追加descIdx）。dev追加位运算族4件（OP_BitAnd/BitOr/BitXor/BitNot）。两侧都在枚举尾部追加，直接合并必然编号碰撞。
 - 线格式：master 14→19；dev未动。合并取19。
-- 版本序列交错：CHANGELOG按版本号降序排列后，master的0.13.1c/b/a三条目插在0.13.4与0.12.9之间，条目内日期保留真实时间线。
+- 版本序列交错：CHANGELOG按版本号降序排列后，master的0.13.3/0.13.2/0.13.1a三条目插在0.13.4与0.12.9之间，条目内日期保留真实时间线。
 - 先例：dev侧已有四次「Merge master into dev」（11-06/11-07共四笔），方向与机制成熟。
 
 ## 三、方向与时机
@@ -34,7 +34,7 @@
 6. **CHANGELOG/VERSION**：VERSION=0.13.7；CHANGELOG以dev结构为基（无Unreleased空壳），master三条目按版本号降序插入，条目内容原样保留；dev的[0.13.7]条目补一行合并说明。
 7. **测试面**：manifest.txt并集；各CMakeLists并集；e2e/embed-host runner脚本并集；两侧新增测试全保留（master的泛型/抽象/值相等族＋dev的位运算/regex族）。
 8. **stdlib**：io.n注释级差异并集；dev独有的regex.n/http/gzip包原样；master无stdlib新增。合并落地后std库包随构建重打包。
-9. **文档与工具**：roadmap并集（dev的0.13.7进行态＋master的0.13.1c交付条目与递延并入项）；probe_run.py、source_size_guard allowlist并集；nlang-docs两侧修改合并。
+9. **文档与工具**：roadmap并集（dev的0.13.7进行态＋master的0.13.3交付条目与递延并入项）；probe_run.py、source_size_guard allowlist并集；nlang-docs两侧修改合并。
 
 ## 五、验证与收尾
 
@@ -63,6 +63,6 @@
 4. **执行器TU拆分的移植审计**：master在0.13.1系列新增到VmExecutor.cpp的函数须移植到dev拆分后的TU——RaiseAbstractMethodError→VmExecutorRaise.cpp，FillNativeReceiver留在VmExecutorNativeHost.cpp，native-loader族由dev的VmExecutorNativeLoader.cpp持有。真合并时若dev的拆分再推进（Task 17可能再拆文件），须按同规则重审master侧全部新增函数落位。
 5. **opNames表并集**：master把opNames重构为匿名命名空间kBinaryOpSymbols＋OperatorSymbol访问器（assert钉OP_Shr+1），dev给内联表追加位算子四符号；并集＝master重构＋dev符号追加＋assert扩到OP_BitNot+1。
 6. **run_embed_host.py取dev侧**：dev的runner是功能超集（exe＋显式DLL列表＋旁边ASan运行时拷贝）且与合并注册的7参数契约吻合；master的sandbox_closure staging无增益。随之sandbox_closure.py在全树零导入者＝合并残渣，删除；真合并时若dev Task 15-18开始导入则从master树恢复。
-7. **CHANGELOG自动合并即得正确降序**（0.13.7→…→0.13.4→0.13.1c/b/a→0.13.1→0.13.0→0.12.9，en/zh一致），真合并复核即可，无须手工插条目；dev的[0.13.7]条目补合并说明行仍要做（第四节第6条）。
+7. **CHANGELOG自动合并即得正确降序**（0.13.7→…→0.13.4→0.13.3→0.13.2→0.13.1a→0.13.1→0.13.0→0.12.9，en/zh一致），真合并复核即可，无须手工插条目；dev的[0.13.7]条目补合并说明行仍要做（第四节第6条）。
 8. **构建退出码纪律**：`cmake --build … | tail`读到的是tail的退出码；输出重定向日志文件后直读rc。彩排首轮假绿即此因。
 9. **bison A/B对拍配方**：合并前后nlang.y各自喂win_bison比对冲突计数，零新增才过；文法并集由git自动合并完成（彩排验证仅dev侧追加，master产生式无损）。

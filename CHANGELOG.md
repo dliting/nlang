@@ -8,7 +8,7 @@ All notable changes to NLang are documented here. The format follows
 
 ## [Unreleased]
 
-## [0.13.1c] - 2026-11-13
+## [0.13.3] - 2026-11-13
 
 The abstract-and-generic-interfaces release: bodyless method
 declarations become abstract methods, and interfaces join the
@@ -70,7 +70,7 @@ generic system.
   spelling.** `both(a < b, c > (d))` was misread as a generic
   construction; the misread creation's source bytes are now
   re-read as comparisons and spliced back into the call, and a
-  comparison re-read that does not parse keeps the named 0.13.1b
+  comparison re-read that does not parse keeps the named 0.13.2
   diagnostic as the fallback.
 - **Array creation over a type parameter is rejected at the
   creation site.** `new T[4]` in expression position slipped past
@@ -95,7 +95,7 @@ generic system.
   generic-declaration tail (v2.19). Modules compiled by older ncc
   are refused; every `.ncu` recompiles with the current ncc.
 
-## [0.13.1b] - 2026-11-12
+## [0.13.2] - 2026-11-12
 
 Deferred-polish pass on the 0.13.1a generic completion.
 
