@@ -2213,3 +2213,4 @@ stdlib_regex_anchor 0
 stdlib_regex_capture 0
 stdlib_regex_flags 0
 stdlib_regex_escape 0
+stdlib_regex_matches 0

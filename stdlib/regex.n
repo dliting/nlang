@@ -1412,6 +1412,25 @@ class RESim {
         return sim.run();
     }
 
+    // The byte offset where the code point after the one at bytePos
+    // begins, walking the same parallel decode table the scan runs on.
+    // A code point ending the input has its successor at the end, so
+    // the last entry's width still moves the caller to input.length().
+    // Only when bytePos already sits at the end (no code point left to
+    // cross) does this return one past the input, which callers read
+    // as "scan over".
+    public static int nextCpStart(string input, int bytePos) {
+        byte[] raw = io.toBytes(input);
+        List<int> cps = {};
+        List<int> cpByte = {};
+        decodeUtf8(raw, cps, cpByte);
+        for (int i = 0; i < cps.length(); i = i + 1) {
+            if (cpByte[i] > bytePos) { return cpByte[i]; }
+        }
+        if (bytePos < raw.length()) { return raw.length(); }
+        return raw.length() + 1;
+    }
+
     // Decodes raw bytes into parallel code point / byte offset lists.
     // Shared by the parser (pattern side) and the simulator (input side).
     public static void decodeUtf8(byte[] src, List<int> cps, List<int> cpByte) {
@@ -1736,6 +1755,40 @@ const class Regex {
         List<int> slots = RESim.exec(m_prog, input, 0);
         if (slots == null) { return null; }
         return Match(this, input, slots);
+    }
+
+    // Every non-overlapping match, left to right (the leftmost-first
+    // rule of match() applied repeatedly). limit < 0 collects them all,
+    // 0 yields the empty list, n > 0 caps the count. The scan resumes
+    // after each non-empty match; an empty match cannot repeat in
+    // place, so it is dropped when it starts exactly where the previous
+    // match ended, and the scan then steps over one code point either
+    // way (Go's findAll adjacency rule, probed round14: "a*" on "ab"
+    // gives ["a",""], "" on "a中" gives the three code point starts).
+    // Dropping an empty candidate never ends the scan.
+    public List<Match> matches(string input) {
+        return this.matches(input, -1);
+    }
+
+    public List<Match> matches(string input, int limit) {
+        List<Match> found = {};
+        if (limit == 0) { return found; }
+        int pos = 0;
+        int prevMatchEnd = -1;
+        while (pos <= input.length()) {
+            List<int> slots = RESim.exec(m_prog, input, pos);
+            if (slots == null) { break; }
+            int mStart = slots[0];
+            int mEnd = slots[1];
+            if (mEnd > mStart || mStart != prevMatchEnd) {
+                found.add(Match(this, input, slots));
+                if (limit > 0 && found.length() >= limit) { break; }
+            }
+            prevMatchEnd = mEnd;
+            if (mEnd > mStart) { pos = mEnd; }
+            else { pos = RESim.nextCpStart(input, pos); }
+        }
+        return found;
     }
 }
 
