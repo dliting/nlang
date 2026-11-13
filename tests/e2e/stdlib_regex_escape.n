@@ -1,0 +1,78 @@
+// v0.13.7 regex: escape sequences -- the octal rule (Go parity), hex forms,
+// \Q...\E, control escapes, and the invalid-UTF-8 posture (spec D3/D4).
+import io;
+import regex;
+
+int main() {
+    int bad = 0;
+    // octal follows Go: leading 0, or up to three octal digits (parse.go:1467-1483)
+    if (!Regex("\\101").isMatch("A")) { bad = bad + 1; }
+    if (Regex("\\101").isMatch("a")) { bad = bad + 1; }
+    if (!Regex("\\141\\142").isMatch("ab")) { bad = bad + 1; }
+    // inputs via the string-escape family only (\\n = LF): nlang strings
+    // have no \\0 / \\xHH escapes (nlang.l:142-153) and truncate at NUL
+    // (io.fromBytes([0]) has length 0, and a literal NUL in source
+    // truncates too -- probed temp/regex_langprobe/nul_probe.n), so the
+    // \\0 form is pinned from the pattern side only; its leading-zero
+    // three-digit window shows up in \\0101 (backspace + literal '1').
+    if (!Regex("\\12").isMatch("\n")) { bad = bad + 1; }
+    if (Regex("\\0").isMatch("ab")) { bad = bad + 1; }
+    byte[] nulWin = [8, 49];
+    if (!Regex("\\0101").isMatch(io.fromBytes(nulWin))) { bad = bad + 1; }
+    if (!Regex("\\012").isMatch("\n")) { bad = bad + 1; }
+    // a non-octal digit is rejected, both engines
+    try { Regex b8 = Regex("\\8"); bad = bad + 1; }
+    catch (RegexException e) {
+        if (e.message.indexOf("invalid escape sequence") < 0) { bad = bad + 1; }
+    }
+    // in-class \b is the mainstream backspace reading (Perl/PCRE/Python/JS
+    // all agree; Go rejects "[\b]" -- registered differential, round14
+    // probe). Input arrives as raw bytes to dodge nlang's literal-\b
+    // ambiguity; the \x08 spelling (accepted by both engines) pins next
+    // to it through the shared class escape table.
+    byte[] bsBytes = [97, 8, 98];
+    if (!Regex("a[\\b]b").isMatch(io.fromBytes(bsBytes))) { bad = bad + 1; }
+    if (!Regex("a[\\x08]b").isMatch(io.fromBytes(bsBytes))) { bad = bad + 1; }
+    // hex escapes: \xHH takes exactly two digits, \x{...} any number
+    if (!Regex("\\x41").isMatch("A")) { bad = bad + 1; }
+    if (!Regex("\\x41\\x42").isMatch("AB")) { bad = bad + 1; }
+    if (!Regex("\\x{4E2D}").isMatch("中")) { bad = bad + 1; }
+    if (!Regex("\\x{61}").isMatch("a")) { bad = bad + 1; }
+    // one digit is not enough for \x (Go parity)
+    try { Regex h1 = Regex("\\x4"); bad = bad + 1; }
+    catch (RegexException e) {
+        if (e.message.indexOf("invalid escape sequence") < 0) { bad = bad + 1; }
+    }
+    // beyond the last codepoint gets its own message
+    try { Regex big = Regex("\\x{110000}"); bad = bad + 1; }
+    catch (RegexException e) {
+        if (e.message.indexOf("codepoint out of range") < 0) { bad = bad + 1; }
+    }
+    // control-character escapes (expected inputs built byte-wise, so the
+    // pin does not depend on nlang string \a-style escapes)
+    byte[] ctlTab = [97, 9, 98];
+    byte[] ctlAll = [97, 7, 12, 13, 11, 98];
+    if (!Regex("a\\tb").isMatch(io.fromBytes(ctlTab))) { bad = bad + 1; }
+    if (!Regex("a\\a\\f\\r\\vb").isMatch(io.fromBytes(ctlAll))) { bad = bad + 1; }
+    // escaped punctuation is a literal
+    if (!Regex("a\\+b").isMatch("a+b")) { bad = bad + 1; }
+    if (!Regex("\\(x\\)").isMatch("(x)")) { bad = bad + 1; }
+    // \Q...\E quotes the span; unterminated \Q runs to the end (Go parity)
+    if (!Regex("\\Qa.b*(x)\\E").isMatch("a.b*(x)")) { bad = bad + 1; }
+    if (Regex("\\Qa.b\\E").isMatch("axb")) { bad = bad + 1; }
+    if (!Regex("x\\Qy*z").isMatch("xy*z")) { bad = bad + 1; }
+    // an invalid byte is a width-1 pseudo codepoint (D4: Go's RuneError
+    // posture without rewriting the text): "." consumes exactly one byte.
+    // io.fromBytes keeps raw bytes (probe temp/regex_langprobe/invalid_utf8.n:
+    // end=2 b1=224); the byte literal 224 is spelled -32 because nlang
+    // bytes are signed (stdlib_http_headers.n precedent).
+    byte[] rawBytes = [97, -32, 98];
+    string raw = io.fromBytes(rawBytes);
+    Match mi = Regex("a.").match(raw);
+    if (mi == null) { return bad + 1; }
+    if (mi.start != 0 || mi.end != 2) { bad = bad + 1; }
+    Match nb = Regex("b").match(raw);
+    if (nb == null || nb.start != 2) { bad = bad + 1; }
+    if (raw.length() != 3) { bad = bad + 1; }
+    return bad;
+}

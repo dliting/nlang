@@ -341,6 +341,11 @@ class REParser {
     private static const int kAllFlags = 7;      // union of the bits above
     private static const int kChF = 102;
     private static const int kChN = 110;
+    // '\x' selects the hex escapes and '\Q' / '\E' delimit a quoted
+    // literal span (Perl family; Go accepts both spellings as well).
+    private static const int kChX = 120;
+    private static const int kChUpperQ = 81;
+    private static const int kChUpperE = 69;
     private static const int kChR = 114;
     private static const int kChT = 116;
     private static const int kChV = 118;
@@ -355,6 +360,8 @@ class REParser {
     // ASCII letter and digit bounds: alphanumeric escape letters are
     // reserved for metacharacter syntax.
     private static const int kCpZero = 48;
+    private static const int kCpSeven = 55;     // '7', the last octal digit
+    private static const int kCpEight = 56;     // '8'
     private static const int kCpNine = 57;
     private static const int kCpUpperA = 65;
     private static const int kCpUpperZ = 90;
@@ -497,7 +504,14 @@ class REParser {
             n.fold = mFlags & kFlagFold;
             return n;
         }
-        if (cp == REProg.kCpBackslash) { return this.parseEscape(); }
+        if (cp == REProg.kCpBackslash) {
+            // '\Q' opens a quoted span: parseAtom swallows the whole run
+            // so metacharacters inside it never reach the parser.
+            if (mPos + 1 < mCpCount && mCps[mPos + 1] == kChUpperQ) {
+                return this.parseQuotedSpan();
+            }
+            return this.parseEscape();
+        }
         mPos = mPos + 1;
         RENode lit = RENode.makeChar(cp);
         lit.fold = mFlags & kFlagFold;
@@ -728,9 +742,8 @@ class REParser {
         if (mPos >= mCpCount) { this.errAt(esc, "trailing \\ in pattern"); }
         int e = mCps[mPos];
         mPos = mPos + 1;
-        if (e >= kCpZero && e <= kCpNine) {
-            this.errAt(mPos - 1, "back references are not supported");
-        }
+        if (e >= kCpZero && e <= kCpNine) { return this.digitEscapeValue(); }
+        if (e == kChX) { return this.parseHexEscape(esc); }
         if (this.isPerlClassLetter(e)) {
             this.addPerlRanges(n, e);
             return -1;
@@ -983,10 +996,8 @@ class REParser {
     }
 
     // Backslash escapes: Perl class letters (\d \D \s \S \w \W) become
-    // class nodes, control letters become code points, and escaped
-    // punctuation becomes a literal. Digit escapes are rejected as
-    // back references until the numeric-escape task settles the
-    // digit families.
+    // class nodes, octal/hex escapes and control letters become code
+    // points, and escaped punctuation becomes a literal.
     private RENode parseEscape() {
         int esc = mPos;
         mPos = mPos + 1;
@@ -994,7 +1005,14 @@ class REParser {
         int e = mCps[mPos];
         mPos = mPos + 1;
         if (e >= kCpZero && e <= kCpNine) {
-            this.errAt(mPos - 1, "back references are not supported");
+            RENode n = RENode.makeChar(this.digitEscapeValue());
+            n.fold = mFlags & kFlagFold;
+            return n;
+        }
+        if (e == kChX) {
+            RENode n = RENode.makeChar(this.parseHexEscape(esc));
+            n.fold = mFlags & kFlagFold;
+            return n;
         }
         // \A and \z are the explicit position anchors, unaffected by
         // (?m); \b \B test word membership (ASCII only, D4). \b inside
@@ -1016,6 +1034,31 @@ class REParser {
         return RENode.makeChar(e);
     }
 
+    // \Q...\E: every code point up to '\E' — or up to the end of the
+    // pattern, as Go leaves it unterminated (parse.go:1030) — becomes a
+    // literal; a backslash inside the span stays literal unless it
+    // spells '\E'. The span returns as one concat atom so quantifiers
+    // and grouping never see the text inside it (a quantifier written
+    // after the span binds the whole span, one of Go's small
+    // differences here).
+    private RENode parseQuotedSpan() {
+        RENode seq = RENode(RENode.kConcat);
+        mPos = mPos + 2;                  // '\Q'
+        while (mPos < mCpCount) {
+            int c = mCps[mPos];
+            if (c == REProg.kCpBackslash && mPos + 1 < mCpCount
+                && mCps[mPos + 1] == kChUpperE) {
+                mPos = mPos + 2;          // '\E'
+                return seq;
+            }
+            mPos = mPos + 1;
+            RENode n = RENode.makeChar(c);
+            n.fold = mFlags & kFlagFold;  // Go folds quoted runes too
+            seq.children.add(n);
+        }
+        return seq;                       // unterminated \Q runs to the end
+    }
+
     private bool isPerlClassLetter(int e) {
         if (e == kChD || e == kChLowerD) { return true; }
         if (e == kChS || e == kChLowerS) { return true; }
@@ -1029,6 +1072,89 @@ class REParser {
         if (e == kChR) { return kCodeCR; }
         if (e == kChT) { return kCodeTab; }
         if (e == kChV) { return kCodeVT; }
+        return -1;
+    }
+
+    // Digit escapes, the one table both escape entry points share. Go's
+    // rule (parse.go:1467-1483): a leading '0' opens an octal escape,
+    // and a non-zero digit immediately followed by octal digits does
+    // too; a lone \1-\7 stays the back-reference rejection (back
+    // references are out of scope), and \8 / \9 are simply invalid.
+    // The cursor must sit right after the first digit.
+    private int digitEscapeValue() {
+        int e = mCps[mPos - 1];
+        if (e == kCpEight || e == kCpNine) {
+            this.errAt(mPos - 1, "invalid escape sequence");
+        }
+        if (e == kCpZero || (mPos < mCpCount && this.isOctal(mCps[mPos]))) {
+            return this.escapeOctal(e);
+        }
+        this.errAt(mPos - 1, "back references are not supported");
+        return -1;                        // unreachable: errAt throws
+    }
+
+    // Octal escape body: the first digit is given and up to two more
+    // octal digits join the value (three digits total, the largest
+    // being 0777 — always a valid code point, so no range gate).
+    private int escapeOctal(int first) {
+        int val = first - kCpZero;
+        int taken = 0;
+        while (taken < 2 && mPos < mCpCount && this.isOctal(mCps[mPos])) {
+            val = val * 8 + (mCps[mPos] - kCpZero);
+            mPos = mPos + 1;
+            taken = taken + 1;
+        }
+        return val;
+    }
+
+    private bool isOctal(int cp) { return cp >= kCpZero && cp <= kCpSeven; }
+
+    // Hex escapes in both Go spellings: '\xHH' takes exactly two hex
+    // digits, '\x{...}' takes any positive number. Values above the
+    // last code point in the brace form get the codepoint-out-of-range
+    // message; any other malformed sequence is an invalid escape. The
+    // cursor sits right after the 'x'.
+    private int parseHexEscape(int esc) {
+        if (mPos < mCpCount && mCps[mPos] == kCpBraceOpen) {
+            mPos = mPos + 1;              // '{'
+            int val = 0;
+            int digits = 0;
+            while (mPos < mCpCount && mCps[mPos] != kCpBraceClose) {
+                int d = this.hexDigit(mCps[mPos]);
+                if (d < 0) {
+                    this.errAt(esc, "invalid escape sequence");
+                }
+                // Past the last code point the value stops growing, so
+                // an arbitrarily long digit run cannot overflow.
+                if (val <= kCpMax) { val = val * 16 + d; }
+                digits = digits + 1;
+                mPos = mPos + 1;
+            }
+            if (digits == 0 || mPos >= mCpCount) {
+                this.errAt(esc, "invalid escape sequence");
+            }
+            mPos = mPos + 1;              // '}'
+            if (val > kCpMax) {
+                this.errAt(esc, "codepoint out of range");
+            }
+            return val;
+        }
+        if (mPos + 1 >= mCpCount) {
+            this.errAt(esc, "invalid escape sequence");
+        }
+        int hi = this.hexDigit(mCps[mPos]);
+        int lo = this.hexDigit(mCps[mPos + 1]);
+        if (hi < 0 || lo < 0) {
+            this.errAt(esc, "invalid escape sequence");
+        }
+        mPos = mPos + 2;
+        return hi * 16 + lo;
+    }
+
+    private int hexDigit(int cp) {
+        if (cp >= kCpZero && cp <= kCpNine) { return cp - kCpZero; }
+        if (cp >= kCpUpperA && cp <= kCpUpperF) { return cp - kCpUpperA + 10; }
+        if (cp >= kCpLowerA && cp <= kCpLowerF) { return cp - kCpLowerA + 10; }
         return -1;
     }
 
