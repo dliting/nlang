@@ -1,0 +1,51 @@
+// v0.13.7 regex: literal walking engine; byte offsets in, byte offsets out.
+import io;
+import regex;
+
+int main() {
+    int bad = 0;
+    Regex re = Regex("abc");
+    if (re.pattern() != "abc") { bad = bad + 1; }
+    if (!re.isMatch("xxabcyy")) { bad = bad + 1; }
+    if (re.isMatch("xxab yy")) { bad = bad + 1; }
+    Match m = re.match("xxabcyy");
+    if (m == null) { return bad + 1; }
+    if (m.text != "abc") { bad = bad + 1; }
+    if (m.start != 2) { bad = bad + 1; }
+    if (m.end != 5) { bad = bad + 1; }
+    if (m.groupCount != 1) { bad = bad + 1; }
+    // no match is null, not an exception
+    if (re.match("zzz") != null) { bad = bad + 1; }
+    // multi-byte literals: codepoint granularity, byte offsets out
+    Regex zh = Regex("中");
+    Match mz = zh.match("a中b");
+    if (mz == null) { return bad + 1; }
+    if (mz.start != 1) { bad = bad + 1; }
+    if (mz.end != 4) { bad = bad + 1; }        // U+4E2D is 3 UTF-8 bytes
+    if (mz.text != "中") { bad = bad + 1; }
+    // empty pattern matches at byte 0 with empty text
+    Regex empty = Regex("");
+    Match me = empty.match("abc");
+    if (me == null) { return bad + 1; }
+    if (me.start != 0 || me.end != 0 || me.text != "") { bad = bad + 1; }
+    // pattern-layer punctuation escape: \\ is one literal backslash
+    Regex bs = Regex("a\\\\b");                // pattern text: a\\b
+    if (!bs.isMatch("a\\b")) { bad = bad + 1; }
+    if (bs.isMatch("ab")) { bad = bad + 1; }
+    // unknown pattern escape rejected with the pinned message + offset
+    try {
+        Regex bad1 = Regex("a\\qb");
+        bad = bad + 1;
+    } catch (RegexException e) {
+        if (e.message.indexOf("invalid escape sequence") < 0) { bad = bad + 1; }
+        if (e.message.indexOf("at byte 2 of pattern") < 0) { bad = bad + 1; }
+    }
+    // trailing backslash rejected
+    try {
+        Regex bad2 = Regex("ab\\");
+        bad = bad + 1;
+    } catch (RegexException e) {
+        if (e.message.indexOf("trailing \\ in pattern") < 0) { bad = bad + 1; }
+    }
+    return bad;
+}

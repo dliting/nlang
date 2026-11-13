@@ -24,6 +24,18 @@ All notable changes to NLang are documented here. The format follows
 - **Compound bitwise assignment `&=`, `|=`, `^=`.** Store-back follows
   the compound-assignment family: the result is written in the left-hand
   side's declared type with implicit narrowing.
+- **`regex` package.** Regular expressions with the mainstream (RE2
+  family) pattern syntax: literals and escapes, `.` and character
+  classes (ranges, negation, POSIX names such as `[:alpha:]`),
+  alternation, numbered and named capture groups, repetition
+  (`* + ? {n,m}`, lazy variants), anchors (`^ $ \b \B \z`) and inline
+  flags (`(?i)`, `(?s)`, `(?m)`); back references and look-around are
+  rejected with explicit messages. `Regex(pattern)` compiles once and
+  stays shareable across threads; `isMatch`/`match`/`matches`/`split`/
+  `replaceFirst`/`replaceAll` answer about an input string, and each
+  `Match` carries the group texts and byte offsets of one result.
+  `regex.quoteMeta(text)` escapes every metacharacter so arbitrary
+  text matches itself literally.
 
 ## [0.13.6] - 2026-11-12
 

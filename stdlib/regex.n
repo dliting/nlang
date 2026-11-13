@@ -1,0 +1,691 @@
+// Standard library source for the "regex" package — authoritative
+// declarations, indexed by langservice::SymbolIndex and inlined into
+// every build. The package comes from this file's path (the stem
+// "regex"). The whole package is plain NLang on top of io's byte/string
+// converters; there is no native code. The engine is a Thompson NFA
+// built by RECompile and run by a Pike-style thread-set simulator
+// (RESim), so matching is linear in the input and never backtracks.
+import io;
+
+// Raised for malformed patterns and for misuse of a compiled Regex
+// (out-of-range group indices, unknown group names). Every compile-time
+// diagnostic carries the reason; with a known position it also carries
+// the byte offset into the pattern text.
+const class RegexException : IOException {
+    public RegexException(string message, Exception cause = null) {
+        super(message, cause);
+    }
+}
+
+// Escapes every regular-expression metacharacter in s with a leading
+// backslash, so the result matches s literally when used as a pattern.
+// The escaped set is the widely adopted one (identical to Go's
+// QuoteMeta): \ . + * ? ( ) | [ ] { } ^ $
+string quoteMeta(string s) {
+    const string meta = "\\.?+*|{}()[]^$";
+    byte[] src = io.toBytes(s);
+    byte[] metaBytes = io.toBytes(meta);
+    byte[] dst = byte[src.length() * 2 + 1];
+    byte backslash = 92;
+    int j = 0;
+    for (int i = 0; i < src.length(); i = i + 1) {
+        int v = src[i];
+        if (v < 0) { v = v + 256; }
+        bool special = false;
+        for (int k = 0; k < metaBytes.length(); k = k + 1) {
+            int w = metaBytes[k];
+            if (w < 0) { w = w + 256; }
+            if (w == v) { special = true; break; }
+        }
+        if (special) { dst[j] = backslash; j = j + 1; }
+        dst[j] = src[i]; j = j + 1;
+    }
+    return io.fromBytes(dst[0:j]);
+}
+
+// A node of the pattern syntax tree produced by REParser and consumed
+// by RECompile. The kinds that later tasks reach (quantified repeats,
+// captures, character classes) carry their payload in the shared
+// fields below.
+class RENode {
+    public static const int kChar = 0;
+    public static const int kClass = 1;
+    public static const int kAny = 2;
+    public static const int kAlt = 3;
+    public static const int kConcat = 4;
+    public static const int kRepeat = 5;
+    public static const int kCapture = 6;
+    public static const int kEmpty = 7;
+
+    public int kind;
+    public int ch;              // kChar: the literal code point
+    public int classId;         // kClass: index into REProg's class table
+    public int anyNotNewline;   // kAny: 1 = "." excludes newline
+    public int min;             // kRepeat: minimum count
+    public int max;             // kRepeat: maximum count, -1 = unbounded
+    public int lazy;            // kRepeat: 1 = prefer fewer repetitions
+    public int index;           // kCapture: pair index (slots 2i, 2i+1)
+    public string name;         // kCapture: optional group name
+    public List<RENode> children;
+
+    public RENode(int k) {
+        kind = k;
+        ch = 0;
+        classId = 0;
+        anyNotNewline = 0;
+        min = 0;
+        max = 0;
+        lazy = 0;
+        index = 0;
+        name = "";
+        children = {};
+    }
+
+    public static RENode makeChar(int c) {
+        RENode n = RENode(kChar);
+        n.ch = c;
+        return n;
+    }
+}
+
+// Mutable assembly companion of REProg: RECompile appends instructions
+// and class ranges here, then hands the builder to REProg's constructor,
+// which copies the tables. Keeping growth out of REProg is what lets a
+// compiled program be a const class — the language hands a const class's
+// container fields out as shallow copies, so a const REProg could never
+// append to its own tables and keep the result.
+class REBuilder {
+    public List<int> ops;
+    public List<int> arg1;
+    public List<int> arg2;
+    public List<int> arg3;
+    public List<int> clsLo;         // inclusive range bounds, flat pairs
+    public List<int> clsHi;         // inclusive range bounds, flat pairs
+    public List<int> clsStart;      // class id -> first pair index
+    public List<int> clsNeg;        // class id -> negation flag
+    public List<int> clsFold;       // class id -> case-fold flag
+
+    public REBuilder() {
+        ops = {};
+        arg1 = {};
+        arg2 = {};
+        arg3 = {};
+        clsLo = {};
+        clsHi = {};
+        clsStart = {};
+        clsNeg = {};
+        clsFold = {};
+    }
+
+    public int addInst(int op, int p1, int p2, int p3) {
+        if (ops.length() >= REProg.kMaxProgInsts) {
+            throw RegexException("regex: pattern too large (max "
+                + REProg.kMaxProgInsts + " instructions)");
+        }
+        int id = ops.length();
+        ops.add(op);
+        arg1.add(p1);
+        arg2.add(p2);
+        arg3.add(p3);
+        return id;
+    }
+
+    // Character classes: beginClass opens a class (id = its index in
+    // the per-class tables), then addClass appends inclusive ranges
+    // to the class opened last. Pair counts are implicit: a class
+    // spans clsStart[id] .. clsStart[id + 1], the last one to the
+    // end of the range table.
+    public int beginClass(int neg, int fold) {
+        int id = clsStart.length();
+        clsStart.add(clsLo.length());
+        clsNeg.add(neg);
+        clsFold.add(fold);
+        return id;
+    }
+
+    public void addClass(int lo, int hi) {
+        clsLo.add(lo);
+        clsHi.add(hi);
+    }
+}
+
+// The compiled NFA: a flat instruction table with parallel operand
+// lists, plus the character-class table shared by kOpClass operands.
+// Instruction operands are instruction indices for the branching
+// kinds and payload values for the rest; straight-line successors are
+// always index + 1, so RECompile must emit each thread contiguously.
+// A const class: the tables are frozen at construction from a finished
+// REBuilder, and one Regex's program may then be read by many threads.
+const class REProg {
+    public static const int kOpFail = 0;
+    public static const int kOpNop = 1;
+    public static const int kOpAlt = 2;          // a1 = first exit, a2 = second
+    public static const int kOpMark = 3;         // a1 = slot number (2i open, 2i+1 close)
+    public static const int kOpChar = 4;         // a1 = code point, a2 = fold flag
+    public static const int kOpClass = 5;        // a1 = class id, a2 = fold flag
+    public static const int kOpAny = 6;          // a2 = 1 means newline is excluded
+    public static const int kOpBeginText = 7;
+    public static const int kOpEndText = 8;
+    public static const int kOpEndTextNl = 9;    // $ without (?m): end, or before a final newline
+    public static const int kOpBeginLine = 10;
+    public static const int kOpEndLine = 11;
+    public static const int kOpWordBoundary = 12; // a1: 0 = expect a boundary, 1 = expect inside one
+    public static const int kOpMatch = 13;       // a1 = slot count (2 per group)
+    public static const int kMaxProgInsts = 20000;
+
+    // Code points the engine and the parser inspect directly.
+    public static const int kCpBackslash = 92;
+    public static const int kCpNewline = 10;
+
+    private List<int> mOp;
+    private List<int> mA1;
+    private List<int> mA2;
+    private List<int> mA3;
+    private List<int> mClsLo;       // inclusive range bounds, flat pairs
+    private List<int> mClsHi;       // inclusive range bounds, flat pairs
+    private List<int> mClsStart;    // class id -> first pair index
+    private List<int> mClsNeg;      // class id -> negation flag
+    private List<int> mClsFold;     // class id -> case-fold flag
+
+    public REProg(REBuilder b) {
+        mOp = b.ops.copy();
+        mA1 = b.arg1.copy();
+        mA2 = b.arg2.copy();
+        mA3 = b.arg3.copy();
+        mClsLo = b.clsLo.copy();
+        mClsHi = b.clsHi.copy();
+        mClsStart = b.clsStart.copy();
+        mClsNeg = b.clsNeg.copy();
+        mClsFold = b.clsFold.copy();
+    }
+
+    public int instCount() { return mOp.length(); }
+
+    // Bulk table snapshots: reading a const class container field
+    // yields a shallow copy, so a consumer that walks a table (RESim)
+    // pulls each table once instead of copying per element.
+    public List<int> ops() { return mOp; }
+    public List<int> a1s() { return mA1; }
+    public List<int> a2s() { return mA2; }
+    public List<int> a3s() { return mA3; }
+
+    // Class-table reads; the range pair counts are implicit, as in
+    // REBuilder.beginClass.
+    public int clsStart(int id) { return mClsStart[id]; }
+
+    public int clsCount(int id) {
+        int start = mClsStart[id];
+        int stop = mClsLo.length();
+        if (id + 1 < mClsStart.length()) { stop = mClsStart[id + 1]; }
+        return stop - start;
+    }
+    public int clsNeg(int id) { return mClsNeg[id]; }
+    public int clsFold(int id) { return mClsFold[id]; }
+    public int clsLo(int k) { return mClsLo[k]; }
+    public int clsHi(int k) { return mClsHi[k]; }
+}
+
+// Recursive-descent pattern parser. This first cut reads the literal
+// run of a pattern: plain code points and backslash escapes, which are
+// all the quoteMeta round trip needs. Alternation, groups, repetition
+// and character classes arrive in the following tasks on top of this
+// loop; the nesting-height guard is wired here so no later production
+// can forget it.
+class REParser {
+    public static const int kMaxNestHeight = 120;
+
+    // ASCII letter and digit bounds: backslash escapes of alphanumeric
+    // characters are reserved for metacharacter syntax. This task only
+    // rejects them; later tasks give letters their escape meanings.
+    private static const int kCpZero = 48;
+    private static const int kCpNine = 57;
+    private static const int kCpUpperA = 65;
+    private static const int kCpUpperZ = 90;
+    private static const int kCpLowerA = 97;
+    private static const int kCpLowerZ = 122;
+
+    private List<int> mCps;         // pattern decoded to code points
+    private List<int> mCpByte;      // parallel byte offset of each code point
+    private int mPos;               // cursor, in code points
+    private int mCpCount;
+    private int mPatternBytes;      // byte length of the pattern text
+    private int mHeight;
+
+    public REParser(string pattern) {
+        byte[] raw = io.toBytes(pattern);
+        mCps = {};
+        mCpByte = {};
+        RESim.decodeUtf8(raw, mCps, mCpByte);
+        mCpCount = mCps.length();
+        mPatternBytes = raw.length();
+        mPos = 0;
+        mHeight = 0;
+    }
+
+    public RENode parse() {
+        RENode root = this.parseConcat();
+        return root;
+    }
+
+    public void errAt(int cpPos, string reason) {
+        throw RegexException("regex: " + reason + " at byte "
+            + this.byteOfCp(cpPos) + " of pattern");
+    }
+
+    public void err(string reason) {
+        throw RegexException("regex: " + reason);
+    }
+
+    // Every recursive production calls enterLevel; 120 keeps the
+    // recursion far inside the VM's RECURSE_LIMIT (1000).
+    public void enterLevel() {
+        mHeight = mHeight + 1;
+        if (mHeight > kMaxNestHeight) {
+            this.err("pattern nesting too deep (max " + kMaxNestHeight + ")");
+        }
+    }
+
+    public void leaveLevel() { mHeight = mHeight - 1; }
+
+    private RENode parseConcat() {
+        RENode n = RENode(RENode.kConcat);
+        while (mPos < mCpCount) {
+            int cp = mCps[mPos];
+            if (cp == REProg.kCpBackslash) {
+                int esc = mPos;
+                mPos = mPos + 1;
+                if (mPos >= mCpCount) {
+                    this.errAt(esc, "trailing \\ in pattern");
+                }
+                int e = mCps[mPos];
+                mPos = mPos + 1;
+                if (REParser.isAlnumCp(e)) {
+                    this.errAt(mPos - 1, "invalid escape sequence");
+                }
+                n.children.add(RENode.makeChar(e));
+            } else {
+                mPos = mPos + 1;
+                n.children.add(RENode.makeChar(cp));
+            }
+        }
+        return n;
+    }
+
+    private int byteOfCp(int cpPos) {
+        if (cpPos >= mCpCount) { return mPatternBytes; }
+        return mCpByte[cpPos];
+    }
+
+    private static bool isAlnumCp(int cp) {
+        if (cp >= kCpZero && cp <= kCpNine) { return true; }
+        if (cp >= kCpUpperA && cp <= kCpUpperZ) { return true; }
+        return cp >= kCpLowerA && cp <= kCpLowerZ;
+    }
+}
+
+// AST to REProg. Captures emit their kOpMark pairs around the body;
+// repeats expand to copies joined by kOpAlt chains. This first cut
+// compiles literals only, wrapped in the whole-match marks (group 0).
+// The builder tables are assembled here and frozen by REProg's
+// constructor, so compile returns a finished const program.
+class RECompile {
+    public static const int kMaxRepeatCount = 1000;   // Go's syntax limit
+
+    public static REProg compile(RENode root) {
+        REBuilder b = REBuilder();
+        int slotCount = 2;          // whole match only; captures add pairs
+        b.addInst(REProg.kOpMark, 0, 0, 0);
+        RECompile.emit(root, b);
+        b.addInst(REProg.kOpMark, 1, 0, 0);
+        b.addInst(REProg.kOpMatch, slotCount, 0, 0);
+        return REProg(b);
+    }
+
+    private static void emit(RENode n, REBuilder b) {
+        if (n.kind == RENode.kChar) {
+            b.addInst(REProg.kOpChar, n.ch, 0, 0);
+        } else if (n.kind == RENode.kConcat) {
+            for (int i = 0; i < n.children.length(); i = i + 1) {
+                RECompile.emit(n.children[i], b);
+            }
+        }
+    }
+}
+
+// Thread-set NFA simulator (Pike VM): one step per code point, active
+// threads deduplicated per instruction slot with first-arrival order
+// preserved, so the first thread to reach kOpMatch is the leftmost
+// first match the language promises.
+class RESim {
+    // UTF-8 decode constants (RFC 3629). Malformed sequences decode to
+    // one pseudo code point U+FFFD per byte, Go's RuneError posture.
+    private static const int kRepl = 0xFFFD;
+    private static const int kAsciiLim = 0x80;
+    private static const int kContLo = 0x80;
+    private static const int kContHi = 0xBF;
+    private static const int kContMask = 0x3F;
+    private static const int kLead2Lo = 0xC2;
+    private static const int kLead2Hi = 0xDF;
+    private static const int kLead3Lo = 0xE0;
+    private static const int kLead3Hi = 0xEF;
+    private static const int kLead4Lo = 0xF0;
+    private static const int kLead4Hi = 0xF4;
+    private static const int kMin2 = 0x80;
+    private static const int kMin3 = 0x800;
+    private static const int kSurrLo = 0xD800;
+    private static const int kSurrHi = 0xDFFF;
+    private static const int kMin4 = 0x10000;
+    private static const int kUniMax = 0x10FFFF;
+
+    private static const int kCpZero = 48;
+    private static const int kCpNine = 57;
+    private static const int kCpUpperA = 65;
+    private static const int kCpUpperZ = 90;
+    private static const int kCpUnderscore = 95;
+    private static const int kCpLowerA = 97;
+    private static const int kCpLowerZ = 122;
+
+    // The program's tables, pulled once at construction: reading a
+    // const class container field yields a shallow copy, so the
+    // simulator keeps its own snapshot instead of copying per access.
+    private List<int> mOp;
+    private List<int> mA1;
+    private List<int> mA2;
+    private int mInstCount;
+    private List<int> mCps;         // input decoded to code points
+    private List<int> mCpByte;      // parallel byte offset of each code point
+    private int mInputBytes;
+    private int mStartCp;           // scan start, in code points
+    private int mSlotCount;         // taken from the kOpMatch operand
+    private List<int> mThr;         // current wave: instruction ids
+    private List<List<int>> mCap;   // slot vector per thread, parallel to mThr
+    private List<int> mStamp;       // dedup generation per instruction
+    private int mGen;
+    private List<int> mFound;       // winning slot vector, or null
+
+    public static List<int> exec(REProg prog, string input, int startByte) {
+        RESim sim = RESim(prog, input, startByte);
+        return sim.run();
+    }
+
+    // Decodes raw bytes into parallel code point / byte offset lists.
+    // Shared by the parser (pattern side) and the simulator (input side).
+    public static void decodeUtf8(byte[] src, List<int> cps, List<int> cpByte) {
+        int n = src.length();
+        int i = 0;
+        while (i < n) {
+            int b = src[i];
+            if (b < 0) { b = b + 256; }
+            int cp = b;
+            int w = 1;
+            int need = 0;
+            if (b >= kLead2Lo && b <= kLead2Hi) {
+                need = 1; cp = b & 0x1F;
+            } else if (b >= kLead3Lo && b <= kLead3Hi) {
+                need = 2; cp = b & 0x0F;
+            } else if (b >= kLead4Lo && b <= kLead4Hi) {
+                need = 3; cp = b & 0x07;
+            }
+            if (need > 0) {
+                bool ok = true;
+                for (int k = 1; k <= need; k = k + 1) {
+                    int c = RESim.contAt(src, i + k);
+                    if (c < 0) { ok = false; break; }
+                    cp = (cp << 6) | c;
+                }
+                if (ok && !RESim.cpWellFormed(cp, need + 1)) { ok = false; }
+                if (ok) { w = need + 1; } else { cp = kRepl; }
+            }
+            cps.add(cp);
+            cpByte.add(i);
+            i = i + w;
+        }
+    }
+
+    public static int contAt(byte[] src, int j) {
+        if (j >= src.length()) { return -1; }
+        int c = src[j];
+        if (c < 0) { c = c + 256; }
+        if (c < kContLo || c > kContHi) { return -1; }
+        return c & kContMask;
+    }
+
+    private static bool cpWellFormed(int cp, int width) {
+        if (width == 2) { return cp >= kMin2; }
+        if (width == 3) {
+            return cp >= kMin3 && !(cp >= kSurrLo && cp <= kSurrHi);
+        }
+        return cp >= kMin4 && cp <= kUniMax;
+    }
+
+    private RESim(REProg prog, string input, int startByte) {
+        mOp = prog.ops();
+        mA1 = prog.a1s();
+        mA2 = prog.a2s();
+        mInstCount = prog.instCount();
+        byte[] raw = io.toBytes(input);
+        mCps = {};
+        mCpByte = {};
+        decodeUtf8(raw, mCps, mCpByte);
+        mInputBytes = raw.length();
+        mFound = null;
+        mStamp = {};
+        for (int i = 0; i < mInstCount; i = i + 1) { mStamp.add(0); }
+        mGen = 0;
+        mSlotCount = 2;
+        for (int i = 0; i < mInstCount; i = i + 1) {
+            if (mOp[i] == REProg.kOpMatch) {
+                mSlotCount = mA1[i];
+                break;
+            }
+        }
+        mStartCp = this.cpIndexOf(startByte);
+    }
+
+    private List<int> run() {
+        int cpCount = mCps.length();
+        // Seed the scan: the zero-width closure at the start position.
+        mGen = mGen + 1;
+        mThr = {};
+        mCap = {};
+        this.addThread(0, this.seedSlots(mStartCp), mStartCp);
+        if (mFound != null) { return this.toBytes(mFound); }
+        for (int pos = mStartCp; pos < cpCount; pos = pos + 1) {
+            // Consume one code point: only consuming instructions take
+            // it; every survivor re-enters as a zero-width closure at
+            // the next position. The fresh start thread joins that same
+            // closure after the survivors, so within one generation the
+            // earlier start keeps priority at every instruction — the
+            // leftmost-first property the language promises (D2).
+            List<int> wave = mThr;
+            List<List<int>> waveCap = mCap;
+            int cp = mCps[pos];
+            mGen = mGen + 1;
+            mThr = {};
+            mCap = {};
+            for (int t = 0; t < wave.length(); t = t + 1) {
+                int id = wave[t];
+                if (mOp[id] == REProg.kOpChar && cp == mA1[id]) {
+                    this.addThread(id + 1, waveCap[t], pos + 1);
+                }
+            }
+            if (mFound != null) { return this.toBytes(mFound); }
+            this.addThread(0, this.seedSlots(pos + 1), pos + 1);
+            if (mFound != null) { return this.toBytes(mFound); }
+        }
+        return null;
+    }
+
+    private List<int> seedSlots(int pos) {
+        List<int> seed = this.newSlots();
+        seed[0] = pos;
+        return seed;
+    }
+
+    // Seeds a thread at instruction id. Zero-width instructions are
+    // expanded inline in priority order; instruction-slot dedup keeps
+    // the first arrival of each generation, which is what makes the
+    // match leftmost-first.
+    private void addThread(int id, List<int> slots, int pos) {
+        if (mStamp[id] == mGen) { return; }
+        mStamp[id] = mGen;
+        int op = mOp[id];
+        if (op == REProg.kOpFail) { return; }
+        if (op == REProg.kOpNop) {
+            this.addThread(id + 1, slots, pos);
+            return;
+        }
+        if (op == REProg.kOpAlt) {
+            this.addThread(mA1[id], slots, pos);
+            this.addThread(mA2[id], slots, pos);
+            return;
+        }
+        if (op == REProg.kOpMark) {
+            if (slots[mA1[id]] < 0) {
+                slots = this.copySlots(slots);
+                slots[mA1[id]] = pos;
+            }
+            this.addThread(id + 1, slots, pos);
+            return;
+        }
+        if (op == REProg.kOpMatch) {
+            if (mFound == null) { mFound = slots; }
+            return;
+        }
+        if (op == REProg.kOpBeginText) {
+            if (pos == 0) { this.addThread(id + 1, slots, pos); }
+            return;
+        }
+        if (op == REProg.kOpBeginLine) {
+            if (pos == 0 || mCps[pos - 1] == REProg.kCpNewline) {
+                this.addThread(id + 1, slots, pos);
+            }
+            return;
+        }
+        if (op == REProg.kOpEndText) {
+            if (pos == mCps.length()) { this.addThread(id + 1, slots, pos); }
+            return;
+        }
+        if (op == REProg.kOpEndTextNl) {
+            int n = mCps.length();
+            if (pos == n || (pos == n - 1 && mCps[n - 1] == REProg.kCpNewline)) {
+                this.addThread(id + 1, slots, pos);
+            }
+            return;
+        }
+        if (op == REProg.kOpEndLine) {
+            if (pos == mCps.length()
+                || mCps[pos] == REProg.kCpNewline) {
+                this.addThread(id + 1, slots, pos);
+            }
+            return;
+        }
+        if (op == REProg.kOpWordBoundary) {
+            int inBoundary = 0;
+            if (this.wordCp(pos) != this.wordCp(pos + 1)) { inBoundary = 1; }
+            if (inBoundary == mA1[id]) { this.addThread(id + 1, slots, pos); }
+            return;
+        }
+        mThr.add(id);
+        mCap.add(slots);
+    }
+
+    // Word membership for \b: ASCII word characters until the Unicode
+    // tables task extends it.
+    private bool wordCp(int at) {
+        if (at < 0 || at >= mCps.length()) { return false; }
+        int cp = mCps[at];
+        if (cp >= kCpZero && cp <= kCpNine) { return true; }
+        if (cp >= kCpUpperA && cp <= kCpUpperZ) { return true; }
+        if (cp >= kCpLowerA && cp <= kCpLowerZ) { return true; }
+        return cp == kCpUnderscore;
+    }
+
+    private List<int> newSlots() {
+        List<int> v = {};
+        for (int i = 0; i < mSlotCount; i = i + 1) { v.add(-1); }
+        return v;
+    }
+
+    private List<int> copySlots(List<int> v) {
+        List<int> c = {};
+        for (int i = 0; i < v.length(); i = i + 1) { c.add(v[i]); }
+        return c;
+    }
+
+    // Slot positions are code point indices while the scan runs; they
+    // leave the engine as byte offsets into the original input.
+    private List<int> toBytes(List<int> slots) {
+        List<int> byteSlots = {};
+        for (int i = 0; i < slots.length(); i = i + 1) {
+            int cp = slots[i];
+            if (cp < 0) { byteSlots.add(-1); }
+            else { byteSlots.add(this.byteOfCp(cp)); }
+        }
+        return byteSlots;
+    }
+
+    private int byteOfCp(int cpPos) {
+        if (cpPos >= mCps.length()) { return mInputBytes; }
+        return mCpByte[cpPos];
+    }
+
+    private int cpIndexOf(int bytePos) {
+        for (int i = 0; i <= mCps.length(); i = i + 1) {
+            if (this.byteOfCp(i) == bytePos) { return i; }
+        }
+        return mCps.length();
+    }
+}
+
+// A compiled, immutable regular expression. The pattern is parsed and
+// compiled once in the constructor; the program is read-only from then
+// on, so one Regex may be shared across threads.
+const class Regex {
+    private string m_pattern;
+    private REProg m_prog;
+
+    public Regex(string pattern) {
+        m_pattern = pattern;
+        REParser parser = REParser(pattern);
+        RENode ast = parser.parse();
+        m_prog = RECompile.compile(ast);
+    }
+
+    public string pattern() { return m_pattern; }
+
+    public bool isMatch(string input) {
+        return RESim.exec(m_prog, input, 0) != null;
+    }
+
+    // The leftmost match, or null when the pattern does not match.
+    public Match match(string input) {
+        List<int> slots = RESim.exec(m_prog, input, 0);
+        if (slots == null) { return null; }
+        return Match(this, input, slots);
+    }
+}
+
+// One match result: the span and text of the whole match (group 0);
+// per-group accessors arrive with capture support. Offsets are byte
+// offsets into the input string, matching String's byte semantics.
+const class Match {
+    public string text;
+    public int start;
+    public int end;
+    public int groupCount;
+
+    private Regex m_owner;
+    private string m_input;
+    private List<int> m_slots;
+
+    public Match(Regex owner, string input, List<int> slots) {
+        m_owner = owner;
+        m_input = input;
+        m_slots = slots;
+        start = slots[0];
+        end = slots[1];
+        text = input.substring(start, end);
+        groupCount = slots.length() / 2;
+    }
+}

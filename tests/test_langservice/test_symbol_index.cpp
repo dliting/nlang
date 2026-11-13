@@ -48,8 +48,10 @@ static void TestLoadsRealStdLib() {
     // free functions), gzip 4 (the compress/decompress wrappers and the
     // two native codec declarations), http 6 (the buffered convenience
     // calls get/post/put/del/request plus the lazy defaultClient; the
-    // Http* class members are not free functions).
-    CHECK(index.size() == 286);
+    // Http* class members are not free functions), regex 1 (the
+    // quoteMeta escaping helper; the Regex/Match classes and the engine
+    // classes are not free functions).
+    CHECK(index.size() == 287);
 }
 
 static void TestResolvePrint() {
@@ -104,17 +106,18 @@ static void TestCompletion() {
     //Packages() lists free-function surfaces: the net module's free
     //functions (ping, the internal natives) put net back in the list.
     const auto namespaces = index.Packages();
-    CHECK(namespaces.size() == 10);
+    CHECK(namespaces.size() == 11);
     CHECK(namespaces[0] == "fs");
     CHECK(namespaces[1] == "gzip");
     CHECK(namespaces[2] == "http");
     CHECK(namespaces[3] == "io");
     CHECK(namespaces[4] == "math");
     CHECK(namespaces[5] == "net");
-    CHECK(namespaces[6] == "system");
-    CHECK(namespaces[7] == "tensor");
-    CHECK(namespaces[8] == "thread");
-    CHECK(namespaces[9] == "url");
+    CHECK(namespaces[6] == "regex");
+    CHECK(namespaces[7] == "system");
+    CHECK(namespaces[8] == "tensor");
+    CHECK(namespaces[9] == "thread");
+    CHECK(namespaces[10] == "url");
 
     //The materialized thread package indexes like any stdlib package.
     const SymbolInfo* spawn = index.Resolve("thread", "spawn");
@@ -300,14 +303,14 @@ static void TestTypeKinds() {
 static void TestClear() {
     SymbolIndex index;
     index.LoadLibraryDir(STDLIB_DIR);
-    CHECK(index.size() == 286);
+    CHECK(index.size() == 287);
     index.Clear();
     CHECK(index.size() == 0);
     CHECK(index.Resolve("io", "print") == nullptr);
     CHECK(index.Packages().empty());
     //Loaded-file markers were dropped too: the same dir re-indexes fully.
     index.LoadLibraryDir(STDLIB_DIR);
-    CHECK(index.size() == 286);
+    CHECK(index.size() == 287);
 }
 
 static void TestBlockCommentBraces() {

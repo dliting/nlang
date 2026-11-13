@@ -62,10 +62,12 @@ static void TestLoadsStdLib()
     // functions), gzip 4 (the compress/decompress wrappers and the two
     // native codec declarations), http 6 (the buffered convenience calls
     // get/post/put/del/request plus the lazy defaultClient; the Http*
-    // class members are not free functions).
+    // class members are not free functions), regex 1 (the quoteMeta
+    // escaping helper; the Regex/Match classes and the engine classes
+    // are not free functions).
     // The index counts declaration lines; each symbol's package comes
     // from the file's path (the stem), not from any in-file head.
-    CHECK(env.LibraryIndex().size() == 286);
+    CHECK(env.LibraryIndex().size() == 287);
 
     //The "io" in this lookup now comes from the file's PATH (the stem of
     //io.n), not from any in-file head — same string, new source of truth.
