@@ -110,6 +110,20 @@ void GenericInstanceRegistry::AdoptCloneInstantiation(SnField* pClone,
 	m_memberInstantiation[pClone] = pInstance;
 }
 
+SnInterfaceDecl* GenericInstanceRegistry::InstantiationOfInterfaceClone(
+	const SnField* pMember) const
+{
+	auto it = m_ifaceCloneInstantiation.find(pMember);
+	return it != m_ifaceCloneInstantiation.end()
+		? const_cast<SnInterfaceDecl*>(it->second) : nullptr;
+}
+
+void GenericInstanceRegistry::AdoptInterfaceCloneInstantiation(
+	SnField* pClone, const SnInterfaceDecl* pInstance)
+{
+	m_ifaceCloneInstantiation[pClone] = pInstance;
+}
+
 SnClassDecl* GenericInstanceRegistry::FindInstance(
 	const SnClassDecl* pTemplate,
 	const std::vector<const SnField*>& typeArgs) const

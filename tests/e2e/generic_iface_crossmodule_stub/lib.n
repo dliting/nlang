@@ -1,0 +1,6 @@
+//0.13.1c Task 8 variant 2: the library exports ONLY the generic
+//interface; the consumer implements one of its instantiations by
+//type-arg spelling across the wire.
+interface Pipe<T> {
+    public T pump(T v);
+}

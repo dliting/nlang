@@ -75,24 +75,22 @@ void AppendArgRecipe(std::vector<uint8_t>& out, const TypeArgDesc& arg)
 }
 } //namespace
 
-uint16_t VmBackend::DescriptorIndexFor(SnClassDecl& inst)
+//0.13.1c Task 8: the shared row core. Two row families, one per argument
+//shape, deduped by their exact bytes:
+//- recipe row (empty spelling) when an argument carries a type parameter
+//  — composes against the executing frame's descriptor cell at runtime
+//  (instance, static and free frames alike carry one);
+//- interned static row keyed by the complete spelling otherwise.
+uint16_t VmBackend::DescriptorRowIndexFor(const std::string& rowName,
+	const std::vector<TypeArgDesc>& args)
 {
-	if (!inst.IsGenericInstantiation())
-		return kNoInstDescriptor;
-	const std::vector<TypeArgDesc> args = BuildTypeArgsOf(*m_pRegistry, inst);
 	auto& table = m_compiledModule.descriptorTable;
 	if (HasTypeParamArg(args))
 	{
-		//0.13.1a: recipe rows compose against the executing frame's
-		//descriptor cell — instance and static/free frames alike carry
-		//one (receiver head, caller forward, or call-site row), so a
-		//placeholder argument is legal in every generic record body.
-		//The named runtime error on a null cell covers degradation.
 		std::vector<uint8_t> recipe;
 		recipe.push_back(0);
-		const std::string baseName = inst.BaseName();
-		AppendU16(recipe, static_cast<uint16_t>(baseName.size()));
-		recipe.insert(recipe.end(), baseName.begin(), baseName.end());
+		AppendU16(recipe, static_cast<uint16_t>(rowName.size()));
+		recipe.insert(recipe.end(), rowName.begin(), rowName.end());
 		for (const auto& arg : args)
 			AppendArgRecipe(recipe, arg);
 		for (size_t i = 0; i < table.size(); ++i)
@@ -101,7 +99,7 @@ uint16_t VmBackend::DescriptorIndexFor(SnClassDecl& inst)
 		table.push_back({"", std::move(recipe)});
 		return static_cast<uint16_t>(table.size() - 1);
 	}
-	GenericInstDescriptor* desc = InternDescriptor(inst.BaseName(), args);
+	GenericInstDescriptor* desc = InternDescriptor(rowName, args);
 	for (size_t i = 0; i < table.size(); ++i)
 		if (table[i].spelling == desc->Spelling())
 			return static_cast<uint16_t>(i);
@@ -109,46 +107,38 @@ uint16_t VmBackend::DescriptorIndexFor(SnClassDecl& inst)
 	return static_cast<uint16_t>(table.size() - 1);
 }
 
+uint16_t VmBackend::DescriptorIndexFor(SnClassDecl& inst)
+{
+	if (!inst.IsGenericInstantiation())
+		return kNoInstDescriptor;
+	const std::vector<TypeArgDesc> args = BuildTypeArgsOf(*m_pRegistry, inst);
+	return DescriptorRowIndexFor(inst.BaseName(), args);
+}
+
+//0.13.1c Task 8: the interface twin — a static call through a generic
+//INTERFACE instantiation rides the interface's row (the minted shell
+//carries the same BaseName/GenericTypeArgs identity the class mint
+//does).
+uint16_t VmBackend::DescriptorIndexFor(SnInterfaceDecl& inst)
+{
+	if (!inst.IsGenericInstantiation())
+		return kNoInstDescriptor;
+	const std::vector<TypeArgDesc> args = BuildTypeArgsOf(*m_pRegistry, inst);
+	return DescriptorRowIndexFor(inst.BaseName(), args);
+}
+
 //0.13.1a Task 4 (D4): a generic FREE-function call site's descriptor row
-//— the inferred type arguments under the function's name. Two row
-//families, mirroring DescriptorIndexFor: fully concrete arguments intern
-//a static row keyed by the complete spelling; an argument carrying a
-//type parameter (a generic body forwarding its own T) spells the recipe
-//form (TEMPLATE_HEAD + name + arg encodings — the runtime's
-//ComposeInstDescriptor parses exactly this shape) so the frame cell
-//composes against the caller's context at execution.
+//— the inferred type arguments under the function's name, through the
+//same two-family row core as DescriptorIndexFor (0.13.1c Task 8: the
+//recipe/comment rationale lives there).
 uint16_t VmBackend::FreeCallDescriptorIndexFor(const std::string& funcName,
     const std::vector<SnField*>& typeArgs)
 {
     std::vector<TypeArgDesc> args;
-    bool bHasTypeParam = false;
     args.reserve(typeArgs.size());
     for (const SnField* pArg : typeArgs)
-    {
         args.push_back(BuildTypeArgOf(*m_pRegistry, *pArg));
-        bHasTypeParam = bHasTypeParam || IsTypeParamArg(args.back());
-    }
-    auto& table = m_compiledModule.descriptorTable;
-    if (bHasTypeParam)
-    {
-        std::vector<uint8_t> recipe;
-        recipe.push_back(0);
-        AppendU16(recipe, static_cast<uint16_t>(funcName.size()));
-        recipe.insert(recipe.end(), funcName.begin(), funcName.end());
-        for (const auto& arg : args)
-            AppendArgRecipe(recipe, arg);
-        for (size_t i = 0; i < table.size(); ++i)
-            if (table[i].recipe == recipe)
-                return static_cast<uint16_t>(i);
-        table.push_back({"", std::move(recipe)});
-        return static_cast<uint16_t>(table.size() - 1);
-    }
-    GenericInstDescriptor* desc = InternDescriptor(funcName, args);
-    for (size_t i = 0; i < table.size(); ++i)
-        if (table[i].spelling == desc->Spelling())
-            return static_cast<uint16_t>(i);
-    table.push_back({desc->Spelling(), {}});
-    return static_cast<uint16_t>(table.size() - 1);
+    return DescriptorRowIndexFor(funcName, args);
 }
 
 //v0.13.1: the element instantiation's descriptor row for an array

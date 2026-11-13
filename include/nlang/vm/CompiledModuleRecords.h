@@ -382,6 +382,14 @@ struct CompiledInterface {
     //v2.13 (v0.12.6): the interface's lazy static-initializer function
     //(0xFFFF = none).
     uint16_t staticInitFuncIdx = 0xFFFF;
+    //v2.19 (0.13.1c Task 8): the generic-declaration tail, mirroring
+    //CompiledClass::isTemplate/typeParamNames — a generic interface
+    //registers the one erased template row (its statics compile against
+    //T; call sites ride the descriptor), and this tail is what a
+    //consumer stub rebuilds a generic DECLARATION from so sourceless
+    //packages stay instantiable. Non-template rows carry the defaults.
+    bool isTemplate = false;
+    std::vector<std::string> typeParamNames;
 };
 
 } // namespace nlang

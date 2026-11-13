@@ -122,13 +122,72 @@ static void ReadInterfaceSignatures(std::istream& fs, CompiledInterface& ci,
         ReadOneInterfaceSignature(fs, ci.instanceMethods[j], stringPoolSize);
 }
 
+//0.9.10 v2.4: one interface's qualified key + static function indices
+//(0.13.1c Task 8 extraction — the block workers keep the record reader
+//under the function-size cap).
+static void ReadInterfaceHeader(std::istream& fs, CompiledInterface& ci)
+{
+    uint16_t nameLen = 0;
+    fs.read(reinterpret_cast<char*>(&nameLen), sizeof(nameLen));
+    if (!fs.good() || nameLen > (1u << 16))
+        throw std::runtime_error("Invalid module: bad interface name length");
+    ci.name.resize(nameLen);
+    fs.read(ci.name.data(), nameLen);
+
+    uint16_t staticCount = 0;
+    fs.read(reinterpret_cast<char*>(&staticCount), sizeof(staticCount));
+    if (!fs.good() || staticCount > (1u << 12))
+        throw std::runtime_error(
+            "Invalid module: bad interface static method count");
+    ci.staticMethodIndices.resize(staticCount);
+    for (uint16_t j = 0; j < staticCount; ++j)
+        fs.read(reinterpret_cast<char*>(&ci.staticMethodIndices[j]),
+                sizeof(uint16_t));
+}
+
+//v2.19 (0.13.1c Task 8): the generic-declaration tail, the class-record
+//shape and validation caps (the compiler caps a declaration at
+//kMaxGenericTypeParams = 255; u8-fitting counts only). The static
+//function records already carry their generic flag and parameter names
+//from the v2.17 function tail — this tail is what the consumer stub
+//rebuilds the DECLARATION from.
+static void ReadInterfaceGenericTail(std::istream& fs,
+                                     CompiledInterface& ci)
+{
+    uint8_t templateFlag = 0;
+    fs.read(reinterpret_cast<char*>(&templateFlag), sizeof(templateFlag));
+    if (!fs.good())
+        throw std::runtime_error(
+            "Invalid module: truncated interface template flag");
+    ci.isTemplate = (templateFlag != 0);
+    uint16_t typeParamCount = 0;
+    fs.read(reinterpret_cast<char*>(&typeParamCount), sizeof(typeParamCount));
+    if (!fs.good() || typeParamCount > (1u << 8))
+        throw std::runtime_error(
+            "Invalid module: bad interface type-parameter count");
+    ci.typeParamNames.resize(typeParamCount);
+    for (uint16_t j = 0; j < typeParamCount; ++j) {
+        uint32_t tpLen = 0;
+        fs.read(reinterpret_cast<char*>(&tpLen), sizeof(tpLen));
+        if (!fs.good() || tpLen > (1u << 24))
+            throw std::runtime_error(
+                "Invalid module: bad type-parameter name length");
+        ci.typeParamNames[j].resize(tpLen);
+        fs.read(ci.typeParamNames[j].data(), tpLen);
+        if (!fs.good())
+            throw std::runtime_error(
+                "Invalid module: truncated type-parameter names");
+    }
+}
+
 //0.9.10 v2.4: interface statics table — per interface a u16-length-
 //prefixed qualified key plus its static function indices. Mirrors the
 //class method block; the qualified key is the linkage identity (like
 //enumKeys). 0.9.12 (v2.7): appends the constants block and the
 //instance-method signature block. v2.13 (v0.12.6): each constant carries
 //a trailing slotIdx and the record closes with the static-initializer
-//index.
+//index. v2.19 (0.13.1c Task 8): the generic-declaration tail closes the
+//record (block workers above keep this reader at the size cap).
 void ReadInterfaceRecords(std::istream& fs, CompiledModule& mod)
 {
     uint32_t ifaceCount = 0;
@@ -139,22 +198,7 @@ void ReadInterfaceRecords(std::istream& fs, CompiledModule& mod)
 
     for (uint32_t i = 0; i < ifaceCount; ++i) {
         auto& ci = mod.interfaces[i];
-        uint16_t nameLen = 0;
-        fs.read(reinterpret_cast<char*>(&nameLen), sizeof(nameLen));
-        if (!fs.good() || nameLen > (1u << 16))
-            throw std::runtime_error("Invalid module: bad interface name length");
-        ci.name.resize(nameLen);
-        fs.read(ci.name.data(), nameLen);
-
-        uint16_t staticCount = 0;
-        fs.read(reinterpret_cast<char*>(&staticCount), sizeof(staticCount));
-        if (!fs.good() || staticCount > (1u << 12))
-            throw std::runtime_error(
-                "Invalid module: bad interface static method count");
-        ci.staticMethodIndices.resize(staticCount);
-        for (uint16_t j = 0; j < staticCount; ++j)
-            fs.read(reinterpret_cast<char*>(&ci.staticMethodIndices[j]),
-                    sizeof(uint16_t));
+        ReadInterfaceHeader(fs, ci);
 
         //0.9.10 D3: exported constants.
         ReadInterfaceConstants(fs, ci);
@@ -175,6 +219,10 @@ void ReadInterfaceRecords(std::istream& fs, CompiledModule& mod)
             && ci.staticInitFuncIdx >= mod.functions.size())
             throw std::runtime_error(
                 "Invalid module: interface static init index out of range");
+
+        //v2.19 (0.13.1c Task 8): the generic-declaration tail (see the
+        //worker).
+        ReadInterfaceGenericTail(fs, ci);
     }
     if (!fs.good())
         throw std::runtime_error("Invalid module: truncated interface table");

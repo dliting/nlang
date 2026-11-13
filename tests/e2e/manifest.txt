@@ -2245,3 +2245,15 @@ err_generic_iface_const compile_error cannot have the type parameter "T" as its 
 err_generic_iface_default compile_error has no concrete kind, so no default value exists
 err_generic_iface_arity compile_error The generic interface "I" expects 1 type argument(s)
 err_generic_iface_implements_missing compile_error does not implement the method "get(Int32): Int32" required by interface "Container"
+# 0.13.1c Task 8: generic interface DISPATCH. T8-1 (same unit): instance
+# calls through an instantiated-interface-typed receiver across two
+# argument orders, plus a static call spelled through the instantiation
+# (the template-row record + call-site descriptor). T8-2 (cross module):
+# the producer exports the generic interface; the consumer instantiates
+# it against a local implementing class (stub rebuild = the v2.19
+# generic-declaration tail) and calls through the imported factory's
+# row, then repeats with a consumer-local implementation of the imported
+# template (the stub's IsGenericDeclaration arm). ---
+generic_iface_boxing 0
+generic_iface_crossmodule 0
+generic_iface_crossmodule_stub 0

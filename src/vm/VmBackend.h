@@ -11,6 +11,9 @@
 //accessor (Access overloads below) for emission dispatch.
 #include <nlang/compiler/SyntaxNodeVisitor.h>
 #include <nlang/compiler/SnArrayTypeToken.h>
+//TypeArgDesc — the shared type-argument vocabulary the descriptor
+//spelling reads (0.13.1c Task 8: the interface descriptor twin).
+#include <nlang/compiler/TypeArgSpelling.h>
 #include <unordered_map>
 #include <unordered_set>
 #include <map>
@@ -574,6 +577,15 @@ private:
     //The shared body of both: flags, frame-layout locals, param count,
     //return kind, defaults — everything but the family flag byte.
     void FillSignatureOnlyRecord(SnFunction& func, CompiledFunction& compiledFunc);
+    //Signature-fill helpers shared by the body-less record family and
+    //AllocParamsAndDefaults (defined in VmBackendSignatures.cpp):
+    //slot-0 `this` predicate, the receiver's GC kind, and the generic-
+    //record metadata stamp (0.13.1c Task 8: class, interface and free-
+    //function owners).
+    static bool HasThisReceiver(const SnFunction& func);
+    static uint8_t ThisReceiverKind(const SnFunction& func);
+    static void FillGenericRecordMeta(const SnFunction& func,
+                                      CompiledFunction& compiledFunc);
     //Allocate the `this` + formal slots, then collect foldable defaults.
     void AllocParamsAndDefaults(SnFunction& func, FuncContext& ctx,
                                 CompiledFunction& compiledFunc);
@@ -1194,6 +1206,11 @@ private:
     //time through the recipe path). Interns the descriptor so the
     //compile-side and load-side pools agree.
     uint16_t DescriptorIndexFor(SnClassDecl& inst);
+    //0.13.1c Task 8: the interface instantiation twin — a static call
+    //through a generic INTERFACE instantiation (`Pair<int,string>.echo`)
+    //rides the interface's descriptor row on OP_CallStatic's operand.
+    //Same two row families as the class arm.
+    uint16_t DescriptorIndexFor(SnInterfaceDecl& inst);
     //0.13.1a Task 4 (D4): the descriptor-table row for a generic FREE
     //function call site — the inferred type arguments, the function's
     //name as the row head (the runtime composes the callee's frame cell
@@ -1215,6 +1232,12 @@ private:
     //ordinal the T opcodes read from the receiver descriptor);
     //kNoTypeParamOrdinal when the type is not a placeholder.
     uint8_t TypeParamOrdinalOfType(const SnField& type);
+
+    //DescriptorSpelling.cpp (0.13.1c): the one two-family row core every
+    //descriptor entry shares — recipe row when an argument carries a
+    //type parameter, interned static row (dedup by spelling) otherwise.
+    uint16_t DescriptorRowIndexFor(const std::string& rowName,
+        const std::vector<TypeArgDesc>& args);
 
     //Ctor-call tail after the bindings: allocate the object into
     //allocSlot (OP_New / OP_AllocStruct per alloc), stage it as claim[0]
@@ -1311,6 +1334,11 @@ private:
     //records from its AST members (uses the leaf-slot resolvers and the
     //default-value encoders, hence a member).
     void AppendInterfaceSignatures(SnInterfaceDecl& sn, CompiledInterface& ci);
+    //RegisterInterfaces worker: the static-function indices + the
+    //$staticInit index of one interface (0.13.1c Task 8 extraction, the
+    //source-size guard).
+    void AppendInterfaceStaticIndices(SnInterfaceDecl& sn,
+                                      CompiledInterface& ci);
     void GenerateAllBytecode(SnNamespace& root);
     //GenerateAllBytecode close-out: scan the root for the entry function
     //and stamp m_compiledModule.entryPoint. Defined in Register.cpp (it

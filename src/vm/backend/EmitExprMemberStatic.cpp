@@ -78,8 +78,17 @@ void VmBackend::EmitInferredTemplateRowStaticCall(SnInvokeExpr& invoke,
                  /*pArgPlans=*/nullptr, /*thisSlot=*/UINT16_MAX,
                  &outSpills);
     auto* pInst = generics.InstantiationOfClone(&callee);
-    const uint16_t descIdx =
-        pInst ? DescriptorIndexFor(*pInst) : kInstDescNone;
+    uint16_t descIdx = pInst ? DescriptorIndexFor(*pInst) : kInstDescNone;
+    if (!pInst)
+    {
+        //0.13.1c Task 8: the interface twin — a clone static's owner may
+        //be a generic INTERFACE instantiation (`Pair<int,string>.echo`);
+        //the class channel answers class clones, the interface channel
+        //interface clones (each adopt names its own kind, never aliased).
+        auto* pIfaceInst = generics.InstantiationOfInterfaceClone(&callee);
+        if (pIfaceInst)
+            descIdx = DescriptorIndexFor(*pIfaceInst);
+    }
     EmitFreeFunctionCall(static_cast<int>(FunctionSlotFor(callee)), emitter,
                          resultOffset, outSpills, descIdx);
     emitter.Emit(OpCode::OP_ParaEnd);

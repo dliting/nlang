@@ -14,6 +14,7 @@ namespace nlang
 {
 
 class SnClassDecl;
+class SnInterfaceDecl;
 class SnField;
 class ModuleRegistry;
 class SyntaxNode;
@@ -78,6 +79,12 @@ std::string LinkKeyOf(const ModuleRegistry& reg, const SnField& field);
 //spelling is the parameter name, diagnostic-only).
 std::vector<TypeArgDesc> BuildTypeArgsOf(const ModuleRegistry& reg,
 	const SnClassDecl& inst);
+
+//The interface instantiation twin: same argument walk over the
+//interface's GenericTypeArgs() (0.13.1c Task 8 — a generic interface's
+//frame descriptor rows key the same canonical vocabulary).
+std::vector<TypeArgDesc> BuildTypeArgsOf(const ModuleRegistry& reg,
+	const SnInterfaceDecl& inst);
 
 //One resolved type's descriptor argument — the shared per-type spelling
 //and dispatch structure. Exported for the resolver's typeName fold

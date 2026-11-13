@@ -1,0 +1,17 @@
+//Consumer side: a class implements the imported GENERIC interface by
+//type-arg spelling — the stub's generic declaration mints Pipe<int> in
+//the consumer, the implements contract checks across the wire, and the
+//call dispatches into the consumer's own record.
+import lib;
+
+class LocalPipe implements Pipe<int> {
+    public int pump(int v) { return v * 2; }
+}
+
+int main() {
+    LocalPipe lp = LocalPipe();
+    Pipe<int> p = lp;
+    assert(lp.pump(10) == 20);
+    assert(p.pump(21) == 42);
+    return 0;
+}

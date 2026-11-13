@@ -98,6 +98,16 @@ public:
 	//cell is the instantiation's descriptor row); null for non-clones.
 	SnClassDecl* InstantiationOfClone(const SnField* pMember) const;
 
+	//0.13.1c Task 8: the interface twin of the clone-to-instantiation
+	//pair. The backend's static-call arm consults it when a clone
+	//static's frame descriptor names a generic INTERFACE instantiation
+	//(the class channel answers class clones; the two never alias —
+	//each adopt names its own kind).
+	SnInterfaceDecl* InstantiationOfInterfaceClone(
+		const SnField* pMember) const;
+	void AdoptInterfaceCloneInstantiation(SnField* pClone,
+		const SnInterfaceDecl* pInstance);
+
 	//Record the clone-to-instantiation pair for one instantiation member
 	//(called by the member fill right after the copy joins the shell).
 	void AdoptCloneInstantiation(SnField* pClone,
@@ -202,6 +212,9 @@ private:
 		m_ifaceInstanceTemplate;
 	std::map<const SnField*, const SnField*> m_memberRecordOwner;
 	std::map<const SnField*, const SnClassDecl*> m_memberInstantiation;
+	//0.13.1c Task 8: the interface twin of m_memberInstantiation (the
+	//minimal-channel ruling — class paths keep their exact types).
+	std::map<const SnField*, const SnInterfaceDecl*> m_ifaceCloneInstantiation;
 	int m_iGenericMintDepth = 0;
 	std::set<const SyntaxNode*> m_depthLimitReportedTmpls;
 };

@@ -193,6 +193,27 @@ TypeArgDesc ClassArgOf(const ModuleRegistry& reg,
 	desc.resolvedKind = RTK_Class;
 	return desc;
 }
+
+//Interface-typed argument (0.13.1c Task 8): a nested instantiation of a
+//generic interface walks its argument tree (bare template name per the
+//canonical contract); a plain interface spells its link key. This also
+//retires the "?" degrade interface arguments used to hit, whose
+//spellings collided in the intern keys of distinct interfaces.
+TypeArgDesc InterfaceArgOf(const ModuleRegistry& reg,
+	const SnInterfaceDecl& iface)
+{
+	TypeArgDesc desc;
+	if (iface.IsGenericInstantiation())
+	{
+		desc.spelling = iface.BaseName();
+		desc.resolvedKind = RTK_Class;
+		desc.nested = BuildTypeArgsOf(reg, iface);
+		return desc;
+	}
+	desc.spelling = LinkKeyOf(reg, iface);
+	desc.resolvedKind = RTK_Class;
+	return desc;
+}
 } //namespace
 
 TypeArgDesc BuildTypeArgOf(const ModuleRegistry& reg, const SnField& arg)
@@ -216,9 +237,8 @@ TypeArgDesc BuildTypeArgOf(const ModuleRegistry& reg, const SnField& arg)
 		desc.spelling = LinkKeyOf(reg, arg);
 		desc.resolvedKind = RTK_Struct;
 		return desc;
-	//Enums are int32 at runtime (spec §4): the inline compare and the
-	//as-dispatch are the int32 paths; the spelling keeps the enum name
-	//for typeName.
+	//Enums are int32 at runtime (spec §4); the spelling keeps the enum
+	//name for typeName.
 	case NK_EnumDecl:
 		desc.spelling = LinkKeyOf(reg, arg);
 		desc.resolvedKind = RTK_Int32;
@@ -235,10 +255,12 @@ TypeArgDesc BuildTypeArgOf(const ModuleRegistry& reg, const SnField& arg)
 	}
 	case NK_ClassDecl:
 		return ClassArgOf(reg, static_cast<const SnClassDecl&>(arg));
+	case NK_InterfaceDecl:
+		return InterfaceArgOf(reg,
+			static_cast<const SnInterfaceDecl&>(arg));
 	default:
 		//Unreachable through resolved instantiations (func arguments
-		//are rejected at the use site); degrade to a non-sentinel
-		//spelling so an intern key never collides with a real one.
+		//are rejected at the use site); degrade so intern keys never collide.
 		desc.spelling = "?";
 		desc.resolvedKind = RTK_NonSerialized;
 		return desc;
@@ -247,6 +269,16 @@ TypeArgDesc BuildTypeArgOf(const ModuleRegistry& reg, const SnField& arg)
 
 std::vector<TypeArgDesc> BuildTypeArgsOf(const ModuleRegistry& reg,
 	const SnClassDecl& inst)
+{
+	std::vector<TypeArgDesc> args;
+	args.reserve(inst.GenericTypeArgs().size());
+	for (const SnField* pArg : inst.GenericTypeArgs())
+		args.push_back(BuildTypeArgOf(reg, *pArg));
+	return args;
+}
+
+std::vector<TypeArgDesc> BuildTypeArgsOf(const ModuleRegistry& reg,
+	const SnInterfaceDecl& inst)
 {
 	std::vector<TypeArgDesc> args;
 	args.reserve(inst.GenericTypeArgs().size());

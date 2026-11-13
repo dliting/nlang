@@ -1,0 +1,14 @@
+//Consumer side: the imported generic interface's stub carries the
+//generic declaration, so the bare Pipe<int> spelling (the import
+//convention, Channel<int> precedent) names the instantiation, and the
+//static call through it dispatches into the library's template-row
+//record with the call-site descriptor row (Pipe<int>) on the operand.
+import lib;
+
+int main() {
+    int a = Pipe<int>.echo(21);
+    assert(a == 21);
+    int b = Pipe<int>.echo(0);
+    assert(b == 0);
+    return 0;
+}

@@ -177,8 +177,14 @@ inline constexpr uint16_t NCU_FORMAT_MAJOR = 2;
 //wire lost them and consumer stubs could not see the obligation). A
 //v2.17 module lacks the byte and misparses the record tail; refuse
 //v2.17 and older outright.
+//v2.19 (0.13.1c Task 8): every interface record gains a generic
+//declaration tail (isTemplate byte + type-parameter name list) after
+//staticInitFuncIdx — the generic-interface template marker a consumer
+//stub rebuilds a generic DECLARATION from. A v2.18 module lacks the
+//tail and misparses at the next interface record; refuse v2.18 and
+//older outright.
 //Minor bump: every .ncu recompiles with the current ncc.
-inline constexpr uint16_t NCU_FORMAT_MINOR = 18;
+inline constexpr uint16_t NCU_FORMAT_MINOR = 19;
 
 //--- Slot-width ABI (0.7.5) ----------------------------------------------
 //The frame and the heap use two different stride contracts; both live

@@ -60,6 +60,19 @@ bool ExprResolveAccessor::FillInterfaceInstanceMembers(SnInterfaceDecl& tmpl,
 			return false;
 		}
 		inst.Members().push_back(pCopy);
+		//0.13.1c Task 8: the clone pairs the backend's dispatch reads.
+		//RecordOwnerOfMember is the clone test behind the static-call
+		//arm AND the FunctionSlotFor throat (a static interface member
+		//carries a template-row record); the instantiation pair feeds the
+		//static arm's frame descriptor. Function members only — the
+		//constant clones keep the Task 7 shape (no records, no dispatch).
+		if (member.Kind() == NK_Function)
+		{
+			m_Env.Registry().DeclaredGenerics()
+				.AdoptMemberClone(pCopy, &member);
+			m_Env.Registry().DeclaredGenerics()
+				.AdoptInterfaceCloneInstantiation(pCopy, &inst);
+		}
 	}
 	return true;
 }

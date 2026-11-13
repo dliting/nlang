@@ -226,11 +226,17 @@ inline SnInterfaceDecl *CreateInterfaceStub(const CompiledInterface &ci,
 {
 	auto pName = new std::string(LeafNameOfKey(ci.name));
 	auto *pMembers = new PtrList<SnField>();
+	//v2.19 (0.13.1c Task 8): a template row's signatures rebuild against
+	//the row's own declared parameters — the T leaves name them by
+	//ordinal, and the consumer's resolver binds them through the stub
+	//declaration (SetTypeParamNames below → IsGenericDeclaration()).
+	const std::vector<std::string> *typeParamNames =
+		ci.isTemplate ? &ci.typeParamNames : nullptr;
 	for (auto idx : ci.staticMethodIndices)
 	{
 		if (idx < cm.functions.size())
 			pMembers->push_back(CreateFunctionStub(cm.functions[idx], cm,
-				loc, FA_Public, ProducerIdxClamp(idx)));
+				loc, FA_Public, ProducerIdxClamp(idx), typeParamNames));
 	}
 	//0.9.10 D3: exported constants rebuild as `public static const`
 	//fields whose synthesized literal initializer folds again at the
@@ -245,7 +251,8 @@ inline SnInterfaceDecl *CreateInterfaceStub(const CompiledInterface &ci,
 		if (constant.slotIdx != 0xFFFF)
 		{
 			auto *pField = new SnClassField(
-				SynthTypeExprFromDesc(constant.type, cm, loc),
+				SynthTypeExprFromDesc(constant.type, cm, loc,
+					typeParamNames),
 				new std::string(constant.name), FA_Public, loc);
 			pField->AddFlags(NF_Static);
 			pField->AddFlags(NF_Const);
@@ -259,7 +266,7 @@ inline SnInterfaceDecl *CreateInterfaceStub(const CompiledInterface &ci,
 				"imported interface '" + ci.name
 				+ "' has a malformed constant value record");
 		auto *pField = new SnClassField(
-			SynthTypeExprFromDesc(constant.type, cm, loc),
+			SynthTypeExprFromDesc(constant.type, cm, loc, typeParamNames),
 			new std::string(constant.name), FA_Public, loc, pInit);
 		pField->AddFlags(NF_Static);
 		pField->AddFlags(NF_Const);
@@ -287,7 +294,7 @@ inline SnInterfaceDecl *CreateInterfaceStub(const CompiledInterface &ci,
 				pDefault = SynthDefaultExpr(sig.defaultValues[i], cm,
 					sig.name, static_cast<uint16_t>(i), stubFormalNames, loc);
 			pParams->push_back(new SnFormalParam(paramFlags,
-				SynthTypeExprFromDesc(ptd.type, cm, loc),
+				SynthTypeExprFromDesc(ptd.type, cm, loc, typeParamNames),
 				new std::string(stubFormalNames[i]), pDefault, loc));
 		}
 		//Void signatures carry the RTK_Void kind byte (the producer
@@ -296,7 +303,8 @@ inline SnInterfaceDecl *CreateInterfaceStub(const CompiledInterface &ci,
 		//placeholder, mirroring the function-record degradation).
 		SnFieldExpr *pRetType = nullptr;
 		if (sig.returnType.kind != RTK_Void)
-			pRetType = SynthTypeExprFromDesc(sig.returnType, cm, loc);
+			pRetType = SynthTypeExprFromDesc(sig.returnType, cm, loc,
+				typeParamNames);
 		auto *pFunc = new SnFunction(FA_Public, NF_Data, pRetType,
 			new std::string(sig.name), pParams, loc);
 		pFunc->AddFlags(NF_Imported);   //R6-2
@@ -316,6 +324,13 @@ inline SnInterfaceDecl *CreateInterfaceStub(const CompiledInterface &ci,
 	}
 	auto *pDecl = new SnInterfaceDecl(pName, pMembers, loc);
 	pDecl->AddFlags(NF_Imported);   //R6-2
+	//v2.19 (0.13.1c Task 8): a template row rebuilds as a generic
+	//declaration — the parameter names make IsGenericDeclaration() true,
+	//so the consumer's resolver mints instantiations and binds T
+	//signatures against the stub (BindTypeParamPlaceholderIfAny's
+	//NK_InterfaceDecl arm walks it).
+	if (ci.isTemplate)
+		pDecl->SetTypeParamNames(ci.typeParamNames);
 	return pDecl;
 }
 

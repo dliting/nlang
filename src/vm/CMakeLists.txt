@@ -64,6 +64,7 @@ add_library(nlang_vm
     GenericInstDescriptor.cpp
     backend/DescriptorSpelling.cpp
     backend/VmBackend.cpp
+    backend/VmBackendSignatures.cpp
     backend/WriteModuleArtifact.cpp
     backend/DeclPredicates.cpp
     backend/GenerateUnits.cpp
