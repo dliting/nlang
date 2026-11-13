@@ -159,6 +159,14 @@ This page collects the language-level limitations visible to user programs, with
   frame size is otherwise dynamic — each function's frame is sized by
   what the body actually uses.
 
+- **Function bytecode size ceiling**: one function's compiled
+  bytecode must stay under 65536 bytes — jump targets inside a function
+  are 16-bit program counters. An overlong function is rejected at
+  build time with a named error (it reports the size and advises
+  splitting), not emitted as an image whose wrapped jumps mis-execute.
+  Split the body into smaller functions. See "Function bytecode size"
+  under [Common Error Messages](common-errors.md).
+
 - **No control flow in finally bodies**: `break` / `continue` / `return` /
   `throw` inside a `finally` body is a compile error (a finally body must
   not swallow the in-flight control flow or exception).

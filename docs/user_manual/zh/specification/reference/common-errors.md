@@ -402,3 +402,21 @@ Compilation failed.
 ```
 
 `.n`源文件与`.nproj`项目文件在词法前做严格Unicode转换格式（UTF-8，Unicode Transformation Format）校验（执行点是ncc；nide的构建经由ncc，同样执行该校验）：无效字节会得到明确报错（含第一个无效字节所在行号），UTF-16保存的文件得到专门提示（`Source file ... is UTF-16, not UTF-8.`）——旧编码字节不会混入字符串常量。上面的代码块展示的是文件的逻辑内容；诊断来自磁盘上实际存储的字节——同一源文件改存为UTF-8后即可正常编译。文件开头的UTF-8字节顺序标记（BOM，byte order mark）被接受并跳过。详见[基本类型](../04-types/primitives.md)「表示链：从源码到控制台」。
+
+### 函数字节码大小
+
+```nlang
+int main() {
+    int x = 0;
+    x = x + 1;   // 实际文件中这一行重复了数千次……
+    return x % 2;
+}
+```
+
+```console
+$ ncc build big_loop.n -o big_loop.ncu
+big_loop.n(line 1, char 1): Error: function 'main' compiled to 261048 bytes of bytecode, over the 65535-byte limit for jump offsets in one function (split it into smaller functions)
+Compilation failed.
+```
+
+函数内部的跳转目标是16位程序计数器，因此单个函数编译出的字节码必须小于64KiB。编译器在构建期执行这一上限：超长函数会被拒绝，诊断点明函数的声明位置与实际字节数，而不是编出一个跳转回绕、静默执行错误分支的映像。修法是拆分函数体——抽出辅助函数再调用。只有病态巨大的平铺函数（数千条语句连排、没有任何调用）才逼近该上限，普通代码远未触及。详见[已知限制](known-limitations.md)「函数字节码大小上限」条。

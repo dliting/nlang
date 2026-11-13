@@ -2,10 +2,10 @@
 
 ## 11.1 Scope and Package Surface
 
-The standard library is eleven packages — `math`, `io`, `fs`,
-`thread`, `concurrent`, `tensor`, `net`, `system`, `url`, `http`
-and `gzip`, each a set of package-qualified free functions — plus
-the `string` methods, dispatched on the receiver.
+The standard library is twelve packages — `math`, `io`, `fs`,
+`thread`, `concurrent`, `tensor`, `net`, `system`, `url`, `http`,
+`gzip` and `regex`, each a set of package-qualified free functions
+— plus the `string` methods, dispatched on the receiver.
 The prelude packages sit beside them: `lang` (`stdlib/lang.n`)
 declares the `Exception` family, the hierarchy root `Object`, the
 declaration-holder class `String` and the generic array face `Array<T>`; `containers`
@@ -51,7 +51,8 @@ numeric computation, `fs` the filesystem's names and metadata,
 `tensor` the numeric array kernels (chapter 19), `net` the network
 sockets (chapter 21), `url` the URL codec (chapter 22), `http` the
 HTTP/1.1 server and client (chapter 23), `gzip` whole-buffer gzip
-compression (chapter 24), `system` the process and the clock
+compression (chapter 24), `regex` regular-expression search,
+split and replacement (chapter 25), `system` the process and the clock
 (chapter 15), `thread` the virtual-thread spawn and suspension
 primitives, and `concurrent` the coordination classes (§3.9.4).
 
@@ -122,11 +123,12 @@ The standard library follows one surface convention.
   (`contains`, `startsWith`, `containsKey`); package functions
   may carry an `is` or `has` prefix (`fs.isFile`, `io.hasInput`).
 - Failures are reported by raising the built-in exception classes
-  of §8.3, plus the seven package-declared classes — `concurrent`'s
+  of §8.3, plus the eight package-declared classes — `concurrent`'s
   `ChannelClosedException`, `net`'s `SocketException` and
   `TimeoutException`, `url`'s `UrlException`, `http`'s
-  `HttpException`, `gzip`'s `GzipException`, and `system`'s
-  `DateTimeException` (§8.3). Chapter 20 maps each library
+  `HttpException`, `gzip`'s `GzipException`, `regex`'s
+  `RegexException`, and `system`'s `DateTimeException` (§8.3).
+  Chapter 20 maps each library
   operation to the class it raises.
 - Text output renders values through `toString` (§5.3, §11.2);
   the argument surface of the console functions is chapter 14.

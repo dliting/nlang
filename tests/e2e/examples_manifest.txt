@@ -42,3 +42,4 @@ url_tour 0 ok
 http_hello 0 ok
 http_conc_bench 0 done
 http_sse 0 stopped
+regex_tour 0 ok

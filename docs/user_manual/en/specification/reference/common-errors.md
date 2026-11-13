@@ -523,3 +523,31 @@ stored on disk, so the same source compiles fine once re-saved as
 UTF-8. A
 leading UTF-8 byte order mark (BOM) is accepted and skipped. See →
 [Primitive Types](../04-types/primitives.md) "Representation: from source to console".
+
+### Function bytecode size
+
+```nlang
+int main() {
+    int x = 0;
+    x = x + 1;   // …the line repeats thousands of times in the real file…
+    return x % 2;
+}
+```
+
+```console
+$ ncc build big_loop.n -o big_loop.ncu
+big_loop.n(line 1, char 1): Error: function 'main' compiled to 261048 bytes of bytecode, over the 65535-byte limit for jump offsets in one function (split it into smaller functions)
+Compilation failed.
+```
+
+Jump targets inside one function are 16-bit program counters, so one
+function's compiled bytecode must stay under 64 KiB. The compiler
+enforces that ceiling at build time: an overlong function is refused
+with a named error quoting its declaration site and actual size,
+instead of being emitted as an image whose wrapped jumps silently
+execute the wrong branch. Split the body into smaller functions —
+extract helper functions and call them. Only pathologically large flat
+functions (thousands of statements in a row, no calls) come near the
+limit; ordinary code is nowhere close. See [Known
+Limitations](known-limitations.md), the "Function bytecode size
+ceiling" item.

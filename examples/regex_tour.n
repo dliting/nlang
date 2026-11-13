@@ -1,0 +1,23 @@
+// A tour of the regex package: named capture groups, repeated
+// matches, and replace templates.
+import io;
+import regex;
+
+int main() {
+    Regex re = Regex("(?P<key>\\w+)=(?P<value>[^\\s]*)");
+    Match m = re.match("server=127.0.0.1 port=8080");
+    if (m != null) {
+        io.print("key=" + m.group("key") + " value=" + m.group("value"));
+    }
+    List<Match> all = re.matches("server=127.0.0.1 port=8080");
+    io.print("count=" + all.length().toString());
+    for (int i = 0; i < all.length(); i = i + 1) {
+        Match pair = all[i];
+        io.print("at " + pair.start.toString() + ": " + pair.text);
+    }
+    // $$ is the dollar escape: the template layer sees ${value}; and
+    // expands the value group for every match.
+    io.print(re.replaceAll("a=1 b=2", "$${value};"));
+    io.print("ok");
+    return 0;
+}

@@ -2,7 +2,7 @@
 
 This chapter maps the failures of library operations — the
 built-in classes and methods of chapters 11, 12 and 17 and the
-packages of chapters 13, 14, 15, 16, 18, 19, 21, 22, 23 and 24 —
+packages of chapters 13, 14, 15, 16, 18, 19, 21, 22, 23, 24 and 25 —
 to the exception classes of §8.3. §20.1 is
 the map; §20.2 fixes the conventions it rests on. The
 semantics of every site live in the chapter that defines the
@@ -37,6 +37,7 @@ operation; this chapter adds no failure behavior of its own.
 | `http` (§23.2–§23.8) | `HttpException` | a request URL that is not absolute or whose scheme is not `http`; a header name or value holding a carriage return or line feed; a header block past `maxHeaderBytes` or `maxHeaders` (431); a body read past `maxBodyBytes` (413); a malformed message read from a peer; too many redirects; a streaming body replayed across a redirect; a call on a closed client pool |
 | `http` (§23.4–§23.6) | `TimeoutException` | `HttpBodyReader.read` ending its wait at the deadline; a connection-pool wait past `callTimeoutMs` (a `net` failure below a client call passes through unaltered, §23.8) |
 | `gzip` (§24.1) | `GzipException` | `compress` refused by the codec; `decompress` on input that does not decode to one complete stream |
+| `regex` (§25.2, §25.3) | `RegexException` | `Regex` construction on a pattern the engine rejects; `group` with an out-of-range index or an unknown name |
 
 A call through a `null` receiver raises
 `NullPointerException` in every unit (§11.2); the rows list
@@ -44,15 +45,17 @@ only the sites the defining chapters call out besides it.
 
 ## 20.2 Conventions
 
-- The library declares seven exception classes of its own:
+- The library declares eight exception classes of its own:
   `ChannelClosedException`, a direct subclass of `Exception`,
   declared by the `concurrent` package; `SocketException` and
   `TimeoutException`, subclasses of `IOException`, declared by the
   `net` package; `UrlException`, a subclass of `IOException`
   declared by the `url` package; `HttpException` and
   `GzipException`, subclasses of `IOException` declared by the
-  `http` and `gzip` packages; and `DateTimeException`, a direct
-  subclass of `Exception` declared by the `system` package (§8.3).
+  `http` and `gzip` packages; `RegexException`, a subclass of
+  `IOException` declared by the `regex` package; and
+  `DateTimeException`, a direct subclass of `Exception` declared by
+  the `system` package (§8.3).
   Every other library failure raises a class of §8.3 (§11.4). User
   code may declare its own classes (§8.4).
 - The base `Exception` is the class for argument, range and

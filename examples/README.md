@@ -45,6 +45,7 @@ keeps it within 0-255).
 | stdlib_fs.n | fs paths/directories/metadata | 0 |
 | tensor_tour.n | `tensor` package: creation, elementwise and reduction kernels across element kinds | 0 |
 | url_tour.n | `url` package: parse/inspect/resolve/query parameters/percent encoding | 0 |
+| regex_tour.n | `regex` package: matching, named capture groups, repeated matches, replace templates | 0 |
 | http_hello.n | `http` package: a hello service and its client in one process (buffered GET, echo POST, keep-alive reuse) | 0 |
 | http_conc_bench.n | `http` package: 1000 virtual-thread clients on one shared client capped at 4 connections per host | 0 |
 | http_sse.n | `http` package: server-sent events over a chunked stream, early client disconnect, producer cancellation | 0 |

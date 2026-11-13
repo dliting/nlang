@@ -111,10 +111,11 @@ nav:
           - The url Package: specification/library/22-url.md
           - The http Package: specification/library/23-http.md
           - The gzip Package: specification/library/24-gzip.md
+          - The regex Package: specification/library/25-regex.md
       - Binary Formats:
-          - The `.ncu` Unit Image: specification/formats/25-ncu.md
-          - The `.npkg` Package Archive: specification/formats/26-npkg.md
-          - The Native Application Binary Interface (ABI): specification/formats/27-abi.md
+          - The `.ncu` Unit Image: specification/formats/26-ncu.md
+          - The `.npkg` Package Archive: specification/formats/27-npkg.md
+          - The Native Application Binary Interface (ABI): specification/formats/28-abi.md
       - Reference:
           - Known Limitations: specification/reference/known-limitations.md
           - Common Error Messages: specification/reference/common-errors.md

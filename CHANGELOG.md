@@ -37,6 +37,17 @@ All notable changes to NLang are documented here. The format follows
   `regex.quoteMeta(text)` escapes every metacharacter so arbitrary
   text matches itself literally.
 
+### Removed
+
+- **Dead token scaffolding: `++`, `--`, `~=`, and the reserved words
+  `elseif` and `state`.** The lexer emitted them and the grammar
+  declared them, but no valid construct ever consumed them — `i++` and
+  `a ~= b` were syntax errors and stay syntax errors, and `elseif` /
+  `state` were reserved without any syntax to parse. One visible
+  consequence: `v--1` now reads as the valid expression `v - (-1)`
+  where it used to be a syntax error; write parentheses if you mean
+  something else.
+
 ## [0.13.6] - 2026-11-12
 
 ### Added

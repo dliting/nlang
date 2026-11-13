@@ -16,7 +16,7 @@ decodes such an answer (§23.6).
 Unlike `url` and `http`, this package is not pure NLang. The two
 functions wrap `_gzipCompress` and `_gzipDecompress`, `native` members
 implemented in `nlang_gzip.dll`, the module shipped beside the
-interpreter with the zlib codec compiled into it (§27.2 covers where
+interpreter with the zlib codec compiled into it (§28.2 covers where
 the interpreter looks for such a module); a `native` reports failure by
 returning nothing, and it cannot raise a class this package declares,
 so the script layer turns that into `GzipException`.
