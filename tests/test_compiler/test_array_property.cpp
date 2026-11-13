@@ -148,6 +148,8 @@ private slots:
     void valueShapes();
     void structFieldKindStoredAsArray();
     void writeStructArrayFieldSerializes();
+    void genericCastAfterHostCompile();
+    void genericSerializeAfterHostCompile();
 };
 
 void TestArrayProperty::identifierAndMemberShapes()
@@ -302,6 +304,102 @@ void TestArrayProperty::writeStructArrayFieldSerializes()
         errorText = e.what();
     }
     QVERIFY(errorText.empty());
+}
+
+//0.13.1c closeout: the descriptor intern pool is a process global the
+//hosted paths share — a host that compiles and then executes in ONE
+//process (ncc compile+run, this test process) must not let the
+//compile-phase interning leak into the run. The generic as-cast walks
+//the super chain through the descriptor's argument rowRef; a stale
+//compile-phase rowRef indexes the wrong row of the LINKED module and
+//rejects a correct cast (e2e twin: generic_as_type_param).
+void TestArrayProperty::genericCastAfterHostCompile()
+{
+    auto out = compileOne(
+        "class Animal {\n"
+        "    public virtual int legs() { return 4; }\n"
+        "}\n"
+        "class Dog : Animal {\n"
+        "    public int legs() { return 2; }\n"
+        "}\n"
+        "class Caster<T> {\n"
+        "    public T f;\n"
+        "    public Caster(T v) { f = v; }\n"
+        "    public void keep(Object o) { f = o as T; }\n"
+        "    public bool isF(T other) { return f == other; }\n"
+        "}\n"
+        "int main() {\n"
+        "    Caster<Animal> c = Caster(Animal());\n"
+        "    Dog d = Dog();\n"
+        "    c.keep(d);\n"
+        "    if (!c.isF(d)) { return 1; }\n"
+        "    return 0;\n"
+        "}\n");
+    QVERIFY(out.ok);
+    const auto ncu = std::filesystem::path(out.params->m_sOutputDir)
+        / (out.params->m_sOutputModule + ".ncu");
+    std::string errorText;
+    int exitCode = -1;
+    try {
+        NcuLoader::Options loaderOpts;
+        loaderOpts.searchDirs = {out.params->m_sOutputDir, STDLIB_DIR};
+        NcuLoader::Result loaded =
+            NcuLoader::LoadClosure(ncu.string(), loaderOpts);
+        CompiledModule mod = NcuLinker::Link(std::move(loaded.units),
+            loaded.entryKey);
+        VmExecutor executor;
+        exitCode = executor.Execute(mod);
+    } catch (const std::exception& e) {
+        errorText = e.what();
+    }
+    QVERIFY(errorText.empty());
+    QCOMPARE(exitCode, 0);
+}
+
+//The serialize twin: instantiation descriptors ride the object graph
+//(e2e twin: generic_serialize_roundtrip). Under a stale compile-phase
+//pool entry the serialize dispatch reads a wrong-row rowRef — the
+//observed shape was a host crash, not a clean error.
+void TestArrayProperty::genericSerializeAfterHostCompile()
+{
+    auto out = compileOne(
+        "import io;\n"
+        "class Cell<T> {\n"
+        "    public T a;\n"
+        "    public Cell(T a) { this.a = a; }\n"
+        "    public string tag() { return \"v=\" + a; }\n"
+        "}\n"
+        "int main() {\n"
+        "    int acc = 0;\n"
+        "    ByteStream bs = ByteStream();\n"
+        "    Cell<int> ci = Cell(3);\n"
+        "    bs.writeObject(ci);\n"
+        "    bs.reset();\n"
+        "    Object o1 = bs.readObject(\"Cell\");\n"
+        "    Cell<int> back1 = o1 as Cell<int>;\n"
+        "    if (back1.tag() == \"v=3\") { acc = acc + 1; }\n"
+        "    if (acc != 1) { return 1; }\n"
+        "    return 0;\n"
+        "}\n");
+    QVERIFY(out.ok);
+    const auto ncu = std::filesystem::path(out.params->m_sOutputDir)
+        / (out.params->m_sOutputModule + ".ncu");
+    std::string errorText;
+    int exitCode = -1;
+    try {
+        NcuLoader::Options loaderOpts;
+        loaderOpts.searchDirs = {out.params->m_sOutputDir, STDLIB_DIR};
+        NcuLoader::Result loaded =
+            NcuLoader::LoadClosure(ncu.string(), loaderOpts);
+        CompiledModule mod = NcuLinker::Link(std::move(loaded.units),
+            loaded.entryKey);
+        VmExecutor executor;
+        exitCode = executor.Execute(mod);
+    } catch (const std::exception& e) {
+        errorText = e.what();
+    }
+    QVERIFY(errorText.empty());
+    QCOMPARE(exitCode, 0);
 }
 
 QTEST_GUILESS_MAIN(TestArrayProperty)

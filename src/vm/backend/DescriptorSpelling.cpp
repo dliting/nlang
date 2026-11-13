@@ -99,11 +99,16 @@ uint16_t VmBackend::DescriptorRowIndexFor(const std::string& rowName,
 		table.push_back({"", std::move(recipe)});
 		return static_cast<uint16_t>(table.size() - 1);
 	}
-	GenericInstDescriptor* desc = InternDescriptor(rowName, args);
+	//Static row: key the row by spelling WITHOUT interning. The intern
+	//pool is runtime-only; a compile-phase intern would seed it with
+	//TypeArgDesc rowRefs of the compiling module, and the linked run's
+	//spelling-keyed lookups would then receive that stale entry and
+	//miswalk casts/serialization through compile-module rows.
+	const std::string spelling = CanonicalSpelling(rowName, args);
 	for (size_t i = 0; i < table.size(); ++i)
-		if (table[i].spelling == desc->Spelling())
+		if (table[i].spelling == spelling)
 			return static_cast<uint16_t>(i);
-	table.push_back({desc->Spelling(), {}});
+	table.push_back({spelling, {}});
 	return static_cast<uint16_t>(table.size() - 1);
 }
 

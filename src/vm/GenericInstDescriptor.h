@@ -31,15 +31,30 @@ private:
 	std::string m_spelling;
 };
 
+//Canonical no-space join: "Base<Arg1,Arg2>" — the intern and
+//serialization key (reversibility per Rust RFC 2603: the spelling
+//reconstructs the argument tree). Arguments spell through
+//CanonicalArgSpelling so nested instantiations stay distinguishable.
+//Shared with the compile backend, which keys descriptor table rows by
+//spelling WITHOUT interning — the pool below is runtime-only (see
+//InternDescriptor).
+std::string CanonicalSpelling(const std::string& templateName,
+	const std::vector<TypeArgDesc>& typeArgs);
+
 //Return the interned descriptor for this instantiation, creating it on
 //first use; returned pointers are stable for the process lifetime. The
 //intern key is the full canonical spelling (reversibility per Rust RFC
 //2603: the spelling reconstructs the argument tree). Interning happens
-//on the compile and module-load paths and, since v0.13.1, at an
-//executor's run start (InitDescriptorTable) and on first instantiation
-//cast or array stamp (CastTargetDescriptor). These paths are serialized
-//within the process today (one executing executor per process — nvm,
-//nide, ndb, the test hosts), so the pool carries no lock of its own.
+//only on the runtime paths — module load (InitDescriptorTable) and an
+//executor's first instantiation cast or array stamp
+//(CastTargetDescriptor) — never during compilation: a compile-phase
+//intern would seed the pool with TypeArgDesc rowRefs of the compiling
+//module, and a later runtime lookup keyed by the same spelling would
+//receive that stale entry instead of resolving against the linked
+//module (v0.13.1c finding: ncc compile+run miswalked casts through
+//exactly such an entry). These paths are serialized within the process
+//today (one executing executor per process — nvm, nide, ndb, the test
+//hosts), so the pool carries no lock of its own.
 GenericInstDescriptor* InternDescriptor(const std::string& templateName,
 	const std::vector<TypeArgDesc>& typeArgs);
 

@@ -13,8 +13,6 @@
 namespace nlang
 {
 
-namespace
-{
 //Canonical no-space join: "Base<Arg1,Arg2>". Distinct from the
 //diagnostic render (ExprResolverGenerics.cpp joins with ", ") — the
 //canonical form is the intern/serialization key, so it never carries
@@ -34,7 +32,6 @@ std::string CanonicalSpelling(const std::string& templateName,
 	}
 	spelling += ">";
 	return spelling;
-}
 }
 
 //--- Load-side residency: canonical-spelling parser -----------------------
@@ -246,9 +243,9 @@ GenericInstDescriptor* InternDescriptor(const std::string& templateName,
 	//Pool keyed by the canonical spelling — the descriptor is immutable,
 	//so spelling equality IS descriptor equality. Function-local static:
 	//initialized on first intern (thread-safe initialization), mutated
-	//on the compile and module-load paths and, since v0.13.1, at an
-	//executor's run start and first instantiation cast — all serialized
-	//within the process (see the header's contract), so no pool lock.
+	//on the runtime paths only (see the header's contract for why the
+	//compile path must never intern) — all serialized within the
+	//process, so no pool lock.
 	static std::map<std::string,
 		std::unique_ptr<GenericInstDescriptor>> pool;
 	const auto [it, inserted] =
