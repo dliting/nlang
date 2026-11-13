@@ -56,6 +56,7 @@ class RENode {
     public static const int kRepeat = 5;
     public static const int kCapture = 6;
     public static const int kEmpty = 7;
+    public static const int kAnchor = 8;
 
     public int kind;
     public int ch;              // kChar: the literal code point
@@ -68,6 +69,8 @@ class RENode {
     public int lazy;            // kRepeat: 1 = prefer fewer repetitions
     public int index;           // kCapture: pair index (slots 2i, 2i+1)
     public string name;         // kCapture: optional group name
+    public int anchorOp;        // kAnchor: which REProg anchor instruction
+    public int anchorA1;        // kAnchor: WordBoundary want (1 boundary, 0 word)
     public List<RENode> children;
 
     public RENode(int k) {
@@ -82,12 +85,21 @@ class RENode {
         lazy = 0;
         index = 0;
         name = "";
+        anchorOp = 0;
+        anchorA1 = 0;
         children = {};
     }
 
     public static RENode makeChar(int c) {
         RENode n = RENode(kChar);
         n.ch = c;
+        return n;
+    }
+
+    public static RENode makeAnchor(int op, int a1) {
+        RENode n = RENode(kAnchor);
+        n.anchorOp = op;
+        n.anchorA1 = a1;
         return n;
     }
 }
@@ -183,7 +195,7 @@ const class REProg {
     public static const int kOpEndTextNl = 9;    // $ without (?m): end, or before a final newline
     public static const int kOpBeginLine = 10;
     public static const int kOpEndLine = 11;
-    public static const int kOpWordBoundary = 12; // a1: 0 = expect a boundary, 1 = expect inside one
+    public static const int kOpWordBoundary = 12; // a1: 1 = expect a boundary, 0 = expect none
     public static const int kOpMatch = 13;       // a1 = slot count (2 per group)
     public static const int kMaxProgInsts = 20000;
 
@@ -257,6 +269,7 @@ class REParser {
     private static const int kCpBracketClose = 93;
     private static const int kCpCaret = 94;
     private static const int kCpMinus = 45;
+    private static const int kCpDollar = 36;
 
     // ASCII bounds the Perl and POSIX class range tables are built
     // from (Go's regexp/syntax doc.go sets). kCpMin/kCpMax close the
@@ -287,9 +300,15 @@ class REParser {
     private static const int kChLowerW = 119;
     // \a \f \n \r \t \v map to the C control codes. \b is a word
     // boundary outside a class and the backspace character inside one
-    // (Perl-family consensus), so only the class path reads kChB.
+    // (Perl-family consensus), so parseEscape and classAtom both read
+    // kChB; the surrounding letters name the remaining anchors.
+    private static const int kChUpperA = 65;
+    private static const int kChUpperB = 66;
     private static const int kChB = 98;
+    private static const int kChZ = 122;
     private static const int kChA = 97;
+    // (?flags) letters: only the bare (?m) form is honored for now.
+    private static const int kChM = 109;
     private static const int kChF = 102;
     private static const int kChN = 110;
     private static const int kChR = 114;
@@ -319,6 +338,7 @@ class REParser {
     private int mCpCount;
     private int mPatternBytes;        // byte length of the pattern text
     private int mHeight;
+    private int mMultiline;           // (?m) in effect: ^ $ bind to lines
 
     public REParser(string pattern) {
         mText = pattern;
@@ -330,6 +350,7 @@ class REParser {
         mPatternBytes = raw.length();
         mPos = 0;
         mHeight = 0;
+        mMultiline = 0;
     }
 
     public RENode parse() {
@@ -407,6 +428,25 @@ class REParser {
             n.anyNotNewline = 1;          // '.' excludes newline until (?s)
             return n;
         }
+        if (cp == kCpCaret) {
+            mPos = mPos + 1;
+            // The flag is baked into the instruction kind here, where
+            // it is known (Go's parser does the same rewrite).
+            if (mMultiline == 1) {
+                return RENode.makeAnchor(REProg.kOpBeginLine, 0);
+            }
+            return RENode.makeAnchor(REProg.kOpBeginText, 0);
+        }
+        if (cp == kCpDollar) {
+            mPos = mPos + 1;
+            // Without (?m): end of text, or just before a final
+            // newline (Perl-family majority reading; Go/JS strict
+            // end-of-text is the registered differential).
+            if (mMultiline == 1) {
+                return RENode.makeAnchor(REProg.kOpEndLine, 0);
+            }
+            return RENode.makeAnchor(REProg.kOpEndTextNl, 0);
+        }
         if (cp == kCpLParen) { return this.parseGroup(); }
         if (cp == kCpBracketOpen) { return this.parseClass(); }
         if (cp == REProg.kCpBackslash) { return this.parseEscape(); }
@@ -415,16 +455,24 @@ class REParser {
     }
 
     // '(' starts a capture group (its marks are wired in with the
-    // capture task); '(?:' starts a non-capturing group. Flag groups
-    // such as '(?i)' are rejected until the flags task honors them,
-    // with the diagnostic that task pins.
+    // capture task); '(?:' starts a non-capturing group. The bare
+    // '(?m)' form is a zero-width flag: from there to the group's
+    // closing ')' the ^ and $ anchors bind to lines. Flag groups such
+    // as '(?i)' are rejected until the flags task honors them, with
+    // the diagnostic that task pins.
     private RENode parseGroup() {
         int open = mPos;
+        int savedMultiline = mMultiline;
         mPos = mPos + 1;                  // '('
         if (mPos < mCpCount && mCps[mPos] == kCpQuestion) {
             mPos = mPos + 1;              // '?'
             if (mPos < mCpCount && mCps[mPos] == kCpColon) {
                 mPos = mPos + 1;          // ':'
+            } else if (mPos + 1 < mCpCount && mCps[mPos] == kChM
+                       && mCps[mPos + 1] == kCpRParen) {
+                mPos = mPos + 2;          // 'm)'
+                mMultiline = 1;           // holds to the enclosing ')'
+                return RENode(RENode.kEmpty);
             } else {
                 this.errAt(open, "invalid flag \"" + this.flagSegment() + "\"");
             }
@@ -436,6 +484,7 @@ class REParser {
             this.errAt(open, "missing closing )");
         }
         mPos = mPos + 1;                  // ')'
+        mMultiline = savedMultiline;      // the flag ends with the group
         return body;
     }
 
@@ -768,6 +817,13 @@ class REParser {
         if (e >= kCpZero && e <= kCpNine) {
             this.errAt(mPos - 1, "back references are not supported");
         }
+        // \A and \z are the explicit position anchors, unaffected by
+        // (?m); \b \B test word membership (ASCII only, D4). \b inside
+        // a class stays the backspace character (classAtom owns that path).
+        if (e == kChUpperA) { return RENode.makeAnchor(REProg.kOpBeginText, 0); }
+        if (e == kChZ) { return RENode.makeAnchor(REProg.kOpEndText, 0); }
+        if (e == kChB) { return RENode.makeAnchor(REProg.kOpWordBoundary, 1); }
+        if (e == kChUpperB) { return RENode.makeAnchor(REProg.kOpWordBoundary, 0); }
         if (this.isPerlClassLetter(e)) {
             RENode n = RENode(RENode.kClass);
             this.addPerlRanges(n, e);     // uppercase letter = complement
@@ -851,6 +907,8 @@ class RECompile {
             b.addInst(REProg.kOpClass, RECompile.classIdFor(n, b), 0, 0);
         } else if (n.kind == RENode.kAny) {
             b.addInst(REProg.kOpAny, 0, n.anyNotNewline, 0);
+        } else if (n.kind == RENode.kAnchor) {
+            b.addInst(n.anchorOp, n.anchorA1, 0, 0);
         } else if (n.kind == RENode.kAlt) {
             RECompile.emitAlt(n, b);
         } else if (n.kind == RENode.kRepeat) {
@@ -1212,8 +1270,10 @@ class RESim {
             return;
         }
         if (op == REProg.kOpWordBoundary) {
+            // A boundary sits between pos-1 and pos; out-of-range ends
+            // count as the non-word side, so "^x" finds no boundary.
             int inBoundary = 0;
-            if (this.wordCp(pos) != this.wordCp(pos + 1)) { inBoundary = 1; }
+            if (this.wordCp(pos - 1) != this.wordCp(pos)) { inBoundary = 1; }
             if (inBoundary == mA1[id]) { this.addThread(id + 1, slots, pos); }
             return;
         }

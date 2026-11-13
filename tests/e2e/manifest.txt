@@ -2209,3 +2209,4 @@ stdlib_regex_basic 0
 stdlib_regex_class 0
 stdlib_regex_repeat 0
 stdlib_regex_size 0
+stdlib_regex_anchor 0
