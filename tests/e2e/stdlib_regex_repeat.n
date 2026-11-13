@@ -1,0 +1,40 @@
+// v0.13.7 regex: repetition edge cases -- empty-body closure, {0} forms,
+// lazy vs greedy full-match competition, nested-operator rejection.
+import io;
+import regex;
+
+int main() {
+    int bad = 0;
+    // empty-body repetition terminates (same-step stamp) and matches empty
+    Match eb = Regex("(?:a*)*b").match("aab");
+    if (eb == null || eb.text != "aab") { bad = bad + 1; }
+    Match ze = Regex("(?:a*)*").match("");
+    if (ze == null) { bad = bad + 1; }
+    // {0} is legal and matches empty; {0,1} == ?
+    Match z = Regex("a{0}b").match("b");
+    if (z == null || z.text != "b") { bad = bad + 1; }
+    if (!Regex("a{0,1}b").isMatch("b")) { bad = bad + 1; }
+    if (!Regex("a{0,1}b").isMatch("ab")) { bad = bad + 1; }
+    // lazy vs greedy decide the overall match (leftmost-first, D2)
+    Match lz = Regex("a.*?z").match("a1z2z");
+    if (lz == null || lz.text != "a1z") { bad = bad + 1; }
+    Match gz = Regex("a.*z").match("a1z2z");
+    if (gz == null || gz.text != "a1z2z") { bad = bad + 1; }
+    // repetition over alternation and classes
+    if (!Regex("(?:ab|cd)+").isMatch("abcdab")) { bad = bad + 1; }
+    if (!Regex("(?:ab|cd)+").isMatch("abcde")) { bad = bad + 1; }   // matches "abcd"; the trailing 'e' is no obstacle (Go round14 probe)
+    if (Regex("(?:ab|cd)+").isMatch("acb")) { bad = bad + 1; }      // no "ab"/"cd" pair anywhere -> no match
+    if (!Regex("[0-9]{3}").isMatch("no 999 here")) { bad = bad + 1; }
+    if (Regex("[0-9]{3}").isMatch("99")) { bad = bad + 1; }
+    // an operator directly on another operator: nested repetition
+    try { Regex nr = Regex("a*+"); bad = bad + 1; }
+    catch (RegexException e) {
+        if (e.message.indexOf("invalid nested repetition operator") < 0) { bad = bad + 1; }
+    }
+    // {n} count beyond 1000 (budget fires in Task 6 pinning, gate in Task 4)
+    try { Regex big = Regex("a{1001}"); bad = bad + 1; }
+    catch (RegexException e) {
+        if (e.message.indexOf("repeat count too large") < 0) { bad = bad + 1; }
+    }
+    return bad;
+}

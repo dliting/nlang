@@ -658,8 +658,11 @@ class REParser {
         while (mPos < mCpCount) {
             int cp = mCps[mPos];
             if (cp == kCpStar || cp == kCpPlus || cp == kCpQuestion) {
+                // An operator on an operator (Go's reading of "a*+")
+                // gets its own message; a missing operand stays
+                // "nothing to repeat" (caught in parseAtom).
                 if (atom.kind == RENode.kRepeat) {
-                    this.errAt(mPos, "nothing to repeat");
+                    this.errAt(mPos, "invalid nested repetition operator");
                 }
                 mPos = mPos + 1;
                 int lazy = 0;
@@ -735,7 +738,7 @@ class REParser {
                 "repeat count too large (max " + RECompile.kMaxRepeatCount + ")");
         }
         if (atom.kind == RENode.kRepeat) {
-            this.errAt(brace, "nothing to repeat");
+            this.errAt(brace, "invalid nested repetition operator");
         }
         int lazy = 0;
         if (p < mCpCount && mCps[p] == kCpQuestion) {

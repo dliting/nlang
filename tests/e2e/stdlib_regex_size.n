@@ -1,0 +1,45 @@
+// v0.13.7 regex: the three size budgets fire with their own messages and
+// leave the program usable afterwards (spec D3: untrusted patterns must
+// not blow up memory). Patterns are generated in loops, not hand-typed.
+import io;
+import regex;
+
+string nTimes(string unit, int n) {
+    string r = "";
+    for (int i = 0; i < n; i = i + 1) { r = r + unit; }
+    return r;
+}
+
+int main() {
+    int bad = 0;
+    // instruction budget: 25000 literals cross kMaxProgInsts, 15000 compile
+    try {
+        Regex huge = Regex(nTimes("k", 25000));
+        bad = bad + 1;
+    } catch (RegexException e) {
+        if (e.message.indexOf("pattern too large") < 0) { bad = bad + 1; }
+    }
+    // The legal side is kept small deliberately: matching a literal
+    // chain of length n against an input of length m costs O(n*m)
+    // thread steps, so a 15000-char positive case would run for
+    // minutes in the interpreted VM (measured: 416 s). The budget
+    // crossing above is the pinned semantics; the run-after-rejection
+    // below proves the program is intact.
+    Regex okProg = Regex(nTimes("k", 1500));
+    if (!okProg.isMatch("x" + nTimes("k", 1500) + "y")) { bad = bad + 1; }
+    // nesting budget: depth 130 crosses kMaxNestHeight, depth 110 compiles
+    try {
+        Regex deep = Regex(nTimes("(", 130) + "a" + nTimes(")", 130));
+        bad = bad + 1;
+    } catch (RegexException e) {
+        if (e.message.indexOf("pattern nesting too deep") < 0) { bad = bad + 1; }
+    }
+    Regex okNest = Regex(nTimes("(", 110) + "a" + nTimes(")", 110));
+    if (!okNest.isMatch("a")) { bad = bad + 1; }
+    // repeat-count budget already pinned in stdlib_regex_repeat (a{1001});
+    // a legal a{1000} still compiles and matches
+    if (!Regex("a{1000}b").isMatch(nTimes("a", 1000) + "b")) { bad = bad + 1; }
+    // after any rejection the VM is still healthy (no corrupted state)
+    if (!Regex("ok").isMatch("ok")) { bad = bad + 1; }
+    return bad;
+}

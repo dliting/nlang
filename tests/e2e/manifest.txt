@@ -2207,3 +2207,5 @@ stdlib_regex_quote 0
 stdlib_regex_literal 0
 stdlib_regex_basic 0
 stdlib_regex_class 0
+stdlib_regex_repeat 0
+stdlib_regex_size 0
