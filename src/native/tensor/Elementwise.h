@@ -293,8 +293,7 @@ void AddIntoF64ByCarrier(double* acc, const T* row, int64_t count) {
 //the double addInto.
 template <typename T>
 bool SumAxisFlatFastPath(const NativeArrayView& v, NativeArrayView& out,
-                         int32_t axis, int32_t along, uint8_t* ret,
-                         int32_t handle) {
+                         int32_t axis, int32_t along) {
     if constexpr (!std::is_integral_v<T>) {
         if (!IsContiguous(v))
             return false;
@@ -307,7 +306,6 @@ bool SumAxisFlatFastPath(const NativeArrayView& v, NativeArrayView& out,
                 SumFlatByCarrier<T>(base + r * along, along, &acc);
                 outCells[r] = static_cast<T>(acc);
             }
-            nlang::native::ReturnInt(ret, handle);
             return true;
         }
         if (axis != 0)
@@ -321,7 +319,6 @@ bool SumAxisFlatFastPath(const NativeArrayView& v, NativeArrayView& out,
             AddIntoF64ByCarrier<T>(acc.data(), base + o * inner, inner);
         for (int64_t j = 0; j < inner; ++j)
             outCells[j] = static_cast<T>(acc[j]);
-        nlang::native::ReturnInt(ret, handle);
         return true;
     }
     return false;
@@ -331,8 +328,7 @@ bool SumAxisFlatFastPath(const NativeArrayView& v, NativeArrayView& out,
 //the flat extreme kernels (NaN/tie rule identical to the general walk).
 template <typename T>
 bool ExtremeAxisFlatFastPath(const NativeArrayView& v, NativeArrayView& out,
-                             int32_t axis, int32_t along, bool isMax,
-                             uint8_t* ret, int32_t handle) {
+                             int32_t axis, int32_t along, bool isMax) {
     if constexpr (!std::is_integral_v<T>) {
         if (IsContiguous(v) && axis == v.rank - 1) {
             T* outCells = CellsOf<T>(out);
@@ -341,7 +337,7 @@ bool ExtremeAxisFlatFastPath(const NativeArrayView& v, NativeArrayView& out,
             for (int64_t r = 0; r < outer; ++r)
                 ExtremeFlatByCarrier<T>(isMax, base + r * along, along,
                                         outCells + r);
-            nlang::native::ReturnInt(ret, handle);
+            return true;
             return true;
         }
     }

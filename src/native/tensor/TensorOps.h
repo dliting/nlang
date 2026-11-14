@@ -84,6 +84,12 @@ struct TensorOps {
     void (*clampF64)(NativeHost* host, bool isMax,
                      NativeArrayView& src, double bound,
                      NativeArrayView& dst);
+    void (*clampI32)(NativeHost* host, bool isMax,
+                     NativeArrayView& src, int32_t bound,
+                     NativeArrayView& dst);
+    void (*clampI64)(NativeHost* host, bool isMax,
+                     NativeArrayView& src, int64_t bound,
+                     NativeArrayView& dst);
 
     //--- scalar-returning reductions (the native syncs/copies back; the
     //slot writes the out scalar) ---
@@ -99,6 +105,17 @@ struct TensorOps {
                    NativeArrayView& b, float* out);
     void (*dotF64)(NativeHost* host, NativeArrayView& a,
                    NativeArrayView& b, double* out);
+    //int dot: 64-bit accumulation, declared long return.
+    void (*dotI32)(NativeHost* host, NativeArrayView& a,
+                   NativeArrayView& b, int64_t* out);
+    void (*dotI64)(NativeHost* host, NativeArrayView& a,
+                   NativeArrayView& b, int64_t* out);
+    //mean: double accumulation, double return, every element kind
+    //(int kinds accumulate double — never wraps).
+    void (*meanF32)(NativeHost* host, NativeArrayView& src, double* out);
+    void (*meanF64)(NativeHost* host, NativeArrayView& src, double* out);
+    void (*meanI32)(NativeHost* host, NativeArrayView& src, double* out);
+    void (*meanI64)(NativeHost* host, NativeArrayView& src, double* out);
     void (*extremeF32)(NativeHost* host, bool isMax,
                        NativeArrayView& src, float* out);
     void (*extremeF64)(NativeHost* host, bool isMax,
