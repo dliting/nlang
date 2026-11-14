@@ -30,6 +30,9 @@ void StatementResolveAccessor::Access(SnCompoundAssignStmt &sn)
 	SnField* pSourceType = nullptr;
 	if (!TryGetAssignSourceType(*sn.Right(), pTargetType, pSourceType))
 		return;
+	//v0.13.7: arrays reject compound assignment by name (rationale on the helper).
+	if (RejectArrayCompoundAssign(sn, pTargetType, pSourceType))
+		return;
 	//Phase 9a P3: operator-type legality check (mirrors
 	//ExprResolveAccessor::Access(SnBinaryExpr&) logic).
 	//String only supports += (concat); -=, *=, /=, %= are invalid.
@@ -55,6 +58,37 @@ void StatementResolveAccessor::Access(SnCompoundAssignStmt &sn)
 	if (m_ExprResolver.FixupExprType(iExpr, castInfo))
 		sn.m_pRight = &static_cast<SnCastExpr &>(*iExpr);
 	sn.AddFlags(NF_Resolved);
+}
+
+//v0.13.7: array-involved compound assignment is rejected by name —
+//array arithmetic lowers AS a tensor call on the plain binary form,
+//and the compound emitter's kind dispatch has no array arm (the
+//operand row would masquerade as its element carrier). The expanded
+//form `a = a + b` takes the lowering. The string target keeps its
+//pre-existing surface: `s += arr` appends the array's toString
+//rendering, the same array-aware coercion the plain `s + arr` form
+//takes. True = rejected (the caller stops).
+bool StatementResolveAccessor::RejectArrayCompoundAssign(
+	SnCompoundAssignStmt &sn, const SnField *pTargetType,
+	const SnField *pSourceType)
+{
+	if (pTargetType->Kind() == NK_String)
+		return false;
+	if (!pTargetType->IsArrayType() && !pSourceType->IsArrayType())
+		return false;
+	if (pTargetType->IsArrayType())
+		m_Env.Log(CLL_Error, sn.Location(),
+			"operator '%s=': compound assignment is not supported "
+			"on arrays; write the expanded form instead (array "
+			"arithmetic lowers to the tensor package).",
+			SnBinaryExpr::OperatorSymbol(sn.Op()));
+	else
+		m_Env.Log(CLL_Error, sn.Location(),
+			"operator '%s=': compound assignment with an array value "
+			"is not supported on this target type; write the expanded "
+			"form instead.",
+			SnBinaryExpr::OperatorSymbol(sn.Op()));
+	return true;
 }
 
 //0.9.10: the shift branch of Access(SnCompoundAssignStmt&), split out at

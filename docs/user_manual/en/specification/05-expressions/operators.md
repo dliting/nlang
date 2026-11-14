@@ -57,7 +57,7 @@ carry the same element kind — no silent widening between
 arrays; the scalar side converts by the ordinary rules. The
 operators are spellings of `tensor.*` calls: the package must
 be imported, and a missing import is diagnosed as such.
-Compound assignment on arrays (`a += b`) is not lowered — use
+Compound assignment on arrays (`a += b`) is rejected — use
 the plain assignment with the operator form. `string + ...
 ` keeps its concatenation reading, and array identity
 comparison (`==`/`!=`) is unchanged. See

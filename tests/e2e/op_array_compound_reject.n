@@ -1,0 +1,12 @@
+//compile_error: array compound assignment is rejected by name — the
+//compound emitter's kind dispatch has no array arm (the operand row
+//would masquerade as its element carrier and emit a scalar op over the
+//array handle). The expanded form `a = a + b` takes the tensor lowering.
+import tensor;
+
+int main() {
+    float[] a = float[2];
+    float[] b = float[2];
+    a += b;
+    return 0;
+}

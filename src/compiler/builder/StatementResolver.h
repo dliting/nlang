@@ -174,6 +174,14 @@ private:
 	//creation twin via the NewArrayElem annotation). True = rejected.
 	bool RejectCompoundSubscriptTarget(SnExpression &left,
 		const ISourceLocation *pLoc);
+	//v0.13.7: array-involved compound assignment is rejected by name —
+	//array arithmetic lowers AS a tensor call on the plain binary form,
+	//and the compound emitter's kind dispatch has no array arm (the
+	//operand row would masquerade as its element carrier). The expanded
+	//form `a = a + b` takes the lowering. The string target keeps its
+	//pre-existing `s += arr` toString-coercion surface. True = rejected.
+	bool RejectArrayCompoundAssign(SnCompoundAssignStmt &sn,
+		const SnField *pTargetType, const SnField *pSourceType);
 	bool FinishInitListAssign(SnAssignStmt &sn);
 	void FinishAssignTypeCheck(SnAssignStmt &sn);
 	//0.9.10: the shift branch of Access(SnCompoundAssignStmt&) — the
