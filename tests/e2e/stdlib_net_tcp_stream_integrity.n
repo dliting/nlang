@@ -1,0 +1,63 @@
+import io;
+import thread;
+import net;
+
+// Real-socket stream integrity: one writer pushes 1 MiB + 32 MiB
+// through a loopback TCP stream while a server thread counts every
+// byte to EOF — the count must be exact, once, in order. The payload
+// keeps the size the original two-writer test used.
+//
+// The concurrent-writer claim semantics this file used to probe (a
+// second same-direction write rejected while the first is parked on
+// a full send buffer) are pinned deterministically in the white-box
+// unit test test_net_adopt.cpp. Windows loopback auto-tunes its send
+// buffer, so the parked state was not reachable deterministically
+// here — the old probe loop was a timing bet on both the fill moment
+// and a fixed pre-drain sleep, and flaked when the drain raced the
+// detection window. This file now asserts only what a loopback
+// round-trip guarantees regardless of buffering behavior: exact
+// byte integrity.
+
+class Server {
+    public TcpListener srv;
+    public int got = 0;
+    public void run() {
+        TcpStream c = srv.accept(5000);
+        byte[] buf = byte[65536];
+        while (true) {
+            int n = c.read(buf, 5000);
+            if (n == 0) { break; }
+            got = got + n;
+        }
+        c.close();
+    }
+}
+
+class Writer {
+    public TcpStream s;
+    public int outcome = 0;
+    public void run() {
+        byte[] small = byte[1048576];
+        byte[] big = byte[33554432];
+        try { s.write(small); s.write(big); outcome = 1; }
+        catch (SocketException e) { outcome = 2; }
+        catch (TimeoutException e) { outcome = 3; }
+    }
+}
+
+int main() {
+    TcpListener srv = TcpListener.bind("127.0.0.1", 0);
+    Server sv = Server(); sv.srv = srv;
+    Thread ts = thread.spawn(sv.run);
+    TcpStream cli = TcpStream.connect("127.0.0.1", srv.localPort(), 5000);
+    Writer w = Writer(); w.s = cli;
+    Thread tw = thread.spawn(w.run);
+    thread.join(tw);
+    if (w.outcome != 1) { return 1; }
+    cli.close();                           //EOF for the server
+    thread.join(ts);
+    if (sv.got != 1048576 + 33554432) { return 2; }
+    srv.close();
+    io.print("ok");
+    return 0;
+}

@@ -1968,11 +1968,11 @@ array_slice_float_reject compile_error slice endpoints and the step must be inte
 array_slice_rank_reject compile_error array rank 65 exceeds the maximum of 64
 #Task 4 Step 0: an empty class body (marker classes) is legal.
 grammar_empty_class 0
-#thread.spawn mints instances; with-args rejects).
+#thread.spawn creates instances; with-args rejects).
 thread_decl_zeroarg 0
 thread_decl_ctorargs compile_error
 #A user class shadowing Thread does not break typed spawn —
-#the mint resolves the prelude record by bare name
+#the creation resolves the prelude record by bare name
 #(parity with pre-migration behavior).
 thread_spawn_shadow compile_error conflicts with an existing definition
 thread_fail_unjoined 0 main-done
@@ -2080,7 +2080,7 @@ generic_invoke_default_degrade compile_error not compatible with the declaration
 # (T-typed ones stay rejected by the declaration contract).
 generic_field_init_window 5
 generic_depth_limit compile_error instantiation depth
-# --- v0.12.3 Task 2: two-phase mint — fixed-key self-reference compiles (growing key stays rejected above) ---
+# --- v0.12.3 Task 2: two-phase create — fixed-key self-reference compiles (growing key stays rejected above) ---
 generic_selfref 0
 generic_mutual_pair 0
 
@@ -2183,7 +2183,7 @@ stdlib_net_ping_loopback 0 ok
 stdlib_net_icmp_raw 0 ok
 stdlib_net_conc_echo 0 ok
 stdlib_net_parked_recv_gc 0 ok
-stdlib_net_tcp_concurrent_writer 0 ok
+stdlib_net_tcp_stream_integrity 0 ok
 stdlib_net_ping_stress 0 ok
 stdlib_net_count_guard 0 ok
 stdlib_net_udp_ttl 0 ok

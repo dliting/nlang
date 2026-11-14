@@ -708,7 +708,7 @@ add_test(NAME struct_ctor_tests COMMAND test_struct_ctor)
 # 0.9.11 D4 struct field initializer unit tests (console suite):
 # in-process compile+run pinning that field defaults apply at every
 # allocation (bare decl, array elements, nested fields), brace/ctor
-# stores override them, deep copy never re-applies them, and minted
+# stores override them, deep copy never re-applies them, and created
 # string defaults survive GC pressure (test_struct_ctor's runSource
 # shape + test_strings' SetGcStressThresholds hook).
 add_executable(test_struct_field_init
@@ -760,7 +760,7 @@ add_test(NAME class_layout_tests COMMAND test_class_layout)
 
 # Generic instance array-type-arg unit tests (console suite).
 # In-process ModuleBuilder compile of real .n sources, asserting the
-# key split (List<int> vs List<int[]> mint distinct classes) and the
+# key split (List<int> vs List<int[]> create distinct classes) and the
 # interned SnArrayTypeToken carried in the type-arg slots.
 add_executable(test_array_flags
     test_compiler/test_array_flags.cpp
@@ -1164,7 +1164,7 @@ endif()
 add_test(NAME net_icmp_tests COMMAND test_net_icmp)
 
 # v0.13.0 net task 6: per-executor module state — two executors in one
-# process run net bytecode through the nlang_net module and mint
+# process run net bytecode through the nlang_net module and create
 # independent handles; teardown closes the fds they left open.
 add_executable(test_module_state
     test_vm/test_module_state.cpp
@@ -1557,7 +1557,7 @@ if(NLANG_BUILD_IDE)
     nlang_add_qtest(const_decl_tests test_const_decl)
 
     # Generic instantiation descriptor unit tests (v0.12.3 Task 3): pure
-    # C++ coverage of GenericInstDescriptor — canonical spelling, intern
+    # C++ coverage of GenericInstDescriptor — canonical name, intern
     # identity, nested/array arguments. No compilation, so no stdlib
     # deployment needed.
     add_executable(test_generic_descriptor
@@ -1580,7 +1580,7 @@ if(NLANG_BUILD_IDE)
     # Type-parameter slot-kind unit tests (v0.12.3 Task 4): the RTK_TypeParam
     # label, the placeholder node predicate and the compile-time kind
     # emission + the .ncu byte round-trip. Links the compiler for the
-    # registry/AST mint and the vm for VmBackend::RuntimeTypeKind (same
+    # registry/AST create and the vm for VmBackend::RuntimeTypeKind (same
     # three-lib shape as test_generic_decl).
     add_executable(test_generic_typeparam_gc
         test_vm/test_generic_typeparam_gc.cpp
@@ -2722,7 +2722,10 @@ set_tests_properties(mnist_mlp_run PROPERTIES TIMEOUT 300)
 #regex_redos pins the D9 linear bound (v0.13.7). Its own ceiling: the run
 #is timing-sensitive and the e2e runner's shared 30 s per-test cap cannot
 #host it; 300 s mirrors the mnist_mlp_run ruling (five 20 s caps worst
-#case total 100 s plus harness slack, inside the ceiling).
+#case total 100 s plus harness slack, inside the ceiling). The ASan tree
+#runs ~1.76x the Debug time (2026-11-14: Debug 171.9 s, ASan 302.7 s,
+#direct run on an idle machine) and clipped the 300 s cap, so 420 s hosts
+#the measured ASan band with oscillation slack.
 add_test(NAME regex_redos_compile
     COMMAND ncc build
         ${PROJECT_SOURCE_DIR}/tests/e2e/stdlib_regex_redos.n
@@ -2730,7 +2733,7 @@ add_test(NAME regex_redos_compile
 add_test(NAME regex_redos_run
     COMMAND nvm ${CMAKE_BINARY_DIR}/e2e_out/regex_redos.ncu)
 set_tests_properties(regex_redos_run PROPERTIES
-    DEPENDS regex_redos_compile TIMEOUT 300)
+    DEPENDS regex_redos_compile TIMEOUT 420)
 
 #--- Docs-pipeline unit tests (pytest) ---------------------------------------
 #The nlang-docs subproject's pytest suite pins the linkcheck and offline-
