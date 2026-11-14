@@ -144,7 +144,7 @@ const char* const kLoopSource =
     "\n"                              //4
     "public int main() {\n"           //5
     "    int spin = 0;\n"             //6
-    "    while (spin < 30000000) {\n" //7
+    "    while (spin < 5000000) {\n"  //7
     "        spin = spin + 1;\n"      //8
     "    }\n"                         //9
     "    int t = touch();\n"          //10 <- prelude breakpoint
@@ -152,13 +152,20 @@ const char* const kLoopSource =
     "}\n";                            //12
 
 //The loop only has to outlive the queued-toggle window (the toggles
-//land right after the Running state is observed). 30M iterations keep
-//seconds of margin on both ends of the machine-speed range without
-//tying the QTRY ceiling to absolute wall time: a 100M loop once made
-//the whole family flake on a machine running ~2.4x slower than the
-//calibration desktop (debugged loop-stop ~95s against the 90s QTRY
-//ceiling, 2026-11-05).
-constexpr int kLoopStopTimeoutMs = 90000;
+//land right after the Running state is observed). The count and the
+//QTRY ceiling are calibrated against the machine-speed range's two
+//ends: on the calibration desktop the debugged loop runs ~0.17us per
+//iteration (5M ~= 0.8s, a 4x margin over the toggle-delivery latency
+//— both sides slow down together under load, so the ratio holds), and
+//the worst observed straddle ran ~3.1us per iteration (93s for a 30M
+//loop, 2026-11-14 straddle sample), putting 5M at ~16s against the
+//30s ceiling. A 100M loop once made the whole family flake on a
+//machine ~2.4x slower than the calibration desktop (loop-stop ~95s
+//against the then-90s ceiling, 2026-11-05); the 30M form stayed
+//marginal under concurrent session load (straddle pass,fail,fail at
+//90-110s per function). Failure detection also tightens: a hung stop
+//is reported in 30s instead of 90s.
+constexpr int kLoopStopTimeoutMs = 30000;
 
 //The embedded help's mkdocs-material search needs the page-side retry
 //loop to report (its bundle binds the input handler asynchronously),
