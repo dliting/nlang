@@ -61,12 +61,12 @@ static void TestLoadsRealStdLib() {
     // _lastErrorCode/_throwNet/_ping/resolveList, the _tcp* natives
     // incl. the option setters and the internal _toBytes/_fromBytes,
     // the 20 _udp* natives and the 5 _icmp* natives; class methods
-    // are not free functions), syst— 2 (the wall and monotonic clocks),
-    // url 4 (the percent and form codecs; the Url class m—bers are not
+    // are not free functions), system 2 (the wall and monotonic clocks),
+    // url 4 (the percent and form codecs; the Url class members are not
     // free functions), gzip 4 (the compress/decompress wrappers and the
     // two native codec declarations), http 6 (the buffered convenience
     // calls get/post/put/del/request plus the lazy defaultClient; the
-    // Http* class m—bers are not free functions), regex 1 (the
+    // Http* class members are not free functions), regex 1 (the
     // quoteMeta escaping helper; the Regex/Match classes and the engine
     // classes are not free functions).
     if (index.size() != kStdlibSymbolPin)

@@ -310,10 +310,6 @@ def main():
     ndb = args[2] if len(args) > 2 else os.path.join(
         tools_dir, 'ndb', 'Release', 'ndb.exe')
     _fail_on_stale_tools(ncc, nvm, ndb)
-    tools_dir = os.path.dirname(os.path.dirname(os.path.dirname(nvm)))
-    ndb = sys.argv[3] if len(sys.argv) > 3 else os.path.join(
-        tools_dir, 'ndb', 'Release', 'ndb.exe')
-    _fail_on_stale_tools(ncc, nvm, ndb)
     #Debug (and ASan, which builds the Debug config) runs several times
     #slower than Release: asserts on, no optimization, gc-stress
     #amplified. A flat 30s cap that is generous in Release pushes the
