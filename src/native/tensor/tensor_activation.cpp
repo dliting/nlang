@@ -10,6 +10,7 @@
 #include "TensorKernels.h"
 
 #include "TensorOps.h"
+#include "backend_registry.h"
 
 #include <cstdint>
 #include <string>
@@ -34,6 +35,10 @@ void ReluGradKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
     ArgArray(host, args, 1, &vz);
     if (vd.elemKind != vz.elemKind)
         Raise(host, NEXC_Base, "tensor.reluGrad: element type mismatch");
+    {
+        const NativeArrayView operands[] = {vd, vz};
+        AssertSameResidency(host, operands, 2);
+    }
     if (vd.rank != vz.rank)
         Raise(host, NEXC_Base, "tensor.reluGrad: rank mismatch ("
             + ShapeText(vd) + " vs " + ShapeText(vz) + ")");
@@ -42,8 +47,8 @@ void ReluGradKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
             Raise(host, NEXC_Base, "tensor.reluGrad: shape mismatch ("
                 + ShapeText(vd) + " vs " + ShapeText(vz) + ")");
     }
-    const int32_t handle = NewArrayShaped(host, vd.elemKind, vd.rank,
-                                          vd.dims);
+    const int32_t handle = MintOutputLike(host, vd.elemKind, vd.rank,
+                                          vd.dims, vd);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
     const TensorOps& ops = ActiveTensorOps();
@@ -59,8 +64,8 @@ template <typename T>
 void TanhKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
     NativeArrayView v;
     ArgArray(host, args, 0, &v);
-    const int32_t handle = NewArrayShaped(host, v.elemKind, v.rank,
-                                          v.dims);
+    const int32_t handle = MintOutputLike(host, v.elemKind, v.rank,
+                                          v.dims, v);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
     const TensorOps& ops = ActiveTensorOps();

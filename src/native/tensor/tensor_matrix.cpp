@@ -11,6 +11,7 @@
 #include "TensorKernels.h"
 
 #include "TensorOps.h"
+#include "backend_registry.h"
 
 #include <cstdint>
 #include <string>
@@ -33,6 +34,34 @@ namespace {
 int32_t ContiguousOperand(NativeHost* host, const uint8_t* args, int slot,
                           NativeArrayView* view) {
     ArgArray(host, args, slot, view);
+    //v0.14.x device line: a CONTIGUOUS device operand passes through —
+    //the slots take flat addressing and the device kernels (and the
+    //mirror backend's host memory) read it directly. A NON-CONTIGUOUS
+    //device operand materializes to a DEVICE-resident dense copy (the
+    //copy slot's device→device arm) — StrideCopy would read the 2-cell
+    //descriptor, and a host landing would break the sibling operands'
+    //residency (the mixed check would fire on the materialized copy).
+    if (view->reserved[0] == 1) {
+        if (IsContiguous(*view))
+            return ArgInt(args, slot);
+        const int32_t handle = host->newArrayResident(host,
+            view->elemKind, view->rank, view->dims);
+        NativeArrayView dst;
+        host->getArrayView(host, handle, &dst);
+        const TensorOps& ops = ActiveTensorOps();
+        switch (view->elemKind) {
+            case NEK_Int32:  ops.copyI32(host, *view, dst); break;
+            case NEK_Int64:  ops.copyI64(host, *view, dst); break;
+            case NEK_Float32: ops.copyF32(host, *view, dst); break;
+            case NEK_Float64: ops.copyF64(host, *view, dst); break;
+            default:
+                Raise(host, NEXC_Base,
+                      "tensor: unsupported element kind");
+        }
+        view->elemKind = 0xEE;
+        host->getArrayView(host, handle, view);
+        return handle;
+    }
     if (IsContiguous(*view))
         return ArgInt(args, slot);
     const int32_t handle = Materialize(host, *view);
@@ -50,6 +79,10 @@ void ConcatKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
     ContiguousOperand(host, args, 1, &b);
     if (a.elemKind != b.elemKind)
         Raise(host, NEXC_Base, "tensor.concat: element type mismatch");
+    {
+        const NativeArrayView operands[] = {a, b};
+        AssertSameResidency(host, operands, 2);
+    }
     if (a.rank != b.rank) {
         Raise(host, NEXC_Base, "tensor.concat: rank mismatch (" + ShapeText(a)
                                    + " vs " + ShapeText(b) + ")");
@@ -70,7 +103,7 @@ void ConcatKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
         outDims[d] = a.dims[d];
     }
     outDims[axis] = a.dims[axis] + b.dims[axis];
-    const int32_t handle = NewArrayShaped(host, a.elemKind, a.rank, outDims);
+    const int32_t handle = MintOutputLike(host, a.elemKind, a.rank, outDims, a);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
     const TensorOps& ops = ActiveTensorOps();
@@ -105,6 +138,10 @@ void MatMulTyped(NativeHost* host, uint8_t* ret, NativeArrayView& a,
     //elementwise family.
     if (a.elemKind != b.elemKind)
         Raise(host, NEXC_Base, "tensor.matmul: element type mismatch");
+    {
+        const NativeArrayView operands[] = {a, b};
+        AssertSameResidency(host, operands, 2);
+    }
     const int32_t aRows = a.dims[0];
     const int32_t aCols = a.dims[1];
     const int32_t bRows = b.dims[0];
@@ -115,7 +152,7 @@ void MatMulTyped(NativeHost* host, uint8_t* ret, NativeArrayView& a,
                   + ShapeText(a) + " vs " + ShapeText(b) + ")");
     }
     const int32_t outDims[2] = {aRows, bCols};
-    const int32_t handle = NewArrayShaped(host, a.elemKind, 2, outDims);
+    const int32_t handle = MintOutputLike(host, a.elemKind, 2, outDims, a);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
     const TensorOps& ops = ActiveTensorOps();

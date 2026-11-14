@@ -2286,3 +2286,5 @@ op_tensor_reduce_empty 1
 tensor_import_required compile_error Package 'tensor' is not imported
 stdlib_tensor_uniform 0
 stdlib_tensor_uniform_throw 1
+op_device_mirror 0
+op_device_mirror_throw 1

@@ -12,6 +12,7 @@
 #include "TensorKernels.h"
 
 #include "TensorOps.h"
+#include "backend_registry.h"
 
 #include <cstdint>
 #include <string>
@@ -125,6 +126,10 @@ void DotKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
         Raise(host, NEXC_Base, "tensor: length mismatch ("
             + std::to_string(va.elemCount) + " vs "
             + std::to_string(vb.elemCount) + ")");
+    {
+        const NativeArrayView operands[] = {va, vb};
+        AssertSameResidency(host, operands, 2);
+    }
     const TensorOps& ops = ActiveTensorOps();
     if constexpr (std::is_same_v<T, float>) {
         float acc = 0.0f;
@@ -152,7 +157,7 @@ void ClampKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
                  bool isMax, T bound) {
     NativeArrayView v;
     ArgArray(host, args, 0, &v);
-    const int32_t handle = NewArrayShaped(host, v.elemKind, v.rank, v.dims);
+    const int32_t handle = MintOutputLike(host, v.elemKind, v.rank, v.dims, v);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
     const TensorOps& ops = ActiveTensorOps();
@@ -229,8 +234,8 @@ void SumAxisKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
     }
     int32_t outDims[nlang::kMaxArrayRank];
     AxisRemovedDims(v, axis, outDims);
-    const int32_t handle = NewArrayShaped(host, v.elemKind, outRank,
-                                          outDims);
+    const int32_t handle = MintOutputLike(host, v.elemKind, outRank,
+                                          outDims, v);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
     const TensorOps& ops = ActiveTensorOps();
@@ -277,8 +282,8 @@ void ExtremeAxisKernel(NativeHost* host, uint8_t* ret,
     //come back as a scalar, so the axis arm requires rank >= 2.
     int32_t outDims[nlang::kMaxArrayRank];
     AxisRemovedDims(v, axis, outDims);
-    const int32_t handle = NewArrayShaped(host, v.elemKind, outRank,
-                                          outDims);
+    const int32_t handle = MintOutputLike(host, v.elemKind, outRank,
+                                          outDims, v);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
     const TensorOps& ops = ActiveTensorOps();

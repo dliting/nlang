@@ -489,11 +489,17 @@ void VmExecutor::EnsureNativeAvailable(const std::string& name) {
         return;
     std::string ns = name.substr(0, dot);
     NativeLibraryLoader& loader = EnsureNativeLoader();
+    //The module init runs once per executor (each executor owns its
+    //loader) with THIS executor's host — the device hooks land per
+    //executor (the plan's L5 ruling).
+    VmNativeHost initHost;
+    InitNativeHost(initHost);
     loader.EnsureLoaded(ns,
         [this](const std::string& modNs, const std::string& fnName,
                NativeFn fn, bool blocking) {
             m_natives[modNs + "." + fnName] = NativeEntry{fn, blocking};
-        });
+        },
+        &initHost.c);
 }
 
 //v11 R8: the destructor is defined here (moved from VmExecutor.cpp,

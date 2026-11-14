@@ -212,6 +212,20 @@ native Array<int> eq(Array<double> a, Array<double> b);
 // One-hot expansion: float[len, n], row i ones at labels[i].
 native Array<float> oneHot(Array<int> labels, int n);
 
+// Device surface (v0.14.x device line): toDevice lands a copy on the
+// active device (a view materializes into the device copy); toHost
+// lands one back. A same-residency operand returns as-is. backend()
+// reports the active backend's name ("cpu"/"mirror"/"cuda").
+native Array<float> toDevice(Array<float> a);
+native Array<double> toDevice(Array<double> a);
+native Array<int> toDevice(Array<int> a);
+native Array<long> toDevice(Array<long> a);
+native Array<float> toHost(Array<float> a);
+native Array<double> toHost(Array<double> a);
+native Array<int> toHost(Array<int> a);
+native Array<long> toHost(Array<long> a);
+native string backend();
+
 // Whole-array random fill: dims-shaped array, each element drawn
 // uniformly from [low, high) in row-major order. The draws ride the
 // host PRNG — the same seeded stream math.random reads — so a seeded

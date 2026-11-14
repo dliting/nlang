@@ -1,0 +1,15 @@
+// Device-line P2 negative: mixed-residency operands raise by name
+// (spec D6's diagnostic), uncaught → exit 1 by design. Runs under
+// NLANG_TENSOR_BACKEND=mirror.
+import tensor;
+
+int main() {
+    float[] device = tensor.full(4, 1.0f);
+    //ForceHost: no device surface spelling in stage 1 — use a
+    //pre-tensor-call array? Language creation follows the active
+    //device, so build the host operand through toHost of a device
+    //array.
+    float[] host = tensor.toHost(device);
+    float[] mixed = device + host;
+    return 0;
+}

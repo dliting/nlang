@@ -139,6 +139,19 @@ int main(int argc, char* argv[]) {
                 continue;
             }
             gcStress = static_cast<size_t>(parsed);
+        } else if (a.rfind("--tensor-backend=", 0) == 0) {
+            //v0.14.x device line: the device selection rides the
+            //environment (the tensor module reads it at init) — written
+            //back here so the CLI overrides the inherited value (spec
+            //D3a; zero ABI, module-init visible).
+            std::string value = a.c_str() + 17;
+            if (value != "cpu" && value != "mirror" && value != "cuda"
+                && value != "auto") {
+                std::cerr << "nvm: invalid --tensor-backend value '"
+                          << value << "' (cpu|mirror|cuda|auto)\n";
+                return 2;
+            }
+            _putenv(("NLANG_TENSOR_BACKEND=" + value).c_str());
         } else if (a.rfind("--carriers=", 0) == 0) {
             //Refuse bad values up front: a silently ignored knob could
             //green a carrier matrix for the wrong reason (same rationale

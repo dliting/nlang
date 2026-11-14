@@ -51,7 +51,8 @@ public:
     // nlang_abi_version, has no nlang_native_init entry, or reports an
     // incompatible ABI version.
     void EnsureLoaded(const std::string& ns,
-                      RegisterNativeCallback registerFn);
+                      RegisterNativeCallback registerFn,
+                      NativeHost* host);
 
     // Directory containing the running executable (default search location).
     static std::string ExecutableDir();

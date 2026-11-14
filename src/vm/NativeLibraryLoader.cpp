@@ -185,7 +185,7 @@ std::string NativeLibraryLoader::LocateModuleFile(
 }
 
 void NativeLibraryLoader::EnsureLoaded(
-    const std::string& ns, RegisterNativeCallback registerFn) {
+    const std::string& ns, RegisterNativeCallback registerFn, NativeHost* host) {
     if (IsLoaded(ns))
         return;
 
@@ -223,7 +223,8 @@ void NativeLibraryLoader::EnsureLoaded(
     RegistrationContext context{&registerFn};
     //Return value is informational — the probe is the version authority
     //(see NativeHost.h).
-    init(&context, &RegisterTrampoline, &RegisterBlockingTrampoline);
+    init(&context, &RegisterTrampoline, &RegisterBlockingTrampoline,
+        host);
 
     m_loaded.push_back(LoadedModule{ns, handle});
 }

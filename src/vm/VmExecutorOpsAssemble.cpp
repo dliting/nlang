@@ -50,18 +50,19 @@ void VmExecutor::OpAssembleArrayN(BytecodeReader& reader, uint8_t* locals) {
     NoteGcPressure();
     if (m_arrResidency[static_cast<size_t>(heapIdx)] == 1) {
         //v0.14.x device line: the assembly is a whole-block memcpy —
-        //assemble into a ForceHost staging twin and land with one
-        //block H2D (the numeric-only device kinds do not deep-copy,
-        //so no allocation runs inside CopyAssembleRows and the staging
-        //twin cannot be collected mid-walk).
+        //assemble into a ForceHost staging twin with device-aware row
+        //reads (per element through the hooks), then land one block
+        //H2D. The device kinds are numeric-only, so no struct deep-copy
+        //allocation runs mid-walk and the staging twin cannot be
+        //collected before the landing.
         const int32_t staging = AllocArrayOnHeap(arrayTypeIdx, rank,
                                                  dims);
-        CopyAssembleRows(staging, arrayType, rowHandles);
+        CopyAssembleRowsDevice(staging, arrayType, rowHandles);
         auto& stageRec = m_structHeap[static_cast<size_t>(staging)];
-        const size_t stageBase = ArrayPayloadBase(stageRec);
+        const size_t stagePayload = ArrayPayloadBase(stageRec);
         const int stageCells = ArrayElemCells(arrayType.elemKind);
         DeviceStageFromHost(heapIdx,
-            stageRec.data() + stageBase,
+            stageRec.data() + stagePayload,
             static_cast<size_t>(
                 m_structHeap[static_cast<size_t>(heapIdx)][3])
                 * stageCells * 4);
@@ -116,6 +117,57 @@ void VmExecutor::CopyAssembleRows(int32_t heapIdx,
                                                    arrayType.elemTypeIdx);
             m_structHeap[static_cast<size_t>(heapIdx)]
                 [destBase + r * rowElems + e] = copyIdx;
+        }
+    }
+}
+
+//Device-arm twin of CopyAssembleRows (v0.14.x device line): every
+//element resolves through its row's OWNER residency — device owners
+//read through the hooks' one-element transfer, host owners read
+//directly. Numeric elements only (the device kinds carry no struct
+//rows), so no allocation runs inside the loop.
+void VmExecutor::CopyAssembleRowsDevice(int32_t staging,
+    const CompiledArrayType& arrayType,
+    const std::vector<int32_t>& rowHandles) {
+    const uint8_t rank = arrayType.rank;
+    const size_t dstPayload = ArrayPayloadBase(
+        m_structHeap[static_cast<size_t>(staging)]);
+    const size_t cells = static_cast<size_t>(
+        ArrayElemCells(arrayType.elemKind));
+    const size_t rowBase = ArrayHeaderCells(
+        static_cast<uint8_t>(rank - 1));
+    auto& dst = m_structHeap[static_cast<size_t>(staging)];
+    for (size_t r = 0; r < rowHandles.size(); ++r) {
+        const int32_t rowSlot = rowHandles[r];
+        auto& row = m_structHeap[static_cast<size_t>(rowSlot)];
+        const int32_t rowElems = row[3];
+        const bool isView = m_slotKinds[static_cast<size_t>(rowSlot)]
+            == RTK_ArrayView;
+        int32_t owner = rowSlot;
+        if (isView)
+            owner = row[ArrayViewTargetCell(
+                static_cast<uint8_t>(row[2]))];
+        const bool rowDevice =
+            m_arrResidency[static_cast<size_t>(owner)] == 1;
+        for (int32_t e = 0; e < rowElems; ++e) {
+            const int64_t addr = isView
+                ? ViewFlatElementAddress(row, e)
+                : static_cast<int64_t>(e);
+            uint8_t cell[8];
+            if (rowDevice)
+                DeviceLoadElement(owner, addr,
+                    static_cast<int64_t>(cells) * 4, cell);
+            else {
+                std::memcpy(cell,
+                    &m_structHeap[static_cast<size_t>(owner)]
+                        [ArrayPayloadBase(
+                            m_structHeap[static_cast<size_t>(owner)])
+                        + static_cast<size_t>(addr) * cells],
+                    cells * 4);
+            }
+            std::memcpy(&dst[dstPayload
+                + static_cast<size_t>(r) * rowElems * cells
+                + static_cast<size_t>(e) * cells], cell, cells * 4);
         }
     }
 }

@@ -44,6 +44,15 @@ int main() {
                                     "data/test_labels.u8",
                                     testCount, pixels);
 
+    //The device line: the datasets land on the active device once (the
+    //fs reads are host-channel buffers — spec D2's mechanism gate), so
+    //every downstream op runs where the weights live. toDevice is a
+    //no-op on backend=cpu — the same source runs on both backends.
+    train.images = tensor.toDevice(train.images);
+    train.labels = tensor.toDevice(train.labels);
+    test.images = tensor.toDevice(test.images);
+    test.labels = tensor.toDevice(test.labels);
+
     math.srand(42);
     Params p = layers.initParams(pixels, hidden, classes);
 

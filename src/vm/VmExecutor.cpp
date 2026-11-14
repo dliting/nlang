@@ -143,6 +143,11 @@ void VmExecutor::InitStructHeap() {
     m_slotStructIdx.Emplace(0);
     m_instDescByHeap.clear();
     m_instDescByHeap.Emplace(nullptr);  //sentinel
+    //v0.14.x device line: the residency side vector follows the same
+    //sentinel discipline (missing it would shift every residency byte
+    //by one slot against its handle).
+    m_arrResidency.clear();
+    m_arrResidency.Emplace(0);  //sentinel
     //K8: one shard per carrier plus the host fallback slot.
     m_heapShards.Configure(static_cast<size_t>(m_carrierThreadCount) + 1);
     m_gcPressure.store(false, std::memory_order_release);

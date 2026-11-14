@@ -11,6 +11,7 @@
 #include "TensorKernels.h"
 
 #include "TensorOps.h"
+#include "backend_registry.h"
 
 #include <cstdint>
 #include <type_traits>
@@ -50,9 +51,11 @@ void BinaryKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
         Raise(host, NEXC_Base, "tensor: element type mismatch");
     if (va.elemKind != kind)
         Raise(host, NEXC_Base, "tensor: unexpected element kind");
+    const NativeArrayView operands[] = {va, vb};
+    AssertSameResidency(host, operands, 2);
     int32_t outDims[nlang::kMaxArrayRank];
     const int32_t outRank = BroadcastShapes(host, va, vb, outDims);
-    const int32_t handle = NewArrayShaped(host, kind, outRank, outDims);
+    const int32_t handle = MintOutputLike(host, kind, outRank, outDims, va);
     NativeArrayView vout;
     host->getArrayView(host, handle, &vout);
     const TensorOps& ops = ActiveTensorOps();
@@ -83,7 +86,7 @@ void ScalarKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
             Raise(host, NEXC_DivideByZero,
                   "tensor.div: integer division by zero");
     }
-    const int32_t handle = NewArrayShaped(host, kind, v.rank, v.dims);
+    const int32_t handle = MintOutputLike(host, kind, v.rank, v.dims, v);
     NativeArrayView vout;
     host->getArrayView(host, handle, &vout);
     const TensorOps& ops = ActiveTensorOps();
@@ -159,7 +162,7 @@ void UnaryMathKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
     ArgArray(host, args, 0, &v);
     if (v.elemKind != kind)
         Raise(host, NEXC_Base, "tensor: unexpected element kind");
-    const int32_t handle = NewArrayShaped(host, kind, v.rank, v.dims);
+    const int32_t handle = MintOutputLike(host, kind, v.rank, v.dims, v);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
     const TensorOps& ops = ActiveTensorOps();
@@ -229,7 +232,7 @@ void NegKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
     ArgArray(host, args, 0, &v);
     if (v.elemKind != kind)
         Raise(host, NEXC_Base, "tensor: unexpected element kind");
-    const int32_t handle = NewArrayShaped(host, kind, v.rank, v.dims);
+    const int32_t handle = MintOutputLike(host, kind, v.rank, v.dims, v);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
     const TensorOps& ops = ActiveTensorOps();
@@ -283,7 +286,7 @@ void ReversedScalarKernel(NativeHost* host, uint8_t* ret,
             Raise(host, NEXC_DivideByZero,
                   "tensor.div: integer division by zero");
     }
-    const int32_t handle = NewArrayShaped(host, kind, v.rank, v.dims);
+    const int32_t handle = MintOutputLike(host, kind, v.rank, v.dims, v);
     NativeArrayView vout;
     host->getArrayView(host, handle, &vout);
     const BinaryKernelOp binOp = op == BinOp::Sub

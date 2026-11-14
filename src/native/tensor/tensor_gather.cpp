@@ -12,9 +12,11 @@
 #include "TensorKernels.h"
 
 #include "TensorOps.h"
+#include "backend_registry.h"
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 using nlang::native::ArgArray;
 using nlang::native::ArgInt;
@@ -85,6 +87,15 @@ void GatherKernel(NativeHost* host, uint8_t* ret, const uint8_t* args)
     NativeArrayView vIdx;
     ArgArray(host, args, 2, &vIdx);
     ValidateIndexArray(host, vIdx, "tensor.gather");
+    {
+        const NativeArrayView operands[] = {va, vIdx};
+        AssertSameResidency(host, operands, 2);
+    }
+    //Metadata staging (plan C4): the index count determines the out
+    //shape and the slot reads the values — stage a device-resident
+    //indices view to host first (memcpy under mirror, D2H under cuda).
+    std::vector<uint8_t> idxStage;
+    vIdx = StageOperandToHost(host, vIdx, &idxStage);
     int32_t outDims[nlang::kMaxArrayRank];
     int32_t outRank = va.rank - 1;
     if (va.rank == 1)
@@ -97,7 +108,7 @@ void GatherKernel(NativeHost* host, uint8_t* ret, const uint8_t* args)
         outRank = GatherOutShape(host, va, axis, vIdx.elemCount, outDims);
     }
     const int32_t handle =
-        NewArrayShaped(host, va.elemKind, outRank, outDims);
+        MintOutputLike(host, va.elemKind, outRank, outDims, va);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
     const TensorOps& ops = ActiveTensorOps();
@@ -140,8 +151,8 @@ void ExtremeAxisIndicesKernel(NativeHost* host, uint8_t* ret,
     const int32_t outRank = va.rank - 1;
     int32_t outDims[nlang::kMaxArrayRank];
     AxisRemovedDims(va, axis, outDims);
-    const int32_t handle = NewArrayShaped(host, NEK_Int32, outRank,
-                                          outDims);
+    const int32_t handle = MintOutputLike(host, NEK_Int32, outRank,
+                                          outDims, va);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
     ActiveTensorOps().argmaxI32(host, isMax, va, axis, out);
@@ -162,8 +173,8 @@ void EqKernel(NativeHost* host, uint8_t* ret, const uint8_t* args)
         Raise(host, NEXC_Base, "tensor.eq: element type mismatch");
     int32_t outDims[nlang::kMaxArrayRank];
     const int32_t outRank = BroadcastShapes(host, va, vb, outDims);
-    const int32_t handle = NewArrayShaped(host, NEK_Int32, outRank,
-                                          outDims);
+    const int32_t handle = MintOutputLike(host, NEK_Int32, outRank,
+                                          outDims, va);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
     const TensorOps& ops = ActiveTensorOps();
@@ -196,7 +207,7 @@ void OneHotKernel(NativeHost* host, uint8_t* ret, const uint8_t* args)
         Raise(host, NEXC_Base, "tensor.oneHot: class count must be "
               "positive");
     int32_t outDims[2] = {v.dims[0], n};
-    const int32_t handle = NewArrayShaped(host, NEK_Float32, 2, outDims);
+    const int32_t handle = MintArray(host, NEK_Float32, 2, outDims);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
     ActiveTensorOps().oneHotI32(host, v, n, out);

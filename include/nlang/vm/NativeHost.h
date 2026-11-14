@@ -391,8 +391,14 @@ typedef void (*RegisterNativeFn)(void* registry, const char* ns,
                                  const char* name, NativeFn fn);
 typedef void (*RegisterNativeBlockingFn)(void* registry, const char* ns,
                                          const char* name, NativeFn fn);
+// v13: the init signature gains the NativeHost* — the tensor module
+// registers its device backend's hooks through setTensorDeviceHooks at
+// init (per-executor: each executor's loader runs the module init once,
+// so the hooks land per executor with that executor's host; see the
+// NativeSetTensorDeviceHooks contract for the immutability rule).
 typedef int (*NativeModuleInitFn)(void* registry, RegisterNativeFn reg,
-                                  RegisterNativeBlockingFn regBlocking);
+                                  RegisterNativeBlockingFn regBlocking,
+                                  NativeHost* host);
 
 #define NLANG_NATIVE_INIT_SYMBOL nlang_native_init
 
@@ -423,7 +429,8 @@ typedef int (*NativeModuleInitFn)(void* registry, RegisterNativeFn reg,
     } \
     NLANG_NATIVE_EXPORT int nlang_native_init(void* registry, \
                                               RegisterNativeFn reg, \
-                                              RegisterNativeBlockingFn regBlocking)
+                                              RegisterNativeBlockingFn regBlocking, \
+                                              NativeHost* host)
 
 #ifdef __cplusplus
 } // extern "C"

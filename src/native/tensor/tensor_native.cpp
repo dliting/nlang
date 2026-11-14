@@ -17,9 +17,11 @@ operands alive).
 #include "TensorKernels.h"
 
 #include "TensorOps.h"
+#include "backend_registry.h"
 
 #include <cmath>
 #include <cstdint>
+#include <vector>
 
 using nlang::native::ArgArray;
 using nlang::native::ArgDouble;
@@ -45,7 +47,7 @@ template <typename T>
 void FillKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
                 uint8_t kind, T value) {
     const int32_t n = ArgInt(args, 0);
-    const int32_t handle = NewArray(host, kind, n);
+    const int32_t handle = MintArray1(host, kind, n);
     NativeArrayView v;
     host->getArrayView(host, handle, &v);
     FillThroughSlot(host, v, static_cast<double>(value),
@@ -80,6 +82,10 @@ void FullDimsKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
                     uint8_t kind, T value) {
     NativeArrayView dims;
     ArgArray(host, args, 0, &dims);
+    //Metadata staging (plan C4): the dims vector is shape-determining —
+    //a device-resident dims view stages to host before the collector.
+    std::vector<uint8_t> dimsStage;
+    dims = StageOperandToHost(host, dims, &dimsStage);
     int32_t shape[nlang::kMaxArrayRank];
     const int32_t rank =
         CollectIntCells(host, dims, "tensor.full", shape);
@@ -90,7 +96,7 @@ void FullDimsKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
             Raise(host, NEXC_OutOfBounds,
                   "tensor.full: dims dim is negative");
     }
-    const int32_t handle = NewArrayShaped(host, kind, rank, shape);
+    const int32_t handle = MintArray(host, kind, rank, shape);
     NativeArrayView v;
     host->getArrayView(host, handle, &v);
     FillThroughSlot(host, v, static_cast<double>(value),
@@ -117,7 +123,7 @@ void ArangeKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
     if (ratio > static_cast<long double>(kArangeMaxElems))
         Raise(host, NEXC_Base, "tensor.arange: range too large");
     const int64_t n = static_cast<int64_t>(std::ceill(ratio));
-    const int32_t handle = NewArray(host, kind, static_cast<int32_t>(n));
+    const int32_t handle = MintArray1(host, kind, static_cast<int32_t>(n));
     NativeArrayView v;
     host->getArrayView(host, handle, &v);
     const TensorOps& ops = ActiveTensorOps();
@@ -135,6 +141,72 @@ void ArangeKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
                       static_cast<int64_t>(step));
     }
     ReturnInt(ret, handle);
+}
+
+//v0.14.x device surface: toDevice/toHost/backend (spec D6). toDevice
+//mints a device-resident copy (a view's own dims — the plan's "views
+//materialize first"); toHost lands one on the host. A same-residency
+//operand returns as-is (the array API standard's to_device contract).
+void TensorToDevice(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                    int argc) {
+    (void)argc;
+    NativeArrayView v;
+    ArgArray(host, args, 0, &v);
+    //A same-device operand returns as-is (the array API standard's
+    //to_device contract): under backend=cpu EVERY array is already on
+    //the active device, so toDevice is a no-op there — the same source
+    //runs on both backends.
+    if (!ActiveDeviceBackend().device || v.reserved[0] == 1) {
+        ReturnInt(ret, ArgInt(args, 0));
+        return;
+    }
+    const int32_t handle = host->newArrayResident(host, v.elemKind,
+        v.rank, v.dims);
+    NativeArrayView dst;
+    host->getArrayView(host, handle, &dst);
+    const TensorOps& ops = ActiveTensorOps();
+    switch (v.elemKind) {
+        case NEK_Int32:  ops.copyI32(host, v, dst); break;
+        case NEK_Int64:  ops.copyI64(host, v, dst); break;
+        case NEK_Float32: ops.copyF32(host, v, dst); break;
+        case NEK_Float64: ops.copyF64(host, v, dst); break;
+        default:
+            Raise(host, NEXC_Base,
+                  "tensor.toDevice: unsupported element kind");
+    }
+    ReturnInt(ret, handle);
+}
+
+void TensorToHost(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                  int argc) {
+    (void)argc;
+    NativeArrayView v;
+    ArgArray(host, args, 0, &v);
+    if (v.reserved[0] != 1) {
+        ReturnInt(ret, ArgInt(args, 0));   //already host
+        return;
+    }
+    const int32_t handle = NewArrayShaped(host, v.elemKind, v.rank,
+                                          v.dims);
+    NativeArrayView dst;
+    host->getArrayView(host, handle, &dst);
+    const TensorOps& ops = ActiveTensorOps();
+    switch (v.elemKind) {
+        case NEK_Int32:  ops.copyI32(host, v, dst); break;
+        case NEK_Int64:  ops.copyI64(host, v, dst); break;
+        case NEK_Float32: ops.copyF32(host, v, dst); break;
+        case NEK_Float64: ops.copyF64(host, v, dst); break;
+        default:
+            Raise(host, NEXC_Base,
+                  "tensor.toHost: unsupported element kind");
+    }
+    ReturnInt(ret, handle);
+}
+
+void TensorBackend(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                   int argc) {
+    (void)argc;
+    nlang::native::ReturnString(host, ret, ActiveDeviceBackend().name);
 }
 
 } // namespace
@@ -288,5 +360,9 @@ NLANG_DEFINE_NATIVE_INIT {
     regBlocking(registry, "tensor", "argmin", &tensor::TensorArgMin);
     regBlocking(registry, "tensor", "eq", &tensor::TensorEq);
     regBlocking(registry, "tensor", "oneHot", &tensor::TensorOneHot);
+    regBlocking(registry, "tensor", "toDevice", &tensor::TensorToDevice);
+    regBlocking(registry, "tensor", "toHost", &tensor::TensorToHost);
+    reg(registry, "tensor", "backend", &tensor::TensorBackend);
+        tensor::InitBackendSelection(host);
     return NLANG_HOST_ABI_VERSION;
 }

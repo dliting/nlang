@@ -325,6 +325,20 @@ std::string VmExecutor::FormatArray(int32_t heapIdx, int depth) {
 //from the view's own type row (creation validated it against the
 //owner's), and the bracket walk runs over the view's own dims.
 std::string VmExecutor::FormatViewArray(int32_t heapIdx, int depth) {
+    //v0.14.x device line: a view over a device-resident owner formats
+    //through a transient host materialization (the serializer's own
+    //pattern — the copy is written to a string and dropped; numeric
+    //device elements carry no class toString side effects).
+    {
+        const auto& view = m_structHeap[static_cast<size_t>(heapIdx)];
+        const int32_t target = view[ArrayViewTargetCell(
+            static_cast<uint8_t>(view[2]))];
+        if (target > 0
+            && static_cast<size_t>(target) < m_arrResidency.size()
+            && m_arrResidency[static_cast<size_t>(target)] == 1) {
+            return FormatArray(MaterializeViewRecord(heapIdx), depth);
+        }
+    }
     const auto& view = m_structHeap[static_cast<size_t>(heapIdx)];
     uint16_t arrayTypeIdx = static_cast<uint16_t>(view[1]);
     uint8_t elemKind = RTK_Int32;

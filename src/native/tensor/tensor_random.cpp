@@ -10,7 +10,9 @@
 ---*/
 #include "TensorKernels.h"
 
-#include <string>
+#include "backend_registry.h"
+
+
 
 using nlang::native::ArgArray;
 using nlang::native::ArgDouble;
@@ -59,7 +61,30 @@ void UniformKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
     if (low > high)
         Raise(host, NEXC_Base,
               "tensor.uniform: low is greater than high");
-    const int32_t handle = NewArrayShaped(host, kind, rank, shape);
+    const int32_t handle = MintArray(host, kind, rank, shape);
+    if (ActiveDeviceBackend().device) {
+        //The device mint lands through a ForceHost staging twin: the
+        //host PRNG fills the twin, one block H2D lands it (the P2
+        //spelling — T3.7 replaces the fill with the MT19937 snapshot
+        //kernel, same landing).
+        const int32_t staging = NewArrayShaped(host, kind, rank, shape);
+        NativeArrayView sv;
+        host->getArrayView(host, staging, &sv);
+        T* cells = CellsOf<T>(sv);
+        const double span = high - low;
+        for (int64_t i = 0; i < sv.elemCount; ++i)
+            cells[i] = static_cast<T>(low + span * NextUnit(host));
+        NativeArrayView dv;
+        host->getArrayView(host, handle, &dv);
+        const TensorOps& ops = ActiveTensorOps();
+        if constexpr (std::is_same_v<T, float>) {
+            ops.copyF32(host, sv, dv);
+        } else {
+            ops.copyF64(host, sv, dv);
+        }
+        ReturnInt(ret, handle);
+        return;
+    }
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
     T* cells = CellsOf<T>(out);

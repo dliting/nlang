@@ -778,6 +778,12 @@ private:
     void CopyAssembleRows(int32_t heapIdx,
         const CompiledArrayType& arrayType,
         const std::vector<int32_t>& rowHandles);
+    //Device-arm twin: every element resolves through its row's OWNER
+    //residency (device owners read through the hooks' one-element
+    //transfer); numeric elements only.
+    void CopyAssembleRowsDevice(int32_t staging,
+        const CompiledArrayType& arrayType,
+        const std::vector<int32_t>& rowHandles);
     //View-row arm of the copy: every element runs through the affine
     //map into the row's owner payload (see the implementation).
     void CopyAssembleViewRow(int32_t heapIdx, size_t rowSlot,

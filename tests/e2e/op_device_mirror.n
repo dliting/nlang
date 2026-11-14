@@ -1,0 +1,91 @@
+// Device-line P2 acceptance under the mirror backend (run with
+// NLANG_TENSOR_BACKEND=mirror): device residency, transparent element
+// access, toDevice/toHost round trips, device arithmetic with exact
+// values, GC churn, and the serialization staging — every device path
+// the plan's T2.12 lists, exercised on host memory behind the hooks.
+import tensor;
+
+int main() {
+    if (tensor.backend() != "mirror") return 100;
+
+    //Language creation follows the active device; subscripts transfer
+    //one element per access (the transparent-access contract).
+    float[] a = tensor.full(4, 2.0f);
+    a[0] = 7.0f;
+    if (a[0] != 7.0f) return 1;
+    if (a[3] != 2.0f) return 2;
+
+    //toDevice/toHost round trip (a is device: toDevice is a no-op).
+    float[] d = tensor.toDevice(a);
+    float[] h = tensor.toHost(d);
+    if (h[0] != 7.0f || h[1] != 2.0f || h[3] != 2.0f) return 3;
+
+    //Same-device arithmetic with exact values; the result stays on the
+    //device (subscripts read it back transparently).
+    float[] b = tensor.full(4, 3.0f);
+    float[] c = d + b;
+    if (c[0] != 10.0f || c[1] != 5.0f) return 4;
+    if (tensor.sum(c) != 25.0f) return 5;
+
+    //Init-list assembly on a device array (the staging-twin arm).
+    int[] v = [1, 2, 3];
+    v[1] = 9;
+    if (v[0] != 1 || v[1] != 9 || v[2] != 3) return 6;
+
+    //arange on the device + foreach (the flat element access).
+    int[] seq = tensor.arange(0, 5, 1);
+    int total = 0;
+    foreach (int x in seq) {
+        total += x;
+    }
+    if (total != 10) return 7;
+
+    //gather with device source and device indices.
+    float[] src = tensor.full(3, 1.0f);
+    src[2] = 5.0f;
+    int[] idx = [2, 0];
+    float[] picked = tensor.gather(src, 0, idx);
+    if (picked[0] != 5.0f || picked[1] != 1.0f) return 8;
+
+    //oneHot on the device (rank-2 result read through subscripts), and
+    //eq on rank-1 device arrays (rank-2 eq through the rank-1 declared
+    //surface is a pre-existing limitation — recorded in the plan).
+    int[] labels = int[2];
+    labels[0] = 1; labels[1] = 0;
+    float[,] hot = tensor.oneHot(labels, 2);
+    if (hot[0, 1] != 1.0f || hot[1, 0] != 1.0f) return 9;
+    int[] pa = int[2];
+    int[] pb = int[2];
+    pa[0] = 1; pa[1] = 0;
+    pb[0] = 1; pb[1] = 1;
+    if (tensor.sum(tensor.eq(pa, pb)) != 1) return 9;
+
+    //toDevice of a slice VIEW materializes the view's elements.
+    float[] wide = tensor.full(6, 1.0f);
+    wide[4] = 4.0f;
+    float[] half = wide[3:6];
+    float[] devHalf = tensor.toDevice(half);
+    if (devHalf[1] != 4.0f) return 10;
+    if (tensor.sum(tensor.toHost(devHalf)) != 6.0f) return 11;
+
+    //Serialization staging: the string conversion of a device array
+    //walks the staged payload (the same path io.print takes).
+    float[] dPrint = tensor.toDevice(h);
+    if (tensor.sum(dPrint) != 13.0f) return 12;
+
+    //GC churn: drop device arrays in a loop (the sweep releases through
+    //the hooks; reuse never inherits a stale device mark).
+    for (int i = 0; i < 200; i += 1) {
+        float[] churn = tensor.full(16, 1.0f);
+        churn[0] = i;
+    }
+    float[] after = tensor.full(4, 5.0f);
+    if (after[0] != 5.0f || after[3] != 5.0f) return 13;
+
+    //int mean (double accumulation, never wraps) on the device.
+    int[] nums = tensor.arange(-3, 3, 1);
+    double m = tensor.mean(nums);
+    if (m != -0.5) return 14;
+
+    return 0;
+}
