@@ -182,6 +182,11 @@ private:
 	//pre-existing `s += arr` toString-coercion surface. True = rejected.
 	bool RejectArrayCompoundAssign(SnCompoundAssignStmt &sn,
 		const SnField *pTargetType, const SnField *pSourceType);
+	//The type-admission prologue of Access(SnCompoundAssignStmt&) —
+	//target/source rows plus the array-involved compound gate. False =
+	//resolved-by-rejection. Definition in StatementResolverCompound.cpp.
+	bool AdmitCompoundOperandTypes(SnCompoundAssignStmt &sn,
+		SnField* &pTargetType, SnField* &pSourceType);
 	bool FinishInitListAssign(SnAssignStmt &sn);
 	void FinishAssignTypeCheck(SnAssignStmt &sn);
 	//0.9.10: the shift branch of Access(SnCompoundAssignStmt&) — the

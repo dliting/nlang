@@ -49,6 +49,7 @@ add_library(nlang_vm
     VmExecutorNativeHost.cpp
     VmExecutorNativeLoader.cpp
     VmExecutorNativeCallbacks.cpp
+    VmExecutorNativeArray.cpp
     VmExecutorBlockingNative.cpp
     VmExecutorFailure.cpp
     InputLineSource.cpp

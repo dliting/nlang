@@ -1048,6 +1048,9 @@ private:
 	bool PromoteCompareOperands(SnBinaryExpr &sn, NodeKind lk, NodeKind rk,
 		bool lNull, bool rNull);
 	bool CheckLogicalBoolOperands(SnBinaryExpr &sn);
+	//Compare/logical family admission: operand gates plus the bool
+	//result row, the Access branch body split at the source-size guard.
+	bool ResolveCompareOrLogical(SnBinaryExpr &sn, SnBinaryExpr::Operator op);
 	bool ResolveArithmeticBinary(SnBinaryExpr &sn, SnBinaryExpr::Operator op);
 	//v0.13.7 array-operator lowering (ExprResolverArrayOps.cpp): phase 1
 	//classifies at resolution time (true = consumed — lowering shape or

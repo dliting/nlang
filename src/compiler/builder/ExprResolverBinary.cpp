@@ -33,110 +33,6 @@ static bool IsCompareOp(SnBinaryExpr::Operator op)
 		|| op == SnBinaryExpr::OP_NotEqual;
 }
 
-//Mixed string/non-string has no semantics ("a" < 5), in either operand
-//order. Since 0.13.4 string is a value type, so the null literal is not
-//an exempt other side either — `s == null` is a mixed compare like any
-//other. Class/interface/array null checks keep their own paths (the
-//null literal is Int32-typed and converts to those targets only).
-//True = rejected (diagnostic logged).
-bool ExprResolveAccessor::RejectStringNonStringMix(SnBinaryExpr &sn,
-	NodeKind lk, NodeKind rk)
-{
-	if ((lk == NK_String) != (rk == NK_String))
-	{
-		m_Env.Log(CLL_Error, sn.Location(),
-			"cannot compare string with a non-string operand.");
-		return true;
-	}
-	return false;
-}
-
-//Phase 13: function handles support content equality only (==/!=), and
-//only against another function handle or null. Without this gate
-//codegen's dispatch would silently fall to the integer variant
-//comparing raw heap indices. True = rejected (diagnostic logged).
-bool ExprResolveAccessor::RejectFuncHandleMisuse(SnBinaryExpr &sn,
-	SnBinaryExpr::Operator op, SnField *L, SnField *R,
-	bool lNull, bool rNull)
-{
-	bool lFunc = IsFuncTypeDecl(L);
-	bool rFunc = IsFuncTypeDecl(R);
-	if (!lFunc && !rFunc)
-		return false;
-	bool bEq = op == SnBinaryExpr::OP_Equal
-		|| op == SnBinaryExpr::OP_NotEqual;
-	if (!bEq)
-	{
-		m_Env.Log(CLL_Error, sn.Location(),
-			"function values cannot be ordered; only == and != "
-			"are supported.");
-		return true;
-	}
-	if (!((lFunc && rFunc) || (lFunc && rNull) || (rFunc && lNull)))
-	{
-		m_Env.Log(CLL_Error, sn.Location(),
-			"a function value can only be compared with a "
-			"function value or null.");
-		return true;
-	}
-	return false;
-}
-
-//0.7.3 B D8: array values support identity comparison only (==/!=), and
-//only against another array or null. Without this gate relational mixes
-//(`a < b`) and scalar mixes (`a == 5`) compile and silently compare the
-//raw heap handle against the operand. Mirrors the function-handle gate
-//above; null keeps the sentinel comparison path. True = rejected.
-bool ExprResolveAccessor::RejectArrayIdentityMisuse(SnBinaryExpr &sn,
-	SnBinaryExpr::Operator op, NodeKind lk, NodeKind rk,
-	bool lNull, bool rNull)
-{
-	bool lArr = lk == NK_ArrayTypeToken;
-	bool rArr = rk == NK_ArrayTypeToken;
-	if (!lArr && !rArr)
-		return false;
-	bool bEq = op == SnBinaryExpr::OP_Equal
-		|| op == SnBinaryExpr::OP_NotEqual;
-	if (!bEq || !((lArr && rArr) || (lArr && rNull) || (rArr && lNull)))
-	{
-		m_Env.Log(CLL_Error, sn.Location(),
-			"array values support identity comparison only "
-			"(==/!=), and only against another array or null.");
-		return true;
-	}
-	return false;
-}
-
-//v0.13.0 D2: struct values compare by field value, so ==/!= is admitted
-//only between two values of the SAME struct type (pointer-identity of the
-//declaration, the CastInfo rule). Everything else used to compile and
-//silently compare raw heap indices: ordering, mixed types, scalars — and
-//null, which a zero-value record can never be, making the comparison
-//vacuous. True = rejected (diagnostic logged).
-bool ExprResolveAccessor::RejectStructCompareMisuse(SnBinaryExpr &sn,
-	SnBinaryExpr::Operator op, SnField *L, SnField *R)
-{
-	bool lStruct = L && L->Kind() == NK_StructDecl;
-	bool rStruct = R && R->Kind() == NK_StructDecl;
-	if (!lStruct && !rStruct)
-		return false;
-	if (op != SnBinaryExpr::OP_Equal && op != SnBinaryExpr::OP_NotEqual)
-	{
-		m_Env.Log(CLL_Error, sn.Location(),
-			"struct values cannot be ordered; only == and != "
-			"are supported.");
-		return true;
-	}
-	if (!(lStruct && rStruct && L == R))
-	{
-		m_Env.Log(CLL_Error, sn.Location(),
-			"a struct value can only be compared with a struct "
-			"value of the same type.");
-		return true;
-	}
-	return false;
-}
-
 //0.7.5 numeric promotion (spec §2.2), registry-derived. Narrower-than-
 //int integer operands promote to int FIRST (byte+byte = int, the C#
 //rule); then the result is the smallest type that can implicitly
@@ -450,6 +346,25 @@ bool ExprResolveAccessor::AdmitShiftCount(NodeIterator &iCount,
 	return true;
 }
 
+//Compare/logical family admission (the Access branch body): run the
+//operand gates, then set the bool result row. 0.7.5: comparisons and
+//logical ops produce bool (carrier int32 0/1 — the OP_Cmp/OP_Eq_str/
+//JumpIfNot bit patterns unchanged). False = rejected (diagnostic
+//logged).
+bool ExprResolveAccessor::ResolveCompareOrLogical(SnBinaryExpr &sn,
+	SnBinaryExpr::Operator op)
+{
+	if (IsCompareOp(op))
+	{
+		if (!CheckCompareOperands(sn, op))
+			return false;
+	}
+	else if (!CheckLogicalBoolOperands(sn))
+		return false;
+	sn.EvalDataType(SnBuiltinDataType::InstanceOf(NK_Bool));
+	return true;
+}
+
 void ExprResolveAccessor::Access(SnBinaryExpr &sn)
 {
 	NLANG_ASSERT(!sn.IsResolved());
@@ -474,17 +389,8 @@ void ExprResolveAccessor::Access(SnBinaryExpr &sn)
 		op == SnBinaryExpr::OP_LogicalOr ||
 		op == SnBinaryExpr::OP_LogicalNot)
 	{
-		if (IsCompareOp(op))
-		{
-			if (!CheckCompareOperands(sn, op))
-				return;
-		}
-		else if (!CheckLogicalBoolOperands(sn))
+		if (!ResolveCompareOrLogical(sn, op))
 			return;
-		//0.7.5: comparisons and logical ops produce bool (carrier
-		//int32 0/1 — OP_Cmp/OP_Eq_str/JumpIfNot bit patterns unchanged).
-		auto* boolType = SnBuiltinDataType::InstanceOf(NK_Bool);
-		sn.EvalDataType(boolType);
 	}
 	else if (op == SnBinaryExpr::OP_Shl || op == SnBinaryExpr::OP_Shr)
 	{

@@ -22,16 +22,9 @@ void StatementResolveAccessor::Access(SnCompoundAssignStmt &sn)
 		return;
 	sn.Right()->Accept(*m_pVisitor);
 
-	//Type check: RHS must be compatible with LHS type.
-	//Apply cast fixup on RHS (same pattern as SnAssignStmt).
 	SnField* pTargetType = nullptr;
-	if (!TryGetAssignTargetType(*sn.Left(), pTargetType))
-		return;
 	SnField* pSourceType = nullptr;
-	if (!TryGetAssignSourceType(*sn.Right(), pTargetType, pSourceType))
-		return;
-	//v0.13.7: arrays reject compound assignment by name (rationale on the helper).
-	if (RejectArrayCompoundAssign(sn, pTargetType, pSourceType))
+	if (!AdmitCompoundOperandTypes(sn, pTargetType, pSourceType))
 		return;
 	//Phase 9a P3: operator-type legality check (mirrors
 	//ExprResolveAccessor::Access(SnBinaryExpr&) logic).
@@ -60,6 +53,25 @@ void StatementResolveAccessor::Access(SnCompoundAssignStmt &sn)
 	if (m_ExprResolver.FixupExprType(iExpr, castInfo))
 		sn.m_pRight = &static_cast<SnCastExpr &>(*iExpr);
 	sn.AddFlags(NF_Resolved);
+}
+
+//The type-admission prologue of Access (split at the source-size
+//guard): acquire the target row and the source row, then run the
+//array-involved compound gate. Type check: RHS must be compatible with
+//the LHS type; the cast fixup on the RHS stays with the caller (same
+//pattern as SnAssignStmt). False = resolved-by-rejection (diagnostic
+//logged).
+bool StatementResolveAccessor::AdmitCompoundOperandTypes(
+	SnCompoundAssignStmt &sn, SnField* &pTargetType,
+	SnField* &pSourceType)
+{
+	if (!TryGetAssignTargetType(*sn.Left(), pTargetType))
+		return false;
+	if (!TryGetAssignSourceType(*sn.Right(), pTargetType, pSourceType))
+		return false;
+	//v0.13.7: arrays reject compound assignment by name (rationale on
+	//the helper).
+	return !RejectArrayCompoundAssign(sn, pTargetType, pSourceType);
 }
 
 //v0.13.7: array-involved compound assignment is rejected by name —
