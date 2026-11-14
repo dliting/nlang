@@ -135,8 +135,10 @@ public:
 		{
 			if (methodOrCtorIndices.count(i))
 				continue;  //class method/ctor — owned by its class, not free
-			//Free functions have no declared member access on the wire —
-			//the stub creations public (top-level declarations are public).
+			//v2.20 (0.13.8 item 5): the free-function record carries its
+			//declared access on the wire — the stub carries the same byte
+			//(the consumer's visibility gate judges the import by what
+			//the producer declared).
 			//0.10.14: the table index rides the stub — the namespace
 			//branch of the cross-unit slot record carries it.
 			//0.13.1a Task 7: generic records pass their type parameter
@@ -147,7 +149,8 @@ public:
 			    && !cm.functions[i].typeParamNames.empty())
 				genericNames = &cm.functions[i].typeParamNames;
 			SnFunction *stub = CreateFunctionStub(cm.functions[i], cm,
-				loc, FA_Public, ProducerIdxClamp(i), genericNames);
+				loc, static_cast<FieldAccessType>(cm.functions[i].access),
+				ProducerIdxClamp(i), genericNames);
 			if (nameExistsInRoot(LeafNameOfKey(cm.functions[i].name)))
 			{
 				//R10-1: no second root entry for an existing name — but
@@ -220,7 +223,10 @@ public:
 				continue;  //R10-1
 			SnEnumDecl *stub = CreateEnumStub(cm.enumKeys[ei],
 				cm.enumNames[ei], cm.enumMethodIndices[ei],
-				cm.enumMethodAccess[ei], cm, loc);
+				cm.enumMethodAccess[ei],
+				ei < cm.enumAccess.size()
+					? static_cast<FieldAccessType>(cm.enumAccess[ei])
+					: FA_Public, cm, loc);
 			m_Tree.Root()->Members().push_back(stub);
 			m_importedTypes.push_back(stub);
 		}

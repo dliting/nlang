@@ -83,6 +83,9 @@ inline SnStructDecl *CreateStructStub(const CompiledStruct &cs,
 	auto pName = new std::string(LeafNameOfKey(cs.name));
 	auto *pDecl = new SnStructDecl(pName, pMembers, loc);
 	pDecl->AddFlags(NF_Imported);   //R6-2
+	//v2.20 (0.13.8 item 5): the type-level declared access rides the
+	//record tail — the stub carries it for the consumer's gate.
+	pDecl->AccessType(static_cast<FieldAccessType>(cs.access));
 	//v2.12 (v0.12.4): the const marker survived the wire — rebuild it so
 	//the store gate and ctor exemption hold against imported structs.
 	if (cs.isConstAggregate)
@@ -200,6 +203,9 @@ inline SnClassDecl *CreateClassStub(const CompiledClass &cc,
 
 	auto *pDecl = new SnClassDecl(pName, nullptr, pMembers, loc);
 	pDecl->AddFlags(NF_Imported);   //R6-2
+	//v2.20 (0.13.8 item 5): the type-level declared access rides the
+	//record tail — the stub carries it for the consumer's gate.
+	pDecl->AccessType(static_cast<FieldAccessType>(cc.access));
 	//v0.13.1 D7: a template row rebuilds as a generic declaration — the
 	//parameter names make IsGenericDeclaration() true, so the consumer's
 	//resolver creates instantiations and binds T signatures against the
@@ -324,6 +330,9 @@ inline SnInterfaceDecl *CreateInterfaceStub(const CompiledInterface &ci,
 	}
 	auto *pDecl = new SnInterfaceDecl(pName, pMembers, loc);
 	pDecl->AddFlags(NF_Imported);   //R6-2
+	//v2.20 (0.13.8 item 5): the type-level declared access rides the
+	//record tail — the stub carries it for the consumer's gate.
+	pDecl->AccessType(static_cast<FieldAccessType>(ci.access));
 	//v2.19 (0.13.1c Task 8): a template row rebuilds as a generic
 	//declaration — the parameter names make IsGenericDeclaration() true,
 	//so the consumer's resolver creates instantiations and binds T
@@ -339,11 +348,14 @@ inline SnInterfaceDecl *CreateInterfaceStub(const CompiledInterface &ci,
 //skipped; member value = table index). Member methods rebuild from the
 //v2.9 method tables as instance-method stubs (CreateMethodStub — an
 //enum method's receiver is the enum value) with their declared access.
+//v2.20 (0.13.8 item 5): declaredAccess carries the enum's type-level
+//byte (CompiledModule::enumAccess) — the stub carries it too.
 //The stub joins ImportedTypes() so FindModuleType binds "<pkg>.<Enum>".
 inline SnEnumDecl *CreateEnumStub(const std::string &qualifiedKey,
 	const std::vector<std::string> &valueNames,
 	const std::vector<uint16_t> &methodIndices,
 	const std::vector<uint8_t> &methodAccess,
+	FieldAccessType declaredAccess,
 	const CompiledModule &cm, const ISourceLocation &loc)
 {
 	auto *pValues = new PtrList<SnEnumMember>();
@@ -373,6 +385,7 @@ inline SnEnumDecl *CreateEnumStub(const std::string &qualifiedKey,
 	auto pName = new std::string(LeafNameOfKey(qualifiedKey));
 	auto *pDecl = new SnEnumDecl(pName, pValues, pMethods, loc);
 	pDecl->AddFlags(NF_Imported);   //R6-2
+	pDecl->AccessType(declaredAccess);   //v2.20: type-level byte
 	return pDecl;
 }
 
