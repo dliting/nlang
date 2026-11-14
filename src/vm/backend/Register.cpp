@@ -174,8 +174,10 @@ void VmBackend::RegisterFunctions(SnNamespace& root) {
             //no record — except the abstract CLASS member (0.13.1c, see
             //IsAbstractClassMember): its signature-only record IS the
             //obligation the consumer stub rebuilds the surface from.
-            if (!func.Body() && !func.ContainFlags(NF_Native)
-                && !IsAbstractClassMember(func))
+            //IsRegisteredMember is the shared form of this filter (also
+            //the consumer's ownerOrdinal replay); the IsImported() arm is
+            //already excluded here by the IsOwnUnit gate above.
+            if (!IsRegisteredMember(func))
                 return;
             CompiledFunction cf;
             cf.name = KeyOf(func);

@@ -994,6 +994,94 @@ void TestMemberOrdinalRecordShape() {
         "the two f overloads carry distinct member ordinals (1, 2)");
 }
 
+// --- shape 19: abstract member occupies a method-table row ---
+//
+// An abstract class member (bodyless declaration, NF_Abstract — 0.13.1c)
+// gets a signature-only function record, so the producer's methodIndices
+// hold a row for it and every later member's ordinal counts it. The
+// consumer replays that order from the library source (the stdlib flow),
+// where the member has no body: dropping it from the replay shifts every
+// later ordinal down by one, and a non-virtual (slot-dispatched) call then
+// names the wrong row — nlink reports a signature miss. Virtual members
+// dodge the path (name-based dispatch, no import record), which is why the
+// shape needs a final method after the abstract one. Method table here is
+// [area (abstract), twice] — the twice import record must carry ordinal 1.
+void TestAbstractMemberMethodOrdinal() {
+    const char* const libSrc =
+        "class Shape {\n"
+        "  public virtual int area();\n"
+        "  public int twice() {\n"
+        "    return 8;\n"
+        "  }\n"
+        "}\n"
+        "class Square : Shape {\n"
+        "  public int area() {\n"
+        "    return 4;\n"
+        "  }\n"
+        "}\n";
+    const char* const mainSrc =
+        "import alib;\n"
+        "int main() {\n"
+        "  alib.Square s = alib.Square();\n"
+        "  if (s.area() != 4) {\n"
+        "    return 7;\n"
+        "  }\n"
+        "  return s.twice();\n"
+        "}\n";
+
+    const auto shapeDir = scenarioDir("ord_abs_shape");
+    writeFiles(shapeDir, { { "alib.n", libSrc }, { "main.n", mainSrc } });
+    const PerUnitBuild b = perUnitBuild(shapeDir, { "main.n", "alib.n" });
+    CHECK(b.ok, "abstract-member scenario compiles per unit");
+    if (b.ok) {
+        bool ordinalOne = false;
+        for (const auto& imp : b.images.units[0].functionImports) {
+            if (imp.modulePath == "alib" && imp.name == "twice"
+                && imp.paramCount == 1 && !imp.isStatic
+                && imp.ownerClassKey == "alib.Shape" && imp.ownerKind == 1
+                && imp.ownerOrdinal == 1)
+                ordinalOne = true;
+        }
+        CHECK(ordinalOne,
+            "the member after an abstract one carries ordinal 1");
+    }
+
+    //Run leg: distinct names (the process-wide registry keeps earlier
+    //builds' names), same shape — the final call must reach the producer.
+    const auto runDir = scenarioDir("ord_abs_run");
+    writeFiles(runDir, {
+        { "alib.n",
+          "class Form {\n"
+          "  public virtual int side() {\n"
+          "    return 0;\n"
+          "  }\n"
+          "  public virtual int measure();\n"
+          "  public int twice() {\n"
+          "    return 8;\n"
+          "  }\n"
+          "}\n"
+          "class Quad : Form {\n"
+          "  public int measure() {\n"
+          "    return 4;\n"
+          "  }\n"
+          "}\n" },
+        { "main.n",
+          "import alib;\n"
+          "int main() {\n"
+          "  alib.Quad q = alib.Quad();\n"
+          "  if (q.measure() != 4) {\n"
+          "    return 7;\n"
+          "  }\n"
+          "  return q.twice();\n"
+          "}\n" } });
+    CapturingIo cap;
+    const PerUnitRun r = perUnitRun(runDir, cap, { "main.n", "alib.n" });
+    CHECK(r.ok, "abstract-member consumer builds and links");
+    if (!r.ok)
+        std::fprintf(stderr, "log: %s\n", r.log.c_str());
+    CHECK(r.rc == 8, "the final method runs the producer's body (8)");
+}
+
 } // namespace
 
 int main() {
@@ -1019,6 +1107,7 @@ int main() {
     TestStructCtorNoGhostCompilation();
     TestClassStaticOverloadCrossUnit();
     TestMemberOrdinalRecordShape();
+    TestAbstractMemberMethodOrdinal();
     std::fprintf(stderr, "=== Results: %d passed, %d failed ===\n",
                  g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;

@@ -2206,4 +2206,22 @@ inline bool IsAbstractClassMember(const SnField& field)
         && field.Parent()->Kind() == NK_ClassDecl;
 }
 
+//The one definition of "owns a function record": a member occupies a row
+//of the module function table (and, for a class member, of the owner's
+//methodIndices) when it has a body, is native, is an imported stub, or is
+//an abstract class member whose signature-only record the vtable still
+//occupies. Both sides of the cross-module contract must use it — the
+//producer's registration (RegisterFunctions, the generation walk) and the
+//consumer's ownerOrdinal replay (CrossUnitOwnerMeta). The gap that makes
+//this more than HasImplementation(): the consumer of a source-shipped
+//package replays the library's declarations from source, where an abstract
+//member has neither a body nor the imported-stub flag, so filtering on the
+//implementation alone drops its row and shifts every later member's
+//ordinal — nlink then matches the wrong row and refuses (or, on a
+//coincidental name+arity match, silently binds) the call.
+inline bool IsRegisteredMember(const SnFunction& func)
+{
+    return func.HasImplementation() || IsAbstractClassMember(func);
+}
+
 } // namespace nlang
