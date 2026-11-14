@@ -1,20 +1,17 @@
 /*---
-    tensor_binary.cpp — the elementwise binary family (add/sub/mul/div)
-    and the unary math pair (exp/log) of the tensor native module. The
-    array/array arm broadcasts (right-aligned rule; the result is an
-    owning record of the broadcast shape), the scalar arm keeps the
-    operand shape; both address operands through their recorded
-    strides/offset, so views read correctly without materializing. One
-    registered native per operation name — the NLang side declares the
-    kind overloads and resolution funnels them here; the runtime element
-    kind of the first view picks the typed kernel. exp/log stay
-    rank-preserving float/double maps.
+    tensor_binary.cpp — the elementwise binary family (add/sub/mul/div,
+    the scalar arms, the reversed arms), the unary math pair (exp/log)
+    and unary minus. P1 T1.2a migration: the dispatcher keeps kind
+    dispatch, validation, broadcast-shape computation and output
+    minting; the RUN rides the ActiveTensorOps() slots (the CPU backend
+    passes the pinned views straight to the existing tier-dispatched
+    drivers — zero behavior change; device backends implement the same
+    slots as device kernels).
 ---*/
 #include "TensorKernels.h"
 
-#include "Elementwise.h"
+#include "TensorOps.h"
 
-#include <cmath>
 #include <cstdint>
 #include <type_traits>
 
@@ -33,33 +30,15 @@ namespace {
 
 enum class BinOp : int { Add, Sub, Mul, Div };
 
-template <typename T>
-T ApplyBin(BinOp op, T a, T b) {
-    switch (op) {
-        case BinOp::Add: return static_cast<T>(a + b);
-        case BinOp::Sub: return static_cast<T>(a - b);
-        case BinOp::Mul: return static_cast<T>(a * b);
-        case BinOp::Div:
-            //MIN/-1 traps x86 idiv (same fix as the language rows):
-            //wrap through the unsigned carrier — negation's two's-
-            //complement result.
-            if constexpr (std::is_integral_v<T> && std::is_signed_v<T>) {
-                if (b == T(-1)) {
-                    using U = std::make_unsigned_t<T>;
-                    return static_cast<T>(static_cast<U>(0)
-                        - static_cast<U>(a));
-                }
-            }
-            return static_cast<T>(a / b);
-    }
-    return T(0);
+//BinOp and BinaryKernelOp share the Add/Sub/Mul/Div values (same enum
+//order, asserted by the TensorOps contract comment).
+constexpr BinaryKernelOp ToBin(BinOp op) {
+    return static_cast<BinaryKernelOp>(op);
 }
 
-//Broadcasting elementwise kernel. The output walks its own row-major
-//odometer; each operand addresses through padded broadcast strides
-//(size-1 and missing leading axes repeat their single cell). Integer
-//division by zero raises DivByZeroException when the DIVIDEND's cell is
-//reached, mirroring the language rows.
+//Broadcasting elementwise arm: validate, mint, route. The slot runs
+//the flat tier kernels for contiguous floats and the broadcast odometer
+//otherwise (ints always walk — wrap-and-raise semantics).
 template <typename T>
 void BinaryKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
                   uint8_t kind, BinOp op) {
@@ -73,46 +52,25 @@ void BinaryKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
         Raise(host, NEXC_Base, "tensor: unexpected element kind");
     int32_t outDims[nlang::kMaxArrayRank];
     const int32_t outRank = BroadcastShapes(host, va, vb, outDims);
-    int32_t sa[nlang::kMaxArrayRank];
-    int32_t sb[nlang::kMaxArrayRank];
-    BroadcastStrides(va, outRank, sa);
-    BroadcastStrides(vb, outRank, sb);
     const int32_t handle = NewArrayShaped(host, kind, outRank, outDims);
     NativeArrayView vout;
     host->getArrayView(host, handle, &vout);
-    //Floats: same-shape contiguous pairs and single-cell right operands
-    //ride the tier-dispatched flat kernels; everything else falls back
-    //to the broadcast odometer below (ints always take the odometer —
-    //their wrap-and-raise semantics stay in the scalar loop).
-    if constexpr (!std::is_integral_v<T>) {
-        if (TryRunBinaryFlat<T>(va, vb, vout,
-                                static_cast<BinaryKernelOp>(op))) {
-            ReturnInt(ret, handle);
-            return;
-        }
-    }
-    const T* ca = CellsOf<const T>(va);
-    const T* cb = CellsOf<const T>(vb);
-    T* cout = CellsOf<T>(vout);
-    int64_t idx[nlang::kMaxArrayRank] = {0};
-    int64_t addA = va.offset;
-    int64_t addB = vb.offset;
-    for (int64_t i = 0; i < vout.elemCount; ++i) {
-        if constexpr (std::is_integral_v<T>) {
-            if (op == BinOp::Div && cb[addB] == T(0))
-                Raise(host, NEXC_DivideByZero,
-                      "tensor.div: integer division by zero");
-        }
-        cout[i] = ApplyBin<T>(op, ca[addA], cb[addB]);
-        BroadcastAdvance(sa, sb, outDims, outRank, idx, &addA, &addB);
+    const TensorOps& ops = ActiveTensorOps();
+    if constexpr (std::is_same_v<T, float>) {
+        ops.binaryF32(host, ToBin(op), va, vb, vout);
+    } else if constexpr (std::is_same_v<T, double>) {
+        ops.binaryF64(host, ToBin(op), va, vb, vout);
+    } else if constexpr (std::is_same_v<T, int32_t>) {
+        ops.binaryI32(host, ToBin(op), va, vb, vout);
+    } else {
+        ops.binaryI64(host, ToBin(op), va, vb, vout);
     }
     ReturnInt(ret, handle);
 }
 
 //Scalar arm: the operand shape is kept; the scalar rides slot 1 in the
-//kind's own carrier (the NLang overload picked it statically). Floats
-//ride the tier-dispatched driver; ints keep the wrap-and-raise walk
-//(the zero-scalar raise fires before any work, exactly as before).
+//kind's own carrier (the NLang overload picked it statically). The
+//zero-scalar div raise fires before any work, exactly as before.
 template <typename T>
 void ScalarKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
                   uint8_t kind, BinOp op, T scalar) {
@@ -128,16 +86,15 @@ void ScalarKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
     const int32_t handle = NewArrayShaped(host, kind, v.rank, v.dims);
     NativeArrayView vout;
     host->getArrayView(host, handle, &vout);
-    if constexpr (std::is_integral_v<T>) {
-        const T* cells = CellsOf<const T>(v);
-        T* cout = CellsOf<T>(vout);
-        int64_t at = 0;
-        StrideWalk(v, [&](int64_t addr) {
-            cout[at++] = ApplyBin<T>(op, cells[addr], scalar);
-        });
+    const TensorOps& ops = ActiveTensorOps();
+    if constexpr (std::is_same_v<T, float>) {
+        ops.binaryScalarF32(host, ToBin(op), v, scalar, vout);
+    } else if constexpr (std::is_same_v<T, double>) {
+        ops.binaryScalarF64(host, ToBin(op), v, scalar, vout);
+    } else if constexpr (std::is_same_v<T, int32_t>) {
+        ops.binaryScalarI32(host, ToBin(op), v, scalar, vout);
     } else {
-        RunBinaryScalarFlat<T>(v, vout, static_cast<BinaryKernelOp>(op),
-                               scalar);
+        ops.binaryScalarI64(host, ToBin(op), v, scalar, vout);
     }
     ReturnInt(ret, handle);
 }
@@ -191,9 +148,8 @@ void DispatchScalar(NativeHost* host, uint8_t* ret, const uint8_t* args,
 }
 
 //Unary math maps: rank-preserving, stride-aware (a view reads through
-//its recorded layout). The driver picks the flat tier kernel for
-//contiguous spans and the scalar lane otherwise; only float/double
-//reach here (the dispatch raises other kinds).
+//its recorded layout); only float/double reach here (the dispatch
+//raises other kinds).
 enum class UnaryOp : int { Exp, Log };
 
 template <typename T>
@@ -206,8 +162,16 @@ void UnaryMathKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
     const int32_t handle = NewArrayShaped(host, kind, v.rank, v.dims);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
-    RunUnaryFlat<T>(v, out, op == UnaryOp::Exp
-        ? UnaryKernelOp::Exp : UnaryKernelOp::Log);
+    const TensorOps& ops = ActiveTensorOps();
+    if constexpr (std::is_same_v<T, float>) {
+        ops.unaryF32(host, op == UnaryOp::Exp ? UnaryKernelOp::Exp
+                                              : UnaryKernelOp::Log,
+                     v, out);
+    } else {
+        ops.unaryF64(host, op == UnaryOp::Exp ? UnaryKernelOp::Exp
+                                              : UnaryKernelOp::Log,
+                     v, out);
+    }
     ReturnInt(ret, handle);
 }
 
@@ -268,15 +232,15 @@ void NegKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
     const int32_t handle = NewArrayShaped(host, kind, v.rank, v.dims);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
-    if constexpr (std::is_integral_v<T>) {
-        const T* cells = CellsOf<const T>(v);
-        T* outCells = CellsOf<T>(out);
-        int64_t at = 0;
-        StrideWalk(v, [&](int64_t addr) {
-            outCells[at++] = static_cast<T>(-cells[addr]);
-        });
+    const TensorOps& ops = ActiveTensorOps();
+    if constexpr (std::is_same_v<T, float>) {
+        ops.unaryF32(host, UnaryKernelOp::Neg, v, out);
+    } else if constexpr (std::is_same_v<T, double>) {
+        ops.unaryF64(host, UnaryKernelOp::Neg, v, out);
+    } else if constexpr (std::is_same_v<T, int32_t>) {
+        ops.unaryI32(host, UnaryKernelOp::Neg, v, out);
     } else {
-        RunUnaryFlat<T>(v, out, UnaryKernelOp::Neg);
+        ops.unaryI64(host, UnaryKernelOp::Neg, v, out);
     }
     ReturnInt(ret, handle);
 }
@@ -303,9 +267,9 @@ void TensorNeg(NativeHost* host, uint8_t* ret, const uint8_t* args,
 }
 
 //Reversed scalar arms: s - a (rsub) and s / a (rdiv) with the scalar on
-//the LEFT. Floats ride the tier-dispatched flat kernels; int rsub wraps
-//in the walk and int rdiv raises on a zero scalar before any work (the
-//same message divScalar raises).
+//the LEFT — mapped onto the Rsub/Rdiv slot ops. The zero-scalar div
+//raise stays here (before the mint, exactly as before); the per-cell
+//semantics ride the slots.
 template <typename T>
 void ReversedScalarKernel(NativeHost* host, uint8_t* ret,
                           const uint8_t* args, uint8_t kind, BinOp op,
@@ -322,17 +286,17 @@ void ReversedScalarKernel(NativeHost* host, uint8_t* ret,
     const int32_t handle = NewArrayShaped(host, kind, v.rank, v.dims);
     NativeArrayView vout;
     host->getArrayView(host, handle, &vout);
-    if constexpr (std::is_integral_v<T>) {
-        const T* cells = CellsOf<const T>(v);
-        T* cout = CellsOf<T>(vout);
-        int64_t at = 0;
-        StrideWalk(v, [&](int64_t addr) {
-            cout[at++] = ApplyBin<T>(op, scalar, cells[addr]);
-        });
+    const BinaryKernelOp binOp = op == BinOp::Sub
+        ? BinaryKernelOp::Rsub : BinaryKernelOp::Rdiv;
+    const TensorOps& ops = ActiveTensorOps();
+    if constexpr (std::is_same_v<T, float>) {
+        ops.binaryScalarF32(host, binOp, v, scalar, vout);
+    } else if constexpr (std::is_same_v<T, double>) {
+        ops.binaryScalarF64(host, binOp, v, scalar, vout);
+    } else if constexpr (std::is_same_v<T, int32_t>) {
+        ops.binaryScalarI32(host, binOp, v, scalar, vout);
     } else {
-        const BinaryKernelOp binOp = op == BinOp::Sub
-            ? BinaryKernelOp::Rsub : BinaryKernelOp::Rdiv;
-        RunBinaryScalarFlat<T>(v, vout, binOp, scalar);
+        ops.binaryScalarI64(host, binOp, v, scalar, vout);
     }
     ReturnInt(ret, handle);
 }

@@ -1,13 +1,15 @@
 /*---
     tensor_activation.cpp — the ReLU gate backward and tanh of the
-    tensor native module. Both ride the tier-dispatched driver lanes:
-    reluGrad is a strict same-shape binary (flat kernel on contiguous
-    spans, carrier walk otherwise), tanh is the VecMath unary lane.
-    float/double only — integers have no activation semantics.
+    tensor native module. P1 T1.2a migration: validation and output
+    minting stay in the dispatcher; the run rides the ActiveTensorOps()
+    slots — reluGrad is the BinaryKernelOp::ReLUGrad binary (flat kernel
+    on contiguous spans, paired odometers otherwise), tanh the VecMath
+    unary lane. float/double only — integers have no activation
+    semantics.
 ---*/
 #include "TensorKernels.h"
 
-#include "Elementwise.h"
+#include "TensorOps.h"
 
 #include <cstdint>
 #include <string>
@@ -44,22 +46,11 @@ void ReluGradKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
                                           vd.dims);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
-    if (!TryRunBinaryFlat<T>(vd, vz, out, BinaryKernelOp::ReLUGrad)) {
-        //Same shape, non-contiguous: paired odometers — each view walks
-        //its own recorded strides (a z slice view must not read d's).
-        const T* dCells = CellsOf<const T>(vd);
-        const T* zCells = CellsOf<const T>(vz);
-        T* outCells = CellsOf<T>(out);
-        int64_t idxD[nlang::kMaxArrayRank] = {0};
-        int64_t idxZ[nlang::kMaxArrayRank] = {0};
-        int64_t addrD = vd.offset;
-        int64_t addrZ = vz.offset;
-        for (int64_t i = 0; i < vd.elemCount; ++i) {
-            outCells[i] = detail::CarrierBinary<T>(
-                BinaryKernelOp::ReLUGrad, dCells[addrD], zCells[addrZ]);
-            StrideWalkAdvance(vd, idxD, &addrD);
-            StrideWalkAdvance(vz, idxZ, &addrZ);
-        }
+    const TensorOps& ops = ActiveTensorOps();
+    if constexpr (std::is_same_v<T, float>) {
+        ops.binaryF32(host, BinaryKernelOp::ReLUGrad, vd, vz, out);
+    } else {
+        ops.binaryF64(host, BinaryKernelOp::ReLUGrad, vd, vz, out);
     }
     ReturnInt(ret, handle);
 }
@@ -72,7 +63,12 @@ void TanhKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
                                           v.dims);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
-    RunUnaryFlat<T>(v, out, UnaryKernelOp::Tanh);
+    const TensorOps& ops = ActiveTensorOps();
+    if constexpr (std::is_same_v<T, float>) {
+        ops.unaryF32(host, UnaryKernelOp::Tanh, v, out);
+    } else {
+        ops.unaryF64(host, UnaryKernelOp::Tanh, v, out);
+    }
     ReturnInt(ret, handle);
 }
 
