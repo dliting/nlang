@@ -26,7 +26,8 @@ without a single element loop.
   kernels. Requires `import tensor`; string concatenation, the null
   arithmetic guard and array identity comparison are unchanged.
   Compound assignment on arrays is not lowered (plain assignment is
-  the supported spelling).
+  the supported spelling); the pre-existing `s += arr`
+  string-append form is unchanged.
 - **Whole-array random fill** — `uniform(dims, low, high)` mints
   the dims-shaped array and fills it row-major with
   `low + (high - low) * u`, one draw per element from the host PRNG
@@ -43,7 +44,9 @@ without a single element loop.
   along an axis (first-tie), `eq` (broadcast int 0/1 compare of
   same-kind arrays) and `oneHot(labels, n)`, plus the single-argument
   `arange(n)` index spelling. Out-of-range gather indices and oneHot
-  labels raise `IndexOutOfBoundsException`.
+  labels raise `IndexOutOfBoundsException`; a gather whose gather
+  axis is a zero dimension raises `Exception`, while a zero-size
+  source with a nonzero gather axis gathers an empty result.
 - **SIMD kernel layer** — runtime CPU tier detection (AVX2+FMA /
   SSE2 / scalar) behind the `KernelOps` backend table: matmul
   register-tiled micro-kernels, elementwise binary/unary/clamp lanes,

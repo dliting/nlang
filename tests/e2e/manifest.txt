@@ -2268,9 +2268,21 @@ op_array_arithmetic 0
 op_array_rsub_rdiv 0
 op_array_positions 0
 op_array_nesting 0
+op_array_foreach_lowered 0 9
+op_array_match_fail_reject compile_error no matching tensor primitive
+op_array_compound_reject compile_error compound assignment is not supported on arrays
+op_array_compound_assign_source compile_error not supported on this target
+op_array_callarg_initlist 42
+op_array_foreach_decl_valuesem 42
+op_array_store_deepcopy 42
+op_array_empty_initlist_add 42
+op_array_initlist_store 42
+op_tensor_gather_zero_axis 42
 op_tensor_gather 0
 op_tensor_reduce2 0
 op_tensor_gather_throw 1
+op_tensor_gather_empty 1
+op_tensor_reduce_empty 1
 tensor_import_required compile_error Package 'tensor' is not imported
 stdlib_tensor_uniform 0
 stdlib_tensor_uniform_throw 1
