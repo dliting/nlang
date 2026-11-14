@@ -15,16 +15,15 @@ CompiledModule.h.
 
 namespace nlang {
 
-//v1.12: one length-prefixed type descriptor (u16 len + wire bytes).
-//len==0 means "no descriptor" — the reader keeps the NonSerialized
-//default. Shared by the param / return / per-field sites below and (via
-//ModuleSaverRecords.h) by the interface record TU.
+//v1.12: one length-prefixed type descriptor (u16 len + wire bytes);
+//len==0 = "no descriptor" — the reader keeps the NonSerialized default.
+//Shared by the param/return/per-field sites below and the interface TU.
 void WriteLenPrefixedTypeDesc(std::ostream& fs, const TypeDesc& td)
 {
     std::vector<uint8_t> bytes;
     AppendTypeDescBytes(bytes, td);
-    //The depth cap bounds a descriptor well under 64 KiB (worst case a
-    //full binary Dict tree at depth 8: 511 nodes × 3 bytes), so the u16
+    //The depth cap bounds a descriptor well under 64 KiB (worst case: a
+    //full binary Dict tree at depth 8, 511 nodes × 3 bytes) — the u16
     //length prefix cannot truncate.
     uint16_t len = static_cast<uint16_t>(bytes.size());
     fs.write(reinterpret_cast<const char*>(&len), sizeof(len));
@@ -34,9 +33,8 @@ void WriteLenPrefixedTypeDesc(std::ostream& fs, const TypeDesc& td)
 
 //Option B v1.3 fixed default-value record: tag + both 4-byte channels +
 //the 8-byte channels (v1.13) + the always-present u16 expr length with
-//its v2.3 payload. Shared by the formal-default block and the 0.9.10
-//interface-constant block so the two records cannot drift (the second
-//site lives in the interface record TU, see ModuleSaverRecords.h).
+//its v2.3 payload. Shared by the formal-default and 0.9.10 interface-
+//constant blocks so the records cannot drift (ModuleSaverRecords.h).
 void WriteDefaultValueDesc(std::ostream& fs, const DefaultValueDesc& dv)
 {
     fs.write(reinterpret_cast<const char*>(&dv.tag), sizeof(dv.tag));
@@ -297,8 +295,7 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
                 func.evalAreaHandleMask.data()), maskBytes);
 
         //v2.20 (0.13.8 item 5): the declared access byte, the record's
-        //trailing field — for a free function the only access carrier on
-        //the wire (members mirror their owner row's access tables).
+        //trailing field — a free function's only access carrier on the wire.
         fs.write(reinterpret_cast<const char*>(&func.access),
                  sizeof(func.access));
     }

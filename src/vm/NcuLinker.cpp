@@ -104,11 +104,9 @@ static void MergeStrings(const CompiledModule& u, CompiledModule& merged,
 }
 
 //v2.15 (v0.13.1): descriptor rows merge by full entry (spelling +
-//composition record bytes). A static entry's identity is its spelling (the intern
+//composition bytes). A static entry's identity is its spelling (the intern
 //contract); composition entries share an empty spelling, so the bytes join
-//the key — two units compiling the same template emit byte-identical
-//compositions and fold, and any divergence keeps both rows (the intern pool
-//still folds the composed descriptors at runtime).
+//the key — identical compositions fold, divergent ones keep both rows.
 static void MergeDescriptors(
     const CompiledModule& u, CompiledModule& merged, NcuOperandMaps& m,
     std::map<std::pair<std::string, std::vector<uint8_t>>, uint32_t>&
@@ -202,8 +200,7 @@ static void MergeEnums(const CompiledModule& u, CompiledModule& merged,
 
 //v2.13 (v0.12.6): static slots are STORAGE, not symbols — no name dedup.
 //Each unit's own entries append in unit order (import tail entries get
-//their mapping from slot resolution, not here); the provider unit owns
-//the metadata remap of what it pushed.
+//their mapping from slot resolution, not here); the provider owns the remap.
 static void MergeStaticSlots(const CompiledModule& u, CompiledModule& merged,
                              NcuOperandMaps& m, UnitPushes& p) {
     const size_t ownCount = u.staticSlots.size() - u.staticSlotImports.size();
@@ -244,8 +241,8 @@ static void MergeFunctions(const CompiledModule& u, CompiledModule& merged,
 }
 
 //0.9.10 v2.4 + v0.12.6 Task 8: the interface merge with placeholder-row
-//preference lives in NcuLinkerInterfaces.cpp (size-guard split; Pass C
-//consumes its pushes through UnitPushes, NcuLinkerInterfaces.h).
+//preference lives in NcuLinkerInterfaces.cpp (Pass C consumes its pushes
+//through UnitPushes, NcuLinkerInterfaces.h).
 
 static void MergeUnitTables(const std::vector<CompiledModule>& units,
                             CompiledModule& merged,
@@ -383,9 +380,8 @@ static void RemapStructMetadata(CompiledModule& merged,
     }
 }
 
-//v2.9 (0.10.14): enum method indices are producer function-table
-//indices — remap them in the same pass shape as the class/struct
-//metadata blocks. The access bytes carry no indices.
+//v2.9 (0.10.14): enum method indices are producer function-table indices,
+//remapped in the class/struct pass shape. The access bytes carry no indices.
 static void RemapEnumMethodIndices(CompiledModule& merged,
                                    const NcuOperandMaps& m,
                                    const std::vector<uint32_t>& pushed) {
@@ -418,12 +414,10 @@ static void FinalizeFunction(CompiledFunction& f, const NcuOperandMaps& m) {
 }
 
 //0.9.10 v2.4: interface static indices are function-table indices —
-//remap them like the class method block. D3 constants carry unit-local
-//type descriptors and pooled string defaults, so they remap through the
-//same maps as function records. 0.9.12 (v2.7): instance-method
-//signatures ride the same channels (formal/return descriptors and
-//pooled default strings); the signatures carry no function or type
-//indices beyond the descriptors, so nothing else remaps here.
+//remapped like the class method block; D3 constants carry unit-local type
+//descriptors and pooled string defaults, remapped through the same maps as
+//function records. 0.9.12 (v2.7): instance-method signatures ride the same
+//channels and carry no indices beyond the descriptors.
 static void RemapInterfaceMetadata(CompiledInterface& iface,
                                    const NcuOperandMaps& m) {
     const std::string context = "interface '" + iface.name + "'";

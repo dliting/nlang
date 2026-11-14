@@ -10,9 +10,9 @@
 
 namespace nlang {
 
-//Container magic: 8 bytes, NUL-padded spelling of "NLANGCU". Single source
-//of truth for the writer, the reader and the packaging smoke
-//(verify_package.py keeps its own byte copy — Python cannot include this header).
+//Container magic: 8 bytes, NUL-padded "NLANGCU". Single source of truth
+//for writer, reader and packaging smoke (verify_package.py keeps a byte
+//copy — Python cannot include this header).
 inline constexpr char NCU_MAGIC[8] = {'N', 'L', 'A', 'N', 'G', 'C', 'U', '\0'};
 //Artifact extension; the spelling has changed before — never hard-code
 //its length.
@@ -22,9 +22,8 @@ inline constexpr const char *NPKG_EXTENSION = ".npkg";
 
 //Table keys ("functions/structs/classes" name fields) are package-
 //qualified linkage identity ("<unit>.<name>"). User-visible renders
-//(Object.toString, debugger value displays) name the type as source
-//wrote it — the leaf after the last dot. Frame/function displays stay
-//qualified (that prefix is pinned debugger output).
+//(Object.toString, debugger displays) name the leaf as source wrote it;
+//frame/function displays stay qualified (pinned debugger output).
 inline std::string LeafNameOfKey(const std::string &key)
 {
     const size_t lastDot = key.find_last_of('.');
@@ -36,33 +35,31 @@ inline std::string LeafNameOfKey(const std::string &key)
 inline constexpr uint16_t NCU_FORMAT_MAJOR = 2;
 //v1.7 (Phase 11): stdlib namespace intrinsics + reserved namespaces. No
 //field-layout change, but the later relational string opcodes share this
-//version step, so older VMs must refuse these modules outright.
+//step, so older VMs must refuse these modules outright.
 //v1.8 (Phase 13): first-class function values — RTK_Func heap records,
 //the OP_MakeFunc/OP_CallDelegate/OP_Eq_func/OP_Ne_func/OP_Func_to_str
 //opcodes (Step 1: free function references) plus OP_MakeBoundFunc/
-//OP_MakeVFunc/OP_CallDelegateOut (Step 2: bound method references).
-//Older VMs cannot execute these opcodes; refuse outright.
+//OP_MakeVFunc/OP_CallDelegateOut (Step 2: bound methods); refuse older.
 //v1.9 (debugger): per-function source file path — CompiledFunction::
 //sourceFile, emitted unconditionally after the locals block. Cross-module
 //breakpoint addressing (b file.n:LINE) depends on it. No new opcodes.
 //v1.10 (array redesign): SEMANTIC floor — no new serialized fields, but
 //array struct/class fields now store RTK_Array as their fieldTypeKinds
-//entry (previously the element kind, e.g. RTK_Int32). A v1.9 module from
-//an older ncc carries the old field-kind meaning and would misroute GC
-//marking and struct serialization dispatch; the loader refuses it.
+//entry (previously the element kind, e.g. RTK_Int32). A v1.9 module
+//carries the old field-kind meaning and would misroute GC marking and
+//struct serialization dispatch; the loader refuses it.
 //v1.11 (C-period generic array args): SEMANTIC floor — no new serialized
 //fields, but array-typed elements of generic containers (List<T[]> /
 //Dict keys and values) now flow as raw array handles with no boxing, and
 //foreach loop variables over them occupy RTK_Array local slots the GC
-//traces. A v1.10 module from an older ncc boxes those elements into
-//primitive slots the GC never traces; the loader refuses it.
+//traces. A v1.10 module boxes those elements into primitive slots the
+//GC never traces; the loader refuses it.
 //v1.12 (type descriptors): true formal / return / field types — recursive
 //TypeDesc payloads (see TypeDesc.h) after the source-file block (per
 //formal, count-prefixed; return, gated on returnTypeKind != RTK_Void)
 //and per struct/class field. Consumers rebuild imported stubs with real
-//signatures instead of return-kind placeholders, so call-site type
-//checking for imported callees is now performed; the loader refuses
-//v1.11 and older outright.
+//signatures instead of return-kind placeholders, so imported callees get
+//call-site type checking; the loader refuses v1.11 and older outright.
 //v1.13 (basic types): ten new scalar RTK kinds (RTK_Byte..RTK_Char,
 //10..19; 8/9 stay the TypeDesc descriptor-only kinds), generalized
 //numeric opcodes with kind immediates, bool conditions, 8-byte scalar
@@ -81,32 +78,27 @@ inline constexpr uint16_t NCU_FORMAT_MAJOR = 2;
 //v2.2 (cross-module function values): the TypeDesc grammar gains
 //RTK_Func (u8 paramCount + paramCount+1 nested descriptors — params
 //then return; see TypeDesc.h). A v2.1 module carries no func signatures:
-//stub formals degrade to int32 placeholders, so function values cannot
-//cross module borders. Refuse v2.1 and older outright.
+//stub formals degrade to int32 placeholders. Refuse v2.1 and older.
 //v2.3 (cross-module complex defaults): every DefaultValueDesc record
 //gains a u16-length-prefixed ExprDesc payload (see exprBytes). A v2.2
-//module carries only literal defaults; expression defaults (formal
-//references, producing-module calls, arithmetic over them) cannot cross
+//module carries only literal defaults; expression defaults cannot cross
 //module borders. Refuse v2.2 and older outright.
 //v2.4 (static members): every function record gains a static flag so
-//name-based dispatch can skip static members (they live in a separate
-//namespace from instance dispatch). Class records gain the exported
-//public-static method indices, a per-unit interface table carries the
-//interface statics, and function import records gain the static flag
-//the linker matches on. A v2.3 module has no flag byte and misparses
-//every record after the native flag; refuse v2.3 and older.
+//name-based dispatch can skip static members (a namespace separate from
+//instance dispatch). Class records gain the exported public-static method
+//indices, a per-unit interface table carries the interface statics, and
+//function import records gain the static flag the linker matches on. A
+//v2.3 module misparses every record after the native flag; refuse older.
 //v2.5 (interface constants): every interface record gains a constants
 //block after its static method indices — per constant, a u16 name, a
 //length-prefixed TypeDesc, and a DefaultValueDesc folded value. A v2.4
-//module has no such block and misparses the bytes after the method
-//indices as the constant count; refuse v2.4 and older.
+//module misparses those bytes as the constant count; refuse v2.4 and older.
 //v2.6 (type-init modernization): every struct record gains a field-
 //defaults block after its type descriptors — a u16 count (== fieldCount)
 //plus one DefaultValueDesc per field (RTK_Void = no default). The same
-//version line also carries the constructor-index and import ownerKind/
-//ownerOrdinal segments; a v2.5 module has no defaults block and misparses
-//the bytes after the type descriptors as the next record; refuse v2.5
-//and older.
+//version line carries the constructor-index and import ownerKind/
+//ownerOrdinal segments. A v2.5 module misparses the bytes after the
+//type descriptors as the next record; refuse v2.5 and older.
 //v2.7 (imported instance members): class field lists become OWN-ONLY —
 //the runtime derives the full instance layout by walking the superclass
 //chain base-first, so a v2.6 image (whose list already carries inherited
@@ -133,9 +125,8 @@ inline constexpr uint16_t NCU_FORMAT_MAJOR = 2;
 //v2.9 (0.10.14): per-enum member-method tables (enumMethodIndices /
 //enumMethodAccess), parallel to enumNames/enumKeys — the fourth
 //instance of "a type record carries its own member-function indices"
-//(classes methodIndices, structs constructorIndices, interfaces
-//staticMethodIndices). Minor bump: every .ncu recompiles with the
-//current ncc (the loader's hard floor, unchanged).
+//(classes, structs, interfaces carry the first three). Minor bump:
+//every .ncu recompiles with the current ncc (loader floor unchanged).
 //v2.11 (stage-2 task 5): the TypeDesc array arm carries a rank byte
 //(int[,] formals/returns round-trip; the rank-less rebuild degraded
 //them to rank-1 and broke consumer indexing). Minor bump: every .ncu
@@ -153,9 +144,8 @@ inline constexpr uint16_t NCU_FORMAT_MAJOR = 2;
 //record after the first class; refuse v2.12 and older outright.
 //v2.14 (v0.13.0): OP_Eq_struct/OP_Ne_struct join the opcode set —
 //struct ==/!= now compiles to them instead of a raw handle compare.
-//The wire layout of every record is unchanged; a v2.13 module's
-//struct comparisons silently compare heap indices (identity), so
-//refuse v2.13 and older to keep struct ==/!= value-correct.
+//Wire layout unchanged; a v2.13 module silently compares heap indices
+//(identity), so refuse v2.13 and older to keep struct ==/!= value-correct.
 //v2.14 (v0.13.7 bitwise batch, unified): bitwise operators also enter
 //the foldable default-expression grammar — the ED_BitNot tag (0x24)
 //and the EDB_BitAnd / EDB_BitOr / EDB_BitXor binary codes (7/8/9)
