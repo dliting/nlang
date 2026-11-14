@@ -1,0 +1,629 @@
+// Standard library source for the "json" package -- authoritative
+// declarations, indexed by langservice::SymbolIndex and inlined into
+// every build. The package comes from this file's path (the stem
+// "json"). The whole package is plain NLang on top of io's byte/string
+// converters; there is no native code. Parsing follows RFC 8259 with
+// Go-scanner strictness: no comments, no trailing commas, no Infinity
+// or NaN, no leading plus or leading-zero integers, and every rejection
+// carries the byte offset. The DOM is a JsonValue class family visited
+// through kind(); numbers keep their source token (rawText) so parse
+// then serialize reproduces the input byte for byte. Nesting is capped
+// at JsonText.MAX_DEPTH on both sides so deep documents fail as a
+// catchable JsonException, long before the VM's call-depth fault.
+import io;
+
+// Raised for malformed documents and for DOM misuse (wrong kind, missing
+// key, out-of-range access, non-finite number, nesting beyond the cap).
+// It extends Exception directly, not IOException: the document usually
+// comes from memory and the failure is a data/program error, matching
+// the UrlException and RegexException precedent per package.
+const class JsonException : Exception {
+    public JsonException(string message, Exception cause = null) {
+        super(message, cause);
+    }
+}
+
+// Discriminant of a JsonValue node, returned by kind() and switched on
+// by every consumer of the DOM.
+enum JsonKind { Null, Bool, Number, String, Array, Object }
+
+// Internal helpers: nesting cap, kind names for messages, and the
+// JSON string escaper. Declaration order keeps JsonValue free of
+// forward references.
+class JsonText {
+    // Guard depth for parse and serialize. Recursion consumes about two
+    // frames per nesting level; the cap stays far below the VM's 1000-
+    // frame fault (a host-level error that cannot be caught) so a deep
+    // document fails as JsonException instead. Calibrated by probe_f.
+    public static const int MAX_DEPTH = 200;
+
+    private static const string HEX_DIGITS = "0123456789abcdef";
+
+    // Lower-case kind words used verbatim in accessor messages.
+    public static string kindName(JsonKind kind) {
+        if (kind == JsonKind.Null) { return "null"; }
+        if (kind == JsonKind.Bool) { return "bool"; }
+        if (kind == JsonKind.Number) { return "number"; }
+        if (kind == JsonKind.String) { return "string"; }
+        if (kind == JsonKind.Array) { return "array"; }
+        return "object";
+    }
+
+    // Renders one JSON string literal. Minimal escape set (D-7): only
+    // the double quote, the backslash and bytes below 0x20 are escaped;
+    // the common controls get their two-letter form, the rest become
+    // lowercase \u00xx. Raw bytes at or above 0x80 pass through (D-6).
+    public static string quote(string text) {
+        byte[] src = io.toBytes(text);
+        string acc = "\"";
+        int runStart = 0;
+        int i = 0;
+        while (i < src.length()) {
+            int b = src[i];
+            if (b < 0) { b = b + 256; }
+            if (b >= 32 && b != 34 && b != 92) { i = i + 1; continue; }
+            acc = acc + io.fromBytes(src[runStart:i]);
+            if (b == 34) { acc = acc + "\\\""; }
+            else if (b == 92) { acc = acc + "\\\\"; }
+            else if (b == 8) { acc = acc + "\\b"; }
+            else if (b == 12) { acc = acc + "\\f"; }
+            else if (b == 10) { acc = acc + "\\n"; }
+            else if (b == 13) { acc = acc + "\\r"; }
+            else if (b == 9) { acc = acc + "\\t"; }
+            else { acc = acc + "\\u00" + hexPair(b); }
+            i = i + 1;
+            runStart = i;
+        }
+        return acc + io.fromBytes(src[runStart:src.length()]) + "\"";
+    }
+
+    private static string hexPair(int value) {
+        return HEX_DIGITS.substring(value / 16, value / 16 + 1) + HEX_DIGITS.substring(value % 16, value % 16 + 1);
+    }
+}
+
+// Abstract base of the DOM. Scalar accessors throw JsonException with the
+// fixed wording when the kind mismatches; the containers override their
+// own accessors to return this. Serialization lives here in one place:
+// leaves feed the renderer through the protected channels below, so no
+// downcast is ever needed (the class family has zero casts).
+class JsonValue {
+    // The source token for numbers built by parse; empty for every other
+    // node and for every other kind. A non-empty rawText makes serialize
+    // reproduce the token verbatim (D-2 fidelity).
+    protected string m_rawText = "";
+
+    public virtual JsonKind kind();
+
+    public virtual string getString() { this.badKind("string"); return ""; }
+    public virtual bool getBool() { this.badKind("bool"); return false; }
+    public virtual long getLong() { this.badKind("number"); return 0; }
+    public virtual int getInt() { this.badKind("number"); return 0; }
+    public virtual double getDouble() { this.badKind("number"); return 0.0; }
+    public virtual JsonObject getObject() { this.badKind("object"); return null; }
+    public virtual JsonArray getArray() { this.badKind("array"); return null; }
+
+    // Compact rendering: no whitespace, one line.
+    public string serialize() {
+        return this.serializeNode(0, "");
+    }
+
+    // Indented rendering with spaces per level (0 or less means compact).
+    public string serialize(int spaces) {
+        string unit = "";
+        int i = 0;
+        while (i < spaces) { unit = unit + " "; i = i + 1; }
+        return this.serializeNode(0, unit);
+    }
+
+    // toString shows the JSON text itself (D-9); equality stays identity
+    // on the Object protocol -- a document never claims to equal a copy.
+    public string toString() { return this.serialize(); }
+
+    // Renderer channels: each container overrides what it needs. The
+    // defaults are unreachable -- kind dispatch in serializeNode selects
+    // them only on nodes that override them -- so they assert.
+    protected virtual int nodeLength() { assert(false); return 0; }
+    protected virtual JsonValue nodeElem(int index) { assert(false); return this; }
+    protected virtual List<string> nodeNames() { assert(false); return null; }
+    protected virtual JsonValue nodeValue(string name) { assert(false); return this; }
+    protected virtual string renderNumber() { assert(false); return "0"; }
+
+    private string serializeNode(int depth, string unit) {
+        // T6: the indent branch (unit != "") lands with Task 6; until
+        // then every mode renders compact.
+        JsonKind k = this.kind();
+        if (k == JsonKind.Null) { return "null"; }
+        if (k == JsonKind.Bool) { if (this.getBool()) { return "true"; } return "false"; }
+        if (k == JsonKind.String) { return JsonText.quote(this.getString()); }
+        if (k == JsonKind.Number) { return this.renderNumber(); }
+        if (depth >= JsonText.MAX_DEPTH) {
+            throw JsonException("json: nesting deeper than " + JsonText.MAX_DEPTH);
+        }
+        string acc = "{";
+        string close = "}";
+        if (k == JsonKind.Array) { acc = "["; close = "]"; }
+        if (k == JsonKind.Array) {
+            int n = this.nodeLength();
+            if (n == 0) { return "[]"; }
+            int i = 0;
+            while (i < n) {
+                if (i > 0) { acc = acc + ","; }
+                acc = acc + this.nodeElem(i).serializeNode(depth + 1, unit);
+                i = i + 1;
+            }
+        } else {
+            List<string> names = this.nodeNames();
+            if (names.length() == 0) { return "{}"; }
+            int i = 0;
+            while (i < names.length()) {
+                if (i > 0) { acc = acc + ","; }
+                string name = names.get(i);
+                acc = acc + JsonText.quote(name) + ":" + this.nodeValue(name).serializeNode(depth + 1, unit);
+                i = i + 1;
+            }
+        }
+        return acc + close;
+    }
+
+    private void badKind(string want) {
+        throw JsonException("json: expected " + want + ", got " + JsonText.kindName(this.kind()));
+    }
+}
+
+class JsonNull : JsonValue {
+    public JsonNull() { }
+    public JsonKind kind() { return JsonKind.Null; }
+}
+
+class JsonBool : JsonValue {
+    private bool m_value = false;
+
+    public JsonBool(bool value) { m_value = value; }
+
+    public JsonKind kind() { return JsonKind.Bool; }
+    public bool getBool() { return m_value; }
+}
+
+// Numbers keep a long/double discriminant (D-2): integer tokens within
+// long range are exact longs, everything else renders through the
+// language's shortest-roundtrip double formatting -- unless the source
+// token is kept, which wins for fidelity.
+class JsonNumber : JsonValue {
+    private bool m_isLong = true;
+    private long m_l = 0;
+    private double m_d = 0.0;
+
+    public JsonNumber(long value) { m_isLong = true; m_l = value; }
+    public JsonNumber(double value) { m_isLong = false; m_d = value; }
+
+    public JsonKind kind() { return JsonKind.Number; }
+
+    // Builds the number node for one grammar-validated numeric token:
+    // integral tokens within long range stay exact longs, larger or
+    // fractional tokens become doubles, and out-of-range tokens raise
+    // the range JsonException the parser turns into an offset message.
+    public static JsonNumber fromToken(string token) {
+        int dotAt = token.indexOf(".");
+        int expAt = token.indexOf("e");
+        int expUpper = token.indexOf("E");
+        JsonNumber node = JsonNumber(0);        // int literal picks the (long) ctor (probe_d2)
+        if (dotAt < 0 && expAt < 0 && expUpper < 0) {
+            try {
+                node = JsonNumber(token.toLong());
+            } catch (Exception e) {
+                node = doubleFromToken(token);
+            }
+        } else {
+            node = doubleFromToken(token);
+        }
+        node.m_rawText = token;
+        return node;
+    }
+
+    public long getLong() {
+        if (m_isLong) { return m_l; }
+        return longFromDouble(m_d);
+    }
+
+    public int getInt() {
+        return this.getLong() as int;          // T4: gains the int-range check
+    }
+
+    public double getDouble() {
+        if (m_isLong) { return m_l; }     // implicit long -> double widening
+        return m_d;
+    }
+
+    public string renderNumber() {
+        if (m_rawText != "") { return m_rawText; }
+        if (m_isLong) { return m_l.toString(); }
+        return m_d.toString();            // T6: gains the non-finite guard
+    }
+
+    private static JsonNumber doubleFromToken(string token) {
+        try {
+            return JsonNumber(token.toDouble());
+        } catch (Exception e) {
+            throw JsonException("json: number out of range");
+        }
+    }
+
+    private static long longFromDouble(double value) {
+        return value as long;             // T4: floor + exactness + range rules
+    }
+}
+
+class JsonString : JsonValue {
+    private string m_value = "";
+
+    public JsonString(string value) { m_value = value; }
+
+    public JsonKind kind() { return JsonKind.String; }
+    public string getString() { return m_value; }
+}
+
+class JsonArray : JsonValue {
+    private List<JsonValue> m_items;   // field initializers must be constant (class.md 4.8.3)
+
+    public JsonArray() { m_items = List<JsonValue>(); }
+
+    public JsonKind kind() { return JsonKind.Array; }
+    public JsonArray getArray() { return this; }
+
+    // The JsonValue form takes an already-built node; the five scalar
+    // forms wrap their argument. They are non-virtual and never overload
+    // a virtual contract name (class.md 4.8.9).
+    public void add(JsonValue value) { m_items.add(value); }
+    public void add(string value) { m_items.add(JsonString(value)); }
+    public void add(int value) { m_items.add(JsonNumber(value)); }   // int -> (long) ctor (probe_d3)
+    public void add(long value) { m_items.add(JsonNumber(value)); }
+    public void add(double value) { m_items.add(JsonNumber(value)); }
+    public void add(bool value) { m_items.add(JsonBool(value)); }
+
+    public JsonValue get(int index) { return m_items.get(index); }
+    public void set(int index, JsonValue value) { m_items.set(index, value); }
+    public void removeAt(int index) { m_items.removeAt(index); }
+    public int length() { return m_items.length(); }
+
+    protected int nodeLength() { return m_items.length(); }
+    protected JsonValue nodeElem(int index) { return m_items.get(index); }
+}
+
+// Objects keep insertion order through Dict, and a repeated key keeps
+// the first position with the last value (D-4: the same rule Dict gives
+// set, for free).
+class JsonObject : JsonValue {
+    private Dict<string, JsonValue> m_entries;
+
+    public JsonObject() { m_entries = Dict<string, JsonValue>(); }
+
+    public JsonKind kind() { return JsonKind.Object; }
+    public JsonObject getObject() { return this; }
+
+    public void put(string name, JsonValue value) { m_entries.set(name, value); }
+    public void put(string name, string value) { m_entries.set(name, JsonString(value)); }
+    public void put(string name, int value) { m_entries.set(name, JsonNumber(value)); }   // int -> (long) ctor (probe_d3)
+    public void put(string name, long value) { m_entries.set(name, JsonNumber(value)); }
+    public void put(string name, double value) { m_entries.set(name, JsonNumber(value)); }
+    public void put(string name, bool value) { m_entries.set(name, JsonBool(value)); }
+
+    public JsonValue get(string name) {
+        if (!m_entries.containsKey(name)) {
+            throw JsonException("json: object has no key \"" + name + "\"");
+        }
+        return m_entries.get(name);
+    }
+
+    public bool has(string name) { return m_entries.containsKey(name); }
+    public bool remove(string name) { return m_entries.remove(name) == 1; }
+    public List<string> names() { return m_entries.keys(); }
+    public int count() { return m_entries.count(); }
+
+    protected int nodeLength() { return m_entries.count(); }
+    protected List<string> nodeNames() { return m_entries.keys(); }
+    protected JsonValue nodeValue(string name) { return m_entries.get(name); }
+}
+
+// Internal recursive-descent scanner over the UTF-8 bytes of the input,
+// so every message can carry a byte offset. One throw of JsonException
+// aborts the parse; strict grammar per D-3 with the six message shapes
+// of D-10 (parse-side messages always carry the byte offset).
+class JsonParser {
+    // Byte constants: structural characters, digits, literal starts.
+    private static const int B_SPACE = 32;
+    private static const int B_TAB = 9;
+    private static const int B_LF = 10;
+    private static const int B_CR = 13;
+    private static const int B_QUOTE = 34;
+    private static const int B_PLUS = 43;
+    private static const int B_COMMA = 44;
+    private static const int B_MINUS = 45;
+    private static const int B_DOT = 46;
+    private static const int B_ZERO = 48;
+    private static const int B_NINE = 57;
+    private static const int B_COLON = 58;
+    private static const int B_B = 98;
+    private static const int B_E = 101;
+    private static const int B_F = 102;
+    private static const int B_N = 110;
+    private static const int B_R = 114;
+    private static const int B_T = 116;
+    private static const int B_U = 117;
+    private static const int B_OPEN_BRACKET = 91;
+    private static const int B_CLOSE_BRACKET = 93;
+    private static const int B_BACKSLASH = 92;
+    private static const int B_SLASH = 47;
+    private static const int B_OPEN_BRACE = 123;
+    private static const int B_CLOSE_BRACE = 125;
+    private static const int B_CAP_E = 69;
+    private static const int HEX_A_LOWER = 97;
+    private static const int HEX_F_LOWER = 102;   // same code as B_F ('f'); kept distinct for readability
+    private static const int HEX_A_UPPER = 65;
+    private static const int HEX_F_UPPER = 70;
+    // Escape control values and UTF-8 shape constants.
+    private static const int ESC_BS = 8;
+    private static const int ESC_FF = 12;
+    private static const int ESC_LF = 10;
+    private static const int ESC_CR = 13;
+    private static const int ESC_TAB = 9;
+    private static const int CP_ASCII_LIMIT = 128;
+    private static const int CP_2BYTE = 128;
+    private static const int CP_3BYTE = 2048;
+    private static const int CP_4BYTE = 65536;
+    private static const int UTF8_CONT_MIN = 128;
+    private static const int UTF8_2_LEAD = 192;
+    private static const int UTF8_3_LEAD = 224;
+    private static const int UTF8_4_LEAD = 240;
+    private static const int UTF8_UNIT = 64;
+    private static const int UTF8_UNIT2 = 4096;
+    private static const int UTF8_UNIT3 = 262144;
+
+    private byte[] m_src;
+    private int m_pos = 0;
+    private byte[] m_buf;          // decode buffer for the string token in flight
+    private int m_bufLen = 0;
+
+    // Parses one complete document (exactly one top-level value).
+    public static JsonValue run(string text) {
+        JsonParser p = JsonParser();
+        p.m_src = io.toBytes(text);
+        p.skipSpace();
+        if (p.atEnd()) { p.failHere("unexpected end of input"); }
+        JsonValue doc = p.parseValue(0);
+        p.skipSpace();
+        if (!p.atEnd()) { p.failHere("unexpected data after top-level value"); }
+        return doc;
+    }
+
+    private bool atEnd() { return m_pos >= m_src.length(); }
+
+    private int unsign(int raw) {
+        if (raw < 0) { return raw + 256; }
+        return raw;
+    }
+
+    private int rawByte(int index) { return this.unsign(m_src[index]); }
+
+    // Byte at m_pos, or the uniform end-of-input rejection; every caller
+    // relies on it instead of bounds checks, so no read runs past the end.
+    private int peek() {
+        if (this.atEnd()) { this.failHere("unexpected end of input"); }
+        return this.rawByte(m_pos);
+    }
+
+    private void skipSpace() {
+        while (!this.atEnd()) {
+            int b = this.rawByte(m_pos);
+            if (b != B_SPACE && b != B_TAB && b != B_LF && b != B_CR) { return; }
+            m_pos = m_pos + 1;
+        }
+    }
+
+    private void failAt(int offset, string what) {
+        throw JsonException("json: " + what + " at byte offset " + offset);
+    }
+
+    private void failHere(string what) { this.failAt(m_pos, what); }
+
+    private JsonValue parseValue(int depth) {
+        this.skipSpace();
+        int b = this.peek();
+        if (b == B_OPEN_BRACE) { return this.parseObject(depth); }
+        if (b == B_OPEN_BRACKET) { return this.parseArray(depth); }
+        if (b == B_QUOTE) { return JsonString(this.parseString()); }
+        if (b == B_T) { this.expectWord("true"); return JsonBool(true); }
+        if (b == B_F) { this.expectWord("false"); return JsonBool(false); }
+        if (b == B_N) { this.expectWord("null"); return JsonNull(); }
+        if (b == B_MINUS || (b >= B_ZERO && b <= B_NINE)) { return this.parseNumber(); }
+        this.failHere("unexpected character");
+        return JsonNull();     // unreachable: failHere throws
+    }
+
+    private void expectWord(string word) {
+        byte[] wanted = io.toBytes(word);
+        int i = 0;
+        while (i < wanted.length()) {
+            if (m_pos + i >= m_src.length() || this.rawByte(m_pos + i) != this.unsign(wanted[i])) {
+                this.failHere("invalid literal");
+            }
+            i = i + 1;
+        }
+        m_pos = m_pos + wanted.length();
+    }
+
+    private JsonValue parseObject(int depth) {
+        if (depth >= JsonText.MAX_DEPTH) { this.failHere("nesting deeper than " + JsonText.MAX_DEPTH); }
+        m_pos = m_pos + 1;                 // consume the brace
+        JsonObject obj = JsonObject();
+        this.skipSpace();
+        if (this.peek() == B_CLOSE_BRACE) { m_pos = m_pos + 1; return obj; }
+        while (true) {
+            this.skipSpace();
+            if (this.peek() != B_QUOTE) { this.failHere("expected object key"); }
+            string name = this.parseString();
+            this.skipSpace();
+            if (this.peek() != B_COLON) { this.failHere("expected : after object key"); }
+            m_pos = m_pos + 1;
+            JsonValue value = this.parseValue(depth + 1);
+            obj.put(name, value);          // repeated key: later value wins, first slot kept (D-4)
+            this.skipSpace();
+            int b = this.peek();
+            if (b == B_CLOSE_BRACE) { m_pos = m_pos + 1; return obj; }
+            if (b != B_COMMA) { this.failHere("expected , or } in object"); }
+            m_pos = m_pos + 1;
+        }
+        return obj;                        // unreachable
+    }
+
+    private JsonValue parseArray(int depth) {
+        if (depth >= JsonText.MAX_DEPTH) { this.failHere("nesting deeper than " + JsonText.MAX_DEPTH); }
+        m_pos = m_pos + 1;                 // consume the bracket
+        JsonArray arr = JsonArray();
+        this.skipSpace();
+        if (this.peek() == B_CLOSE_BRACKET) { m_pos = m_pos + 1; return arr; }
+        while (true) {
+            JsonValue value = this.parseValue(depth + 1);
+            arr.add(value);
+            this.skipSpace();
+            int b = this.peek();
+            if (b == B_CLOSE_BRACKET) { m_pos = m_pos + 1; return arr; }
+            if (b != B_COMMA) { this.failHere("expected , or ] in array"); }
+            m_pos = m_pos + 1;
+        }
+        return arr;                        // unreachable
+    }
+
+    // Scans one string token, decoding escapes into m_buf. Escape pairs
+    // never grow the byte count, so the source length bounds the buffer
+    // exactly. Raw bytes at or above 0x80 are copied unchecked (D-6).
+    private string parseString() {
+        int start = m_pos;
+        m_buf = byte[m_src.length()];
+        m_bufLen = 0;
+        m_pos = m_pos + 1;                 // consume the opening quote
+        while (true) {
+            if (this.atEnd()) { this.failAt(start, "unterminated string"); }
+            int b = this.rawByte(m_pos);
+            if (b == B_QUOTE) { m_pos = m_pos + 1; break; }
+            if (b == B_BACKSLASH) {
+                m_pos = m_pos + 1;
+                if (this.atEnd()) { this.failAt(start, "unterminated string"); }
+                int esc = this.rawByte(m_pos);
+                m_pos = m_pos + 1;
+                if (esc == B_B) { this.pushByte(ESC_BS); }
+                else if (esc == B_F) { this.pushByte(ESC_FF); }
+                else if (esc == B_N) { this.pushByte(ESC_LF); }
+                else if (esc == B_R) { this.pushByte(ESC_CR); }
+                else if (esc == B_T) { this.pushByte(ESC_TAB); }
+                else if (esc == B_QUOTE || esc == B_BACKSLASH || esc == B_SLASH) { this.pushByte(esc); }
+                else if (esc == B_U) { this.parseEscapeHex(); }
+                else { this.failAt(m_pos - 2, "invalid escape"); }
+                continue;
+            }
+            if (b < 32) { this.failAt(m_pos, "unescaped control character in string"); }
+            this.pushByte(b);
+            m_pos = m_pos + 1;
+        }
+        return io.fromBytes(m_buf[0:m_bufLen]);
+    }
+
+    // T5: surrogate PAIRING lands with Task 5; Task 2 maps every half to
+    // U+FFFD on its own, so a valid pair currently yields two replacements.
+    private void parseEscapeHex() {
+        int cp = this.readHex4();
+        if (cp >= 0xD800 && cp <= 0xDBFF) { this.pushUtf8(0xFFFD); return; }
+        if (cp >= 0xDC00 && cp <= 0xDFFF) { this.pushUtf8(0xFFFD); return; }
+        this.pushUtf8(cp);
+    }
+
+    private int readHex4() {
+        if (m_pos + 3 >= m_src.length()) { this.failHere("invalid \\u escape"); }
+        int value = 0;
+        int i = 0;
+        while (i < 4) {
+            int b = this.rawByte(m_pos);
+            int digit = -1;
+            if (b >= B_ZERO && b <= B_NINE) { digit = b - B_ZERO; }
+            else if (b >= HEX_A_LOWER && b <= HEX_F_LOWER) { digit = b - HEX_A_LOWER + 10; }
+            else if (b >= HEX_A_UPPER && b <= HEX_F_UPPER) { digit = b - HEX_A_UPPER + 10; }
+            if (digit < 0) { this.failHere("invalid \\u escape"); }
+            value = value * 16 + digit;
+            m_pos = m_pos + 1;
+            i = i + 1;
+        }
+        return value;
+    }
+
+    private void pushByte(int b) {
+        m_buf[m_bufLen] = b as byte;       // form pinned by probe_a
+        m_bufLen = m_bufLen + 1;
+    }
+
+    // Minimal UTF-8 encoder for \u-decoded code points.
+    private void pushUtf8(int cp) {
+        if (cp < CP_ASCII_LIMIT) { this.pushByte(cp); return; }
+        if (cp < CP_3BYTE) {
+            this.pushByte(UTF8_2_LEAD + (cp / UTF8_UNIT));
+            this.pushByte(UTF8_CONT_MIN + (cp % UTF8_UNIT));
+            return;
+        }
+        if (cp < CP_4BYTE) {
+            this.pushByte(UTF8_3_LEAD + (cp / UTF8_UNIT2));
+            this.pushByte(UTF8_CONT_MIN + ((cp / UTF8_UNIT) % UTF8_UNIT));
+            this.pushByte(UTF8_CONT_MIN + (cp % UTF8_UNIT));
+            return;
+        }
+        this.pushByte(UTF8_4_LEAD + (cp / UTF8_UNIT3));
+        this.pushByte(UTF8_CONT_MIN + ((cp / UTF8_UNIT2) % UTF8_UNIT));
+        this.pushByte(UTF8_CONT_MIN + ((cp / UTF8_UNIT) % UTF8_UNIT));
+        this.pushByte(UTF8_CONT_MIN + (cp % UTF8_UNIT));
+    }
+
+    // Scans one number token per the RFC 8259 grammar (no leading plus,
+    // no leading zero digits, digits mandatory around the dot, exponent
+    // signed and mandatory after e). A leading zero followed by digits
+    // ends the token at the zero and fails in the surrounding context
+    // ("01" -> unexpected data / expected , or }), the same rejection
+    // point Go's decoder reports.
+    private JsonValue parseNumber() {
+        int start = m_pos;
+        int len = m_src.length();
+        int i = m_pos;
+        if (i < len && this.rawByte(i) == B_MINUS) { i = i + 1; }
+        if (i >= len) { this.failAt(start, "invalid number"); }
+        int b0 = this.rawByte(i);
+        if (b0 == B_ZERO) { i = i + 1; }
+        else if (b0 > B_ZERO && b0 <= B_NINE) {
+            while (i < len && this.rawByte(i) >= B_ZERO && this.rawByte(i) <= B_NINE) { i = i + 1; }
+        }
+        else { this.failAt(start, "invalid number"); }
+        if (i < len && this.rawByte(i) == B_DOT) {
+            i = i + 1;
+            if (i >= len || this.rawByte(i) < B_ZERO || this.rawByte(i) > B_NINE) { this.failAt(start, "invalid number"); }
+            while (i < len && this.rawByte(i) >= B_ZERO && this.rawByte(i) <= B_NINE) { i = i + 1; }
+        }
+        if (i < len && (this.rawByte(i) == B_E || this.rawByte(i) == B_CAP_E)) {
+            i = i + 1;
+            if (i < len && (this.rawByte(i) == B_PLUS || this.rawByte(i) == B_MINUS)) { i = i + 1; }
+            if (i >= len || this.rawByte(i) < B_ZERO || this.rawByte(i) > B_NINE) { this.failAt(start, "invalid number"); }
+            while (i < len && this.rawByte(i) >= B_ZERO && this.rawByte(i) <= B_NINE) { i = i + 1; }
+        }
+        string token = io.fromBytes(m_src[start:i]);
+        m_pos = i;
+        try {
+            return JsonNumber.fromToken(token);
+        } catch (JsonException e) {
+            this.failAt(start, "number out of range");   // overflow (1e999, > long-range int token)
+            return JsonNull();                      // unreachable: failAt throws
+        }
+    }
+}
+
+// Parses one JSON document (RFC 8259 grammar, strictly). Every violation
+// raises JsonException whose message carries the byte offset; the
+// document text is valid UTF-8 and byte offsets count bytes, not
+// characters.
+JsonValue parse(string text) {
+    return JsonParser.run(text);
+}
