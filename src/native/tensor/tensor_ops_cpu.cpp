@@ -25,6 +25,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <type_traits>
+#include <vector>
 
 using nlang::native::Raise;
 
@@ -220,6 +221,137 @@ void CpuConcat(const NativeArrayView& a, const NativeArrayView& b,
         std::memcpy(dstA + aAlong * inner * cellBytes,
                     bCells + o * bAlong * inner * cellBytes,
                     static_cast<size_t>(bAlong * inner) * cellBytes);
+    }
+}
+
+//--- T1.2d phase 2 family (lifted from tensor_gather.cpp run-parts) ---
+
+//Rank-1 int32 index read over the view's own strides (the gather
+//indices walk; the kind/rank gate stays in the dispatcher).
+void CpuReadIndices(const NativeArrayView& v, std::vector<int32_t>* out) {
+    out->clear();
+    out->reserve(static_cast<size_t>(v.elemCount));
+    int64_t idx[nlang::kMaxArrayRank] = {0};
+    int64_t addr = v.offset;
+    const int32_t* cells = static_cast<const int32_t*>(v.data);
+    for (int64_t i = 0; i < v.elemCount; ++i) {
+        out->push_back(cells[addr]);
+        StrideWalkAdvance(v, idx, &addr);
+    }
+}
+
+//A gather-shaped visit: walks the out flat order (dims minus axis),
+//hands each visit the source address of the non-axis position, the
+//flat non-axis position, and the axis index for that position
+//(indices[flat]). Works on any view (addressing via the recorded
+//strides).
+template <typename Fn>
+void VisitGather(const NativeArrayView& a, int32_t axis,
+                 const std::vector<int32_t>& indices, Fn fn) {
+    const int32_t rank = a.rank;
+    const int32_t along = a.dims[axis];
+    int64_t idx[nlang::kMaxArrayRank] = {0};
+    int64_t addr = a.offset;
+    int64_t flat = 0;
+    for (int64_t f = 0; f < a.elemCount / along; ++f) {
+        fn(addr, flat, indices[static_cast<size_t>(flat)]);
+        //Advance the non-axis odometer: innermost first, skipping the
+        //axis dim (the gather drives it from indices).
+        for (int32_t d = rank - 1; d >= 0; --d) {
+            if (d == axis)
+                continue;
+            idx[d] += 1;
+            addr += a.strides[d];
+            if (idx[d] < a.dims[d])
+                break;
+            addr -= static_cast<int64_t>(a.dims[d]) * a.strides[d];
+            idx[d] = 0;
+        }
+        flat += 1;
+    }
+}
+
+//One gather slot body (lifted from GatherKernel's run-parts: the rank-1
+//fancy-indexing walk and the VisitGather walk, per-cell raises).
+template <typename T>
+void CpuGather(NativeHost* host, const NativeArrayView& va, int32_t axis,
+               const NativeArrayView& vIdx, const NativeArrayView& out) {
+    std::vector<int32_t> indices;
+    CpuReadIndices(vIdx, &indices);
+    const int32_t along = va.dims[axis];
+    const T* cells = static_cast<const T*>(va.data);
+    T* outCells = static_cast<T*>(out.data);
+    if (va.rank == 1) {
+        for (size_t i = 0; i < indices.size(); ++i) {
+            const int32_t index = indices[i];
+            if (index < 0 || index >= along)
+                Raise(host, NEXC_OutOfBounds,
+                      "tensor.gather: index " + std::to_string(index)
+                      + " out of bounds for axis 0 with size "
+                      + std::to_string(along));
+            outCells[i] = cells[va.offset + index * va.strides[0]];
+        }
+        return;
+    }
+    VisitGather(va, axis, indices,
+                [&](int64_t addr, int64_t, int32_t index) {
+        if (index < 0 || index >= along)
+            Raise(host, NEXC_OutOfBounds,
+                  "tensor.gather: index " + std::to_string(index)
+                  + " out of bounds for axis " + std::to_string(axis)
+                  + " with size " + std::to_string(along));
+        *outCells++ = cells[addr + index * va.strides[axis]];
+    });
+}
+
+//One argmax/argmin slot body (lifted from ExtremeAxisIndicesKernel's
+//walk: the outer odometer with the first-wins axis scan).
+template <typename T>
+void CpuArgExtreme(NativeHost* host, bool isMax, const NativeArrayView& va,
+                   int32_t axis, const NativeArrayView& out) {
+    (void)host;
+    const int32_t along = va.dims[axis];
+    const int64_t outer = va.elemCount / along;
+    const int32_t outRank = va.rank - 1;
+    int32_t outDims[nlang::kMaxArrayRank];
+    AxisRemovedDims(va, axis, outDims);
+    int32_t* outCells = static_cast<int32_t*>(out.data);
+    const T* cells = static_cast<const T*>(va.data);
+    int64_t idx[nlang::kMaxArrayRank] = {0};
+    int64_t addr = va.offset;
+    for (int64_t f = 0; f < outer; ++f) {
+        int32_t best = 0;
+        T bestVal = cells[addr];
+        for (int32_t s = 1; s < along; ++s) {
+            const T cur = cells[addr + s * va.strides[axis]];
+            if (isMax ? cur > bestVal : cur < bestVal) {
+                bestVal = cur;
+                best = s;
+            }
+        }
+        outCells[f] = best;
+        AxisRemovedAdvance(va, axis, outRank, outDims, idx, &addr);
+    }
+}
+
+//One eq slot body (lifted from EqKernel: the broadcast odometer with
+//the == compare).
+template <typename T>
+void CpuEq(const NativeArrayView& va, const NativeArrayView& vb,
+           const NativeArrayView& out) {
+    const T* ca = static_cast<const T*>(va.data);
+    const T* cb = static_cast<const T*>(vb.data);
+    int32_t* cout = static_cast<int32_t*>(out.data);
+    int64_t idx[nlang::kMaxArrayRank] = {0};
+    int64_t addA = va.offset;
+    int64_t addB = vb.offset;
+    int32_t sa[nlang::kMaxArrayRank];
+    int32_t sb[nlang::kMaxArrayRank];
+    BroadcastStrides(va, out.rank, sa);
+    BroadcastStrides(vb, out.rank, sb);
+    for (int64_t i = 0; i < out.elemCount; ++i) {
+        cout[i] = ca[addA] == cb[addB] ? 1 : 0;
+        BroadcastAdvance(sa, sb, out.dims, out.rank, idx, &addA, &addB);
     }
 }
 
@@ -590,6 +722,84 @@ TensorOps MakeCpuTable() {
                          NativeArrayView& src, int32_t axis,
                          NativeArrayView& dst) {
         ReduceAxisImpl<int64_t>(host, op, src, axis, dst);
+    };
+    //--- T1.2d phase 2 family (gather/argmax/eq/oneHot; uniform keeps
+    //its dispatcher until the P2 snapshot signature) ---
+    t.gatherF32 = [](NativeHost* host, NativeArrayView& src, int32_t axis,
+                     NativeArrayView& indices, NativeArrayView& dst) {
+        CpuGather<float>(host, src, axis, indices, dst);
+    };
+    t.gatherF64 = [](NativeHost* host, NativeArrayView& src, int32_t axis,
+                     NativeArrayView& indices, NativeArrayView& dst) {
+        CpuGather<double>(host, src, axis, indices, dst);
+    };
+    t.gatherI32 = [](NativeHost* host, NativeArrayView& src, int32_t axis,
+                     NativeArrayView& indices, NativeArrayView& dst) {
+        CpuGather<int32_t>(host, src, axis, indices, dst);
+    };
+    t.gatherI64 = [](NativeHost* host, NativeArrayView& src, int32_t axis,
+                     NativeArrayView& indices, NativeArrayView& dst) {
+        CpuGather<int64_t>(host, src, axis, indices, dst);
+    };
+    t.argmaxI32 = [](NativeHost* host, bool isMax, NativeArrayView& src,
+                     int32_t axis, NativeArrayView& dst) {
+        //Kind dispatch lives in the dispatcher; the slot is int32-index
+        //output over a same-kind source — dispatch by source kind here.
+        switch (src.elemKind) {
+            case NEK_Int32:
+                CpuArgExtreme<int32_t>(host, isMax, src, axis, dst); break;
+            case NEK_Int64:
+                CpuArgExtreme<int64_t>(host, isMax, src, axis, dst); break;
+            case NEK_Float32:
+                CpuArgExtreme<float>(host, isMax, src, axis, dst); break;
+            default:
+                CpuArgExtreme<double>(host, isMax, src, axis, dst); break;
+        }
+    };
+    t.eqF32 = [](NativeHost* host, NativeArrayView& a, NativeArrayView& b,
+                 NativeArrayView& dst) {
+        (void)host;
+        CpuEq<float>(a, b, dst);
+    };
+    t.eqF64 = [](NativeHost* host, NativeArrayView& a, NativeArrayView& b,
+                 NativeArrayView& dst) {
+        (void)host;
+        CpuEq<double>(a, b, dst);
+    };
+    t.eqI32 = [](NativeHost* host, NativeArrayView& a, NativeArrayView& b,
+                 NativeArrayView& dst) {
+        (void)host;
+        CpuEq<int32_t>(a, b, dst);
+    };
+    t.eqI64 = [](NativeHost* host, NativeArrayView& a, NativeArrayView& b,
+                 NativeArrayView& dst) {
+        (void)host;
+        CpuEq<int64_t>(a, b, dst);
+    };
+    t.oneHotI32 = [](NativeHost* host, NativeArrayView& labels, int32_t n,
+                     NativeArrayView& dst) {
+        const int32_t len = labels.dims[0];
+        const int32_t* labelsCells = static_cast<const int32_t*>(
+            labels.data);
+        float* outCells = static_cast<float*>(dst.data);
+        int64_t addr = labels.offset;
+        for (int32_t i = 0; i < len; ++i) {
+            if (labelsCells[addr] < 0 || labelsCells[addr] >= n)
+                Raise(host, NEXC_OutOfBounds,
+                      "tensor.oneHot: label "
+                      + std::to_string(labelsCells[addr])
+                      + " out of range for " + std::to_string(n)
+                      + " classes");
+            addr += labels.strides[0];
+        }
+        for (int32_t i = 0; i < len * n; ++i)
+            outCells[i] = 0.0f;
+        addr = labels.offset;
+        for (int32_t i = 0; i < len; ++i) {
+            outCells[static_cast<int64_t>(i) * n + labelsCells[addr]]
+                = 1.0f;
+            addr += labels.strides[0];
+        }
     };
     //--- T1.2c matmul family (lifted from MatMulTyped's run-part: the
     //dispatcher materializes non-contiguous operands and gates shapes,
