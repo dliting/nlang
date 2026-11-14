@@ -1,12 +1,20 @@
 // v0.13.7 regex: the linear-bound acceptance (D9) -- shapes that destroy
 // backtracking engines finish in bounded time on fixed-length input. The
-// cap guards against order-of-magnitude regressions, not millisecond
-// drift: it sits at ~2.5x the ASan baseline readings (design doc 六), so
-// a slowed-down machine still passes -- on 2026-11-13 the gate run hit a
-// machine-wide slowdown (every reading scaled by a uniform 1.50-1.53x
-// under concurrent load), which broke the old 20 s cap on the
-// needle-miss case (baseline 17733 ms, only 1.13x of headroom). This
-// test runs through ctest with its own
+// caps guard against order-of-magnitude regressions, not millisecond
+// drift, and are calibrated against the DEBUG tree -- the slowest routine
+// gate tree (unoptimized + asserts makes it ~2.2-2.5x the Release+ASan
+// tree on this allocation-heavy workload), not the ASan tree the original
+// 45 s single cap assumed. On 2026-11-13 a machine-wide 1.50-1.53x
+// slowdown broke the old 20 s cap (ASan needle baseline 17733 ms, only
+// 1.13x of headroom there); the single 45 s cap then left the Debug tree
+// ~1.5% under the line, and on 2026-11-14 a ~1.8x idle-machine slowdown
+// (same downclocked state on both sides of a same-day A/B: pre-merge
+// aab51585 79910 ms vs post-merge 80280 ms -- parity, no code regression;
+// subsystem probes all within 1.02-1.07x) pushed the Debug-tree needle
+// miss to ~80 s and broke the cap. The needle case therefore carries its
+// own 160 s cap (~2x the slowed reading; any slower and the fixture's
+// ~120 s total hits the 300 s ctest ceiling anyway, which stays the
+// backstop). This test runs through ctest with its own
 // 300 s ceiling, not the e2e runner (30 s per-test cap), following the
 // mnist_mlp_run precedent.
 import io;
@@ -22,10 +30,11 @@ string nTimes(string unit, int n) {
 int main() {
     int bad = 0;
     int n = 16000;
-    //Per-shape wall cap: ~2.5x the ASan baselines, wide enough for the
-    //machine-wide slowdown band measured on 2026-11-13, tight enough to
-    //fail any order-of-magnitude redos regression (see the header note).
+    //Per-shape wall caps: redos cases sit ~2.5x over the slowed Debug-tree
+    //readings of 2026-11-14; the needle case is ~4.4x costlier per run and
+    //carries its own proportionally larger cap (see the header note).
     const int perCaseCapMs = 45000;
+    const int needleCapMs = 160000;
     string hay = nTimes("a", n) + "c";
     long t0 = system.monoMs();
     if (Regex("(a|a)*b").isMatch(hay)) { bad = bad + 1; }
@@ -52,7 +61,7 @@ int main() {
     if (Regex("needle").isMatch(longHay)) { bad = bad + 1; }
     long d5 = system.monoMs() - t0;
     io.print("needle miss ms: " + d5.toString() + "\n");
-    if (d5 > perCaseCapMs) { bad = bad + 1; }
+    if (d5 > needleCapMs) { bad = bad + 1; }
     string hitHay = nTimes("x", 32000) + "needle";
     Match mh = Regex("needle").match(hitHay);
     if (mh == null) { return bad + 1; }
