@@ -180,6 +180,10 @@ void VmBackend::RegisterFunctions(SnNamespace& root) {
             CompiledFunction cf;
             cf.name = KeyOf(func);
             cf.sourceFile = SourceFilePathOf(func);
+            //v2.20 (0.13.8 item 5): the declared access rides the record —
+            //for a free function the only access carrier on the wire
+            //(members mirror their owner row's access tables).
+            cf.access = static_cast<uint8_t>(func.AccessType());
             m_compiledModule.functions.push_back(std::move(cf));
             m_funcIndexMap[&func] = m_compiledModule.functions.size() - 1;
         });

@@ -113,10 +113,12 @@ static void test_link_two_units() {
     lib.enumKeys.push_back("lib.ColorA");
     lib.enumMethodIndices.push_back({});
     lib.enumMethodAccess.push_back({});
+    lib.enumAccess.push_back(FA_Public);
     lib.enumNames.push_back({"Red", "Green"});        //own 1
     lib.enumKeys.push_back("lib.Color");
     lib.enumMethodIndices.push_back({});
     lib.enumMethodAccess.push_back({});
+    lib.enumAccess.push_back(FA_Private);
     lib.functions.push_back(MakeFunc("lib.g", 0));    //own 0
     CompiledFunction lf = MakeFunc("lib.f", 1);       //own 1
     {
@@ -161,6 +163,7 @@ static void test_link_two_units() {
     app.enumKeys.push_back("lib.Color");
     app.enumMethodIndices.push_back({});
     app.enumMethodAccess.push_back({});
+    app.enumAccess.push_back(FA_Public);
     app.enumImports.push_back({"lib", "lib.Color", 0});
 
     std::vector<CompiledModule> units;
@@ -182,6 +185,11 @@ static void test_link_two_units() {
           "enum table");
     CHECK(merged.enumNames[1].size() == 2
        && merged.enumNames[1][1] == "Green", "enum names merged");
+    //v2.20: the type-level access table rides the merge (the provider's
+    //row wins; the placeholder's default is never copied).
+    CHECK(merged.enumAccess.size() == 2
+       && merged.enumAccess[0] == FA_Public
+       && merged.enumAccess[1] == FA_Private, "enum access merged");
     CHECK(merged.stringConstants.size() == 4, "string dedup union");
     CHECK(merged.stringConstants[2] == "lib-str", "lib strings appended");
 
@@ -224,6 +232,7 @@ static void test_enum_method_index_remap_on_merge() {
     lib.enumKeys.push_back("lib.Color");
     lib.enumMethodIndices.push_back({0});    //lib's own function 0
     lib.enumMethodAccess.push_back({0});
+    lib.enumAccess.push_back(FA_Public);
     lib.functions.push_back(MakeFunc("lib.Color.rank", 1));  //own 0
 
     CompiledModule app = MakeUnit("app");
@@ -237,6 +246,7 @@ static void test_enum_method_index_remap_on_merge() {
     app.enumImports.push_back({"lib", "lib.Color", 0});
     app.enumMethodIndices.push_back({});
     app.enumMethodAccess.push_back({});
+    app.enumAccess.push_back(FA_Public);
 
     std::vector<CompiledModule> units;
     units.push_back(std::move(app));
@@ -332,6 +342,7 @@ static void test_link_unresolved_all_at_once() {
     app.enumKeys.push_back("nope.E");
     app.enumMethodIndices.push_back({});
     app.enumMethodAccess.push_back({});
+    app.enumAccess.push_back(FA_Public);
     app.enumImports.push_back({"nope", "nope.E", 0});
 
     std::vector<CompiledModule> units;

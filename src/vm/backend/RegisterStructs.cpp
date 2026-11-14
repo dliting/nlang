@@ -23,6 +23,10 @@ void VmBackend::RegisterStructDecl(SnStructDecl& sn) {
     //v2.12 (v0.12.4): the const-struct marker rides the record — the
     //consumer stub rebuilds SetConstAggregate() from it.
     cs.isConstAggregate = sn.IsConstAggregate();
+    //v2.20 (0.13.8 item 5): the struct's declared access rides the
+    //record — the consumer stub rebuilds the type declaration's
+    //visibility from it.
+    cs.access = static_cast<uint8_t>(sn.AccessType());
     std::vector<SnField*> fieldTypes;
     for (auto& field : sn.Fields()) {
         cs.fieldNames.push_back(field.Name());

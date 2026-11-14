@@ -148,6 +148,9 @@ void VmBackend::RegisterClassDecl(SnClassDecl& sn,
     //load-time linker dedups peer images by qualified name).
     cc.name = KeyOf(sn);
     cc.superClassIdx = -1;
+    //v2.20 (0.13.8 item 5): the class's declared access rides the record —
+    //the consumer stub rebuilds the type declaration's visibility from it.
+    cc.access = static_cast<uint8_t>(sn.AccessType());
     //v0.13.1 D7: the template row carries its declared parameters — the
     //consumer's stub rebuilds a generic declaration from them, so a
     //sourceless package stays instantiable (the erased row is the one

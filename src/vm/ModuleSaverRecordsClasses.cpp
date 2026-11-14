@@ -159,6 +159,11 @@ void WriteClassRecords(std::ostream& fs, const CompiledModule& mod)
             fs.write(reinterpret_cast<const char*>(&tpLen), sizeof(tpLen));
             fs.write(tp.c_str(), tpLen);
         }
+
+        //v2.20 (0.13.8 item 5): the class's declared access, the record's
+        //trailing byte (the member tables above carry the members').
+        fs.write(reinterpret_cast<const char*>(&cc.access),
+                 sizeof(cc.access));
     }
 }
 

@@ -299,12 +299,15 @@ void test_module_import_slots_roundtrip() {
     mod.enumNames.push_back({});  //placeholder slot for lib.Color
     mod.enumKeys.push_back("app.Color");
     mod.enumKeys.push_back("lib.Color");  //placeholder carries the target key
-    //v2.9: the method tables keep the four-vector lockstep (the writer
+    //v2.9: the method tables keep the vector lockstep (the writer
     //refuses a diverging module); this module carries no enum methods.
     mod.enumMethodIndices.push_back({});
     mod.enumMethodIndices.push_back({});
     mod.enumMethodAccess.push_back({});
     mod.enumMethodAccess.push_back({});
+    //v2.20: the type-level access table joins the same lockstep.
+    mod.enumAccess.push_back(FA_Public);
+    mod.enumAccess.push_back(FA_Public);
     mod.enumImports.push_back({"lib", "lib.Color", 0});
 
     std::string tmpPath =

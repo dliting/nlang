@@ -1,5 +1,6 @@
 #include "ModuleLoader.h"
 #include "ModuleLoaderRecords.h"
+#include <nlang/runtime/NodeConsts.h>
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
@@ -244,6 +245,18 @@ CompiledModule ModuleLoader::LoadFromBytes(const std::string& filePath,
                     &mod.enumMethodAccess[i][j]),
                     sizeof(mod.enumMethodAccess[i][j]));
             }
+        }
+        //v2.20 (0.13.8 item 5): per-enum declared access bytes, parallel
+        //to enumNames (the writer emits exactly enumCount bytes; the
+        //prologue guard keeps the tables parallel by construction). A
+        //FA_Default or above-FA_Public byte is a corrupt image — the
+        //consumer stub rebuilds visibility from it.
+        mod.enumAccess.resize(enumCount);
+        for (auto& acc : mod.enumAccess) {
+            fs.read(reinterpret_cast<char*>(&acc), sizeof(acc));
+            if (!fs.good() || acc == FA_Default || acc > FA_Public)
+                throw std::runtime_error(
+                    "Invalid module: bad enum access byte");
         }
         if (!fs.good())
             throw std::runtime_error("Invalid module: truncated enum keys");

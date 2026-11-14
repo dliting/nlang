@@ -272,6 +272,19 @@ void ReadFunctionRecords(std::istream& fs, CompiledModule& mod)
                     "Invalid module: handle mask length disagrees with "
                     "frame layout in '" + func.name + "'");
         }
+
+        //v2.20 (0.13.8 item 5): the declared access byte, the record's
+        //trailing field. FA_Default never reaches the wire (the
+        //producer's OnAddedToParent resolves it at registration) and
+        //anything above FA_Public is not an access level — both are
+        //corrupt images, not silent public.
+        fs.read(reinterpret_cast<char*>(&func.access),
+                sizeof(func.access));
+        if (!fs.good() || func.access == FA_Default
+            || func.access > FA_Public)
+            throw std::runtime_error(
+                "Invalid module: bad function access byte in '"
+                + func.name + "'");
     }
 }
 
@@ -381,6 +394,14 @@ void ReadStructRecords(std::istream& fs, CompiledModule& mod)
                 throw std::runtime_error(
                     "Invalid module: bad struct constructor access");
         }
+
+        //v2.20 (0.13.8 item 5): the struct's declared access, the
+        //record's trailing byte (same corrupt-image rule as the function
+        //record's).
+        fs.read(reinterpret_cast<char*>(&st.access), sizeof(st.access));
+        if (!fs.good() || st.access == FA_Default || st.access > FA_Public)
+            throw std::runtime_error(
+                "Invalid module: bad struct access byte");
     }
 }
 

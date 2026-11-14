@@ -244,6 +244,15 @@ void ReadClassRecords(std::istream& fs, CompiledModule& mod)
                 throw std::runtime_error(
                     "Invalid module: truncated type-parameter names");
         }
+
+        //v2.20 (0.13.8 item 5): the class's declared access, the record's
+        //trailing byte (same corrupt-image rule as the function record's —
+        //FA_Default never reaches the wire, above-FA_Public is not an
+        //access level).
+        fs.read(reinterpret_cast<char*>(&cc.access), sizeof(cc.access));
+        if (!fs.good() || cc.access == FA_Default || cc.access > FA_Public)
+            throw std::runtime_error(
+                "Invalid module: bad class access byte");
     }
 
     //0.9.12 (v2.7): the class records carry OWN fields and join their

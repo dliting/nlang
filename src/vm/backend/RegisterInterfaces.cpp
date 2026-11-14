@@ -140,6 +140,10 @@ void VmBackend::RegisterInterfaces(SnNamespace& root) {
         auto& sn = static_cast<SnInterfaceDecl&>(node);
         CompiledInterface ci;
         ci.name = KeyOf(sn);
+        //v2.20 (0.13.8 item 5): the interface's declared access rides the
+        //record — the consumer stub rebuilds the type declaration's
+        //visibility from it (members are implicitly public by contract).
+        ci.access = static_cast<uint8_t>(sn.AccessType());
         m_ifaceIndexByDecl[&sn] = static_cast<uint16_t>(
             m_compiledModule.interfaces.size());
         AppendInterfaceStaticIndices(sn, ci);

@@ -114,6 +114,12 @@ struct CompiledStruct {
     //after fieldCount. The consumer stub rebuilds SetConstAggregate()
     //from it, so a lost byte silently unseals imported const structs.
     bool isConstAggregate = false;
+    //v2.20 (0.13.8 item 5): the STRUCT's declared access (FA_*), the
+    //record's trailing wire byte — the consumer stub rebuilds the type
+    //declaration's visibility from it (the member bytes below carry the
+    //members'). FA_Public default keeps records created outside the AST
+    //capture pass (intrinsics, test forges) valid.
+    uint8_t access = FA_Public;
     std::vector<std::string> fieldNames;
     std::vector<uint16_t> fieldTypeKinds;       // RTK_* per field
     std::vector<uint16_t> fieldStructIndices;    // struct index for struct-typed fields, 0xFFFF for non-struct
@@ -241,6 +247,15 @@ struct CompiledFunction {
     //with localsSize/paramCount makes the GC fall back to the
     //conservative band scan.
     std::vector<uint8_t> evalAreaHandleMask;
+    //v2.20 (0.13.8 item 5): the function's declared access (FA_*), the
+    //record's trailing wire byte. For FREE (namespace-level) functions
+    //this is the only access carrier on the wire; for members the owner
+    //row's per-member access tables already exist (the class
+    //methodAccess/constructorAccess, the struct ctor table, the enum
+    //method table) and this byte mirrors them. FA_Public default keeps
+    //records created outside the AST capture pass (intrinsics, test
+    //forges) valid.
+    uint8_t access = FA_Public;
 };
 
 struct CompiledModule;
@@ -335,6 +350,12 @@ struct CompiledClass {
     //the defaults.
     bool isTemplate = false;
     std::vector<std::string> typeParamNames;
+    //v2.20 (0.13.8 item 5): the CLASS's declared access (FA_*), the
+    //record's trailing wire byte — the consumer stub rebuilds the type
+    //declaration's visibility from it (the member tables above carry the
+    //members'). FA_Public default keeps records created outside the AST
+    //capture pass (intrinsics, test forges) valid.
+    uint8_t access = FA_Public;
 };
 
 //0.9.12 (v2.7): one exported interface instance-method signature. The
@@ -390,6 +411,13 @@ struct CompiledInterface {
     //packages stay instantiable. Non-template rows carry the defaults.
     bool isTemplate = false;
     std::vector<std::string> typeParamNames;
+    //v2.20 (0.13.8 item 5): the INTERFACE's declared access (FA_*), the
+    //record's trailing wire byte. Members are implicitly public by the
+    //declaration contract (see CompiledInterfaceMethod), so this byte
+    //gates only the type name itself. FA_Public default keeps records
+    //created outside the AST capture pass (intrinsics, test forges)
+    //valid.
+    uint8_t access = FA_Public;
 };
 
 } // namespace nlang

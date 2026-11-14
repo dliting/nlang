@@ -126,10 +126,14 @@ inline uint32_t EnumSymbolSlot(CompiledModule &mod,
 		return static_cast<uint32_t>(existing);
 	mod.enumNames.push_back({});
 	mod.enumKeys.push_back(name);
-	//v2.9: the method tables keep the four-vector lockstep (empty rows
+	//v2.9: the method tables keep the vector lockstep (empty rows
 	//for the placeholder slot).
 	mod.enumMethodIndices.push_back({});
 	mod.enumMethodAccess.push_back({});
+	//v2.20: the type-level access table joins the lockstep (the
+	//placeholder row defaults to public; nlink's merge replaces the
+	//placeholder with the provider's rich row).
+	mod.enumAccess.push_back(FA_Public);
 	const uint32_t slot = static_cast<uint32_t>(mod.enumNames.size() - 1);
 	mod.enumImports.push_back({modulePath, name, 0});
 	return slot;

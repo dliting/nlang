@@ -188,8 +188,16 @@ inline constexpr uint16_t NCU_FORMAT_MAJOR = 2;
 //stub rebuilds a generic DECLARATION from. A v2.18 module lacks the
 //tail and misparses at the next interface record; refuse v2.18 and
 //older outright.
+//v2.20 (0.13.8 item 5): declared access bytes — free functions
+//(CompiledFunction::access, the record tail), top-level types
+//(CompiledClass/Struct/Interface::access, the record tail), and enums
+//(CompiledModule::enumAccess, a table parallel to enumNames after the
+//method tables). The consumer stub rebuilds cross-module visibility
+//from them; the loader refuses FA_Default and any byte above FA_Public
+//as corrupt images. A v2.19 module lacks the bytes and misparses each
+//record tail; refuse v2.19 and older outright.
 //Minor bump: every .ncu recompiles with the current ncc.
-inline constexpr uint16_t NCU_FORMAT_MINOR = 19;
+inline constexpr uint16_t NCU_FORMAT_MINOR = 20;
 
 //--- Slot-width ABI (0.7.5) ----------------------------------------------
 //The frame and the heap use two different stride contracts; both live
@@ -365,6 +373,11 @@ struct CompiledModule {
     //mirroring the class methodAccess gate on the consumer side.
     std::vector<std::vector<uint16_t>> enumMethodIndices;
     std::vector<std::vector<uint8_t>> enumMethodAccess;
+    //v2.20 (0.13.8 item 5): the per-enum declared access byte (FA_*),
+    //parallel to enumNames/enumKeys like the method tables — the enum
+    //TYPE's visibility, which the consumer stub rebuilds the declaration
+    //from (the method tables above carry the MEMBERS' access).
+    std::vector<uint8_t> enumAccess;
     //v2.13 (v0.12.6): the module's static slot table — one entry per
     //runtime-addressed static (mutable class statics, runtime-const
     //fields, static locals), in allocation order. Bytecode addresses

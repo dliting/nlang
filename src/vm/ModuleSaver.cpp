@@ -60,16 +60,17 @@ void WriteDefaultValueDesc(std::ostream& fs, const DefaultValueDesc& dv)
 bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
                          const std::string& entryKey) {
     if (!fs.good()) return false;
-    //The four enum tables (names/keys + v2.9 method indices/access)
-    //stay parallel by construction (RegisterEnums + RegisterEnumMethods,
-    //Import's merge push, EnumSymbolSlot, ModuleLoader). The writer is
-    //the single chokepoint to refuse a diverging module: the reader
-    //consumes exactly enumCount keys and enumCount method rows, so a
-    //mismatch would desync every later section into a misleading
-    //"bad import count" failure.
+    //The five enum tables (names/keys + v2.9 method indices/access +
+    //v2.20 type access) stay parallel by construction (RegisterEnums +
+    //RegisterEnumMethods, Import's merge push, EnumSymbolSlot,
+    //ModuleLoader). The writer is the single chokepoint to refuse a
+    //diverging module: the reader consumes exactly enumCount keys, enumCount
+    //method rows and enumCount access bytes, so a mismatch would desync
+    //every later section into a misleading "bad import count" failure.
     if (mod.enumKeys.size() != mod.enumNames.size()
         || mod.enumMethodIndices.size() != mod.enumNames.size()
-        || mod.enumMethodAccess.size() != mod.enumNames.size())
+        || mod.enumMethodAccess.size() != mod.enumNames.size()
+        || mod.enumAccess.size() != mod.enumNames.size())
         return false;
 
     // Magic
@@ -284,9 +285,9 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
         if (func.returnTypeKind != RTK_Void)
             WriteLenPrefixedTypeDesc(fs, func.returnTypeDesc);
 
-        //K2 slice 5: eval-area handle mask, the record's trailing field
-        //(uint32 byte count + packed 2-bit classes; see EvalSlotClass).
-        //Always emitted — bandless records carry a zero count.
+        //K2 slice 5: eval-area handle mask (uint32 byte count + packed
+        //2-bit classes; see EvalSlotClass). Always emitted — bandless
+        //records carry a zero count.
         uint32_t maskBytes = static_cast<uint32_t>(
             func.evalAreaHandleMask.size());
         fs.write(reinterpret_cast<const char*>(&maskBytes),
@@ -294,6 +295,12 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
         if (maskBytes > 0)
             fs.write(reinterpret_cast<const char*>(
                 func.evalAreaHandleMask.data()), maskBytes);
+
+        //v2.20 (0.13.8 item 5): the declared access byte, the record's
+        //trailing field — for a free function the only access carrier on
+        //the wire (members mirror their owner row's access tables).
+        fs.write(reinterpret_cast<const char*>(&func.access),
+                 sizeof(func.access));
     }
 
     // Struct descriptors
@@ -367,6 +374,11 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
         //stub rebuilds each struct ctor with its visibility.
         for (auto a : st.constructorAccess)
             fs.write(reinterpret_cast<const char*>(&a), sizeof(a));
+
+        //v2.20 (0.13.8 item 5): the struct's declared access, the
+        //record's trailing byte.
+        fs.write(reinterpret_cast<const char*>(&st.access),
+                 sizeof(st.access));
     }
 
     // Class descriptors (wire layout in ModuleSaverRecordsClasses.cpp —

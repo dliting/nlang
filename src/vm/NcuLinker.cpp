@@ -65,6 +65,10 @@ static void ValidateClosure(const std::vector<CompiledModule>& units) {
             || u.enumMethodAccess.size() != u.enumNames.size())
             throw std::runtime_error("nlink: unit '" + u.modulePath
                 + "': enum method tables and enumNames diverge (corrupt image)");
+        //v2.20: the type-level access table joins the parallel chain.
+        if (u.enumAccess.size() != u.enumNames.size())
+            throw std::runtime_error("nlink: unit '" + u.modulePath
+                + "': enumAccess and enumNames diverge (corrupt image)");
         auto checkTable = [&](const char* kind, size_t imports,
                               size_t table) {
             if (imports > table)
@@ -190,6 +194,8 @@ static void MergeEnums(const CompiledModule& u, CompiledModule& merged,
         //owns their function-index remap, recorded through p.enums).
         merged.enumMethodIndices.push_back(u.enumMethodIndices[i]);
         merged.enumMethodAccess.push_back(u.enumMethodAccess[i]);
+        //v2.20: the type-level access byte rides the same push.
+        merged.enumAccess.push_back(u.enumAccess[i]);
         p.enums.push_back(m.enums[i]);
     }
 }
