@@ -28,6 +28,7 @@ set(NLANG_TENSOR_KERNEL_SOURCES
     tensor/tensor_views.cpp
     tensor/tensor_activation.cpp
     tensor/tensor_gather.cpp
+    tensor/tensor_ops_cpu.cpp
     tensor/tensor_random.cpp)
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "(AMD64|x86_64|amd64)")
     list(APPEND NLANG_TENSOR_KERNEL_SOURCES
