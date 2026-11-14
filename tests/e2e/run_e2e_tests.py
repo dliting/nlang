@@ -76,6 +76,17 @@ def _newest_file(paths):
     return best_mtime, best_name
 
 
+def _display_path(path):
+    """Path spelling for messages: repo-relative when possible. On
+    Windows os.path.relpath raises when path and the repo sit on
+    different drives (no relative form exists) — fall back to the
+    absolute path instead of crashing the guard itself."""
+    try:
+        return os.path.relpath(path, REPO_ROOT)
+    except ValueError:
+        return os.path.normpath(path)
+
+
 def _fail_on_stale_tools(ncc, nvm, ndb):
     """Refuse to run against artifacts older than their real inputs.
 
@@ -106,7 +117,7 @@ def _fail_on_stale_tools(ncc, nvm, ndb):
             print(f"ERROR: tool not found: {tool}")
             sys.exit(2)
         if os.path.getmtime(tool) < newest_src:
-            print(f"ERROR: {os.path.relpath(tool, REPO_ROOT)} is older "
+            print(f"ERROR: {_display_path(tool)} is older "
                   f"than {newest_name} - rebuild the tools before "
                   f"running the suite (stale-binary results are "
                   f"meaningless)")
@@ -135,10 +146,10 @@ def _fail_on_stale_tools(ncc, nvm, ndb):
         newest_n, newest_n_name = _newest_file(
             glob.glob(os.path.join(REPO_ROOT, 'stdlib', '*.n')))
         for bound, bound_name in (
-                (os.path.getmtime(ncc), os.path.relpath(ncc, REPO_ROOT)),
+                (os.path.getmtime(ncc), _display_path(ncc)),
                 (newest_n, newest_n_name)):
             if os.path.getmtime(npkg) < bound:
-                print(f"ERROR: {os.path.relpath(npkg, REPO_ROOT)} is "
+                print(f"ERROR: {_display_path(npkg)} is "
                       f"older than {bound_name} - rebuild the "
                       f"nlang_stdlib_package target before running the "
                       f"suite (stale-package results are meaningless)")
