@@ -48,7 +48,7 @@ orders convert by the argument's kind and fold into the result
 
 When one or both operands of `+`, `-`, `*`, `/` is a numeric
 array (int, long, float, double elements), the operator lowers
-to the [tensor](../library/18-tensor.md) package's kernels —
+to the [tensor](../library/19-tensor.md) package's kernels —
 `a + b` is `tensor.add(a, b)` with right-aligned broadcasting;
 `2 * x`, `x - 1` and `1 - x` ride the scalar arms (`1 - x`
 lowers to the reversed arm `tensor.rsubScalar`, since `-` has
@@ -61,7 +61,7 @@ Compound assignment on arrays (`a += b`) is rejected — use
 the plain assignment with the operator form. `string + ...
 ` keeps its concatenation reading, and array identity
 comparison (`==`/`!=`) is unchanged. See
-[Tensor](../library/18-tensor.md) §18.5.1.
+[Tensor](../library/19-tensor.md) §19.5.1.
 
 ### Shift
 
