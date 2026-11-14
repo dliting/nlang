@@ -1,3 +1,14 @@
+## [0.13.8] - 2026-11-14
+
+泛型机制术语统一（依据`docs/dev/generic_term_reference.md`）：运行时拼出实例化规范名称的那份记录统一称为*拼接记录*（代码中为`composition`），取代此前的"配方"措辞；"铸造/mint"措辞按语义并入创建／实例化词族。
+
+### 变更
+
+- **反汇编与加载器诊断改用新术语。**`ndisasm`（及调试器反汇编视图）把描述符行打印为`desc=composition#N`，`OP_TypeNameCompose`的操作数打印为`dst=%u composition=%u`；加载器与链接器诊断改为"truncated/malformed composition record"与"unknown composition record tag"。依赖旧`recipe`拼写的脚本需要同步更新。代码标识符随同一批改名（`compositionIdx`、`compositionLen`、`AppendArgComposition`）；`.ncu`字节布局不变，既有模块照常加载。
+- **"铸造/mint"标识符与注释按语义改名。**造对象走`Create*`（`CreateHostString`、`CreateShell`、`CreateThreadObject`），泛型实例化机制走`*Instantiation*`（`ExprResolverGenericInstantiation`、`InstantiationDepthClaim`；三个源文件随之改名），创建状态与门控走`Created`/`CreationGate`（`NativeCreationGate`、`creationGate`）。用户可见变化：native数组绑定诊断改为"element kind is not a creatable scalar"（原"mintable"）。无行为变化。
+- **"裸名"统一为"非限定名"**：源码注释与测试标识符中指名字解析（包前缀）语义的写法统一为unqualified name。泛型构造诊断保留既有文案"cannot be constructed by bare name"；仅注释与测试变化，无行为变化。
+- **手册泛型章节统一术语**——拼接记录、规范拼写、非限定名——覆盖中英文规格与VM架构各页（措辞统一，无语义变更）。
+
 ## [0.13.7] - 2026-11-12
 
 本条目由两条并行开发线的同版本工作合并而成：张量向量运算（数组算术运算符、SIMD内核层、下标与比较原语）与位运算符、复合位赋值、regex包及死令牌脚手架移除；以下各小节为两侧内容并集。

@@ -1,3 +1,42 @@
+## [0.13.8] - 2026-11-14
+
+Terminology pass over the generic machinery, per
+`docs/dev/generic_term_reference.md`: the runtime record that spells a
+canonical instantiation name is now consistently called a *composition
+record* (`composition` in code), replacing the previous "recipe"
+wording, and the "mint" wording is replaced by the create/creation/
+instantiation families.
+
+### Changed
+
+- **Disassembly and loader diagnostics use the new term.** `ndisasm`
+  (and the debugger's disassembly view) print descriptor rows as
+  `desc=composition#N` and the `OP_TypeNameCompose` operands as
+  `dst=%u composition=%u`; the loader and linker diagnostics read
+  "truncated/malformed composition record" and "unknown composition
+  record tag". Scripts that grep the old `recipe` spellings must be
+  updated. Code identifiers follow the same rename (`compositionIdx`,
+  `compositionLen`, `AppendArgComposition`); the `.ncu` byte layout is
+  unchanged and existing modules load as before.
+- **"Mint" identifiers and comments renamed by semantics.** Object
+  creation follows `Create*` (`CreateHostString`, `CreateShell`,
+  `CreateThreadObject`), the generic instantiation machinery follows
+  `*Instantiation*` (`ExprResolverGenericInstantiation`,
+  `InstantiationDepthClaim`; three source files renamed), and
+  created-state gating follows `Created`/`CreationGate`
+  (`NativeCreationGate`, `creationGate`). User-visible: the
+  native-array binding diagnostics now read "element kind is not a
+  creatable scalar" (previously "mintable"). No behavior change.
+- **"Bare name" unified to "unqualified name"** in source comments and
+  test identifiers for the name-resolution sense (the package-prefix
+  concept). The generic-construction diagnostic keeps its established
+  wording "cannot be constructed by bare name"; comments and tests
+  only, no behavior change.
+- **The manual's generic chapters use the unified terms** —
+  composition record, canonical name, unqualified name — across the
+  Chinese and English specification and VM-architecture pages
+  (wording unification, no semantic change).
+
 ## [0.13.7] - 2026-11-12
 
 This entry merges same-version work from two parallel development lines: the tensor vector-ops batch (array arithmetic operators, the SIMD kernel layer, index and comparison primitives) and the bitwise operators, compound bitwise assignment, the regex package and the dead-token scaffold removal; the subsections below are the union of both sides.
