@@ -1,0 +1,5 @@
+public int openHelper() { return 3; }
+public class OpenBox { public int f() { return 5; } }
+private int hiddenHelper() { return 7; }
+public int usePrivate() { return hiddenHelper(); }
+public int helper() { return 9; }

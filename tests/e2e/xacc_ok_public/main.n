@@ -1,0 +1,7 @@
+import lib;
+int helper() { return 10; }
+int main() {
+    lib.OpenBox box = lib.OpenBox();
+    return openHelper() + usePrivate() + box.f() + helper()
+        + lib.openHelper();
+}
