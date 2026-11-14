@@ -40,6 +40,7 @@ typedef NodeBits SyntaxNodeBits;
 	MACRO_IMPL(NewArrayExpr)				/* new T[n] expression */			\
 	MACRO_IMPL(InitListExpr)			/* [e1,e2] / {k:v} / new T{} (Phase 8e-6) */	\
 	MACRO_IMPL(ThisExpr)					/* this expression */				\
+	MACRO_IMPL(TypeNameExpr)				/* typeName(T) expression (v0.13.1 D4) */	\
 	MACRO_IMPL(SubscriptExpr)				/* array subscript access */		\
 	MACRO_IMPL(SliceItemExpr)			/* slice item h:s:st (v0.12.7 T11) */	\
 	MACRO_IMPL(ReturnStmt)				/* return statement */				\
@@ -115,7 +116,8 @@ static_assert(NK_CP_END < NODE_KIND_LIMIT,
 	MACRO_IMPL(NullLiteral,	8, "null literal (Option B)")	\
 	MACRO_IMPL(Out,		9, "out parameter (Phase 9e)") \
 	MACRO_IMPL(ExplicitVoid, 10, "explicit 'void' return type") \
-	MACRO_IMPL(ScriptEntry, 11, "synthesized script entry (D8)")
+	MACRO_IMPL(ScriptEntry, 11, "synthesized script entry (D8)") \
+	MACRO_IMPL(TensorOp, 12, "lowered to a tensor module call (v0.13.7)")
 
 enum CompNodeFlag: NodeBits
 {

@@ -1,0 +1,36 @@
+// generic_free_fn_infer.n — 0.13.1a: call-site inference shapes for
+// generic free functions (T direct, T[] ranks, nested instantiations,
+// return-position from the assignment target).
+// Note: max's body avoids ordering on a type-parameter-typed operand —
+// that remains a named compile error (err_generic_t_order) and is out
+// of this spec's scope; the inference pins do not need it.
+T firstOf<T>(T[] xs) {
+    return xs[0];
+}
+T unwrap<T>(List<T> xs) {
+    return xs.get(0);
+}
+List<T> makeList<T>() {
+    return {};          // target-typed initializer fills the body's return
+}
+string kindOf<T>(T v) {
+    return typeName(T);
+}
+T max<T>(T a, T b) {
+    return b;
+}
+int main() {
+    int[] a = [1, 2, 3];
+    if (firstOf(a) != 1) { return 3; }              // T[] shape, rank-consistent
+    List<string> ls = {};
+    ls.add("x");
+    if (unwrap(ls) != "x") { return 4; }            // nested instantiation
+    if (max(3, 7) != 7) { return 5; }
+    if (max(3.0, 7.0) != 7.0) { return 6; }         // exact match, no promotion
+    if (kindOf(3) != "int") { return 7; }
+    // return-position-only T: inferred from the assignment target
+    List<string> made = makeList();
+    made.add("y");
+    if (made.get(0) != "y") { return 8; }
+    return 0;
+}

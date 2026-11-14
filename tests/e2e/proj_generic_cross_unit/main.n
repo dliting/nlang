@@ -12,6 +12,14 @@ int main()
     Box<string> bs = Box("x");
     int r = bi.get() + bs.get().length();
     if (r != 4) { return 9; }
+    //v0.13.1 D5: instantiation-distinguishing casts across the unit
+    //boundary — the descriptor rows of both units merge at link time,
+    //so the wrong instantiation of boxlib's template still throws.
+    Object o = bi;
+    try { Box<string> bad = o as Box<string>; return 8; }
+    catch (InvalidCastException e) { }
+    Box<int> back = o as Box<int>;
+    if (back.get() != 3) { return 7; }
     io.print(r);
     return 0;
 }

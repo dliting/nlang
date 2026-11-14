@@ -2,6 +2,7 @@
 #include "CompiledModuleStubMembers.hpp"
 #include "CompiledModuleDefaultSupport.hpp"
 #include "CompiledModuleStubSupport.hpp"
+#include "TemplateSignatureLeaves.h"
 #include "SyntaxTree.h"
 #include "SnMisc.h"
 #include "SnData.h"
@@ -138,8 +139,15 @@ public:
 			//the stub mints public (top-level declarations are public).
 			//0.10.14: the table index rides the stub — the namespace
 			//branch of the cross-unit slot record carries it.
+			//0.13.1a Task 7: generic records pass their type parameter
+			//names so the stub mints a generic declaration (inference
+			//reads the stub's formals; T leaves synthesize by name).
+			const std::vector<std::string> *genericNames = nullptr;
+			if (cm.functions[i].isGeneric
+			    && !cm.functions[i].typeParamNames.empty())
+				genericNames = &cm.functions[i].typeParamNames;
 			SnFunction *stub = CreateFunctionStub(cm.functions[i], cm,
-				loc, FA_Public, ProducerIdxClamp(i));
+				loc, FA_Public, ProducerIdxClamp(i), genericNames);
 			if (nameExistsInRoot(LeafNameOfKey(cm.functions[i].name)))
 			{
 				//R10-1: no second root entry for an existing name — but
@@ -177,6 +185,13 @@ public:
 			if (nameExistsInRoot(LeafNameOfKey(cm.classes[ci].name)))
 				continue;  //R10-1
 			SnClassDecl *stub = CreateClassStub(cm.classes[ci], cm, loc);
+			//The leaf contract, enforced at the mint entry: a template
+			//row whose signatures diverge from the canonical leaf shapes
+			//(bare leaves must be pre-bound builtins) fails here in
+			//Debug, before any consumer sees the stub
+			//(TemplateSignatureLeaves.h).
+			NLANG_ASSERT(!cm.classes[ci].isTemplate
+				|| TemplateClassSignaturesAreCanonical(*stub));
 			m_Tree.Root()->Members().push_back(stub);
 			m_importedTypes.push_back(stub);
 			classStubs.emplace_back(stub, &cm.classes[ci]);

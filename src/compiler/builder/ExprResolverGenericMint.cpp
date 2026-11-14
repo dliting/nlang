@@ -3,10 +3,13 @@
     从 ExprResolverGenerics.cpp 抽取（source-size 守卫驱动的拆分，零行为变化）。
 ---*/
 #include "ExprResolver.h"
+#include "GenericMintDepthClaim.hpp"
+#include "GenericMemberClone.hpp"
 #include "SnExtraTypes.h"
 #include "SnMisc.h"
 #include "SnData.h"
 #include "SnArrayTypeToken.h"
+#include "TemplateSignatureLeaves.h"
 #include "ScriptLocation.h"
 #include "SyntaxTree.h"
 #include "BuildEnvironment.h"
@@ -23,30 +26,6 @@
 namespace nlang
 {
 
-namespace
-{
-//Scoped increment of the concurrent-mint depth around the mint window:
-//nested instantiations fire synchronously inside BOTH phases — template
-//completion resolves the template's own member types (a member type
-//like A<A<T>> resolves through Access back into
-//GetDeclaredGenericClassDecl), and member cloning substitutes them into
-//the instance — each nested mint through a freshly constructed
-//resolver, so the chain counter lives on the registry, shared across
-//resolver instances, and the guard reads it at the mint entry.
-class MintDepthClaim
-{
-public:
-	explicit MintDepthClaim(GenericInstanceRegistry& registry)
-		: m_rRegistry(registry)
-		{ m_rRegistry.EnterMintDepth(); }
-	~MintDepthClaim() { m_rRegistry.LeaveMintDepth(); }
-	MintDepthClaim(const MintDepthClaim&) = delete;
-	MintDepthClaim& operator=(const MintDepthClaim&) = delete;
-private:
-	GenericInstanceRegistry& m_rRegistry;
-};
-}
-
 //==================== declared-generic machinery ====================
 //
 //`class Name<T, ...>` declarations (signature surfaces only) resolve
@@ -58,42 +37,6 @@ private:
 //registry instance is owned by ModuleRegistry — one per BUILD
 //(process-global maps would be keyed by per-build pointers and unit
 //indices; see that header).
-
-//One template member's signature deep-copy: the copy is the metadata
-//surface only — return type and formal parameters with their constant
-//defaults (bodies and native bindings stay with the template row).
-SnField* CloneGenericMember(SnField& src,
-	const std::vector<SnField*>& typeArgs,
-	const std::function<SnFieldExpr*(SnFieldExpr&)>& substitute,
-	const std::function<SnExpression*(SnExpression*)>& cloneDefault)
-{
-	if (src.Kind() == NK_Function)
-	{
-		auto& fn = static_cast<SnFunction&>(src);
-		SnFieldExpr* pRetCopy = fn.ReturnType()
-			? substitute(*fn.ReturnType()) : nullptr;
-		auto* pParams = new PtrList<SnFormalParam>();
-		for (auto& param : fn.Params())
-		{
-			auto* pTypeCopy = param.Type()
-				? substitute(*param.Type()) : nullptr;
-			pParams->push_back(new SnFormalParam(param.Flags(), pTypeCopy,
-				new std::string(param.Name()),
-				cloneDefault(param.Value()), *param.Location()));
-		}
-		return new SnFunction(fn.AccessType(), fn.Flags(), pRetCopy,
-			new std::string(fn.Name()), pParams, *fn.Location());
-	}
-	if (src.Kind() == NK_ClassField)
-	{
-		auto& field = static_cast<SnClassField&>(src);
-		auto* pTypeCopy = field.Type()
-			? substitute(*field.Type()) : nullptr;
-		return new SnClassField(pTypeCopy, new std::string(field.Name()),
-			field.AccessType(), *field.Location());
-	}
-	return nullptr;
-}
 
 //GetDeclaredGenericClassDecl's member-fill loop: each member copy has
 //its type expressions substituted before joining the shell. Copies
@@ -133,6 +76,12 @@ bool ExprResolveAccessor::FillInstanceMembers(SnClassDecl& tmpl,
 		//list mutation on either side.
 		m_Env.Registry().DeclaredGenerics()
 			.AdoptMemberClone(pCopy, &member);
+		//The clone-to-instantiation pair (0.13.1a): the backend's static-
+		//call arm reads the instantiation node for the frame descriptor
+		//cell; recorded at the same fill-time point so later member-list
+		//mutation on either side cannot drift the mapping.
+		m_Env.Registry().DeclaredGenerics()
+			.AdoptCloneInstantiation(pCopy, &inst);
 	}
 	return true;
 }
@@ -195,7 +144,7 @@ void ExprResolveAccessor::CompleteTemplateForMint(SnClassDecl& tmpl)
 //inside A<T>) grows a genuinely fresh key per link and would recurse
 //until the stack overflowed. The diagnostic is deduped per template
 //per build: every later trip of the same family is the same defect.
-bool ExprResolveAccessor::MintDepthLimitReached(const SnClassDecl& tmpl)
+bool ExprResolveAccessor::MintDepthLimitReached(const SyntaxNode& tmpl)
 {
 	auto& generics = m_Env.Registry().DeclaredGenerics();
 	if (generics.GenericMintDepth() < kMaxGenericInstantiationDepth)
@@ -225,10 +174,95 @@ void ExprResolveAccessor::FillInstanceWindow(SnClassDecl& tmpl,
 	//template so inheritance-distance checks (an equals(Object)
 	//argument binding) see the chain.
 	inst.SuperClass(tmpl.SuperClass());
+	//The template's implements edges were resolved against its own
+	//placeholders; the instantiation re-mints them against its concrete
+	//arguments (Box<X> implements Wrapper<X> makes Box<string> a
+	//Wrapper<string>).
+	FillInstanceImplementsEdges(tmpl, typeArgs, inst);
 	//A member the instantiation cannot carry already logged its
 	//diagnostic; the partially filled shell is still served so later
 	//phases maximize diagnostics instead of failing on a null type.
 	FillInstanceMembers(tmpl, typeArgs, inst);
+}
+
+//One implements-edge type argument, substituted against the mint's
+//argument vector (contract on the declaration in ExprResolver.h).
+SnField* ExprResolveAccessor::SubstitutedEdgeTypeArg(SnField* pArg,
+	const std::vector<SnField*>& typeArgs)
+{
+	auto& generics = m_Env.Registry().DeclaredGenerics();
+	if (generics.IsPlaceholder(pArg))
+		return typeArgs[generics.PlaceholderIndex(pArg)];
+	//A nested instantiation whose arguments embed placeholders
+	//(`Wrapper<Box<X>>` as an edge argument): re-mint it substituted —
+	//the same registry channels the use-site resolution reaches, so
+	//both paths land on one canonical node.
+	if (pArg->Kind() == NK_InterfaceDecl)
+	{
+		auto* pNested = static_cast<SnInterfaceDecl*>(pArg);
+		auto* pNestedTmpl = generics.InstanceOfInterface(pNested);
+		if (!pNestedTmpl)
+			return pArg;
+		std::vector<SnField*> nestedArgs;
+		nestedArgs.reserve(pNested->GenericTypeArgs().size());
+		for (auto* pNestedArg : pNested->GenericTypeArgs())
+			nestedArgs.push_back(
+				SubstitutedEdgeTypeArg(pNestedArg, typeArgs));
+		if (auto* pMinted = GetDeclaredGenericInterfaceDecl(
+				*pNestedTmpl, nestedArgs))
+			return pMinted;
+		return pArg;
+	}
+	if (pArg->Kind() == NK_ClassDecl)
+	{
+		auto* pNested = static_cast<SnClassDecl*>(pArg);
+		auto* pNestedTmpl = generics.InstanceOf(pNested);
+		if (!pNestedTmpl)
+			return pArg;
+		std::vector<SnField*> nestedArgs;
+		nestedArgs.reserve(pNested->GenericTypeArgs().size());
+		for (auto* pNestedArg : pNested->GenericTypeArgs())
+			nestedArgs.push_back(
+				SubstitutedEdgeTypeArg(pNestedArg, typeArgs));
+		if (auto* pMinted = GetDeclaredGenericClassDecl(
+				*pNestedTmpl, nestedArgs))
+			return pMinted;
+		return pArg;
+	}
+	return pArg;
+}
+
+//The mint's implements-edge substitution (contract on the declaration
+//in ExprResolver.h).
+void ExprResolveAccessor::FillInstanceImplementsEdges(SnClassDecl& tmpl,
+	const std::vector<SnField*>& typeArgs, SnClassDecl& inst)
+{
+	auto& generics = m_Env.Registry().DeclaredGenerics();
+	for (auto* pEdge : tmpl.ImplementsList())
+	{
+		if (!pEdge->IsGenericInstantiation())
+		{
+			//Bare interface: module-global node, shared directly.
+			inst.AddImplements(pEdge);
+			continue;
+		}
+		auto* pEdgeTmpl = generics.InstanceOfInterface(pEdge);
+		if (!pEdgeTmpl)
+		{
+			//Defensive: an unresolved edge cannot be substituted —
+			//share it and let the template's own contract check speak.
+			inst.AddImplements(pEdge);
+			continue;
+		}
+		std::vector<SnField*> substitutedArgs;
+		substitutedArgs.reserve(pEdge->GenericTypeArgs().size());
+		for (auto* pArg : pEdge->GenericTypeArgs())
+			substitutedArgs.push_back(
+				SubstitutedEdgeTypeArg(pArg, typeArgs));
+		if (auto* pSubstituted = GetDeclaredGenericInterfaceDecl(
+				*pEdgeTmpl, substitutedArgs))
+			inst.AddImplements(pSubstituted);
+	}
 }
 
 SnClassDecl* ExprResolveAccessor::GetDeclaredGenericClassDecl(
@@ -264,6 +298,40 @@ SnClassDecl* ExprResolveAccessor::GetDeclaredGenericClassDecl(
 	return pInstance;
 }
 
+//SubstituteTypeExpr's name-leaf arms' shared tail (definition moved out
+//of the arms for the source-size cap — see the declaration comment).
+void ExprResolveAccessor::BindSubstitutedLeaf(SnFieldExpr& copy,
+	const SnFieldExpr& srcLeaf, const std::vector<SnField*>& typeArgs)
+{
+	if (!srcLeaf.IsResolved())
+		return;
+	auto& generics = m_Env.Registry().DeclaredGenerics();
+	auto* pBinding = generics.IsPlaceholder(srcLeaf.Field())
+		? typeArgs[generics.PlaceholderIndex(srcLeaf.Field())]
+		: srcLeaf.Field();
+	ResolveFieldExprAs(copy, pBinding);
+}
+
+//SubstituteTypeExpr's array arm (definition moved out of the dispatch
+//for the source-size cap): substitute the element, then re-intern the
+//token over it — ResolveFieldExprAs exactly like Access(SnArrayTypeExpr),
+//because a formal's type is read via Type()->Field() (the token binding).
+SnFieldExpr* ExprResolveAccessor::SubstituteArrayTypeExpr(
+	SnArrayTypeExpr& arr, const std::vector<SnField*>& typeArgs)
+{
+	auto* pElemCopy = SubstituteTypeExpr(*arr.ElementType(), typeArgs);
+	if (!pElemCopy)
+		return nullptr;
+	auto* pCopy = new SnArrayTypeExpr(pElemCopy, *arr.Location(),
+		arr.Rank());
+	if (arr.IsResolved())
+	{
+		ResolveFieldExprAs(*pCopy, m_Env.InternArrayTypeToken(
+			pElemCopy->Field(), arr.Rank()));
+	}
+	return pCopy;
+}
+
 SnFieldExpr* ExprResolveAccessor::SubstituteTypeExpr(
 	SnFieldExpr& srcType, const std::vector<SnField*>& typeArgs)
 {
@@ -279,34 +347,32 @@ SnFieldExpr* ExprResolveAccessor::SubstituteTypeExpr(
 		auto* pCopy = new SnNameExpr(
 			new SnIdentifierExpr(new std::string(pInner->Name()),
 				*srcType.Location()), *srcType.Location());
-		if (name.IsResolved())
-		{
-			auto& generics = m_Env.Registry().DeclaredGenerics();
-			auto* pBinding = generics.IsPlaceholder(name.Field())
-				? typeArgs[generics.PlaceholderIndex(name.Field())]
-				: name.Field();
-			ResolveFieldExprAs(*pCopy, pBinding);
-		}
+		BindSubstitutedLeaf(*pCopy, name, typeArgs);
 		return pCopy;
 	}
-	//Array: substitute the element, then re-intern the token over it —
-	//ResolveFieldExprAs exactly like Access(SnArrayTypeExpr), because a
-	//formal's type is read via Type()->Field() (the token binding).
-	if (srcType.Kind() == NK_ArrayTypeExpr)
+	//v0.13.1 D7: the PRE-BOUND builtin leaf family (SnIdentifierExpr
+	//minted through the NodeKind ctor — the compiler-wide idiom for
+	//scalar/string types; the synthesizer's builtin arm uses it too).
+	//A pre-bound leaf's Field() is a builtin datatype, never a
+	//placeholder, so BindSubstitutedLeaf transfers the binding verbatim.
+	//Deleting this arm clones every non-T signature of a stub template
+	//as void (substitute's null becomes the clone's null return type).
+	if (srcType.Kind() == NK_IdentifierExpr)
 	{
-		auto& arr = static_cast<SnArrayTypeExpr&>(srcType);
-		auto* pElemCopy = SubstituteTypeExpr(*arr.ElementType(), typeArgs);
-		if (!pElemCopy)
-			return nullptr;
-		auto* pCopy = new SnArrayTypeExpr(pElemCopy, *srcType.Location(),
-			arr.Rank());
-		if (arr.IsResolved())
-		{
-			ResolveFieldExprAs(*pCopy, m_Env.InternArrayTypeToken(
-				pElemCopy->Field(), arr.Rank()));
-		}
+		auto& id = static_cast<SnIdentifierExpr&>(srcType);
+		//The leaf contract is enforced HERE, at the consumption point:
+		//only the pre-bound builtin family arrives bare — a divergent
+		//mint fails this assertion in Debug instead of cloning a silent
+		//void signature (TemplateSignatureLeaves.h).
+		NLANG_ASSERT(TemplateSignatureLeavesAreCanonical(&srcType));
+		auto* pCopy = new SnIdentifierExpr(
+			new std::string(id.Name()), *srcType.Location());
+		BindSubstitutedLeaf(*pCopy, id, typeArgs);
 		return pCopy;
 	}
+	if (srcType.Kind() == NK_ArrayTypeExpr)
+		return SubstituteArrayTypeExpr(
+			static_cast<SnArrayTypeExpr&>(srcType), typeArgs);
 	//Nested instantiation (`Future<T>`, `List<T>`): substitute base and
 	//arguments, then resolve — the cache mints the ACTUAL instantiation.
 	if (srcType.Kind() == NK_GenericTypeExpr)
@@ -336,6 +402,52 @@ SnFieldExpr* ExprResolveAccessor::SubstituteGenericTypeExpr(
 	return pCopy;
 }
 
+//0.13.1a Task 4 (D4): the call-site value type of a generic free
+//function — the template row's return type expression substituted with
+//the invoke's inferred arguments, per the established convention (the
+//value slot reads the return type expr's resolved Field, exactly what
+//SnFunction::EvalDataType yields). The substituted copy is transient:
+//the substitution binds its leaves, and the resolved field it yields is
+//tree/registry-owned, so the invoke's slot outlives the copy.
+//No Access() re-entry here: the copy's static type is the base
+//SnFieldExpr, so an Access call static-dispatches to the defaulted
+//accessor and asserts regardless of the dynamic kind (the Task 4
+//Debug-only crash). Every SubstituteTypeExpr arm already owns the
+//copy's resolution — a resolved source leaf resolves the copy via
+//ResolveFieldExprAs/token interning/an explicit Access on the precise
+//SnGenericTypeExpr static type, and an unresolved source leaf stays
+//unresolved on purpose (the template row's own diagnostic already
+//fired; re-resolving the name at the call site would consult the
+//wrong scope).
+void ExprResolveAccessor::SubstituteInvokeReturnType(
+	SnInvokeExpr& invoke, SnFunction& func)
+{
+	if (!func.HasReturn() || !func.ReturnType())
+		return;
+	std::unique_ptr<SnFieldExpr> pRetCopy(
+		SubstituteTypeExpr(*func.ReturnType(),
+			invoke.InferredTypeArgs()));
+	if (!pRetCopy)
+		return;
+	if (pRetCopy->IsResolved())
+		invoke.EvalDataType(pRetCopy->Field());
+}
+
+ExprResolveAccessor::TypeParamBindResult
+ExprResolveAccessor::BindTypeParamInDecl(
+	const std::vector<std::string>& params, const std::string& name,
+	SyntaxNode& tmpl, SnIdentifierExpr& idExpr)
+{
+	const auto paramIt = std::find(params.begin(), params.end(), name);
+	if (paramIt == params.end())
+		return TypeParamBindResult::NotApplicable;
+	auto* pPlaceholder = m_Env.Registry().DeclaredGenerics()
+		.PlaceholderFor(tmpl, name,
+			static_cast<size_t>(paramIt - params.begin()));
+	ResolveFieldExprAs(idExpr, pPlaceholder);
+	return TypeParamBindResult::Bound;
+}
+
 ExprResolveAccessor::TypeParamBindResult
 ExprResolveAccessor::BindTypeParamPlaceholderIfAny(SnIdentifierExpr& idExpr)
 {
@@ -343,25 +455,42 @@ ExprResolveAccessor::BindTypeParamPlaceholderIfAny(SnIdentifierExpr& idExpr)
 	for (SyntaxNode* p = idExpr.Parent(); p; p = p->Parent())
 	{
 		const auto kind = p->Kind();
+		//0.13.1a: a type parameter of a generic FREE function. Checked
+		//before the class arm so the innermost declaration that names the
+		//parameter wins (a nested function inside a generic class method
+		//shadows the class parameters); a non-generic function level must
+		//not shadow — the walk continues to the enclosing class.
+		if (kind == NK_Function)
+		{
+			auto& fn = static_cast<SnFunction&>(*p);
+			if (!fn.IsGenericDeclaration())
+				continue;
+			return BindTypeParamInDecl(fn.TypeParamNames(), name, fn,
+				idExpr);
+		}
 		if (kind == NK_ClassDecl)
 		{
 			auto& cls = static_cast<SnClassDecl&>(*p);
 			if (!cls.IsGenericDeclaration())
 				return TypeParamBindResult::NotApplicable;
-			const auto& params = cls.TypeParamNames();
-			const auto paramIt = std::find(params.begin(), params.end(),
-				name);
-			if (paramIt == params.end())
-				return TypeParamBindResult::NotApplicable;
 			//Every T-typed member is one value slot (scalars inline in
 			//the low half, heap kinds as handles), so the single shared
 			//template layout holds for every instantiation — T fields
 			//bind to the placeholder like any other T reference.
-			auto* pPlaceholder = m_Env.Registry().DeclaredGenerics()
-				.PlaceholderFor(cls, name,
-					static_cast<size_t>(paramIt - params.begin()));
-			ResolveFieldExprAs(idExpr, pPlaceholder);
-			return TypeParamBindResult::Bound;
+			return BindTypeParamInDecl(cls.TypeParamNames(), name, cls,
+				idExpr);
+		}
+		//0.13.1c: a type parameter of a generic INTERFACE declaration.
+		//Interface T references are signature positions only (members,
+		//formals, constant TYPES) — the placeholder binds exactly like
+		//the class arm's; no storage kind is ever asked of it.
+		if (kind == NK_InterfaceDecl)
+		{
+			auto& iface = static_cast<SnInterfaceDecl&>(*p);
+			if (!iface.IsGenericDeclaration())
+				return TypeParamBindResult::NotApplicable;
+			return BindTypeParamInDecl(iface.TypeParamNames(), name,
+				iface, idExpr);
 		}
 	}
 	return TypeParamBindResult::NotApplicable;

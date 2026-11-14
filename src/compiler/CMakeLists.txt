@@ -93,6 +93,7 @@ add_library(nlang_compiler
     SnData.cpp
     SnExpressions.cpp
     SnExpressionsValues.cpp
+    SnChildSync.cpp
     SnStatements.cpp
     SnStatementsFlow.cpp
     SnExtraTypes.cpp
@@ -111,6 +112,7 @@ add_library(nlang_compiler
     builder/ExprResolverTypes.cpp
     builder/ExprResolverGenerics.cpp
     builder/ExprResolverGenericMint.cpp
+    builder/ExprResolverGenericMintIface.cpp
     builder/ExprResolverGenericDefaults.cpp
     builder/ExprResolverBuiltinClasses.cpp
     builder/ExprResolverStaticFace.cpp
@@ -118,9 +120,13 @@ add_library(nlang_compiler
     builder/ExprResolverTypedSpawn.cpp
     builder/ExprResolverFuncRef.cpp
     builder/ExprResolverValues.cpp
+    builder/TypeArgSpelling.cpp
+    builder/TypeArgInference.cpp
     builder/ExprResolverSubscript.cpp
     builder/ExprResolverAlias.cpp
     builder/ExprResolverBinary.cpp
+
+    builder/ExprResolverArrayOps.cpp
     builder/ExprResolverBitwise.cpp
     builder/ExprResolverTypeGates.cpp
     builder/ExprResolverNew.cpp
@@ -145,6 +151,7 @@ add_library(nlang_compiler
     builder/StatementResolverDeclDefaults.cpp
     builder/StatementResolverDeclStatic.cpp
     builder/StatementResolverTypes.cpp
+    builder/StatementResolverInterface.cpp
     builder/StatementResolverAssign.cpp
     builder/StatementResolverCompound.cpp
     builder/StatementResolverFlow.cpp

@@ -108,27 +108,6 @@ void CollectChainImplements(const SnClassDecl &cls,
 	}
 }
 
-//First same-name method in dispatch order: the class's own members in
-//declaration order, then up the superclass chain (FindMethodByName's
-//order — VmExecutorOpsCalls). 0.9.10: static members never occupy an
-//instance dispatch slot, matching the runtime lookup's skip.
-SnFunction* FindDispatchWinner(SnClassDecl &cls, const std::string &name)
-{
-	std::set<SnClassDecl*> seen;
-	for (auto *pChain = &cls; pChain && !seen.count(pChain);
-		pChain = pChain->SuperClass())
-	{
-		seen.insert(pChain);
-		if (pChain->IsBuiltinClass())
-			break;
-		for (auto &member : pChain->Members())
-			if (member.Kind() == NK_Function && member.Name() == name
-				&& !member.ContainFlags(NF_Static))
-				return static_cast<SnFunction*>(&member);
-	}
-	return nullptr;
-}
-
 //Contract set of one own-method name: the ancestor same-name virtual
 //methods (cycle-guarded like the other chain walks) plus the same-name
 //methods of every interface along the chain. Ancestor members iterate
@@ -427,7 +406,7 @@ static void CheckInterfaceContracts(SnClassDecl &cls,
 				continue;
 			//const iterator chain (see the contract collection above).
 			auto &required = static_cast<const SnFunction&>(member);
-			auto *pWinner = FindDispatchWinner(cls, required.Name());
+			auto *pWinner = cls.FindDispatchWinner(required.Name());
 			if (!pWinner)
 			{
 				env.Log(CLL_Error, cls.Location(),

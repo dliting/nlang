@@ -264,6 +264,19 @@ def _rejection_violation(expected, stderr):
     return None
 
 
+def _describe_run_error(exc):
+    """Human-readable form of a child-run exception. A negative
+    TimeoutExpired timeout is not slowness: time.monotonic() (QPC) keeps
+    counting while the machine is suspended, so a sleep mid-run leaves
+    the deadline far in the past when the pipes finally close. Name the
+    wall-clock jump instead of printing a baffling negative seconds
+    count."""
+    if (isinstance(exc, subprocess.TimeoutExpired)
+            and exc.timeout is not None and exc.timeout < 0):
+        return "wall-clock jump during run (machine suspend?)"
+    return str(exc)
+
+
 def _split_timeout_arg(argv):
     """Pull a '--timeout=SEC' override out of argv (the positional tool
     paths stay untouched). The last occurrence wins; a malformed number
@@ -286,12 +299,30 @@ def main():
         TIMEOUT_SEC = timeout
     ncc = args[0] if len(args) > 0 else DEFAULT_NCC
     nvm = args[1] if len(args) > 1 else DEFAULT_NVM
-    #dbg_ tests run under the debugger. Each tool builds into its own
-    #build/src/tools/<tool>/Release directory, so ndb sits two levels
-    #over from the nvm binary (build-tree layout), not next to it.
+    #dbg_ tests run under the debugger. An explicit third argument is
+    #the ndb to use — gates pass it so an ASan/Debug sweep runs dbg_
+    #tests under the same config's debugger (the derived Release path
+    #would silently swap in a non-instrumented binary). Default: each
+    #tool builds into its own build/src/tools/<tool>/Release directory,
+    #so ndb sits two levels over from the nvm binary (build-tree
+    #layout), not next to it.
     tools_dir = os.path.dirname(os.path.dirname(os.path.dirname(nvm)))
-    ndb = os.path.join(tools_dir, 'ndb', 'Release', 'ndb.exe')
+    ndb = args[2] if len(args) > 2 else os.path.join(
+        tools_dir, 'ndb', 'Release', 'ndb.exe')
     _fail_on_stale_tools(ncc, nvm, ndb)
+    tools_dir = os.path.dirname(os.path.dirname(os.path.dirname(nvm)))
+    ndb = sys.argv[3] if len(sys.argv) > 3 else os.path.join(
+        tools_dir, 'ndb', 'Release', 'ndb.exe')
+    _fail_on_stale_tools(ncc, nvm, ndb)
+    #Debug (and ASan, which builds the Debug config) runs several times
+    #slower than Release: asserts on, no optimization, gc-stress
+    #amplified. A flat 30s cap that is generous in Release pushes the
+    #slowest stress tests against their ceiling under Debug, turning
+    #any concurrent machine load into timeout flakes. Scale the
+    #per-test cap by config, read off the tool path; x3 keeps every
+    #test far from its limit and stays under the 3-minute project cap.
+    if '/Debug/' in ncc.replace(os.sep, '/'):
+        TIMEOUT_SEC *= 3
 
     if not os.path.isfile(MANIFEST):
         print(f"ERROR: manifest.txt not found at {MANIFEST}")
@@ -505,9 +536,11 @@ def main():
                     actual = result.returncode
                     stderr_text = _matchable_stderr(result.stderr)
                 except Exception as e:
-                    print(f"FAIL {name} (runtime error: {e})")
+                    print(f"FAIL {name} (runtime error: "
+                          f"{_describe_run_error(e)})")
                     failed += 1
-                    errors.append(f"  {name}: runtime error: {e}")
+                    errors.append(f"  {name}: runtime error: "
+                                  f"{_describe_run_error(e)}")
                     continue
 
                 if actual == expected:
@@ -697,9 +730,11 @@ def main():
                 actual = result.returncode
                 stderr_text = _matchable_stderr(result.stderr)
             except Exception as e:
-                print(f"FAIL {name} (runtime error: {e})")
+                print(f"FAIL {name} (runtime error: "
+                      f"{_describe_run_error(e)})")
                 failed += 1
-                errors.append(f"  {name}: runtime error: {e}")
+                errors.append(f"  {name}: runtime error: "
+                              f"{_describe_run_error(e)}")
                 if os.path.isfile(nmod_file):
                     os.remove(nmod_file)
                 continue

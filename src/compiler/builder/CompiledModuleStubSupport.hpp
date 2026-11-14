@@ -46,6 +46,34 @@ private:
 //LeafNameOfKey lives in nlang/vm/CompiledModule.h (shared with the VM
 //render sites).
 
+//The parser's canonical shape for a named type leaf: SnNameExpr wrapping
+//the identifier (the nlang.y NameExpr production). The stub synthesizer
+//mints ONLY this shape for a named reference — every shape-sensitive
+//consumer (the resolution passes, the generic mint's SubstituteTypeExpr)
+//reads the parser shape, and a bare SnIdentifierExpr leaf would diverge
+//from every source-minted surface (the substitution crash that shaped
+//this rule).
+inline SnFieldExpr *NamedLeafExpr(const std::string &name,
+	const ISourceLocation &loc)
+{
+	return new SnNameExpr(
+		new SnIdentifierExpr(new std::string(name), loc), loc);
+}
+
+//The pre-bound builtin leaf family: an SnIdentifierExpr minted through
+//the NodeKind ctor — resolved at construction to the builtin datatype
+//(scalar types, string, void, the int32 fallback). This and
+//NamedLeafExpr above are the synthesizer's ONLY two leaf mints; the
+//leaf contract (TemplateSignatureLeaves.h) asserts the resulting
+//invariant — bare leaves are exactly the pre-bound family — at the
+//stub mint and at the substitution entry, so a future mint outside
+//these factories fails there instead of diverging silently.
+inline SnFieldExpr *PreboundLeafExpr(NodeKind builtinKind,
+	const ISourceLocation &loc)
+{
+	return new SnIdentifierExpr(builtinKind, loc);
+}
+
 //Synthesize the type expression for a serialized table key. A dotted key
 //('c.S', 'lib.Handler') must take the qualified type path — the same node
 //hand-written source produces for `import c; c.S s;` — so Access
@@ -67,7 +95,7 @@ inline SnFieldExpr *NamedTypeExprFromKey(const std::string &key,
 		start = dot + 1;
 	}
 	if (segs.size() == 1)
-		return new SnIdentifierExpr(new std::string(key), loc);
+		return NamedLeafExpr(key, loc);
 	auto *pQType = new SnQualifiedTypeExpr(segs[0], segs[1], loc);
 	for (size_t i = 2; i < segs.size(); ++i)
 		pQType->AppendSegment(segs[i]);
@@ -85,8 +113,16 @@ inline SnFieldExpr *NamedTypeExprFromKey(const std::string &key,
 //degrades to the int32 placeholder. Free function since 0.9.10 (moved
 //verbatim out of CompiledModuleNodeBuilder for the source-size cap);
 //the stub builder and both stub-member helpers share it.
+//v0.13.1 D7: typeParamNames is the owning template row's declared
+//parameters — an RTK_TypeParam leaf synthesizes the parameter-name
+//leaf at its declared position (the parser-canonical shape, like every
+//named leaf here), and the consumer's resolver binds it to the
+//placeholder through the stub's own declaration
+//(BindTypeParamPlaceholderIfAny). Null (a non-template owner) or an
+//out-of-range ordinal degrades to the int32 placeholder.
 inline SnFieldExpr *SynthTypeExprFromDesc(const TypeDesc &td,
-	const CompiledModule &cm, const ISourceLocation &loc)
+	const CompiledModule &cm, const ISourceLocation &loc,
+	const std::vector<std::string> *typeParamNames = nullptr)
 {
 	//0.7.5: scalar kinds (legacy RTK_Int32/RTK_Float and the
 	//RTK_Byte..RTK_Char family) resolve through the registry — the
@@ -95,11 +131,17 @@ inline SnFieldExpr *SynthTypeExprFromDesc(const TypeDesc &td,
 	//formal/return truncated its 8-byte values at consumer call
 	//sites before this arm existed).
 	if (int pi = ScalarPrimIndexOfRtk(td.kind); pi >= 0)
-		return new SnIdentifierExpr(kScalarPrims[pi].kind, loc);
+		return PreboundLeafExpr(kScalarPrims[pi].kind, loc);
 	switch (td.kind)
 	{
 		case RTK_String:
-			return new SnIdentifierExpr(NK_String, loc);
+			return PreboundLeafExpr(NK_String, loc);
+		case RTK_TypeParam:
+			if (typeParamNames
+				&& td.typeParamOrdinal < typeParamNames->size())
+				return NamedLeafExpr((*typeParamNames)[td.typeParamOrdinal],
+					loc);
+			break;   //degrades to the int32 placeholder below
 		case RTK_Struct:
 			if (td.typeIdx < cm.structs.size())
 				return NamedTypeExprFromKey(
@@ -121,14 +163,15 @@ inline SnFieldExpr *SynthTypeExprFromDesc(const TypeDesc &td,
 				{
 					auto *pArgs = new std::vector<SnFieldExpr*>();
 					pArgs->push_back(
-						SynthTypeExprFromDesc(td.elems[0], cm, loc));
+						SynthTypeExprFromDesc(td.elems[0], cm, loc,
+							typeParamNames));
 					return new SnGenericTypeExpr(
-						new SnIdentifierExpr(
-							new std::string(kBuiltinArrayTypeName), loc),
+						NamedLeafExpr(kBuiltinArrayTypeName, loc),
 						pArgs, loc);
 				}
 				return new SnArrayTypeExpr(
-					SynthTypeExprFromDesc(td.elems[0], cm, loc), loc,
+					SynthTypeExprFromDesc(td.elems[0], cm, loc,
+						typeParamNames), loc,
 					td.rank);
 			}
 			break;
@@ -136,10 +179,10 @@ inline SnFieldExpr *SynthTypeExprFromDesc(const TypeDesc &td,
 			if (!td.elems.empty())
 			{
 				auto *pArgs = new std::vector<SnFieldExpr*>();
-				pArgs->push_back(SynthTypeExprFromDesc(td.elems[0], cm, loc));
+				pArgs->push_back(SynthTypeExprFromDesc(td.elems[0], cm, loc,
+					typeParamNames));
 				return new SnGenericTypeExpr(
-					new SnIdentifierExpr(
-						new std::string(kBuiltinListTypeName), loc),
+					NamedLeafExpr(kBuiltinListTypeName, loc),
 					pArgs, loc);
 			}
 			break;
@@ -147,11 +190,12 @@ inline SnFieldExpr *SynthTypeExprFromDesc(const TypeDesc &td,
 			if (td.elems.size() >= 2)
 			{
 				auto *pArgs = new std::vector<SnFieldExpr*>();
-				pArgs->push_back(SynthTypeExprFromDesc(td.elems[0], cm, loc));
-				pArgs->push_back(SynthTypeExprFromDesc(td.elems[1], cm, loc));
+				pArgs->push_back(SynthTypeExprFromDesc(td.elems[0], cm, loc,
+					typeParamNames));
+				pArgs->push_back(SynthTypeExprFromDesc(td.elems[1], cm, loc,
+					typeParamNames));
 				return new SnGenericTypeExpr(
-					new SnIdentifierExpr(
-						new std::string(kBuiltinDictTypeName), loc),
+					NamedLeafExpr(kBuiltinDictTypeName, loc),
 					pArgs, loc);
 			}
 			break;
@@ -168,22 +212,22 @@ inline SnFieldExpr *SynthTypeExprFromDesc(const TypeDesc &td,
 				//Void serializes as the RTK_Void leaf; rebuild the
 				//same NK_Void node the parser mints for func<void,...>.
 				pArgs->push_back(td.elems.back().kind == RTK_Void
-					? static_cast<SnFieldExpr*>(
-						new SnIdentifierExpr(NK_Void, loc))
-					: SynthTypeExprFromDesc(td.elems.back(), cm, loc));
+					? PreboundLeafExpr(NK_Void, loc)
+					: SynthTypeExprFromDesc(td.elems.back(), cm, loc,
+						typeParamNames));
 				for (size_t i = 0; i + 1 < td.elems.size(); ++i)
 					pArgs->push_back(
-						SynthTypeExprFromDesc(td.elems[i], cm, loc));
+						SynthTypeExprFromDesc(td.elems[i], cm, loc,
+							typeParamNames));
 				return new SnGenericTypeExpr(
-					new SnIdentifierExpr(
-						new std::string(kBuiltinFuncTypeName), loc),
+					NamedLeafExpr(kBuiltinFuncTypeName, loc),
 					pArgs, loc);
 			}
 			break;
 		default:
 			break;
 	}
-	return new SnIdentifierExpr(NK_Int32, loc);
+	return PreboundLeafExpr(NK_Int32, loc);
 }
 
 } //namespace nlang

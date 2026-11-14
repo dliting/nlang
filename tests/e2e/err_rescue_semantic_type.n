@@ -1,0 +1,14 @@
+//Identity rescue (0.13.1c): the rebuilt comparison reading is checked
+//semantically — an ill-typed comparison reports the REAL type error,
+//never the shape diagnostic.
+bool both(bool x, bool y) { return x && y; }
+int main()
+{
+    int a = 1;
+    int b = 2;
+    bool c = true;
+    bool d = false;
+    if (both(a < b, c > (d)))
+        return 10;
+    return 11;
+}

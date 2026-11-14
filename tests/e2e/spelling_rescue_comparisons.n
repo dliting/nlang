@@ -1,0 +1,13 @@
+//Identity rescue (0.13.1c): the shape rule reads a<b, c>(d); when the
+//head resolves to a value the resolver re-reads the span as comparisons.
+bool both(bool x, bool y) { return x && y; }
+int main()
+{
+    int a = 1;
+    int b = 2;
+    int c = 4;
+    int d = 3;
+    if (both(a < b, c > (d)))
+        return 10;
+    return 11;
+}

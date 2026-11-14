@@ -41,12 +41,18 @@
 | `float` |
 | `for` |
 | `foreach` |
+| `fp32` |
+| `fp64` |
 | `func` |
 | `if` |
 | `implements` |
 | `import` |
 | `in` |
 | `int` |
+| `int16` |
+| `int32` |
+| `int64` |
+| `int8` |
 | `interface` |
 | `long` |
 | `native` |
@@ -66,8 +72,13 @@
 | `throw` |
 | `true` |
 | `try` |
+| `typeName` |
 | `ubyte` |
 | `uint` |
+| `uint16` |
+| `uint32` |
+| `uint64` |
+| `uint8` |
 | `ulong` |
 | `ushort` |
 | `using` |
@@ -76,6 +87,23 @@
 | `while` |
 
 `func`既是保留字，也是函数类型的关键字拼写（第4章）；它的类型实参行为在§1.6中规定。
+
+数值基本类型关键字有按宽度命名的固定别名拼写：
+
+| 别名 | 类型 |
+|---|---|
+| `int8` | `byte` |
+| `int16` | `short` |
+| `int32` | `int` |
+| `int64` | `long` |
+| `uint8` | `ubyte` |
+| `uint16` | `ushort` |
+| `uint32` | `uint` |
+| `uint64` | `ulong` |
+| `fp32` | `float` |
+| `fp64` | `double` |
+
+别名是纯粹的拼写层：它在一切位置命名同一个类型，诊断与`typeName`始终打印规范名——`typeName(int32)`是`"int"`。
 
 ## 1.5 字面量
 

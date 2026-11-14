@@ -141,6 +141,99 @@ private slots:
         QVERIFY(!out.ok);
         QCOMPARE(countErrorsContaining(out, "Incompatible type"), 1);
     }
+
+    //0.13.1a Task 3: the spelling probe must stay neutral on comparison
+    //shapes — a mis-armed '<' would arrive as OT_TypeLt and die as a
+    //syntax error. Each shape compiles clean only under the comparison
+    //reading (invariant pins: green before and after the probe landed;
+    //the spelling shapes' own failure was watched through the e2e).
+    void TestReceiverSpellingParseShapes() {
+        //Comparison chain: `<b>` ends before 'c', not '.' or '(' — the
+        //comparison reading holds, so the chain parses and its semantic
+        //(bool > int) is what gets rejected; a mis-armed probe would
+        //surface a "syntax error" instead.
+        auto chain = compileOne(
+            "int main() {\n"
+            "    int a = 1;\n"
+            "    int b = 2;\n"
+            "    int c = 3;\n"
+            "    if (a < b > c) {\n"
+            "        return 1;\n"
+            "    }\n"
+            "    return 0;\n"
+            "}\n");
+        QVERIFY(!chain.ok);
+        QCOMPARE(countErrorsContaining(chain, "syntax error"), 0);
+        QCOMPARE(countErrorsContaining(chain, "cannot be ordered"), 1);
+
+        //Comparison inside call args: `<b, c>` ends before 'd' — both
+        //comparisons reach the bool formals.
+        auto callArg = compileOne(
+            "bool f(bool p, bool q) {\n"
+            "    return p || q;\n"
+            "}\n"
+            "int main() {\n"
+            "    int a = 1;\n"
+            "    int b = 2;\n"
+            "    int c = 3;\n"
+            "    int d = 4;\n"
+            "    if (f(a < b, c > d)) {\n"
+            "        return 1;\n"
+            "    }\n"
+            "    return 0;\n"
+            "}\n");
+        QVERIFY(callArg.ok);
+        QVERIFY(callArg.logger->errorsText().empty());
+
+        //Comparison in assignment: `<b>` ends before ';'.
+        auto assign = compileOne(
+            "int main() {\n"
+            "    int a = 1;\n"
+            "    int b = 2;\n"
+            "    bool x = false;\n"
+            "    x = a < b;\n"
+            "    if (x) {\n"
+            "        return 1;\n"
+            "    }\n"
+            "    return 0;\n"
+            "}\n");
+        QVERIFY(assign.ok);
+        QVERIFY(assign.logger->errorsText().empty());
+
+        //The spelling shape inside call args — the probe arms ('('
+        //terminator) and the constructor arm parses it; the formal takes
+        //the matching instantiation so the call type-checks.
+        auto spellingArg = compileOne(
+            "class Hold<U> {\n"
+            "    public U held;\n"
+            "    public Hold(U v) { held = v; }\n"
+            "}\n"
+            "int g(Hold<int> v) {\n"
+            "    return v.held;\n"
+            "}\n"
+            "int main() {\n"
+            "    return g(Hold<int>(5));\n"
+            "}\n");
+        QVERIFY(spellingArg.ok);
+        QVERIFY(spellingArg.logger->errorsText().empty());
+
+        //The spelling shape on a static member call — full dispatch to
+        //the synthetic instantiation's method table.
+        auto spellingMember = compileOne(
+            "class Pair<K, V> {\n"
+            "    public static string sig() {\n"
+            "        return typeName(K) + \",\" + typeName(V);\n"
+            "    }\n"
+            "}\n"
+            "int main() {\n"
+            "    if (Pair<int, string>.sig() != \"int,string\") {\n"
+            "        return 3;\n"
+            "    }\n"
+            "    return 0;\n"
+            "}\n");
+        QVERIFY(spellingMember.ok);
+        QVERIFY(spellingMember.logger->errorsText().empty());
+    }
 };
 
 QTEST_GUILESS_MAIN(TestStatementDiag)

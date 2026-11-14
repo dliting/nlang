@@ -1,0 +1,8 @@
+// uniform with low > high: uncaught Exception, exit 1 by design
+// (mirrors math.randomi's range contract).
+import tensor;
+
+int main() {
+    float[] a = tensor.uniform([4], 1.0f, -1.0f);
+    return 0;
+}

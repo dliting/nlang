@@ -11,6 +11,9 @@
 //accessor (Access overloads below) for emission dispatch.
 #include <nlang/compiler/SyntaxNodeVisitor.h>
 #include <nlang/compiler/SnArrayTypeToken.h>
+//TypeArgDesc — the shared type-argument vocabulary the descriptor
+//spelling reads (0.13.1c Task 8: the interface descriptor twin).
+#include <nlang/compiler/TypeArgSpelling.h>
 #include <unordered_map>
 #include <unordered_set>
 #include <map>
@@ -64,6 +67,21 @@ class GenericInstanceRegistry;
 
 class VmBackend : public ICodeBackend {
 public:
+    //0.13.1a Task 5: one erased-container boundary slot's plan — a box
+    //crosses the boundary either statically (the receiver's type
+    //argument is concrete; `tag` is known) or dynamically (the argument
+    //is the calling generic body's own placeholder; the executing
+    //frame's descriptor decides via OP_Box_TypeArg/OP_Unbox_TypeArg).
+    //The member-call path maps callParamBase slot index to plan. Public:
+    //file-local backend records (foreach iterable classification)
+    //embed it.
+    struct ArgBoxPlan {
+        bool needsBox = false;
+        bool bDynamic = false;
+        uint8_t tag = 0;
+        uint8_t dynOrdinal = 0;
+    };
+
     VmBackend();
     ~VmBackend() override;
 
@@ -216,6 +234,10 @@ public:
     void Access(SnNameExpr&);
     void Access(SnNewExpr&);
     void Access(SnThisExpr&);
+    //v0.13.1 D4: typeName emission — folded spelling via the string
+    //pool, bare type parameter via OP_TypeNameArg (the receiver's
+    //descriptor), recipe instantiations via OP_TypeNameCompose.
+    void Access(SnTypeNameExpr&);
     void Access(SnNewArrayExpr&);
     void Access(SnInitListExpr&);
     void Access(SnSubscriptExpr&);
@@ -249,6 +271,13 @@ private:
     //budget): signature fill via FillNativeFunctionRecord, then the
     //binding-table intrinsic stamp.
     void EmitNativeFunctionRecord(SnFunction& func,
+        CompiledFunction& compiledFunc);
+    //GenerateFunction's abstract arm (0.13.1c): signature-only record
+    //via FillAbstractFunctionRecord; no binding-table stamp.
+    void EmitAbstractFunctionRecord(SnFunction& func,
+        CompiledFunction& compiledFunc);
+    //GenerateFunction's body-less dispatch (native vs abstract).
+    void EmitBodylessFunctionRecord(SnFunction& func,
         CompiledFunction& compiledFunc);
     //EmitNativeFunctionRecord's stamping tail (binding table, §4.5).
     void StampIntrinsicChannel(SnFunction& func,
@@ -364,6 +393,13 @@ private:
     bool EmitMemberStaticCall(SnMemberExpr& member,
                               BytecodeEmitter& emitter,
                               uint16_t resultOffset);
+    //0.13.1a Task 2: an inferred template-row static — the resolver
+    //bound a minted instantiation's clone member; the frame descriptor
+    //cell rides OP_CallStatic's operand (OP_CallMethodDirect has none).
+    void EmitInferredTemplateRowStaticCall(SnInvokeExpr& invoke,
+                                           SnFunction& callee,
+                                           BytecodeEmitter& emitter,
+                                           uint16_t resultOffset);
     //0.12.6: type-name-qualified static field read (Counter.total, the
     //D4 inherited Derived.tag). Keyed on the bound field, never the
     //receiver — the receiver names a type and has no value to emit.
@@ -483,17 +519,18 @@ private:
                                      SnClassDecl& classDecl,
                                      BytecodeEmitter& emitter,
                                      uint16_t resultOffset);
-    //Phase 8e-4 boxing plan for generic method calls, derived
-    //from the declared template signatures (phase-2 D6).
+    //Phase 8e-4 boundary plan for generic method calls, derived
+    //from the declared template signatures (phase-2 D6; the dynamic
+    //variant is 0.13.1a Task 5).
     void PlanGenericMethodBoxing(SnClassDecl& classDecl,
                                  const std::string& methodName,
                                  std::map<uint16_t, ArgBoxPlan>& argPlans,
-                                 bool& returnsBoxed, uint8_t& returnTag);
+                                 ArgBoxPlan& returnPlan);
     //Class method dispatch tail: virtual / direct / builtin + unbox,
     //assign, out spills, ParaEnd.
     void EmitMemberMethodDispatch(const SnInvokeExpr& invoke,
-                                  SnFunction* callee, bool returnsBoxed,
-                                  uint8_t returnTag,
+                                  SnFunction* callee,
+                                  const ArgBoxPlan& returnPlan,
                                   const std::vector<OutSpill>& outSpills,
                                   BytecodeEmitter& emitter,
                                   uint16_t resultOffset);
@@ -535,6 +572,20 @@ private:
     void CollectSignatureTypeDescs(SnFunction& func, CompiledFunction& compiledFunc);
     //Phase 9f: fill the signature-only record for a `native` declaration.
     void FillNativeFunctionRecord(SnFunction& func, CompiledFunction& compiledFunc);
+    //0.13.1c: fill the signature-only record for an abstract declaration.
+    void FillAbstractFunctionRecord(SnFunction& func, CompiledFunction& compiledFunc);
+    //The shared body of both: flags, frame-layout locals, param count,
+    //return kind, defaults — everything but the family flag byte.
+    void FillSignatureOnlyRecord(SnFunction& func, CompiledFunction& compiledFunc);
+    //Signature-fill helpers shared by the body-less record family and
+    //AllocParamsAndDefaults (defined in VmBackendSignatures.cpp):
+    //slot-0 `this` predicate, the receiver's GC kind, and the generic-
+    //record metadata stamp (0.13.1c Task 8: class, interface and free-
+    //function owners).
+    static bool HasThisReceiver(const SnFunction& func);
+    static uint8_t ThisReceiverKind(const SnFunction& func);
+    static void FillGenericRecordMeta(const SnFunction& func,
+                                      CompiledFunction& compiledFunc);
     //Allocate the `this` + formal slots, then collect foldable defaults.
     void AllocParamsAndDefaults(SnFunction& func, FuncContext& ctx,
                                 CompiledFunction& compiledFunc);
@@ -816,11 +867,11 @@ private:
     //0.8.4: get() call over the parked [base, index] claim slots
     //(mirrors EmitContainerGetCall without re-emitting base/index).
     void EmitSubscriptGetFromClaim(uint16_t claimBase,
-        uint16_t indexSlot, uint16_t oldValSlot, BoxingTagResult valBox,
+        uint16_t indexSlot, uint16_t oldValSlot, const ArgBoxPlan& valBox,
         BytecodeEmitter& emitter);
     //0.8.4: set() call over the parked [base, index, result] claim slots.
     void EmitSubscriptSetFromClaim(uint16_t claimBase,
-        uint16_t indexSlot, uint16_t oldValSlot, BoxingTagResult valBox,
+        uint16_t indexSlot, uint16_t oldValSlot, const ArgBoxPlan& valBox,
         BytecodeEmitter& emitter);
 
     //Foreach (EmitStmtForeach.cpp): the user loop variable plus the
@@ -847,9 +898,9 @@ private:
     size_t EmitForeachLoopHead(uint16_t iSlot, uint16_t nSlot,
                                BytecodeEmitter& emitter);
     //Body-prelude: element i into the user slot (LoadElement +
-    //struct deep copy vs get() + unbox).
+    //struct deep copy vs get() + unbox under the boundary plan).
     void EmitForeachLoadElement(bool isArray, SnField* pElemType,
-                                uint8_t elemKind,
+                                uint8_t elemKind, const ArgBoxPlan& elemBox,
                                 const ForeachSlots& slots,
                                 BytecodeEmitter& emitter);
     //Loop tail: i+=1 continue target, back-jump, break/continue
@@ -919,11 +970,6 @@ private:
         size_t tryEndJumpPatch,
         const std::vector<size_t>& catchEndJumpPatches,
         BytecodeEmitter& emitter);
-
-    //Phase 9c: per-argument boxing plan for built-in generic class methods
-    //(List<T>, Dict<K,V>). Maps callParamBase slot index to {type tag, needs
-    //box}. Empty for user methods (no boxing — values pass as heap idxs).
-    struct ArgBoxPlan { uint8_t tag; bool needsBox; };
 
     //Phase 9e: an out-argument writeback. After the *Out call opcode
     //copies callee frame slot `slotIdx` back into callParamBase, this
@@ -1013,6 +1059,17 @@ private:
     void ApplyArgBoxPlan(uint16_t slotIdx, uint16_t claimBase,
                          BytecodeEmitter& emitter,
                          const std::map<uint16_t, ArgBoxPlan>* pArgPlans);
+
+    //One container-boundary normalization at a slot: refresh it (the box
+    //must read the staged value, not a stale accumulator left behind by
+    //expression emission), emit the dynamic-or-static box opcode, store
+    //back. The uniform front half of every boundary plan application.
+    static void EmitBoundaryBox(const ArgBoxPlan& box,
+                                BytecodeEmitter& emitter, uint16_t slot);
+    //One boundary unbox of the accumulator where it stands — the
+    //dynamic-or-static opcode pair after every container get()/add().
+    static void EmitBoundaryUnbox(const ArgBoxPlan& box,
+                                  BytecodeEmitter& emitter);
 
     //Stage the receiver into claim slot 0 before method-call bindings.
     void StageReceiverInClaim(size_t slotBase, uint16_t thisSlot,
@@ -1132,7 +1189,7 @@ private:
         BytecodeEmitter& emitter, uint16_t thisSlot);
 
     //0.9.11 D2: which allocator the ctor-call tail emits. A class
-    //allocates through OP_New(typeIdx); a struct through
+    //allocates through OP_New(typeIdx, descIdx); a struct through
     //OP_AllocStruct(typeIdx, fieldCount). Everything else in the ctor
     //lowering (claim layout {this, formals...}, this staging,
     //callParamBase copy, OP_CallMethodDirect) is shared.
@@ -1140,7 +1197,53 @@ private:
         bool isStruct = false;
         uint16_t typeIdx = 0;     //class slot or struct slot
         uint16_t fieldCount = 0;  //struct only (OP_AllocStruct operand)
+        //v0.13.1 D1: the instantiation descriptor row for OP_New's third
+        //operand — 0xFFFF (kNoInstDescriptor) when the construction
+        //carries no descriptor (non-instantiation types; runtime-recipe
+        //constructions until that path lands).
+        uint16_t descIdx = 0xFFFF;
     };
+    static constexpr uint16_t kNoInstDescriptor = 0xFFFF;
+
+    //v0.13.1: the descriptor-table row for a concrete instantiation's
+    //construction — registers (and dedups by spelling) a static row and
+    //returns its index; kNoInstDescriptor for non-instantiations and
+    //for arguments containing type parameters (those compose at run
+    //time through the recipe path). Interns the descriptor so the
+    //compile-side and load-side pools agree.
+    uint16_t DescriptorIndexFor(SnClassDecl& inst);
+    //0.13.1c Task 8: the interface instantiation twin — a static call
+    //through a generic INTERFACE instantiation (`Pair<int,string>.echo`)
+    //rides the interface's descriptor row on OP_CallStatic's operand.
+    //Same two row families as the class arm.
+    uint16_t DescriptorIndexFor(SnInterfaceDecl& inst);
+    //0.13.1a Task 4 (D4): the descriptor-table row for a generic FREE
+    //function call site — the inferred type arguments, the function's
+    //name as the row head (the runtime composes the callee's frame cell
+    //from it; the head name itself is diagnostics-only). Arguments
+    //containing type parameters (a generic body calling generic with T
+    //riding an argument) spell the recipe form so the row composes
+    //against the CALLER's frame cell at execution — the free-function
+    //recursion/forwarding shape.
+    uint16_t FreeCallDescriptorIndexFor(const std::string& funcName,
+        const std::vector<SnField*>& typeArgs);
+    //v0.13.1: recipe row for a typeName operand containing a type
+    //parameter (see DescriptorSpelling.cpp); the row composes at run
+    //time through OP_TypeNameCompose.
+    uint16_t RecipeIndexFor(const SnField& operand);
+    //v0.13.1: an array allocation's element-instantiation row — 0xFFFF
+    //unless the element type is a generic instantiation.
+    uint16_t ElemDescriptorIndexFor(SnField* pElemType);
+    //v0.13.1 D6: a placeholder type's declared parameter position (the
+    //ordinal the T opcodes read from the receiver descriptor);
+    //kNoTypeParamOrdinal when the type is not a placeholder.
+    uint8_t TypeParamOrdinalOfType(const SnField& type);
+
+    //DescriptorSpelling.cpp (0.13.1c): the one two-family row core every
+    //descriptor entry shares — recipe row when an argument carries a
+    //type parameter, interned static row (dedup by spelling) otherwise.
+    uint16_t DescriptorRowIndexFor(const std::string& rowName,
+        const std::vector<TypeArgDesc>& args);
 
     //Ctor-call tail after the bindings: allocate the object into
     //allocSlot (OP_New / OP_AllocStruct per alloc), stage it as claim[0]
@@ -1237,6 +1340,11 @@ private:
     //records from its AST members (uses the leaf-slot resolvers and the
     //default-value encoders, hence a member).
     void AppendInterfaceSignatures(SnInterfaceDecl& sn, CompiledInterface& ci);
+    //RegisterInterfaces worker: the static-function indices + the
+    //$staticInit index of one interface (0.13.1c Task 8 extraction, the
+    //source-size guard).
+    void AppendInterfaceStaticIndices(SnInterfaceDecl& sn,
+                                      CompiledInterface& ci);
     void GenerateAllBytecode(SnNamespace& root);
     //GenerateAllBytecode close-out: scan the root for the entry function
     //and stamp m_compiledModule.entryPoint. Defined in Register.cpp (it
@@ -1327,17 +1435,18 @@ private:
     //Literal arm: the same kind set ExtractLiteralDefault folds.
     bool EncodeLiteralDesc(SnLiteralExpr& lit, std::vector<uint8_t>& out);
     static BoxingTagResult BoxingTagFor(SnField* pT);
-    //The boxing tag for one placeholder-typed signature slot (formal or
-    //return); the type argument the placeholder binds to decides it.
-    static BoxingTagResult PlaceholderBoxingTag(
-        const GenericInstanceRegistry& declaredGenerics,
-        SnField* pPlaceholder, const std::vector<SnField*>& typeArgs);
+    //0.13.1a Task 5: the erased-container boundary plan for an element-
+    //typed signature slot against its receiver instantiation — a
+    //static tag when the type argument is concrete, a dynamic frame
+    //ordinal when it is the calling generic body's own placeholder,
+    //no box otherwise (reference kinds pass through).
+    ArgBoxPlan PlanBoundaryBox(SnField* pElemType, SnClassDecl* pReceiverInst);
     //Emit one operand into its claim slot, boxing it in place when
-    //the plan says primitive (the OP_Box sequence needs a pResult
-    //refresh first). Used by the container subscript SET sugar path;
-    //the get path keeps its own inline boxing (EmitExprCast.cpp).
+    //the plan says so (the OP_Box/OP_Box_TypeArg sequence needs a
+    //pResult refresh first). Used by the container subscript SET
+    //sugar path; the get path keeps its own inline unboxing.
     void EmitBoxedOperand(SnExpression& operand, uint16_t slot,
-                          const BoxingTagResult& box,
+                          const ArgBoxPlan& box,
                           BytecodeEmitter& emitter);
     uint16_t AllocLocal(const std::string& name, uint16_t size,
                         uint8_t typeKind, bool isParam);
@@ -1375,7 +1484,7 @@ private:
                            BytecodeEmitter& emitter, uint16_t resultOffset);
 
     //SnInvokeExpr arms: delegate invoke (callee handle + dispatch) and
-    //the free-function OP_CallFunc/OP_CallFuncOut tail.
+    //the free-function OP_CallStatic/OP_CallStaticOut tail.
     void EmitDelegateInvoke(const SnInvokeExpr& invoke,
                             BytecodeEmitter& emitter, uint16_t resultOffset,
                             const std::vector<OutSpill>& outSpills);
@@ -1384,7 +1493,12 @@ private:
                               const std::vector<OutSpill>& outSpills);
     void EmitFreeFunctionCall(int funcIndex, BytecodeEmitter& emitter,
                               uint16_t resultOffset,
-                              const std::vector<OutSpill>& outSpills);
+                              const std::vector<OutSpill>& outSpills,
+                              uint16_t descIdx);
+    //0.13.1a: a receiverless callee's descriptor operand —
+    //kInstDescForwardCaller for a same-generic-row callee, kInstDescNone
+    //otherwise (see EmitExprCore.cpp for the rule).
+    uint16_t StaticCallDescIdxFor(const SnFunction& callee) const;
     //The staged-invoke dispatch tail: delegate handle or the
     //Round-11-guarded free-function call.
     void EmitInvokeDispatch(SnInvokeExpr& invoke, SnFunction* callee,
@@ -1398,17 +1512,31 @@ private:
     bool EmitCastToStringOp(SnCastExpr& cast, NodeKind srcKind,
                             NodeKind dstKind, SnField* sourceType,
                             BytecodeEmitter& emitter, uint16_t resultOffset);
+    bool EmitCastClassSourceToString(SnCastExpr& cast, SnField* sourceType,
+                                     BytecodeEmitter& emitter,
+                                     uint16_t resultOffset);
     bool EmitCastEnumToString(SnCastExpr& cast, NodeKind srcKind,
         SnField* sourceType, BytecodeEmitter& emitter, uint16_t resultOffset);
     void EmitCastFuncToString(BytecodeEmitter& emitter, uint16_t resultOffset);
     void EmitCastClassToString(BytecodeEmitter& emitter, uint16_t resultOffset);
     void EmitCastArrayToString(BytecodeEmitter& emitter, uint16_t resultOffset);
+    //v0.13.1 D6: a type-parameter value converts through the receiver's
+    //instantiation kind (OP_TypeArg_to_str).
+    void EmitCastTypeArgToString(BytecodeEmitter& emitter,
+        uint16_t resultOffset, uint8_t ordinal);
     void EmitCastNumericOrStringOp(NodeKind srcKind, NodeKind dstKind,
                                    BytecodeEmitter& emitter,
                                    uint16_t resultOffset);
 
     //SnAsExpr arms: box / unbox / downcast / explicit narrowing, and
     //the `f as string` render.
+    //v0.13.1 D6: `x as T` — the runtime kind decides (OP_As_TypeParam).
+    void EmitAsTypeParamOp(BytecodeEmitter& emitter, uint16_t resultOffset,
+                           uint8_t ordinal);
+    bool EmitAsTypeParamTarget(SnAsExpr& asExpr, BytecodeEmitter& emitter,
+                               uint16_t resultOffset);
+    bool EmitAsCastKindOp(SnAsExpr& asExpr, TypeCastKind kind,
+                          BytecodeEmitter& emitter, uint16_t resultOffset);
     void EmitAsBoxOp(SnAsExpr& asExpr, BytecodeEmitter& emitter,
                      uint16_t resultOffset);
     void EmitAsUnboxOp(SnAsExpr& asExpr, BytecodeEmitter& emitter,
@@ -1426,8 +1554,8 @@ private:
     void EmitContainerSubscriptGet(SnSubscriptExpr& sub,
                                    BytecodeEmitter& emitter,
                                    uint16_t resultOffset);
-    void EmitContainerGetCall(SnSubscriptExpr& sub, BoxingTagResult keyBox,
-                              BoxingTagResult valBox,
+    void EmitContainerGetCall(SnSubscriptExpr& sub, const ArgBoxPlan& keyBox,
+                              const ArgBoxPlan& valBox,
                               BytecodeEmitter& emitter, uint16_t resultOffset);
     void EmitStringByteAt(SnSubscriptExpr& sub, BytecodeEmitter& emitter,
                           uint16_t resultOffset);
@@ -1478,7 +1606,8 @@ private:
     void EmitBinaryOp(SnBinaryExpr& bin, BytecodeEmitter& emitter,
                       uint16_t resultOffset);
     void EmitBinaryOpCode(SnBinaryExpr& bin, NodeKind numKind, bool isString,
-                          bool isFunc, BytecodeEmitter& emitter,
+                          bool isFunc, bool isStruct, bool isTypeParam,
+                          BytecodeEmitter& emitter,
                           uint16_t resultOffset, uint16_t rightSlot);
     void EmitBinaryArithmeticOp(SnBinaryExpr& bin, NodeKind numKind,
                                 bool isString,
@@ -1489,13 +1618,19 @@ private:
                                 BytecodeEmitter& emitter, uint16_t resultOffset,
                                 uint16_t rightSlot);
     void EmitBinaryEqualityOp(SnBinaryExpr& bin, NodeKind numKind,
-                              bool isString, bool isFunc, BytecodeEmitter& emitter,
+                              bool isString, bool isFunc, bool isStruct,
+                              bool isTypeParam, BytecodeEmitter& emitter,
                               uint16_t resultOffset, uint16_t rightSlot);
     //0.13.7 bitwise arms: the opcode follows the node's operator; the
     //resolver has already fixed the shared integer carrier row.
     void EmitBitwiseOp(SnBinaryExpr& bin, NodeKind numKind,
                        BytecodeEmitter& emitter,
                        uint16_t resultOffset, uint16_t rightSlot);
+    //v0.13.1 D6: the OP_Eq_T/OP_Ne_T emission (operand slots, null-side
+    //marker, receiver ordinal).
+    void EmitTypeParamEqualityOp(SnBinaryExpr& bin,
+                                 BytecodeEmitter& emitter,
+                                 uint16_t resultOffset, uint16_t rightSlot);
 
     //New-object emission, shared by the SnNewExpr arm and the 0.9.0
     //ctor-invoke twin (`Foo(args)` without new, invoke.CtorClass()):
@@ -1569,6 +1704,21 @@ private:
                              SnArrayTypeToken& token,
                              BytecodeEmitter& emitter,
                              uint16_t resultOffset);
+    //v0.13.1 D5: the array opcode emission choke points (definitions
+    //in EmitArrayOpcodes.cpp) — each owns its opcode's complete operand
+    //layout and derives the element descriptor word from the element
+    //field, so allocation sites cannot hand-write a stale sequence.
+    void EmitAllocArrayN(uint16_t resultOffset, uint16_t arrayTypeIdx,
+                         uint8_t rank, uint16_t dimsBase,
+                         SnField* pElemField, BytecodeEmitter& emitter);
+    void EmitAssembleArrayN(uint16_t resultOffset, uint16_t arrayTypeIdx,
+                            uint16_t rowsBase, uint16_t rowCount,
+                            SnField* pElemField, BytecodeEmitter& emitter);
+    void EmitAllocArrayDyn(uint16_t resultOffset, uint16_t arrayTypeIdx,
+                           uint16_t dimsSlot, SnField* pElemField,
+                           BytecodeEmitter& emitter);
+    void EmitCheckArrayTypeOp(uint16_t slot, uint16_t arrayTypeIdx,
+                              SnField* pElemField, BytecodeEmitter& emitter);
     void EmitNDInitListLeaves(SnInitListExpr& node,
                               SnArrayTypeToken& token,
                               std::vector<int32_t>& coords,
@@ -1602,19 +1752,19 @@ private:
                                    const int32_t* pExtraConstSlot = nullptr);
     void EmitInitListListForm(SnInitListExpr& initList, SnClassDecl& classDecl,
                               BytecodeEmitter& emitter, uint16_t resultOffset);
-    void EmitInitListEntryAdd(const InitEntry& entry, BoxingTagResult tBox,
+    void EmitInitListEntryAdd(const InitEntry& entry, const ArgBoxPlan& tBox,
                               uint16_t addNameIdx, uint16_t resultOffset,
                               BytecodeEmitter& emitter);
     void EmitInitListDictForm(SnInitListExpr& initList, SnClassDecl& classDecl,
                               BytecodeEmitter& emitter, uint16_t resultOffset);
-    void EmitInitListEntrySet(const InitEntry& entry, BoxingTagResult kBox,
-                              BoxingTagResult vBox, uint16_t setNameIdx,
+    void EmitInitListEntrySet(const InitEntry& entry, const ArgBoxPlan& kBox,
+                              const ArgBoxPlan& vBox, uint16_t setNameIdx,
                               uint16_t resultOffset, BytecodeEmitter& emitter);
     //0.10.10: stage one entry slot (a Dict key or a List/Dict value) and
-    //box it in place when its declared kind is primitive — the shared
+    //box it in place when the boundary plan says so — the shared
     //shape of the "add"/"set" argument slots.
     void EmitInitListStageBoxed(SnExpression& expr, uint16_t off,
-                                const BoxingTagResult& box,
+                                const ArgBoxPlan& box,
                                 BytecodeEmitter& emitter);
     void EmitInitListClassForm(SnInitListExpr& initList, SnClassDecl& classDecl,
                                BytecodeEmitter& emitter, uint16_t resultOffset);
@@ -2042,6 +2192,18 @@ inline uint16_t StringMethodStagedArgCount(const std::string& name,
     if (name == "indexOf") { return argCount < 2 ? 2 : argCount; }
     if (name == "toInt") { return argCount < 1 ? 1 : argCount; }
     return argCount;
+}
+
+//0.13.1c: abstract-record admission is a class-member concept — an
+//interface method's bodylessness is intrinsic to the kind (its surface
+//rides CompiledInterface.instanceMethods), so admitting a record for it
+//would mint a second, placeholder-named stub beside the interface's own
+//rebuild. Shared by RegisterFunctions and the generation walk.
+inline bool IsAbstractClassMember(const SnField& field)
+{
+    return field.ContainFlags(NF_Abstract)
+        && field.Parent() != nullptr
+        && field.Parent()->Kind() == NK_ClassDecl;
 }
 
 } // namespace nlang

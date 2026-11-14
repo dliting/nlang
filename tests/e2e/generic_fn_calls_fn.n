@@ -1,0 +1,60 @@
+// generic_fn_calls_fn.n — 0.13.1a: inter-generic call matrix.
+class Hold<U> {
+    public U held;
+    public Hold(U v) { held = v; }
+}
+class Ctor<T> {
+    public static string probe(T v) {
+        // generic-class static caller → free function carrying the
+        // caller's T: the callee descIdx is a RECIPE row composed
+        // from this frame's context at the push bridge
+        return freeTag(v);
+    }
+    public static Hold<T> wrap(T v) {
+        // T-argument construction inside a static body, bare form:
+        // the constructor's U unifies against the caller's T and the
+        // OP_New recipe composes Hold<T> from the frame context
+        Hold<T> h = Hold(v);
+        return h;
+    }
+    public static Hold<T> wrapSpelled(T v) {
+        // the same construction through Task 3's spelled form
+        return Hold<T>(v);
+    }
+}
+string freeTag<T>(T v) {
+    return typeName(T);
+}
+T freeEcho<T>(T v) {
+    return v;
+}
+// cross-template forwarding: the callee is a DIFFERENT template, so the
+// caller's T flows through a RECIPE row (a blind 0xFFFE forward would be
+// ordinal-unsound across templates)
+T freeFwd<T>(T v) {
+    return freeEcho(v);
+}
+// recursion: a generic function calling itself with its own T
+T rfn<T>(T v, int n) {
+    if (n <= 0) { return v; }
+    return rfn(v, n - 1);
+}
+int main() {
+    // free → free, caller T flows into the callee's T: inference
+    // unifies freeEcho's U against the caller placeholder and the
+    // descriptors differ per template, so this rides a recipe row
+    if (freeFwd(8) != 8) { return 3; }
+    // nested inference: the inner call infers first, the outer composes
+    if (freeTag(freeEcho(9)) != "int") { return 4; }
+    // recursion: the self-call rides a recipe row — FreeCallDescriptorIndexFor
+    // binds the callee's T to the caller's placeholder (0xFFFE is the
+    // same-generic-CLASS member channel; free functions never take it)
+    if (rfn(6, 3) != 6) { return 5; }
+    // generic-class static → free function with the caller's T (recipe)
+    if (Ctor<int>.probe(5) != "int") { return 6; }
+    if (Ctor<string>.probe("s") != "string") { return 7; }
+    // T-argument construction from a static body: bare + spelled forms
+    if (Ctor<int>.wrap(4).held != 4) { return 8; }
+    if (Ctor<string>.wrapSpelled("w").held != "w") { return 9; }
+    return 0;
+}

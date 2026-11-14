@@ -1,0 +1,15 @@
+//compile_error: the lowering's overload-match failure must unwind the
+//emission plan and hand the operands back to the binary BEFORE the plan
+//dies — the bind diagnostic below prints the expression text through
+//the binary's operand slots, and reading freed operands there was a
+//heap-use-after-free (ASan-visible; the ASan-tree e2e sweep recompiles
+//this fixture through the ASan ncc on every gate).
+import tensor;
+
+int main() {
+    bool t;
+    float[] a = float[2];
+    float[] b = float[2];
+    b = t - a;
+    return 0;
+}

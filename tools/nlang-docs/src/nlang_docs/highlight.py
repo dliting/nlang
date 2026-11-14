@@ -21,26 +21,29 @@ from pygments.token import (Comment, Keyword, Name, Number, Operator,
 #are imported directly by the hook's consumers (never via import *).
 __all__ = ["NLangLexer"]
 
-#Full nlang.l keyword table (0.8.3): 40 keywords + 16 builtin-type
-#words (NLANG_TYPES below: the scanner's 14 type keywords plus the
-#docs-side generic names Dict/List) + 3 constants (NLANG_CONSTANTS
-#below) = the scanner's 54 reserved words (0.9.0 removed "new":
-#it is an ordinary identifier now; v0.13.7 removed "elseif" and
-#"state", reserved without any parser production).
-#test_highlight anchors all three sets to the scanner source directly.
-#(Phase 5 removed the 40th keyword: "namespace" is an ordinary
-#identifier now; the 0.7.5 double family added "double"/"long" to the
-#type words; 0.8.3 made "func" a scanner keyword, so the docs side
-#moved it from NLANG_TYPES to NLANG_KEYWORDS.)
+#The scanner's word tables (0.13.1c): keywords (NLANG_KEYWORDS),
+#builtin-type words (NLANG_TYPES: the scanner's type keywords plus the
+#docs-side generic names Dict/List), and the literal constants
+#(NLANG_CONSTANTS). Every keyword and type word is anchored to the
+#scanner source directly by test_highlight, so this table cannot
+#silently drift from nlang.l — counts are intentionally not stated
+#here; they rot (as this comment's own history shows).
+#(Removals along the way: "namespace" (Phase 5), "new" (0.9.0), and
+#"elseif"/"state" (0.13.1c) are ordinary identifiers now; the 0.7.5
+#double family added "double"/"long" to the type words; 0.8.3 made
+#"func" a scanner keyword, so the docs side moved it from NLANG_TYPES
+#to NLANG_KEYWORDS; 0.13.1c added the width-explicit primitive
+#aliases (int8..int64, uint8..uint64, fp32/fp64) to the type words.)
 NLANG_KEYWORDS = frozenset(
     "as assert break case catch class const continue default do else "
     "enum finally for foreach func if implements import in "
     "interface native out private protected public return "
-    "static struct super switch this throw try using virtual "
+    "static struct super switch this throw try typeName using virtual "
     "while".split())
 NLANG_TYPES = frozenset(
     "bool byte char double float int long short string ubyte uint "
-    "ulong ushort void Dict List".split())
+    "ulong ushort void fp32 fp64 int8 int16 int32 int64 uint8 uint16 "
+    "uint32 uint64 Dict List".split())
 NLANG_CONSTANTS = frozenset("true false null".split())
 
 

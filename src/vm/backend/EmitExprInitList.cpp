@@ -89,11 +89,8 @@ void VmBackend::EmitInitListArray(SnInitListExpr& initList, SnField* pArrayToken
     emitter.EmitInt32(n);
     emitter.Emit(OpCode::OP_Assign);
     emitter.EmitUint16(m_currFunc->tempSlot);
-    emitter.Emit(OpCode::OP_AllocArrayN);
-    emitter.EmitUint16(resultOffset);
-    emitter.EmitUint16(arrayTypeIdx);
-    emitter.EmitUint16(1);  // rank
-    emitter.EmitUint16(m_currFunc->tempSlot);
+    EmitAllocArrayN(resultOffset, arrayTypeIdx, 1, m_currFunc->tempSlot,
+                    pElemField, emitter);
 
     //Stage entry values in an evalArea claim, never a temp: a
     //binary entry (`1 + use(make(5))`) parks its LEFT operand in
@@ -165,6 +162,9 @@ void VmBackend::EmitNewObjectAndNoArgCtor(SnClassDecl& classDecl,
     emitter.Emit(OpCode::OP_New);
     emitter.EmitUint16(resultOffset);
     emitter.EmitUint16(classIdx);
+    //v0.13.1 D1: the init-list arms construct concrete instantiations
+    //too (List<int> {...} shapes); non-instantiations spell 0xFFFF.
+    emitter.EmitUint16(DescriptorIndexFor(classDecl));
     uint16_t ctorIdx = 0xFFFF;
     if (SnFunction* pRegistered = RegisteredCtor(pCtorFn))
         ctorIdx = static_cast<uint16_t>(FunctionSlotFor(*pRegistered));
@@ -238,31 +238,27 @@ void VmBackend::EmitInitListListForm(SnInitListExpr& initList,
     EmitNewObjectAndNoArgCtor(classDecl, nullptr,
                               static_cast<uint16_t>(classIdx),
                               emitter, resultOffset);
-    //Boxing plan for primitive T. An array-typed T is the
-    //interned token — BoxingTagFor's default (not primitive)
-    //flows raw handles, no box.
+    //Boundary plan for primitive T. An array-typed T is the
+    //interned token — the plan's default (no box) flows raw
+    //handles.
     const auto& typeArgs = classDecl.GenericTypeArgs();
-    auto tBox = BoxingTagFor(typeArgs.empty() ? nullptr : typeArgs[0]);
+    auto tBox = PlanBoundaryBox(typeArgs.empty() ? nullptr : typeArgs[0],
+                                &classDecl);
     uint16_t addNameIdx = AddStringConstant("add");
     for (auto& entry : initList.Entries())
         EmitInitListEntryAdd(entry, tBox, addNameIdx, resultOffset, emitter);
 }
 
 //0.10.10: stage one entry slot (a Dict key or a List/Dict value) and
-//box it in place when its declared kind is primitive — the pResult
+//normalize it in place when its boundary plan says so — the pResult
 //refresh mirrors the assignment path: the box must read the staged
 //slot, not a stale accumulator left behind by the expression emission.
 void VmBackend::EmitInitListStageBoxed(SnExpression& expr, uint16_t off,
-                                       const BoxingTagResult& box,
+                                       const ArgBoxPlan& box,
                                        BytecodeEmitter& emitter) {
     EmitExpression(expr, emitter, off);
-    if (box.isPrimitive) {
-        EmitPResultRefresh(emitter, off);
-        emitter.Emit(OpCode::OP_Box);
-        emitter.EmitByte(box.tag);
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(off);
-    }
+    if (box.needsBox)
+        EmitBoundaryBox(box, emitter, off);
 }
 
 //List-form per-entry: stage {this, value} in an evalArea claim, box a
@@ -270,7 +266,7 @@ void VmBackend::EmitInitListStageBoxed(SnExpression& expr, uint16_t off,
 //The entry key is meaningless here — the resolver guarantees List
 //entries are positional (RejectInitListEntryKeyForm).
 void VmBackend::EmitInitListEntryAdd(const InitEntry& entry,
-                                     BoxingTagResult tBox,
+                                     const ArgBoxPlan& tBox,
                                      uint16_t addNameIdx, uint16_t resultOffset,
                                      BytecodeEmitter& emitter) {
     if (!entry.pValue) return;
@@ -309,10 +305,11 @@ void VmBackend::EmitInitListDictForm(SnInitListExpr& initList,
                               emitter, resultOffset);
     const auto& typeArgs = classDecl.GenericTypeArgs();
     //Array-typed K/V slots are interned tokens — raw handles,
-    //no box (BoxingTagFor default).
-    auto kBox = BoxingTagFor(typeArgs.empty() ? nullptr : typeArgs[0]);
+    //no box (the plan's default).
+    auto kBox = PlanBoundaryBox(typeArgs.empty() ? nullptr : typeArgs[0],
+                                &classDecl);
     auto vBox = (typeArgs.size() > 1)
-        ? BoxingTagFor(typeArgs[1]) : BoxingTagResult{0, false};
+        ? PlanBoundaryBox(typeArgs[1], &classDecl) : ArgBoxPlan{};
     uint16_t setNameIdx = AddStringConstant("set");
     for (auto& entry : initList.Entries())
         EmitInitListEntrySet(entry, kBox, vBox, setNameIdx, resultOffset,
@@ -325,8 +322,8 @@ void VmBackend::EmitInitListDictForm(SnInitListExpr& initList,
 //guarantees every Dict entry carries one (RejectInitListEntryKeyForm);
 //the key-slot cast already adjudicated it against K.
 void VmBackend::EmitInitListEntrySet(const InitEntry& entry,
-                                     BoxingTagResult kBox,
-                                     BoxingTagResult vBox, uint16_t setNameIdx,
+                                     const ArgBoxPlan& kBox,
+                                     const ArgBoxPlan& vBox, uint16_t setNameIdx,
                                      uint16_t resultOffset,
                                      BytecodeEmitter& emitter) {
     if (!entry.pValue || !entry.pKey) return;

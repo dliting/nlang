@@ -1,0 +1,8 @@
+//0.13.1c Task 8: the library exports a GENERIC interface whose static
+//member is implemented in place (the 0.9.10 contract). The template row
+//carries the generic-declaration tail (v2.19), so the consumer's stub
+//rebuilds a generic declaration and its static call through the
+//instantiation rides the template-row record + the call-site descriptor.
+interface Pipe<T> {
+    public static T echo(T v) { return v; }
+}

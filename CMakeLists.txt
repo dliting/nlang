@@ -11,13 +11,18 @@ if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION")
 endif()
 file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" NLANG_VERSION)
 string(STRIP "${NLANG_VERSION}" NLANG_VERSION)
-if(NOT NLANG_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
-    message(FATAL_ERROR "VERSION must be a semantic version (x.y.z), "
-        "found: '${NLANG_VERSION}'")
+if(NOT NLANG_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+[a-z]?$")
+    message(FATAL_ERROR "VERSION must be a semantic version (x.y.z with "
+        "an optional letter tag), found: '${NLANG_VERSION}'")
 endif()
+#project() takes a numeric x.y.z only; the letter tag (a work-version
+#marker like 0.13.1a) rides along in the full string for CPack naming
+#and the --version output.
+string(REGEX MATCH "^[0-9]+\\.[0-9]+\\.[0-9]+" NLANG_VERSION_NUMERIC
+    "${NLANG_VERSION}")
 
 # C is enabled for the vendored libvterm (pure C99 static library).
-project(NLang VERSION ${NLANG_VERSION} LANGUAGES C CXX)
+project(NLang VERSION ${NLANG_VERSION_NUMERIC} LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -38,8 +43,10 @@ if(MSVC)
 endif()
 
 #Generated version header (build tree only, single source: the VERSION
-#file). The INTERFACE target carries the include dir to the tools.
-string(REPLACE "." ";" NLANG_VERSION_LIST "${NLANG_VERSION}")
+#file; the numeric components come from the numeric prefix so a letter
+#tag never reaches MAJOR/MINOR/PATCH). The INTERFACE target carries the
+#include dir to the tools.
+string(REPLACE "." ";" NLANG_VERSION_LIST "${NLANG_VERSION_NUMERIC}")
 list(GET NLANG_VERSION_LIST 0 NLANG_VERSION_MAJOR)
 list(GET NLANG_VERSION_LIST 1 NLANG_VERSION_MINOR)
 list(GET NLANG_VERSION_LIST 2 NLANG_VERSION_PATCH)
@@ -119,8 +126,13 @@ if(NLANG_BUILD_IDE)
         "${Qt5_DIR}/../../../resources" ABSOLUTE)
     get_filename_component(NLANG_QTWEBENGINE_LOCALES
         "${Qt5_DIR}/../../../translations/qtwebengine_locales" ABSOLUTE)
+    #The helper process follows Qt's debug naming (QtWebEngineProcessd
+    #under Debug) while the DLL list above rides $<TARGET_FILE:...> and
+    #is config-aware already — splice the suffix per configuration so
+    #a Debug build launches the Debug process (the release one beside
+    #Debug DLLs fails to load and the help browser dies at startup).
     set(NLANG_QTWEBENGINE_PROCESS
-        "${NLANG_QTWEBENGINE_BIN}/QtWebEngineProcess.exe")
+        "${NLANG_QTWEBENGINE_BIN}/QtWebEngineProcess$<$<CONFIG:Debug>:d>.exe")
     # icudtl.dat and the 3 scale-variant paks; the devtools pak stays
     # out (the help viewer opens no DevTools).
     set(NLANG_QTWEBENGINE_RESOURCE_FILES
@@ -156,29 +168,46 @@ if(NLANG_BUILD_IDE)
     endfunction()
 endif()
 
-#MSVC's /fsanitize=address binaries load clang_rt.asan_dynamic-x86_64.dll
-#from the executable's own directory (or PATH). A gate launches binaries
-#from wherever they were linked: tools from their tool dir, test exes from
-#their test dir, the embedding host from its example dir. So every such
-#target ships the runtime beside itself via nlang_ship_asan_runtime(): the
-#tool targets (src/tools/*/CMakeLists txt) for the stdlib-package step and
-#the e2e gates, the test targets (tests/CMakeLists.txt) for ctest, and
-#embed_host for embed_host_smoke. The DLL sits next to cl.exe in the
-#toolset bin dir, which keeps the runtime version locked to the toolset
-#that built the binaries; guarded on the configure-time flag so non-ASan
-#trees are untouched. Defined before the subdirectories so all of them can
-#call it.
-if(MSVC AND CMAKE_CXX_FLAGS MATCHES "sanitize=address")
-    get_filename_component(NLANG_MSVC_BIN_DIR "${CMAKE_CXX_COMPILER}" DIRECTORY)
-    set(NLANG_ASAN_RUNTIME "${NLANG_MSVC_BIN_DIR}/clang_rt.asan_dynamic-x86_64.dll")
-endif()
-function(nlang_ship_asan_runtime target)
-    if(DEFINED NLANG_ASAN_RUNTIME)
-        add_custom_command(TARGET ${target} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${NLANG_ASAN_RUNTIME}" $<TARGET_FILE_DIR:${target}>
-            COMMENT "Copying ASan runtime beside ${target}")
+
+# ---- AddressSanitizer runtime provisioning ----------------------------------
+# MSVC links the sanitizer DYNAMIC runtime: the flags carry
+# -fsanitize=address as a plain compiler flag, not the EnableASAN project
+# property, so MSBuild never copies clang_rt.asan_dynamic-x86_64.dll beside
+# linked executables — an instrumented exe in an unprovisioned directory
+# dies at load time (0xc0000135). Each executable-creating CMakeLists ends
+# with one sweep call (add_custom_command(TARGET ... POST_BUILD) is
+# directory-bound, so the sweep cannot run centrally); the recursion below
+# covers the directory's whole subtree. cl.exe shares its directory with
+# the clang_rt runtime DLLs, so the compiler path is the lookup.
+function(nlang_copy_asan_runtime target)
+    get_filename_component(_asan_bin_dir "${CMAKE_CXX_COMPILER}" DIRECTORY)
+    set(_asan_dll "${_asan_bin_dir}/clang_rt.asan_dynamic-x86_64.dll")
+    if(NOT EXISTS "${_asan_dll}")
+        message(FATAL_ERROR "AddressSanitizer runtime DLL not found beside "
+            "the compiler: ${_asan_dll}")
     endif()
+    add_custom_command(TARGET ${target} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${_asan_dll}" $<TARGET_FILE_DIR:${target}>
+        VERBATIM)
+endfunction()
+
+#Attach the provisioning to every executable target created in dir.
+#(add_custom_command(TARGET ...) is directory-bound, so the call lives in
+#the CMakeLists that creates the targets, not a central sweep.) No-op on
+#non-MSVC trees and builds without the sanitizer flag.
+function(_nlang_sweep_asan_runtime dir)
+    if(NOT MSVC OR NOT CMAKE_CXX_FLAGS MATCHES "fsanitize=address")
+        return()
+    endif()
+    get_property(_targets DIRECTORY "${dir}" PROPERTY BUILDSYSTEM_TARGETS)
+    foreach(_t IN LISTS _targets)
+        get_property(_type TARGET ${_t} PROPERTY TYPE)
+        if(_type STREQUAL "EXECUTABLE")
+            nlang_copy_asan_runtime(${_t})
+        endif()
+    endforeach()
+
 endfunction()
 
 # Subdirectories
@@ -380,6 +409,7 @@ if(NLANG_BUILD_TESTS)
     add_subdirectory(tests)
 endif()
 
+
 # ---- Install rules & release packaging -------------------------------------
 # The release package is a self-contained layout mirroring the proven nide
 # deploy dir (nide_deploy_check): every executable and the Qt runtime live
@@ -432,17 +462,17 @@ set(CPACK_PACKAGE_NAME "NLang")
 set(CPACK_PACKAGE_VENDOR "NLang Project")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
     "NLang scripting language compiler, virtual machine and IDE")
-set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+set(CPACK_PACKAGE_VERSION "${NLANG_VERSION}")
 set(CPACK_PACKAGE_INSTALL_DIRECTORY "NLang")
 set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
 
 if(WIN32)
     set(CPACK_GENERATOR "ZIP;NSIS")
     # One deterministic file name for both generators (zip / installer).
-    set(CPACK_PACKAGE_FILE_NAME "NLang-${PROJECT_VERSION}-win64")
+    set(CPACK_PACKAGE_FILE_NAME "NLang-${NLANG_VERSION}-win64")
     set(CPACK_NSIS_INSTALL_ROOT "$PROGRAMFILES64")
-    set(CPACK_NSIS_DISPLAY_NAME "NLang ${PROJECT_VERSION}")
-    set(CPACK_NSIS_PACKAGE_NAME "NLang ${PROJECT_VERSION}")
+    set(CPACK_NSIS_DISPLAY_NAME "NLang ${NLANG_VERSION}")
+    set(CPACK_NSIS_PACKAGE_NAME "NLang ${NLANG_VERSION}")
     if(NLANG_NSIS_MAKENSIS)
         # CPACK_NSIS_EXECUTABLE exists since CMake 3.21; on older CMake the
         # option would silently fall back to a PATH lookup of makensis.

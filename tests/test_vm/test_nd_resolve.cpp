@@ -427,14 +427,24 @@ void test_decl_comma_size_reject_stress()
         "int main() {\n    int x = 1, a[2, 1 + 2 * 3] = 5;\n    return 0;\n}\n",
         "int main() {\n    int x = 1, a[2, 1 + 2 * 3] = {5};\n    return 0;\n}\n",
     };
+    int srcIdx = 0;
     for (int i = 0; i < 200; ++i)
     {
+        srcIdx = 0;
         for (const char *src : sources)
         {
             const BuildOutcome outcome = buildSource("nd_declsize_stress", src);
+            if (!(!outcome.ok && DiagHas(outcome, msg)
+                  && !DiagHas(outcome, "syntax error")))
+            {
+                std::cerr << "    stress failure at iteration " << i
+                    << ", source " << srcIdx << ", ok=" << outcome.ok
+                    << "\n    diagnostics:\n" << outcome.diagnostics;
+            }
             CHECK(!outcome.ok && DiagHas(outcome, msg)
                 && !DiagHas(outcome, "syntax error"),
                 "stress iteration must keep the named diagnostic");
+            ++srcIdx;
         }
     }
     PASS();

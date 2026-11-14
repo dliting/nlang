@@ -1,0 +1,30 @@
+// M1 pin: subscript store into an Array<E>-typed base must deep-copy
+// struct values. The store-side element derivation peeled only the
+// interned token, so the generic spelling skipped the deep-copy and
+// the cell aliased the source local.
+struct Point {
+    int x;
+    int y;
+}
+
+class Box {
+    public Array<Point> items;
+}
+
+int main() {
+    Box b = Box();
+    b.items = Point[2];
+    Point p = Point();
+    p.x = 7;
+    b.items[0] = p;
+    p.x = 100;
+    if (b.items[0].x != 7) { return 3; }
+
+    Point q = Point();
+    q.x = 11;
+    q.y = 12;
+    b.items[1] = q;
+    q.y = 200;
+    if (b.items[1].y != 12) { return 6; }
+    return 42;
+}

@@ -212,6 +212,38 @@ void ReadClassRecords(std::istream& fs, CompiledModule& mod)
             && cc.staticInitFuncIdx >= mod.functions.size())
             throw std::runtime_error(
                 "Invalid module: class static init index out of range");
+
+        //v0.13.1 (D7): the template marker + declared type-parameter
+        //names (see the saver). The consumer stub rebuilds a generic
+        //declaration from this tail; a wild flag or count is a corrupt
+        //image — the stub would otherwise mint a template with a
+        //truncated parameter surface.
+        uint8_t templateFlag = 0;
+        fs.read(reinterpret_cast<char*>(&templateFlag),
+                sizeof(templateFlag));
+        if (!fs.good() || templateFlag > 1)
+            throw std::runtime_error(
+                "Invalid module: bad class template flag");
+        cc.isTemplate = (templateFlag != 0);
+        uint16_t typeParamCount = 0;
+        fs.read(reinterpret_cast<char*>(&typeParamCount),
+                sizeof(typeParamCount));
+        if (!fs.good() || typeParamCount > (1u << 8))
+            throw std::runtime_error(
+                "Invalid module: bad class type-parameter count");
+        cc.typeParamNames.resize(typeParamCount);
+        for (uint16_t j = 0; j < typeParamCount; ++j) {
+            uint32_t tpLen = 0;
+            fs.read(reinterpret_cast<char*>(&tpLen), sizeof(tpLen));
+            if (!fs.good() || tpLen > (1u << 24))
+                throw std::runtime_error(
+                    "Invalid module: bad type-parameter name length");
+            cc.typeParamNames[j].resize(tpLen);
+            fs.read(cc.typeParamNames[j].data(), tpLen);
+            if (!fs.good())
+                throw std::runtime_error(
+                    "Invalid module: truncated type-parameter names");
+        }
     }
 
     //0.9.12 (v2.7): the class records carry OWN fields and join their
@@ -230,6 +262,28 @@ void ReadClassRecords(std::istream& fs, CompiledModule& mod)
                     "Invalid module: corrupt class superclass chain");
             link = mod.classes[static_cast<size_t>(link)].superClassIdx;
         }
+    }
+
+    //0.13.1a: derive the generic-record flags from the template rows —
+    //a member of a template row reads the frame descriptor cell, and
+    //the wire carries the flag on the CLASS (the producer's fill rides
+    //its own AST owner), not per function. Constructors join too (a
+    //template row's ctor body may reference T). Member indices were
+    //bounds-checked above, so the re-walk is a pure stamp.
+    for (uint32_t i = 0; i < classCount; ++i) {
+        const auto& cc = mod.classes[i];
+        if (!cc.isTemplate)
+            continue;
+        for (uint16_t idx : cc.methodIndices)
+            if (idx < mod.functions.size()) {
+                mod.functions[idx].isGeneric = true;
+                mod.functions[idx].typeParamNames = cc.typeParamNames;
+            }
+        for (uint16_t idx : cc.constructorIndices)
+            if (idx < mod.functions.size()) {
+                mod.functions[idx].isGeneric = true;
+                mod.functions[idx].typeParamNames = cc.typeParamNames;
+            }
     }
 }
 

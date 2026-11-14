@@ -1,0 +1,28 @@
+//0.13.1c closeout review pin: the implements-edge type argument may
+//ride the IMPLEMENTING class's own type parameter — the placeholder
+//is shared between the implements edge and the members, so the
+//substituted interface signatures bind to the class's declarations.
+interface Wrapper<T>
+{
+    T unwrap();
+    void fill(T v);
+}
+class Box<X> implements Wrapper<X>
+{
+    X m_v;
+    public Box(X v) { m_v = v; }
+    public X unwrap() { return m_v; }
+    public void fill(X v) { m_v = v; }
+}
+int main()
+{
+    Box<string> bs = Box("ok");
+    Wrapper<string> ws = bs;
+    assert(ws.unwrap() == "ok");
+    ws.fill("again");
+    assert(bs.unwrap() == "again");
+    Box<int> bi = Box(7);
+    Wrapper<int> wi = bi;
+    assert(wi.unwrap() == 7);
+    return 0;
+}

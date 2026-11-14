@@ -1,0 +1,26 @@
+// tensor.reluGrad(dOut, z): the ReLU gate backward — gradient flows
+// exactly where z > 0 (z = 0 gates to zero), shape mismatch raises.
+import tensor;
+
+int main() {
+    float[] z = tensor.fullF(5, 0.0f);
+    z[0] = -2.0f; z[1] = -1.0f;
+    z[3] = 1.0f; z[4] = 2.0f;
+    float[] d = tensor.fullF(5, 10.0f);
+    float[] g = tensor.reluGrad(d, z);
+    if (g[0] != 0.0f || g[1] != 0.0f) return 1;
+    if (g[2] != 0.0f) return 2;              // z = 0 gates off
+    if (g[3] != 10.0f || g[4] != 10.0f) return 3;
+
+    //rank-2 path (the MLP backward shape)
+    float[,] dz = float[2, 2];
+    dz[0, 0] = 1.0f; dz[0, 1] = 2.0f;
+    dz[1, 0] = 3.0f; dz[1, 1] = 4.0f;
+    float[,] h = float[2, 2];
+    h[0, 0] = 0.0f; h[0, 1] = 0.0f;
+    h[1, 0] = 5.0f; h[1, 1] = -5.0f;
+    float[,] g2 = tensor.reluGrad(dz, h);
+    if (g2[0, 0] != 0.0f || g2[0, 1] != 0.0f) return 4;
+    if (g2[1, 0] != 3.0f || g2[1, 1] != 0.0f) return 5;
+    return 0;
+}

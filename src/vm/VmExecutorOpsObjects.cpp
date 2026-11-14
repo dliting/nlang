@@ -120,10 +120,28 @@ void VmExecutor::OpStoreStatic(BytecodeReader& reader, uint8_t* locals) {
         m_staticSlots.MarkSlotInitialized(slotIdx);
 }
 
+//The recipe-composition family (ComposeInstDescriptor and friends, the
+//typeName arms) lives in VmExecutorOpsDescriptor.cpp — the 500-line
+//source guard split when typeName landed here.
+
 void VmExecutor::OpNew(BytecodeReader& reader, uint8_t* locals) {
     uint16_t dst = reader.ReadUint16();
     uint16_t classIdx = reader.ReadUint16();
-    int32_t heapIdx = AllocClassOnHeap(classIdx);
+    //v0.13.1: the instantiation descriptor row (0xFFFF = none). The
+    //cache was interned at run start; a row index past the table is a
+    //corrupt image, not a user error.
+    uint16_t descIdx = reader.ReadUint16();
+    GenericInstDescriptor* instDesc = nullptr;
+    if (descIdx != 0xFFFF) {
+        if (descIdx >= m_descCache.size())
+            throw std::runtime_error(
+                "NLang VM: invalid descriptor index in OP_New");
+        instDesc = m_descCache[descIdx];
+        if (!instDesc)
+            instDesc = ComposeInstDescriptor(
+                m_currModule->descriptorTable[descIdx].recipe);
+    }
+    int32_t heapIdx = AllocClassOnHeap(classIdx, instDesc);
     std::memcpy(locals + dst, &heapIdx, sizeof(heapIdx));
     NoteGcPressure();
 }
@@ -149,7 +167,17 @@ void VmExecutor::OpCopyStruct(BytecodeReader& reader, uint8_t* locals) {
 
 
 void VmExecutor::OpBox(BytecodeReader& reader, uint8_t* pResult) {
-    uint8_t typeTag = reader.ReadByte();
+    BoxAccumulatorAs(reader.ReadByte(), pResult);
+}
+
+void VmExecutor::OpUnbox(BytecodeReader& reader, uint8_t* pResult) {
+    UnboxAccumulatorAs(reader.ReadByte(), pResult);
+}
+
+//The OpBox body over an explicit tag (shared with the descriptor-
+//dispatched boundary pair, which resolves the tag from the frame
+//context at runtime).
+void VmExecutor::BoxAccumulatorAs(uint8_t typeTag, uint8_t* pResult) {
     //0.7.5: payload width from the registry — 8-byte rows (long/ulong)
     //read the full slot; ≤4-byte tags keep the legacy 4-byte read (the
     //upper half of the slot can be stale for narrow writers).
@@ -163,8 +191,9 @@ void VmExecutor::OpBox(BytecodeReader& reader, uint8_t* pResult) {
     std::memcpy(pResult, &heapIdx, sizeof(heapIdx));
 }
 
-void VmExecutor::OpUnbox(BytecodeReader& reader, uint8_t* pResult) {
-    uint8_t expectedTag = reader.ReadByte();
+//The OpUnbox body over an explicit tag (shared with the descriptor-
+//dispatched boundary pair).
+void VmExecutor::UnboxAccumulatorAs(uint8_t expectedTag, uint8_t* pResult) {
     int32_t heapIdx;
     std::memcpy(&heapIdx, pResult, sizeof(heapIdx));
     if (heapIdx <= 0
@@ -240,8 +269,25 @@ bool VmExecutor::ClassMatchesTarget(int32_t actualClassIdx,
     return false;
 }
 
-void VmExecutor::OpCheckCast(BytecodeReader& reader, uint8_t* pResult) {
+//v0.13.1 D5: resolve a cast's descriptor row to its target descriptor —
+//static rows are pre-interned in m_descCache; a recipe row (a T-argument
+//target) composes against the executing frame's context cell exactly
+//like OP_New.
+GenericInstDescriptor* VmExecutor::CastTargetDescriptor(
+    uint16_t descIdx) {
+    if (descIdx >= m_descCache.size())
+        throw std::runtime_error(
+            "NLang VM: invalid descriptor index in OP_CheckCast");
+    if (!m_descCache[descIdx])
+        return ComposeInstDescriptor(
+            m_currModule->descriptorTable[descIdx].recipe);
+    return m_descCache[descIdx];
+}
+
+void VmExecutor::OpCheckCast(BytecodeReader& reader, uint8_t* locals,
+                             uint8_t* pResult) {
     uint16_t targetClassIdx = reader.ReadUint16();
+    uint16_t descIdx = reader.ReadUint16();
     int32_t heapIdx;
     std::memcpy(&heapIdx, pResult, sizeof(heapIdx));
     //v0.12.7: null is a legal language value — `x as T` on null yields
@@ -275,7 +321,40 @@ void VmExecutor::OpCheckCast(BytecodeReader& reader, uint8_t* pResult) {
             + LeafNameOfKey(tgt.name) + "`, got `"
             + LeafNameOfKey(act.name) + "`");
     }
+    //v0.13.1 D5: the row check cannot distinguish instantiations of one
+    //template — the named descriptor row must also match.
+    CheckCastInstantiation(descIdx, heapIdx);
     //Result: same heap idx, unchanged.
+}
+
+//v0.13.1 D5: the instantiation tail of OP_CheckCast — the target's
+//descriptor row must match the operand's own instantiation spelling.
+//An operand WITHOUT a descriptor (a subclass of an instantiation, an
+//erased builtin row) degrades to the row check that already passed;
+//every direct construction of a template row carries one.
+//An ARRAY operand reaching here passed the Array face row check — the
+//record's heap cell holds its ELEMENT's descriptor, so the element side
+//takes its own comparison instead of the object identity compare.
+void VmExecutor::CheckCastInstantiation(uint16_t descIdx, int32_t heapIdx) {
+    if (descIdx == 0xFFFF)
+        return;
+    const GenericInstDescriptor* target =
+        CastTargetDescriptor(descIdx);
+    const uint8_t kind = m_slotKinds[static_cast<size_t>(heapIdx)];
+    if (kind == RTK_Array || kind == RTK_ArrayView) {
+        if (!ArrayElemMatchesTarget(heapIdx, *target))
+            RaiseNlangException(m_invalidCastExcClassIdx, std::string(
+                "NLang VM: invalid cast - expected `")
+                + target->Spelling() + "[]`, got `Array<"
+                + ArrayElemSpellingOf(heapIdx) + ">`");
+        return;
+    }
+    const GenericInstDescriptor* actual = InstDescriptorOf(heapIdx);
+    if (actual && target && actual != target)
+        RaiseNlangException(m_invalidCastExcClassIdx, std::string(
+            "NLang VM: invalid cast - expected `")
+            + target->Spelling() + "`, got `"
+            + actual->Spelling() + "`");
 }
 
 //Phase 9d: walk superClassIdx chain starting from the actual class at

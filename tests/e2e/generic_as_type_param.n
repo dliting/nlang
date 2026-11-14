@@ -1,0 +1,91 @@
+// v0.13.1 D6: `x as T` — the cast target is the receiver's type
+// parameter: the runtime kind decides (boxed scalars and strings unbox,
+// structs row-check, classes walk the super chain and compare the
+// argument's own instantiation, arrays take the element key, enums ride
+// the int32 row). A mismatch raises the catchable InvalidCastException
+// whose message names the target spelling; null passes through.
+// Object operands ride Object-typed variables: literal arguments do not
+// implicitly convert to Object, and structs cannot ride Object at all
+// (the struct arm's row-identity pass is covered by the equality
+// matrix's T slots, where struct values live directly).
+struct Pt {
+    int x;
+    int y;
+    public Pt(int x, int y) { this.x = x; this.y = y; }
+}
+enum Color { Red, Green }
+class Base { }
+class Derived : Base { }
+class Other { }
+class Box<T> {
+    public T v;
+    public Box(T v) { this.v = v; }
+}
+class Caster<T> {
+    public T f;
+    public Caster(T v) { f = v; }
+    public Object asT(Object o) { return o as T; }
+    public void keep(Object o) { f = o as T; }
+    public bool isF(T other) { return f == other; }
+    public bool fIsNull() { return f == null; }
+}
+int main() {
+    int acc = 0;
+    // int: the boxed scalar unboxes to the raw cell.
+    Caster<int> ci = Caster(0);
+    Object oi = 3;
+    Object os = "ab";
+    ci.keep(oi);
+    if (ci.isF(3)) acc = acc + 1;
+    try { ci.asT(os); } catch (InvalidCastException e) {
+        if (e.message == "NLang VM: invalid cast - expected `int`, got `string`")
+            acc = acc + 2;
+    }
+    // string: the box unwraps to the handle.
+    Caster<string> cs = Caster("");
+    cs.keep(os);
+    if (cs.isF("ab")) acc = acc + 4;
+    try { cs.asT(oi); } catch (InvalidCastException e) { acc = acc + 8; }
+    // struct: a struct value cannot ride Object — a boxed scalar fails
+    // the struct target outright (the row-identity pass lives on T
+    // slots, which the equality matrix covers).
+    Caster<Pt> cp = Caster(Pt(0, 0));
+    try { cp.asT(oi); } catch (InvalidCastException e) { acc = acc + 16; }
+    // class: rows walk the super chain — a subclass passes; an
+    // unrelated class raises.
+    Caster<Base> cb = Caster(Base());
+    Derived d = Derived();
+    cb.keep(d);
+    if (cb.isF(d)) acc = acc + 32;
+    Object oo = Other();
+    try { cb.asT(oo); } catch (InvalidCastException e) { acc = acc + 64; }
+    // enum rides the int32 row.
+    Caster<Color> cc = Caster(Color.Red);
+    Object oc = Color.Green;
+    cc.keep(oc);
+    if (cc.isF(Color.Green)) acc = acc + 128;
+    // array: the element key decides.
+    int[] arr = [1, 2];
+    Caster<int[]> ca = Caster(arr);
+    Object oa = arr;
+    ca.keep(oa);
+    if (ca.isF(arr)) acc = acc + 256;
+    float[] fa = [1.5, 2.5];
+    Object of = fa;
+    try { ca.asT(of); } catch (InvalidCastException e) { acc = acc + 512; }
+    // an instantiation argument compares the value's own descriptor.
+    Box<int> bi = Box(1);
+    Caster<Box<int>> cbx = Caster(bi);
+    Object obi = bi;
+    cbx.keep(obi);
+    if (cbx.isF(bi)) acc = acc + 1024;
+    Box<string> bs = Box("");
+    Object obs = bs;
+    try { cbx.asT(obs); } catch (InvalidCastException e) { acc = acc + 2048; }
+    // null passes through as null.
+    Object on = null;
+    cb.keep(on);
+    if (cb.fIsNull()) acc = acc + 4096;
+    if (acc != 8191) return 90;
+    return 0;
+}

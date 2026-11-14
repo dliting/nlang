@@ -1,0 +1,11 @@
+// err_generic_fn_type_args.n — 0.13.1b: explicit type-argument spelling
+// on a function call has no syntax (§4.12.10: inference from actuals).
+// The shape reads as the instantiation `wide<int>`, so the resolver
+// names the collision — a function head learns that a call carries no
+// type-argument spelling, distinct from the comparisons variant.
+T wide<T>(T v) {
+    return v;
+}
+int main() {
+    return wide<int>(7);
+}

@@ -71,6 +71,8 @@ static const char* s_OpCodeNames[] = {
     "call_delegate",
     "eq_func",
     "ne_func",
+    "eq_struct",
+    "ne_struct",
     "func_to_str",
     "make_bound_func",
     "make_vfunc",
@@ -96,6 +98,14 @@ static const char* s_OpCodeNames[] = {
     "load_element_dyn",
     "store_element_dyn",
     "alloc_array_dyn",
+    "type_name_arg",
+    "type_name_compose",
+    "eq_t",
+    "ne_t",
+    "type_arg_to_str",
+    "as_type_param",
+    "box_type_arg",
+    "unbox_type_arg",
 };
 
 const char* OpCodeName(OpCode op) {

@@ -1,0 +1,21 @@
+// v0.13.1 D4: typeName over concrete types folds to the canonical
+// spelling string at compile time — scalar keywords, instantiations,
+// arrays (rank in the bracket run), nested instantiations, and the
+// builtin container faces.
+class Box<T> {
+    public T value;
+    public Box(T v) { value = v; }
+}
+int main() {
+    string a = typeName(int);
+    string b = typeName(Box<int>);
+    string c = typeName(int[]);
+    string d = typeName(int[,]);
+    string e = typeName(List<List<int>>);
+    if (a != "int") return 1;
+    if (b != "Box<int>") return 2;
+    if (c != "int[]") return 3;
+    if (d != "int[,]") return 4;
+    if (e != "List<List<int>>") return 5;
+    return 0;
+}

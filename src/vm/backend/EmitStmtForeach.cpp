@@ -32,6 +32,10 @@ struct ForeachIterableKind {
     bool isDict = false;
     bool isString = false;
     SnField* elemType = nullptr;
+    //0.13.1a Task 5: the erased-container boundary plan for the
+    //element — the dynamic variant fires when the element type
+    //argument is this generic body's own placeholder.
+    VmBackend::ArgBoxPlan elemBox;
 };
 
 //Declaration-side arm: identifier or member lvalue (`a` / `b.a` /
@@ -52,12 +56,11 @@ static bool DetectDeclaredArraySource(SnExpression* pIter,
     }
     if (!(pField && pField->IsArrayType()))
         return false;
-    elemType = pField->EvalDataType();
-    //0.7.3 B token path: an array-typed local carries the interned
-    //token; the loop-var slot kind keys on the ELEMENT.
-    if (elemType && elemType->Kind() == NK_ArrayTypeToken)
-        elemType = static_cast<SnArrayTypeToken*>(
-            elemType)->ElemTypeOf();
+    //The loop-var slot kind keys on the ELEMENT row, either spelling
+    //of the declared array (the interned token or the Array<E>
+    //instantiation row) — leaving the class row here keyed the slot
+    //RTK_Array and broke struct materialization (Phase 9d-3).
+    elemType = ArrayElementRowOf(pField->EvalDataType());
     return true;
 }
 
@@ -73,16 +76,16 @@ static ForeachIterableKind ClassifyForeachIterable(
     auto* pIterType = pIter->EvalDataType();
     //0.7.3 B D10 value-form arm: every array-valued source — get()
     //and subscript reads out of List<T[]>/Dict<K,V[]>, array-returning
-    //calls, bound method calls, new-array expressions — carries the
-    //interned array token in EvalDataType. The declaration-side arm
-    //above only recognizes identifier/member lvalue shapes; this arm
-    //routes the value forms (accepted since D10; the masquerade-era
-    //resolve-time rejection existed because the degraded
-    //EvalDataType carried no array identity for this dispatch).
-    if (pIterType && pIterType->Kind() == NK_ArrayTypeToken) {
+    //calls, bound method calls, new-array expressions — carries an
+    //array row in EvalDataType. The declaration-side arm above only
+    //recognizes identifier/member lvalue shapes; this arm routes the
+    //value forms through the canonical IsArrayType() predicate, which
+    //covers both spellings: the interned token AND the Array<E>
+    //instantiation row (the rank-generic tensor primitives declare
+    //their returns that way, so `foreach (v in a + b)` lands here).
+    if (pIterType && pIterType->IsArrayType()) {
         k.isArray = true;
-        k.elemType = static_cast<SnArrayTypeToken*>(
-            pIterType)->ElemTypeOf();
+        k.elemType = ArrayElementRowOf(pIterType);
         return k;
     }
     //0.7.5 char bridge: a string source iterates Unicode scalar values;
@@ -113,6 +116,12 @@ void VmBackend::Access(SnForeachStmt& stmt) {
     BytecodeEmitter& emitter = *m_pCurrEmitter;
         auto& fe = static_cast<SnForeachStmt&>(stmt);
         ForeachIterableKind iter = ClassifyForeachIterable(fe.Iterable());
+        //0.13.1a Task 5: the container element boundary plan (static
+        //tag or the frame-dispatched dynamic variant).
+        if (iter.isList || iter.isDict)
+            iter.elemBox = PlanBoundaryBox(iter.elemType,
+                static_cast<SnClassDecl*>(
+                    fe.Iterable()->EvalDataType()));
         //0.7.5 char bridge: string sources take the dedicated
         //code-point expansion (no length/get() calls — OP_StrForeachStep).
         if (iter.isString) {
@@ -145,7 +154,7 @@ void VmBackend::Access(SnForeachStmt& stmt) {
         size_t loopStart = EmitForeachLoopHead(slots.iSlot, slots.nSlot,
             emitter);
         EmitForeachLoadElement(iter.isArray, iter.elemType, elemKind,
-            slots, emitter);
+            iter.elemBox, slots, emitter);
         EmitStatement(*fe.Body(), emitter);
         EmitForeachLoopTail(loopStart, slots.iSlot, emitter);
         return;
@@ -257,7 +266,8 @@ size_t VmBackend::EmitForeachLoopHead(uint16_t iSlot, uint16_t nSlot,
 //List (and Dict-after-Keys): get(i) — callParamBase[1] = i,
 //callParamBase[0] = this, OP_CallMethod, then unbox primitive T.
 void VmBackend::EmitForeachLoadElement(bool isArray, SnField* pElemType,
-        uint8_t elemKind, const ForeachSlots& slots,
+        uint8_t elemKind, const ArgBoxPlan& elemBox,
+        const ForeachSlots& slots,
         BytecodeEmitter& emitter) {
     if (isArray) {
         //Stage-2: OP_LoadElementFlat <dst> <arr> <flatIdx> — the payload
@@ -290,11 +300,8 @@ void VmBackend::EmitForeachLoadElement(bool isArray, SnField* pElemType,
     emitter.Emit(OpCode::OP_CallMethod);
     emitter.EmitUint16(nameIdx);
     emitter.EmitUint16(m_currFunc->callParamBase);
-    auto t = BoxingTagFor(pElemType);
-    if (t.isPrimitive) {
-        emitter.Emit(OpCode::OP_Unbox);
-        emitter.EmitByte(t.tag);
-    }
+    if (elemBox.needsBox)
+        EmitBoundaryUnbox(elemBox, emitter);
     emitter.Emit(OpCode::OP_Assign);
     emitter.EmitUint16(slots.userVarSlot);
     emitter.Emit(OpCode::OP_ParaEnd);

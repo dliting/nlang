@@ -20,22 +20,37 @@ function(nlang_stdlib_test target)
     add_dependencies(${target} nlang_stdlib_package)
 endfunction()
 
-# ctest runs a test exe directly, and an ASan-built one loads
-# clang_rt.asan_dynamic-x86_64.dll from its own directory: without it the
-# process dies at launch with 0xc0000135 and every ASan-tree ctest entry
-# reports a failure that is not a test failure. Shadowing add_executable
-# for this directory ships the runtime beside every test target with one
-# definition, so a new test cannot forget a call the way the per-test
-# helpers above can drift. Assumes the plain `add_executable(<name> …)`
-# form used throughout this file (a keyword-first call would surface as an
-# unknown-target generate error, not a silent miss). Only ASan trees
-# install the shadow; other trees keep the built-in command untouched.
-if(DEFINED NLANG_ASAN_RUNTIME)
-    function(add_executable name)
-        _add_executable(${name} ${ARGN})
-        nlang_ship_asan_runtime(${name})
-    endfunction()
-endif()
+# Neutral + tree-private scratch root for every test process. The
+# file-based tests use std::filesystem::temp_directory_path() /
+# "nlang_test_<X>" scratch dirs with FIXED names, so two build trees'
+# ctest suites running concurrently (the norm in parallel gate sweeps)
+# race on the same scratch files — test_nd_resolve's stress red made
+# this explicit (19/20 concurrent same-test pairs failed; isolated
+# TEMP roots: all green). std::filesystem::temp_directory_path()
+# resolves TMP/TEMP on Windows, so stamping each test separates the
+# trees. The root must also stay NEUTRAL: tests walk UP from it
+# (FindStdLibDir absence cases, the docs bare-build dev-label fallback)
+# and must not hit a stdlib dir or the repo VERSION file — which rules
+# out any path inside the source or build trees. The system temp dir is
+# the neutral base; a per-tree MD5 of the binary dir keeps concurrent
+# trees apart beneath it. Within one tree ctest runs serially and the
+# per-test-file dir names already differ. The wrapper covers every
+# add_test site in this file (including the qtest helper) without
+# touching 133 registrations. Forwarding through ${ARGV} re-splits
+# escaped semicolons in COMMAND items, so no add_test call may pass a
+# multi-path -D with \; — hand the test script a single directory or
+# file instead (the nide_deploy_check native-DLL loss made this
+# explicit: only the first of four paths reached the probe).
+string(MD5 NLANG_TEST_SCRATCH_TOKEN "${CMAKE_BINARY_DIR}")
+set(NLANG_TEST_SCRATCH_ROOT
+    "$ENV{TEMP}/nlang_test_scratch_${NLANG_TEST_SCRATCH_TOKEN}")
+file(MAKE_DIRECTORY "${NLANG_TEST_SCRATCH_ROOT}")
+function(add_test)
+    _add_test(${ARGV})
+    set_tests_properties(${ARGV1} PROPERTIES
+        ENVIRONMENT "TMP=${NLANG_TEST_SCRATCH_ROOT};TEMP=${NLANG_TEST_SCRATCH_ROOT}")
+endfunction()
+
 
 # Shared test facilities (test_support/test_scratch.h) are reached as
 # "test_support/…": one directory-scope include path for every test target
@@ -540,6 +555,33 @@ add_test(NAME native_array_abi_tests COMMAND test_native_array_abi)
 add_executable(test_array_view_record
     test_vm/test_array_view_record.cpp
 )
+
+# v0.13.1 Task 4: object-side instantiation descriptors (the parallel
+# array + OP_New descIdx + load-time interning), compile+execute in-process.
+add_executable(test_generic_runtime_info
+    test_vm/test_generic_runtime_info.cpp
+)
+
+target_include_directories(test_generic_runtime_info
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_generic_runtime_info
+    PRIVATE
+        nlang_vm
+        nlang_compiler
+        nlang_runtime
+        nlang_langservice
+)
+nlang_stdlib_test(test_generic_runtime_info)
+target_compile_definitions(test_generic_runtime_info
+    PRIVATE
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+)
+
+add_test(NAME generic_runtime_info_tests COMMAND test_generic_runtime_info)
 
 target_include_directories(test_array_view_record
     PRIVATE
@@ -1524,10 +1566,12 @@ if(NLANG_BUILD_IDE)
     target_include_directories(test_generic_descriptor
         PRIVATE
             ${PROJECT_SOURCE_DIR}/src/vm
+            ${PROJECT_SOURCE_DIR}/src/compiler
     )
     target_link_libraries(test_generic_descriptor
         PRIVATE
             nlang_vm
+            nlang_compiler
             nlang_runtime
             Qt5::Test
     )
@@ -2061,7 +2105,7 @@ if(NLANG_BUILD_IDE)
             -DDEPLOY_DIR=$<TARGET_FILE_DIR:nide>
             -DTEST_EXE=$<TARGET_FILE:test_mainwindow>
             -DQT_TEST_DLL=$<TARGET_FILE:Qt5::Test>
-            -DNLANG_NATIVE_DLLS=$<TARGET_FILE:nlang_math>\;$<TARGET_FILE:nlang_io>\;$<TARGET_FILE:nlang_fs>\;$<TARGET_FILE:nlang_tensor>\;$<TARGET_FILE:nlang_system>\;$<TARGET_FILE:nlang_net>\;$<TARGET_FILE:nlang_gzip>
+            -DNATIVE_DLL_DIR=$<TARGET_FILE_DIR:nlang_math>
             -DSTDLIB_DIR=${NLANG_TEST_STDLIB_DIR}
             #Scratch nested 9 levels under <build>/tests: the loader's
             #build-tree fallback walks up at most 8, so it cannot rescue
@@ -2378,6 +2422,38 @@ add_test(NAME proj_generic_cross_unit_run
 set_tests_properties(proj_generic_cross_unit_run PROPERTIES
     DEPENDS proj_generic_cross_unit_compile
     PASS_REGULAR_EXPRESSION "4")
+
+#v0.13.1 D7: sourceless template consumption — the producer unit is
+#distributed as a library .npkg only (no .n source on any search path),
+#and the consumer instantiates Box<int>/Box<string> against the
+#rebuilt stub: the class record must carry isTemplate + typeParamNames,
+#the T-typed signatures their ordinal leaves. kind() reads the
+#receiver's runtime descriptor through boxlib's own bytecode. The lib
+#member packs without an entry record (the loader's single-member rule);
+#the consumer compile AND run both need -I at the artifact dir (the
+#import slots name the package; the runtime search path locates it).
+#Self-check before printing (the regex overrides the exit code).
+add_test(NAME proj_generic_sourceless_lib_compile
+    COMMAND ncc build -p
+        ${PROJECT_SOURCE_DIR}/tests/e2e/proj_generic_sourceless/lib/boxlib.nproj
+        -o ${CMAKE_BINARY_DIR}/e2e_out/boxlib.npkg)
+add_test(NAME proj_generic_sourceless_compile
+    COMMAND ncc build -p
+        ${PROJECT_SOURCE_DIR}/tests/e2e/proj_generic_sourceless/app/main.nproj
+        -I ${CMAKE_BINARY_DIR}/e2e_out
+        -o ${CMAKE_BINARY_DIR}/e2e_out/proj_generic_sourceless.npkg)
+add_test(NAME proj_generic_sourceless_run
+    COMMAND nvm ${CMAKE_BINARY_DIR}/e2e_out/proj_generic_sourceless.npkg
+        -I ${CMAKE_BINARY_DIR}/e2e_out)
+set_tests_properties(proj_generic_sourceless_lib_compile PROPERTIES
+    TIMEOUT 180)
+set_tests_properties(proj_generic_sourceless_compile PROPERTIES
+    DEPENDS proj_generic_sourceless_lib_compile
+    TIMEOUT 180)
+set_tests_properties(proj_generic_sourceless_run PROPERTIES
+    DEPENDS proj_generic_sourceless_compile
+    PASS_REGULAR_EXPRESSION "4"
+    TIMEOUT 180)
 
 #Concurrency import redesign F11: the Channel init-list arm must find
 #the template row through the alias (ClassSlotFor), not the current
@@ -2861,3 +2937,32 @@ add_test(NAME proj_user_overload_run
 set_tests_properties(proj_user_overload_run PROPERTIES
     DEPENDS proj_user_overload_compile
     PASS_REGULAR_EXPRESSION "42")
+
+# ASan runtime provisioning (see the root CMakeLists): one sweep covers
+# this directory's executable targets.
+_nlang_sweep_asan_runtime("${CMAKE_CURRENT_SOURCE_DIR}")
+
+# Native tensor kernel unit tests: the same object set that ships inside
+# nlang_tensor.dll, driven tier-by-tier through NLANG_TENSOR_TIER ctest
+# entries (scalar / sse2 / avx2 — the avx2 entry skips itself when the
+# host CPU cannot execute the forced tier).
+add_executable(test_native_tensor
+    test_native_tensor/main.cpp
+    test_native_tensor/TestVecMath.cpp
+    test_native_tensor/TestMatMul.cpp
+    test_native_tensor/TestElementwise.cpp
+    test_native_tensor/TestReduce.cpp
+)
+target_link_libraries(test_native_tensor PRIVATE nlang_tensor_kernels)
+target_include_directories(test_native_tensor PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
+    ${PROJECT_SOURCE_DIR}/src/native/tensor)
+add_test(NAME native_tensor_scalar COMMAND test_native_tensor)
+set_tests_properties(native_tensor_scalar PROPERTIES
+    ENVIRONMENT "NLANG_TENSOR_TIER=scalar")
+add_test(NAME native_tensor_sse2 COMMAND test_native_tensor)
+set_tests_properties(native_tensor_sse2 PROPERTIES
+    ENVIRONMENT "NLANG_TENSOR_TIER=sse2")
+add_test(NAME native_tensor_avx2 COMMAND test_native_tensor)
+set_tests_properties(native_tensor_avx2 PROPERTIES
+    ENVIRONMENT "NLANG_TENSOR_TIER=avx2")

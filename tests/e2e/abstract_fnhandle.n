@@ -1,0 +1,32 @@
+//0.13.1c Task 6 pin: binding a method through an abstract-typed
+//variable captures the abstract method record (the static type's
+//declaration). The bound handle re-dispatches by receiver at run time
+//(the Task 5 ruling): the instance is concrete, the call reaches
+//Rect.area and the manifest row pins the successful result. The
+//no-implementation runtime defense is a corruption-only guard for
+//artifacts outside the compiler invariant — it does not fire on this
+//shape.
+class Shape
+{
+    public virtual int area();
+}
+class Rect : Shape
+{
+    int m_w;
+    int m_h;
+    public Rect(int w, int h)
+    {
+        m_w = w;
+        m_h = h;
+    }
+    public int area()
+    {
+        return m_w * m_h;
+    }
+}
+int main()
+{
+    Shape s = Rect(3, 4);
+    func<int> f = s.area;
+    return f();
+}

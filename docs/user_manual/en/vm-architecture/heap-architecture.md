@@ -298,7 +298,12 @@ helper used by Set/Get/ContainsKey/Remove:
 1. Identity fast path (`k1 == k2`).
 2. Bounds and kind-match check (`m_slotKinds[k1] == m_slotKinds[k2]`).
 3. Branch on kind:
-   - `RTK_Class` / `RTK_Struct`: identity (compare heap idxs).
+   - `RTK_Class`: identity (compare heap idxs).
+   - `RTK_Struct`: field-value comparison (`StructValuesEqual`, the
+     `OP_Eq_struct` semantics — every boundary deep-copies a struct,
+     so identity could never match a re-stored key).
+   - `RTK_Func`: handle-content comparison — the (target, receiver,
+     form) triple, `OP_Eq_func` semantics (no interning).
    - `RTK_Boxed`: branch on inner type tag (`m_structHeap[k][0]`):
      - scalar tags: compare value bits at
        `m_structHeap[k][kBoxedValueSlot]` — 8-byte rows (long/ulong)

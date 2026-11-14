@@ -174,13 +174,41 @@ struct CompiledFunction {
     uint16_t returnTypeKind = 0;
     uint16_t intrinsicId = INTR_None;    //INTR_None = normal bytecode, else VM intrinsic
     //Phase 9f: native function declaration (`native int f(...);`). No
-    //bytecode — OP_CallFunc dispatches by name through the host's
+    //bytecode — OP_CallStatic dispatches by name through the host's
     //native table (VmExecutor::RegisterNative). Body-less by contract.
     bool isNative = false;
+    //0.13.1c (v2.18): pure-virtual declaration (`virtual int f(...);`
+    //without a body). Signature-only record with empty bytecode —
+    //dispatch must find an override; FindMethodByName raises when a
+    //lookup lands here (unreachable through the compiler's own output:
+    //the instantiation gate refuses abstract classes, so a dispatch
+    //winner is always concrete — the flag guards artifacts produced
+    //outside compiler invariants). The consumer stub rebuild marks the
+    //member NF_Abstract from it, keeping Task 5's on-demand
+    //IsAbstractClass()/CollectAbstractObligations working across the
+    //import boundary.
+    bool isAbstract = false;
     //0.9.10 (v2.4): static member. Static frames carry no __this slot,
     //and name-based instance dispatch (FindMethodByName) must skip
     //these records — static members are a separate namespace.
     bool isStatic = false;
+    //v2.16 (ABI v12): instance method — a class/struct/enum member that
+    //is not static (the compiler's HasThisReceiver verdict). The frame
+    //carries a slot-0 __this receiver, and the native call bridge reads
+    //the receiver's heap handle from the call's slot 0 when this is set
+    //— a flag, not a name-shape guess, so the method-key convention can
+    //evolve without silently disabling receiver reads.
+    bool isInstanceMethod = false;
+    //0.13.1a (v2.17): generic record — a member of a generic class row
+    //or a generic free function. Generic frames carry the instantiation
+    //descriptor cell filled at push (receiver head, caller forward, or
+    //call-site descriptor row); T operations read it. Non-generic
+    //records leave the cell null and pay nothing.
+    bool isGeneric = false;
+    //v2.17: declared type-parameter names (generic records only). The
+    //stub rebuild matches these to bind placeholder leaves in
+    //signatures, mirroring CompiledClass::typeParamNames.
+    std::vector<std::string> typeParamNames;
     //Option B: per-formal default values. Free functions: size ==
     //paramCount. Methods and constructors: paramCount counts the
     //implicit __this slot (locals[0], isParam), so size == paramCount-1
@@ -299,6 +327,14 @@ struct CompiledClass {
     //v2.13 (v0.12.6): the class's lazy static-initializer function
     //(0xFFFF = none; u16 = function-index operand width).
     uint16_t staticInitFuncIdx = 0xFFFF;
+    //v0.13.1 (D7): the template marker and the declared type-parameter
+    //names — a generic declaration registers the one erased row, and
+    //this tail is what the consumer stub rebuilds a generic DECLARATION
+    //from, so a sourceless package can still be instantiated (the
+    //dictionary model's consumer-side shape). Non-template rows carry
+    //the defaults.
+    bool isTemplate = false;
+    std::vector<std::string> typeParamNames;
 };
 
 //0.9.12 (v2.7): one exported interface instance-method signature. The
@@ -346,6 +382,14 @@ struct CompiledInterface {
     //v2.13 (v0.12.6): the interface's lazy static-initializer function
     //(0xFFFF = none).
     uint16_t staticInitFuncIdx = 0xFFFF;
+    //v2.19 (0.13.1c Task 8): the generic-declaration tail, mirroring
+    //CompiledClass::isTemplate/typeParamNames — a generic interface
+    //registers the one erased template row (its statics compile against
+    //T; call sites ride the descriptor), and this tail is what a
+    //consumer stub rebuilds a generic DECLARATION from so sourceless
+    //packages stay instantiable. Non-template rows carry the defaults.
+    bool isTemplate = false;
+    std::vector<std::string> typeParamNames;
 };
 
 } // namespace nlang

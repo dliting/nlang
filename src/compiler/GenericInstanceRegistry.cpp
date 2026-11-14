@@ -20,11 +20,13 @@ GenericInstanceRegistry::~GenericInstanceRegistry()
 	//are detached from any tree, so nothing else frees them.
 	for (auto& kv : m_instances)
 		delete kv.second;
+	for (auto& kv : m_ifaceInstances)
+		delete kv.second;
 	for (auto& kv : m_placeholders)
 		delete kv.second;
 }
 
-SnField* GenericInstanceRegistry::PlaceholderFor(SnClassDecl& tmpl,
+SnField* GenericInstanceRegistry::PlaceholderFor(SyntaxNode& tmpl,
 	const std::string& name, size_t position)
 {
 	const PlaceholderKey key{&tmpl, name};
@@ -83,7 +85,7 @@ void GenericInstanceRegistry::AdoptInstance(SnClassDecl* pInstance,
 	const SnClassDecl* pTemplate,
 	const std::vector<const SnField*>& typeArgs)
 {
-	InstanceKey key{pTemplate, typeArgs};
+	InstanceKey<SnClassDecl> key{pTemplate, typeArgs};
 	m_instances[key] = pInstance;
 	m_instanceTemplate[pInstance] = pTemplate;
 }
@@ -94,11 +96,39 @@ void GenericInstanceRegistry::AdoptMemberClone(SnField* pClone,
 	m_memberRecordOwner[pClone] = pSource;
 }
 
+SnClassDecl* GenericInstanceRegistry::InstantiationOfClone(
+	const SnField* pMember) const
+{
+	auto it = m_memberInstantiation.find(pMember);
+	return it != m_memberInstantiation.end()
+		? const_cast<SnClassDecl*>(it->second) : nullptr;
+}
+
+void GenericInstanceRegistry::AdoptCloneInstantiation(SnField* pClone,
+	const SnClassDecl* pInstance)
+{
+	m_memberInstantiation[pClone] = pInstance;
+}
+
+SnInterfaceDecl* GenericInstanceRegistry::InstantiationOfInterfaceClone(
+	const SnField* pMember) const
+{
+	auto it = m_ifaceCloneInstantiation.find(pMember);
+	return it != m_ifaceCloneInstantiation.end()
+		? const_cast<SnInterfaceDecl*>(it->second) : nullptr;
+}
+
+void GenericInstanceRegistry::AdoptInterfaceCloneInstantiation(
+	SnField* pClone, const SnInterfaceDecl* pInstance)
+{
+	m_ifaceCloneInstantiation[pClone] = pInstance;
+}
+
 SnClassDecl* GenericInstanceRegistry::FindInstance(
 	const SnClassDecl* pTemplate,
 	const std::vector<const SnField*>& typeArgs) const
 {
-	auto it = m_instances.find(InstanceKey{pTemplate, typeArgs});
+	auto it = m_instances.find(InstanceKey<SnClassDecl>{pTemplate, typeArgs});
 	return it != m_instances.end() ? it->second : nullptr;
 }
 
@@ -107,6 +137,32 @@ void GenericInstanceRegistry::ForEachInstance(
 {
 	for (const auto& kv : m_instances)
 		visitor(*kv.second);
+}
+
+SnInterfaceDecl* GenericInstanceRegistry::FindInterfaceInstance(
+	const SnInterfaceDecl* pTemplate,
+	const std::vector<const SnField*>& typeArgs) const
+{
+	auto it = m_ifaceInstances.find(
+		InstanceKey<SnInterfaceDecl>{pTemplate, typeArgs});
+	return it != m_ifaceInstances.end() ? it->second : nullptr;
+}
+
+void GenericInstanceRegistry::AdoptInterfaceInstance(
+	SnInterfaceDecl* pInstance, const SnInterfaceDecl* pTemplate,
+	const std::vector<const SnField*>& typeArgs)
+{
+	InstanceKey<SnInterfaceDecl> key{pTemplate, typeArgs};
+	m_ifaceInstances[key] = pInstance;
+	m_ifaceInstanceTemplate[pInstance] = pTemplate;
+}
+
+SnInterfaceDecl* GenericInstanceRegistry::InstanceOfInterface(
+	const SnInterfaceDecl* pInstance) const
+{
+	auto it = m_ifaceInstanceTemplate.find(pInstance);
+	return it != m_ifaceInstanceTemplate.end()
+		? const_cast<SnInterfaceDecl*>(it->second) : nullptr;
 }
 
 } //namespace nlang

@@ -1,0 +1,30 @@
+//0.13.1c Task 8: a generic interface's T-typed signatures ride the
+//one-implementation model — instance calls dispatch by name into the
+//implementing class's records, and a static call through the
+//instantiation reaches the interface template row's record with the
+//frame descriptor (static interface methods are implemented in place,
+//0.9.10). Two type parameters, int and string T both round-trip.
+interface Pair<T, U> {
+    public T first(T a, U b);
+    public U second(T a, U b);
+    public static T echo(T v) { return v; }
+}
+class Both implements Pair<int, string> {
+    public int first(int a, string b) { return a; }
+    public string second(int a, string b) { return b; }
+}
+class SwapPair implements Pair<string, int> {
+    public string first(string a, int b) { return a; }
+    public int second(string a, int b) { return b; }
+}
+int main() {
+    Pair<int, string> p = Both();
+    if (p.first(42, "s") != 42) { return 1; }
+    if (p.second(42, "s") != "s") { return 2; }
+    if (Pair<int, string>.echo(7) != 7) { return 3; }
+    Pair<string, int> q = SwapPair();
+    if (q.first("k", 8) != "k") { return 4; }
+    if (q.second("k", 8) != 8) { return 5; }
+    if (Pair<string, int>.echo("z") != "z") { return 6; }
+    return 0;
+}

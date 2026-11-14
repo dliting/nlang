@@ -40,6 +40,9 @@ documented surface.
   `value`; `full(dims, value)` fills the shape described by the
   rank-1 `int[]` `dims` instead. The element type is the type of
   `value`; every family member is selected by that type.
+- `arange(n)` is the index spelling of the progression: `0`
+  through `n - 1` in steps of one, `int` elements — the form
+  that feeds `gather` and the subscript surfaces.
 - `arange(start, stop, step)` returns the half-open arithmetic
   progression `start`, `start + step`, ... strictly before
   `stop`; the element type is the common type of the three
@@ -48,6 +51,15 @@ documented surface.
 - A zero-filled array needs no kernel: sized creation `T[n]`
   is zero-initialized (§4.10); an all-ones array is
   `full(n, 1)`.
+- `uniform(dims, low, high)` mints the dims-shaped array (the
+  `full` creation rules: `dims` is a rank-1 `int[]`, the element
+  count rides the §4.10 creation bound) and fills it row-major
+  with `low + (high - low) * u`, one `u` per element drawn from
+  the host pseudorandom number generator (PRNG) — the same
+  seeded stream `math.random` reads, so
+  a seeded run is reproducible through either surface. The
+  element kind follows the bounds (`float`/`double`); the range
+  is half-open, `[low, high)`.
 - `reshape(a, shape)` returns the elements of `a` in the shape
   described by the rank-1 `int[]` `shape`, read and filled in
   row-major order; the product of the dimensions must equal the
@@ -211,6 +223,14 @@ native kernels instead of adding new ones:
 - `softmax(x)` exponentiates the shifted elements
   (`x - max(x)`, which keeps large inputs from overflowing
   `exp`) and normalizes by their sum; the result totals 1.
+  The two-array form `softmax(x, axis)` reduces along an
+  axis instead: for a rank-2 logit batch, `softmax(logits, 1)`
+  softmaxes every row. The axis arm requires rank >= 2.
+- `sigmoid(x)` is `1 / (1 + exp(-x))`, composed from the
+  whole-array primitives.
+- `tanh(x)` rides the vectorized tanh lane.
+- `reluGrad(dOut, z)` is the ReLU gate backward: the gradient
+  flows exactly where `z > 0` (`z = 0` gates off).
 - `crossEntropyLoss(logits, labels)` computes the cross-entropy
   of one-hot `labels` against `softmax(logits)`:
   `-sum(labels * log(softmax(logits)))`. The formals are
@@ -232,7 +252,94 @@ int main() {
 }
 ```
 
-## 19.6 Error Behavior
+## 18.5.1 Array Arithmetic Operators
+
+The arithmetic operators lower to the same kernels the
+`tensor` package wraps — `a + b` on two numeric arrays is
+`tensor.add(a, b)`, with the broadcasting rule of §18.3.1
+and the same element-kind rules. A scalar on either side
+rides the scalar arms (`2 * x` is `tensor.mulScalar(x, 2)`);
+`s - a` and `s / a` lower to `tensor.rsubScalar` /
+`tensor.rdivScalar` (the scalar sits on the left), `-a` to
+`tensor.neg`. Unary minus, like every elementwise form here,
+is declared for `int`, `long`, `float` and `double` only.
+The operators require the package to be imported — they are
+spellings of `tensor.*` calls, not a separate core surface.
+
+```nlang
+import tensor;
+
+int main() {
+    float[] a = tensor.arange(0.0f, 2.0f, 1.0f);   // 0 1
+    float[] b = a * 2.0f - a;                   // [0, 1] again
+    float[] c = 1.0f - a / 2.0f;
+    a = a + b;
+    float[,] m = float[2, 2];
+    float[,] m2 = (m + m) * 2.0f;               // rank-2 broadcasts too
+    return 0;
+}
+```
+
+*Known limitations.* Compound assignment on arrays
+(`a += b`) is not lowered — use the plain assignment with the
+operator form. Element kinds `byte`/`ubyte` take no array
+arithmetic. A rank-1 array with an axis arm
+(`sum(v, 0)` on rank-1) is rejected; use the full-reduction
+form. A floating-point subscript in an array store
+(`grid[3.0, j]`) is not converted — index through an `int`.
+
+## 18.5.2 Index and Comparison Primitives
+
+The index surface removes the last per-element loops from
+training and evaluation code — gathering each row's label
+logit, locating a row's winner, counting the predictions that
+match the truth.
+
+- `gather(a, axis, indices)` takes one element per non-axis
+  position: `indices` holds one entry per output element (its
+  length equals the product of the dimensions other than
+  `axis`), `indices[i]` names the axis position of the i-th
+  non-axis position in row-major order, and the output drops
+  the axis dim. For a rank-2 logit batch,
+  `gather(logits, 1, labels)` reads `logits[i, labels[i]]`
+  for every row — the label-gather spelling of a loss term.
+  A rank-1 source degenerates to plain fancy indexing:
+  removing the only axis leaves no positions to walk, so
+  `gather(v, 0, indices)` returns `v[indices[i]]` with the
+  length of `indices`. Views are ordinary operands —
+  addressing rides the recorded strides.
+- `argmax(a, axis)` and `argmin(a, axis)` return the int
+  index array of the axis winners over the remaining dims,
+  one index per non-axis position; ties keep the first along
+  the scan.
+- `eq(a, b)` compares two arrays of the same element kind
+  elementwise (the broadcasting rule of §18.3.1 applies) and
+  returns the int 0/1 array; floats follow IEEE `==` — NaN
+  compares unequal to everything.
+- `oneHot(labels, n)` maps a rank-1 int label array to the
+  float `[len, n]` array with a one at each row's label — the
+  target spelling of a classifier's training step.
+
+```nlang
+import tensor;
+
+int main() {
+    float[,] logits = tensor.full([2, 3], 0.0f);
+    int[] labels = int[2];
+    labels[0] = 2; labels[1] = 0;
+    float[] picked = tensor.gather(logits, 1, labels);
+                                       // logits[i, labels[i]]
+    int[] pred = tensor.argmax(logits, 1);
+                                       // per-row winner
+    int hits = tensor.sum(tensor.eq(pred, labels));
+                                       // matching rows
+    float[,] hot = tensor.oneHot(labels, 3);
+                                       // [len, 3] one-hot rows
+    return 0;
+}
+```
+
+## 18.6 Error Behavior
 
 Every tensor failure is a catchable value of the `Exception`
 family (§8.3). A `null` array argument raises
@@ -254,7 +361,15 @@ the rank, a `concat` whose operands disagree on rank or on the
 non-axis dimensions, and `max`, `min` or `mean` on an empty
 array all raise `Exception`; the shape and length mismatch
 messages name both sides, and the axis messages name the axis
-and the rank.
+and the rank. A `gather` index outside the axis range, or a
+`oneHot` label outside the class range, raises
+`IndexOutOfBoundsException` naming the index and the range; a
+`gather` index count that misses the non-axis position count
+raises `Exception`. A `gather` whose gather axis is a zero
+dimension raises `Exception`; a zero-size source whose gather
+axis is nonzero gathers an empty result (its non-axis position
+count is zero). A `uniform` call whose `low` exceeds its
+`high` raises `Exception`.
 
 *Informative:* the diagnostics read like
 `tensor.matmul: shape mismatch (2x3 vs 2x2)` for `matmul` and

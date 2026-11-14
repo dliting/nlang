@@ -151,14 +151,45 @@ inline constexpr uint16_t NCU_FORMAT_MAJOR = 2;
 //record, and a fifth import section (staticSlotImports). A v2.12
 //module lacks the class/interface tail bytes and misparses every
 //record after the first class; refuse v2.12 and older outright.
-//v2.14 (v0.13.7): bitwise operators enter the foldable default-
-//expression grammar — the ED_BitNot tag (0x24) and the EDB_BitAnd /
-//EDB_BitOr / EDB_BitXor binary codes (7/8/9). A v2.13 module never
-//carries these tags and still loads; an older loader meeting one
-//rejects the module ("unknown node tag" / "bad binary operator").
-//Minor bump: every .ncu recompiles with the current ncc (the loader's
-//hard floor, unchanged).
-inline constexpr uint16_t NCU_FORMAT_MINOR = 14;
+//v2.14 (v0.13.0): OP_Eq_struct/OP_Ne_struct join the opcode set —
+//struct ==/!= now compiles to them instead of a raw handle compare.
+//The wire layout of every record is unchanged; a v2.13 module's
+//struct comparisons silently compare heap indices (identity), so
+//refuse v2.13 and older to keep struct ==/!= value-correct.
+//v2.14 (v0.13.7 bitwise batch, unified): bitwise operators also enter
+//the foldable default-expression grammar — the ED_BitNot tag (0x24)
+//and the EDB_BitAnd / EDB_BitOr / EDB_BitXor binary codes (7/8/9)
+//rode the same minor on the dev line; the unified format keeps both
+//additions and refuses everything older through the v2.19 floor.
+//v2.15 (v0.13.1): the module descriptor table — one row per generic
+//instantiation descriptor the unit registers (canonical spelling +
+//recipe bytes), between the string-constant and function sections.
+//A v2.14 module has no section and misparses at the first record
+//after the string table; refuse v2.14 and older outright.
+//v2.16 (v0.13.1, ABI v12): every function record gains an instance-
+//method flag byte after the static flag (the compiler's
+//HasThisReceiver verdict). The native call bridge reads it to locate
+//the receiver handle in the call's slot 0. A v2.15 module lacks the
+//byte and misparses the record tail; refuse v2.15 and older outright.
+//v2.17 (0.13.1a): every function record gains a generic flag byte
+//after the instance-method flag plus a type-parameter name list for
+//generic records; the free-call opcodes gain a u16 descriptor operand
+//(OP_CallStatic family). A v2.16 module misparses the record tail and
+//call operands; refuse v2.16 and older outright.
+//v2.18 (0.13.1c): every function record gains an abstract flag byte
+//after the instance-method flag; body-less abstract methods now carry
+//a signature-only record (previously they registered nothing, so the
+//wire lost them and consumer stubs could not see the obligation). A
+//v2.17 module lacks the byte and misparses the record tail; refuse
+//v2.17 and older outright.
+//v2.19 (0.13.1c Task 8): every interface record gains a generic
+//declaration tail (isTemplate byte + type-parameter name list) after
+//staticInitFuncIdx — the generic-interface template marker a consumer
+//stub rebuilds a generic DECLARATION from. A v2.18 module lacks the
+//tail and misparses at the next interface record; refuse v2.18 and
+//older outright.
+//Minor bump: every .ncu recompiles with the current ncc.
+inline constexpr uint16_t NCU_FORMAT_MINOR = 19;
 
 //--- Slot-width ABI (0.7.5) ----------------------------------------------
 //The frame and the heap use two different stride contracts; both live
@@ -273,12 +304,44 @@ inline int ArrayElemCells(uint8_t elemRtk)
     return (pi >= 0 && kScalarPrims[pi].slotWidth > 4) ? 2 : 1;
 }
 
+//v2.15 (v0.13.1): one generic-instantiation descriptor row. `spelling`
+//is the canonical no-space form ("Box<int>", see GenericInstDescriptor);
+//`recipe` is empty for a static entry (the spelling is the whole fact)
+//or the runtime-composition bytecode for an entry whose arguments
+//contain type parameters — a tag stream, little-endian u16 lengths:
+//   0 TEMPLATE_HEAD  u16 nameLen + bytes (template bare name)
+//   1 ARG_CONST      u16 spellingLen + bytes (complete leaf form)
+//   2 ARG_THIS       u8 paramIdx (receiver descriptor's argument index)
+//   3 ARG_ARRAY      u8 rank + one child ARG encoding (the element)
+//   4 ARG_NESTED     u16 recipeLen + child recipe bytes (a full
+//                    TEMPLATE_HEAD-led stream; length-prefixed so the
+//                    parent's argument loop resumes after the child)
+//Rows are self-describing by leading tag: a row from the instantiation
+//path (OP_New, typeName(Box<T>)) leads with TEMPLATE_HEAD; a typeName
+//row for a non-instantiation operand containing a type parameter (T[])
+//is a single ARG encoding — tag 1..4, never 0, so the two forms cannot
+//alias and byte-identical rows still merge.
+//A recipe row's spelling is empty; the runtime composes the canonical
+//spelling per execution (ARG_THIS reads the receiver's descriptor).
+//OP_New rows then intern it — the intern contract makes spelling
+//equality descriptor equality, so consumers resolve a row to a
+//GenericInstDescriptor by
+//interning.
+struct DescriptorEntry {
+    std::string spelling;
+    std::vector<uint8_t> recipe;
+};
+
 struct CompiledModule {
     //v2.0: the module's dotted path (the compile unit's package identity).
     std::string modulePath;
     std::string name;
     std::vector<CompiledFunction> functions;
     std::vector<std::string> stringConstants;
+    //v2.15 (v0.13.1): generic-instantiation descriptor rows, written
+    //between the string-constant and function sections. Bytecode
+    //addresses rows by index (OP_New's descIdx operand).
+    std::vector<DescriptorEntry> descriptorTable;
     std::vector<CompiledStruct> structs;
     std::vector<CompiledClass> classes;
     //0.9.10 (v2.4): interface statics, keyed like enumKeys (qualified).

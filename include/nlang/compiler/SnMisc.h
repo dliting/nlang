@@ -378,6 +378,23 @@ public:
 	//it against the base's effective seal.
 	bool IsDeclaredConstAggregate() const { return m_bIsConstAggregate; }
 
+	//0.13.1c: abstract-class queries. A bodyless non-native method is an
+	//abstract method (grammar-minted NF_Abstract | NF_Virtual); an
+	//abstract obligation is one whose dispatch winner is still abstract
+	//(own re-declaration, or a re-abstraction between here and the
+	//concrete ancestor). The walk is on demand — no builder-phase
+	//recording — because the per-name contract checks already reject
+	//signature mismatches and missing interface methods, leaving exactly
+	//"winner still abstract" as the unreported condition.
+	void CollectAbstractObligations(std::vector<const SnFunction*> &out) const;
+	bool IsAbstractClass() const;
+	//First same-name non-static method in dispatch order: own members in
+	//declaration order, then up the superclass chain (FindMethodByName's
+	//order — VmExecutorOpsCalls). Shared by the interface-completeness
+	//check and the obligation walk; chain walks stop at synthesized
+	//builtin classes and are cycle-guarded like the other walks.
+	const SnFunction *FindDispatchWinner(const std::string &name) const;
+
 	//Phase 8e-3: built-in generic instantiation marker (e.g. List<int>).
 	//Set by ExprResolver when minting a synthetic SnClassDecl for a
 	//built-in generic type. m_genericTypeArgs carries the resolved type
@@ -406,6 +423,13 @@ public:
 	//and the VM backend (RTK_Func dispatch).
 	bool IsFuncType() const
 	{ return m_bIsGenericInst && m_baseName == kBuiltinFuncTypeName; }
+
+	//v0.13.7: the Array<E> instantiation row IS the array type (the
+	//generic spelling of `T[]` — rank-generic tensor primitives declare
+	//their returns this way), so the canonical array-ness predicate
+	//covers both spellings at the row level too, the twin of
+	//SnExpression::IsArrayValued. Every other class row stays false.
+	bool IsArrayType() const override;
 
 	//v0.12.3: true for the interned placeholder node a declared
 	//template's type parameter resolves to (minted by
@@ -465,6 +489,35 @@ public:
 	SnField *FindField(const std::string&) const override;
 	void Accept(ISyntaxNodeVisitor&) override;
 	std::string ToString() const override;
+
+	//0.13.1c: generic-declaration surface, mirror of the class side.
+	//The names are the type parameters written on the declaration
+	//(`interface I<T, U>`); they scope the member signatures and drive
+	//the substitution at instantiation.
+	bool IsGenericDeclaration() const { return !m_typeParamNames.empty(); }
+	const std::vector<std::string>& TypeParamNames() const
+	{ return m_typeParamNames; }
+	void SetTypeParamNames(std::vector<std::string> names)
+	{ m_typeParamNames = std::move(names); }
+	//Instantiated-shell markers, mirror of the class side: set by the
+	//interface mint; GenericTypeArgs carries the resolved arguments and
+	//BaseName the erasure identity (the shell shares the template's
+	//bare name, the same way every List<T> shares "List").
+	bool IsGenericInstantiation() const { return m_bIsGenericInst; }
+	void SetGenericInstantiation() { m_bIsGenericInst = true; }
+	const std::vector<SnField*>& GenericTypeArgs() const
+	{ return m_genericTypeArgs; }
+	void SetGenericTypeArgs(std::vector<SnField*> args)
+	{ m_genericTypeArgs = std::move(args); }
+	const std::string& BaseName() const
+	{ return m_bIsGenericInst ? m_baseName : Name(); }
+	void SetBaseName(const std::string& name) { m_baseName = name; }
+
+private:
+	std::vector<std::string> m_typeParamNames;  //declaration-side template parameters
+	bool m_bIsGenericInst = false;
+	std::vector<SnField*> m_genericTypeArgs;
+	std::string m_baseName;
 };
 
 //0.9.10 D3: an interface `static const` member. Only the declaration

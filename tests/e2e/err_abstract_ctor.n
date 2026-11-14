@@ -1,0 +1,12 @@
+//0.13.1c: a constructor is an allocation step, not a dispatch target —
+//a bodyless constructor spelling is a conflict, not an abstract method.
+class Rect
+{
+    int m_w;
+    int m_h;
+    public Rect(int w, int h);
+}
+int main()
+{
+    return 0;
+}

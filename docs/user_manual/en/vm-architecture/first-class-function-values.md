@@ -70,4 +70,8 @@ are traced at **eight** sites:
 
 Handles never enter boxed slots (boxed slots are untraced). Allocation
 always happens — no interning — so two references to one function are
-distinct records compared by content (`OP_Eq_func`).
+distinct records compared by content (`OP_Eq_func`). Container matching
+follows the same rule: `List<func<...>>.contains` / `indexOf` and
+`Dict` keyed on a function type compare the (target, receiver, form)
+triple, so two references to one function are one list element and
+one key.

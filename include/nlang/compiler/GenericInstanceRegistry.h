@@ -34,8 +34,18 @@ them when the build ends.
 namespace nlang
 {
 
+//0.13.1b: declaration-time cap on a generic declaration's type
+//parameters. Ordinals are 0-based and travel in one byte on two
+//channels — the frame's boundary-box plan and the typeName/T-equality
+//byte, whose top value (0xFF) is the no-ordinal marker
+//(SnTypeNameExpr::kNoTypeParamOrdinal). The 256th parameter's ordinal
+//would collide with that sentinel; the cap keeps every ordinal ≤ 254.
+constexpr size_t kMaxGenericTypeParams = 255;
+
 class SnClassDecl;
 class SnField;
+class SnInterfaceDecl;
+class SyntaxNode;
 
 class GenericInstanceRegistry
 {
@@ -44,8 +54,10 @@ public:
 
 	//The template's placeholder for the type parameter `name` at
 	//parameter position `position` (interned on first request; one node
-	//per (template, parameter) pair).
-	SnField* PlaceholderFor(SnClassDecl& tmpl, const std::string& name,
+	//per (template, parameter) pair). The template node is a generic
+	//CLASS declaration or — 0.13.1a — a generic free FUNCTION
+	//declaration; both mint the same opaque placeholder node.
+	SnField* PlaceholderFor(SyntaxNode& tmpl, const std::string& name,
 		size_t position);
 
 	//Is this field one of the interned type-parameter placeholders?
@@ -80,6 +92,27 @@ public:
 	//(called by the member fill right after the copy joins the shell).
 	void AdoptMemberClone(SnField* pClone, const SnField* pSource);
 
+	//The minted instantiation a clone member belongs to, recorded by the
+	//same fill-time pair point as AdoptMemberClone. The backend's static-
+	//call arm reads it for the frame descriptor cell (a clone static's
+	//cell is the instantiation's descriptor row); null for non-clones.
+	SnClassDecl* InstantiationOfClone(const SnField* pMember) const;
+
+	//0.13.1c Task 8: the interface twin of the clone-to-instantiation
+	//pair. The backend's static-call arm consults it when a clone
+	//static's frame descriptor names a generic INTERFACE instantiation
+	//(the class channel answers class clones; the two never alias —
+	//each adopt names its own kind).
+	SnInterfaceDecl* InstantiationOfInterfaceClone(
+		const SnField* pMember) const;
+	void AdoptInterfaceCloneInstantiation(SnField* pClone,
+		const SnInterfaceDecl* pInstance);
+
+	//Record the clone-to-instantiation pair for one instantiation member
+	//(called by the member fill right after the copy joins the shell).
+	void AdoptCloneInstantiation(SnField* pClone,
+		const SnClassDecl* pInstance);
+
 	//The minted instance for (template, type arguments), or null when
 	//this combination has not been minted yet.
 	SnClassDecl* FindInstance(const SnClassDecl* pTemplate,
@@ -90,6 +123,22 @@ public:
 	//records never do — they live on the template rows.
 	void ForEachInstance(
 		const std::function<void(SnClassDecl&)>& visitor) const;
+
+	//0.13.1c: the interface channel, parallel to the class maps. The
+	//class paths keep their exact types and consumers; GetDeclared-
+	//GenericInterfaceDecl is the only writer, via the same two-phase
+	//publish-then-fill contract (AdoptInterfaceInstance before the
+	//recursive fill window).
+	SnInterfaceDecl* FindInterfaceInstance(
+		const SnInterfaceDecl* pTemplate,
+		const std::vector<const SnField*>& typeArgs) const;
+	void AdoptInterfaceInstance(SnInterfaceDecl* pInstance,
+		const SnInterfaceDecl* pTemplate,
+		const std::vector<const SnField*>& typeArgs);
+	//The interface template a minted interface instantiation was minted
+	//from; null when the node is not one.
+	SnInterfaceDecl* InstanceOfInterface(
+		const SnInterfaceDecl* pInstance) const;
 
 	//Concurrent-mint depth, the live instantiation chain: nested mints
 	//fire synchronously inside BOTH phases of the mint window — the
@@ -110,8 +159,9 @@ public:
 	//(measured at 131071 guard trips for one six-line program), and
 	//every retry of an already-reported family repeats the same
 	//message. Presentation-only dedup — never gates a mint. Per-build
-	//state.
-	bool MarkDepthLimitReported(const SnClassDecl* pTemplate)
+	//state. The key is node identity: the class and interface templates
+	//dedup in one set (implicit upcast — no cast at call sites).
+	bool MarkDepthLimitReported(const SyntaxNode* pTemplate)
 	{
 		return m_depthLimitReportedTmpls.insert(pTemplate).second;
 	}
@@ -119,9 +169,13 @@ public:
 private:
 	//Pointer-identity key: the template node plus the interned type-
 	//argument fields (interned tokens keep identity per element type).
+	//Templated on the template-node kind (0.13.1c): the class channel
+	//keys on SnClassDecl, the interface channel on SnInterfaceDecl —
+	//one comparison shape, no cross-kind pointer punning.
+	template<typename T>
 	struct InstanceKey
 	{
-		const SnClassDecl* pTemplate;
+		const T* pTemplate;
 		std::vector<const SnField*> typeArgs;
 		bool operator<(const InstanceKey& rhs) const
 		{
@@ -137,7 +191,7 @@ private:
 	};
 	struct PlaceholderKey
 	{
-		const SnClassDecl* pTemplate;
+		const SyntaxNode* pTemplate;
 		std::string name;
 		bool operator<(const PlaceholderKey& rhs) const
 		{
@@ -149,11 +203,20 @@ private:
 
 	std::map<PlaceholderKey, SnField*> m_placeholders;
 	std::map<const SnField*, size_t> m_placeholderIndex;
-	std::map<InstanceKey, SnClassDecl*> m_instances;
+	std::map<InstanceKey<SnClassDecl>, SnClassDecl*> m_instances;
 	std::map<const SnClassDecl*, const SnClassDecl*> m_instanceTemplate;
+	//0.13.1c interface channel, parallel to the class maps (kept exact
+	//so the class paths and their consumers stay untouched).
+	std::map<InstanceKey<SnInterfaceDecl>, SnInterfaceDecl*> m_ifaceInstances;
+	std::map<const SnInterfaceDecl*, const SnInterfaceDecl*>
+		m_ifaceInstanceTemplate;
 	std::map<const SnField*, const SnField*> m_memberRecordOwner;
+	std::map<const SnField*, const SnClassDecl*> m_memberInstantiation;
+	//0.13.1c Task 8: the interface twin of m_memberInstantiation (the
+	//minimal-channel ruling — class paths keep their exact types).
+	std::map<const SnField*, const SnInterfaceDecl*> m_ifaceCloneInstantiation;
 	int m_iGenericMintDepth = 0;
-	std::set<const SnClassDecl*> m_depthLimitReportedTmpls;
+	std::set<const SyntaxNode*> m_depthLimitReportedTmpls;
 };
 
 } //namespace nlang

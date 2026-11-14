@@ -136,8 +136,10 @@ static void test_link_two_units() {
     {
         BytecodeEmitter em;
         em.Emit(OpCode::OP_ConstString); em.EmitUint16(0);
-        em.Emit(OpCode::OP_CallFunc);    em.EmitUint16(1); em.EmitUint16(0);
+        em.Emit(OpCode::OP_CallStatic);    em.EmitUint16(1); em.EmitUint16(0);
+        em.EmitUint16(0xFFFF);  //0.13.1a: descIdx operand (none here)
         em.Emit(OpCode::OP_New);         em.EmitUint16(2); em.EmitUint16(0);
+        em.EmitUint16(0xFFFF);  //v0.13.1: descIdx operand (none here)
         em.Emit(OpCode::OP_AllocStruct); em.EmitUint16(3);
         em.EmitUint16(0); em.EmitUint16(1);
         em.Emit(OpCode::OP_Enum_to_str); em.EmitUint16(0);
@@ -187,12 +189,14 @@ static void test_link_two_units() {
                       merged.functions[0].bytecode.size());
     CHECK(rd.ReadOp() == OpCode::OP_ConstString && rd.ReadUint16() == 0,
           "own string stays 0");
-    CHECK(rd.ReadOp() == OpCode::OP_CallFunc, "CallFunc opcode");
+    CHECK(rd.ReadOp() == OpCode::OP_CallStatic, "CallFunc opcode");
     CHECK(rd.ReadUint16() == 2, "function slot 1 -> merged lib.f at 2");
-    rd.ReadUint16();
+    rd.ReadUint16();   //callParamBase
+    CHECK(rd.ReadUint16() == 0xFFFF, "descIdx sentinel untouched by remap");
     CHECK(rd.ReadOp() == OpCode::OP_New, "New opcode");
     CHECK(rd.ReadUint16() == 2, "New dst operand untouched by remap");
     CHECK(rd.ReadUint16() == 1, "class slot 0 -> merged lib.Rec at 1");
+    CHECK(rd.ReadUint16() == 0xFFFF, "descIdx sentinel untouched by remap");
     CHECK(rd.ReadOp() == OpCode::OP_AllocStruct, "AllocStruct opcode");
     CHECK(rd.ReadUint16() == 3, "AllocStruct dst operand untouched");
     CHECK(rd.ReadUint16() == 1, "struct slot 0 -> merged lib.Point at 1");
@@ -448,8 +452,11 @@ static void test_link_array_types_dedup() {
     CompiledFunction lf = MakeFunc("lib.f", 0);
     {
         BytecodeEmitter em;
+        //v0.13.1: five operands — dst, typeIdx, rank, dimsBase, descIdx
+        //(0xFFFF: no element instantiation here).
         em.Emit(OpCode::OP_AllocArrayN);
-        em.EmitUint16(2); em.EmitUint16(1); em.EmitUint16(0);
+        em.EmitUint16(2); em.EmitUint16(1); em.EmitUint16(1);
+        em.EmitUint16(0); em.EmitUint16(0xFFFF);
         em.Emit(OpCode::OP_Return);
         lf.bytecode = em.TakeBytes();
     }
@@ -466,7 +473,8 @@ static void test_link_array_types_dedup() {
     {
         BytecodeEmitter em;
         em.Emit(OpCode::OP_AllocArrayN);
-        em.EmitUint16(1); em.EmitUint16(0); em.EmitUint16(0);
+        em.EmitUint16(1); em.EmitUint16(0); em.EmitUint16(1);
+        em.EmitUint16(0); em.EmitUint16(0xFFFF);
         em.Emit(OpCode::OP_Return);
         mainf.bytecode = em.TakeBytes();
     }
@@ -586,7 +594,8 @@ static void test_link_cyclic_closure() {
     a.functionImports.push_back({"b", "b.f", 0});
     {
         BytecodeEmitter em;
-        em.Emit(OpCode::OP_CallFunc); em.EmitUint16(2); em.EmitUint16(0);
+        em.Emit(OpCode::OP_CallStatic); em.EmitUint16(2); em.EmitUint16(0);
+        em.EmitUint16(0xFFFF);   //0.13.1a: descIdx operand (none)
         em.Emit(OpCode::OP_Return);
         a.functions[0].bytecode = em.TakeBytes();
     }
@@ -598,7 +607,8 @@ static void test_link_cyclic_closure() {
     b.functionImports.push_back({"a", "a.helper", 0});
     {
         BytecodeEmitter em;
-        em.Emit(OpCode::OP_CallFunc); em.EmitUint16(2); em.EmitUint16(0);
+        em.Emit(OpCode::OP_CallStatic); em.EmitUint16(2); em.EmitUint16(0);
+        em.EmitUint16(0xFFFF);   //0.13.1a: descIdx operand (none)
         em.Emit(OpCode::OP_Return);
         b.functions[1].bytecode = em.TakeBytes();
     }
@@ -612,11 +622,11 @@ static void test_link_cyclic_closure() {
     CHECK(merged.functions.size() == 4, "cycle merges all four functions");
     BytecodeReader r0(merged.functions[0].bytecode.data(),
                       merged.functions[0].bytecode.size());
-    CHECK(r0.ReadOp() == OpCode::OP_CallFunc && r0.ReadUint16() == 3,
+    CHECK(r0.ReadOp() == OpCode::OP_CallStatic && r0.ReadUint16() == 3,
           "a.main's b.f slot 2 -> merged 3");
     BytecodeReader r3(merged.functions[3].bytecode.data(),
                       merged.functions[3].bytecode.size());
-    CHECK(r3.ReadOp() == OpCode::OP_CallFunc && r3.ReadUint16() == 1,
+    CHECK(r3.ReadOp() == OpCode::OP_CallStatic && r3.ReadUint16() == 1,
           "b.f's a.helper slot 2 -> merged 1");
 
     PASS();
@@ -678,10 +688,10 @@ static void test_function_slot_keyed_by_module() {
     io.functions.push_back(MakeFunc("io.run", 1));
     {
         BytecodeEmitter em;
-        em.Emit(OpCode::OP_CallFunc);
-        em.EmitUint16(gfxSlot); em.EmitUint16(0);
-        em.Emit(OpCode::OP_CallFunc);
-        em.EmitUint16(ioSlot); em.EmitUint16(0);
+        em.Emit(OpCode::OP_CallStatic);
+        em.EmitUint16(gfxSlot); em.EmitUint16(0); em.EmitUint16(0xFFFF);
+        em.Emit(OpCode::OP_CallStatic);
+        em.EmitUint16(ioSlot); em.EmitUint16(0); em.EmitUint16(0xFFFF);
         em.Emit(OpCode::OP_Return);
         app.functions[0].bytecode = em.TakeBytes();
     }
@@ -695,10 +705,11 @@ static void test_function_slot_keyed_by_module() {
     //merged: app.main=0, gfx.util=1, gfx.run=2, io.run=3.
     BytecodeReader r0(merged.functions[0].bytecode.data(),
                       merged.functions[0].bytecode.size());
-    CHECK(r0.ReadOp() == OpCode::OP_CallFunc && r0.ReadUint16() == 2,
+    CHECK(r0.ReadOp() == OpCode::OP_CallStatic && r0.ReadUint16() == 2,
           "gfx slot resolves into the gfx unit's own region");
-    r0.ReadUint16();
-    CHECK(r0.ReadOp() == OpCode::OP_CallFunc && r0.ReadUint16() == 3,
+    r0.ReadUint16();   //callParamBase
+    r0.ReadUint16();   //descIdx sentinel
+    CHECK(r0.ReadOp() == OpCode::OP_CallStatic && r0.ReadUint16() == 3,
           "io slot resolves into the io unit's own region");
     CHECK(merged.functions[2].name == "gfx.run"
        && merged.functions[3].name == "io.run", "owning unit records");
@@ -733,9 +744,12 @@ static void test_link_owner_keyed_methods() {
     CompiledFunction mainf = MakeFunc("app.main", 0);
     {
         BytecodeEmitter em;
-        em.Emit(OpCode::OP_CallFunc); em.EmitUint16(1); em.EmitUint16(0);
-        em.Emit(OpCode::OP_CallFunc); em.EmitUint16(2); em.EmitUint16(0);
-        em.Emit(OpCode::OP_CallFunc); em.EmitUint16(3); em.EmitUint16(0);
+        em.Emit(OpCode::OP_CallStatic); em.EmitUint16(1); em.EmitUint16(0);
+        em.EmitUint16(0xFFFF);
+        em.Emit(OpCode::OP_CallStatic); em.EmitUint16(2); em.EmitUint16(0);
+        em.EmitUint16(0xFFFF);
+        em.Emit(OpCode::OP_CallStatic); em.EmitUint16(3); em.EmitUint16(0);
+        em.EmitUint16(0xFFFF);
         em.Emit(OpCode::OP_Return);
         mainf.bytecode = em.TakeBytes();
     }
@@ -757,13 +771,15 @@ static void test_link_owner_keyed_methods() {
     //merged functions: app.main=0, addA=1, ctorA=2, addB=3, ctorB=4.
     BytecodeReader r0(merged.functions[0].bytecode.data(),
                       merged.functions[0].bytecode.size());
-    CHECK(r0.ReadOp() == OpCode::OP_CallFunc && r0.ReadUint16() == 1,
+    CHECK(r0.ReadOp() == OpCode::OP_CallStatic && r0.ReadUint16() == 1,
           "lib.A.add slot 1 -> merged 1");
-    r0.ReadUint16();
-    CHECK(r0.ReadOp() == OpCode::OP_CallFunc && r0.ReadUint16() == 3,
+    r0.ReadUint16();   //callParamBase
+    r0.ReadUint16();   //descIdx sentinel
+    CHECK(r0.ReadOp() == OpCode::OP_CallStatic && r0.ReadUint16() == 3,
           "lib.B.add slot 2 -> merged 3");
-    r0.ReadUint16();
-    CHECK(r0.ReadOp() == OpCode::OP_CallFunc && r0.ReadUint16() == 4,
+    r0.ReadUint16();   //callParamBase
+    r0.ReadUint16();   //descIdx sentinel
+    CHECK(r0.ReadOp() == OpCode::OP_CallStatic && r0.ReadUint16() == 4,
           "lib.B ctor slot 3 -> merged 4 (ownerOrdinal path)");
     CHECK(merged.classes.size() == 2, "both classes merged");
     CHECK(merged.classes[0].methodIndices.size() == 1
@@ -854,7 +870,8 @@ static void test_link_struct_ctor_metadata() {
         CompiledFunction mainf = MakeFunc("app.main", 0);
         {
             BytecodeEmitter em;
-            em.Emit(OpCode::OP_CallFunc); em.EmitUint16(1); em.EmitUint16(0);
+            em.Emit(OpCode::OP_CallStatic); em.EmitUint16(1); em.EmitUint16(0);
+            em.EmitUint16(0xFFFF);
             em.Emit(OpCode::OP_Return);
             mainf.bytecode = em.TakeBytes();
         }
@@ -876,7 +893,7 @@ static void test_link_struct_ctor_metadata() {
         //merged functions: app.main=0, lib.Vec ctor=1.
         BytecodeReader r0(merged.functions[0].bytecode.data(),
                           merged.functions[0].bytecode.size());
-        CHECK(r0.ReadOp() == OpCode::OP_CallFunc && r0.ReadUint16() == 1,
+        CHECK(r0.ReadOp() == OpCode::OP_CallStatic && r0.ReadUint16() == 1,
               "struct ctor slot resolves through ownerOrdinal");
         CHECK(merged.structs.size() == 1
            && merged.structs[0].constructorIndices.size() == 1
@@ -1236,7 +1253,8 @@ static void test_namespace_ordinal_single_select() {
     CompiledFunction mainf = MakeFunc("app.main", 0);
     {
         BytecodeEmitter em;
-        em.Emit(OpCode::OP_CallFunc); em.EmitUint16(1); em.EmitUint16(0);
+        em.Emit(OpCode::OP_CallStatic); em.EmitUint16(1); em.EmitUint16(0);
+        em.EmitUint16(0xFFFF);
         em.Emit(OpCode::OP_Return);
         mainf.bytecode = em.TakeBytes();
     }
@@ -1253,7 +1271,7 @@ static void test_namespace_ordinal_single_select() {
     //operand must have been remapped to 2 (the ordinal-1 record).
     BytecodeReader rd(merged.functions[0].bytecode.data(),
                       merged.functions[0].bytecode.size());
-    CHECK(rd.ReadOp() == OpCode::OP_CallFunc, "CallFunc opcode");
+    CHECK(rd.ReadOp() == OpCode::OP_CallStatic, "CallFunc opcode");
     CHECK(rd.ReadUint16() == 2, "ordinal 1 -> merged record of producer 1");
     PASS();
 }
@@ -1314,8 +1332,10 @@ static void test_two_namespace_records_same_arity() {
     CompiledFunction mainf = MakeFunc("app.main", 0);
     {
         BytecodeEmitter em;
-        em.Emit(OpCode::OP_CallFunc); em.EmitUint16(1); em.EmitUint16(0);
-        em.Emit(OpCode::OP_CallFunc); em.EmitUint16(2); em.EmitUint16(0);
+        em.Emit(OpCode::OP_CallStatic); em.EmitUint16(1); em.EmitUint16(0);
+        em.EmitUint16(0xFFFF);
+        em.Emit(OpCode::OP_CallStatic); em.EmitUint16(2); em.EmitUint16(0);
+        em.EmitUint16(0xFFFF);
         em.Emit(OpCode::OP_Return);
         mainf.bytecode = em.TakeBytes();
     }
@@ -1331,11 +1351,52 @@ static void test_two_namespace_records_same_arity() {
     CHECK(merged.functions.size() == 3, "main + both records");
     BytecodeReader rd(merged.functions[0].bytecode.data(),
                       merged.functions[0].bytecode.size());
-    CHECK(rd.ReadOp() == OpCode::OP_CallFunc, "first call");
+    CHECK(rd.ReadOp() == OpCode::OP_CallStatic, "first call");
     CHECK(rd.ReadUint16() == 1, "ordinal 0 -> merged record 1");
-    rd.ReadUint16();
-    CHECK(rd.ReadOp() == OpCode::OP_CallFunc, "second call");
+    rd.ReadUint16();   //callParamBase
+    rd.ReadUint16();   //descIdx sentinel
+    CHECK(rd.ReadOp() == OpCode::OP_CallStatic, "second call");
     CHECK(rd.ReadUint16() == 2, "ordinal 1 -> merged record 2");
+    PASS();
+}
+
+//v0.13.1 (v2.15): the descriptor table merges like the string table —
+//dedup by full entry (spelling + recipe bytes): a static entry's identity
+//is its spelling (the intern contract), and recipe entries share an empty
+//spelling, so the recipe bytes join the key. Byte-identical recipes from
+//two units compiling the same template merge; divergence keeps both (the
+//intern pool still folds the composed descriptors at runtime).
+static void test_descriptor_table_merge() {
+    TEST(descriptor_table_merge);
+    CompiledModule lib = MakeUnit("lib");
+    lib.descriptorTable.push_back({"Box<int>", {}});            //own 0
+    lib.descriptorTable.push_back({"Pair<int,string>", {}});    //own 1
+    DescriptorEntry libRecipe;
+    libRecipe.spelling = "";
+    libRecipe.recipe = {0x01, 0x00, 0x03, 'B', 'x', 0x02, 0x00};
+    lib.descriptorTable.push_back(std::move(libRecipe));        //own 2
+    CompiledModule app = MakeUnit("app");
+    app.functions.push_back(MakeFunc("app.main", 0));
+    app.descriptorTable.push_back({"Box<int>", {}});            //own 0 (dedup)
+    DescriptorEntry appRecipe;
+    appRecipe.spelling = "";
+    appRecipe.recipe = {0x01, 0x00, 0x03, 'B', 'x', 0x02, 0x00};
+    app.descriptorTable.push_back(std::move(appRecipe));        //own 1 (dedup)
+    app.descriptorTable.push_back({"Hold<int>", {}});           //own 2 (new)
+    std::vector<CompiledModule> units;
+    units.push_back(std::move(app));
+    units.push_back(std::move(lib));
+    CompiledModule merged = NcuLinker::Link(std::move(units), "app.main");
+    CHECK(merged.descriptorTable.size() == 4,
+          "Box<int>, Pair, recipe, Hold — duplicates fold");
+    CHECK(merged.descriptorTable[0].spelling == "Box<int>",
+          "app's static entry lands first");
+    CHECK(merged.descriptorTable[1].recipe.size() == 7,
+          "app's recipe row lands second");
+    CHECK(merged.descriptorTable[2].spelling == "Hold<int>",
+          "app's Hold appends");
+    CHECK(merged.descriptorTable[3].spelling == "Pair<int,string>",
+          "lib's Pair appends; identical recipes folded");
     PASS();
 }
 
@@ -1445,6 +1506,11 @@ int main() {
         g_fail++;
     }
     try { test_two_namespace_records_same_arity(); }
+    catch (const std::exception& e) {
+        std::cerr << "FAILED (exception: " << e.what() << ")\n";
+        g_fail++;
+    }
+    try { test_descriptor_table_merge(); }
     catch (const std::exception& e) {
         std::cerr << "FAILED (exception: " << e.what() << ")\n";
         g_fail++;

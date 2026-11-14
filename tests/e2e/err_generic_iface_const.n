@@ -1,0 +1,7 @@
+//Negative: an interface constant cannot be T-typed — the folded-value
+//channel has no representation for an unbound type parameter.
+interface I<T>
+{
+    static const T bad = 7;
+}
+int main() { return 0; }

@@ -191,7 +191,7 @@ void VmBackend::EmitDelegateInvoke(const SnInvokeExpr& invoke,
 //OP_CallDelegateOut; the executor reverses the bound-handle
 //this-shift when copying the marked user-parameter slots back
 //to callParamBase. Result first — the spills below clobber
-//pResult (same ordering discipline as OP_CallFuncOut).
+//pResult (same ordering discipline as OP_CallStaticOut).
 void VmBackend::EmitDelegateDispatch(BytecodeEmitter& emitter,
                                      uint16_t calleeSlot,
                                      uint16_t resultOffset,
@@ -214,15 +214,19 @@ void VmBackend::EmitDelegateDispatch(BytecodeEmitter& emitter,
     }
 }
 
-//Free-function call: OP_CallFunc, or OP_CallFuncOut + spills when the
-//call carries out arguments.
+//Free-function (receiverless) call: OP_CallStatic, or OP_CallStaticOut
+//+ spills when the call carries out arguments. The 0.13.1a descriptor
+//operand rides both forms — StaticCallDescIdxFor decides none vs
+//caller-forward.
 void VmBackend::EmitFreeFunctionCall(int funcIndex, BytecodeEmitter& emitter,
                                      uint16_t resultOffset,
-                                     const std::vector<OutSpill>& outSpills) {
+                                     const std::vector<OutSpill>& outSpills,
+                                     uint16_t descIdx) {
     if (!outSpills.empty()) {
-        emitter.Emit(OpCode::OP_CallFuncOut);
+        emitter.Emit(OpCode::OP_CallStaticOut);
         emitter.EmitUint16(static_cast<uint16_t>(funcIndex));
         emitter.EmitUint16(m_currFunc->callParamBase);
+        emitter.EmitUint16(descIdx);
         emitter.EmitInt32(static_cast<int32_t>(
             BuildOutMask(outSpills)));
         //Result first: the spills below clobber pResult via
@@ -232,13 +236,30 @@ void VmBackend::EmitFreeFunctionCall(int funcIndex, BytecodeEmitter& emitter,
         emitter.EmitUint16(resultOffset);
         EmitOutSpills(outSpills, emitter);
     } else {
-        emitter.Emit(OpCode::OP_CallFunc);
+        emitter.Emit(OpCode::OP_CallStatic);
         emitter.EmitUint16(static_cast<uint16_t>(funcIndex));
         emitter.EmitUint16(m_currFunc->callParamBase);
+        emitter.EmitUint16(descIdx);
         // Result is in pResult, store to resultOffset
         emitter.Emit(OpCode::OP_Assign);
         emitter.EmitUint16(resultOffset);
     }
+}
+
+//0.13.1a: the descriptor operand of a receiverless call. A callee that
+//belongs to the same generic class row the emitted function belongs to
+//(m_pCurrClass — the caller-side owner) shares the caller's
+//instantiation — recursion and same-template bare statics forward the
+//caller's frame cell (kInstDescForwardCaller). Everything else emits
+//none: non-generic callees pay nothing, and cross-context generic
+//callees await their inference/spelling channels (a T read in an
+//unfilled cell degrades to the named runtime error).
+uint16_t VmBackend::StaticCallDescIdxFor(const SnFunction& callee) const {
+    auto* pCalleeOwner = callee.Parent();
+    if (!pCalleeOwner || pCalleeOwner != m_pCurrClass
+        || !static_cast<SnClassDecl*>(pCalleeOwner)->IsGenericDeclaration())
+        return kInstDescNone;
+    return kInstDescForwardCaller;
 }
 
 void VmBackend::Access(SnInvokeExpr& expr) {
@@ -324,9 +345,19 @@ void VmBackend::EmitInvokeDispatch(SnInvokeExpr& invoke, SnFunction* callee,
     }
     //Per-unit: cross-unit callees slot as import placeholders
     //(FunctionSlotFor); own ones resolve through m_funcIndexMap.
+    //0.13.1a Task 4: a generic free function's frame cell comes from the
+    //call site's inferred-argument row (D4: the template record serves
+    //every call; the row is what varies). Ordinary callees keep the
+    //same-generic-row forward / none decision.
+    NLANG_ASSERT(!callee->IsGenericDeclaration()
+        || !invoke.InferredTypeArgs().empty());
+    uint16_t descIdx = callee->IsGenericDeclaration()
+        ? FreeCallDescriptorIndexFor(callee->Name(),
+            invoke.InferredTypeArgs())
+        : StaticCallDescIdxFor(*callee);
     EmitFreeFunctionCall(
         static_cast<int>(FunctionSlotFor(*callee)),
-        emitter, resultOffset, outSpills);
+        emitter, resultOffset, outSpills, descIdx);
     emitter.Emit(OpCode::OP_ParaEnd);
 }
 
@@ -364,6 +395,37 @@ void VmBackend::Access(SnThisExpr& expr) {
         emitter.Emit(OpCode::OP_Assign);
         emitter.EmitUint16(resultOffset);
         return;
+}
+
+//v0.13.1 D4: typeName(Type) — three emission forms, decided by what
+//the resolver recorded. A concrete operand folds at resolve time and
+//rides the ordinary string-constant path; a bare type parameter reads
+//the receiver descriptor's argument (OP_TypeNameArg, the ordinal is
+//the declared parameter position); anything else containing a type
+//parameter (an instantiation like Box<T>, or an array T[]) composes
+//from a recipe row (OP_TypeNameCompose).
+void VmBackend::Access(SnTypeNameExpr& expr) {
+    BytecodeEmitter& emitter = *m_pCurrEmitter;
+    const uint16_t resultOffset = m_resultOffset;
+    if (!expr.FoldedSpelling().empty()) {
+        const uint16_t poolIdx = AddStringConstant(expr.FoldedSpelling());
+        emitter.Emit(OpCode::OP_ConstString);
+        emitter.EmitUint16(poolIdx);
+        emitter.Emit(OpCode::OP_Assign);
+        emitter.EmitUint16(resultOffset);
+        return;
+    }
+    if (expr.TypeParamOrdinal() != SnTypeNameExpr::kNoTypeParamOrdinal) {
+        emitter.Emit(OpCode::OP_TypeNameArg);
+        emitter.EmitUint16(resultOffset);
+        emitter.EmitByte(expr.TypeParamOrdinal());
+        return;
+    }
+    const uint16_t recipeIdx = RecipeIndexFor(*expr.TypeRef()->Field());
+    NLANG_ASSERT(recipeIdx != kNoInstDescriptor);
+    emitter.Emit(OpCode::OP_TypeNameCompose);
+    emitter.EmitUint16(resultOffset);
+    emitter.EmitUint16(recipeIdx);
 }
 
     // New array expression: new T[size]

@@ -94,6 +94,11 @@ The same deep copy applies everywhere a struct value moves:
   it; writing through a subscript stores into the array's own
   element (§4.10). A zero-length struct array is legal and
   creates no elements.
+- **Equality** (`==` / `!=`) compares by field value: nested struct
+  fields recurse, `string` fields compare content, and reference-
+  shaped fields (class, array, interface, `func`) compare identity —
+  exactly what a copy stores. Two structs of different types never
+  compare equal, and ordering a struct is a compile error (§4.5).
 
 When a struct contains a class-typed field, the class reference is
 copied as-is during the struct copy: the original and the copy

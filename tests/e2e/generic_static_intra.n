@@ -1,0 +1,42 @@
+// generic_static_intra.n — 0.13.1a: static bodies read the frame context.
+import io;
+class Tag<T> {
+    public Tag() { }
+    public static string tag() {
+        return typeName(T);
+    }
+    public static bool same(T a, T b) {
+        return a == b;
+    }
+    public static string full(T v) {
+        // the T-operation surface inside a static body: concat (both
+        // orders), print, equality, as-cast on a concrete Object operand
+        // (the T→Object upcast carrier is a separate 0.13.1a task).
+        if ("v=" + v != "v=7") { return "c1"; }
+        if (v + "!" != "7!") { return "c2"; }
+        io.print("v=" + v);
+        Object oi = 7;
+        T back = oi as T;
+        if (!same(back, v)) { return "a"; }
+        Object os = "s";
+        try {
+            T wrong = os as T;
+            return "m";
+        } catch (InvalidCastException e) {
+            if (e.message != "NLang VM: invalid cast - expected `int`, got `string`") { return "e"; }
+        }
+        return tag();
+    }
+    public string viaInstance(T x) {
+        // bare static calls forward the instance's descriptor
+        if (tag() != "int") { return "bad"; }
+        if (!same(x, x)) { return "bad2"; }
+        if (full(x) != "int") { return "bad3"; }
+        return "ok";
+    }
+}
+int main() {
+    Tag<int> t = Tag();
+    if (t.viaInstance(7) != "ok") { return 3; }
+    return 0;
+}

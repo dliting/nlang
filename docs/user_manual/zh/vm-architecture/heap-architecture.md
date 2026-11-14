@@ -172,7 +172,9 @@ ContainsKey/Remove共用的核心辅助函数：
 1. 恒等快路径（`k1 == k2`）。
 2. 越界与kind匹配检查（`m_slotKinds[k1] == m_slotKinds[k2]`）。
 3. 按kind分支：
-   - `RTK_Class` / `RTK_Struct`：恒等比较（比较堆索引）。
+   - `RTK_Class`：恒等比较（比较堆索引）。
+   - `RTK_Struct`：字段值比较（`StructValuesEqual`，即`OP_Eq_struct`语义——每个边界都深拷贝结构体，恒等比较永远匹配不到重新存入的键）。
+   - `RTK_Func`：句柄内容比较——（目标、接收者、形态）三元组，`OP_Eq_func`语义（无驻留）。
    - `RTK_Boxed`：按内部类型标签分支（`m_structHeap[k][0]`）：
      - `RTK_Int32` / `RTK_Float`：比较`m_structHeap[k][kBoxedValueSlot]`处的值位（IEEE 754——
        `NaN != NaN`）。

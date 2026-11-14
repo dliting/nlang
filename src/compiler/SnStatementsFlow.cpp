@@ -200,6 +200,13 @@ bool SnForeachStmt::ReplaceChildNode(SyntaxNode *pOld, SyntaxNode *pNew)
 		ResetChild(m_pVarType, static_cast<SnFieldExpr *>(pNew));
 		return true;
 	}
+	//v0.13.7: the iterable is an expression slot that can hold a
+	//tensor-lowered binary (`foreach (v in a + b)`).
+	if (m_pIterable == pOld)
+	{
+		ResetChild(m_pIterable, static_cast<SnExpression *>(pNew));
+		return true;
+	}
 	return Super_::ReplaceChildNode(pOld, pNew);
 }
 

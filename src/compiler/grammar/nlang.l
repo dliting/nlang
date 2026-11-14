@@ -244,6 +244,13 @@ LineComment	\/\/[^\n]*
 "float"     { return KT_Float; }
 "for"       { return KT_For; }
 "foreach"   { return KT_Foreach; }
+"fp32"      {
+                /*0.13.1c primitive type aliases: a pure spelling layer
+                 * mapping to the primitive tokens (fp64 below); AST and
+                 * descriptor spellings stay canonical. */
+                return KT_Float;
+            }
+"fp64"      { return KT_Double; }
 "func"      {
                 /* 0.8.3: keyword form of the function type. Same
                  * pending-open flag as the List/Dict identifier rule
@@ -258,6 +265,10 @@ LineComment	\/\/[^\n]*
 "import"    { return KT_Import; }
 "in"        { return KT_In; }
 "int"       { return KT_Int; }
+"int8"      { return KT_Byte; }
+"int16"     { return KT_Short; }
+"int32"     { return KT_Int; }
+"int64"     { return KT_Long; }
 "interface" { return KT_Interface; }
 "long"      { return KT_Long; }
 "native"    { return KT_Native; }
@@ -277,8 +288,13 @@ LineComment	\/\/[^\n]*
 "throw"     { return KT_Throw; }
 "true"      { return KT_True; }
 "try"       { return KT_Try; }
+"typeName"  { return KT_TypeName; }
 "ubyte"     { return KT_Ubyte; }
 "uint"      { return KT_Uint; }
+"uint8"     { return KT_Ubyte; }
+"uint16"    { return KT_Ushort; }
+"uint32"    { return KT_Uint; }
+"uint64"    { return KT_ULong; }
 "ulong"     { return KT_ULong; }
 "ushort"    { return KT_Ushort; }
 "using"     { return KT_Using; }
@@ -349,19 +365,28 @@ LineComment	\/\/[^\n]*
 
             /* single-char angle brackets with generic-depth tracking */
 "<"         {
-                /* Two openers: a '<' directly after a flagged generic
+                /* Three openers: a '<' directly after a flagged generic
                  * name (the built-in generics; func via its keyword
-                 * rule) reaches the parser as the dedicated OT_TypeLt — the
-                 * anchored generic literal `List<int>{...}` needs that
-                 * type-bracket reading distinct from the comparison '<'
-                 * in expression states. Any other '<' arrives plain;
-                 * TYPE-context generic use (declared generics such as
-                 * `Box<int> b;`) parses on the plain spelling — a
-                 * declared generic's name cannot live in a scan-time
-                 * set. Both openers increment the depth counter, which
-                 * makes ">>" split into two '>' tokens inside a
-                 * type-argument list. */
-                if (scanner.TakePendingGenericOpen())
+                 * rule), or after an identifier whose forward probe
+                 * matched the expression-position spelling shape
+                 * (0.13.1a: `Pair<int, string>.sig()` — declared
+                 * generics cannot live in a scan-time set, so the
+                 * probe substitutes for the flag; see
+                 * ProbeTypeArgumentOpener) reach the parser as the
+                 * dedicated OT_TypeLt — the type-bracket reading
+                 * distinct from the comparison '<' in expression
+                 * states. Any other '<' arrives plain; TYPE-context
+                 * generic use (declared generics such as `Box<int> b;`)
+                 * parses on the plain spelling — a declared generic's
+                 * name cannot live in a scan-time set. All openers
+                 * increment the depth counter, which makes ">>" split
+                 * into two '>' tokens inside a type-argument list.
+                 * Both flags are consumed unconditionally: the probe
+                 * guarantees '<' immediately follows its identifier,
+                 * but a builtin-flag hit must not leave the receiver
+                 * flag armed for a later comparison '<'. */
+                const bool bReceiverLt = scanner.TakePendingReceiverLt();
+                if (scanner.TakePendingGenericOpen() || bReceiverLt)
                 {
                     scanner.IncGenericDepth();
                     return OT_TypeLt;
@@ -388,15 +413,18 @@ LineComment	\/\/[^\n]*
                  * arming in the class-name position (`class List<T>`
                  * parses its parameter brackets plain). Every identifier
                  * rewrites this flag, so it can only reach a '<' across
-                 * blanks/comments — a comparison `List < 3` against a
-                 * variable shadowing the type name is misread
-                 * (documented limitation). */
+                 * blanks/comments. */
                 /*Flex action code runs in the global namespace, so the
                  *predicate is qualified with nlang:: (it lives in the
                  *runtime namespace). */
                 scanner.PendingGenericOpen(
                     !scanner.TakePendingClassDeclName()
                     && nlang::IsBuiltinGenericTypeName(yytext));
+                /* 0.13.1a Task 3: expression-position spelling probe.
+                 * YY_USER_ACTION has advanced yycolumn past this
+                 * identifier, so (yylineno, yycolumn) is the first byte
+                 * after it — exactly where the probe starts reading. */
+                scanner.ProbeTypeArgumentOpener(yylineno, yycolumn);
                 return TT_Identifier;
             }
 

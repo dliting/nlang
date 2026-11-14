@@ -26,7 +26,7 @@ namespace nlang
 //runs the method/default-parameter gates), a func<T>-typed value
 //contributes its type argument directly. The call site's result type is
 //Future<T>; T=void keeps the K1 Thread face. Dispatch rides the stdlib
-//spawn declaration — OP_CallFunc's built-in arm reads the invoke's bound
+//spawn declaration — OP_CallStatic's built-in arm reads the invoke's bound
 //callee; the member carries the per-site result decl. True = consumed
 //(bound or diagnosed); false = not this arm's shape, the fixed path's
 //diagnostics cover the rejection.

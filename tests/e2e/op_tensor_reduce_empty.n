@@ -1,0 +1,11 @@
+// Axis max over a zero-size source: the family-consistent empty guard
+// (the scalar reductions and argmax/argmin raise the same way) — the
+// scan would otherwise read past the allocation when the axis dim
+// itself is zero. Uncaught Exception, exit 1 by design.
+import tensor;
+
+int main() {
+    float[,] empty = float[0, 2];
+    float[,] boom = tensor.max(empty, 0);
+    return 0;
+}

@@ -103,6 +103,7 @@ void VmBackend::EmitCtorCallTail(uint16_t allocSlot, uint16_t claimBase,
         emitter.Emit(OpCode::OP_New);
         emitter.EmitUint16(allocSlot);
         emitter.EmitUint16(alloc.typeIdx);
+        emitter.EmitUint16(alloc.descIdx);
     }
     //this (new object heap index) → claim[0].
     emitter.Emit(OpCode::OP_VarLocal);

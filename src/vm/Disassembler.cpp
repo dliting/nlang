@@ -4,6 +4,8 @@
 #include "Disassembler.h"
 #include "BytecodeReader.h"
 #include "DisassemblerPrim.h"
+#include "DisassemblerFormat.h"
+#include "DisassemblerCalls.h"
 #include <cstdio>
 #include <sstream>
 #include <stdexcept>
@@ -13,30 +15,10 @@
 namespace nlang {
 
 //--- operand-shape printers: one operand shape per helper; the line is
-//"head + formatted operands + newline" (head = "0042: name").
-
-static void EmitPlain(std::ostringstream &out, const std::string &head) {
-    out << head << "\n";
-}
-
-static void EmitU16(BytecodeReader &r, std::ostringstream &out,
-    const std::string &head, const char *fmt) {
-    char buf[96];
-    snprintf(buf, sizeof(buf), fmt, r.ReadUint16());
-    out << head << buf << "\n";
-}
-
-//Print `n` uint16 operands (n = 2..5), reading the array BEFORE formatting
-//(MSVC reverses in-arg read order; snprintf ignores the unused slots).
-void DisasmU16xN(int n, BytecodeReader &r, std::ostringstream &out,
-    const std::string &head, const char *fmt) {
-    uint16_t v[5] = {0, 0, 0, 0, 0};
-    for (int i = 0; i < n; ++i)
-        v[i] = r.ReadUint16();
-    char buf[96];
-    snprintf(buf, sizeof(buf), fmt, v[0], v[1], v[2], v[3], v[4]);
-    out << head << buf << "\n";
-}
+//"head + formatted operands + newline" (head = "0042: name"). The
+//shared vocabulary (EmitPlain/DisasmU16xN/EmitU8Tag) lives in
+//DisassemblerFormat; the call and func-value families live in
+//DisassemblerCalls (0.13.1a split).
 
 static void EmitI32(BytecodeReader &r, std::ostringstream &out,
     const std::string &head) {
@@ -49,13 +31,6 @@ static void EmitF32(BytecodeReader &r, std::ostringstream &out,
     const std::string &head) {
     char buf[48];
     snprintf(buf, sizeof(buf), " %g", r.ReadFloat());
-    out << head << buf << "\n";
-}
-
-static void EmitU8Tag(BytecodeReader &r, std::ostringstream &out,
-    const std::string &head) {
-    char buf[48];
-    snprintf(buf, sizeof(buf), " typeTag=%d", r.ReadByte());
     out << head << buf << "\n";
 }
 
@@ -99,49 +74,25 @@ static void EmitConstString(BytecodeReader &r, std::ostringstream &out,
     out << "\n";
 }
 
-//Direct function-index call: "[i] name base=b" (CallFunc/Direct).
-static void EmitCallDirect(BytecodeReader &r, std::ostringstream &out,
-    const std::string &head, const CompiledModule &module) {
-    uint16_t funcIdx = r.ReadUint16();
-    uint16_t base = r.ReadUint16();
-    out << head << " [" << funcIdx << "]";
-    if (funcIdx < module.functions.size())
-        out << " " << module.functions[funcIdx].name;
-    out << " base=" << base << "\n";
-}
-
-//...with the Phase 9e uint32 out-mask tail (CallFuncOut/DirectOut).
-static void EmitCallDirectOut(BytecodeReader &r, std::ostringstream &out,
-    const std::string &head, const CompiledModule &module) {
-    uint16_t funcIdx = r.ReadUint16();
-    uint16_t base = r.ReadUint16();
-    uint32_t outMask = r.ReadUint32();
-    out << head << " [" << funcIdx << "]";
-    if (funcIdx < module.functions.size())
-        out << " " << module.functions[funcIdx].name;
-    out << " base=" << base
-        << " outMask=0x" << std::hex << outMask
-        << std::dec << "\n";
-}
-
-//By-name method call: method=<string-pool idx> "name" base=b.
-static void EmitCallByName(BytecodeReader &r, std::ostringstream &out,
-    const std::string &head, const CompiledModule &module) {
-    uint16_t methodIdx = r.ReadUint16();
-    uint16_t base = r.ReadUint16();
-    out << head << " method=" << methodIdx;
-    if (methodIdx < module.stringConstants.size())
-        out << " \"" << module.stringConstants[methodIdx] << "\"";
-    out << " base=" << base << "\n";
-}
-
 static void EmitNew(BytecodeReader &r, std::ostringstream &out,
     const std::string &head, const CompiledModule &module) {
     uint16_t dst = r.ReadUint16();
     uint16_t classIdx = r.ReadUint16();
+    uint16_t descIdx = r.ReadUint16();
     out << head << " " << dst << " class=" << classIdx;
     if (classIdx < module.classes.size())
         out << " " << module.classes[classIdx].name;
+    //v0.13.1: the instantiation descriptor row (0xFFFF = none; recipe
+    //rows compose at run time, so the spelling prints as a row tag).
+    if (descIdx != 0xFFFF
+        && descIdx < module.descriptorTable.size()) {
+        const auto& row = module.descriptorTable[descIdx];
+        if (row.recipe.empty())
+            out << " desc=" << row.spelling;
+        else
+            out << " desc=recipe#" << descIdx;
+    } else
+        out << " desc=none";
     out << "\n";
 }
 
@@ -151,25 +102,6 @@ static void EmitEnumToStr(BytecodeReader &r, std::ostringstream &out,
     out << head << " enumDefIdx=" << enumDefIdx;
     if (enumDefIdx < module.enumNames.size())
         out << " (values=" << module.enumNames[enumDefIdx].size() << ")";
-    out << "\n";
-}
-
-//funcIdx line with "(name)" suffix (MakeFunc/MakeBoundFunc share it).
-static void EmitMakeFuncIdx(BytecodeReader &r, std::ostringstream &out,
-    const std::string &head, const CompiledModule &module) {
-    uint16_t funcIdx = r.ReadUint16();
-    out << head << " funcIdx=" << funcIdx;
-    if (funcIdx < module.functions.size())
-        out << " (" << module.functions[funcIdx].name << ")";
-    out << "\n";
-}
-
-static void EmitMakeVFunc(BytecodeReader &r, std::ostringstream &out,
-    const std::string &head, const CompiledModule &module) {
-    uint16_t nameIdx = r.ReadUint16();
-    out << head << " nameIdx=" << nameIdx;
-    if (nameIdx < module.stringConstants.size())
-        out << " (" << module.stringConstants[nameIdx] << ")";
     out << "\n";
 }
 
@@ -192,17 +124,17 @@ static bool DisasmFlowOps(OpCode op, BytecodeReader &r,
             EmitJumpCond(r, out, head);
             return true;
         case OpCode::OP_Switch:
-            EmitU16(r, out, head, " %u");
+            DisasmU16xN(1, r, out, head, " %u");
             return true;
         case OpCode::OP_Case:
             EmitCaseNext(r, out, head);
             return true;
         case OpCode::OP_AssertFail:
         case OpCode::OP_DebugInfo:
-            EmitU16(r, out, head, " %u");
+            DisasmU16xN(1, r, out, head, " %u");
             return true;
         case OpCode::OP_Throw:
-            EmitU16(r, out, head, " src=%u");
+            DisasmU16xN(1, r, out, head, " src=%u");
             return true;
         default:
             return false;
@@ -240,7 +172,7 @@ static bool DisasmConstOps(OpCode op, BytecodeReader &r,
             return true;
         case OpCode::OP_VarLocal:
         case OpCode::OP_Assign:
-            EmitU16(r, out, head, " %u");
+            DisasmU16xN(1, r, out, head, " %u");
             return true;
         default:
             return false;
@@ -275,7 +207,7 @@ static bool DisasmArithOps(OpCode op, BytecodeReader &r,
             DisasmPrimNeg(r, out, head);
             return true;
         case OpCode::OP_LogicalNot:
-            EmitU16(r, out, head, " %u");
+            DisasmU16xN(1, r, out, head, " %u");
             return true;
         default:
             return false;
@@ -321,36 +253,32 @@ static bool DisasmStringOps(OpCode op, BytecodeReader &r,
     }
 }
 
-static bool DisasmCallOps(OpCode op, BytecodeReader &r,
-    std::ostringstream &out, const std::string &head,
-    const CompiledModule &module) {
+//v0.13.1: the runtime type-argument opcodes — typeName arms (dst is a
+//frame offset; the ordinal is the declared type-parameter position, the
+//recipe index a descriptor-table row) and the D6 kind-dispatched T
+//operations (0xFFFF marks the null-literal side of an equality).
+static bool DisasmTypeArgOps(OpCode op, BytecodeReader &r,
+    std::ostringstream &out, const std::string &head) {
     switch (op) {
-        case OpCode::OP_CallFunc:
-        case OpCode::OP_CallMethodDirect:
-            EmitCallDirect(r, out, head, module);
-            return true;
-        case OpCode::OP_CallFuncOut:
-        case OpCode::OP_CallMethodDirectOut:
-            EmitCallDirectOut(r, out, head, module);
-            return true;
-        case OpCode::OP_CallMethod:
-            EmitCallByName(r, out, head, module);
-            return true;
-        case OpCode::OP_CallIntrinsic:
-            DisasmU16xN(2, r, out, head, " id=%u base=%u");
-            return true;
-        case OpCode::OP_CallDelegate:
-            DisasmU16xN(2, r, out, head, " callee=%u base=%u");
-            return true;
-        case OpCode::OP_CallDelegateOut: {
-            uint16_t callee = r.ReadUint16();
-            uint16_t base = r.ReadUint16();
-            uint32_t outMask = r.ReadUint32();
-            out << head << " callee=" << callee << " base=" << base
-                << " outMask=0x" << std::hex << outMask << std::dec
-                << "\n";
+        case OpCode::OP_TypeNameArg: {
+            uint16_t dst = r.ReadUint16();
+            uint8_t ordinal = r.ReadByte();
+            out << head << " dst=" << dst << " ordinal="
+                << static_cast<unsigned>(ordinal) << "\n";
             return true;
         }
+        case OpCode::OP_TypeNameCompose:
+            DisasmU16xN(2, r, out, head, " dst=%u recipe=%u");
+            return true;
+        case OpCode::OP_Eq_T:
+        case OpCode::OP_Ne_T:
+            DisasmU16xN(4, r, out, head,
+                " dst=%u ordinal=%u lhs=%u rhs=%u");
+            return true;
+        case OpCode::OP_TypeArg_to_str:
+        case OpCode::OP_As_TypeParam:
+            EmitU8Tag(r, out, head);
+            return true;
         default:
             return false;
     }
@@ -376,41 +304,20 @@ static bool DisasmObjectOps(OpCode op, BytecodeReader &r,
             EmitNew(r, out, head, module);
             return true;
         case OpCode::OP_NullCheck:
-            EmitU16(r, out, head, " %u");
+            DisasmU16xN(1, r, out, head, " %u");
             return true;
         case OpCode::OP_CheckCast:
-            EmitU16(r, out, head, " classIdx=%u");
+            //v0.13.1: classIdx + descIdx (0xFFFF = no descriptor check).
+            DisasmU16xN(2, r, out, head, " classIdx=%u desc=%u");
             return true;
         case OpCode::OP_Box:
         case OpCode::OP_Unbox:
+        case OpCode::OP_Box_TypeArg:
+        case OpCode::OP_Unbox_TypeArg:
             EmitU8Tag(r, out, head);
             return true;
         default:
-            return false;
-    }
-}
-
-
-static bool DisasmFuncValueOps(OpCode op, BytecodeReader &r,
-    std::ostringstream &out, const std::string &head,
-    const CompiledModule &module) {
-    switch (op) {
-        case OpCode::OP_MakeFunc:
-        case OpCode::OP_MakeBoundFunc:
-            EmitMakeFuncIdx(r, out, head, module);
-            return true;
-        case OpCode::OP_MakeVFunc:
-            EmitMakeVFunc(r, out, head, module);
-            return true;
-        case OpCode::OP_Eq_func:
-        case OpCode::OP_Ne_func:
-            DisasmU16xN(2, r, out, head, " lhs=%u rhs=%u");
-            return true;
-        case OpCode::OP_Func_to_str:
-            EmitPlain(out, head);
-            return true;
-        default:
-            return false;
+            return DisasmTypeArgOps(op, r, out, head);
     }
 }
 

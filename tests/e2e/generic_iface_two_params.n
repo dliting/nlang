@@ -1,0 +1,18 @@
+//0.13.1c: two type parameters crossing the call boundary both
+//directions — T in a parameter slot (consumer -> impl) and U in the
+//return slot (impl -> consumer).
+interface Pipe<T, U>
+{
+    U forward(T item);
+}
+class StrLen implements Pipe<string, int>
+{
+    public int forward(string item) { return item.length(); }
+}
+int main()
+{
+    StrLen p = StrLen();
+    Pipe<string, int> pipe = p;
+    assert(pipe.forward("abcd") == 4);
+    return 0;
+}

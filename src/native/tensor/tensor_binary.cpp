@@ -12,6 +12,8 @@
 ---*/
 #include "TensorKernels.h"
 
+#include "Elementwise.h"
+
 #include <cmath>
 #include <cstdint>
 #include <type_traits>
@@ -78,6 +80,17 @@ void BinaryKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
     const int32_t handle = NewArrayShaped(host, kind, outRank, outDims);
     NativeArrayView vout;
     host->getArrayView(host, handle, &vout);
+    //Floats: same-shape contiguous pairs and single-cell right operands
+    //ride the tier-dispatched flat kernels; everything else falls back
+    //to the broadcast odometer below (ints always take the odometer —
+    //their wrap-and-raise semantics stay in the scalar loop).
+    if constexpr (!std::is_integral_v<T>) {
+        if (TryRunBinaryFlat<T>(va, vb, vout,
+                                static_cast<BinaryKernelOp>(op))) {
+            ReturnInt(ret, handle);
+            return;
+        }
+    }
     const T* ca = CellsOf<const T>(va);
     const T* cb = CellsOf<const T>(vb);
     T* cout = CellsOf<T>(vout);
@@ -91,22 +104,15 @@ void BinaryKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
                       "tensor.div: integer division by zero");
         }
         cout[i] = ApplyBin<T>(op, ca[addA], cb[addB]);
-        for (int32_t d = outRank - 1; d >= 0; --d) {
-            idx[d] += 1;
-            addA += sa[d];
-            addB += sb[d];
-            if (idx[d] < outDims[d])
-                break;
-            addA -= static_cast<int64_t>(outDims[d]) * sa[d];
-            addB -= static_cast<int64_t>(outDims[d]) * sb[d];
-            idx[d] = 0;
-        }
+        BroadcastAdvance(sa, sb, outDims, outRank, idx, &addA, &addB);
     }
     ReturnInt(ret, handle);
 }
 
 //Scalar arm: the operand shape is kept; the scalar rides slot 1 in the
-//kind's own carrier (the NLang overload picked it statically).
+//kind's own carrier (the NLang overload picked it statically). Floats
+//ride the tier-dispatched driver; ints keep the wrap-and-raise walk
+//(the zero-scalar raise fires before any work, exactly as before).
 template <typename T>
 void ScalarKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
                   uint8_t kind, BinOp op, T scalar) {
@@ -114,20 +120,25 @@ void ScalarKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
     ArgArray(host, args, 0, &v);
     if (v.elemKind != kind)
         Raise(host, NEXC_Base, "tensor: unexpected element kind");
+    if constexpr (std::is_integral_v<T>) {
+        if (op == BinOp::Div && scalar == T(0))
+            Raise(host, NEXC_DivideByZero,
+                  "tensor.div: integer division by zero");
+    }
     const int32_t handle = NewArrayShaped(host, kind, v.rank, v.dims);
     NativeArrayView vout;
     host->getArrayView(host, handle, &vout);
-    const T* cells = CellsOf<const T>(v);
-    T* cout = CellsOf<T>(vout);
-    int64_t at = 0;
-    StrideWalk(v, [&](int64_t addr) {
-        if constexpr (std::is_integral_v<T>) {
-            if (op == BinOp::Div && scalar == T(0))
-                Raise(host, NEXC_DivideByZero,
-                      "tensor.div: integer division by zero");
-        }
-        cout[at++] = ApplyBin<T>(op, cells[addr], scalar);
-    });
+    if constexpr (std::is_integral_v<T>) {
+        const T* cells = CellsOf<const T>(v);
+        T* cout = CellsOf<T>(vout);
+        int64_t at = 0;
+        StrideWalk(v, [&](int64_t addr) {
+            cout[at++] = ApplyBin<T>(op, cells[addr], scalar);
+        });
+    } else {
+        RunBinaryScalarFlat<T>(v, vout, static_cast<BinaryKernelOp>(op),
+                               scalar);
+    }
     ReturnInt(ret, handle);
 }
 
@@ -180,8 +191,9 @@ void DispatchScalar(NativeHost* host, uint8_t* ret, const uint8_t* args,
 }
 
 //Unary math maps: rank-preserving, stride-aware (a view reads through
-//its recorded layout). std::exp/std::log overload per carrier, so one
-//typed body serves float and double.
+//its recorded layout). The driver picks the flat tier kernel for
+//contiguous spans and the scalar lane otherwise; only float/double
+//reach here (the dispatch raises other kinds).
 enum class UnaryOp : int { Exp, Log };
 
 template <typename T>
@@ -194,14 +206,8 @@ void UnaryMathKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
     const int32_t handle = NewArrayShaped(host, kind, v.rank, v.dims);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
-    const T* in = CellsOf<const T>(v);
-    T* outCells = CellsOf<T>(out);
-    int64_t at = 0;
-    StrideWalk(v, [&](int64_t addr) {
-        outCells[at++] = op == UnaryOp::Exp
-            ? static_cast<T>(std::exp(in[addr]))
-            : static_cast<T>(std::log(in[addr]));
-    });
+    RunUnaryFlat<T>(v, out, op == UnaryOp::Exp
+        ? UnaryKernelOp::Exp : UnaryKernelOp::Log);
     ReturnInt(ret, handle);
 }
 
@@ -249,6 +255,143 @@ TENSOR_SCALAR(TensorAddScalar, BinOp::Add)
 TENSOR_SCALAR(TensorSubScalar, BinOp::Sub)
 TENSOR_SCALAR(TensorMulScalar, BinOp::Mul)
 TENSOR_SCALAR(TensorDivScalar, BinOp::Div)
+
+//Elementwise unary minus: int kinds wrap like language arithmetic in
+//the scalar walk; float/double ride the tier-dispatched neg lane.
+template <typename T>
+void NegKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
+               uint8_t kind) {
+    NativeArrayView v;
+    ArgArray(host, args, 0, &v);
+    if (v.elemKind != kind)
+        Raise(host, NEXC_Base, "tensor: unexpected element kind");
+    const int32_t handle = NewArrayShaped(host, kind, v.rank, v.dims);
+    NativeArrayView out;
+    host->getArrayView(host, handle, &out);
+    if constexpr (std::is_integral_v<T>) {
+        const T* cells = CellsOf<const T>(v);
+        T* outCells = CellsOf<T>(out);
+        int64_t at = 0;
+        StrideWalk(v, [&](int64_t addr) {
+            outCells[at++] = static_cast<T>(-cells[addr]);
+        });
+    } else {
+        RunUnaryFlat<T>(v, out, UnaryKernelOp::Neg);
+    }
+    ReturnInt(ret, handle);
+}
+
+void TensorNeg(NativeHost* host, uint8_t* ret, const uint8_t* args,
+               int argc) {
+    (void)argc;
+    NativeArrayView v;
+    v.elemKind = 0xEE;
+    host->getArrayView(host, ArgInt(args, 0), &v);
+    switch (v.elemKind) {
+        case NEK_Int32:
+            NegKernel<int32_t>(host, ret, args, NEK_Int32); break;
+        case NEK_Int64:
+            NegKernel<int64_t>(host, ret, args, NEK_Int64); break;
+        case NEK_Float32:
+            NegKernel<float>(host, ret, args, NEK_Float32); break;
+        case NEK_Float64:
+            NegKernel<double>(host, ret, args, NEK_Float64); break;
+        default:
+            Raise(host, NEXC_Base,
+                  "tensor: element kind has no neg semantics");
+    }
+}
+
+//Reversed scalar arms: s - a (rsub) and s / a (rdiv) with the scalar on
+//the LEFT. Floats ride the tier-dispatched flat kernels; int rsub wraps
+//in the walk and int rdiv raises on a zero scalar before any work (the
+//same message divScalar raises).
+template <typename T>
+void ReversedScalarKernel(NativeHost* host, uint8_t* ret,
+                          const uint8_t* args, uint8_t kind, BinOp op,
+                          T scalar) {
+    NativeArrayView v;
+    ArgArray(host, args, 0, &v);
+    if (v.elemKind != kind)
+        Raise(host, NEXC_Base, "tensor: unexpected element kind");
+    if constexpr (std::is_integral_v<T>) {
+        if (op == BinOp::Div && scalar == T(0))
+            Raise(host, NEXC_DivideByZero,
+                  "tensor.div: integer division by zero");
+    }
+    const int32_t handle = NewArrayShaped(host, kind, v.rank, v.dims);
+    NativeArrayView vout;
+    host->getArrayView(host, handle, &vout);
+    if constexpr (std::is_integral_v<T>) {
+        const T* cells = CellsOf<const T>(v);
+        T* cout = CellsOf<T>(vout);
+        int64_t at = 0;
+        StrideWalk(v, [&](int64_t addr) {
+            cout[at++] = ApplyBin<T>(op, scalar, cells[addr]);
+        });
+    } else {
+        const BinaryKernelOp binOp = op == BinOp::Sub
+            ? BinaryKernelOp::Rsub : BinaryKernelOp::Rdiv;
+        RunBinaryScalarFlat<T>(v, vout, binOp, scalar);
+    }
+    ReturnInt(ret, handle);
+}
+
+void TensorRsubScalar(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                      int argc) {
+    (void)argc;
+    NativeArrayView v;
+    v.elemKind = 0xEE;
+    host->getArrayView(host, ArgInt(args, 0), &v);
+    switch (v.elemKind) {
+        case NEK_Int32:
+            ReversedScalarKernel<int32_t>(host, ret, args, NEK_Int32,
+                                          BinOp::Sub, ArgInt(args, 1));
+            break;
+        case NEK_Int64:
+            ReversedScalarKernel<int64_t>(host, ret, args, NEK_Int64,
+                                          BinOp::Sub, ArgLong(args, 1));
+            break;
+        case NEK_Float32:
+            ReversedScalarKernel<float>(host, ret, args, NEK_Float32,
+                                        BinOp::Sub, ArgFloat(args, 1));
+            break;
+        case NEK_Float64:
+            ReversedScalarKernel<double>(host, ret, args, NEK_Float64,
+                                         BinOp::Sub, ArgDouble(args, 1));
+            break;
+        default:
+            Raise(host, NEXC_Base, "tensor: unsupported element kind");
+    }
+}
+
+void TensorRdivScalar(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                      int argc) {
+    (void)argc;
+    NativeArrayView v;
+    v.elemKind = 0xEE;
+    host->getArrayView(host, ArgInt(args, 0), &v);
+    switch (v.elemKind) {
+        case NEK_Int32:
+            ReversedScalarKernel<int32_t>(host, ret, args, NEK_Int32,
+                                          BinOp::Div, ArgInt(args, 1));
+            break;
+        case NEK_Int64:
+            ReversedScalarKernel<int64_t>(host, ret, args, NEK_Int64,
+                                          BinOp::Div, ArgLong(args, 1));
+            break;
+        case NEK_Float32:
+            ReversedScalarKernel<float>(host, ret, args, NEK_Float32,
+                                        BinOp::Div, ArgFloat(args, 1));
+            break;
+        case NEK_Float64:
+            ReversedScalarKernel<double>(host, ret, args, NEK_Float64,
+                                         BinOp::Div, ArgDouble(args, 1));
+            break;
+        default:
+            Raise(host, NEXC_Base, "tensor: unsupported element kind");
+    }
+}
 
 void TensorExp(NativeHost* host, uint8_t* ret, const uint8_t* args,
                int argc) {

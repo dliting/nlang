@@ -177,6 +177,72 @@ void test_module_save_load() {
     PASS();
 }
 
+// --- v2.17 generic free-function record round-trip ---
+
+void test_module_generic_fn_roundtrip() {
+    TEST(module_generic_fn_roundtrip);
+    //0.13.1a Task 7: a generic free function's declaration state must
+    //survive the wire — the isGeneric flag, the type parameter names,
+    //and the RTK_TypeParam signature leaves (ordinal payload) the
+    //consumer's stub rebuild names from the row. Hand-builds the shape
+    //of `T pick<T>(T a, T b)` (the e2e producer unit) so the wire test
+    //stays independent of the stub path.
+    CompiledModule mod;
+    mod.name = "generic_fn_rt";
+    CompiledFunction func;
+    func.name = "pick";
+    func.localsSize = 8;
+    func.paramCount = 2;
+    func.returnTypeKind = RTK_TypeParam;
+    func.isGeneric = true;
+    func.typeParamNames = {"T"};
+    TypeDesc tLeaf;
+    tLeaf.kind = RTK_TypeParam;
+    tLeaf.typeParamOrdinal = 0;
+    func.returnTypeDesc = tLeaf;
+    func.paramTypeDescs = {{tLeaf, 0}, {tLeaf, 0}};
+    BytecodeEmitter em;
+    em.Emit(OpCode::OP_VarLocal); em.EmitUint16(1);
+    em.Emit(OpCode::OP_Return);
+    func.bytecode = em.TakeBytes();
+    //isParam locals name the formals (the stub's formal-name source).
+    LocalDescriptor a;
+    a.offset = 0; a.size = 4; a.isParam = 1;
+    a.typeKind = RTK_TypeParam; a.name = "a";
+    LocalDescriptor b;
+    b.offset = 4; b.size = 4; b.isParam = 1;
+    b.typeKind = RTK_TypeParam; b.name = "b";
+    func.locals = {a, b};
+    mod.functions.push_back(std::move(func));
+
+    std::string tmpPath = std::filesystem::temp_directory_path().string()
+        + "/nlang_test_generic_fn.ncu";
+    {
+        std::ofstream fs(tmpPath, std::ios::binary);
+        CHECK(WriteCompiledModule(fs, mod, "pick"),
+              "WriteCompiledModule failed");
+        fs.close();
+    }
+    auto loaded = ModuleLoader::Load(tmpPath);
+    CHECK(loaded.functions.size() == 1, "function count mismatch");
+    const CompiledFunction& lf = loaded.functions[0];
+    CHECK(lf.isGeneric, "isGeneric survived the wire");
+    CHECK(lf.typeParamNames.size() == 1
+          && lf.typeParamNames[0] == "T",
+          "typeParamNames survived the wire");
+    CHECK(lf.returnTypeKind == RTK_TypeParam
+          && lf.returnTypeDesc.kind == RTK_TypeParam
+          && lf.returnTypeDesc.typeParamOrdinal == 0,
+          "return T leaf survived with its ordinal");
+    CHECK(lf.paramTypeDescs.size() == 2
+          && lf.paramTypeDescs[0].type.kind == RTK_TypeParam
+          && lf.paramTypeDescs[0].type.typeParamOrdinal == 0
+          && lf.paramTypeDescs[1].type.kind == RTK_TypeParam,
+          "param T leaves survived with their ordinals");
+    std::filesystem::remove(tmpPath);
+    PASS();
+}
+
 // --- v2.0 symbol import slots round-trip ---
 
 void test_module_import_slots_roundtrip() {
@@ -1193,6 +1259,11 @@ int main() {
 
     // Module save/load (uses WriteCompiledModule — frame layout is correct)
     try { test_module_save_load(); }
+    catch (const std::exception& e) {
+        std::cerr << "FAILED (exception: " << e.what() << ")\n";
+        g_fail++;
+    }
+    try { test_module_generic_fn_roundtrip(); }
     catch (const std::exception& e) {
         std::cerr << "FAILED (exception: " << e.what() << ")\n";
         g_fail++;

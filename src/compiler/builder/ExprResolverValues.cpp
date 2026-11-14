@@ -11,6 +11,7 @@
 #include "BuildEnvironment.h"
 #include "BuiltinNames.h"
 #include "ModuleRegistry.h"
+#include <nlang/compiler/TypeArgSpelling.h>
 #include <nlang/runtime/PrimitiveTypes.h>
 #include <algorithm>
 #include <map>
@@ -253,6 +254,14 @@ SnField* ExprResolveAccessor::ResolveAsCastTarget(SnAsExpr &sn)
 			"Cannot resolve types for `as` expression.");
 		return nullptr;
 	}
+	//v0.13.1 D6: a cast to a type parameter reads the runtime kind
+	//(OP_As_TypeParam) — the CastInfo classification admits the identity
+	//source (T as T, the same-placeholder rule) and the Object downcast;
+	//every other source keeps the generic invalid-cast rejection.
+	//0.13.1a: static and free generic bodies carry a descriptor cell
+	//(receiver head, caller forward, or call-site row), so the former
+	//instance-context rule is gone; a null cell degrades to the named
+	//runtime error.
 	//v0.12.2 face gate: a face class (`o as Array`) has no runtime
 	//shape to cast to.
 	if (RejectPreludeFaceUse(m_Env, pTgtType, sn.TargetType()->Location(),
@@ -403,6 +412,47 @@ void ExprResolveAccessor::Access(SnThisExpr &sn)
 	}
 	m_Env.Log(CLL_Error, sn.Location(),
 		"'this' can only be used inside a class, struct, or enum method.");
+}
+
+//v0.13.1 D4, 0.13.1a: typeName(Type). The operand resolves through the
+//ordinary type path; a concrete type folds to its canonical spelling (a
+//constant string), while a type-parameter operand — bare or nested in
+//an instantiation — reads the executing frame's descriptor cell at run
+//time (instance frames carry the receiver's head descriptor; static and
+//free frames carry the call-site's or the caller's).
+void ExprResolveAccessor::Access(SnTypeNameExpr &sn)
+{
+	NLANG_ASSERT(!sn.IsResolved());
+
+	sn.TypeRef()->Accept(*m_pVisitor);
+	if (!sn.TypeRef()->IsResolved())
+		return;
+	SnField *pType = sn.TypeRef()->Field();
+	if (!pType)
+	{
+		m_Env.Log(CLL_Error, sn.Location(),
+			"typeName operand did not resolve to a type.");
+		return;
+	}
+	const TypeArgDesc arg = BuildTypeArgOf(m_Env.Registry(), *pType);
+	const bool bNeedsContext = IsTypeParamArg(arg)
+		|| (!arg.nested.empty() && HasTypeParamArg(arg.nested));
+	if (bNeedsContext)
+	{
+		if (IsTypeParamArg(arg))
+			sn.SetTypeParamOrdinal(
+				static_cast<uint8_t>(TypeParamOrdinalOf(arg)));
+		//Type-parameter-argument instantiations keep the resolved decl
+		//for the emission-side recipe registration.
+	}
+	else
+	{
+		//Concrete: fold to the canonical spelling — a compile-time
+		//constant string.
+		sn.SetFoldedSpelling(CanonicalArgSpelling(arg));
+	}
+	sn.EvalDataType(SnBuiltinDataType::InstanceOf(NK_String));
+	sn.AddFlags(NF_Resolved);
 }
 
 } //namespace nlang

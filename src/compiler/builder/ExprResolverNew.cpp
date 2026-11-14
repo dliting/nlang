@@ -39,6 +39,27 @@ void ExprResolveAccessor::TryResolveBuiltinClassName(
 				name, fieldExpr.Location()));
 }
 
+//0.13.1c instantiation gate (see ExprResolver.h): an abstract class
+//allocates no object; the first obligation (outermost ancestor first)
+//names the fix. Minted generic instantiations carry the template's
+//abstract members and share its superclass, so the same query covers
+//them. The flags the walk reads are grammar-time, so the answer is
+//independent of class resolution order.
+bool ExprResolveAccessor::RejectAbstractInstantiation(
+	const SnClassDecl &cls, const ISourceLocation *pLoc)
+{
+	std::vector<const SnFunction*> abstractObligations;
+	cls.CollectAbstractObligations(abstractObligations);
+	if (abstractObligations.empty())
+		return false;
+	m_Env.Log(CLL_Error, pLoc,
+		"Cannot instantiate the abstract class \"%s\": the abstract "
+		"method \"%s\" has no implementation.",
+		cls.Name().c_str(),
+		abstractObligations.front()->Name().c_str());
+	return true;
+}
+
 //Binds the resolved type declaration to the new-expression. Classes keep
 //the Phase 13 func-type rejection (func values come only from function or
 //method references, never by-name construction); structs join directly
@@ -61,6 +82,8 @@ bool ExprResolveAccessor::BindNewExprType(SnNewExpr &sn, SnField &typeField)
 		//(with-args rejects on the no-constructor arm, the zero-arg form
 		//is the legal bare-allocation shape). Mutex/Channel stay
 		//constructible (their handles own the resource).
+		if (RejectAbstractInstantiation(*pClassDecl, sn.Location()))
+			return false;
 		sn.ClassDecl(pClassDecl);
 	}
 	else
@@ -213,8 +236,8 @@ bool ExprResolveAccessor::RejectBareGenericCtorInvoke(
 SnClassDecl *ExprResolveAccessor::ResolveDeclaredGenericCtorTarget(
 	SnInvokeExpr &snInvoke, SnClassDecl &tmpl)
 {
-	auto *pTarget = m_pCtorInvokeTarget;
-	m_pCtorInvokeTarget = nullptr;
+	auto *pTarget = m_pAssignTargetHint;
+	m_pAssignTargetHint = nullptr;
 	auto *pTargetType = pTarget ? pTarget->EvalDataType() : nullptr;
 	auto *pInstance = (pTargetType
 		&& pTargetType->Kind() == NK_ClassDecl
@@ -373,6 +396,11 @@ bool ExprResolveAccessor::TryResolveCtorInvoke(SnInvokeExpr &snInvoke)
 			return true;
 		pTypeDecl = pInstance;
 	}
+	//0.13.1c: the bare-ctor spelling gates like the new-expression path.
+	if (pTypeDecl->Kind() == NK_ClassDecl
+		&& RejectAbstractInstantiation(
+			static_cast<SnClassDecl&>(*pTypeDecl), snInvoke.Location()))
+		return true;
 	//ResolveFieldExprAs carries the type in both Field() (member chains
 	//like Point(1,4).x assert on it via IsDataExpr) and EvalDataType
 	//(SnClassDecl/SnStructDecl is its own type). 0.9.11 D2: the kind
@@ -391,6 +419,31 @@ bool ExprResolveAccessor::TryResolveCtorInvoke(SnInvokeExpr &snInvoke)
 	snInvoke.CtorFunction(SelectCtorForArgs(pTypeDecl, actuals,
 		snInvoke.Location()));
 	return true;
+}
+
+//The shared tail of TryResolveQualifiedCtorInvoke (and its struct twin):
+//bind the type onto the invoke, select the ctor, and wire the member
+//(0.9.12 D-new-7: Field() answers "what was called" — bind the selected
+//constructor so the invoke-receiver classifier sees a value-producing
+//call here, not a type name. EvalDataType answers "what it produces" and
+//stays the type. On failed selection (the diagnostic is already logged)
+//keep the type binding — SnFieldExpr::IsDataExpr dereferences Field()
+//unconditionally).
+void ExprResolveAccessor::BindQualifiedCtorTail(SnMemberExpr &snMember,
+	SnInvokeExpr &invoke, SnField &type)
+{
+	ResolveFieldExprAs(invoke, &type);
+	if (type.Kind() == NK_StructDecl)
+		invoke.CtorStruct(static_cast<SnStructDecl*>(&type));
+	else
+		invoke.CtorClass(static_cast<SnClassDecl*>(&type));
+	std::vector<SnExpression*> actuals;
+	for (auto &param : invoke.Params())
+		actuals.push_back(&param);
+	auto *pCtor = SelectCtorForArgs(&type, actuals, invoke.Location());
+	invoke.CtorFunction(pCtor);
+	snMember.m_pField = pCtor ? pCtor : &type;
+	snMember.EvalDataType(&type);
 }
 
 //Module-qualified `shapes.Point(args)` without new: the module table has
@@ -425,27 +478,12 @@ bool ExprResolveAccessor::TryResolveQualifiedCtorInvoke(SnMemberExpr &snMember,
 		}
 		return false;
 	}
-	ResolveFieldExprAs(invoke, pType);
-	if (pType->Kind() == NK_StructDecl)
-		invoke.CtorStruct(static_cast<SnStructDecl*>(pType));
-	else
-		invoke.CtorClass(static_cast<SnClassDecl*>(pType));
-	std::vector<SnExpression*> actuals;
-	for (auto &param : invoke.Params())
-		actuals.push_back(&param);
-	auto *pCtor = SelectCtorForArgs(pType, actuals, invoke.Location());
-	invoke.CtorFunction(pCtor);
-	//0.9.12 D-new-7: Field() answers "what was called" — bind the selected
-	//constructor so the invoke-receiver classifier sees a value-producing
-	//call here, not a type name (ReceiverNamesType treats a member whose
-	//Field() is a type declaration as a type name, which mis-routes
-	//`lib.Calc().add(5)` into the type-name receiver reject). EvalDataType
-	//answers "what it produces" and stays the type: the access context
-	//switch and codegen read that channel. On failed selection (the
-	//diagnostic is already logged) keep the type binding — SnFieldExpr::
-	//IsDataExpr dereferences Field() unconditionally.
-	snMember.m_pField = pCtor ? pCtor : pType;
-	snMember.EvalDataType(pType);
+	//0.13.1c: the module-qualified spelling gates like the bare form.
+	if (pType->Kind() == NK_ClassDecl
+		&& RejectAbstractInstantiation(static_cast<SnClassDecl&>(*pType),
+			invoke.Location()))
+		return true;
+	BindQualifiedCtorTail(snMember, invoke, *pType);
 	return true;
 }
 

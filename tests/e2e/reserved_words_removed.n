@@ -1,0 +1,9 @@
+//elseif and state are plain identifiers after the reserved-word removal.
+int main()
+{
+    int elseif = 3;
+    int state = 4;
+    int total = elseif + state;
+    assert(total == 7);
+    return 55;
+}

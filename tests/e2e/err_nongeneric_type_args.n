@@ -1,0 +1,9 @@
+// err_nongeneric_type_args.n — 0.13.1b M2: a type that exists but is
+// not generic says so directly ("is not generic: it takes no type
+// arguments") instead of a bare "cannot resolve the type".
+class Plain {
+}
+int main() {
+    Plain<int> p = null;
+    return 0;
+}

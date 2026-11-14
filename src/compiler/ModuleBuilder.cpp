@@ -21,12 +21,7 @@
 #include "ModuleLoader.h"
 #include <algorithm>
 #include <filesystem>
-#include <fstream>
-#include <iomanip>
-#include <iostream>
 #include <map>
-#include <unordered_map>
-#include <unordered_set>
 #include <functional>
 #include <vector>
 #include <nlang/runtime/StackDump.h>
@@ -119,6 +114,8 @@ bool ModuleBuilder::ResolveAll()
 		return false;
 	ResolveDataValues();
 	ResolveStatements();
+	if (TensorOpResolutionFailed(*m_upEnv, TreeRoot()))
+		return false;
 	return !m_upEnv->HasError();
 }
 

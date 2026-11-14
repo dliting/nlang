@@ -1,0 +1,26 @@
+//0.13.1c: an abstract class cannot be instantiated — the gate names the
+//first unmet obligation. Rect keeps its own concrete area(); the
+//instantiation of Shape itself is what fails.
+class Shape
+{
+    public virtual int area();
+}
+class Rect : Shape
+{
+    int m_w;
+    int m_h;
+    public Rect(int w, int h)
+    {
+        m_w = w;
+        m_h = h;
+    }
+    public int area()
+    {
+        return m_w * m_h;
+    }
+}
+int main()
+{
+    Shape s = Shape();
+    return 0;
+}

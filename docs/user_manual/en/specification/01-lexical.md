@@ -52,12 +52,18 @@ identifiers:
 | `float` |
 | `for` |
 | `foreach` |
+| `fp32` |
+| `fp64` |
 | `func` |
 | `if` |
 | `implements` |
 | `import` |
 | `in` |
 | `int` |
+| `int16` |
+| `int32` |
+| `int64` |
+| `int8` |
 | `interface` |
 | `long` |
 | `native` |
@@ -77,8 +83,13 @@ identifiers:
 | `throw` |
 | `true` |
 | `try` |
+| `typeName` |
 | `ubyte` |
 | `uint` |
+| `uint16` |
+| `uint32` |
+| `uint64` |
+| `uint8` |
 | `ulong` |
 | `ushort` |
 | `using` |
@@ -89,6 +100,26 @@ identifiers:
 `func` is both a reserved word and the keyword spelling of the
 function type (chapter 4); its type-argument behavior is specified
 in §1.6.
+
+The numeric primitive keywords have fixed alias spellings that name
+the type by its width:
+
+| Alias | Type |
+|---|---|
+| `int8` | `byte` |
+| `int16` | `short` |
+| `int32` | `int` |
+| `int64` | `long` |
+| `uint8` | `ubyte` |
+| `uint16` | `ushort` |
+| `uint32` | `uint` |
+| `uint64` | `ulong` |
+| `fp32` | `float` |
+| `fp64` | `double` |
+
+An alias is a pure spelling layer: it names the same type in every
+position, and diagnostics and `typeName` always print the canonical
+name — `typeName(int32)` is `"int"`.
 
 ## 1.5 Literals
 

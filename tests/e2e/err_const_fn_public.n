@@ -1,0 +1,8 @@
+// v0.13.0 D5: the public spelling used to COMPILE AND RUN (the
+// TopModHeader flag arm minted an SnFunction with NF_Const) — a
+// behavior change pin: every spelling now lands on the same named
+// rejection.
+public const int f() {
+    return 5;
+}
+int main() { return f(); }

@@ -1,0 +1,10 @@
+// Pins the non-array-target arm of the array compound-assignment
+// rejection: a scalar target with an array source is rejected by
+// name — the expanded form is equally ill-typed (scalar + array
+// broadcasts to an array the target cannot receive).
+int main() {
+    int s = 1;
+    int[] a = int[2];
+    s += a;
+    return 0;
+}

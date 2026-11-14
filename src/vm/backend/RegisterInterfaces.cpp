@@ -103,6 +103,30 @@ void VmBackend::RegisterInterfaceConstants(SnInterfaceDecl& sn,
     }
 }
 
+//RegisterInterfaces worker: the static-function indices of one
+//interface. Only statics register function records (abstract instance
+//members are body-less and skipped by RegisterFunctions); the map
+//lookup is the registration filter of record. v0.12.6 D2: the
+//synthesized "$staticInit" member is not callable surface — a consumer
+//stub must not rebuild it as a ghost method. Its index rides
+//staticInitFuncIdx instead (the class-record shape, RegisterClass.cpp).
+void VmBackend::AppendInterfaceStaticIndices(SnInterfaceDecl& sn,
+                                             CompiledInterface& ci) {
+    for (auto& member : sn.Members()) {
+        if (member.Kind() != NK_Function)
+            continue;
+        auto& func = static_cast<SnFunction&>(member);
+        auto it = m_funcIndexMap.find(&func);
+        if (it == m_funcIndexMap.end())
+            continue;
+        if (IsStaticInitName(func.Name())) {
+            ci.staticInitFuncIdx = static_cast<uint16_t>(it->second);
+            continue;
+        }
+        ci.staticMethodIndices.push_back(static_cast<uint16_t>(it->second));
+    }
+}
+
 void VmBackend::RegisterInterfaces(SnNamespace& root) {
     m_compiledModule.interfaces.clear();
     m_ifaceIndexByDecl.clear();
@@ -118,33 +142,19 @@ void VmBackend::RegisterInterfaces(SnNamespace& root) {
         ci.name = KeyOf(sn);
         m_ifaceIndexByDecl[&sn] = static_cast<uint16_t>(
             m_compiledModule.interfaces.size());
-        for (auto& member : sn.Members()) {
-            if (member.Kind() != NK_Function)
-                continue;
-            auto& func = static_cast<SnFunction&>(member);
-            //Only statics register function records (abstract instance
-            //members are body-less and skipped by RegisterFunctions);
-            //the map lookup is the registration filter of record.
-            auto it = m_funcIndexMap.find(&func);
-            if (it == m_funcIndexMap.end())
-                continue;
-            //v0.12.6 D2: the synthesized "$staticInit" member is not
-            //callable surface — a consumer stub must not rebuild it as a
-            //ghost method. Its index rides staticInitFuncIdx instead
-            //(the class-record shape, RegisterClass.cpp).
-            if (IsStaticInitName(func.Name())) {
-                ci.staticInitFuncIdx =
-                    static_cast<uint16_t>(it->second);
-                continue;
-            }
-            ci.staticMethodIndices.push_back(
-                static_cast<uint16_t>(it->second));
-        }
+        AppendInterfaceStaticIndices(sn, ci);
         //0.9.10 D3 + v0.12.6 Task 7 (D11): constants export their
         //declared type plus the value (the worker splits the fold).
         RegisterInterfaceConstants(sn, ci);
         //0.9.12 (v2.7): instance-method signatures (see the worker).
         AppendInterfaceSignatures(sn, ci);
+        //v2.19 (0.13.1c Task 8): the generic-declaration tail — a
+        //generic interface registers the one erased template row and
+        //its statics compile against T (call sites ride the descriptor).
+        if (sn.IsGenericDeclaration()) {
+            ci.isTemplate = true;
+            ci.typeParamNames = sn.TypeParamNames();
+        }
         m_compiledModule.interfaces.push_back(std::move(ci));
     });
     RegisterForeignInterfacePlaceholders(root);

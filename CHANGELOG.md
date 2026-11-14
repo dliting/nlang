@@ -1,15 +1,57 @@
-# Changelog
-
-**English** | [中文](CHANGELOG.zh-CN.md)
-
-All notable changes to NLang are documented here. The format follows
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
-[Semantic Versioning](https://semver.org/).
-
 ## [0.13.7] - 2026-11-12
+
+This entry merges same-version work from two parallel development lines: the tensor vector-ops batch (array arithmetic operators, the SIMD kernel layer, index and comparison primitives) and the bitwise operators, compound bitwise assignment, the regex package and the dead-token scaffold removal; the subsections below are the union of both sides.
+
+The tensor vector-ops release: numpy-style array arithmetic in the
+language, a tier-dispatched SIMD kernel layer behind the tensor
+package, and the activation/reduction surface that lets an MLP train
+without a single element loop.
 
 ### Added
 
+- **Array arithmetic operators** — `a + b`, `a - b`, `a * b`,
+  `a / b` over numeric arrays (same element kind, right-aligned
+  broadcasting), a scalar on either side (`2 * x`, and the reversed
+  arms `tensor.rsubScalar` / `tensor.rdivScalar` backing `1 - x` and
+  `1 / x`), and unary `-a`. Every spelling lowers to the tensor
+  module's kind-dispatching primitives and rides the vectorized
+  kernels. Requires `import tensor`; string concatenation, the null
+  arithmetic guard and array identity comparison are unchanged.
+  Compound assignment on arrays is not lowered (plain assignment is
+  the supported spelling); the pre-existing `s += arr`
+  string-append form is unchanged.
+- **Whole-array random fill** — `uniform(dims, low, high)` mints
+  the dims-shaped array and fills it row-major with
+  `low + (high - low) * u`, one draw per element from the host PRNG
+  (the same seeded stream `math.random` reads, so seeded runs stay
+  reproducible); `float`/`double` element kinds, `[low, high)` range,
+  `Exception` on `low > high`.
+- **Tensor primitives** — `neg`, `rsubScalar`, `rdivScalar`, the
+  axis arms of `max`/`min` (rank >= 2), `reluGrad(dOut, z)`, `tanh`,
+  `sigmoid`, and the two-array `softmax(x, axis)` (rank-2 rows,
+  rank-1 flat) composed loop-free in the stdlib.
+- **Index and comparison primitives** — `gather(a, axis, indices)`
+  takes one element per non-axis position (the label-gather spelling;
+  a rank-1 source degenerates to fancy indexing), `argmax`/`argmin`
+  along an axis (first-tie), `eq` (broadcast int 0/1 compare of
+  same-kind arrays) and `oneHot(labels, n)`, plus the single-argument
+  `arange(n)` index spelling. Out-of-range gather indices and oneHot
+  labels raise `IndexOutOfBoundsException`; a gather whose gather
+  axis is a zero dimension raises `Exception`, while a zero-size
+  source with a nonzero gather axis gathers an empty result.
+- **SIMD kernel layer** — runtime CPU tier detection (AVX2+FMA /
+  SSE2 / scalar) behind the `KernelOps` backend table: matmul
+  register-tiled micro-kernels, elementwise binary/unary/clamp lanes,
+  double-accumulator sums, carrier dot, cmp-and-select extrema
+  preserving the scalar NaN/tie rule, axis-0 accumulation, and
+  vectorized exp (Cody-Waite + Taylor, measured 0.65 ulp vs libm)
+  and tanh. Measured on the reference machine: matmul up to 52.6
+  GFLOP/s at the MNIST layer shapes.
+- **Compiler support** — the `ReplaceChildNode` protocol now covers
+  every typed expression slot (per-class overrides + the in-place
+  cell replacement primitive, so mid-traversal splices keep all
+  iterators valid), a TU-end sweep verifies no tensor-flagged binary
+  survives resolution, and the emitter asserts the same at codegen.
 - **Bitwise operators `&`, `^`, `|`, `~`.** Integer operands only (enum
   member literals participate as `int`, enum-typed variables are
   rejected -- exactly how `<<` treats them); the result type follows
@@ -36,6 +78,26 @@ All notable changes to NLang are documented here. The format follows
   `Match` carries the group texts and byte offsets of one result.
   `regex.quoteMeta(text)` escapes every metacharacter so arbitrary
   text matches itself literally.
+
+### Changed
+
+- **mnist_mlp example** rewritten onto the operator surface: the
+  training loop contains no element loops. End-to-end 9.60 s →
+  1.71 s (~5.6×) against numpy's 0.96 s for the same training
+  (1.78×); test accuracy 0.895 (gate 0.85). The printed losses
+  shifted in the last digits (FMA + lane summation order) — see the
+  example README.
+
+### Known limitations
+
+- Compound assignment on arrays is rejected (plain assignment is the
+  supported spelling). `byte`/`ubyte` arrays take no arithmetic. A
+  rank-1 array with an axis arm is rejected (use the full-reduction
+  form). Floating-point subscripts in array stores are not converted
+  (index through an `int`). The `tensor.n` shell overloads and the
+  lowered operators reach the same kernels through different call
+  depths. GPU (CUDA/ROCm) backends are future work — the KernelOps
+  table is the extension seam.
 
 ### Removed
 
@@ -179,6 +241,300 @@ All notable changes to NLang are documented here. The format follows
   back a null handle now raises a host-level run-time error, and
   every string-typed slot — locals, fields, array elements —
   defaults to `""` instead of a null handle.
+
+## [0.13.3] - 2026-11-13
+
+The abstract-and-generic-interfaces release: bodyless method
+declarations become abstract methods, and interfaces join the
+generic system.
+
+### Added
+
+- **Abstract methods.** A method declaration with no body — the
+  parameter list followed by `;` — declares an abstract method.
+  There is no `abstract` keyword; the missing body is the
+  declaration, and abstract implies virtual: the method participates
+  in dynamic dispatch like any virtual method, and an implementing
+  method in a subclass follows the ordinary override rules. A class
+  that declares or inherits an unimplemented abstract method is an
+  abstract class; instantiating one is a compile-time error that
+  names the first unmet obligation (`Cannot instantiate the abstract
+  class "Shape": the abstract method "area" has no implementation.`).
+  Constructors (`The constructor of "Rect" cannot be abstract`) and
+  `static` methods (`The static method "lookup" cannot be abstract`)
+  reject the abstract declaration; `native` declarations are never
+  abstract.
+- **Abstract methods across modules.** Abstract declarations cross
+  compile units as signature-only records: a base class in an
+  imported module may declare abstract methods, and a subclass in
+  the importing unit must implement them under the same contract.
+  The runtime additionally raises `NLang VM: abstract method ...
+  has no implementation.` for artifacts outside the compiler
+  invariant.
+- **Generic interfaces.** An interface may declare type parameters
+  (`interface Pair<T, U> { ... }`): instance members stay abstract
+  signatures and may use the parameters in their types; static
+  methods carry bodies and compile once against the parameters. A
+  class implements an instantiation — `class Both implements
+  Pair<int, string>` — with every signature checked against the
+  substituted types; each instantiation is a distinct interface
+  type, and one class may implement several. Statics are called
+  through the instantiation spelling (`Pair<int, string>.echo(7)`),
+  at cross-module call sites the same way. An interface constant
+  cannot take a type parameter as its type, and a `T`-typed formal
+  carries no default value.
+
+### Changed
+
+- **Numeric width aliases for every numeric primitive.** The fixed
+  alias spellings cover the whole numeric family — `int8`/`uint8`,
+  `int16`/`uint16`, `int32`/`uint32`, `int64`/`uint64`, `fp32`,
+  `fp64` — each naming its primitive by width as a pure spelling
+  layer; diagnostics and `typeName` always print the canonical name
+  (`typeName(int32)` is `"int"`). The first cut within this release
+  (`int32`, `int64`, `fp32`, `fp64`) was the examples, not the set;
+  the family widened to every numeric primitive before shipping.
+- **`elseif` and `state` are no longer reserved words.** The two
+  words date from an abandoned syntax experiment and appeared in no
+  grammar production; both lex as plain identifiers now.
+
+### Fixed
+
+- **Calls whose comparison arguments collide with the instantiation
+  spelling.** `both(a < b, c > (d))` was misread as a generic
+  construction; the misread creation's source bytes are now
+  re-read as comparisons and spliced back into the call, and a
+  comparison re-read that does not parse keeps the named 0.13.2
+  diagnostic as the fallback.
+- **Array creation over a type parameter is rejected at the
+  creation site.** `new T[4]` in expression position slipped past
+  the compile-time gate (the declaration position `T[] x;` was and
+  stays legal); the creation form now reports the element-kind
+  error.
+- **Generic casts and instantiation serialization in a host that
+  compiles and runs in one process.** `ncc program.n` (compile and
+  run in-process) walked generic as-cast super chains and
+  instantiation serialization through stale compile-time descriptor
+  state — a correct cast was rejected (``invalid cast - expected `X.Base`, got `Dog```)
+  or the run crashed. The compile backend
+  now keys descriptor table rows by spelling without touching the
+  runtime intern pool, so every run resolves its descriptors
+  against the linked module. The same program through
+  `ncc build` + `nvm` was unaffected.
+
+### ABI
+
+- `.ncu` minor bumped v2.17 → v2.19: every function record gains an
+  abstract flag byte (v2.18), and every interface record gains a
+  generic-declaration tail (v2.19). Modules compiled by older ncc
+  are refused; every `.ncu` recompiles with the current ncc.
+
+## [0.13.2] - 2026-11-12
+
+Deferred-polish pass on the 0.13.1a generic completion.
+
+### Changed
+
+- **Named diagnostics when a call collides with the instantiation
+  spelling.** The spelling arms by shape — a balanced angle-bracket
+  run closing before `.` or `(` — with no case test and no name
+  lookup, so a call whose arguments are comparisons can still read
+  as a spelling: `both(a < b, c > (d))` parses as `a<b, c>(d)`.
+  0.13.1a rejected that with a bare "cannot resolve the type"; the
+  compiler now names what happened — a head naming a value gets a
+  diagnostic pointing at it and showing the parenthesized form
+  `f((a < b), (c > d))`, a head naming a function learns that a
+  call carries no type-argument spelling, and a plain type under
+  the head name reports that it is not generic and takes no type
+  arguments.
+- **One canonical bare-`T` default message.** The free-function and
+  generic-class paths now report the same rejection text
+  (`default value for parameter "...": the type parameter "..." has
+  no concrete kind, so no default value exists.`) instead of two
+  divergent wordings.
+
+### Fixed
+
+- **Type parameters are capped at 255 per declaration.** A generic
+  class or free function with more type parameters compiled even
+  though type-parameter ordinals travel in one byte on two runtime
+  channels, and the typeName/T-equality byte reserves its top value
+  (0xFF) as the no-ordinal marker — the 256th parameter's ordinal
+  silently collided with that marker, and deeper overflows drop the
+  frame's dynamic boxing plan. The declaration is now rejected with
+  a named diagnostic.
+
+## [0.13.1a] - 2026-11-12
+
+The generic-completion release: `static` members read the
+instantiation through the call site, and free functions take type
+parameters of their own.
+
+### Added
+
+- **Generic free functions.** A top-level function declares type
+  parameters after its name — `T pick<T>(T a, T b)` — and every call
+  infers them from its actuals (exact match; arrays, structs and
+  nested instantiations supply their types). There is no call-site
+  type-argument spelling; a type parameter mentioned only in the
+  return type infers from the assignment target, and a discarded
+  result reports the named error. Inside the body, `T` behaves
+  as in a `static` member body: equality, concatenation, printing,
+  `as` casts and `typeName` dispatch on the kind the call was
+  inferred with. A native function cannot declare type parameters —
+  the host ABI binds one fixed shape per function.
+- **Generic functions call generic functions.** A generic function
+  forwards its type parameters to other generic functions, including
+  itself (recursion), and a `T`-typed result composes as an actual
+  of an outer inference.
+- **`static` member bodies read the call site's instantiation.** A
+  call through the bare class name infers the type arguments from
+  the actuals (`Pair.firstOf(4, "x")`); the explicit spelling fixes
+  them outright (`Pair<int, string>.sig()`). Equality,
+  concatenation, printing, `as` casts and `typeName` on `T` work in
+  `static` bodies exactly as in instance bodies, and a `static` body
+  may construct instantiations over its `T` (`Hold<T>(v)`).
+- **Imported generic free functions.** A generic free function
+  exported from a package is fully usable at the consumer:
+  inference, type-parameter forwarding and `typeName` dispatch work
+  through the imported signature exactly as within the declaring
+  unit.
+
+### Changed
+
+- **Module format 2.16 → 2.17.** Function records carry a generic
+  flag and the declared type-parameter names, so an imported stub
+  rebuilds as a generic declaration at the consumer. Every `.ncu`
+  recompiles.
+- **Version strings may carry a letter tag** (`0.13.1a`); package
+  file names use the full version.
+
+### Fixed
+
+- Unresolved-identifier diagnostics carry the identifier's own
+  source position instead of a generic location.
+- A generic invoke's return-type substitution no longer fails an
+  assertion in Debug builds.
+
+## [0.13.1] - 2026-11-10
+
+The runtime generic-information release: every object constructed
+from a generic instantiation carries its instantiation, and the
+language reads it — `typeName`, kind-dispatched operators on `T`,
+instantiation-distinguishing casts.
+
+### Added
+
+- **`typeName(typeExpr)` returns the canonical spelling of a
+  type.** Concrete types fold at compile time (`typeName(int)` is
+  `"int"`, `typeName(Box<int>)` is `"Box<int>"`, `typeName(int[,])`
+  keeps the rank in brackets). Forms containing a type parameter
+  resolve at runtime through the receiver object's instantiation
+  information: a bare `T` reads the receiver's argument, and
+  `Box<T>`/`T[]` compose level by level. `typeName` is a reserved
+  word; the runtime forms require an instance context and are
+  rejected in `static` members.
+- **Operators on a type parameter dispatch by the argument's kind.**
+  The compile-time rejection of `==`/`!=` on `T` (introduced in
+  0.13.0) is lifted: `==`, `!=`, string concatenation (`"v=" + item`,
+  both orders) and `print` now read the instantiation information the
+  receiver carries and dispatch at runtime — scalars by value,
+  `string` by content, structs by field value, classes and arrays by
+  identity, enums by inline value. Relational and arithmetic
+  operators remain compile-time rejections.
+- **`as` casts with a type-parameter target distinguish
+  instantiations.** `o as T` dispatches into the cast runtime of the
+  receiver's argument kind (unbox, struct row-check, superclass walk
+  with instantiation comparison, element kind, enum value); a
+  mismatched target raises a catchable `InvalidCastException` naming
+  the target spelling. An instance of `Box<int>` does not cast to
+  `Box<string>`.
+- **In-body construction over a type parameter carries its
+  instantiation.** `List<T> items = {};` inside a generic method
+  composes the descriptor recipe at the construction point; the
+  object behaves, for equality, casts and `typeName`, exactly like
+  one written with the concrete type.
+- **`catch` rejects generic instantiations at compile time.**
+  `catch (Box<int> e)` — the type parameter included — reports
+  `cannot tell instantiations apart`: exception dispatch matches
+  along template rows.
+- **The `.ncu` image carries a template table** (format 2.15): one
+  row per registered instantiation — the canonical spelling and its
+  composition recipe. Linking merges rows across units, so a
+  pre-compiled package shipped without sources mints new
+  instantiations the same way.
+
+### Changed
+
+- **Host ABI 11 → 12.** Three new table-tail callbacks —
+  `typeArgCount`, `typeArgKind`, `typeArgName` — report the runtime
+  type arguments of the current native instance-method call's
+  receiver. The receiver is located by a record flag (module format
+  2.16 adds an instance-method flag byte after the static flag),
+  never a name-shape guess. Native modules recompile against the new
+  `NativeHost.h`; the `NLANG_DEFINE_NATIVE_INIT` macro emits the new
+  probe automatically.
+
+### Migration notes
+
+- Module format minor moves 2.14 → 2.16 (the template table, then
+  the instance-method flag): every `.ncu` recompiles, and the loader
+  refuses 2.15-and-older images.
+- `typeName` is now a reserved word — a program that uses it as an
+  identifier must rename it.
+
+## [0.13.0] - 2026-11-08
+
+The value-equality release: struct `==`/`!=`, container entries and
+`Dict` keys now compare by value where the type carries value
+semantics, user templates accept struct type arguments, and
+const-prefixed functions land on one named diagnostic.
+
+### Added
+
+- **Struct equality compares by field value.** `==`/`!=` on two
+  structs of the same type compare field by field (nested structs
+  recurse, `string` fields compare content, reference-shaped fields
+  compare identity) through the new `OP_Eq_struct`/`OP_Ne_struct`
+  pair (module format 2.14). Ordering a struct, or comparing it with
+  another struct type, a scalar or `null`, is a named compile error.
+- **Struct type arguments for user templates.** `class Box<T>` now
+  instantiates at struct types; every boundary (constructor
+  formals, local binds, field stores, `foreach`) deep-copies the
+  record through the substituted type.
+- **Function container elements and `Dict` keys compare by content.**
+  `List<func<...>>.contains`/`indexOf` and `Dict` keyed on a
+  function type match the (target, receiver, form) triple, so two
+  references to one function are one element and one key.
+
+### Changed
+
+- **`public const int f() {...}` no longer compiles.** const has no
+  meaning on a function; every spelling (bare, public, semi form)
+  now rejects with `const is not allowed on functions; declare it
+  without const.`
+- **Operators on a bare type parameter inside a generic body are
+  named compile errors.** `==` on `T`-typed operands used to compile
+  to a raw slot comparison — silently wrong for `string` and struct
+  instantiations. Every operator now rejects with `operator '=='
+  cannot be applied to a type parameter: the operand kind is not
+  known until the instantiation.` — null checks included; a cast
+  (`item as string == "a"`) restores a concrete kind. Storing,
+  passing and returning `T` values stay legal. Kind-dispatched
+  equality returns with the runtime generic-information milestone.
+
+### Migration notes
+
+- A `Dict` keyed on struct or function values no longer grows one
+  entry per reference: storing through a second reference to the
+  same key overwrites the first entry (the dedup-by-value idiom
+  `d[p] = d[p] + 1` now works).
+- Struct `==` flips from identity (always false between distinct
+  records) to field-value comparison — recompile every module (the
+  loader refuses 2.13-and-older images).
+- Inside a generic class body, a `T`-to-`T` field move
+  (`item = other.item`) aliases the record instead of copying it;
+  this is the documented corner of the struct type argument.
 
 ## [0.12.9] - 2026-11-07
 

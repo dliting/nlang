@@ -24,6 +24,7 @@ on every merged TU member (top-level and container members).
 #include "BuiltinPrelude.h"
 #include "builder/CompiledModuleNodeBuilder.hpp"
 #include "builder/CompiledModuleStubMembers.hpp"
+#include "builder/TemplateSignatureLeaves.h"
 //Execute-level coverage (review C1): qualifying a call that returns a
 //func<...> must not be emitted as a bound method reference, so the tests
 //below link and run the built package (same pattern as test_stdlib).
@@ -52,6 +53,10 @@ namespace {
 
 //Collects error diagnostics in memory; the overridable hook of
 //CompileLogger is WriteLog (same shape as test_import_parse.cpp).
+//Each error also records whether the diagnostic carried a source
+//location: the message text alone cannot prove navigability (the
+//IDE compile log jumps on the "(line, char)" header a location
+//produces, not on the bare message).
 class MemLogger : public CompileLogger
 {
 public:
@@ -60,16 +65,31 @@ public:
         return m_errors;
     }
 
+    //True when the FIRST error containing szNeedle carried a location.
+    bool locatedError(const char* szNeedle) const
+    {
+        for (size_t i = 0; i < m_errors.size(); ++i)
+        {
+            if (m_errors[i].find(szNeedle) != std::string::npos)
+                return i < m_located.size() && m_located[i];
+        }
+        return false;
+    }
+
 protected:
-    void WriteLog(CompileLogLevel level, const ISourceLocation*,
+    void WriteLog(CompileLogLevel level, const ISourceLocation* pLocation,
         const char* szMessage) override
     {
         if (level == CLL_Error || level == CLL_Fatal)
+        {
             m_errors.emplace_back(szMessage);
+            m_located.push_back(pLocation != nullptr);
+        }
     }
 
 private:
     std::vector<std::string> m_errors;
+    std::vector<bool> m_located;
 };
 
 //Write one source file; returns an empty string when the file could not
@@ -1152,6 +1172,32 @@ private slots:
             "a strict prefix of a module path must not fire the note");
     }
 
+    //0.13.1a: an unresolved identifier's own rejection must carry the
+    //source position. The not-found fallback used to log "Cannot
+    //resolve the field" with NO location, so for `return
+    //undefined_name;` the only positioned line was the return-check
+    //echo; suppressing that echo as redundant (generic-mint
+    //diagnostics) left the IDE compile log with nothing navigable —
+    //error navigation degraded to nothing, and the journey test even
+    //crashed building a cursor from the absent "(line" block. The
+    //primary diagnostic must be positioned itself.
+    void unresolvedNameErrorCarriesPosition()
+    {
+        auto res = buildGateProject({
+            "int main() {\n"
+            "    return undefined_name;\n"
+            "}\n"});
+        QVERIFY2(res.builder != nullptr,
+            "gate scaffold failed before the gate stage");
+        QVERIFY2(!res.ok, "the unresolved name must fail the build");
+        QVERIFY2(containsError(res.errors,
+            "Cannot resolve the field: undefined_name."),
+            "the named diagnosis must be present");
+        QVERIFY2(res.logger->locatedError(
+            "Cannot resolve the field: undefined_name."),
+            "the not-resolved diagnostic must carry the source position");
+    }
+
     //--- Executed qualified paths (review I2) --------------------------
     //The qualified-path tests above are compile-only; the C1 review bug
     //(a module-qualified call returning func<...> was emitted as a bound
@@ -1307,9 +1353,10 @@ private slots:
     //Spec §7: a bare call to a function that only exists in another
     //directory is rejected with the dedicated visibility wording - and
     //no second generic "does not exist" or "not compatible" report at
-    //the invoke layer behind it. The statement layer still emits its
-    //pre-existing universal "Incompatible type" echo for the unresolved
-    //expression, so the full diagnostic set is exactly two lines.
+    //the invoke layer behind it. The unresolved call's type is the
+    //upstream error itself: the return statement's cast check stays
+    //silent on it (no follow-on "Incompatible type" echo), so the full
+    //diagnostic set is exactly one line.
     void bareCrossDirectoryRejected()
     {
         auto res = buildGateProject({
@@ -1329,10 +1376,10 @@ private slots:
         QVERIFY2(!containsError(res.errors,
             "is not compatible with the declaration"),
             "the hint must replace the generic incompatibility report");
-        QVERIFY2(containsError(res.errors, "Incompatible type"),
-            "the statement layer must still emit its universal echo for "
-            "the unresolved expression (pre-existing behavior)");
-        QVERIFY2(res.errors.size() == 2, joinErrors(res.errors).c_str());
+        QVERIFY2(!containsError(res.errors, "Incompatible type"),
+            "no follow-on echo for an expression whose type never "
+            "resolved (the named diagnostic is the answer)");
+        QVERIFY2(res.errors.size() == 1, joinErrors(res.errors).c_str());
     }
 
     //D7: the own directory stays bare-visible - two root files keep
@@ -1968,6 +2015,160 @@ private slots:
         //Free-stub filter: the enum's methods stay owned by the enum.
         QVERIFY2(findMember(TheAST().Root()->Members(), NK_Function, "rank")
             == nullptr, "enum method must not be promoted to a free stub");
+    }
+
+    //v0.13.1 D7: a template row's stub rebuilds as a generic declaration —
+    //isTemplate and the type-parameter names ride the class record, and a
+    //T-typed signature synthesizes the parameter-name identifier (not the
+    //int32 placeholder), so the consumer can instantiate the template
+    //without the producer source (e2e proj_generic_sourceless pins the
+    //end-to-end shape).
+    void importedTemplateStubCarriesTypeParams()
+    {
+        auto dir = std::filesystem::temp_directory_path()
+            / "nlang_stub_template";
+        std::filesystem::create_directories(dir);
+        std::ofstream(dir / "lib.n", std::ios::binary)
+            << "class Box<T> {\n"
+               "    public T item;\n"
+               "    public Box(T v) { item = v; }\n"
+               "    public T get() { return item; }\n"
+               "}\n";
+        const auto outcome = compile("stub_template",
+            {(dir / "lib.n").string()}, dir.string());
+        QVERIFY2(outcome.ok, "producer lib must build clean");
+        QCOMPARE(outcome.units.size(), size_t(1));
+
+        //Global tree, same reason as importedStructStubRebuildsFields.
+        BuildParams params;
+        MemLogger logger;
+        BuildEnvironment env(params, logger);
+        TheAST().Clear();
+        TheAST().BuildFromRuntime(env);
+        CompiledModuleNodeBuilder stubBuilder(TheAST(), "lib");
+        stubBuilder.BuildFromCompiledModule(outcome.units[0]);
+
+        const SnField* pBox =
+            findMember(TheAST().Root()->Members(), NK_ClassDecl, "Box");
+        QVERIFY2(pBox != nullptr, "Box stub must reach the consumer root");
+        QVERIFY(pBox->ContainFlags(NF_Imported));
+        const auto& box = static_cast<const SnClassDecl&>(*pBox);
+        QVERIFY2(box.IsGenericDeclaration(),
+            "the template stub must rebuild as a generic declaration");
+        QCOMPARE(box.TypeParamNames().size(), size_t(1));
+        QCOMPARE(box.TypeParamNames().front(), std::string("T"));
+
+        //The T-typed method's return type synthesizes the parameter-name
+        //leaf in the PARSER-CANONICAL shape (SnNameExpr wrapping the
+        //identifier, NamedLeafExpr) — one name-leaf shape for every
+        //template member type, source or stub, so shape-sensitive
+        //consumers (the generic mint's SubstituteTypeExpr, the
+        //resolution passes) read a single surface. The consumer's
+        //resolver binds the inner identifier to the placeholder through
+        //the stub's own declaration (BindTypeParamPlaceholderIfAny).
+        const SnFunction* pGet = nullptr;
+        for (const auto& member : box.Members())
+            if (member.Kind() == NK_Function && member.Name() == "get")
+                pGet = static_cast<const SnFunction*>(&member);
+        QVERIFY2(pGet != nullptr, "the get() stub must rebuild");
+        QVERIFY2(pGet->HasReturn(), "get() must carry a return type");
+        const auto* pRetName =
+            dynamic_cast<const SnNameExpr*>(pGet->ReturnType());
+        QVERIFY2(pRetName != nullptr,
+            "the T return must rebuild in the parser-canonical name shape");
+        const auto* pRetId =
+            dynamic_cast<const SnIdentifierExpr*>(pRetName->Expr());
+        QVERIFY2(pRetId != nullptr, "the name leaf must wrap an identifier");
+        QCOMPARE(pRetId->Name(), std::string("T"));
+
+        //Same for the T-typed field (the wire leaf carries the ordinal;
+        //the stub names it from the owning row's typeParamNames).
+        const SnClassField* pItem = nullptr;
+        for (const auto& member : box.Members())
+            if (member.Kind() == NK_ClassField && member.Name() == "item")
+                pItem = static_cast<const SnClassField*>(&member);
+        QVERIFY2(pItem != nullptr, "the item stub must rebuild");
+        const auto* pFieldName =
+            dynamic_cast<const SnNameExpr*>(pItem->Type());
+        QVERIFY2(pFieldName != nullptr,
+            "the T field type must rebuild in the parser-canonical shape");
+        const auto* pFieldId =
+            dynamic_cast<const SnIdentifierExpr*>(pFieldName->Expr());
+        QVERIFY2(pFieldId != nullptr,
+            "the field's name leaf must wrap an identifier");
+        QCOMPARE(pFieldId->Name(), std::string("T"));
+    }
+
+    //The template-signature leaf contract, enforced by assertion at the
+    //substitution entry and the stub mint (TemplateSignatureLeaves.h):
+    //a bare identifier leaf in a template member type must be a pre-bound
+    //builtin (resolved to an SnBuiltinDataType); a named reference
+    //arrives wrapped in SnNameExpr (NamedLeafExpr). A bare UNRESOLVED
+    //identifier is the divergent mint that once cloned every non-T
+    //signature of a stub template as void — these tests pin the
+    //contract predicate itself, shape by shape.
+    void templateLeafContract_acceptsCanonicalShapes()
+    {
+        CompiledModuleNodeLocation loc(std::string("t"));
+        //Pre-bound builtin leaves (the SnIdentifierExpr NodeKind ctor).
+        auto* pPrebound = new SnIdentifierExpr(NK_Int32, loc);
+        QVERIFY(TemplateSignatureLeavesAreCanonical(pPrebound));
+        delete pPrebound;
+        auto* pVoid = new SnIdentifierExpr(NK_Void, loc);
+        QVERIFY(TemplateSignatureLeavesAreCanonical(pVoid));
+        delete pVoid;
+        //A wrapped name, resolved or not, is canonical — the parser
+        //shape (NamedLeafExpr); resolution may legitimately still be
+        //pending when the mint substitutes a template member.
+        auto* pWrapped = new SnNameExpr(
+            new SnIdentifierExpr(new std::string("T"), loc), loc);
+        QVERIFY(TemplateSignatureLeavesAreCanonical(pWrapped));
+        delete pWrapped;
+        //A qualified path is a composite shape with its own documented
+        //mint-failure diagnostic ("cannot carry") — not this contract.
+        auto* pQualified = new SnQualifiedTypeExpr(
+            std::string("c"), std::string("S"), loc);
+        QVERIFY(TemplateSignatureLeavesAreCanonical(pQualified));
+        delete pQualified;
+        //Containers recurse: canonical leaves inside stay canonical.
+        auto* pArgs = new std::vector<SnFieldExpr*>();
+        pArgs->push_back(new SnIdentifierExpr(NK_Int32, loc));
+        auto* pGeneric = new SnGenericTypeExpr(
+            new SnNameExpr(
+                new SnIdentifierExpr(new std::string("List"), loc), loc),
+            pArgs, loc);
+        QVERIFY(TemplateSignatureLeavesAreCanonical(pGeneric));
+        delete pGeneric;
+        auto* pArray = new SnArrayTypeExpr(
+            new SnIdentifierExpr(NK_Int32, loc), loc, 1);
+        QVERIFY(TemplateSignatureLeavesAreCanonical(pArray));
+        delete pArray;
+    }
+
+    void templateLeafContract_rejectsDivergentBareLeaves()
+    {
+        CompiledModuleNodeLocation loc(std::string("t"));
+        //THE bug class: a bare named leaf is a divergent mint — the
+        //substitution entry must never receive it (it once cloned every
+        //non-T signature of a stub template as void).
+        auto* pBare = new SnIdentifierExpr(new std::string("T"), loc);
+        QVERIFY(!TemplateSignatureLeavesAreCanonical(pBare));
+        delete pBare;
+        //The contract reaches through containers too — a divergent leaf
+        //nested in a generic argument or an array element is rejected.
+        auto* pArgs = new std::vector<SnFieldExpr*>();
+        pArgs->push_back(
+            new SnIdentifierExpr(new std::string("T"), loc));
+        auto* pGeneric = new SnGenericTypeExpr(
+            new SnNameExpr(
+                new SnIdentifierExpr(new std::string("List"), loc), loc),
+            pArgs, loc);
+        QVERIFY(!TemplateSignatureLeavesAreCanonical(pGeneric));
+        delete pGeneric;
+        auto* pArray = new SnArrayTypeExpr(
+            new SnIdentifierExpr(new std::string("T"), loc), loc, 1);
+        QVERIFY(!TemplateSignatureLeavesAreCanonical(pArray));
+        delete pArray;
     }
 
     //0.10.14 (Review Focus #3): the producer-index clamp keeps a table

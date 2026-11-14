@@ -10,6 +10,7 @@
 #include "BuildEnvironment.h"
 #include "CastInfo.h"
 #include "ModuleRegistry.h"
+#include <algorithm>
 #include <string>
 #include <vector>
 #include <nlang/runtime/StackDump.h>
@@ -127,6 +128,68 @@ bool ExprResolveAccessor::MaybeLogPendingFuncRef(SnInvokeExpr &invoke)
 	return false;
 }
 
+//0.13.1a Task 5: the named diagnosis for the sweep's retained
+//generic-inference failure (see ExprResolveAccessor::
+//m_pGenericInferFailFunc). Two formals disagreeing on one placeholder
+//report the conflict with both candidate types (exact match, no
+//implicit numeric promotion — Go/C# precedent); a placeholder bound
+//nowhere reports unbound; when the return type is a parameter's only
+//mention the text names the working call shape — the assignment
+//target IS an inference source (the return-position unification arm
+//binds from the expected type; a discarded result has none). Consumes
+//the record; false
+//(nothing logged) when no failure belongs to this call — the ordinary
+//incompatibility report then stands.
+bool ExprResolveAccessor::MaybeLogGenericInferFailure(
+	SnInvokeExpr &invoke, const std::vector<SnFunction*> &candidates)
+{
+	SnFunction *pFailed = m_pGenericInferFailFunc;
+	m_pGenericInferFailFunc = nullptr;
+	if (!pFailed || !std::count(candidates.begin(), candidates.end(),
+			pFailed))
+		return false;
+	const auto &outcome = m_genericInferFail;
+	const auto &paramNames = pFailed->TypeParamNames();
+	auto paramDisplayName = [&paramNames](size_t ordinal)
+	{
+		return ordinal < paramNames.size() ? paramNames[ordinal] : "T";
+	};
+	if (outcome.result == TypeArgInferenceResult::Mismatched
+		&& outcome.conflict.pFirst)
+	{
+		const std::string name = paramDisplayName(outcome.conflict.ordinal);
+		m_Env.Log(CLL_Error, invoke.Location(),
+			"conflicting type arguments for %s: \"%s\" vs \"%s\" "
+			"(inference is exact match; pass arguments of one type).",
+			name.c_str(),
+			outcome.conflict.pFirst->ToString().c_str(),
+			outcome.conflict.pSecond->ToString().c_str());
+		return true;
+	}
+	if (outcome.result == TypeArgInferenceResult::Unbound)
+	{
+		size_t unboundOrdinal = outcome.bindings.size();
+		for (size_t o = 0; o < outcome.bindings.size(); ++o)
+			if (!outcome.bindings[o])
+			{
+				unboundOrdinal = o;
+				break;
+			}
+		const std::string name = paramDisplayName(unboundOrdinal);
+		if (outcome.bReturnOnlyUnbound)
+			m_Env.Log(CLL_Error, invoke.Location(),
+				"cannot infer type argument for %s: %s appears only in "
+				"the return type; assign the result to a typed target.",
+				name.c_str(), name.c_str());
+		else
+			m_Env.Log(CLL_Error, invoke.Location(),
+				"cannot infer type argument for %s from this call.",
+				name.c_str());
+		return true;
+	}
+	return false;
+}
+
 //The failure branch of Access(SnInvokeExpr) — not-found, imported-stub
 //and generic incompatibility diagnostics. Shared with the module-qualified
 //call path so both surfaces report identically (spec §7 / M4).
@@ -144,6 +207,11 @@ void ExprResolveAccessor::LogInvokeFailure(SnInvokeExpr &invoke,
 		//escape already — the generic incompatibility text would only
 		//bury it.
 		if (bAmbiguityAlreadyLogged)
+			return;
+		//0.13.1a Task 5: a generic free function's failed unification
+		//gets the named diagnosis (conflict / unbound) instead of the
+		//incompatibility noise ("class T expected" per-argument notes).
+		if (MaybeLogGenericInferFailure(invoke, candidates))
 			return;
 		//pCallee is null by contract on the imported-stub path; the flag
 		//comes from the name-matched candidate scan.

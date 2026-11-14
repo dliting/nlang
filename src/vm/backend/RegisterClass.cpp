@@ -57,10 +57,19 @@ void VmBackend::CollectOwnClassFields(SnClassDecl& sn, CompiledClass& cc) {
             //0.7.3 B: array fields carry their interned token in
             //EvalDataType — RuntimeTypeKind files both arrays and
             //scalars (mirrors RegisterStructs).
-            cc.fieldTypeKinds.push_back(
-                RuntimeTypeKind(cf.EvalDataType()));
+            const uint16_t ftk = RuntimeTypeKind(cf.EvalDataType());
+            cc.fieldTypeKinds.push_back(ftk);
             cc.fieldStructIndices.push_back(0xFFFF);
-            cc.fieldClassIndices.push_back(0xFFFF);
+            //v0.13.1 D3: a T-typed field records its type-parameter
+            //ordinal in the class-index slot (0xFFFF otherwise) — the
+            //serializer's T-field arm maps the field onto the receiver
+            //instantiation's argument through it; the erased row alone
+            //cannot know the runtime kind.
+            cc.fieldClassIndices.push_back(
+                ftk == RTK_TypeParam
+                    ? static_cast<uint16_t>(
+                        TypeParamOrdinalOfType(*cf.EvalDataType()))
+                    : 0xFFFF);
             cc.fieldAccess.push_back(static_cast<uint8_t>(cf.AccessType()));
         }
     }
@@ -139,6 +148,15 @@ void VmBackend::RegisterClassDecl(SnClassDecl& sn,
     //load-time linker dedups peer images by qualified name).
     cc.name = KeyOf(sn);
     cc.superClassIdx = -1;
+    //v0.13.1 D7: the template row carries its declared parameters — the
+    //consumer's stub rebuilds a generic declaration from them, so a
+    //sourceless package stays instantiable (the erased row is the one
+    //implementation every instantiation shares; the names are what
+    //BindTypeParamPlaceholderIfAny matches member signatures against).
+    if (sn.IsGenericDeclaration()) {
+        cc.isTemplate = true;
+        cc.typeParamNames = sn.TypeParamNames();
+    }
     //v2.12 (v0.12.4): the declared own bit rides the record — the
     //chain query derives from superClassIdx at the consumer.
     cc.isConstAggregate = sn.IsDeclaredConstAggregate();

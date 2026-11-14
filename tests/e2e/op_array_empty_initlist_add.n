@@ -1,0 +1,12 @@
+// M1 pin: an Array<E> target mints the empty-initlist token from the
+// ELEMENT row. Minting from the class row double-wrapped the token
+// (element = Array<int>) and the tensor dispatch raised
+// "unsupported element kind" at runtime.
+import tensor;
+
+int main() {
+    Array<int> x = [];
+    Array<int> y = x + x;
+    if (y.length() != 0) { return 1; }
+    return 42;
+}

@@ -1,0 +1,13 @@
+//Negative: extending an imported abstract class without implementing the
+//obligation keeps the derived class abstract — instantiation must be
+//rejected at compile time with the missing method named.
+import lib;
+
+class MemStore : lib.Storage
+{
+}
+
+int main() {
+    MemStore m = MemStore();
+    return 0;
+}

@@ -11,15 +11,86 @@
 
 set(NLANG_NATIVE_MODULES math io fs tensor net system gzip)
 
+# Tensor kernel sources build once as an OBJECT library and land both in
+# the nlang_tensor DLL and in the native kernel unit tests
+# (tests/test_native_tensor) — the tests exercise the exact objects that
+# ship, no second source list to drift. The SIMD tier TUs join only on
+# x64 (SSE2 is the architectural baseline there); the AVX2 TU carries a
+# per-file arch flag (mixed-arch TU discipline: vector types never cross
+# the TU boundary — the public interfaces pass raw pointers and counts).
+set(NLANG_TENSOR_KERNEL_SOURCES
+    tensor/SimdCpu.cpp
+    tensor/KernelOpsCpu.cpp
+    tensor/VecMathEntries.cpp
+    tensor/tensor_binary.cpp
+    tensor/tensor_matrix.cpp
+    tensor/tensor_reduce.cpp
+    tensor/tensor_views.cpp
+    tensor/tensor_activation.cpp
+    tensor/tensor_gather.cpp
+    tensor/tensor_random.cpp)
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "(AMD64|x86_64|amd64)")
+    list(APPEND NLANG_TENSOR_KERNEL_SOURCES
+        tensor/VecMathSse2.cpp
+        tensor/VecMathAvx2.cpp
+        tensor/VecBinarySse2.cpp
+        tensor/VecBinaryAvx2.cpp
+        tensor/VecReduceSse2.cpp
+        tensor/VecReduceAvx2.cpp
+        tensor/MatMulSse2.cpp
+        tensor/MatMulAvx2.cpp)
+    set(NLANG_TENSOR_X64 ON)
+endif()
+
 foreach(mod IN LISTS NLANG_NATIVE_MODULES)
-    add_library(nlang_${mod} SHARED ${mod}/${mod}_native.cpp)
-    target_include_directories(nlang_${mod}
-        PRIVATE ${PROJECT_SOURCE_DIR}/include)
-    set_target_properties(nlang_${mod} PROPERTIES
-        CXX_STANDARD 17
-        CXX_STANDARD_REQUIRED ON
-        CXX_EXTENSIONS OFF
-        POSITION_INDEPENDENT_CODE ON)
+    if(mod STREQUAL "tensor")
+        add_library(nlang_tensor_kernels OBJECT ${NLANG_TENSOR_KERNEL_SOURCES})
+        add_library(nlang_tensor SHARED
+            tensor/tensor_native.cpp
+            $<TARGET_OBJECTS:nlang_tensor_kernels>)
+        set(NLANG_TENSOR_LIBS nlang_tensor nlang_tensor_kernels)
+        foreach(tgt IN LISTS NLANG_TENSOR_LIBS)
+            target_include_directories(${tgt}
+                PRIVATE ${PROJECT_SOURCE_DIR}/include)
+            set_target_properties(${tgt} PROPERTIES
+                CXX_STANDARD 17
+                CXX_STANDARD_REQUIRED ON
+                CXX_EXTENSIONS OFF
+                POSITION_INDEPENDENT_CODE ON)
+        endforeach()
+        if(NLANG_TENSOR_X64)
+            target_compile_definitions(nlang_tensor_kernels
+                PRIVATE NLANG_SIMD_X64=1)
+            #Every AVX2 tier TU needs the arch flag — this list must
+            #track the SIMD tier sources above (a missed file compiles
+            #its intrinsics without the arch contract and misbehaves at
+            #runtime).
+            if(MSVC)
+                set_source_files_properties(
+                    tensor/VecMathAvx2.cpp
+                    tensor/VecBinaryAvx2.cpp
+                    tensor/VecReduceAvx2.cpp
+                    tensor/MatMulAvx2.cpp
+                    PROPERTIES COMPILE_OPTIONS "/arch:AVX2")
+            else()
+                set_source_files_properties(
+                    tensor/VecMathAvx2.cpp
+                    tensor/VecBinaryAvx2.cpp
+                    tensor/VecReduceAvx2.cpp
+                    tensor/MatMulAvx2.cpp
+                    PROPERTIES COMPILE_OPTIONS "-mavx2;-mfma")
+            endif()
+        endif()
+    else()
+        add_library(nlang_${mod} SHARED ${mod}/${mod}_native.cpp)
+        target_include_directories(nlang_${mod}
+            PRIVATE ${PROJECT_SOURCE_DIR}/include)
+        set_target_properties(nlang_${mod} PROPERTIES
+            CXX_STANDARD 17
+            CXX_STANDARD_REQUIRED ON
+            CXX_EXTENSIONS OFF
+            POSITION_INDEPENDENT_CODE ON)
+    endif()
 endforeach()
 
 # Aggregate target for out-of-directory consumers that need "all modules
@@ -29,13 +100,6 @@ add_custom_target(nlang_native_modules)
 foreach(mod IN LISTS NLANG_NATIVE_MODULES)
     add_dependencies(nlang_native_modules nlang_${mod})
 endforeach()
-
-# Multi-file module sources beyond the per-module naming pattern.
-target_sources(nlang_tensor PRIVATE
-    tensor/tensor_binary.cpp
-    tensor/tensor_matrix.cpp
-    tensor/tensor_reduce.cpp
-    tensor/tensor_views.cpp)
 
 # net: per-executor state + one NetPlatform implementation per platform
 # (design §6). StackDump.cpp is compiled in (not linked) so the module's

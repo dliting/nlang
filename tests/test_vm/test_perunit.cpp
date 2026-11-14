@@ -949,17 +949,20 @@ void TestClassStaticOverloadCrossUnit() {
 //
 // The ordinal counts REGISTERED non-ctor members in declaration order,
 // mirroring the producer's methodIndices push and the stub rebuild
-// filter: a body-less same-name ctor has no table record at all (the
-// registration filter is Body||Native) and contributes nothing, while
-// a same-name static method is a method entry, not a ctor. The method
-// table here is [Mix(int) static, f(int), f(string)] — the two f
-// import records must carry ordinals 1 and 2.
+// filter: a same-name ctor owns no method-table entry (its record rides
+// constructorIndices and the stub rebuild filters it out of the method
+// walk), while a same-name static method is a method entry, not a ctor.
+// (0.13.1c: the former body-less ctor spelling here is rejected at
+// declaration time — see err_abstract_ctor — so the ctor carries a
+// body; the ordinal leg it exercises is unchanged.) The method table
+// here is [Mix(int) static, f(int), f(string)] — the two f import
+// records must carry ordinals 1 and 2.
 void TestMemberOrdinalRecordShape() {
     const auto dir = scenarioDir("ord_shape");
     writeFiles(dir, {
         { "alib.n",
           "class Mix {\n"
-          "  Mix();\n"
+          "  Mix() {}\n"
           "  public static int Mix(int z) {\n"
           "    return 1;\n"
           "  }\n"

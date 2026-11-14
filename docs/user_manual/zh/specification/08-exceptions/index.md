@@ -54,6 +54,8 @@ try {
 
 `catch`子句的类型必须是`Exception`或其子类；其他任何类型都是编译期错误。一个`try`语句的各子句按声明顺序匹配。第一个类型等于所抛异常之类或其祖先的子句运行其体；其余子句被跳过。因此`catch (Exception e)`匹配每个异常，列在它之后的、更具体类的子句不可达。`catch`参数是`catch`体中一个普通的局部变量（§3.5）：可以读取也可以赋值。
 
+泛型实例化不能出现在`catch`类型位——包括类型参数本身：`catch (Box<int> e)`是编译期错误（`catch on a generic instantiation type ... cannot tell instantiations apart`）。异常分派沿模板行匹配，无法区分同一模板的不同实例化（§4.12.9）。
+
 每当控制离开`try`区域，`finally`体都运行，每条路径皆然：
 
 - `try`体正常完成；

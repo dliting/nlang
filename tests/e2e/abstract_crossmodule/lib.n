@@ -1,0 +1,7 @@
+//0.13.1c: the library exports a class with an unimplemented (abstract)
+//method. The wire records the abstract flag so consumers see the
+//obligation even though this module itself compiles.
+class Storage
+{
+    public virtual int put(int v);
+}

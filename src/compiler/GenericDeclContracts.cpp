@@ -8,6 +8,7 @@
 #include "ModuleBuilderChecks.h"
 #include "BuildEnvironment.h"
 #include "builder/ModuleRegistry.h"
+#include <nlang/compiler/GenericInstanceRegistry.h>
 #include "SyntaxTree.h"
 
 namespace nlang
@@ -37,6 +38,8 @@ void CheckMemberNotTypeParamName(const SnClassDecl &cls,
 		}
 }
 
+} //namespace
+
 //Null unless the declared type is a bare type-parameter reference (T,
 //not T[] or List<T>); returns the parameter name. Type-position
 //resolution binds such a reference to the template's interned
@@ -44,7 +47,8 @@ void CheckMemberNotTypeParamName(const SnClassDecl &cls,
 //bind to their own declarations and composite T forms never bind to
 //the placeholder itself, so binding identity is the exact predicate
 //(robust against the identifier-to-name-expression rewrite resolution
-//performs on the way).
+//performs on the way). Shared with the interface member contract
+//(StatementResolverInterface).
 const std::string *BareTypeParamName(const SnFieldExpr *pType,
 	BuildEnvironment &env)
 {
@@ -60,6 +64,9 @@ const std::string *BareTypeParamName(const SnFieldExpr *pType,
 		return nullptr;
 	return &pBound->Name();
 }
+
+namespace
+{
 
 //NK_ClassField arm of CheckGenericDeclContract: a bare type-parameter
 //field type has no concrete kind, so no initial value exists.
@@ -84,7 +91,8 @@ void CheckClassFieldInitializer(const SnClassDecl &cls,
 //kind until the instantiation — `T a[3]` is the sized-declarator form
 //of new T[3], the same rejection family as new T[n] in bodies (spec
 //D2). The sized-declarator intern (StatementResolveAccessor's
-//local-declaration path) is the one remaining caller.
+//local-declaration path) and, since 0.13.1c, the creation twin
+//(TrySizedArrayCreation, the `T[n]` subscript form) are the callers.
 bool RejectTypeParamArrayElement(SnField *pElemField,
 	BuildEnvironment &env, const ISourceLocation *pLoc)
 {
@@ -98,6 +106,25 @@ bool RejectTypeParamArrayElement(SnField *pElemField,
 	return true;
 }
 
+//0.13.1b: declaration-time cap, shared by the class path (from
+//CheckGenericDeclContract) and the free-function path (from the
+//statement resolver's function contract). Ordinals are 0-based and
+//the typeName/T-equality ordinal byte reserves its top value (0xFF)
+//as the no-ordinal marker, so a 256th parameter would silently
+//collide with the sentinel — reject at the declaration instead.
+void CheckGenericTypeParamCount(const std::vector<std::string> &names,
+	const std::string &declName, const ISourceLocation *pLoc,
+	BuildEnvironment &env)
+{
+	if (names.size() <= kMaxGenericTypeParams)
+		return;
+	env.Log(CLL_Error, pLoc,
+		"The declaration \"%s\" declares %zu type parameters; at most "
+		"%zu are supported (the runtime reserves the top ordinal as "
+		"a marker).",
+		declName.c_str(), names.size(), kMaxGenericTypeParams);
+}
+
 //v0.12.3 dictionary model: a generic declaration is one template row —
 //members with bodies compile once against placeholder types, native
 //members keep their lazy host binding, and the two mix freely. The
@@ -109,6 +136,8 @@ void CheckGenericDeclContract(SnClassDecl &cls, BuildEnvironment &env)
 {
 	if (!cls.IsGenericDeclaration())
 		return;
+	CheckGenericTypeParamCount(cls.TypeParamNames(), cls.Name(),
+		cls.Location(), env);
 	for (auto &member : cls.Members())
 	{
 		CheckMemberNotTypeParamName(cls, member, env);
@@ -127,11 +156,14 @@ void CheckGenericDeclContract(SnClassDecl &cls, BuildEnvironment &env)
 		//HasImplementation without the IsImported arm: at source-check
 		//time the declaration is never an import stub, so the predicate
 		//reduces to native-or-body — the same shape the ctor candidate
-		//collector keys off.
-		if (!func.HasImplementation())
+		//collector keys off. 0.13.1c: an abstract member is a third
+		//implementation shape — the obligation transfers to every
+		//instantiation, whose own gate reports it.
+		if (!func.HasImplementation()
+			&& !func.ContainFlags(NF_Abstract))
 			env.Log(CLL_Error, member.Location(),
 				"The method \"%s\" of generic class \"%s\" must be "
-				"native or have a method body.",
+				"native, abstract, or have a method body.",
 				member.Name().c_str(), cls.Name().c_str());
 		for (auto &param : func.Params())
 		{
@@ -139,11 +171,10 @@ void CheckGenericDeclContract(SnClassDecl &cls, BuildEnvironment &env)
 				BareTypeParamName(param.Type(), env);
 			if (param.Value() && pParamName)
 				env.Log(CLL_Error, param.Location(),
-					"The parameter \"%s\" of the method \"%s\" cannot "
-					"have a default value: the type parameter \"%s\" "
-					"has no concrete kind, so no default value exists.",
-					param.Name().c_str(), member.Name().c_str(),
-					pParamName->c_str());
+					"default value for parameter \"%s\": the type "
+					"parameter \"%s\" has no concrete kind, so no "
+					"default value exists.",
+					param.Name().c_str(), pParamName->c_str());
 		}
 	}
 }

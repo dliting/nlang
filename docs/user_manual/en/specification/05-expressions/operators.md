@@ -39,6 +39,30 @@ implicitly converts to string) and `+` with a scalar operand concatenate
 the same way. `string - string` and the other arithmetic forms are
 compile errors. See [String](../04-types/string.md).
 
+A type-parameter value inside a generic class's method body
+concatenates the same way: `"v=" + item` and `item + "!"` in both
+orders convert by the argument's kind and fold into the result
+(§4.12.9).
+
+### Array arithmetic
+
+When one or both operands of `+`, `-`, `*`, `/` is a numeric
+array (int, long, float, double elements), the operator lowers
+to the [tensor](../library/18-tensor.md) package's kernels —
+`a + b` is `tensor.add(a, b)` with right-aligned broadcasting;
+`2 * x`, `x - 1` and `1 - x` ride the scalar arms (`1 - x`
+lowers to the reversed arm `tensor.rsubScalar`, since `-` has
+no commute); `-a` is `tensor.neg`. Both array operands must
+carry the same element kind — no silent widening between
+arrays; the scalar side converts by the ordinary rules. The
+operators are spellings of `tensor.*` calls: the package must
+be imported, and a missing import is diagnosed as such.
+Compound assignment on arrays (`a += b`) is rejected — use
+the plain assignment with the operator form. `string + ...
+` keeps its concatenation reading, and array identity
+comparison (`==`/`!=`) is unchanged. See
+[Tensor](../library/18-tensor.md) §18.5.1.
+
 ### Shift
 
 ```nlang
@@ -152,6 +176,26 @@ Comparison results are always **`bool`** (`true` / `false`).
   your own classes — `==` is unaffected by the override; see [Object and Boxing](../04-types/object.md)
   "Protocol methods" and [Class](../04-types/class.md)
   "Virtual methods and overriding".
+- **Struct equality** (`==`, `!=`) compares by field value — two
+  structs of the same type with equal fields are equal (nested struct
+  fields recurse, `string` fields compare content, reference-shaped
+  fields compare identity). Ordering a struct is a compile error
+  (`struct values cannot be ordered; only == and != are supported`), and
+  so is comparing one with a struct of another type, a scalar, or null
+  — a struct is never null (`a struct value can only be compared with
+  a struct value of the same type`). See [Struct](../04-types/struct.md).
+- **Function equality** (`==`, `!=`) compares handle content: two
+  references to the same function are equal; ordering is a compile
+  error. See [First-Class Function Values](../../vm-architecture/first-class-function-values.md).
+- **Type-parameter equality** (inside a generic class's method body,
+  a `static` member body, or a generic function's body):
+  `==`, `!=` apply to `T` operands — `T` with `T`, `T` with `null` in
+  both directions — dispatching on the kind of the instantiation's
+  argument: scalars by value, `string` by content, structs by field
+  value, classes and arrays by identity, enums by inline value.
+  Relational ordering (`<` and the rest) on a type parameter is a
+  compile error. See [Generics](../04-types/generics.md) "Runtime
+  type information and type parameters".
 - **Arithmetic/concatenation with a null operand** is a compile error —
   null only has a value through the comparison-identity path above.
 

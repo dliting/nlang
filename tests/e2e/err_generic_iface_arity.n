@@ -1,0 +1,11 @@
+//Negative: instantiating a one-parameter generic interface with two
+//type arguments fails the arity check like the class path.
+interface I<T>
+{
+    T get();
+}
+class C implements I<int, string>
+{
+    public int get() { return 1; }
+}
+int main() { return 0; }

@@ -34,7 +34,10 @@ parameter, return and local types. Members carry bodies like any
 other class — methods and constructors compile once against the
 type parameters. Every method of a generic class must be `native`
 or have a body. A member name must not repeat a type parameter
-name.
+name. A declaration declares at most 255 type parameters — the
+runtime carries a type parameter's ordinal in one byte and reserves
+the top value as a marker, so the last usable ordinal is 254; the
+limit covers generic free functions too (§4.12.10).
 
 ```nlang
 class Pair<K, V> {
@@ -62,6 +65,64 @@ A type parameter may be an array element type in a type position —
 `T[]` is a legal field type — but array creation over a type
 parameter is rejected: the element kind is not known until the
 instantiation (§4.10.2).
+
+The equality operators are legal on type-parameter operands: `==`
+and `!=` apply to `T` and `T`, `T` and `null` (both directions), and
+the method body reads the instantiation information carried by the
+receiver object at runtime, dispatching on the kind the
+instantiation was made with — scalars compare by inline value,
+`string` by content, structs by field value, classes and arrays by
+identity, enums by inline value. The `null` side performs a
+reference-domain null test against the resolved kind (the value of a
+scalar argument is never `null`). Concatenation and printing convert
+by the argument kind the same way: `"v=" + item` and `item + "!"`
+in both orders fold the `T` value through its actual kind's string
+form (scalar rendering, the string itself, a struct's `<struct>`, a
+class's virtual `toString`, an enum's numeric value, an array's
+format walk) into the result, and `print` does the same directly.
+The other kind-dependent operators — relational and arithmetic —
+remain compile-time rejections, reporting `operator '...' cannot be
+applied to a type parameter: the operand kind is not known until the
+instantiation.` A cast recovers a concrete kind: when the
+instantiation is known, `item as string == "a"` compares by content
+again. Storing, passing and returning a `T` value are
+kind-independent and stay legal.
+
+All of these dispatches happen inside a method or constructor body —
+an instance body reads the instantiation information from the
+receiver object (`this`). A `static` body has no receiver; its
+instantiation context comes from the call site instead. A call
+through the bare class name infers the type arguments from the
+actuals — every type parameter needs a supplying actual — and a call
+through an explicit instantiation spelling fixes them outright:
+`Pair<int, string>.sig()`. With the context in place, equality,
+concatenation, printing, `as` casts and `typeName` on `T` work in
+`static` bodies exactly as in instance bodies (§4.12.9).
+
+```nlang
+class Pair<K, V> {
+    public static string sig() {
+        return typeName(K) + "," + typeName(V);
+    }
+    public static K firstOf(K k, V v) {
+        return k;
+    }
+}
+int main() {
+    if (Pair<int, string>.sig() == "int,string"
+            && Pair.firstOf(4, "x") == 4) {   // firstOf infers K, V from the actuals
+        return 2;
+    }
+    return 1;
+}
+```
+
+A call that leaves a type parameter without a supplying actual is a
+compile-time error naming the fix (`cannot infer type argument for
+"K, V" in "Pair.eq(...)"; spell the instantiation: Pair<K, V>(...)`).
+A function of a generic class cannot be referenced as a `func` value
+through either spelling — the handle record has no slot for the
+instantiation context; call it directly.
 
 *Informative:* a default argument on a generic member carries into
 instantiations only in constant-expression shapes — a literal, an
@@ -96,6 +157,12 @@ constructor call with no declared target is a compile-time error
 generic class with no declared constructor takes the zero-argument
 form the same way: `Cell<char> cc = Cell();`.
 
+The explicit instantiation spelling constructs without a declared
+target — the spelled type arguments fix the instantiation at the
+call: `Box<int> b = Box<int>(7);`. Both forms share one construction
+path; the constructed object carries its instantiation information
+the same way (§4.12.9).
+
 The containers also construct through the initializer forms:
 `List<int> nums = {};` and `List<int> seed = List();` are
 equivalent, and the bracket literal `[1, 2, 3]` fills a list from a
@@ -123,16 +190,25 @@ exceeds the limit of 16 nested instantiations.`
 ## 4.12.5 Type arguments
 
 A type argument may be a scalar primitive, `string`, an enumeration,
-a class type, an interface type, an array type, or another generic
-instantiation. A `void` type argument is a compile-time error
+a class type, an interface type, a struct type, an array type, or
+another generic instantiation. A `void` type argument is a compile-time error
 (§7.4).
 
-A user-declared generic class additionally rejects struct and
-function type arguments: a struct is a multi-slot value and a
-generic field stores one value slot; a function value is a
-multi-slot record (target, receiver, form). The built-in containers
-accept struct type arguments (a struct key in a `Dict` compares by
-identity, §12.2).
+A user-declared generic class rejects function type arguments: a
+function value is a multi-slot record (target, receiver, form). A
+struct type argument is admitted — every boundary (constructor
+formals, local binds, field stores, `foreach`) deep-copies the
+record through the substituted type, so the field's value slot holds
+one private copy. The built-in containers accept struct type
+arguments alike (a struct key in a `Dict` compares by field value,
+§12.2).
+
+One corner of the struct argument: inside a generic class's own
+method bodies, a `T`-to-`T` move between two `T`-typed fields
+(`item = other.item;`) transfers the record handle without a copy,
+so the two fields then share one record — a write through one shows
+through the other. Only the in-body field move aliases; every
+boundary deep-copies (§4.7.4).
 
 An array type argument — `List<int[]>` — stores the array values as
 raw references; the primitive-boxing rule does not apply to them.
@@ -235,9 +311,250 @@ class Box<T> {
 An imported function carries its true formal and return types
 recursively — instantiations, array types and nested arrays
 included — so a call site in the importing unit checks the same
-types as a call in the declaring unit.
+types as a call in the declaring unit. A generic free function is
+fully usable across units as well: the imported signature carries
+its type parameters, and inference, forwarding and `typeName`
+dispatch at the consumer's call sites work exactly as in the
+declaring unit (§4.12.10).
+
+*Informative:* a unit also carries a template table — one row per
+instantiation the unit registers (canonical spelling and
+construction recipe). Linking merges the rows of all units; objects
+constructed across units carry their instantiation information as
+usual (§4.12.9), and equality, casting and `typeName` behave
+identically across units.
 
 *Informative:* all instantiations of one template share a single
 compiled row; per-object state lives in the instances. A bound
 method reference to a template member works: `func<int> f = b.get;`
-(§7.4).
+(§7.4). Instantiations are not transparent at runtime: every object
+constructed from an instantiation carries a piece of *instantiation
+information* — the template name and the kind and canonical spelling
+of each argument — read by equality dispatch, casts and `typeName`
+(§4.12.2, §4.12.9).
+
+## 4.12.9 Runtime type information and type parameters
+
+`typeName` takes a type expression and returns its canonical
+spelling as a string. Spellings of concrete types fold at compile
+time — `typeName(int)` is `"int"`, `typeName(Box<int>)` is
+`"Box<int>"`, `typeName(int[,])` is `"int[,]"` (rank in brackets),
+`typeName(List<List<int>>)` is `"List<List<int>>"`. Forms containing
+a type parameter resolve at runtime through the receiver's
+instantiation information:
+
+```nlang
+class Box<T> {
+    public T value;
+    public Box(T v) { this.value = v; }
+}
+class Hold<T> {
+    public string showArg() { return typeName(T); }        // "int" / "Box<int>"
+    public string showInner() { return typeName(Box<T>); } // "Box<int>"
+    public string showArray() { return typeName(T[]); }    // "int[]" / "Box<int>[]"
+}
+```
+
+A bare `T` reads the receiver's argument spelling; a `T` nested
+inside an argument (`Box<T>`, `T[]`) composes level by level over
+the same argument, and an array over a type parameter appends the
+element spelling in a bracket pair. In a `static` body the runtime
+forms read the call site's instantiation context — filled by the
+bare-name inference or the explicit spelling of the call (§4.12.2) —
+so `typeName(T)` works there exactly as in instance bodies.
+`typeName` is a reserved word (§2.4).
+
+Constructing an instantiation whose arguments involve the type
+parameter inside a method body — `List<T> items = {};` — shares one
+construction path with concrete instantiations: the object's
+instantiation information is composed at the construction point from
+the recipe (`T` taken from the receiver's argument, arrays wrap the
+element recipe, nesting recurses), and the object's equality,
+casting and `typeName` behavior then matches an instance written
+with the concrete type.
+
+An `as` cast whose target is a type parameter — `o as T` —
+dispatches on the kind of the receiver's argument into the existing
+cast runtimes: boxed scalars and `string` unbox, structs row-check,
+classes walk the superclass chain and compare the argument's own
+instantiation, arrays go by element type, enums by the integer
+value. A mismatched target raises a catchable `InvalidCastException`
+whose message names the target spelling; a `null` operand passes
+through. Casts distinguish instantiations: an instance of
+`Box<int>` does not cast to `Box<string>`, even though both share
+the same template. Casts with a known instantiation (`item as
+string`) are outside this section and follow the normal cast rules
+of §5.
+
+The type position of `catch` does not accept generic instantiations
+— including the type parameter itself: `catch (Box<int> e)` is a
+compile-time error (`catch on a generic instantiation type ...
+cannot tell instantiations apart`). Exception dispatch matches along
+template rows and cannot tell apart different instantiations of one
+template; accepting the spelling would promise a distinction the
+runtime cannot make (§8.3).
+
+*A compensation pattern:* a generic class cannot declare static
+fields — its members belong to the one erased implementation every
+instantiation shares — so per-instantiation state that must outlive
+instances lives in a non-generic helper class holding a dictionary
+keyed by spelling, with the generic class passing `typeName(T)` as
+the key. Behavior that only reads the instantiation needs no helper:
+`static` methods dispatch on the call site's context (§4.12.2), and
+instance methods on the receiver:
+
+```nlang
+class TypeCounter {
+    private static Dict<string, int> counts = {};
+    public static void bump(string key) {
+        if (counts.containsKey(key)) { counts.set(key, counts.get(key) + 1); }
+        else { counts.set(key, 1); }
+    }
+    public static int count(string key) {
+        if (counts.containsKey(key)) { return counts.get(key); }
+        return 0;
+    }
+}
+class Holder<T> {
+    public void note(T item) {
+        TypeCounter.bump(typeName(T));   // one key per instantiation
+    }
+}
+```
+
+The key is the canonical spelling `typeName(T)` produces, so
+`Holder<int>` and `Holder<Box<int>>` each take their own slot.
+
+## 4.12.10 Generic free functions
+
+A top-level function may be generic too: type parameters are
+declared in angle brackets after the function name and name ordinary
+types everywhere in the signature and body — parameter, return and
+local types. The body compiles once and is shared by every call,
+like a generic class's members.
+
+```nlang
+T pick<T>(T a, T b) { return a; }
+string tag<T>(T v) { return typeName(T); }
+
+int main() {
+    if (pick(3, 7) == 3                     // T = int
+            && pick("a", "b") == "a"        // T = string
+            && tag(9) == "int") {           // typeName reads the call site
+        return 1;
+    }
+    return 0;
+}
+```
+
+Calls carry no type-argument spelling — `pick<int>(3, 7)` is not the
+syntax. Every type parameter is inferred from the call's actuals,
+and the inference is exact match: two actuals supplying one type
+parameter with different kinds do not reconcile (`conflicting type
+arguments for T: "Int32" vs "String" (inference is exact match; pass
+arguments of one type).`). Any type an argument can have can supply
+a parameter — scalar primitives, `string`, enums, classes,
+interfaces, structs, array types and nested instantiations: with
+both `rows` and `cols` declared `int[]`, `pick(rows, cols)` infers
+`T = int[]`.
+
+A type parameter that only the return type mentions infers from the
+call's expected type: with `List<T> makeList<T>()`, the call
+`List<int> xs = makeList();` binds `T = int` from the assignment
+target. A result discarded outright leaves no inference source — the
+call reports `cannot infer type argument for T: T appears only in
+the return type; assign the result to a typed target.` A formal
+whose type is a bare type parameter carries no default value, as in
+§4.12.2.
+
+Inside the body, type parameters behave exactly as in a `static`
+member body (§4.12.2): the instantiation context comes from the call
+site, and equality, concatenation, printing, `as` casts and
+`typeName` on `T` dispatch on the kind the call was inferred with.
+The compile-time rejections are the same — relational and arithmetic
+operators on `T` report the type-parameter error, while storing,
+passing and returning a `T` value stay legal.
+
+A generic function may call other generic functions, forwarding its
+own type parameters; recursion is allowed, and a `T`-typed result
+composes as an actual of an outer inference:
+
+```nlang
+T head<T>(T a, T b) { return a; }
+T twice<T>(T v) { return head(v, v); }    // twice forwards T to head
+string label<T>(T v) { return typeName(T); }
+// label(twice(9)) == "int": the inner call infers first, the outer
+// composes over its result
+```
+
+A generic free function cannot be referenced as a `func` value — the
+handle record has no slot for the instantiation context, like a
+generic class's functions (§4.12.2); call it directly. Across
+compile units, an imported generic free function is fully usable
+from the importing unit: inference, forwarding and `typeName`
+dispatch work through the imported signature exactly as within one
+unit (§4.12.8).
+
+## 4.12.11 Generic interfaces
+
+An interface may declare type parameters the way a generic class
+does (§4.12.2): the parameters are spelled in angle brackets after
+the interface name and name ordinary types in member signatures.
+Instance members stay abstract signatures (§4.9.2) and may use the
+type parameters in parameter and return types; static methods carry
+bodies and compile once against the parameters, like a generic
+class's members.
+
+```nlang
+interface Pair<T, U> {
+    public T first(T a, U b);
+    public U second(T a, U b);
+    public static T echo(T v) { return v; }
+}
+```
+
+A class implements a generic interface with an instantiation: the
+type arguments are spelled at the `implements` clause and fix the
+contract the class must satisfy — every instance signature is
+checked against the substituted types.
+
+```nlang
+class Both implements Pair<int, string> {
+    public int first(int a, string b) { return a; }
+    public string second(int a, string b) { return b; }
+}
+```
+
+Each instantiation is a distinct interface type (§4.12.1): one
+class may implement `Pair<int, string>` and `Pair<string, int>`
+side by side, and a value of one instantiation does not convert to
+another. The argument count must match the declaration — spelling
+`implements Pair<int, string>` against `interface Pair<T>` reports
+`The generic interface "Pair" expects 1 type argument(s).` A class
+that omits a member reports the ordinary contract diagnostic with
+the substituted signature (§4.9.1).
+
+Values and dispatch follow the ordinary interface model: an
+instance call through an interface-typed value dispatches by name
+into the implementing class's records (§4.9.4), and `T`-typed
+positions move values by the kinds the instantiation fixed —
+scalar arguments store through the reference model exactly as
+container elements do (§4.12.1).
+
+A static member is called through an instantiation spelling, which
+fixes the instantiation at the call site the way a generic class's
+static call does (§4.12.2):
+
+```nlang
+Pair<int, string>.echo(7)     // T = int,    returns 7
+Pair<string, int>.echo("z")   // T = string, returns "z"
+```
+
+The static face keeps its ordinary rules: constants take concrete
+types only — a constant cannot have a type parameter as its type,
+because no value domain exists before the instantiation — and a
+`T`-typed formal carries no default value (§4.12.2). Across
+compile units the imported template is usable exactly as within
+one unit (§4.12.8): after `import lib;`, `Pipe<int>.echo(21)`
+calls the imported interface's static with the call site's
+instantiation.

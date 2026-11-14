@@ -6,8 +6,8 @@
 %lex-param { yyscan_t yyscanner }
 %locations
 %debug
-/*v0.9.1: the grammar now carries accepted reduce/reduce conflicts (3 at
-the 2026-11-02 re-measure),
+/*v0.9.1: the grammar now carries accepted reduce/reduce conflicts (5 at
+the 2026-11-08 re-measure; 3 through 2026-11-07),
 and deterministic parsers cannot use %expect alongside any r/r
 conflict, so there is no %expect here. The counts are pinned by the
 accepted-conflict ledger below and re-measured by the direct bison
@@ -313,7 +313,9 @@ static bool CollectQualifiedSegments(
 %type <v_NodeFlags>    			NodeFlag
 %type <v_NodeFlags>				NodeFlagsNonEmpty
 %type <v_pNameExpr>				NameExpr
-%type <v_pFieldExpr>				Type TypeArg QualifiedType HeadType TypeName
+%type <v_pFieldExpr>				Type TypeArg QualifiedType HeadType TypeName ImplementsName
+%type <v_pFieldExpr>				AsGenericTarget
+%type <v_pFieldExpr>				QualifiedGenericReceiver
 %type <v_pFieldExprVec>			TypeList
 %type <v_pIdentifierExpr>		IdentifierExpr
 %type <v_pInvokeExpr>			InvokeExpr
@@ -333,7 +335,7 @@ static bool CollectQualifiedSegments(
 %type <v_pExpression>			SliceItem SliceHead SliceStop SliceStepOpt SliceStep
 %type <v_pInitEntryList>		InitEntries InitEntryList
 %type <v_pInitEntry>			InitEntry
-%type <v_pFunction>				TopBareFunc TopModFunc TopBareHeader TopModHeader
+%type <v_pFunction>				TopBareFunc TopModFunc TopBareHeader TopModHeader TopGenericBareHeader TopGenericModHeader
 %type <v_pParagraph>			Paragraph DefaultCase FunctionBodyOrSemi
 %type <v_pStatementList>		StatementList
 %type <v_pStatement>			Statement ReturnStmt InvokeStmt LocalDeclStmt AssignStmt CompoundAssignStmt AssertStmt SubscriptAssignStmt IfStmt WhileStmt InitFor FiniFor TryStmt ThrowStmt SuperCallStmt FinallyClauseOpt
@@ -432,6 +434,7 @@ static bool CollectQualifiedSegments(
 %token KT_Throw
 %token KT_True
 %token KT_Try
+%token KT_TypeName
 %token KT_Ubyte
 %token KT_Uint
 %token KT_ULong
@@ -620,6 +623,26 @@ TopItem:	NamespaceMember {
 					} |
 					TopModFunc {
 						$$ = $1;
+					} |
+					//v0.13.0 D5: bare const-led function shapes parse here so
+					//the rejection can name the rule — otherwise the shape
+					//rides the statement path and dies at the body or param
+					//tokens with a bare syntax error. Top-level only: the
+					//in-body `const T p();` zero-argument construction keeps
+					//its LocalDeclList reading. The public spellings mint an
+					//SnFunction and are named by the resolver contract check.
+					//Adds one shared-paren conflict state (1 s/r + 2 r/r) of
+					//the accepted epsilon family — see the FormalParamList
+					//comment and the ledger header counts.
+					KT_Const HeadType TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
+						parser.Log(CLL_Error, @1,
+							"const is not allowed on functions; declare it without const.");
+						$$ = nullptr;
+					} |
+					KT_Const KT_Void TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
+						parser.Log(CLL_Error, @1,
+							"const is not allowed on functions; declare it without const.");
+						$$ = nullptr;
 					} ;
 
 //v3H (updated 0.9.15): the bare form without a body is a declaration and
@@ -635,7 +658,42 @@ TopBareFunc:	TopBareHeader Paragraph {
 					KT_Func TopBareHeader ';' {
 						$2->AddFlags(NF_Abstract);
 						$$ = $2;
+					} |
+					//0.13.1a: the generic spellings ride the same Paragraph /
+					//abstract ';' assemblies as the plain header.
+					TopGenericBareHeader Paragraph {
+						$1->Body($2);
+						$$ = $1;
+					} |
+					KT_Func TopGenericBareHeader ';' {
+						$2->AddFlags(NF_Abstract);
+						$$ = $2;
 					} ;
+
+//0.13.1a: generic free function declarations. A REQUIRED TypeParams
+//bracket on arms of its own — NOT the optional TypeParamsOpt the class
+//head uses. After `Type name` the '(' lookahead must keep the baseline
+//deferred decision between the function-formals reading and the
+//constructor-initializer local reading (LocalDeclList shares this state);
+//an epsilon bracket there would lose to shift-preference and hijack every
+//ordinary function definition into LocalDeclList. The '<'-family
+//lookaheads (plain '<' for unknown names, OT_TypeLt for probe-matched
+//spellings like `f<T>(`) have no competing derivation in this state.
+TopGenericBareHeader:	HeadType TT_Identifier TypeParams '(' FormalParamList ')' {
+							$$ = new SnFunction(FA_Default, NF_NONE, $1, $2, $5, @1);
+							$$->SetTypeParamNames(std::move(*$3));
+							delete $3;
+						} |
+						HeadType TT_Identifier TypeParams '(' ')' {
+							$$ = new SnFunction(FA_Default, NF_NONE, $1, $2, new PtrList<SnFormalParam>(), @1);
+							$$->SetTypeParamNames(std::move(*$3));
+							delete $3;
+						} |
+						KT_Void TT_Identifier TypeParams '(' FormalParamList ')' {
+							$$ = new SnFunction(FA_Default, NF_NONE | NF_ExplicitVoid, nullptr, $2, $5, @1);
+							$$->SetTypeParamNames(std::move(*$3));
+							delete $3;
+						} ;
 
 TopBareHeader:	HeadType TT_Identifier '(' FormalParamList ')' {
 						$$ = new SnFunction(FA_Default, NF_NONE, $1, $2, $4, @1);
@@ -657,7 +715,47 @@ TopModFunc:	TopModHeader FunctionBodyOrSemi {
 						else
 							$1->Body($2);
 						$$ = $1;
+					} |
+					TopGenericModHeader FunctionBodyOrSemi {
+						if ($2 == nullptr)
+							$1->AddFlags(NF_Abstract);
+						else
+							$1->Body($2);
+						$$ = $1;
 					} ;
+
+//Generic variants of the modifier-led header — same matrix, required
+//TypeParams bracket, same reasoning as TopGenericBareHeader above.
+TopGenericModHeader:	AccessTypeNonEmpty HeadType TT_Identifier TypeParams '(' FormalParamList ')' {
+							$$ = new SnFunction($1, NF_NONE, $2, $3, $6, @2);
+							$$->SetTypeParamNames(std::move(*$4));
+							delete $4;
+						} |
+						AccessTypeNonEmpty KT_Void TT_Identifier TypeParams '(' FormalParamList ')' {
+							$$ = new SnFunction($1, NF_NONE | NF_ExplicitVoid, nullptr, $3, $6, @2);
+							$$->SetTypeParamNames(std::move(*$4));
+							delete $4;
+						} |
+						AccessTypeEmpty NodeFlagsNonEmpty HeadType TT_Identifier TypeParams '(' FormalParamList ')' {
+							$$ = new SnFunction($1, $2, $3, $4, $7, @3);
+							$$->SetTypeParamNames(std::move(*$5));
+							delete $5;
+						} |
+						AccessTypeEmpty NodeFlagsNonEmpty KT_Void TT_Identifier TypeParams '(' FormalParamList ')' {
+							$$ = new SnFunction($1, $2 | NF_ExplicitVoid, nullptr, $4, $7, @3);
+							$$->SetTypeParamNames(std::move(*$5));
+							delete $5;
+						} |
+						AccessTypeNonEmpty NodeFlagsNonEmpty HeadType TT_Identifier TypeParams '(' FormalParamList ')' {
+							$$ = new SnFunction($1, $2, $3, $4, $7, @3);
+							$$->SetTypeParamNames(std::move(*$5));
+							delete $5;
+						} |
+						AccessTypeNonEmpty NodeFlagsNonEmpty KT_Void TT_Identifier TypeParams '(' FormalParamList ')' {
+							$$ = new SnFunction($1, $2 | NF_ExplicitVoid, nullptr, $4, $7, @3);
+							$$->SetTypeParamNames(std::move(*$5));
+							delete $5;
+						} ;
 
 TopModHeader:	AccessTypeNonEmpty HeadType TT_Identifier '(' FormalParamList ')' {
 						$$ = new SnFunction($1, NF_NONE, $2, $3, $5, @2);
@@ -735,7 +833,9 @@ FormalParamList:	FormalParamList ',' FormalParam {
 							/*on empty */
 							$$ = new PtrList<SnFormalParam>();
 							//v0.9.1: this epsilon and ConcreteParamList's epsilon meet in
-							//the shared paren state (2 r/r). Rule order picks the winner:
+							//the shared paren state (2 r/r; a third such state exists
+						//since v0.13.0 behind the top-level const-function
+						//diagnostic arms on TopItem). Rule order picks the winner:
 							//FormalParamList stays earlier in this file, so the function
 							//header wins and zero-parameter definitions parse (D6).
 						} ;
@@ -1674,6 +1774,19 @@ TypeParams:	'<' TT_Identifier TypeParamRests '>' {
 					$$ = $3;
 					$$->insert($$->begin(), *$2);
 					delete $2;
+				} |
+				OT_TypeLt TT_Identifier TypeParamRests '>' {
+					/*0.13.1a: the probe-matched spelling. A generic
+					 *FUNCTION declaration `f<T>(...)` scans as OT_TypeLt —
+					 *the forward probe sees identifier '<' ids '>' '(' and
+					 *cannot see the declaration/expression distinction —
+					 *while a generic CLASS declaration `c<T>` arrives
+					 *plain. The declaration-side list accepts both
+					 *openers; both incremented the scan-time depth, so
+					 *">>" splits identically inside. */
+					$$ = $3;
+					$$->insert($$->begin(), *$2);
+					delete $2;
 				} ;
 
 TypeParamRests:	{
@@ -1712,14 +1825,41 @@ ImplementsOpt:	KT_Implements NameList {
 				} ;
 
 /*
-Comma-separated list of TypeName values (for the implements clause).
-Returns a PtrList<SnFieldExpr> owning the type-name expressions.
+One implements-clause entry: a plain type name, or the generic
+spelling `I<Args>` (0.13.1c). The generic arms live HERE, not on
+TypeName: TypeName is shared with the `as`-expression position, where
+`x as y < z` is a legal comparison today — the merged LALR state would
+resolve the '<' shift-default for BOTH and silently break that
+spelling. The implements position is unambiguous (a '<' after an
+entry's head can only open type arguments), so the dual angle spellings
+follow the Type rule exactly: OT_TypeLt for scan-flagged names, plain
+'<' (with the scan-time depth increment) for user-declared generics.
+Both mint the same SnGenericTypeExpr the type path builds, so the
+clause resolves through the one generic-use path and the class binds
+the INSTANTIATED interface.
 */
-NameList:	TypeName {
+ImplementsName:	TypeName { $$ = $1; } |
+				IdentifierExpr OT_TypeLt TypeList '>' {
+					$$ = new SnGenericTypeExpr(new SnNameExpr($1, @1),
+						$3, @1);
+				} |
+				IdentifierExpr '<' {
+						parser.Scanner().IncGenericDepth();
+					} TypeList '>' {
+						$$ = new SnGenericTypeExpr(new SnNameExpr($1, @1),
+							$4, @1);
+					} ;
+
+/*
+Comma-separated list of ImplementsName values (for the implements
+clause). Returns a PtrList<SnFieldExpr> owning the type-name
+expressions.
+*/
+NameList:	ImplementsName {
 					$$ = new PtrList<SnFieldExpr>();
 					$$->push_back($1);
 				} |
-				NameList ',' TypeName {
+				NameList ',' ImplementsName {
 					$1->push_back($3);
 					$$ = $1;
 				} ;
@@ -1727,13 +1867,25 @@ NameList:	TypeName {
 /*
 Interface type declaration. Members are method signatures; only a
 static member may carry a body (resolver-enforced). An interface
-establishes a contract that implementing classes must satisfy.
+establishes a contract that implementing classes must satisfy. The
+optional type-parameter list (0.13.1c) mirrors the ClassDecl shape:
+declaration context only, so the leading '<' has no competing
+production.
 */
-InterfaceDecl:	KT_Interface TT_Identifier '{' InterfaceMemberList '}' {
-					$$ = new SnInterfaceDecl($2, $4, @1);
+InterfaceDecl:	KT_Interface TT_Identifier TypeParamsOpt '{' InterfaceMemberList '}' {
+					auto* pIface = new SnInterfaceDecl($2, $5, @1);
+					if ($3)
+						pIface->SetTypeParamNames(std::move(*$3));
+					delete $3;
+					$$ = pIface;
 				} |
-				KT_Interface TT_Identifier '{' '}' {
-					$$ = new SnInterfaceDecl($2, new PtrList<SnField>(), @1);
+				KT_Interface TT_Identifier TypeParamsOpt '{' '}' {
+					auto* pIface = new SnInterfaceDecl($2,
+						new PtrList<SnField>(), @1);
+					if ($3)
+						pIface->SetTypeParamNames(std::move(*$3));
+					delete $3;
+					$$ = pIface;
 				} ;
 
 InterfaceMemberList:	InterfaceMemberList InterfaceMember {
@@ -1819,18 +1971,25 @@ ClassMemberList:	ClassMemberList ClassMember {
 					$$->push_back($1);
 				} ;
 
+//0.13.1c: a bodyless non-native method IS an abstract method — there
+//is no separate keyword. Abstract implies virtual, so the pair
+//NF_Abstract | NF_Virtual is minted together here (grammar-time, like
+//the explicit `virtual` keyword: PropagateVirtualOverrides reads the
+//ancestor's flag at derived-resolution time, and the class bases are
+//only pointer-bound by then). Native declarations are record-only
+//(isNative) and never abstract.
 ClassMember:	AccessType NodeFlag Type TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
 					auto* func = new SnFunction($1, $2, $3, $4, $6, @2);
-					if ($8 == nullptr)
-						func->AddFlags(NF_Abstract);
+					if ($8 == nullptr && ($2 & NF_Native) == 0)
+						func->AddFlags(NF_Abstract | NF_Virtual);
 					else
 						func->Body($8);
 					$$ = func;
 				} |
 				AccessType NodeFlagsNonEmpty Type TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
 					auto* func = new SnFunction($1, $2, $3, $4, $6, @3);
-					if ($8 == nullptr)
-						func->AddFlags(NF_Abstract);
+					if ($8 == nullptr && ($2 & NF_Native) == 0)
+						func->AddFlags(NF_Abstract | NF_Virtual);
 					else
 						func->Body($8);
 					$$ = func;
@@ -1838,7 +1997,7 @@ ClassMember:	AccessType NodeFlag Type TT_Identifier '(' FormalParamList ')' Func
 				AccessType Type TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
 					auto* func = new SnFunction($1, NF_NONE, $2, $3, $5, @2);
 					if ($7 == nullptr)
-						func->AddFlags(NF_Abstract);
+						func->AddFlags(NF_Abstract | NF_Virtual);
 					else
 						func->Body($7);
 					$$ = func;
@@ -1846,16 +2005,16 @@ ClassMember:	AccessType NodeFlag Type TT_Identifier '(' FormalParamList ')' Func
 
 				AccessType NodeFlag KT_Void TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
 					auto* func = new SnFunction($1, $2 | NF_ExplicitVoid, nullptr, $4, $6, @2);
-					if ($8 == nullptr)
-						func->AddFlags(NF_Abstract);
+					if ($8 == nullptr && ($2 & NF_Native) == 0)
+						func->AddFlags(NF_Abstract | NF_Virtual);
 					else
 						func->Body($8);
 					$$ = func;
 				}
 				| AccessType NodeFlagsNonEmpty KT_Void TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
 					auto* func = new SnFunction($1, $2 | NF_ExplicitVoid, nullptr, $4, $6, @3);
-					if ($8 == nullptr)
-						func->AddFlags(NF_Abstract);
+					if ($8 == nullptr && ($2 & NF_Native) == 0)
+						func->AddFlags(NF_Abstract | NF_Virtual);
 					else
 						func->Body($8);
 					$$ = func;
@@ -1863,7 +2022,7 @@ ClassMember:	AccessType NodeFlag Type TT_Identifier '(' FormalParamList ')' Func
 				| AccessType KT_Void TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
 					auto* func = new SnFunction($1, NF_NONE | NF_ExplicitVoid, nullptr, $3, $5, @2);
 					if ($7 == nullptr)
-						func->AddFlags(NF_Abstract);
+						func->AddFlags(NF_Abstract | NF_Virtual);
 					else
 						func->Body($7);
 					$$ = func;
@@ -1875,9 +2034,15 @@ ClassMember:	AccessType NodeFlag Type TT_Identifier '(' FormalParamList ')' Func
 				//by the declaration contract. LALR: '(' after the identifier
 				//separates this shape from the typed productions (after a
 				//reduced Type the parser needs a name token, not '(').
+				//The three ctor-spelling arms (no return type): whether the
+				//member is a constructor is semantic (name == class name),
+				//so the abstract pair stops at NF_Abstract here — NF_Virtual
+				//is dispatch bookkeeping a constructor must never carry
+				//(the ctor flag contract rejects it), and the resolver's
+				//abstract contract pass names the ctor conflict itself.
 				AccessType NodeFlag TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
 					auto* func = new SnFunction($1, $2, nullptr, $3, $5, @2);
-					if ($7 == nullptr)
+					if ($7 == nullptr && ($2 & NF_Native) == 0)
 						func->AddFlags(NF_Abstract);
 					else
 						func->Body($7);
@@ -1885,7 +2050,7 @@ ClassMember:	AccessType NodeFlag Type TT_Identifier '(' FormalParamList ')' Func
 				} |
 				AccessType NodeFlagsNonEmpty TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
 					auto* func = new SnFunction($1, $2, nullptr, $3, $5, @3);
-					if ($7 == nullptr)
+					if ($7 == nullptr && ($2 & NF_Native) == 0)
 						func->AddFlags(NF_Abstract);
 					else
 						func->Body($7);
@@ -2263,6 +2428,11 @@ Expression:	ParenthesesExpr	{ $$ = $1; } |
 				SubscriptExpr		{ $$ = $1; } |
 				KT_This		{ $$ = new SnThisExpr(@1); } |
 				KT_Null		{ auto* _nl = new SnLiteralExpr(*RnInt32::Instance(), 0, @1); _nl->AddFlags(NF_NullLiteral); $$ = _nl; } |
+				//v0.13.1 D4: typeName(Type) — the canonical spelling of a
+				//type as a string. KT_TypeName leads no other rule, so the
+				//parenthesized Type (the same nonterminal the unambiguous
+				//type positions use) needs no dedicated state.
+				KT_TypeName '(' Type ')'	{ $$ = new SnTypeNameExpr($3, @1); } |
 				//Phase 8e-6: bare `[...]` array/list literal. Only the bracket
 				//form is allowed bare; dict/struct `{...}` requires an anchored
 				//type (`Vec{...}`) because bare `{...}` would LALR-conflict
@@ -2286,15 +2456,31 @@ Expression:	ParenthesesExpr	{ $$ = $1; } |
 				//production it must never compete with the comparison
 				//'<' — a plain-'<' opener here would flip every
 				//`a < b` expression state to the generic reading
-				//(0.11 merge re-measure). Declared generics have no
-				//expression-position generic use; their type contexts
-				//parse on the plain-'<' arms. In this state '{' shifts
+				//(0.11 merge re-measure). Since 0.13.1a Task 3 declared
+				//generics gained expression-position use too, through
+				//QualifiedGenericReceiver on the probe-minted OT_TypeLt
+				//(below); their type contexts still parse on the
+				//plain-'<' arms. In this state '{' shifts
 				//(the literal) and a name reduces the type.
 				IdentifierExpr OT_TypeLt TypeList '>' '{' InitEntries '}' {
 					$$ = new SnInitListExpr(
 						new SnGenericTypeExpr(new SnNameExpr($1, @1), $3, @1),
 						*$6, false, @1);
 					delete $6;
+				} |
+				//0.13.1a Task 3: constructor call on an explicit
+				//instantiation — `Hold<int>(5)`. The receiver is the
+				//probe-minted QualifiedGenericReceiver; SnNewExpr takes
+				//the class name as a SnFieldExpr and the argument list
+				//exactly like the SnInvokeExpr arm does.
+				QualifiedGenericReceiver '(' ConcreteParamList ')' {
+					//0.13.1c identity rescue: keep the verbatim bytes —
+					//when this spelling turns out to be a misread
+					//comparison shape, the rescue re-parses exactly what
+					//was written, not an AST re-render.
+					auto *pNew = new SnNewExpr($1, $3, @1);
+					pNew->SpanText(parser.CaptureSpanText(@1, @4));
+					$$ = pNew;
 				} |
 				Expression '+' Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_Add, $1, $3, @1); } |
 				Expression '-' Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_Sub, $1, $3, @1); } |
@@ -2323,6 +2509,41 @@ Expression:	ParenthesesExpr	{ $$ = $1; } |
 				'!' Expression					{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_LogicalNot, $2, @1); } |
 				'~' Expression					{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_BitNot, $2, @1); } |
 				Expression KT_As TypeName		{ $$ = new SnAsExpr($1, $3, @2); } |
+				//v0.13.1 D5: the as-target gains the generic spelling —
+				//`o as Box<int>` distinguishes instantiations of one erased
+				//template row (the descriptor check joins OP_CheckCast).
+				//Both angle spellings mirror Type's generic arms: OT_TypeLt
+				//for scan-flagged names (built-ins), plain '<' with the
+				//mid-rule depth increment for user-declared templates.
+				Expression KT_As IdentifierExpr OT_TypeLt TypeList '>'	{
+						$$ = new SnAsExpr($1,
+							new SnGenericTypeExpr(new SnNameExpr($3, @3), $5, @3), @2);
+					} |
+				//v0.13.1 D5: the plain-'<' generic target routes through
+				//AsGenericTarget (one mid-rule depth increment for the
+				//whole family — see its rule).
+				Expression KT_As AsGenericTarget	{
+						$$ = new SnAsExpr($1, $3, @2);
+					} |
+				//v0.13.1 D5: the annotated array of instantiations —
+				//`o as Box<string>[]`. The element check joins the rank
+				//check (OP_CheckArrayType + the element descriptor row).
+				Expression KT_As IdentifierExpr OT_TypeLt TypeList '>' OT_Brackets	{
+						$$ = new SnAsExpr($1,
+							new SnArrayTypeExpr(
+								new SnGenericTypeExpr(new SnNameExpr($3, @3), $5, @3), @7),
+							@2);
+					} |
+				Expression KT_As AsGenericTarget OT_Brackets
+					{ $$ = new SnAsExpr($1, new SnArrayTypeExpr($3, @4), @2); } |
+				Expression KT_As IdentifierExpr OT_TypeLt TypeList '>' OT_BracketsND	{
+						$$ = new SnAsExpr($1,
+							MakeArrayTypeND(
+								new SnGenericTypeExpr(new SnNameExpr($3, @3), $5, @3),
+								@7, $7, parser), @2);
+					} |
+				Expression KT_As AsGenericTarget OT_BracketsND
+					{ $$ = new SnAsExpr($1, MakeArrayTypeND($3, @4, $4, parser), @2); } |
 				//v0.12.7: the as-target gains the bracket spellings — the
 				//boundary rank check (OP_CheckArrayRank) is the whole point
 				//of `dyn as int[]`. The generic spelling adds nothing as a
@@ -2345,10 +2566,49 @@ Expression:	ParenthesesExpr	{ $$ = $1; } |
 
 ParenthesesExpr: '(' Expression ')' { $$ = $2; } ;
 
+//v0.13.1 D5: the plain-'<' generic as-target core for the array-suffix
+//arms (`o as Box<string>[]`). Its ONE mid-rule depth increment is its
+//own parse position — an inline twin inside the Expression arms would
+//put three empty actions on one position, and the reduce/reduce
+//resolution keeps only the first (the suffix arms would go dead).
+AsGenericTarget:	IdentifierExpr '<' {
+						parser.Scanner().IncGenericDepth();
+					} TypeList '>'	{
+						$$ = new SnGenericTypeExpr(
+							new SnNameExpr($1, @1), $4, @1);
+					} ;
+
+//0.13.1a Task 3: expression-position generic spelling on a declared
+//generic name — `Pair<int, string>.sig()` (static member call) and
+//`Hold<int>(5)` (constructor call). The opener is the dedicated
+//OT_TypeLt minted by the scanner's spelling probe (an identifier
+//followed by a balanced <...> whose terminator is exactly '.' or '(' —
+//the C# "grammar ambiguities" resolution), so this nonterminal never
+//competes with the plain-'<' comparison arms (same Expression-position
+//discipline as the 0.10.8 anchored literal arm). Base + args mint like
+//the as-target arms; continuations live in MemberExpr ('.') and the
+//Expression constructor arm ('(').
+QualifiedGenericReceiver:
+				IdentifierExpr OT_TypeLt TypeList '>'	{
+					$$ = new SnGenericTypeExpr(
+						new SnNameExpr($1, @1), $3, @1);
+				} ;
+
 MemberExpr:	Expression '.' InvokeExpr		{
 					$$ = new SnMemberExpr($1, $3, @1);
 				} |
 				Expression '.' IdentifierExpr	{
+					$$ = new SnMemberExpr($1, $3, @1);
+				} |
+				//0.13.1a Task 3: explicit type-argument spelling on a
+				//static member call — `Pair<int, string>.sig()`. The
+				//receiver mints through the same SnGenericTypeExpr the
+				//as-target arms use, so the resolver's existing
+				//Access(SnGenericTypeExpr&) arm resolves it.
+				QualifiedGenericReceiver '.' InvokeExpr	{
+					$$ = new SnMemberExpr($1, $3, @1);
+				} |
+				QualifiedGenericReceiver '.' IdentifierExpr	{
 					$$ = new SnMemberExpr($1, $3, @1);
 				} ;
 

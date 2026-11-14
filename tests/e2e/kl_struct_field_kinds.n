@@ -1,0 +1,50 @@
+//v0.13.0 D1: the comparator's per-kind arms. Value fields (enum, byte,
+//string content) compare by value; reference fields (class, func)
+//compare by handle — the DeepCopyStruct dual. Func-field truth table:
+//independent bind chains allocate distinct records (MakeFunc never
+//interns) so they do NOT match; a struct copy preserves the handle so
+//it DOES match; a shared func local gives both structs one handle.
+enum Color { Red, Green }
+class C { public int id; public C(int i) { id = i; } }
+int dbl(int v) { return v * 2; }
+struct S {
+    Color c;
+    byte b;
+    string s;
+    C obj;
+    func<int, int> cb;
+}
+
+int main() {
+    S p;
+    p.c = Color.Red; p.b = 1; p.s = "hi"; p.obj = null; p.cb = dbl;
+    S q;
+    q.c = Color.Red; q.b = 1; q.s = "hi"; q.obj = null; q.cb = dbl;
+    List<S> l = {};
+    l.add(p);
+    //Independent func binds: distinct records — no match.
+    if (l.contains(q)) return 1;
+    //A struct copy keeps the stored func handle — match.
+    S copy = p;
+    if (!l.contains(copy)) return 2;
+    //A shared func local hands both structs the same handle — match.
+    func<int, int> shared = dbl;
+    p.cb = shared; q.cb = shared;
+    l.set(0, p);
+    if (!l.contains(q)) return 3;
+    //String field compares content, not the handle.
+    q.s = "h" + "i";
+    if (!l.contains(q)) return 4;
+    //Value-kind inequality cells.
+    q.s = "hi"; q.b = 2;
+    if (l.contains(q)) return 5;
+    q.b = 1; q.c = Color.Green;
+    if (l.contains(q)) return 6;
+    //Class field: identity — two distinct objects never match.
+    q.c = Color.Red; q.obj = C(7); C same = q.obj;
+    if (l.contains(q)) return 7;
+    l.set(0, q);
+    p.obj = same;
+    if (!l.contains(p)) return 8;
+    return 0;
+}

@@ -1,0 +1,19 @@
+//v0.13.0 D1 migration pin: the dedup idiom `if (!l.contains(p))
+//l.add(p);` used to append unconditionally (contains was always false
+//under identity comparison of value-copied elements); with value
+//comparison it genuinely dedups. The CHANGELOG migration note rides
+//on this pin.
+struct Point {
+    int x;
+    int y;
+    public Point(int a, int b) { x = a; y = b; }
+}
+
+int main() {
+    List<Point> pts = {};
+    if (!pts.contains(Point(1, 2))) pts.add(Point(1, 2));
+    if (!pts.contains(Point(1, 2))) pts.add(Point(1, 2));
+    if (pts.length() != 1) return 1;
+    if (!pts.contains(Point(1, 2))) return 2;
+    return 0;
+}

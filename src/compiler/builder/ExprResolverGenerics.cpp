@@ -12,6 +12,7 @@
 #include "BuiltinNames.h"
 #include "ModuleRegistry.h"
 #include <nlang/compiler/GenericInstanceRegistry.h>
+#include <nlang/compiler/TypeArgInference.h>
 #include <algorithm>
 #include <functional>
 #include <map>
@@ -334,33 +335,159 @@ void ExprResolveAccessor::WrapGenericElemArgs(SnFieldExpr *pInnerExpr)
 	auto &invoke = static_cast<SnInvokeExpr &>(*pInnerExpr);
 	if (!m_pContext || m_pContext->Kind() != NK_ClassDecl)
 		return;
-	auto &inst = static_cast<SnClassDecl &>(*m_pContext);
-	if (!inst.IsGenericInstantiation())
-		return;
-	auto &generics = m_Env.Registry().DeclaredGenerics();
-	SnClassDecl *pTmpl = generics.InstanceOf(&inst);
-	if (!pTmpl)
-		return;
-
-	std::vector<SnFunction *> members;
-	std::map<size_t, const SnField *> elemFormals;
-	if (!ElemFormalMaskOf(*pTmpl, invoke.CalleeName(), generics,
-			members, elemFormals))
-		return;
-
-	//Deferred-wrap discipline (the retired arm's lesson): FixupExprType
-	//frees the arg's list cell (Params() aliases Children()), so the
-	//targets collect first and the wraps apply after the scan.
-	std::vector<std::pair<SnExpression *, SnField *>> wrapTargets;
-	CollectElemWrapTargets(invoke, members, elemFormals, generics,
-		inst.GenericTypeArgs(), wrapTargets);
-	for (auto &target : wrapTargets)
+	auto &cls = static_cast<SnClassDecl &>(*m_pContext);
+	if (cls.IsGenericInstantiation())
 	{
-		auto castInfo = GetCastInfo(
-			target.first->EvalDataType(), target.second);
-		auto iArg = invoke.Children().find(target.first);
-		FixupExprType(iArg, castInfo);
+		auto &generics = m_Env.Registry().DeclaredGenerics();
+		SnClassDecl *pTmpl = generics.InstanceOf(&cls);
+		if (!pTmpl)
+			return;
+
+		std::vector<SnFunction *> members;
+		std::map<size_t, const SnField *> elemFormals;
+		if (!ElemFormalMaskOf(*pTmpl, invoke.CalleeName(), generics,
+				members, elemFormals))
+			return;
+
+		//Deferred-wrap discipline (the retired arm's lesson): FixupExprType
+		//frees the arg's list cell (Params() aliases Children()), so the
+		//targets collect first and the wraps apply after the scan.
+		std::vector<std::pair<SnExpression *, SnField *>> wrapTargets;
+		CollectElemWrapTargets(invoke, members, elemFormals, generics,
+			cls.GenericTypeArgs(), wrapTargets);
+		for (auto &target : wrapTargets)
+		{
+			auto castInfo = GetCastInfo(
+				target.first->EvalDataType(), target.second);
+			auto iArg = invoke.Children().find(target.first);
+			FixupExprType(iArg, castInfo);
+		}
+		return;
 	}
+	//0.13.1a Task 2: a template-row receiver (Maker.pass(7)) — the
+	//ordinary binding would score the actuals against the raw placeholder
+	//formals and reject; inference mints the instantiation first.
+	if (cls.IsGenericDeclaration())
+		TryInferTemplateRowStaticCall(invoke, cls);
+}
+
+//The D5 diagnosis for a template-row static whose type arguments no
+//actual supplies (the zero-argument shape): the generic invoke-
+//incompatible text would be misleading when no argument exists to be
+//incompatible, so the message names the callee and points at the
+//explicit spelling.
+static void LogCannotInferTypeArgs(BuildEnvironment &env,
+	SnInvokeExpr &invoke, SnClassDecl &tmpl)
+{
+	std::string paramList;
+	for (const auto &name : tmpl.TypeParamNames())
+	{
+		if (!paramList.empty())
+			paramList += ", ";
+		paramList += name;
+	}
+	env.Log(CLL_Error, invoke.Location(),
+		"cannot infer type argument for \"%s\" in \"%s.%s(...)\"; spell "
+		"the instantiation: %s<%s>(...).",
+		paramList.c_str(), tmpl.Name().c_str(),
+		invoke.CalleeName().c_str(), tmpl.Name().c_str(),
+		paramList.c_str());
+}
+
+namespace
+{
+//Same-name static candidates of the template row: the arm's call shape
+//(a type-name receiver admits statics only).
+std::vector<SnFunction *> TemplateRowStaticCandidates(SnClassDecl &tmpl,
+	const std::string &calleeName)
+{
+	std::vector<SnFunction *> candidates;
+	for (auto &member : tmpl.Members())
+	{
+		if (member.Kind() != NK_Function || member.Name() != calleeName)
+			continue;
+		auto &fn = static_cast<SnFunction &>(member);
+		if (!fn.ContainFlags(NF_Static))
+			continue;
+		candidates.push_back(&fn);
+	}
+	return candidates;
+}
+
+//True when an inferred argument is THIS template's own placeholder —
+//the in-class identity shape. The ordinary binding scores it directly;
+//pinning an instantiation here would kill the caller-forwarding
+//semantics generic_static_intra pins.
+bool BindsOwnTemplatePlaceholder(GenericInstanceRegistry &generics,
+	SnClassDecl &tmpl, const std::vector<SnField *> &args)
+{
+	const auto &params = tmpl.TypeParamNames();
+	for (size_t o = 0; o < params.size(); ++o)
+	{
+		if (generics.IsPlaceholder(args[o])
+			&& args[o] == generics.PlaceholderFor(tmpl, params[o], o))
+			return true;
+	}
+	return false;
+}
+} //namespace
+
+//0.13.1a Task 2: a type-name-qualified static call into a generic
+//TEMPLATE row (Maker.pass(7)). Infers the type arguments from the
+//resolved actuals, mints the instantiation, and leaves m_pContext on it
+//— the queued invoke resolution binds the substituted clone member, so
+//formals AND the return type carry the inferred arguments into binding
+//and codegen. Silent when the call is not the arm's shape: named
+//arguments, no static candidate, per-candidate shape mismatches (the
+//ordinary path's per-argument notes are the precise report there), and
+//candidates that would pin an instantiation over an own-placeholder
+//actual (the in-class identity shape — Task 1's caller forwarding owns
+//it). Two candidates that infer DIFFERENT arguments are not ranked
+//(no specificity ordering) — the arm declines and the ordinary
+//diagnostic reports.
+void ExprResolveAccessor::TryInferTemplateRowStaticCall(
+	SnInvokeExpr &invoke, SnClassDecl &tmpl)
+{
+	auto &generics = m_Env.Registry().DeclaredGenerics();
+	if (HasNamedArgument(invoke))
+		return;
+	std::vector<SnExpression *> actuals;
+	for (auto &arg : invoke.Params())
+		actuals.push_back(&arg);
+
+	std::vector<SnFunction *> candidates =
+		TemplateRowStaticCandidates(tmpl, invoke.CalleeName());
+	if (candidates.empty())
+		return;
+
+	std::vector<SnField *> args;
+	bool bUnbound = false;
+	for (auto *pCand : candidates)
+	{
+		auto outcome = InferTypeArgsForCall(generics, *pCand, actuals);
+		if (outcome.result == TypeArgInferenceResult::Mismatched)
+			continue;
+		if (outcome.result == TypeArgInferenceResult::Unbound)
+		{
+			bUnbound = true;
+			continue;
+		}
+		std::vector<SnField *> candArgs = std::move(outcome.bindings);
+		if (BindsOwnTemplatePlaceholder(generics, tmpl, candArgs))
+			return;
+		if (!args.empty() && args != candArgs)
+			return;
+		args = std::move(candArgs);
+	}
+	if (args.empty())
+	{
+		if (bUnbound)
+			LogCannotInferTypeArgs(m_Env, invoke, tmpl);
+		return;
+	}
+	auto *pInst = GetDeclaredGenericClassDecl(tmpl, args);
+	if (pInst)
+		m_pContext = pInst;
 }
 
 } //namespace nlang

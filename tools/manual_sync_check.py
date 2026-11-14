@@ -75,6 +75,25 @@ def resolve(repo: Path, rev: str) -> str:
     return probe.stdout.strip()
 
 
+def carries_only_baseline(repo: Path, entry: str) -> bool:
+    """True when the commit touched nothing but the baseline file.
+
+    A pure baseline refresh is bookkeeping by definition (it can never
+    carry a user-visible change), and it always lands AFTER the hash
+    it records — without this exemption every --update-then-commit
+    cycle reports one permanent self-referential drift.
+    """
+    files = run_git(repo, "show", "--name-only", "--format=",
+                    entry.split()[0])
+    if files.returncode != 0:
+        return False
+    touched = [ln.strip() for ln in files.stdout.splitlines()
+               if ln.strip()]
+    #git always reports forward slashes; the constant is a Path, whose
+    #native spelling is backslash on Windows — compare in posix form.
+    return touched == [BASELINE_REL.as_posix()]
+
+
 def report(repo: Path) -> int:
     baseline = resolve(repo, read_baseline(repo))
     log = run_git(repo, "log", "--oneline", f"{baseline}..HEAD")
@@ -83,6 +102,8 @@ def report(repo: Path) -> int:
               + log.stderr.strip())
         raise SystemExit(EXIT_ERROR)
     entries = [line for line in log.stdout.splitlines() if line.strip()]
+    entries = [line for line in entries
+               if not carries_only_baseline(repo, line)]
     if not entries:
         print(f"manual_sync_check: no drift - the manual covers "
               f"through {baseline[:12]}")

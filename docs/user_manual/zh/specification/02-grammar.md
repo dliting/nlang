@@ -28,14 +28,22 @@ Using           = "using" NameExpr ";"
 TopMemberList   = { TopItem } ;
 TopItem         = NamespaceMember | Statement | TopBareFunc | TopModFunc ;
 TopBareFunc     = TopBareHeader Paragraph
-                | "func" TopBareHeader ";" ;
+                | "func" TopBareHeader ";"
+                | TopGenericBareHeader Paragraph
+                | "func" TopGenericBareHeader ";" ;
 TopBareHeader   = ( HeadType | "void" ) <identifier> "(" [ FormalParamList ] ")" ;
-TopModFunc      = TopModHeader FunctionBodyOrSemi ;
+TopGenericBareHeader = ( HeadType | "void" ) <identifier> TypeParams
+                       "(" [ FormalParamList ] ")" ;
+TopModFunc      = TopModHeader FunctionBodyOrSemi
+                | TopGenericModHeader FunctionBodyOrSemi ;
 TopModHeader    = ( AccessType [ NodeFlags ] | NodeFlags )
                   ( HeadType | "void" ) <identifier> "(" [ FormalParamList ] ")" ;
+TopGenericModHeader = ( AccessType [ NodeFlags ] | NodeFlags )
+                      ( HeadType | "void" ) <identifier> TypeParams
+                      "(" [ FormalParamList ] ")" ;
 ```
 
-顶层函数不带访问修饰符且不带标志时即为*裸函数*（第7章）；`TopModHeader`要求二者至少居其一，这正是区分两种形式的判据。
+顶层函数不带访问修饰符且不带标志时即为*裸函数*（第7章）；`TopModHeader`要求二者至少居其一，这正是区分两种形式的判据。两个泛型变体在函数名与形参表之间带类型参数名表（`TypeParams`，与泛型类的声明一致），声明泛型自由函数。
 
 ## 2.3 类型与类型实参
 
@@ -50,7 +58,8 @@ TypeArg         = [ "out" ] Type ;
 TypeName        = NameExpr | QualifiedType ;
 NameExpr        = IdentifierExpr ;
 QualifiedType   = NameExpr "." <identifier> { "." <identifier> } ;
-NameList        = TypeName { "," TypeName } ;
+NameList        = ImplementsName { "," ImplementsName } ;
+ImplementsName  = TypeName | <identifier> "<" TypeList ">" ;
 HeadType        = ( IdentifierExpr [ "<" TypeArgs ">" ]
                   | "func" "<" TypeArgs ">" | MemberExpr )
                   { "[]" | "[,,]" } ;
@@ -86,7 +95,7 @@ StructField     = [ AccessType ] Type <identifier> [ "=" Expression ] ";" ;
 StructCtor      = [ AccessType ] [ NodeFlags ] <identifier>
                   "(" [ FormalParamList ] ")" FunctionBodyOrSemi ;
 
-InterfaceDecl   = "interface" <identifier>
+InterfaceDecl   = "interface" <identifier> TypeParamsOpt
                   "{" [ InterfaceMemberList ] "}" ;
 InterfaceMemberList = InterfaceMember { InterfaceMember } ;
 InterfaceMember = [ AccessType ] [ NodeFlags ]
@@ -188,12 +197,16 @@ Expression      = ParenthesesExpr | MemberExpr | LiteralExpr
                 | <identifier> "<" TypeList ">" "{" [ InitEntryList ] "}"
                 | Expression BinaryOp Expression
                 | UnaryOp Expression
-                | Expression "as" TypeName
+                | Expression "as" TypeName [ "[]" | "[,,]" ]
+                | Expression "as" AsGenericTarget
+                | QualifiedGenericReceiver "(" [ ConcreteParamList ] ")"
                 | "func" "<" TypeList ">" "(" [ ConcreteParamList ] ")" ;
 BinaryOp        = "+" | "-" | "*" | "/" | "%"
                 | "<" | "<=" | ">" | ">=" | "<<" | ">>"
                 | "==" | "!=" | "&" | "^" | "|" | "&&" | "||" ;
 UnaryOp         = "-" | "+" | "!" | "~" ;
+AsGenericTarget = IdentifierExpr "<" TypeList ">" [ "[]" | "[,,]" ] ;
+QualifiedGenericReceiver = IdentifierExpr "<" TypeList ">" ;
 
 ParenthesesExpr = "(" Expression ")" ;
 LiteralExpr     = <int-literal> | <long-literal> | <ulong-literal>
@@ -204,7 +217,8 @@ IdentifierExpr  = <identifier> | TypeKeyword ;
 TypeKeyword     = "int" | "byte" | "ubyte" | "short" | "ushort"
                 | "uint" | "long" | "ulong" | "float" | "double"
                 | "string" | "bool" | "char" ;
-MemberExpr      = Expression "." ( InvokeExpr | IdentifierExpr ) ;
+MemberExpr      = Expression "." ( InvokeExpr | IdentifierExpr )
+                | QualifiedGenericReceiver "." ( InvokeExpr | IdentifierExpr ) ;
 InvokeExpr      = <identifier> "(" [ ConcreteParamList ] ")" ;
 SubscriptExpr   = Expression "[" SubscriptItemList "]" ;
 SubscriptItemList = SubscriptItem { "," SubscriptItem } ;
@@ -227,7 +241,7 @@ ConcreteParam   = <identifier> "=" ( Expression | BracedInitExpr )
                 | Expression | BracedInitExpr ;
 ```
 
-`IdentifierExpr`容纳基本类型关键字，使类型名可以出现在期望表达式头部的位置（静态风格的成员访问与类型实参头部）。`func<...>(...)`形式是函数值表达式（第7章）。
+`IdentifierExpr`容纳基本类型关键字，使类型名可以出现在期望表达式头部的位置（静态风格的成员访问与类型实参头部）。`func<...>(...)`形式是函数值表达式（第7章）。`AsGenericTarget`是泛型`as`目标，即`e as Box<int>`及其数组后缀形式`e as Box<int>[]`；内建模板与用户声明模板同样适用。`QualifiedGenericReceiver`是表达式位的显式实例化拼写——`Pair<int, string>.sig()`与`Hold<int>(5)`（§4.12.2，§4.12.3）。在表达式位，`<`是否开启拼写按形状规则判定，不做大小写检验也不查名字表：成对尖括号段在`.`或`(`之前闭合时保持拼写解读，标识符后其余的`<`一律按比较解读。因此`a < b > c`这类比较链保持比较解读，而实参为比较运算的调用可能与形状相撞——`both(a < b, c > (d))`会被读成拼写`a<b, c>(d)`。此时编译器具名指出碰撞而非笼统的`Cannot resolve the type`错误：头部名字解析为值时，诊断说明这一点并给出加括号形式`f((a < b), (c > d))`；头部名字解析为函数时，诊断说明调用不携带类型实参拼写；名字解析为不接收类型实参的类型时，诊断说明该类型不是泛型。接收者名字的解析与裸模板名一致。
 
 ## 2.7 运算符优先级
 

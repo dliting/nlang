@@ -110,7 +110,9 @@ void VmBackend::GenerateBytecodeRecursive(SnField& parent) {
     for (auto& child : members) {
         if (child.Kind() == NK_Function) {
             auto& func = static_cast<SnFunction&>(child);
-            if (func.Body() || func.ContainFlags(NF_Native)) {
+            if (func.Body() || func.ContainFlags(NF_Native)
+                || IsAbstractClassMember(func))
+            {
                 auto it = m_funcIndexMap.find(&func);
                 if (it != m_funcIndexMap.end())
                     DispatchFunctionGeneration(func, it->second);
@@ -122,99 +124,11 @@ void VmBackend::GenerateBytecodeRecursive(SnField& parent) {
     m_pCurrInterface = prevInterface;
 }
 
-//v1.12 type descriptors: capture the true formal/return types for
-//cross-module stub reconstruction. Runs before the native branch so
-//body-less native declarations serialize their signature too. Methods
-//contribute one descriptor per AST formal — the implicit this slot
-//has none, mirroring defaultValues' sizing (stub consumers never see
-//method records; the count field keeps the wire self-describing).
-void VmBackend::CollectSignatureTypeDescs(SnFunction& func,
-                                          CompiledFunction& compiledFunc) {
-    for (auto& param : func.Params()) {
-        ParamTypeDesc ptd;
-        if (param.ContainFlags(NF_Out))
-            ptd.flags |= PTDF_Out;
-        ptd.type = BuildTypeDesc(param.EvalDataType(), LeafSlotResolvers());
-        compiledFunc.paramTypeDescs.push_back(std::move(ptd));
-    }
-    if (func.HasReturn() && func.ReturnType())
-        compiledFunc.returnTypeDesc = BuildTypeDesc(
-            func.ReturnType()->Field(), LeafSlotResolvers());
-}
-
-//True when the frame carries a slot-0 `this` receiver: class/struct/enum
-//methods only. 0.9.10: a static method has no receiver — its frame starts
-//at the first formal, matching the free-function layout it is called with.
-//0.9.11 D2: struct constructors join (structs hold no general methods, so
-//only ctors reach this predicate).
-static bool HasThisReceiver(const SnFunction& func) {
-    return func.Parent()
-        && (func.Parent()->Kind() == NK_ClassDecl
-            || func.Parent()->Kind() == NK_StructDecl
-            || func.Parent()->Kind() == NK_EnumDecl)
-        && !func.ContainFlags(NF_Static);
-}
-
-//GC kind of the `this` slot. Phase 12: an enum method's `this` is the enum
-//VALUE (int32), not a heap reference — RTK_Class here would make GC root
-//scanning treat the integer as a heap index (plan 12b round-1 MAJOR 2/3).
-//0.9.11 D2: a struct constructor's `this` is the struct heap handle —
-//RTK_Struct keeps GC root scanning on the right pool.
-static uint8_t ThisReceiverKind(const SnFunction& func) {
-    if (func.Parent()->Kind() == NK_EnumDecl)
-        return RTK_Int32;
-    if (func.Parent()->Kind() == NK_StructDecl)
-        return RTK_Struct;
-    return RTK_Class;
-}
-
-//Phase 9f: native function declaration (`native int f(...);`). No
-//bytecode — the VM dispatches by name through the host-registered
-//native table (VmExecutor::RegisterNative). The record carries only
-//the signature: the native reads args directly from the caller's
-//callParamBase cells and writes the return into pResult.
-void VmBackend::FillNativeFunctionRecord(SnFunction& func,
-                                         CompiledFunction& compiledFunc) {
-    compiledFunc.isNative = true;
-    //0.9.10: static members have no receiver slot (see AllocParamsAndDefaults).
-    compiledFunc.isStatic = func.ContainFlags(NF_Static);
-    bool isMethod = HasThisReceiver(func);
-    //Frame-layout locals (this + one per formal) with the true runtime
-    //kinds. The native path emits no bytecode, so this is metadata-only —
-    //the GC never scans a native function's frame (CallNative stages its
-    //args into its own buffer). The kind-裁决 chain's frame-layout fallback
-    //reads the param kind from these slots when the v1.12 descriptor
-    //degrades the type (func signatures, interface types, depth-cap
-    //containers), so a reference cell must carry the reference kind, not
-    //the int32 placeholder. Mirrors AllocParamsAndDefaults (the non-native
-    //path).
-    if (isMethod)
-        AllocLocal("__this", kFrameSlotBytes, ThisReceiverKind(func), true);
-    for (auto& param : func.Params())
-        AllocLocal(param.Name(), kFrameSlotBytes,
-                   RuntimeTypeKind(param.EvalDataType()), true);
-    compiledFunc.paramCount = static_cast<uint16_t>(
-        func.Params().size() + (isMethod ? 1 : 0));
-    compiledFunc.localsSize = compiledFunc.paramCount * kFrameSlotBytes;
-    if (func.HasReturn() && func.ReturnType()) {
-        compiledFunc.returnTypeKind = SerializedReturnKind(func);
-    } else {
-        compiledFunc.returnTypeKind = RTK_Void;
-    }
-    //Defaults are signature metadata and must be serialized here too:
-    //a cross-module consumer's stub (CreateFunctionStub) rebuilds
-    //them from defaultValues — same reasoning as Option B. Without
-    //this, `native int f(int a, int b = 22)` works in-module (AST
-    //path) but loses the default after import.
-    for (auto& param : func.Params()) {
-        auto dv = ExtractDefaultValue(param.Value(),
-                                      RuntimeTypeKind(param.EvalDataType()));
-        if (param.Value() && !dv.hasDefault()
-            && !EncodeDefaultExpr(func, param.Value(), dv))
-            dv.tag = RTK_Unfoldable;
-        compiledFunc.defaultValues.push_back(dv);
-    }
-}
+//The signature-fill helpers (HasThisReceiver, ThisReceiverKind,
+//FillGenericRecordMeta — private static members) and the body-less
+//record family (CollectSignatureTypeDescs, FillSignatureOnlyRecord,
+//FillNativeFunctionRecord, FillAbstractFunctionRecord) live in
+//VmBackendSignatures.cpp (0.13.1c Task 8 source-size split).
 
 //Allocate slot 0 (`this` for class/enum methods) and one slot per formal,
 //then collect the constant-foldable default values for serialization.
@@ -223,10 +137,14 @@ void VmBackend::AllocParamsAndDefaults(SnFunction& func, FuncContext& ctx,
     //0.9.10: the serialized static flag drives name-based dispatch
     //(FindMethodByName skips statics) and mirrors the frame layout below.
     compiledFunc.isStatic = func.ContainFlags(NF_Static);
+    FillGenericRecordMeta(func, compiledFunc);
     // If this is a class, struct, or enum method, allocate slot 0 for
     // 'this' (see HasThisReceiver/ThisReceiverKind).
-    bool isMethod = HasThisReceiver(func);
-    if (isMethod)
+    const bool isInstanceMethod = HasThisReceiver(func);
+    //v2.16: the instance-method flag rides the record (ABI v12 native
+    //bridge).
+    compiledFunc.isInstanceMethod = isInstanceMethod;
+    if (isInstanceMethod)
         AllocLocal("__this", kFrameSlotBytes, ThisReceiverKind(func), true);
 
     // Allocate slots for parameters
@@ -236,7 +154,7 @@ void VmBackend::AllocParamsAndDefaults(SnFunction& func, FuncContext& ctx,
                    true);
     }
     compiledFunc.paramCount = static_cast<uint16_t>(
-        func.Params().size() + (isMethod ? 1 : 0));
+        func.Params().size() + (isInstanceMethod ? 1 : 0));
 
     //Option B: extract constant-foldable default values for each formal.
     //A default the fold arms miss goes through the v2.3 ExprDesc encoder
@@ -289,7 +207,7 @@ VmBackend::CallSlotStats VmBackend::ReserveReturnAndCallSlots(
     ctx.nextOffset += kFrameSlotBytes;
 
     //Call parameter area + evalArea. callParamBase is the final landing
-    //zone consumed by OP_CallFunc; evalArea is a disjoint staging area
+    //zone consumed by OP_CallStatic; evalArea is a disjoint staging area
     //where bindings emit (cursor-based, stack-disciplined). Sizes are
     //computed by ComputeCallSlotStats.
     auto stats = ComputeCallSlotStats(func);
@@ -451,43 +369,5 @@ uint16_t VmBackend::FindLocal(const std::string& name) const {
 
 //ResolveBareIdentifier/StaticSlotIndexOf live in ResolveBareIdentifier.cpp
 //(bare-name target classification, shared by three emitter families).
-
-bool VmBackend::WriteModuleArtifact(BuildEnvironment& env,
-                                    const CompiledModule& module,
-                                    const std::string& entryKey) {
-    std::string sFilePath;
-    namespace bf = std::filesystem;
-    const BuildParams& setting = env.Params();
-    const std::string sFileName = setting.m_sOutputModule + NCU_EXTENSION;
-
-    bf::path modulePath;
-    if (setting.m_sOutputDir.empty()) {
-        modulePath = bf::current_path() / sFileName;
-    } else {
-        modulePath = bf::path(setting.m_sOutputDir);
-        if (!bf::exists(modulePath)) {
-            bf::create_directory(modulePath);
-        }
-        modulePath /= sFileName;
-    }
-    sFilePath = modulePath.string();
-
-    env.Log(CLL_Info, "Output module file: %s ...", sFilePath.c_str());
-
-    std::ofstream fs(sFilePath, std::ios::binary);
-    if (!fs.is_open()) {
-        env.Log(CLL_Fatal, "Failed to open file: %s.", sFilePath.c_str());
-        return false;
-    }
-
-    //Serialization lives in WriteCompiledModule (ModuleSaver.cpp) — the
-    //single .ncu writer, shared with unit tests so hand-written byte
-    //layouts cannot drift from the reader (ModuleLoader).
-    if (!WriteCompiledModule(fs, module, entryKey)) {
-        env.Log(CLL_Fatal, "Failed to write module: %s.", sFilePath.c_str());
-        return false;
-    }
-    return true;
-}
 
 } // namespace nlang

@@ -64,6 +64,16 @@ SnField *ArrayInstantiationElem(SnField *pType)
 	return args.size() == 1 ? args[0] : nullptr;
 }
 
+SnField *ArrayElementRowOf(const SnField *pType)
+{
+	if (!pType || !pType->IsArrayType())
+		return nullptr;
+	if (pType->Kind() == NK_ArrayTypeToken)
+		return static_cast<SnArrayTypeToken *>(
+			const_cast<SnField *>(pType))->ElemTypeOf();
+	return ArrayInstantiationElem(const_cast<SnField *>(pType));
+}
+
 //v0.12.7: array-ness now covers both spellings of the one type.
 bool SnExpression::IsArrayValued() const
 {

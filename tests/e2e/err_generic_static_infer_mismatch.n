@@ -1,0 +1,12 @@
+// err_generic_static_infer_mismatch.n — 0.13.1a: a shape mismatch on a
+// non-placeholder formal is the ordinary binding's report (per-argument
+// note), not the inference diagnosis — T inferred fine here; argument 2
+// is simply wrong.
+class Pair<T> {
+    public static int pick(T a, int b) {
+        return b;
+    }
+}
+int main() {
+    return Pair.pick("x", "y");
+}

@@ -53,10 +53,7 @@ bool VmBackend::EmitAsArrayDowncastOp(const SnField* targetType,
     auto* pToken = static_cast<const SnArrayTypeToken*>(targetType);
     uint16_t arrayTypeIdx = RegisterArrayType(pToken->ElemTypeOf(),
                                               pToken->Rank());
-    emitter.Emit(OpCode::OP_CheckArrayType);
-    emitter.EmitUint16(slot);
-    emitter.EmitUint16(slot);
-    emitter.EmitUint16(arrayTypeIdx);
+    EmitCheckArrayTypeOp(slot, arrayTypeIdx, pToken->ElemTypeOf(), emitter);
     return true;
 }
 

@@ -27,6 +27,20 @@ static int g_failures = 0;
 #define STDLIB_DIR "."
 #endif
 
+//Pin for the stdlib free-function surface (per-package breakdown in
+//TestLoadsStdLib); the printer turns any future drift into a
+//per-package diff instead of a bare FAIL line.
+constexpr std::size_t kStdlibSymbolPin = 315;
+
+static void PrintIndexShape(const langservice::SymbolIndex &index)
+{
+    std::printf("  index pin drift: size=%zu expected=%zu\n",
+        index.size(), kStdlibSymbolPin);
+    for (const std::string &pkg : index.Packages())
+        std::printf("    %s: %zu\n", pkg.c_str(),
+            index.CompletePackage(pkg).size());
+}
+
 //Discards diagnostics; BuildEnvironment needs a logger but these tests do
 //not compile anything, so no messages are expected.
 class NullLogger : public CompileLogger
@@ -43,16 +57,18 @@ static void TestLoadsStdLib()
     NullLogger logger;
     BuildEnvironment env(params, logger);
 
-    // 286 functions: io 22 (13 natives + 5 typed-reader wrappers + 4
-    // Base64 codecs; the v11 park native and the byte helpers moved
-    // from net, the monotonic clock moved to system in v0.13.4),
+    // 315 functions: io 19 (14 natives + 5 typed-reader wrappers; the
+    // v11 clock/park natives and the byte helpers moved from net),
     // math 25, fs 10 (the binary read pair readBytes/readFloats),
     // thread 7 (the K3 materialized package plus the P2-2 failure
-    // probes), tensor 152 (the v0.12.7 surface: broadcasting
+    // probes), tensor 200 (the v0.12.7 surface: broadcasting
     // elementwise with scalar arms, the view family
     // transpose(+axes)/flatten/slice/broadcastTo, axis sums, generic
     // reshape with -1 inference, elementwise exp/log/clamp, concat,
-    // matmul, and the plain-NLang layer relu/softmax/crossEntropyLoss),
+    // matmul, and the plain-NLang layer relu/softmax/crossEntropyLoss;
+    // the v0.13.7 vector-ops layer: neg, the reversed scalar arms,
+    // axis max/min, gather, argmax/argmin, eq, oneHot, uniform, and
+    // the activation additions reluGrad/tanh),
     // net 54 (the script ping plus the internal _nowMs/_lastErrorText/_lastErrorCode/
     // _throwNet/_ping/resolveList, the _tcp* natives incl. the option
     // setters and the internal _toBytes/_fromBytes, the 20 _udp*
@@ -67,7 +83,9 @@ static void TestLoadsStdLib()
     // are not free functions).
     // The index counts declaration lines; each symbol's package comes
     // from the file's path (the stem), not from any in-file head.
-    CHECK(env.LibraryIndex().size() == 287);
+    if (env.LibraryIndex().size() != kStdlibSymbolPin)
+        PrintIndexShape(env.LibraryIndex());
+    CHECK(env.LibraryIndex().size() == kStdlibSymbolPin);
 
     //The "io" in this lookup now comes from the file's PATH (the stem of
     //io.n), not from any in-file head — same string, new source of truth.

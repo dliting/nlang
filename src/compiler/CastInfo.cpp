@@ -324,6 +324,18 @@ void TypeCastInfo::CalcCastKind()
 		//Only honored through `o as int` (SnAsExpr). Assignments from Object
 		//to primitive still reject (TCK_None) to keep implicit flows safe.
 		//0.7.5: registry-driven target set (see the box branch above).
+		//v0.13.1 D6: a type-parameter placeholder converts to string via
+		//the runtime kind dispatch (OP_TypeArg_to_str) — checked before
+		//the Object-name arm because a parameter may be literally named
+		//"Object", and before the generic class→string arm below because
+		//a placeholder has no virtual toString to call.
+		if (srcKind == NK_ClassDecl && tgtKind == NK_String
+			&& static_cast<SnClassDecl *>(m_pSource)
+				->IsTypeParamPlaceholder())
+		{
+			m_Kind = TCK_Auto;
+			return;
+		}
 		if (srcKind == NK_ClassDecl && m_pSource && m_pSource->Name() == "Object"
 			&& (ScalarPrimIndexOf(tgtKind) >= 0 || tgtKind == NK_String))
 		{

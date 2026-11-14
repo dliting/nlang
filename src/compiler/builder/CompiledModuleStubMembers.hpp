@@ -1,9 +1,10 @@
 #pragma once
 /*---
-    CompiledModuleStubMembers.hpp — 类型桩（class/struct/interface）与自由
-    函数桩的 AST 重建（0.9.12 D3）。从 CompiledModuleNodeBuilder.hpp 拆出
-    （源尺寸守卫）；0.9.11 的构造器桩助手住在 CompiledModuleCtorStub.hpp，
-    类型/默认值合成助手住在同族支持头文件里。自由函数——不触碰 builder 状态。
+    CompiledModuleStubMembers.hpp — 类型桩（class/struct/interface）的
+    AST 重建（0.9.12 D3）。从 CompiledModuleNodeBuilder.hpp 拆出
+    （源尺寸守卫）；函数记录桩（自由函数与构造器/实例方法两种布局）住在
+    CompiledModuleCtorStub.hpp（0.13.1a 起自由函数布局也在此），类型/默认
+    值合成助手住在同族支持头文件里。类型桩——不触碰 builder 状态。
 ---*/
 #include "CompiledModuleCtorStub.hpp"
 #include "CompiledModuleDefaultSupport.hpp"
@@ -24,110 +25,6 @@
 
 namespace nlang
 {
-
-//Build a SnFunction stub for an imported free-function or class/interface
-//static record. The stub has no Body() — VmBackend.RegisterFunctions and
-//GenerateAllBytecode already skip bodyless functions, and the NF_Imported
-//flag adds an explicit IsImported() gate for safety. `access` is the
-//member's declared access (0.9.12: class statics carry it on the wire);
-//free functions and interface statics mint FA_Public at the call site.
-//`producerIdx` is the record's index in the producer's own function
-//table (0.10.14, clamped through ProducerIdxClamp) — it rides the stub
-//to the cross-unit slot record; no default value, every mint site
-//states it explicitly.
-inline SnFunction *CreateFunctionStub(const CompiledFunction &cf,
-	const CompiledModule &cm, const ISourceLocation &loc,
-	FieldAccessType access, uint16_t producerIdx)
-{
-	//Return type. RTK_Void → no return type (SnFunction::HasReturn() == false).
-	//v1.12: the serialized descriptor supplies the true type; the
-	//NonSerialized sentinel (func/interface returns) degrades to the
-	//int32 placeholder.
-	SnFieldExpr *pRetType = nullptr;
-	if (cf.returnTypeKind != RTK_Void)
-		pRetType = SynthTypeExprFromDesc(cf.returnTypeDesc, cm, loc);
-
-	//Synthesize paramCount SnFormalParam nodes. v1.12: each formal's true
-	//type and out flag come from the serialized descriptors (free
-	//functions carry exactly paramCount of them — methods never reach
-	//stub construction, the methodOrCtorIndices filter owns those).
-	//Option B: if cf.defaultValues[i] carries a constant-foldable default,
-	//attach the reconstructed SnLiteralExpr to the stub formal so the
-	//resolver can apply it at consumer call sites.
-	//Use raw PtrList<SnFormalParam>* — SnFunction takes UniquePtrList by
-	//value, whose inner_collection* constructor assumes ownership and
-	//deletes the source list.
-	auto *pParams = new PtrList<SnFormalParam>();
-	//Formal names from the producer's frame-layout locals table
-	//(ModuleSaver serializes every AllocLocal name with its isParam
-	//flag; for free functions those entries are exactly the params,
-	//in declaration order). Named-argument binding (BindNamedActual)
-	//matches actuals to formals by name, so the former "p0"/"p1"
-	//placeholders made every cross-module named call unbindable.
-	//Missing/misaligned entries fall back to the placeholders —
-	//stub construction never rejects a module over naming.
-	std::vector<std::string> formalNames;
-	for (const auto &ld : cf.locals)
-		if (ld.isParam)
-			formalNames.push_back(ld.name);
-	//Effective per-formal names (locals entries with the placeholder
-	//fallback), shared by the param nodes and the v2.3 ExprDesc
-	//formal-reference rebuild — a rebuilt `b = a * 2` must name the
-	//formals exactly as the stub's own params do.
-	std::vector<std::string> stubFormalNames(cf.paramCount);
-	for (uint16_t i = 0; i < cf.paramCount; ++i)
-		stubFormalNames[i] =
-			(i < formalNames.size() && !formalNames[i].empty())
-				? formalNames[i]
-				: "p" + std::to_string(i);
-	for (uint16_t i = 0; i < cf.paramCount; ++i)
-	{
-		auto paramName = new std::string(stubFormalNames[i]);
-		NodeBits paramFlags = NF_NONE;
-		SnFieldExpr *pParamType;
-		if (i < cf.paramTypeDescs.size())
-		{
-			const ParamTypeDesc &ptd = cf.paramTypeDescs[i];
-			if (ptd.flags & PTDF_Out)
-				paramFlags |= NF_Out;
-			pParamType = SynthTypeExprFromDesc(ptd.type, cm, loc);
-		}
-		else
-		{
-			pParamType = new SnIdentifierExpr(NK_Int32, loc);
-		}
-		SnExpression *pDefault = nullptr;
-		if (i < cf.defaultValues.size())
-			pDefault = SynthDefaultExpr(cf.defaultValues[i], cm,
-				cf.name, i, stubFormalNames, loc);
-		auto *pParam = new SnFormalParam(paramFlags, pParamType, paramName,
-			pDefault, loc);
-		pParams->push_back(pParam);
-	}
-
-	//Mint the function name as a heap string (SnFunction takes ownership).
-	//Leaf name: see LeafNameOfKey (phase 5 key vs. stub-name split).
-	auto pName = new std::string(LeafNameOfKey(cf.name));
-
-	auto *pFunc = new SnFunction(access, NF_Data, pRetType, pName,
-		pParams, loc);
-	//R6-2: explicitly add NF_Imported. SnFunction's constructor does
-	//not auto-set this flag (unlike SnIdentifierExpr). Without it,
-	//RegisterStructs/Classes/.../PopulateClassMethods' IsImported()
-	//gates would not skip these stubs.
-	pFunc->AddFlags(NF_Imported);
-	//0.10.14: the producer table index rides the stub to the
-	//cross-unit slot record (see SnFunction::m_iProducerFuncIdx).
-	pFunc->m_iProducerFuncIdx = producerIdx;
-	//0.9.10 D5: the static flag rides the record — the resolver's
-	//receiver-namespace split (MatchesReceiverForm) and the emitter's
-	//slot arity (FunctionSlotFor: statics take no this slot) both key
-	//on it.
-	if (cf.isStatic)
-		pFunc->AddFlags(NF_Static);
-
-	return pFunc;
-}
 
 //0.10.14: build a SnStructDecl stub for an imported struct. Own fields
 //AND constructors rebuild from the wire (the field data has been
@@ -206,6 +103,12 @@ inline SnClassDecl *CreateClassStub(const CompiledClass &cc,
 {
 	auto pName = new std::string(LeafNameOfKey(cc.name));
 	auto *pMembers = new PtrList<SnField>();
+	//v0.13.1 D7: a template row's member signatures rebuild against the
+	//row's own declared parameters — the T leaves name them by ordinal,
+	//and the consumer's resolver binds the identifiers through the stub
+	//declaration (SetTypeParamNames below → IsGenericDeclaration()).
+	const std::vector<std::string> *typeParamNames =
+		cc.isTemplate ? &cc.typeParamNames : nullptr;
 
 	//Own fields only (the wire carries own-only since v2.7). Private
 	//fields are rebuilt too — FindClassFieldOffset counts every slot
@@ -223,7 +126,7 @@ inline SnClassDecl *CreateClassStub(const CompiledClass &cc,
 		if (td.kind == RTK_NonSerialized && fi < cc.fieldTypeKinds.size())
 			td.kind = cc.fieldTypeKinds[fi];
 		auto *pField = new SnClassField(
-			SynthTypeExprFromDesc(td, cm, loc),
+			SynthTypeExprFromDesc(td, cm, loc, typeParamNames),
 			new std::string(cc.fieldNames[fi]),
 			fi < cc.fieldAccess.size()
 				? static_cast<FieldAccessType>(cc.fieldAccess[fi])
@@ -252,11 +155,17 @@ inline SnClassDecl *CreateClassStub(const CompiledClass &cc,
 		//byte is orthogonal.
 		SnFunction *pMethod = cm.functions[idx].isStatic
 			? CreateFunctionStub(cm.functions[idx], cm, loc, access,
-				ProducerIdxClamp(idx))
+				ProducerIdxClamp(idx), typeParamNames)
 			: CreateMethodStub(cm.functions[idx], cm, loc, access,
-				ProducerIdxClamp(idx));
+				ProducerIdxClamp(idx), typeParamNames);
 		if (mi < cc.methodVirtual.size() && cc.methodVirtual[mi])
 			pMethod->AddFlags(NF_Virtual);
+		//0.13.1c: abstractness rides the function record (isAbstract) —
+		//the stub member feeds Task 5's on-demand
+		//CollectAbstractObligations/IsAbstractClass, so obligations stay
+		//visible across the .ncu boundary.
+		if (cm.functions[idx].isAbstract)
+			pMethod->AddFlags(NF_Abstract);
 		pMembers->push_back(pMethod);
 	}
 
@@ -272,7 +181,7 @@ inline SnClassDecl *CreateClassStub(const CompiledClass &cc,
 			? static_cast<FieldAccessType>(cc.constructorAccess[ci])
 			: FA_Public;
 		pMembers->push_back(CreateMethodStub(cm.functions[idx], cm, loc,
-			access, ProducerIdxClamp(idx)));
+			access, ProducerIdxClamp(idx), typeParamNames));
 	}
 
 	//v0.12.6 Task 8: static fields + the $staticInit stub member
@@ -291,6 +200,12 @@ inline SnClassDecl *CreateClassStub(const CompiledClass &cc,
 
 	auto *pDecl = new SnClassDecl(pName, nullptr, pMembers, loc);
 	pDecl->AddFlags(NF_Imported);   //R6-2
+	//v0.13.1 D7: a template row rebuilds as a generic declaration — the
+	//parameter names make IsGenericDeclaration() true, so the consumer's
+	//resolver mints instantiations and binds T signatures against the
+	//stub (BindTypeParamPlaceholderIfAny walks it).
+	if (cc.isTemplate)
+		pDecl->SetTypeParamNames(cc.typeParamNames);
 	//v2.12 (v0.12.4): the const marker survived the wire — rebuild the
 	//own bit so the store gate, ctor exemption, and copy-on-read seal
 	//hold against imported classes (the chain query re-derives from the
@@ -311,11 +226,17 @@ inline SnInterfaceDecl *CreateInterfaceStub(const CompiledInterface &ci,
 {
 	auto pName = new std::string(LeafNameOfKey(ci.name));
 	auto *pMembers = new PtrList<SnField>();
+	//v2.19 (0.13.1c Task 8): a template row's signatures rebuild against
+	//the row's own declared parameters — the T leaves name them by
+	//ordinal, and the consumer's resolver binds them through the stub
+	//declaration (SetTypeParamNames below → IsGenericDeclaration()).
+	const std::vector<std::string> *typeParamNames =
+		ci.isTemplate ? &ci.typeParamNames : nullptr;
 	for (auto idx : ci.staticMethodIndices)
 	{
 		if (idx < cm.functions.size())
 			pMembers->push_back(CreateFunctionStub(cm.functions[idx], cm,
-				loc, FA_Public, ProducerIdxClamp(idx)));
+				loc, FA_Public, ProducerIdxClamp(idx), typeParamNames));
 	}
 	//0.9.10 D3: exported constants rebuild as `public static const`
 	//fields whose synthesized literal initializer folds again at the
@@ -330,7 +251,8 @@ inline SnInterfaceDecl *CreateInterfaceStub(const CompiledInterface &ci,
 		if (constant.slotIdx != 0xFFFF)
 		{
 			auto *pField = new SnClassField(
-				SynthTypeExprFromDesc(constant.type, cm, loc),
+				SynthTypeExprFromDesc(constant.type, cm, loc,
+					typeParamNames),
 				new std::string(constant.name), FA_Public, loc);
 			pField->AddFlags(NF_Static);
 			pField->AddFlags(NF_Const);
@@ -344,7 +266,7 @@ inline SnInterfaceDecl *CreateInterfaceStub(const CompiledInterface &ci,
 				"imported interface '" + ci.name
 				+ "' has a malformed constant value record");
 		auto *pField = new SnClassField(
-			SynthTypeExprFromDesc(constant.type, cm, loc),
+			SynthTypeExprFromDesc(constant.type, cm, loc, typeParamNames),
 			new std::string(constant.name), FA_Public, loc, pInit);
 		pField->AddFlags(NF_Static);
 		pField->AddFlags(NF_Const);
@@ -372,7 +294,7 @@ inline SnInterfaceDecl *CreateInterfaceStub(const CompiledInterface &ci,
 				pDefault = SynthDefaultExpr(sig.defaultValues[i], cm,
 					sig.name, static_cast<uint16_t>(i), stubFormalNames, loc);
 			pParams->push_back(new SnFormalParam(paramFlags,
-				SynthTypeExprFromDesc(ptd.type, cm, loc),
+				SynthTypeExprFromDesc(ptd.type, cm, loc, typeParamNames),
 				new std::string(stubFormalNames[i]), pDefault, loc));
 		}
 		//Void signatures carry the RTK_Void kind byte (the producer
@@ -381,7 +303,8 @@ inline SnInterfaceDecl *CreateInterfaceStub(const CompiledInterface &ci,
 		//placeholder, mirroring the function-record degradation).
 		SnFieldExpr *pRetType = nullptr;
 		if (sig.returnType.kind != RTK_Void)
-			pRetType = SynthTypeExprFromDesc(sig.returnType, cm, loc);
+			pRetType = SynthTypeExprFromDesc(sig.returnType, cm, loc,
+				typeParamNames);
 		auto *pFunc = new SnFunction(FA_Public, NF_Data, pRetType,
 			new std::string(sig.name), pParams, loc);
 		pFunc->AddFlags(NF_Imported);   //R6-2
@@ -401,6 +324,13 @@ inline SnInterfaceDecl *CreateInterfaceStub(const CompiledInterface &ci,
 	}
 	auto *pDecl = new SnInterfaceDecl(pName, pMembers, loc);
 	pDecl->AddFlags(NF_Imported);   //R6-2
+	//v2.19 (0.13.1c Task 8): a template row rebuilds as a generic
+	//declaration — the parameter names make IsGenericDeclaration() true,
+	//so the consumer's resolver mints instantiations and binds T
+	//signatures against the stub (BindTypeParamPlaceholderIfAny's
+	//NK_InterfaceDecl arm walks it).
+	if (ci.isTemplate)
+		pDecl->SetTypeParamNames(ci.typeParamNames);
 	return pDecl;
 }
 

@@ -32,6 +32,7 @@ add_library(nlang_vm
     VmExecutorOpsSlice.cpp
     VmExecutorOpsArrayCheck.cpp
     VmExecutorOpsObjects.cpp
+    VmExecutorOpsDescriptor.cpp
     VmExecutorOpsStaticInit.cpp
     VmExecutorGC.cpp
     VmExecutorGCContainers.cpp
@@ -65,7 +66,10 @@ add_library(nlang_vm
     IntrinsicsSemaphore.cpp
     IntrinsicsAtomic.cpp
     GenericInstDescriptor.cpp
+    backend/DescriptorSpelling.cpp
     backend/VmBackend.cpp
+    backend/VmBackendSignatures.cpp
+    backend/WriteModuleArtifact.cpp
     backend/DeclPredicates.cpp
     backend/GenerateUnits.cpp
     backend/Register.cpp
@@ -100,8 +104,10 @@ add_library(nlang_vm
     backend/EmitExprMemberCall.cpp
     backend/EmitExprMemberStatic.cpp
     backend/EmitExprMemberString.cpp
+    backend/EmitGenericBoxing.cpp
     backend/EmitExprMemberArray.cpp
     backend/EmitArrayBoundary.cpp
+    backend/EmitArrayOpcodes.cpp
     backend/EmitStmtDecl.cpp
     backend/EmitStmtAssign.cpp
     backend/EmitStmtCompound.cpp
@@ -114,6 +120,8 @@ add_library(nlang_vm
     Disassembler.cpp
     DisassemblerPrim.cpp
     DisassemblerWalk.cpp
+    DisassemblerFormat.cpp
+    DisassemblerCalls.cpp
     ModuleLoader.cpp
     ModuleLoaderRecords.cpp
     ModuleLoaderRecordsInterfaces.cpp

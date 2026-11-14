@@ -1,0 +1,4 @@
+//Alias spellings are reserved: they lex as their primitive keyword,
+//so neither can be an identifier.
+int int32 = 1;
+int uint64 = 2;

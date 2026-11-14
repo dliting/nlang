@@ -1,0 +1,20 @@
+//Identity rescue (0.13.1c): a legal instantiation call beside the
+//collision shape stays intact — the rescue fires at the collision only.
+class Box<T>
+{
+    public T m_v;
+    public Box(T v) { m_v = v; }
+    public T get() { return m_v; }
+}
+bool both(bool x, bool y) { return x && y; }
+bool outer(bool x, bool y) { return x && y; }
+int main()
+{
+    int a = 1;
+    int b = 2;
+    int c = 4;
+    int d = 3;
+    if (outer(Box<int>(9).get() == 9, both(a < b, c > (d))))
+        return 10;
+    return 11;
+}

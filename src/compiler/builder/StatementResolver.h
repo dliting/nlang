@@ -58,6 +58,12 @@ private:
 	void CheckDefaultForwardRefs(std::vector<SnFormalParam*> &formals,
 		size_t i);
 	void CheckDefaultTypeCompat(SnFormalParam *param);
+	//0.13.1a Task 5: a type-parameter-typed formal on a generic
+	//declaration rejects a default value (same line as the
+	//class-template T-initializer rule: without a constraint no
+	//meaningful T initial value exists). True = rejected; the caller
+	//skips the remaining default checks for that formal.
+	bool RejectTypeParamDefault(SnFunction &fn, SnFormalParam &param);
 	//P3 review: a ctor default cannot reference `this` (explicitly or
 	//through a bare field) — defaults evaluate at the call site, outside
 	//the object under construction. No-op for non-ctor functions.
@@ -168,6 +174,14 @@ private:
 	//creation twin via the NewArrayElem annotation). True = rejected.
 	bool RejectCompoundSubscriptTarget(SnExpression &left,
 		const ISourceLocation *pLoc);
+	//v0.13.7: array-involved compound assignment is rejected by name —
+	//array arithmetic lowers AS a tensor call on the plain binary form,
+	//and the compound emitter's kind dispatch has no array arm (the
+	//operand row would masquerade as its element carrier). The expanded
+	//form `a = a + b` takes the lowering. The string target keeps its
+	//pre-existing `s += arr` toString-coercion surface. True = rejected.
+	bool RejectArrayCompoundAssign(SnCompoundAssignStmt &sn,
+		const SnField *pTargetType, const SnField *pSourceType);
 	bool FinishInitListAssign(SnAssignStmt &sn);
 	void FinishAssignTypeCheck(SnAssignStmt &sn);
 	//0.9.10: the shift branch of Access(SnCompoundAssignStmt&) — the
@@ -199,6 +213,13 @@ private:
 	//for plain class members. Logs all diagnostics; never mutates the AST.
 	//Definition in StatementResolverDeclCtor.cpp.
 	void CheckCtorDeclarationContract(SnFunction &sn);
+	//v0.13.0 D5: the modifier contract — NF_Const has no meaning on a
+	//function (functions are not rebindable; const-aggregates are a type
+	//concept). Names the rule for every minted function (public spellings,
+	//class members, semi declarations); the bare top-level spellings are
+	//named by the grammar's TopItem diagnostic arms. Definition in
+	//StatementResolverDecls.cpp.
+	void CheckFunctionModifierContract(SnFunction &sn);
 	//0.9.11 D2: the struct member contract — a struct declares fields and
 	//constructors only, and a struct constructor must not carry static/
 	//virtual/const. Logs all diagnostics; never mutates the AST. Definition
@@ -223,7 +244,7 @@ private:
 	void PropagateInitListTarget(SnAssignStmt &sn);
 	//K3 task 4: publish the declared LHS type for the bare ctor-invoke
 	//arm when the RHS is a bare invoke (ResolveDeclaredGenericCtorTarget).
-	void PropagateCtorInvokeTarget(SnAssignStmt &sn);
+	void PropagateAssignTargetHint(SnAssignStmt &sn);
 	bool TryBindSubscriptStoreFuncRef(SnSubscriptAssignStmt &sn);
 	bool RejectStringBase(SnExpression &base, const ISourceLocation *pLoc);
 	void ApplyArrayElementStoreCast(SnSubscriptAssignStmt &sn);

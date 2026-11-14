@@ -1,0 +1,13 @@
+//v0.13.0 D2: ordering a struct used to compile silently and compare
+//raw heap indices — the gate rejects it like the func/array gates.
+struct Point {
+    int x;
+    public Point(int a) { x = a; }
+}
+
+int main() {
+    Point a = Point(1);
+    Point b = Point(2);
+    if (a < b) { return 1; }
+    return 0;
+}

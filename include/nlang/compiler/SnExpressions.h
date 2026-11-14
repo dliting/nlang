@@ -35,6 +35,15 @@ namespace nlang
 //needs SnClassDecl's full definition.
 SnField *ArrayInstantiationElem(SnField *pType);
 
+//The element row of an array-typed row, either spelling of the one
+//array type: the interned token peels via ElemTypeOf(), the Array<E>
+//instantiation row via ArrayInstantiationElem(). Null when the row is
+//not array-typed. The shared derivation for every "admit through
+//IsArrayType(), then key on the element" site — a token-only hand
+//peel keyed loop-var slots and store gates on the class row instead.
+//Defined in SnArrayTypeToken.cpp next to ArrayInstantiationElem.
+SnField *ArrayElementRowOf(const SnField *pType);
+
 //v0.12.7: type identity across the two spellings of the single array
 //type — interned token and Array<E> instantiation, either side either
 //order, recursing on elements (Array<Array<int>> vs int[][] included).
@@ -441,6 +450,20 @@ public:
 	//emission (OP_AllocArrayDyn), never the shared new-object path.
 	SnClassDecl *ArrayDynCtor() const { return m_pArrayDynCtor; }
 	void ArrayDynCtor(SnClassDecl *pInstance) { m_pArrayDynCtor = pInstance; }
+	//0.13.1a Task 4: the call-site inferred type arguments of a generic
+	//FREE-function callee (D4: signature-boundary substitution, no
+	//clone). Non-owning references to tree/registry-owned type fields,
+	//indexed by type-parameter ordinal; empty for ordinary calls. The
+	//backend spells the call's descriptor row from these; the resolver's
+	//return-type substitution consumes them at binding time.
+	const std::vector<SnField*>& InferredTypeArgs() const
+	{
+		return m_inferredTypeArgs;
+	}
+	void SetInferredTypeArgs(std::vector<SnField*> args)
+	{
+		m_inferredTypeArgs = std::move(args);
+	}
 private:
 	std::unique_ptr<std::string> m_upCalleeName;
 	SnExpressionList* m_pParams;
@@ -449,6 +472,7 @@ private:
 	SnStructDecl *m_pCtorStruct = nullptr;
 	SnFunction *m_pCtorFunction = nullptr;
 	SnClassDecl *m_pArrayDynCtor = nullptr;
+	std::vector<SnField*> m_inferredTypeArgs;
 };
 
 /*
@@ -503,6 +527,7 @@ public:
 private:
 	void Init();
 	SnExpression *m_pOuter;
+	bool ReplaceChildNode(SyntaxNode*, SyntaxNode*) override;
 	SnFieldExpr *m_pInner;
 };
 
@@ -725,6 +750,12 @@ public:
 		return m_CastKind;
 	}
 
+	//The dual-storage sync contract: m_pSource is a cached typed child
+	//(the only one — the target row is a non-child pointer), so a child
+	//splice must keep it in step. A tensor-lowered binary can sit here
+	//(an implicit-conversion cast wrapping array arithmetic).
+	bool ReplaceChildNode(SyntaxNode*, SyntaxNode*) override;
+
 	virtual bool IsDataExpr() const override;
 
 	void Accept(nlang::ISyntaxNodeVisitor &) override;
@@ -818,8 +849,34 @@ public:
 		const ISourceLocation &loc);
 
 	Operator Op() const { return m_op; }
+	//Diagnostic spelling of an operator ("+", "<<", "==", ...) from the
+	//single positional table ToString renders through.
+	static const char* OperatorSymbol(Operator op);
 	SnExpression *Left() const { return m_pLeft; }
 	SnExpression *Right() const { return m_pRight; }
+
+	//v0.13.7 array-operator lowering: a numeric-array binary resolves
+	//AS a tensor call — resolution binds the selected callee overload
+	//and an emission-plan invoke whose params are this node's own
+	//operands (unowned references; the operands stay list-owned here
+	//until the plan adopts them at bind time, after which the node is
+	//childless by design and codegen reads the plan). The emitter
+	//lowers flagged nodes through the standard invoke path — the
+	//bytecode is identical to a hand-written tensor.* call.
+	SnFunction *TensorCallee() const { return m_pTensorCallee; }
+	void TensorCallee(SnFunction *pFn) { m_pTensorCallee = pFn; }
+	SnInvokeExpr *TensorCallPlan() const { return m_pTensorCall.get(); }
+	void TensorCallPlan(std::unique_ptr<SnInvokeExpr> pPlan)
+	{
+		m_pTensorCall = std::move(pPlan);
+	}
+	//v0.13.7 failure unwind: a plan whose resolution/match failed hands
+	//the operands back before it dies. Re-attach both slots to the child
+	//list in the original left-then-right order — the shape the node
+	//never would have left — so the slot pointers stay live for the
+	//diagnostic that names the expression. The public wrapper over the
+	//protected Node::AddChild, per the subclass-wrapper contract.
+	void ReattachOperands();
 
 	bool IsDataExpr() const override;
 	void Accept(nlang::ISyntaxNodeVisitor &) override;
@@ -828,6 +885,13 @@ private:
 	Operator m_op;
 	SnExpression *m_pLeft;
 	SnExpression *m_pRight;
+	//v0.13.7 array-operator lowering binding (see the accessors above).
+	//The plan invoke is a detached emission node: it adopts the operands
+	//out of this node's child list at bind time, so it is the sole
+	//owner from then on.
+	SnFunction *m_pTensorCallee = nullptr;
+	std::unique_ptr<SnInvokeExpr> m_pTensorCall;
+	bool ReplaceChildNode(SyntaxNode*, SyntaxNode*) override;
 };
 
 class SnClassDecl;
@@ -864,6 +928,16 @@ public:
 	SnFunction *CtorFunction() const { return m_pCtorFunction; }
 	void CtorFunction(SnFunction *pCtorFunction) { m_pCtorFunction = pCtorFunction; }
 
+	//0.13.1c identity rescue: the verbatim source bytes of the whole
+	//`a<b, c>(d)` spelling, captured at reduce time. Non-empty only for
+	//the QualifiedGenericReceiver constructor arm — when that spelling
+	//turns out to be a misread comparison shape, the rescue re-parses
+	//exactly what was written (an AST re-render would compress
+	//whitespace and break the column correspondence). Everything else
+	//leaves it empty.
+	const std::string &SpanText() const { return m_sSpanText; }
+	void SpanText(std::string sSpan) { m_sSpanText = std::move(sSpan); }
+
 	bool IsDataExpr() const override;
 	void Accept(ISyntaxNodeVisitor &) override;
 	std::string ToString() const override;
@@ -875,6 +949,7 @@ private:
 	SnClassDecl *m_pClassDecl;
 	SnStructDecl *m_pStructDecl = nullptr;
 	SnFunction *m_pCtorFunction = nullptr;
+	std::string m_sSpanText;
 };
 
 //The "this" expression — refers to the current object in a method.
@@ -890,6 +965,47 @@ public:
 	bool IsDataExpr() const override;
 	void Accept(ISyntaxNodeVisitor &) override;
 	std::string ToString() const override;
+};
+
+//The "typeName(Type)" expression (v0.13.1 D4): the canonical spelling
+//of a type as a string. The resolver folds concrete types to a
+//constant spelling; a bare type parameter (or an instantiation whose
+//arguments contain one) reads the receiver's own instantiation at run
+//time — a static member has no receiver, so those are rejected there.
+//A plain composite (SnCompoundPlainExpr): the node carries a child (the
+//type subtree) but refers to no field itself — Field() stays null.
+class NLANG_COMPILER_API SnTypeNameExpr : public SnCompoundPlainExpr
+{
+	typedef SnCompoundPlainExpr Super_;
+public:
+	static const NodeKind	s_Kind			= NK_TypeNameExpr;
+	static const NodeBits	s_DefaultFlags	= NF_Expression;
+public:
+	SnTypeNameExpr(SnFieldExpr *pType, const ISourceLocation &loc);
+
+	//The type subtree; resolved in place by the resolver.
+	SnFieldExpr *TypeRef() const { return m_pType; }
+
+	//Non-empty when the resolver folded the operand to a constant
+	//spelling (concrete types only — emission emits the string).
+	const std::string &FoldedSpelling() const { return m_foldedSpelling; }
+	void SetFoldedSpelling(std::string spelling)
+		{ m_foldedSpelling = std::move(spelling); }
+
+	//The receiver's type-argument ordinal when the operand is a bare
+	//type parameter (kNoTypeParamOrdinal otherwise); emission reads it
+	//for OP_TypeNameArg.
+	uint8_t TypeParamOrdinal() const { return m_typeParamOrdinal; }
+	void SetTypeParamOrdinal(uint8_t ordinal) { m_typeParamOrdinal = ordinal; }
+	static constexpr uint8_t kNoTypeParamOrdinal = 0xFF;
+
+	bool IsDataExpr() const override;
+	void Accept(ISyntaxNodeVisitor &) override;
+	std::string ToString() const override;
+private:
+	SnFieldExpr *m_pType;
+	std::string m_foldedSpelling;
+	uint8_t m_typeParamOrdinal = kNoTypeParamOrdinal;
 };
 
 //Array subscript access expression (e.g. arr[i]).
@@ -1117,7 +1233,7 @@ private:
 //local/formal slot and requires the matched formal to be an out parameter.
 //TryBindArgs unwraps the node into FormalBinding (pCallerExpr = Inner())
 //with bIsOut set, so codegen emits the inner read into the staging slot
-//and records a writeback pair for OP_CallFuncOut/OP_CallMethodDirectOut.
+//and records a writeback pair for OP_CallStaticOut/OP_CallMethodDirectOut.
 class NLANG_COMPILER_API SnOutArgExpr : public SnCompoundPlainExpr
 {
 	typedef SnCompoundPlainExpr Super_;

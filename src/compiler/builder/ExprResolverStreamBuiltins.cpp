@@ -17,6 +17,7 @@
 #include "BuildEnvironment.h"
 #include "BuiltinNames.h"
 #include "ModuleRegistry.h"
+#include <nlang/compiler/TypeArgSpelling.h>  //LinkKeyOf — the row-key spelling
 #include <nlang/vm/CompiledModule.h>  //RTK_* kind constants
 #include <algorithm>
 #include <map>
@@ -90,7 +91,13 @@ SnField *ExprResolveAccessor::ResolveStreamSpecialTypeArg(
 			SnField* hit = reg.FindModuleType(path, leaf);
 			if (!hit || hit->Kind() != wantKind)
 				continue;
-			const std::string key = reg.QualifiedName(*hit);
+			//LinkKeyOf, not the registry display qualification: the string
+			//the VM receives must spell the CLASS-TABLE row key exactly,
+			//and a generic declaration keys its row under the erased bare
+			//name (dictionary model). One key function on both sides or
+			//readObject's lookup misses the row (the drift LinkKeyOf
+			//exists to prevent).
+			const std::string key = LinkKeyOf(reg, *hit);
 			//A hit already seen (same qualified key) is the same type,
 			//not a second candidate — the per-package duplicate is
 			//rejected earlier by the name-conflict checks.

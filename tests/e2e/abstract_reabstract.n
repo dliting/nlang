@@ -1,0 +1,24 @@
+//0.13.1c: re-abstraction is legal to declare — a bodyless override
+//re-opens the obligation for subclasses without touching ancestors.
+//Only instantiation is rejected (see err_abstract_reabstract); Base
+//keeps dispatching its own implementation.
+class Base
+{
+    public virtual int f()
+    {
+        return 1;
+    }
+}
+class Middle : Base
+{
+    public virtual int f();
+}
+class Leaf : Middle
+{
+}
+int main()
+{
+    Base b = Base();
+    assert(b.f() == 1);
+    return 0;
+}

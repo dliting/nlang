@@ -5,6 +5,7 @@
 ---*/
 #include "StatementResolver.h"
 #include "ExprResolverCastFit.hpp"
+#include "ModuleRegistry.h"
 
 namespace nlang
 {
@@ -177,6 +178,27 @@ void StatementResolveAccessor::CheckDefaultTypeCompat(SnFormalParam *param)
 	}
 	if (ci.Kind() == TCK_Explicit)
 		CheckDefaultConstantFit(param, pFormalType);
+}
+
+//0.13.1a Task 5: a type-parameter-typed formal on a generic
+//declaration rejects a default value (same line as the class-template
+//T-initializer rule: without a constraint no meaningful T initial
+//value exists — every call site already infers T from its actuals).
+//The formal type must be the bare placeholder; a concrete type keeps
+//its ordinary default contract. 0.13.1b: the message is the canonical
+//text shared with the class-member path (GenericDeclContracts.cpp).
+bool StatementResolveAccessor::RejectTypeParamDefault(SnFunction &fn,
+	SnFormalParam &param)
+{
+	auto *pFormalType = param.EvalDataType();
+	if (!pFormalType
+		|| !m_Env.Registry().DeclaredGenerics().IsPlaceholder(pFormalType))
+		return false;
+	m_Env.Log(CLL_Error, param.Location(),
+		"default value for parameter \"%s\": the type parameter \"%s\" "
+		"has no concrete kind, so no default value exists.",
+		param.Name().c_str(), pFormalType->Name().c_str());
+	return true;
 }
 
 } //namespace nlang

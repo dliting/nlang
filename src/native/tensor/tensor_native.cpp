@@ -211,6 +211,8 @@ NLANG_DEFINE_NATIVE_INIT {
     regBlocking(registry, "tensor", "arangeL", &tensor::ArangeL);
     regBlocking(registry, "tensor", "arangeF", &tensor::ArangeF);
     regBlocking(registry, "tensor", "arangeD", &tensor::ArangeD);
+    regBlocking(registry, "tensor", "uniformF", &tensor::TensorUniformF);
+    regBlocking(registry, "tensor", "uniformD", &tensor::TensorUniformD);
     regBlocking(registry, "tensor", "strideViewI", &tensor::StrideViewI);
     regBlocking(registry, "tensor", "viewSumI", &tensor::ViewSumI);
     regBlocking(registry, "tensor", "add", &tensor::TensorAdd);
@@ -242,5 +244,21 @@ NLANG_DEFINE_NATIVE_INIT {
                 &tensor::TensorMulScalar);
     regBlocking(registry, "tensor", "divScalar",
                 &tensor::TensorDivScalar);
+    //v0.13.7 vector-ops surface.
+    regBlocking(registry, "tensor", "neg", &tensor::TensorNeg);
+    regBlocking(registry, "tensor", "rsubScalar",
+                &tensor::TensorRsubScalar);
+    regBlocking(registry, "tensor", "rdivScalar",
+                &tensor::TensorRdivScalar);
+    regBlocking(registry, "tensor", "maxAxis", &tensor::TensorMaxAxis);
+    regBlocking(registry, "tensor", "minAxis", &tensor::TensorMinAxis);
+    regBlocking(registry, "tensor", "reluGrad", &tensor::TensorReluGrad);
+    regBlocking(registry, "tensor", "tanh", &tensor::TensorTanh);
+    //v0.13.7 phase 2: index/expression surface.
+    regBlocking(registry, "tensor", "gather", &tensor::TensorGather);
+    regBlocking(registry, "tensor", "argmax", &tensor::TensorArgMax);
+    regBlocking(registry, "tensor", "argmin", &tensor::TensorArgMin);
+    regBlocking(registry, "tensor", "eq", &tensor::TensorEq);
+    regBlocking(registry, "tensor", "oneHot", &tensor::TensorOneHot);
     return NLANG_HOST_ABI_VERSION;
 }

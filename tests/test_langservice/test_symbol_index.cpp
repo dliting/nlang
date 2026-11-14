@@ -22,6 +22,21 @@ static int g_failures = 0;
     } \
 } while (0)
 
+//Pin for the stdlib free-function surface (per-package breakdown in
+//TestLoadsRealStdLib). A surface change updates the constant AND the
+//breakdown comment; the printer turns any future drift into a
+//per-package diff instead of bare FAIL lines.
+constexpr std::size_t kStdlibSymbolPin = 315;
+
+static void PrintIndexShape(const SymbolIndex &index)
+{
+    std::printf("  index pin drift: size=%zu expected=%zu\n",
+        index.size(), kStdlibSymbolPin);
+    for (const std::string &pkg : index.Packages())
+        std::printf("    %s: %zu\n", pkg.c_str(),
+            index.CompletePackage(pkg).size());
+}
+
 #ifndef STDLIB_DIR
 #define STDLIB_DIR "."
 #endif
@@ -34,24 +49,29 @@ static void TestLoadsRealStdLib() {
     // from net, the monotonic clock moved to system in v0.13.4),
     // math 25, fs 10 (the binary read pair readBytes/readFloats),
     // thread 7 (the K3 materialized package plus the P2-2 failure
-    // probes), tensor 152 (the v0.12.7 surface: broadcasting
+    // probes), tensor 200 (the v0.12.7 surface: broadcasting
     // elementwise with scalar arms, the view family
     // transpose(+axes)/flatten/slice/broadcastTo, axis sums, generic
     // reshape with -1 inference, elementwise exp/log/clamp, concat,
-    // matmul, and the plain-NLang layer relu/softmax/crossEntropyLoss),
+    // matmul, and the plain-NLang layer relu/softmax/crossEntropyLoss;
+    // the v0.13.7 vector-ops layer: neg, the reversed scalar arms,
+    // axis max/min, gather, argmax/argmin, eq, oneHot, uniform, and
+    // the activation additions reluGrad/tanh),
     // net 54 (the script ping plus the internal _nowMs/_lastErrorText/
     // _lastErrorCode/_throwNet/_ping/resolveList, the _tcp* natives
     // incl. the option setters and the internal _toBytes/_fromBytes,
     // the 20 _udp* natives and the 5 _icmp* natives; class methods
-    // are not free functions), system 2 (the wall and monotonic clocks),
-    // url 4 (the percent and form codecs; the Url class members are not
+    // are not free functions), syst— 2 (the wall and monotonic clocks),
+    // url 4 (the percent and form codecs; the Url class m—bers are not
     // free functions), gzip 4 (the compress/decompress wrappers and the
     // two native codec declarations), http 6 (the buffered convenience
     // calls get/post/put/del/request plus the lazy defaultClient; the
-    // Http* class members are not free functions), regex 1 (the
+    // Http* class m—bers are not free functions), regex 1 (the
     // quoteMeta escaping helper; the Regex/Match classes and the engine
     // classes are not free functions).
-    CHECK(index.size() == 287);
+    if (index.size() != kStdlibSymbolPin)
+        PrintIndexShape(index);
+    CHECK(index.size() == kStdlibSymbolPin);
 }
 
 static void TestResolvePrint() {
@@ -303,14 +323,18 @@ static void TestTypeKinds() {
 static void TestClear() {
     SymbolIndex index;
     index.LoadLibraryDir(STDLIB_DIR);
-    CHECK(index.size() == 287);
+    if (index.size() != kStdlibSymbolPin)
+        PrintIndexShape(index);
+    CHECK(index.size() == kStdlibSymbolPin);
     index.Clear();
     CHECK(index.size() == 0);
     CHECK(index.Resolve("io", "print") == nullptr);
     CHECK(index.Packages().empty());
     //Loaded-file markers were dropped too: the same dir re-indexes fully.
     index.LoadLibraryDir(STDLIB_DIR);
-    CHECK(index.size() == 287);
+    if (index.size() != kStdlibSymbolPin)
+        PrintIndexShape(index);
+    CHECK(index.size() == kStdlibSymbolPin);
 }
 
 static void TestBlockCommentBraces() {

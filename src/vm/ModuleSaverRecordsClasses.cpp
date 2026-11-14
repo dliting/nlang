@@ -143,6 +143,22 @@ void WriteClassRecords(std::ostream& fs, const CompiledModule& mod)
         //(0xFFFF = none; u16 = function-index operand width).
         fs.write(reinterpret_cast<const char*>(&cc.staticInitFuncIdx),
                  sizeof(cc.staticInitFuncIdx));
+
+        //v0.13.1 (D7): the template marker + declared type-parameter
+        //names (u8 flag, u16 count, then u32-len-prefixed names) — the
+        //consumer stub rebuilds a generic declaration from this tail.
+        uint8_t templateFlag = cc.isTemplate ? 1 : 0;
+        fs.write(reinterpret_cast<const char*>(&templateFlag),
+                 sizeof(templateFlag));
+        uint16_t typeParamCount =
+            static_cast<uint16_t>(cc.typeParamNames.size());
+        fs.write(reinterpret_cast<const char*>(&typeParamCount),
+                 sizeof(typeParamCount));
+        for (const auto& tp : cc.typeParamNames) {
+            uint32_t tpLen = static_cast<uint32_t>(tp.size());
+            fs.write(reinterpret_cast<const char*>(&tpLen), sizeof(tpLen));
+            fs.write(tp.c_str(), tpLen);
+        }
     }
 }
 

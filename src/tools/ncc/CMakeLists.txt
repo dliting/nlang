@@ -23,6 +23,6 @@ target_link_libraries(ncc
         nlang_version
 )
 
-#ASan tool chain: ship the asan runtime beside the exe (see the
-#nlang_ship_asan_runtime function in the top-level CMakeLists).
-nlang_ship_asan_runtime(ncc)
+# ASan runtime provisioning (see the root CMakeLists): one sweep covers
+# this directory's executable targets.
+_nlang_sweep_asan_runtime("${CMAKE_CURRENT_SOURCE_DIR}")

@@ -1,0 +1,12 @@
+//0.13.1c: a minted generic instantiation carries the template's abstract
+//members — constructing it gates like any abstract class.
+class Box<T>
+{
+    public T item;
+    public virtual T get();
+}
+int main()
+{
+    Box<int> b = Box<int>();
+    return 0;
+}

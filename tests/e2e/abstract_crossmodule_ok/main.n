@@ -1,0 +1,19 @@
+//Positive: a consumer implements the imported abstract method and both
+//derived-typed and base-typed dispatch reach the override across the wire.
+import lib;
+
+class MemStore : lib.Storage
+{
+    public int put(int v)
+    {
+        return v + 1;
+    }
+}
+
+int main() {
+    MemStore m = MemStore();
+    lib.Storage s = m;
+    assert(m.put(4) == 5);
+    assert(s.put(10) == 11);
+    return 0;
+}

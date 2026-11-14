@@ -26,7 +26,7 @@ typedef uint64 NodeBits;
 //uint64 so the packed layout kind(8)+access(2)+flags(26)=36 still leaves
 //headroom. AST flags are never serialized, so widening has no on-disk
 //format impact.
-#define NODE_FLAG_BITS		26
+#define NODE_FLAG_BITS		28
 
 const size_t	NODE_KIND_LIMIT = 1 << NODE_KIND_BITS;
 

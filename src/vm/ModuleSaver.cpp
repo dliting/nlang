@@ -116,6 +116,29 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
         fs.write(s.c_str(), len);
     }
 
+    // v2.15 (v0.13.1): the generic-instantiation descriptor table — one
+    // row per registered descriptor (see DescriptorEntry). Per entry:
+    // u16 spellingLen + bytes, u16 recipeLen + bytes (empty recipe =
+    // static spelling row). The u16 caps match the intern spelling's
+    // practical bound (canonical spellings stay well under 64 KiB).
+    uint32_t descCount =
+        static_cast<uint32_t>(mod.descriptorTable.size());
+    fs.write(reinterpret_cast<const char*>(&descCount), sizeof(descCount));
+    for (const auto& desc : mod.descriptorTable) {
+        uint16_t spellingLen =
+            static_cast<uint16_t>(desc.spelling.size());
+        fs.write(reinterpret_cast<const char*>(&spellingLen),
+                 sizeof(spellingLen));
+        fs.write(desc.spelling.c_str(), spellingLen);
+        uint16_t recipeLen =
+            static_cast<uint16_t>(desc.recipe.size());
+        fs.write(reinterpret_cast<const char*>(&recipeLen),
+                 sizeof(recipeLen));
+        if (recipeLen > 0)
+            fs.write(reinterpret_cast<const char*>(desc.recipe.data()),
+                     recipeLen);
+    }
+
     // Functions
     uint32_t funcCount = static_cast<uint32_t>(mod.functions.size());
     fs.write(reinterpret_cast<const char*>(&funcCount), sizeof(funcCount));
@@ -144,6 +167,33 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
         uint8_t staticFlag = func.isStatic ? 1 : 0;
         fs.write(reinterpret_cast<const char*>(&staticFlag),
                  sizeof(staticFlag));
+        //v2.16: instance-method flag (the frame's slot-0 __this) — the
+        //ABI v12 native bridge reads it to locate the receiver handle.
+        uint8_t instanceMethodFlag = func.isInstanceMethod ? 1 : 0;
+        fs.write(reinterpret_cast<const char*>(&instanceMethodFlag),
+                 sizeof(instanceMethodFlag));
+        //v2.18: abstract declaration — signature-only record carrying
+        //the obligation; dispatch must find an override.
+        uint8_t abstractFlag = func.isAbstract ? 1 : 0;
+        fs.write(reinterpret_cast<const char*>(&abstractFlag),
+                 sizeof(abstractFlag));
+        //v2.17: generic-function declaration — the flag plus the declared
+        //type-parameter names (the class rows carry the same pair). The
+        //loader rebuilds isGeneric/typeParamNames from this; the wire has
+        //no other source for FREE functions, whose genericity names no
+        //owning class row.
+        uint8_t genericFlag = func.isGeneric ? 1 : 0;
+        fs.write(reinterpret_cast<const char*>(&genericFlag),
+                 sizeof(genericFlag));
+        uint16_t fnTypeParamCount = static_cast<uint16_t>(
+            func.typeParamNames.size());
+        fs.write(reinterpret_cast<const char*>(&fnTypeParamCount),
+                 sizeof(fnTypeParamCount));
+        for (const auto& tpName : func.typeParamNames) {
+            uint32_t tpLen = static_cast<uint32_t>(tpName.size());
+            fs.write(reinterpret_cast<const char*>(&tpLen), sizeof(tpLen));
+            fs.write(tpName.c_str(), tpLen);
+        }
 
         //Option B v1.3: per-formal default-value descriptors. Always
         //emitted (count first) so reader can skip even when no defaults.

@@ -99,6 +99,23 @@ void WriteInterfaceRecords(std::ostream& fs, const CompiledModule& mod)
         //function, the record's trailing field (0xFFFF = none).
         fs.write(reinterpret_cast<const char*>(&ci.staticInitFuncIdx),
                  sizeof(ci.staticInitFuncIdx));
+        //v2.19 (0.13.1c Task 8): the generic-declaration tail, the
+        //class-record shape (u8 template flag + u16 name count + u32-
+        //length-prefixed names — the class saver's exact wire layout).
+        const uint8_t isTemplate = ci.isTemplate ? 1 : 0;
+        fs.write(reinterpret_cast<const char*>(&isTemplate),
+                 sizeof(isTemplate));
+        uint16_t paramNameCount =
+            static_cast<uint16_t>(ci.typeParamNames.size());
+        fs.write(reinterpret_cast<const char*>(&paramNameCount),
+                 sizeof(paramNameCount));
+        for (const auto& paramName : ci.typeParamNames) {
+            uint32_t pNameLen =
+                static_cast<uint32_t>(paramName.size());
+            fs.write(reinterpret_cast<const char*>(&pNameLen),
+                     sizeof(pNameLen));
+            fs.write(paramName.c_str(), pNameLen);
+        }
     }
 }
 

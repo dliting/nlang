@@ -26,6 +26,12 @@ a + b    a - b    a * b    a / b    a % b
 
 `string + string`是拼接；`"x" + 'y'`（char隐式转string）与`+`标量操作数同样拼接。`string - string`等是编译错误。见[字符串](../04-types/string.md)。
 
+泛型上下文内的类型参数值同样拼接：`"v=" + item`与`item + "!"`两序都按实参的种类转换后并入（§4.12.9）。
+
+### 数组算术
+
+`+`、`-`、`*`、`/`的操作数之一或两者为数值数组（int、long、float、double元素）时，运算符下沉到[tensor](../library/18-tensor.md)包的内核——`a + b`即`tensor.add(a, b)`，按右对齐广播；`2 * x`、`x - 1`、`1 - x`走标量臂（`1 - x`下沉到反向臂`tensor.rsubScalar`，因为`-`无交换律）；`-a`即`tensor.neg`。两个数组操作数必须携带相同元素种类——数组间不做静默加宽；标量一侧按普通规则转换。运算符是`tensor.*`调用的拼写：包必须先导入，缺失导入按缺失诊断。数组上的复合赋值（`a += b`）按编译错误拒绝——请使用运算符形式的普通赋值。`string + ...`保持拼接语义，数组恒等比较（`==`/`!=`）不变。见[张量](../library/18-tensor.md)§18.5.1。
+
 ### 位移
 
 ```nlang
@@ -68,6 +74,9 @@ a == b   a != b   a < b   a > b   a <= b   a >= b
 - **bool只与bool比较，且只比较相等**：`true == true`为真；对bool排序是编译错误（`bool values cannot be ordered; only == and != are supported`），bool与其他类型比较同样是编译错误（`a bool value can only be compared with a bool value`）。
 - **字符串相等**按内容比较；字符串关系序用C `strcmp`式的逐字节比较（例如`"Z" < "a"`为真，因为`'Z'`（90）< `'a'`（97））。因为字符串以Unicode转换格式（UTF-8，Unicode Transformation Format）存储且UTF-8字节序等于码点序，对美国信息交换标准代码（ASCII，American Standard Code for Information Interchange）之外的文本排序也正确：`"é" > "z"`为真。见[字符串](../04-types/string.md)「比较」。
 - **class/引用相等**（`==`、`!=`）是同一性（同一堆对象）。要按值比较，用`equals`方法并在自己的类里覆写它——`==`不受覆写影响；见[Object与装箱](../04-types/object.md)「协议方法」与[类](../04-types/class.md)「虚方法与重写」。
+- **结构体相等**（`==`、`!=`）按字段值比较——同类型且字段全部相等的两个结构体相等（嵌套结构体字段递归，`string`字段比较内容，引用形态字段比较同一性）。对结构体排序是编译错误（`struct values cannot be ordered; only == and != are supported`），与另一类型的结构体、标量或null比较同样是编译错误——结构体永不为null（`a struct value can only be compared with a struct value of the same type`）。见[结构体](../04-types/struct.md)。
+- **函数相等**（`==`、`!=`）比较句柄内容：指向同一函数的两个引用相等；排序是编译错误。见[一等函数值](../../vm-architecture/first-class-function-values.md)。
+- **类型参数相等**（泛型类方法体内、`static`成员体内或泛型函数体内）：`==`、`!=`作用于`T`操作数——`T`与`T`、`T`与`null`两个方向——按实例化的实参种类分派：标量按值、`string`按内容、结构体按字段值、类与数组按恒等、枚举按内联值。关系序（`<`等）对类型参数是编译错误。见[泛型](../04-types/generics.md)「运行时类型信息与类型参数」。
 - **带null操作数的算术/拼接**是编译错误——null只有通过上面的比较同一性路径才有值。
 
 ### 逻辑

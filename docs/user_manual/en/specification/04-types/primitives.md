@@ -21,6 +21,9 @@ The scalar primitives and their value domains:
 | `bool` | `true` and `false` | `false` |
 | `char` | the Unicode scalar values | code point 0 |
 
+Every numeric primitive above has a fixed alias spelling named by
+its width; the full alias table is in §1.4.
+
 A Unicode scalar value is a code point in the range U+0000 to
 U+10FFFF other than the surrogate range U+D800 to U+DFFF. A
 character literal is checked at compile time (§1.5.3); converting

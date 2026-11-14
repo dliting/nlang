@@ -60,6 +60,15 @@ NodeIterator Node::InsertChild(const NodeIterator& iPos, Node *pNode)
 	return it;
 }
 
+void Node::ReplaceChildCell(const NodeIterator &iPos, Node *pNode)
+{
+	NLANG_ASSERT(iPos != Children().end() && iPos->Parent() == this);
+	NLANG_ASSERT(pNode && !pNode->Parent());
+	Children().assign(iPos, pNode);
+	pNode->m_pParent = this;
+	pNode->OnAddedToParent(*this);
+}
+
 NodeIterator Node::RemoveChild(const NodeIterator& iPos)
 {
 	NLANG_ASSERT(iPos != Children().end() && iPos->Parent() == this);

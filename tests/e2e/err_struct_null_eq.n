@@ -1,0 +1,12 @@
+//v0.13.0 D2: struct values are never null (zero-value records), so a
+//null comparison is vacuous — the gate rejects it.
+struct Point {
+    int x;
+    public Point(int a) { x = a; }
+}
+
+int main() {
+    Point a = Point(1);
+    if (a == null) { return 1; }
+    return 0;
+}

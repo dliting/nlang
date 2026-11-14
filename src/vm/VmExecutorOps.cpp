@@ -244,8 +244,8 @@ void VmExecutor::DispatchFrames(size_t baseDepth)
             OpJumpIfNot(reader, locals);
             break;
 
-        case OpCode::OP_CallFunc:
-            if (OpCallFunc(reader, locals, pResult))
+        case OpCode::OP_CallStatic:
+            if (OpCallStatic(reader, locals, pResult))
                 frameDone = true;
             break;
 
@@ -277,18 +277,23 @@ void VmExecutor::DispatchFrames(size_t baseDepth)
             OpFuncEquality(reader, locals, op);
             break;
 
+        case OpCode::OP_Eq_struct:
+        case OpCode::OP_Ne_struct:
+            OpStructEquality(reader, locals, op);
+            break;
+
         case OpCode::OP_Func_to_str:
             OpFunc_to_str(pResult);
             break;
 
-        //Phase 9e: OP_CallFunc + out-parameter writeback. Bit i of
+        //Phase 9e: OP_CallStatic + out-parameter writeback. Bit i of
         //outMask marks staging slot i as an out param — after the callee
         //returns, its frame slot i is copied back to the caller's
         //staging area. The backend then spills it into the user variable
         //with plain OP_VarLocal + OP_Assign instructions. The writeback
         //itself now runs in PopFrameWithWriteback (frame machine).
-        case OpCode::OP_CallFuncOut:
-            if (OpCallFuncOut(reader, locals, pResult))
+        case OpCode::OP_CallStaticOut:
+            if (OpCallStaticOut(reader, locals, pResult))
                 frameDone = true;
             break;
 
@@ -334,6 +339,26 @@ void VmExecutor::DispatchFrames(size_t baseDepth)
 
         case OpCode::OP_New:
             OpNew(reader, locals);
+            break;
+
+        //v0.13.1: typeName arms (VmExecutorOpsDescriptor.cpp).
+        case OpCode::OP_TypeNameArg:
+            OpTypeNameArg(reader, locals);
+            break;
+        case OpCode::OP_TypeNameCompose:
+            OpTypeNameCompose(reader, locals);
+            break;
+
+        //v0.13.1 D6: kind-dispatched T operations (same TU).
+        case OpCode::OP_Eq_T:
+        case OpCode::OP_Ne_T:
+            OpTypeParamEquality(reader, locals, op);
+            break;
+        case OpCode::OP_TypeArg_to_str:
+            OpTypeArgToStr(reader, locals, pResult);
+            break;
+        case OpCode::OP_As_TypeParam:
+            OpAsTypeParam(reader, locals, pResult);
             break;
 
         case OpCode::OP_CallMethodDirect:
@@ -430,12 +455,23 @@ void VmExecutor::DispatchFrames(size_t baseDepth)
             OpUnbox(reader, pResult);
             break;
 
+        //0.13.1a Task 5: descriptor-dispatched container-boundary
+        //normalization — the accumulator's value crosses the erased-
+        //container boundary under the frame context's type-argument
+        //kind (scalar kinds box/unbox, reference kinds pass through).
+        case OpCode::OP_Box_TypeArg:
+            OpBoxTypeArg(reader, pResult);
+            break;
+        case OpCode::OP_Unbox_TypeArg:
+            OpUnboxTypeArg(reader, pResult);
+            break;
+
         //Phase 8e-1.5: class downcast check.
         //Reads the target classIdx operand. Verifies the heap object's
         //runtime class is operand-classIdx or a subclass thereof. Throws
         //on mismatch. Pushes the same heap idx back to pResult on success.
         case OpCode::OP_CheckCast:
-            OpCheckCast(reader, pResult);
+            OpCheckCast(reader, locals, pResult);
             break;
 
         case OpCode::OP_Throw:

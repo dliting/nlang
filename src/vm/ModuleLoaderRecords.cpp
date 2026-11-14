@@ -99,6 +99,49 @@ void ReadFunctionRecords(std::istream& fs, CompiledModule& mod)
         uint8_t staticFlag = 0;
         fs.read(reinterpret_cast<char*>(&staticFlag), sizeof(staticFlag));
         func.isStatic = (staticFlag != 0);
+        //v2.16: instance-method flag (see ModuleSaver).
+        uint8_t instanceMethodFlag = 0;
+        fs.read(reinterpret_cast<char*>(&instanceMethodFlag),
+                sizeof(instanceMethodFlag));
+        func.isInstanceMethod = (instanceMethodFlag != 0);
+        //v2.18: abstract declaration (see ModuleSaver). A wild flag is a
+        //corrupt image — the stub rebuild and dispatch defense branch on it.
+        uint8_t abstractFlag = 0;
+        fs.read(reinterpret_cast<char*>(&abstractFlag), sizeof(abstractFlag));
+        if (!fs.good() || abstractFlag > 1)
+            throw std::runtime_error(
+                "Invalid module: bad function abstract flag");
+        func.isAbstract = (abstractFlag != 0);
+        //v2.17: generic-function declaration (see ModuleSaver). isGeneric
+        //drives the frame descriptor cell fill at push
+        //(ResolveFrameInstDesc); the names carry the declared parameter
+        //surface. A wild flag or count is a corrupt image — the frame
+        //machine would otherwise push a null cell for a generic record.
+        uint8_t genericFlag = 0;
+        fs.read(reinterpret_cast<char*>(&genericFlag), sizeof(genericFlag));
+        if (!fs.good() || genericFlag > 1)
+            throw std::runtime_error(
+                "Invalid module: bad function generic flag");
+        func.isGeneric = (genericFlag != 0);
+        uint16_t fnTypeParamCount = 0;
+        fs.read(reinterpret_cast<char*>(&fnTypeParamCount),
+                sizeof(fnTypeParamCount));
+        if (!fs.good() || fnTypeParamCount > (1u << 8))
+            throw std::runtime_error(
+                "Invalid module: bad function type-parameter count");
+        func.typeParamNames.resize(fnTypeParamCount);
+        for (uint16_t j = 0; j < fnTypeParamCount; ++j) {
+            uint32_t tpLen = 0;
+            fs.read(reinterpret_cast<char*>(&tpLen), sizeof(tpLen));
+            if (!fs.good() || tpLen > (1u << 24))
+                throw std::runtime_error(
+                    "Invalid module: bad type-parameter name length");
+            func.typeParamNames[j].resize(tpLen);
+            fs.read(func.typeParamNames[j].data(), tpLen);
+            if (!fs.good())
+                throw std::runtime_error(
+                    "Invalid module: truncated type-parameter names");
+        }
 
         //Option B v1.3: per-formal default-value descriptors.
         uint16_t defaultCount = 0;

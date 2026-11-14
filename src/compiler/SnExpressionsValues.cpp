@@ -34,6 +34,21 @@ bool SnCastExpr::IsDataExpr() const
 	return true;
 }
 
+bool SnCastExpr::ReplaceChildNode(SyntaxNode *pOld, SyntaxNode *pNew)
+{
+	//The source slot — the only cached typed child (the target row is a
+	//non-child pointer). The dual-storage sync contract requires the
+	//override on every class caching a typed child pointer; a
+	//tensor-lowered binary can sit here (an implicit-conversion cast
+	//wrapping array arithmetic).
+	if (m_pSource == pOld)
+	{
+		ResetChild(m_pSource, static_cast<SnExpression *>(pNew));
+		return true;
+	}
+	return Super_::ReplaceChildNode(pOld, pNew);
+}
+
 void SnCastExpr::Accept(nlang::ISyntaxNodeVisitor &v)
 {
 	v.Visit(*this);
@@ -74,16 +89,6 @@ std::string SnAsExpr::ToString() const
 	return std::move(ss.str());
 }
 
-bool SnAsExpr::ReplaceChildNode(SyntaxNode *pOld, SyntaxNode *pNew)
-{
-	if (m_pTargetType == pOld)
-	{
-		ResetChild(m_pTargetType, static_cast<SnFieldExpr *>(pNew));
-		return true;
-	}
-	return Super_::ReplaceChildNode(pOld, pNew);
-}
-
 //SnBinaryExpr
 
 SnBinaryExpr::SnBinaryExpr(Operator op, SnExpression *pLeft,
@@ -114,25 +119,38 @@ void SnBinaryExpr::Accept(nlang::ISyntaxNodeVisitor &v)
 	v.Visit(*this);
 }
 
+//One positional spelling source for diagnostics and ToString; the
+//assert pins the table to cover every Operator value, so a new
+//operator breaks the build here instead of printing "?" somewhere.
+namespace
+{
+const char* const kBinaryOpSymbols[] = {
+	"+", "-", "*", "/", "%",
+	"<", "<=", ">", ">=",
+	"==", "!=",
+	"&&", "||",
+	"-", "!",
+	"<<", ">>",
+	"&", "|", "^", "~",
+};
+static_assert(std::size(kBinaryOpSymbols)
+		== SnBinaryExpr::OP_BitNot + 1,
+	"kBinaryOpSymbols is positional and must cover every Operator value");
+}
+
+const char* SnBinaryExpr::OperatorSymbol(Operator op)
+{
+	return kBinaryOpSymbols[op];
+}
+
 std::string SnBinaryExpr::ToString() const
 {
-	static const char* opNames[] = {
-		"+", "-", "*", "/", "%",
-		"<", "<=", ">", ">=",
-		"==", "!=",
-		"&&", "||",
-		"-", "!",
-		"<<", ">>",
-		"&", "|", "^", "~",
-	};
-	static_assert(std::size(opNames) == OP_BitNot + 1,
-		"opNames is positional and must cover every Operator value");
 	std::stringstream ss;
 	if (m_pRight)
-		ss << m_pLeft->ToString() << " " << opNames[m_op]
+		ss << m_pLeft->ToString() << " " << OperatorSymbol(m_op)
 		   << " " << m_pRight->ToString();
 	else
-		ss << opNames[m_op] << m_pLeft->ToString();
+		ss << OperatorSymbol(m_op) << m_pLeft->ToString();
 	return std::move(ss.str());
 }
 
@@ -198,6 +216,31 @@ void SnThisExpr::Accept(ISyntaxNodeVisitor &v)
 std::string SnThisExpr::ToString() const
 {
 	return "this";
+}
+
+//--- SnTypeNameExpr ---
+
+SnTypeNameExpr::SnTypeNameExpr(SnFieldExpr *pType,
+	const ISourceLocation &loc) :
+	Super_(s_Kind, loc), m_pType(pType)
+{
+	NLANG_ASSERT(pType);
+	AddChild(m_pType);
+}
+
+bool SnTypeNameExpr::IsDataExpr() const
+{
+	return true;
+}
+
+void SnTypeNameExpr::Accept(ISyntaxNodeVisitor &v)
+{
+	v.Visit(*this);
+}
+
+std::string SnTypeNameExpr::ToString() const
+{
+	return "typeName(...)";
 }
 
 SnSubscriptExpr::SnSubscriptExpr(SnExpression *pArray, SnExpression *pIndex,
@@ -387,18 +430,6 @@ bool SnInitListExpr::IsDataExpr() const
 void SnInitListExpr::Accept(ISyntaxNodeVisitor &v)
 {
 	v.Visit(*this);
-}
-
-bool SnInitListExpr::ReplaceChildNode(SyntaxNode *pOld, SyntaxNode *pNew)
-{
-	//The explicit type of "new Type{...}" is cached in a typed slot beside
-	//the children list; keep it in sync when an alias expansion splices it.
-	if (m_pExplicitType == pOld)
-	{
-		ResetChild(m_pExplicitType, static_cast<SnFieldExpr *>(pNew));
-		return true;
-	}
-	return Super_::ReplaceChildNode(pOld, pNew);
 }
 
 std::string SnInitListExpr::ToString() const

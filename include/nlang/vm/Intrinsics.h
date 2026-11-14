@@ -143,7 +143,7 @@ static_assert(INTR_String_ToBool
 
 //K1 (v0.10.0) concurrency intrinsics. thread namespace free functions
 //(129-133): module-level intrinsic stubs dispatched through the
-//OP_CallFunc intrinsic arm — no `this` slot, args start at
+//OP_CallStatic intrinsic arm — no `this` slot, args start at
 //callParamBase. Mutex/Channel builtin class methods (134-141): the
 //usual receiver-dispatched shape (slot 0 = this). 128 was the last
 //fresh id before this block; ids are only ever appended, never reused.

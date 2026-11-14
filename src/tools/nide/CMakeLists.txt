@@ -275,6 +275,6 @@ if(WIN32)
     nlang_copy_qtwebengine_runtime(nide)
 endif()
 
-#ASan tool chain: ship the asan runtime beside the exe (see the
-#nlang_ship_asan_runtime function in the top-level CMakeLists).
-nlang_ship_asan_runtime(nide)
+# ASan runtime provisioning (see the root CMakeLists): one sweep covers
+# this directory's executable targets.
+_nlang_sweep_asan_runtime("${CMAKE_CURRENT_SOURCE_DIR}")

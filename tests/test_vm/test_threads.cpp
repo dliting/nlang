@@ -251,7 +251,7 @@ void test_frame_recursion_boundary_exact()
     PASS();
 }
 
-//out 写回四 ABI：自由函数（OP_CallFuncOut）。
+//out 写回四 ABI：自由函数（OP_CallStaticOut）。
 void test_frame_out_writeback_func()
 {
     TEST(frame_out_writeback_func);
@@ -841,7 +841,7 @@ void test_thread_ns_user_name_shadows()
 //跨模块：被导入模块中的 thread.id() 调用走序列化/链接轨道。两阶段构建
 //（一次构建塞两个源文件不是本 harness 的构建形态）：先单独编译 b 出
 //thread_xmod_b.ncu，再编译 import 它的 a（导入自盘上 .ncu 解析），闭包
-//装链接后执行——导入单元里的 OP_CallFunc 内建函数分支在链接产物上照
+//装链接后执行——导入单元里的 OP_CallStatic 内建函数分支在链接产物上照
 //常派发。
 void test_thread_ns_cross_module()
 {
@@ -3873,11 +3873,16 @@ static void test_held_context_mirror_reset_after_run()
     PASS();
 }
 
-//K2 Task 3：定时器唤醒＋死锁非误报。三个 sleeper 错峰睡眠（10/30/50
+//K2 Task 3：定时器唤醒＋死锁非误报。三个 sleeper 错峰睡眠（50/150/250
 //毫秒），一个忙循环 worker 与之并发；main 在 join 处停泊——此刻全部
 //载体空闲、仅有定时器在飞。断言：sleeper 依到期顺序完成（错峰保证确
 //定序）、忙循环在睡眠窗口内穿插、程序正常返回。定时器唤醒缺失（sleeper
 //永不清醒→join 挂起或死锁报告）或「有定时器在飞仍误报死锁」都会失败。
+//窗口取值按机器速度范围的上端定标（2026-11-14）：20000 次字节码循环
+//标称约 2ms，ASan×Debug 断言×并发负载的最坏叠加实测能把单次迭代推到
+//约 3µs（~60ms，mainwindow straddle 样本同源），50ms 的旧最长窗正踩
+//这条线（ASan 套件内的 pb<p2 失败形态）；250ms 对该最坏值留 4 倍余量，
+//静默窗下 125 倍。忙循环与睡眠窗在负载下同向缩放，比例裕量成立。
 static void test_timer_wake_under_multi_carrier()
 {
     TEST(timer_wake_under_multi_carrier);
@@ -3885,9 +3890,9 @@ static void test_timer_wake_under_multi_carrier()
     const int rc = runWithCarriers("timer_wake_4",
         "import thread;\n"
         "import io;\n"
-        "void s0() { thread.sleep(10); io.write(\"0\"); }\n"
-        "void s1() { thread.sleep(30); io.write(\"1\"); }\n"
-        "void s2() { thread.sleep(50); io.write(\"2\"); }\n"
+        "void s0() { thread.sleep(50); io.write(\"0\"); }\n"
+        "void s1() { thread.sleep(150); io.write(\"1\"); }\n"
+        "void s2() { thread.sleep(250); io.write(\"2\"); }\n"
         "void busy() {\n"
         "    int i = 0;\n"
         "    while (i < 20000) { i = i + 1; }\n"

@@ -40,16 +40,27 @@ Using           = "using" NameExpr ";"
 TopMemberList   = { TopItem } ;
 TopItem         = NamespaceMember | Statement | TopBareFunc | TopModFunc ;
 TopBareFunc     = TopBareHeader Paragraph
-                | "func" TopBareHeader ";" ;
+                | "func" TopBareHeader ";"
+                | TopGenericBareHeader Paragraph
+                | "func" TopGenericBareHeader ";" ;
 TopBareHeader   = ( HeadType | "void" ) <identifier> "(" [ FormalParamList ] ")" ;
-TopModFunc      = TopModHeader FunctionBodyOrSemi ;
+TopGenericBareHeader = ( HeadType | "void" ) <identifier> TypeParams
+                       "(" [ FormalParamList ] ")" ;
+TopModFunc      = TopModHeader FunctionBodyOrSemi
+                | TopGenericModHeader FunctionBodyOrSemi ;
 TopModHeader    = ( AccessType [ NodeFlags ] | NodeFlags )
                   ( HeadType | "void" ) <identifier> "(" [ FormalParamList ] ")" ;
+TopGenericModHeader = ( AccessType [ NodeFlags ] | NodeFlags )
+                      ( HeadType | "void" ) <identifier> TypeParams
+                      "(" [ FormalParamList ] ")" ;
 ```
 
 A top-level function is *bare* when it carries no access modifier and
 no flags (chapter 7); `TopModHeader` requires at least one of the
-two, which is what separates the two forms.
+two, which is what separates the two forms. The two generic variants
+carry a type-parameter name list (`TypeParams`, the declaration shape
+a generic class uses) between the function name and the formal list,
+declaring a generic free function.
 
 ## 2.3 Types and Type Arguments
 
@@ -64,7 +75,8 @@ TypeArg         = [ "out" ] Type ;
 TypeName        = NameExpr | QualifiedType ;
 NameExpr        = IdentifierExpr ;
 QualifiedType   = NameExpr "." <identifier> { "." <identifier> } ;
-NameList        = TypeName { "," TypeName } ;
+NameList        = ImplementsName { "," ImplementsName } ;
+ImplementsName  = TypeName | <identifier> "<" TypeList ">" ;
 HeadType        = ( IdentifierExpr [ "<" TypeArgs ">" ]
                   | "func" "<" TypeArgs ">" | MemberExpr )
                   { "[]" | "[,,]" } ;
@@ -105,7 +117,7 @@ StructField     = [ AccessType ] Type <identifier> [ "=" Expression ] ";" ;
 StructCtor      = [ AccessType ] [ NodeFlags ] <identifier>
                   "(" [ FormalParamList ] ")" FunctionBodyOrSemi ;
 
-InterfaceDecl   = "interface" <identifier>
+InterfaceDecl   = "interface" <identifier> TypeParamsOpt
                   "{" [ InterfaceMemberList ] "}" ;
 InterfaceMemberList = InterfaceMember { InterfaceMember } ;
 InterfaceMember = [ AccessType ] [ NodeFlags ]
@@ -214,12 +226,16 @@ Expression      = ParenthesesExpr | MemberExpr | LiteralExpr
                 | <identifier> "<" TypeList ">" "{" [ InitEntryList ] "}"
                 | Expression BinaryOp Expression
                 | UnaryOp Expression
-                | Expression "as" TypeName
+                | Expression "as" TypeName [ "[]" | "[,,]" ]
+                | Expression "as" AsGenericTarget
+                | QualifiedGenericReceiver "(" [ ConcreteParamList ] ")"
                 | "func" "<" TypeList ">" "(" [ ConcreteParamList ] ")" ;
 BinaryOp        = "+" | "-" | "*" | "/" | "%"
                 | "<" | "<=" | ">" | ">=" | "<<" | ">>"
                 | "==" | "!=" | "&" | "^" | "|" | "&&" | "||" ;
 UnaryOp         = "-" | "+" | "!" | "~" ;
+AsGenericTarget = IdentifierExpr "<" TypeList ">" [ "[]" | "[,,]" ] ;
+QualifiedGenericReceiver = IdentifierExpr "<" TypeList ">" ;
 
 ParenthesesExpr = "(" Expression ")" ;
 LiteralExpr     = <int-literal> | <long-literal> | <ulong-literal>
@@ -230,7 +246,8 @@ IdentifierExpr  = <identifier> | TypeKeyword ;
 TypeKeyword     = "int" | "byte" | "ubyte" | "short" | "ushort"
                 | "uint" | "long" | "ulong" | "float" | "double"
                 | "string" | "bool" | "char" ;
-MemberExpr      = Expression "." ( InvokeExpr | IdentifierExpr ) ;
+MemberExpr      = Expression "." ( InvokeExpr | IdentifierExpr )
+                | QualifiedGenericReceiver "." ( InvokeExpr | IdentifierExpr ) ;
 InvokeExpr      = <identifier> "(" [ ConcreteParamList ] ")" ;
 SubscriptExpr   = Expression "[" SubscriptItemList "]" ;
 SubscriptItemList = SubscriptItem { "," SubscriptItem } ;
@@ -256,7 +273,26 @@ ConcreteParam   = <identifier> "=" ( Expression | BracedInitExpr )
 `IdentifierExpr` admits the primitive type keywords so that a type
 name can appear where an expression head is expected (static-style
 member access and type-argument heads). The `func<...>(...)` form is
-a function value expression (chapter 7).
+a function value expression (chapter 7). `AsGenericTarget` is the
+generic `as` target — `e as Box<int>` and its array-suffixed form
+`e as Box<int>[]`; it covers built-in and user-declared templates
+alike. `QualifiedGenericReceiver` is the explicit instantiation
+spelling in expression position — `Pair<int, string>.sig()` and
+`Hold<int>(5)` (§4.12.2, §4.12.3). In expression position, whether
+`<` opens a spelling is decided by a shape rule, with no case test
+and no name lookup: a balanced angle-bracket run closing right
+before `.` or `(` keeps its spelling reading, and every other `<`
+after an identifier is comparison. So comparison chains such as
+`a < b > c` keep their comparison reading, and a call whose
+arguments are comparisons can collide with the shape — `both(a < b,
+c > (d))` reads as the spelling `a<b, c>(d)`. The compiler names
+that collision instead of reporting a bare cannot-resolve error:
+when the head names a value, the diagnostic says so and shows the
+parenthesized form `f((a < b), (c > d))`; when it names a function,
+the diagnostic says a call carries no type-argument spelling; when
+it names a type that takes no type arguments, the diagnostic says
+the type is not generic. The receiver name resolves like a bare
+template name.
 
 ## 2.7 Operator Precedence
 

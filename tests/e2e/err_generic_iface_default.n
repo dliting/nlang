@@ -1,0 +1,7 @@
+//Negative: a parameter default on a generic interface method cannot
+//mention T — defaults are serialized folded values on the wire.
+interface I<T>
+{
+    void f(T x = null);
+}
+int main() { return 0; }

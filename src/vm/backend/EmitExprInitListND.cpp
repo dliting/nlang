@@ -98,11 +98,8 @@ void VmBackend::EmitInitListArrayND(SnInitListExpr &initList,
             emitter.EmitUint16(
                 static_cast<uint16_t>(dimsBase + d * kFrameSlotBytes));
         }
-        emitter.Emit(OpCode::OP_AllocArrayN);
-        emitter.EmitUint16(resultOffset);
-        emitter.EmitUint16(arrayTypeIdx);
-        emitter.EmitUint16(rank);
-        emitter.EmitUint16(dimsBase);
+        EmitAllocArrayN(resultOffset, arrayTypeIdx, rank, dimsBase,
+                        token.ElemTypeOf(), emitter);
     }
     //Leaves in row-major order; the constant coordinates and the
     //staged value share one exclusive claim [coords | value]. The
@@ -144,11 +141,8 @@ void VmBackend::EmitInitListArrayNDynamic(SnInitListExpr &initList,
         EmitExpression(*entry.pValue, emitter,
             static_cast<uint16_t>(rowsBase + i * kFrameSlotBytes));
     }
-    emitter.Emit(OpCode::OP_AssembleArrayN);
-    emitter.EmitUint16(resultOffset);
-    emitter.EmitUint16(arrayTypeIdx);
-    emitter.EmitUint16(rowsBase);
-    emitter.EmitUint16(rowCount);
+    EmitAssembleArrayN(resultOffset, arrayTypeIdx, rowsBase, rowCount,
+                       pElemField, emitter);
 }
 
 //Row-major leaf walk: coords accumulates the constant coordinate

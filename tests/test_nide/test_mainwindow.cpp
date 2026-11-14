@@ -145,7 +145,7 @@ const char* const kLoopSource =
     "\n"                              //4
     "public int main() {\n"           //5
     "    int spin = 0;\n"             //6
-    "    while (spin < 30000000) {\n" //7
+    "    while (spin < 5000000) {\n"  //7
     "        spin = spin + 1;\n"      //8
     "    }\n"                         //9
     "    int t = touch();\n"          //10 <- prelude breakpoint
@@ -153,13 +153,20 @@ const char* const kLoopSource =
     "}\n";                            //12
 
 //The loop only has to outlive the queued-toggle window (the toggles
-//land right after the Running state is observed). 30M iterations keep
-//seconds of margin on both ends of the machine-speed range without
-//tying the QTRY ceiling to absolute wall time: a 100M loop once made
-//the whole family flake on a machine running ~2.4x slower than the
-//calibration desktop (debugged loop-stop ~95s against the 90s QTRY
-//ceiling, 2026-11-05).
-constexpr int kLoopStopTimeoutMs = 90000;
+//land right after the Running state is observed). The count and the
+//QTRY ceiling are calibrated against the machine-speed range's two
+//ends: on the calibration desktop the debugged loop runs ~0.17us per
+//iteration (5M ~= 0.8s, a 4x margin over the toggle-delivery latency
+//— both sides slow down together under load, so the ratio holds), and
+//the worst observed straddle ran ~3.1us per iteration (93s for a 30M
+//loop, 2026-11-14 straddle sample), putting 5M at ~16s against the
+//30s ceiling. A 100M loop once made the whole family flake on a
+//machine ~2.4x slower than the calibration desktop (loop-stop ~95s
+//against the then-90s ceiling, 2026-11-05); the 30M form stayed
+//marginal under concurrent session load (straddle pass,fail,fail at
+//90-110s per function). Failure detection also tightens: a hung stop
+//is reported in 30s instead of 90s.
+constexpr int kLoopStopTimeoutMs = 30000;
 
 //The embedded help's mkdocs-material search needs the page-side retry
 //loop to report (its bundle binds the input handler asynchronously),
@@ -167,10 +174,17 @@ constexpr int kLoopStopTimeoutMs = 90000;
 //after the timeout. Keep the polling throttled: a runJavaScript per
 //poll crashed the renderer once (thousands of queued IPC round trips).
 constexpr int kHelpSearchProbeMs = 250;
+//Debug WebEngine (the d-suffixed Chromium build) runs several times
+//slower than Release — the first JS round trip on the material bundle
+//blew past the Release ceilings on Debug sweeps. Scale the ceilings
+//by configuration; Release keeps the tight 15s numbers.
+#ifdef _DEBUG
+constexpr int kHelpSearchTimeoutMs = 45000;
+constexpr int kHelpPageLoadTimeoutMs = 45000;
+#else
 constexpr int kHelpSearchTimeoutMs = 15000;
-//Parallel builds make the first page load slow; QTRY's 5s default is
-//not enough for the loadFinished wait under that contention.
 constexpr int kHelpPageLoadTimeoutMs = 15000;
+#endif
 
 //Schedule an action to run inside the modal exec() loop that the NEXT
 //blocking call opens (queue right before triggering it).
@@ -4097,6 +4111,17 @@ private slots:
         //which the docs pipeline must therefore generate (the mkdocs
         //search plugin emits only the .json). A real query must surface
         //real results, covering index load and the search run in one go.
+#ifdef _DEBUG
+        //Qt 5.15's DEBUG QtWebEngineProcessd dies ~1.6s after load on
+        //a Blink CHECK (LocalFrameView::updateLifecyclePhasesInternal
+        //reentrance; captured via --enable-logging=stderr) — every
+        //post-load runJavaScript callback is then dropped, so this
+        //JS-bridge test cannot run against the Debug renderer at all.
+        //Third-party crash, not our wiring: testHelpOpensEmbeddedBrowser
+        //(load + view wiring) stays live in Debug; full coverage runs
+        //in Release builds.
+        QSKIP("Qt 5.15 Debug WebEngine renderer CHECK-crashes after load");
+#endif
         if (locateHelpPage("specification/index").isEmpty())
             QSKIP("docs site not built (NLANG_BUILD_DOCS=OFF)");
         MainWindow window;
@@ -4164,6 +4189,12 @@ private slots:
     void testHelpLinksNavigateToHtmlPages() {
         //Regression for the directory-listing bug: every internal link in
         //the site must land on a .html page, never a directory index.
+#ifdef _DEBUG
+        //Same Debug-renderer crash as testHelpSearchFindsResults: the
+        //click dispatch rides a runJavaScript round trip the crashed
+        //Debug renderer never answers.
+        QSKIP("Qt 5.15 Debug WebEngine renderer CHECK-crashes after load");
+#endif
         if (locateHelpPage("specification/index").isEmpty())
             QSKIP("docs site not built (NLANG_BUILD_DOCS=OFF)");
         MainWindow window;
@@ -4184,7 +4215,9 @@ private slots:
             ".find(a=>a.getAttribute('href').endsWith('.html'));"
             "if(a){a.click();return a.href;}return '';})()",
             [&](const QVariant& v){ clickedUrl = v.toString(); clicked = true; });
-        QTRY_VERIFY(clicked);
+        //QTRY's 5s default is a Release-shaped ceiling; a Debug
+        //WebEngine round trip on the material page can outlast it.
+        QTRY_VERIFY_WITH_TIMEOUT(clicked, kHelpPageLoadTimeoutMs);
         QVERIFY(!clickedUrl.isEmpty());
         QTRY_COMPARE(view->url().toString(), clickedUrl);
         QVERIFY(view->url().toString().endsWith(".html"));
@@ -4278,8 +4311,15 @@ private slots:
         //handlers expect.
         log->resize(600, 200);
         log->document()->adjustSize();
-        const QTextCursor diagnostic(
-            log->document()->find("(line ").block());
+        //Guard BEFORE cursor construction: a QTextCursor built from a
+        //null QTextBlock dereferences a null document handle (an access
+        //violation, not a test failure), so a regression that drops the
+        //positioned "(line ...)" diagnostic must fail cleanly here.
+        const QTextBlock diagnosticBlock =
+            log->document()->find("(line ").block();
+        QVERIFY2(diagnosticBlock.isValid(),
+            "diagnostics must carry a source position for navigation");
+        const QTextCursor diagnostic(diagnosticBlock);
         QVERIFY(!diagnostic.isNull());
         log->setTextCursor(diagnostic);
         QTest::mouseDClick(log->viewport(), Qt::LeftButton, Qt::NoModifier,

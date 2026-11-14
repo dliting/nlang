@@ -35,12 +35,23 @@ accuracy is met.
 
 Everything is deterministic: the data keeps its file order (already
 shuffled upstream), and the weights come from `math.srand(42)`-seeded
-`math.random()`. A given toolchain build reproduces the same numbers.
-The first measured run reached **0.897** test accuracy in 9.5 s
-(40 epochs); the assert gate sits at **0.85**. Literature for
-2000-record MNIST subsets reports 88–92% — the frozen value is below
-the zone floor and 4.7 points under the measurement, so float noise
-cannot trip it while a real kernel or view regression does.
+draws (the host PRNG both `math.random()` and `tensor.uniform` read).
+A given toolchain build reproduces the same numbers. The first
+measured run reached **0.897** test accuracy in 9.5 s (40 epochs); the
+assert gate sits at **0.85**. Literature for 2000-record MNIST subsets
+reports 88–92% — the frozen value is below the zone floor and 4.7
+points under the measurement, so float noise cannot trip it while a
+real kernel or view regression does.
+
+v0.13.7 moved the elementwise arithmetic from interpreter loops to the
+array operators and vectorized tensor kernels (FMA, SIMD lanes, a
+different summation order), and the weight init onto `tensor.uniform`.
+The run is just as deterministic for a given build, but the printed
+losses shifted in the last digits and the measured accuracy moved
+0.897 → **0.895** → **0.897** across those rewrites (same seed, same
+data, same gate) while the wall time dropped ~5.6× (9.5 s → ~1.7 s) —
+within the gate's noise band, exactly the kind of drift the wide
+baseline exists to absorb.
 
 ## Regenerating the data
 

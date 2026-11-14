@@ -1,0 +1,12 @@
+// err_generic_free_infer_unbound.n — 0.13.1a: a T appearing only in
+// the return type has no argument to infer from. The assignment-target
+// form DOES infer (generic_free_fn_infer.n pins `List<string> made =
+// makeList();`) — discarding the result leaves no inference source
+// and reports the named error.
+List<T> makeList<T>() {
+    return {};
+}
+int main() {
+    makeList();
+    return 0;
+}

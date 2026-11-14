@@ -1,0 +1,24 @@
+// v0.13.0 D3 corner pin (spec D3): inside a shared template body a
+// T->T cross-instance field move (`item = other.item`) stores the bare
+// record handle — no copy. After absorb(), b1.item and b2.item alias
+// one record, so an external write through b1.item.x shows through
+// b2.item.x. This pins the CURRENT behavior by design; the record-
+// stabilization root fix is deferred to v0.13.2.
+struct Point {
+    int x;
+    public Point(int a) { x = a; }
+}
+class Box<T> {
+    public T item;
+    public Box(T v) { item = v; }
+    public void absorb(Box<T> other) { item = other.item; }
+}
+int main() {
+    Box<Point> b1 = Box(Point(1));
+    Box<Point> b2 = Box(Point(5));
+    b1.absorb(b2);
+    if (b1.item.x != 5) return 1;
+    b1.item.x = 9;
+    if (b2.item.x != 9) return 2;  // aliased: the move shared the record
+    return 0;
+}

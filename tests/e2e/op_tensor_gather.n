@@ -1,0 +1,44 @@
+// Tensor gather primitives (v0.13.7 phase 2): gather along an axis
+// with a rank-1 int index array — out[i] = a[i, indices[i]] for
+// axis 1, out[j] = a[indices[j], j] for axis 0. Kills the label-gather
+// loop in the MLP example.
+import tensor;
+
+int main() {
+    float[,] logits = float[3, 4];
+    logits[0, 0] = 1.0f; logits[0, 1] = 2.0f;
+    logits[0, 2] = 3.0f; logits[0, 3] = 4.0f;
+    logits[1, 0] = 5.0f; logits[1, 1] = 6.0f;
+    logits[1, 2] = 7.0f; logits[1, 3] = 8.0f;
+    logits[2, 0] = 9.0f; logits[2, 1] = 10.0f;
+    logits[2, 2] = 11.0f; logits[2, 3] = 12.0f;
+    int[] labels = int[3];
+    labels[0] = 2; labels[1] = 0; labels[2] = 3;
+    float[] picked = tensor.gather(logits, 1, labels);
+    if (picked[0] != 3.0f || picked[1] != 5.0f
+        || picked[2] != 12.0f) return 1;
+    int[] rowIdx = int[4];
+    rowIdx[0] = 2; rowIdx[1] = 1; rowIdx[2] = 0; rowIdx[3] = 1;
+    //axis 0: one index per non-axis position (the columns) —
+    //picked0[j] = logits[rowIdx[j], j]
+    float[] picked0 = tensor.gather(logits, 0, rowIdx);
+    if (picked0[0] != 9.0f || picked0[1] != 6.0f
+        || picked0[2] != 3.0f || picked0[3] != 8.0f) return 2;
+    //rank-1 gather degenerates to fancy indexing: out[i] = v[indices[i]]
+    float[] v = float[3];
+    v[0] = 10.0f; v[1] = 20.0f; v[2] = 30.0f;
+    int[] vidx = int[3];
+    vidx[0] = 1; vidx[1] = 1; vidx[2] = 0;
+    float[] vp = tensor.gather(v, 0, vidx);
+    if (vp[0] != 20.0f || vp[1] != 20.0f || vp[2] != 10.0f) return 3;
+    //indices as a slice view (offset 2 into the owner): the kernel must
+    //read the recorded strides, not data[i] from the owner start
+    int[] pool = int[6];
+    pool[0] = 2; pool[1] = 0; pool[2] = 1;
+    pool[3] = 0; pool[4] = 2; pool[5] = 1;
+    int[] sub = pool[2:5];
+    float[] pickedSub = tensor.gather(logits, 1, sub);
+    if (pickedSub[0] != 2.0f || pickedSub[1] != 5.0f
+        || pickedSub[2] != 11.0f) return 4;
+    return 0;
+}

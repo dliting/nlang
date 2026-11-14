@@ -1,0 +1,40 @@
+// Walker regression cases (v0.13.7): the frame-size walkers must model
+// a tensor-flagged binary as a 2-arg tensor call — these shapes failed
+// with "evalArea walker drift" before the fix, in functions whose other
+// statements do not over-reserve the shared eval-area pool.
+import io;
+import tensor;
+
+struct Params {
+    float[,] w1;
+}
+
+// Helper function: the drift original shape (no over-reserving
+// statements around it).
+float[] add2(float[] a, float[] b) {
+    float[] x = a + b;
+    return x;
+}
+
+int main() {
+    float[] a = tensor.full(4, 1.0f);
+    float[] b = tensor.full(4, 2.0f);
+    //Helper-function shape.
+    float[] x = add2(a, b);
+    if (x[3] != 3.0f) return 1;
+    //Two independent tensor binaries as sibling operands.
+    float[] c = (a + b) + (a + b);
+    if (c[1] != 6.0f) return 2;
+    //Member-lvalue nested chain (the sgdStep shape).
+    Params p;
+    p.w1 = float[2, 2];
+    p.w1[0, 0] = 1.0f; p.w1[0, 1] = 2.0f;
+    p.w1[1, 0] = 3.0f; p.w1[1, 1] = 4.0f;
+    float[,] g = float[2, 2];
+    g[0, 0] = 10.0f; g[0, 1] = 10.0f;
+    g[1, 0] = 10.0f; g[1, 1] = 10.0f;
+    p.w1 = p.w1 - g * 0.5f;
+    if (p.w1[1, 0] != -2.0f) return 3;
+    io.print("walker shapes ok");
+    return 0;
+}

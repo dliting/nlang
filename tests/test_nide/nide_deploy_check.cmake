@@ -1,7 +1,7 @@
 #--- nide deployment self-containment check (Phase 10 Step 9) ---
 #Copies the assembled nide output (nide.exe + Qt DLLs + platforms/ +
 #ncc/nvm/ndb, placed there by the POST_BUILD steps) plus the stdlib
-#native modules (NLANG_NATIVE_DLLS -- they live only under
+#native modules (NATIVE_DLL_DIR -- they live only under
 #<build>/native/<config>, so the install-form beside-exe layout is
 #assembled here) to a scratch directory and runs a curated subset of
 #the main-window test suite from there with the QPA plugin path
@@ -69,7 +69,22 @@ file(COPY "${TEST_EXE}" "${QT_TEST_DLL}" DESTINATION "${CHECK_DIR}")
 #authoritative <build>/native/<config> output since 0.11.4), so the
 #install-form layout -- DLLs beside the executable, where the loader's
 #executable-dir search finds them -- is materialized here explicitly.
-file(COPY ${NLANG_NATIVE_DLLS} DESTINATION "${CHECK_DIR}")
+#The dir arrives as ONE path: a multi-path -D needs escaped list
+#semicolons, and escaped semicolons do not survive add_test argument
+#forwarding (the scratch-stamping add_test wrapper re-splits them),
+#which silently shipped only nlang_math.dll and killed the
+#io-importing probes (2026-11-10). The seven names below are the
+#shipped native-module set (system/net/gzip joined the set on the dev
+#line); the probe exercises io through them.
+file(COPY
+    "${NATIVE_DLL_DIR}/nlang_math.dll"
+    "${NATIVE_DLL_DIR}/nlang_io.dll"
+    "${NATIVE_DLL_DIR}/nlang_fs.dll"
+    "${NATIVE_DLL_DIR}/nlang_tensor.dll"
+    "${NATIVE_DLL_DIR}/nlang_system.dll"
+    "${NATIVE_DLL_DIR}/nlang_net.dll"
+    "${NATIVE_DLL_DIR}/nlang_gzip.dll"
+    DESTINATION "${CHECK_DIR}")
 
 #The scratch is nested 9 levels under <build>/tests, beyond the reach of
 #the walk-up discovery used for stdlib (and native modules), so nothing

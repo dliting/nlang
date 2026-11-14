@@ -1,0 +1,14 @@
+// 0.13.1a: typeName of a type parameter inside a static member body
+// reads the frame descriptor cell — the caller-forward channel fills
+// it, so the former instance-context rule (and its compensation
+// pattern) is gone. The composed spelling is the argument's canonical
+// form.
+class Hold<T> {
+    public static string name() { return typeName(T); }
+    public string viaInstance() { return name(); }
+}
+int main() {
+    Hold<int> h = Hold();
+    if (h.viaInstance() != "int") { return 3; }
+    return 0;
+}

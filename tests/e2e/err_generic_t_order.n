@@ -1,0 +1,9 @@
+// v0.13.0 review finding: ordering on a type-parameter-typed operand
+// inside a shared generic body compiled silently and ordered by heap
+// index. Named compile error until runtime kind info lands.
+class Box<T> {
+    public T item;
+    public Box(T v) { item = v; }
+    public bool first(Box<T> other) { return item < other.item; }
+}
+int main() { return 0; }

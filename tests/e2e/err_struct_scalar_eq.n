@@ -1,0 +1,12 @@
+//v0.13.0 D2: struct vs scalar compiled silently and compared the raw
+//heap index against the integer — the gate names the rule.
+struct Point {
+    int x;
+    public Point(int a) { x = a; }
+}
+
+int main() {
+    Point a = Point(5);
+    if (a == 5) { return 1; }
+    return 0;
+}

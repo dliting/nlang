@@ -1,0 +1,32 @@
+// Array arithmetic operators (v0.13.7): `a + b`, `a * s - b`, `1 - a`,
+// `-a`, and `a = a + b` — every spelling lowers to the tensor module's
+// kind-dispatching primitives and rides the tier-dispatched kernels.
+// Requires `import tensor` (the import drives the library-unit
+// discovery, the same as every other tensor.* call).
+import io;
+import tensor;
+
+int main() {
+    float[] a = tensor.full(4, 1.0f);
+    float[] b = tensor.full(4, 2.0f);
+    for (int i = 0; i < 4; i += 1) {
+        a[i] = i + 0.0f;
+    }
+    float[] c = a + b;
+    if (c[0] != 2.0f || c[3] != 5.0f) return 1;
+    float[] d = a * 3.0f - b;
+    if (d[1] != 1.0f) return 2;
+    float[] e = 1.0f - a / 2.0f;
+    if (e[2] != 0.0f) return 3;
+    float[] f = -a;
+    if (f[3] != -3.0f) return 4;
+    a = a + b;
+    if (a[3] != 5.0f) return 5;
+    //shape-carrying: rank-2 works through the same lowering
+    float[,] m = float[2, 2];
+    m[0, 0] = 1.0f; m[0, 1] = 2.0f;
+    m[1, 0] = 3.0f; m[1, 1] = 4.0f;
+    float[,] m2 = m * 2.0f;
+    if (m2[1, 1] != 8.0f) return 6;
+    return 0;
+}

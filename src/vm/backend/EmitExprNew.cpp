@@ -72,11 +72,14 @@ void VmBackend::EmitNewCtorDispatch(SnClassDecl* pClassDecl,
                                     SnExpression* pSkipArg, uint16_t classIdx,
                                     uint16_t resultOffset) {
     SnFunction* pRegistered = RegisteredCtor(pCtorFn);
+    //v0.13.1 D1: a concrete instantiation's construction carries its
+    //descriptor row on every OP_New form below.
+    const uint16_t descIdx = DescriptorIndexFor(*pClassDecl);
     if (pRegistered) {
         const uint16_t ctorIdx =
             static_cast<uint16_t>(FunctionSlotFor(*pRegistered));
         EmitCtorInvocation(pRegistered, ctorArgs, pSkipArg, *m_pCurrEmitter,
-                           ctorIdx, CtorAlloc{false, classIdx, 0},
+                           ctorIdx, CtorAlloc{false, classIdx, 0, descIdx},
                            resultOffset);
         return;
     }
@@ -87,7 +90,7 @@ void VmBackend::EmitNewCtorDispatch(SnClassDecl* pClassDecl,
         const uint16_t ctorIdx = CtorSlotFor(*pClassDecl, classIdx);
         if (ctorIdx != 0xFFFF) {
             EmitCtorInvocation(nullptr, ctorArgs, pSkipArg, *m_pCurrEmitter,
-                               ctorIdx, CtorAlloc{false, classIdx, 0},
+                               ctorIdx, CtorAlloc{false, classIdx, 0, descIdx},
                                resultOffset);
             return;
         }
@@ -97,6 +100,7 @@ void VmBackend::EmitNewCtorDispatch(SnClassDecl* pClassDecl,
     emitter.Emit(OpCode::OP_New);
     emitter.EmitUint16(resultOffset);
     emitter.EmitUint16(classIdx);
+    emitter.EmitUint16(descIdx);
 }
 
 //The type has a registered ctor — claim {this, formals...} in evalArea,
@@ -210,11 +214,9 @@ void VmBackend::EmitNewArray(SnField* pElemType, SnExpression& sizeExpr,
     EvalAreaClaim sizeClaim(*this, 1);
     uint16_t sizeSlot = sizeClaim.base();
     EmitExpression(sizeExpr, emitter, sizeSlot);
-    emitter.Emit(OpCode::OP_AllocArrayN);
-    emitter.EmitUint16(resultOffset);
-    emitter.EmitUint16(arrayTypeIdx);
-    emitter.EmitUint16(1);  // rank: the single-size form is rank 1
-    emitter.EmitUint16(sizeSlot);  // dimsBase (one dimension)
+    //Rank 1: the single-size form's one dimension is the size slot.
+    EmitAllocArrayN(resultOffset, arrayTypeIdx, 1, sizeSlot, pElemType,
+                    emitter);
 }
 
 //Stage-2: ND creation T[d0, d1, ...] — dims stage into consecutive
@@ -229,11 +231,8 @@ void VmBackend::EmitNewArrayND(SnField* pElemType,
     uint16_t dimsBase = dimsClaim.base();
     for (uint8_t d = 0; d < rank; ++d)
         EmitExpression(*dims[d], emitter, dimsBase + d * kFrameSlotBytes);
-    emitter.Emit(OpCode::OP_AllocArrayN);
-    emitter.EmitUint16(resultOffset);
-    emitter.EmitUint16(arrayTypeIdx);
-    emitter.EmitUint16(rank);
-    emitter.EmitUint16(dimsBase);
+    EmitAllocArrayN(resultOffset, arrayTypeIdx, rank, dimsBase, pElemType,
+                    emitter);
 }
 
 //v0.12.7 Task 4: `Array(dims)` — the Array face's dynamic-rank
@@ -253,9 +252,7 @@ void VmBackend::EmitArrayDynCtor(SnClassDecl& instance,
     EmitExpression(*params.begin(), emitter, dimsSlot);
     emitter.Emit(OpCode::OP_NullCheck);
     emitter.EmitUint16(dimsSlot);
-    emitter.Emit(OpCode::OP_AllocArrayDyn);
-    emitter.EmitUint16(resultOffset);
-    emitter.EmitUint16(elemArrayTypeIdx);
-    emitter.EmitUint16(dimsSlot);
+    EmitAllocArrayDyn(resultOffset, elemArrayTypeIdx, dimsSlot, typeArgs[0],
+                      emitter);
 }
 } //namespace nlang

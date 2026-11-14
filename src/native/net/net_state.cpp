@@ -56,8 +56,16 @@ void NetStateDtor(void* state) {
     //construction: the run has ended (carriers joined, no context
     //parked) and no new fd is minted here, so HUP/ERR events the
     //poller reports for a closed fd wake nobody.
-    std::lock_guard<std::mutex> g(st->m_mutex);
-    st->m_slots.CloseAllOpen();
+    //The delete sits OUTSIDE the guard's scope: destroying the state
+    //destroys m_mutex, and ~mutex on a still-owned mutex is undefined
+    //(the Debug STL check fires "mutex destroyed while busy"; the
+    //guard's unlock then reads freed storage). Close under the lock,
+    //release, then free — the last reference is this dtor, so nothing
+    //races the gap.
+    {
+        std::lock_guard<std::mutex> g(st->m_mutex);
+        st->m_slots.CloseAllOpen();
+    }
     delete st;
 }
 

@@ -1,0 +1,27 @@
+// 0.13.1a: `o as T` inside a static member body reads the frame
+// descriptor cell — the caller-forward channel fills it, so the
+// former instance-context rule is gone. The static arm dispatches on
+// the runtime kind exactly like the instance arm (boxed int unboxes;
+// a string operand raises the catchable InvalidCastException).
+class C<T> {
+    public T kept;
+    public static T f(Object o) { return o as T; }
+    public void viaInstance(Object o) { kept = f(o); }
+    public bool isKept(T other) { return kept == other; }
+}
+int main() {
+    C<int> c = C();
+    Object oi = 7;
+    c.viaInstance(oi);
+    if (!c.isKept(7)) { return 3; }
+    Object os = "s";
+    int acc = 0;
+    try {
+        c.viaInstance(os);
+    } catch (InvalidCastException e) {
+        if (e.message == "NLang VM: invalid cast - expected `int`, got `string`")
+            acc = 1;
+    }
+    if (acc != 1) { return 4; }
+    return 0;
+}

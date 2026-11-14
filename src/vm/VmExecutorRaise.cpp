@@ -1,7 +1,9 @@
 /*---
     VmExecutorRaise.cpp — exception raising and backtrace
     formatting: FormatBacktrace/FormatBacktraceFrame plus the
-    RaiseNlangException/BuildNlangException raise family.
+    RaiseNlangException/BuildNlangException raise family and the
+    RaiseAbstractMethodError corruption raiser (0.13.1c, ported
+    beside the family at the merge).
     Split out of VmExecutor.cpp (2026-11-12 source-size split,
     zero behavior change).
 ---*/
@@ -140,5 +142,15 @@ int32_t VmExecutor::BuildNlangException(int16_t classIdx,
     if (listHeapIdx > 0)
         m_structHeap[static_cast<size_t>(heapIdx)][3] = listHeapIdx;
     return heapIdx;
+}
+
+//0.13.1c: a name-based dispatch landing on an abstract record means the
+//artifact escaped the compiler's instantiation gate (third-party
+//producer or tampering) — the record has no bytecode to run. Same
+//corruption family as "method not found", named distinctly.
+[[noreturn]] void VmExecutor::RaiseAbstractMethodError(
+    const std::string& methodName) const {
+    throw std::runtime_error("NLang VM: abstract method \"" + methodName
+        + "\" has no implementation.");
 }
 } // namespace nlang

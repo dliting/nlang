@@ -5,6 +5,10 @@
 
 namespace nlang {
 
+//0.13.1a call-site descriptor operand values (OP_CallStatic family).
+static constexpr uint16_t kInstDescNone = 0xFFFF;          //no descriptor
+static constexpr uint16_t kInstDescForwardCaller = 0xFFFE; //inherit caller frame cell
+
 enum class OpCode : uint8_t {
     // === Control flow ===
     OP_Return,          // return from function
@@ -57,7 +61,10 @@ enum class OpCode : uint8_t {
     OP_LogicalNot,      // uint16 dst, locals[dst] = !locals[dst]
 
     // === Function call ===
-    OP_CallFunc,        // uint16 func_index, uint16 call_param_base; call function, result to pResult
+    OP_CallStatic,        // uint16 func_index, uint16 call_param_base, uint16 descIdx —
+                          // receiver-less direct call (static members, free functions);
+                          // descIdx fills a generic callee's frame descriptor cell
+                          // (0xFFFF none, 0xFFFE forward the caller's own cell)
     OP_ParaEnd,         // mark end of parameter evaluation
 
     // === Switch/case ===
@@ -86,17 +93,25 @@ enum class OpCode : uint8_t {
     OP_CopyStruct,      // uint16 dst, uint16 src, uint16 structIdx
 
     // === Class operations ===
-    OP_New,             // uint16 dst, uint16 classIdx — allocate object on heap
+    OP_New,             // uint16 dst, uint16 classIdx, uint16 descIdx (0xFFFF = none) — allocate object on heap
     OP_CallMethod,      // uint16 methodNameStringIdx, uint16 callParamBase — virtual method dispatch (name-based)
     OP_CallMethodDirect,// uint16 funcIdx, uint16 callParamBase — non-virtual method call
     OP_CallIntrinsic,   // uint16 intrinsicId, uint16 callParamBase — intrinsic function call
     OP_NullCheck,       // uint16 obj — throw if locals[obj] is null/invalid (hard crash, like Java NPE)
 
     // === Array operations ===
-    OP_AllocArrayN,     // uint16 dst, uint16 typeIdx, uint16 rank, uint16 dimsBase
+    OP_AllocArrayN,     // uint16 dst, uint16 typeIdx, uint16 rank, uint16 dimsBase,
+                        // uint16 descIdx (0xFFFF = none) — v0.13.1: the element
+                        // instantiation's descriptor row when the element type is
+                        // a generic instantiation; stamped as the record's element
+                        // descriptor so array casts can tell Box<int>[] and
+                        // Box<string>[] apart (one arrayTypes row per erasure)
     OP_LoadElementN,    // uint16 dst, uint16 arr, uint16 idxBase, uint16 rank
     OP_StoreElementN,   // uint16 arr, uint16 idxBase, uint16 src, uint16 rank
-    OP_AssembleArrayN,  // uint16 dst, uint16 typeIdx, uint16 elemsBase, uint16 count
+    OP_AssembleArrayN,  // uint16 dst, uint16 typeIdx, uint16 elemsBase, uint16 count,
+                        // uint16 descIdx (0xFFFF = none) — v0.13.1: the literal-
+                        // array twin stamps the element descriptor like the
+                        // allocator above
     OP_LoadElementFlat, // uint16 dst, uint16 arr, uint16 flatIdx
     OP_ArrayLength,     // uint16 dst, uint16 arr (elemCount, any rank)
     OP_ArrayShape,      // uint16 dst (int[rank]), uint16 arr
@@ -105,7 +120,10 @@ enum class OpCode : uint8_t {
     // === Phase 8e-1: Object protocol + boxing/cast ===
     OP_Box,             // uint8 typeKind — pop primitive, push boxed Object ref
     OP_Unbox,           // uint8 typeKind — pop Object ref, type-check, push primitive
-    OP_CheckCast,       // uint16 classIdx — pop ref, verify subclass, throw on mismatch
+    OP_CheckCast,       // uint16 classIdx, uint16 descIdx (0xFFFF = none) — verify
+                        // subclass; when descIdx names a descriptor row the
+                        // operand's instantiation spelling must match too
+                        // (v0.13.1: same template row, different type args)
 
     // === Phase 9d: Exception handling ===
     OP_Throw,           // uint16 src — throw Exception at locals[src] (heap idx)
@@ -113,8 +131,8 @@ enum class OpCode : uint8_t {
     OP_PopHandler,      // no operands — pop one entry from handlerExcStack at catch exit
 
     // === Phase 9e: out-parameter calls ===
-    OP_CallFuncOut,         // uint16 funcIdx, uint16 callParamBase, uint32 outMask —
-                            // like OP_CallFunc; after the callee returns, bit i of outMask
+    OP_CallStaticOut,         // uint16 funcIdx, uint16 callParamBase, uint16 descIdx, uint32 outMask —
+                            // like OP_CallStatic; after the callee returns, bit i of outMask
                             // copies callee frame slot i back to caller staging slot i
     OP_CallMethodDirectOut, // uint16 funcIdx, uint16 callParamBase, uint32 outMask —
                             // same for non-virtual method calls (this = slot 0)
@@ -127,6 +145,13 @@ enum class OpCode : uint8_t {
                         // params staged at callParamBase[0..n)
     OP_Eq_func,         // uint16 lhs, uint16 rhs — content equality (null-guarded)
     OP_Ne_func,         // uint16 lhs, uint16 rhs — negation of OP_Eq_func
+    //v0.13.0: struct ==/!= by field value (the DeepCopyStruct dual) —
+    //the same equality the container entries use, so contains(p) and
+    //get(i) == p agree. Operands are valid struct handles (the resolver
+    //gate allows same-type struct pairs only); null sentinels compare
+    //as plain indices, defensively.
+    OP_Eq_struct,       // uint16 lhs, uint16 rhs — field-value equality
+    OP_Ne_struct,       // uint16 lhs, uint16 rhs — negation of OP_Eq_struct
     OP_Func_to_str,     // no operands; format the handle at pResult as
                         // "func <name>", mint a string object, write handle to pResult
     OP_MakeBoundFunc,   // uint16 funcIdx — receiver at the pResult slot →
@@ -169,7 +194,7 @@ enum class OpCode : uint8_t {
     OP_ClassInitGate,   // u16 classIdx, u16 donePc (absolute), u16 kind
                         // (0 = class, 1 = interface) — Done jumps donePc;
                         // the first claimer falls through to the paired
-                        // OP_CallFunc of the owner's $staticInit; a later
+                        // OP_CallStatic of the owner's $staticInit; a later
                         // context parks and re-walks the gate on wake
     OP_ClassInitDone,   // u16 classIdx, u16 kind — publish Done, wake waiters
     OP_ClassInitFail,   // u16 classIdx, u16 kind — reset the owner so the
@@ -191,10 +216,12 @@ enum class OpCode : uint8_t {
                         // InvalidCastException is raised
 
     // === v0.12.7 Task 5: Object→array downcast check ===
-    OP_CheckArrayType,  // u16 dst, u16 src, u16 arrayTypeIdx — null passes
-                        // through; the record's type identity (kind +
+    OP_CheckArrayType,  // u16 dst, u16 src, u16 arrayTypeIdx, u16 descIdx — null
+                        // passes through; the record's type identity (kind +
                         // arrayTypes row) must match or a catchable
-                        // InvalidCastException is raised
+                        // InvalidCastException is raised. v0.13.1: a named
+                        // element-descriptor row must also match the record's
+                        // stamped element descriptor (instantiation elements)
 
     // === v0.12.7 Task 4: unannotated Array<E> spelling (no static rank) ===
     OP_LoadElementDyn,  // u16 dst, u16 arr, u16 idxBase, u16 nCoords — the
@@ -203,10 +230,67 @@ enum class OpCode : uint8_t {
                         // IndexOutOfBoundsException (both counts)
     OP_StoreElementDyn, // u16 arr, u16 idxBase, u16 src, u16 nCoords —
                         // store twin of OP_LoadElementDyn
-    OP_AllocArrayDyn,   // u16 dst, u16 typeIdx, u16 dimsSlot — dims is a
+    OP_AllocArrayDyn,   // u16 dst, u16 typeIdx, u16 dimsSlot, u16 descIdx
+                        // (0xFFFF = none) — dims is a
                         // rank-1 int[] handle; the rank = dims.length()
                         // validates in [1, kMaxArrayRank] and the extents
-                        // go through AllocArrayOnHeap
+                        // go through AllocArrayOnHeap. v0.13.1: descIdx is
+                        // the element instantiation's descriptor row (the
+                        // Array(dims) allocation stamps it like every
+                        // other array creation form)
+
+    // === v0.13.1: runtime generic type info (typeName) ===
+    OP_TypeNameArg,     // u16 dst, u8 paramOrdinal — read the receiver's
+                        // instantiation descriptor (local 0), take the
+                        // ordinal-th type argument's canonical spelling,
+                        // mint a string object, write its handle to
+                        // locals[dst]
+    OP_TypeNameCompose, // u16 dst, u16 recipeIdx — compose the recipe's
+                        // spelling against the receiver's instantiation
+                        // (ARG_THIS steps read local 0), intern the
+                        // descriptor, mint a string of its canonical
+                        // spelling, write the handle to locals[dst]
+
+    // === v0.13.1 D6: kind-dispatched T operations (==/!= and to-string) ===
+    OP_Eq_T,            // u16 dst, u16 paramOrdinal, u16 lhs, u16 rhs —
+                        // compare two T-typed slots under the receiver's
+                        // ordinal-th type argument kind (scalar inline
+                        // cell rule, string content, struct field value,
+                        // class/array identity, func record content);
+                        // 0xFFFF marks the null-literal side (no slot:
+                        // the reference null test of the kind, and a
+                        // scalar kind is never null); result bool to dst
+    OP_Ne_T,            // same operands, negated verdict
+    OP_TypeArg_to_str,  // u8 paramOrdinal — convert the T-typed value in
+                        // the accumulator through the kind's own render
+                        // (scalar registry, string identity, FormatHeap
+                        // Value walk) and write the string handle back
+    OP_As_TypeParam,    // u8 paramOrdinal — `x as T`: decide the cast by
+                        // the receiver's ordinal-th type argument kind
+                        // (boxed scalar unbox, string kind check, struct
+                        // row identity, class super-chain + instantiation
+                        // spelling, array element key); a mismatch raises
+                        // catchable InvalidCastException, null passes
+                        // through; the accumulator holds the value in and
+                        // out (reference) or the unboxed payload out
+
+    // === 0.13.1a Task 5: descriptor-dispatched container-boundary
+    // normalization (the uniform-T-representation invariant: in a
+    // generic frame a T-typed value is raw iff T's kind is scalar,
+    // while erased List/Dict/Channel store every element as a heap
+    // handle). Emitted where the static boxing plan cannot resolve
+    // the tag — the receiver's type argument is the calling generic
+    // body's own placeholder; the executing frame's descriptor decides.
+    OP_Box_TypeArg,     // u8 paramOrdinal — normalize the accumulator's
+                        // T-typed value INTO the erased-container element
+                        // form: scalar kinds box under the descriptor's
+                        // own tag (OpBox mechanics), reference kinds pass
+                        // through (the handle IS the stored form)
+    OP_Unbox_TypeArg,   // u8 paramOrdinal — the inverse boundary: an
+                        // erased-container element INTO the T-typed frame
+                        // form: scalar kinds unbox under the descriptor's
+                        // tag (OpUnbox mechanics), reference kinds pass
+                        // through as the handle
 
     OP_Count
 };
@@ -232,50 +316,80 @@ static constexpr OpCode kStrideNoOperands[] = {
     OpCode::OP_Array_to_str, OpCode::OP_Func_to_str,
     OpCode::OP_ParaEnd, OpCode::OP_Rethrow, OpCode::OP_PopHandler};
 static constexpr OpCode kStrideByteTag[] = {
-    OpCode::OP_Prim_to_str, OpCode::OP_Box, OpCode::OP_Unbox};
+    OpCode::OP_Prim_to_str, OpCode::OP_Box, OpCode::OP_Unbox,
+    //v0.13.1 D6: the T to-string conversion and the as-T cast — one
+    //ordinal byte each.
+    OpCode::OP_TypeArg_to_str, OpCode::OP_As_TypeParam,
+    //0.13.1a Task 5: the container-boundary normalization pair — one
+    //ordinal byte each.
+    OpCode::OP_Box_TypeArg, OpCode::OP_Unbox_TypeArg};
 static constexpr OpCode kStrideOneWord[] = {
     OpCode::OP_Jump, OpCode::OP_Case, OpCode::OP_ConstString,
     OpCode::OP_AssertFail, OpCode::OP_VarLocal, OpCode::OP_Assign,
     OpCode::OP_Enum_to_str, OpCode::OP_LogicalNot, OpCode::OP_Switch,
-    OpCode::OP_DebugInfo, OpCode::OP_NullCheck, OpCode::OP_CheckCast,
+    OpCode::OP_DebugInfo, OpCode::OP_NullCheck,
     OpCode::OP_Throw, OpCode::OP_MakeFunc, OpCode::OP_MakeBoundFunc,
     OpCode::OP_MakeVFunc,
     OpCode::OP_SlotInitDone, OpCode::OP_SlotInitFail};
 static constexpr OpCode kStrideKindWord[] = {
-    OpCode::OP_Neg, OpCode::OP_BitNot};
+    //v0.13.1: OP_TypeNameArg is u16 dst + u8 ordinal — word-then-tag
+    //(OP_Neg is tag-then-word); the group encodes only the 4-byte extent.
+    OpCode::OP_Neg, OpCode::OP_BitNot, OpCode::OP_TypeNameArg};
 static constexpr OpCode kStrideKindByte[] = {
     OpCode::OP_PrimCast};
 static constexpr OpCode kStrideTwoWords[] = {
     OpCode::OP_JumpIfNot, OpCode::OP_Concat_str, OpCode::OP_Eq_str,
     OpCode::OP_Ne_str, OpCode::OP_Less_str, OpCode::OP_LessEqual_str,
     OpCode::OP_Greater_str, OpCode::OP_GreaterEqual_str,
-    OpCode::OP_StrLen, OpCode::OP_CallFunc, OpCode::OP_CallMethod,
+    OpCode::OP_StrLen, OpCode::OP_CallMethod,
     OpCode::OP_CallMethodDirect, OpCode::OP_CallIntrinsic,
     OpCode::OP_CallDelegate, OpCode::OP_Eq_func, OpCode::OP_Ne_func,
-    OpCode::OP_New, OpCode::OP_ArrayLength, OpCode::OP_ArrayShape,
+    OpCode::OP_Eq_struct, OpCode::OP_Ne_struct,
+    OpCode::OP_ArrayLength, OpCode::OP_ArrayShape,
     OpCode::OP_LoadStatic, OpCode::OP_StoreStatic,
     OpCode::OP_ClassInitDone, OpCode::OP_ClassInitFail,
-    OpCode::OP_SlotInitGate};
+    //v0.13.1: OP_CheckCast gained its second u16 (descIdx) — classIdx,
+    //descIdx, the same extent family as the two-word loads.
+    OpCode::OP_SlotInitGate, OpCode::OP_TypeNameCompose, OpCode::OP_CheckCast};
 static constexpr OpCode kStrideKindTwoWords[] = {
     OpCode::OP_Add, OpCode::OP_Sub, OpCode::OP_Mul, OpCode::OP_Div,
     OpCode::OP_Mod, OpCode::OP_Shl, OpCode::OP_Shr,
     OpCode::OP_BitAnd, OpCode::OP_BitOr, OpCode::OP_BitXor};
 static constexpr OpCode kStrideThreeWords[] = {
+    //v0.13.1: OP_New gained its third u16 (descIdx) — dst, classIdx,
+    //descIdx, the same extent family as AllocStruct's three words.
+    //0.13.1a: OP_CallStatic gained the same third u16 — funcIdx,
+    //callParamBase, descIdx (the receiver-less direct call fills a
+    //generic callee's frame descriptor cell from the call site).
+    OpCode::OP_New, OpCode::OP_CallStatic,
     OpCode::OP_AllocStruct, OpCode::OP_LoadField,
     OpCode::OP_StoreField, OpCode::OP_CopyStruct,
     OpCode::OP_LoadElementFlat, OpCode::OP_StrByteAt,
-    OpCode::OP_ClassInitGate, OpCode::OP_CheckArrayRank,
-    OpCode::OP_CheckArrayType, OpCode::OP_AllocArrayDyn};
+    OpCode::OP_ClassInitGate, OpCode::OP_CheckArrayRank};
 static constexpr OpCode kStrideFourWords[] = {
     OpCode::OP_LoadElementN, OpCode::OP_StoreElementN,
     OpCode::OP_LoadElementDyn, OpCode::OP_StoreElementDyn,
-    OpCode::OP_AssembleArrayN,
-    OpCode::OP_AllocArrayN, OpCode::OP_StrForeachStep};
+    //v0.13.1: OP_CheckArrayType gained its descIdx word — dst, src,
+    //arrayTypeIdx, descIdx; OP_AllocArrayDyn gained its element
+    //descriptor word the same way (Array(dims) allocations stamp too).
+    //D6: the T equality pair — dst, ordinal, lhs, rhs (0xFFFF = the
+    //null-literal side).
+    OpCode::OP_CheckArrayType, OpCode::OP_AllocArrayDyn,
+    OpCode::OP_Eq_T, OpCode::OP_Ne_T,
+    OpCode::OP_StrForeachStep};
 static constexpr OpCode kStrideFiveWords[] = {
-    OpCode::OP_MakeArrayView};
+    //v0.13.1: the array allocators gained their descIdx word —
+    //AllocArrayN: dst, typeIdx, rank, dimsBase, descIdx; AssembleArrayN:
+    //dst, typeIdx, elemsBase, count, descIdx.
+    OpCode::OP_MakeArrayView,
+    OpCode::OP_AllocArrayN, OpCode::OP_AssembleArrayN};
 static constexpr OpCode kStrideOutMaskWords[] = {
-    OpCode::OP_CallFuncOut, OpCode::OP_CallMethodDirectOut,
+    OpCode::OP_CallMethodDirectOut,
     OpCode::OP_CallDelegateOut};
+static constexpr OpCode kStrideOutMaskDescWords[] = {
+    //0.13.1a: OP_CallStaticOut carries the descriptor operand —
+    //funcIdx, callParamBase, descIdx, outMask.
+    OpCode::OP_CallStaticOut};
 static constexpr OpCode kStrideCmpHead[] = {
     OpCode::OP_Cmp};
 static constexpr OpCode kStrideConst32[] = {
@@ -319,6 +433,7 @@ inline size_t InstructionStride(OpCode op) {
         StrideGroup(kStrideFourWords, 1 + 2 + 2 + 2 + 2),
         StrideGroup(kStrideFiveWords, 1 + 2 + 2 + 2 + 2 + 2),
         StrideGroup(kStrideOutMaskWords, 1 + 2 + 2 + 4),
+        StrideGroup(kStrideOutMaskDescWords, 1 + 2 + 2 + 2 + 4),
         StrideGroup(kStrideCmpHead, 1 + 1 + 1 + 2 + 2),
         StrideGroup(kStrideConst32, 1 + 4),
         StrideGroup(kStrideConst64, 1 + 8)};

@@ -1,0 +1,12 @@
+// err_generic_qualified_func_value.n — 0.13.1a Task 3: the explicit
+// instantiation spelling binds the synthetic instantiation's method
+// clones, but the func-value policy is uniform — a receiverless member
+// of a generic class rejects at compile time through either spelling
+// (a func record has no slot for the instantiation context).
+class Tag<T> {
+    public static string tag() { return typeName(T); }
+}
+int main() {
+    func<string> f = Tag<int>.tag;
+    return 0;
+}

@@ -1,0 +1,20 @@
+//v0.13.0 D1: struct elements match by field value. Storage deep-copies
+//at every boundary (the value semantics), so identity comparison could
+//never match — contains/indexOf now walk fields (the DeepCopyStruct
+//dual: value fields deep, reference fields by handle).
+struct Point {
+    int x;
+    int y;
+    public Point(int a, int b) { x = a; y = b; }
+}
+
+int main() {
+    List<Point> l = {};
+    Point p = Point(1, 2);
+    l.add(p);
+    if (!l.contains(p)) return 1;
+    if (l.indexOf(p) != 0) return 2;
+    if (!l.contains(Point(1, 2))) return 3;
+    if (l.indexOf(Point(9, 9)) != -1) return 4;
+    return 0;
+}

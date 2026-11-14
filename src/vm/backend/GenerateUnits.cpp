@@ -36,11 +36,11 @@ void VmBackend::GenerateFunction(SnFunction& func, size_t funcIdx) {
 
     CollectSignatureTypeDescs(func, compiledFunc);
 
-    if (func.ContainFlags(NF_Native)) {
-        //Multi-segment refusal already happened in the whole-tree pre-check
-        //(RejectMultiSegmentNatives) — every native the build accepted
-        //reaches the record with its signature descriptors.
-        EmitNativeFunctionRecord(func, compiledFunc);
+    if (func.ContainFlags(NF_Native) || func.ContainFlags(NF_Abstract)) {
+        //Body-less records (native Phase 9f / abstract 0.13.1c): the
+        //multi-segment native refusal already happened in the whole-tree
+        //pre-check, and the signature descriptors are collected above.
+        EmitBodylessFunctionRecord(func, compiledFunc);
         m_compiledModule.functions[funcIdx] = std::move(compiledFunc);
         return;
     }
@@ -114,6 +114,31 @@ void VmBackend::EmitNativeFunctionRecord(SnFunction& func,
     FillNativeFunctionRecord(func, compiledFunc);
     StampIntrinsicChannel(func, compiledFunc);
     m_currFunc = nullptr;
+}
+
+//GenerateFunction's abstract arm (0.13.1c): the same FuncContext dance —
+//AllocLocal needs a live context — but no intrinsic stamp (abstract has
+//no intrinsic channel; the resolve-time contracts reject anything else
+//body-less, and the grammar exempts native spellings from minting).
+void VmBackend::EmitAbstractFunctionRecord(SnFunction& func,
+                                           CompiledFunction& compiledFunc) {
+    FuncContext ctx;
+    ctx.func = &compiledFunc;
+    ctx.nextOffset = 0;
+    m_currFunc = &ctx;
+    m_pCurrEmitter = nullptr;
+    FillAbstractFunctionRecord(func, compiledFunc);
+    m_currFunc = nullptr;
+}
+
+//GenerateFunction's body-less dispatch: native (host table + binding-table
+//stamp) vs abstract (plain obligation record).
+void VmBackend::EmitBodylessFunctionRecord(SnFunction& func,
+                                           CompiledFunction& compiledFunc) {
+    if (func.ContainFlags(NF_Native))
+        EmitNativeFunctionRecord(func, compiledFunc);
+    else
+        EmitAbstractFunctionRecord(func, compiledFunc);
 }
 
 //The intrinsic-channel owner of a native declaration. Owner-of-CONTEXT,

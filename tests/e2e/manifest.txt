@@ -228,6 +228,18 @@ class_deep_ctor 42
 class_method_chain 9
 class_override 2
 class_no_ctor 42
+# --- abstract functions (0.13.1c) ---
+abstract_polymorphism 0
+abstract_reabstract 0
+abstract_iface_coexist 0
+err_abstract_static compile_error The static method "lookup" cannot be abstract
+err_abstract_ctor compile_error The constructor of "Rect" cannot be abstract
+err_abstract_instantiate compile_error Cannot instantiate the abstract class "Shape"
+err_abstract_reabstract compile_error Cannot instantiate the abstract class "Middle"
+err_abstract_generic compile_error Cannot instantiate the abstract class "Box"
+#Func handle bound on an abstract-typed variable re-dispatches by name on
+#the concrete runtime object — the override's result comes back (12).
+abstract_fnhandle 12
 # --- struct-class interop ---
 struct_class_field 42
 struct_class_field_copy 99
@@ -489,6 +501,38 @@ float_div_zero_throws 0
 list_float_zero 7
 # --- P3.8: cover List<struct> round-trip (boxing + heap struct element) ---
 list_struct_basic 7
+# --- v0.13.0 D1: struct elements/keys match by field value (the
+# DeepCopyStruct dual); contains/indexOf/Dict-key choke points ---
+kl_struct_contains 0
+kl_struct_dict_key 0
+kl_struct_nested_deep 0
+kl_struct_field_kinds 0
+kl_struct_dedup_idiom 0
+# --- v0.13.0 D2: struct ==/!= by value (OP_Eq_struct) + compare gate;
+# ordering / mixed-type / null / scalar comparisons are compile errors ---
+kl_struct_eq_value 0
+err_struct_order_cmp compile_error struct values cannot be ordered
+err_struct_mixed_eq compile_error can only be compared with a struct value of the same type
+err_struct_null_eq compile_error can only be compared with a struct value of the same type
+err_struct_scalar_eq compile_error can only be compared with a struct value of the same type
+# --- v0.13.0 review fix: operators on a type parameter inside a shared
+# generic body are kind-dependent — v0.13.1 D6 lifts ==/!= and the
+# string-concat + onto runtime kind dispatch; ordering and arithmetic
+# stay rejected. 0.13.1a extends the kind-dispatched surface into
+# static member bodies via the frame descriptor cell: the four
+# instance-context rejections become positive pins; the ordering ban
+# holds in static bodies too; a generic-class function stays
+# unreferencable as a func value (neither channel carries an
+# instantiation context) ---
+generic_t_eq_matrix 0
+generic_t_concat_print 0
+generic_as_type_param 0
+err_as_type_param_static 0
+err_generic_t_eq_static 0
+err_generic_t_order compile_error cannot be applied to a type parameter
+err_generic_t_arith compile_error cannot be applied to a type parameter
+err_static_t_order_stays compile_error cannot be applied to a type parameter
+err_generic_func_value compile_error cannot be referenced as a value
 # --- P3.8: lock class field default values (int/float/string/class-ref) ---
 class_field_defaults 7
 # --- P3.8: cover switch on string discriminator ---
@@ -585,6 +629,9 @@ assert_false_throws 1
 const_local 7
 const_local_compound 7
 const_shallow_member_mut 7
+# --- v0.13.0 D5: const functions rejected by name (both spellings) ---
+err_const_fn_toplevel compile_error const is not allowed on functions
+err_const_fn_public compile_error const is not allowed on functions
 # --- Phase 9b-pre: collection toString (Array/List/Dict) ---
 array_tostring_basic 7
 array_tostring_empty 7
@@ -1170,7 +1217,8 @@ func_cross_mod_internal 7
 func_enum_method_reject compile_error cannot reference the enum method
 func_iface_decl_ref_reject compile_error Incompatible type
 func_cross_module_bare 2
-func_dict_key_reject compile_error cannot be used as Dict keys
+kl_func_dict_key 0
+kl_func_list_contains 0
 func_cross_mod_consumer_arg 2
 cross_mod_func_value 9
 cross_mod_func_value_mismatch compile_error no parameter signature matches
@@ -1367,7 +1415,7 @@ dict_set_key_type_reject compile_error Incompatible type
 dict_set_key_coercion 2
 dict_subscript_key_type_reject compile_error Incompatible type
 dict_subscript_key_coercion 2
-binary_array_numeric_reject compile_error Incompatible type
+binary_array_numeric_reject compile_error no matching tensor primitive
 binary_str_array_concat 0 x[1, 2]
 arg_array_to_string_param 5
 io_print_array 0 [1, 2]
@@ -1641,14 +1689,11 @@ cross_mod_ctor_overload 42
 cross_mod_ctor_overload_struct 42
 # --- 0.9.11: a body-less, non-native constructor has no implementation
 # to run, so it is not a call candidate — the resolver matches the same
-# predicate the backend's IsRegisteredCtor uses. A call that would only
-# match such a constructor reports a clear error instead of allocating
-# and silently dropping the arguments; a zero-argument call still
-# allocates (the abstract shape). ---
-ctor_bodyless_arg_no_match compile_error no constructor of class "Cfg" matches the argument list
-ctor_bodyless_only_args compile_error class "Cfg" has no constructor; Cfg() cannot take arguments
+# predicate the backend's IsRegisteredCtor uses. (0.13.1c: the class
+# forms of this family retired — a bodyless class constructor is an
+# abstract method now and the declaration itself is rejected; see
+# err_abstract_ctor. The struct twin keeps the 0.9.11 selection rule.) ---
 ctor_bodyless_arg_no_match_struct compile_error no constructor of struct "Vec" matches the argument list
-ctor_bodyless_zero_arg_alloc 0
 # --- 0.9.12 (NCU v2.7): the class stub rebuilds the full member surface
 # from the wire (own fields, methods, constructors), so a consumer-side
 # public field read and instance method call on an imported object
@@ -1662,6 +1707,13 @@ imported_class_method_call 42
 # full 32-bit exit-code comparison (bash would truncate it to 231). ---
 imported_qualified_static 999
 imported_bare_static 999
+# --- 0.13.1c: abstract obligations cross the .ncu wire. The stub rebuild
+# marks the imported abstract method, so a derived class that leaves the
+# obligation unimplemented stays abstract and instantiation is rejected
+# with the missing method named; the implementing consumer dispatches
+# through both derived-typed and base-typed receivers. ---
+abstract_crossmodule compile_error abstract method "put" has no implementation
+abstract_crossmodule_ok 0
 # --- 0.9.11: a default expression that re-enters the same function's own
 # default emission is caught by the shared DefaultEmitGuard instead of
 # recursing forever at compile time; both the free-function and the
@@ -1743,6 +1795,7 @@ static_funcref_nonfunc_reject compile_error function reference "f" requires an e
 static_funcref_default_reject compile_error functions with default parameters cannot be referenced: "f".
 static_funcref_sig_reject compile_error function "f" does not match the signature of
 static_funcref_private_reject compile_error Cannot resolve the field: f
+err_unresolved_ident_positioned compile_error (line 6, char 12): Error: Cannot resolve the field
 static_funcref_bare_in_class 42
 cross_mod_static_funcref 42
 static_funcref_hof_arg_reject compile_error function reference "Util.twice" requires an expected function type.
@@ -1974,7 +2027,7 @@ nested_generic_triple 7
 nested_generic_anchor_runtime 10
 nested_generic_mixed_anchor 0
 nested_closer_shift_regression 4
-nested_closer_chain_stmthead_err compile_error Cannot resolve the type
+nested_closer_chain_stmthead_err compile_error resolves to a value, not a generic type
 window_suspend 0 w[slow-ok]|done
 string_substring_two_args 0
 string_equals_int_reject compile_error
@@ -2010,7 +2063,9 @@ generic_mixed_members_run 1
 generic_two_instantiations 0
 generic_nested_instantiation 0
 generic_arg_domain 0
-generic_struct_arg compile_error multi-slot
+kl_generic_struct_arg 0
+kl_generic_struct_independence 0
+kl_generic_struct_transfer_corner 0
 generic_func_arg compile_error multi-slot
 generic_gc_tslot_survives 0
 # Task 1's transient window gates flip with instance execution:
@@ -2219,3 +2274,103 @@ stdlib_regex_template 0
 stdlib_regex_diff 0
 stdlib_regex_conc 0
 identifiers_former_keywords 0
+err_catch_generic_type compile_error cannot tell instantiations apart
+err_generic_static_infer_mismatch compile_error has type
+err_generic_static_infer_unbound compile_error cannot infer type argument
+err_generic_qualified_func_value compile_error cannot be referenced as a value
+err_generic_static_ctor 0
+generic_cast_distinguish 0
+array_cast_generic_elem 0
+generic_typename_fold 0
+generic_typename_runtime 0
+err_typename_static_context 0
+generic_serialize_roundtrip 0
+generic_static_infer 0
+generic_static_intra 0
+generic_qualified_static 0
+generic_free_fn 0
+generic_free_fn_infer 0
+generic_fn_calls_fn 0
+generic_pkg_free_fn 0
+err_generic_free_infer_conflict compile_error conflicting type arguments for T
+err_generic_free_infer_unbound compile_error T appears only in the return type
+# 0.13.1b I1: one canonical bare-T default message on both paths.
+err_generic_free_t_default compile_error has no concrete kind
+err_generic_member_t_default compile_error has no concrete kind
+# 0.13.1b I2: declaration-time cap, 255 type parameters (the top ordinal
+# is reserved as the no-ordinal marker).
+err_generic_param_count compile_error at most 255
+err_generic_param_count_fn compile_error at most 255
+# 0.13.1b M2: the spelling probe is a shape rule (the C# one) — a call
+# whose comparison arguments collide with the shape gets a diagnostic
+# naming the parenthesized fix; the parenthesized form itself runs.
+err_spelling_collision_names_the_fix compile_error resolves to a value, not a generic type
+generic_spelling_collision_paren_comparisons 0
+# a live non-generic type with type arguments says so directly.
+err_nongeneric_type_args compile_error is not generic
+# a function head under the same shape learns calls carry no
+# type-argument spelling (inference is from actuals, §4.12.10).
+err_generic_fn_type_args compile_error resolves to a function, not a generic type
+err_generic_native_fn compile_error cannot declare type parameters
+reserved_words_removed 55
+err_typeparam_array_expr compile_error Cannot create an array of the type parameter
+generic_instantiation_array_ok 10
+alias_primitive_keywords 10
+err_alias_reserved compile_error syntax error
+spelling_rescue_comparisons 10
+spelling_rescue_nested 10
+err_rescue_semantic_type compile_error bool values cannot be ordered
+# --- 0.13.1c: generic interface declarations. `interface I<T>` declares
+# the template; `implements I<Args>` binds the class to the INSTANTIATED
+# interface (the completeness check reads the substituted signatures), and
+# dispatch through an instantiated-interface-typed value reaches the
+# implementing class. Diagnostics: a T-typed interface constant, a
+# T-typed formal default, an arity miss, and a missing obligation against
+# the instantiation. ---
+generic_iface_basic 0
+generic_iface_impl_param 0
+generic_iface_two_params 0
+err_generic_iface_const compile_error cannot have the type parameter "T" as its type
+err_generic_iface_default compile_error has no concrete kind, so no default value exists
+err_generic_iface_arity compile_error The generic interface "I" expects 1 type argument(s)
+err_generic_iface_implements_missing compile_error does not implement the method "get(Int32): Int32" required by interface "Container"
+# 0.13.1c Task 8: generic interface DISPATCH. T8-1 (same unit): instance
+# calls through an instantiated-interface-typed receiver across two
+# argument orders, plus a static call spelled through the instantiation
+# (the template-row record + call-site descriptor). T8-2 (cross module):
+# the producer exports the generic interface; the consumer instantiates
+# it against a local implementing class (stub rebuild = the v2.19
+# generic-declaration tail) and calls through the imported factory's
+# row, then repeats with a consumer-local implementation of the imported
+# template (the stub's IsGenericDeclaration arm). ---
+generic_iface_boxing 0
+generic_iface_crossmodule 0
+generic_iface_crossmodule_stub 0
+stdlib_tensor_neg 0
+stdlib_tensor_axis_max 0
+stdlib_tensor_rsub_rdiv 0
+stdlib_tensor_softmax2d 0
+stdlib_tensor_sigmoid_tanh 0
+stdlib_tensor_relugrad 0
+op_array_arithmetic 0
+op_array_rsub_rdiv 0
+op_array_positions 0
+op_array_nesting 0
+op_array_foreach_lowered 0 9
+op_array_match_fail_reject compile_error no matching tensor primitive
+op_array_compound_reject compile_error compound assignment is not supported on arrays
+op_array_compound_assign_source compile_error not supported on this target
+op_array_callarg_initlist 42
+op_array_foreach_decl_valuesem 42
+op_array_store_deepcopy 42
+op_array_empty_initlist_add 42
+op_array_initlist_store 42
+op_tensor_gather_zero_axis 42
+op_tensor_gather 0
+op_tensor_reduce2 0
+op_tensor_gather_throw 1
+op_tensor_gather_empty 1
+op_tensor_reduce_empty 1
+tensor_import_required compile_error Package 'tensor' is not imported
+stdlib_tensor_uniform 0
+stdlib_tensor_uniform_throw 1
