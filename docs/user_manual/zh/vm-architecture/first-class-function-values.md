@@ -19,7 +19,7 @@ OP_MakeVFunc绑定时的空接收者守卫（接收者槽位读到 ≤ 0时抛�
 
 `ExecuteDelegateCall`（OP_CallDelegate / OP_CallDelegateOut共用）按`slot[1]`分支：
 
-- **自由函数**——实参从`callParamBase`原样拷贝（OP_CallFunc的应用二进制接口（ABI，application binary interface））。native目标直接读取调用方的槽位单元。
+- **自由函数**——实参从`callParamBase`原样拷贝（OP_CallStatic的应用二进制接口（ABI，application binary interface））。native目标直接读取调用方的槽位单元。
 - **绑定方法**——被捕获的接收者占据被调帧的槽0，调用方的实参*不带* this依次落位，从槽1开始（`callee.paramCount`对方法而言包含this）。
 - **虚分派句柄**——先解析目标：在接收者的运行期类上按方法名查找（`FindMethodByName`，与OP_CallMethod执行同一套查找，沿`superClassIdx`链向上遍历`methodIndices`），再按绑定方法布局执行。落到此处的native或内建方法在分派时抛错（可编译的形状已被resolver拒绝）。
 

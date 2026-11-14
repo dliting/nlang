@@ -74,7 +74,7 @@ String and Function Values below).
 |-------------------|---------------------------------|--------------------------|
 | OP_AllocStruct    | dst, structIdx, fieldCount      | Allocate struct on heap  |
 | OP_CopyStruct     | dst, src, structIdx             | Deep-copy struct         |
-| OP_New            | dst, classIdx                   | Allocate class on heap   |
+| OP_New            | dst, classIdx, descIdx          | Allocate class on heap; descIdx names the instantiation descriptor for a generic class (0xFFFF = none) |
 | OP_LoadField      | dst, obj, fieldOff              | Read field from heap     |
 | OP_StoreField     | obj, fieldOff, src              | Write field to heap      |
 | OP_NullCheck      | obj                             | Throw if null            |
@@ -83,7 +83,8 @@ String and Function Values below).
 
 | Opcode              | Operands                             | Description              |
 |---------------------|--------------------------------------|--------------------------|
-| OP_AllocArrayN      | dst, arrayTypeIdx, rank, dimsBase    | Allocate array; read the element count of each of the rank dimensions from consecutive slots at dimsBase |
+| OP_AllocArrayN      | dst, arrayTypeIdx, rank, dimsBase, descIdx | Allocate array; read the element count of each of the rank dimensions from consecutive slots at dimsBase; descIdx keys the element-descriptor checks for a generic element row (0xFFFF = none) |
+| OP_AssembleArrayN   | dst, arrayTypeIdx, elemsBase, count, descIdx | Assemble an array literal: copy count elements from consecutive slots at elemsBase into the new record (descIdx as above) |
 | OP_LoadElementN     | dst, arr, idxBase, rank              | Read element by rank coordinates at idxBase |
 | OP_StoreElementN    | arr, idxBase, src, rank              | Write element by rank coordinates at idxBase |
 | OP_LoadElementFlat  | dst, arr, flatIdx                    | Read element by row-major flat index (foreach iteration) |
@@ -99,13 +100,22 @@ creation (sizes from expressions) reads them from evaluation slots.
 
 | Opcode                 | Operands                    | Description              |
 |------------------------|-----------------------------|--------------------------|
-| OP_CallFunc            | funcIdx, callParamBase      | Call function            |
+| OP_CallStatic          | funcIdx, callParamBase, descIdx | Receiver-less direct call (free functions, static members); descIdx fills a generic callee's frame descriptor cell |
 | OP_CallMethodDirect    | funcIdx, callParamBase      | Call non-virtual method  |
 | OP_CallMethod          | methodNameIdx, callParamBase| Virtual dispatch by name |
 | OP_CallIntrinsic       | intrinsicId, callParamBase  | Invoke intrinsic by ID   |
-| OP_CallFuncOut         | funcIdx, callParamBase, outMask (uint32) | + out writeback |
+| OP_CallStaticOut       | funcIdx, callParamBase, descIdx, outMask (uint32) | + out writeback |
 | OP_CallMethodDirectOut | funcIdx, callParamBase, outMask (uint32) | + out writeback |
 | OP_ParaEnd             | —                           | End of parameter list    |
+
+The uint16 `descIdx` operand on the static-call family names a row in
+the module's generic-instantiation descriptor table (the `.ncu`
+template table, §26.4 of the specification): a call into a generic
+function or a generic class member carries the descriptor so the
+callee's `T` reads and kind dispatches key on the actual type
+arguments. `0xFFFF` marks a non-generic call site; `0xFFFE` inherits
+the caller's own descriptor cell (a generic body forwarding to another
+generic).
 
 ### Function Values
 
@@ -124,6 +134,37 @@ creation (sizes from expressions) reads them from evaluation slots.
 
 See [First-Class Function Values](first-class-function-values.md#first-class-function-values)
 for the handle layout and dispatch semantics.
+
+### Generic Type Parameters
+
+A generic body reads its actual type arguments at runtime through the
+instantiation descriptor its call site passed (the `descIdx` operand
+of the call and allocation families above). The opcodes below key on
+the receiver's descriptor; `paramOrdinal` indexes the declaration's
+type-parameter list.
+
+| Opcode              | Operands                    | Description              |
+|---------------------|-----------------------------|--------------------------|
+| OP_TypeNameArg      | dst, paramOrdinal (uint8)   | Read the receiver's instantiation descriptor, take the ordinal-th type argument's canonical spelling, mint a string (`typeName(T)`) |
+| OP_TypeNameCompose  | dst, recipeIdx              | Compose a nested spelling from a recipe against the receiver's instantiation and intern it (`typeName(List<T>)`) |
+| OP_Eq_T             | dst, paramOrdinal, lhs, rhs | Compare two T-typed slots under the ordinal-th type argument's kind (scalar cell, string content, struct field value, class/array identity, function-record content); lhs/rhs `0xFFFF` marks the null-literal side |
+| OP_Ne_T             | dst, paramOrdinal, lhs, rhs | Negated verdict of OP_Eq_T |
+| OP_TypeArg_to_str   | paramOrdinal                | Render the T-typed value in pResult through the kind's own formatting |
+| OP_As_TypeParam     | paramOrdinal                | `x as T`: decide the cast by the receiver's type argument kind; a mismatch raises InvalidCastException, null passes through |
+| OP_Box_TypeArg      | paramOrdinal                | Normalize the T-typed accumulator into the erased-container element form (scalar kinds box under the descriptor's tag, reference kinds pass through) |
+| OP_Unbox_TypeArg    | paramOrdinal                | Inverse boundary: erased-container element into the T-typed frame form (scalar kinds unbox under the descriptor's tag, reference kinds pass through) |
+
+The Box/Unbox pair upholds the uniform-T-representation invariant: in
+a generic frame a T-typed value is a raw cell iff T's kind is scalar,
+while the erased containers (`List<T>`, `Dict<K,V>`, channels) store
+every element as a heap handle. They are emitted where the static
+boxing plan cannot resolve the tag — the receiver's type argument is
+the calling generic body's own placeholder, so the executing frame's
+descriptor decides.
+
+The descriptor wire format lives in [The `.ncu` Unit Image](../specification/formats/26-ncu.md);
+how the compiler mints and binds per-instantiation bodies is
+[Library Mechanism](library-mechanism.md)'s subject.
 
 ### String
 
@@ -146,7 +187,7 @@ for the handle layout and dispatch semantics.
 |--------------|------------------------|----------------------------------------------|
 | OP_Box       | typeKind (uint8)       | Box primitive (in pResult) as Object ref; always allocates an RTK_Boxed heap slot. Null literals are never boxed — the compiler skips the wrap so null stays the 0 sentinel. |
 | OP_Unbox     | typeKind (uint8)       | Unwrap boxed primitive from pResult (heap idx). Verify RTK_Boxed tag matches; throw on null/invalid, non-boxed target or tag mismatch. |
-| OP_CheckCast | classIdx (uint16)     | Verify pResult (heap idx) is classIdx or subclass (walk runtime super chain). Throw on mismatch. Push ref back unchanged. |
+| OP_CheckCast | classIdx (uint16), descIdx (uint16) | Verify pResult (heap idx) is classIdx or subclass (walk runtime super chain); when descIdx names an instantiation descriptor row the check also compares the instantiation spelling. Throw on mismatch. Push ref back unchanged. |
 
 OP_Box/OP_Unbox use the `pResult` register convention — read input from
 pResult, write output back to pResult. The implicit-cast emit path

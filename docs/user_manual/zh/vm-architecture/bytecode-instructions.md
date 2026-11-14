@@ -61,7 +61,7 @@
 |-------------------|---------------------------------|--------------------------|
 | OP_AllocStruct    | dst, structIdx, fieldCount      | 在堆上分配struct        |
 | OP_CopyStruct     | dst, src, structIdx             | 深拷贝struct            |
-| OP_New            | dst, classIdx                   | 在堆上分配class         |
+| OP_New            | dst, classIdx, descIdx          | 在堆上分配class；descIdx为泛型class指定实例化描述符（0xFFFF = 无） |
 | OP_LoadField      | dst, obj, fieldOff              | 从堆读取字段             |
 | OP_StoreField     | obj, fieldOff, src              | 把字段写入堆             |
 | OP_NullCheck      | obj                             | 为null时抛错           |
@@ -70,7 +70,8 @@
 
 | 操作码               | 操作数                               | 说明                     |
 |----------------------|--------------------------------------|--------------------------|
-| OP_AllocArrayN       | dst, arrayTypeIdx, rank, dimsBase    | 分配数组；从dimsBase起的rank个连续槽读取各维元素个数 |
+| OP_AllocArrayN       | dst, arrayTypeIdx, rank, dimsBase, descIdx | 分配数组；从dimsBase起的rank个连续槽读取各维元素个数；descIdx为泛型元素行键定元素描述符检查（0xFFFF = 无） |
+| OP_AssembleArrayN    | dst, arrayTypeIdx, elemsBase, count, descIdx | 组装数组字面量：把elemsBase起的count个连续槽元素拷入新记录（descIdx同上） |
 | OP_LoadElementN      | dst, arr, idxBase, rank              | 按idxBase起的rank个坐标读取元素 |
 | OP_StoreElementN     | arr, idxBase, src, rank              | 按idxBase起的rank个坐标写入元素 |
 | OP_LoadElementFlat   | dst, arr, flatIdx                    | 按行主序扁平下标读取元素（foreach遍历用） |
@@ -83,13 +84,15 @@
 
 | 操作码                 | 操作数                      | 说明                     |
 |------------------------|-----------------------------|--------------------------|
-| OP_CallFunc            | funcIdx, callParamBase      | 调用函数                 |
+| OP_CallStatic          | funcIdx, callParamBase, descIdx | 无接收者的直接调用（自由函数、静态成员）；descIdx为泛型被调帧填充帧描述符槽 |
 | OP_CallMethodDirect    | funcIdx, callParamBase      | 调用非虚方法             |
 | OP_CallMethod          | methodNameIdx, callParamBase| 按方法名虚分派               |
 | OP_CallIntrinsic       | intrinsicId, callParamBase  | 按ID调用内建函数       |
-| OP_CallFuncOut         | funcIdx, callParamBase, outMask (uint32) | 另有out写回 |
+| OP_CallStaticOut       | funcIdx, callParamBase, descIdx, outMask (uint32) | 另有out写回 |
 | OP_CallMethodDirectOut | funcIdx, callParamBase, outMask (uint32) | 另有out写回 |
 | OP_ParaEnd             | —                           | 参数列表结束             |
+
+静态调用族上的uint16 `descIdx`操作数指向模块的泛型实例化描述符表（`.ncu`模板表，规格§26.4）中的一行：对泛型函数或泛型类成员的调用携带该描述符，被调帧的`T`读取与kind分派都以其真类型实参为键。`0xFFFF`标记非泛型调用点；`0xFFFE`继承调用方自己的描述符槽（泛型体转发到另一个泛型）。
 
 ### 函数值
 
@@ -107,6 +110,25 @@
 | OP_Func_to_str      | pResult累加器                        | "func <名>" / "method <名>"；null → "<null>" |
 
 句柄布局与分派语义见[一等函数值](first-class-function-values.md#一等函数值)。
+
+### 泛型类型参数
+
+泛型体在运行期经调用点传入的实例化描述符读取真类型实参（上文调用与分配族的`descIdx`操作数）。下列指令以接收者的描述符为键；`paramOrdinal`索引声明列表中的类型形参。
+
+| 操作码              | 操作数                      | 说明                     |
+|---------------------|-----------------------------|--------------------------|
+| OP_TypeNameArg      | dst, paramOrdinal (uint8)   | 读取接收者的实例化描述符，取第paramOrdinal个类型实参的规范拼写，铸造字符串（`typeName(T)`） |
+| OP_TypeNameCompose  | dst, recipeIdx              | 按配方对接收者的实例化组合嵌套拼写并驻留（`typeName(List<T>)`） |
+| OP_Eq_T             | dst, paramOrdinal, lhs, rhs | 按第paramOrdinal个类型实参的kind比较两个T型槽位（标量单元、字符串内容、struct字段值、class/数组同一性、函数记录内容）；lhs/rhs的`0xFFFF`标记null字面量一侧 |
+| OP_Ne_T             | dst, paramOrdinal, lhs, rhs | OP_Eq_T的取反判定 |
+| OP_TypeArg_to_str   | paramOrdinal                | 经该kind自身的格式化渲染pResult中的T型值 |
+| OP_As_TypeParam     | paramOrdinal                | `x as T`：按接收者的类型实参kind裁决转换；不匹配抛可捕获的InvalidCastException，null原样通过 |
+| OP_Box_TypeArg      | paramOrdinal                | 把T型累加器归一为擦除容器的元素形态（标量kind按描述符的标签装箱，引用kind原样通过） |
+| OP_Unbox_TypeArg    | paramOrdinal                | 逆边界：擦除容器元素归一为T型帧形态（标量kind按描述符的标签拆箱，引用kind原样通过） |
+
+Box/Unbox对维护统一T表示不变量：泛型帧中的T型值当且仅当T的kind为标量时是原始单元，而擦除容器（`List<T>`、`Dict<K,V>`、通道）把每个元素都存为堆句柄。二者发射在静态装箱方案无法解析标签的位点——接收者的类型实参是调用方泛型体自己的占位符，由执行帧的描述符裁决。
+
+描述符线格式见[`.ncu`单元映像](../specification/formats/26-ncu.md)；编译器如何铸造并绑定逐实例化的函数体是[库机制](library-mechanism.md)的主题。
 
 ### 字符串
 
@@ -129,7 +151,7 @@
 |--------------|------------------------|----------------------------------------------|
 | OP_Box       | typeKind (uint8)       | 把基本类型值（在pResult中）装箱为Object引用；一律分配RTK_Boxed堆槽位。null字面量从不装箱——编译器跳过包装，null保持0哨兵。 |
 | OP_Unbox     | typeKind (uint8)       | 从pResult（堆索引）中拆出装箱的基本类型值。校验RTK_Boxed标签是否匹配；null/无效引用、非装箱目标或标签错配都抛错。 |
-| OP_CheckCast | classIdx (uint16)      | 校验pResult（堆索引）是classIdx或其子类（沿运行期父类链上溯）。不匹配抛错。引用原样推回。 |
+| OP_CheckCast | classIdx (uint16), descIdx (uint16) | 校验pResult（堆索引）是classIdx或其子类（沿运行期父类链上溯）；descIdx指向实例化描述符行时，还比对实例化拼写。不匹配抛错。引用原样推回。 |
 
 OP_Box/OP_Unbox使用`pResult`寄存器约定——从pResult读入，输出写回pResult。隐式转换的发射路径（FixupExprType）把基本类型值包进带TCK_Box的SnCastExpr；显式的`expr as T`运算符创建SnAsExpr，其代码生成按解析出的转换kind发射OP_Unbox/OP_CheckCast。
 

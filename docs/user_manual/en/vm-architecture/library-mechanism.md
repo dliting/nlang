@@ -82,7 +82,7 @@ units (`src/compiler/ModuleBuilderImports.cpp`,
 Consequences of one shared model:
 
 - **Package-qualified calls compile as ordinary calls.** A call
-  `mylib.f(...)` emits `OP_CallFunc` with the fully-qualified name
+  `mylib.f(...)` emits `OP_CallStatic` with the fully-qualified name
   `<package>.<name>`; run time dispatches on the callee's own nature — a bytecode
   body, or `isNative` → the DLL. There is no signature-table call path
   and no per-library codegen branch anymore.
@@ -198,7 +198,7 @@ which is how the stdlib and `tests/fixtures/native/mylib/` work.
 ## 6. What the standard library is made of
 
 There is no signature-table call path: codegen emits qualified
-`OP_CallFunc`, the resolver binds against the inlined AST, and the VM
+`OP_CallStatic`, the resolver binds against the inlined AST, and the VM
 carries no standard-library knowledge.
 
 | Artifact | Role |

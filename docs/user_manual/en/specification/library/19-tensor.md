@@ -212,7 +212,7 @@ int[,] p = tensor.matmul(m, m);      // [[7, 10], [15, 22]]
 
 ## 19.5 Example Layer
 
-Three functions of the package are written in NLang itself —
+Six functions of the package are written in NLang itself —
 their source is the package's `.n` file, readable and
 modifiable like any library function (§3.9.4). They compose the
 native kernels instead of adding new ones:
@@ -252,11 +252,11 @@ int main() {
 }
 ```
 
-## 18.5.1 Array Arithmetic Operators
+## 19.5.1 Array Arithmetic Operators
 
 The arithmetic operators lower to the same kernels the
 `tensor` package wraps — `a + b` on two numeric arrays is
-`tensor.add(a, b)`, with the broadcasting rule of §18.3.1
+`tensor.add(a, b)`, with the broadcasting rule of §19.3.1
 and the same element-kind rules. A scalar on either side
 rides the scalar arms (`2 * x` is `tensor.mulScalar(x, 2)`);
 `s - a` and `s / a` lower to `tensor.rsubScalar` /
@@ -288,7 +288,7 @@ arithmetic. A rank-1 array with an axis arm
 form. A floating-point subscript in an array store
 (`grid[3.0, j]`) is not converted — index through an `int`.
 
-## 18.5.2 Index and Comparison Primitives
+## 19.5.2 Index and Comparison Primitives
 
 The index surface removes the last per-element loops from
 training and evaluation code — gathering each row's label
@@ -313,7 +313,7 @@ match the truth.
   one index per non-axis position; ties keep the first along
   the scan.
 - `eq(a, b)` compares two arrays of the same element kind
-  elementwise (the broadcasting rule of §18.3.1 applies) and
+  elementwise (the broadcasting rule of §19.3.1 applies) and
   returns the int 0/1 array; floats follow IEEE `==` — NaN
   compares unequal to everything.
 - `oneHot(labels, n)` maps a rank-1 int label array to the
@@ -339,7 +339,7 @@ int main() {
 }
 ```
 
-## 18.6 Error Behavior
+## 19.6 Error Behavior
 
 Every tensor failure is a catchable value of the `Exception`
 family (§8.3). A `null` array argument raises

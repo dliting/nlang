@@ -252,7 +252,7 @@ in the method list; the constructor table selects them.
 | constant count | u16 | each entry: a u16-length name, a length-prefixed type descriptor, a default value record (§26.6), and a u16 slot index into the static slot table — `0xFFFF` marks a compile-time-folded constant (the value record carries it), anything else is a runtime-initialized constant (§4.9.3) |
 | signature count | u16 | each entry: a u16-length name, a u16 parameter count, per formal a flags byte and a length-prefixed type descriptor, a length-prefixed return descriptor, and a u16 default count followed by that many default value records |
 | static-initializer index | u16 | the function-table index of the interface's static initializer; `0xFFFF` = none |
-| generic declaration tail | u8 + u16 + names | the generic-interface template marker, the class-record shape: a u8 template flag (`1` marks the template declaration) followed, for template interfaces, by a u16 type-parameter count and that many length-prefixed type-parameter names (§4.12.13) |
+| generic declaration tail | u8 + u16 + names | the generic-interface template marker, the class-record shape: a u8 template flag (`1` marks the template declaration) followed, for template interfaces, by a u16 type-parameter count and that many length-prefixed type-parameter names (§4.12.11) |
 
 Interface constants are scalar or string (§4.9.3); their default
 value record carries the folded initializer. Instance-method
