@@ -6,12 +6,14 @@
 #include "nlang/runtime/NodeConsts.h"
 #include "VmExecutor.h"
 #include "ModuleLoader.h"
+#include "VmRng.h"
 #include <algorithm>
 #include <cassert>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <random>
 #include <sstream>
 #include <stdexcept>
 
@@ -1199,6 +1201,44 @@ void test_static_init_bits_protocol() {
     PASS();
 }
 
+// --- VmMt19937: the engine behind math.random — bit-identical to
+// std::mt19937 (the C++ standard pins MT19937's seeding, transition and
+// tempering). The device line's uniform kernel snapshots this state, so
+// the identity must hold across pure draws, discard interleaving and
+// multi-block skips. ---
+static void test_vm_rng_matches_std_mt19937() {
+    TEST(vm_rng_matches_std_mt19937);
+    VmMt19937 rng;
+    std::mt19937 ref;
+    rng.seed(42);
+    ref.seed(42);
+    for (int i = 0; i < 5000; ++i)
+        CHECK(rng.next() == ref(), "pure draws match std::mt19937");
+    //Discard interleaving: mid-block (13), then a multi-block skip.
+    rng.seed(7); ref.seed(7);
+    rng.discard(13); ref.discard(13);
+    for (int i = 0; i < 100; ++i)
+        CHECK(rng.next() == ref(), "post-discard draws match");
+    rng.discard(700000); ref.discard(700000);
+    for (int i = 0; i < 100; ++i)
+        CHECK(rng.next() == ref(), "post-multi-block draws match");
+    //Seed→draw→seed round trip (the reseed contract).
+    rng.seed(1); ref.seed(1);
+    CHECK(rng.next() == ref(), "reseeded first draw matches");
+    //Snapshot/restore: the state carries the block position and the
+    //restored engine continues the stream.
+    rng.seed(99); ref.seed(99);
+    rng.discard(37); ref.discard(37);
+    uint32_t state[624];
+    uint32_t pos = 0;
+    rng.Snapshot(state, &pos);
+    CHECK(pos == 37, "snapshot carries the block position");
+    VmMt19937 restored;
+    restored.Restore(state, pos);
+    CHECK(restored.next() == ref(), "restored engine continues the stream");
+    PASS();
+}
+
 int main() {
 #ifdef _WIN32
     //Prevent CRT abort/error dialogs from blocking the test runner.
@@ -1220,6 +1260,9 @@ int main() {
     test_find_function();
 
     // OpCode name table (positional against the enum)
+    // VmMt19937: the math.random engine (bit-identity vs std::mt19937)
+    test_vm_rng_matches_std_mt19937();
+
     try { test_opcode_name_table(); }
     catch (const std::exception& e) {
         std::cerr << "FAILED (exception: " << e.what() << ")\n";

@@ -7,6 +7,7 @@
 #include "IHostIo.h"
 #include "TokenView.h"
 #include "VmExecutorNativeHost.h"
+#include "VmRng.h"
 #include "VmClassLayout.h"
 #include "VmStaticSlots.h"
 #include "NativeLibraryLoader.h"
@@ -2438,12 +2439,16 @@ private:
     int16_t m_initExcClassIdx = -1;  //v0.12.6 D12: InitializationException
     int16_t m_channelClosedExcClassIdx = -1;  //K3: ChannelClosedException
 
-    //Phase 11 Q9: PRNG for math.random/randomi. Bare mt19937 arithmetic
+    //Phase 11 Q9: PRNG for math.random/randomi. Bare MT19937 arithmetic
     //only — std::uniform_*_distribution is implementation-defined and
-    //would break cross-platform determinism after math.srand. Reselected
-    //from random_device at each Execute() so runs differ unless the
-    //program calls math.srand itself.
-    std::mt19937 m_rng;
+    //would break cross-platform determinism after math.srand. The engine
+    //is the self-implemented VmMt19937 (bit-identical to std::mt19937 —
+    //pinned by the vm_tests RNG test): the standard engine hides its
+    //state, and the device line needs an exact snapshot + discard for
+    //the uniform kernel's shared-stream contract. Reselected from
+    //random_device at each Execute() so runs differ unless the program
+    //calls math.srand itself.
+    VmMt19937 m_rng;
     //K8: serializes the shared engine's draws and reseeds (host-boundary
     //leaf mutex — the engine is not a store).
     mutable std::mutex m_rngMutex;

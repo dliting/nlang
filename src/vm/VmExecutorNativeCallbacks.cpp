@@ -65,7 +65,7 @@ uint32_t VmExecutor::NativeNextRandom(NativeHost* self) {
     //K8: the shared engine serializes draws and reseeds on the RNG
     //mutex (host-boundary leaf — the engine is not a store).
     std::lock_guard<std::mutex> rngGuard(e->m_rngMutex);
-    return e->m_rng();
+    return e->m_rng.next();
 }
 
 void VmExecutor::NativeSeedRandom(NativeHost* self, int32_t seed) {
