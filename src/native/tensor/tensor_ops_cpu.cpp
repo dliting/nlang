@@ -192,6 +192,37 @@ void ReduceAxisImpl(NativeHost* host, ReduceAxisOp op, NativeArrayView& v,
     }
 }
 
+//--- concat copy (lifted from CopyConcatBlocks — byte-level, kind-
+//independent; the dispatcher materialized both operands so the bases
+//fold their view offsets in and each (outer-slice, source) block is
+//one memcpy) ---
+void CpuConcat(const NativeArrayView& a, const NativeArrayView& b,
+               int32_t axis, const NativeArrayView& out) {
+    int64_t outer = 1;
+    int64_t inner = 1;
+    for (int32_t d = 0; d < axis; ++d)
+        outer *= a.dims[d];
+    for (int32_t d = axis + 1; d < a.rank; ++d)
+        inner *= a.dims[d];
+    const int64_t cellBytes = a.elemCellBytes;
+    const int64_t aAlong = a.dims[axis];
+    const int64_t bAlong = b.dims[axis];
+    const char* aCells = static_cast<const char*>(a.data)
+        + static_cast<int64_t>(a.offset) * cellBytes;
+    const char* bCells = static_cast<const char*>(b.data)
+        + static_cast<int64_t>(b.offset) * cellBytes;
+    char* outCells = static_cast<char*>(out.data);
+    for (int64_t o = 0; o < outer; ++o) {
+        char* dstA = outCells
+            + o * (aAlong + bAlong) * inner * cellBytes;
+        std::memcpy(dstA, aCells + o * aAlong * inner * cellBytes,
+                    static_cast<size_t>(aAlong * inner) * cellBytes);
+        std::memcpy(dstA + aAlong * inner * cellBytes,
+                    bCells + o * bAlong * inner * cellBytes,
+                    static_cast<size_t>(bAlong * inner) * cellBytes);
+    }
+}
+
 //--- the cpu table: families fill in as T1.2 migrates them ---
 TensorOps MakeCpuTable() {
     TensorOps t;
@@ -559,6 +590,64 @@ TensorOps MakeCpuTable() {
                          NativeArrayView& src, int32_t axis,
                          NativeArrayView& dst) {
         ReduceAxisImpl<int64_t>(host, op, src, axis, dst);
+    };
+    //--- T1.2c matmul family (lifted from MatMulTyped's run-part: the
+    //dispatcher materializes non-contiguous operands and gates shapes,
+    //so the slots receive dense rank-2 operands; the flat bases fold
+    //the view offsets in — FlatCellsOf — and dst is freshly minted) ---
+    t.matmulF32 = [](NativeHost* host, NativeArrayView& a,
+                     NativeArrayView& b, NativeArrayView& dst) {
+        (void)host;
+        ActiveKernelOps().matmulF32(a.dims[0], a.dims[1], b.dims[1],
+            FlatCellsOf<float>(a), FlatCellsOf<float>(b),
+            CellsOf<float>(dst));
+    };
+    t.matmulF64 = [](NativeHost* host, NativeArrayView& a,
+                     NativeArrayView& b, NativeArrayView& dst) {
+        (void)host;
+        ActiveKernelOps().matmulF64(a.dims[0], a.dims[1], b.dims[1],
+            FlatCellsOf<double>(a), FlatCellsOf<double>(b),
+            CellsOf<double>(dst));
+    };
+    t.matmulI32 = [](NativeHost* host, NativeArrayView& a,
+                     NativeArrayView& b, NativeArrayView& dst) {
+        (void)host;
+        ActiveKernelOps().matmulI32(a.dims[0], a.dims[1], b.dims[1],
+            FlatCellsOf<int32_t>(a), FlatCellsOf<int32_t>(b),
+            CellsOf<int32_t>(dst));
+    };
+    t.matmulI64 = [](NativeHost* host, NativeArrayView& a,
+                     NativeArrayView& b, NativeArrayView& dst) {
+        (void)host;
+        ActiveKernelOps().matmulI64(a.dims[0], a.dims[1], b.dims[1],
+            FlatCellsOf<int64_t>(a), FlatCellsOf<int64_t>(b),
+            CellsOf<int64_t>(dst));
+    };
+    //--- T1.2c concat family (lifted from CopyConcatBlocks — the byte-
+    //level copy is kind-independent, one shared body) ---
+    t.concatF32 = [](NativeHost* host, NativeArrayView& a,
+                     NativeArrayView& b, int32_t axis,
+                     NativeArrayView& dst) {
+        (void)host;
+        CpuConcat(a, b, axis, dst);
+    };
+    t.concatF64 = [](NativeHost* host, NativeArrayView& a,
+                     NativeArrayView& b, int32_t axis,
+                     NativeArrayView& dst) {
+        (void)host;
+        CpuConcat(a, b, axis, dst);
+    };
+    t.concatI32 = [](NativeHost* host, NativeArrayView& a,
+                     NativeArrayView& b, int32_t axis,
+                     NativeArrayView& dst) {
+        (void)host;
+        CpuConcat(a, b, axis, dst);
+    };
+    t.concatI64 = [](NativeHost* host, NativeArrayView& a,
+                     NativeArrayView& b, int32_t axis,
+                     NativeArrayView& dst) {
+        (void)host;
+        CpuConcat(a, b, axis, dst);
     };
 
     return t;

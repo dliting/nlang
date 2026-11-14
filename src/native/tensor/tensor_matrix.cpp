@@ -1,18 +1,19 @@
 /*---
     tensor_matrix.cpp — concat and matmul of the `tensor` native
-    module. Both copy into fresh owning records, so a non-contiguous
-    operand (a transpose view, a strided slice) materializes first and
-    the kernels keep their dense row-major fast paths. transpose/
-    flatten/reshape live in tensor_views.cpp since v0.12.7 Task 12.
+    module. P1 T1.2c migration: the dispatcher keeps operand
+    materialization (non-contiguous views copy to dense records first —
+    the kernels keep flat addressing), shape gates and output minting;
+    the run rides the ActiveTensorOps() slots (matmul forwards to the
+    KernelOps tier table; concat's byte-level copy is kind-independent).
+    transpose/flatten/reshape live in tensor_views.cpp since v0.12.7
+    Task 12.
 ---*/
 #include "TensorKernels.h"
 
-#include "TensorBackends.h"
+#include "TensorOps.h"
 
 #include <cstdint>
-#include <cstring>
 #include <string>
-#include <type_traits>
 
 using nlang::native::ArgArray;
 using nlang::native::ArgInt;
@@ -38,46 +39,6 @@ int32_t ContiguousOperand(NativeHost* host, const uint8_t* args, int slot,
     view->elemKind = 0xEE;
     host->getArrayView(host, handle, view);
     return handle;
-}
-
-//The copy geometry around the concat axis: `outer` slices before it,
-//`inner` contiguous cells after it per slice.
-void AxisCopyGeometry(const NativeArrayView& a, int32_t axis,
-                      int64_t* outer, int64_t* inner) {
-    *outer = 1;
-    for (int32_t d = 0; d < axis; ++d)
-        *outer *= a.dims[d];
-    *inner = 1;
-    for (int32_t d = axis + 1; d < a.rank; ++d)
-        *inner *= a.dims[d];
-}
-
-//The concat copy loop: row-major per (outer-slice, source) block — the
-//cells after the axis are contiguous, so each block is one memcpy. The
-//source bases fold the view offsets in (a contiguous view's element
-//zero is at its offset, not at the owner's).
-void CopyConcatBlocks(const NativeArrayView& out, const NativeArrayView& a,
-                      const NativeArrayView& b, int32_t axis) {
-    int64_t outer = 0;
-    int64_t inner = 0;
-    AxisCopyGeometry(a, axis, &outer, &inner);
-    const int64_t cellBytes = a.elemCellBytes;
-    const int64_t aAlong = a.dims[axis];
-    const int64_t bAlong = b.dims[axis];
-    const char* aCells = static_cast<const char*>(a.data)
-        + static_cast<int64_t>(a.offset) * cellBytes;
-    const char* bCells = static_cast<const char*>(b.data)
-        + static_cast<int64_t>(b.offset) * cellBytes;
-    char* outCells = static_cast<char*>(out.data);
-    for (int64_t o = 0; o < outer; ++o) {
-        char* dstA = outCells
-            + o * (aAlong + bAlong) * inner * cellBytes;
-        std::memcpy(dstA, aCells + o * aAlong * inner * cellBytes,
-                    static_cast<size_t>(aAlong * inner) * cellBytes);
-        std::memcpy(dstA + aAlong * inner * cellBytes,
-                    bCells + o * bAlong * inner * cellBytes,
-                    static_cast<size_t>(bAlong * inner) * cellBytes);
-    }
 }
 
 //Concat body: equal ranks, every dim equal except the axis dim (which
@@ -112,17 +73,30 @@ void ConcatKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
     const int32_t handle = NewArrayShaped(host, a.elemKind, a.rank, outDims);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
-    CopyConcatBlocks(out, a, b, axis);
+    const TensorOps& ops = ActiveTensorOps();
+    switch (a.elemKind) {
+        case NEK_Int32:
+            ops.concatI32(host, a, b, axis, out); break;
+        case NEK_Int64:
+            ops.concatI64(host, a, b, axis, out); break;
+        case NEK_Float32:
+            ops.concatF32(host, a, b, axis, out); break;
+        case NEK_Float64:
+            ops.concatF64(host, a, b, axis, out); break;
+        default:
+            Raise(host, NEXC_Base, "tensor.concat: unknown element kind");
+    }
     ReturnInt(ret, handle);
 }
 
-//MatMul body: shape gates, then the dense flat kernel from the active
-//backend table (tier/ISA dispatch lives behind the table; int/long
-//wrap around per the language-wide arithmetic rule, float/double
-//follow IEEE). Operands arrive dense (ContiguousOperand in the entry).
+//MatMul body: shape gates, then the dense flat kernel through the
+//TensorOps slot (tier/ISA dispatch lives behind the CPU backend's
+//KernelOps; int/long wrap around per the language-wide arithmetic
+//rule, float/double follow IEEE). Operands arrive dense
+//(ContiguousOperand in the entry).
 template <typename T>
-void MatMulTyped(NativeHost* host, uint8_t* ret, const NativeArrayView& a,
-                 const NativeArrayView& b) {
+void MatMulTyped(NativeHost* host, uint8_t* ret, NativeArrayView& a,
+                 NativeArrayView& b) {
     if (a.rank != 2 || b.rank != 2)
         Raise(host, NEXC_Base, "tensor.matmul: expects rank-2 operands");
     //The language-side overloads keep the kinds equal; the gate guards
@@ -144,20 +118,15 @@ void MatMulTyped(NativeHost* host, uint8_t* ret, const NativeArrayView& a,
     const int32_t handle = NewArrayShaped(host, a.elemKind, 2, outDims);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
-    //Flat bases: a contiguous view's element zero is at its offset, not
-    //at the owner's (FlatCellsOf folds it; out is freshly minted).
-    const T* aCells = FlatCellsOf<T>(a);
-    const T* bCells = FlatCellsOf<T>(b);
-    T* outCells = CellsOf<T>(out);
-    const KernelOps& ops = ActiveKernelOps();
+    const TensorOps& ops = ActiveTensorOps();
     if constexpr (std::is_same_v<T, float>) {
-        ops.matmulF32(aRows, aCols, bCols, aCells, bCells, outCells);
+        ops.matmulF32(host, a, b, out);
     } else if constexpr (std::is_same_v<T, double>) {
-        ops.matmulF64(aRows, aCols, bCols, aCells, bCells, outCells);
+        ops.matmulF64(host, a, b, out);
     } else if constexpr (std::is_same_v<T, int32_t>) {
-        ops.matmulI32(aRows, aCols, bCols, aCells, bCells, outCells);
+        ops.matmulI32(host, a, b, out);
     } else {
-        ops.matmulI64(aRows, aCols, bCols, aCells, bCells, outCells);
+        ops.matmulI64(host, a, b, out);
     }
     ReturnInt(ret, handle);
 }
