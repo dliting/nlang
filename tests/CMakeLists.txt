@@ -657,6 +657,17 @@ target_compile_definitions(test_nd_resolve
 
 add_test(NAME nd_resolve_tests COMMAND test_nd_resolve)
 
+#The decl-comma reject soak dominates this file (141 s Debug / 766 s
+#ASan measured 2026-11-14; everything else is seconds), so it runs as
+#its own ctest entry via --stress: routine sweeps exclude it by name
+#(slow tests run at commit time only) and the full suite covers both
+#entries. --stress selects ONLY the soak — the two entries are a
+#partition, not a superset. The soak needs its own ceiling: the 180 s
+#family timeout cannot hold the ASan measurement, same shape as the
+#mnist_mlp_run ruling.
+add_test(NAME nd_resolve_stress_tests COMMAND test_nd_resolve --stress)
+set_tests_properties(nd_resolve_stress_tests PROPERTIES TIMEOUT 900)
+
 # Stride-table integrity: every opcode resolves to an extent in
 # [1, 9] (the rewrite regression — inline-braced constexpr rows
 # silently failed to match under MSVC).
