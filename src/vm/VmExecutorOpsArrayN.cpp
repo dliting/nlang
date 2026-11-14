@@ -35,7 +35,8 @@ void VmExecutor::OpAllocArrayN(BytecodeReader& reader, uint8_t* locals) {
         std::memcpy(&dims[d], locals + dimsBase + d * kFrameSlotBytes,
                     sizeof(int32_t));
     int32_t heapIdx = AllocArrayOnHeap(arrayTypeIdx,
-        static_cast<uint8_t>(rank), dims);
+        static_cast<uint8_t>(rank), dims,
+        ArrayResidency::FollowActiveDevice);
     StampElemDescriptor(heapIdx, descIdx);
     std::memcpy(locals + dst, &heapIdx, sizeof(heapIdx));
     NoteGcPressure();
@@ -178,6 +179,16 @@ void VmExecutor::OpLoadElementN(BytecodeReader& reader, uint8_t* locals) {
             "NLang VM: OP_LoadElementN on invalid array type");
     const int cells = ArrayElemCells(
         m_currModule->arrayTypes[elemArrayTypeIdx].elemKind);
+    //v0.14.x device line: a device-resident owner transfers the one
+    //element through the hooks (transparent element access, spec D2).
+    const int32_t ownerIdx = kind == RTK_ArrayView
+        ? slot[ArrayViewTargetCell(static_cast<uint8_t>(recRank))]
+        : heapIdx;
+    if (m_arrResidency[static_cast<size_t>(ownerIdx)] == 1) {
+        DeviceLoadElement(ownerIdx, flat,
+            static_cast<int64_t>(cells) * kHeapCellBytes, locals + dst);
+        return;
+    }
     std::memcpy(locals + dst,
         payload.data() + payloadBase
             + static_cast<size_t>(flat) * cells,
@@ -220,6 +231,14 @@ void VmExecutor::OpStoreElementN(BytecodeReader& reader, uint8_t* locals) {
             "NLang VM: OP_StoreElementN on invalid array type");
     const int cells = ArrayElemCells(
         m_currModule->arrayTypes[elemArrayTypeIdx].elemKind);
+    const int32_t ownerIdx = kind == RTK_ArrayView
+        ? slot[ArrayViewTargetCell(static_cast<uint8_t>(recRank))]
+        : heapIdx;
+    if (m_arrResidency[static_cast<size_t>(ownerIdx)] == 1) {
+        DeviceStoreElement(ownerIdx, flat,
+            static_cast<int64_t>(cells) * kHeapCellBytes, locals + src);
+        return;
+    }
     std::memcpy(payload.data() + payloadBase
             + static_cast<size_t>(flat) * cells,
         locals + src, static_cast<size_t>(cells) * sizeof(int32_t));
@@ -281,6 +300,14 @@ void VmExecutor::OpLoadElementFlat(BytecodeReader& reader, uint8_t* locals) {
         : static_cast<int64_t>(flat);
     size_t payloadBase;
     auto& payload = ElementPayloadRecord(slot, kind, payloadBase);
+    const int32_t ownerIdx = kind == RTK_ArrayView
+        ? slot[ArrayViewTargetCell(static_cast<uint8_t>(slot[2]))]
+        : heapIdx;
+    if (m_arrResidency[static_cast<size_t>(ownerIdx)] == 1) {
+        DeviceLoadElement(ownerIdx, addr,
+            static_cast<int64_t>(cells) * kHeapCellBytes, locals + dst);
+        return;
+    }
     std::memcpy(locals + dst,
         payload.data() + payloadBase
             + static_cast<size_t>(addr) * cells,
@@ -363,6 +390,14 @@ void VmExecutor::OpLoadElementDyn(BytecodeReader& reader, uint8_t* locals) {
     int64_t flat = ElementFlatAddress(slot, kind, nCoords, idxBase, locals);
     size_t payloadBase;
     auto& payload = ElementPayloadRecord(slot, kind, payloadBase);
+    const int32_t ownerIdx = kind == RTK_ArrayView
+        ? slot[ArrayViewTargetCell(static_cast<uint8_t>(recRank))]
+        : heapIdx;
+    if (m_arrResidency[static_cast<size_t>(ownerIdx)] == 1) {
+        DeviceLoadElement(ownerIdx, flat,
+            static_cast<int64_t>(cells) * kHeapCellBytes, locals + dst);
+        return;
+    }
     std::memcpy(locals + dst,
         payload.data() + payloadBase
             + static_cast<size_t>(flat) * cells,
@@ -403,6 +438,14 @@ void VmExecutor::OpStoreElementDyn(BytecodeReader& reader, uint8_t* locals) {
     int64_t flat = ElementFlatAddress(slot, kind, nCoords, idxBase, locals);
     size_t payloadBase;
     auto& payload = ElementPayloadRecord(slot, kind, payloadBase);
+    const int32_t ownerIdx = kind == RTK_ArrayView
+        ? slot[ArrayViewTargetCell(static_cast<uint8_t>(recRank))]
+        : heapIdx;
+    if (m_arrResidency[static_cast<size_t>(ownerIdx)] == 1) {
+        DeviceStoreElement(ownerIdx, flat,
+            static_cast<int64_t>(cells) * kHeapCellBytes, locals + src);
+        return;
+    }
     std::memcpy(payload.data() + payloadBase
             + static_cast<size_t>(flat) * cells,
         locals + src, static_cast<size_t>(cells) * sizeof(int32_t));
@@ -443,7 +486,8 @@ void VmExecutor::OpAllocArrayDyn(BytecodeReader& reader, uint8_t* locals) {
             dimsRec.data() + ArrayHeaderCells(1) + d * cells,
             sizeof(int32_t));
     int32_t heapIdx = AllocArrayOnHeap(arrayTypeIdx,
-        static_cast<uint8_t>(rank), dims);
+        static_cast<uint8_t>(rank), dims,
+        ArrayResidency::FollowActiveDevice);
     StampElemDescriptor(heapIdx, descIdx);
     std::memcpy(locals + dst, &heapIdx, sizeof(heapIdx));
     NoteGcPressure();

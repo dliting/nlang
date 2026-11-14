@@ -19,7 +19,9 @@ its park/restore/mint helpers) moved to VmExecutorBlockingNative.cpp.
 #include "NativeLibraryLoader.h"
 
 #include <cstdio>
+#include <algorithm>
 #include <cstring>
+#include <vector>
 #include <exception>
 #include <iterator>
 #include <memory>
@@ -114,6 +116,10 @@ void VmExecutor::InitNativeHost(VmNativeHost& host) {
     host.c.typeArgCount = &VmExecutor::NativeTypeArgCount;
     host.c.typeArgKind = &VmExecutor::NativeTypeArgKind;
     host.c.typeArgName = &VmExecutor::NativeTypeArgName;
+    //v13: the tensor device side (contracts in NativeHost.h).
+    host.c.setTensorDeviceHooks = &VmExecutor::NativeSetTensorDeviceHooks;
+    host.c.newArrayResident = &VmExecutor::NativeNewArrayResident;
+    host.c.snapshotRngForDevice = &VmExecutor::NativeSnapshotRngForDevice;
 }
 
 //--- NativeHost callbacks ---------------------------------------------------
@@ -364,6 +370,42 @@ void VmExecutor::CallNative(const CompiledFunction& callee,
     if (it == m_natives.end())
         throw std::runtime_error(
             "NLang VM: native function not registered: " + callee.name);
+    //v0.14.x device line (spec D2's consumer-side gate): a device-
+    //resident array reaching a NON-tensor native hands that native a
+    //device pointer it cannot dereference — raise by name instead.
+    //The gate sits here (the DLL-native dispatch) because the embedded-
+    //host arm routes array reads/writes through HostArrayGet/SetCell,
+    //which already carry device arms. Param types come from the
+    //callee's isParam locals rows in declaration (offset) order; a
+    //device-resident array argument to the tensor package is fine —
+    //its slots are the device kernels.
+    if (m_tensorHooksActive && callee.name.rfind("tensor.", 0) != 0) {
+        std::vector<const LocalDescriptor*> params;
+        for (const auto& ld : callee.locals)
+            if (ld.isParam)
+                params.push_back(&ld);
+        std::sort(params.begin(), params.end(),
+            [](const LocalDescriptor* a, const LocalDescriptor* b) {
+                return a->offset < b->offset;
+            });
+        for (uint16_t i = 0; i < callee.paramCount
+                && i < params.size(); ++i) {
+            const uint8_t pk = params[i]->typeKind;
+            if (pk != RTK_Array && pk != RTK_ArrayView)
+                continue;
+            int32_t handle = 0;
+            std::memcpy(&handle, locals + callParamBase
+                + static_cast<size_t>(i) * kFrameSlotBytes,
+                sizeof(handle));
+            if (handle > 0
+                && static_cast<size_t>(handle) < m_structHeap.size()
+                && m_arrResidency[static_cast<size_t>(handle)] == 1) {
+                RaiseNlangException(m_exceptionClassIdx,
+                    "device array passed to a host-only native ("
+                    + callee.name + "); move it with tensor.toHost");
+            }
+        }
+    }
     VmNativeHost host;
     InitNativeHost(host);
     FillNativeReceiver(host, callee, callParamBase, locals);

@@ -258,6 +258,13 @@ void VmExecutor::HostArrayGetCell(int32_t heapIdx, uint32_t index,
     const auto& at = m_currModule->arrayTypes[
         static_cast<size_t>(slot[1])];
     const int cells = ArrayElemCells(at.elemKind);
+    if (m_arrResidency[static_cast<size_t>(heapIdx)] == 1) {
+        //v0.14.x device line: the watch window reads ride the same
+        //one-element transfer the subscripts use.
+        DeviceLoadElement(heapIdx, static_cast<int64_t>(index),
+            static_cast<int64_t>(cells) * kHeapCellBytes, outCell);
+        return;
+    }
     const size_t base =
         ArrayPayloadBase(slot) + static_cast<size_t>(index) * cells;
     std::memset(outCell, 0, kFrameSlotBytes);
@@ -276,6 +283,13 @@ void VmExecutor::HostArraySetCell(int32_t heapIdx, uint32_t index,
     const auto& at = m_currModule->arrayTypes[
         static_cast<size_t>(slot[1])];
     const int cells = ArrayElemCells(at.elemKind);
+    if (m_arrResidency[static_cast<size_t>(heapIdx)] == 1) {
+        //v0.14.x device line: watch writes ride the same one-element
+        //transfer the subscripts use.
+        DeviceStoreElement(heapIdx, static_cast<int64_t>(index),
+            static_cast<int64_t>(cells) * kHeapCellBytes, cell);
+        return;
+    }
     const size_t base =
         ArrayPayloadBase(slot) + static_cast<size_t>(index) * cells;
     std::memcpy(&slot[base], cell, sizeof(int32_t));

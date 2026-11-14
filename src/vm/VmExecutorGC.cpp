@@ -434,6 +434,12 @@ inline bool ArrayElemKindAccepts(uint8_t elemKind, uint8_t runtimeKind)
 
 void VmExecutor::MarkArrayElements(int32_t idx,
                                    std::vector<int32_t>& worklist) {
+    //v0.14.x device line: a device-resident array's payload lives
+    //outside the record (the payload area is the 2-cell device-pointer
+    //descriptor) and numeric elements carry no references — the payload
+    //trace below would read past the 2-cell record. Skip entirely.
+    if (m_arrResidency[idx] == 1)
+        return;
     uint16_t arrayTypeIdx = m_slotStructIdx[idx];
     auto& at = m_currModule->arrayTypes[arrayTypeIdx];
     //Stage-2 header: [3]=elemCount; the payload base derives from

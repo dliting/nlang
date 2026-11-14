@@ -72,7 +72,17 @@ extern "C" {
 // let a native method read the type arguments its receiver was
 // instantiated with (the runtime generic type-parameter information:
 // count, per-argument RTK kind, per-argument canonical name).
-#define NLANG_HOST_ABI_VERSION 12u
+// Version 13: the tensor device side (the v0.14.x device line) —
+// setTensorDeviceHooks (the tensor module registers its device
+// backend's allocator/mover/sync hooks at init; the VM routes device
+// records through them and never links any vendor runtime itself),
+// newArrayResident (mint a device-resident array record), and
+// snapshotRngForDevice (an atomic "copy the MT19937 state + block
+// position, then discard(n)" composite — single callback because two
+// calls would race between concurrent carriers). NativeArrayView's
+// reserved[0] now carries the array residency (0 = host payload, 1 =
+// device payload; the fill sites set it).
+#define NLANG_HOST_ABI_VERSION 13u
 
 // Every NLang runtime value occupies one 8-byte frame cell (see
 // kFrameSlotBytes in CompiledModule.h). Scalars of 4 bytes or less live
@@ -85,6 +95,34 @@ extern "C" {
 // mirrors these exact values for its poller layer).
 #define NLANG_EV_READ 1u
 #define NLANG_EV_WRITE 2u
+
+// v13: the tensor device side. The tensor module registers its active
+// device backend's hooks once at module init (the init sequence
+// predates any user frame); the hooks are then immutable for the
+// process lifetime. The VM routes device-resident array records through
+// them (element transfers, creation zero-fill, GC release) and never
+// links any vendor runtime itself.
+//
+//   alloc  - pooled device allocation (may not zero);
+//   zero   - clear bytes to 0 (array creation's zero-init);
+//   free   - return a block to the pool (GC release path);
+//   copyH2D/copyD2H - byte-accurate host↔device transfer (the device
+//            line's staging primitive; a "mirror" test backend
+//            implements these as plain host memcpy);
+//   sync   - full-device sync point (one op one sync discipline).
+//
+// All hooks are blocking (tensor natives run on the blocking channel,
+// so the carrier lock is already released). Null in any slot = no
+// device backend active (the creation and transfer paths raise the
+// Base family by name).
+struct TensorDeviceHooks {
+    void* (*alloc)(size_t bytes);
+    void (*zero)(void* ptr, size_t bytes);
+    void (*free)(void* ptr);
+    void (*copyH2D)(void* dst, const void* src, size_t bytes);
+    void (*copyD2H)(void* dst, const void* src, size_t bytes);
+    void (*sync)();
+};
 
 struct NativeHost;
 typedef struct NativeHost NativeHost;
@@ -146,6 +184,9 @@ enum NativeElemKind {
 // lives at data + (offset + sum(ik * strides[k])) * elemCellBytes.
 // Owning arrays report 0 (data already points at element zero); a
 // view record reports its recorded offset into the owning payload.
+// ABI v13: reserved[0] carries the payload residency — 0 = host, 1 =
+// device (data is a device pointer; only the device backend's kernels
+// may dereference it, host code routes the operand through its slots).
 typedef struct NativeArrayView {
     int32_t rank;
     const int32_t* dims;
@@ -153,7 +194,7 @@ typedef struct NativeArrayView {
     int64_t elemCount;
     uint8_t elemKind;      // NativeElemKind value
     uint8_t elemCellBytes;
-    uint8_t reserved[2];
+    uint8_t reserved[2];   // ABI v13: reserved[0] = residency (0 host, 1 device)
     int64_t offset;        // ABI v10: element units, matches strides
     int32_t stridesInline[64];  // = kMaxArrayRank (asserted below); ABI v8: widened with the rank cap
     void* data;
@@ -304,6 +345,28 @@ struct NativeHost {
     uint32_t (*typeArgCount)(NativeHost* self);
     uint8_t (*typeArgKind)(NativeHost* self, uint32_t i);
     const char* (*typeArgName)(NativeHost* self, uint32_t i);
+
+    void (*setTensorDeviceHooks)(NativeHost* self,
+                                 const TensorDeviceHooks* hooks);
+
+    //v13: mint a device-resident array record of a scalar element kind
+    //with the given rank and dims, zero-initialized through the hooks;
+    //returns its heap handle (rooted until the native writes it into
+    //its return cell, same contract as newArrayShaped). byte/ubyte
+    //kinds raise the Base family (I/O buffers stay host-resident —
+    //io/net read and write those payloads directly). No hooks active
+    //raises the Base family (backend=cpu calling toDevice's path).
+    int32_t (*newArrayResident)(NativeHost* self, uint8_t elemKind,
+                                int32_t rank, const int32_t* dims);
+
+    //v13: ATOMIC "snapshot the PRNG state, then discard n" — copies the
+    //engine's 624-word state into out624 and its block position into
+    //outPosition, then advances the engine by n outputs, all inside the
+    //engine mutex. One callback, not a read/discard pair: two calls
+    //would race between concurrent carriers and hand two uniform draws
+    //the same snapshot (duplicate sequences). n may be 0 (snapshot only).
+    void (*snapshotRngForDevice)(NativeHost* self, uint32_t* out624,
+                                 uint32_t* outPosition, int64_t n);
 };
 
 // Version probe. The host resolves this export first and rejects the

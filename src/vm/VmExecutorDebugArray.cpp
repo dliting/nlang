@@ -27,7 +27,27 @@ std::string VmExecutor::DebugViewShortTag(
 }
 
 std::string VmExecutor::FormatDebugArray(int32_t heapIdx) const {
-    const auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
+    //v0.14.x device line: stage a device record's payload before the
+    //element loop (one bulk D2H; the debugger view reads the staged
+    //cells like any host record).
+    std::vector<int32_t> stagedSlot;
+    if (m_arrResidency[static_cast<size_t>(heapIdx)] == 1) {
+        stagedSlot = m_structHeap[static_cast<size_t>(heapIdx)];
+        const uint16_t stageTypeIdx = static_cast<uint16_t>(stagedSlot[1]);
+        const int stageCells = ArrayElemCells(
+            m_currModule && stageTypeIdx < m_currModule->arrayTypes.size()
+                ? m_currModule->arrayTypes[stageTypeIdx].elemKind
+                : RTK_Int32);
+        stagedSlot.resize(ArrayPayloadBase(stagedSlot)
+            + static_cast<size_t>(stagedSlot[3]) * stageCells);
+        DeviceStageToHost(heapIdx, stagedSlot.data()
+            + ArrayPayloadBase(stagedSlot),
+            static_cast<size_t>(stagedSlot[3]) * stageCells * 4);
+    }
+    const auto& slot = stagedSlot.empty()
+        ? static_cast<const std::vector<int32_t>&>(
+            m_structHeap[static_cast<size_t>(heapIdx)])
+        : stagedSlot;
     uint16_t arrayTypeIdx = static_cast<uint16_t>(slot[1]);
     int32_t length = slot[3];  //stage-2 header: elemCount
     uint8_t elemKind = RTK_Int32;

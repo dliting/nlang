@@ -270,7 +270,28 @@ std::string VmExecutor::FormatArray(int32_t heapIdx, int depth) {
     //the same, the element reads are not (affine map, owner window).
     if (m_slotKinds[static_cast<size_t>(heapIdx)] == RTK_ArrayView)
         return FormatViewArray(heapIdx, depth);
-    const auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
+    //v0.14.x device line: a device-resident record's payload area is
+    //the 2-cell device-pointer descriptor — stage the real payload
+    //into a record-shaped local before the walk (one bulk D2H).
+    std::vector<int32_t> stagedSlot;
+    if (m_arrResidency[static_cast<size_t>(heapIdx)] == 1) {
+        stagedSlot = m_structHeap[static_cast<size_t>(heapIdx)];
+        const int32_t elemCount = stagedSlot[3];
+        const int stageCells = ArrayElemCells(
+            stagedSlot[1] < m_currModule->arrayTypes.size()
+                ? m_currModule->arrayTypes[
+                    static_cast<size_t>(stagedSlot[1])].elemKind
+                : RTK_Int32);
+        stagedSlot.resize(ArrayPayloadBase(stagedSlot)
+            + static_cast<size_t>(elemCount) * stageCells);
+        DeviceStageToHost(heapIdx, stagedSlot.data()
+            + ArrayPayloadBase(stagedSlot),
+            static_cast<size_t>(elemCount) * stageCells * 4);
+    }
+    const std::vector<int32_t>& slot = stagedSlot.empty()
+        ? static_cast<const std::vector<int32_t>&>(
+            m_structHeap[static_cast<size_t>(heapIdx)])
+        : stagedSlot;
     uint16_t arrayTypeIdx = static_cast<uint16_t>(slot[1]);
     int32_t length = slot[3];
     uint8_t elemKind = RTK_Int32;

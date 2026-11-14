@@ -1141,8 +1141,47 @@ private:
     //invalidated: read what is needed into locals first, call, then
     //re-index. OpArrayShape once read the source record's dims through
     //a reference held across this call and landed in freed memory.
+    //v0.14.x device line: the residency policy for an array mint. The
+    //single choke point (AllocArrayOnHeap) serves eight callers with
+    //different rulings (spec D2's mechanism/kind gate):
+    //  FollowActiveDevice - language creation (sized creation opcodes,
+    //      init-list assembly): numeric four-kind arrays mint device
+    //      when a device backend is active;
+    //  ForceHost          - native minting (newArray/newArrayShaped),
+    //      deserialization, view materialization and the shape() helper
+    //      mint: I/O buffers and VM-internal metadata stay host.
+    enum class ArrayResidency : uint8_t { FollowActiveDevice, ForceHost };
     int32_t AllocArrayOnHeap(uint16_t arrayTypeIdx, uint8_t rank,
+        const int32_t* dims,
+        ArrayResidency residency = ArrayResidency::ForceHost);
+    //The device mint (newArrayResident's path): numeric four-kind +
+    //hooks active or raise by name; allocates through the hooks and
+    //stores the device pointer in the record's descriptor cells.
+    int32_t AllocDeviceArrayOnHeap(uint16_t arrayTypeIdx, uint8_t rank,
         const int32_t* dims);
+    //Device payload helpers (definitions in VmExecutorNativeCallbacks
+    //.cpp): the 64-bit device pointer lives in the record's payload-
+    //area descriptor cells.
+    void* DevicePayloadOf(int32_t heapIdx) const;
+    void SetDevicePayload(int32_t heapIdx, void* devicePtr);
+    //Transparent element access on device records (the subscript ops'
+    //branch): one-element synchronous transfer through the hooks.
+    //elemCell is the ELEMENT index (payload-relative); cellBytes the
+    //carrier width; cell receives/reads the 8-byte frame cell (4-byte
+    //kinds in the low half, matching the staging convention).
+    void DeviceLoadElement(int32_t heapIdx, int64_t elemCell,
+        int64_t cellBytes, uint8_t* cell) const;
+    void DeviceStoreElement(int32_t heapIdx, int64_t elemCell,
+        int64_t cellBytes, const uint8_t* cell) const;
+    //Bulk device→host staging (serialization/print/debug paths): one
+    //copy into a caller-owned byte buffer.
+    void DeviceStageToHost(int32_t heapIdx, void* dst, size_t bytes) const;
+    //Bulk host→device landing (the assemble staging twin, toDevice):
+    //one copy from a caller-owned host buffer.
+    void DeviceStageFromHost(int32_t heapIdx, const void* src,
+        size_t bytes) const;
+    //True when the handle's record carries a device payload.
+    bool IsDeviceArray(int32_t heapIdx) const;
     //Per-dim and product validation; raises OutOfBounds. Returns elemCount.
     int32_t ValidateArrayDims(uint8_t rank, const int32_t* dims);
     //Validation half of AllocViewOnHeap (function-size split): target
@@ -2013,6 +2052,23 @@ private:
     static uint32_t NativeTypeArgCount(NativeHost* self);
     static uint8_t NativeTypeArgKind(NativeHost* self, uint32_t i);
     static const char* NativeTypeArgName(NativeHost* self, uint32_t i);
+    //v13 tensor device side (contracts in NativeHost.h; definitions in
+    //VmExecutorNativeCallbacks.cpp). setTensorDeviceHooks registers the
+    //tensor module's device backend once at module init; newArrayResident
+    //mints device-resident numeric arrays; snapshotRngForDevice is the
+    //atomic snapshot+discard composite the uniform kernel's shared-stream
+    //contract needs.
+    static void NativeSetTensorDeviceHooks(NativeHost* self,
+        const TensorDeviceHooks* hooks);
+    static int32_t NativeNewArrayResident(NativeHost* self,
+        uint8_t elemKind, int32_t rank, const int32_t* dims);
+    static void NativeSnapshotRngForDevice(NativeHost* self,
+        uint32_t* out624, uint32_t* outPosition, int64_t n);
+    //v13 helpers (definitions in VmExecutorNativeCallbacks.cpp): the
+    //fill arm shared by getArrayView's owner and view paths — sets
+    //reserved[0] from the owner record's residency side vector.
+    static void FillViewResidency(VmExecutor* e, int32_t ownerHandle,
+        NativeArrayView* out);
     //v10 helpers of the two callbacks above (definitions in
     //VmExecutorNativeCallbacks.cpp): the arm fills from a view record's
     //own strides/offset, the resolver peels depth-one to the owning
@@ -2330,6 +2386,23 @@ private:
     //stays null. Descriptors are interned and process-immortal, so the
     //sweep needs no hook here (freeing the slot just orphans the null).
     ChunkedArray<GenericInstDescriptor*> m_instDescByHeap;
+    //v0.14.x device line: per-array payload residency, parallel to
+    //m_structHeap — 0 = host payload inline in the record cells (every
+    //pre-existing path), 1 = device payload (record stores the 64-bit
+    //device pointer in its payload-area descriptor cells; byte/ubyte and
+    //every native-minted array stay host — the D2 kind/mechanism gate).
+    //Every Alloc*OnHeap writes it (host) before any device branch
+    //overrides it; SweepPhase clears released device slots back to 0 so
+    //free-list reuse never inherits a stale device mark.
+    ChunkedArray<uint8_t>  m_arrResidency;
+    //The tensor module's device backend hooks (set once at module init
+    //via setTensorDeviceHooks, immutable afterwards — the run-init
+    //sequence registers natives before any user frame or carrier
+    //starts). m_tensorHooksActive distinguishes "registered" from the
+    //all-zero struct; device creation and transfers raise the Base
+    //family by name when inactive.
+    TensorDeviceHooks m_tensorHooks = {};
+    bool m_tensorHooksActive = false;
     //v0.13.1: descriptor-table rows resolved at run start (index
     //parallel to CompiledModule::descriptorTable). Static rows intern
     //from their canonical spelling; recipe rows (runtime composition)

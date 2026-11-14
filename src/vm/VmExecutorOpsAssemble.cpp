@@ -44,9 +44,30 @@ void VmExecutor::OpAssembleArrayN(BytecodeReader& reader, uint8_t* locals) {
     int32_t dims[kMaxArrayRank];
     SnapshotAssembleRows(locals, elemSlotBase, rowCount, rank,
                          rowHandles, dims);
-    const int32_t heapIdx = AllocArrayOnHeap(arrayTypeIdx, rank, dims);
+    const int32_t heapIdx = AllocArrayOnHeap(arrayTypeIdx, rank, dims,
+        ArrayResidency::FollowActiveDevice);
     StampElemDescriptor(heapIdx, descIdx);
     NoteGcPressure();
+    if (m_arrResidency[static_cast<size_t>(heapIdx)] == 1) {
+        //v0.14.x device line: the assembly is a whole-block memcpy —
+        //assemble into a ForceHost staging twin and land with one
+        //block H2D (the numeric-only device kinds do not deep-copy,
+        //so no allocation runs inside CopyAssembleRows and the staging
+        //twin cannot be collected mid-walk).
+        const int32_t staging = AllocArrayOnHeap(arrayTypeIdx, rank,
+                                                 dims);
+        CopyAssembleRows(staging, arrayType, rowHandles);
+        auto& stageRec = m_structHeap[static_cast<size_t>(staging)];
+        const size_t stageBase = ArrayPayloadBase(stageRec);
+        const int stageCells = ArrayElemCells(arrayType.elemKind);
+        DeviceStageFromHost(heapIdx,
+            stageRec.data() + stageBase,
+            static_cast<size_t>(
+                m_structHeap[static_cast<size_t>(heapIdx)][3])
+                * stageCells * 4);
+        std::memcpy(locals + dst, &heapIdx, sizeof(heapIdx));
+        return;
+    }
     CopyAssembleRows(heapIdx, arrayType, rowHandles);
     std::memcpy(locals + dst, &heapIdx, sizeof(heapIdx));
 }

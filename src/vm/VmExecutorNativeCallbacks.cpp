@@ -93,7 +93,7 @@ void VmExecutor::NativeSeedRandom(NativeHost* self, int32_t seed) {
 static void FillArrayView(NativeArrayView* out,
                           std::vector<int32_t>& record,
                           const CompiledArrayType& at,
-                          size_t payloadBase) {
+                          size_t payloadBase, uint8_t residency) {
     //Stage-2 header: [2]=rank, [3]=elemCount, [4..]=dims, payload after
     //the padded header.
     const int32_t rank = record[2];
@@ -111,10 +111,19 @@ static void FillArrayView(NativeArrayView* out,
     out->elemKind = at.elemKind;
     out->elemCellBytes = static_cast<uint8_t>(
         ArrayElemCells(at.elemKind) * kHeapCellBytes);
-    out->reserved[0] = 0;
+    out->reserved[0] = residency;   //ABI v13: payload residency
     out->reserved[1] = 0;
     out->offset = 0;   //owning array: data already points at element zero
-    out->data = record.data() + payloadBase;   //payload base
+    if (residency == 1) {
+        //The device record's payload area is the descriptor: two int32
+        //cells holding the 64-bit device pointer.
+        void* devicePtr = nullptr;
+        std::memcpy(&devicePtr, record.data() + payloadBase,
+                    sizeof(devicePtr));
+        out->data = devicePtr;
+    } else {
+        out->data = record.data() + payloadBase;   //payload base
+    }
 }
 
 //ABI v10 view arm of getArrayView: fill from the VIEW record's own
@@ -127,7 +136,7 @@ static void FillViewArrayView(NativeArrayView* out,
                               std::vector<int32_t>& view,
                               std::vector<int32_t>& owner,
                               const CompiledArrayType& at,
-                              size_t ownerPayloadBase) {
+                              size_t ownerPayloadBase, uint8_t residency) {
     const int32_t rank = view[2];
     for (int32_t d = 0; d < rank; ++d)
         out->stridesInline[d] =
@@ -139,10 +148,17 @@ static void FillViewArrayView(NativeArrayView* out,
     out->elemKind = at.elemKind;
     out->elemCellBytes = static_cast<uint8_t>(
         ArrayElemCells(at.elemKind) * kHeapCellBytes);
-    out->reserved[0] = 0;
+    out->reserved[0] = residency;   //ABI v13: owner payload residency
     out->reserved[1] = 0;
     out->offset = view[ArrayViewOffsetCell(static_cast<uint8_t>(rank))];
-    out->data = owner.data() + ownerPayloadBase;
+    if (residency == 1) {
+        void* devicePtr = nullptr;
+        std::memcpy(&devicePtr, owner.data() + ownerPayloadBase,
+                    sizeof(devicePtr));
+        out->data = devicePtr;
+    } else {
+        out->data = owner.data() + ownerPayloadBase;
+    }
 }
 
 //ABI v10 view-record arm of NativeGetArrayView (declaration in
@@ -172,7 +188,8 @@ void VmExecutor::FillViewRecordArrayView(VmExecutor* e, int32_t handle,
             "getArrayView: corrupt array type index");
     FillViewArrayView(out, view, owner,
         e->m_currModule->arrayTypes[static_cast<size_t>(viewTypeIdx)],
-        ArrayPayloadBase(owner));
+        ArrayPayloadBase(owner),
+        e->m_arrResidency[static_cast<size_t>(target)]);
 }
 
 int VmExecutor::NativeGetArrayView(NativeHost* self, int32_t handle,
@@ -210,7 +227,8 @@ int VmExecutor::NativeGetArrayView(NativeHost* self, int32_t handle,
         || static_cast<size_t>(arrayTypeIdx) >= arrayTypes.size())
         e->RaiseNlangExceptionBase("getArrayView: corrupt array type index");
     FillArrayView(out, record,
-                  arrayTypes[static_cast<size_t>(arrayTypeIdx)], payloadBase);
+                  arrayTypes[static_cast<size_t>(arrayTypeIdx)], payloadBase,
+                  e->m_arrResidency[static_cast<size_t>(handle)]);
     return 1;
 }
 
@@ -489,6 +507,59 @@ const char* VmExecutor::NativeTypeArgName(NativeHost* self, uint32_t i) {
     if (!desc || i >= desc->TypeArgs().size())
         return nullptr;   //the name sentinel
     return desc->TypeArgs()[i].spelling.c_str();
+}
+
+//v13 tensor device side (contracts in NativeHost.h). Registration is
+//an init-sequence event (the tensor module's nlang_native_init runs
+//before any user frame or carrier); a second registration is a module
+//contract violation. All hook slots must be populated — the VM routes
+//device records through them and never links vendor runtimes itself.
+void VmExecutor::NativeSetTensorDeviceHooks(NativeHost* self,
+    const TensorDeviceHooks* hooks) {
+    VmExecutor* e = Wrap(self)->executor;
+    GilEnsureGuard gil(*e);
+    if (e->m_tensorHooksActive)
+        e->RaiseNlangExceptionBase(
+            "setTensorDeviceHooks: hooks already registered for this "
+            "executor");
+    if (hooks == nullptr || hooks->alloc == nullptr
+        || hooks->zero == nullptr || hooks->free == nullptr
+        || hooks->copyH2D == nullptr || hooks->copyD2H == nullptr
+        || hooks->sync == nullptr) {
+        e->RaiseNlangExceptionBase(
+            "setTensorDeviceHooks: incomplete hook set");
+    }
+    e->m_tensorHooks = *hooks;
+    e->m_tensorHooksActive = true;
+}
+
+int32_t VmExecutor::NativeNewArrayResident(NativeHost* self,
+    uint8_t elemKind, int32_t rank, const int32_t* dims) {
+    VmExecutor* e = Wrap(self)->executor;
+    GilEnsureGuard gil(*e);
+    if (elemKind != NEK_Int32 && elemKind != NEK_Int64
+        && elemKind != NEK_Float32 && elemKind != NEK_Float64) {
+        e->RaiseNlangExceptionBase(
+            "newArrayResident: only int/long/float/double arrays can "
+            "live on the device (byte/ubyte are host I/O buffers)");
+    }
+    const uint16_t arrayTypeIdx = e->FindScalarArrayTypeIdx(elemKind,
+        static_cast<uint8_t>(rank));
+    const int32_t handle = e->AllocDeviceArrayOnHeap(arrayTypeIdx,
+        static_cast<uint8_t>(rank), dims);
+    e->RootMintedNativeHandle(handle);
+    return handle;
+}
+
+//The atomic snapshot+discard composite (spec D3): one mutex-protected
+//step — a read/discard pair would race between concurrent carriers and
+//hand two uniform draws the same snapshot.
+void VmExecutor::NativeSnapshotRngForDevice(NativeHost* self,
+    uint32_t* out624, uint32_t* outPosition, int64_t n) {
+    VmExecutor* e = Wrap(self)->executor;
+    std::lock_guard<std::mutex> rngGuard(e->m_rngMutex);
+    e->m_rng.Snapshot(out624, outPosition);
+    e->m_rng.discard(n);
 }
 
 } // namespace nlang

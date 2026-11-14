@@ -56,7 +56,25 @@ void VmExecutor::SerializeArrayRecord(int32_t heapIdx,
     if (m_slotKinds[static_cast<size_t>(heapIdx)] == RTK_ArrayView)
         heapIdx = MaterializeViewRecord(heapIdx);
 
-    const auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
+    //v0.14.x device line: stage a device record's payload into a
+    //record-shaped local before the walk (one bulk D2H; the header
+    //stays — the walk reads the staged cells).
+    std::vector<int32_t> stagedSlot;
+    if (m_arrResidency[static_cast<size_t>(heapIdx)] == 1) {
+        stagedSlot = m_structHeap[static_cast<size_t>(heapIdx)];
+        const uint16_t stageTypeIdx = static_cast<uint16_t>(stagedSlot[1]);
+        const auto& stageAt = m_currModule->arrayTypes[stageTypeIdx];
+        const int stageCells = ArrayElemCells(stageAt.elemKind);
+        stagedSlot.resize(ArrayPayloadBase(stagedSlot)
+            + static_cast<size_t>(stagedSlot[3]) * stageCells);
+        DeviceStageToHost(heapIdx, stagedSlot.data()
+            + ArrayPayloadBase(stagedSlot),
+            static_cast<size_t>(stagedSlot[3]) * stageCells * 4);
+    }
+    const auto& slot = stagedSlot.empty()
+        ? static_cast<const std::vector<int32_t>&>(
+            m_structHeap[static_cast<size_t>(heapIdx)])
+        : stagedSlot;
     const uint16_t arrayTypeIdx = static_cast<uint16_t>(slot[1]);
     if (arrayTypeIdx >= m_currModule->arrayTypes.size())
         throw std::runtime_error("NLang VM: invalid array type index in array record write");
