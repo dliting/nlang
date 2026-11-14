@@ -1,8 +1,11 @@
 /*---
 tensor_native.cpp — registration unit and the creation-kernel family of
-the `tensor` package's native module (nlang_tensor.dll). The elementwise
-binary family lives in tensor_binary.cpp; every entry point is declared
-in TensorKernels.h. See that header and include/nlang/vm/NativeHost.h
+the `tensor` package's native module (nlang_tensor.dll). P1 T1.2e
+migration: the creation kernels keep their validation (arange's
+step/count contracts, the dims gates) and minting; the fill/arange
+runs ride the ActiveTensorOps() slots. The elementwise binary family
+lives in tensor_binary.cpp; every entry point is declared in
+TensorKernels.h. See that header and include/nlang/vm/NativeHost.h
 for the payload-view contract.
 
 Depends only on the stable NativeHost ABI and the C++ standard library —
@@ -12,6 +15,8 @@ must be released for the duration (the staged-argument roots keep the
 operands alive).
 ---*/
 #include "TensorKernels.h"
+
+#include "TensorOps.h"
 
 #include <cmath>
 #include <cstdint>
@@ -35,7 +40,7 @@ namespace {
 //fail by name, not by attempting a multi-GB mint.
 constexpr int64_t kArangeMaxElems = 100 * 1000 * 1000;
 
-//full family: mint then fill with a constant.
+//full family: mint then fill with a constant (the fill rides the slot).
 template <typename T>
 void FillKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
                 uint8_t kind, T value) {
@@ -43,10 +48,24 @@ void FillKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
     const int32_t handle = NewArray(host, kind, n);
     NativeArrayView v;
     host->getArrayView(host, handle, &v);
-    T* cells = CellsOf<T>(v);
-    for (int64_t i = 0; i < v.elemCount; ++i)
-        cells[i] = value;
+    FillThroughSlot(host, v, static_cast<double>(value),
+        static_cast<int64_t>(value));
     ReturnInt(ret, handle);
+}
+
+//The kind-typed fill dispatch shared by both creation twins (the slot
+//carries int64/double values; the T narrowing is the kernel's).
+void FillThroughSlot(NativeHost* host, NativeArrayView& v, double fValue,
+                     int64_t iValue) {
+    const TensorOps& ops = ActiveTensorOps();
+    switch (v.elemKind) {
+        case NEK_Int32:  ops.fillI32(host, v, iValue); break;
+        case NEK_Int64:  ops.fillI64(host, v, iValue); break;
+        case NEK_Float32: ops.fillF32(host, v, fValue); break;
+        case NEK_Float64: ops.fillF64(host, v, fValue); break;
+        default:
+            Raise(host, NEXC_Base, "tensor: unsupported element kind");
+    }
 }
 
 //full(dims, value): the int[] dims vector shapes the mint, the fill
@@ -74,16 +93,17 @@ void FullDimsKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
     const int32_t handle = NewArrayShaped(host, kind, rank, shape);
     NativeArrayView v;
     host->getArrayView(host, handle, &v);
-    T* filled = CellsOf<T>(v);
-    for (int64_t i = 0; i < v.elemCount; ++i)
-        filled[i] = value;
+    FillThroughSlot(host, v, static_cast<double>(value),
+        static_cast<int64_t>(value));
     ReturnInt(ret, handle);
 }
 
 //Half-open arithmetic progression start, start+step, ... strictly before
 //stop. The element count is ceil(|span/step|) — exact for integral steps
 //and the standard numpy semantics for fractional steps. long double keeps
-//float/double span division from pre-rounding the ceiling.
+//float/double span division from pre-rounding the ceiling. The
+//progression generation rides the arange slot (the accumulation stays
+//in the element carrier — the historical rounding).
 template <typename T>
 void ArangeKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
                   uint8_t kind, T start, T stop, T step) {
@@ -100,11 +120,19 @@ void ArangeKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
     const int32_t handle = NewArray(host, kind, static_cast<int32_t>(n));
     NativeArrayView v;
     host->getArrayView(host, handle, &v);
-    T* cells = CellsOf<T>(v);
-    T cur = start;
-    for (int64_t i = 0; i < v.elemCount; ++i) {
-        cells[i] = cur;
-        cur = static_cast<T>(cur + step);
+    const TensorOps& ops = ActiveTensorOps();
+    if constexpr (std::is_same_v<T, float>) {
+        ops.arangeF32(host, v, static_cast<double>(start),
+                      static_cast<double>(step));
+    } else if constexpr (std::is_same_v<T, double>) {
+        ops.arangeF64(host, v, static_cast<double>(start),
+                      static_cast<double>(step));
+    } else if constexpr (std::is_same_v<T, int32_t>) {
+        ops.arangeI32(host, v, static_cast<int64_t>(start),
+                      static_cast<int64_t>(step));
+    } else {
+        ops.arangeI64(host, v, static_cast<int64_t>(start),
+                      static_cast<int64_t>(step));
     }
     ReturnInt(ret, handle);
 }

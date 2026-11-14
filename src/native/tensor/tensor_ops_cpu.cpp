@@ -355,6 +355,21 @@ void CpuEq(const NativeArrayView& va, const NativeArrayView& vb,
     }
 }
 
+//--- copy (the same-shape elementwise materialization — StrideCopy's
+//walk typed per kind; the shared primitive of view materialization,
+//toDevice/toHost and serialization staging) ---
+template <typename T>
+void CpuCopy(const NativeArrayView& src, const NativeArrayView& dst) {
+    const T* cells = CellsOf<const T>(src);
+    T* outCells = CellsOf<T>(dst);
+    int64_t idx[nlang::kMaxArrayRank] = {0};
+    int64_t addr = src.offset;
+    for (int64_t i = 0; i < dst.elemCount; ++i) {
+        outCells[i] = cells[addr];
+        StrideWalkAdvance(src, idx, &addr);
+    }
+}
+
 //--- the cpu table: families fill in as T1.2 migrates them ---
 TensorOps MakeCpuTable() {
     TensorOps t;
@@ -800,6 +815,99 @@ TensorOps MakeCpuTable() {
                 = 1.0f;
             addr += labels.strides[0];
         }
+    };
+    //--- T1.2e generation & movement family (lifted from FillKernel/
+    //FullDimsKernel/ArangeKernel run-parts: the mint and its validation
+    //stay in the dispatcher; the slots fill/progress over the fresh
+    //dst. copy = StrideCopy — the same-shape dense-dst walk that
+    //Materialize uses, shared by P2's toDevice/toHost staging) ---
+    t.fillF32 = [](NativeHost* host, NativeArrayView& dst, double value) {
+        (void)host;
+        float* cells = CellsOf<float>(dst);
+        for (int64_t i = 0; i < dst.elemCount; ++i)
+            cells[i] = static_cast<float>(value);
+    };
+    t.fillF64 = [](NativeHost* host, NativeArrayView& dst, double value) {
+        (void)host;
+        double* cells = CellsOf<double>(dst);
+        for (int64_t i = 0; i < dst.elemCount; ++i)
+            cells[i] = value;
+    };
+    t.fillI32 = [](NativeHost* host, NativeArrayView& dst, int64_t value) {
+        (void)host;
+        int32_t* cells = CellsOf<int32_t>(dst);
+        for (int64_t i = 0; i < dst.elemCount; ++i)
+            cells[i] = static_cast<int32_t>(value);
+    };
+    t.fillI64 = [](NativeHost* host, NativeArrayView& dst, int64_t value) {
+        (void)host;
+        int64_t* cells = CellsOf<int64_t>(dst);
+        for (int64_t i = 0; i < dst.elemCount; ++i)
+            cells[i] = value;
+    };
+    //arange: dst[i] = start + i*step accumulated in the element carrier
+    //((T)cur + (T)step per element — the historical rounding).
+    t.arangeI32 = [](NativeHost* host, NativeArrayView& dst, int64_t start,
+                     int64_t step) {
+        (void)host;
+        int32_t* cells = CellsOf<int32_t>(dst);
+        int32_t cur = static_cast<int32_t>(start);
+        for (int64_t i = 0; i < dst.elemCount; ++i) {
+            cells[i] = cur;
+            cur = static_cast<int32_t>(cur + static_cast<int32_t>(step));
+        }
+    };
+    t.arangeI64 = [](NativeHost* host, NativeArrayView& dst, int64_t start,
+                     int64_t step) {
+        (void)host;
+        int64_t* cells = CellsOf<int64_t>(dst);
+        int64_t cur = start;
+        for (int64_t i = 0; i < dst.elemCount; ++i) {
+            cells[i] = cur;
+            cur = cur + step;
+        }
+    };
+    t.arangeF32 = [](NativeHost* host, NativeArrayView& dst, double start,
+                     double step) {
+        (void)host;
+        float* cells = CellsOf<float>(dst);
+        float cur = static_cast<float>(start);
+        for (int64_t i = 0; i < dst.elemCount; ++i) {
+            cells[i] = cur;
+            cur = static_cast<float>(cur + static_cast<float>(step));
+        }
+    };
+    t.arangeF64 = [](NativeHost* host, NativeArrayView& dst, double start,
+                     double step) {
+        (void)host;
+        double* cells = CellsOf<double>(dst);
+        double cur = start;
+        for (int64_t i = 0; i < dst.elemCount; ++i) {
+            cells[i] = cur;
+            cur = cur + step;
+        }
+    };
+    //copy: same-shape elementwise materialization (StrideCopy's walk,
+    //typed per kind).
+    t.copyF32 = [](NativeHost* host, NativeArrayView& src,
+                   NativeArrayView& dst) {
+        (void)host;
+        CpuCopy<float>(src, dst);
+    };
+    t.copyF64 = [](NativeHost* host, NativeArrayView& src,
+                   NativeArrayView& dst) {
+        (void)host;
+        CpuCopy<double>(src, dst);
+    };
+    t.copyI32 = [](NativeHost* host, NativeArrayView& src,
+                   NativeArrayView& dst) {
+        (void)host;
+        CpuCopy<int32_t>(src, dst);
+    };
+    t.copyI64 = [](NativeHost* host, NativeArrayView& src,
+                   NativeArrayView& dst) {
+        (void)host;
+        CpuCopy<int64_t>(src, dst);
     };
     //--- T1.2c matmul family (lifted from MatMulTyped's run-part: the
     //dispatcher materializes non-contiguous operands and gates shapes,
