@@ -97,7 +97,7 @@ import io;
 import utils.helper;
 
 int main() {
-    io.print(twice(21));            // same-directory helper.n: bare call, no import
+    io.print(twice(21));            // same-directory helper.n: unqualified call, no import
     io.print(utils.helper.answer());// subdirectory: module-path-qualified after import
     if (utils.helper.answer() == 42)
         return 42;

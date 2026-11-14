@@ -4,8 +4,9 @@
 
 The standard library is twelve packages — `math`, `io`, `fs`,
 `thread`, `concurrent`, `tensor`, `net`, `system`, `url`, `http`,
-`gzip` and `regex`, each a set of package-qualified free functions
-— plus the `string` methods, dispatched on the receiver.
+`gzip` and `regex`, each a set of free functions called by their
+fully qualified names — plus the `string` methods, dispatched on
+the receiver.
 The prelude packages sit beside them: `lang` (`stdlib/lang.n`)
 declares the `Exception` family, the hierarchy root `Object`, the
 declaration-holder class `String` and the generic array face `Array<T>`; `containers`

@@ -15,8 +15,8 @@ Two invocations: a full dump, or `-func <name>` keeping only one
 function section (the other sections remain). **`-func` must precede
 the module path** — after it, the flag is silently ignored and the
 output equals the full dump. `-func <name>` matches the function-table
-key verbatim: the key of a user function is module- or
-package-qualified (e.g. `hello.main`), so a bare name matches nothing —
+key verbatim: the key of a user function is qualified by the
+module or package path (e.g. `hello.main`), so an unqualified name matches nothing —
 no error is reported, the function section is simply absent. The input
 may also be a `.npkg` package
 archive: a `package:` line comes first, then each member image is

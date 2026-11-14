@@ -39,7 +39,7 @@ The scheduler keeps one record per context: identifier, state (runnable; suspend
   affinity stamp. The carrier loop repeatedly takes a context and runs
   it until it returns, suspends, or is preempted.
 - **Timer list**: `thread.sleep` suspensions are ordered by wake-up time; a dedicated timer thread (started on the first sleep) moves due sleepers back to the run queue, so a deadline is honored even when every carrier is suspended or blocked in a native call.
-- **Context lifecycle**: `thread.spawn` mints the target context's root frame at spawn time (the delegate's receiver goes into frame slot 0), so the garbage collector's precise root set covers the context from birth. A finishing context wakes all its joiners; an uncaught exception marks it failed with the exception object retained for `join` to rethrow — the failure never leaks to the host.
+- **Context lifecycle**: `thread.spawn` creates the target context's root frame at spawn time (the delegate's receiver goes into frame slot 0), so the garbage collector's precise root set covers the context from birth. A finishing context wakes all its joiners; an uncaught exception marks it failed with the exception object retained for `join` to rethrow — the failure never leaks to the host.
 - **Exit policy**: when the main context returns, the whole run ends and every other context is dropped silently. If the queue drains while main is still unfinished, the virtual machine reports a deadlock instead of spinning.
 
 ## Where the garbage collector plugs in

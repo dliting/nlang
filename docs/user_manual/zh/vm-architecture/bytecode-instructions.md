@@ -76,7 +76,7 @@
 | OP_StoreElementN     | arr, idxBase, src, rank              | 按idxBase起的rank个坐标写入元素 |
 | OP_LoadElementFlat   | dst, arr, flatIdx                    | 按行主序扁平下标读取元素（foreach遍历用） |
 | OP_ArrayLength       | dst, arr                             | 全部元素个数 → int32    |
-| OP_ArrayShape        | dst, arr                             | 铸造逐维元素个数的一维int数组 |
+| OP_ArrayShape        | dst, arr                             | 创建逐维元素个数的一维int数组 |
 
 一维数组是`rank=1`的特例，与多维数组共用同一组指令；各维元素个数在初始化器降级时是编译期常量，运行期创建（尺寸来自表达式）则从求值暂存槽读取。
 
@@ -117,8 +117,8 @@
 
 | 操作码              | 操作数                      | 说明                     |
 |---------------------|-----------------------------|--------------------------|
-| OP_TypeNameArg      | dst, paramOrdinal (uint8)   | 读取接收者的实例化描述符，取第paramOrdinal个类型实参的规范拼写，铸造字符串（`typeName(T)`） |
-| OP_TypeNameCompose  | dst, recipeIdx              | 按配方对接收者的实例化组合嵌套拼写并驻留（`typeName(List<T>)`） |
+| OP_TypeNameArg      | dst, paramOrdinal (uint8)   | 读取接收者的实例化描述符，取第paramOrdinal个类型实参的规范拼写，创建字符串（`typeName(T)`） |
+| OP_TypeNameCompose  | dst, compositionIdx         | 按拼接记录对接收者的实例化组合嵌套拼写并驻留（`typeName(List<T>)`） |
 | OP_Eq_T             | dst, paramOrdinal, lhs, rhs | 按第paramOrdinal个类型实参的kind比较两个T型槽位（标量单元、字符串内容、struct字段值、class/数组同一性、函数记录内容）；lhs/rhs的`0xFFFF`标记null字面量一侧 |
 | OP_Ne_T             | dst, paramOrdinal, lhs, rhs | OP_Eq_T的取反判定 |
 | OP_TypeArg_to_str   | paramOrdinal                | 经该kind自身的格式化渲染pResult中的T型值 |
@@ -126,9 +126,9 @@
 | OP_Box_TypeArg      | paramOrdinal                | 把T型累加器归一为擦除容器的元素形态（标量kind按描述符的标签装箱，引用kind原样通过） |
 | OP_Unbox_TypeArg    | paramOrdinal                | 逆边界：擦除容器元素归一为T型帧形态（标量kind按描述符的标签拆箱，引用kind原样通过） |
 
-Box/Unbox对维护统一T表示不变量：泛型帧中的T型值当且仅当T的kind为标量时是原始单元，而擦除容器（`List<T>`、`Dict<K,V>`、通道）把每个元素都存为堆句柄。二者发射在静态装箱方案无法解析标签的位点——接收者的类型实参是调用方泛型体自己的占位符，由执行帧的描述符裁决。
+Box/Unbox对维护统一T表示不变量：泛型帧中的T型值当且仅当T的kind为标量时是原始单元，而擦除容器（`List<T>`、`Dict<K,V>`、通道）把每个元素都存为堆句柄。二者发射在静态装箱方案无法解析标签的位置——接收者的类型实参是调用方泛型体自己的占位符，由执行帧的描述符裁决。
 
-描述符线格式见[`.ncu`单元映像](../specification/formats/26-ncu.md)；编译器如何铸造并绑定逐实例化的函数体是[库机制](library-mechanism.md)的主题。
+描述符线格式见[`.ncu`单元映像](../specification/formats/26-ncu.md)；编译器如何生成并绑定逐实例化的函数体是[库机制](library-mechanism.md)的主题。
 
 ### 字符串
 
@@ -160,15 +160,15 @@ OP_Box/OP_Unbox使用`pResult`寄存器约定——从pResult读入，输出写�
 | 操作码           | 操作数                  | 说明                     |
 |------------------|-------------------------|--------------------------|
 | OP_PrimCast      | srcKind, dstKind        | 在pResult上就地转换resolver放行的任意两个标量行（int↔float、加宽、常量适配的收窄） |
-| OP_Prim_to_str   | kind                    | 按该行的ValueToString把pResult中的标量格式化，铸造字符串对象并写回句柄（bool渲染true/false，char编码其码点） |
+| OP_Prim_to_str   | kind                    | 按该行的ValueToString把pResult中的标量格式化，创建字符串对象并写回句柄（bool渲染true/false，char编码其码点） |
 | OP_Enum_to_str   | enumDefIdx (uint16)     | int32枚举值 → string（按名称查找） |
 | OP_Array_to_str  | —                       | 把pResult中的数组格式化为"[e1, e2, ...]" |
 
-字符串强转指令沿用与数值转换相同的pResult约定：从`pResult`读取源值，把格式化后的字符串铸造为字符串对象，再把新句柄（int32）写回`pResult`；发射路径随后用`OP_Assign dst`落存。
+字符串强转指令沿用与数值转换相同的pResult约定：从`pResult`读取源值，把格式化后的字符串创建为字符串对象，再把新句柄（int32）写回`pResult`；发射路径随后用`OP_Assign dst`落存。
 
-`OP_Enum_to_str`带一个uint16 `enumDefIdx`立即操作数。它从`pResult`读取int32枚举值，查`m_compiledModule.enumNames[enumDefIdx][value]`，把名字铸造为字符串对象，再写回句柄。值越界时抛错。
+`OP_Enum_to_str`带一个uint16 `enumDefIdx`立即操作数。它从`pResult`读取int32枚举值，查`m_compiledModule.enumNames[enumDefIdx][value]`，把名字创建为字符串对象，再写回句柄。值越界时抛错。
 
-发射位点：
+发射位置：
 - `EmitExprCast.cpp`的`Access(SnCastExpr&)`对resolver包装的每个隐式标量转换发射`OP_PrimCast`/`OP_Prim_to_str`——包括另一操作数为string时的二元`+`强转（enum在塌缩为int之前先走`OP_Enum_to_str`）。
 - `EmitExprMemberString.cpp`按接收者类型为`.toString()`调用分派：enum→`OP_Enum_to_str`、任意标量→`OP_Prim_to_str`、数组→`OP_Array_to_str`、string→恒等空操作。
 

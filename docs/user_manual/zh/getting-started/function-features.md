@@ -78,7 +78,7 @@ import io;
 import utils.helper;
 
 int main() {
-    io.print(twice(21));            // 同目录helper.n：裸调用，免import
+    io.print(twice(21));            // 同目录helper.n：非限定调用，免import
     io.print(utils.helper.answer());// 子目录：import后用模块路径限定
     if (utils.helper.answer() == 42)
         return 42;

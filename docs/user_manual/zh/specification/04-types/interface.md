@@ -36,7 +36,7 @@ class Square implements IShape {
 ```nlang
 interface IMath {
     static int twice(int x) { return x * 2; }
-    static int quad(int x) { return twice(twice(x)); }  // 接口内裸调用
+    static int quad(int x) { return twice(twice(x)); }  // 接口内非限定调用
     static const int base = 8;
     int sign(int x);                                    // 与静态并存的实例签名
 }

@@ -1,6 +1,6 @@
 # 7.3 Overload Resolution
 
-Top-level functions of one bare pool may overload: same name,
+Top-level functions of one unqualified-name pool may overload: same name,
 different parameter lists (§3.7). Class and struct members overload
 their methods and constructors the same way (§4.7, §4.8).
 

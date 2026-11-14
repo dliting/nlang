@@ -36,7 +36,7 @@ WaitUntilResume / OnExited / OnRuntimeError），经`StopInfo`载荷驱动。随
 `ndb --machine <program.ncu|.npkg>`在stdin/stdout上讲一套线路协议（完整文档见src/tools/ndb/MachineFrontEnd.h）：事件是以制表符连接、字段转义的行（`hello`/`bp`/`stopped`/`frame`/`local`/`context`/`done`/`output`/
 `exited`/`error`/`err`），命令是空格分隔的裸记号（`b`/`bfunc`/`d`/
 `breakthrow`/`bt`/`frame`/`locals`/`contexts`/`context`/`run`/`c`/`s`/`n`/`f`）。一条数据命令走同一通道：`stdin<TAB><payload>`（payload与任何字段同样转义）送达一行程序输入——识别发生在原始线路文本上，因此payload的首尾空格得以保留；它在所有读取位置都被接受（`run`之前作为提前输入排队、冻结停止期间排队而不打断停止、程序停在`io.readLine`时被实时消费），且从不应答；程序的下一次读取就是应答。会话以一段前奏开场，断点在此时预置；`run`结束前奏并开始执行——在此之前，窗口绑定命令一律应答`err`（还没有任何东西被冻结）。恢复命令应答下一次停止或退出事件；其余命令原地应答。应答形状遵循同一文法：查询命令先流出数据事件再`done`（`bt` → `frame`* + `done`、`locals` →
-`local`* + `done`、`contexts` → `context`* + `done`）；设断点命令以`bp`回执应答，其余选择与变更命令只应答`done`——`frame`事件绝不出现在`bt`应答之外，消费方因此可以每条`frame`事件追加一行栈帧而不会重复。帧编号：`stopped`的深度从1计起且恒等于帧数（一次停止冻结最内层帧），而`bt`/`frame`从0计起，最内层为0。多上下文：`stopped`与`frame`报文的最后一个字段都是所属上下文的contextId；检查命令（`bt`/`frame`/`locals`）作用于当前选中的上下文——停机时即停机上下文，`context <id>`改选（`contexts`先列出每个上下文一行：编号、调度状态、持有载体、最内层帧位置）。
+`local`* + `done`、`contexts` → `context`* + `done`）；设断点命令以`bp`回执应答，其余选择与变更命令只应答`done`——`frame`事件绝不出现在`bt`应答之外，使用方因此可以每条`frame`事件追加一行栈帧而不会重复。帧编号：`stopped`的深度从1计起且恒等于帧数（一次停止冻结最内层帧），而`bt`/`frame`从0计起，最内层为0。多上下文：`stopped`与`frame`报文的最后一个字段都是所属上下文的contextId；检查命令（`bt`/`frame`/`locals`）作用于当前选中的上下文——停机时即停机上下文，`context <id>`改选（`contexts`先列出每个上下文一行：编号、调度状态、持有载体、最内层帧位置）。
 
 ## 宿主I/O接缝
 

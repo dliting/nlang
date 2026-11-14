@@ -141,7 +141,7 @@ MarkPhase():
     if threadObjHeapIdx or failExcHeapIdx valid: mark, push to worklist
   for each in-flight blocking native call:
     staged argument cells and return slot: value-test both domains
-    handles minted by re-entrant callbacks: value-test both domains
+    handles created by re-entrant callbacks: value-test both domains
   for each host-registered root:
     string roots to MarkString, heap roots to worklist
   while worklist not empty:
@@ -216,7 +216,7 @@ both are roots:
   arm (`Channel<T>` is a builtin class with a handle field; buffered
   elements are marked with the object).
 
-`thread.spawn` passes through a safepoint check right after minting the
+`thread.spawn` passes through a safepoint check right after creating the
 root frame and the `Thread` object, so the spawned context's frames are
 covered by the root set from birth. For the concurrency semantics, see
 [Concurrency](../specification/10-concurrency/index.md) and the
@@ -265,7 +265,7 @@ freeze keeps its frames on the carrier's stack with the carrier blocked
   writes it itself.
 - Callbacks into the VM made from inside a blocking native (string
   construction, list construction, raising an exception) re-acquire the
-  lock per callback. Handles they mint are pushed onto the executor's
+  lock per callback. Handles they create are pushed onto the executor's
   local-root vector and truncated at a watermark when the call returns;
   they live on the executor rather than on the carrier's C++ stack because
   a collector running on another carrier cannot see that stack.
@@ -309,11 +309,11 @@ emplace_back a new slot.
 
 ```text
 OP_New / OP_AllocStruct → set m_gcPending = true
-String allocation (mint / concatenation node) → set m_gcPending = true
+String allocation (creation / concatenation node) → set m_gcPending = true
                             ↓
 Function entry (frame push) → CheckGCSafepoint()
 Loop back-edge (OP_Jump backward) → CheckGCSafepoint()
-Thread intrinsic (spawn, after minting the context) → CheckGCSafepoint()
+Thread intrinsic (spawn, after creating the context) → CheckGCSafepoint()
                             ↓
 CheckGCSafepoint → if pending && (heap > threshold || strings > strThreshold)
                    → CollectGarbage()

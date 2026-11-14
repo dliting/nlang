@@ -21,7 +21,7 @@ and no flags (§2.2). The distinction is grammatical only: at top
 level the access modifiers and the `static` and `virtual` flags
 are accepted and have no effect — they govern class members
 (§4.8). Within its own unit every top-level function is
-visible bare. Across units, bare visibility follows §3.6, and the
+visible by unqualified name. Across units, unqualified-name visibility follows §3.6, and the
 qualified name reaches the function through the import gate
 (§3.6, §3.9); neither path consults the modifiers. Only
 `native` carries meaning at top level (§7.5).

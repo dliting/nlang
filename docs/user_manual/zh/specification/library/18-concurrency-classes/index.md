@@ -6,7 +6,7 @@
 
 ## 18.1 thread包
 
-`thread`是标准库包（§3.9.4）：`import thread;`把它带入作用域，每个函数都经包限定符调用（`thread.spawn(f)`）。包名是单段的（§3.3）。它的声明是标准库位于`stdlib/thread.n`的`.n`源码；每个函数都是`native`函数（§7.5），其实现内建于虚拟机本身，而非随工具链发布的原生库。该包声明的句柄类——`Thread`、`Future<T>`与`Promise<T>`（§10.1、§10.5）——与函数同源，经同一次导入进入作用域。名为`thread`的用户包会与标准库撞名，被重复包规则（§11.1）拒绝。
+`thread`是标准库包（§3.9.4）：`import thread;`把它带入作用域，每个函数都以全限定名调用（`thread.spawn(f)`）。包名是单段的（§3.3）。它的声明是标准库位于`stdlib/thread.n`的`.n`源码；每个函数都是`native`函数（§7.5），其实现内建于虚拟机本身，而非随工具链发布的原生库。该包声明的句柄类——`Thread`、`Future<T>`与`Promise<T>`（§10.1、§10.5）——与函数同源，经同一次导入进入作用域。名为`thread`的用户包会与标准库撞名，被重复包规则（§11.1）拒绝。
 
 该包的函数面：
 
@@ -21,7 +21,7 @@
 
 ## 18.2 concurrent包
 
-`concurrent`是标准库包（§3.9.4）：`import concurrent;`把它带入作用域。它的声明是标准库位于`stdlib/concurrent.n`的`.n`源码。它的句柄类——`Mutex`、`ReentrantMutex`、`Semaphore`、`AtomicInt`、`Channel<T>`——与异常子类`ChannelClosedException`（§8.3）在包源码中声明为native类，其实现内建于虚拟机，与`thread`的函数一样；它们的构造器与方法经实例调用，而非经包限定符。
+`concurrent`是标准库包（§3.9.4）：`import concurrent;`把它带入作用域。它的声明是标准库位于`stdlib/concurrent.n`的`.n`源码。它的句柄类——`Mutex`、`ReentrantMutex`、`Semaphore`、`AtomicInt`、`Channel<T>`——与异常子类`ChannelClosedException`（§8.3）在包源码中声明为native类，其实现内建于虚拟机，与`thread`的函数一样；它们的构造器与方法经实例调用，而非以全限定名调用。
 
 `WaitGroup`是该包唯一的普通NLang类——不是虚拟机句柄——构建于`Mutex`与`Channel`之上（§10.2、§10.4）。它是一个计数屏障：`add(n)`累计未结单位，每个单位`done()`一次，`wait()`停泊直到计数到达零。约定是`add`先于`wait`、`done`与`add`配对：不配对的`done`会让`wait`提前放行，缺失的`done`会让它永远停泊——程序在§10.1的退出策略下结束。
 

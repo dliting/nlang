@@ -13,8 +13,8 @@ surfaces; §18.3–§18.11 define the classes, one page each.
 ## 18.1 The thread Package
 
 `thread` is a standard library package (§3.9.4): `import thread;`
-brings it into scope and every function is called through the
-package qualifier (`thread.spawn(f)`). The package name is
+brings it into scope and every function is called by its fully
+qualified name (`thread.spawn(f)`). The package name is
 single-segment (§3.3). Its declarations are the standard
 library's `.n` source at `stdlib/thread.n`; every function is a
 `native` function (§7.5) whose implementation is built into the
@@ -53,8 +53,8 @@ handle classes — `Mutex`, `ReentrantMutex`, `Semaphore`,
 `ChannelClosedException` (§8.3) are declared in the package
 source as native classes whose implementations are built into the
 virtual machine, like `thread`'s functions; their constructors
-and methods are called through instances, not through a package
-qualifier.
+and methods are called through instances, not through a fully
+qualified name.
 
 `WaitGroup` is the package's one ordinary NLang class — not a
 virtual-machine handle — built on `Mutex` and `Channel`

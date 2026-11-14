@@ -17,7 +17,7 @@
   - **`.nmod` 预编译**：`LoadExternalModule()` 找 `<name>.nmod`，建 stub、注册 EXTERNAL 模块。
 - native 三套机制：
   - `kStdLibTable`（`StdLib.h`）：`ns,name → intrinsicId`。运行时 math/io/fs **已不再经此表**（codegen 对库调用走 `OP_CallFunc` + native stub）；该表现仅用于编译期校验 `FindStdLibFunction()`（`ExprResolverStdLib.cpp:209`）。
-  - 进程内 host native（`RegisterNative`，裸名，测试用）。
+  - 进程内 host native（`RegisterNative`，非限定名，测试用）。
   - 动态 DLL（`NativeLibraryLoader`）：按需加载 `nlang_<ns>.dll`，运行 `nlang_native_init`，注册到执行器 `m_natives["ns.name"]`。
 - 标准库 `nlang_math/io/fs.dll` 已构建并部署到各工具目录；`stdlib/*.n` 由 `check_stdlib_generation.py` 从 `StdLib.h` 自动生成（文件头 DO NOT EDIT），ctest `stdlib_generation` 校验一致性。
 - 代码生成：`EmitStdLibCall()` 对每个库调用经 `EnsureNativeStub(sig)` 造签名驱动的 isNative stub（`OP_CallFunc → CallNative`），**不区分该函数是否 native**。
@@ -45,7 +45,7 @@
   4. `ExpandTypeAliases()`、`LoadImports()`：`BuildImportGates()` 因签名索引识别库命名空间而开门（`gate.builtins`）；`.nmod` 外部模块照常加载。
   5. `MergeTransUnits()`：合并全部 TU（含库 TU），普通库函数体进入根。
 - 去重与"已索引但未内联"：完整解析的去重使用**独立的"已内联库文件"集合**，不沿用 `SymbolIndex::m_loadedFiles`。原因：标准库在 `BuildEnvironment` 构造时已由 `LoadLibraryDir()` 索引签名（此时 `IsLibraryNamespace("io")` 已为 true），但并未完整解析；若仅因"已索引/IsLibraryNamespace"就跳过，标准库将永远不内联。故判定标准是"该文件是否已完整解析为库 TU"，与签名索引状态无关；同一库 `.n` 被多处 import 只完整解析一次。
-- **可见性隔离**：库 TU 不得触发同目录隐式可见（D7）。`BuildGate()` 遍历 `m_modules` 自动加入同目录模块的循环（现跳过 `isExternal`）须**同时跳过 `isLibrary`**；库 TU 自身的 gate 同样不自动纳入同目录项目模块（库不应反向依赖消费方；库自身的 `import` 仍正常进入 `gate.builtins`，供库函数体内调用其他库）。
+- **可见性隔离**：库 TU 不得触发同目录隐式可见（D7）。`BuildGate()` 遍历 `m_modules` 自动加入同目录模块的循环（现跳过 `isExternal`）须**同时跳过 `isLibrary`**；库 TU 自身的 gate 同样不自动纳入同目录项目模块（库不应反向依赖使用方；库自身的 `import` 仍正常进入 `gate.builtins`，供库函数体内调用其他库）。
 - **两种分发形态统一于函数级判定**：源库（`.n`，可查看/修改/重编）与预编译库（`.nmod`，无源码分发）都支持 native 混合——运行时 `OP_CallFunc` 按 `CompiledFunction.isNative` 分派（native→`CallNative`→DLL，否则执行字节码）。`.nmod` 路径（`LoadExternalModule`）天然保留这一能力；Phase 4 的主要补齐工作在 `.n` 源路径的普通函数编译。
 
 ### 3.2 resolver 统一走 AST 函数查找
@@ -58,7 +58,7 @@
 - 签名驱动的 `EmitStdLibCall()`/`EnsureNativeStub()` 在所有库（含标准库）改为内联后**删除**；`SymbolIndex` 仍保留，职责收敛为「文档/补全/签名提示 + 库命名空间识别」，不再驱动 codegen。
 - 不建立"第三方走 AST、标准库走签名"的过渡双路径：内联机制对标准库与第三方完全相同，4a 即让**所有库同时完整内联**、resolver 统一走 AST，签名驱动的 `EmitStdLibCall()`/`EnsureNativeStub()` 在 4a 直接删除（避免为过渡态维护硬编码分支）。标准库行为不变由全量回归兜底；`kStdLibTable` 本体的删除作为独立清理（4c），与内联解耦。
 - **消除 `any` 与 print 专用 codegen**：完整 bison 文法不识别 `any`（它只是 SymbolIndex 轻解析的占位），而 `EmitStdLibArgToString()` 是 io.print 独有的 int/float/array/func→string 转换；二者都与"native 函数统一走 AST"冲突。已实验确认通用 string 形参隐式接受 int/float（普通 `take(42)`/`take(3.14)` 编译运行），故重定义 `io.print` 为 `native void print(string s)`、删除 `any`（含 `TypeKind::Any` 与 print 专用转换）：int/float 经通用 string 形参转换；array/func/class/enum 统一要求显式 `.toString()`（与现有 class/enum 诊断建议一致，更符合主流语言）。此为用户可见收窄，CHANGELOG/文档注明，并核对受影响 e2e。
-- **函数注册须用全限定名**：现 `RegisterFunctions()` 对 namespace 内函数设 `cf.name = func.Name()`（裸名，`Register.cpp:291`），仅适配 9f 裸名进程内 native；限定名 native 现靠 `EnsureNativeStub` 造 "ns.fn"。内联后库 native 函数经 RegisterFunctions，必须改为按 namespace 路径构造全限定名（顶层自由函数仍裸名；class 方法沿用方法机制），否则 `CallNative` 以裸名解析、找不到 DLL。新增全限定名构造 helper（沿 parent 累加 `NK_Namespace` 段，namespace 可嵌套）。
+- **函数注册须用全限定名**：现 `RegisterFunctions()` 对 namespace 内函数设 `cf.name = func.Name()`（非限定名，`Register.cpp:291`），仅适配 9f 非限定名进程内 native；限定名 native 现靠 `EnsureNativeStub` 造 "ns.fn"。内联后库 native 函数经 RegisterFunctions，必须改为按 namespace 路径构造全限定名（顶层自由函数仍非限定名；class 方法沿用方法机制），否则 `CallNative` 以非限定名解析、找不到 DLL。新增全限定名构造 helper（沿 parent 累加 `NK_Namespace` 段，namespace 可嵌套）。
 
 ### 3.3 淘汰 `kStdLibTable`
 
@@ -90,7 +90,7 @@
 - **4a 统一库源完整内联**：库 TU 完整解析（worklist 含传递依赖）/merge/owner（isLibrary）；resolver 库调用统一走 AST（普通函数编译 body、NF_Native → DLL）；删除 `EmitStdLibCall()`/`EnsureNativeStub()`。标准库与第三方在本步同时内联。
   - 测试（先红后绿）：纯 NLang 库 e2e（库函数被真实调用，含多函数/递归/同库互调）；库 TU owner/去重/可见性隔离；未 import 不可见、import 后可见；**全量回归**（标准库内联后行为逐字节不变）。
 - **4b 混合库（native + NLang）**：扩展第三方 fixture，库内 NLang 函数调用 native 函数、native 与 NLang 共存/重载。
-  - 测试：混合 fixture 真实编译 + 真加载 DLL + 真执行；普通函数包装 native（如 `int quad(int x){ return native_dbl(native_dbl(x)); }`）；库内定义 class/struct/enum 并被消费方以限定类型名使用（验证完整内联对类型同样生效）。
+  - 测试：混合 fixture 真实编译 + 真加载 DLL + 真执行；普通函数包装 native（如 `int quad(int x){ return native_dbl(native_dbl(x)); }`）；库内定义 class/struct/enum 并被使用方以限定类型名使用（验证完整内联对类型同样生效）。
 - **4c 淘汰 `kStdLibTable`**（内联已在 4a 完成）：删除 `FindStdLibFunction()` 编译期校验、`StdLib.h` 的表/条目、stdlib 手写化（去自动生成文件头、完善开发者注释）、抽离保留名常量、处理 ctest `stdlib_generation` 与生成器。
   - 测试：全量回归仍绿；保留名守卫（项目目录占用 io 被拒）；删除项全局无残留引用。
 - **4d 自动重编译 + 配套**：nide 过期检测纳入库 `.n`（QtTest 集成）、库源打开/跳转；ndb 进入库源（machine e2e）；中英文档 + 翻译；按 AGENTS.md 提升 VERSION 次版本并在 CHANGELOG（中英成对）记录；source_size_guard；循环完善。

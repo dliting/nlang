@@ -117,7 +117,7 @@ terminal's scrollback and copy work as usual.
 ### Cross-module reference gives `Module '...' is not imported`?
 
 `import` only opens **qualified names** — after `import lib;` you must
-write `lib.f()`; the bare name `f()` does not resolve. The visibility
+write `lib.f()`; the unqualified name `f()` does not resolve. The visibility
 rules for each reference form are on the [Specification /
 Declarations](../specification/03-program-structure/declarations.md) "Import Declaration"
 section. See [Common Error Messages](../specification/reference/common-errors.md)

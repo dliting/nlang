@@ -13,8 +13,8 @@ example layer; §19.6 fixes the error model.
 ## 19.1 Package Form
 
 `tensor` is a standard library package (§3.9.4): `import tensor;`
-brings it into scope and every function is called through the
-package qualifier (`tensor.add(a, b)`). The package name is
+brings it into scope and every function is called by its fully
+qualified name (`tensor.add(a, b)`). The package name is
 single-segment (§3.3). Its declarations are the standard
 library's `.n` source; the kernels are `native` functions
 (§7.5) implemented by the native library shipped with the
@@ -51,7 +51,7 @@ documented surface.
 - A zero-filled array needs no kernel: sized creation `T[n]`
   is zero-initialized (§4.10); an all-ones array is
   `full(n, 1)`.
-- `uniform(dims, low, high)` mints the dims-shaped array (the
+- `uniform(dims, low, high)` creates the dims-shaped array (the
   `full` creation rules: `dims` is a rank-1 `int[]`, the element
   count rides the §4.10 creation bound) and fills it row-major
   with `low + (high - low) * u`, one `u` per element drawn from
@@ -348,7 +348,7 @@ element count past the creation bound of §4.10, raises
 `IndexOutOfBoundsException` at the creation site; a negative
 `reshape` dimension (other than the single inferred `-1`)
 raises the same class. `arange` checks its
-element count before minting and raises `Exception` when the
+element count before creating and raises `Exception` when the
 progression would exceed the bound. A zero `arange` step, or one that
 cannot advance toward `stop`, raises `Exception`. A broadcast
 mismatch in a two-operand kernel, a `reshape` shape whose

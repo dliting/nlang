@@ -6,7 +6,7 @@
 
 ## 21.1 net包
 
-`net`是标准库包（§3.9.4）：`import net;`把它带入作用域。包名是单段的（§3.3）。它的声明是标准库位于`stdlib/net.n`的`.n`源码；它的`native`成员（§7.5）由随工具链发布的原生模块`nlang_net`实现——与`tensor`的内核（§19.1）同一种第三方机制——在首次调用时惰性加载（§7.5）。虚拟机本身不依赖该模块：从不触碰套接字的程序从不加载它。该包声明类`TcpListener`、`TcpStream`、`UdpSocket`与`IcmpSocket`，自由函数`ping`，以及异常子类`SocketException`与`TimeoutException`（§8.3）；各类经这次导入以普通类的身份进入作用域，`ping`经包限定符调用（`net.ping(host)`）。名为`net`的用户包会与标准库撞名，被重复包规则（§11.1）拒绝。
+`net`是标准库包（§3.9.4）：`import net;`把它带入作用域。包名是单段的（§3.3）。它的声明是标准库位于`stdlib/net.n`的`.n`源码；它的`native`成员（§7.5）由随工具链发布的原生模块`nlang_net`实现——与`tensor`的内核（§19.1）同一种第三方机制——在首次调用时惰性加载（§7.5）。虚拟机本身不依赖该模块：从不触碰套接字的程序从不加载它。该包声明类`TcpListener`、`TcpStream`、`UdpSocket`与`IcmpSocket`，自由函数`ping`，以及异常子类`SocketException`与`TimeoutException`（§8.3）；各类经这次导入以普通类的身份进入作用域，`ping`以全限定名调用（`net.ping(host)`）。名为`net`的用户包会与标准库撞名，被重复包规则（§11.1）拒绝。
 
 该包的表面：
 

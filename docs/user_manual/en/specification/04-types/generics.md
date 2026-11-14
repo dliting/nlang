@@ -183,7 +183,7 @@ fresh instantiation of the class being declared is rejected:
 `class A<T> { public A<A<T>> next; }` reports the
 instantiation-depth error.
 
-*Informative:* the compiler mints at most 16 nested instantiations;
+*Informative:* instantiations nest at most 16 levels deep;
 exceeding the limit reports `The generic instantiation depth
 exceeds the limit of 16 nested instantiations.`
 
@@ -318,8 +318,8 @@ dispatch at the consumer's call sites work exactly as in the
 declaring unit (§4.12.10).
 
 *Informative:* a unit also carries a template table — one row per
-instantiation the unit registers (canonical spelling and
-construction recipe). Linking merges the rows of all units; objects
+instantiation the unit registers (canonical name and
+composition record). Linking merges the rows of all units; objects
 constructed across units carry their instantiation information as
 usual (§4.12.9), and equality, casting and `typeName` behave
 identically across units.
@@ -329,7 +329,7 @@ compiled row; per-object state lives in the instances. A bound
 method reference to a template member works: `func<int> f = b.get;`
 (§7.4). Instantiations are not transparent at runtime: every object
 constructed from an instantiation carries a piece of *instantiation
-information* — the template name and the kind and canonical spelling
+information* — the template name and the kind and canonical name
 of each argument — read by equality dispatch, casts and `typeName`
 (§4.12.2, §4.12.9).
 
@@ -368,8 +368,8 @@ Constructing an instantiation whose arguments involve the type
 parameter inside a method body — `List<T> items = {};` — shares one
 construction path with concrete instantiations: the object's
 instantiation information is composed at the construction point from
-the recipe (`T` taken from the receiver's argument, arrays wrap the
-element recipe, nesting recurses), and the object's equality,
+the record (`T` taken from the receiver's argument, arrays wrap the
+element composition record, nesting recurses), and the object's equality,
 casting and `typeName` behavior then matches an instance written
 with the concrete type.
 
@@ -422,7 +422,7 @@ class Holder<T> {
 }
 ```
 
-The key is the canonical spelling `typeName(T)` produces, so
+The key is the canonical name `typeName(T)` produces, so
 `Holder<int>` and `Holder<Box<int>>` each take their own slot.
 
 ## 4.12.10 Generic free functions

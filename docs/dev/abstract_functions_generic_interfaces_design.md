@@ -37,7 +37,7 @@ roadmap 0.13.3条目五项：
 - **实例化拒绝门**：`new`解析处（ExprResolverNew.cpp SelectCtorForArgs路径）查类是否抽象，拒绝消息列出未实现的抽象方法名（首个即可，按声明序）。抽象类的构造器保留：具体子类经`super()`调用（既有机制，StatementResolverSuper.cpp/EmitStmtTry.cpp:208-270）。
 - **抽象类类型变量合法**：持有具体子类实例，上溯造型既有（CastInfo.cpp:264-281同指针无运行时开销）。
 - **冲突诊断**（只限真正可拼写的形态）：静态无体方法（顺带收掉今天的无体静态空洞）、无体构造器，各出具名冲突诊断。native+抽象不可拼写（见拼写豁免）。
-- **排除面**：struct无虚分派，抽象方法拒绝；枚举方法已有"must have a body"（StatementResolverDeclEnum.cpp:29-34）不动；泛型类中抽象方法放行（既有"must be native or have a method body"规则放宽为"must be native, abstract, or have a method body"），实例化铸造照抄模板义务；模板抽象则实例化抽象，`Box<int>()`这类实例化使用位同样被实例化拒绝门拦下（抽象性随模板传导）。
+- **排除面**：struct无虚分派，抽象方法拒绝；枚举方法已有"must have a body"（StatementResolverDeclEnum.cpp:29-34）不动；泛型类中抽象方法放行（既有"must be native or have a method body"规则放宽为"must be native, abstract, or have a method body"），实例化创建照抄模板义务；模板抽象则实例化抽象，`Box<int>()`这类实例化使用位同样被实例化拒绝门拦下（抽象性随模板传导）。
 - **函数句柄绑定**：抽象方法可被绑定为Func句柄（ExprResolverFuncRef路径），调用时运行时报错——与C#/Java一致的有意选择（放行绑定、运行时拒绝），实施计划须为此路径加测试钉子。
 - **入口**：main无体已有拒绝（Register.cpp:371-380），不动。
 
@@ -52,7 +52,7 @@ roadmap 0.13.3条目五项：
 ###3.1 现状事实
 
 - 接口文法无基表产生式（nlang.y:1810-1815），接口间继承不支持（SnMisc.h:448-450注释、ExprResolverCast.cpp:184）——本版仍不支持，见非目标。
-- 泛型解析的类门：`FindDeclaredGenericTemplate`要求`NK_ClassDecl && IsGenericDeclaration()`（ExprResolverGenericUse.cpp:110-128）；铸造`GetDeclaredGenericClassDecl`产出SnClassDecl壳（ExprResolverGenericMint.cpp:241-272）；注册表键与实例槽都是SnClassDecl*形。
+- 泛型解析的类门：`FindDeclaredGenericTemplate`要求`NK_ClassDecl && IsGenericDeclaration()`（ExprResolverGenericUse.cpp:110-128）；创建`GetDeclaredGenericClassDecl`产出SnClassDecl壳（ExprResolverGenericInstantiation.cpp:241-272）；注册表键与实例槽都是SnClassDecl*形。
 - 接口线格式`CompiledInterface`无isTemplate/typeParamNames（CompiledModuleRecords.h:365-375）；TypeDesc对接口类型无RTK，降级RTK_NonSerialized（TypeDesc.cpp:296-299）。
 - 类型实参面已就绪：`RejectMultiSlotTypeArgs`明确允许接口值作实参（"an interface value is a single-slot object handle"，ExprResolverGenericUse.cpp:64-65）。
 - 接口调用按名字派发（EmitExprMemberCall.cpp:126-168），泛型类方法的边界装箱计划（EmitGenericBoxing.cpp CollectTemplateMethods/PlanGenericMethodBoxing）只读SnClassDecl::Members。
@@ -60,8 +60,8 @@ roadmap 0.13.3条目五项：
 ###3.2 语法与解析
 
 - InterfaceDecl加TypeParamsOpt（与ClassDecl头同产生式族），声明位无表达式歧义（既有裁定）。
-- 泛型接口的使用位解析：把FindDeclaredGenericTemplate的类门放宽为类或接口；铸造路径做接口对应物——SnInterfaceDecl壳+成员克隆+占位符替换（SubstituteTypeExpr机制共享）；arity拒绝镜像类的消息族。注册表键需要接口形（模板指针统一为SyntaxNode或加SnInterfaceDecl*通道，实施计划细化）。
-- implements子句带类型实参：现NameList只收裸名（nlang.y:1793-1800），扩展为可带`<...>`实参的名字项；`class C implements I<int>`合规性检查对实例化后的签名做（与类泛型同法）。
+- 泛型接口的使用位解析：把FindDeclaredGenericTemplate的类门放宽为类或接口；创建路径做接口对应物——SnInterfaceDecl壳+成员克隆+占位符替换（SubstituteTypeExpr机制共享）；arity拒绝镜像类的消息族。注册表键需要接口形（模板指针统一为SyntaxNode或加SnInterfaceDecl*通道，实施计划细化）。
+- implements子句带类型实参：现NameList只收非限定名（nlang.y:1793-1800），扩展为可带`<...>`实参的名字项；`class C implements I<int>`合规性检查对实例化后的签名做（与类泛型同法）。
 
 ###3.3 成员契约
 
@@ -78,7 +78,7 @@ roadmap 0.13.3条目五项：
 
 ###3.5 线格式
 
-- `CompiledInterface`加isTemplate+typeParamNames；签名表的paramTypeDescs本就承载占位符描述符recipe（描述符表机制共享），接口类型实参的跨模块桩重建可用。
+- `CompiledInterface`加isTemplate+typeParamNames；签名表的paramTypeDescs本就承载占位符描述符拼接记录（描述符表机制共享），接口类型实参的跨模块桩重建可用。
 - TypeDesc对接口类型的RTK降级不在本版处理（该降级影响的是"类字段类型为接口"的序列化面，与本版功能无交；记入递延清单）。
 
 ##4 拼写歧义identity规则探针

@@ -116,7 +116,7 @@ This page collects the language-level limitations visible to user programs, with
 
 - **Types and global fields have no import gate**: function visibility
   follows this file's import set (§3.3), but class, struct and enum
-  type names and global fields are reachable by their bare name
+  type names and global fields are reachable by their unqualified name
   program-wide, whatever package declares them (§3.6). A cross-module
   visibility gate for types and fields is future work; until then a
   program's type names form one shared namespace.

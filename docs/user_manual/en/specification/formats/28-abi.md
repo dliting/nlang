@@ -52,7 +52,7 @@ POSIX systems.
 **Lazy loading.** On the first call whose key `<ns>.<name>` is
 not already registered, the host loads the module for the
 namespace — the segment before the first dot (§7.5). A key
-with no dot is a bare name and never triggers a module load.
+with no dot is an unqualified name and never triggers a module load.
 Loading happens once per namespace; every later call in the
 same namespace reuses the loaded module.
 
@@ -258,7 +258,7 @@ catches a `throw` (§8.1).
 seeds the generator; the state belongs to the host and is
 shared by every native in the run.
 
-**Arrays.** `newArray` mints a one-dimensional array and
+**Arrays.** `newArray` creates a one-dimensional array and
 `newArrayShaped` an array of the given rank (§4.10), both
 zero-initialized, and return the handle. The element kind is
 one of six codes, which mirror the type-kind codes of §26.5:
@@ -277,10 +277,10 @@ negative length or dimension, and any request past the
 allocation guard, raises `IndexOutOfBoundsException` — the
 same outcome as a negative sized creation on the language side
 (§4.10, §8.3). A rank outside `1` to `64` raises the base
-`Exception` (§4.10). The minted handle is kept alive by the
+`Exception` (§4.10). The created handle is kept alive by the
 host until the native writes it into `ret` (§28.7).
 
-`newArrayView` mints a view (§4.10) over the array — or view —
+`newArrayView` creates a view (§4.10) over the array — or view —
 behind `targetHandle`, with the given rank, dims, strides and
 offset (element units, §28.6); the element kind comes from the
 target. The validation is the one the language's own view
@@ -289,7 +289,7 @@ creation applies: a null or non-array target raises
 respectively, a rank outside `1` to `64` or a non-scalar
 element kind raises the base `Exception`, and bad dims or a
 range exceeding the target's bounds raise
-`IndexOutOfBoundsException` (§4.10). The minted handle is kept
+`IndexOutOfBoundsException` (§4.10). The created handle is kept
 alive by the host until the native writes it into `ret`
 (§28.7).
 
@@ -343,7 +343,7 @@ value in slot 0 of the call's argument area (§28.4).
 `typeArgCount` returns the number of type arguments of the
 receiver's instantiation; `typeArgKind` returns the kind code of
 argument `index` (the §26.5 kind codes), and `typeArgName` the
-buffer of its canonical spelling. An out-of-range `index`:
+buffer of its canonical name. An out-of-range `index`:
 `typeArgKind` reports `0xFF` and `typeArgName` returns a null
 pointer. A call with no receiver — a free function or a static
 member — and a call whose receiver is not a generic
@@ -443,9 +443,9 @@ so a blocking native may call any callback at any point of
 its section; the native itself must not assume exclusive
 access to the virtual machine inside the section.
 
-**Rooting.** A handle minted inside a blocking section
+**Rooting.** A handle created inside a blocking section
 (§28.5) is kept alive by the host until the native writes it
-into `ret`; a minted handle that is never published may be
+into `ret`; a created handle that is never published may be
 collected once the section ends.
 
 **Propagation.** An exception raised inside a blocking section

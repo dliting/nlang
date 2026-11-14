@@ -112,7 +112,7 @@ with project paths taking precedence over global ones. A change rebuilds the
 symbol index, refreshing completion and go-to-definition.
 
 **Viewing and jumping to source**: use Go to Definition on a
-package-qualified symbol — F12, F6 or Ctrl+click (a pointing-hand cursor
+symbol with a package-name prefix — F12, F6 or Ctrl+click (a pointing-hand cursor
 marks the jump targets while Ctrl is held) — to open its `.n` at the
 declaration: a `native` declaration shows the signature and
 documentation, an ordinary function shows an editable implementation. An
@@ -130,8 +130,8 @@ each open file's directory; rebuild after editing to pick up the change.
 Package identity is the dotted name. One build carries at most
 one source for each package name (§3.9.2), and every class,
 struct and function in a compiled artifact is keyed by its
-package-qualified name (`main.main`, `alib.Point`);
-implementation-owned built-ins keep their bare keys (`Object`,
+fully qualified name (`main.main`, `alib.Point`);
+implementation-owned built-ins keep their unqualified keys (`Object`,
 `List`). The qualified key is the spelling of linkage — linking,
 streams and tools alike.
 
@@ -182,14 +182,14 @@ cannot collide through qualified names, whatever wildcards are in
 scope.
 
 An explicit import opens both spellings: after `import lib;` the
-qualified `lib.f()` and the bare `f()` are both admissible — the
-import adds `lib`'s functions to this file's bare pool. A wildcard
+qualified `lib.f()` and the unqualified `f()` are both admissible — the
+import adds `lib`'s functions to this file's unqualified-name pool. A wildcard
 import opens qualified calls only. Same-directory files share the
-directory's bare pool without any import.
+directory's unqualified-name pool without any import.
 
 Qualified type names are spelled the same way: `alib.Point`,
 `gfx.color.deep.Shade`. Unlike functions, a type is also reachable by
-its bare name program-wide, whatever package declares it — the
+its unqualified name program-wide, whatever package declares it — the
 normative rule is §3.6.
 Two packages sharing a last path segment (`a.io`, `b.io`) are two
 different packages; each keeps its own functions and its own types.
@@ -226,7 +226,7 @@ ambiguity. See [Overload Resolution](../07-functions/overloads.md#cross-module-o
 `readStruct`/`readObject` take the type name as a string. That literal
 is resolved **at compile time** against the packages visible to the
 file (its own package plus the imported ones) into the declaration's
-qualified table key, so what reaches the VM is never a bare name. Two visible packages declaring the same type name make the
+qualified table key, so what reaches the VM is never an unqualified name. Two visible packages declaring the same type name make the
 literal ambiguous — the compile error asks you to qualify it
 (`readStruct("alib.S")`). Object streams store the qualified class key
 too: an object written by one program and read by another must come

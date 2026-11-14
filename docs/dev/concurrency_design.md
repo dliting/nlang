@@ -64,7 +64,7 @@ spawn/有界通道（K3）；上下文级 RNG、非阻塞 stdin、spawned 上下
 | 2 | 挂起 = 无新操作码 | `ParkSignal`（不继承 `std::exception`）由线程内在函数抛出、循环层捕获、帧原样保留；内在函数须「完成或挂起」二态；`catch(...)` 全库审计前置；toString 嵌套/嵌入 `CallByName` 内挂起 → 可捕获基础异常拒绝 |
 | 3 | 抢占复用挂起 | 回边安全点旁查配额（`DEFAULT_SCHEDULER_TRIP_BACKEDGES`），仅当另有 Runnable 上下文时抢占 → 单上下文程序逐位不变；FIFO+配额=确定性调度 |
 | 4 | GC 根集 = 精确 + 保守带 | 非运行上下文每帧精确扫 `func->locals`+`pResult`，再对 `[paramCount×8, localsSize)` 带做保守值测试（字符串/堆双域守卫，只过标不漏标）；运行上下文安全点同样带扫描（即第六节存量 GC 漏标缺陷的修复）；编译期精确位图留作 K2 优化 |
-| 5 | 语言面 | `thread` 为保留命名空间（无需 import、用户包名 `thread` 编译期拒绝）；spawn 限零参 `func<void>`（状态用绑定方法句柄 `obj.method` 传递）；join 多 joiner 皆唤醒、Failed 时向 joiner 重抛原异常对象；Channel 无界缓冲、send 永不挂起、close 后空 recv 返 null、send 抛；Mutex FIFO、不可重入、unlock 未持有抛基础异常 |
+| 5 | 语言层 | `thread` 为保留命名空间（无需 import、用户包名 `thread` 编译期拒绝）；spawn 限零参 `func<void>`（状态用绑定方法句柄 `obj.method` 传递）；join 多 joiner 皆唤醒、Failed 时向 joiner 重抛原异常对象；Channel 无界缓冲、send 永不挂起、close 后空 recv 返 null、send 抛；Mutex FIFO、不可重入、unlock 未持有抛基础异常 |
 | 6 | 主退出策略 | main 返回即结束，挂起上下文静默丢弃（隐式 join-all 会让一个睡眠者挂死所有脚本退出；Go 同款语义） |
 | 7 | 调试器边界 | `IDebugHooks` 只为 main 上下文触发，`IVmDebugView` 仅当前上下文（否则 main 停在 join 时调试会话收到错误上下文的回调）；完整多上下文调试 K4 |
 

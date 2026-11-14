@@ -89,7 +89,7 @@ String and Function Values below).
 | OP_StoreElementN    | arr, idxBase, src, rank              | Write element by rank coordinates at idxBase |
 | OP_LoadElementFlat  | dst, arr, flatIdx                    | Read element by row-major flat index (foreach iteration) |
 | OP_ArrayLength      | dst, arr                             | Total element count → int32 |
-| OP_ArrayShape       | dst, arr                             | Mint a 1-D int array holding the element count of each dimension |
+| OP_ArrayShape       | dst, arr                             | Create a 1-D int array holding the element count of each dimension |
 
 A 1-D array is the `rank=1` special case and shares this instruction
 set with multi-dimensional arrays; initializer lowering emits
@@ -145,8 +145,8 @@ type-parameter list.
 
 | Opcode              | Operands                    | Description              |
 |---------------------|-----------------------------|--------------------------|
-| OP_TypeNameArg      | dst, paramOrdinal (uint8)   | Read the receiver's instantiation descriptor, take the ordinal-th type argument's canonical spelling, mint a string (`typeName(T)`) |
-| OP_TypeNameCompose  | dst, recipeIdx              | Compose a nested spelling from a recipe against the receiver's instantiation and intern it (`typeName(List<T>)`) |
+| OP_TypeNameArg      | dst, paramOrdinal (uint8)   | Read the receiver's instantiation descriptor, take the ordinal-th type argument's canonical name, create a string (`typeName(T)`) |
+| OP_TypeNameCompose  | dst, compositionIdx         | Compose a nested spelling from a composition record against the receiver's instantiation and intern it (`typeName(List<T>)`) |
 | OP_Eq_T             | dst, paramOrdinal, lhs, rhs | Compare two T-typed slots under the ordinal-th type argument's kind (scalar cell, string content, struct field value, class/array identity, function-record content); lhs/rhs `0xFFFF` marks the null-literal side |
 | OP_Ne_T             | dst, paramOrdinal, lhs, rhs | Negated verdict of OP_Eq_T |
 | OP_TypeArg_to_str   | paramOrdinal                | Render the T-typed value in pResult through the kind's own formatting |
@@ -163,7 +163,7 @@ the calling generic body's own placeholder, so the executing frame's
 descriptor decides.
 
 The descriptor wire format lives in [The `.ncu` Unit Image](../specification/formats/26-ncu.md);
-how the compiler mints and binds per-instantiation bodies is
+how the compiler creates and binds per-instantiation bodies is
 [Library Mechanism](library-mechanism.md)'s subject.
 
 ### String
@@ -200,18 +200,18 @@ OP_Unbox/OP_CheckCast depending on the resolved cast kind.
 | Opcode           | Operands              | Description              |
 |------------------|-----------------------|--------------------------|
 | OP_PrimCast      | srcKind, dstKind      | Convert pResult in place between any two scalar rows the resolver admits (int↔float, widenings, constant-fit narrowings) |
-| OP_Prim_to_str   | kind                  | Format the scalar in pResult via its row's ValueToString, mint a string object, write the handle back (bool renders true/false, char encodes its code point) |
+| OP_Prim_to_str   | kind                  | Format the scalar in pResult via its row's ValueToString, create a string object, write the handle back (bool renders true/false, char encodes its code point) |
 | OP_Enum_to_str   | enumDefIdx (uint16)   | int32 enum value → string (name lookup) |
 | OP_Array_to_str  | —                     | Format the array in pResult as "[e1, e2, ...]" |
 
 The string-coercion opcodes follow the same pResult convention as the
-numeric casts: read source from `pResult`, mint the formatted string as
+numeric casts: read source from `pResult`, create the formatted string as
 a string object, write the new handle (int32) back to `pResult`; the
 emit path then stores it with `OP_Assign dst`.
 
 `OP_Enum_to_str` takes a uint16 `enumDefIdx` immediate operand. It reads the
 int32 enum value from `pResult`, looks up `m_compiledModule.enumNames[enumDefIdx][value]`,
-mints the name as a string object, and writes the handle back. Throws
+creates the name as a string object, and writes the handle back. Throws
 if the value is out of range.
 
 Emit sites:

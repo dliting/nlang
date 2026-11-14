@@ -234,10 +234,10 @@ value — produced by `thread.spawn` on a `func<T>` delegate
   run-time errors (§8.1).
 
 A `Promise<T>` (also `thread`) is the user-constructed completion
-source — the counterpart of a spawn-minted future, for a value
+source — the counterpart of a spawn-created future, for a value
 one context will compute and others will await.
-`promise.future()` mints a retrieval handle: repeatable, and
-every mint shares the one decision. `complete(v)` decides the
+`promise.future()` creates a retrieval handle: repeatable, and
+every creation shares the one decision. `complete(v)` decides the
 outcome with value `v`; `completeExceptionally(e)` decides it
 with the exception object `e`. Exactly one call decides — the
 first wins, later calls yield `false` without effect — and every

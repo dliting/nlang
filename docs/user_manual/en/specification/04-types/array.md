@@ -159,7 +159,7 @@ catchable run-time error on both reads and writes, raised as an
 `IndexOutOfBoundsException` (chapter 8).
 
 *Informative:* the creation cap of §4.10.2 covers every creation
-path — `T[n]` and the tensor package's native minting alike; 100M
+path — `T[n]` and the tensor package's native creation alike; 100M
 elements is 800 MB at the widest element.
 
 ## 4.10.7 Multi-dimensional arrays

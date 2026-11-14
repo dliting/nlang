@@ -2,9 +2,9 @@
 
 > **已作废（2026-09-29）**：阶段重划后由 `docs/dev/phase5_design.md` 取代，划分见
 > `docs/dev/phases_567_design.md`。保留本稿只为记录命名模型的推演过程。三处实质错误以新稿为准：
-> ① 本项目模块的成员今天挂在 root、函数键也是裸的（`ModuleRegistry.cpp:293-300/377-385`
+> ① 本项目模块的成员今天挂在 root、函数键也是非限定的（`ModuleRegistry.cpp:293-300/377-385`
 > 的 `isLibrary ? 容器 : root`），所以「项目侧键全部变长」是本阶段最大的一面，不是附带影响；
-> ② 「宿主 native 先查限定名、回落裸名」是兼容垫片，改为测试注册表直接写限定名；
+> ② 「宿主 native 先查限定名、回落非限定名」是兼容垫片，改为测试注册表直接写限定名；
 > ③ `.nlib` 改名 `.npack`，且程序与库共用这一个扩展名。
 >
 > 状态：设计稿（docs/dev/，随分支跟踪；2026-09-30 自 temp/ 迁入）。分支：dev（worktree `E:\cases\nlang\dev`）。行号基线 `d7ca710`。
@@ -36,7 +36,7 @@ stdlib 的 `stdlib/io.n` ＋ `namespace io`（`stdlib/io.n:5`、`math.n:5`、`fs
 而编译器还会建议一条无法执行的 `import gfx.color;`——库发现明确跳过带点的名字
 （`src/compiler/ModuleBuilderImports.cpp:73` 注释、`:143/173-178`）。
 
-**第二处：VM 里函数用全名、类型用裸名。**
+**第二处：VM 里函数用全名、类型用非限定名。**
 `src/vm/backend/Register.cpp:24-41` `QualifiedFunctionName()` 产出 `io.print`；
 `Register.cpp:47/68`、`RegisterClass.cpp:95/100` 却用 `sn.Name()` 写类型表，
 查找 `include/nlang/vm/CompiledModule.h:314-326` 首个匹配、零重复检测。
@@ -57,7 +57,7 @@ stdlib 的 `stdlib/io.n` ＋ `namespace io`（`stdlib/io.n:5`、`math.n:5`、`fs
 | 包 | 相对起点的目录路径 ＋ 文件名 | **什么都不写** | 作为名字前缀出现 |
 | 分组层级 | 目录层级（`namespace` 删除） | 只有目录 | — |
 | 函数 / 类型 | 声明名 | 声明本身 | **包名 ＋ "." ＋ 名** |
-| 类/接口/枚举的成员方法 | 声明名 | 声明本身 | **恒裸名**（分派依赖：`Register.cpp:20-23`、`VmExecutorOpsCalls.cpp:300`） |
+| 类/接口/枚举的成员方法 | 声明名 | 声明本身 | **恒非限定名**（分派依赖：`Register.cpp:20-23`、`VmExecutorOpsCalls.cpp:300`） |
 
 起点两处：项目 ＝ `.nproj` 所在目录（`ncc/main.cpp:284` 已经在填）；库 ＝ `-I` 搜索根
 （`ncc/main.cpp:56-58`）。`ncc one.n` 单文件编译时根就是该文件所在目录，结果与今天的
@@ -120,7 +120,7 @@ AST 里的容器节点保留（编译器仍需要它挂成员），只是用户�
   两个入口（函数、类型），拼写从此不可能漂移。
 - `CompiledStruct::name` / `CompiledClass::name` 存限定名；
   **泛型擦除基名不变**（`BaseName()` 的 `"List"`/`"Dict"`，`SnMisc.h:307-309`、`EmitExprNew.cpp:55`、
-  `EmitExprInitList.cpp:305-307`）；内置类型与异常名不变（`VmExecutor.cpp:26/32/38-47`）；成员方法仍裸名。
+  `EmitExprInitList.cpp:305-307`）；内置类型与异常名不变（`VmExecutor.cpp:26/32/38-47`）；成员方法仍非限定名。
 - 24 个读取点分两类：AST 在手 → `QualifiedName(*decl)`；字面量/擦除名 → 原样。
   延迟字段类型名表（`Register.cpp:63/86/101`、`RegisterClass.cpp:113/117/161`）
   写入端与解析端**同提交**改；`declMap`（`RegisterClass.cpp:93/100/157`）改限定键；
@@ -130,15 +130,15 @@ AST 里的容器节点保留（编译器仍需要它挂成员），只是用户�
 - 磁盘与序列化跟着变：`ModuleSaver.cpp:178-180/223-225` ↔ `ModuleLoader.cpp:245-253/300-310`
   类型名出入改限定名；对象流写出的 `cc.name`（`VmExecutorSer.h:204-206` ↔ `:290-301`）同改，
   **不做旧格式兼容读**。
-- 项目函数的键随之变化（今天根外/无 wrapper 的 `f` 是裸键，改后 `main.f`），由两处吸收：
+- 项目函数的键随之变化（今天根外/无 wrapper 的 `f` 是非限定键，改后 `main.f`），由两处吸收：
   - **入口点**：`CompiledModule` 增 `entryPoint`（函数索引），`ModuleSaver/ModuleLoader` 落盘读回；
     `VmExecutor::Execute` 不再 `FindFunction("main")`（`VmExecutor.cpp:89`）——根目录的
     `main.n` 包名是 `main`，入口键变成 `main.main`，按名字找入口从此不可靠。
     顺带消灭「多个 TU 各有 `main()` 时首个胜出」的静默歧义（builder 检测重复入口 → 报错）。
-  - **宿主 native**：`EnsureNativeAvailable` 先查限定名、回落裸名（`VmExecutorNativeHost.cpp:140-152`），
+  - **宿主 native**：`EnsureNativeAvailable` 先查限定名、回落非限定名（`VmExecutorNativeHost.cpp:140-152`），
     使 `TestNatives.h:61-64` 与 e2e 宿主注册面不动。DLL 名规则留给阶段 5（那时库＝`.nlib`，
     dll 按库命名，符号按完整限定名）；今天那句「按第一个点切分」的实现在多段包下不成立，
-    4e 用限定名优先＋裸名回落绕过，不扩写切分逻辑。
+    4e 用限定名优先＋非限定名回落绕过，不扩写切分逻辑。
 - `.nmod` 格式：`NMOD_FORMAT_MINOR` 12 → **13**（`CompiledModule.h:43`），floor 与 ceiling 同抬。
   4d 原定的 1.13 作废（4d 已排到阶段 5 之后，届时按当期号抬）。
 
@@ -179,7 +179,7 @@ AST 里的容器节点保留（编译器仍需要它挂成员），只是用户�
 
 - **D1 名字唯一来源＝路径**（用户裁决 ③）。否决声明式 `package`（两个来源＋优先规则＋一致性检查）、
   否决「顶层 namespace 视同包」的特例折叠（靠相等才对得上，正是本阶段要移除的东西）。
-- **D2 类型与函数共用一条名字缝**：`包名 + "." + 名`，成员方法恒裸名（分派约束）。
+- **D2 类型与函数共用一条名字缝**：`包名 + "." + 名`，成员方法恒非限定名（分派约束）。
   `.nmod` 类型名与对象流名记录语义变更 ＋ 新增 `entryPoint` ⇒ 格式 12→13，floor/ceiling 同抬、不兼容读。
 - **D3 限定符＝包名原文**，无末段简写、无 alias（§1.2）。多段包全面允许（源码库）。
 - **D4 撞名报错不排序**：两个根给同一包名、两文件同名类型同包、重复入口——全部诊断，不 first-wins。
@@ -215,7 +215,7 @@ AST 里的容器节点保留（编译器仍需要它挂成员），只是用户�
 6. **stdlib 形状迁移零回归**（R5）：`io.print`／`math.sqrt`／`fs.*` 现有公开拼写与输出逐字不变。
 7. **限定身份进磁盘**：`.nmod` 的类型名与函数名为限定名，`entryPoint` 落盘读回；
    外部 `alib.Object` 不并入内置 `Object`，根级 `Object` 仍并入。
-8. **宿主 native 回落**：裸名注册依旧可解析（现有 e2e native 面不回归）。
+8. **宿主 native 回落**：非限定名注册依旧可解析（现有 e2e native 面不回归）。
 9. **泛型库类型**：`alib/vec.n` 的 `Vec` → `alib.Vec<int>` 声明＋使用，擦除键仍是 `"List"`。
 10. **继承/cast 同权**：`class D : alib.B`、`x as alib.B`。
 11. **流式字面量**：`readStruct("Node")` 唯一命中通过、两个可见 `Node` → 歧义诊断、零命中 → 现有诊断；
@@ -233,7 +233,7 @@ AST 里的容器节点保留（编译器仍需要它挂成员），只是用户�
   范围最大、回归风险最高，单独提交，IDE 部分要用户交互验收。
 - **R4 的 LALR 可行性未证明**：先纯语法实验再决定回退方案（删 `namespace` 会减冲突，
   新增 `TypePath` 会加冲突，净效果必须实测）。
-- **对象流跨程序语义**：`cc.name` 由裸名变限定名（`VmExecutorSer.h:204-206/290-301`），
+- **对象流跨程序语义**：`cc.name` 由非限定名变限定名（`VmExecutorSer.h:204-206/290-301`），
   D2 已裁决不保留兼容读，文档要写明。
 - **4d 的重排**：`docs/dev/phase4d_plan.md` 的 v1.13 依赖清单方案在合并产物形态下已无意义，
   标注为「阶段 5 之后重写」。

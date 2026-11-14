@@ -51,7 +51,7 @@ members default to private, interface members default to public
 - `private` — reachable only inside the methods of the declaring
   class;
 - `protected` — reachable inside the declaring class and inside
-  the bodies of its subclasses, by bare name or through the base
+  the bodies of its subclasses, by unqualified name or through the base
   type name; nowhere else.
 
 The same rules hold across module boundaries: of an imported class
@@ -158,7 +158,7 @@ arguments are not accepted on `super(...)`.
 
 ## 4.8.7 Name resolution and this
 
-Inside a method or constructor, a bare identifier that denotes a
+Inside a method or constructor, an unqualified identifier that denotes a
 field of the enclosing class — including an inherited field — is
 an implicit `this.field` access; a local or parameter of the same
 name shadows the field (§3.7). The implicit form works for reads,
@@ -168,7 +168,7 @@ expressions.
 ## 4.8.8 Static members
 
 A `static` method belongs to the class rather than to an instance:
-it is called through the type name, has no `this`, and a bare call
+it is called through the type name, has no `this`, and a unqualified call
 to it inside the class denotes it directly. A static method and an
 instance member may share a name when their parameter lists
 differ; an exact same-signature collision is a compile-time error.
@@ -178,7 +178,7 @@ inherits its parent's statics.
 ```nlang
 class Util {
     public static int twice(int x) { return x * 2; }
-    public static int quad(int x) { return twice(twice(x)); }  // bare call inside the class
+    public static int quad(int x) { return twice(twice(x)); }  // unqualified call inside the class
     public int inst() { return 1; }
 }
 class Base {
@@ -220,7 +220,7 @@ class Counter {
 ```
 
 Access through the type name (`Counter.total`) is the universal
-form, visible wherever the class is. Inside the class a bare name
+form, visible wherever the class is. Inside the class an unqualified name
 denotes the static field directly, like any member. Access through
 an object is rejected the same way a static method call on a receiver
 is. A struct has no static members at all — the

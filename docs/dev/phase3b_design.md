@@ -99,7 +99,7 @@ declarations and `nlang_*.dll` modules.
   registry trampoline, handle ownership, ExecutableDir); unit test using a
   real fixture DLL; missing DLL / bad ABI / missing entry errors.
 - **Step C** VmExecutor integration: implement the NativeHost callbacks
-  (reuse StrValCopy/MintNewString; extract List<string> construction from
+  (reuse StrValCopy/CreateNewString; extract List<string> construction from
   IntrinsicsFs; IO via IHostIo/std streams; PRNG via m_rng); rework
   CallNative/RegisterNative to the new ABI; migrate TestNatives. Verified
   with a fixture native DLL (real compile + run), before touching stdlib.

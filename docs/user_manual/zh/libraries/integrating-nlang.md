@@ -43,7 +43,7 @@ int main()
 
 最小集是`nvm.exe` + `stdlib\stdlib.npkg` + `nlang_io.dll`，加上程序自身的`.ncu`。把`nlang_io.dll`放在`nvm.exe`旁，`stdlib.npkg`放进`stdlib\`子目录，`nvm <程序>.ncu`即可运行。`stdlib\`里的`.n`声明源只在`ncc`编译期用到，运行期装载的只有库包；程序用到哪个命名空间，就带上对应的`nlang_*.dll`。可执行文件动态链接MSVC运行库，目标机器需具备VC++ 2015-2022运行库（见[安装与布局](../getting-started/install-layout.md)）。
 
-## 4. 部署配方
+## 4. 部署步骤
 
 - 推荐布局：应用目录旁放一个完整的NLang安装目录，用绝对路径或`NLANG_PATH`环境变量指过去。
 - 项目构建把`.npkg`写在工程文件旁：不要把用户工程放进`Program Files`这类只读位置，`.npkg`会写不进去。

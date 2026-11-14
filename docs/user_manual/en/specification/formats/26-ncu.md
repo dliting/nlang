@@ -101,23 +101,23 @@ the unit registers (§4.12.9), one row each:
 
 | Field | Width | Content |
 |---|---|---|
-| canonical spelling | u16 length + bytes | the instantiation's canonical spelling, e.g. `Box<int>`; empty for a recipe row |
-| recipe | u16 length + bytes | the construction recipe behind the spelling; empty for a static row |
+| canonical name | u16 length + bytes | the instantiation's canonical name, e.g. `Box<int>`; empty for a composition record row |
+| composition | u16 length + bytes | the composition record behind the spelling; empty for a static row |
 
-An empty recipe means the spelling is the whole fact — the row
+An empty record means the spelling is the whole fact — the row
 describes an instantiation whose arguments are known at compile
-time. A non-empty recipe leaves the spelling empty, and the
-canonical spelling is composed at runtime from the recipe (forms
-containing a type parameter, §4.12.9). The recipe is a tag
+time. A non-empty record leaves the spelling empty, and the
+canonical name is composed at runtime from the record (forms
+containing a type parameter, §4.12.9). The record is a tag
 stream:
 
 | Tag | Content |
 |---|---|
-| `0` template head | u16 length + bytes: the template's bare name |
+| `0` template head | u16 length + bytes: the template's unqualified name |
 | `1` constant argument | u16 length + bytes: the complete argument spelling |
 | `2` receiver argument | u8: the argument index in the receiver's descriptor |
 | `3` array wrapper | a u8 rank (§4.10) + one child argument encoding |
-| `4` nested instantiation | a u16 length + child recipe bytes (a complete stream led by a template head) |
+| `4` nested instantiation | a u16 length + child composition record bytes (a complete stream led by a template head) |
 
 Rows are self-describing by their leading tag: a row from a
 construction site or an instantiation `typeName` leads with the
@@ -395,7 +395,7 @@ Every entry:
 | Field | Width | Content |
 |---|---|---|
 | module path | u16 length + bytes | the target package path (§3.9.1) |
-| name | u16 length + bytes | the qualified key (§3.6); a bare name when the owner key is set |
+| name | u16 length + bytes | the qualified key (§3.6); an unqualified name when the owner key is set |
 | parameter count | u32 | the target's formal count; meaningful for function slots |
 
 The function section adds:

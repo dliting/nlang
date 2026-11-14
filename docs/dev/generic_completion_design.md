@@ -3,17 +3,17 @@
 - **文档定位**：0.13.1a的概要设计（Spec）。内容=roadmap条目"0.13.1a：泛型完善"
   （静态引用T全面化+游离函数泛型支持，实现帧隐藏描述符槽与调用点隐藏实参）。
   本文是v0.13.1概要设计（docs/dev/generic_runtime_typeinfo_design.md）D1预留路径
-  的兑现，模型权威参考为docs/dev/generics_design.md（2026-10-29用户裁定：载体
-  必须跟上语言面——static成员引用T与游离泛型函数都要支持）。不向下兼容，合理性
+  的兑现，模型权威参考为docs/dev/generics_design.md（2026-10-29用户裁定：存放位置
+  必须跟上语言层——static成员引用T与游离泛型函数都要支持）。不向下兼容，合理性
   优先。
-- **取证基准**：master树master@a97faa17（v0.13.1发布态），代码位点由全库勘察
+- **取证基准**：master树master@a97faa17（v0.13.1发布态），代码位置由全库勘察
   钉死（2026-11-10）。
 
 ## 一、现状（取证2026-11-10）
 
 - v0.13.1交付：实例化描述符随对象头部携带（`m_instDescByHeap`并行数组），T操作
-  面（typeName/判等/拼接/打印/`as T`/体内构造配方）在实例方法与构造器体内经
-  `ReceiverTypeArgOf`读接收者描述符实现；配方唯一帧源是执行帧slot 0（=this）。
+  面（typeName/判等/拼接/打印/`as T`/体内构造拼接记录）在实例方法与构造器体内经
+  `ReceiverTypeArgOf`读接收者描述符实现；拼接记录唯一帧源是执行帧slot 0（=this）。
 - 静态上下文四处具名拒绝（v0.13.1裁决"静态上下文一律拒绝"）：
   DescriptorSpelling.cpp:78-116（T实参构造，"requires an instance context."）、
   ExprResolverTypeGates.cpp:166-206（T操作数运算）、ExprResolverValues.cpp:245-283
@@ -39,7 +39,7 @@
 
 - **Go**：字典经调用点传递（独立于用户实参的上下文通道），字典内部递归引用
   其他字典（generics-implementation-dictionaries-gcshape.md先例）——对应本文
-  D2的0xFFFE转发源与配方上下文源。
+  D2的0xFFFE转发源与拼接记录上下文源。
 - **C#/.NET**：泛型方法（含静态）类型实参从实参推断，推断失败须显式拼写；
   `Box<int>.Create(v)`形态的"实例化类型限定成员访问"合法——对应本文D5双臂
   （推断臂+显式限定拼写臂）。
@@ -47,11 +47,11 @@
   态携带——帧级元数据的先例。
 - **承接既有裁定**：generics_design.md已裁定帧槽布局（`__this|形参…|描述符槽|
   帧带区`）、按名/直调双臂填充纪律、游离函数声明与推断规则。该布局草图基于
-  旧帧模型；现行帧解剖下本文D1按同等语义重述载体形态，语义不变。
+  旧帧模型；现行帧解剖下本文D1按同等语义重述存放位置形态，语义不变。
 
 ## 三、关键设计决策
 
-### D1 帧描述符载体：CallFrame字段（原"槽"的现行等价物）
+### D1 帧描述符存放位置：CallFrame字段（原"槽"的现行等价物）
 
 - **决定**：CallFrame新增`const GenericInstDescriptor* instDesc`字段（默认
   nullptr）。CompiledFunction新增`isGeneric`线旗标；旗标为假的函数帧零改动
@@ -63,7 +63,7 @@
   形参拷贝长度、帧带分类、GC扫描（字段指向进程级驻留池，宿主内存，永不扫描）
   全部不受影响。
 - **帧源语义统一**："当前实例化上下文"=执行帧的instDesc。实例方法帧的上下文
-  由接收者头填充（与v0.13.1对象载体值恒等）；静态成员帧与游离函数帧的上下文
+  由接收者头填充（与v0.13.1对象存放位置值恒等）；静态成员帧与游离函数帧的上下文
   由调用点填充（D2）。v0.13.1的`ReceiverTypeArgOf`（slot 0读）至此退役为
   帧字段读。
 
@@ -73,7 +73,7 @@
   instDesc，源按调用形态：
   1. **直调臂无接收者**（静态成员、游离函数）：调用操作码携带u16 descIdx
      （0xFFFF=无，0xFFFE=转发调用者自身instDesc）。descIdx指向模块描述符表：
-     静态拼写行run-start已驻留；配方行在过桥点按调用者上下文即时合成（复用
+     静态拼写行run-start已驻留；拼接记录行在过桥点按调用者上下文即时合成（复用
      CastTargetDescriptor(descIdx, callerLocals)，"当前上下文实参"语义）。
   2. **带接收者**（实例方法直调与按名虚分派，含OP_New内部调用的构造器帧与
      super()基类构造）：桥内已有接收者句柄（类行分派读取），补一行
@@ -95,9 +95,9 @@
 
 ### D3 T操作面统一读上下文
 
-- 五个T操作读位点（OpTypeNameArg/OpTypeParamEquality/OpTypeArgToStr/
-  OpAsTypeParam/配方tag 2臂）从slot 0接收者读改为执行帧instDesc读（语义改名
-  "当前上下文实参"；线格式配方tag字节不动，全量重编）。
+- 五个T操作读位置（OpTypeNameArg/OpTypeParamEquality/OpTypeArgToStr/
+  OpAsTypeParam/拼接记录tag 2臂）从slot 0接收者读改为执行帧instDesc读（语义改名
+  "当前上下文实参"；线格式拼接记录tag字节不动，全量重编）。
 - 四处编译期静态拒绝门改键：从"所在函数isStatic"改为"所在函数是否泛型记录"
   （泛型类的静态成员与游离泛型函数放行，其余语境不变）。静态字段解禁仍非目标
   （补偿模式仍是静态字段的官方答案；静态**方法**不再需要补偿）。
@@ -122,12 +122,12 @@
   T形参默认值拒绝（与类模板T字段初值同线：无约束下不存在有意义的T初值）。
 - **签名边界替换，无克隆**：函数调用只需在签名边界做类型检查与返回类型替换
   （合一器直接对占位符类型树行走，复用CastInfo判定原语），不需要类模板的两阶段
-  AST铸造——被调记录始终是模板记录（FunctionSlotFor经RecordOwnerOfMember解析
+  AST创建——被调记录始终是模板记录（FunctionSlotFor经RecordOwnerOfMember解析
   克隆→模板的通道本就存在，泛型游离函数无克隆）。递归/泛型调泛型：0xFFFE转发
-  或配方合成（T流入实参时）。
+  或拼接记录合成（T流入实参时）。
 - **跨包分发**：`.ncu`函数记录携带isGeneric+typeParamNames（D6）；导入桩重建
   泛型函数声明（`SynthTypeExprFromDesc`的RTK_TypeParam臂合成签名叶，函数级绑定
-  臂绑占位符）；消费方调用点推断对桩签名工作，直接调用模板记录（字节码随模块
+  臂绑占位符）；使用方调用点推断对桩签名工作，直接调用模板记录（字节码随模块
   链接分发，免重编译——Rust元数据分发先例，既有裁定）。
 
 ### D5 静态成员调用面
@@ -146,14 +146,14 @@
 - **推断失败**：具名诊断点名形参并提示限定拼写形态（"cannot infer type
   argument for T in S.make(...); spell the instantiation: S<int>.make(...)"）。
 - 类内裸调用（现状可达）：泛型调用者0xFFFE转发；非泛型类静态调用零变化。
-- 包限定类型接收者（lib.Util.f）维持文档化限制（本版不动）。
+- 全限定类型接收者（lib.Util.f）维持文档化限制（本版不动）。
 
 ### D6 `.ncu` v2.17
 
 - CompiledFunction线格式追加：isGeneric旗标、typeParamNames（CompiledClass
   v0.13.1字段的函数侧镜像）；T形参paramTypeDescs携带RTK_TypeParam叶（占位符叶
   既有线格式，桩重建降级路径同步函数化）。
-- 调用操作码操作数增长（D2）；描述符表配方行跨单元合并既有（v0.13.1 Task 3）。
+- 调用操作码操作数增长（D2）；描述符表拼接记录行跨单元合并既有（v0.13.1 Task 3）。
 - NCU_FORMAT_MINOR 16→17，loader拒绝≤16（记录布局与操作数布局位移；全部
   .ncu随版本重编，既有惯例）。
 
@@ -184,9 +184,9 @@
 ## 五、实施顺序与验收
 
 - 顺序（依赖排序，机制先行）：
-  1. 帧载体：CompiledFunction.isGeneric+CallFrame.instDesc字段+过桥点填充三源
+  1. 帧存放位置：CompiledFunction.isGeneric+CallFrame.instDesc字段+过桥点填充三源
      （按名臂接收者头先落，直调操作数随后）。
-  2. T操作面换读（D3五位点+拒绝门改键）；实例语义回归锁定（v0.13.1全量e2e
+  2. T操作面换读（D3五位置+拒绝门改键）；实例语义回归锁定（v0.13.1全量e2e
      不翻）。
   3. OP_CallStatic(Out)更名与descIdx操作数（stride迁移+静态调用路由统一+
      反汇编/ndb/链接器步进lockstep）+0xFFFE转发。
@@ -198,9 +198,9 @@
 - e2e钉：`S.f(args)`跨类推断全种类族（标量/string/struct/类/枚举/数组/嵌套
   实例化）；`S<int>.f(args)`限定拼写；推断失败与"推断不出"具名诊断（含
   `max(3, 7.0)`不一致）；类内裸调用转发；静态体内typeName/判等/拼接/打印/
-  `as T`全操作面；泛型静态/游离体内以T实参构造（`Hold<T>`配方臂）；游离泛型
+  `as T`全操作面；泛型静态/游离体内以T实参构造（`Hold<T>`拼接记录臂）；游离泛型
   函数声明+调用+推断三形态（T直接/T[]/嵌套）；仅返回位推断；泛型调泛型（转发
-  与配方两臂，含泛型类静态调游离函数）；递归；跨包无源码包泛型函数调用往返；
+  与拼接记录两臂，含泛型类静态调游离函数）；递归；跨包无源码包泛型函数调用往返；
   MakeFunc泛型拒绝诊断；擦除行对象降级路径（T操作运行时具名错误）；泛型静态/
   游离帧T形参GC回归族（gc-stress）；v0.13.1全量实例语义e2e回归不翻；ndb步进
   OP_CallStatic布局。

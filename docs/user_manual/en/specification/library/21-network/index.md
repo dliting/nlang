@@ -25,8 +25,8 @@ loads it. The package declares the classes `TcpListener`,
 `TcpStream`, `UdpSocket` and `IcmpSocket`, the free function
 `ping`, and the exception subclasses `SocketException` and
 `TimeoutException` (§8.3); the classes reach scope through the
-import as ordinary classes, and `ping` is called through the
-package qualifier (`net.ping(host)`). A user package named `net`
+import as ordinary classes, and `ping` is called by its fully
+qualified name (`net.ping(host)`). A user package named `net`
 collides with the standard library and is rejected by the
 duplicate-package rule (§11.1).
 

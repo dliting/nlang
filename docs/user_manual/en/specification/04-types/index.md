@@ -36,7 +36,7 @@ Two types are *the same type* when:
 - they are array types with the same element type and the same
   rank;
 - they name the same type declaration — two declarations of one
-  name in different bare pools (§3.7) are different types;
+  name in different unqualified-name pools (§3.7) are different types;
 - they are instantiations of one generic class whose type
   arguments are pairwise the same type.
 

@@ -14,8 +14,8 @@ stream values (§14.7) are defined on their own pages, and
 ## 14.1 Package Form
 
 `io` is a standard library package (§3.9.4): `import io;` brings
-it into scope and every function is called through the package
-qualifier (`io.print(s)`). The package name is single-segment
+it into scope and every function is called by its fully qualified
+name (`io.print(s)`). The package name is single-segment
 (§3.3). Its declarations are the standard library's `.n`
 source; the output trio, the input functions and the file
 functions are `native` functions (§7.5), and the typed readers

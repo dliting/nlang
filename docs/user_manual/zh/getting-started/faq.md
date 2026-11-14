@@ -51,7 +51,7 @@ nlang没有自增、自减运算符，`++`与`--`也不是单个词法单元—�
 
 ### 跨模块引用报`Module '...' is not imported`？
 
-`import`只开放**限定名**——`import lib;`之后只能写`lib.f()`，裸名`f()`不解析。各引用形式的可见性规则见[规范/声明](../specification/03-program-structure/declarations.md)的「import声明」。完整错误消息见[常见错误消息](../specification/reference/common-errors.md)。
+`import`只开放**限定名**——`import lib;`之后只能写`lib.f()`，非限定名`f()`不解析。各引用形式的可见性规则见[规范/声明](../specification/03-program-structure/declarations.md)的「import声明」。完整错误消息见[常见错误消息](../specification/reference/common-errors.md)。
 
 ### 数组值赋给其他类型报`Incompatible type`？
 

@@ -16,7 +16,7 @@ libs/
   quick.n         -> 包 quick
 ```
 
-消费方`import mylib.math;`之后用限定名调用，如`mylib.math.square(6)`。裸名（不带包前缀）访问不到导入的成员——依赖在调用点一目了然是刻意的设计。
+使用方`import mylib.math;`之后用限定名调用，如`mylib.math.square(6)`。非限定名（不带包前缀）访问不到导入的成员——依赖在调用点一目了然是刻意的设计。
 
 搜索路径的五个层次、`-I`与`NLANG_PATH`的用法见[ncc](../cli-tools/ncc.md)与[nvm](../cli-tools/nvm.md)。点分名字的库不单独编译成单元——它们用工程文件打包分发，见第4节。
 
@@ -26,7 +26,7 @@ libs/
 
 ```text
 libdemo/
-  main.n          消费方程序
+  main.n          使用方程序
   mylib.n         库：两个数学小工具
 ```
 
@@ -68,7 +68,7 @@ int main() {
 }
 ```
 
-NLang的产物按编译单元划分：编译`main.n`只生成消费方自己的单元，库代码不在其中。库单元单独编译一次，之后编译并运行使用方：
+NLang的产物按编译单元划分：编译`main.n`只生成使用方自己的单元，库代码不在其中。库单元单独编译一次，之后编译并运行使用方：
 
 ```text
 > ncc build mylib.n -o mylib.ncu
@@ -130,7 +130,7 @@ NLANG_DEFINE_NATIVE_INIT
 
 两种形态：
 
-- 源码目录（平面）：把`mylib.n`放进任一搜索目录，消费方编译时内联解析签名；库单元要先编译一次（`ncc build mylib.n -o mylib.ncu`，见第2节），与使用方一起交付。最简单，也是标准库的形态。
+- 源码目录（平面）：把`mylib.n`放进任一搜索目录，使用方编译时内联解析签名；库单元要先编译一次（`ncc build mylib.n -o mylib.ncu`，见第2节），与使用方一起交付。最简单，也是标准库的形态。
 - 预编译包：`ncc build -p <工程>.nproj -o <包名>.npkg`把库单元打包，适合不带源码分发；点分子目录库（如`mylib/math.n`）也以这种形态配套分发。库单元的映像随包走，链接在加载期完成——使用方`-I`指向包所在目录即可，全程不需要库源码。
 
 使用方一侧无需区别对待：两种形态都按`import <包名>;`消费，搜索路径五层见[ncc](../cli-tools/ncc.md)。
@@ -145,4 +145,4 @@ Backtrace:
   at use_mylib.main (use_mylib.n:13)
 ```
 
-升级NLang后重编native DLL即可对齐版本。除宿主ABI外，库与消费方各自编译，没有别的二进制耦合。
+升级NLang后重编native DLL即可对齐版本。除宿主ABI外，库与使用方各自编译，没有别的二进制耦合。

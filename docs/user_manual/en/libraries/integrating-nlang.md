@@ -43,7 +43,7 @@ For run-only deployments `ncc` can be left out; the Qt runtime is needed only by
 
 The minimum is `nvm.exe`, `stdlib\stdlib.npkg` and `nlang_io.dll`, plus the program's own `.ncu`. Place `nlang_io.dll` next to `nvm.exe` and `stdlib.npkg` inside a `stdlib\` subdirectory, then `nvm <program>.ncu` runs. The `.n` declaration sources under `stdlib\` are only used by `ncc` at compile time — at run time only the library package is loaded; bring the matching `nlang_*.dll` for each namespace the program uses. The executables link the MSVC runtime dynamically, so the target machine needs the VC++ 2015-2022 runtime (see [Installation and Layout](../getting-started/install-layout.md)).
 
-## 4. Deployment recipe
+## 4. Deployment steps
 
 - Recommended layout: ship a full NLang install directory next to your application and reference it by absolute path or the `NLANG_PATH` environment variable.
 - Project builds write the `.npkg` next to the project file: do not put user projects under read-only locations such as `Program Files` — the `.npkg` write fails.

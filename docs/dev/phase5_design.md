@@ -21,10 +21,10 @@
 名＝用户写的 `import` 名。stdlib 的 `stdlib/io.n` ＋ `namespace io`（`stdlib/io.n:5`、
 `math.n:5`、`fs.n:5`）刚好满足，所以一直绿。不满足时该单元**两种拼写都不可达**
 （rb6 B/C/D/E/F/G、rb8 P1/P2/P7），编译器还会建议一条无法执行的 `import gfx.color;`——
-库发现明确跳过带点的名字（`src/compiler/ModuleBuilderImports.cpp:98-99` 「调用方只传裸名」
+库发现明确跳过带点的名字（`src/compiler/ModuleBuilderImports.cpp:98-99` 「调用方只传非限定名」
 的注释、`:139-144` 的函数头注释、`:178-179` 的 `continue`）。
 
-**第二处：VM 里函数用带前缀的名、类型一律用裸名。**
+**第二处：VM 里函数用带前缀的名、类型一律用非限定名。**
 `QualifiedFunctionName`（`src/vm/backend/Register.cpp:24-41`）只给「祖先里有 `NK_Namespace`」
 的函数加前缀；`Register.cpp:47`、`RegisterClass.cpp:95/100` 写类型表时一律用 `sn.Name()`；
 查找 `include/nlang/vm/CompiledModule.h:314-326` 首个匹配、零重复检测。
@@ -35,7 +35,7 @@
 今天函数前缀**只在库文件写得出**（因为容器节点来自用户写的 `namespace`），项目模块的成员
 直接挂在 root 上——`CompiledInFunctions`（`ModuleRegistry.cpp:293-300`）与 `FindModuleType`
 （`:377-385`）都是这个规则：`isLibrary` 才去找 `namespace <path>` 容器，否则回落到 root。
-所以 `utils/helper.n` 里的 `help()` 在 VM 表里的键是裸的 `help`，与 `core/helper.n` 里的
+所以 `utils/helper.n` 里的 `help()` 在 VM 表里的键是非限定的 `help`，与 `core/helper.n` 里的
 `help()` 同键。类型更糟：连前缀都没有。
 
 本阶段的正面动作只有一件：**包名从节点的所有者标签算，不新建容器**。每个根级成员在合并阶段
@@ -44,7 +44,7 @@
 两者拼起来就是包名——项目模块与库文件同一条规则，`isLibrary ? FindField(path) : root`
 的容器判定从此没有存在必要。
 
-早先设计的「编译器按路径建容器、成员挂进去」**已撤回**：新建 AST 容器会连带牵出裸名池
+早先设计的「编译器按路径建容器、成员挂进去」**已撤回**：新建 AST 容器会连带牵出非限定名池
 可见性（`ExprResolverMemberFields.cpp:45-48` `IsBarePoolScope`）、同目录自动可见
 （`ModuleRegistryGate.cpp:129-166` `BuildGate`）、`AllowMember` 的全局命名空间内建类型
 豁免（`SnMisc.cpp:145-159`）、wildcard/using 的落点四组语义，收益只是让查找少绕一次 owner
@@ -53,7 +53,7 @@
 ### 0.3 相对原 4e 稿的四处的更正
 
 1. 原稿把「项目函数键变长」写成附带影响；实际上它是本阶段最大的一面：项目侧**所有**自由
-   函数与类型的键都从裸名变成限定名（§0.2）。原稿的「宿主 native 先查限定名、回落裸名」
+   函数与类型的键都从非限定名变成限定名（§0.2）。原稿的「宿主 native 先查限定名、回落非限定名」
    随之作废——回落是一层兼容垫片，改为测试注册表直接写限定名（⑥ 不留兼容层）。
 2. `native` 声明的位置限制改由**编译期诊断**给出：所在包必须单段
    （DLL 是平面单位、`EnsureNativeAvailable` 按第一个点决定模块名，
@@ -91,7 +91,7 @@
   **不动**：`ProbeNonFunctionField`、`FindFieldInUsings`、`CheckUnitAliases`
   （成员／别名可见性，与类型身份无关）。
   **轮 1 计划审核对本段的实测修正**（写计划时才发现行号和「5 处」都不准）：
-  ① `ExprResolverTypes.cpp:425-433` 是 `Access(SnIdentifierExpr)` 里的**函数**裸池过滤器
+  ① `ExprResolverTypes.cpp:425-433` 是 `Access(SnIdentifierExpr)` 里的**函数**非限定名池过滤器
   （`bareFuncFilter`／`IsBareVisible`，已经带 owner 判定），不是类型分支；类型候选走的是
   `:432` 的 `FindFieldInAncestor`，它对类型不做 owner 过滤（first-wins）。
   ② `ResolveClassBases` 自己不做查表，它 `Resolve(*sn.SuperName())` 委托给同一个
@@ -100,7 +100,7 @@
   ④ 流式字面量那一处即 D10，已单列。
   所以「5 处」实际是 **4 个改动点、3 个提交**：Task 5 Step 3b（两处容器判定）、
   Task 4 Step 9（D10）、以及**尚未排期的 ①**（`FindFieldInAncestor` 的类型候选 owner 过滤）。
-  ① 的影响面：导入了含 `Point` 的库之后，本 TU 写裸 `Point q;` 会绑到库里那个而不是本文件的。
+  ① 的影响面：导入了含 `Point` 的库之后，本 TU 写非限定 `Point q;` 会绑到库里那个而不是本文件的。
   它是否留在阶段 5 做，**待用户裁决**（做＝再加一个改动点＋负例测试；不做＝记为阶段 7 的已知缺口）。
 - `pRoot->FindField(path)` 今天是单段字典命中（`src/compiler/SnMisc.cpp:34-37`，
   `SnFunctionParentField::FindField` 无递归）。owner 化之后带点路径不再需要逐段下降到
@@ -123,8 +123,8 @@
   在 `GenerateCodes` 里注入，产码侧的 `Register.cpp` 私有的 `QualifiedFunctionName()`
   （`:24-41`，靠祖先里的 `NK_Namespace` 拼前缀）改为调用这条缝。**两侧共用一个函数是
   必须的**：否则 `readStruct` 写出的串与表键会各自漂移。
-  **保留**成员方法的裸名分支（`:25-29` 的 Class/Interface/Enum 父节点判定）——方法按接收者
-  裸名分派，加前缀会让每次查找都失败。
+  **保留**成员方法的非限定名分支（`:25-29` 的 Class/Interface/Enum 父节点判定）——方法按接收者
+  非限定名分派，加前缀会让每次查找都失败。
 - **构建面**：`ModuleRegistry.h` 是编译器私有头（`src/compiler/builder/`，公开头树
   `include/nlang/compiler/` 是平铺的、没有 `builder/` 子目录），`nlang_vm` 的 include 路径
   （PUBLIC `include/` ＋ PRIVATE `src/vm`）看不到它。给 `src/vm/CMakeLists.txt` 的
@@ -133,9 +133,9 @@
   `BUILD_SHARED_LIBS` 不在 cache（静态默认），`ModuleRegistry` 无导出宏也可用。
 - `CompiledStruct::name`/`CompiledClass::name` 存限定名。天然不变的四类：
   泛型擦除基名（`BaseName()` 的 `"List"`/`"Dict"`，`SnMisc.h:307-309`、`EmitExprNew.cpp:55`、
-  `EmitExprInitList.cpp:305-307`）；内建类型与异常名；成员方法（裸名分支）；
+  `EmitExprInitList.cpp:305-307`）；内建类型与异常名；成员方法（非限定名分支）；
   字符串字面量型类型名（`readStruct("Node")` 一族，见 D-stream）。前三类在 owner 化之后
-  不需要特例判断——合成 decl 与内建 decl 没有所有者标签，`PackageOf` 返回空串就是裸名。
+  不需要特例判断——合成 decl 与内建 decl 没有所有者标签，`PackageOf` 返回空串就是非限定名。
 - 24 个读取点分两类：AST 在手 → `QualifiedName(*decl)`；字面量／擦除名 → 原样。
   延迟字段类型名表（`Register.cpp:63/86/101`、`RegisterClass.cpp:113/117/161`）的
   写入端与解析端**同提交**改；`declMap`（`RegisterClass.cpp:93/100/157`）改限定键。
@@ -149,7 +149,7 @@
   **不做旧格式兼容读**。
 - 宿主 native：DLL 侧键规则不变（`nlang_<包名>.dll` 注册 `<包名>.<符号>`，
   `VmExecutorNativeHost.cpp:148-152`），stdlib 三段单段包不受影响。测试侧宿主注册改限定名：
-  `TestNatives.h:61-64`、`test_native_host.cpp:77-84`。**不做裸名回落。**
+  `TestNatives.h:61-64`、`test_native_host.cpp:77-84`。**不做非限定名回落。**
 - `.nmod` 格式：`NMOD_FORMAT_MINOR` 12 → **13**（`CompiledModule.h:43`），floor 与 ceiling 同抬。
 
 ### R3 `import` 到包级，带点的名字能落地
@@ -229,7 +229,7 @@
 
 - **D1 名字唯一来源＝路径**（①）。否决声明式 `package`（两个来源＋优先规则＋一致性检查）、
   否决「顶层 `namespace` 视同包」的特例折叠（靠相等才对得上，正是本阶段要移除的东西）。
-- **D2 类型与函数共用一条名字缝**：`包名 + "." + 名`，成员方法恒裸名（分派约束）。
+- **D2 类型与函数共用一条名字缝**：`包名 + "." + 名`，成员方法恒非限定名（分派约束）。
   类型名入盘＋对象流名记录语义变更＋新增 `entryPoint` ⇒ 格式 12→13，floor/ceiling 同抬、
   不兼容读。
 - **D3 限定符＝包名原文**，无末段简写、无 alias：末段天然重复（`utils/helper.n` 与
@@ -244,19 +244,19 @@
   `':'`／`as` 位置可以扩。
 - **D8 包名取自所有者标签，不新建 AST 容器**（§0.2）。
 - **D9 跨包泛型实参拼写不支持**，给诊断（R4）。**轮 3 实测降级（2026-09-29，`build-dev/tests/Release/ncc.exe`）**：
-  `alib.Vec<int> v;` 今天得到的是裸 `syntax error`——泛型实参只挂在 `IdentifierExpr` 上，限定链根本进不了
+  `alib.Vec<int> v;` 今天得到的是非限定 `syntax error`——泛型实参只挂在 `IdentifierExpr` 上，限定链根本进不了
   那条产生式。本阶段只做「不误接受」的负例钉（期望串就是 `syntax error`）；**指名字符串「用户类型不支持泛型
   实参」不在本阶段做**，它需要一条能吃下 `QualifiedType '<' ... '>'` 的 `error` 恢复产生式，为一句文案动语法
   不划算 ⇒ 记为阶段 7 的缺口。
 - **D10 字面量类型名在编译期定身**：`readStruct("Node")`／`writeObject` 一族传的是字符串，
   运行期按名查表（`ExprResolverMemberBuiltins.cpp:286-310` 的解析链对 owner 是盲的）。
   规则：编译期把字面量按**调用点可见作用域**解析成声明，改写成canonical限定名再产码；
-  零命中沿用现有诊断，多命中报歧义，**不留运行期裸名回落**。这样 7 个 e2e `.n` 源文件
+  零命中沿用现有诊断，多命中报歧义，**不留运行期非限定名回落**。这样 7 个 e2e `.n` 源文件
   一字不改，而表键限定化之后仍然命中。
 
 - **D11 名字缝在编译器侧、VM 侧注入注册表共用**（R2 第一条）。
 - **D12 顺序约束：限定化必须先于 `namespace` 删除落地**。只要祖先链走法还在，删掉
-  `stdlib/io.n` 的外壳会让 `io.print` 变成裸 `print`，DLL 注册表（`nlang_<包名>.dll` ＋
+  `stdlib/io.n` 的外壳会让 `io.print` 变成非限定 `print`，DLL 注册表（`nlang_<包名>.dll` ＋
   `<包名>.<符号>`）当场对不上。owner 化之后包名来自路径，而 stdlib 文件的
   `DeriveModulePath` 退化值恰好是 `io`/`math`/`fs`（stem＝文件名＝今天的 `namespace` 名），
   所以「换缝」这一步不动任何键——这是它能在同一次提交里全绿的真正原因。
@@ -313,13 +313,13 @@
    **本阶段钉到键为止**（轮 4 实测）：今天根上写 `class Object { int marker; }`，类表里
    同时出现 `[0] Object (fields=0)`（内置）与 `[11] Object (fields=1)`（用户）两个同名键，
    而 `new Object()` 编到内置那份，运行报 `struct field store out of bounds`；写方法则
-   编译期就失败。根因是编译器侧按**裸名**短路到内建单例的 5 个点（`ExprResolverNew.cpp:120`、
+   编译期就失败。根因是编译器侧按**非限定名**短路到内建单例的 5 个点（`ExprResolverNew.cpp:120`、
    `ExprResolverTypes.cpp:393`、`ExprResolverValues.cpp:46`、`ExprResolverStdLib.cpp:59`、
    `DuplicateFieldChecker.hpp:279`）——**未排期，待用户裁决是本阶段做还是记阶段 7 的账**。
 9. **native 面**：stdlib 三段 DLL 解析不回归；宿主限定名注册正例；多段包内写 `native`
    → 编译期诊断（D5）。
 10. **泛型库类型**：`alib/vec.n` 的 `Vec` 声明＋`alib.Vec` 使用通过；`alib.Vec<int>`
-    → 实测今天的裸 `syntax error`（D9 轮 3 降级：本阶段只钉「不误接受」，指名字符串留到阶段 7），
+    → 实测今天的非限定 `syntax error`（D9 轮 3 降级：本阶段只钉「不误接受」，指名字符串留到阶段 7），
     擦除键 `"List"` 不受影响。
 11. **继承／cast 同权**（R4）：`class D : alib.B`、`x as alib.B` 通过；
     `class D : a.B.C`（三段）通过或给出指名诊断——`':'`／`as` 走的是同一个 `TypeName`。
@@ -352,7 +352,7 @@
 - **R4 的 LALR 已实测**（`temp/probe/`）：语句头专用范畴不可行，形状保留、检查补齐。
   残余风险是 `':'`／`as` 那 2 条新 `'.'` 冲突的默认解——上表已论证「没有产生式期望类型名
   后跟 `.`」，§4-11 是它的实测锚。
-- **对象流跨程序语义**：`cc.name` 由裸名变限定名（`VmExecutorSer.h:204-206/290-301`），
+- **对象流跨程序语义**：`cc.name` 由非限定名变限定名（`VmExecutorSer.h:204-206/290-301`），
   D2 已裁决不保留兼容读，文档要写明。
 - **阶段 6 的输入**（本稿只记边界）：AST 合并在产码前发生（`ModuleBuilder.cpp:233-258`）
   要改成逐包产码；跨包引用要能先记名字后定址；`entryPoint` 搬到 `.npack` 头部；

@@ -87,7 +87,7 @@ later:
 - **Free function reference** (`bar`) — a static-bound handle to the
   function.
 - **Static method reference** (`Util.twice`) — a receiverless handle
-  to a static method; inside the owning class the bare name works too.
+  to a static method; inside the owning class the unqualified name works too.
 - **Bound method reference** (`c.foo`) — captures the receiver: the
   object travels with the handle and its **state persists across
   calls**.
@@ -170,7 +170,7 @@ comparisons with non-`func` operands are compile errors.
   defaults are filled only on the direct-call path.
 - **Static method references** — a static method binds as a function
   value through the type name (`Util.twice`), including inherited
-  statics, interface statics, native statics, and the bare form inside
+  statics, interface statics, native statics, and the unqualified form inside
   the owning class. Through an object receiver (`b.twice`) it stays
   rejected ("the static method must be called through the type name").
 - **Instance methods through the type name** — rejected ("the instance

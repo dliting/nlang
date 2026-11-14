@@ -32,20 +32,20 @@ Visibility:
 
 | Reference | Import needed? | Call form |
 |---|---|---|
-| Same file | no | bare |
-| Same directory, other project files | no (implicit) | bare **or** qualified |
-| Cross-directory, same project, exact import | **yes** (`import utils.helper;`) | bare **or** qualified: `f()` / `utils.helper.f()` |
+| Same file | no | unqualified |
+| Same directory, other project files | no (implicit) | unqualified **or** qualified |
+| Cross-directory, same project, exact import | **yes** (`import utils.helper;`) | unqualified **or** qualified: `f()` / `utils.helper.f()` |
 | Cross-directory, same project, wildcard | **yes** (`import utils.*;`) | qualified only: `utils.helper.f()` |
-| External module | **yes** (`import lib;`) | bare **or** qualified: `f()` / `lib.f()` |
-| Standard library `io`/`math`/`fs`/`thread`/`concurrent` | **yes** (`import io;`) | bare **or** qualified: `print(...)` / `io.print(...)` |
+| External module | **yes** (`import lib;`) | unqualified **or** qualified: `f()` / `lib.f()` |
+| Standard library `io`/`math`/`fs`/`thread`/`concurrent` | **yes** (`import io;`) | unqualified **or** qualified: `print(...)` / `io.print(...)` |
 
-- Bare-name resolution covers the own file, same-directory files, and
+- Unqualified-name resolution covers the own file, same-directory files, and
   every module this file imports by its exact path: after
-  `import lib;` the bare `f()` and the qualified `lib.f()` are both
-  admissible. A wildcard import contributes no bare names — it admits
+  `import lib;` the unqualified `f()` and the qualified `lib.f()` are both
+  admissible. A wildcard import contributes no unqualified names — it admits
   qualified calls only. Ownerless symbols (root built-ins such as the
   `Exception` class family, native host bindings) stay globally
-  bare-visible.
+  unqualified-visible.
 - Wildcard `import utils.*;` is a **recursive prefix match** in module
   path space: every path starting with `utils.` is importable
   (`utils.helper`, `utils.sub.x`, ...). It only abbreviates the import

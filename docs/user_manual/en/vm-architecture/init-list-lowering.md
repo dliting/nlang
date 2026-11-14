@@ -24,7 +24,7 @@ propagates it the same way: a bare brace return value takes the
 function's declared return type, a subscript-store RHS takes the
 element / container value-slot type, a call argument takes the formal's
 type, and a foreach iterable takes the loop-variable type (the brace
-form iterates a `List<T>` minted from it; the bracket form takes the
+form iterates a `List<T>` created from it; the bracket form takes the
 interned array token).
 
 The resolver then visits the RHS; `ExprResolveAccessor::Access(SnInitListExpr&)`

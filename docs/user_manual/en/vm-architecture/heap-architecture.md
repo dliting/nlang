@@ -110,7 +110,7 @@ element i = header cells + i * stride, laid out row-major
 A 1-D array is the `rank=1` special case; rectangular
 multi-dimensional arrays share the same layout — the element access
 instructions fold multi-dimensional coordinates into a row-major
-flat index, and `OP_ArrayShape` mints a shape array from the header
+flat index, and `OP_ArrayShape` creates a shape array from the header
 dimensions. GC marking resolves the element kind from
 `arrayTypeIdx` and traces reference-shaped elements (class/struct/
 string handles) as out-edges.
@@ -158,7 +158,7 @@ struct GenericInstKey {
 // List<int> and List<int[]> as distinct keys.
 ```
 
-Each cache miss mints a new SnClassDecl named e.g. `"List<int>"`; its
+Each cache miss creates a new SnClassDecl named e.g. `"List<int>"`; its
 member calls resolve to **substituted signatures** (T → int / Point /
 ...) for static type checking, driven by the type-argument side table.
 A polymorphic-signature registry drives substitution:

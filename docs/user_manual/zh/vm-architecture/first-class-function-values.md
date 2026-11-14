@@ -29,9 +29,9 @@ out实参写回（`OP_CallDelegateOut`）按相反方向平移：outMask的第*i
 
 OP_MakeBoundFunc / OP_MakeVFunc在写入句柄*之前*从`pResult`读取接收者：代码生成先把接收者表达式发射进结果槽位，刷新`pResult`，然后绑定指令读取它，再用句柄索引覆写该槽位。
 
-### GC追踪位点
+### GC追踪位置
 
-MarkPhase按kind筛选追踪位点——多数看运行期kind，两个根扫描看静态局部/返回kind；`RTK_Func`记录在**8个**位点被追踪：
+MarkPhase按kind筛选追踪位置——多数看运行期kind，两个根扫描看静态局部/返回kind；`RTK_Func`记录在**8个**位置被追踪：
 
 1. 根集扫描（`LocalDescriptor.typeKind == RTK_Func`的局部/参数）
 2. 栈帧`pResult`扫描（进行中的返回值）

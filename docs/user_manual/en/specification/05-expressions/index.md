@@ -129,12 +129,12 @@ A class, array or function value renders through its `toString`
 
 A string literal may contain `${name}`, where `name` is an
 identifier: each occurrence stands for the string rendering of
-the value that `name` denotes. The name resolves as a bare name
+the value that `name` denotes. The name resolves as an unqualified name
 (chapter 3) and renders as in §5.3; an interpolated literal means
 the same as the concatenation of its parts, evaluated left to
 right (§5.1).
 
-Only a bare identifier is allowed between `${` and `}`. Any other
+Only an unqualified identifier is allowed between `${` and `}`. Any other
 form — an expression, a qualified name, a member access — is a
 compile-time error.
 

@@ -4,7 +4,7 @@
 
 仓库自0.12.9发布（8bc79ee9，11-07）起双线并行：
 
-- **master线**：泛型完善系列（0.13.1a静态引用T全面化＋游离函数泛型、0.13.2泛型递延打磨、0.13.3抽象函数＋泛型接口），共77个提交未进dev。语言面还包括：拼写歧义具名指向探针、数值宽度别名全家族、试验保留字`elseif`/`state`移除、单进程编译运行宿主的描述符驻留池根治。线格式NCU v2.14→v2.19（泛型类尾、接口尾、抽象旗标）。VERSION=0.13.3。
+- **master线**：泛型完善系列（0.13.1a静态引用T全面化＋游离函数泛型、0.13.2泛型递延打磨、0.13.3抽象函数＋泛型接口），共77个提交未进dev。语言层还包括：拼写歧义具名指向探针、数值宽度别名全家族、试验保留字`elseif`/`state`移除、单进程编译运行宿主的描述符驻留池根治。线格式NCU v2.14→v2.19（泛型类尾、接口尾、抽象旗标）。VERSION=0.13.3。
 - **dev线**：0.13.4日期时间并入、0.13.5 HTTP库、0.13.6 net/http性能优化、0.13.7进行中（位运算`& ^ | ~`＋复合赋值已落，regex库Task 3-12已落、13-18待做）。线格式停留在v2.14。VERSION=0.13.7。
 
 目标：master并入dev后单线承载0.13.7交付，例行四门禁全绿，到达发布时点流程（终检、制品、推送、本地部署）。合并是roadmap 0.13.7条目第3项，不在dev侧计划内，归master会话执行。
@@ -27,8 +27,8 @@
 ## 四、冲突面分类与裁决
 
 1. **语法**（nlang.y/nlang.l）：并集。master侧：保留字移除、数值宽度别名、泛型implements专用产生式ImplementsName、泛型拼写与rescue机制；dev侧：位运算token（注意`&`/`|`与`&&`/`||`的最大 munch）与优先级行、复合赋值。重建后bison/flex的冲突告警必须与合并前dev线的基线一致（零新增）。
-2. **解析层**（ExprResolver.h/ExprResolverBinary.cpp/StatementResolver*.h/cpp/SnExpressions*.h/cpp/include头）：两侧改的是不同函数族（master＝泛型mint与边替换、值相等；dev＝位运算解析），按函数级并集；同函数双改的冲突块逐个人工判读，以语义完整一侧为基并入另一侧语义。
-3. **opcode表**（BytecodeOps.h/OpCodeTable.cpp/Disassembler.cpp/VM switch/EmitCall.cpp/EmitExprBinary.cpp）：以dev现有编号为基（0.13.7是当前交付线），master新增的7件接排在dev之后统一重排；OP_CallStatic/OP_New的操作数布局以master为准（descIdx贯穿），dev侧所有emit位点适配新布局。不向下兼容，无跨版本产物兼容负担，全部产物重建后由e2e全量兜底；Disassembler与ndisasm同步。
+2. **解析层**（ExprResolver.h/ExprResolverBinary.cpp/StatementResolver*.h/cpp/SnExpressions*.h/cpp/include头）：两侧改的是不同函数族（master＝泛型创建与边替换、值相等；dev＝位运算解析），按函数级并集；同函数双改的冲突块逐个人工判读，以语义完整一侧为基并入另一侧语义。
+3. **opcode表**（BytecodeOps.h/OpCodeTable.cpp/Disassembler.cpp/VM switch/EmitCall.cpp/EmitExprBinary.cpp）：以dev现有编号为基（0.13.7是当前交付线），master新增的7件接排在dev之后统一重排；OP_CallStatic/OP_New的操作数布局以master为准（descIdx贯穿），dev侧所有emit位置适配新布局。不向下兼容，无跨版本产物兼容负担，全部产物重建后由e2e全量兜底；Disassembler与ndisasm同步。
 4. **线格式**（CompiledModule.h/test_nculoader.cpp）：`NCU_FORMAT_MINOR=19`。test_nculoader以master的v2.19值绑定pin为基，并入dev对该文件的新增测试。
 5. **手册**（specification与vm-architecture的en/zh成对页）：逐页并集。operators.md＝master修改＋dev位运算节；lexical/grammar页＝master关键词变化＋dev运算符；bytecode-instructions页＝两侧新增指令。合并后SYNC_BASELINE重锚（合并提交本身进基线计算）。
 6. **CHANGELOG/VERSION**：VERSION=0.13.7；CHANGELOG以dev结构为基（无Unreleased空壳），master三条目按版本号降序插入，条目内容原样保留；dev的[0.13.7]条目补一行合并说明。

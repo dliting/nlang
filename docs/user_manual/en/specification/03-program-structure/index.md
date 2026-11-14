@@ -113,11 +113,11 @@ The scope-opening form `using Name;` names a package: if `Name`
 resolves to a non-package or resolves to nothing, it is a
 compile-time error.
 
-*Informative:* in the current implementation no bare identifier
+*Informative:* in the current implementation no unqualified identifier
 denotes a package — packages are reachable only through import
 paths and qualified names — so the scope-opening form is always
 rejected today. The grammar keeps the form for a future proposal
-that gives package names a bare spelling.
+that gives package names an unqualified spelling.
 
 ## 3.5 Scopes
 
@@ -151,21 +151,21 @@ sharing rule above is observable behavior.
 
 ## 3.6 Name Lookup
 
-A *bare identifier* is an identifier written without a qualifying
-path. In value position, a bare identifier resolves by a walk from
+A *unqualified identifier* is an identifier written without a qualifying
+path. In value position, an unqualified identifier resolves by a walk from
 the innermost scope outwards: the enclosing blocks, then the
 function scope, then the program scope. The first binding found
 wins; §3.7 governs when an inner binding shadows an outer one.
 
 At program scope, visibility depends on what the name denotes:
 
-- a *top-level function* is visible bare only if it is a built-in
+- a *top-level function* is visible by unqualified name only if it is a built-in
   function or it is declared by a unit in the same directory as the
   referring unit. A function declared in another directory is not
-  bare visible; the diagnostic names the module that declares it.
+  unqualified-visible; the diagnostic names the module that declares it.
 - a *type* (class, struct, enum or interface) declared at top level
   is visible program-wide, whatever directory its unit lives in.
-- if the walk finds no binding, a bare identifier may still resolve
+- if the walk finds no binding, an unqualified identifier may still resolve
   to a built-in class name; §4.11, §4.12, §8.3 and chapter 10
   enumerate the built-in classes.
 
@@ -185,19 +185,19 @@ chapter 7.
 ## 3.7 Shadowing and Redeclaration
 
 An inner binding shadows an outer binding of the same name: within
-the inner scope's visibility region, the bare name denotes the
+the inner scope's visibility region, the unqualified name denotes the
 inner declaration. Shadowing changes visibility only; storage
 follows §3.5.
 
 - A local declaration may shadow a top-level function name.
 - It is a compile-time error if a local declaration reuses a name
   that denotes a type visible at the declaration point.
-- Two top-level declarations of the same kind and name in one bare
+- Two top-level declarations of the same kind and name in one unqualified-name
   pool conflict and are a compile-time error, except that
   top-level functions may overload: same name, different parameter
-  lists (chapter 7). The *bare pool* of a unit is the set of units
-  whose top-level functions it sees bare (§3.6).
-- The same function name or the same type name in different bare
+  lists (chapter 7). The *unqualified-name pool* of a unit is the set of units
+  whose top-level functions it sees by unqualified name (§3.6).
+- The same function name or the same type name in different unqualified-name
   pools is accepted: the declarations keep separate identities
   under their qualified paths (§3.9). A function name and a
   type name that collide anywhere in the program conflict,

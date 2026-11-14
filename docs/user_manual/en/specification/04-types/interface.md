@@ -67,7 +67,7 @@ method's name.
 ```nlang
 interface IMath {
     static int twice(int x) { return x * 2; }
-    static int quad(int x) { return twice(twice(x)); }  // bare call inside the interface
+    static int quad(int x) { return twice(twice(x)); }  // unqualified call inside the interface
     static const int base = 8;
     int sign(int x);                                    // instance signature beside statics
 }

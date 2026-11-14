@@ -2,7 +2,7 @@
 
 # 14.6 ByteStream与FileStream
 
-`ByteStream`与`FileStream`是`io`包的内建句柄类（§11.1），使用前`import io;`（§3.9.4）：`ByteStream`读写内存缓冲，`FileStream`读写磁盘文件。`ByteStream()`构造一个空缓冲。`FileStream(path, mode)`打开文件：模式`"w"`创建或截断，`"a"`创建或追加，`"r"`只以读方式打开；直接初始化声明同样合法（`FileStream fs("data.bin", "w");`，§4.8.4）。未赋值的流句柄为null；经由null句柄的方法调用抛出`NullPointerException`（§8.3）。其他一切流失败都是*宿主级*执行期错误（§8.1）：没有`catch`子句处理它，程序结束。失败位点有：无效模式、打开失败（包括对缺失文件用`"r"`）、经由已关闭或无效句柄的访问、对只读流的写入或对只写流的读取、越过流末的读取、命名了程序未声明的类型的结构体或对象读取，以及由`writeStruct`或`writeObject`写出的函数类型字段、元素为类引用的数组经`writeObject`写出（标量与结构体元素可序列化，§14.7）。
+`ByteStream`与`FileStream`是`io`包的内建句柄类（§11.1），使用前`import io;`（§3.9.4）：`ByteStream`读写内存缓冲，`FileStream`读写磁盘文件。`ByteStream()`构造一个空缓冲。`FileStream(path, mode)`打开文件：模式`"w"`创建或截断，`"a"`创建或追加，`"r"`只以读方式打开；直接初始化声明同样合法（`FileStream fs("data.bin", "w");`，§4.8.4）。未赋值的流句柄为null；经由null句柄的方法调用抛出`NullPointerException`（§8.3）。其他一切流失败都是*宿主级*执行期错误（§8.1）：没有`catch`子句处理它，程序结束。失败位置有：无效模式、打开失败（包括对缺失文件用`"r"`）、经由已关闭或无效句柄的访问、对只读流的写入或对只写流的读取、越过流末的读取、命名了程序未声明的类型的结构体或对象读取，以及由`writeStruct`或`writeObject`写出的函数类型字段、元素为类引用的数组经`writeObject`写出（标量与结构体元素可序列化，§14.7）。
 
 ```nlang
 ByteStream bs = ByteStream();
