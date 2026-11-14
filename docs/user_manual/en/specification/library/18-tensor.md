@@ -305,9 +305,9 @@ match the truth.
   for every row — the label-gather spelling of a loss term.
   A rank-1 source degenerates to plain fancy indexing:
   removing the only axis leaves no positions to walk, so
-  `gather(v, 0, indices)` returns `v[indices[i]]`, as long as
-  `indices`. Views are ordinary operands — addressing rides
-  the recorded strides.
+  `gather(v, 0, indices)` returns `v[indices[i]]` with the
+  length of `indices`. Views are ordinary operands —
+  addressing rides the recorded strides.
 - `argmax(a, axis)` and `argmin(a, axis)` return the int
   index array of the axis winners over the remaining dims,
   one index per non-axis position; ties keep the first along
@@ -365,7 +365,10 @@ and the rank. A `gather` index outside the axis range, or a
 `oneHot` label outside the class range, raises
 `IndexOutOfBoundsException` naming the index and the range; a
 `gather` index count that misses the non-axis position count
-raises `Exception`. A `uniform` call whose `low` exceeds its
+raises `Exception`. A `gather` whose gather axis is a zero
+dimension raises `Exception`; a zero-size source whose gather
+axis is nonzero gathers an empty result (its non-axis position
+count is zero). A `uniform` call whose `low` exceeds its
 `high` raises `Exception`.
 
 *Informative:* the diagnostics read like

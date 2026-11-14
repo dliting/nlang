@@ -21,8 +21,15 @@
     matches the scalar lanes within the VecMath tolerance contract;
     max/min keep the scalar walk's exact order rule (a NaN cell never
     wins unless it was the first element; ties keep the earlier
-    element). Only float/double ride the table — int kernels keep the
-    language's wrap-and-raise semantics in their scalar loops.
+    element), with one carve-out: +0.0 and -0.0 compare equal under
+    the strict compares both paths use, and on a signed-zero tie the
+    vectorized fold's lane structure can surface the other zero's bit
+    pattern than the scalar walk's first-seen pick (verified: max over
+    [-1, -1, +0.0, -1, -1, -0.0, ...] reads back "-0" on sse2/avx2 and
+    "0" on scalar). The sign of a zero result is tier-dependent — the
+    language cannot spell a preference. Only float/double ride the
+    table — int kernels keep the language's wrap-and-raise semantics
+    in their scalar loops.
 ---*/
 #pragma once
 

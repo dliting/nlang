@@ -185,29 +185,24 @@ template <typename T>
 void FlatExtremeAvx2(bool isMax, const T* cells, int64_t count, T* out) {
     using Tr = ReduceLanes<T>;
     T best = cells[0];
-    int64_t i = 1;
-    int64_t vecEnd = ((count - 1) / Tr::kLanes) * Tr::kLanes;
-    //Vector sweep over [1, vecEnd) with the accumulator seeded from
-    //cells[0]; a later scalar pass only needs the tail.
+    int64_t swept = 1;
+    //Vector sweep from cells[1] with the accumulator seeded from
+    //cells[0]; the fold already includes the seed, and the scalar
+    //pass competes only the tail against the folded best.
     if (count >= Tr::kLanes) {
         typename Tr::V acc = Tr::First(cells[0]);
-        i = 1;
+        int64_t i = 1;
         for (; i + Tr::kLanes <= count; i += Tr::kLanes) {
             acc = Tr::Select(isMax, Tr::Load(cells + i), acc);
         }
         best = Tr::Fold(isMax, acc);
-        //The swept span covered [0, i); fold already includes cells[0].
-        //Remaining tail competes against the folded best.
-        vecEnd = i;
+        swept = i;
     }
-    for (int64_t j = vecEnd < 1 ? 1 : vecEnd; j < count; ++j) {
+    for (int64_t j = swept; j < count; ++j) {
         if (Tr::Wins(isMax, cells[j], best)) {
             best = cells[j];
         }
     }
-    //Wait — the sweep above compares vector acc (which includes
-    //cells[0]) only against [1, vecEnd); tail cells [vecEnd, count)
-    //compete via Wins. The folded best already carries the vector span.
     *out = best;
 }
 

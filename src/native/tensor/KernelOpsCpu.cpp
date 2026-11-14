@@ -157,8 +157,7 @@ void CpuClamp(bool isMax, const T* src, T bound, T* out, int64_t count) {
     }
 #endif
     for (int64_t i = 0; i < count; ++i) {
-        out[i] = isMax ? (src[i] > bound ? src[i] : bound)
-                       : (src[i] < bound ? src[i] : bound);
+        out[i] = detail::ClampCell(isMax, src[i], bound);
     }
 }
 

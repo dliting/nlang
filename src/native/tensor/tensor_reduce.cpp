@@ -170,9 +170,7 @@ void ClampKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
         T* outCells = CellsOf<T>(out);
         int64_t at = 0;
         StrideWalk(v, [&](int64_t addr) {
-            const T cur = in[addr];
-            outCells[at++] = isMax ? (cur > bound ? cur : bound)
-                                   : (cur < bound ? cur : bound);
+            outCells[at++] = detail::ClampCell(isMax, in[addr], bound);
         });
     }
     ReturnInt(ret, handle);
@@ -258,6 +256,21 @@ uint8_t ElemKindOfFirst(NativeHost* host, const uint8_t* args);
 //(NaN/tie rule identical to the walk); everything else — strided
 //views, middle axes, ints — keeps the per-cell carrier compare of the
 //odometer.
+//One non-axis position's axis scan: the per-cell carrier compare,
+//first-seen wins ties.
+template <typename T>
+T AxisExtremeAt(const T* cells, int64_t base, int32_t along,
+                int64_t axisStride, bool isMax) {
+    T best = cells[base];
+    for (int32_t s = 1; s < along; ++s) {
+        const T cur = cells[base + s * axisStride];
+        if (isMax ? cur > best : cur < best) {
+            best = cur;
+        }
+    }
+    return best;
+}
+
 template <typename T>
 void ExtremeAxisKernel(NativeHost* host, uint8_t* ret,
                        const uint8_t* args, bool isMax) {
@@ -269,6 +282,12 @@ void ExtremeAxisKernel(NativeHost* host, uint8_t* ret,
         Raise(host, NEXC_Base, who + std::string(": axis ")
               + std::to_string(axis) + " out of range for rank "
               + std::to_string(v.rank));
+    //The family-consistent empty guard (the scalar reductions and
+    //argmax/argmin raise the same way): a zero-size source has no
+    //position to start the scan from — cells[base] below reads past
+    //the allocation when the axis dim itself is zero.
+    if (v.elemCount == 0)
+        Raise(host, NEXC_Base, std::string(who) + ": empty array");
     const T* cells = CellsOf<const T>(v);
     const int32_t along = v.dims[axis];
     const int32_t outRank = v.rank - 1;
@@ -292,14 +311,8 @@ void ExtremeAxisKernel(NativeHost* host, uint8_t* ret,
     int64_t idx[nlang::kMaxArrayRank] = {0};
     int64_t base = v.offset;
     for (int64_t i = 0; i < out.elemCount; ++i) {
-        T best = cells[base];
-        for (int64_t s = 1; s < along; ++s) {
-            const T cur = cells[base + s * v.strides[axis]];
-            if (isMax ? cur > best : cur < best) {
-                best = cur;
-            }
-        }
-        outCells[i] = best;
+        outCells[i] = AxisExtremeAt(cells, base, along,
+                                    v.strides[axis], isMax);
         AxisRemovedAdvance(v, axis, outRank, outDims, idx, &base);
     }
     ReturnInt(ret, handle);

@@ -1,0 +1,12 @@
+// Zero-size source array: the family-consistent empty guard (the
+// same rejection argmax/argmin raise) — the non-axis count below
+// would otherwise divide by the zero-size axis. Uncaught Exception,
+// exit 1 by design.
+import tensor;
+
+int main() {
+    float[,] empty = float[0, 2];
+    int[] none = int[0];
+    float[,] boom = tensor.gather(empty, 0, none);
+    return 0;
+}

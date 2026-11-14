@@ -116,8 +116,7 @@ void FlatClampAvx2(bool isMax, const T* src, T bound, T* out,
         Tr::Store(out + i, Tr::Clamp(isMax, Tr::Load(src + i), bv));
     }
     for (; i < count; ++i) {
-        out[i] = isMax ? (src[i] > bound ? src[i] : bound)
-                       : (src[i] < bound ? src[i] : bound);
+        out[i] = ClampCell(isMax, src[i], bound);
     }
 }
 

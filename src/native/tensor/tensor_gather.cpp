@@ -101,6 +101,42 @@ int32_t ElemKindOfArg(NativeHost* host, const uint8_t* args, int slot)
     return v.elemKind;
 }
 
+//The out shape for a rank-N gather: dims minus the axis, gated on the
+//index-count agreement (one index per non-axis position).
+int32_t GatherOutShape(NativeHost* host, const NativeArrayView& va,
+                       int32_t axis, const std::vector<int32_t>& indices,
+                       int32_t* outDims)
+{
+    const int32_t along = va.dims[axis];
+    const int64_t nonAxisCount = va.elemCount / along;
+    if (static_cast<int64_t>(indices.size()) != nonAxisCount)
+        Raise(host, NEXC_Base, "tensor.gather: index count "
+              + std::to_string(indices.size()) + " does not match the "
+              + std::to_string(nonAxisCount) + " non-axis positions");
+    AxisRemovedDims(va, axis, outDims);
+    return va.rank - 1;
+}
+
+//One non-axis position's axis scan: first-max/min tie along the scan
+//(the scalar walk's rule); returns the winning axis position.
+template <typename T>
+int32_t AxisExtremeIndexAt(const T* cells, int64_t base, int32_t along,
+                           int64_t axisStride, bool isMax)
+{
+    int32_t best = 0;
+    T bestVal = cells[base];
+    for (int32_t s = 1; s < along; ++s)
+    {
+        const T cur = cells[base + s * axisStride];
+        if (isMax ? cur > bestVal : cur < bestVal)
+        {
+            bestVal = cur;
+            best = s;
+        }
+    }
+    return best;
+}
+
 } //namespace
 
 //gather(a, axis, indices): out = a minus the axis dim. Uniform
@@ -111,9 +147,6 @@ int32_t ElemKindOfArg(NativeHost* host, const uint8_t* args, int slot)
 //indices length): removing the only axis leaves no positions to
 //walk, so the indices drive the axis directly (the numpy a[idx]
 //surface).
-//Rank-1 degenerate arm: out length = indices length, out[i] =
-//a[indices[i]] (the numpy a[idx] surface — removing the only axis
-//leaves no positions to walk, so the indices drive the axis directly).
 template <typename T>
 void GatherRank1(NativeHost* host, NativeArrayView& va, int32_t along,
                  const std::vector<int32_t>& indices, int32_t handle,
@@ -146,8 +179,13 @@ void GatherKernel(NativeHost* host, uint8_t* ret, const uint8_t* args)
         Raise(host, NEXC_Base, "tensor.gather: axis "
               + std::to_string(axis) + " out of range for rank "
               + std::to_string(va.rank));
-    auto indices = ReadIndexArray(host, args, 2, "tensor.gather");
+    //The empty guard keys on the GATHER AXIS being the zero dim — the
+    //shape whose non-axis count below would divide by zero; a zero-size
+    //source with a nonzero axis gathers empty (take-per-position).
     const int32_t along = va.dims[axis];
+    if (along == 0)
+        Raise(host, NEXC_Base, "tensor.gather: empty array");
+    auto indices = ReadIndexArray(host, args, 2, "tensor.gather");
     int32_t outDims[nlang::kMaxArrayRank];
     int32_t outRank = va.rank - 1;
     if (va.rank == 1)
@@ -157,15 +195,10 @@ void GatherKernel(NativeHost* host, uint8_t* ret, const uint8_t* args)
     }
     else
     {
-        const int64_t nonAxisCount = va.elemCount / along;
-        if (static_cast<int64_t>(indices.size()) != nonAxisCount)
-            Raise(host, NEXC_Base, "tensor.gather: index count "
-                  + std::to_string(indices.size()) + " does not match the "
-                  + std::to_string(nonAxisCount) + " non-axis positions");
-        AxisRemovedDims(va, axis, outDims);
+        outRank = GatherOutShape(host, va, axis, indices, outDims);
     }
-    const int32_t handle = NewArrayShaped(host, va.elemKind, outRank,
-                                          outDims);
+    const int32_t handle =
+        NewArrayShaped(host, va.elemKind, outRank, outDims);
     if (va.rank == 1)
     {
         GatherRank1<T>(host, va, along, indices, handle, ret);
@@ -202,6 +235,12 @@ void ExtremeAxisIndicesKernel(NativeHost* host, uint8_t* ret,
         Raise(host, NEXC_Base, std::string(who) + ": axis "
               + std::to_string(axis) + " out of range for rank "
               + std::to_string(va.rank));
+    //The axis arm needs rank >= 2 (the max/min family precedent): the
+    //result drops the axis dim, and rank-1 would need a scalar return
+    //the Array-typed surface cannot spell.
+    if (va.rank == 1)
+        Raise(host, NEXC_Base, std::string(who)
+              + ": rank-1 arrays have no axis arm");
     if (va.elemCount == 0)
         Raise(host, NEXC_Base, std::string(who) + ": empty array");
 
@@ -221,19 +260,8 @@ void ExtremeAxisIndicesKernel(NativeHost* host, uint8_t* ret,
     int64_t addr = va.offset;
     for (int64_t f = 0; f < outer; ++f)
     {
-        const int64_t base = addr;
-        int32_t best = 0;
-        T bestVal = cells[base];
-        for (int32_t s = 1; s < along; ++s)
-        {
-            const T cur = cells[base + s * va.strides[axis]];
-            if (isMax ? cur > bestVal : cur < bestVal)
-            {
-                bestVal = cur;
-                best = s;
-            }
-        }
-        outCells[f] = best;
+        outCells[f] = AxisExtremeIndexAt(cells, addr, along,
+            va.strides[axis], isMax);
         //Advance the non-axis odometer (innermost first), the same
         //step the axis reduction kernels use.
         AxisRemovedAdvance(va, axis, outRank, outDims, idx, &addr);
@@ -271,17 +299,7 @@ void EqKernel(NativeHost* host, uint8_t* ret, const uint8_t* args)
     for (int64_t i = 0; i < out.elemCount; ++i)
     {
         cout[i] = ca[addA] == cb[addB] ? 1 : 0;
-        for (int32_t d = outRank - 1; d >= 0; --d)
-        {
-            idx[d] += 1;
-            addA += sa[d];
-            addB += sb[d];
-            if (idx[d] < outDims[d])
-                break;
-            addA -= static_cast<int64_t>(outDims[d]) * sa[d];
-            addB -= static_cast<int64_t>(outDims[d]) * sb[d];
-            idx[d] = 0;
-        }
+        BroadcastAdvance(sa, sb, outDims, outRank, idx, &addA, &addB);
     }
     ReturnInt(ret, handle);
 }

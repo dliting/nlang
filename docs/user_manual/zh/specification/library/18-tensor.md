@@ -172,7 +172,7 @@ int main() {
 
 ## 18.6 错误行为
 
-每次张量失败都是`Exception`家族的一个可捕获值（§8.3）。`null`数组实参抛出`NullPointerException`。负的创建长度、或越过§4.10创建上限的元素数，在创建位点抛出`IndexOutOfBoundsException`；负的`reshape`维度（单个推断的`-1`除外）抛出同一个类。`arange`在生成之前检查其元素数，数列会超出上限时抛出`Exception`。零的`arange`步长、或无法朝`stop`推进的步长，抛出`Exception`。双操作数核函数中的广播不匹配、`reshape`的形状其长度与目标秩不符、其乘积与元素数不符或其`-1`推断不整除、`transpose`的重排漏掉或重复某个轴、`broadcastTo`的目标形状源形状无法填满、`sum`的轴在数组的秩之外、`slice`的列表长度与秩不符、`concat`的操作数在秩或非`axis`维上不一致，以及对空数组调用`max`、`min`或`mean`，都抛出`Exception`；形状与长度不匹配的消息会点名两侧，轴类消息会点名轴与秩。`gather`的某个下标越过轴范围、或`oneHot`的某个标签越过类别范围，抛出`IndexOutOfBoundsException`，消息点名下标与范围；`gather`的下标个数与非轴位置个数不符，抛出`Exception`。`uniform`的`low`大于`high`抛出`Exception`。
+每次张量失败都是`Exception`家族的一个可捕获值（§8.3）。`null`数组实参抛出`NullPointerException`。负的创建长度、或越过§4.10创建上限的元素数，在创建位点抛出`IndexOutOfBoundsException`；负的`reshape`维度（单个推断的`-1`除外）抛出同一个类。`arange`在生成之前检查其元素数，数列会超出上限时抛出`Exception`。零的`arange`步长、或无法朝`stop`推进的步长，抛出`Exception`。双操作数核函数中的广播不匹配、`reshape`的形状其长度与目标秩不符、其乘积与元素数不符或其`-1`推断不整除、`transpose`的重排漏掉或重复某个轴、`broadcastTo`的目标形状源形状无法填满、`sum`的轴在数组的秩之外、`slice`的列表长度与秩不符、`concat`的操作数在秩或非`axis`维上不一致，以及对空数组调用`max`、`min`或`mean`，都抛出`Exception`；形状与长度不匹配的消息会点名两侧，轴类消息会点名轴与秩。`gather`的某个下标越过轴范围、或`oneHot`的某个标签越过类别范围，抛出`IndexOutOfBoundsException`，消息点名下标与范围；`gather`的下标个数与非轴位置个数不符，抛出`Exception`。`gather`的采集轴是零维时抛出`Exception`；零尺寸的源数组只要采集轴非零维，就采集出空结果（其非轴位置个数为零）。`uniform`的`low`大于`high`抛出`Exception`。
 
 *资料性：*诊断消息的写法形如`matmul`的`tensor.matmul: shape mismatch (2x3 vs 2x2)`、逐元素核函数的`tensor: shape mismatch (2x3 vs 2x2)`。
 

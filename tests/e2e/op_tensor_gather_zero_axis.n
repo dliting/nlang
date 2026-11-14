@@ -1,0 +1,14 @@
+// Zero-size source with a NONZERO gather axis is gatherable: the
+// non-axis position count is 0 and the empty index set gathers an
+// empty rank-1 result under the take-per-position contract. The
+// empty guard only rejects a zero gather axis — that is the shape
+// whose non-axis count would divide by zero.
+import tensor;
+
+int main() {
+    float[,] empty = float[0, 3];
+    int[] none = int[0];
+    float[] picked = tensor.gather(empty, 1, none);
+    if (picked.length() != 0) { return 1; }
+    return 42;
+}

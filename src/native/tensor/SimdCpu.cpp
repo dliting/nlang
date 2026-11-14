@@ -74,9 +74,7 @@ bool DetectAvx2() {
 }
 
 SimdTier DetectTier() {
-#if defined(NLANG_SIMD_HOST_X64)
     return DetectAvx2() ? SimdTier::Avx2 : SimdTier::Sse2;
-#endif
 }
 
 #else //non-x64 host
@@ -93,12 +91,18 @@ SimdTier ActiveSimdTier() {
     static const SimdTier cached = [] {
         const char* forced = std::getenv("NLANG_TENSOR_TIER");
         if (forced != nullptr) {
-            if (std::strcmp(forced, "avx2") == 0)
-                return SimdTier::Avx2;
-            if (std::strcmp(forced, "sse2") == 0)
-                return SimdTier::Sse2;
-            if (std::strcmp(forced, "scalar") == 0)
-                return SimdTier::Scalar;
+            const bool avx2 = std::strcmp(forced, "avx2") == 0;
+            const bool sse2 = std::strcmp(forced, "sse2") == 0;
+            const bool scalar = std::strcmp(forced, "scalar") == 0;
+            if (avx2 || sse2 || scalar) {
+                const SimdTier picked = avx2 ? SimdTier::Avx2
+                    : sse2 ? SimdTier::Sse2 : SimdTier::Scalar;
+                //A forced tier the CPU cannot execute falls back to
+                //detection — an avx2 name on a non-AVX2 host must not
+                //end in #UD.
+                return CpuSupportsSimdTier(picked) ? picked
+                                                   : DetectTier();
+            }
             //Anything else falls through to detection (test noise must
             //not select a tier).
         }

@@ -19,8 +19,10 @@ enum class SimdTier {
 
 //Process-wide active tier, cached on first use. The NLANG_TENSOR_TIER
 //environment variable (scalar|sse2|avx2) overrides the detection when
-//it names a valid tier — a test-only hook; anything else falls back to
-//the detected tier. Non-x64 builds are always Scalar.
+//it names a valid tier the host CPU can execute — a valid but
+//unsupported name falls back to the detected tier (never #UD);
+//anything else falls back to the detected tier too. Non-x64 builds are
+//always Scalar.
 SimdTier ActiveSimdTier();
 
 //Whether the HOST CPU can actually execute a tier, independent of the

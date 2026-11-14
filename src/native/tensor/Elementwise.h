@@ -38,6 +38,13 @@ T CarrierBinary(BinaryKernelOp op, T a, T b) {
     return T(0);
 }
 
+//The scalar clamp cell — one spelling for every tier's tail/stride
+//loop (the lane kernels carry the same rule in SIMD form).
+template <typename T>
+T ClampCell(bool isMax, T v, T bound) {
+    return isMax ? (v > bound ? v : bound) : (v < bound ? v : bound);
+}
+
 template <typename T>
 T ScalarUnaryLane(UnaryKernelOp op, T v) {
     //Compute in double and narrow — the same rounding the accuracy
@@ -180,9 +187,7 @@ void RunClampFlat(const NativeArrayView& v, NativeArrayView& vout,
     T* outCells = CellsOf<T>(vout);
     int64_t at = 0;
     StrideWalk(v, [&](int64_t addr) {
-        const T cur = in[addr];
-        outCells[at++] = isMax ? (cur > bound ? cur : bound)
-                               : (cur < bound ? cur : bound);
+        outCells[at++] = detail::ClampCell(isMax, in[addr], bound);
     });
 }
 
