@@ -28,8 +28,15 @@ EBNF_DEF = re.compile(r"^([A-Za-z_][A-Za-z_0-9]*)\s*=", re.M)
 #  TypeParamRests -- the spec's TypeParams writes the comma list
 #  inline ("<" <identifier> { "," <identifier> } ">"); bison factors
 #  the zero-or-more tail into its own nonterminal.
+#  ClassDeclCore / StructDeclCore / InterfaceDeclCore / EnumDeclCore --
+#  the spec writes each top-level type declaration as one rule
+#  (ClassDecl etc.); the Core suffix only factors the no-prefix body
+#  off the access-prefix wrapper, so the wrapper's action can set the
+#  access byte on the already-constructed node.
 EXEMPT = {"AccessTypeEmpty", "AccessTypeNonEmpty", "NodeFlagsNonEmpty",
-          "TypeParamRests"}
+          "TypeParamRests",
+          "ClassDeclCore", "StructDeclCore", "InterfaceDeclCore",
+          "EnumDeclCore"}
 # EBNF-only groupings: the spec factors these symbols out of parser
 # rules that inline the alternatives at their use sites; each entry
 # names where the parser spells it:

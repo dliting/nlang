@@ -1541,6 +1541,38 @@ if(NLANG_BUILD_IDE)
     endif()
     nlang_add_qtest(generic_decl_tests test_generic_decl)
 
+    # Access prefixes on top-level type declarations (0.13.8 item 5
+    # Task 2): in-process through ModuleBuilder, same shape as
+    # test_generic_decl.
+    add_executable(test_type_access_prefix
+        test_compiler/test_type_access_prefix.cpp
+    )
+    #src/compiler: builder/ModuleRegistry.h reach (same internal-header
+    #shape as test_generic_decl).
+    target_include_directories(test_type_access_prefix
+        PRIVATE
+            ${PROJECT_SOURCE_DIR}/src/compiler
+    )
+    target_link_libraries(test_type_access_prefix
+        PRIVATE
+            nlang_compiler
+            nlang_runtime
+            nlang_vm
+            Qt5::Test
+    )
+    nlang_stdlib_test(test_type_access_prefix)
+    target_compile_definitions(test_type_access_prefix
+        PRIVATE
+            STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+    )
+    if(WIN32)
+        add_custom_command(TARGET test_type_access_prefix POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:Qt5::Core> $<TARGET_FILE:Qt5::Test>
+                $<TARGET_FILE_DIR:test_type_access_prefix>)
+    endif()
+    nlang_add_qtest(type_access_prefix_tests test_type_access_prefix)
+
     # Const-aggregate declaration marker tests (v0.12.4 Task 1): the
     # `const class` / `const struct` prefix, marker propagation through
     # inheritance. Same in-process shape as test_generic_decl.

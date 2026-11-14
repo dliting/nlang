@@ -97,8 +97,8 @@ AccessType      = "private" | "protected" | "public" ;
 NodeFlag        = "const" | "static" | "virtual" | "native" ;
 NodeFlags       = NodeFlag { NodeFlag } ;
 
-ClassDecl       = "class" <identifier> TypeParamsOpt ClassInheritOpt
-                  ImplementsOpt "{" ClassMemberList "}" ;
+ClassDecl       = [ AccessType ] "class" <identifier> TypeParamsOpt
+                  ClassInheritOpt ImplementsOpt "{" ClassMemberList "}" ;
 TypeParamsOpt   = [ TypeParams ] ;
 TypeParams      = "<" <identifier> { "," <identifier> } ">" ;
 ClassInheritOpt = [ ":" TypeName ] ;
@@ -110,14 +110,15 @@ MethodDecl      = [ Type | "void" ] <identifier>
                   "(" [ FormalParamList ] ")" FunctionBodyOrSemi ;
 FieldDecl       = Type <identifier> [ "=" Expression ] ";" ;
 
-StructDecl      = "struct" <identifier> "{" StructMemberList "}" ;
+StructDecl      = [ AccessType ] "struct" <identifier>
+                  "{" StructMemberList "}" ;
 StructMemberList = StructMember { StructMember } ;
 StructMember    = StructField | StructCtor ;
 StructField     = [ AccessType ] Type <identifier> [ "=" Expression ] ";" ;
 StructCtor      = [ AccessType ] [ NodeFlags ] <identifier>
                   "(" [ FormalParamList ] ")" FunctionBodyOrSemi ;
 
-InterfaceDecl   = "interface" <identifier> TypeParamsOpt
+InterfaceDecl   = [ AccessType ] "interface" <identifier> TypeParamsOpt
                   "{" [ InterfaceMemberList ] "}" ;
 InterfaceMemberList = InterfaceMember { InterfaceMember } ;
 InterfaceMember = [ AccessType ] [ NodeFlags ]
@@ -126,7 +127,8 @@ InterfaceMember = [ AccessType ] [ NodeFlags ]
                   | ConstDecl ) ;
 ConstDecl       = Type <identifier> [ "=" Expression ] ";" ;
 
-EnumDecl        = "enum" <identifier> "{" EnumMemberList EnumMethodSection "}" ;
+EnumDecl        = [ AccessType ] "enum" <identifier> "{" EnumMemberList
+                  EnumMethodSection "}" ;
 EnumMemberList  = EnumMember { "," EnumMember } ;
 EnumMember      = <identifier> [ "=" Expression ] ;
 EnumMethodSection = [ ";" [ EnumMethodList ] ] ;
@@ -142,8 +144,10 @@ FunctionBodyOrSemi = Paragraph | ";" ;
 ```
 
 A `class` body requires at least one member; an `interface` body may
-be empty. A method declaration with no return type names a
-constructor (§4.8.6). An `out` parameter takes no default value.
+be empty. Each top-level type declaration may carry an access
+modifier, like a top-level function (§7.1). A method declaration
+with no return type names a constructor (§4.8.6). An `out` parameter
+takes no default value.
 
 ## 2.5 Statements
 

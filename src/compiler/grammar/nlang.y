@@ -352,18 +352,22 @@ static bool CollectQualifiedSegments(
 %type <v_pContinueStmt>	ContinueStmt
 %type <v_pLocalDeclList>		LocalDeclList
 %type <v_pEnumDecl>			EnumDecl
+%type <v_pEnumDecl>			EnumDeclCore
 %type <v_pEnumMember>		EnumMember
 %type <v_pEnumMemberList>	EnumMemberList
 %type <v_pEnumMethodList>	EnumMethodSection EnumMethodList
 %type <v_pFunction>		EnumMethod
 %type <v_pStructDecl>		StructDecl
+%type <v_pStructDecl>		StructDeclCore
 %type <v_pStructField>		StructField
 %type <v_pField>			StructMember
 %type <v_pFunction>		StructCtor
 %type <v_pStructMemberList>	StructMemberList
 %type <v_pClassDecl>		ClassDecl
+%type <v_pClassDecl>		ClassDeclCore
 %type <v_pStrList>			TypeParamsOpt TypeParams TypeParamRests
 %type <v_pInterfaceDecl>	InterfaceDecl
+%type <v_pInterfaceDecl>	InterfaceDeclCore
 %type <v_pNameExprList>		ImplementsOpt NameList
 %type <v_pClassMemberList>	InterfaceMemberList
 %type <v_pField>			InterfaceMember
@@ -1516,9 +1520,23 @@ DefaultCase:	{
 					$$ = new SnParagraph($3, @1);
 				} ;
 /*
-Enum type declaration.
+Enum type declaration. The access-prefix layer (0.13.8 item 5, D5.4)
+wraps every top-level type-declaration family: only AccessTypeNonEmpty
+leads — it never derives empty, so the bare core stays the no-prefix
+reading and no epsilon reduction enters the type-decl follow sets. The
+setter runs in the wrapper action because the decl node does not exist
+until its core reduces. The const-aggregate spelling stays inside the
+struct/class cores, so the single accepted sr this layer adds is the
+KT_Const shift in the access-keyword state (the ledger re-measure has
+the row).
 */
-EnumDecl:	KT_Enum TT_Identifier '{' EnumMemberList EnumMethodSection '}' {
+EnumDecl:	AccessTypeNonEmpty EnumDeclCore {
+					$2->AccessType($1);
+					$$ = $2;
+				} |
+			EnumDeclCore ;
+
+EnumDeclCore:	KT_Enum TT_Identifier '{' EnumMemberList EnumMethodSection '}' {
 					$$ = new SnEnumDecl($2, $4, $5, @1);
 				} ;
 
@@ -1585,9 +1603,15 @@ EnumMethod:	AccessType Type TT_Identifier '(' FormalParamList ')' FunctionBodyOr
 			} ;
 
 /*
-Struct type declaration.
+Struct type declaration. Access-prefix wrapper per the EnumDecl comment.
 */
-StructDecl:	KT_Struct TT_Identifier '{' StructMemberList '}' {
+StructDecl:	AccessTypeNonEmpty StructDeclCore {
+					$2->AccessType($1);
+					$$ = $2;
+				} |
+			StructDeclCore ;
+
+StructDeclCore:	KT_Struct TT_Identifier '{' StructMemberList '}' {
 					$$ = new SnStructDecl($2, $4, @1);
 				} |
 			//v0.12.4 D1: const-aggregate prefix (const struct) — a
@@ -1696,9 +1720,15 @@ StructCtor:	TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
 
 
 /*
-Class type declaration.
+Class type declaration. Access-prefix wrapper per the EnumDecl comment.
 */
-ClassDecl:	KT_Class TT_Identifier TypeParamsOpt ClassInheritOpt ImplementsOpt '{' ClassMemberList '}' {
+ClassDecl:	AccessTypeNonEmpty ClassDeclCore {
+					$2->AccessType($1);
+					$$ = $2;
+				} |
+			ClassDeclCore ;
+
+ClassDeclCore:	KT_Class TT_Identifier TypeParamsOpt ClassInheritOpt ImplementsOpt '{' ClassMemberList '}' {
 					auto* pClass = new SnClassDecl($2, $4, $7, @1);
 					if ($5)
 						for (auto *pNode : *$5)
@@ -1870,9 +1900,15 @@ static member may carry a body (resolver-enforced). An interface
 establishes a contract that implementing classes must satisfy. The
 optional type-parameter list (0.13.1c) mirrors the ClassDecl shape:
 declaration context only, so the leading '<' has no competing
-production.
+production. The access-prefix wrapper follows the EnumDecl comment.
 */
-InterfaceDecl:	KT_Interface TT_Identifier TypeParamsOpt '{' InterfaceMemberList '}' {
+InterfaceDecl:	AccessTypeNonEmpty InterfaceDeclCore {
+						$2->AccessType($1);
+						$$ = $2;
+					} |
+				InterfaceDeclCore ;
+
+InterfaceDeclCore:	KT_Interface TT_Identifier TypeParamsOpt '{' InterfaceMemberList '}' {
 					auto* pIface = new SnInterfaceDecl($2, $5, @1);
 					if ($3)
 						pIface->SetTypeParamNames(std::move(*$3));
@@ -2175,6 +2211,30 @@ AccessType:	KT_Private  	{ $$ = FA_Private;      } |
 //compare against this ledger and never bump it silently. State numbers
 //are those of the current .output; they shift with every grammar
 //change, so the whole list is re-derived at each re-measure.
+//Re-measured 2026-11-15 (cross-module completion Task 2, bison 3.8.2).
+//Two corrections first, both found while verifying this re-measure:
+//(1) the true merge (14e824dd, 2026-11-14) moved the totals 29/3 to
+//32/5 (+3 sr, +2 rr) without a ledger entry — verified by regenerating
+//the .output at 073a3538 (29/3 exact, so the 2026-11-13 entry held)
+//and at 14e824dd (32/5). The three new families are master-side
+//v0.13.7-era arms the merge brought over: the const-flagged top-level
+//header (`const T name(` — +1 sr +2 rr), the generic-header
+//empty-parens shape (`f<T>(` — +1 sr), and the plain-'<' arm in `as`
+//position splitting out of the direct-init family (+1 sr); the
+//v0.12.7 comma-index rows stay absent. (2) the itemized list had also
+//gone stale on its own: the totals moved twice since the 2026-11-02
+//re-derivation (v0.12.7's -2 among them) without the list being
+//re-derived, so its rows no longer summed to the header. The list is
+//re-derived below in full from the current .output. Task 2's own
+//change — the access-prefix wrapper layer on the four top-level
+//type-decl families — adds ZERO conflicts (32/5 before, 32/5 after,
+//identical conflict-shape multiset): AccessTypeNonEmpty's reduce sits
+//in an isolated single-item state (state 55), so it reduces by
+//default before any continuation token is ever seen; every
+//continuation lives in the GOTO states on AccessTypeNonEmpty (87
+//top-level, 467 struct-body) where only shifts compete; and since an
+//elaborated type spelling after an access prefix (`private Box<int>`)
+//is not in the language, no '<' FOLLOW ever reaches those states.
 //- state 12 (2): the top-level boundary vs AccessTypeEmpty's epsilon
 //  reduce. v0.9.1's `const` member: `const int x = 5;` lives (shift
 //  opens the statement) and `const int f(){}` is rejected. v0.12.6's
@@ -2183,40 +2243,45 @@ AccessType:	KT_Private  	{ $$ = FA_Private;      } |
 //  placement contract then rejects it), while a `static`-flagged
 //  top-level function header is unparseable — the pre-declared cost
 //  of putting KT_Static in FIRST(Statement), zero corpus hits.
-//- states 115/134 (1 each): the '<' shapes in head position — an
+//- states 124/144 (1 each): the '<' shapes in head position — an
 //  explicit generic type head (`Box<int> b;`) and the void-return func
 //  spellings, on the plain-'<' arms. Shift keeps the generic reading;
 //  the comparison reading loses only in these head states — never in
 //  pure expression states (the anchored literal holds OT_TypeLt).
-//- state 286 (2): catch/finally after a nested `try` statement — the
+//- state 325 (2): catch/finally after a nested `try` statement — the
 //  dangling-clause shape; shift binds the clause to the innermost try.
-//- state 303 (1 sr + 2 rr): after `T name(`, ')' shifts to the explicit
+//- states 344/441 (1 sr + 2 rr each): after `T name(` — and, one
+//  keyword earlier, after `const T name(` — ')' shifts to the explicit
 //  empty-parens arm, and FormalParamList's vs ConcreteParamList's empty
 //  productions both reduce on ')' and ',' — the function header wins
 //  (earlier-declared rule), so a bodyless bare `T name();` is always a
 //  construction, never a declaration; forward declarations carry the
-//  explicit `func` marker for that reason.
-//- states 308/309 (1 each, added with TypeName): ':' / `as` followed by
+//  explicit `func` marker for that reason. The 441 twin arrived with
+//  the merge (master's const-flagged top-level header arms).
+//- states 350/351 (1 each, added with TypeName): ':' / `as` followed by
 //  a dotted type name — '.' shifts to continue the chain, the default
 //  reduces TypeName. Nothing may follow a type name with '.', so the
 //  default is the intended reading.
-//- states 327/379 (1 each, added with 0.11.2's comma index lists): in a
-//  comma-index/subscript-assign context, ']' shifts to the subscript-
-//  assign reading instead of reducing a bare ConcreteParam expression.
-//- states 377/394 (1 each, added with 0.9.15): the empty-parens shape
+//- state 353 (1): '<' in `as` position — NameExpr vs the AsGenericTarget
+//  plain-'<' arm; shift keeps the generic-cast reading. Arrived with
+//  the merge, when the as-generic family split out of the state 504
+//  parent.
+//- states 445/458 (1 each, added with 0.9.15): the empty-parens shape
 //  on the body-context first declarator (`T name();` inside a body)
 //  and the top-level header alone — ')' shifts to the explicit empty
-//  arm; same reading as state 293.
-//- state 442 (1 sr + 1 rr): NameExpr vs Expression on '.'/'<' after a
+//  arm; same reading as the state 344 family.
+//- state 504 (1 sr + 1 rr): NameExpr vs Expression on '.'/'<' after a
 //  top-level direct-init first argument — NameExpr wins, so
 //  `T name(a.b);` fails cleanly on the type path; the workaround is
 //  `T name = T(a.b);`. Function bodies are unaffected.
-//- state 555 (1, added with 0.10.7 D1): the same empty-parens shape on
-//  a continuation declarator — after `T a, b(`, ')' shifts to the
-//  explicit empty-parens continuation arm; `T a, b();` is a zero-
-//  argument construction, same reading as the first arm.
-//- state 698 (16, renumbered from 677→678 by v0.12.1 and again by
-//  v0.12.6's re-derive): ClassMember's
+//- states 508/648 (1 each): the same empty-parens shape on a generic
+//  header (`f<T>(` — arrived with the merge's declared-generics line)
+//  and on a continuation declarator (added with 0.10.7 D1) — after
+//  `T a, b(`, ')' shifts to the explicit empty-parens continuation
+//  arm; `T a, b();` is a zero-argument construction, same reading as
+//  the first arm.
+//- state 826 (16, renumbered 677→678→698 by v0.12.1/v0.12.6 and again
+//  here): ClassMember's
 //  NodeFlag-singular vs
 //  NodeFlagsNonEmpty-plural productions overlap on the flag/type first
 //  tokens — both derivations parse the same member; shift keeps reading

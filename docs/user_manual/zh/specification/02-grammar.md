@@ -75,8 +75,8 @@ AccessType      = "private" | "protected" | "public" ;
 NodeFlag        = "const" | "static" | "virtual" | "native" ;
 NodeFlags       = NodeFlag { NodeFlag } ;
 
-ClassDecl       = "class" <identifier> TypeParamsOpt ClassInheritOpt
-                  ImplementsOpt "{" ClassMemberList "}" ;
+ClassDecl       = [ AccessType ] "class" <identifier> TypeParamsOpt
+                  ClassInheritOpt ImplementsOpt "{" ClassMemberList "}" ;
 TypeParamsOpt   = [ TypeParams ] ;
 TypeParams      = "<" <identifier> { "," <identifier> } ">" ;
 ClassInheritOpt = [ ":" TypeName ] ;
@@ -88,14 +88,15 @@ MethodDecl      = [ Type | "void" ] <identifier>
                   "(" [ FormalParamList ] ")" FunctionBodyOrSemi ;
 FieldDecl       = Type <identifier> [ "=" Expression ] ";" ;
 
-StructDecl      = "struct" <identifier> "{" StructMemberList "}" ;
+StructDecl      = [ AccessType ] "struct" <identifier>
+                  "{" StructMemberList "}" ;
 StructMemberList = StructMember { StructMember } ;
 StructMember    = StructField | StructCtor ;
 StructField     = [ AccessType ] Type <identifier> [ "=" Expression ] ";" ;
 StructCtor      = [ AccessType ] [ NodeFlags ] <identifier>
                   "(" [ FormalParamList ] ")" FunctionBodyOrSemi ;
 
-InterfaceDecl   = "interface" <identifier> TypeParamsOpt
+InterfaceDecl   = [ AccessType ] "interface" <identifier> TypeParamsOpt
                   "{" [ InterfaceMemberList ] "}" ;
 InterfaceMemberList = InterfaceMember { InterfaceMember } ;
 InterfaceMember = [ AccessType ] [ NodeFlags ]
@@ -104,7 +105,8 @@ InterfaceMember = [ AccessType ] [ NodeFlags ]
                   | ConstDecl ) ;
 ConstDecl       = Type <identifier> [ "=" Expression ] ";" ;
 
-EnumDecl        = "enum" <identifier> "{" EnumMemberList EnumMethodSection "}" ;
+EnumDecl        = [ AccessType ] "enum" <identifier> "{" EnumMemberList
+                  EnumMethodSection "}" ;
 EnumMemberList  = EnumMember { "," EnumMember } ;
 EnumMember      = <identifier> [ "=" Expression ] ;
 EnumMethodSection = [ ";" [ EnumMethodList ] ] ;
@@ -119,7 +121,7 @@ FormalParam     = [ NodeFlags ]
 FunctionBodyOrSemi = Paragraph | ";" ;
 ```
 
-`class`体要求至少一个成员；`interface`体可以为空。不带返回类型的方法声明命名一个构造器（§4.8.6）。`out`参数不接受默认值。
+`class`体要求至少一个成员；`interface`体可以为空。顶层类型声明可带访问修饰符，与顶层函数一致（§7.1）。不带返回类型的方法声明命名一个构造器（§4.8.6）。`out`参数不接受默认值。
 
 ## 2.5 语句
 
