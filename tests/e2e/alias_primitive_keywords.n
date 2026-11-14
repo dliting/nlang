@@ -24,7 +24,7 @@ int main()
         return 15;
     if (f64 <= 2.0 || f64 >= 3.0)
         return 16;
-    //typeName folds to the canonical spellings.
+    //typeName folds to the canonical names.
     if (typeName(int8) != "byte" || typeName(int16) != "short")
         return 17;
     if (typeName(int32) != "int" || typeName(int64) != "long")

@@ -194,7 +194,7 @@ void NetFromBytes(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
 // from the text (host "::" opens a dual-stack listener: NetBind
 // clears IPV6_V6ONLY for it); port 0 is system-assigned and read back
 // through _tcpLocalPort. Migrated from the VM intrinsic (task 6): the
-// Raise became the R10 code + last-error text; the script mints the
+// Raise became the R10 code + last-error text; the script creates the
 // TcpListener object around the returned slot handle.
 void TcpBind(NativeHost* h, uint8_t* ret, const uint8_t* a, int argc) {
     NetExecState* st = NetState(h);
@@ -232,7 +232,7 @@ void TcpBind(NativeHost* h, uint8_t* ret, const uint8_t* a, int argc) {
     int32_t handle = 0;
     {
         std::lock_guard<std::mutex> g(st->m_mutex);
-        handle = st->m_slots.Mint(fd, kNetKindTcpListener);
+        handle = st->m_slots.Create(fd, kNetKindTcpListener);
     }
     ReturnInt(ret, handle);
 }

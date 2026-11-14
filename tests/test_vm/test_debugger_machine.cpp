@@ -545,7 +545,7 @@ void test_machine_contexts_and_focus()
     CHECK(wire.find("stopped\tbreakpoint\t1\trun\t" + escaped
             + "\t6\t1\t1\t1\n") != std::string::npos,
         "the bp stop identifies the worker as context 1 (methods report "
-        "their bare name)");
+        "their unqualified name)");
     CHECK(wire.find("context\t0\tparked-chan-recv\t-1\tmach_ctx.main\t"
             + escaped + "\t14\n") != std::string::npos,
         "contexts lists the parked main (no carrier holds it)");

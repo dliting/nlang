@@ -172,7 +172,7 @@ void VmExecutor::MarkContextResultCell(const ExecutionContext* ctx,
                                        std::vector<int32_t>& worklist) {
     //Promise contexts: complete(T)'s value came through an erased
     //signature, so no resultKind classification exists (spawn's
-    //returnTypeKind snapshot has no equivalent at a promise mint). The
+    //returnTypeKind snapshot has no equivalent at a promise create). The
     //conservative both-domain test covers every T; it over-marks at
     //worst (the live-context arm's discipline) and the scan runs at the
     //quiescent rendezvous, so no torn read.
@@ -325,7 +325,7 @@ void VmExecutor::MarkSchedulerRoots(std::vector<int32_t>& worklist) {
 //cell — their contents exist only after entry (the ret cell is written
 //by the native itself), so only an address can see the final values;
 //argument cells are immutable past the entry copy (const in the ABI).
-//The value form covers handles minted by re-entrant NativeHost
+//The value form covers handles created by re-entrant NativeHost
 //callbacks during the blocking section. K8: registry mutations take
 //the root-registry leaf mutex (K7's GIL serialization died with the
 //lock-free allocation paths), and a blocking-native carrier sits
@@ -343,7 +343,7 @@ void VmExecutor::MarkNativeCallRoots(std::vector<int32_t>& worklist) {
                 TestRootValue(val, worklist);
             }
         } else {
-            //Value form (RootMintedNativeHandle): the minted handle lives
+            //Value form (RootCreatedNativeHandle): the created handle lives
             //only in the native's C++ local until the native writes it
             //into the staged ret cell, so the registry carries the value
             //itself. TestRootValue ignores the 0 of address-form entries.

@@ -41,7 +41,7 @@ void ExprResolveAccessor::TryResolveBuiltinClassName(
 
 //0.13.1c instantiation gate (see ExprResolver.h): an abstract class
 //allocates no object; the first obligation (outermost ancestor first)
-//names the fix. Minted generic instantiations carry the template's
+//names the fix. Created generic instantiations carry the template's
 //abstract members and share its superclass, so the same query covers
 //them. The flags the walk reads are grammar-time, so the answer is
 //independent of class resolution order.
@@ -179,7 +179,7 @@ void ExprResolveAccessor::Access(SnNewArrayExpr &sn)
 	BindArrayTypeToken(sn);
 }
 
-//0.9.0 (Phase A): resolve a bare name to a class or struct the way
+//0.9.0 (Phase A): resolve an unqualified name to a class or struct the way
 //Access(SnNewExpr&) resolves its type name (builtin table first, then
 //the scope chain), but as a silent probe — a miss must not add a second
 //diagnostic next to the caller's own failure text. Null = the name does

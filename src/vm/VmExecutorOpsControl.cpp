@@ -21,7 +21,7 @@ void VmExecutor::OpAssertFail(BytecodeReader& reader) {
     uint16_t msgIdx = reader.ReadUint16();
     std::string msg = "assertion failed";
     //K8: lock-free — the constant cache is read-only after run setup,
-    //and StrVal's reference is stable across concurrent mints (chunked
+    //and StrVal's reference is stable across concurrent creations (chunked
     //storage, flatten self-locks). The raise runs with no domain held.
     if (msgIdx < m_constStrCache.size()) {
         const std::string& s = StrVal(m_constStrCache[msgIdx]);
@@ -201,7 +201,7 @@ void VmExecutor::RequestPark(ParkSignal::Reason reason) {
 //backtrace step (VmExecutor.cpp), placed here with the exception-
 //formatting family. Caller contract: the Container domain lock is held
 //by BuildNlangException's DomainGuard for the whole build.
-int32_t VmExecutor::MintBacktraceList() {
+int32_t VmExecutor::CreateBacktraceList() {
     //Allocate a List<string> and push one entry per active call frame,
     //innermost-first.
     int32_t listHeapIdx = -1;
@@ -217,7 +217,7 @@ int32_t VmExecutor::MintBacktraceList() {
         for (auto it = EvalStack().rbegin(); it != EvalStack().rend(); ++it) {
             //v0.8.5: real per-frame source file (same helper/format as
             //FormatBacktrace — the two surfaces must not drift). The
-            //mint/box/store tail is the existing code, unchanged.
+            //create/box/store tail is the existing code, unchanged.
             const std::string frame = FormatBacktraceFrame(
                 it->func ? it->func->name : std::string("<unknown>"),
                 it->func ? it->func->sourceFile : std::string(),
@@ -225,7 +225,7 @@ int32_t VmExecutor::MintBacktraceList() {
             //Box the string so the List element is a real RTK_Boxed
             //record — the old raw pool index made e.backtrace.get(i)
             //raise "unbox on null/invalid reference".
-            int32_t frameHandle = MintNewString(frame);
+            int32_t frameHandle = CreateNewString(frame);
             int32_t boxed = AllocBoxedValue(RTK_String, frameHandle);
             m_listStore[static_cast<size_t>(handle) - 1].elements.push_back(boxed);
         }

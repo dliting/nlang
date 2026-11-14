@@ -208,7 +208,7 @@ public:
     std::vector<std::string> m_warnings;
 };
 
-//One real build mints the Sn mirrors for every registered primitive
+//One real build creates the Sn mirrors for every registered primitive
 //(BuildFromRuntime walks the global namespace, which StaticInit filled
 //with all 13 Rn type singletons). The builder must OUTLIVE the test
 //assertions: ~ModuleBuilder clears TheAST(), taking the mirrors with

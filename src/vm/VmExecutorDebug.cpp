@@ -175,11 +175,11 @@ DebugFrameInfo VmExecutor::FrameInfo(int contextId, size_t depth) const {
     const auto& frame = (*frames)[frames->size() - 1 - depth];
     if (frame.func) {
         //D13: the table key IS the display name — free functions show as
-        //"<package>.<name>" since phase 5, methods keep bare names.
+        //"<package>.<name>" since phase 5, methods keep unqualified names.
         info.funcName = frame.func->name;
         info.sourceFile = frame.func->sourceFile;
         //funcIdx for the ndb `x` command (disassembly needs the
-        //CompiledFunction; bare names can collide across classes).
+        //CompiledFunction; unqualified names can collide across classes).
         if (m_currModule)
             info.funcIdx = static_cast<uint16_t>(
                 frame.func - m_currModule->functions.data());

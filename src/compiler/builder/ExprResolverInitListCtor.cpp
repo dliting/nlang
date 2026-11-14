@@ -112,7 +112,7 @@ void ExprResolveAccessor::CheckClassCtorForInitList(SnInitListExpr &sn,
     }
     else if (pClassDecl->IsGenericInstantiation())
     {
-        //Declared-template instances mint no implicit ctor: a
+        //Declared-template instances create no implicit ctor: a
         //constructor-less template (Future) is not constructible from
         //{} — the same verdict as new Future<...>().
         m_Env.Log(CLL_Error, sn.Location(),

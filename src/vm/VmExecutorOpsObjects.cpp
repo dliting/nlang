@@ -120,7 +120,7 @@ void VmExecutor::OpStoreStatic(BytecodeReader& reader, uint8_t* locals) {
         m_staticSlots.MarkSlotInitialized(slotIdx);
 }
 
-//The recipe-composition family (ComposeInstDescriptor and friends, the
+//The composition-composition family (ComposeInstDescriptor and friends, the
 //typeName arms) lives in VmExecutorOpsDescriptor.cpp — the 500-line
 //source guard split when typeName landed here.
 
@@ -139,7 +139,7 @@ void VmExecutor::OpNew(BytecodeReader& reader, uint8_t* locals) {
         instDesc = m_descCache[descIdx];
         if (!instDesc)
             instDesc = ComposeInstDescriptor(
-                m_currModule->descriptorTable[descIdx].recipe);
+                m_currModule->descriptorTable[descIdx].composition);
     }
     int32_t heapIdx = AllocClassOnHeap(classIdx, instDesc);
     std::memcpy(locals + dst, &heapIdx, sizeof(heapIdx));
@@ -270,7 +270,7 @@ bool VmExecutor::ClassMatchesTarget(int32_t actualClassIdx,
 }
 
 //v0.13.1 D5: resolve a cast's descriptor row to its target descriptor —
-//static rows are pre-interned in m_descCache; a recipe row (a T-argument
+//static rows are pre-interned in m_descCache; a composition record row (a T-argument
 //target) composes against the executing frame's context cell exactly
 //like OP_New.
 GenericInstDescriptor* VmExecutor::CastTargetDescriptor(
@@ -280,7 +280,7 @@ GenericInstDescriptor* VmExecutor::CastTargetDescriptor(
             "NLang VM: invalid descriptor index in OP_CheckCast");
     if (!m_descCache[descIdx])
         return ComposeInstDescriptor(
-            m_currModule->descriptorTable[descIdx].recipe);
+            m_currModule->descriptorTable[descIdx].composition);
     return m_descCache[descIdx];
 }
 

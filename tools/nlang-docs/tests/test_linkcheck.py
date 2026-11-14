@@ -166,7 +166,7 @@ def test_check_without_config_still_runs_link_rules(tmp_path, capsys):
 
 
 def test_check_finds_nav_config_in_cwd(tmp_path, capsys, monkeypatch):
-    #cli check falls back to the CWD's mkdocs.yml (the cmake recipe
+    #cli check falls back to the CWD's mkdocs.yml (the CMake build
     #runs from the repo root, where it lives).
     site = make_site(tmp_path / "site", {"index.html": "<p></p>",
                                          "orphan.html": "<p></p>"})

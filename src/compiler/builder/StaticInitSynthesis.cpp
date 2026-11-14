@@ -105,7 +105,7 @@ void SynthesizeOneClass(SnClassDecl& decl)
 //the SAME class reads the not-yet-stored slot (the silent zero D12
 //eliminates). Bare and Class.member spellings are diagnosable here by
 //spelling — the initializer expression has no locals to shadow the
-//field, and class-member names are unique, so a bare name matching a
+//field, and class-member names are unique, so an unqualified name matching a
 //later static field can only resolve to it. Indirection through calls
 //is the runtime init-bit layer's job (the cycle probe).
 void ReportForwardRef(BuildEnvironment& env, const std::string& name,

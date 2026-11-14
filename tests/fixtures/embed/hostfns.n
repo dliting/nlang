@@ -28,7 +28,7 @@ string useShoutedEmpty() {
     return shouted("");
 }
 
-//Empty-string RESULT from a host function: the host bridge mints a live
+//Empty-string RESULT from a host function: the host bridge creates a live
 //object for "" (never handle 0), so the call yields "" instead of
 //tripping the native-boundary "returned null string" check (ruling D27).
 string useHostEmpty() {

@@ -139,7 +139,7 @@ static FunctionSlotHit ResolveMethodRecord(const CompiledModule& tgt,
 //属主键分支（方法/构造器）：先按限定键定位属主类型（FindOwnerType），
 //再类型内消歧。0.9.12 D-new-8：ownerOrdinal 对两类记录都是权威选择器
 //——构造器定址属主的 constructorIndices，方法/静态方法走
-//ResolveMethodRecord（同名同参重载无法靠名＋形参数单选）。表键保持裸名，
+//ResolveMethodRecord（同名同参重载无法靠名＋形参数单选）。表键保持非限定名，
 //属主键只活在槽记录里。
 static FunctionSlotHit ResolveOwnerKeyedFunction(
     const CompiledModule& tgt, const CompiledModule::SymbolImport& imp) {
@@ -150,9 +150,9 @@ static FunctionSlotHit ResolveOwnerKeyedFunction(
     if (!FindOwnerType(tgt, imp, tc, ts))
         return r;
     r.ownerClassFound = true;
-    //构造器/方法判别：生产侧以"裸名＝属主类型名且非静态"识别构造器
+    //构造器/方法判别：生产侧以"非限定名＝属主类型名且非静态"识别构造器
     //（同名静态是方法，0.9.10 D2.4），槽记录照同一规则判别——imp.name
-    //是裸表键，属主限定键的末段即类型裸名。
+    //是非限定表键，属主限定键的末段即类型非限定名。
     const std::string ownerBare = imp.ownerClassKey.substr(
         imp.ownerClassKey.find_last_of('.') + 1);
     if (imp.isStatic || imp.name != ownerBare) {

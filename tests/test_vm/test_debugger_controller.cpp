@@ -237,7 +237,7 @@ void test_controller_break_by_func()
 void test_controller_funcbp_all_same_name()
 {
     //One id covers every same-named function's first statement (methods
-    //on different classes share the bare-name pool): both methods hit,
+    //on different classes share the unqualified-name pool): both methods hit,
     //both hits report the same id.
     TEST(controller_funcbp_all_same_name);
     BuildOutcome b = buildSource("ctrl_funcbp",

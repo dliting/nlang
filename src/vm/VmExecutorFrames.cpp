@@ -43,7 +43,7 @@ void StageFrameParams(CallFrame& fr, const CompiledFunction& callee,
 
 //0.13.1a: resolve the generic frame's descriptor cell BEFORE the push —
 //the compose path reads the executing frame's context cell (the caller
-//must still be the executing frame here) and a malformed recipe throws
+//must still be the executing frame here) and a malformed composition throws
 //without leaving a partial frame on the stack. The interned pool is
 //host memory and never collected, so the resolved pointer is stable
 //across the safepoint below and every later collection. Three-source
@@ -71,7 +71,7 @@ const GenericInstDescriptor* VmExecutor::ResolveFrameInstDesc(
 //descIdx/receiverHeapIdx fill the generic record's frame descriptor
 //cell (0.13.1a): receiver head wins, kInstDescForwardCaller inherits
 //the caller's own cell, a table index composes against the caller's
-//frame (recipe rows read the caller context). Non-generic records
+//frame (composition record rows read the caller context). Non-generic records
 //skip the whole rule — one flag test, zero fill.
 uint8_t* VmExecutor::PushFrameCore(const CompiledFunction& callee,
     uint16_t callParamBase, uint32_t outMask, uint8_t outShift,

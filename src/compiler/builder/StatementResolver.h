@@ -220,7 +220,7 @@ private:
 	void CheckCtorDeclarationContract(SnFunction &sn);
 	//v0.13.0 D5: the modifier contract — NF_Const has no meaning on a
 	//function (functions are not rebindable; const-aggregates are a type
-	//concept). Names the rule for every minted function (public spellings,
+	//concept). Names the rule for every created function (public spellings,
 	//class members, semi declarations); the bare top-level spellings are
 	//named by the grammar's TopItem diagnostic arms. Definition in
 	//StatementResolverDecls.cpp.

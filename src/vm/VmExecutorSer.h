@@ -1,7 +1,7 @@
 /*---
     VmExecutorSer.h — struct/class 序列化模板（唯一定义，内部头文件）。
     从 VmExecutor.cpp 抽取（2026-09-26 可维护性重构，零行为变化）。
-    模板以调用点局部 lambda 为类型参数，实例化只能发生在消费方 TU 内，
+    模板以调用点局部 lambda 为类型参数，实例化只能发生在使用方 TU 内，
     故定义放头文件：VmExecutorIntrinsics.cpp（及后续流域 TU）include 本文件。
 ---*/
 #pragma once
@@ -38,7 +38,7 @@ int32_t VmExecutor::ReadStringBody(Reader&& read)
     std::string s(static_cast<size_t>(len), '\0');
     if (len > 0)
         read(reinterpret_cast<uint8_t*>(&s[0]), static_cast<size_t>(len));
-    return MintNewString(std::move(s));
+    return CreateNewString(std::move(s));
 }
 
 //Phase 8b struct serialization helpers.
@@ -263,7 +263,7 @@ void VmExecutor::SerializeClassFields(int32_t heapIdx,
 
     //Write/read same-source (phase 5): the name in the stream IS the
     //table key. v0.13.1 D3: the head also carries the instantiation
-    //descriptor as its canonical spelling (VmExecutorSerInstDesc.h).
+    //descriptor as its canonical name (VmExecutorSerInstDesc.h).
     WriteClassRefHead(cc.name, InstDescriptorOf(heapIdx),
         std::forward<Writer>(write));
 

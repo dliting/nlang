@@ -63,7 +63,7 @@ void RemapFragmentLocations(SyntaxNode &node, const ScriptLocation &spanStart,
 		shift(pLoc->m_nEndLine, pLoc->m_nEndCol);
 		pLoc->m_pTransUnit = spanStart.m_pTransUnit;
 		//ToString prefers the snapshot name over the unit pointer, and the
-		//fragment mints snapshot the scratch file — re-point at the real
+		//fragment creating snapshots the scratch file — re-point at the real
 		//file or every spliced diagnostic would name __rescue_span.n.
 		pLoc->m_sFileName = spanStart.m_sFileName;
 	}
@@ -72,7 +72,7 @@ void RemapFragmentLocations(SyntaxNode &node, const ScriptLocation &spanStart,
 			spanStart, prefixLen);
 }
 
-//The wrapper source mints exactly one call of this name.
+//The wrapper source creates exactly one call of this name.
 SnInvokeExpr *FindRescueTargetCall(SyntaxNode *pNode)
 {
 	if (!pNode)

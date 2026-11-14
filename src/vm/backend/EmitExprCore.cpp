@@ -403,7 +403,7 @@ void VmBackend::Access(SnThisExpr& expr) {
 //the receiver descriptor's argument (OP_TypeNameArg, the ordinal is
 //the declared parameter position); anything else containing a type
 //parameter (an instantiation like Box<T>, or an array T[]) composes
-//from a recipe row (OP_TypeNameCompose).
+//from a composition record row (OP_TypeNameCompose).
 void VmBackend::Access(SnTypeNameExpr& expr) {
     BytecodeEmitter& emitter = *m_pCurrEmitter;
     const uint16_t resultOffset = m_resultOffset;
@@ -421,11 +421,11 @@ void VmBackend::Access(SnTypeNameExpr& expr) {
         emitter.EmitByte(expr.TypeParamOrdinal());
         return;
     }
-    const uint16_t recipeIdx = RecipeIndexFor(*expr.TypeRef()->Field());
-    NLANG_ASSERT(recipeIdx != kNoInstDescriptor);
+    const uint16_t compositionIdx = CompositionIndexFor(*expr.TypeRef()->Field());
+    NLANG_ASSERT(compositionIdx != kNoInstDescriptor);
     emitter.Emit(OpCode::OP_TypeNameCompose);
     emitter.EmitUint16(resultOffset);
-    emitter.EmitUint16(recipeIdx);
+    emitter.EmitUint16(compositionIdx);
 }
 
     // New array expression: new T[size]

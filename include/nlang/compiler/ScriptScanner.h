@@ -211,7 +211,7 @@ public:
 	//after an identifier is genuinely ambiguous (comparison vs
 	//spelling) — no parser state can split it. So an identifier that is
 	//immediately followed by a balanced <...> whose terminator is '.'
-	//or '(' (exactly the two shapes the grammar mints: static member
+	//or '(' (exactly the two shapes the grammar creates: static member
 	//call, constructor call) arms a one-shot flag and the following '<'
 	//arrives as OT_TypeLt, distinct from the comparison opener by
 	//construction; a call whose arguments are comparisons colliding

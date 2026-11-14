@@ -1,7 +1,7 @@
 // test_module_state.cpp — per-executor module state for the nlang_net
 // module (net library design §6, rulings D8/R8): the socket slot table
 // lives in the executor's moduleState slot, not in process-global
-// storage. Two live executors in one process mint independent handles
+// storage. Two live executors in one process create independent handles
 // (each first bind returns handle 1), and an executor's teardown closes
 // its still-open fds so the next executor can rebind the port (the D12
 // backstop). Real compiler, real bytecode, real sockets — no mocks.
@@ -130,9 +130,9 @@ int main() {
     }
 
     CHECK(codeA > 0 && codeA % 8 == 1,
-          "executor A: first bind mints handle 1");
+          "executor A: first bind creates handle 1");
     CHECK(codeB > 0 && codeB % 8 == 1,
-          "executor B: first bind mints handle 1 (independent tables)");
+          "executor B: first bind creates handle 1 (independent tables)");
     const int portA = codeA > 0 ? codeA / 8 : 0;
     const int portB = codeB > 0 ? codeB / 8 : 0;
     CHECK(portA > 0 && portB > 0 && portA != portB,

@@ -6,7 +6,7 @@
     registers the very same native as _tcpRead — a datagram arriving
     on a UDP socket is readable data, and the loop never inspects the
     slot kind. The last recvFrom source is stashed on the slot
-    (lastPeerAddress/lastPeerPort) so the script wrapper can mint its
+    (lastPeerAddress/lastPeerPort) so the script wrapper can create its
     out params after the receive completed (R2).
 
     Error contract is the TCP one (R10): closed slot -1, timeout -2,
@@ -97,7 +97,7 @@ void NetUdpBind(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     }
     int32_t handle = 0;
     {   std::lock_guard<std::mutex> g(st->m_mutex);
-        handle = st->m_slots.Mint(fd, kNetKindUdp);   }
+        handle = st->m_slots.Create(fd, kNetKindUdp);   }
     ReturnInt(ret, handle);
 }
 

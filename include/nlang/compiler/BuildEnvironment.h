@@ -165,7 +165,7 @@ public:
 	}
 
 	//0.7.3 B: TU-level array token interning. Single construction
-	//entry — element field → array token; the first use mints, later
+	//entry — element field → array token; the first use creates, later
 	//uses share, so token pointer equality is type equality
 	//(hash-consing). Lifetime = this environment (one translation
 	//unit); tokens are never freed early.

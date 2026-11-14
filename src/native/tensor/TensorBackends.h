@@ -85,7 +85,7 @@ struct KernelOps {
     void (*addIntoF64)(double* acc, const double* row, int64_t count);
     //MatMul family: dense row-major C[rows, cols] = A[rows, inner] ·
     //B[inner, cols], ACCUMULATED into out — the caller passes zeroed
-    //storage (the driver mints fresh zeroed arrays; the scalar loop
+    //storage (the driver creates fresh zeroed arrays; the scalar loop
     //has always read back outCells while accumulating). Kernels may
     //overwrite or read-modify-write out cells, never other memory.
     //rows/inner/cols == 0 yields no work. Ints wrap like language int

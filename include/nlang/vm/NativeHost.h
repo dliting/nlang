@@ -42,7 +42,7 @@ extern "C" {
 // Version 6: the array-payload side — getArrayView (a pinned view of a
 // heap array record's cells: dims/strides/elemKind + the raw payload
 // pointer, valid for the duration of the call; the GC is non-moving and
-// the argument record is rooted for the call) and newArray (mint a
+// the argument record is rooted for the call) and newArray (create a
 // scalar-element array). The exception selector gained the
 // NullPointer/OutOfBounds/DivideByZero families so native code raises
 // the same catchable classes the language runtime does. Version 7:
@@ -53,13 +53,13 @@ extern "C" {
 // the header (kMaxArrayRank moved to runtime/Config.h) and rose 8 -> 64,
 // so stridesInline widened to match (the view is stack-allocated; dims
 // still points into the record and grows nothing). Version 9: newArrayShaped
-// (mint an ND array from explicit dims) joined the table so matrix-family
-// kernels can mint [rows, cols] and beyond; newArray stays rank-1.
+// (create an ND array from explicit dims) joined the table so matrix-family
+// kernels can create [rows, cols] and beyond; newArray stays rank-1.
 // Version 10: the array-view side — NativeArrayView gained `offset`
 // (element units, matching strides; owning arrays report 0), getArrayView
 // accepts view records (filling from the record's strides/offset instead
 // of recomputing row-major ones; owning records keep the computed shape),
-// and newArrayView mints a view over an existing array handle with the
+// and newArrayView creates a view over an existing array handle with the
 // same validation the language's view creation applies. Version 11: the
 // IO-parking and work-pool side — nowMs (monotonic clock, same domain as
 // the park deadlines), parkForIo (register interest, unwind, re-enter on
@@ -109,12 +109,12 @@ enum NativeExceptionKind {
     NEXC_DivideByZero = 4 // DivByZeroException (integer kernel division)
 };
 
-// Scalar element kinds a native may mint arrays of or inspect through a
+// Scalar element kinds a native may create arrays of or inspect through a
 // NativeArrayView. Values MIRROR the runtime RTK_* scalar codes in
 // PrimitiveTypes.h (single source; keep in tie by this comment — same
 // discipline as kMaxNativeStagedParams mirroring the compiler constant).
 // The identity mapping lets the host map NEK -> RTK with no table.
-// ABI v11 added the byte pair: io.toBytes mints byte arrays through
+// ABI v11 added the byte pair: io.toBytes creates byte arrays through
 // newArray, and the narrow-cell convention (one int32 cell per element,
 // low byte = value) is reported through NativeArrayView like any other
 // kind.
@@ -169,7 +169,7 @@ struct NativeHost {
     const char* (*getString)(NativeHost* self, int32_t handle);
 
     // Create a heap string from UTF-8; returns its handle. Never
-    // returns 0 — empty content (and a null pointer) mints a fresh
+    // returns 0 — empty content (and a null pointer) creates a fresh
     // non-interned empty object (handle >= 1). A declared-string
     // native must produce its result through this call: writing 0
     // into the result cell is a contract violation the host reports
@@ -222,14 +222,14 @@ struct NativeHost {
     int (*getArrayView)(NativeHost* self, int32_t handle,
                         NativeArrayView* out);
 
-    // Mint a new array of a scalar element kind with `length` elements,
+    // Create a new array of a scalar element kind with `length` elements,
     // zero-initialized; returns its heap handle. A negative length raises
     // the OutOfBounds family (language-side `T[-n]` alignment), a length
     // beyond the allocation guard raises the same family. The handle is
     // rooted until the native writes it into its return cell.
     int32_t (*newArray)(NativeHost* self, uint8_t elemKind, int32_t length);
 
-    // Mint a new ND array of a scalar element kind with the given rank and
+    // Create a new ND array of a scalar element kind with the given rank and
     // dims, zero-initialized; returns its heap handle. A rank outside
     // [1, kMaxArrayRank] raises by name; negative dims and the allocation
     // cap raise in the shared sized-creation choke point (OutOfBounds
@@ -238,7 +238,7 @@ struct NativeHost {
     int32_t (*newArrayShaped)(NativeHost* self, uint8_t elemKind,
                               int32_t rank, const int32_t* dims);
 
-    // Mint a view over the array (or view) behind targetHandle: the given
+    // Create a view over the array (or view) behind targetHandle: the given
     // rank/dims/strides/offset (offset in ELEMENT units) with the same
     // validation the language's view creation applies — null or non-array
     // targets, rank out of range, element-type mismatch, bad dims and

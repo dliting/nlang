@@ -1,6 +1,6 @@
 /*--- ExprResolverGenericDefaults.cpp — 泛型实例成员签名克隆中的
     常量默认值深拷贝家族（字面量/运算符树/常量引用三臂）。
-    从 ExprResolverGenericMint.cpp 抽取（2026-10-30 source-size 守卫
+    从 ExprResolverGenericInstantiation.cpp 抽取（2026-10-30 source-size 守卫
     驱动的拆分，零行为变化）。
 ---*/
 #include "ExprResolver.h"

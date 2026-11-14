@@ -100,10 +100,10 @@ static void MergeStrings(const CompiledModule& u, CompiledModule& merged,
 }
 
 //v2.15 (v0.13.1): descriptor rows merge by full entry (spelling +
-//recipe bytes). A static entry's identity is its spelling (the intern
-//contract); recipe entries share an empty spelling, so the bytes join
+//composition record bytes). A static entry's identity is its spelling (the intern
+//contract); composition entries share an empty spelling, so the bytes join
 //the key — two units compiling the same template emit byte-identical
-//recipes and fold, and any divergence keeps both rows (the intern pool
+//compositions and fold, and any divergence keeps both rows (the intern pool
 //still folds the composed descriptors at runtime).
 static void MergeDescriptors(
     const CompiledModule& u, CompiledModule& merged, NcuOperandMaps& m,
@@ -111,7 +111,7 @@ static void MergeDescriptors(
         interned) {
     for (uint32_t i = 0; i < u.descriptorTable.size(); ++i) {
         const auto key = std::make_pair(u.descriptorTable[i].spelling,
-                                        u.descriptorTable[i].recipe);
+                                        u.descriptorTable[i].composition);
         auto it = interned.find(key);
         if (it != interned.end()) {
             m.descriptors[i] = it->second;
@@ -424,7 +424,7 @@ static void RemapInterfaceMetadata(CompiledInterface& iface,
     for (auto& i : iface.staticMethodIndices)
         i = static_cast<uint16_t>(Lookup(m.functions, i));
     //v2.13 (v0.12.6): reserved interface initializer record — remap
-    //alongside the static methods when minted.
+    //alongside the static methods when created.
     if (iface.staticInitFuncIdx != 0xFFFF)
         iface.staticInitFuncIdx = static_cast<uint16_t>(
             Lookup(m.functions, iface.staticInitFuncIdx));

@@ -1,6 +1,6 @@
 // NativeHost callback integration tests. Real .n sources are compiled and
 // run; the natives they call are registered in-process and exercise every
-// NativeHost callback (string mint/read, List<string> creation, output,
+// NativeHost callback (string creation/read, List<string> creation, output,
 // input, exceptions and the PRNG). No VM internals are mocked.
 #include "test_support/test_scratch.h"
 
@@ -66,8 +66,8 @@ fs::path scratchDir() {
 
 //--- Test natives (registered in-process) ----------------------------------
 
-void HsMint(NativeHost* host, uint8_t* ret, const uint8_t*, int) {
-    native::ReturnInt(ret, host->newString(host, "minted"));
+void HsCreate(NativeHost* host, uint8_t* ret, const uint8_t*, int) {
+    native::ReturnInt(ret, host->newString(host, "created"));
 }
 void HsEcho(NativeHost* host, uint8_t* ret, const uint8_t* args, int) {
     native::ReturnString(host, ret, native::ArgString(host, args, 0));
@@ -97,8 +97,8 @@ void HsReadLine(NativeHost* host, uint8_t* ret, const uint8_t*, int) {
 void RegisterHs(VmExecutor& e, const std::string& pkg) {
     //The package prefix is the TU the `native` declarations were compiled
     //from (runSource writes <tag>.n), because a free function's VM key is
-    //now "<package>.<name>" (phase 5). Methods keep bare names - none here.
-    e.RegisterNative(pkg + ".hsMint", &HsMint);
+    //now "<package>.<name>" (phase 5). Methods keep unqualified names - none here.
+    e.RegisterNative(pkg + ".hsCreate", &HsCreate);
     e.RegisterNative(pkg + ".hsEcho", &HsEcho);
     e.RegisterNative(pkg + ".hsList", &HsList);
     e.RegisterNative(pkg + ".hsRaiseIo", &HsRaiseIo);
@@ -159,7 +159,7 @@ int runSource(const std::string& tag, const std::string& source,
 }
 
 const std::string kDecls =
-    "native string hsMint();\n"
+    "native string hsCreate();\n"
     "native string hsEcho(string s);\n"
     "native List<string> hsList();\n"
     "native void hsRaiseIo();\n"
@@ -168,10 +168,10 @@ const std::string kDecls =
     "native int hsSeededRandom(int seed);\n"
     "native string hsReadLine();\n";
 
-void TestMintEchoListRandomRaise() {
+void TestCreateEchoListRandomRaise() {
     const std::string source = kDecls +
         "int main() {\n"
-        "  if (hsMint() != \"minted\") return 1;\n"
+        "  if (hsCreate() != \"created\") return 1;\n"
         "  if (hsEcho(\"echo-me\") != \"echo-me\") return 2;\n"
         "  List<string> l = hsList();\n"
         "  if (l.length() != 2) return 3;\n"
@@ -196,7 +196,7 @@ void TestMintEchoListRandomRaise() {
         "}\n";
     int rc = runSource("host_core", source,
                        [](VmExecutor& e) { RegisterHs(e, "host_core"); });
-    CHECK(rc == 0, "mint/echo/list/random/raise callbacks (rc)");
+    CHECK(rc == 0, "create/echo/list/random/raise callbacks (rc)");
 }
 
 void TestReadLine() {
@@ -300,7 +300,7 @@ void TestNullStringHandleRejected() {
 //Ruling D27 companion: newString never hands out 0, so a native CAN
 //legally return the empty string (net's "no peer address yet" shape) —
 //the fresh non-interned "" reads as "" and compares equal to the
-//literal. Without the non-zero mint the boundary check would reject
+//literal. Without the non-zero create the boundary check would reject
 //these legitimate empty results.
 void HsEmptyString(NativeHost* host, uint8_t* ret, const uint8_t*, int) {
     native::ReturnInt(ret, host->newString(host, ""));
@@ -567,12 +567,12 @@ void TestGenericUnaryAndThisDefaults() {
 //v12 ABI (D8): a native instance method reads its receiver's runtime
 //instantiation through the three type-argument callbacks — count, the
 //per-argument kind (the RTK code) and the per-argument name (the
-//canonical spelling). One composed answer pins all three at once:
+//canonical name). One composed answer pins all three at once:
 //"<count>|<kind>:<name>|..." with the out-of-range sentinels (kind
 //0xFF, name null) probed right past the end. A non-template receiver
 //answers count 0 and the same sentinels. The receiver arrives as the
 //method's slot-0 argument (the __this handle), which CallNative fills
-//for bare-named non-static callees (D8: method keys never carry a
+//for unqualified non-static callees (D8: method keys never carry a
 //package prefix).
 void HsTargs(NativeHost* host, uint8_t* ret, const uint8_t*, int) {
     const uint32_t count = host->typeArgCount(host);
@@ -625,7 +625,7 @@ int main() {
     Runtime::StaticInit();
     TypeCastInfo::StaticInit();   //cast table (0.7.5: no longer inside Runtime::StaticInit)
     std::fprintf(stderr, "=== NativeHost Callback Integration Tests ===\n");
-    TestMintEchoListRandomRaise();
+    TestCreateEchoListRandomRaise();
     TestReadLine();
     TestWriteOutput();
     TestNullStringHandleRejected();

@@ -24,14 +24,14 @@ static const char *const kMsgInitListNoTarget =
 //0.9.13 D-new-1 / 0.13.7: the stamped type row for an array init-list
 //target — the interned rank-1 token over the ELEMENT row. The token
 //spelling stamps as-is (a Stage-2 ND token IS the target). Every other
-//array-typed shape mints, and arrives in two forms: the Array<E>
-//instantiation row (mint from its ELEMENT row — minting from the class
+//array-typed shape creates, and arrives in two forms: the Array<E>
+//instantiation row (create from its ELEMENT row — creating from the class
 //row double-wrapped the token and the tensor dispatch raised
 //"unsupported element kind" at runtime) and an already-peeled ELEMENT
 //row (ResolveInferredTarget below peels the rank-1 token upstream for
-//call arguments), which mints as-is. Defined here beside the peel that
+//call arguments), which creates as-is. Defined here beside the peel that
 //produces the second shape.
-SnField *MintInitListTypeRow(SnField *pTargetField,
+SnField *CreateInitListTypeRow(SnField *pTargetField,
     BuildEnvironment &env)
 {
     if (pTargetField->Kind() == NK_ArrayTypeToken)
@@ -72,7 +72,7 @@ static SnField *InferBracketElemType(SnInitListExpr &sn,
             env.Log(CLL_Error, sn.Location(), kMsgInitListNoTarget);
             return nullptr;
         }
-        //An array-typed element would mint a token-of-token target —
+        //An array-typed element would create a token-of-token target —
         //the jagged-array diagnostic owns that shape.
         if (pType->Kind() == NK_ArrayTypeToken)
         {
@@ -97,7 +97,7 @@ static SnField *InferBracketElemType(SnInitListExpr &sn,
 //interned token for array variables, peeled to the element below.
 //0.7.3 B token path: an array-typed LHS carries the interned token;
 //the init-list's per-entry element gate consumes the ELEMENT (the node
-//itself keeps the interned token — Access stores it at the mint point,
+//itself keeps the interned token — Access stores it at the creation point,
 //0.9.13 D-new-1).
 static void ResolveInferredTarget(SnField *pInferred,
     SnField* &pTargetField, bool &bIsArray)

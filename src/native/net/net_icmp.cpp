@@ -8,7 +8,7 @@
     the executor's self-pipe in the resolve-wait shape. The park
     unwinds the native call and re-entry rebuilds the stack, so the
     job record carries the requesting context id: re-entry adopts the
-    job it already submitted (FindOwn) instead of minting a new one.
+    job it already submitted (FindOwn) instead of creating a new one.
     The helper timeout is always bounded by the echo slice (external
     review I3): a slice that expires while the script deadline still
     allows re-arms with a fresh echo, so one job never holds a pool
@@ -17,7 +17,7 @@
     the record: -1 (no reply in time) becomes the -2 timeout code, -2
     (unreachable/resolve failure) the -4 platform code.
 
-    The raw IcmpSocket arms follow the UDP discipline: bind mints the
+    The raw IcmpSocket arms follow the UDP discipline: bind creates the
     slot, recvFrom parks on read interest (net_tcp_park.h), the source
     address is stashed on the slot for _icmpLastRecvAddress. On
     Windows the raw socket needs administrator privileges — the bind
@@ -112,15 +112,15 @@ void IcmpWorker(void* arg) {
                   resolveErr);
 }
 
-//Adopt the job this context already submitted (park re-entry) or mint
+//Adopt the job this context already submitted (park re-entry) or create
 //a fresh one, flagging the submit (the ping wait loop's prologue).
-int32_t PingMintOrAdopt(NetExecState* st, int self, bool* submit) {
+int32_t PingCreateOrAdopt(NetExecState* st, int self, bool* submit) {
     std::lock_guard<std::mutex> g(st->m_mutex);
     const int32_t jobId = st->m_jobs.FindOwn(kNetJobIcmp, self);
     if (jobId != 0)
         return jobId;
     *submit = true;
-    return st->m_jobs.Mint(kNetJobIcmp, self);
+    return st->m_jobs.Create(kNetJobIcmp, self);
 }
 
 //Slice expired: release the record and re-arm with a fresh echo (the
@@ -129,7 +129,7 @@ int32_t PingMintOrAdopt(NetExecState* st, int self, bool* submit) {
 //state mutex.
 void PingResubmit(NetExecState* st, int32_t* jobId, int self, bool* submit) {
     st->m_jobs.Release(*jobId);
-    *jobId = st->m_jobs.Mint(kNetJobIcmp, self);
+    *jobId = st->m_jobs.Create(kNetJobIcmp, self);
     *submit = true;
 }
 
@@ -192,7 +192,7 @@ void PingSubmitWork(NativeHost* h, NetExecState* st, int32_t jobId,
         st->m_selfPipeFds[1], IcmpJobPriority(deadline));
 }
 
-//ping(host, deadlineMs): mint-or-adopt, submit, park on the self-pipe
+//ping(host, deadlineMs): create-or-adopt, submit, park on the self-pipe
 //until the record is done (R9 drain discipline: the ack byte is a
 //hint, the record under the mutex is the truth). The helper timeout
 //is bounded by the echo slice (external review I3): a slice that
@@ -209,7 +209,7 @@ void NetPing(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     const long long deadline = ArgLong(a, 1);
     const int self = h->currentContextId(h);
     bool submit = false;
-    int32_t jobId = PingMintOrAdopt(st, self, &submit);
+    int32_t jobId = PingCreateOrAdopt(st, self, &submit);
     const int readFd = st->m_selfPipeFds[0];
     for (;;) {
         if (submit) {
@@ -283,7 +283,7 @@ void NetIcmpBind(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     }
     int32_t handle = 0;
     {   std::lock_guard<std::mutex> g(st->m_mutex);
-        handle = st->m_slots.Mint(fd, kNetKindIcmp);   }
+        handle = st->m_slots.Create(fd, kNetKindIcmp);   }
     ReturnInt(ret, handle);
 }
 

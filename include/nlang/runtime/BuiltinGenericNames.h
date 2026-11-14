@@ -6,10 +6,10 @@
 	written in NLang source (List<...>, Dict<...>, func<...>) is the same
 	string the VM registers its erased shared backing classes under
 	(src/vm/backend/BuiltinClasses.cpp), the same string the compiler
-	mints base-name nodes from (MakeFuncType in the grammar), and the same
+	creates base-name nodes from (MakeFuncType in the grammar), and the same
 	string the embed adapter matches against the runtime class name to
 	tell List/Dict instances apart from user classes. Every site that
-	mints a base name, compares a BaseName, or looks up an erased class
+	creates a base name, compares a BaseName, or looks up an erased class
 	must use these constants — one spelling, one identity.
 
 	Distinct from the RTK_* kind labels ("func"/"Func" in the
@@ -37,7 +37,7 @@ inline constexpr const char* kBuiltinFutureTypeName = "Future";
 //(scanner generic-open set, template-row method matching).
 inline constexpr const char* kBuiltinArrayTypeName = "Array";
 //Promise is a DECLARED generic (stdlib/thread.n template + hidden
-//__handle slot + intrinsics), NOT a member of the synthetic-minting
+//__handle slot + intrinsics), NOT a member of the synthetic-creation
 //whitelist below: every consumer of IsBuiltinGenericTypeName routes on
 //it between the synthetic and the declared-template resolution paths,
 //and Promise must take the declared path (its members are substituted
@@ -50,7 +50,7 @@ inline constexpr const char* kBuiltinPromiseTypeName = "Promise";
 //after one of these names is a type-argument opener, and it keeps the
 //">>" split depth counting working. Since the
 //phase-2 source-of-truth migration the resolver routes ONLY func to
-//synthetic minting — List/Dict/Channel/Future/Array resolve through
+//synthetic creationing — List/Dict/Channel/Future/Array resolve through
 //their declared templates (List/Dict in the stdlib/containers.n
 //prelude, Channel in stdlib/concurrent.n, Future in stdlib/thread.n,
 //Array in the stdlib/lang.n prelude), exactly like Promise and

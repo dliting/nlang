@@ -23,17 +23,17 @@ namespace nlang
 //check works across all resolution sites (type names, new expressions,
 //member calls); the singletons live in the build's
 //SyntheticBuiltinRegistry (a process-global would keep pointers alive
-//past the tree they were minted against). Channel needs no stand-in:
-//it exists only as Channel<T>, a generic instantiation minted by
+//past the tree they were created against). Channel needs no stand-in:
+//it exists only as Channel<T>, a generic instantiation created by
 //GetGenericClassDecl. Mutex/Semaphore, Thread and Object lost their
 //stand-ins to the builtin-decls migration — Object is declared in the
 //stdlib/lang.n prelude, Mutex/Semaphore and Thread in the
 //concurrency packages (stdlib/concurrent.n, stdlib/thread.n since the
 //v0.12.3 import boundary).
 
-//On-demand minted decls (built-in classes, generic instantiations) take
+//On-demand created decls (built-in classes, generic instantiations) take
 //the caller's location when one exists. That location is polymorphic —
-//a parser-minted ScriptLocation for source nodes, the imported-module
+//a parser-created ScriptLocation for source nodes, the imported-module
 //location for v1.12 stub nodes — so it must flow through the
 //ISourceLocation interface (SyntaxNode clones whatever it receives).
 //Punning it to ScriptLocation reads past the end of the smaller
@@ -92,7 +92,7 @@ SnClassDecl *FindPreludeClassDecl(const ModuleRegistry &reg,
 //PropagateVirtualOverrides matches by name + param COUNT, so a based
 //String would collide with Object.equals(Object) (the
 //ovsig_equals_mismatch probe pins that rejection for user classes).
-//The bare-name predicate is inline in BuiltinNames.h (shared with the
+//The unqualified-name predicate is inline in BuiltinNames.h (shared with the
 //mirror name-yield pass).
 bool IsPreludeFaceClass(const ModuleRegistry &reg, const SnClassDecl &sn)
 {
@@ -180,7 +180,7 @@ const BuiltinStaticFace* FindBuiltinStaticFace(const std::string& typeName,
 	return nullptr;
 }
 
-//The face qualifier singletons (one per face type name), minted like
+//The face qualifier singletons (one per face type name), created like
 //GetBuiltinClassDecl's singletons above — SetBuiltinClass marks them
 //synthetic — but deliberately OUTSIDE IsBuiltinClassName: bare `Future`
 //must stay rejected in every type position (a generic type needs
@@ -205,7 +205,7 @@ SnClassDecl* BuiltinStaticFaceClassDecl(ModuleRegistry& reg,
 	return pClass;
 }
 
-//Non-minting probe: null until the resolver minted this type name's
+//Non-creating probe: null until the resolver created this type name's
 //qualifier (codegen's pointer-identity check consults it).
 SnClassDecl* FindBuiltinStaticFaceClassDecl(const ModuleRegistry& reg,
 	const std::string& typeName)

@@ -1,5 +1,5 @@
 //v0.12.4 D3: the legal construction surface — the declaring ctor
-//writes its own fields (explicit this, implicit-this bare name), a
+//writes its own fields (explicit this, implicit-this unqualified name), a
 //field initializer injects an exempt store, and a whole-value rebind
 //of a const struct local stays legal (the binding is const-adjacent,
 //the struct value is new). Reads back and exits 7.

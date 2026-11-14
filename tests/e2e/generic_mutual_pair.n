@@ -2,7 +2,7 @@
 //Each template's completion references the other's in-flight shell;
 //both chains terminate through the instance cache. The main function
 //instantiates BOTH templates concretely: the nested instantiation
-//inherits the enclosing mint's unit owner, so the whole family
+//inherits the enclosing creation's unit owner, so the whole family
 //registers into one unit image; exit 0.
 class P<T> {
     public Q<T> peer;

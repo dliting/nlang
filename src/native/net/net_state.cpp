@@ -54,7 +54,7 @@ void NetStateDtor(void* state) {
     //keeps stale registrations (these fds and the self-pipe read
     //end above) until the scheduler destructor joins it. Benign by
     //construction: the run has ended (carriers joined, no context
-    //parked) and no new fd is minted here, so HUP/ERR events the
+    //parked) and no new fd is created here, so HUP/ERR events the
     //poller reports for a closed fd wake nobody.
     //The delete sits OUTSIDE the guard's scope: destroying the state
     //destroys m_mutex, and ~mutex on a still-owned mutex is undefined

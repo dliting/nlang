@@ -274,10 +274,10 @@ void VmBackend::ApplyImplicitObjectInheritance() {
     const int objectIdx = m_compiledModule.FindClass("Object");
     if (objectIdx >= 0) {
         for (auto& cc : m_compiledModule.classes) {
-            //Bare-name guard: the prelude root — or a shadowing user
+            //Unqualified-name guard: the prelude root — or a shadowing user
             //`class Object` — keys bare "Object"; neither gets a parent.
             //String/Array are the prelude face classes (v0.12.2 spec D10):
-            //rootless by design. The bare name is safe here because only
+            //rootless by design. The unqualified name is safe here because only
             //the prelude's own rows can arrive baseless under it — a user
             //shadow keeps the prelude row out (IsShadowedPreludeDecl skips
             //registration) and the user's class carries the resolver's
@@ -302,7 +302,7 @@ void VmBackend::RegisterClasses(SnNamespace& root) {
             || !IsOwnUnit(node) || IsShadowedPreludeDecl(node))
             return;
         //v0.12.3 dictionary model: a generic declaration registers ITS
-        //OWN row (the bare-name erasure key) — the one implementation
+        //OWN row (the unqualified-name erasure key) — the one implementation
         //every instantiation shares. T-typed fields classify through the
         //type-parameter label (one value slot whatever binds); the
         //instantiation copies are compile-time types and never register.
@@ -386,7 +386,7 @@ void VmBackend::PopulateClassMethods(SnNamespace& root) {
     });
 }
 
-//0.9.11 D2: struct constructors are registered bare-name members (a
+//0.9.11 D2: struct constructors are registered unqualified-name members (a
 //struct declares no general methods), so the declaration-order ordinal
 //within constructorIndices is the only stable cross-module selector
 //(SymbolImport::ownerOrdinal). Only registered functions — a body or a

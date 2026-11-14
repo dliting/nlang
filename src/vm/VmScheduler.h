@@ -95,7 +95,7 @@ public:
 inline thread_local GilHolder* t_gilOwner = nullptr;
 
 //挂起/抢占信号（决策 2 F1，零新操作码）。刻意不继承 std::exception：
-//它不是错误，任何按 std::exception 捕获的位点不得拦截；RunFrames 的
+//它不是错误，任何按 std::exception 捕获的位置不得拦截；RunFrames 的
 //兜底 catch(...) 之前置有 ParkSignal 直通分支予以让路。
 struct ParkSignal {
     enum class Reason { Preempted, Timer, Join, Mutex, ChanRecv, ChanSend,
@@ -171,7 +171,7 @@ struct ExecutionContext {
     int id = 0;
     ContextState state = ContextState::Runnable;
     std::vector<CallFrame> frames;
-    //K7：停泊完成握手——park 位点已迁移状态（ParkedJoin 等）但
+    //K7：停泊完成握手——park 位置已迁移状态（ParkedJoin 等）但
     //ParkSignal 仍在展开、帧尚未从载体求值栈搬入 frames 的窗口内为
     //false。唤醒路径只入队已完成停泊者；未完成者的入队由停泊载体在
     //搬帧的同一临界区内补做（帧先落位、队列项后出现——出队者恒见帧
@@ -348,7 +348,7 @@ public:
     //醒路径入队（握手见 ExecutionContext::framesParked）。
     void ParkContextFrames(int id, std::vector<CallFrame>&& frames);
 
-    //P2-4 nested-pump primitives. AcquirePumpToken mints a fresh token
+    //P2-4 nested-pump primitives. AcquirePumpToken creates a fresh token
     //for this thread's slot (0 is reserved = unbound); PinContext marks
     //a parked context as dispatchable only through that token.
     int64_t AcquirePumpToken();
@@ -428,7 +428,7 @@ public:
     //通道唤醒（Slice 9）：回 Runnable 入队尾（值已由执行器在调用本方
     //法前写入停泊帧的结果槽）。K8：close 传入预建的关闭异常句柄时在
     //同一临界区内置 rethrowOnResume（正常恢复路径消费；停泊迁移中途
-    //的中止者在中止位点消费）。
+    //的中止者在中止位置消费）。
     void WakeForChanRecv(int id, int32_t rethrowExcHeapIdx = 0);
 
     //K3 task 4：有界通道发送停泊——待发值与属主队列（FIFO）在执行器的

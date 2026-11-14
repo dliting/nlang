@@ -16,7 +16,7 @@ namespace nlang {
 //K3: the typed-spawn face — same layout as Thread (slot 1 = context id,
 //no side table); the erased class is one, the type argument lives at the
 //call site.
-int32_t VmExecutor::MintFutureObject(int ctxId)
+int32_t VmExecutor::CreateFutureObject(int ctxId)
 {
     if (m_futureClassIdx < 0)
         throw std::runtime_error("NLang VM: Future class not registered");

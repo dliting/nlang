@@ -174,8 +174,8 @@ void TestPreludeFaces::stringFaceDeclaredWith23MethodsAndNoBase()
         //implicit base attached, none declared.
         QVERIFY(pString->SuperClass() == nullptr);
         QVERIFY(pString->SuperName() == nullptr);
-        //Name ownership: the declared face class is the bare name's sole
-        //root entry; the runtime-minted NK_String mirror yields its name
+        //Name ownership: the declared face class is the unqualified name's sole
+        //root entry; the runtime-created NK_String mirror yields its name
         //index entry (it stays attached — registry identity survives).
         QCOMPARE(TheAST().Root()->FindField("String"),
             static_cast<SnField*>(pString));

@@ -208,12 +208,12 @@ void test_uninitialized_string_reads_empty()
     PASS();
 }
 
-//Intern reuse: many content-aware mints of the same short string share one
-//live object. The array keeps every mint rooted simultaneously, so the
+//Intern reuse: many content-aware creations of the same short string share one
+//live object. The array keeps every creation rooted simultaneously, so the
 //live population is the load-bearing discriminator: without interning it
-//grows by one per iteration (60 live mints, far past the bound), with
-//interning it stays at the constant+residue level. substring mints go
-//through MintNewString directly (a `+` product would be a cons node,
+//grows by one per iteration (60 live creations, far past the bound), with
+//interning it stays at the constant+residue level. substring creates go
+//through CreateNewString directly (a `+` product would be a cons node,
 //which never interns by design).
 void test_intern_reuse_short_strings()
 {
@@ -225,7 +225,7 @@ void test_intern_reuse_short_strings()
         "    string[] kept = string[60];\n"
         "    int i = 0;\n"
         "    while (i < 60) {\n"
-        "        kept[i] = base.substring(0, 5);   //same content, minted\n"
+        "        kept[i] = base.substring(0, 5);   //same content, created\n"
         "        i = i + 1;\n"
         "    }\n"
         "    if (kept[0] != \"hello\") return 1;\n"
@@ -236,12 +236,12 @@ void test_intern_reuse_short_strings()
     exec.SetGcStressThresholds(8);
     CHECK(exec.Execute(mod) == 0, "interned equivalents must be equal");
     CHECK(exec.LiveStringObjectCount() < mod.stringConstants.size() + 10,
-        "same-content short mints must share one live object");
+        "same-content short creates must share one live object");
     PASS();
 }
 
 //Sweep purification: a dropped interned string dies with its table entry;
-//re-minting the content afterwards mints a fresh object (count rose
+//re-creating the content afterwards creates a fresh object (count rose
 //again), and no stale-handle resurrect occurs. With the table entry left
 //stale (purification missing) the freed slot is typically reused by an
 //unrelated string under stress, and the liveness-only revalidation would
@@ -254,16 +254,16 @@ void test_intern_sweep_purifies_table()
         "int main() {\n"
         "    int i = 0;\n"
         "    while (i < 300) {\n"
-        "        string t = \"tag-\" + i;   //short runtime mints\n"
+        "        string t = \"tag-\" + i;   //short runtime creations\n"
         "        i = i + 1;\n"
         "    }\n"
-        "    string after = \"tag-\" + 7;  //fresh mint, table was purified\n"
+        "    string after = \"tag-\" + 7;  //fresh create, table was purified\n"
         "    if (after != \"tag-7\") return 1;\n"
         "    return 0;\n"
         "}\n", mod), "build failed");
     VmExecutor exec;
     exec.SetGcStressThresholds(8);
-    CHECK(exec.Execute(mod) == 0, "re-minted content must read correct");
+    CHECK(exec.Execute(mod) == 0, "re-created content must read correct");
     PASS();
 }
 

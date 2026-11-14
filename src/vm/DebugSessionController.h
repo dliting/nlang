@@ -85,7 +85,7 @@ public:
         bool exactFile = false);
 
     //Breakpoint on the first statement of every same-named function
-    //(methods and free functions share the bare-name pool) under one id.
+    //(methods and free functions share the unqualified-name pool) under one id.
     //0 = no function of that name has statements.
     int AddFunctionBreakpoint(const std::string& funcName);
 

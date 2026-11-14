@@ -54,7 +54,7 @@ private slots:
 		QCOMPARE(RTK_TypeParam, uint8_t(20));
 	}
 
-	//The mint marks its placeholder: the context-free node predicate the
+	//The creation marks its placeholder: the context-free node predicate the
 	//backend's static kind classification reads (same shape as IsFuncType
 	//for func<...>); ordinary classes stay unmarked.
 	void placeholderNodeCarriesTypeParamFlag()

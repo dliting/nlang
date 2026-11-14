@@ -52,7 +52,7 @@ void AppendTypeDescBytes(std::vector<uint8_t>& out, const TypeDesc& td)
 				"its nested descriptor");
 		AppendTypeDescBytes(out, td.elems[0]);
 		//v2.11: the rank rides after the element descriptor, so the
-		//consumer's stub rebuild mints T[,] instead of degrading to T[].
+		//consumer's stub rebuild creates T[,] instead of degrading to T[].
 		out.push_back(td.rank);
 	}
 	else if (td.kind == RTK_List)

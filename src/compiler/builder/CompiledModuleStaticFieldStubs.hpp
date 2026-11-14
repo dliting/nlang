@@ -22,7 +22,7 @@ namespace nlang
 //consumer's constant-read phase folds it inline, zero machinery
 //(D3/D13). A runtime slot field rebuilds initializer-less with the
 //producer's slot row index on the rider; StaticSlotIndexOf's
-//imported arm mints the placeholder import record from it.
+//imported arm creates the placeholder import record from it.
 inline void AppendClassStaticFieldStubs(const CompiledClass &cc,
 	const CompiledModule &cm, const ISourceLocation &loc,
 	PtrList<SnField> *pMembers)

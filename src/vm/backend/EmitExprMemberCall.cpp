@@ -21,7 +21,7 @@ namespace nlang {
 //Phase 13 Step 2: bound method reference (c.foo / o.run in a
 //value position) — the resolver bound the member's EvalDataType
 //to the func declaration while Field() stayed the SnFunction
-//(mirrors the bare-name OP_MakeFunc arm). VALUE POSITION ONLY:
+//(mirrors the unqualified-name OP_MakeFunc arm). VALUE POSITION ONLY:
 //the inner node must be an identifier (c.foo). A call shape
 //(c.foo(), inner == invoke) resolves to the same func-typed
 //member but must fall through to the invoke emission below —

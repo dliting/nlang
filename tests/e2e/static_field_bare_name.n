@@ -1,4 +1,4 @@
-//Bare-name access inside class methods; qualified access outside (D3).
+//Unqualified-name access inside class methods; qualified access outside (D3).
 class Ledger {
     public static int total;
     public static int add(int v) {

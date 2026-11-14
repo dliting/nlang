@@ -82,7 +82,7 @@ static void TestCallByNameFillsDefaults() {
 static void TestCallByNameStringRoundTrip() {
     TEST(TestCallByNameStringRoundTrip);
     VmExecutor& e = LoadedExecutor();
-    const int32_t handle = e.MintHostString("embed");
+    const int32_t handle = e.CreateHostString("embed");
     uint8_t args[1][8] = {};
     std::memcpy(args[0], &handle, sizeof(handle));
     uint8_t result[8] = {};
@@ -185,16 +185,16 @@ static void TestHostRootProtectsAcrossGc() {
     TEST(TestHostRootProtectsAcrossGc);
     VmExecutor& e = LoadedExecutor();
     e.SetGcStressThresholds(4);
-    const int32_t handle = e.MintHostString("rooted-survivor");
+    const int32_t handle = e.CreateHostString("rooted-survivor");
     e.PushHostRoot(RTK_String, handle);
-    //Churn: each greet mints fresh cons nodes, pushing the string store
+    //Churn: each greet creates fresh cons nodes, pushing the string store
     //past the clamped threshold — CheckGCSafepoint at ExecuteFunction
     //entry collects. The churn arg stays reachable through the callee
     //frame (staged into locals before entry); the survivor is reachable
     //only via the host root — unregistered, the sweep reclaims it and
     //StrValCopy then reads "" (dead handles decode empty).
     uint8_t churnArgs[1][8] = {};
-    const int32_t churn = e.MintHostString("churn");
+    const int32_t churn = e.CreateHostString("churn");
     std::memcpy(churnArgs[0], &churn, sizeof(churn));
     uint8_t result[8] = {};
     for (int i = 0; i < 16; ++i)

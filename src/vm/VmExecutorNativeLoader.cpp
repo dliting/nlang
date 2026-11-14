@@ -30,7 +30,7 @@ int32_t VmExecutor::BuildListString(const char* const* items, int count) {
         dst.reserve(static_cast<size_t>(count));
     for (int i = 0; i < count; ++i) {
         const char* text = (items && items[i]) ? items[i] : "";
-        dst.push_back(AllocBoxedValue(RTK_String, MintNewString(text)));
+        dst.push_back(AllocBoxedValue(RTK_String, CreateNewString(text)));
     }
     return listHeapIdx;
 }
@@ -53,7 +53,7 @@ void VmExecutor::AddNativeSearchDir(std::string dir) {
 void VmExecutor::EnsureNativeAvailable(const std::string& name) {
     if (m_natives.find(name) != m_natives.end())
         return;
-    //A qualified "ns.name" is satisfied by a loadable module; a bare name
+    //A qualified "ns.name" is satisfied by a loadable module; an unqualified name
     //is a host-registered native and is not resolved through a DLL.
     size_t dot = name.find('.');
     if (dot == std::string::npos)

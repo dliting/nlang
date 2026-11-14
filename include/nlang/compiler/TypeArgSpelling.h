@@ -1,7 +1,7 @@
 /*---
     TypeArgSpelling.h — 类型实参的共享词汇：TypeArgDesc结构、规范拼写、
     AST侧实参与VM行键（LinkKeyOf）的分类。v0.13.1运行时泛型类型信息的
-    公共数据面——解析器（typeName折叠判定）、后端（描述符表与配方编码）
+    公共数据面——解析器（typeName折叠判定）、后端（描述符表与拼接记录编码）
     与加载侧拼写解析器共用一份分类，任何一侧自造拼写都会与他侧漂移
     （转型比较、intern键、typeName显示随之失配）。
 ---*/
@@ -24,12 +24,12 @@ class SyntaxNode;
 //spelling and the entry-candidate scan.
 bool IsTypeMember(const SyntaxNode& node);
 
-//One type argument in both forms consumers need: the canonical spelling
+//One type argument in both forms consumers need: the canonical name
 //(display + intern key component) and the resolved structure (per-slot
 //kind dispatch in the call pipeline). The spelling contract: a LEAF
 //argument's spelling is its complete form ("int", "int[]"); an argument
 //carrying `nested` (a nested instantiation) spells as its template's
-//BARE name — the tree in `nested` supplies the rest, and the canonical
+//UNQUALIFIED name — the tree in `nested` supplies the rest, and the canonical
 //form is always derived through CanonicalArgSpelling (reversibility
 //per Rust RFC 2603: the structure defines the spelling, so feeding a
 //descriptor's stored fields back in reproduces the same key).
@@ -46,7 +46,7 @@ struct TypeArgDesc
 	std::vector<TypeArgDesc> nested;
 };
 
-//The argument's tree-complete canonical spelling: leaves pass through;
+//The argument's tree-complete canonical name: leaves pass through;
 //an instantiation argument renders as Name<Arg1,Arg2> built recursively
 //from its nested tree. Intern keys and Spelling() go through this —
 //never join the raw spelling fields of nested arguments.
@@ -54,7 +54,7 @@ std::string CanonicalArgSpelling(const TypeArgDesc& arg);
 
 //Type-parameter arguments are runtime-composable: rowRef encodes the
 //parameter POSITION the argument reads from the receiver object's
-//descriptor (the recipe detector below). Base keeps the plain -1 row
+//descriptor (the composition-record detector below). Base keeps the plain -1 row
 //domain disjoint from every legal row index.
 constexpr int32_t kTypeParamArgBase = -2;
 inline bool IsTypeParamArg(const TypeArgDesc& arg)
@@ -66,7 +66,7 @@ inline int32_t TypeParamOrdinalOf(const TypeArgDesc& arg)
 //spelling Register.cpp writes class/struct/function records with.
 //Exported so the descriptor spelling and the row key cannot drift
 //(prelude members key bare, package members qualified, ownerless nodes
-//degrade to the bare name). Defined in TypeArgSpelling.cpp.
+//degrade to the unqualified name). Defined in TypeArgSpelling.cpp.
 std::string LinkKeyOf(const ModuleRegistry& reg, const SnField& field);
 
 //Build the descriptor argument list of an instantiation node: each
@@ -94,7 +94,7 @@ TypeArgDesc BuildTypeArgOf(const ModuleRegistry& reg, const SnField& type);
 
 //True when any argument is a type parameter — the instantiation's
 //descriptor cannot be spelled at compile time and the emission must
-//build it at runtime from the receiver (the recipe arm).
+//build it at runtime from the receiver (the composition-record path).
 bool HasTypeParamArg(const std::vector<TypeArgDesc>& args);
 
 } //namespace nlang

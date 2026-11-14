@@ -87,7 +87,7 @@ std::string EnclosureMethodKey(const ModuleRegistry& reg, const SnField& method)
         p = p->Parent();
     }
     //The outermost type's parent is a namespace, so its key comes from
-    //the registry branch of QualifiedName; inner types append bare names.
+    //the registry branch of QualifiedName; inner types append unqualified names.
     std::string key = QualifiedName(reg, *enclosure.back());
     for (auto it = enclosure.rbegin() + 1; it != enclosure.rend(); ++it) {
         key += '.';
@@ -98,14 +98,14 @@ std::string EnclosureMethodKey(const ModuleRegistry& reg, const SnField& method)
     return key;
 }
 
-//Canonical VM key of a declaration: "<package>.<name>", or the bare name
+//Canonical VM key of a declaration: "<package>.<name>", or the unqualified name
 //when the node carries no owner tag. The package comes from the compile-
 //time registry (path-derived), NOT from an AST namespace walk — a walk can
 //only name a unit that literally wrote `namespace <path>`, and project
 //members hang off the root, so every project key would stay bare.
-//A CLASS/INSTANCE METHOD always keeps a bare name, even when its owning
+//A CLASS/INSTANCE METHOD always keeps an unqualified name, even when its owning
 //type is package-nested: methods dispatch by name through their receiver
-//(VmExecutor::FindMethodByName compares the bare name), so a package
+//(VmExecutor::FindMethodByName compares the unqualified name), so a package
 //prefix would make every lookup fail. The exceptions take their
 //enclosure-qualified key instead (EnclosureMethodKey above): enum methods
 //and interface statics never dispatch by name through a receiver, so
@@ -122,10 +122,10 @@ std::string EnclosureMethodKey(const ModuleRegistry& reg, const SnField& method)
 std::string QualifiedName(const ModuleRegistry& reg, const SnField& field) {
     if (field.Kind() == NK_ClassDecl) {
         auto& cls = static_cast<const SnClassDecl&>(field);
-        //v0.12.3 dictionary model: the erasure key is the BARE name for
+        //v0.12.3 dictionary model: the erasure key is the UNQUALIFIED name for
         //the template row and every instantiation alike — the template
         //registers the one shared CompiledClass and ClassSlotFor looks
-        //it up by the bare name from both node shapes. A package
+        //it up by the unqualified name from both node shapes. A package
         //prefix would split the two spellings (the instantiation keys
         //BaseName, the template would key package-qualified).
         if (cls.IsGenericInstantiation() || cls.IsGenericDeclaration())
@@ -135,7 +135,7 @@ std::string QualifiedName(const ModuleRegistry& reg, const SnField& field) {
         if (field.Parent()->Kind() == NK_EnumDecl)
             return EnclosureMethodKey(reg, field);
         //0.9.10 D5: an interface static takes the qualified key; the
-        //abstract instance members keep bare names (they register no
+        //abstract instance members keep unqualified names (they register no
         //function record at all).
         if (field.Parent()->Kind() == NK_InterfaceDecl
             && field.ContainFlags(NF_Static))
@@ -163,7 +163,7 @@ namespace
 //Class-typed argument, three shapes: a type-parameter placeholder
 //(position-encoded, runtime-composable; the spelling is the parameter
 //name — diagnostic surface only, canonical keys never contain it, the
-//recipe arm replaces the argument at runtime), a nested instantiation
+//composition-record path replaces the argument at runtime), a nested instantiation
 //(bare template name per the canonical contract, the argument tree
 //rides `nested`), or an ordinary class/interface (link key; rows are
 //per-module and remap at link time, so the runtime resolves by name,

@@ -1,11 +1,11 @@
-/*--- ExprResolverGenericMintIface.cpp — generic INTERFACE declarations'
-    mint: the shell, the member clone fill and the cache throat
+/*--- ExprResolverGenericInstantiationIface.cpp — generic INTERFACE declarations'
+    creation: the shell, the member clone fill and the cache throat
     GetDeclaredGenericInterfaceDecl. Split from
-    ExprResolverGenericMint.cpp (0.13.1c, source-size guard driven);
-    the machinery mirrors the class mint contract for contract.
+    ExprResolverGenericInstantiation.cpp (0.13.1c, source-size guard driven);
+    the machinery mirrors the class creation contract for contract.
 ---*/
 #include "ExprResolver.h"
-#include "GenericMintDepthClaim.hpp"
+#include "GenericInstantiationDepthClaim.hpp"
 #include "GenericMemberClone.hpp"
 #include "SnExtraTypes.h"
 #include "SnMisc.h"
@@ -20,12 +20,12 @@
 namespace nlang
 {
 
-//The interface mint's shell: the same erasure identity the class shell
-//carries — the instantiation shares the template's bare name and stays
+//The interface create's shell: the same erasure identity the class shell
+//carries — the instantiation shares the template's unqualified name and stays
 //a distinct compile-time type through node identity. Memberless until
 //FillInterfaceInstanceMembers completes it after the cache publishes
 //it.
-static SnInterfaceDecl *MintInterfaceInstanceShell(
+static SnInterfaceDecl *CreateInterfaceInstanceShell(
 	const SnInterfaceDecl &tmpl, const std::vector<SnField*> &typeArgs)
 {
 	auto* pInstance = new SnInterfaceDecl(new std::string(tmpl.Name()),
@@ -85,18 +85,18 @@ SnInterfaceDecl* ExprResolveAccessor::GetDeclaredGenericInterfaceDecl(
 	if (auto* pCached = generics.FindInterfaceInstance(&tmpl, keyArgs))
 		return pCached;
 
-	//Depth guard (rationale on MintDepthLimitReached).
-	if (MintDepthLimitReached(tmpl))
+	//Depth guard (rationale on InstantiationDepthLimitReached).
+	if (InstantiationDepthLimitReached(tmpl))
 		return nullptr;
-	//The claim spans everything below the guard, the class mint's
+	//The claim spans everything below the guard, the class creation's
 	//contract: the template completion below resolves member types,
-	//and a self-referential member type re-enters the mint from there.
-	MintDepthClaim depthClaim(generics);
+	//and a self-referential member type re-enters the creation from there.
+	InstantiationDepthClaim depthClaim(generics);
 
 	//Two-phase construction: the shell is published in the interface
-	//cache BEFORE the recursive window (the class mint's fixed-key
+	//cache BEFORE the recursive window (the class creation's fixed-key
 	//self-reference contract, verbatim).
-	auto* pInstance = MintInterfaceInstanceShell(tmpl, typeArgs);
+	auto* pInstance = CreateInterfaceInstanceShell(tmpl, typeArgs);
 	generics.AdoptInterfaceInstance(pInstance, &tmpl, keyArgs);
 
 	//Template completion at the same chokepoint invariant (clone

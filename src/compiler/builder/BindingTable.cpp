@@ -40,7 +40,7 @@ static const BindingRow s_LiteralRows[] = {
 	//Cluster 1 (Mutex/Semaphore): declared in stdlib/concurrent.n
 	//(concurrency import redesign). The type-member stamping arm binds
 	//the declared native records onto the intrinsic channel; ctor keys
-	//are arity-aware (zero-formal = bare name, N-formal = "Class/N").
+	//are arity-aware (zero-formal = unqualified name, N-formal = "Class/N").
 	{"concurrent", "Mutex",                INTR_Mutex_Ctor},
 	{"concurrent", "Mutex.lock",           INTR_Mutex_Lock},
 	{"concurrent", "Mutex.unlock",         INTR_Mutex_Unlock},
@@ -152,7 +152,7 @@ static const BindingRow s_LiteralRows[] = {
 	//retiring the last C++ registry rows (the C++ table kept them
 	//synthesized). The declared native records stamp onto the frozen
 	//stream intrinsic ids; ctor keys follow the arity-aware rule
-	//(ByteStream 0-formal = bare name, FileStream/2). readStruct/
+	//(ByteStream 0-formal = unqualified name, FileStream/2). readStruct/
 	//readObject declare Object returns — the resolver's literal-type
 	//special path rebinds the call's result to the named declaration
 	//before emission, so the row's shape is the wire shape.
@@ -271,7 +271,7 @@ uint16_t LookupIntrinsicId(const std::string& packagePath,
 }
 
 //D10 (concurrency import redesign): reverse lookup for the unimported-
-//use note — which stamped package declares this bare name? The four key
+//use note — which stamped package declares this unqualified name? The four key
 //forms the table spells: exact zero-arg ctor key, "/1" arity ctor key,
 //a "Name." method-prefix cluster, and the free-function qualified form
 //("thread.spawn" answers "spawn" -> "thread"). Method segments alone

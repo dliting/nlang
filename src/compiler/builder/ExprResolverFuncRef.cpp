@@ -269,7 +269,7 @@ static bool RejectMemberFuncRefForm(BuildEnvironment &env,
 //mask, and default parameters are filled only on the direct-call path.
 //Receiverless targets skip the receiver-frame and out-mask arms — a
 //native free function or native static method is referenceable exactly
-//like a bare-name one (no receiver slot exists to misplace). True =
+//like an unqualified-name one (no receiver slot exists to misplace). True =
 //rejected with the named diagnostic.
 static bool RejectMemberFuncRefSignature(BuildEnvironment &env,
 	SnMemberExpr &snMember, SnIdentifierExpr &inner, SnFunction *pMethod,
@@ -304,7 +304,7 @@ static bool RejectMemberFuncRefSignature(BuildEnvironment &env,
 		}
 	}
 	//Default parameters are filled only on the direct-call path (mirrors
-	//the free-function reject of the bare-name channel).
+	//the free-function reject of the unqualified-name channel).
 	for (auto &param : pMethod->Params())
 	{
 		if (param.Value())
@@ -353,7 +353,7 @@ bool BindMemberFuncRefToExpected(BuildEnvironment &env,
 			inner.Name().c_str(), pFuncDecl->Name().c_str());
 		return false;
 	}
-	//Bound state is structural (same as the bare-name form): the member
+	//Bound state is structural (same as the unqualified-name form): the member
 	//carries the func declaration while Field() stays the SnFunction;
 	//codegen emits receiver + OP_MakeBoundFunc/OP_MakeVFunc for a method
 	//form, or a bare OP_MakeFunc for a module form. The inner identifier
@@ -372,7 +372,7 @@ bool BindMemberFuncRefToExpected(BuildEnvironment &env,
 //the strict IsUnboundFuncRef below. This loose form survives only for
 //the end-of-build sweep (ModuleBuilder::SweepPendingFuncRefs): a ref a
 //func-accepting consumer already handled via MakeFunc (e.g. io.print of
-//a func-returning function's bare name) must not be re-flagged there.
+//a func-returning function's unqualified name) must not be re-flagged there.
 bool IsPendingFuncRef(SyntaxNode &expr)
 {
 	if (expr.Kind() != NK_IdentifierExpr)
@@ -382,7 +382,7 @@ bool IsPendingFuncRef(SyntaxNode &expr)
 		&& !IsFuncTypeDecl(idExpr.EvalDataType());
 }
 
-//Phase 13 (review round-1 F1): strict bind-site predicate. A bare name
+//Phase 13 (review round-1 F1): strict bind-site predicate. An unqualified name
 //is bound only when its OWN signature satisfies the func type it
 //carries. Without this, `func<int,int> f = pick;` (where pick RETURNS
 //func<int,int> but takes no parameters) was misread as an already-bound

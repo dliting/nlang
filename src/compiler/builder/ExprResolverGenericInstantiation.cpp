@@ -1,9 +1,9 @@
-/*--- ExprResolverGenericMint.cpp — 声明泛型的铸造机器：实例注册表实现、
-    成员签名深拷贝（占位符替换）与铸造咽喉点 GetDeclaredGenericClassDecl。
+/*--- ExprResolverGenericInstantiation.cpp — 声明泛型的实例化机器：实例注册表实现、
+    成员签名深拷贝（占位符替换）与实例化咽喉点 GetDeclaredGenericClassDecl。
     从 ExprResolverGenerics.cpp 抽取（source-size 守卫驱动的拆分，零行为变化）。
 ---*/
 #include "ExprResolver.h"
-#include "GenericMintDepthClaim.hpp"
+#include "GenericInstantiationDepthClaim.hpp"
 #include "GenericMemberClone.hpp"
 #include "SnExtraTypes.h"
 #include "SnMisc.h"
@@ -30,7 +30,7 @@ namespace nlang
 //
 //`class Name<T, ...>` declarations (signature surfaces only) resolve
 //their member signatures against interned placeholder types, and every
-//`Name<Arg...>` use mints a synthetic instantiation whose members are
+//`Name<Arg...>` use creates a synthetic instantiation whose members are
 //signature deep-copies with placeholders substituted. Everything here
 //is a compile-time artifact; the VM side reads the registry through
 //GenericInstanceRegistry.h (implementation in its own TU). The
@@ -93,15 +93,15 @@ bool ExprResolveAccessor::FillInstanceMembers(SnClassDecl& tmpl,
 //clone surface, and the backend's FunctionSlotFor falls back to the
 //record owner at its single lookup throat.
 
-//The mint's first phase: a detached class shell carrying the erasure
-//identity — the instantiation shares the template's bare name, the
+//The creation's first phase: a detached class shell carrying the erasure
+//identity — the instantiation shares the template's unqualified name, the
 //same way every List<T> shares the backing "List" class (the VM keys
 //the CompiledClass, the intrinsic channel and the ctor classification
-//off the bare name, so no consumer needs a display-name special case;
+//off the unqualified name, so no consumer needs a display-name special case;
 //distinct instantiations stay distinct compile-time types through node
 //identity). The shell starts memberless; FillInstanceMembers completes
 //it after the cache publishes it.
-static SnClassDecl *MintInstanceShell(const SnClassDecl &tmpl,
+static SnClassDecl *CreateInstanceShell(const SnClassDecl &tmpl,
 	const std::vector<SnField*> &typeArgs)
 {
 	auto* pInstance = new SnClassDecl(new std::string(tmpl.Name()),
@@ -113,29 +113,29 @@ static SnClassDecl *MintInstanceShell(const SnClassDecl &tmpl,
 	return pInstance;
 }
 
-//Invariant: clone SIGNATURE-COMPLETE templates only. The mint can
+//Invariant: clone SIGNATURE-COMPLETE templates only. The creation can
 //fire from the declaration pass (a class field of declared-generic
 //type) before the template's own signatures resolved — cloning then
 //copies unresolved type expressions and the cache would serve a
 //broken instance to every later phase. Completing the template HERE,
-//at the single chokepoint every consumer reaches the mint through,
+//at the single chokepoint every consumer reaches the creation through,
 //makes instantiation order-independent (the same machinery the
 //ordinary pre-pass runs; per-member flags make the later pass a
 //no-op). ResolveDataTypes is idempotent and flag-guarded. The
 //implicit-root link is completed at the same chokepoint: the merged
-//root walks user code ahead of the prelude, so the mint can fire
+//root walks user code ahead of the prelude, so the creation can fire
 //before the template's own class pass applies the implicit Object
 //chain — a cached instance would keep the null super forever and
 //every inheritance-distance check (an equals(Object) argument
 //binding) would reject it.
-void ExprResolveAccessor::CompleteTemplateForMint(SnClassDecl& tmpl)
+void ExprResolveAccessor::CompleteTemplateForInstantiation(SnClassDecl& tmpl)
 {
 	ExprResolver templateCompleter(m_Env);
 	templateCompleter.ResolveDataTypes(tmpl, tmpl);
 	EnsureImplicitObjectSuperclass(tmpl, m_Env.Registry());
 }
 
-//The mint entry's depth guard: true when this entry must refuse —
+//The creation entry's depth guard: true when this entry must refuse —
 //the concurrent-instantiation chain ran past the cap. Checked AFTER
 //the instance cache: a re-reference to an instantiation — adopted or
 //in flight — terminates a chain through the cache (two-phase
@@ -144,10 +144,10 @@ void ExprResolveAccessor::CompleteTemplateForMint(SnClassDecl& tmpl)
 //inside A<T>) grows a genuinely fresh key per link and would recurse
 //until the stack overflowed. The diagnostic is deduped per template
 //per build: every later trip of the same family is the same defect.
-bool ExprResolveAccessor::MintDepthLimitReached(const SyntaxNode& tmpl)
+bool ExprResolveAccessor::InstantiationDepthLimitReached(const SyntaxNode& tmpl)
 {
 	auto& generics = m_Env.Registry().DeclaredGenerics();
-	if (generics.GenericMintDepth() < kMaxGenericInstantiationDepth)
+	if (generics.GenericInstantiationDepth() < kMaxGenericInstantiationDepth)
 		return false;
 	if (generics.MarkDepthLimitReported(&tmpl))
 		m_Env.Log(CLL_Error, tmpl.Location(),
@@ -156,7 +156,7 @@ bool ExprResolveAccessor::MintDepthLimitReached(const SyntaxNode& tmpl)
 	return true;
 }
 
-//The mint's second phase — the fill window: complete the template,
+//The creation's second phase — the fill window: complete the template,
 //refresh the shell's snapshot of its superclass, and clone the member
 //signatures in. Re-entrant lookups during the window see the shell
 //with partial members: every reader in the window binds the node as a
@@ -166,16 +166,16 @@ bool ExprResolveAccessor::MintDepthLimitReached(const SyntaxNode& tmpl)
 void ExprResolveAccessor::FillInstanceWindow(SnClassDecl& tmpl,
 	const std::vector<SnField*>& typeArgs, SnClassDecl& inst)
 {
-	CompleteTemplateForMint(tmpl);
+	CompleteTemplateForInstantiation(tmpl);
 	//The shell snapshotted tmpl.SuperClass() before completion: the
-	//mint can fire ahead of the template's own class pass, when the
+	//create can fire ahead of the template's own class pass, when the
 	//implicit Object chain is not linked yet, and a published instance
 	//keeps whatever it snapshotted forever. Refresh from the completed
 	//template so inheritance-distance checks (an equals(Object)
 	//argument binding) see the chain.
 	inst.SuperClass(tmpl.SuperClass());
 	//The template's implements edges were resolved against its own
-	//placeholders; the instantiation re-mints them against its concrete
+	//placeholders; the instantiation re-creates them against its concrete
 	//arguments (Box<X> implements Wrapper<X> makes Box<string> a
 	//Wrapper<string>).
 	FillInstanceImplementsEdges(tmpl, typeArgs, inst);
@@ -185,7 +185,7 @@ void ExprResolveAccessor::FillInstanceWindow(SnClassDecl& tmpl,
 	FillInstanceMembers(tmpl, typeArgs, inst);
 }
 
-//One implements-edge type argument, substituted against the mint's
+//One implements-edge type argument, substituted against the creation's
 //argument vector (contract on the declaration in ExprResolver.h).
 SnField* ExprResolveAccessor::SubstitutedEdgeTypeArg(SnField* pArg,
 	const std::vector<SnField*>& typeArgs)
@@ -194,7 +194,7 @@ SnField* ExprResolveAccessor::SubstitutedEdgeTypeArg(SnField* pArg,
 	if (generics.IsPlaceholder(pArg))
 		return typeArgs[generics.PlaceholderIndex(pArg)];
 	//A nested instantiation whose arguments embed placeholders
-	//(`Wrapper<Box<X>>` as an edge argument): re-mint it substituted —
+	//(`Wrapper<Box<X>>` as an edge argument): re-create it substituted —
 	//the same registry channels the use-site resolution reaches, so
 	//both paths land on one canonical node.
 	if (pArg->Kind() == NK_InterfaceDecl)
@@ -208,9 +208,9 @@ SnField* ExprResolveAccessor::SubstitutedEdgeTypeArg(SnField* pArg,
 		for (auto* pNestedArg : pNested->GenericTypeArgs())
 			nestedArgs.push_back(
 				SubstitutedEdgeTypeArg(pNestedArg, typeArgs));
-		if (auto* pMinted = GetDeclaredGenericInterfaceDecl(
+		if (auto* pCreated = GetDeclaredGenericInterfaceDecl(
 				*pNestedTmpl, nestedArgs))
-			return pMinted;
+			return pCreated;
 		return pArg;
 	}
 	if (pArg->Kind() == NK_ClassDecl)
@@ -224,15 +224,15 @@ SnField* ExprResolveAccessor::SubstitutedEdgeTypeArg(SnField* pArg,
 		for (auto* pNestedArg : pNested->GenericTypeArgs())
 			nestedArgs.push_back(
 				SubstitutedEdgeTypeArg(pNestedArg, typeArgs));
-		if (auto* pMinted = GetDeclaredGenericClassDecl(
+		if (auto* pCreated = GetDeclaredGenericClassDecl(
 				*pNestedTmpl, nestedArgs))
-			return pMinted;
+			return pCreated;
 		return pArg;
 	}
 	return pArg;
 }
 
-//The mint's implements-edge substitution (contract on the declaration
+//The creation's implements-edge substitution (contract on the declaration
 //in ExprResolver.h).
 void ExprResolveAccessor::FillInstanceImplementsEdges(SnClassDecl& tmpl,
 	const std::vector<SnField*>& typeArgs, SnClassDecl& inst)
@@ -273,26 +273,26 @@ SnClassDecl* ExprResolveAccessor::GetDeclaredGenericClassDecl(
 	if (auto* pCached = generics.FindInstance(&tmpl, keyArgs))
 		return pCached;
 
-	//Depth guard (rationale on MintDepthLimitReached).
-	if (MintDepthLimitReached(tmpl))
+	//Depth guard (rationale on InstantiationDepthLimitReached).
+	if (InstantiationDepthLimitReached(tmpl))
 		return nullptr;
 	//The claim spans EVERYTHING below the guard, not just the member
 	//cloning: completing the template below resolves its member types,
-	//and a self-referential member type re-enters the mint from there —
+	//and a self-referential member type re-enters the creation from there —
 	//the recursion point the guard exists to cut.
-	MintDepthClaim depthClaim(generics);
+	InstantiationDepthClaim depthClaim(generics);
 
 	//Two-phase construction (Clang's InstantiatingSpecializations
 	//technique): the shell — name, erasure markers, type arguments — is
 	//published in the cache BEFORE the recursive window. A fixed-key
-	//self-reference (Node<T> inside Node<T>) re-enters the mint for the
+	//self-reference (Node<T> inside Node<T>) re-enters the creation for the
 	//same key while this frame is still filling its shell; the cache
-	//hit binds the member to the very instance being minted and the
+	//hit binds the member to the very instance being created and the
 	//recursion terminates at depth one. Publishing after the window —
-	//the previous shape — left every re-entry minting a fresh instance:
+	//the previous shape — left every re-entry creating a fresh instance:
 	//the stack overflow, the fixed-key rejection and the exponential
 	//diagnostic cascade were all that one defect.
-	auto* pInstance = MintInstanceShell(tmpl, typeArgs);
+	auto* pInstance = CreateInstanceShell(tmpl, typeArgs);
 	generics.AdoptInstance(pInstance, &tmpl, keyArgs);
 	FillInstanceWindow(tmpl, typeArgs, *pInstance);
 	return pInstance;
@@ -351,7 +351,7 @@ SnFieldExpr* ExprResolveAccessor::SubstituteTypeExpr(
 		return pCopy;
 	}
 	//v0.13.1 D7: the PRE-BOUND builtin leaf family (SnIdentifierExpr
-	//minted through the NodeKind ctor — the compiler-wide idiom for
+	//created through the NodeKind ctor — the compiler-wide idiom for
 	//scalar/string types; the synthesizer's builtin arm uses it too).
 	//A pre-bound leaf's Field() is a builtin datatype, never a
 	//placeholder, so BindSubstitutedLeaf transfers the binding verbatim.
@@ -362,7 +362,7 @@ SnFieldExpr* ExprResolveAccessor::SubstituteTypeExpr(
 		auto& id = static_cast<SnIdentifierExpr&>(srcType);
 		//The leaf contract is enforced HERE, at the consumption point:
 		//only the pre-bound builtin family arrives bare — a divergent
-		//mint fails this assertion in Debug instead of cloning a silent
+		//create fails this assertion in Debug instead of cloning a silent
 		//void signature (TemplateSignatureLeaves.h).
 		NLANG_ASSERT(TemplateSignatureLeavesAreCanonical(&srcType));
 		auto* pCopy = new SnIdentifierExpr(
@@ -374,7 +374,7 @@ SnFieldExpr* ExprResolveAccessor::SubstituteTypeExpr(
 		return SubstituteArrayTypeExpr(
 			static_cast<SnArrayTypeExpr&>(srcType), typeArgs);
 	//Nested instantiation (`Future<T>`, `List<T>`): substitute base and
-	//arguments, then resolve — the cache mints the ACTUAL instantiation.
+	//arguments, then resolve — the cache creates the ACTUAL instantiation.
 	if (srcType.Kind() == NK_GenericTypeExpr)
 		return SubstituteGenericTypeExpr(
 			static_cast<SnGenericTypeExpr&>(srcType), typeArgs);

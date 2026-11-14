@@ -33,15 +33,15 @@ enum class OpCode : uint8_t {
     OP_PrimCast,        // u8 srcKind, u8 dstKind — convert pResult in place
                         // (kinds are scalar RTK immediates; registry-driven)
     OP_Prim_to_str,     // u8 kind — read the scalar from pResult, format via the
-                        // kind's ValueToString, mint a string object, write its
+                        // kind's ValueToString, create a string object, write its
                         // handle (int32) to pResult. Covers every scalar→string
                         // coercion (the retired OP_Int32_to_str/OP_Float_to_str
                         // generalized; bool renders true/false, char encodes UTF-8)
     OP_Enum_to_str,     // Phase 8e-9b: uint16 enumDefIdx immediate; read int32 enum value
                         // from pResult, lookup m_compiledModule.enumNames[enumDefIdx][value],
-                        // mint a string object, write its handle (int32) to pResult
+                        // create a string object, write its handle (int32) to pResult
     OP_Array_to_str,    // Phase 9b-pre: no operands; read array heap idx from pResult,
-                        // format as "[e1, e2, ...]", mint a string object, write handle to pResult
+                        // format as "[e1, e2, ...]", create a string object, write handle to pResult
 
     // === Generalized numeric ops (0.7.5; kind = scalar RTK immediate,
     //     dispatched through registry-instantiated function-pointer tables) ===
@@ -153,7 +153,7 @@ enum class OpCode : uint8_t {
     OP_Eq_struct,       // uint16 lhs, uint16 rhs — field-value equality
     OP_Ne_struct,       // uint16 lhs, uint16 rhs — negation of OP_Eq_struct
     OP_Func_to_str,     // no operands; format the handle at pResult as
-                        // "func <name>", mint a string object, write handle to pResult
+                        // "func <name>", create a string object, write handle to pResult
     OP_MakeBoundFunc,   // uint16 funcIdx — receiver at the pResult slot →
                         // {funcIdx, this, form=0}; null receiver throws at bind
     OP_MakeVFunc,       // uint16 nameIdx (string-constant index) — receiver at the
@@ -242,13 +242,13 @@ enum class OpCode : uint8_t {
     // === v0.13.1: runtime generic type info (typeName) ===
     OP_TypeNameArg,     // u16 dst, u8 paramOrdinal — read the receiver's
                         // instantiation descriptor (local 0), take the
-                        // ordinal-th type argument's canonical spelling,
-                        // mint a string object, write its handle to
+                        // ordinal-th type argument's canonical name,
+                        // create a string object, write its handle to
                         // locals[dst]
-    OP_TypeNameCompose, // u16 dst, u16 recipeIdx — compose the recipe's
+    OP_TypeNameCompose, // u16 dst, u16 compositionIdx — compose the composition's
                         // spelling against the receiver's instantiation
                         // (ARG_THIS steps read local 0), intern the
-                        // descriptor, mint a string of its canonical
+                        // descriptor, create a string of its canonical
                         // spelling, write the handle to locals[dst]
 
     // === v0.13.1 D6: kind-dispatched T operations (==/!= and to-string) ===

@@ -56,7 +56,7 @@ SnField *ExprResolveAccessor::ResolveStreamSpecialTypeArg(
 	//Phase 5 D10: the literal resolves to a declaration NOW, from the
 	//visible packages (own package + imported ones), and the string that
 	//reaches the VM is rewritten to that declaration's table key. No
-	//runtime bare-name fallback: the type tables are qualified-keyed.
+	//runtime unqualified-name fallback: the type tables are qualified-keyed.
 	//The collection surface is the registry's visible-module set, not
 	//FindField up the chain (import never adds a chain node, D2).
 	SnField* found = nullptr;

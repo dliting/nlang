@@ -25,7 +25,7 @@ namespace nlang
 //(bare identifier or receiver-bound member form): 0 when the formal is a
 //func type whose signature matches the referenced function exactly, -1
 //otherwise. The exact-match-only rule also closes the legacy hole where
-//the bare name's RETURN type let it bind approximately to non-func
+//the unqualified name's RETURN type let it bind approximately to non-func
 //formals.
 static int FuncRefBindingDistance(const FormalBinding &b)
 {

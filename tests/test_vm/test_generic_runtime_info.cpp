@@ -1,7 +1,7 @@
 // v0.13.1 Task 4: object-side instantiation descriptors (D1). The
 // executor carries one GenericInstDescriptor* per heap slot (a parallel
 // array like m_slotKinds); OP_New's descIdx operand resolves through the
-// module's descriptor table (interned from the canonical spelling at run
+// module's descriptor table (interned from the canonical name at run
 // start) and AllocClassOnHeap writes the pointer. Real programs compile
 // and execute in-process (the test_array_view_record harness pattern,
 // including its static-init contract).
@@ -194,13 +194,13 @@ static void testProbeBoundsAreNull()
 }
 
 //A template-body construction composes its descriptor at run time from
-//the receiver's own arguments (D3 recipes): Hold<int> driving Box(x)
+//the receiver's own arguments (D3 compositions): Hold<int> driving Box(x)
 //inside its ctor yields "Box<int>" alongside the static "Hold<int>".
-static void testRecipeComposesFromReceiver()
+static void testCompositionComposesFromReceiver()
 {
-    TEST(recipeComposesFromReceiver);
+    TEST(compositionComposesFromReceiver);
     {
-        ExecResult r = runProgram("gri_recipe",
+        ExecResult r = runProgram("gri_composition",
             "class Box<T> {\n"
             "    public T value;\n"
             "    public Box(T v) { value = v; }\n"
@@ -230,13 +230,13 @@ static void testRecipeComposesFromReceiver()
     PASS();
 }
 
-//Nested composition: a recipe argument that is itself a recipe-driven
+//Nested composition: a composition argument that is itself a composition-driven
 //construction (Box<Box<T>> staged through a typed local).
-static void testNestedRecipeComposes()
+static void testNestedCompositionComposes()
 {
-    TEST(nestedRecipeComposes);
+    TEST(nestedCompositionComposes);
     {
-        ExecResult r = runProgram("gri_recipe_nested",
+        ExecResult r = runProgram("gri_composition_nested",
             "class Box<T> {\n"
             "    public T value;\n"
             "    public Box(T v) { value = v; }\n"
@@ -262,7 +262,7 @@ static void testNestedRecipeComposes()
             if (r.exec->InstDescriptorOf(idx)->Spelling()
                     == "Box<Box<int>>")
                 sawNested = true;
-        CHECK(sawNested, "nested recipe composed as Box<Box<int>>");
+        CHECK(sawNested, "nested composition composed as Box<Box<int>>");
     }
     PASS();
 }
@@ -466,11 +466,11 @@ static void testNullDescCellRaisesNamedError()
 }
 
 //Task 6 Review-Focus-1 pin: the static→free chain fills the callee's
-//frame context cell from a recipe composed against the CALLER's cell.
+//frame context cell from a composition composed against the CALLER's cell.
 //Under per-allocation collections (threshold 4) the interned descriptor
 //pointers live in host memory and must survive every safepoint; the
 //verdicts (exit-code protocol) plus the post-run heap invariants —
-//descriptors only on class slots, both recipe-composed constructions
+//descriptors only on class slots, both composition-composed constructions
 //still carrying theirs — prove the fill order beats the safepoint.
 static void testGenericFrameSlotUnderGcStress()
 {
@@ -522,7 +522,7 @@ static void testGenericFrameSlotUnderGcStress()
         }
         CHECK(!foreignKind,
               "descriptor slots stayed kind-restricted under stress");
-        CHECK(sawInt && sawString, "both recipe-composed constructions "
+        CHECK(sawInt && sawString, "both composition-composed constructions "
               "kept their descriptors across the collections");
     }
     PASS();
@@ -541,8 +541,8 @@ int main()
         testBoxIntRidesConstruction();
         testPlainObjectCarriesNone();
         testProbeBoundsAreNull();
-        testRecipeComposesFromReceiver();
-        testNestedRecipeComposes();
+        testCompositionComposesFromReceiver();
+        testNestedCompositionComposes();
         testStaticBodyComposesFromForwardedContext();
         testStaticFrameCarriesForwardedContext();
         testRecycledSlotsCarryNoDescriptor();

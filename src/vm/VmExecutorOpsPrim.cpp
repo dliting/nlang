@@ -354,11 +354,11 @@ void VmExecutor::OpPrimCast(BytecodeReader& r, uint8_t* pResult)
 
 //Scalar -> string, registry-driven: format via the kind's
 //ValueToString (bool "true"/"false", char one UTF-8 code point,
-//integers decimal, floats %g/%.17g) and mint a string object the same
+//integers decimal, floats %g/%.17g) and create a string object the same
 //way the retired OP_Int32_to_str/OP_Float_to_str did.
 void VmExecutor::OpPrimToStr(BytecodeReader& r, uint8_t* pResult)
 {
-    //K8: lock-free — registry formatting plus a self-locking mint;
+    //K8: lock-free — registry formatting plus a self-locking creation;
     //the raise below runs with no domain held.
     int i = ScalarPrimIndexOfRtk(r.ReadByte());
     if (i < 0)
@@ -370,7 +370,7 @@ void VmExecutor::OpPrimToStr(BytecodeReader& r, uint8_t* pResult)
     //in-process test hosts already did).
     std::string s = RnBuiltinDataType::InstanceOf(kScalarPrims[i].kind)
                         ->ValueToString(pResult);
-    int32_t handle = MintNewString(std::move(s));
+    int32_t handle = CreateNewString(std::move(s));
     std::memcpy(pResult, &handle, sizeof(handle));
 }
 

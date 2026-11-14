@@ -98,7 +98,7 @@ CompiledModule ModuleLoader::LoadFromBytes(const std::string& filePath,
 
     // v2.15 (v0.13.1): the generic-instantiation descriptor table,
     // mirroring the saver's section (u32 count; per entry u16
-    // spellingLen + bytes, u16 recipeLen + bytes).
+    // spellingLen + bytes, u16 compositionLen + bytes).
     uint32_t descCount = 0;
     fs.read(reinterpret_cast<char*>(&descCount), sizeof(descCount));
     if (!fs.good() || descCount > (1u << 24))
@@ -112,16 +112,16 @@ CompiledModule ModuleLoader::LoadFromBytes(const std::string& filePath,
                 "Invalid module: truncated descriptor spelling");
         mod.descriptorTable[i].spelling.resize(spellingLen);
         fs.read(mod.descriptorTable[i].spelling.data(), spellingLen);
-        uint16_t recipeLen = 0;
-        fs.read(reinterpret_cast<char*>(&recipeLen), sizeof(recipeLen));
+        uint16_t compositionLen = 0;
+        fs.read(reinterpret_cast<char*>(&compositionLen), sizeof(compositionLen));
         if (!fs.good())
             throw std::runtime_error(
-                "Invalid module: truncated descriptor recipe");
-        mod.descriptorTable[i].recipe.resize(recipeLen);
-        if (recipeLen > 0)
+                "Invalid module: truncated composition record");
+        mod.descriptorTable[i].composition.resize(compositionLen);
+        if (compositionLen > 0)
             fs.read(reinterpret_cast<char*>(
-                        mod.descriptorTable[i].recipe.data()),
-                    recipeLen);
+                        mod.descriptorTable[i].composition.data()),
+                    compositionLen);
     }
 
     //Composite record tables parse in this stream order; the per-field
@@ -391,7 +391,7 @@ CompiledModule ModuleLoader::LoadFromBytes(const std::string& filePath,
 
     //Import slots are table TAILS (own entries 0..n-1, imports n..n+m),
     //so an import count above its table's size is a corrupt or hostile
-    //image: every ownCount consumer (stub minting, linker slot walks)
+    //image: every ownCount consumer (stub creation, linker slot walks)
     //computes size - imports.size() and would underflow into out-of-
     //bounds walks. The per-count read bound above only caps the vector
     //allocation — this cross-check is the structural one, in the single

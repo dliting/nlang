@@ -42,7 +42,7 @@ int ArrayTypeDepth(const SnFieldExpr* pType)
 		{
 			auto* pGen = static_cast<const SnGenericTypeExpr*>(pCur);
 			//The grammar wraps the base in an SnNameExpr; its ToString()
-			//is the bare name.
+			//is the unqualified name.
 			if (pGen->TypeArgs().size() != 1
 				|| pGen->Base()->ToString() != kBuiltinArrayTypeName)
 				return depth;

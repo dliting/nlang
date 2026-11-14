@@ -7,13 +7,13 @@ class Maker<T> {
 class Second<T> {
     public string use(int x) {
         // generic caller forwarding into another class's static:
-        // recipe row composed from this frame's context
+        // composition record row composed from this frame's context
         if (Maker.pass(x) != x) { return "a"; }
         return "ok";
     }
     public T echo(T v) {
         // cross-template forwarding: Maker's T binds to Second's T —
-        // the composed recipe row reads this frame's cell at runtime
+        // the composed composition record row reads this frame's cell at runtime
         return Maker.pass(v);
     }
 }
@@ -23,7 +23,7 @@ int main() {
     if (Maker.pass(7) != 7) { return 4; }        // non-generic caller, T from args
     string r = Maker.pass("t");
     if (r != "t") { return 5; }                  // inference per call site
-    if (s.echo(11) != 11) { return 6; }          // recipe composed from s's cell
+    if (s.echo(11) != 11) { return 6; }          // composition composed from s's cell
     Second<string> t = Second();
     if (t.echo("u") != "u") { return 7; }        // same shared row, other cell
     return 0;

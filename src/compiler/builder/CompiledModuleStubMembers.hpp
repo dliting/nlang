@@ -70,7 +70,7 @@ inline SnStructDecl *CreateStructStub(const CompiledStruct &cs,
 	for (size_t ci = 0; ci < cs.constructorIndices.size(); ++ci)
 	{
 		//Out-of-range is a corrupt image — the loader validated the
-		//counts, the bound check keeps stub minting defensive.
+		//counts, the bound check keeps stub creation defensive.
 		const uint16_t idx = cs.constructorIndices[ci];
 		if (idx >= cm.functions.size())
 			continue;
@@ -202,7 +202,7 @@ inline SnClassDecl *CreateClassStub(const CompiledClass &cc,
 	pDecl->AddFlags(NF_Imported);   //R6-2
 	//v0.13.1 D7: a template row rebuilds as a generic declaration — the
 	//parameter names make IsGenericDeclaration() true, so the consumer's
-	//resolver mints instantiations and binds T signatures against the
+	//resolver creates instantiations and binds T signatures against the
 	//stub (BindTypeParamPlaceholderIfAny walks it).
 	if (cc.isTemplate)
 		pDecl->SetTypeParamNames(cc.typeParamNames);
@@ -274,7 +274,7 @@ inline SnInterfaceDecl *CreateInterfaceStub(const CompiledInterface &ci,
 	}
 	//0.9.12 (v2.7): instance-method signatures. The signature records
 	//carry no formal names (unlike function records' locals tables), so
-	//the stubs mint "p<i>" placeholders — positional binding works,
+	//the stubs create "p<i>" placeholders — positional binding works,
 	//named-argument calls against an imported interface method do not
 	//bind. Interface members are implicitly public and non-static.
 	for (const auto &sig : ci.instanceMethods)
@@ -326,7 +326,7 @@ inline SnInterfaceDecl *CreateInterfaceStub(const CompiledInterface &ci,
 	pDecl->AddFlags(NF_Imported);   //R6-2
 	//v2.19 (0.13.1c Task 8): a template row rebuilds as a generic
 	//declaration — the parameter names make IsGenericDeclaration() true,
-	//so the consumer's resolver mints instantiations and binds T
+	//so the consumer's resolver creates instantiations and binds T
 	//signatures against the stub (BindTypeParamPlaceholderIfAny's
 	//NK_InterfaceDecl arm walks it).
 	if (ci.isTemplate)
@@ -361,7 +361,7 @@ inline SnEnumDecl *CreateEnumStub(const std::string &qualifiedKey,
 	{
 		const uint16_t idx = methodIndices[mi];
 		//Out-of-range is a corrupt image (the loader validated the
-		//counts); the bound check keeps stub minting defensive.
+		//counts); the bound check keeps stub creation defensive.
 		if (idx >= cm.functions.size())
 			continue;
 		const FieldAccessType access = mi < methodAccess.size()

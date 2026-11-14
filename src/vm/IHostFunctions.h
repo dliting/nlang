@@ -22,7 +22,7 @@ public:
     //查）：写 resultCell 的句柄必须是活动字符串——句柄 0＝"没有产出
     //字符串"，属契约违例，抛 host 级错误"returned null string"；
     //string 形参单元则一律是活动字符串，句柄 0＝空串（裁定 D26）。
-    //embed 宿主经 MintHostString 铸柄，与 newString 同规永不铸 0。
+    //embed 宿主经 CreateHostString 铸柄，与 newString 同规永不铸 0。
     virtual bool Call(const CompiledFunction& callee,
                       const uint8_t* argCells, uint32_t argc,
                       uint8_t* resultCell) = 0;

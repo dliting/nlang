@@ -20,12 +20,12 @@ bool VmExecutor::ExecuteIntrinsicContainer(uint16_t intrinsicId,
     uint16_t callParamBase, uint8_t* locals, uint8_t* pResult)
 {
     //INTR_List_toString (Phase 9b-pre): format the list's elements as
-    //"[e1, e2, ...]" via FormatList. Mint a string object, write its
+    //"[e1, e2, ...]" via FormatList. Create a string object, write its
     //handle to pResult. Strings inside are quoted via QuoteString.
     if (intrinsicId == INTR_List_toString) {
         int32_t handle = ReadListHandle(callParamBase, locals, "toString");
         std::string s = FormatList(handle, 0);
-        int32_t strHandle = MintNewString(std::move(s));
+        int32_t strHandle = CreateNewString(std::move(s));
         std::memcpy(pResult, &strHandle, sizeof(strHandle));
         return true;
     }
@@ -34,7 +34,7 @@ bool VmExecutor::ExecuteIntrinsicContainer(uint16_t intrinsicId,
     if (intrinsicId == INTR_Dict_toString) {
         int32_t handle = ReadDictHandle(callParamBase, locals, "toString");
         std::string s = FormatDict(handle, 0);
-        int32_t strHandle = MintNewString(std::move(s));
+        int32_t strHandle = CreateNewString(std::move(s));
         std::memcpy(pResult, &strHandle, sizeof(strHandle));
         return true;
     }
@@ -56,7 +56,7 @@ bool VmExecutor::ExecuteIntrinsicContainer(uint16_t intrinsicId,
 //Everything below the toString arms: one contiguous Container-domain
 //critical section (handle resolution, structure mutation, growth —
 //AllocListHandle/AllocDictHandle grow the side-table vectors here;
-//inner allocations/mints are forward acquisitions).
+//inner allocations/creations are forward acquisitions).
 bool VmExecutor::ExecuteIntrinsicContainerStructural(uint16_t intrinsicId,
     uint16_t callParamBase, uint8_t* locals, uint8_t* pResult)
 {

@@ -5,7 +5,7 @@ int makeNoise(int n) {
     return -1;
 }
 int main() {
-    string keep = "stable-" + 7;   //minted — constants are immortal and never swept
+    string keep = "stable-" + 7;   //created — constants are immortal and never swept
     int i = 0;
     while (i < 200) {
         i = makeNoise(i) + 1;

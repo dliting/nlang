@@ -29,7 +29,7 @@ bool HostFunctionTable::Call(const CompiledFunction& callee,
         return false;   //not ours: fall back to the native/DLL path
     //边界守卫（须在表命中之后：未命中须继续落 DLL native 路径，它
     //合法服务 native 方法）。宿主注册今天只覆盖自由函数——公共注册
-    //键恒带分隔点而方法派发名是裸名，方法 callee 不进表只是两个相
+    //键恒带分隔点而方法派发名是非限定名，方法 callee 不进表只是两个相
     //距甚远事实的巧合交集；本守卫将其升级为显式边界契约，未来任何
     //能命中方法名的注册形态在此响亮失败，而非静默错位编组（ArgsFromCells
     //按声明 kind 配对每个 cell，方法帧的 this 槽会吃掉第一个描述符）。

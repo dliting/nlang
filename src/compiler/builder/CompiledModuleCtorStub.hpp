@@ -25,10 +25,10 @@ namespace nlang
 //GenerateAllBytecode already skip bodyless functions, and the NF_Imported
 //flag adds an explicit IsImported() gate for safety. `access` is the
 //member's declared access (0.9.12: class statics carry it on the wire);
-//free functions and interface statics mint FA_Public at the call site.
+//free functions and interface statics create FA_Public at the call site.
 //`producerIdx` is the record's index in the producer's own function
 //table (0.10.14, clamped through ProducerIdxClamp) — it rides the stub
-//to the cross-unit slot record; no default value, every mint site
+//to the cross-unit slot record; no default value, every creation site
 //states it explicitly.
 inline SnFunction *CreateFunctionStub(const CompiledFunction &cf,
 	const CompiledModule &cm, const ISourceLocation &loc,
@@ -103,7 +103,7 @@ inline SnFunction *CreateFunctionStub(const CompiledFunction &cf,
 		pParams->push_back(pParam);
 	}
 
-	//Mint the function name as a heap string (SnFunction takes ownership).
+	//Create the function name as a heap string (SnFunction takes ownership).
 	//Leaf name: see LeafNameOfKey (phase 5 key vs. stub-name split).
 	auto pName = new std::string(LeafNameOfKey(cf.name));
 
@@ -141,18 +141,18 @@ inline SnFunction *CreateFunctionStub(const CompiledFunction &cf,
 //paramCount counts the hidden __this (paramCount == formals + 1), the
 //locals table lists __this as its FIRST isParam entry, and
 //paramTypeDescs/defaultValues are per-formal (index 0 == first visible
-//parameter). The stub therefore mints formals = paramCount - 1 params,
+//parameter). The stub therefore creates formals = paramCount - 1 params,
 //named from the locals entries after __this, with defaults/descriptors
 //aligned from 0 — the same shapes the parser emits for a hand-written
 //`C(int x)` member. `access` is the member's declared access (v2.7 wire).
 //A record that cannot name a __this slot is a corrupt image: refusing it
-//beats minting a stub whose call frame is one slot off (the
+//beats creating a stub whose call frame is one slot off (the
 //walker/codegen claim split would trip the observedPeakCursor tripwire
 //far from the cause).
 //`producerIdx` (0.10.14): the record's index in the producer's own
 //function table, clamped by the caller through ProducerIdxClamp — it
 //rides the stub to the cross-unit slot record. No default value: every
-//mint site states it explicitly.
+//creation site states it explicitly.
 inline SnFunction *CreateMethodStub(const CompiledFunction &cf,
 	const CompiledModule &cm, const ISourceLocation &loc,
 	FieldAccessType access, uint16_t producerIdx,
@@ -172,7 +172,7 @@ inline SnFunction *CreateMethodStub(const CompiledFunction &cf,
 			paramNames.push_back(ld.name);
 	if (!paramNames.empty())
 		paramNames.erase(paramNames.begin());
-	//Placeholder fallback mirrors CreateFunctionStub — stub minting never
+	//Placeholder fallback mirrors CreateFunctionStub — stub creation never
 	//rejects a module over naming.
 	std::vector<std::string> stubFormalNames(formals);
 	for (uint16_t i = 0; i < formals; ++i)

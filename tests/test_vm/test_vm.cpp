@@ -389,7 +389,7 @@ void test_module_import_slots_roundtrip() {
 
     //Corrupt-image guard: import slots are table TAILS (own 0..n-1,
     //imports n..n+m), so an import count above the table size would
-    //underflow every ownCount consumer (stub minting, linker slot
+    //underflow every ownCount consumer (stub creation, linker slot
     //walks) into out-of-bounds reads. The reader must refuse the image.
     {
         mod.functionImports.push_back({"lib", "lib.g", 1});

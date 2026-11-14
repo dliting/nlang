@@ -265,7 +265,7 @@ void VmExecutor::ReadArrayElements(int32_t heapIdx, uint8_t elemKind,
                      static_cast<size_t>(len));
             m_structHeap[static_cast<size_t>(heapIdx)]
                 [base + static_cast<size_t>(i)] =
-                    MintNewString(std::move(s));
+                    CreateNewString(std::move(s));
         }
     } else if (elemKind == RTK_Struct) {
         for (int32_t i = 0; i < elemCount; ++i) {
@@ -290,7 +290,7 @@ void VmExecutor::ReadArrayElements(int32_t heapIdx, uint8_t elemKind,
 //wrapped kind byte, then a length-prefixed string or a scalar at the
 //registry width (8-byte rows span the box's two payload cells — the
 //AllocBoxedValue layout). Boxes are immutable values: no
-//back-reference, each read mints a fresh box.
+//back-reference, each read creates a fresh box.
 template<typename Writer>
 void VmExecutor::WriteBoxedRecord(int32_t heapIdx, Writer&& write)
 {
@@ -342,7 +342,7 @@ int32_t VmExecutor::ReadBoxedRecord(Reader&& read)
             read(reinterpret_cast<uint8_t*>(&s[0]),
                  static_cast<size_t>(len));
         return AllocBoxedValue(RTK_String,
-            MintNewString(std::move(s)));
+            CreateNewString(std::move(s)));
     }
     const int primRow = ScalarPrimIndexOfRtk(inner);
     if (primRow < 0)

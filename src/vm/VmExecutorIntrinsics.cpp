@@ -20,7 +20,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
     uint8_t* locals, uint8_t* pResult)
 {
     //K8: no whole-dispatch guard — each family owns its domain lock
-    //(Container/Stream in their TUs; string arms self-lock via mint
+    //(Container/Stream in their TUs; string arms self-lock via creation
     //flatten); the thread/sync family still holds the store lock
     //wholly (see IntrinsicsThread.cpp) until the scheduler lock
     //restatement lands alongside its Sync domain.
@@ -99,7 +99,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
                 //0.7.5: the full scalar family (narrow rows, uint,
                 //long/ulong) renders through the canonical registry
                 //renderer — records are {tag, lo, hi}.
-                handle = MintNewString(FormatScalarValue(
+                handle = CreateNewString(FormatScalarValue(
                     static_cast<uint8_t>(rec[0]), rec[1], rec[2]));
             } else {
                 throw std::runtime_error(
@@ -121,7 +121,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         std::snprintf(buf, sizeof(buf), "%s@%x",
                       LeafNameOfKey(className).c_str(),
                       static_cast<unsigned>(thisHeapIdx));
-        int32_t handle = MintNewString(buf);
+        int32_t handle = CreateNewString(buf);
         std::memcpy(pResult, &handle, sizeof(handle));
         return;
     }
@@ -137,7 +137,7 @@ void VmExecutor::ExecuteIntrinsic(uint16_t intrinsicId, uint16_t callParamBase,
         if (thisHeapIdx <= 0)
             RaiseNlangException(m_nullPtrExcClassIdx,
                                 "NLang VM: NullPointerException");
-        int32_t handle = MintArrayString(thisHeapIdx);
+        int32_t handle = CreateArrayString(thisHeapIdx);
         std::memcpy(pResult, &handle, sizeof(handle));
         return;
     }

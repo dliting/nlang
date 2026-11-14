@@ -1,5 +1,5 @@
 //Phase 13 Step 1: function values live in List<func<...>> — the
-//init-list entry is the bare-name injection site; the container
+//init-list entry is the unqualified-name injection site; the container
 //formatter renders the element as "func <name>" (Phase 5 D13: the
 //name is the qualified table key); foreach invokes every stored
 //handle (review round-1 F5).

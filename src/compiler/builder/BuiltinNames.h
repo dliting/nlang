@@ -27,10 +27,10 @@ struct SnInvokeExpr;
 //a future builtin added to one copy but not the chain below would fall
 //into the wrong arm and silently corrupt the singleton. Everything
 //routes through this one function now.
-//Phase 5: the bare-name comparison stays — builtins carry no owner tag,
+//Phase 5: the unqualified-name comparison stays — builtins carry no owner tag,
 //so their table keys stay bare; a user `pkg.Object` never matches here.
 //K1 Slice 9: Channel is generic-only (Channel<T>); the element type
-//decides boxing, so the bare name is not a type. The builtin-decls
+//decides boxing, so the unqualified name is not a type. The builtin-decls
 //source-of-truth migration removed Semaphore/Mutex (cluster 1), Thread
 //(cluster 3) and Object (cluster 4); the v0.12.3 import boundary then
 //moved Semaphore/Mutex and Thread to the concurrency packages
@@ -105,7 +105,7 @@ const BuiltinStaticFace* BuiltinStaticFaces(size_t& count);
 
 //The static-face qualifier singleton: the arm binds the outer
 //identifier of the member call to this decl (pointer identity is the
-//codegen marker), keeping the tree fully resolved. MINTING version
+//codegen marker), keeping the tree fully resolved. CREATING version
 //(resolver only). Deliberately outside IsBuiltinClassName: bare
 //`Future` stays rejected in every type position (a generic type needs
 //arguments) — the singleton exists solely as the call qualifier.
@@ -114,7 +114,7 @@ const BuiltinStaticFace* BuiltinStaticFaces(size_t& count);
 class ModuleRegistry;
 SnClassDecl* BuiltinStaticFaceClassDecl(ModuleRegistry& reg,
 	const std::string& typeName);
-//Non-minting probe (codegen): nullptr until the resolver minted one for
+//Non-creating probe (codegen): nullptr until the resolver created one for
 //this type name.
 SnClassDecl* FindBuiltinStaticFaceClassDecl(const ModuleRegistry& reg,
 	const std::string& typeName);

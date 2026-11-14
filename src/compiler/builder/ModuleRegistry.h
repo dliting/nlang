@@ -208,9 +208,9 @@ public:
 	//`namespace <path>`, so the chain cannot express a path-derived
 	//package for project units. Call contract: valid only for top-level
 	//members merged into root and for library members; class methods
-	//keep their bare-name rule on the caller's side.
+	//keep their unqualified-name rule on the caller's side.
 	std::string PackageOf(const SnField& member) const;
-	//PackageOf, dotted with the member's name; the bare name when the
+	//PackageOf, dotted with the member's name; the unqualified name when the
 	//member has no package.
 	std::string QualifiedName(const SnField& member) const;
 
@@ -225,7 +225,7 @@ public:
 		return *m_upDeclaredGenerics;
 	}
 
-	//Synthetic builtin declarations minted on demand for this build
+	//Synthetic builtin declarations created on demand for this build
 	//(builtin generic instantiations, ByteStream/FileStream
 	//singletons, static-face qualifiers). Same per-build scope and
 	//the same ownership duty as DeclaredGenerics.

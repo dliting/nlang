@@ -1176,7 +1176,7 @@ private slots:
     //source position. The not-found fallback used to log "Cannot
     //resolve the field" with NO location, so for `return
     //undefined_name;` the only positioned line was the return-check
-    //echo; suppressing that echo as redundant (generic-mint
+    //echo; suppressing that echo as redundant (generic-creation
     //diagnostics) left the IDE compile log with nothing navigable —
     //error navigation degraded to nothing, and the journey test even
     //crashed building a cursor from the absent "(line" block. The
@@ -1646,10 +1646,10 @@ private slots:
         QVERIFY(pMain != nullptr);
         QCOMPARE(reg.QualifiedName(*pMain), std::string("main.main"));
 
-        //(d) unowned member degrades to the bare name. The merged root
+        //(d) unowned member degrades to the unqualified name. The merged root
         //    container itself carries no owner tag, so this is the free
         //    NO_OWNER case (a synthetic generic instantiation would do
-        //    too, but needs a compile to mint). Runs BEFORE (c): that
+        //    too, but needs a compile to create). Runs BEFORE (c): that
         //    build resets the process-global AST (InitSyntaxTree), which
         //    frees the tree this rootView points into.
         QCOMPARE(reg.PackageOf(rootView), std::string());
@@ -1908,13 +1908,13 @@ private slots:
         QVERIFY2(outcome.ok, "producer lib must build clean");
         QCOMPARE(outcome.units.size(), size_t(1));
 
-        //Mint the consumer stubs over a fresh runtime tree (the same
+        //Create the consumer stubs over a fresh runtime tree (the same
         //path ModuleBuilderImports takes for an imported .ncu). The
         //global tree is required, not a local one: the scalar
         //pre-binding inside SynthTypeExprFromDesc resolves through
         //TheAST().FindNode (SnBuiltinDataType::InstanceOf), and
         //compile()'s ModuleBuilder destructor clears the global tree
-        //— a local tree would mint unbound scalar field types.
+        //— a local tree would create unbound scalar field types.
         BuildParams params;
         MemLogger logger;
         BuildEnvironment env(params, logger);
@@ -1937,7 +1937,7 @@ private slots:
         QCOMPARE(fields.size(), size_t(2));
         QCOMPARE(fields[0]->Name(), std::string("x"));
         QCOMPARE(fields[1]->Name(), std::string("y"));
-        //The minted type expression is syntactic (SynthTypeExprFromDesc
+        //The created type expression is syntactic (SynthTypeExprFromDesc
         //mirrors the parser's shape; the consumer's ResolveDataTypes
         //pass binds named types later — e2e imported_struct_field_*
         //pin the end-to-end typed behavior). Scalars arrive pre-bound:
@@ -1959,7 +1959,7 @@ private slots:
     //0.10.14: the enum stub rebuilds value members (sparse gaps
     //skipped, member value = table index) and member methods with their
     //declared access — and the enum's methods are NOT promoted to free
-    //stubs (the double-mint the enum import corrects).
+    //stubs (the double creation the enum import corrects).
     void importedEnumStubRebuildsMembersAndMethods()
     {
         auto dir = nlang::test::ScratchDir("nlang_stub_enum");
@@ -2062,7 +2062,7 @@ private slots:
         //leaf in the PARSER-CANONICAL shape (SnNameExpr wrapping the
         //identifier, NamedLeafExpr) — one name-leaf shape for every
         //template member type, source or stub, so shape-sensitive
-        //consumers (the generic mint's SubstituteTypeExpr, the
+        //consumers (the generic creation's SubstituteTypeExpr, the
         //resolution passes) read a single surface. The consumer's
         //resolver binds the inner identifier to the placeholder through
         //the stub's own declaration (BindTypeParamPlaceholderIfAny).
@@ -2100,11 +2100,11 @@ private slots:
     }
 
     //The template-signature leaf contract, enforced by assertion at the
-    //substitution entry and the stub mint (TemplateSignatureLeaves.h):
+    //substitution entry and the stub creation (TemplateSignatureLeaves.h):
     //a bare identifier leaf in a template member type must be a pre-bound
     //builtin (resolved to an SnBuiltinDataType); a named reference
     //arrives wrapped in SnNameExpr (NamedLeafExpr). A bare UNRESOLVED
-    //identifier is the divergent mint that once cloned every non-T
+    //identifier is the divergent creation that once cloned every non-T
     //signature of a stub template as void — these tests pin the
     //contract predicate itself, shape by shape.
     void templateLeafContract_acceptsCanonicalShapes()
@@ -2119,13 +2119,13 @@ private slots:
         delete pVoid;
         //A wrapped name, resolved or not, is canonical — the parser
         //shape (NamedLeafExpr); resolution may legitimately still be
-        //pending when the mint substitutes a template member.
+        //pending when the creation substitutes a template member.
         auto* pWrapped = new SnNameExpr(
             new SnIdentifierExpr(new std::string("T"), loc), loc);
         QVERIFY(TemplateSignatureLeavesAreCanonical(pWrapped));
         delete pWrapped;
         //A qualified path is a composite shape with its own documented
-        //mint-failure diagnostic ("cannot carry") — not this contract.
+        //creation-failure diagnostic ("cannot carry") — not this contract.
         auto* pQualified = new SnQualifiedTypeExpr(
             std::string("c"), std::string("S"), loc);
         QVERIFY(TemplateSignatureLeavesAreCanonical(pQualified));
@@ -2148,7 +2148,7 @@ private slots:
     void templateLeafContract_rejectsDivergentBareLeaves()
     {
         CompiledModuleNodeLocation loc(std::string("t"));
-        //THE bug class: a bare named leaf is a divergent mint — the
+        //THE bug class: an unqualified-name leaf is a divergent creation — the
         //substitution entry must never receive it (it once cloned every
         //non-T signature of a stub template as void).
         auto* pBare = new SnIdentifierExpr(new std::string("T"), loc);
@@ -2182,11 +2182,11 @@ private slots:
         QCOMPARE(ProducerIdxClamp(0x10000), uint16_t(0xFFFF));
     }
 
-    //0.10.14 (spec §7): two overload calls mint TWO namespace-level
+    //0.10.14 (spec §7): two overload calls create TWO namespace-level
     //slot records with distinct ownerOrdinals — the FunctionSymbolSlot
     //dedup key already carries the ordinal, so the pair must not
     //collapse into one record.
-    void overloadCallsMintDistinctOrdinalRecords()
+    void overloadCallsCreateDistinctOrdinalRecords()
     {
         namespace fs = std::filesystem;
         const fs::path root = nlang::test::ScratchDir("nlang_overload_ordinal_records");
@@ -2252,7 +2252,7 @@ private slots:
         QVERIFY2(!images.units.empty(),
             joinErrors(ml.errorsText()).c_str());
         //Collect the ovlib.ov namespace records across every unit
-        //image (only main mints them; name is the qualified key).
+        //image (only main creates them; name is the qualified key).
         int found = 0;
         uint16_t ordinals[2] = {0xFFFF, 0xFFFF};
         for (const auto& u : images.units)

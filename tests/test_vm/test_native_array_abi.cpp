@@ -1,7 +1,7 @@
 // NativeHost ABI v7 array-access unit tests: real VmExecutor + real heap
-// arrays. Bare-name natives registered in-process exercise getArrayView
+// arrays. Unqualified-name natives registered in-process exercise getArrayView
 // (view fields, payload read/write round-trip, empty arrays, null handle)
-// and newArray (mint + fill + negative-length rejection). Mirrors
+// and newArray (create + fill + negative-length rejection). Mirrors
 // test_stdlib.cpp's in-process compile+load+link+execute pipeline —
 // including its static-init contract: Runtime::StaticInit owns the
 // IdString intern tables and TypeCastInfo::StaticInit the cast table;
@@ -95,7 +95,7 @@ static BuildOutcome buildSource(const std::string& tag,
 }
 
 //Compile + execute with in-process natives registered before the run.
-//Bare-name natives at TU level resolve as <module-tag>.<name> at the call
+//Unqualified-name natives at TU level resolve as <module-tag>.<name> at the call
 //site (TestNatives.h precedent: "native_basic.natConst"), so registration
 //keys off the same tag. Returns main()'s value, -1 on build or pipeline
 //failure.
@@ -127,7 +127,7 @@ static int runSourceWithNatives(const std::string& tag,
     }
 }
 
-//--- bare-name test natives (ABI v7 exercise) --------------------------------
+//--- unqualified-name test natives (ABI v7 exercise) --------------------------------
 
 //int natTwoViewsStrideIndependence(int[,] a, int[,,] b) — two live views
 //must own their strides storage: the v6 host scratch let the second
@@ -170,8 +170,8 @@ void NatViewRoundtrip(NativeHost* host, uint8_t* ret,
     nlang::native::ReturnInt(ret, static_cast<int32_t>(view.elemCount));
 }
 
-//int[] natMint(int len) — mint via newArray, fill i*2 through the view.
-void NatMint(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc) {
+//int[] natCreate(int len) — create via newArray, fill i*2 through the view.
+void NatCreate(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc) {
     (void)argc;
     const int32_t len = nlang::native::ArgInt(args, 0);
     const int32_t handle = nlang::native::NewArray(host, NEK_Int32, len);
@@ -212,10 +212,10 @@ void NatHighRankView(NativeHost* host, uint8_t* ret,
     nlang::native::ReturnInt(ret, 1);
 }
 
-//int natMint2x3() — mint a rank-2 [2,3] through newArrayShaped (ABI
+//int natCreate2x3() — create a rank-2 [2,3] through newArrayShaped (ABI
 //v9): the language side receives an ND handle and reads the shape and
 //the zero-initialized payload.
-void NatMint2x3(NativeHost* host, uint8_t* ret, const uint8_t* args,
+void NatCreate2x3(NativeHost* host, uint8_t* ret, const uint8_t* args,
                 int argc) {
     (void)args;
     (void)argc;
@@ -229,18 +229,18 @@ static void RegisterTestNatives(VmExecutor& exec, const std::string& tag)
     exec.RegisterNative(tag + ".natViewRoundtrip", &NatViewRoundtrip);
     exec.RegisterNative(tag + ".natTwoViewsStrideIndependence",
                         &NatTwoViewsStrideIndependence);
-    exec.RegisterNative(tag + ".natMint", &NatMint);
+    exec.RegisterNative(tag + ".natCreate", &NatCreate);
     exec.RegisterNative(tag + ".natHighRankView", &NatHighRankView);
-    exec.RegisterNative(tag + ".natMint2x3", &NatMint2x3);
+    exec.RegisterNative(tag + ".natCreate2x3", &NatCreate2x3);
 }
 
-void test_mint_shaped()
+void test_create_shaped()
 {
-    TEST(mint_shaped);
-    const int rc = runSourceWithNatives("abi_mint_shaped",
-        "native int[,] natMint2x3();\n"
+    TEST(create_shaped);
+    const int rc = runSourceWithNatives("abi_create_shaped",
+        "native int[,] natCreate2x3();\n"
         "int main() {\n"
-        "    int[,] m = natMint2x3();\n"
+        "    int[,] m = natCreate2x3();\n"
         "    if (m.rank() != 2) return 1;\n"
         "    int[] s = m.shape();\n"
         "    if (s[0] != 2 || s[1] != 3) return 2;\n"
@@ -248,7 +248,7 @@ void test_mint_shaped()
         "    return 0;\n"
         "}\n",
         &RegisterTestNatives);
-    CHECK(rc == 0, "shaped mint must return a live rank-2 zeroed array");
+    CHECK(rc == 0, "shaped creation must return a live rank-2 zeroed array");
     PASS();
 }
 
@@ -308,20 +308,20 @@ void test_high_rank_view()
     PASS();
 }
 
-void test_mint_and_fill()
+void test_create_and_fill()
 {
-    TEST(mint_and_fill);
-    const int rc = runSourceWithNatives("abi_mint",
-        "native int[] natMint(int len);\n"
+    TEST(create_and_fill);
+    const int rc = runSourceWithNatives("abi_create",
+        "native int[] natCreate(int len);\n"
         "int main() {\n"
-        "    int[] m = natMint(4);\n"
+        "    int[] m = natCreate(4);\n"
         "    if (m.length() != 4) return 1;\n"
         "    if (m[0] != 0 || m[1] != 2 || m[2] != 4 || m[3] != 6)\n"
         "        return 2;\n"
         "    return 0;\n"
         "}\n",
         &RegisterTestNatives);
-    CHECK(rc == 0, "minted array must be length 4 with elements i*2");
+    CHECK(rc == 0, "created array must be length 4 with elements i*2");
     PASS();
 }
 
@@ -341,9 +341,9 @@ void test_empty_array_view()
     PASS();
 }
 
-//double[] natAlignD() — mint a double array, verify its payload is
+//double[] natAlignD() — create a double array, verify its payload is
 //8-byte aligned, write 1.5 through the view, and return the handle.
-//The signature itself declares double[] — a native minting kind K
+//The signature itself declares double[] — a native creating a K-array
 //declares K[] in its signature, so the scalar array type is always
 //registered for the module (the newArray contract).
 void NatAlignD(NativeHost* host, uint8_t* ret, const uint8_t* args, int) {
@@ -399,14 +399,14 @@ void test_null_handle_raises_npe()
     PASS();
 }
 
-void test_negative_mint_raises_oob()
+void test_negative_create_raises_oob()
 {
-    TEST(negative_mint_raises_oob);
+    TEST(negative_create_raises_oob);
     const int rc = runSourceWithNatives("abi_negative",
-        "native int[] natMint(int len);\n"
+        "native int[] natCreate(int len);\n"
         "int main() {\n"
         "    try {\n"
-        "        natMint(-1);\n"
+        "        natCreate(-1);\n"
         "    } catch (IndexOutOfBoundsException oob) {\n"
         "        return 0;\n"
         "    }\n"
@@ -419,7 +419,7 @@ void test_negative_mint_raises_oob()
 }
 
 //--- corrupt-record defenses (0.11.4 B) ---------------------------------------
-//White-box: mint through the real newArray callback, corrupt the heap
+//White-box: create through the real newArray callback, corrupt the heap
 //record through test probes, then drive the production getArrayView
 //callback. A truncated dims section or a bad arrayTypes index must throw
 //before any header cell is read or caller memory touched.
@@ -475,7 +475,7 @@ void test_truncated_dims_record_throws()
     makeExecutorWithArrayModule("abi_trunc", env);
     const int32_t handle =
         env.host.c.newArray(&env.host.c, NEK_Int32, 3);
-    CHECK(handle > 0, "newArray must mint a live handle");
+    CHECK(handle > 0, "newArray must create a live handle");
     //Keep the 4-cell fixed header, drop the dims run: the stride loop
     //would read past the record before this fix.
     env.exec->TruncateArrayRecordForTests(handle, 4);
@@ -497,7 +497,7 @@ void test_corrupt_array_type_index_throws()
     makeExecutorWithArrayModule("abi_badidx", env);
     const int32_t handle =
         env.host.c.newArray(&env.host.c, NEK_Int32, 3);
-    CHECK(handle > 0, "newArray must mint a live handle");
+    CHECK(handle > 0, "newArray must create a live handle");
     env.exec->OverwriteArrayRecordCellForTests(handle, 1, 0x7FFFFFF0);
     NativeArrayView view;
     bool threw = false;
@@ -522,13 +522,13 @@ int main()
     try {
         test_view_roundtrip_read_write();
         test_high_rank_view();
-        test_mint_shaped();
+        test_create_shaped();
         test_two_views_stride_independence();
-        test_mint_and_fill();
+        test_create_and_fill();
         test_empty_array_view();
         test_double_payload_alignment();
         test_null_handle_raises_npe();
-        test_negative_mint_raises_oob();
+        test_negative_create_raises_oob();
         test_truncated_dims_record_throws();
         test_corrupt_array_type_index_throws();
     } catch (const std::exception& e) {

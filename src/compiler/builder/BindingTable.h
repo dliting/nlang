@@ -43,7 +43,7 @@ uint16_t LookupIntrinsicId(const std::string& packagePath,
 	const std::string& key);
 
 //D10 (concurrency import redesign): reverse lookup for the unimported-
-//use diagnostic — which stamped package declares this bare name? Four
+//use diagnostic — which stamped package declares this unqualified name? Four
 //key forms: exact ctor, "/1" ctor, "Name." method prefix, and the
 //free-function "pkg.name" qualified form. outIsFreeFuncForm (optional)
 //reports whether the match came from that last form — the note for a

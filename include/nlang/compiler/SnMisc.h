@@ -379,7 +379,7 @@ public:
 	bool IsDeclaredConstAggregate() const { return m_bIsConstAggregate; }
 
 	//0.13.1c: abstract-class queries. A bodyless non-native method is an
-	//abstract method (grammar-minted NF_Abstract | NF_Virtual); an
+	//abstract method (grammar-created NF_Abstract | NF_Virtual); an
 	//abstract obligation is one whose dispatch winner is still abstract
 	//(own re-declaration, or a re-abstraction between here and the
 	//concrete ancestor). The walk is on demand — no builder-phase
@@ -396,7 +396,7 @@ public:
 	const SnFunction *FindDispatchWinner(const std::string &name) const;
 
 	//Phase 8e-3: built-in generic instantiation marker (e.g. List<int>).
-	//Set by ExprResolver when minting a synthetic SnClassDecl for a
+	//Set by ExprResolver when creating a synthetic SnClassDecl for a
 	//built-in generic type. m_genericTypeArgs carries the resolved type
 	//arguments (e.g. {SnInt32} for List<int>); VmBackend reads these to
 	//emit OP_Box/OP_Unbox around primitive-T method args/returns.
@@ -432,7 +432,7 @@ public:
 	bool IsArrayType() const override;
 
 	//v0.12.3: true for the interned placeholder node a declared
-	//template's type parameter resolves to (minted by
+	//template's type parameter resolves to (created by
 	//GenericInstanceRegistry::PlaceholderFor). On the node — not the
 	//registry — for the same reason as IsFuncType: the backend's static
 	//kind classification (RuntimeTypeKind) reads it with no registry
@@ -500,9 +500,9 @@ public:
 	void SetTypeParamNames(std::vector<std::string> names)
 	{ m_typeParamNames = std::move(names); }
 	//Instantiated-shell markers, mirror of the class side: set by the
-	//interface mint; GenericTypeArgs carries the resolved arguments and
+	//interface create; GenericTypeArgs carries the resolved arguments and
 	//BaseName the erasure identity (the shell shares the template's
-	//bare name, the same way every List<T> shares "List").
+	//unqualified name, the same way every List<T> shares "List").
 	bool IsGenericInstantiation() const { return m_bIsGenericInst; }
 	void SetGenericInstantiation() { m_bIsGenericInst = true; }
 	const std::vector<SnField*>& GenericTypeArgs() const

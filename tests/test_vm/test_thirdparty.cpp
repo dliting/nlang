@@ -477,7 +477,7 @@ static void TestThreeSegmentPackageAndSiblingInvisibility() {
 
 //(5) D5 / design §9: `native` in a multi-segment package is a compile-time
 //diagnostic (the host DLL name splits at the first dot). Task 4 landed
-//the diagnostic; Task 4's single-segment scenarios could not even mint a
+//the diagnostic; Task 4's single-segment scenarios could not even create a
 //multi-segment package, so this is its only possible pin.
 static void TestNativeInMultiSegmentPackageRejected() {
     const fs::path pkg = packageDir() / "native_multi";

@@ -162,8 +162,8 @@ inline constexpr uint16_t NCU_FORMAT_MAJOR = 2;
 //rode the same minor on the dev line; the unified format keeps both
 //additions and refuses everything older through the v2.19 floor.
 //v2.15 (v0.13.1): the module descriptor table — one row per generic
-//instantiation descriptor the unit registers (canonical spelling +
-//recipe bytes), between the string-constant and function sections.
+//instantiation descriptor the unit registers (canonical name +
+//composition record bytes), between the string-constant and function sections.
 //A v2.14 module has no section and misparses at the first record
 //after the string table; refuse v2.14 and older outright.
 //v2.16 (v0.13.1, ABI v12): every function record gains an instance-
@@ -226,7 +226,7 @@ inline uint32_t ArrayHeaderCells(uint8_t rank)
     const uint32_t cells = 4u + rank;
     return cells + (cells & 1u);
 }
-//Element-count cap for one array, language creation and native minting
+//Element-count cap for one array, language creation and native creation
 //alike: the single allocation choke point raises the OutOfBounds family
 //beyond it. 100M elements is 800MB at the widest element — every
 //legitimate operand fits, and 4 + n*cells can never overflow int32.
@@ -306,14 +306,14 @@ inline int ArrayElemCells(uint8_t elemRtk)
 
 //v2.15 (v0.13.1): one generic-instantiation descriptor row. `spelling`
 //is the canonical no-space form ("Box<int>", see GenericInstDescriptor);
-//`recipe` is empty for a static entry (the spelling is the whole fact)
+//`composition` is empty for a static entry (the spelling is the whole fact)
 //or the runtime-composition bytecode for an entry whose arguments
 //contain type parameters — a tag stream, little-endian u16 lengths:
-//   0 TEMPLATE_HEAD  u16 nameLen + bytes (template bare name)
+//   0 TEMPLATE_HEAD  u16 nameLen + bytes (template unqualified name)
 //   1 ARG_CONST      u16 spellingLen + bytes (complete leaf form)
 //   2 ARG_THIS       u8 paramIdx (receiver descriptor's argument index)
 //   3 ARG_ARRAY      u8 rank + one child ARG encoding (the element)
-//   4 ARG_NESTED     u16 recipeLen + child recipe bytes (a full
+//   4 ARG_NESTED     u16 compositionLen + child composition record bytes (a full
 //                    TEMPLATE_HEAD-led stream; length-prefixed so the
 //                    parent's argument loop resumes after the child)
 //Rows are self-describing by leading tag: a row from the instantiation
@@ -321,7 +321,7 @@ inline int ArrayElemCells(uint8_t elemRtk)
 //row for a non-instantiation operand containing a type parameter (T[])
 //is a single ARG encoding — tag 1..4, never 0, so the two forms cannot
 //alias and byte-identical rows still merge.
-//A recipe row's spelling is empty; the runtime composes the canonical
+//A composition record row's spelling is empty; the runtime composes the canonical
 //spelling per execution (ARG_THIS reads the receiver's descriptor).
 //OP_New rows then intern it — the intern contract makes spelling
 //equality descriptor equality, so consumers resolve a row to a
@@ -329,7 +329,7 @@ inline int ArrayElemCells(uint8_t elemRtk)
 //interning.
 struct DescriptorEntry {
     std::string spelling;
-    std::vector<uint8_t> recipe;
+    std::vector<uint8_t> composition;
 };
 
 struct CompiledModule {
@@ -381,12 +381,12 @@ struct CompiledModule {
     //(functions share the qualified key across overloads).
     struct SymbolImport {
         std::string modulePath;   //target unit's dotted path
-        std::string name;         //qualified key; bare name when ownerClassKey is set
+        std::string name;         //qualified key; unqualified name when ownerClassKey is set
         uint32_t paramCount = 0;  //functions only
         //Functions only (empty for the type tables): "" = namespace-level
         //function (name is its qualified key); non-empty = a method or
-        //constructor of that class's qualified key (name is the bare name;
-        //the class's bare name for a constructor). Table keys stay bare —
+        //constructor of that class's qualified key (name is the unqualified name;
+        //the class's unqualified name for a constructor). Table keys stay bare —
         //runtime dispatch is by name — the owner key lives in the slot
         //record only (phase6 design section 2).
         std::string ownerClassKey;

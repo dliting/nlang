@@ -502,7 +502,7 @@ void test_scheduler_quota_skips_nested_windows()
     PASS();
 }
 
-// --- Slice 5 语言面注册（thread 命名空间 + 三内建类）---
+// --- Slice 5 语言层注册（thread 命名空间 + 三内建类）---
 
 //期望构建失败：捕获 buildLinkedModule 的诊断抛出并检查消息子串。
 static bool buildFailsWith(const std::string& tag, const std::string& source,
@@ -803,21 +803,21 @@ void test_typed_spawn_requires_import()
     PASS();
 }
 
-//包真实化准入（自由函数裸名）：无 import 的裸 spawn(work) 调用在
+//包真实化准入（自由函数非限定名）：无 import 的非限定 spawn(work) 调用在
 //"does not exist" 主诊断外还带包 note。v0.12.7 V1 统一后，显式 import
-//同时授予裸用与限定用——自由函数与类形态的 note 同为"add import"，
+//同时授予非限定使用与限定使用——自由函数与类形态的 note 同为"add import"，
 //旧的"即便补 import 也须限定"文案随统一可见性模型废止。
-void test_spawn_bare_names_qualified_spelling()
+void test_spawn_unqualified_names_qualified_spelling()
 {
-    TEST(spawn_bare_names_qualified_spelling);
-    CHECK(buildFailsWith("thread_spawn_bare",
+    TEST(spawn_unqualified_names_qualified_spelling);
+    CHECK(buildFailsWith("thread_spawn_unqualified",
         "int work() { return 1; }\n"
         "int main() {\n"
         "    spawn(work);\n"
         "    return 0;\n"
         "}\n",
         "is provided by package 'thread'; add 'import thread';"),
-        "bare spawn without import names the missing import");
+        "unqualified spawn without import names the missing import");
     PASS();
 }
 
@@ -1263,7 +1263,7 @@ void test_sleep_wakes_by_deadline()
     PASS();
 }
 
-//Slice 7：负时长是对语言面的误用——基础异常拒绝（同 spawn 目标拒绝
+//Slice 7：负时长是对语言层的误用——基础异常拒绝（同 spawn 目标拒绝
 //形态），消息点名约束。
 void test_sleep_rejects_negative_duration()
 {
@@ -1496,7 +1496,7 @@ void test_mutex_trylock_reports_held_state()
     PASS();
 }
 
-//Slice 8：未持有 unlock 是对语言面的误用——基础异常，消息点名。
+//Slice 8：未持有 unlock 是对语言层的误用——基础异常，消息点名。
 void test_mutex_unlock_without_hold_rejected()
 {
     TEST(mutex_unlock_without_hold_rejected);
@@ -2230,7 +2230,7 @@ void test_channel_close_drains_then_closed_throws()
 }
 
 //K3 Task 3：已关闭通道再发送抛可捕获的 ChannelClosedException，消息
-//点名（K1 的不可捕获基础异常升级为语言面异常——用户代码可恢复）。
+//点名（K1 的不可捕获基础异常升级为语言层异常——用户代码可恢复）。
 void test_channel_send_after_close_catchable()
 {
     TEST(channel_send_after_close_catchable);
@@ -3776,7 +3776,7 @@ static void test_debug_focus_exclusive_dispatch()
           "the mirror follows the focus dispatch");
     //焦点停泊（模拟步进落到空通道 recv/竞争锁）：门无状态放开
     sched.ParkForMutex(2);
-    //K7：补完停泊握手——生产中停泊载体在 ParkSignal 捕获位点搬帧并
+    //K7：补完停泊握手——生产中停泊载体在 ParkSignal 捕获位置搬帧并
     //置 framesParked，唤醒路径只入队已完成停泊者；白盒模拟同形补一
     //步空搬，WakeForMutex 才会入队本上下文。
     sched.ParkContextFrames(2, {});
@@ -4084,9 +4084,9 @@ static void test_aux_carrier_error_confluence()
 // --- K2 Task 4（声明式阻塞原生协议，ABI v5）---
 
 //进程内注册的慢原生（阻塞通道）：函数体真实睡眠——只有协议（暂存实参/
-//结果、窃帧停泊、GIL 释放）使它们可被安全调用。nbEchoSlow 刻意先铸造
+//结果、窃帧停泊、GIL 释放）使它们可被安全调用。nbEchoSlow 刻意先创建
 //结果再睡：句柄在暂存结果格里暴露于整个阻塞窗口，正是地址形态根必须
-//存活的形状；铸造本身又经值形态根（RootMintedNativeHandle）覆盖。
+//存活的形状；创建本身又经值形态根（RootCreatedNativeHandle）覆盖。
 static void NbWait(NativeHost*, uint8_t*, const uint8_t* args, int)
 {
     std::this_thread::sleep_for(
@@ -4224,45 +4224,45 @@ static void test_executing_bit_off_while_native_blocked()
     PASS();
 }
 
-// v0.13.4 ruling D27 companion (review round 2, I-1): MintHostString must
-// root its minted handle the way NativeNewString does. The embed host
-// bridge mints string results while its carrier is parked inside
+// v0.13.4 ruling D27 companion (review round 2, I-1): CreateHostString must
+// root its created handle the way NativeNewString does. The embed host
+// bridge creates string results while its carrier is parked inside
 // RunBlockingNative (the host-hook arm always runs through the blocking
-// protocol), so between the mint and the memcpy into the staged result
+// protocol), so between the creation and the memcpy into the staged result
 // cell the object is reachable from no root and another carrier's
 // rendezvous can sweep it. The native below reproduces that window in the
-// DLL-native shape: mint via MintHostString, sleep while the churn carrier
+// DLL-native shape: create via CreateHostString, sleep while the churn carrier
 // storms collections under stress thresholds, then write the raw handle
 // into ret. Unrooted, the sweep reclaims the object and the declared-
 // string result check fails with "invalid string handle". Post-fix, the
-// value-form root MintHostString registers is the ONLY protection across
+// value-form root CreateHostString registers is the ONLY protection across
 // the sleep window — the staged ret cell covers the handle only after
 // the native writes it — so the test detects both a missing root push
 // and a mark face that ignores value-form entries.
-static VmExecutor* s_mintHostExec = nullptr;
-static void NbMintHostSlow(NativeHost*, uint8_t* ret,
+static VmExecutor* s_createHostExec = nullptr;
+static void NbCreateHostSlow(NativeHost*, uint8_t* ret,
                            const uint8_t* args, int)
 {
     const int32_t handle =
-        s_mintHostExec->MintHostString("hostbridge-survivor");
+        s_createHostExec->CreateHostString("hostbridge-survivor");
     std::this_thread::sleep_for(std::chrono::milliseconds(
         native::ArgInt(args, 0)));
     std::memcpy(ret, &handle, sizeof(handle));
 }
-static void test_mint_host_string_survives_gc()
+static void test_create_host_string_survives_gc()
 {
-    TEST(mint_host_string_survives_gc);
-    CompiledModule mod = buildLinkedModule("mint_host_gc",
+    TEST(create_host_string_survives_gc);
+    CompiledModule mod = buildLinkedModule("create_host_gc",
         "import thread;\n"
         "import io;\n"
-        "native string nbMintHostSlow(int ms);\n"
+        "native string nbCreateHostSlow(int ms);\n"
         "void churn() {\n"
         "    int i = 0;\n"
         "    while (i < 200000) { string g = \"c\" + i; i = i + 1; }\n"
         "}\n"
         "int main() {\n"
         "    Thread t = thread.spawn(churn);\n"
-        "    string s = nbMintHostSlow(150);\n"
+        "    string s = nbCreateHostSlow(150);\n"
         "    io.write(s);\n"
         "    thread.join(t);\n"
         "    return 0;\n"
@@ -4272,9 +4272,9 @@ static void test_mint_host_string_survives_gc()
     exec.SetGcStressThresholds(8);
     CaptureIo io;
     exec.SetHostIo(&io);
-    s_mintHostExec = &exec;
-    exec.RegisterNativeBlocking("mint_host_gc.nbMintHostSlow",
-                                &NbMintHostSlow);
+    s_createHostExec = &exec;
+    exec.RegisterNativeBlocking("create_host_gc.nbCreateHostSlow",
+                                &NbCreateHostSlow);
     int rc = -99;
     std::string err;
     try {
@@ -4282,47 +4282,47 @@ static void test_mint_host_string_survives_gc()
     } catch (const std::exception& e) {
         err = e.what();
     }
-    s_mintHostExec = nullptr;
-    CHECK(rc == 0, "run completes (unrooted mint -> host-level error: "
+    s_createHostExec = nullptr;
+    CHECK(rc == 0, "run completes (unrooted handle -> host-level error: "
                    + err + ")");
     CHECK(io.m_out.find("hostbridge-survivor") != std::string::npos,
-          "the minted host string survived the blocking window (got: "
+          "the created host string survived the blocking window (got: "
           + io.m_out + ")");
     PASS();
 }
 
 // 0.13.6 net/http fix (rawprobe crash "_lastErrorText returned invalid
-// string handle"): a blocking-native carrier mints OUTSIDE the GC
+// string handle"): a blocking-native carrier creates OUTSIDE the GC
 // rendezvous denominator, so the collection's documented quiescence
 // premise ("no bytecode and no store allocation can run") does not
-// cover its mints. The mint-root gap seam (SetMintRootGapMsForTests)
-// holds the window between slot handout and RootMintedNativeHandle
+// cover its creations. The creation-root gap seam (SetCreationRootGapMsForTests)
+// holds the window between slot handout and RootCreatedNativeHandle
 // open for the whole stress-window collection storm, making the race
 // deterministic: unserialized, the sweep marks the fresh handle dead
 // while it is still unrooted, and the declared-string result check
 // aborts with "returned invalid string handle" — the exact production
-// signature. The fix serializes mint-vs-collection on a leaf gate, so
+// signature. The fix serializes creation-vs-collection on a leaf gate, so
 // the collection waits for the root instead of sweeping past it.
-static void NbMintSeam(NativeHost* host, uint8_t* ret,
+static void NbCreateSeam(NativeHost* host, uint8_t* ret,
                        const uint8_t*, int)
 {
     const int32_t handle = host->newString(host, "seam-survivor");
     std::memcpy(ret, &handle, sizeof(handle));
 }
-static void test_mint_root_gap_survives_gc()
+static void test_creation_root_gap_survives_gc()
 {
-    TEST(mint_root_gap_survives_gc);
-    CompiledModule mod = buildLinkedModule("mint_seam_gc",
+    TEST(creation_root_gap_survives_gc);
+    CompiledModule mod = buildLinkedModule("create_seam_gc",
         "import thread;\n"
         "import io;\n"
-        "native string nbMintSeam();\n"
+        "native string nbCreateSeam();\n"
         "void churn() {\n"
         "    int i = 0;\n"
         "    while (i < 200000) { string g = \"c\" + i; i = i + 1; }\n"
         "}\n"
         "int main() {\n"
         "    Thread t = thread.spawn(churn);\n"
-        "    string s = nbMintSeam();\n"
+        "    string s = nbCreateSeam();\n"
         "    io.write(s);\n"
         "    thread.join(t);\n"
         "    return 0;\n"
@@ -4330,10 +4330,10 @@ static void test_mint_root_gap_survives_gc()
     VmExecutor exec;
     exec.SetCarrierThreadCount(3);
     exec.SetGcStressThresholds(8);
-    exec.SetMintRootGapMsForTests(300);
+    exec.SetCreationRootGapMsForTests(300);
     CaptureIo io;
     exec.SetHostIo(&io);
-    exec.RegisterNativeBlocking("mint_seam_gc.nbMintSeam", &NbMintSeam);
+    exec.RegisterNativeBlocking("create_seam_gc.nbCreateSeam", &NbCreateSeam);
     int rc = -99;
     std::string err;
     try {
@@ -4341,11 +4341,11 @@ static void test_mint_root_gap_survives_gc()
     } catch (const std::exception& e) {
         err = e.what();
     }
-    exec.SetMintRootGapMsForTests(0);   //do not leak the seam into later tests
-    CHECK(rc == 0, "run completes (sweep killed the unrooted mint: "
+    exec.SetCreationRootGapMsForTests(0);   //do not leak the seam into later tests
+    CHECK(rc == 0, "run completes (sweep killed the unrooted handle: "
                    + err + ")");
     CHECK(io.m_out.find("seam-survivor") != std::string::npos,
-          "the minted string survived the mint-to-root gap (got: "
+          "the created string survived the creation-to-root gap (got: "
           + io.m_out + ")");
     CHECK(exec.GcCollectionCount() > 5,
         "collections actually ran against the gap window (got "
@@ -4353,19 +4353,19 @@ static void test_mint_root_gap_survives_gc()
     PASS();
 }
 
-// 0.13.6 review C1 pin (lock order): the mint callbacks that mint with
+// 0.13.6 review C1 pin (lock order): the creation callbacks that create with
 // the GIL taken (newArray family, raiseException) acquire GIL-then-gate.
 // The elected safepoint collector must take the GIL before the exclusive
 // gate too — a collector that held the gate first would block on the
-// GIL in the frame-root scan while a GIL-holding minter blocks on the
+// GIL in the frame-root scan while a GIL-holding creator blocks on the
 // gate (ABBA), stranding every rendezvous waiter: the whole run hangs,
-// exactly in the net/http interleavings the mint fix targeted. The
+// exactly in the net/http interleavings the creation fix targeted. The
 // collect-gate gap seam parks the collector inside the exclusive gate
-// while the churner storms collections; the seam native mints arrays
+// while the churner storms collections; the seam native creates arrays
 // (GilEnsureGuard sites) in a loop so the meeting is deterministic.
 // Before the order fix this test hangs (external timeout observes it);
 // with GIL-before-gate the collector already holds the GIL when it
-// takes the gate, so the minter merely waits at the gate and passes.
+// takes the gate, so the creator merely waits at the gate and passes.
 static void NbArraySeam(NativeHost* host, uint8_t* ret,
                         const uint8_t*, int)
 {
@@ -4379,9 +4379,9 @@ static void NbArraySeam(NativeHost* host, uint8_t* ret,
     const int32_t survivor = host->newString(host, "arrayseam-survivor");
     std::memcpy(ret, &survivor, sizeof(survivor));
 }
-static void test_gate_gap_array_mint_no_deadlock()
+static void test_gate_gap_array_create_no_deadlock()
 {
-    TEST(gate_gap_array_mint_no_deadlock);
+    TEST(gate_gap_array_create_no_deadlock);
     CompiledModule mod = buildLinkedModule("gate_gap_gc",
         "import thread;\n"
         "import io;\n"
@@ -4414,7 +4414,7 @@ static void test_gate_gap_array_mint_no_deadlock()
     CHECK(rc == 0, "run completes (gate/GIL inversion hangs the run: "
                    + err + ")");
     CHECK(io.m_out.find("arrayseam-survivor") != std::string::npos,
-          "the minted string survived the gate-gap storm (got: "
+          "the created string survived the gate-gap storm (got: "
           + io.m_out + ")");
     CHECK(exec.GcCollectionCount() > 5,
         "elected collections actually ran across the gate gap (got "
@@ -4422,15 +4422,15 @@ static void test_gate_gap_array_mint_no_deadlock()
     PASS();
 }
 
-// 0.13.6 review I1 pin (same mint race, raise family): RaiseNlangException
-// mints the Exception instance, its message, and the backtrace List on a
+// 0.13.6 review I1 pin (same create race, raise family): RaiseNlangException
+// creates the Exception instance, its message, and the backtrace List on a
 // parked callback thread (io raises, getArrayView validation, host
 // bridge RaiseHostException) — outside the rendezvous denominator and,
 // unlike NativeRaiseException, neither gated nor rooted before the fix.
-// The mint-root gap seam opens a real window (GIL dropped for the test
+// The creation-root gap seam opens a real window (GIL dropped for the test
 // pause: the probe run showed 1144 collections landing inside it). The pin is
 // the structural readout the seam records — whether a value-form
-// mint-root entry for the raised instance exists in the native-call
+// creation-root entry for the raised instance exists in the native-call
 // root registry during the window — because survival checking cannot
 // detect this hazard: forensics showed the unrooted exception objects
 // surviving every in-window collection (a resident Thread-object slot aliases the
@@ -4438,7 +4438,7 @@ static void test_gate_gap_array_mint_no_deadlock()
 // value, so MarkPhase over-marks both, and whether any collection fires
 // inside the window at all is hostage to the threshold backoff). The
 // script must NOT carry the expected message as a literal — the literal
-// interns as an immortal constant and the native mint dedups into it,
+// interns as an immortal constant and the native creation dedups into it,
 // making the message unsweepable. The behavioral checks (rc, message
 // content, collection count) stay as supporting assertions: they pin the
 // run contract, not the rooting.
@@ -4481,7 +4481,7 @@ static void test_raise_gap_survives_gc()
     VmExecutor exec;
     exec.SetCarrierThreadCount(3);
     exec.SetGcStressThresholds(8);
-    exec.SetMintRootGapMsForTests(250);
+    exec.SetCreationRootGapMsForTests(250);
     CaptureIo io;
     exec.SetHostIo(&io);
     exec.RegisterNativeBlocking("raise_gap_gc.nbRaiseSeam", &NbRaiseSeam);
@@ -4492,15 +4492,15 @@ static void test_raise_gap_survives_gc()
     } catch (const std::exception& e) {
         err = e.what();
     }
-    exec.SetMintRootGapMsForTests(0);   //do not leak the seam into later tests
+    exec.SetCreationRootGapMsForTests(0);   //do not leak the seam into later tests
     CHECK(rc == 3, "the raised message survived every gap window intact "
                    "(got rc=" + std::to_string(rc) + " " + err + ")");
     CHECK(exec.GcCollectionCount() > 5,
         "collections actually ran against the raise window (got "
         + std::to_string(exec.GcCollectionCount()) + ")");
-    CHECK(exec.LastRaiseMintRootedForTests(),
-        "every armed raise window found its value-form mint-root entry "
-        "for the raised instance (RootMintedNativeHandle contract; "
+    CHECK(exec.LastRaiseCreatedRootedForTests(),
+        "every armed raise window found its value-form creation-root entry "
+        "for the raised instance (RootCreatedNativeHandle contract; "
         "v0.13.6 review I1)");
     PASS();
 }
@@ -4581,7 +4581,7 @@ static void test_executing_bit_intact_after_stop_path()
 //位是每线程单份），run 结束后归 0。嵌套窗形态仿 test_scheduler_quota_
 //skips_nested_windows 的强转嵌套窗；探针走 RegisterNative 非阻塞路径
 //（CallNative 原地直呼，无窗口转换）。NativeFn 签名与返回值写法以
-//include/nlang/vm/NativeHost.h＋test_native_host.cpp 的 HsMint 形态为
+//include/nlang/vm/NativeHost.h＋test_native_host.cpp 的 HsCreate 形态为
 //准（返回 void，经 native::ReturnInt 写结果格）。
 static VmExecutor* s_windowProbeExec = nullptr;
 static void WindowProbe(NativeHost*, uint8_t* ret,
@@ -4812,7 +4812,7 @@ static void test_blocking_native_releases_gil()
 }
 
 //协议判别器 2（暂存根存活 GC 风暴，回归针）：churner 在阻塞窗口内以压
-//低阈值反复触发回收；nbEchoSlow 先把铸造好的句柄写进暂存结果格再睡，
+//低阈值反复触发回收；nbEchoSlow 先把创建好的句柄写进暂存结果格再睡，
 //整个风暴期间该句柄只有原生调用根保护。根缺失 ⇒ 句柄被清扫 ⇒ 输出非
 //echo:payload（或崩溃）——测试变红。
 static void test_blocking_native_staged_roots_survive_gc_storm()
@@ -4921,7 +4921,7 @@ static bool runGcBandMode(const std::string& tag, const std::string& source,
 //造风暴。tag 刻意返回超过短串驻留上限（40 字节）的长串，保证停泊值
 //可清扫——短串不朽会让错标不可见。四条活根各跨一次安全点：acc（命名
 //StrHandle 槽）全程存活；tag("x") 的长串结果停泊在外层二元 claim 槽
-//（默认 Dual 类——嵌套发射的中间值也会路过该槽，故二元位点不能按外
+//（默认 Dual 类——嵌套发射的中间值也会路过该槽，故二元位置不能按外
 //层操作数类型精化）、跨 tag("y") 调用入口安全点存活；churn2 的
 //Box(i+1) 实参停泊在调用实参 claim 槽（默认 Dual 类），跨 drain 调用
 //入口安全点存活，且 drain 内部再分配一个 Box 并从自由表复用槽位——
@@ -5574,10 +5574,10 @@ int main()
         runGuarded(test_native_root_owner_removal);
         runGuarded(test_zombie_carrier_generation_guard);
         runGuarded(test_executing_bit_off_while_native_blocked);
-        runGuarded(test_mint_host_string_survives_gc);
-        runGuarded(test_mint_root_gap_survives_gc);
+        runGuarded(test_create_host_string_survives_gc);
+        runGuarded(test_creation_root_gap_survives_gc);
         runGuarded(test_raise_gap_survives_gc);
-        runGuarded(test_gate_gap_array_mint_no_deadlock);
+        runGuarded(test_gate_gap_array_create_no_deadlock);
         runGuarded(test_gc_collection_count_under_stress);
         runGuarded(test_executing_bit_intact_after_stop_path);
         runGuarded(test_nested_window_single_membership);
@@ -5620,7 +5620,7 @@ int main()
         test_thread_package_name_duplicate();
         test_thread_requires_import();
         test_typed_spawn_requires_import();
-        test_spawn_bare_names_qualified_spelling();
+        test_spawn_unqualified_names_qualified_spelling();
         test_thread_ns_user_name_shadows();
         test_thread_ns_cross_module();
         runGuarded(test_spawn_join_runs_worker);

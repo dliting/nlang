@@ -3,7 +3,7 @@ VmExecutorNativeCallbacks.cpp — the non-array native-host callback
 implementations: raiseException's exception-family mapping (K8, v6),
 the PRNG draws (K8), and the ABI v11+ blocking-platform family (IO
 parking, module state, work pool, receiver type-argument reads v12).
-The array side (getArrayView's pinned payload views, the minting
+The array side (getArrayView's pinned payload views, the creating
 family) lives in VmExecutorNativeArray.cpp (source-size-guard split,
 zero behavior change). Table wiring stays in InitNativeHost.
 ---*/
@@ -51,15 +51,15 @@ void VmExecutor::NativeRaiseException(NativeHost* self, int exceptionKind,
     //arm's catch the GIL is away (the unwinding guard above releases
     //it), and a GC on another carrier must not sweep the in-flight
     //exception object while the native unwinds toward it. The build +
-    //root span rides the native-minter gate (contract in VmExecutor.h)
+    //root span rides the native-creator gate (contract in VmExecutor.h)
     //so a collection cannot sweep the fresh object before its root
     //lands; FireOnThrow stays outside the gate (scheduler checkpoint).
     int32_t heapIdx = 0;
     {
-        NativeMintGate mintGate(*e);
+        NativeCreationGate creationGate(*e);
         heapIdx = e->BuildNlangException(
             classIdx, message ? message : "");
-        e->RootMintedNativeHandle(heapIdx);
+        e->RootCreatedNativeHandle(heapIdx);
     }
     e->FireOnThrow();
     throw NLangThrow(heapIdx, message ? message : "");

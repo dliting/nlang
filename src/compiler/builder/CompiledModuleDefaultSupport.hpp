@@ -95,9 +95,9 @@ inline SnExpression *SynthDefaultExpr(const DefaultValueDesc &dv,
 	const ISourceLocation &loc);
 
 //Rebuild one node of an UNRESOLVED Sn expression tree from an ExprDesc
-//stream (grammar in ExprDesc.h). Formal references mint plain
+//stream (grammar in ExprDesc.h). Formal references create plain
 //identifiers — ResolveFunctionFormals binds them to the stub formals by
-//name; calls mint module-qualified member invokes — the same shape a
+//name; calls create module-qualified member invokes — the same shape a
 //hand-written `lib.helper(...)` parses into, bound through the
 //imported-module registry.
 inline SnExpression *SynthExprDescNode(ExprDescCursor &cur,
@@ -167,7 +167,7 @@ inline SnExpression *SynthExprDescLiteral(uint8_t tag,
 	}
 }
 
-//ED_Call arm: mint the outer identifier chain of the dotted module path,
+//ED_Call arm: create the outer identifier chain of the dotted module path,
 //left to right (single segment = the common `lib.helper()` shape).
 inline SnExpression *SynthModuleChainExpr(const std::string &modulePath,
 	const ISourceLocation &loc)
@@ -191,7 +191,7 @@ inline SnExpression *SynthModuleChainExpr(const std::string &modulePath,
 }
 
 //ED_Call arm: validate the producing-module target against cm's
-//function table, then mint `modulePath.leaf(args...)` — the AST the
+//function table, then create `modulePath.leaf(args...)` — the AST the
 //parser builds for that source spelling, resolved by the normal
 //module-qualified call path.
 inline SnExpression *SynthExprDescCall(ExprDescCursor &cur,

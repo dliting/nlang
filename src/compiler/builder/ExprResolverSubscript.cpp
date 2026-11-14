@@ -137,7 +137,7 @@ bool ExprResolveAccessor::TryResolveContainerSubscript(SnSubscriptExpr &sn,
 //shadowing the type name binds the VALUE first (FindField order),
 //keeping the plain subscript reading. True = consumed. The index child
 //doubles as the size expression; the element type is stored first, then
-//BindArrayTypeToken mints the array token over it — the same tail as
+//BindArrayTypeToken creates the array token over it — the same tail as
 //Access(SnNewArrayExpr&). An array alias base (`using Ints = int[];`
 //then `Ints[2]`) is rejected as a creation head.
 //Stage-2: resolve every creation dimension, then apply the dimension
@@ -199,7 +199,7 @@ bool ExprResolveAccessor::CheckCreationDim(SnExpression &dim)
 //The creation twin's head gate: only a TYPE EXPRESSION can head a
 //creation — the bare identifier and the splice products of an alias
 //base (name / array / generic — the complete CloneTypeNode product set;
-//the generic form binds the minted instantiation through
+//the generic form binds the created instantiation through
 //Access(SnGenericTypeExpr&)). A value expression whose Field() happens
 //to be type-ish (`ks.get(0)[1]` binds the element token) must keep the
 //plain subscript reading. Returns the base field expression, or null
@@ -252,7 +252,7 @@ bool ExprResolveAccessor::TrySizedArrayCreation(SnSubscriptExpr &sn)
 	if (!ResolveCreationDims(sn))
 		return true;
 	sn.NewArrayElem(pElemField);
-	//Stage-2: the minted token carries the rank — the index count. The
+	//Stage-2: the created token carries the rank — the index count. The
 	//BindArrayTypeToken tail interns rank-1 only, so the creation path
 	//interns directly with its own rank.
 	const uint8_t rank = static_cast<uint8_t>(sn.Indices().size());
@@ -346,7 +346,7 @@ size_t ExprResolveAccessor::SliceAxisCount(const SnSubscriptExpr &sn) const
 }
 
 //v0.12.7 Task 11: re-type a slice subscript as a view. BindSubscriptElemType
-//has already stored the ELEMENT in EvalDataType; mint the view's own token
+//has already stored the ELEMENT in EvalDataType; create the view's own token
 //over it (the token the emitter registers as the view's arrayTypes row).
 bool ExprResolveAccessor::BindSliceViewType(SnSubscriptExpr &sn)
 {

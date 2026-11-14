@@ -1,5 +1,5 @@
 //Consumer side: a class implements the imported GENERIC interface by
-//type-arg spelling — the stub's generic declaration mints Pipe<int> in
+//type-arg spelling — the stub's generic declaration creates Pipe<int> in
 //the consumer, the implements contract checks across the wire, and the
 //call dispatches into the consumer's own record.
 import lib;

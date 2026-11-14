@@ -5,11 +5,11 @@ chained (a broken link fails the build; skipped with
 --defer-site-audit), plus -- when --ncc/--nvm are given -- the
 runnable-snippet audit of the manual tree. --defer-site-audit exists for the
 bilingual pair build: the zh and en trees cross-link each other, so
-their links only resolve once both are built -- the cmake recipe builds
+their links only resolve once both are built -- the CMake build produces
 both deferred, then audits each tree with `check`. serve = plain mkdocs
 serve for iteration. check = site audit only, for already-generated
 sites; it accepts --config to also enforce nav coverage and otherwise
-falls back to the CWD's mkdocs.yml (the cmake recipe runs from the repo
+falls back to the CWD's mkdocs.yml (the CMake build runs from the repo
 root). snippets = the runnable-snippet audit alone, for direct runs.
 """
 import argparse
@@ -186,7 +186,7 @@ def _snippet_stage(opts):
     """The build chain's 4th stage: the manual tree's snippets.
 
     Only runs when both binaries are known (--ncc/--nvm or env); the
-    cmake recipe always passes them, so a bare manual build says so
+    CMake build always passes them, so a bare manual build says so
     instead of silently skipping the audit. Pages are every .md under
     the config tree's docs_dir, recursive, path order; pages without
     any ```nlang block count as prose, not as audited. Problems are

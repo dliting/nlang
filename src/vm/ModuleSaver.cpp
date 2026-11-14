@@ -118,9 +118,9 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
 
     // v2.15 (v0.13.1): the generic-instantiation descriptor table — one
     // row per registered descriptor (see DescriptorEntry). Per entry:
-    // u16 spellingLen + bytes, u16 recipeLen + bytes (empty recipe =
+    // u16 spellingLen + bytes, u16 compositionLen + bytes (empty composition =
     // static spelling row). The u16 caps match the intern spelling's
-    // practical bound (canonical spellings stay well under 64 KiB).
+    // practical bound (canonical names stay well under 64 KiB).
     uint32_t descCount =
         static_cast<uint32_t>(mod.descriptorTable.size());
     fs.write(reinterpret_cast<const char*>(&descCount), sizeof(descCount));
@@ -130,13 +130,13 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
         fs.write(reinterpret_cast<const char*>(&spellingLen),
                  sizeof(spellingLen));
         fs.write(desc.spelling.c_str(), spellingLen);
-        uint16_t recipeLen =
-            static_cast<uint16_t>(desc.recipe.size());
-        fs.write(reinterpret_cast<const char*>(&recipeLen),
-                 sizeof(recipeLen));
-        if (recipeLen > 0)
-            fs.write(reinterpret_cast<const char*>(desc.recipe.data()),
-                     recipeLen);
+        uint16_t compositionLen =
+            static_cast<uint16_t>(desc.composition.size());
+        fs.write(reinterpret_cast<const char*>(&compositionLen),
+                 sizeof(compositionLen));
+        if (compositionLen > 0)
+            fs.write(reinterpret_cast<const char*>(desc.composition.data()),
+                     compositionLen);
     }
 
     // Functions
@@ -345,7 +345,7 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
         }
 
         //v2.6: ctor indices in declaration order; the cross-module
-        //ownerOrdinal indexes this list (overloads share the bare name).
+        //ownerOrdinal indexes this list (overloads share the unqualified name).
         uint16_t ctorCount = static_cast<uint16_t>(
             st.constructorIndices.size());
         fs.write(reinterpret_cast<const char*>(&ctorCount), sizeof(ctorCount));
@@ -435,7 +435,7 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
     //0.9.10 v2.4 static flag byte (linkage identity: a static and an
     //instance member of the same name and arity are distinct slots), and
     //the 0.9.11 v2.6 ownerKind byte + ownerOrdinal u16 (owner table kind
-    //and constructor ordinal — overloads share the bare name).
+    //and constructor ordinal — overloads share the unqualified name).
     auto writeImports = [&fs](const std::vector<CompiledModule::SymbolImport>&
                                   imports, bool withOwnerKey)
     {

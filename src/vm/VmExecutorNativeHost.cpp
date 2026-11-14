@@ -9,7 +9,7 @@ only through these callbacks; the mutable state (PRNG, string/list stores)
 stays here, in the executor.
 
 K6 Task 2 (2026-10-22): the blocking-native arm (RunBlockingNative and
-its park/restore/mint helpers) moved to VmExecutorBlockingNative.cpp.
+its park/restore/create helpers) moved to VmExecutorBlockingNative.cpp.
 
 2026-11-12 source-size split: lazy native-module loading and the one-shot
 List<string> construction moved to VmExecutorNativeLoader.cpp.
@@ -122,7 +122,7 @@ void VmExecutor::InitNativeHost(VmNativeHost& host) {
 
 //--- NativeHost callbacks ---------------------------------------------------
 //K8: every callback locks at its own touch face — store access rides
-//the domain locks inside the VM helpers (mint, list build, exception
+//the domain locks inside the VM helpers (creation, list build, exception
 //build), while host-boundary resources (console conversation, RNG,
 //root registries) take their dedicated leaf mutexes. The two
 //scheduler-facing callbacks keep the store lock (see below).
@@ -137,14 +137,14 @@ const char* VmExecutor::NativeGetString(NativeHost* self, int32_t handle) {
 
 int32_t VmExecutor::NativeNewString(NativeHost* self, const char* utf8) {
     VmExecutor* e = Wrap(self)->executor;
-    //Native-minter gate: mint and root push are one indivisible span
+    //Native-creator gate: creation and root push are one indivisible span
     //against a collection led by another carrier (contract in
     //VmExecutor.h) — this thread may sit outside the rendezvous
     //denominator (blocking-native arm), and between the slot handout
     //and the root push the object is reachable from no root. Shared
-    //lock: concurrent minters coexist, only the collector is exclusive.
-    NativeMintGate mintGate(*e);
-    //K8: lock-free — minting self-locks; rooting rides the registry
+    //lock: concurrent creators coexist, only the collector is exclusive.
+    NativeCreationGate creationGate(*e);
+    //K8: lock-free — creating self-locks; rooting rides the registry
     //mutex inside.
     //Ruling D27: the native boundary keeps 0 = null (the ABI's existing
     //null-handle convention), so the host's string-producing API never
@@ -153,17 +153,17 @@ int32_t VmExecutor::NativeNewString(NativeHost* self, const char* utf8) {
     //equality still holds (a non-interned "" compares by content).
     int32_t handle = 0;
     if (utf8 && *utf8)
-        handle = e->MintNewString(utf8);
+        handle = e->CreateNewString(utf8);
     else
         handle = e->AllocStringObj();   //fresh Flat "" (non-interned)
-    //White-box seam (SetMintRootGapMsForTests): hold the mint-to-root
+    //White-box seam (SetCreationRootGapMsForTests): hold the creation-to-root
     //window open so a test can drive a real collection through it.
-    const int gapMs = e->m_mintRootGapMs.load(std::memory_order_relaxed);
+    const int gapMs = e->m_creationRootGapMs.load(std::memory_order_relaxed);
     if (gapMs > 0)
         std::this_thread::sleep_for(std::chrono::milliseconds(gapMs));
     //Root across the blocking section: the native may hold this handle
     //for a while before writing it into ret, while other carriers GC.
-    e->RootMintedNativeHandle(handle);
+    e->RootCreatedNativeHandle(handle);
     return handle;
 }
 
@@ -171,14 +171,14 @@ int32_t VmExecutor::NativeNewListString(NativeHost* self,
                                         const char* const* items,
                                         int count) {
     VmExecutor* e = Wrap(self)->executor;
-    //Native-minter gate (mint+root indivisible; contract in VmExecutor.h).
-    NativeMintGate mintGate(*e);
+    //Native-creator gate (creation+root indivisible; contract in VmExecutor.h).
+    NativeCreationGate creationGate(*e);
     //K8: lock-free — the list build holds the Container domain
     //internally; rooting rides the registry mutex.
     const int32_t listHeapIdx = e->BuildListString(items, count);
     //The list keeps its elements (MarkListElements); rooting the list
-    //covers the whole minted graph.
-    e->RootMintedNativeHandle(listHeapIdx);
+    //covers the whole created graph.
+    e->RootCreatedNativeHandle(listHeapIdx);
     return listHeapIdx;
 }
 
@@ -315,14 +315,14 @@ int32_t VmExecutor::ExceptionRethrowTarget(const std::string& exceptionClass,
     //K8: lock-free entry — the probe reads heap slots (benign under
     //the sharing model), the rebuild self-locks (Container), and the
     //rooting rides the registry mutex.
-    //Native-minter gate (contract in VmExecutor.h): probe/rebuild and
+    //Native-creator gate (contract in VmExecutor.h): probe/rebuild and
     //the root push must be atomic against a collection — an existing
     //object can pass the liveness probe and still be swept before the
     //root lands.
-    NativeMintGate mintGate(*this);
+    NativeCreationGate creationGate(*this);
     //Probe the recorded index: kind intact, same class, same message
     //content — a slot recycled by another instance fails one of the
-    //three and falls through to the remint. cell[0] = classIdx,
+    //three and falls through to the re-creation. cell[0] = classIdx,
     //cell[1] = message handle (the BuildNlangException layout).
     if (maybeLiveHeapIdx > 0
             && static_cast<size_t>(maybeLiveHeapIdx) < m_slotKinds.size()
@@ -334,7 +334,7 @@ int32_t VmExecutor::ExceptionRethrowTarget(const std::string& exceptionClass,
         const bool sameMessage = slot[1] > 0
             && StrValCopy(slot[1]) == message;
         if (sameClass && sameMessage) {
-            RootMintedNativeHandle(maybeLiveHeapIdx);
+            RootCreatedNativeHandle(maybeLiveHeapIdx);
             return maybeLiveHeapIdx;
         }
     }
@@ -343,7 +343,7 @@ int32_t VmExecutor::ExceptionRethrowTarget(const std::string& exceptionClass,
         classIdx = m_exceptionClassIdx;   //defensive: unknown name → base
     const int32_t heapIdx = BuildNlangException(
         static_cast<int16_t>(classIdx), message);
-    RootMintedNativeHandle(heapIdx);
+    RootCreatedNativeHandle(heapIdx);
     return heapIdx;
 }
 

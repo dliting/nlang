@@ -1,6 +1,6 @@
 /*--- GenericInstanceRegistry.cpp — 声明泛型实例注册表的实现：占位符
     供给、实例缓存与按单元分桶（类契约见公共头文件）。
-    从 ExprResolverGenericMint.cpp 抽取（文件规模守卫驱动的拆分，零行为
+    从 ExprResolverGenericInstantiation.cpp 抽取（文件规模守卫驱动的拆分，零行为
     变化）。
 ---*/
 #include "SnExtraTypes.h"
@@ -16,7 +16,7 @@ namespace nlang
 
 GenericInstanceRegistry::~GenericInstanceRegistry()
 {
-	//The registry owns every node it minted. Instances and placeholders
+	//The registry owns every node it created. Instances and placeholders
 	//are detached from any tree, so nothing else frees them.
 	for (auto& kv : m_instances)
 		delete kv.second;
@@ -74,7 +74,7 @@ SnField* GenericInstanceRegistry::RecordOwnerOfMember(
 	//Fill-time map lookup (AdoptMemberClone): the pair was recorded
 	//when the copy joined the shell, so later member-list mutations on
 	//either side cannot drift the mapping. Non-const like InstanceOf:
-	//the registry mints and owns these nodes, and record consumers
+	//the registry creates and owns these nodes, and record consumers
 	//need the owning pointer.
 	auto it = m_memberRecordOwner.find(pMember);
 	return it != m_memberRecordOwner.end()

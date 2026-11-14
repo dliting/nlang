@@ -1,6 +1,6 @@
 /*---
     Marshalling.h — 宿主 Value ↔ 8 字节帧单元（声明驱动，spec §13）。
-    标量行在此；参考类型（string mint/list-dict 物化/句柄透传）经
+    标量行在此；参考类型（string 创建/list-dict 物化/句柄透传）经
     VmExecutor 值桥，散布在 InterpreterImpl/HostFunctionTable/Proxies。
 ---*/
 #pragma once

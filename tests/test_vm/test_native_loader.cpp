@@ -26,7 +26,7 @@ static int g_pass = 0, g_fail = 0;
 
 namespace {
 
-// Minimal host for invoking the registered sample functions (string mint).
+// Minimal host for invoking the registered sample functions (string creation).
 struct MiniHost {
     NativeHost table;
     std::map<int32_t, std::string> strings;

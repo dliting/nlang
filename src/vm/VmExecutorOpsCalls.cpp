@@ -351,7 +351,7 @@ int VmExecutor::FindMethodByName(int classIdx,
         const auto& cc
             = m_currModule->classes[static_cast<size_t>(searchClassIdx)];
         for (uint16_t idx : cc.methodIndices) {
-            //Bare-name method dispatch (D8): method keys never carry a
+            //Unqualified-name method dispatch (D8): method keys never carry a
             //package prefix, so the receiver alone identifies the table.
             //0.9.10: static members are a separate namespace — a same-name
             //static must never capture an instance dispatch (its frame has

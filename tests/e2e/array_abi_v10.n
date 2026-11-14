@@ -1,4 +1,4 @@
-// v0.12.7 Task 9: native host ABI v10 end to end. A native mints a
+// v0.12.7 Task 9: native host ABI v10 end to end. A native creates a
 // view through the new newArrayView entry (rank-1, stride 2, offset 1
 // over [0, 11, 22, 33, 44, 55] — the elements 11, 33, 55), and the
 // same handle walks back through getArrayView: the view arm must honor

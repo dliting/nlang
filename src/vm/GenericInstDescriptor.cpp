@@ -240,7 +240,7 @@ GenericInstDescriptor::GenericInstDescriptor(std::string templateName,
 GenericInstDescriptor* InternDescriptor(const std::string& templateName,
 	const std::vector<TypeArgDesc>& typeArgs)
 {
-	//Pool keyed by the canonical spelling — the descriptor is immutable,
+	//Pool keyed by the canonical name — the descriptor is immutable,
 	//so spelling equality IS descriptor equality. Function-local static:
 	//initialized on first intern (thread-safe initialization), mutated
 	//on the runtime paths only (see the header's contract for why the

@@ -259,7 +259,7 @@ void StatementResolveAccessor::MatchForeachElemType(SnForeachStmt &sn,
 //0.9.13 D-new-2: a bare `[...]`/`{...}` iterable has no target until the loop-var
 //type is known — supply the interned array token of the element field so
 //the init list resolves against it (the same shape the assignment site
-//passes). A jagged loop var (T[]) would mint a token-of-token target:
+//passes). A jagged loop var (T[]) would create a token-of-token target:
 //keep the existing jagged diagnostic instead.
 static void SupplyForeachInitListTarget(BuildEnvironment &env,
 	ExprResolver &resolver, SnForeachStmt &sn, SnField *pVarField)

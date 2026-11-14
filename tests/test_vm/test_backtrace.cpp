@@ -5,7 +5,7 @@
 
 using namespace nlang;
 
-//FormatBacktraceFrame 的纯函数形状钉（单一定义，两位点共享）。
+//FormatBacktraceFrame 的纯函数形状钉（单一定义，两位置共享）。
 static void TestFormatBacktraceFrameShapes() {
     TEST(TestFormatBacktraceFrameShapes);
     {

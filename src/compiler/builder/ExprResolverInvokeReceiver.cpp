@@ -47,7 +47,7 @@ bool OuterIsNamespaceQualifier(SnExpression *pOuter)
 //0.9.10 D2.4: a receiver expression that names a type (class /
 //interface / enum) — that form selects the static namespace.
 //Spellings: a bare identifier (spec D2.1) and, since 0.13.1a Task 3,
-//the explicit instantiation `Pair<int, string>` — the probe-minted
+//the explicit instantiation `Pair<int, string>` — the probe-created
 //SnGenericTypeExpr resolves through Access(SnGenericTypeExpr&) to the
 //synthetic class decl, so Field() carries NK_ClassDecl exactly like the
 //bare spelling. A package-qualified type receiver (`lib.Util.f(...)`)

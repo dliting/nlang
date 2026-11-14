@@ -22,7 +22,7 @@ namespace nlang {
 //when an own declaration misses its table: a silent placeholder would
 //target the unit's own module path and could "link" to itself, hiding
 //the registration-order bug. Imported ENUM stubs (0.10.14) never enter
-//m_enumIndexMap: the minted stub is NF_Imported and reaches
+//m_enumIndexMap: the created stub is NF_Imported and reaches
 //EnumSlotFor's placeholder-slot branch (the own-miss throw only fires
 //for own declarations), so the cross-unit EnumSymbolSlot channel —
 //dead until the enum stub landed — is the live path.
@@ -94,7 +94,7 @@ uint32_t VmBackend::FunctionSlotFor(SnFunction& callee) {
 //instead of scanning by name+arity. Class/struct members keep the
 //replayed member ordinal. A same-build cross-unit callee (an inlined
 //library source, or another user unit in a project) is no stub and
-//carries no minted index — replay it from the shared declaration
+//carries no created index — replay it from the shared declaration
 //tree; without it, same-name same-arity overloads (the tensor
 //elementwise family) link ambiguously.
 void VmBackend::ReplayNamespaceBranchOrdinal(OwnerMemberMeta &meta,

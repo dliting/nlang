@@ -82,15 +82,15 @@ static void EmitNew(BytecodeReader &r, std::ostringstream &out,
     out << head << " " << dst << " class=" << classIdx;
     if (classIdx < module.classes.size())
         out << " " << module.classes[classIdx].name;
-    //v0.13.1: the instantiation descriptor row (0xFFFF = none; recipe
+    //v0.13.1: the instantiation descriptor row (0xFFFF = none; composition
     //rows compose at run time, so the spelling prints as a row tag).
     if (descIdx != 0xFFFF
         && descIdx < module.descriptorTable.size()) {
         const auto& row = module.descriptorTable[descIdx];
-        if (row.recipe.empty())
+        if (row.composition.empty())
             out << " desc=" << row.spelling;
         else
-            out << " desc=recipe#" << descIdx;
+            out << " desc=composition#" << descIdx;
     } else
         out << " desc=none";
     out << "\n";
@@ -255,7 +255,7 @@ static bool DisasmStringOps(OpCode op, BytecodeReader &r,
 
 //v0.13.1: the runtime type-argument opcodes — typeName arms (dst is a
 //frame offset; the ordinal is the declared type-parameter position, the
-//recipe index a descriptor-table row) and the D6 kind-dispatched T
+//composition index a descriptor-table row) and the D6 kind-dispatched T
 //operations (0xFFFF marks the null-literal side of an equality).
 static bool DisasmTypeArgOps(OpCode op, BytecodeReader &r,
     std::ostringstream &out, const std::string &head) {
@@ -268,7 +268,7 @@ static bool DisasmTypeArgOps(OpCode op, BytecodeReader &r,
             return true;
         }
         case OpCode::OP_TypeNameCompose:
-            DisasmU16xN(2, r, out, head, " dst=%u recipe=%u");
+            DisasmU16xN(2, r, out, head, " dst=%u composition=%u");
             return true;
         case OpCode::OP_Eq_T:
         case OpCode::OP_Ne_T:

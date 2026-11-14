@@ -307,11 +307,11 @@ static void test_wire_shapes_compound()
         "clean compile expected: " + joinErrors(*out));
 
     //The qualified-key rule itself: a project function is findable under
-    //"<modulePath>.<name>" and NOT under its bare name.
+    //"<modulePath>.<name>" and NOT under its unqualified name.
     CHECK(mod.FindFunction(mod.modulePath + ".addIdent") >= 0,
         "project functions are keyed <modulePath>.<name>");
     CHECK(mod.FindFunction("addIdent") < 0,
-        "the bare name is not a table key");
+        "the unqualified name is not a table key");
 
     struct Expectation { const char* func; const char* shape; };
     const Expectation kExpects[] = {
@@ -444,7 +444,7 @@ static CompiledModule readerFixtureModule()
 }
 
 //SynthDefaultExpr must throw the named malformed-module errors, never
-//read out of bounds or mint a tree from a corrupt stream.
+//read out of bounds or create a tree from a corrupt stream.
 static void test_reader_rejects_malformed()
 {
     TEST(reader_rejects_malformed);
@@ -513,10 +513,10 @@ static void test_reader_rejects_malformed()
     //so only a corrupt image can carry one).
     {
         CompiledModule unqualified = readerFixtureModule();
-        CompiledFunction bare;
-        bare.name = "helper";
-        bare.paramCount = 1;
-        unqualified.functions.push_back(std::move(bare));
+        CompiledFunction unqualifiedNamed;
+        unqualifiedNamed.name = "helper";
+        unqualifiedNamed.paramCount = 1;
+        unqualified.functions.push_back(std::move(unqualifiedNamed));
         DefaultValueDesc dv;
         dv.tag = RTK_Expr;
         dv.exprBytes = {ED_Call, 6, 0, 'h', 'e', 'l', 'p', 'e', 'r',
@@ -535,7 +535,7 @@ static void test_reader_rejects_malformed()
             + (threw ? message : "no throw"));
     }
 
-    //The valid call arm mints the module-qualified member-invoke shape.
+    //The valid call arm creates the module-qualified member-invoke shape.
     {
         DefaultValueDesc dv;
         dv.tag = RTK_Expr;

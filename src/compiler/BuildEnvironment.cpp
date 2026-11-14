@@ -72,7 +72,7 @@ SnArrayTypeToken* BuildEnvironment::InternArrayTypeToken(SnField *pElemType,
 	auto iFound = m_InternedArrayTokens.find(key);
 	if (iFound != m_InternedArrayTokens.end())
 		return iFound->second.get();
-	//First use mints the token, later lookups share it — the pointer
+	//First use creates the token, later lookups share it — the pointer
 	//stays a stable type identity. Direct new (not make_unique): the
 	//token constructor is private and friendship does not extend into
 	//make_unique's instantiation.

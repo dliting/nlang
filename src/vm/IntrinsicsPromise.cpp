@@ -2,7 +2,7 @@
     IntrinsicsPromise.cpp — Promise<T> 内在函数族（完成源）：
     ctor 在调度器登记出生停泊的内部上下文（ParkedPromise，无代码帧、
     不入队）并把上下文 id 写入句柄隐藏槽（与 Thread/Future 同布局）；
-    future() 铸造指同一上下文的 Future 句柄——全部读侧操作（isDone/
+    future() 创建指同一上下文的 Future 句柄——全部读侧操作（isDone/
     get）经既有 Future 机制作用于同一决定状态。complete(T)/
     completeExceptionally(Exception) 在调度器锁内完成先到先得的
     决定迁移并唤醒停泊 get 者。
@@ -15,13 +15,13 @@ namespace nlang {
 
 //Promise(): initialize the ALREADY-ALLOCATED receiver (the Semaphore
 //ctor protocol — a ctor-call site allocates the instance and passes it
-//at slot 0; minting a fresh object here would orphan the receiver and
+//at slot 0; creating a fresh object here would orphan the receiver and
 //leave its __handle zero). Register the born-parked internal context
 //and write its id into the receiver's hidden __handle slot — the same
 //cell every Thread/Future reader resolves. The context never enters
 //the run queue: no root frame, nothing to execute; its state machine
 //is driven entirely by the completion intrinsics. Same no-carrier gate
-//as spawn: a promise minted in a host call() window could never
+//as spawn: a promise created in a host call() window could never
 //interact with a scheduler (no carrier would ever run the completing
 //sides).
 bool VmExecutor::IntrinsicPromiseCtor(uint16_t callParamBase,
@@ -51,14 +51,14 @@ bool VmExecutor::IntrinsicPromiseCtor(uint16_t callParamBase,
 
 //promise.future(): a reader handle to the SAME internal context — every
 //isDone/get call site resolves the promise's decision state through the
-//ordinary Future mechanism. Repeat calls mint independent handle
+//ordinary Future mechanism. Repeat calls create independent handle
 //objects over one context (the spec's shared-decision-state contract).
 bool VmExecutor::IntrinsicPromiseFuture(uint16_t callParamBase,
                                         uint8_t* locals, uint8_t* pResult)
 {
     const ExecutionContext& ctx
         = ResolveFutureContext(callParamBase, locals);
-    const int32_t futureObj = MintFutureObject(ctx.id);
+    const int32_t futureObj = CreateFutureObject(ctx.id);
     std::memcpy(pResult, &futureObj, sizeof(futureObj));
     CheckGCSafepoint();
     return true;

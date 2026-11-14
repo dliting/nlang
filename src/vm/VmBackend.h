@@ -207,7 +207,7 @@ public:
     }
 
     //Phase 5: canonical VM key of a declaration — "<package>.<name>", or
-    //the bare name when the node carries no owner tag. Every name written
+    //the unqualified name when the node carries no owner tag. Every name written
     //into or looked up in the VM tables goes through here, so the spelling
     //cannot drift from what the resolver reports. Requires the registry
     //injected by ModuleBuilder. Defined in Register.cpp.
@@ -236,7 +236,7 @@ public:
     void Access(SnThisExpr&);
     //v0.13.1 D4: typeName emission — folded spelling via the string
     //pool, bare type parameter via OP_TypeNameArg (the receiver's
-    //descriptor), recipe instantiations via OP_TypeNameCompose.
+    //descriptor), composition instantiations via OP_TypeNameCompose.
     void Access(SnTypeNameExpr&);
     void Access(SnNewArrayExpr&);
     void Access(SnInitListExpr&);
@@ -394,7 +394,7 @@ private:
                               BytecodeEmitter& emitter,
                               uint16_t resultOffset);
     //0.13.1a Task 2: an inferred template-row static — the resolver
-    //bound a minted instantiation's clone member; the frame descriptor
+    //bound a created instantiation's clone member; the frame descriptor
     //cell rides OP_CallStatic's operand (OP_CallMethodDirect has none).
     void EmitInferredTemplateRowStaticCall(SnInvokeExpr& invoke,
                                            SnFunction& callee,
@@ -1199,7 +1199,7 @@ private:
         uint16_t fieldCount = 0;  //struct only (OP_AllocStruct operand)
         //v0.13.1 D1: the instantiation descriptor row for OP_New's third
         //operand — 0xFFFF (kNoInstDescriptor) when the construction
-        //carries no descriptor (non-instantiation types; runtime-recipe
+        //carries no descriptor (non-instantiation types; runtime-composition
         //constructions until that path lands).
         uint16_t descIdx = 0xFFFF;
     };
@@ -1209,7 +1209,7 @@ private:
     //construction — registers (and dedups by spelling) a static row and
     //returns its index; kNoInstDescriptor for non-instantiations and
     //for arguments containing type parameters (those compose at run
-    //time through the recipe path). Interns the descriptor so the
+    //time through the composition-record path). Interns the descriptor so the
     //compile-side and load-side pools agree.
     uint16_t DescriptorIndexFor(SnClassDecl& inst);
     //0.13.1c Task 8: the interface instantiation twin — a static call
@@ -1222,15 +1222,15 @@ private:
     //name as the row head (the runtime composes the callee's frame cell
     //from it; the head name itself is diagnostics-only). Arguments
     //containing type parameters (a generic body calling generic with T
-    //riding an argument) spell the recipe form so the row composes
+    //riding an argument) spell the composition form so the row composes
     //against the CALLER's frame cell at execution — the free-function
     //recursion/forwarding shape.
     uint16_t FreeCallDescriptorIndexFor(const std::string& funcName,
         const std::vector<SnField*>& typeArgs);
-    //v0.13.1: recipe row for a typeName operand containing a type
+    //v0.13.1: composition record row for a typeName operand containing a type
     //parameter (see DescriptorSpelling.cpp); the row composes at run
     //time through OP_TypeNameCompose.
-    uint16_t RecipeIndexFor(const SnField& operand);
+    uint16_t CompositionIndexFor(const SnField& operand);
     //v0.13.1: an array allocation's element-instantiation row — 0xFFFF
     //unless the element type is a generic instantiation.
     uint16_t ElemDescriptorIndexFor(SnField* pElemType);
@@ -1240,7 +1240,7 @@ private:
     uint8_t TypeParamOrdinalOfType(const SnField& type);
 
     //DescriptorSpelling.cpp (0.13.1c): the one two-family row core every
-    //descriptor entry shares — recipe row when an argument carries a
+    //descriptor entry shares — composition record row when an argument carries a
     //type parameter, interned static row (dedup by spelling) otherwise.
     uint16_t DescriptorRowIndexFor(const std::string& rowName,
         const std::vector<TypeArgDesc>& args);
@@ -1567,9 +1567,9 @@ private:
                                 BytecodeEmitter& emitter,
                                 uint16_t resultOffset);
     //v0.12.7 Task 11: true when any subscript index is a slice item —
-    //the read re-routes from the element load to the view mint.
+    //the read re-routes from the element load to the view creation.
     static bool HasSliceAxis(const SnSubscriptExpr& sub);
-    //v0.12.7 Task 11: the slice-subscript view mint — receiver, one
+    //v0.12.7 Task 11: the slice-subscript view creation — receiver, one
     //start/stop/step slot per axis and the presence-mask words stage in
     //one exclusive claim; OP_MakeArrayView normalizes and allocates.
     void EmitArrayViewRead(SnSubscriptExpr& sub,
@@ -1826,7 +1826,7 @@ private:
     //order, assigned at class registration). Throws on a static field
     //the registration walk never saw — an internal invariant break.
     //v0.12.6 Task 8: non-const — an imported stub field (producer slot
-    //rider) mints its placeholder import record on first use, so the
+    //rider) creates its placeholder import record on first use, so the
     //lookup mutates the unit table and the field→slot cache.
     uint16_t StaticSlotIndexOf(SnClassField& field);
     //Task 7: the same lookup for a static local, keyed by name in the
@@ -1891,14 +1891,14 @@ private:
     //struct/class indices built from the nodes once all tables exist
     //(names alone cannot carry cross-unit provenance for the slots).
     std::vector<std::vector<SnField*>> m_structFieldTypes;
-    //Runtime minters (INTR_Dict_Keys, INTR_String_Split) allocate List
+    //Runtime creators (INTR_Dict_Keys, INTR_String_Split) allocate List
     //instances through this index; since phase 2 the declared erasure
     //record is resolved by name in CacheBuiltinClassIndexes.
     int16_t m_listClassIdx = -1;
     int16_t m_dictClassIdx = -1;    //Phase 8e-4: index of Dict<K,V> built-in class (-1 until RegisterBuiltinClasses)
 
     //Shadowed prelude names (builtin-decls source-of-truth design §6.8):
-    //bare names a NON-prelude top-level declaration claims. The prelude's
+    //unqualified names a NON-prelude top-level declaration claims. The prelude's
     //same-name declarations retire from every registration site
     //(innermost-wins); user declarations bind first anyway (project TUs
     //precede the prelude TU on the root), this set keeps the VM tables
@@ -2151,10 +2151,10 @@ private:
     //One whole-tree pass collecting the shadowed prelude names (see the
     //m_shadowedPreludeNames member comment). Top-level members only:
     //prelude declarations are all root-level, and method-level shadowing
-    //is per-class dispatch, not a bare-name question.
+    //is per-class dispatch, not an unqualified-name question.
     void ComputeShadowedPreludeNames(SnNamespace& root);
 
-    //True when THIS declaration is a prelude one whose bare name a
+    //True when THIS declaration is a prelude one whose unqualified name a
     //foreign declaration claims — the registration sites skip it (the
     //foreign declaration is the visible winner).
     bool IsShadowedPreludeDecl(const SnField& node) const;
@@ -2197,7 +2197,7 @@ inline uint16_t StringMethodStagedArgCount(const std::string& name,
 //0.13.1c: abstract-record admission is a class-member concept — an
 //interface method's bodylessness is intrinsic to the kind (its surface
 //rides CompiledInterface.instanceMethods), so admitting a record for it
-//would mint a second, placeholder-named stub beside the interface's own
+//would create a second, placeholder-named stub beside the interface's own
 //rebuild. Shared by RegisterFunctions and the generation walk.
 inline bool IsAbstractClassMember(const SnField& field)
 {

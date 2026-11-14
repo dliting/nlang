@@ -98,7 +98,7 @@ static CompileOutcome compileOne(const char* szBody)
     return out;
 }
 
-//One real build stays alive for the whole run: a build mints the
+//One real build stays alive for the whole run: a build creates the
 //primitive type field singletons (SnInt32::Instance() and siblings,
 //bound to every `int`/`float`/`string` type expression in the tree)
 //and the builder owns their AST. Same ownership discipline as
@@ -162,14 +162,14 @@ static void test_intern_identity()
     CHECK(iia->ToString() == t1->ToString() + "[]",
         "nested display form composes, got: " + iia->ToString());
 
-    //Interning is TU-scoped: a fresh environment mints its own token
+    //Interning is TU-scoped: a fresh environment creates its own token
     //for the same element (lifetime = the owning environment).
     static BuildParams otherParams;
     static MemLogger otherLogger;
     static BuildEnvironment otherEnv(otherParams, otherLogger);
     auto* tOther = otherEnv.InternArrayTypeToken(IntField());
     CHECK(tOther != nullptr && tOther != t1,
-        "another environment mints its own token");
+        "another environment creates its own token");
     CHECK(tOther == otherEnv.InternArrayTypeToken(IntField()),
         "the second environment is self-consistent too");
     PASS();

@@ -1,6 +1,6 @@
 // Array allocation bounds: the length cap (100M elements) and the
 // int32 overflow edge both raise the catchable OutOfBounds family —
-// from the language's sized creation just like from native minting.
+// from the language's sized creation just like from native creating.
 import tensor;
 
 int main() {
@@ -19,10 +19,10 @@ int main() {
     } catch (IndexOutOfBoundsException oob2) {
         // expected
     }
-    //Native minting hits the same unified bound.
+    //Native creating hits the same unified bound.
     try {
-        double[] minted = tensor.full(100000001, 1.0);
-        if (minted.length() != -1) return 3; // unreachable
+        double[] created = tensor.full(100000001, 1.0);
+        if (created.length() != -1) return 3; // unreachable
     } catch (IndexOutOfBoundsException oob3) {
         // expected
     }

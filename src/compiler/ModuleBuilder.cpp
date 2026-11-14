@@ -86,7 +86,7 @@ bool ModuleBuilder::PrepareUnits()
 	//Merge TU roots BEFORE import stubbing: a peer image carries the
 	//prelude records too (own in every image by design), and the
 	//stub-side collision checks (nameExistsInRoot) are what keep those
-	//from being minted into the root beside the consumer's own
+	//from being created into the root beside the consumer's own
 	//declarations. Without this, declared builtin classes clash with
 	//their own imported mirrors. TU order (user, prelude, libraries)
 	//keeps the shadowing contract — user declarations sit ahead of the

@@ -96,7 +96,7 @@ inline void CheckConstDirectFieldType(BuildEnvironment &env,
 	if (pType->Kind() != NK_ClassDecl)
 		return;	//primitives, string, enums: nothing to seal
 	auto *pClass = static_cast<SnClassDecl *>(pType);
-	//T binds at instantiation (instantiation-time args are the mint's
+	//T binds at instantiation (instantiation-time args are the creation's
 	//surface, not the template's); func values are read-only handles.
 	if (pClass->IsTypeParamPlaceholder() || pClass->IsFuncType())
 		return;

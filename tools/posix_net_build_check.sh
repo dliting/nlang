@@ -35,7 +35,7 @@ done
 # (NativeHost, IoPoller, ...) stay undefined by design and are filtered
 # out. The comparison is signature-complete (name AND parameter list):
 # a definition beside a changed parameter list is a DIFFERENT function,
-# and the earlier name-only comparison minted exactly the drift class it
+# and the earlier name-only comparison created exactly the drift class it
 # was built to catch — a one-parameter NetConnectResult definition
 # satisfied two-parameter calls while dlopen(RTLD_NOW) still failed the
 # real symbol at module load (external review C1). The [abi:cxx11] tag

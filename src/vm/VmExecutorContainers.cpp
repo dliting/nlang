@@ -215,7 +215,7 @@ bool VmExecutor::FuncRecordValuesEqual(int32_t a, int32_t b) const
         || static_cast<size_t>(b) >= m_structHeap.size())
         return false;
     //The record is {target, receiver, form} in cells 0..2 (OpMakeFunc
-    //and the bound/virtual mints); OpFuncEquality compares exactly
+    //and the bound/virtual creates); OpFuncEquality compares exactly
     //these three cells.
     const auto& recA = m_structHeap[static_cast<size_t>(a)];
     const auto& recB = m_structHeap[static_cast<size_t>(b)];

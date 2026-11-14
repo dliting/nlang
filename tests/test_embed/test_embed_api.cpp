@@ -308,7 +308,7 @@ static void TestHostFunctionEmptyStringArgMarshal() {
     PASS();
 }
 
-//Ruling D27 companion: a host function returning Value("") must mint a
+//Ruling D27 companion: a host function returning Value("") must create a
 //live object (the host bridge's string-producing API never hands out
 //handle 0), so the empty result crosses as a real "" instead of tripping
 //the native-boundary "returned null string" check.

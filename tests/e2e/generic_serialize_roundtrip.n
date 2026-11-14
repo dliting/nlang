@@ -1,6 +1,6 @@
 // v0.13.1 D3: instantiation descriptors survive the object-graph
 // round trip. The stream key is the erased template row ("Cell"), so
-// the descriptor rides the wire as its canonical spelling; a stream
+// the descriptor rides the wire as its canonical name; a stream
 // that drops it would let any instantiation pass the subclass check
 // and break every kind-dispatched T operation on the decoded object.
 import io;

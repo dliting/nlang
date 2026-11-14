@@ -118,7 +118,7 @@ inline void ValueIntoCell(VmExecutor& executor, const Value& v,
                           const TypeDesc* declaredType = nullptr) {
     if (declaredKind == RTK_String) {
         if (v.kind() == Value::Kind::String) {
-            const int32_t handle = executor.MintHostString(v.asString());
+            const int32_t handle = executor.CreateHostString(v.asString());
             std::memcpy(cell, &handle, sizeof(handle));
         } else if (v.kind() != Value::Kind::Null) {
             throw BadValue("string formal needs a String or Null host value");

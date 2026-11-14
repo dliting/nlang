@@ -1,7 +1,7 @@
 // v0.13.1 D4: typeName inside a template body reads the receiver's
 // own instantiation — a bare type parameter through the receiver's
 // argument (OP_TypeNameArg), a type-parameter-argument instantiation
-// through the composition recipe (OP_TypeNameCompose).
+// through the composition record (OP_TypeNameCompose).
 class Box<T> {
     public T value;
     public Box(T v) { value = v; }

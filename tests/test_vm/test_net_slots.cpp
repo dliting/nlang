@@ -1,6 +1,6 @@
 /*---
     test_net_slots.cpp — the per-executor socket slot table: handle
-    minting with a generation tag (ABA), closed/lookup rules, and the
+    creating with a generation tag (ABA), closed/lookup rules, and the
     close-waits-for-waiters fd lifetime rule (plan ruling R5).
 ---*/
 #include "net/net_slots.h"
@@ -13,18 +13,18 @@ static int g_failures = 0;
     std::printf("FAIL %s:%d %s\n", __FILE__, __LINE__, #cond); ++g_failures; } \
 } while (0)
 
-static void TestMintLookupGeneration() {
+static void TestCreateLookupGeneration() {
     NetSocketTable table;
-    const int32_t h = table.Mint(/*fd*/5, kNetKindTcpStream);
+    const int32_t h = table.Create(/*fd*/5, kNetKindTcpStream);
     CHECK(h != 0);
     NetSocketSlot* s = table.Lookup(h);
     CHECK(s != nullptr && s->fd == 5 && !s->closed);
     table.MarkClosed(h);
     CHECK(table.Lookup(h) == nullptr);          //closed slots reject
-    //MarkClosed on a waiter-free slot also recycles it (M10): remint
+    //MarkClosed on a waiter-free slot also recycles it (M10): re-create
     //reuses the index, the generation differs, the stale handle rejects.
     const int32_t indexMask = (1 << kNetHandleIndexBits) - 1;
-    const int32_t h2 = table.Mint(/*fd*/9, kNetKindTcpStream);
+    const int32_t h2 = table.Create(/*fd*/9, kNetKindTcpStream);
     CHECK((h2 & indexMask) == (h & indexMask)); //index came back from the
                                                 //free list, not a fresh slot
     CHECK((h2 >> kNetHandleIndexBits) != (h >> kNetHandleIndexBits));
@@ -34,7 +34,7 @@ static void TestMintLookupGeneration() {
 
 static void TestCloseWaitsForWaiters() {
     NetSocketTable table;
-    const int32_t h = table.Mint(7, kNetKindUdp);
+    const int32_t h = table.Create(7, kNetKindUdp);
     table.SetWaiter(h, NetDir::Read, /*ctxId*/42);
     table.MarkClosed(h);
     //Closed is closed mid-deferral (external review M11): FdOf reports
@@ -48,7 +48,7 @@ static void TestCloseWaitsForWaiters() {
 }
 
 int main() {
-    TestMintLookupGeneration();
+    TestCreateLookupGeneration();
     TestCloseWaitsForWaiters();
     std::printf(g_failures ? "FAILED %d\n" : "ok\n", g_failures);
     return g_failures == 0 ? 0 : 1;

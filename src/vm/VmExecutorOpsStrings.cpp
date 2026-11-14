@@ -2,7 +2,7 @@
     VmExecutorOpsStrings.cpp — 字符串操作码（拼接/比较/长度/枚举与数组渲染）
     从 VmExecutor.cpp 抽取（2026-09-26 可维护性重构，零行为变化）。
     K8: string reads are lock-free (flat content is immutable and its
-    storage address is stable); minting and cons flattening take the
+    storage address is stable); creating and cons flattening take the
     string-maintenance domain lock internally.
 ---*/
 #include "VmExecutor.h"
@@ -13,7 +13,7 @@
 namespace nlang {
 
 void VmExecutor::OpEnum_to_str(BytecodeReader& reader, uint8_t* pResult) {
-    //K8: lock-free — MintNewString takes the intern table's domain
+    //K8: lock-free — CreateNewString takes the intern table's domain
     //lock internally; the enum-name table is link-time read-only.
     //uint16 enumDefIdx immediate; read int32 enum value from pResult,
     //lookup m_currModule->enumNames[enumDefIdx][value], push name.
@@ -28,27 +28,27 @@ void VmExecutor::OpEnum_to_str(BytecodeReader& reader, uint8_t* pResult) {
         || static_cast<size_t>(enumValue) >= names.size())
         throw std::runtime_error(
             "NLang VM: enum value out of range");
-    int32_t handle = MintNewString(names[static_cast<size_t>(enumValue)]);
+    int32_t handle = CreateNewString(names[static_cast<size_t>(enumValue)]);
     std::memcpy(pResult, &handle, sizeof(handle));
 }
 
 void VmExecutor::OpArray_to_str(uint8_t* pResult) {
     //K8: lock-free — the format walkers snapshot container structure
     //under the Container domain lock internally; everything else here
-    //is benign heap reads plus a self-locking mint.
+    //is benign heap reads plus a self-locking creation.
     //Phase 9b-pre: format array at pResult as "[e1, e2, ...]",
     //push result string to pool, write idx to pResult. The heap walk
-    //runs through MintArrayString (v0.12.7 Task 5: shared with the
+    //runs through CreateArrayString (v0.12.7 Task 5: shared with the
     //Array.toString intrinsic).
     int32_t heapIdx;
     std::memcpy(&heapIdx, pResult, sizeof(heapIdx));
-    int32_t handle = MintArrayString(heapIdx);
+    int32_t handle = CreateArrayString(heapIdx);
     std::memcpy(pResult, &handle, sizeof(handle));
 }
 
 void VmExecutor::OpConcat_str(BytecodeReader& reader, uint8_t* locals) {
     //K8: lock-free — cons allocation pops the calling carrier's
-    //shard; the self-concat branch's StrVal flatten and the mint both
+    //shard; the self-concat branch's StrVal flatten and the creation both
     //take the string-maintenance domain lock internally (references
     //stay valid regardless: ChunkedArray addresses are stable).
     //Transparent cons (Task 3): O(1) zero-copy node, flattened
@@ -69,9 +69,9 @@ void VmExecutor::OpConcat_str(BytecodeReader& reader, uint8_t* locals) {
         //— and repeated self-doubling compounds that into 2^n
         //visits. Materialize the operand instead: rare shape,
         //correctness first.
-        std::string doubled = StrVal(hA);   //no mint between reads
+        std::string doubled = StrVal(hA);   //no creation between reads
         doubled += StrVal(hA);
-        int32_t handle = MintNewString(std::move(doubled));
+        int32_t handle = CreateNewString(std::move(doubled));
         std::memcpy(locals + dst, &handle, sizeof(handle));
         return;
     }

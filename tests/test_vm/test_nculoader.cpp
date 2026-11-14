@@ -529,9 +529,9 @@ void TestConstAggregateMarkerRoundTrip() {
 }
 
 // --- v2.15 (v0.13.1): the module descriptor table — one row per generic
-// --- instantiation descriptor the unit registers (canonical spelling +
-// --- recipe bytes; empty recipe = static spelling, non-empty = runtime
-// --- composition recipe, see Task 5's encoding). Sits between the
+// --- instantiation descriptor the unit registers (canonical name +
+// --- composition record bytes; empty composition = static spelling, non-empty = runtime
+// --- composition record, see Task 5's encoding). Sits between the
 // --- string-constant and function sections; a v2.14 image has no section
 // --- and misparses at the first record, so the floor refuses it.
 
@@ -542,10 +542,10 @@ void TestDescriptorTableRoundTrip() {
     AddFunc(cm, "descmod.main", 0);
     cm.descriptorTable.push_back({"Box<int>", {}});      //static spelling
     cm.descriptorTable.push_back({"Box<int[]>", {}});    //array argument
-    DescriptorEntry withRecipe;
-    withRecipe.spelling = "Box<Box<int>>";
-    withRecipe.recipe = {0x01, 0x00, 0x02, 'B', 'x', 0x02, 0x00};
-    cm.descriptorTable.push_back(std::move(withRecipe));
+    DescriptorEntry withComposition;
+    withComposition.spelling = "Box<Box<int>>";
+    withComposition.composition = {0x01, 0x00, 0x02, 'B', 'x', 0x02, 0x00};
+    cm.descriptorTable.push_back(std::move(withComposition));
     WriteUnit(dir, cm);
 
     std::string entryKey;
@@ -554,16 +554,16 @@ void TestDescriptorTableRoundTrip() {
     CHECK(loaded.descriptorTable.size() == 3, "three descriptor rows");
     CHECK(loaded.descriptorTable[0].spelling == "Box<int>",
           "static row spelling round-trips");
-    CHECK(loaded.descriptorTable[0].recipe.empty(),
-          "static row carries no recipe");
+    CHECK(loaded.descriptorTable[0].composition.empty(),
+          "static row carries no composition");
     CHECK(loaded.descriptorTable[1].spelling == "Box<int[]>",
           "array-argument spelling round-trips");
     CHECK(loaded.descriptorTable[2].spelling == "Box<Box<int>>",
-          "recipe row spelling round-trips");
-    CHECK(loaded.descriptorTable[2].recipe.size() == 7,
-          "recipe byte count round-trips");
-    CHECK(loaded.descriptorTable[2].recipe[3] == 'B',
-          "recipe payload survives verbatim");
+          "composition record row spelling round-trips");
+    CHECK(loaded.descriptorTable[2].composition.size() == 7,
+          "composition byte count round-trips");
+    CHECK(loaded.descriptorTable[2].composition[3] == 'B',
+          "composition payload survives verbatim");
 
     //Version floor: a v2.14 image predates the section and is refused.
     PatchMinorVersion(dir / "descmod.ncu", 14);

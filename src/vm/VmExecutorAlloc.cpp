@@ -70,7 +70,7 @@ int32_t VmExecutor::AllocStructOnHeap(uint16_t structIdx) {
     //explicit construction). RTK_Void entries keep the zero fill; brace
     //initializers and constructor stores overwrite these afterwards.
     //Field i sits at cell 2i of the uniform 2-cell stride. The loop runs
-    //after every nested allocation: MintNewString only grows the string
+    //after every nested allocation: CreateNewString only grows the string
     //table, so no reference taken here can dangle across it.
     for (uint16_t i = 0; i < cs.fieldCount
          && i < cs.fieldDefaults.size(); ++i) {
@@ -85,14 +85,14 @@ int32_t VmExecutor::AllocStructOnHeap(uint16_t structIdx) {
 
 //v0.13.1: intern the module's static descriptor rows so OP_New's
 //descIdx operand resolves to a pointer. Static rows rebuild their
-//argument trees from the canonical spelling (leaf link keys resolve
-//against the linked module's tables); recipe rows (runtime composition)
+//argument trees from the canonical name (leaf link keys resolve
+//against the linked module's tables); composition record rows (runtime composition)
 //stay null until that path lands.
 void VmExecutor::InitDescriptorTable(const CompiledModule& module) {
     m_descCache.clear();
     m_descCache.reserve(module.descriptorTable.size());
     for (const auto& entry : module.descriptorTable) {
-        m_descCache.push_back(entry.recipe.empty()
+        m_descCache.push_back(entry.composition.empty()
             ? InternDescriptorFromSpelling(entry.spelling, module)
             : nullptr);
     }
@@ -124,7 +124,7 @@ int32_t VmExecutor::AllocClassOnHeap(uint16_t classIdx,
     return heapIdx;
 }
 
-//The single length gate (language creation and native minting): every
+//The single length gate (language creation and native creation): every
 //dimension must be non-negative and within kMaxArrayElems, and the
 //product (elemCount) must stay within it too — int64 accumulation so
 //the product itself cannot overflow the check.
@@ -156,7 +156,7 @@ int32_t VmExecutor::AllocArrayOnHeap(uint16_t arrayTypeIdx, uint8_t rank,
     int32_t totalSlots =
         static_cast<int32_t>(ArrayHeaderCells(rank)) + size * cells;
     //The one array allocation path shared by language creation and
-    //native minting: raise the collector-pending flag here, so a loop
+    //native creation: raise the collector-pending flag here, so a loop
     //that only allocates through natives still reaches collection.
     NoteGcPressure();
     const int32_t heapIdx = TakeHeapSlot();

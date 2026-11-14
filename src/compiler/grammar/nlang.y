@@ -179,7 +179,7 @@ static SnExpression* BuildStringExpr(
 }
 
 //0.8.3: the func keyword's generic spellings share one builder — the
-//keyword is not an identifier token, so the base-name node is minted
+//keyword is not an identifier token, so the base-name node is created
 //from kBuiltinFuncTypeName; the resolver's generic dispatch matches on
 //that base name (IsBuiltinGenericTypeName).
 static SnGenericTypeExpr* MakeFuncType(
@@ -629,7 +629,7 @@ TopItem:	NamespaceMember {
 					//rides the statement path and dies at the body or param
 					//tokens with a bare syntax error. Top-level only: the
 					//in-body `const T p();` zero-argument construction keeps
-					//its LocalDeclList reading. The public spellings mint an
+					//its LocalDeclList reading. The public spellings create an
 					//SnFunction and are named by the resolver contract check.
 					//Adds one shared-paren conflict state (1 s/r + 2 r/r) of
 					//the accepted epsilon family — see the FormalParamList
@@ -1834,7 +1834,7 @@ spelling. The implements position is unambiguous (a '<' after an
 entry's head can only open type arguments), so the dual angle spellings
 follow the Type rule exactly: OT_TypeLt for scan-flagged names, plain
 '<' (with the scan-time depth increment) for user-declared generics.
-Both mint the same SnGenericTypeExpr the type path builds, so the
+Both create the same SnGenericTypeExpr the type path builds, so the
 clause resolves through the one generic-use path and the class binds
 the INSTANTIATED interface.
 */
@@ -1973,7 +1973,7 @@ ClassMemberList:	ClassMemberList ClassMember {
 
 //0.13.1c: a bodyless non-native method IS an abstract method — there
 //is no separate keyword. Abstract implies virtual, so the pair
-//NF_Abstract | NF_Virtual is minted together here (grammar-time, like
+//NF_Abstract | NF_Virtual is created together here (grammar-time, like
 //the explicit `virtual` keyword: PropagateVirtualOverrides reads the
 //ancestor's flag at derived-resolution time, and the class bases are
 //only pointer-bound by then). Native declarations are record-only
@@ -2269,7 +2269,7 @@ Type:	NameExpr		{ $$ = $1; } |
 						$$ = new SnGenericTypeExpr(new SnNameExpr($1, @1), $5, @1);
 					} |
 				//0.8.3: func is a keyword; its generic spellings mirror
-				//the NameExpr ones above but start from KT_Func and mint
+				//the NameExpr ones above but start from KT_Func and create
 				//the base-name node from kBuiltinFuncTypeName. The func
 				//keyword is always scan-flagged, so only the OT_TypeLt
 				//spelling is reachable here.
@@ -2375,7 +2375,7 @@ HeadType:	IdentifierExpr {
 			} |
 			//0.8.3: func is a keyword; its generic spellings mirror
 			//the IdentifierExpr ones above but start from KT_Func and
-			//mint the base-name node from kBuiltinFuncTypeName. The
+			//create the base-name node from kBuiltinFuncTypeName. The
 			//keyword is always scan-flagged, so only the OT_TypeLt
 			//spelling is reachable.
 			KT_Func OT_TypeLt TypeList '>' {
@@ -2428,7 +2428,7 @@ Expression:	ParenthesesExpr	{ $$ = $1; } |
 				SubscriptExpr		{ $$ = $1; } |
 				KT_This		{ $$ = new SnThisExpr(@1); } |
 				KT_Null		{ auto* _nl = new SnLiteralExpr(*RnInt32::Instance(), 0, @1); _nl->AddFlags(NF_NullLiteral); $$ = _nl; } |
-				//v0.13.1 D4: typeName(Type) — the canonical spelling of a
+				//v0.13.1 D4: typeName(Type) — the canonical name of a
 				//type as a string. KT_TypeName leads no other rule, so the
 				//parenthesized Type (the same nonterminal the unambiguous
 				//type positions use) needs no dedicated state.
@@ -2458,7 +2458,7 @@ Expression:	ParenthesesExpr	{ $$ = $1; } |
 				//`a < b` expression state to the generic reading
 				//(0.11 merge re-measure). Since 0.13.1a Task 3 declared
 				//generics gained expression-position use too, through
-				//QualifiedGenericReceiver on the probe-minted OT_TypeLt
+				//QualifiedGenericReceiver on the probe-created OT_TypeLt
 				//(below); their type contexts still parse on the
 				//plain-'<' arms. In this state '{' shifts
 				//(the literal) and a name reduces the type.
@@ -2470,7 +2470,7 @@ Expression:	ParenthesesExpr	{ $$ = $1; } |
 				} |
 				//0.13.1a Task 3: constructor call on an explicit
 				//instantiation — `Hold<int>(5)`. The receiver is the
-				//probe-minted QualifiedGenericReceiver; SnNewExpr takes
+				//probe-created QualifiedGenericReceiver; SnNewExpr takes
 				//the class name as a SnFieldExpr and the argument list
 				//exactly like the SnInvokeExpr arm does.
 				QualifiedGenericReceiver '(' ConcreteParamList ')' {
@@ -2581,11 +2581,11 @@ AsGenericTarget:	IdentifierExpr '<' {
 //0.13.1a Task 3: expression-position generic spelling on a declared
 //generic name — `Pair<int, string>.sig()` (static member call) and
 //`Hold<int>(5)` (constructor call). The opener is the dedicated
-//OT_TypeLt minted by the scanner's spelling probe (an identifier
+//OT_TypeLt created by the scanner's spelling probe (an identifier
 //followed by a balanced <...> whose terminator is exactly '.' or '(' —
 //the C# "grammar ambiguities" resolution), so this nonterminal never
 //competes with the plain-'<' comparison arms (same Expression-position
-//discipline as the 0.10.8 anchored literal arm). Base + args mint like
+//discipline as the 0.10.8 anchored literal arm). Base + args create like
 //the as-target arms; continuations live in MemberExpr ('.') and the
 //Expression constructor arm ('(').
 QualifiedGenericReceiver:
@@ -2602,7 +2602,7 @@ MemberExpr:	Expression '.' InvokeExpr		{
 				} |
 				//0.13.1a Task 3: explicit type-argument spelling on a
 				//static member call — `Pair<int, string>.sig()`. The
-				//receiver mints through the same SnGenericTypeExpr the
+				//receiver creates through the same SnGenericTypeExpr the
 				//as-target arms use, so the resolver's existing
 				//Access(SnGenericTypeExpr&) arm resolves it.
 				QualifiedGenericReceiver '.' InvokeExpr	{

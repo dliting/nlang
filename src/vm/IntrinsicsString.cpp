@@ -201,7 +201,7 @@ bool VmExecutor::ExecuteIntrinsicString(uint16_t intrinsicId,
                 + std::to_string(s.size()) + " bytes.");
         std::string out = s.substr(static_cast<size_t>(start),
             static_cast<size_t>(end - start));
-        int32_t handle = MintNewString(std::move(out));
+        int32_t handle = CreateNewString(std::move(out));
         std::memcpy(pResult, &handle, sizeof(handle));
         return true;
     }
@@ -273,7 +273,7 @@ bool VmExecutor::ExecuteIntrinsicString(uint16_t intrinsicId,
             else if (!toUpper && ch >= 'A' && ch <= 'Z')
                 ch = static_cast<char>(ch - 'A' + 'a');
         }
-        int32_t handle = MintNewString(std::move(s));   //s dead after the mint
+        int32_t handle = CreateNewString(std::move(s));   //s dead after the creation
         std::memcpy(pResult, &handle, sizeof(handle));
         return true;
     }
@@ -288,7 +288,7 @@ bool VmExecutor::ExecuteIntrinsicString(uint16_t intrinsicId,
         while (b < e && isWs(s[b])) ++b;
         while (e > b && isWs(s[e - 1])) --e;
         std::string out = s.substr(b, e - b);
-        int32_t handle = MintNewString(std::move(out));
+        int32_t handle = CreateNewString(std::move(out));
         std::memcpy(pResult, &handle, sizeof(handle));
         return true;
     }
@@ -316,8 +316,8 @@ bool VmExecutor::ExecuteIntrinsicString(uint16_t intrinsicId,
             pos = hit + sep.size();
         }
         //List<string> = List class instance + handle (INTR_Dict_Keys
-        //recipe); elements are boxed-string heap slots. K8: the side
-        //table is Container-domain; mints/allocs are forward.
+        //composition); elements are boxed-string heap slots. K8: the side
+        //table is Container-domain; creations/allocs are forward.
         DomainGuard containerGuard(m_domainLocks, DomainId::Container);
         if (m_listClassIdx < 0)
             throw std::runtime_error(
@@ -332,7 +332,7 @@ bool VmExecutor::ExecuteIntrinsicString(uint16_t intrinsicId,
         for (auto& part : parts)
         {
             dst.push_back(AllocBoxedValue(RTK_String,
-                MintNewString(std::move(part))));
+                CreateNewString(std::move(part))));
         }
         std::memcpy(pResult, &listHeapIdx, sizeof(listHeapIdx));
         return true;
@@ -363,7 +363,7 @@ bool VmExecutor::ExecuteIntrinsicString(uint16_t intrinsicId,
             out += newStr;
             pos = hit + oldStr.size();
         }
-        int32_t handle = MintNewString(std::move(out));
+        int32_t handle = CreateNewString(std::move(out));
         std::memcpy(pResult, &handle, sizeof(handle));
         return true;
     }

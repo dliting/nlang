@@ -218,7 +218,7 @@ bool DebugSession::ParseBreakTarget(const std::string& arg,
 void DebugSession::DoBreak(const std::string& arg) {
     //Three address forms: <file.n:LINE>, bare LINE (selected frame's
     //file, exact match), or function name (every same-named function
-    //— methods and free functions share the bare-name pool).
+    //— methods and free functions share the unqualified-name pool).
     std::string fileSpec;
     int lineNo = 0;
     bool byLine = false;

@@ -25,9 +25,9 @@ void ExprResolveAccessor::ResolveFieldExprAs(SnFieldExpr &expr, SnField *pField)
 {
 	NLANG_ASSERT(pField != nullptr);
 	//Idempotent re-binding (the resolution passes' stated contract, at
-	//this chokepoint): the declared-generic mint's completion window can
+	//this chokepoint): the declared-generic creation's completion window can
 	//resolve a member type expression while the outer attempt that
-	//TRIGGERED the mint is still on its own binding path — a fixed-key
+	//TRIGGERED the creation is still on its own binding path — a fixed-key
 	//self-reference (`List<T> copy()` inside `List<T>`) hands the same
 	//node to this function twice, and the second visit carries the SAME
 	//two-phase cached instance. A consistent re-binding is a no-op; only

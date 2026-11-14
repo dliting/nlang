@@ -24,7 +24,7 @@ struct UnitPushes
 	std::vector<uint32_t> slots;
 };
 
-//按限定键去重合并接口表。v0.12.6 Task 8：消费方单元为导入接口桩压入
+//按限定键去重合并接口表。v0.12.6 Task 8：使用方单元为导入接口桩压入
 //的无内容占位行就地让位于生产方的富行（NcuLinkerInterfaces.cpp）。
 void MergeInterfaces(const CompiledModule& u, CompiledModule& merged,
 	NcuOperandMaps& m, std::vector<UnitPushes>& pushes, size_t ui);

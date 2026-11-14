@@ -107,7 +107,7 @@ void VmExecutor::CacheBuiltinClassIndexes(const CompiledModule& module) {
     cacheExcClass("InitializationException",  &m_initExcClassIdx);
     cacheExcClass("ChannelClosedException",   &m_channelClosedExcClassIdx);
 
-    //K1 Slice 6: cache the Thread class index (spawn mints instances).
+    //K1 Slice 6: cache the Thread class index (spawn creates instances).
     int threadIdx = module.FindClassBareOrUniqueSuffix("Thread");
     m_threadClassIdx = (threadIdx >= 0) ? static_cast<int16_t>(threadIdx) : -1;
     //K3: same for the Future face of typed spawn.
@@ -141,7 +141,7 @@ void VmExecutor::InitStringStore(const CompiledModule& module) {
     m_constStrCache.clear();
     m_constStrCache.reserve(module.stringConstants.size());
     for (const std::string& s : module.stringConstants)
-        m_constStrCache.push_back(MintConstantString(s));
+        m_constStrCache.push_back(CreateConstantString(s));
 }
 
 //Initialize struct heap with sentinel at index 0, plus GC state.

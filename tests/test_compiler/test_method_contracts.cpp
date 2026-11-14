@@ -1,6 +1,6 @@
 /*---
     test_method_contracts.cpp — 覆写签名/接口契约检查单元测试。
-    载体形态同 test_statement_diag：MemLogger 收集诊断文本，
+    形态同 test_statement_diag：MemLogger 收集诊断文本，
     断言「出现次数」（e2e 只做子串存在性断言，抓不住双报回归）。
     Task 1 首用例是别名指针同一性事实探针（spec §3.5）：别名形参与
     底层类型形参的 Type()->Field() 必须同一节点，否则签名恒等谓词

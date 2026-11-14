@@ -27,7 +27,7 @@ namespace {
 //A view of the operand, materialized to a dense owning record when its
 //strides are not row-major dense (the copy path needs flat addressing).
 //Returns the handle actually backing the computation — the original
-//when it was already contiguous. The minted handle stays rooted per the
+//when it was already contiguous. The created handle stays rooted per the
 //newArray contract until this native returns.
 int32_t ContiguousOperand(NativeHost* host, const uint8_t* args, int slot,
                           NativeArrayView* view) {
@@ -145,7 +145,7 @@ void MatMulTyped(NativeHost* host, uint8_t* ret, const NativeArrayView& a,
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
     //Flat bases: a contiguous view's element zero is at its offset, not
-    //at the owner's (FlatCellsOf folds it; out is freshly minted).
+    //at the owner's (FlatCellsOf folds it; out is freshly created).
     const T* aCells = FlatCellsOf<T>(a);
     const T* bCells = FlatCellsOf<T>(b);
     T* outCells = CellsOf<T>(out);

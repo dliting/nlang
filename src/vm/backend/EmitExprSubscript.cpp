@@ -1,7 +1,7 @@
 /*---
     EmitExprSubscript.cpp — all subscript expression emission: the plain
     array element read (OP_LoadElement family), the v0.12.7 slice
-    view mint (OP_MakeArrayView), the List/Dict container-get() sugar,
+    view creation (OP_MakeArrayView), the List/Dict container-get() sugar,
     and the Access(SnSubscriptExpr) dispatch. The array paths split
     from EmitExprCast.cpp when it reached the source-size budget; the
     container arms joined them in 2026-11-09 so the whole subscript
@@ -29,7 +29,7 @@ bool VmBackend::SubscriptNeedsDynOps(const SnExpression& arrExpr) {
 }
 
 //v0.12.7 Task 11: any slice item in the index list re-routes the read
-//from an element load to a view mint (the resolver has already typed
+//from an element load to a view creation (the resolver has already typed
 //the result as an array token of the kept axes).
 bool VmBackend::HasSliceAxis(const SnSubscriptExpr& sub) {
     for (auto *pIndex : sub.Indices())
@@ -131,7 +131,7 @@ void VmBackend::EmitViewAxisParams(SnSubscriptExpr& sub, size_t d,
 //step) and the mask words; the mask is a compile-time constant
 //(syntactic part presence) so it stages as consts. The view's own type
 //row: the resolver typed the result as a token of (element, kept
-//axes) — register it exactly as minted.
+//axes) — register it exactly as created.
 void VmBackend::EmitArrayViewRead(SnSubscriptExpr& sub,
                                   BytecodeEmitter& emitter,
                                   uint16_t resultOffset) {
@@ -238,7 +238,7 @@ void VmBackend::EmitContainerGetCall(SnSubscriptExpr& sub,
 }
 
 //Subscript dispatch: type-base sized-array creation, string byte read,
-//container get() sugar, slice view mint, then the plain element read.
+//container get() sugar, slice view creation, then the plain element read.
 void VmBackend::Access(SnSubscriptExpr& expr) {
     BytecodeEmitter& emitter = *m_pCurrEmitter;
     uint16_t resultOffset = m_resultOffset;
@@ -266,7 +266,7 @@ void VmBackend::Access(SnSubscriptExpr& expr) {
             EmitContainerSubscriptGet(sub, emitter, resultOffset);
             return;
         }
-        //v0.12.7 Task 11: a slice axis mints a view instead of loading
+        //v0.12.7 Task 11: a slice axis creates a view instead of loading
         //an element (the resolver typed the result as the view token).
         if (HasSliceAxis(sub)) {
             EmitArrayViewRead(sub, emitter, resultOffset);

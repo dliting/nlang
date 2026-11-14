@@ -147,7 +147,7 @@ void ModuleRegistry::Reset()
 	//the owner tags do: their entries are keyed by pointers into the
 	//previous run's syntax tree, which RegisterUnits' caller has
 	//already destroyed. Replacement (not clear-in-place) so the old
-	//registry's destructor frees its minted nodes with it.
+	//registry's destructor frees its created nodes with it.
 	m_upDeclaredGenerics = std::make_unique<GenericInstanceRegistry>();
 	m_upSyntheticBuiltins = std::make_unique<SyntheticBuiltinRegistry>();
 }
@@ -250,7 +250,7 @@ bool ModuleRegistry::IsModuleImported(uint32_t moduleIndex,
 //import gate — the owner module is in the importer's EXACT list (the
 //same-directory auto-adds D7 and the explicit imports alike). Wildcards
 //are deliberately not consulted: a wildcard admits qualified paths only,
-//never bare names.
+//never unqualified names.
 bool ModuleRegistry::IsExactImportedBy(uint32_t importer,
 	uint32_t owner) const
 {
@@ -350,7 +350,7 @@ SnField* ModuleRegistry::FindModuleType(const std::string& path,
 	const std::string& typeName) const
 {
 	//Find the registered unit for path — project, inline library, or
-	//external .ncu. External entries own the type stubs minted by
+	//external .ncu. External entries own the type stubs created by
 	//CompiledModuleNodeBuilder and tagged in RegisterExternalStubs, so
 	//the same owner-filtered scan serves all three: `path.Type` binds
 	//the declaration that unit owns, never a same-name type another

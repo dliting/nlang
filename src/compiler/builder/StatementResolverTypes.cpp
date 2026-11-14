@@ -237,7 +237,7 @@ static void CheckClassFieldStaticContract(BuildEnvironment &env,
 }
 
 //0.13.1c: the abstract members' declaration contract, over every own
-//method. The grammar mints NF_Abstract | NF_Virtual for every bodyless
+//method. The grammar creates NF_Abstract | NF_Virtual for every bodyless
 //non-native class method; this pass rejects the combinations that
 //cannot dispatch. The native+abstract pair is unspellable since the
 //grammar exemption — the assert documents that invariant for future

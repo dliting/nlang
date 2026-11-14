@@ -2,7 +2,7 @@
 
 /*---
     NativeHostHelpers.h — C++ convenience wrappers over the native-host
-    C ABI (argument readers, return writers, minting shorthands).
+    C ABI (argument readers, return writers, creating shorthands).
     Header-only; split from NativeHost.h at the source-size guard so the
     C ABI header stays the single stable surface. NativeHost.h includes
     this header, so existing consumers keep the wrappers transitively.
@@ -75,18 +75,18 @@ inline void ArgArray(NativeHost* host, const uint8_t* args, int slot,
     host->getArrayView(host, ArgInt(args, slot), out);
 }
 
-// v6: mint a zero-initialized array; returns its heap handle.
+// v6: create a zero-initialized array; returns its heap handle.
 inline int32_t NewArray(NativeHost* host, uint8_t elemKind, int32_t length) {
     return host->newArray(host, elemKind, length);
 }
 
-// v9: mint a zero-initialized ND array from explicit dims.
+// v9: create a zero-initialized ND array from explicit dims.
 inline int32_t NewArrayShaped(NativeHost* host, uint8_t elemKind,
                               int32_t rank, const int32_t* dims) {
     return host->newArrayShaped(host, elemKind, rank, dims);
 }
 
-// v10: mint a view over an existing array handle (validation and units
+// v10: create a view over an existing array handle (validation and units
 // as the newArrayView slot documents).
 inline int32_t NewArrayView(NativeHost* host, int32_t targetHandle,
                             int32_t rank, const int32_t* dims,

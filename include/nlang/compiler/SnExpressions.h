@@ -626,7 +626,7 @@ private:
 //Phase 8e-3: Generic type expression (e.g. "List<int>", "Dict<K,V>").
 //Constructed from a base type name and a list of type arguments. The base
 //must resolve to a built-in generic class; user-defined generics are not
-//supported. ExprResolver mints a per-instantiation synthetic SnClassDecl
+//supported. ExprResolver creates a per-instantiation synthetic SnClassDecl
 //(e.g. "List<int>") that carries substituted method signatures while
 //sharing a single backing CompiledClass at runtime (erasure model).
 class NLANG_COMPILER_API SnGenericTypeExpr : public SnCompoundFieldExpr
@@ -967,7 +967,7 @@ public:
 	std::string ToString() const override;
 };
 
-//The "typeName(Type)" expression (v0.13.1 D4): the canonical spelling
+//The "typeName(Type)" expression (v0.13.1 D4): the canonical name
 //of a type as a string. The resolver folds concrete types to a
 //constant spelling; a bare type parameter (or an instantiation whose
 //arguments contain one) reads the receiver's own instantiation at run

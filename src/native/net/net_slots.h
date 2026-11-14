@@ -35,7 +35,7 @@ constexpr uint8_t kNetKindIcmp = 4;
 //ParkedIo state serves every direction).
 enum class NetDir : uint8_t { Read, Write, Accept };
 
-//Handle codec width (net_slots.cpp Mint/SlotOf): the generation lives
+//Handle codec width (net_slots.cpp Create/SlotOf): the generation lives
 //in the bits above this, the slot index+1 below.
 constexpr int32_t kNetHandleIndexBits = 24;
 
@@ -52,7 +52,7 @@ struct NetSocketSlot {
     //write offset lives here, not on the rebuilt stack. Only the
     //writeWaiter's call reads or writes it.
     int writeSent = 0;
-    //Last recvFrom source (UDP/ICMP): plain text, minted to a string
+    //Last recvFrom source (UDP/ICMP): plain text, created to a string
     //on demand — no GC root.
     std::string lastPeerAddress;
     int lastPeerPort = 0;
@@ -61,7 +61,7 @@ struct NetSocketSlot {
 class NetSocketTable {
 public:
     //Takes the fd into a free slot (appends when none free).
-    int32_t Mint(int fd, uint8_t kind);
+    int32_t Create(int fd, uint8_t kind);
     //The slot for a handle, or null when the handle is stale (index
     //freed/reused) or the slot is closed.
     NetSocketSlot* Lookup(int32_t handle);

@@ -15,7 +15,7 @@
 namespace nlang {
 
 //The class-ref head: the stream key (the erased class-row name) plus
-//the instantiation descriptor as its canonical spelling. The flag byte
+//the instantiation descriptor as its canonical name. The flag byte
 //keeps non-instantiation objects at one byte; pre-0.13.1 streams carry
 //no flag and only same-version streams interconvert (no backward
 //compatibility). The spelling is the intern key — the read side

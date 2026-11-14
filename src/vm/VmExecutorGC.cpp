@@ -72,7 +72,7 @@ void VmExecutor::CheckGCSafepoint() {
 //continuing afterwards must re-enter the denominator (BeginExecuting
 //cannot block here — the stop completed — and no global lock is held:
 //the safepoint's handoff released the GIL, and the epilogue released
-//its own GIL and native-minter-gate holds on return). If the
+//its own GIL and native-creator-gate holds on return). If the
 //collection throws, the re-entry still runs
 //BEFORE the unwind continues: a window teardown that parks would call
 //EndExecuting on an already-off bit (protocol tripwire), and skipping
@@ -95,12 +95,12 @@ void VmExecutor::CollectAndReenter(GcWorldStop& stop) {
 //Rule A waits out the epoch — so no bytecode and no store allocation
 //can run; the mark and sweep arms touch the stores without any domain
 //lock). The collector then takes the GIL and the exclusive
-//native-minter gate, in that order: mint callbacks wait for the GIL
+//native-creator gate, in that order: creation callbacks wait for the GIL
 //before the gate, so a collector taking the gate first would hold it
-//while the mark scans waited for a GIL a parked-at-the-gate minter
+//while the mark scans waited for a GIL a parked-at-the-gate creator
 //holds — an ABBA deadlock (v0.13.6 review C1). The collector's GIL
 //acquisition cannot cycle: parked members hold no GIL (the
-//handoff released it), and a mint callback that does hold it never
+//handoff released it), and a creation callback that does hold it never
 //waits on this stop while holding it (safepoint polls hand the GIL
 //off before waiting). Holding the GIL across the collection makes
 //the mark scans' own GilEnsureGuards nest as no-ops. The scheduler
@@ -126,26 +126,26 @@ void VmExecutor::CollectAndComplete() {
     CompletionFirstGuard completeFirst{m_spScheduler->GcStop()};
     if (m_gcThrowOnceForTests.exchange(false, std::memory_order_relaxed))
         throw std::runtime_error("injected collection failure");
-    //C1 lock order (see VmExecutor.h): GIL before native-minter gate.
+    //C1 lock order (see VmExecutor.h): GIL before native-creator gate.
     //The mark scans retake the GIL internally; taking the gate first
-    //would leave the collector gate-while-waiting-GIL against minters
+    //would leave the collector gate-while-waiting-GIL against creators
     //that are GIL-while-waiting-gate (the gate-gap seam turned that
     //into a hang). This acquisition cannot cycle: the safepoint's
     //handoff released the GIL for every parked rendezvous member,
-    //and a GIL holder outside the denominator (a mint callback)
+    //and a GIL holder outside the denominator (a creation callback)
     //hands the GIL off before any safepoint wait, so it never waits
     //on this collection while holding it.
     GilEnsureGuard collectorGil(*this);
-    //Native-minter gate (see VmExecutor.h): out-of-denominator minters
+    //Native-creator gate (see VmExecutor.h): out-of-denominator creators
     //— blocking-native callbacks, host bridge — allocate across their
-    //own mint+root spans, invisible to the quiescence gate above.
+    //own creation+root spans, invisible to the quiescence gate above.
     //Holding the gate exclusively here keeps a collection and such a
-    //mint mutually exclusive: the minter's root lands before the sweep
-    //or the sweep waits for it. Minters share the gate among
+    //creation mutually exclusive: the creator's root lands before the sweep
+    //or the sweep waits for it. Creators share the gate among
     //themselves — only the collection relation needs exclusion.
-    std::unique_lock<std::shared_mutex> mintGate(m_nativeAllocGate);
+    std::unique_lock<std::shared_mutex> creationGate(m_nativeAllocGate);
     //C1 seam (test-only): sleep inside the exclusive gate so a
-    //GIL-holding mint callback deterministically blocks here — the
+    //GIL-holding creation callback deterministically blocks here — the
     //lock-order window the pin exercises. Unarmed in production.
     const int gateGapMs =
         m_collectGateGapTimesForTests.load(std::memory_order_relaxed) > 0
@@ -203,7 +203,7 @@ void VmExecutor::MarkPhase() {
     std::vector<int32_t> worklist;
     ScanFrameRootSurfaces(worklist);
     //K2 slice 4 (§2.5): staged blocking-native cells (argument copies,
-    //return slot) and callback-minted handles — roots for as long as
+    //return slot) and callback-created handles — roots for as long as
     //their carrier's GIL is away.
     MarkNativeCallRoots(worklist);
     MarkHostRoots(worklist);

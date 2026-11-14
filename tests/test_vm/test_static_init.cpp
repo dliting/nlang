@@ -192,7 +192,7 @@ static void test_initializerless_class_has_no_init_machinery()
     CHECK(cc->staticInitFuncIdx == 0xFFFF,
         "initializer-less class keeps staticInitFuncIdx at 0xFFFF");
     CHECK(countStaticInitRecords(mod) == 0,
-        "no $staticInit function record was minted");
+        "no $staticInit function record was created");
     CHECK(!moduleHasOp(mod, OpCode::OP_ClassInitGate),
         "no OP_ClassInitGate appears in any function");
     PASS();
@@ -217,7 +217,7 @@ static void test_initialized_class_synthesizes_static_init()
     const CompiledClass* cc = findClass(mod, "Cfg");
     CHECK(cc != nullptr, "Cfg class record present");
     CHECK(countStaticInitRecords(mod) == 1,
-        "exactly one $staticInit function record was minted");
+        "exactly one $staticInit function record was created");
     CHECK(cc->staticInitFuncIdx != 0xFFFF,
         "class record carries the initializer function index");
     CHECK(cc->staticInitFuncIdx < mod.functions.size(),

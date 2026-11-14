@@ -31,7 +31,7 @@ struct Interpreter::Impl {
     int RunAdHoc(const SourceCompiler::Input& in);
     Value Call(const char* funcName, const std::vector<Value>& args);
 
-    //call() 目标解析：包限定键校验 → 同名候选（数量可吸收、缺席形参
+    //call() 目标解析：全限定键校验 → 同名候选（数量可吸收、缺席形参
     //有可用默认）→ 多候选时 kind 试探编组淘汰 → 拒绝项（out 形参）。
     //全部失败路径抛 BadValue（含零候选/歧义）。
     int ResolveCallTarget(const char* funcName,

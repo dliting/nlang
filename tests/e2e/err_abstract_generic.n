@@ -1,4 +1,4 @@
-//0.13.1c: a minted generic instantiation carries the template's abstract
+//0.13.1c: a created generic instantiation carries the template's abstract
 //members — constructing it gates like any abstract class.
 class Box<T>
 {

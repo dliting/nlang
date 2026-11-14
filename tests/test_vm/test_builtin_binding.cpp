@@ -227,7 +227,7 @@ void test_channel_has_two_ctors()
     PASS();
 }
 
-//Future is a read handle minted by thread.spawn/promise.future() — no
+//Future is a read handle created by thread.spawn/promise.future() — no
 //user-callable constructor may exist on the record.
 void test_future_has_no_ctor()
 {
@@ -285,7 +285,7 @@ static void test_builtin_handle_decl_predicate()
 }
 
 //D8: bare-or-unique-suffix class lookup. A package-qualified row
-//("pkg.Thing") must answer to the bare name exactly once; two such
+//("pkg.Thing") must answer to the unqualified name exactly once; two such
 //rows must refuse (-1) rather than pick one. Synthetic module — the
 //lookup is pure table walking, no compiler involved.
 static void test_find_class_bare_or_unique_suffix()
@@ -310,7 +310,7 @@ static void test_find_class_bare_or_unique_suffix()
 }
 
 //D10: reverse lookup over the binding rows — which stamped package
-//declares this bare name? Pre-move truth (these expectations flip to
+//declares this unqualified name? Pre-move truth (these expectations flip to
 //concurrent/thread in the move task).
 static void test_binding_package_for_name()
 {
@@ -325,7 +325,7 @@ static void test_binding_package_for_name()
     CHECK(BindingPackageForName("Promise", pkg) && pkg == "thread",
         "the Promise ctor row must resolve to thread");
     CHECK(!BindingPackageForName("Thread", pkg),
-        "Thread is minted by spawn with no ctor row - no package answer");
+        "Thread is created by spawn with no ctor row - no package answer");
     bool freeFuncForm = true;
     CHECK(BindingPackageForName("Mutex", pkg, &freeFuncForm)
         && pkg == "concurrent" && !freeFuncForm,

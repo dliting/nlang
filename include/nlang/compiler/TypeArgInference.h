@@ -1,7 +1,7 @@
 /*---
     TypeArgInference.h — 调用点类型实参推断（0.13.1a Task 2）：把模板行
     静态成员的形参签名与一次调用的实参已解析类型对齐，为每个类型参数
-    占位符绑定一个实参类型字段，供铸造（GetDeclaredGenericClassDecl）
+    占位符绑定一个实参类型字段，供创建（GetDeclaredGenericClassDecl）
     直接消费。Task 5补齐推断臂：数组、嵌套实例化、返回位（从赋值目标
     发布的期望类型），并携带具名诊断所需的冲突/未绑定细节。
 ---*/

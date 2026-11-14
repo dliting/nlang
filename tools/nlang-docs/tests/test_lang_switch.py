@@ -60,7 +60,7 @@ def _build_tree_pair(tmp_path: Path) -> dict:
         site = tmp_path / "site" / tree
         #The switch links point at the sibling tree, so a chained
         #build's site audit would fail on the first tree (no sibling
-        #yet): build deferred, then audit both like the cmake recipe.
+        #yet): build deferred, then audit both like the CMake build.
         _nlang_docs(["build", "--config", str(config),
                      "--site-dir", str(site), "--defer-site-audit"], env)
         sites[tree] = site

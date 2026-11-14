@@ -157,7 +157,7 @@ void VmBackend::RegisterFunctions(SnNamespace& root) {
             //Per-unit: only this unit's functions register — cross-unit
             //calls resolve through FunctionSlotFor placeholders. The
             //body/native gate below already skips imported stubs. A prelude
-            //declaration whose bare name a foreign declaration claims does
+            //declaration whose unqualified name a foreign declaration claims does
             //not register (spec §6.8 — the foreign declaration is the
             //visible winner; same rule as the class sites).
             if (!IsOwnUnit(func) || IsShadowedPreludeDecl(func))

@@ -60,7 +60,7 @@ struct ExecWithModule {
 
 //CHECK does a bare `return`, so this helper returns void and fills an
 //out-param (no value-returning function may CHECK mid-way). The fixture
-//declares every (element, rank) row the tests mint against, and imports
+//declares every (element, rank) row the tests create against, and imports
 //io so the Exception family registers (the rejection matrix catches the
 //creation family).
 static void makeExecutorWithArrayModule(const std::string& tag,
@@ -107,30 +107,30 @@ static void makeExecutorWithArrayModule(const std::string& tag,
     out.exec->InitNativeHost(out.host);
 }
 
-//Mint an owned scalar array through the production-shaped host callback
-//(the v9 shaped-mint face) and return its heap handle. The minting
+//Create an owned scalar array through the production-shaped host callback
+//(the v9 shaped-creation face) and return its heap handle. The creating
 //callback roots nothing outside a blocking-native window, so handles are
 //collectible exactly when the test's host roots say so.
-static int32_t MintOwnedArray(ExecWithModule& env, uint8_t elemKind,
+static int32_t CreateOwnedArray(ExecWithModule& env, uint8_t elemKind,
                               int32_t rank, const int32_t* dims)
 {
     return env.host.c.newArrayShaped(&env.host.c, elemKind, rank, dims);
 }
 
-//ArrayTypes row of the given minted record ([1] = arrayTypeIdx).
+//ArrayTypes row of the given created record ([1] = arrayTypeIdx).
 static uint16_t TypeIdxOf(ExecWithModule& env, int32_t handle)
 {
     return static_cast<uint16_t>(
         env.exec->ReadHeapRecordCellForTests(handle, 1));
 }
 
-//arrayTypes row for a scalar element kind at a given rank: mint an owned
+//arrayTypes row for a scalar element kind at a given rank: create an owned
 //array of that shape through the host callback and read its [1] cell
 //(the row registers when the fixture's declarations compile).
 static uint16_t RowFor(ExecWithModule& env, uint8_t elemKind, int32_t rank,
                        const int32_t* dims)
 {
-    return TypeIdxOf(env, MintOwnedArray(env, elemKind, rank, dims));
+    return TypeIdxOf(env, CreateOwnedArray(env, elemKind, rank, dims));
 }
 
 //True iff AllocViewOnHeap rejects the arguments with the creation family
@@ -151,7 +151,7 @@ static bool RejectsWithCreationFamily(ExecWithModule& env,
     }
 }
 
-//One keep/drop GC round: mint a fresh target and a view over it, root
+//One keep/drop GC round: create a fresh target and a view over it, root
 //ONLY the view, churn garbage, collect — target and view must both
 //survive with the target edge intact; drop the root, collect again —
 //both must free (the view without its target, or surviving alone, would
@@ -162,14 +162,14 @@ static void GcChurnRound(ExecWithModule& env, const std::string& roundTag,
     const int32_t dims1[1] = {4};
     const int32_t strides1[1] = {1};
     const int32_t garbageDims[1] = {64};
-    const int32_t t = MintOwnedArray(env, NEK_Int32, 1, dims1);
+    const int32_t t = CreateOwnedArray(env, NEK_Int32, 1, dims1);
     const uint16_t typeIdx = TypeIdxOf(env, t);
     const int32_t v = env.exec->AllocViewOnHeap(typeIdx, 1, dims1, strides1,
                                                 0, t);
     env.exec->PushHostRoot(RTK_ArrayView, v);
     //Churn: fresh garbage the sweep must free around the kept pair.
     for (int i = 0; i < 4; ++i)
-        MintOwnedArray(env, NEK_Int32, 1, garbageDims);
+        CreateOwnedArray(env, NEK_Int32, 1, garbageDims);
     env.exec->CollectGarbageForTests();
     const uint8_t tKind = env.exec->HeapSlotKindForTests(t);
     const uint8_t vKind = env.exec->HeapSlotKindForTests(v);
@@ -212,11 +212,11 @@ void test_rank1_layout_no_padding()
     CHECK(env.exec != nullptr, "fixture must initialize");
     const int32_t dims[1] = {4};
     const int32_t strides[1] = {1};
-    const int32_t t = MintOwnedArray(env, NEK_Int32, 1, dims);
+    const int32_t t = CreateOwnedArray(env, NEK_Int32, 1, dims);
     const uint16_t typeIdx = TypeIdxOf(env, t);
     const int32_t v = env.exec->AllocViewOnHeap(typeIdx, 1, dims, strides,
                                                 0, t);
-    CHECK(v > 0, "rank-1 view must mint");
+    CHECK(v > 0, "rank-1 view must create");
     //Rank 1 pins the unpadded tail: the owned record's padded payload
     //base (ArrayHeaderCells(1) = 6) would put the stride one cell later.
     //Exact shape: [0]kind [1]type [2]rank [3]elemCount [4]dim [5]stride
@@ -249,11 +249,11 @@ void test_rank2_layout_full_fields()
     const int32_t dims[2] = {2, 2};
     const int32_t strides[2] = {3, 1};
     const int32_t targetDims[2] = {2, 3};
-    const int32_t target = MintOwnedArray(env, NEK_Int32, 2, targetDims);
+    const int32_t target = CreateOwnedArray(env, NEK_Int32, 2, targetDims);
     const uint16_t typeIdx = TypeIdxOf(env, target);
     const int32_t v = env.exec->AllocViewOnHeap(typeIdx, 2, dims, strides,
                                                 1, target);
-    CHECK(v > 0, "rank-2 view must mint");
+    CHECK(v > 0, "rank-2 view must create");
     CHECK(env.exec->ReadHeapRecordCellForTests(v, 0) == RTK_ArrayView,
           "cell 0 must carry RTK_ArrayView");
     CHECK(env.exec->ReadHeapRecordCellForTests(v, 1) == typeIdx,
@@ -285,7 +285,7 @@ void test_negative_stride_accepted()
     //(i,j,1-k) -> offset 1, strides {4, 2, -1}. min address 0, max 7.
     const int32_t dims[3] = {2, 2, 2};
     const int32_t strides[3] = {4, 2, -1};
-    const int32_t target = MintOwnedArray(env, NEK_Int32, 3, dims);
+    const int32_t target = CreateOwnedArray(env, NEK_Int32, 3, dims);
     const uint16_t typeIdx = TypeIdxOf(env, target);
     const int32_t v = env.exec->AllocViewOnHeap(typeIdx, 3, dims, strides,
                                                 1, target);
@@ -306,7 +306,7 @@ void test_zero_stride_accepted()
     //write-through rejection lives in the store op (Task 10).
     const int32_t dims[2] = {2, 3};
     const int32_t strides[2] = {0, 1};
-    const int32_t target = MintOwnedArray(env, NEK_Int32, 2, dims);
+    const int32_t target = CreateOwnedArray(env, NEK_Int32, 2, dims);
     const uint16_t typeIdx = TypeIdxOf(env, target);
     const int32_t v = env.exec->AllocViewOnHeap(typeIdx, 2, dims, strides,
                                                 0, target);
@@ -325,11 +325,11 @@ void test_depth_one_folding()
     const int32_t dimsT[2] = {2, 3};
     const int32_t dimsV[2] = {1, 2};
     const int32_t stridesV[2] = {3, 1};
-    const int32_t target = MintOwnedArray(env, NEK_Int32, 2, dimsT);
+    const int32_t target = CreateOwnedArray(env, NEK_Int32, 2, dimsT);
     const uint16_t typeIdx = TypeIdxOf(env, target);
     const int32_t v = env.exec->AllocViewOnHeap(typeIdx, 2, dimsV, stridesV,
                                                 2, target);
-    CHECK(v > 0, "intermediate view must mint");
+    CHECK(v > 0, "intermediate view must create");
     //A view created over a view folds to the OWNED record (depth one):
     //the target cell names the target, never the intermediate view. W
     //is rank 1, so its row is the rank-1 int row — a rank-reduced view
@@ -339,7 +339,7 @@ void test_depth_one_folding()
     const uint16_t rowW = RowFor(env, NEK_Int32, 1, dimsW);
     const int32_t w = env.exec->AllocViewOnHeap(rowW, 1, dimsW, stridesW,
                                                 5, v);
-    CHECK(w > 0, "composed view must mint");
+    CHECK(w > 0, "composed view must create");
     CHECK(env.exec->ReadHeapRecordCellForTests(w, ArrayViewTargetCell(1))
               == target,
           "composed view's target must be the OWNED record (depth one)");
@@ -376,7 +376,7 @@ void test_validation_reject_matrix()
     makeExecutorWithArrayModule("view_reject", env);
     CHECK(env.exec != nullptr, "fixture must initialize");
     const int32_t dims23[2] = {2, 3};
-    const int32_t target = MintOwnedArray(env, NEK_Int32, 2, dims23);
+    const int32_t target = CreateOwnedArray(env, NEK_Int32, 2, dims23);
     const uint16_t typeIdx = TypeIdxOf(env, target);
 
     const int32_t stridesFull[2] = {3, 1};
@@ -485,7 +485,7 @@ void test_gc_view_holds_target()
     //Payload marker on the target proves the sweep did not free (or
     //disturb) the element storage while the view held it.
     const int32_t dims1[1] = {4};
-    const int32_t t = MintOwnedArray(env, NEK_Int32, 1, dims1);
+    const int32_t t = CreateOwnedArray(env, NEK_Int32, 1, dims1);
     uint8_t cell[8] = {0, 0, 0, 0, 0, 0, 0, 0};
     const int32_t marker = 42;
     std::memcpy(cell, &marker, sizeof(marker));

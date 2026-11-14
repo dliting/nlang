@@ -339,7 +339,7 @@ bool ExprResolveAccessor::TryResolveModuleFuncValue(SnMemberExpr &snMember)
 	//Bind tip + member exactly like FinishResolvedMember does — the
 	//pending state carries the function's return type until an expected
 	//func type binds the reference (TryBindStatementFuncRef, invoke
-	//argument matching). Overloads resolve like the bare-name form: the
+	//argument matching). Overloads resolve like the unqualified-name form: the
 	//first declaration under the name.
 	auto *pFunc = candidates.front();
 	ResolveFieldExprAs(static_cast<SnFieldExpr &>(*snMember.Inner()), pFunc);
@@ -455,7 +455,7 @@ void ExprResolveAccessor::MaybeLogModuleHint(const std::string &name)
 		"requires an import and qualification)", name.c_str());
 }
 
-//D10 (concurrency import redesign), v0.12.7 V1 revision: a bare-name
+//D10 (concurrency import redesign), v0.12.7 V1 revision: an unqualified-name
 //miss where a stamped package declares the name — name the package and
 //the fix (the binding table is the package->symbol map for these
 //classes). An explicit import now admits bare use for functions and

@@ -368,6 +368,6 @@ uint16_t VmBackend::FindLocal(const std::string& name) const {
 }
 
 //ResolveBareIdentifier/StaticSlotIndexOf live in ResolveBareIdentifier.cpp
-//(bare-name target classification, shared by three emitter families).
+//(unqualified-name target classification, shared by three emitter families).
 
 } // namespace nlang

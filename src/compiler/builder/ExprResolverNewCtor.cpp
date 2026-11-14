@@ -115,7 +115,7 @@ static std::vector<SnFunction*> CollectCtorCandidates(SnField *pTypeDecl,
 	//Phase-2 D5: declared generic instances fall through — their ctor
 	//members are real AST members matched by the loop below (erasure
 	//naming makes the instance's Name() the ctor member's name). Only
-	//synthetic minted singletons (func) stay candidate-free — they carry
+	//synthetic creationed singletons (func) stay candidate-free — they carry
 	//the builtin marker and arity-gate in FindCtorParamRange.
 	if (pClassDecl->IsBuiltinClass())
 		return candidates;

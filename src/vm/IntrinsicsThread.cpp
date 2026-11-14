@@ -7,7 +7,7 @@
     Slice 8 接入 Mutex 全族，Slice 9 接入 Channel 全族——K1 内在函数族
     至此全部落地；Slice 10 补 spawn 的载体在飞门（无载体窗口拒绝）。
     K3 接入 Future 族（isDone 先行，get 随任务 2）：spawn 依委托返回
-    种类铸造 Thread 或 Future 句柄。
+    种类创建 Thread 或 Future 句柄。
     K8：家族在分派处拆锁——thread.* 与 Future 臂持调度器域锁，Mutex 臂
     落 Sync 域（两阶段停泊握手），Channel 臂同形（IntrinsicsChannel.cpp）。
 ---*/
@@ -95,7 +95,7 @@ bool VmExecutor::ExecuteIntrinsicHandleMethods(uint16_t intrinsicId,
         GilEnsureGuard g(*this);
         return IntrinsicFutureSelectAny(callParamBase, locals, pResult);
     }
-    //Promise arms are registry-state and heap minting only — the same
+    //Promise arms are registry-state and heap creating only — the same
     //scheduler domain as the Future readers above.
     case INTR_Promise_Ctor:
     case INTR_Promise_Future:
@@ -182,7 +182,7 @@ bool VmExecutor::ExecuteIntrinsicSync(uint16_t intrinsicId,
 //handles, and the whole frame parks in the new context — the precise
 //frame-local scan covers it from the first GC, no extra root storage.
 //K3: the delegate's return kind decides the handle face — void keeps
-//the K1 Thread object, anything else mints a Future<T>; resultKind
+//the K1 Thread object, anything else creates a Future<T>; resultKind
 //snapshots the same kind for the GC's finished-context root arm.
 bool VmExecutor::IntrinsicSpawn(uint16_t callParamBase, uint8_t* locals,
                                 uint8_t* pResult)
@@ -191,7 +191,7 @@ bool VmExecutor::IntrinsicSpawn(uint16_t callParamBase, uint8_t* locals,
     //the new context. Two nested-window shapes differ: a host callback
     //taken mid-run (carrier active — the loop picks the context up after
     //the callback returns) and the embed call() window (no carrier —
-    //spawn would silently mint a never-run context whose Thread object
+    //spawn would silently create a never-run context whose Thread object
     //looks alive while join always rejects). Refuse the second at the
     //spawn site.
     if (m_spScheduler->ActiveCarrierCount() == 0)
@@ -226,7 +226,7 @@ bool VmExecutor::IntrinsicSpawn(uint16_t callParamBase, uint8_t* locals,
     root.func = &callee;
     ctx->frames.push_back(std::move(root));
     int32_t handleObj = (callee.returnTypeKind != RTK_Void)
-        ? MintFutureObject(ctxId) : MintThreadObject(ctxId);
+        ? CreateFutureObject(ctxId) : CreateThreadObject(ctxId);
     ctx->threadObjHeapIdx = handleObj;
     std::memcpy(pResult, &handleObj, sizeof(handleObj));
     CheckGCSafepoint();
@@ -258,11 +258,11 @@ const CompiledFunction& VmExecutor::ResolveSpawnTarget(
     return callee;
 }
 
-//Mint the Thread object for a registered context: __handle (slot 1,
+//Create the Thread object for a registered context: __handle (slot 1,
 //the first field) = context id. The context (with its frames) is
 //already registered, so a GC at the caller's safepoint sees everything
 //through the scheduler root arm.
-int32_t VmExecutor::MintThreadObject(int ctxId)
+int32_t VmExecutor::CreateThreadObject(int ctxId)
 {
     if (m_threadClassIdx < 0)
         throw std::runtime_error("NLang VM: Thread class not registered");
@@ -368,7 +368,7 @@ bool VmExecutor::IntrinsicThreadFailure(uint16_t callParamBase,
 //thread.sleep(ms)。steady_clock 截止时刻经 ParkForTimer 登记（状态 +
 //定时器表），RequestPark 抛出信号、载体偷帧；恢复点由 OP_CallStatic 内建
 //函数处理分支的 pc 推进不变量保证（同 yield/join）。sleep(0) 是纯让出：
-//立即到期的定时器使载体先运行队列中的其他上下文。负时长是对语言面的
+//立即到期的定时器使载体先运行队列中的其他上下文。负时长是对语言层的
 //误用——基础异常拒绝（同 spawn 目标拒绝形态）。
 bool VmExecutor::IntrinsicSleep(uint16_t callParamBase, uint8_t* locals)
 {

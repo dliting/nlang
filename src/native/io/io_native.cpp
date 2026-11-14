@@ -161,7 +161,7 @@ void IoParkForIo(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
 
 // toBytes: string bytes -> rank-1 byte array. Cells are int32 each
 // and the low byte carries the value (the array store's narrow-cell
-// convention); the minted array is zero-initialized and every cell
+// convention); the created array is zero-initialized and every cell
 // below is written.
 void IoToBytes(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     const std::string text = ArgString(h, a, 0);

@@ -50,7 +50,7 @@ void VmBackend::EmitSealedFieldCopyIfNeeded(SnField* pField,
         return;
     //Zero-arg receiver intrinsic (string getHashCode shape): the loaded
     //handle rides resultOffset into callParamBase slot 0, the intrinsic
-    //mints the copy, the result lands back in resultOffset. Uses no
+    //creates the copy, the result lands back in resultOffset. Uses no
     //eval-area claim, so the walkers need no mirror.
     emitter.Emit(OpCode::OP_VarLocal);
     emitter.EmitUint16(resultOffset);

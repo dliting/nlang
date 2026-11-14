@@ -48,10 +48,10 @@ TypeArgDesc ClassArg(const char* spelling, int32_t rowRef,
 	return arg;
 }
 
-//v0.13.1 Task 2: a hand-minted instantiation shell mirroring
-//MintInstanceShell (ExprResolverGenericMint.cpp) — name, erasure
+//v0.13.1 Task 2: a hand-created instantiation shell mirroring
+//CreateInstanceShell (ExprResolverGenericInstantiation.cpp) — name, erasure
 //markers, type arguments. Compile-time only; the test owns the nodes.
-SnClassDecl* MintShell(const char* name, std::vector<SnField*> args)
+SnClassDecl* CreateShell(const char* name, std::vector<SnField*> args)
 {
 	auto* pShell = new SnClassDecl(new std::string(name), nullptr,
 		new PtrList<SnField>(), ScriptLocation());
@@ -152,11 +152,11 @@ private slots:
 
 	//v0.13.1 Task 2: the AST-side builder spells concrete instantiations
 	//the same way the intern pool does — scalar canonical names, the
-	//nested bare-name rule, and placeholder encoding for T arguments.
+	//nested unqualified-name rule, and placeholder encoding for T arguments.
 	void builderSpellsConcreteInstantiationArgs()
 	{
 		ModuleRegistry registry;
-		auto* pBoxInt = MintShell("Box",
+		auto* pBoxInt = CreateShell("Box",
 			{SnBuiltinDataType::InstanceOf(NK_Int32), SnBuiltinDataType::InstanceOf(NK_String)});
 		const auto args = BuildTypeArgsOf(registry, *pBoxInt);
 		QCOMPARE(args.size(), size_t{2});
@@ -169,22 +169,22 @@ private slots:
 	}
 
 	//A type-parameter argument encodes its parameter position and marks
-	//the instantiation as runtime-composable (the recipe detector).
+	//the instantiation as runtime-composable (the composition-record detector).
 	void builderEncodesTypeParamArgs()
 	{
 		ModuleRegistry registry;
-		auto* pTmpl = MintShell("Box", {});
+		auto* pTmpl = CreateShell("Box", {});
 		pTmpl->SetTypeParamNames({"T"});
 		SnField* pPlaceholder =
 			registry.DeclaredGenerics().PlaceholderFor(*pTmpl, "T", 0);
-		auto* pBoxT = MintShell("Box", {pPlaceholder});
+		auto* pBoxT = CreateShell("Box", {pPlaceholder});
 		const auto args = BuildTypeArgsOf(registry, *pBoxT);
 		QCOMPARE(args.size(), size_t{1});
 		QVERIFY(IsTypeParamArg(args[0]));
 		QCOMPARE(TypeParamOrdinalOf(args[0]), int32_t(0));
 		QVERIFY(HasTypeParamArg(args));
 		//A concrete sibling is not composable.
-		auto* pBoxInt = MintShell("Box", {SnBuiltinDataType::InstanceOf(NK_Int32)});
+		auto* pBoxInt = CreateShell("Box", {SnBuiltinDataType::InstanceOf(NK_Int32)});
 		QVERIFY(!HasTypeParamArg(BuildTypeArgsOf(registry, *pBoxInt)));
 	}
 
@@ -193,8 +193,8 @@ private slots:
 	void builderNestsInstantiationArgs()
 	{
 		ModuleRegistry registry;
-		auto* pInner = MintShell("Box", {SnBuiltinDataType::InstanceOf(NK_Int32)});
-		auto* pOuter = MintShell("Wrap", {pInner});
+		auto* pInner = CreateShell("Box", {SnBuiltinDataType::InstanceOf(NK_Int32)});
+		auto* pOuter = CreateShell("Wrap", {pInner});
 		const auto args = BuildTypeArgsOf(registry, *pOuter);
 		QCOMPARE(args.size(), size_t{1});
 		QCOMPARE(args[0].spelling, std::string("Box"));

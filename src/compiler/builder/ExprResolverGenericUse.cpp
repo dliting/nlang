@@ -52,7 +52,7 @@ bool ExprResolveAccessor::TryResolveGenericTypeArgs(
 		//v0.12.2 face gate: a type argument is a type position too —
 		//face classes (`List<String>`) have no element layout. One
 		//throat for every arm: the built-in generics, the declared
-		//templates, and the Func mint all resolve through here.
+		//templates, and the Func creation all resolve through here.
 		if (RejectPreludeFaceUse(m_Env, pField, pTA->Location(),
 			"used as a type"))
 			return false;
@@ -105,7 +105,7 @@ static bool RejectMultiSlotTypeArgs(BuildEnvironment &env,
 }
 
 //The declared-template arm's scope probe: a generic-declaration class
-//or interface (0.13.1c) under the bare name answers; a TYPE that is
+//or interface (0.13.1c) under the unqualified name answers; a TYPE that is
 //not a generic declaration is reported back for the miss diagnostics;
 //anything else (including no name at all) leaves both outputs null.
 SyntaxNode *ExprResolveAccessor::FindDeclaredGenericTemplate(
@@ -191,7 +191,7 @@ bool ExprResolveAccessor::LogValueHeadMiss(SnGenericTypeExpr &genType,
 }
 
 //Shape discovery for the rescue: the misread call must sit directly in
-//an argument list — the generic head's parent is the minting SnNewExpr
+//an argument list — the generic head's parent is the creating SnNewExpr
 //and that node's parent is the call (or outer creation) whose argument
 //list splices. Returns the misread node and sets \p ppList to the
 //argument list, or returns null when the shape does not splice.
@@ -231,7 +231,7 @@ bool ExprResolveAccessor::TryRescueComparisonReading(SnGenericTypeExpr &genType)
 	//(SnNewExpr::SpanText) — an AST re-render would compress whitespace
 	//and break the fragment-to-file column correspondence, and multi-line
 	//spans would lose their line structure. No captured bytes (a
-	//different minting arm) means no rescue.
+	//different creating arm) means no rescue.
 	const std::string &sSpan = pMisread->SpanText();
 	if (sSpan.empty())
 		return false;
@@ -295,7 +295,7 @@ bool ExprResolveAccessor::TryResolveDeclaredGenericInterfaceInstance(
 //Access(SnGenericTypeExpr&)'s declared-template arm (`class Box<T>` +
 //`Box<int>`): the base must name a generic-declaration class or
 //interface in scope; the arity check runs against its parameter list;
-//the instantiation is minted (cached) and bound. False = a diagnostic
+//the instantiation is created (cached) and bound. False = a diagnostic
 //is logged.
 bool ExprResolveAccessor::TryResolveDeclaredGenericInstance(
 	SnGenericTypeExpr &genType, const std::string &baseName)
@@ -343,7 +343,7 @@ void ExprResolveAccessor::Access(SnGenericTypeExpr &genType)
 	auto *pBase = genType.Base();
 	NLANG_ASSERT(pBase);
 	std::string baseName = pBase->ToString();
-	//D4 routing split: only func mints synthetically now — the four
+	//D4 routing split: only func creates synthetically now — the four
 	//generic prelude names resolve through their declared templates
 	//(Promise precedent). IsBuiltinGenericTypeName remains the
 	//SCANNER's flag set only.

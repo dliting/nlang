@@ -125,7 +125,7 @@ struct CompiledStruct {
     //consumer re-saving the module emit correct descriptors.
     std::vector<TypeDesc> fieldTypeDescs;
     //0.9.11 (v2.6): constructor function indices in declaration order —
-    //struct constructors are registered bare-name members, so the
+    //struct constructors are registered unqualified-name members, so the
     //ordinal within this vector is the only stable cross-module selector
     //(SymbolImport::ownerOrdinal). Empty = the struct has no constructor.
     std::vector<uint16_t> constructorIndices;
@@ -227,7 +227,7 @@ struct CompiledFunction {
     //descriptor grammar"; stub reconstruction degrades to the int32
     //placeholder for those, while embed call marshalling defers to the
     //frame-layout locals table (CallMarshalling.h DeclaredParamKind).
-    //Intrinsics/builtins carry none (their records are minted without
+    //Intrinsics/builtins carry none (their records are created without
     //the AST capture pass and never become stubs).
     std::vector<ParamTypeDesc> paramTypeDescs;
     TypeDesc returnTypeDesc;

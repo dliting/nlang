@@ -1,7 +1,7 @@
 /*---
 VmExecutorNativeArray.cpp — the native array side of the host ABI:
 getArrayView's pinned payload views (owning and view-record arms, ABI
-v7/v10), the minting family newArray/newArrayShaped/newArrayView, and
+v7/v10), the creating family newArray/newArrayShaped/newArrayView, and
 the array-type-row lookup they share. Split from
 VmExecutorNativeCallbacks.cpp at the source-size guard, zero behavior
 change. Table wiring stays in InitNativeHost; the other callback
@@ -167,26 +167,26 @@ int32_t VmExecutor::NativeNewArray(NativeHost* self, uint8_t elemKind,
                                    int32_t length) {
     VmExecutor* e = Wrap(self)->executor;
     GilEnsureGuard gil(*e);
-    //Native-minter gate: GIL first, then the gate (GIL-before-gate is
-    //the global order; contract in VmExecutor.h). Mint + root push are
+    //Native-creator gate: GIL first, then the gate (GIL-before-gate is
+    //the global order; contract in VmExecutor.h). Creation + root push are
     //one span against a collection led by another carrier.
-    NativeMintGate mintGate(*e);
+    NativeCreationGate creationGate(*e);
     //NEK values mirror the RTK scalar codes (NativeHost.h tie comment) —
-    //accept exactly the six mintable kinds, reject the rest by name.
+    //accept exactly the six creatable kinds, reject the rest by name.
     if (elemKind != NEK_Int32 && elemKind != NEK_Int64
         && elemKind != NEK_Float32 && elemKind != NEK_Float64
         && elemKind != NEK_Byte && elemKind != NEK_UByte) {
         e->RaiseNlangExceptionBase(
-            "newArray: element kind is not a mintable scalar");
+            "newArray: element kind is not a creatable scalar");
     }
     //Length bounds (negative and cap) raise in AllocArrayOnHeap — the
     //choke point shared with the language's sized creation. Native
-    //minting is rank-1 in stage 1; the single dim is the length.
+    //creating is rank-1 in stage 1; the single dim is the length.
     const uint16_t arrayTypeIdx = e->FindScalarArrayTypeIdx(elemKind, 1);
     const int32_t handle = e->AllocArrayOnHeap(arrayTypeIdx, 1, &length);
     //Root across the blocking section: the native holds this handle while
     //filling the payload, and other carriers may GC before it reaches ret.
-    e->RootMintedNativeHandle(handle);
+    e->RootCreatedNativeHandle(handle);
     return handle;
 }
 
@@ -194,16 +194,16 @@ int32_t VmExecutor::NativeNewArrayShaped(NativeHost* self, uint8_t elemKind,
                                          int32_t rank, const int32_t* dims) {
     VmExecutor* e = Wrap(self)->executor;
     GilEnsureGuard gil(*e);
-    //Native-minter gate (GIL first; contract in VmExecutor.h).
-    NativeMintGate mintGate(*e);
-    //Same six mintable kinds as newArray (rationale there).
+    //Native-creator gate (GIL first; contract in VmExecutor.h).
+    NativeCreationGate creationGate(*e);
+    //Same six creatable kinds as newArray (rationale there).
     if (elemKind != NEK_Int32 && elemKind != NEK_Int64
         && elemKind != NEK_Float32 && elemKind != NEK_Float64
         && elemKind != NEK_Byte && elemKind != NEK_UByte) {
         e->RaiseNlangExceptionBase(
-            "newArrayShaped: element kind is not a mintable scalar");
+            "newArrayShaped: element kind is not a creatable scalar");
     }
-    //The language cap is the ABI contract: a mint above kMaxArrayRank
+    //The language cap is the ABI contract: a creation above kMaxArrayRank
     //could never be addressed from NLang code.
     if (rank < 1 || rank > kMaxArrayRank) {
         e->RaiseNlangExceptionBase("newArrayShaped: rank out of range");
@@ -215,13 +215,13 @@ int32_t VmExecutor::NativeNewArrayShaped(NativeHost* self, uint8_t elemKind,
     const int32_t handle = e->AllocArrayOnHeap(arrayTypeIdx,
         static_cast<uint8_t>(rank), dims);
     //Root across the blocking section (same discipline as newArray).
-    e->RootMintedNativeHandle(handle);
+    e->RootCreatedNativeHandle(handle);
     return handle;
 }
 
 //ABI v10 owner resolution for NativeNewArrayView (declaration in
 //VmExecutor.h): depth-one peel to the owning record (the view-record
-//invariant), then the owner's element kind picks the minted rank's type
+//invariant), then the owner's element kind picks the created rank's type
 //row. Raises for a non-array owner and a non-scalar element kind; a
 //corrupt view record is a VM invariant break (runtime_error).
 uint16_t VmExecutor::ResolveViewOwnerType(VmExecutor* e, int32_t targetHandle,
@@ -250,7 +250,7 @@ uint16_t VmExecutor::ResolveViewOwnerType(VmExecutor* e, int32_t targetHandle,
     const uint8_t elemKind =
         e->m_currModule->arrayTypes[static_cast<size_t>(ownerTypeIdx)]
             .elemKind;
-    //The scalar-array type rows exist for the four mintable kinds; a
+    //The scalar-array type rows exist for the four creatable kinds; a
     //target of any other kind could never be addressed from NLang code.
     if (elemKind != NEK_Int32 && elemKind != NEK_Int64
         && elemKind != NEK_Float32 && elemKind != NEK_Float64) {
@@ -260,7 +260,7 @@ uint16_t VmExecutor::ResolveViewOwnerType(VmExecutor* e, int32_t targetHandle,
     return e->FindScalarArrayTypeIdx(elemKind, rank);
 }
 
-//ABI v10 (contract in NativeHost.h): mint a view over an existing
+//ABI v10 (contract in NativeHost.h): create a view over an existing
 //handle. The element kind comes from the TARGET (a view's type row must
 //match its owner's), so the arrayTypes row derives after resolving the
 //target family; every further check (rank, dims, type identity,
@@ -271,8 +271,8 @@ int32_t VmExecutor::NativeNewArrayView(NativeHost* self,
     const int32_t* strides, int64_t offset) {
     VmExecutor* e = Wrap(self)->executor;
     GilEnsureGuard gil(*e);
-    //Native-minter gate (GIL first; contract in VmExecutor.h).
-    NativeMintGate mintGate(*e);
+    //Native-creator gate (GIL first; contract in VmExecutor.h).
+    NativeCreationGate creationGate(*e);
     if (rank < 1 || rank > kMaxArrayRank)
         e->RaiseNlangExceptionBase("newArrayView: rank out of range");
     //The view record stores offset in an int32 cell (element units);
@@ -290,7 +290,7 @@ int32_t VmExecutor::NativeNewArrayView(NativeHost* self,
         static_cast<uint8_t>(rank), dims, strides,
         static_cast<int32_t>(offset), targetHandle);
     //Root across the blocking section (same discipline as newArray).
-    e->RootMintedNativeHandle(handle);
+    e->RootCreatedNativeHandle(handle);
     return handle;
 }
 
@@ -302,7 +302,7 @@ uint16_t VmExecutor::FindScalarArrayTypeIdx(uint8_t elemRtk,
 //General row lookup by (elemKind, elemTypeIdx, rank) — the scalar
 //finder is the elemTypeIdx==0xFFFF case, struct/string rows carry
 //their element type index. A miss means the shape was never declared
-//in this module (an invariant break for native minting; for readArray
+//in this module (an invariant break for native creation; for readArray
 //a stream naming a shape the reader never declared).
 uint16_t VmExecutor::FindArrayTypeDef(uint8_t elemRtk, uint16_t elemTypeIdx,
                                       uint8_t rank) const {
@@ -313,7 +313,7 @@ uint16_t VmExecutor::FindArrayTypeDef(uint8_t elemRtk, uint16_t elemTypeIdx,
     const auto& table = m_currModule->arrayTypes;
     for (size_t i = 0; i < table.size(); ++i) {
         //Rank filter: without it int[] and int[,] would collapse onto
-        //one entry — native minting picks the entry matching its rank.
+        //one entry — native creation picks the entry matching its rank.
         if (table[i].elemKind == elemRtk
             && table[i].elemTypeIdx == elemTypeIdx
             && table[i].rank == rank) {

@@ -215,7 +215,7 @@ bool VmExecutor::ExecuteIntrinsicFileStream(uint16_t intrinsicId,
             st->fs->read(&s[0], len);
             if (st->fs->gcount() < len)
                 throw std::runtime_error("NLang VM: ReadString bytes past end of stream");
-            int32_t strHandle = MintNewString(std::move(s));
+            int32_t strHandle = CreateNewString(std::move(s));
             std::memcpy(pResult, &strHandle, sizeof(strHandle));
             break;
         }
@@ -364,7 +364,7 @@ bool VmExecutor::ExecuteIntrinsicFileStream(uint16_t intrinsicId,
                 sizeof(typeNameIdx));
             const std::string& declaredName = StrVal(typeNameIdx);
             //Write/read same-source: the literal carries the table key
-            //(resolver D10 rewrite); no bare-name fallback here.
+            //(resolver D10 rewrite); no unqualified-name fallback here.
             int declaredIdx = m_currModule->FindClass(declaredName);
             if (declaredIdx < 0)
                 throw std::runtime_error(

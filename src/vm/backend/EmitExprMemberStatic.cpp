@@ -33,7 +33,7 @@ bool VmBackend::EmitMemberStaticCall(SnMemberExpr& member,
         return false;
     auto& generics = m_pRegistry->DeclaredGenerics();
     //0.13.1a Task 2: an inferred template-row static — the resolver
-    //bound the clone member of a minted instantiation (the registry's
+    //bound the clone member of a created instantiation (the registry's
     //fill-time clone maps hold the pair). OP_CallMethodDirect (the
     //ordinary arm below) has no descriptor operand, so the switch is
     //mandatory, not stylistic.
@@ -63,7 +63,7 @@ bool VmBackend::EmitMemberStaticCall(SnMemberExpr& member,
 //gates the RECORD OWNER's initializer — the template row owns the
 //compiled records; a clone carries no Parent() of its own. The frame
 //descriptor cell rides OP_CallStatic's operand: the instantiation's
-//descriptor row, a recipe row when a caller type parameter rides an
+//descriptor row, a composition record row when a caller type parameter rides an
 //argument (kInstDescNone for a clone the registry never paired —
 //defensive; the resolver's arm always pairs).
 void VmBackend::EmitInferredTemplateRowStaticCall(SnInvokeExpr& invoke,
@@ -174,9 +174,9 @@ bool VmBackend::EmitMemberStaticFieldRead(SnMemberExpr& member,
         //miss BY CONSTRUCTION (the row lives in the producer's image)
         //and carries the rider instead; a same-build foreign unit (an
         //inlined library source) carries no wire rider but the shadow
-        //archive replays exactly what the producer minted (0xFFFF =
+        //archive replays exactly what the producer created (0xFFFF =
         //the producer folded it too). Runtime channel = any of the
-        //three; it proceeds to gate+load and mints its placeholder
+        //three; it proceeds to gate+load and creates its placeholder
         //slot below.
         auto* pConstField = static_cast<SnClassField*>(field);
         const bool ownSlot = m_staticSlotByField.find(pConstField)

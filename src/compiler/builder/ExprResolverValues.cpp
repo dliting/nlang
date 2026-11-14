@@ -415,7 +415,7 @@ void ExprResolveAccessor::Access(SnThisExpr &sn)
 }
 
 //v0.13.1 D4, 0.13.1a: typeName(Type). The operand resolves through the
-//ordinary type path; a concrete type folds to its canonical spelling (a
+//ordinary type path; a concrete type folds to its canonical name (a
 //constant string), while a type-parameter operand — bare or nested in
 //an instantiation — reads the executing frame's descriptor cell at run
 //time (instance frames carry the receiver's head descriptor; static and
@@ -443,11 +443,11 @@ void ExprResolveAccessor::Access(SnTypeNameExpr &sn)
 			sn.SetTypeParamOrdinal(
 				static_cast<uint8_t>(TypeParamOrdinalOf(arg)));
 		//Type-parameter-argument instantiations keep the resolved decl
-		//for the emission-side recipe registration.
+		//for the emission-side composition-record registration.
 	}
 	else
 	{
-		//Concrete: fold to the canonical spelling — a compile-time
+		//Concrete: fold to the canonical name — a compile-time
 		//constant string.
 		sn.SetFoldedSpelling(CanonicalArgSpelling(arg));
 	}

@@ -284,7 +284,7 @@ static void TestOpenFileEncodings() {
 // --- 0.13.1a Task 3: expression-position spelling probe ---
 //The '<' after a declared generic name arrives as OT_TypeLt only when a
 //balanced <...> follows and the terminator is '.' or '(' — exactly the
-//two shapes the grammar mints (static member call, constructor call).
+//two shapes the grammar creates (static member call, constructor call).
 //Comparison shapes keep the plain '<' (the C# "grammar ambiguities"
 //resolution; see ScriptScanner::ProbeTypeArgumentOpener).
 static void TestReceiverSpellingProbe() {

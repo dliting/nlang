@@ -84,8 +84,8 @@ native long[] arangeL(long start, long stop, long step);
 native float[] arangeF(float start, float stop, float step);
 native double[] arangeD(double start, double stop, double step);
 
-// Internal ABI-v10 exercise pair (native host ABI v10: view minting
-// and stride-aware views). strideViewI mints a rank-1 view of target
+// Internal ABI-v10 exercise pair (native host ABI v10: view creation
+// and stride-aware views). strideViewI creates a rank-1 view of target
 // (len elements starting at offset, step stride — both in elements);
 // viewSumI sums any rank-1 int array or view through the pinned view
 // (the owning arm computes row-major strides, the view arm reads the

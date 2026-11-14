@@ -184,7 +184,7 @@ static void TestPackageComesFromFilePath() {
     // shell syntax): the package is the file's path stem. A legacy file
     // that still wraps declarations in a `namespace fake` block indexes
     // nothing from inside the braces (a braced top-level block is a
-    // scope the scanner skips) and the head name must not mint a second
+    // scope the scanner skips) and the head name must not create a second
     // package; top-level declarations index under the stem.
     fs::path tmp = nlang::test::ScratchDir("nlang_ls_pkgstem");
     fs::remove_all(tmp);

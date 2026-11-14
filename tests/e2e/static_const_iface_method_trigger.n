@@ -4,7 +4,7 @@
 interface Rules {
     static const int limit = compute();
     public static int check(int v) {
-        return v % Rules.limit;   //qualified — bare constant reads inside interface method bodies are a pinned reject (interface_constant_bare_name)
+        return v % Rules.limit;   //qualified — unqualified constant reads inside interface method bodies are a pinned reject (interface_constant_unqualified_name)
     }
 }
 class Probe {

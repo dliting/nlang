@@ -48,7 +48,7 @@ void VmBackend::EmitNewObject(SnClassDecl* pClassDecl,
     //Per-unit: own/builtin classes resolve through the table lookup;
     //a cross-unit class becomes an import placeholder slot (ClassSlotFor).
     //KeyOf keeps the erased builtin key ("List") for a generic
-    //instantiation and the bare name for ownerless builtins, so the
+    //instantiation and the unqualified name for ownerless builtins, so the
     //own branch of the slot helper covers every ownerless shape.
     const uint16_t classIdx =
         static_cast<uint16_t>(ClassSlotFor(*pClassDecl));

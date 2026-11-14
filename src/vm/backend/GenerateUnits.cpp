@@ -119,7 +119,7 @@ void VmBackend::EmitNativeFunctionRecord(SnFunction& func,
 //GenerateFunction's abstract arm (0.13.1c): the same FuncContext dance —
 //AllocLocal needs a live context — but no intrinsic stamp (abstract has
 //no intrinsic channel; the resolve-time contracts reject anything else
-//body-less, and the grammar exempts native spellings from minting).
+//body-less, and the grammar exempts native spellings from creating).
 void VmBackend::EmitAbstractFunctionRecord(SnFunction& func,
                                            CompiledFunction& compiledFunc) {
     FuncContext ctx;
@@ -228,7 +228,7 @@ VmBackend::UnitBuildResult VmBackend::GenerateUnits(
     //sees its own candidates). Either refusal logs and fails the build.
     if (RejectAmbiguousUnitEntries(root) || RejectMultiSegmentNatives(root))
         return {};
-    //Whole-tree, once: which prelude bare names a foreign declaration
+    //Whole-tree, once: which prelude unqualified names a foreign declaration
     //claims (spec §6.8) — the registration walks below consult the set.
     //Merged-tree ordering: this must precede ShadowRegisterUnits — the
     //shadow replays the registration sequence to archive producer
@@ -248,7 +248,7 @@ VmBackend::UnitBuildResult VmBackend::GenerateUnits(
         BeginUnit(unitIdx, m_pRegistry->ModulePathOf(unitIdx));
         RegisterUnitTables(root);
         //0.9.10 D5 / 0.10.14: the interface and enum-method tables index
-        //the function records RegisterUnitTables minted and precede
+        //the function records RegisterUnitTables created and precede
         //bytecode generation (body emission can append placeholder
         //records whose indices must stay out of the own region).
         GenerateAllBytecode(root);

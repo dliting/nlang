@@ -14,7 +14,7 @@ int main() {
     if (my.foo.bar.x(0) != 10) return 1;
     if (foo.bar.x() != 2) return 2;
     // Explicit import → bare use (the unified model's fourth clause);
-    // the wildcard admits no bare name, so bare x() is unambiguous.
+    // the wildcard admits no unqualified name, so bare x() is unambiguous.
     if (x() != 2) return 3;
     // Different-shape providers merge into one overload pool.
     if (x(5) != 15) return 4;

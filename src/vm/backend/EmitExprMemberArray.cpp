@@ -90,7 +90,7 @@ bool VmBackend::EmitMemberArrayRankMethod(SnMemberExpr& member,
     return true;
 }
 
-//Stage-2: arr.shape() — mints int[rank] with the dims (OP_ArrayShape).
+//Stage-2: arr.shape() — creates int[rank] with the dims (OP_ArrayShape).
 bool VmBackend::EmitMemberArrayShapeMethod(SnMemberExpr& member,
                                            BytecodeEmitter& emitter,
                                            uint16_t resultOffset) {
@@ -101,7 +101,7 @@ bool VmBackend::EmitMemberArrayShapeMethod(SnMemberExpr& member,
             == static_cast<SnInvokeExpr*>(inner)->Params().end()
         && member.Outer()->IsArrayValued()))
         return false;
-    //The runtime mint looks up int[] in the module's arrayTypes table:
+    //The runtime create looks up int[] in the module's arrayTypes table:
     //register it here (the lazy codegen-time registration every other
     //expression-side array follows — EmitExprNew, init lists), since a
     //declaration elsewhere must not be required to carry it.
@@ -121,7 +121,7 @@ bool VmBackend::EmitMemberArrayShapeMethod(SnMemberExpr& member,
 //is rootless, no class record dispatch) and staged exactly like the
 //string protocol calls: receiver to resultOffset first, then the
 //{this, args...} claim, bulk copy to callParamBase, intrinsic, assign
-//back (the round-10 receiver-first recipe).
+//back (the round-10 receiver-first order).
 bool VmBackend::EmitMemberArrayProtocolMethod(SnMemberExpr& member,
                                               BytecodeEmitter& emitter,
                                               uint16_t resultOffset) {

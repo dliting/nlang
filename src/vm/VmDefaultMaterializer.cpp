@@ -1,5 +1,5 @@
 /*---
-    VmDefaultMaterializer.cpp — DefaultValueDesc 折叠值的唯一落槽位点：
+    VmDefaultMaterializer.cpp — DefaultValueDesc 折叠值的唯一落槽位置：
     宿主桥缺省实参填充（VmExecutorHostBridge.cpp::FillOneDefault）与
     struct 字段默认值的分配期物化（VmExecutorAlloc.cpp::AllocStructOnHeap）
     共用（0.9.11 T4，D4）。
@@ -51,14 +51,14 @@ bool VmExecutor::MaterializeDefaultValue(const DefaultValueDesc& d,
         return true;
     }
     case RTK_String: {
-        //Post-link the index is remapped into this module's table; mint a
+        //Post-link the index is remapped into this module's table; create a
         //runtime string so the value behaves like any other (AllocStringObj
         //raises the GC-pending flag).
         if (d.stringIdx >= m_currModule->stringConstants.size())
             throw std::runtime_error(
                 "NLang VM: default string index out of range");
         const int32_t handle =
-            MintNewString(m_currModule->stringConstants[d.stringIdx]);
+            CreateNewString(m_currModule->stringConstants[d.stringIdx]);
         std::memcpy(cell, &handle, sizeof(handle));
         return true;
     }

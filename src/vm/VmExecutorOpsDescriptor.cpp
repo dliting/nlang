@@ -1,9 +1,9 @@
 /*---
-    VmExecutorOpsDescriptor.cpp — v0.13.1 运行时实例化描述符配方合成
+    VmExecutorOpsDescriptor.cpp — v0.13.1 运行时实例化描述符拼接记录合成
     与typeName操作码（编码契约见CompiledModule.h DescriptorEntry；
-    载体与OpNew的写入位在VmExecutorOpsObjects.cpp）。
+    存放位置与OpNew的写入位在VmExecutorOpsObjects.cpp）。
     K8: the arms run lock-free — descriptor reads are benign heap reads
-    and MintNewString takes the intern table's domain lock internally.
+    and CreateNewString takes the intern table's domain lock internally.
 ---*/
 #include "VmExecutor.h"
 #include <nlang/runtime/PrimitiveTypes.h>
@@ -15,64 +15,64 @@ namespace nlang {
 
 namespace
 {
-//Little-endian u16 read at pos, advancing it (recipe wire order).
-uint16_t RecipeU16(const std::vector<uint8_t>& recipe, size_t& pos)
+//Little-endian u16 read at pos, advancing it (composition record's wire order).
+uint16_t CompositionU16(const std::vector<uint8_t>& composition, size_t& pos)
 {
-    if (pos + 2 > recipe.size())
-        throw std::runtime_error("NLang VM: truncated descriptor recipe");
-    const uint16_t v = static_cast<uint16_t>(recipe[pos])
-        | (static_cast<uint16_t>(recipe[pos + 1]) << 8);
+    if (pos + 2 > composition.size())
+        throw std::runtime_error("NLang VM: truncated composition record");
+    const uint16_t v = static_cast<uint16_t>(composition[pos])
+        | (static_cast<uint16_t>(composition[pos + 1]) << 8);
     pos += 2;
     return v;
 }
 } //namespace
 
 //v0.13.1 D3, 0.13.1a: compose this execution's descriptor from a
-//recipe row — ARG_CONTEXT reads the executing frame's descriptor cell
+//composition record row — ARG_CONTEXT reads the executing frame's descriptor cell
 //(instance frames carry the receiver's head descriptor; static/free
 //frames carry the call-site's). OP_New rows are TEMPLATE_HEAD-led
-//instantiation recipes; the composed canonical spelling round-trips
+//instantiation compositions; the composed canonical name round-trips
 //through the parser, so structure and leaf kinds resolve in one place;
 //the intern pool folds repeated compositions into one descriptor.
 GenericInstDescriptor* VmExecutor::ComposeInstDescriptor(
-    const std::vector<uint8_t>& recipe) {
+    const std::vector<uint8_t>& composition) {
     size_t pos = 0;
     const std::string spelling =
-        ComposeRecipeSpelling(recipe, pos, recipe.size());
+        ComposeRecordSpelling(composition, pos, composition.size());
     return InternDescriptorFromSpelling(spelling, *m_currModule);
 }
 
-//v0.13.1: one whole recipe row's spelling, no interning — typeName
+//v0.13.1: one whole composition record row's spelling, no interning — typeName
 //renders the string; only object stamping (OP_New) needs a descriptor.
 //Rows are self-describing by leading tag: 0 walks the TEMPLATE_HEAD
 //instantiation form, anything else is a single argument encoding
 //(typeName of T[] rides ARG_ARRAY).
-std::string VmExecutor::ComposeRecipeRowSpelling(
-    const std::vector<uint8_t>& recipe) {
+std::string VmExecutor::ComposeRecordRowSpelling(
+    const std::vector<uint8_t>& composition) {
     size_t pos = 0;
-    if (!recipe.empty() && recipe[0] == 0)
-        return ComposeRecipeSpelling(recipe, pos, recipe.size());
-    return ComposeArgSpelling(recipe, pos);
+    if (!composition.empty() && composition[0] == 0)
+        return ComposeRecordSpelling(composition, pos, composition.size());
+    return ComposeArgSpelling(composition, pos);
 }
 
-//One argument encoding's canonical spelling (see DescriptorEntry).
+//One argument encoding's canonical name (see DescriptorEntry).
 std::string VmExecutor::ComposeArgSpelling(
-    const std::vector<uint8_t>& recipe, size_t& pos)
+    const std::vector<uint8_t>& composition, size_t& pos)
 {
-    if (pos >= recipe.size())
-        throw std::runtime_error("NLang VM: truncated descriptor recipe");
-    const uint8_t tag = recipe[pos++];
+    if (pos >= composition.size())
+        throw std::runtime_error("NLang VM: truncated composition record");
+    const uint8_t tag = composition[pos++];
     if (tag == 1) {  //ARG_CONST: the complete leaf form
-        const uint16_t len = RecipeU16(recipe, pos);
-        if (pos + len > recipe.size())
-            throw std::runtime_error("NLang VM: truncated descriptor recipe");
-        std::string s(recipe.begin() + static_cast<long>(pos),
-                      recipe.begin() + static_cast<long>(pos + len));
+        const uint16_t len = CompositionU16(composition, pos);
+        if (pos + len > composition.size())
+            throw std::runtime_error("NLang VM: truncated composition record");
+        std::string s(composition.begin() + static_cast<long>(pos),
+                      composition.begin() + static_cast<long>(pos + len));
         pos += len;
         return s;
     }
     if (tag == 2) {  //ARG_CONTEXT: the frame context's argument
-        const uint8_t paramIdx = recipe[pos++];
+        const uint8_t paramIdx = composition[pos++];
         const GenericInstDescriptor* ctx = ContextInstDescOf();
         if (!ctx || paramIdx >= ctx->TypeArgs().size())
             throw std::runtime_error(
@@ -80,42 +80,42 @@ std::string VmExecutor::ComposeArgSpelling(
         return CanonicalArgSpelling(ctx->TypeArgs()[paramIdx]);
     }
     if (tag == 3) {  //ARG_ARRAY: element spelling + the bracket run
-        const uint8_t rank = recipe[pos++];
-        std::string s = ComposeArgSpelling(recipe, pos);
+        const uint8_t rank = composition[pos++];
+        std::string s = ComposeArgSpelling(composition, pos);
         s += "[";
         for (uint8_t i = 1; i < rank; ++i) s += ",";
         s += "]";
         return s;
     }
-    if (tag == 4) {  //ARG_NESTED: a complete child recipe range
-        const uint16_t len = RecipeU16(recipe, pos);
+    if (tag == 4) {  //ARG_NESTED: a complete child composition record range
+        const uint16_t len = CompositionU16(composition, pos);
         const size_t childEnd = pos + len;
-        if (childEnd > recipe.size())
-            throw std::runtime_error("NLang VM: truncated descriptor recipe");
-        return ComposeRecipeSpelling(recipe, pos, childEnd);
+        if (childEnd > composition.size())
+            throw std::runtime_error("NLang VM: truncated composition record");
+        return ComposeRecordSpelling(composition, pos, childEnd);
     }
-    throw std::runtime_error("NLang VM: unknown descriptor recipe tag");
+    throw std::runtime_error("NLang VM: unknown composition record tag");
 }
 
-//One recipe range's canonical spelling: TEMPLATE_HEAD, then argument
+//One composition range's canonical name: TEMPLATE_HEAD, then argument
 //encodings until end.
-std::string VmExecutor::ComposeRecipeSpelling(
-    const std::vector<uint8_t>& recipe, size_t& pos, size_t end)
+std::string VmExecutor::ComposeRecordSpelling(
+    const std::vector<uint8_t>& composition, size_t& pos, size_t end)
 {
-    if (pos >= end || recipe[pos] != 0)
-        throw std::runtime_error("NLang VM: malformed descriptor recipe");
+    if (pos >= end || composition[pos] != 0)
+        throw std::runtime_error("NLang VM: malformed composition record");
     ++pos;
-    const uint16_t nameLen = RecipeU16(recipe, pos);
+    const uint16_t nameLen = CompositionU16(composition, pos);
     if (pos + nameLen > end)
-        throw std::runtime_error("NLang VM: truncated descriptor recipe");
-    std::string spelling(recipe.begin() + static_cast<long>(pos),
-                         recipe.begin() + static_cast<long>(pos + nameLen));
+        throw std::runtime_error("NLang VM: truncated composition record");
+    std::string spelling(composition.begin() + static_cast<long>(pos),
+                         composition.begin() + static_cast<long>(pos + nameLen));
     pos += nameLen;
     spelling += "<";
     bool first = true;
     while (pos < end) {
         if (!first) spelling += ",";
-        spelling += ComposeArgSpelling(recipe, pos);
+        spelling += ComposeArgSpelling(composition, pos);
         first = false;
     }
     spelling += ">";
@@ -123,29 +123,29 @@ std::string VmExecutor::ComposeRecipeSpelling(
 }
 
 //v0.13.1, 0.13.1a: typeName(T) — read the executing frame's context
-//descriptor and take the ordinal-th type argument's canonical spelling.
+//descriptor and take the ordinal-th type argument's canonical name.
 //A missing descriptor is a corrupt image (the resolver rejects T reads
 //outside generic records), not a user error.
 void VmExecutor::OpTypeNameArg(BytecodeReader& reader, uint8_t* locals) {
     uint16_t dst = reader.ReadUint16();
     uint8_t ordinal = reader.ReadByte();
     const TypeArgDesc& arg = ContextTypeArgOf(ordinal);
-    const int32_t handle = MintNewString(CanonicalArgSpelling(arg));
+    const int32_t handle = CreateNewString(CanonicalArgSpelling(arg));
     std::memcpy(locals + dst, &handle, sizeof(handle));
 }
 
-//v0.13.1: typeName(Hold<T>) / typeName(T[]) — compose the recipe row's
+//v0.13.1: typeName(Hold<T>) / typeName(T[]) — compose the composition record row's
 //spelling against the receiver's instantiation (ARG_THIS steps read
-//this) and mint the canonical string. No descriptor is interned: only
+//this) and create the canonical string. No descriptor is interned: only
 //object stamping (OP_New) needs one.
 void VmExecutor::OpTypeNameCompose(BytecodeReader& reader, uint8_t* locals) {
     uint16_t dst = reader.ReadUint16();
-    uint16_t recipeIdx = reader.ReadUint16();
-    if (recipeIdx >= m_currModule->descriptorTable.size())
+    uint16_t compositionIdx = reader.ReadUint16();
+    if (compositionIdx >= m_currModule->descriptorTable.size())
         throw std::runtime_error(
             "NLang VM: invalid descriptor index in typeName");
-    const int32_t handle = MintNewString(ComposeRecipeRowSpelling(
-        m_currModule->descriptorTable[recipeIdx].recipe));
+    const int32_t handle = CreateNewString(ComposeRecordRowSpelling(
+        m_currModule->descriptorTable[compositionIdx].composition));
     std::memcpy(locals + dst, &handle, sizeof(handle));
 }
 
@@ -291,13 +291,13 @@ void VmExecutor::OpTypeArgToStr(BytecodeReader& reader,
     if (int row = ScalarPrimIndexOfRtk(arg.resolvedKind); row >= 0) {
         std::string s = RnBuiltinDataType::InstanceOf(
             kScalarPrims[row].kind)->ValueToString(pResult);
-        const int32_t handle = MintNewString(std::move(s));
+        const int32_t handle = CreateNewString(std::move(s));
         std::memcpy(pResult, &handle, sizeof(handle));
         return;
     }
     int32_t heapIdx;
     std::memcpy(&heapIdx, pResult, sizeof(heapIdx));
-    const int32_t handle = MintNewString(FormatHeapValue(heapIdx, 0));
+    const int32_t handle = CreateNewString(FormatHeapValue(heapIdx, 0));
     std::memcpy(pResult, &handle, sizeof(handle));
 }
 
@@ -374,7 +374,7 @@ std::string VmExecutor::AsOperandSpellingOf(int32_t heapIdx) {
 }
 
 //v0.13.1 D6: the as-T failure — a catchable InvalidCastException whose
-//message names the target's canonical spelling and the operand's.
+//message names the target's canonical name and the operand's.
 void VmExecutor::RaiseAsTypeParamMismatch(const TypeArgDesc& arg,
                                           int32_t heapIdx) {
     RaiseNlangException(m_invalidCastExcClassIdx,

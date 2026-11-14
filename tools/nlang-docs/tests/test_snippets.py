@@ -321,7 +321,7 @@ def test_audit_error_example_multi_file_uses_sealed_ncu_path(tmp_path):
     #The cross-module default-expression subset restriction only fires
     #across sealed .ncu boundaries; a .nproj build inlines the sources
     #and would compile this example cleanly, so the audit must use the
-    #sealed sequential recipe (the F-001 shape from the manual).
+    #sealed sequential example (the F-001 shape from the manual).
     doc = tmp_path / "page.md"
     doc.write_text(ERROR_MULTI_DOC, encoding="utf-8")
     problems, _, _, errors = audit_doc(doc, NCC, NVM, tmp_path / "w")

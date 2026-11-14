@@ -172,7 +172,7 @@ int NetConnectResult(int fd, int* soError) {
         *soError = 0;
     //Zero-timeout completion probe (see net_platform.h): a pending
     //connect also reports SO_ERROR == 0, so a stale park wake must not
-    //mint a half-open stream — only a finished connect is writable.
+    //create a half-open stream — only a finished connect is writable.
     //Windows reports the two outcomes on different sets: success on
     //writables, failure on exceptfds (the canonical non-blocking
     //connect idiom). Watching writables alone made a refused connect

@@ -75,7 +75,7 @@ bool ExprResolveAccessor::TryResolveStringBuiltinMethod(
 		return false;
 	auto& invoke = static_cast<SnInvokeExpr&>(*pInnerExpr);
 	const auto& name = invoke.CalleeName();
-	//Anchor is prelude IDENTITY, never the bare name: a user shadow of
+	//Anchor is prelude IDENTITY, never the unqualified name: a user shadow of
 	//String never hijacks keyword-typed receivers.
 	SnClassDecl* pFace = FindPreludeClassDecl(m_Env.Registry(), "String");
 	if (!pFace)
@@ -103,7 +103,7 @@ bool ExprResolveAccessor::TryResolveStringBuiltinMethod(
 		m_pContext = pSavedContext;
 		return true;
 	}
-	//Args resolve in the caller's scope (the equals recipe: restore the
+	//Args resolve in the caller's scope (the equality path: restore the
 	//context and drop the parent-only search first, or the argument
 	//stays unresolved and codegen silently compares stale memory).
 	m_pContext = pSavedContext;
@@ -306,7 +306,7 @@ bool ExprResolveAccessor::TryResolveArrayBuiltinInvoke(
 		return true;
 	}
 	//Args resolve in the caller's scope (the String face's equals
-	//recipe: restore the context and drop the parent-only search
+	//composition: restore the context and drop the parent-only search
 	//first, or the argument stays unresolved and codegen silently
 	//reads stale memory — v0.12.7 gave the face its first method
 	//with a formal, equals(Object)).

@@ -216,7 +216,7 @@ void ReadClassRecords(std::istream& fs, CompiledModule& mod)
         //v0.13.1 (D7): the template marker + declared type-parameter
         //names (see the saver). The consumer stub rebuilds a generic
         //declaration from this tail; a wild flag or count is a corrupt
-        //image — the stub would otherwise mint a template with a
+        //image — the stub would otherwise create a template with a
         //truncated parameter surface.
         uint8_t templateFlag = 0;
         fs.read(reinterpret_cast<char*>(&templateFlag),
