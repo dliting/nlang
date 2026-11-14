@@ -10,10 +10,12 @@
     native descriptor all reused), so the emitted bytecode is
     indistinguishable from a hand-written tensor.add(a, b).
 
-    Design appendix: docs/superpowers/specs/2026-11-12-m5-array-
-    operator-lowering-design.md (three adversarial review rounds; the
-    emitter-side lowering replaced mid-traversal node surgery after
-    review rounds surfaced its UAF/holder-coverage costs).
+    Design note: the emitter-side lowering replaced mid-traversal node
+    surgery — the earlier plan swapped nodes while the resolver walked
+    the tree, whose ownership and holder-coverage costs adversarial
+    review surfaced (three rounds). The failure paths unwind through
+    UnwindTensorCallPlan so a failed match/resolve leaves the operands
+    owned by the binary, exactly the shape it never would have left.
 
     The call requires `import tensor` like every other tensor.* call:
     the import drives library-unit discovery (an unimported unit is
@@ -39,16 +41,8 @@ namespace nlang
 
 namespace
 {
-//The element row of an array-typed field (either spelling), or null.
-SnField *ArrayElementRowOf(const SnField *pType)
-{
-	if (!pType)
-		return nullptr;
-	if (pType->Kind() == NK_ArrayTypeToken)
-		return static_cast<SnArrayTypeToken *>(
-			const_cast<SnField *>(pType))->ElemTypeOf();
-	return ArrayInstantiationElem(const_cast<SnField *>(pType));
-}
+//ArrayElementRowOf — the shared element-row derivation (both spellings)
+//lives in SnArrayTypeToken.cpp next to ArrayInstantiationElem.
 
 bool IsArrayRow(const SnField *pType)
 {
@@ -113,6 +107,27 @@ const char *TensorFnFor(SnBinaryExpr::Operator op, bool scalarLeft)
 		default:
 			return nullptr;
 	}
+}
+
+//Match/resolve failure unwind: the plan adopted the binary's operands
+//(ownership moved at plan construction), so deleting the plan alone
+//would delete the operand nodes the binary's slots still point at.
+//Detach the params from the plan (erase releases without destroying),
+//then let the binary re-attach its slots in the original left-then-
+//right child order.
+static void UnwindTensorCallPlan(SnBinaryExpr &sn, SnInvokeExpr &plan,
+	bool unary)
+{
+	auto &params = plan.Params();
+	//The params are exactly the binary's operand slots (asserted: a
+	//replaced param here would mean the slots already dangle and no
+	//unwind can repair them).
+	NLANG_ASSERT(plan.Children().size() == (unary ? 1 : 2));
+	for (auto &param : params)
+		NLANG_ASSERT(&param == sn.Left() || &param == sn.Right());
+	while (!plan.Children().empty())
+		params.erase(params.begin());
+	sn.ReattachOperands();
 }
 
 } //namespace
@@ -295,6 +310,7 @@ SnInvokeExpr *ExprResolveAccessor::BuildTensorCallPlan(SnBinaryExpr &sn,
 		std::move(params), *sn.Location());
 	if (!ResolveExpressionList(pPlan->Params()))
 	{
+		UnwindTensorCallPlan(sn, *pPlan, unary);
 		delete pPlan;
 		return nullptr;
 	}
@@ -340,6 +356,7 @@ bool ExprResolveAccessor::BindTensorCall(SnBinaryExpr &sn,
 		m_Env.Log(CLL_Error, sn.Location(),
 			"operator '%s': no matching tensor primitive for the "
 			"operand kinds.", opName);
+		UnwindTensorCallPlan(sn, *pPlan, unary);
 		delete pPlan;
 		ConsumeInvalidTensorShape(sn);
 		return true;

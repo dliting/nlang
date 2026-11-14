@@ -101,17 +101,13 @@ void VmBackend::EmitBoxedOperand(SnExpression& operand, uint16_t slot,
 //call — the resolver's element-type gate stamps the property on every
 //shape). Mirrors the resolver's test in Access(SnSubscriptAssignStmt)
 //so struct deep-copy fires for every base shape, not just identifier
-//and member bases. 0.7.3 B token path: an array-valued base carries
-//the interned token; struct deep-copy detection keys on the ELEMENT.
+//and member bases. The deep-copy detection keys on the ELEMENT row,
+//either spelling of the base's array type (token or Array<E>) — a
+//token-only peel skipped deep-copy for the generic spelling.
 static SnField* ArrayElementStoreType(SnSubscriptAssignStmt& sub) {
-    SnField* elemType = nullptr;
-    if (sub.Array()->IsArrayValued()) {
-        elemType = sub.Array()->EvalDataType();
-        if (elemType && elemType->Kind() == NK_ArrayTypeToken)
-            elemType = static_cast<SnArrayTypeToken*>(
-                elemType)->ElemTypeOf();
-    }
-    return elemType;
+    if (!sub.Array()->IsArrayValued())
+        return nullptr;
+    return ArrayElementRowOf(sub.Array()->EvalDataType());
 }
 
 //Array element store (non-container bases): claims [array, index,

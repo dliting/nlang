@@ -424,6 +424,15 @@ bool SnClassDecl::IsAbstractClass() const
 	return !obligations.empty();
 }
 
+//v0.13.7: the row-level twin of SnExpression::IsArrayValued — an
+//Array<E> instantiation IS the array type (the generic spelling of
+//`T[]`); every other class row is not.
+bool SnClassDecl::IsArrayType() const
+{
+	return ArrayInstantiationElem(
+		const_cast<SnClassDecl *>(this)) != nullptr;
+}
+
 void SnClassDecl::Accept(ISyntaxNodeVisitor &v)
 {
 	v.Visit(*this);

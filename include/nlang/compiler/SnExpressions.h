@@ -35,6 +35,15 @@ namespace nlang
 //needs SnClassDecl's full definition.
 SnField *ArrayInstantiationElem(SnField *pType);
 
+//The element row of an array-typed row, either spelling of the one
+//array type: the interned token peels via ElemTypeOf(), the Array<E>
+//instantiation row via ArrayInstantiationElem(). Null when the row is
+//not array-typed. The shared derivation for every "admit through
+//IsArrayType(), then key on the element" site — a token-only hand
+//peel keyed loop-var slots and store gates on the class row instead.
+//Defined in SnArrayTypeToken.cpp next to ArrayInstantiationElem.
+SnField *ArrayElementRowOf(const SnField *pType);
+
 //v0.12.7: type identity across the two spellings of the single array
 //type — interned token and Array<E> instantiation, either side either
 //order, recursing on elements (Array<Array<int>> vs int[][] included).
@@ -741,6 +750,12 @@ public:
 		return m_CastKind;
 	}
 
+	//The dual-storage sync contract: m_pSource is a cached typed child
+	//(the only one — the target row is a non-child pointer), so a child
+	//splice must keep it in step. A tensor-lowered binary can sit here
+	//(an implicit-conversion cast wrapping array arithmetic).
+	bool ReplaceChildNode(SyntaxNode*, SyntaxNode*) override;
+
 	virtual bool IsDataExpr() const override;
 
 	void Accept(nlang::ISyntaxNodeVisitor &) override;
@@ -854,6 +869,13 @@ public:
 	{
 		m_pTensorCall = std::move(pPlan);
 	}
+	//v0.13.7 failure unwind: a plan whose resolution/match failed hands
+	//the operands back before it dies. Re-attach both slots to the child
+	//list in the original left-then-right order — the shape the node
+	//never would have left — so the slot pointers stay live for the
+	//diagnostic that names the expression. The public wrapper over the
+	//protected Node::AddChild, per the subclass-wrapper contract.
+	void ReattachOperands();
 
 	bool IsDataExpr() const override;
 	void Accept(nlang::ISyntaxNodeVisitor &) override;

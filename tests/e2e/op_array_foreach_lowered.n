@@ -1,0 +1,19 @@
+//M1 pin: foreach over a tensor-lowered binary. The lowered result row
+//is the Array<E> generic spelling (rank-generic tensor primitives
+//declare their returns that way), so the foreach iterable
+//classification must route it through the canonical IsArrayType()
+//predicate — token-kind equality tripped the family assert on Debug
+//and misrouted the array into the List path on Release.
+import tensor;
+import io;
+
+int main() {
+    float[] a = tensor.full(3, 1.0f);
+    float[] b = tensor.full(3, 2.0f);
+    float sum = 0.0f;
+    foreach (float v in a + b) {
+        sum += v;
+    }
+    io.print(sum);
+    return 0;
+}

@@ -21,6 +21,25 @@ static const char *const kMsgInitListNoTarget =
     "Collection initializer requires an explicit type or an LHS "
     "context to infer the target type.";
 
+//0.9.13 D-new-1 / 0.13.7: the stamped type row for an array init-list
+//target — the interned rank-1 token over the ELEMENT row. The token
+//spelling stamps as-is (a Stage-2 ND token IS the target). Every other
+//array-typed shape mints, and arrives in two forms: the Array<E>
+//instantiation row (mint from its ELEMENT row — minting from the class
+//row double-wrapped the token and the tensor dispatch raised
+//"unsupported element kind" at runtime) and an already-peeled ELEMENT
+//row (ResolveInferredTarget below peels the rank-1 token upstream for
+//call arguments), which mints as-is. Defined here beside the peel that
+//produces the second shape.
+SnField *MintInitListTypeRow(SnField *pTargetField,
+    BuildEnvironment &env)
+{
+    if (pTargetField->Kind() == NK_ArrayTypeToken)
+        return pTargetField;
+    SnField *pElemRow = ArrayElementRowOf(pTargetField);
+    return env.InternArrayTypeToken(pElemRow ? pElemRow : pTargetField);
+}
+
 //0.10.8 D2: element type of a bare `[...]` literal with neither an
 //explicit type nor an inferred target (method receivers, subscript
 //bases and other plain-expression positions). The entries resolve once

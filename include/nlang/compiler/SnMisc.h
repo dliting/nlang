@@ -424,6 +424,13 @@ public:
 	bool IsFuncType() const
 	{ return m_bIsGenericInst && m_baseName == kBuiltinFuncTypeName; }
 
+	//v0.13.7: the Array<E> instantiation row IS the array type (the
+	//generic spelling of `T[]` — rank-generic tensor primitives declare
+	//their returns this way), so the canonical array-ness predicate
+	//covers both spellings at the row level too, the twin of
+	//SnExpression::IsArrayValued. Every other class row stays false.
+	bool IsArrayType() const override;
+
 	//v0.12.3: true for the interned placeholder node a declared
 	//template's type parameter resolves to (minted by
 	//GenericInstanceRegistry::PlaceholderFor). On the node — not the

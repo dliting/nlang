@@ -1,0 +1,17 @@
+// M1 pin: an initlist as a CALL ARGUMENT whose parameter is the
+// rank-1 token spelling arrives at the initlist mint already peeled
+// to the element row (the inferred-target peel runs upstream), while
+// an Array<E>-declared target arrives as the class row. The mint must
+// peel only the class-row shape — minting from a non-array row
+// produced a null-element token that crashed ncc. Both shapes from
+// the manual's tensor snippets compile and run here.
+import tensor;
+
+int main() {
+    double[] logits = [2.0, 1.0, 0.1];
+    double[] shifted = tensor.sub(logits, [1.0, 1.0, 1.0]);
+    if (shifted.length() != 3) { return 1; }
+    float[,] m = tensor.full([2, 3], 0.5f);
+    if (m.length() != 6) { return 2; }
+    return 42;
+}

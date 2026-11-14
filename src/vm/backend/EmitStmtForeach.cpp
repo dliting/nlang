@@ -56,12 +56,11 @@ static bool DetectDeclaredArraySource(SnExpression* pIter,
     }
     if (!(pField && pField->IsArrayType()))
         return false;
-    elemType = pField->EvalDataType();
-    //0.7.3 B token path: an array-typed local carries the interned
-    //token; the loop-var slot kind keys on the ELEMENT.
-    if (elemType && elemType->Kind() == NK_ArrayTypeToken)
-        elemType = static_cast<SnArrayTypeToken*>(
-            elemType)->ElemTypeOf();
+    //The loop-var slot kind keys on the ELEMENT row, either spelling
+    //of the declared array (the interned token or the Array<E>
+    //instantiation row) — leaving the class row here keyed the slot
+    //RTK_Array and broke struct materialization (Phase 9d-3).
+    elemType = ArrayElementRowOf(pField->EvalDataType());
     return true;
 }
 
@@ -77,16 +76,16 @@ static ForeachIterableKind ClassifyForeachIterable(
     auto* pIterType = pIter->EvalDataType();
     //0.7.3 B D10 value-form arm: every array-valued source — get()
     //and subscript reads out of List<T[]>/Dict<K,V[]>, array-returning
-    //calls, bound method calls, new-array expressions — carries the
-    //interned array token in EvalDataType. The declaration-side arm
-    //above only recognizes identifier/member lvalue shapes; this arm
-    //routes the value forms (accepted since D10; the masquerade-era
-    //resolve-time rejection existed because the degraded
-    //EvalDataType carried no array identity for this dispatch).
-    if (pIterType && pIterType->Kind() == NK_ArrayTypeToken) {
+    //calls, bound method calls, new-array expressions — carries an
+    //array row in EvalDataType. The declaration-side arm above only
+    //recognizes identifier/member lvalue shapes; this arm routes the
+    //value forms through the canonical IsArrayType() predicate, which
+    //covers both spellings: the interned token AND the Array<E>
+    //instantiation row (the rank-generic tensor primitives declare
+    //their returns that way, so `foreach (v in a + b)` lands here).
+    if (pIterType && pIterType->IsArrayType()) {
         k.isArray = true;
-        k.elemType = static_cast<SnArrayTypeToken*>(
-            pIterType)->ElemTypeOf();
+        k.elemType = ArrayElementRowOf(pIterType);
         return k;
     }
     //0.7.5 char bridge: a string source iterates Unicode scalar values;

@@ -34,6 +34,21 @@ bool SnCastExpr::IsDataExpr() const
 	return true;
 }
 
+bool SnCastExpr::ReplaceChildNode(SyntaxNode *pOld, SyntaxNode *pNew)
+{
+	//The source slot — the only cached typed child (the target row is a
+	//non-child pointer). The dual-storage sync contract requires the
+	//override on every class caching a typed child pointer; a
+	//tensor-lowered binary can sit here (an implicit-conversion cast
+	//wrapping array arithmetic).
+	if (m_pSource == pOld)
+	{
+		ResetChild(m_pSource, static_cast<SnExpression *>(pNew));
+		return true;
+	}
+	return Super_::ReplaceChildNode(pOld, pNew);
+}
+
 void SnCastExpr::Accept(nlang::ISyntaxNodeVisitor &v)
 {
 	v.Visit(*this);

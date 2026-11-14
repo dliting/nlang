@@ -1,0 +1,36 @@
+// M1 pin: the DECLARATION-side foreach arm (identifier/member source
+// whose field is array-typed) must key the loop-var slot on the
+// ELEMENT row for both spellings of the array type. The Array<Point>
+// spelling left the class row as the element, keyed the slot
+// RTK_Array, and the loop var aliased the cell instead of
+// materializing (Phase 9d-3 value semantics).
+struct Point {
+    int x;
+    int y;
+}
+
+class Box {
+    public Array<Point> items;
+}
+
+int main() {
+    Box b = Box();
+    b.items = Point[2];
+    b.items[0].x = 7;
+    b.items[1].x = 8;
+    foreach (Point p in b.items) {
+        p.x = 99;
+    }
+    if (b.items[0].x != 7) { return 1; }
+    if (b.items[1].x != 8) { return 2; }
+
+    Array<Point> local = Point[2];
+    local[0].x = 5;
+    local[1].x = 6;
+    foreach (Point p in local) {
+        p.x = 99;
+    }
+    if (local[0].x != 5) { return 4; }
+    if (local[1].x != 6) { return 5; }
+    return 42;
+}

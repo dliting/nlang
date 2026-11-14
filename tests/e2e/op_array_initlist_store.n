@@ -1,0 +1,15 @@
+// M1 pin: the store-side element derivation covers the Array<E>
+// spelling, so a keyed struct initializer into a generic-spelled
+// base infers Point as the entry target (the token spelling's
+// pre-existing surface).
+struct Point {
+    int x;
+    int y;
+}
+
+int main() {
+    Array<Point> arr = Point[2];
+    arr[0] = [x: 7, y: 8];
+    if (arr[0].x != 7 || arr[0].y != 8) { return 1; }
+    return 42;
+}

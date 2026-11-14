@@ -426,12 +426,11 @@ bool ExprResolveAccessor::PrepareInitListShape(SnInitListExpr &sn,
             *static_cast<SnArrayTypeToken*>(pTargetField)))
         return true;
 
-    //0.9.13 D-new-1: array targets mint the interned array token.
-    //Stage-2 ND: the ND token IS the target - no rank-1 re-mint.
+    //0.9.13 D-new-1: array targets mint the interned array token over
+    //the element row (MintInitListTypeRow); non-array targets stamp
+    //as-is. The Stage-2 ND token IS the target - no rank-1 re-mint.
     sn.EvalDataType(bIsArray
-        ? (pTargetField->Kind() == NK_ArrayTypeToken
-            ? pTargetField
-            : m_Env.InternArrayTypeToken(pTargetField))
+        ? MintInitListTypeRow(pTargetField, m_Env)
         : pTargetField);
     sn.AddFlags(NF_Resolved);
 

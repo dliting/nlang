@@ -253,16 +253,13 @@ TypeDesc BuildTypeDesc(SnField* pType, const TypeLeafSlots& slots,
 	//Dispatch discipline (EvalDataType trap): array-ness first — an
 	//interned token reports IsArrayType() while Kind() is the token's
 	//own kind, so a Kind()-first switch would miss it (RuntimeTypeKind
-	//keeps the same order).
-	if (pType->IsArrayType())
+	//keeps the same order). v0.13.7: the class-row spelling of the same
+	//array type (Array<E>, the generic instantiation) is array-typed
+	//too, but it stays OUT of this arm — its designed route is the
+	//class-decl arm's erasure below (RTK_Array rank 0, unannotated);
+	//this arm writes the bracket spelling's static rank instead.
+	if (pType->IsArrayType() && pType->Kind() == NK_ArrayTypeToken)
 	{
-		if (pType->Kind() != NK_ArrayTypeToken)
-		{
-			//Not an interned token: an unresolved shape whose element is
-			//not recoverable — degrade the whole descriptor.
-			td.kind = RTK_NonSerialized;
-			return td;
-		}
 		//Writer side of kMaxTypeDescDepth: a container at the cap would
 		//nest its element one past it, and the loader would reject the
 		//module ncc just wrote — degrade instead (same rule at the

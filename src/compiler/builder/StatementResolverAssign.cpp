@@ -171,9 +171,11 @@ static SnField* SubscriptStoreElemType(SnExpression *pBase)
 	auto* pBaseType = pBase->EvalDataType();
 	if (!pBaseType)
 		return nullptr;
-	if (pBaseType->Kind() == NK_ArrayTypeToken)
-		return static_cast<SnArrayTypeToken*>(
-			pBaseType)->ElemTypeOf();
+	//Element row, either spelling of the base's array type (the
+	//interned token or the Array<E> instantiation) — the Array<E>
+	//arm feeds the bare-brace store's inferred target too.
+	if (SnField* pElemRow = ArrayElementRowOf(pBaseType))
+		return pElemRow;
 	if (pBaseType->Kind() == NK_ClassDecl)
 	{
 		auto* pGen = static_cast<SnClassDecl*>(pBaseType);

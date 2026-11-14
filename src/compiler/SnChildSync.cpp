@@ -1,19 +1,15 @@
 /*---
-    SnChildSync.cpp — v0.13.7: the ReplaceChildNode overrides for every
-    AST class that caches a typed expression pointer able to hold a
-    tensor-lowered binary (the dual-storage sync contract,
-    SyntaxNode.h:118-131 — "Node classes that cache a typed member
-    pointer to a child MUST override this"). The audit table behind
-    this file lives in the M5 design appendix
-    (docs/superpowers/specs/2026-11-12-m5-array-operator-lowering-
-    design.md §4.2); every row here pairs with a minimal e2e case in
-    tests/e2e/op_array_*.n. Classes whose existing overrides already
-    sync their slots (SnSubscriptExpr, SnSliceItemExpr, SnCastExpr,
-    SnNewArrayExpr, SnNewExpr, SnLocalDeclStmt, SnCatchClause, the type
-    slots) are deliberately absent. SnSuperCallStmt's args are
-    non-owning mirrors of the ctor declaration's children — a tensor
-    binary there is unreachable by construction and caught by the
-    TU-end sweep if that ever changes.
+    SnChildSync.cpp — v0.13.7: the ReplaceChildNode overrides for the
+    AST classes that cache a typed expression pointer able to hold a
+    tensor-lowered binary and had no override yet (the dual-storage
+    sync contract, SyntaxNode.h:118-131 — "Node classes that cache a
+    typed member pointer to a child MUST override this"). The holder
+    classes whose overrides already existed elsewhere (SnSubscriptExpr,
+    SnSliceItemExpr, SnCastExpr, SnNewArrayExpr, SnNewExpr,
+    SnLocalDeclStmt, SnCatchClause, the type slots) stay in their own
+    TUs. SnSuperCallStmt's args are non-owning mirrors of the ctor
+    declaration's children — a tensor binary there is unreachable by
+    construction and caught by the TU-end sweep if that ever changes.
 ---*/
 #include "SnExpressions.h"
 #include "SnStatements.h"
@@ -179,6 +175,19 @@ bool SnBinaryExpr::ReplaceChildNode(SyntaxNode *pOld, SyntaxNode *pNew)
 		return true;
 	}
 	return Super_::ReplaceChildNode(pOld, pNew);
+}
+
+void SnBinaryExpr::ReattachOperands()
+{
+	//Precondition: the post-adoption state — an empty child list and
+	//unattached operand slots (asserted; a still-attached operand here
+	//means the caller's unwind order is wrong).
+	NLANG_ASSERT(m_pLeft && !m_pLeft->Parent());
+	NLANG_ASSERT(!m_pRight || !m_pRight->Parent());
+	NLANG_ASSERT(Children().empty());
+	AddChild(m_pLeft);
+	if (m_pRight)
+		AddChild(m_pRight);
 }
 
 bool SnMemberExpr::ReplaceChildNode(SyntaxNode *pOld, SyntaxNode *pNew)

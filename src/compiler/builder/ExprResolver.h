@@ -224,6 +224,12 @@ SnInitListExpr *UntypedInitListOf(SnExpression &expr);
 //argument admission (ExprResolverBinding.cpp). Definition in
 //ExprResolverInitList.cpp.
 bool IsInitListTargetShape(SnField *pType);
+//The stamped type row for an array init-list target: the interned
+//rank-1 token over the ELEMENT row — the token spelling stamps as-is,
+//every other array-typed shape mints. Definition beside the upstream
+//peel that produces its input shapes, ExprResolverInitListTarget.cpp.
+SnField *MintInitListTypeRow(SnField *pTargetField,
+    BuildEnvironment &env);
 //0.10.10: the slot types init-list entries bind against — the array
 //element type / the List value slot / the Dict key+value slots. Both
 //null = the target types its entries per field (struct/class).
@@ -1040,10 +1046,11 @@ private:
 	bool ResolveArithmeticBinary(SnBinaryExpr &sn, SnBinaryExpr::Operator op);
 	//v0.13.7 array-operator lowering (ExprResolverArrayOps.cpp): phase 1
 	//classifies at resolution time (true = consumed — lowering shape or
-	//a lowering-specific diagnostic); phase 2 splices the tensor call
-	//through the parent's ReplaceChildNode protocol and resolves it.
-	//TryTensorBinaryAdmission owns the operator filter and the
-	//string/null pre-gates, so Access keeps its dispatch shape.
+	//a lowering-specific diagnostic) and binds the emission plan onto
+	//the binary in place; the emitter lowers flagged nodes through the
+	//standard invoke path. TryTensorBinaryAdmission owns the operator
+	//filter and the string/null pre-gates, so Access keeps its dispatch
+	//shape.
 	bool TryTensorBinaryAdmission(SnBinaryExpr &sn);
 	bool TryTensorBinaryShape(SnBinaryExpr &sn, SnBinaryExpr::Operator op);
 	//Lowering helpers, same TU: the shared consumed-with-diagnostic
