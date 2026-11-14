@@ -68,7 +68,7 @@ void ExprResolveAccessor::SearchFuncScope(SnFunctionParentField &parent,
 			continue;
 		if (form == InvokeReceiverForm::Bare && IsConstructorMember(*pFunc, parent))
 			continue;
-		if (!pFunc->AllowAccess(*m_pAccessor))
+		if (!AccessAdmitted(m_Env.Registry(), *pFunc, *m_pAccessor))
 			continue;
 		if (bBarePool && !IsBareVisible(*pFunc, curModule))
 			continue;
@@ -93,7 +93,7 @@ void ExprResolveAccessor::SearchEnumScope(SnEnumDecl &enumDecl,
 		auto *pFunc = static_cast<SnFunction *>(iField->second);
 		if (!MatchesReceiverForm(*pFunc, form))
 			continue;
-		if (!pFunc->AllowAccess(*m_pAccessor))
+		if (!AccessAdmitted(m_Env.Registry(), *pFunc, *m_pAccessor))
 			continue;
 		if (pFunc->ContainFlags(NF_Imported))
 			rbImportedMatch = true;

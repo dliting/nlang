@@ -88,7 +88,12 @@ void ExprResolveAccessor::Access(SnQualifiedTypeExpr &qtype)
 		return;
 	}
 
-	SnField *pType = reg.FindModuleType(nsPath, qtype.TypeName());
+	//0.13.8 item 5 (Task 4): the foreign non-public admission folds into
+	//not-found — the arm below already logs the exact not-a-member
+	//wording for both shapes.
+	bool bDenied = false;
+	SnField *pType = FindAdmittedModuleType(reg, nsPath, qtype.TypeName(),
+		curModule, bDenied);
 	if (pType == nullptr)
 	{
 		m_Env.Log(CLL_Error, qtype.Location(),

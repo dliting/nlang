@@ -239,6 +239,7 @@ struct GateProjectOptions
     bool withUtils2MyClass = false;  //also register utils2/MyClass.n
     bool withCoreHelper = false;     //also register core/helper.n (same stem, other dir)
     bool withRichLib = false;        //also build libsrc/rlib.n (type surface lib)
+    bool withAccessLib = false;      //also build libsrc/xlib.n (0.13.8 Task 4 access-surface lib)
 };
 
 GateResult buildGateProject(const GateProjectOptions& opts)
@@ -323,6 +324,14 @@ GateResult buildGateProject(const GateProjectOptions& opts)
                 "interface Greeter {\n"
                 "    public string greet(string name);\n"
                 "}\n")) &&
+        (!opts.withAccessLib ||
+            writeFile(libSrc / "xlib.n",
+                "private int hiddenHelper() { return 1; }\n"
+                "protected int familyHelper() { return 2; }\n"
+                "public int openHelper() { return 3; }\n"
+                "private class Vault { int f() { return 4; } }\n"
+                "public class OpenBox { int f() { return 5; } }\n"
+                "public int helper() { return 9; }\n")) &&
         writeFile(proj / "main.n", opts.szMainBody);
     if (!written)
     {
@@ -337,6 +346,8 @@ GateResult buildGateProject(const GateProjectOptions& opts)
     int libCount = opts.withTwinLib ? 2 : 1;
     if (opts.withRichLib)
         libNames[libCount++] = "rlib";
+    if (opts.withAccessLib)
+        libNames[libCount++] = "xlib";
     for (int i = 0; i < libCount; ++i)
     {
         const fs::path ncu =
@@ -2354,6 +2365,263 @@ private slots:
                  "Dict methods must bind through the containers package");
         QCOMPARE(LookupIntrinsicId("builtins", "Exception/2"), INTR_None);
         QCOMPARE(LookupIntrinsicId("builtins", "List.add"), INTR_None);
+    }
+
+    //--- 0.13.8 Task 4: cross-module access enforcement -----------------
+    //
+    //The access-surface lib (out/xlib.ncu in the gate shape; two
+    //same-directory project units in the source-inline shape) declares
+    //private/protected/public free functions plus a private and a
+    //public class. Task 1 carried the bytes on the wire (v2.20), Task 3
+    //made the stubs carry them; these tests watch the consumer side
+    //START admitting everything (RED) and then enforce (GREEN).
+
+    //Source-inline RED witness: the two units share the root namespace,
+    //so today the geometric sibling arm (accessor.Parent() ==
+    //Parent()) admits the foreign private. After the gate: named
+    //denial with the manifest wording.
+    void sourceInlineForeignPrivateBareRejected()
+    {
+        namespace fs = std::filesystem;
+        const auto dir = nlang::test::ScratchDir("nlang_access_inline_priv");
+        fs::remove_all(dir);
+        fs::create_directories(dir);
+        std::ofstream(dir / "xlib.n", std::ios::binary)
+            << "private int hiddenHelper() { return 1; }\n"
+               "public int openHelper() { return 3; }\n";
+        std::ofstream(dir / "main.n", std::ios::binary)
+            << "int main() { return hiddenHelper(); }\n";
+        const auto outcome = compile("access_inline_priv",
+            {(dir / "main.n").string(), (dir / "xlib.n").string()},
+            dir.string());
+        QVERIFY2(!outcome.ok,
+            "a bare foreign private call must fail the build");
+        QVERIFY2(containsError(outcome.errors, "hiddenHelper"),
+            joinErrors(outcome.errors).c_str());
+        QVERIFY2(containsError(outcome.errors,
+            "does not exist or is not accessible"),
+            joinErrors(outcome.errors).c_str());
+    }
+
+    void sourceInlineForeignProtectedBareRejected()
+    {
+        namespace fs = std::filesystem;
+        const auto dir = nlang::test::ScratchDir("nlang_access_inline_prot");
+        fs::remove_all(dir);
+        fs::create_directories(dir);
+        std::ofstream(dir / "xlib.n", std::ios::binary)
+            << "protected int familyHelper() { return 2; }\n";
+        std::ofstream(dir / "main.n", std::ios::binary)
+            << "int main() { return familyHelper(); }\n";
+        const auto outcome = compile("access_inline_prot",
+            {(dir / "main.n").string(), (dir / "xlib.n").string()},
+            dir.string());
+        QVERIFY2(!outcome.ok,
+            "a bare foreign protected call must fail the build");
+        QVERIFY2(containsError(outcome.errors, "familyHelper"),
+            joinErrors(outcome.errors).c_str());
+        QVERIFY2(containsError(outcome.errors,
+            "does not exist or is not accessible"),
+            joinErrors(outcome.errors).c_str());
+    }
+
+    //A bare spelling of a foreign private type must not bind - the
+    //root-walk path applies the same verdict (spec D5.2).
+    void sourceInlineForeignPrivateTypeRejected()
+    {
+        namespace fs = std::filesystem;
+        const auto dir = nlang::test::ScratchDir("nlang_access_inline_type");
+        fs::remove_all(dir);
+        fs::create_directories(dir);
+        std::ofstream(dir / "xlib.n", std::ios::binary)
+            << "private class Vault { int f() { return 4; } }\n";
+        std::ofstream(dir / "main.n", std::ios::binary)
+            << "int main() { Vault v; return 0; }\n";
+        const auto outcome = compile("access_inline_type",
+            {(dir / "main.n").string(), (dir / "xlib.n").string()},
+            dir.string());
+        QVERIFY2(!outcome.ok,
+            "a bare foreign private type must fail the build");
+        QVERIFY2(containsError(outcome.errors, "Vault"),
+            joinErrors(outcome.errors).c_str());
+    }
+
+    //Case 7 + case 6 (bare): the gate is foreign-only - the lib's own
+    //private use stays admitted, and a foreign PUBLIC member keeps
+    //resolving bare. Must pass before AND after.
+    void sourceInlineOwnPrivateAndForeignPublicAdmitted()
+    {
+        namespace fs = std::filesystem;
+        const auto dir = nlang::test::ScratchDir("nlang_access_inline_ok");
+        fs::remove_all(dir);
+        fs::create_directories(dir);
+        std::ofstream(dir / "xlib.n", std::ios::binary)
+            << "private int hiddenHelper() { return 1; }\n"
+               "public int openHelper() { return 3; }\n"
+               "public int usePrivate() { return hiddenHelper(); }\n";
+        std::ofstream(dir / "main.n", std::ios::binary)
+            << "int main() { return usePrivate() + openHelper(); }\n";
+        const auto outcome = compile("access_inline_ok",
+            {(dir / "main.n").string(), (dir / "xlib.n").string()},
+            dir.string());
+        QVERIFY2(outcome.ok,
+            "own-module private use and foreign public must stay "
+            "admitted");
+    }
+
+    //Case 1 (external): `import xlib;` admits the names to the bare
+    //pool today via the exact-import branch - the gate must still
+    //refuse a non-public one.
+    void externalForeignPrivateBareRejected()
+    {
+        GateProjectOptions opts;
+        opts.withAccessLib = true;
+        opts.szMainBody =
+            "import xlib;\n"
+            "int main() { return hiddenHelper(); }\n";
+        auto res = buildGateProject(opts);
+        QVERIFY2(res.builder != nullptr,
+            ("gate scaffold failed before the gate stage; errors: "
+             + joinErrors(res.errors)).c_str());
+        QVERIFY2(!res.ok,
+            "a bare imported private call must fail the build");
+        QVERIFY2(containsError(res.errors, "hiddenHelper"),
+            joinErrors(res.errors).c_str());
+        QVERIFY2(containsError(res.errors,
+            "does not exist or is not accessible"),
+            joinErrors(res.errors).c_str());
+    }
+
+    //Case 2: the qualified path - ResolveModuleQualifiedCallee never
+    //checked access today, so lib.hiddenHelper() compiled cleanly.
+    void foreignQualifiedPrivateCallRejected()
+    {
+        GateProjectOptions opts;
+        opts.withAccessLib = true;
+        opts.szMainBody =
+            "import xlib;\n"
+            "int main() { return xlib.hiddenHelper(); }\n";
+        auto res = buildGateProject(opts);
+        QVERIFY2(res.builder != nullptr,
+            ("gate scaffold failed before the gate stage; errors: "
+             + joinErrors(res.errors)).c_str());
+        QVERIFY2(!res.ok,
+            "a qualified foreign private call must fail the build");
+        QVERIFY2(containsError(res.errors, "hiddenHelper"),
+            joinErrors(res.errors).c_str());
+        QVERIFY2(containsError(res.errors,
+            "does not exist or is not accessible"),
+            joinErrors(res.errors).c_str());
+    }
+
+    //Case 3 (qualified arm): protected follows the same rule.
+    void foreignQualifiedProtectedCallRejected()
+    {
+        GateProjectOptions opts;
+        opts.withAccessLib = true;
+        opts.szMainBody =
+            "import xlib;\n"
+            "int main() { return xlib.familyHelper(); }\n";
+        auto res = buildGateProject(opts);
+        QVERIFY2(res.builder != nullptr,
+            ("gate scaffold failed before the gate stage; errors: "
+             + joinErrors(res.errors)).c_str());
+        QVERIFY2(!res.ok,
+            "a qualified foreign protected call must fail the build");
+        QVERIFY2(containsError(res.errors, "familyHelper"),
+            joinErrors(res.errors).c_str());
+        QVERIFY2(containsError(res.errors,
+            "does not exist or is not accessible"),
+            joinErrors(res.errors).c_str());
+    }
+
+    //Case 5: a qualified spelling of a foreign private type must not
+    //bind (the FindModuleType admission).
+    void foreignQualifiedPrivateTypeRejected()
+    {
+        GateProjectOptions opts;
+        opts.withAccessLib = true;
+        opts.szMainBody =
+            "import xlib;\n"
+            "int main()\n"
+            "{\n"
+            "    xlib.Vault v;\n"
+            "    return 0;\n"
+            "}\n";
+        auto res = buildGateProject(opts);
+        QVERIFY2(res.builder != nullptr,
+            ("gate scaffold failed before the gate stage; errors: "
+             + joinErrors(res.errors)).c_str());
+        QVERIFY2(!res.ok,
+            "a qualified foreign private type must fail the build");
+        QVERIFY2(containsError(res.errors, "is not a member of package"),
+            joinErrors(res.errors).c_str());
+    }
+
+    //Case 8: instance creation over a foreign private type. The
+    //language spells construction as a ctor-invoke (no `new` keyword):
+    //`xlib.Vault()` routes through TryResolveQualifiedCtorInvoke
+    //(ExprResolverNew.cpp's FindModuleType arm), which must apply the
+    //same admission.
+    void foreignQualifiedCtorRejected()
+    {
+        GateProjectOptions opts;
+        opts.withAccessLib = true;
+        opts.szMainBody =
+            "import xlib;\n"
+            "int main()\n"
+            "{\n"
+            "    xlib.Vault v = xlib.Vault();\n"
+            "    return 0;\n"
+            "}\n";
+        auto res = buildGateProject(opts);
+        QVERIFY2(res.builder != nullptr,
+            ("gate scaffold failed before the gate stage; errors: "
+             + joinErrors(res.errors)).c_str());
+        QVERIFY2(!res.ok,
+            "new over a foreign private type must fail the build");
+        QVERIFY2(containsError(res.errors, "is not a member of package"),
+            joinErrors(res.errors).c_str());
+    }
+
+    //Case 6 (external): the public surface stays open end to end -
+    //qualified type binding, new, and the qualified public call.
+    //Must pass before AND after.
+    void foreignPublicExternalStillWorks()
+    {
+        GateProjectOptions opts;
+        opts.withAccessLib = true;
+        opts.szMainBody =
+            "import xlib;\n"
+            "int main()\n"
+            "{\n"
+            "    xlib.OpenBox box = xlib.OpenBox();\n"
+            "    return xlib.openHelper();\n"
+            "}\n";
+        auto run = runGateProject(opts);
+        QVERIFY2(run.ok, runFailureText(run,
+            "foreign public surface must build and execute").c_str());
+        QVERIFY2(run.runtimeError.empty(), "execution must be clean");
+        QVERIFY2(run.exitValue == 3, "openHelper() must return 3");
+    }
+
+    //Case 9: a consumer-owned declaration shadows the imported
+    //namespace-level name - the gate must not touch the own-module
+    //binding. Must pass before AND after.
+    void ownDeclarationShadowsImportedHelper()
+    {
+        GateProjectOptions opts;
+        opts.withAccessLib = true;
+        opts.szMainBody =
+            "import xlib;\n"
+            "int helper() { return 10; }\n"
+            "int main() { return helper(); }\n";
+        auto run = runGateProject(opts);
+        QVERIFY2(run.ok, runFailureText(run,
+            "the own helper() must shadow the imported one").c_str());
+        QVERIFY2(run.runtimeError.empty(), "execution must be clean");
+        QVERIFY2(run.exitValue == 10,
+            "the consumer's own helper() must win (10, not 9)");
     }
 };
 

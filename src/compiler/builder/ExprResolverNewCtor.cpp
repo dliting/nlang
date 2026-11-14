@@ -90,15 +90,17 @@ bool ExprResolveAccessor::FindCtorParamRange(SnField *pTypeDecl,
 //was filtered out for access alone, so the caller can tell "no
 //constructor" from "no *accessible* constructor" and name the right
 //diagnostic.
-static std::vector<SnFunction*> CollectCtorCandidates(SnField *pTypeDecl,
+static std::vector<SnFunction*> CollectCtorCandidates(
+	const ModuleRegistry &reg, SnField *pTypeDecl,
 	const SnField &accessor, bool &rbInaccessible)
 {
 	std::vector<SnFunction*> candidates;
-	auto admit = [&candidates, &accessor, &rbInaccessible](SnFunction &ctor)
+	auto admit = [&candidates, &reg, &accessor, &rbInaccessible](
+		SnFunction &ctor)
 	{
 		if (!ctor.HasImplementation())
 			return;
-		if (!ctor.AllowAccess(accessor))
+		if (!AccessAdmitted(reg, ctor, accessor))
 		{
 			rbInaccessible = true;
 			return;
@@ -164,8 +166,8 @@ SnFunction *ExprResolveAccessor::SelectCtorForArgs(SnField *pTypeDecl,
 		return nullptr;
 
 	bool bAnyInaccessible = false;
-	auto candidates = CollectCtorCandidates(pTypeDecl, *m_pAccessor,
-		bAnyInaccessible);
+	auto candidates = CollectCtorCandidates(m_Env.Registry(), pTypeDecl,
+		*m_pAccessor, bAnyInaccessible);
 	if (candidates.empty() && bAnyInaccessible)
 	{
 		//0.9.12 D-new-5: every candidate exists but none is reachable

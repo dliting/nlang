@@ -1,5 +1,6 @@
 #pragma once
 #include "SnExpressions.h"
+#include "ModuleRegistry.h"
 #include "SyntaxNodeVisitor.h"
 #include "BuiltinNames.h"
 #include "SnArrayTypeToken.h"
@@ -36,6 +37,40 @@ enum ExprResolveFlag : uint8
 };
 
 typedef uint8 ExprResolveFlagSet;
+
+//0.13.8 item 5 (Task 4): the single cross-module access admission — the
+//registry-aware foreign-namespace gate composed with the geometric
+//AllowAccess rules. The accessor's module derives INSIDE
+//(OwnerOfContext): every rewire site keeps passing exactly the accessor
+//it always checked (they differ per site by design).
+inline bool AccessAdmitted(const ModuleRegistry &reg,
+	const SnField &member, const SnField &accessor)
+{
+	if (reg.ForeignNamespaceAccessDenied(member,
+		reg.OwnerOfContext(accessor)))
+		return false;
+	return member.AllowAccess(accessor);
+}
+
+//FindModuleType wrapped with the foreign non-public admission: a denial
+//reads as not-found (rbDenied distinguishes the two, so a site whose
+//not-found fallback would re-advertise the private type under a
+//misleading name — the qualified ctor-invoke path — can consume with
+//the not-a-member wording instead).
+inline SnField *FindAdmittedModuleType(const ModuleRegistry &reg,
+	const std::string &modulePath, const std::string &typeName,
+	uint32_t accessorModule, bool &rbDenied)
+{
+	rbDenied = false;
+	SnField *pType = reg.FindModuleType(modulePath, typeName);
+	if (pType != nullptr && reg.ForeignNamespaceAccessDenied(*pType,
+		accessorModule))
+	{
+		rbDenied = true;
+		return nullptr;
+	}
+	return pType;
+}
 
 //0.9.10 D2.4: call-form namespaces. A member call through a type name
 //only reaches static members; a member call through a value only reaches

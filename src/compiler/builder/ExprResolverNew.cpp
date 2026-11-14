@@ -454,8 +454,20 @@ void ExprResolveAccessor::BindQualifiedCtorTail(SnMemberExpr &snMember,
 bool ExprResolveAccessor::TryResolveQualifiedCtorInvoke(SnMemberExpr &snMember,
 	SnInvokeExpr &invoke, const std::string &modulePath)
 {
-	auto *pType = m_Env.Registry().FindModuleType(modulePath,
-		invoke.CalleeName());
+	//0.13.8 item 5 (Task 4): the foreign non-public admission consumes
+	//with the not-a-member wording — falling through would re-advertise
+	//the private type as a missing function.
+	bool bDenied = false;
+	auto *pType = FindAdmittedModuleType(m_Env.Registry(), modulePath,
+		invoke.CalleeName(), m_Env.Registry().OwnerOfContext(invoke),
+		bDenied);
+	if (bDenied)
+	{
+		m_Env.Log(CLL_Error, invoke.Location(),
+			"Type '%s' is not a member of package '%s'.",
+			invoke.CalleeName().c_str(), modulePath.c_str());
+		return true;
+	}
 	if (!pType
 		|| (pType->Kind() != NK_ClassDecl && pType->Kind() != NK_StructDecl))
 	{

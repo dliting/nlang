@@ -88,7 +88,11 @@ SnField *ExprResolveAccessor::ResolveStreamSpecialTypeArg(
 				continue;
 			if (dotted && path != prefix)
 				continue;
-			SnField* hit = reg.FindModuleType(path, leaf);
+			//0.13.8 item 5 (Task 4): a foreign non-public type is no
+			//candidate — the denial skips it like any other miss.
+			bool bDenied = false;
+			SnField* hit = FindAdmittedModuleType(reg, path, leaf,
+				curModule, bDenied);
 			if (!hit || hit->Kind() != wantKind)
 				continue;
 			//LinkKeyOf, not the registry display qualification: the string

@@ -218,6 +218,21 @@ public:
 	//"current TU" for a resolver context (spec F18); NO_OWNER at root.
 	uint32_t OwnerOfContext(const SyntaxNode& context) const;
 
+	//0.13.8 item 5 (Task 4): the registry-aware foreign-namespace access
+	//verdict — true when member is owned by a FOREIGN module (NO_OWNER —
+	//builtin decls — is explicitly admitted), sits at namespace level BY
+	//KIND, and carries a non-public declared access. The kind test is the
+	//Parent() shape, not IsField(): namespaces carry NF_Field
+	//(RnMisc.h s_DefaultFlags), so the legacy-flags proxy never
+	//identifies the root level. Protected's package rule (spec D5.2:
+	//this module + same-package sibling modules) registers here — with
+	//package == module today a foreign accessor always denies; dotted
+	//multi-module packages will compare packages instead. An ownerless
+	//accessor context follows the registry's NO_OWNER-never-passes
+	//doctrine.
+	bool ForeignNamespaceAccessDenied(const SnField& member,
+		uint32_t accessorModule) const;
+
 	//Declared-generic placeholder/instantiation state for this build
 	//(both the resolver and the VM backend reach it through here).
 	GenericInstanceRegistry& DeclaredGenerics() const

@@ -292,6 +292,18 @@ bool ExprResolveAccessor::ResolveModuleQualifiedCallee(
 		FinishConsumedMember(snMember);
 		return false;
 	}
+	//0.13.8 item 5 (Task 4): the qualified call's access checkpoint —
+	//the stub table never checked the declared access before the gate;
+	//a foreign non-public namespace member consumes here with the
+	//manifest wording (the bare path's family), keeping codegen out.
+	if (!AccessAdmitted(reg, *pCallee, *m_pAccessor))
+	{
+		m_Env.Log(CLL_Error, invoke.Location(),
+			"The function \"%s\" does not exist or is not accessible.",
+			invoke.CalleeName().c_str());
+		FinishConsumedMember(snMember);
+		return false;
+	}
 	if (!BindQualifiedInvoke(snMember, invoke, *pCallee, res, bindings))
 	{
 		FinishConsumedMember(snMember);

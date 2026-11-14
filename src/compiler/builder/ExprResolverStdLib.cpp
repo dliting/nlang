@@ -268,7 +268,12 @@ bool ExprResolveAccessor::TryResolveQualifiedTypeValue(SnMemberExpr &snMember)
 	if (RejectUnimportedModuleCall(snMember, modulePath))   //import gate, call wording
 		return true;
 
-	SnField *pType = reg.FindModuleType(modulePath, typeName);
+	//0.13.8 item 5 (Task 4): the foreign non-public admission folds into
+	//not-found — the arm below already logs the exact not-a-member
+	//wording for both shapes.
+	bool bDenied = false;
+	SnField *pType = FindAdmittedModuleType(reg, modulePath, typeName,
+		reg.OwnerOfContext(snMember), bDenied);
 	if (pType == nullptr)
 	{
 		m_Env.Log(CLL_Error, snMember.Location(),
@@ -389,7 +394,12 @@ bool ExprResolveAccessor::TryResolveModuleTypeRef(SnMemberExpr &snMember)
 	if (RejectUnimportedModuleCall(snMember, modulePath))   //import gate, call wording
 		return true;
 
-	SnField *pType = reg.FindModuleType(modulePath, typeName);
+	//0.13.8 item 5 (Task 4): the foreign non-public admission folds into
+	//not-found — the arm below already logs the exact not-a-member
+	//wording for both shapes.
+	bool bDenied = false;
+	SnField *pType = FindAdmittedModuleType(reg, modulePath, typeName,
+		reg.OwnerOfContext(snMember), bDenied);
 	if (pType == nullptr)
 	{
 		m_Env.Log(CLL_Error, snMember.Location(),

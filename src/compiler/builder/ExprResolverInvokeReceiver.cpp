@@ -151,7 +151,7 @@ static bool RebindMethodOrReject(SnIdentifierExpr &idExpr,
 {
 	auto *pHit = FindMethodInNamespace(pContext, idExpr.Name(),
 		bStaticWanted);
-	if (pHit && pHit->AllowAccess(*pAccessor))
+	if (pHit && AccessAdmitted(env.Registry(), *pHit, *pAccessor))
 	{
 		rpField = pHit;
 		return true;

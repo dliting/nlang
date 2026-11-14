@@ -410,6 +410,26 @@ uint32_t ModuleRegistry::OwnerOfContext(const SyntaxNode& context) const
 	return NO_OWNER;
 }
 
+//0.13.8 item 5 (Task 4): see the declaration. The kind test is the
+//Parent() shape: root-pushed stubs have Parent() == Root (wired
+//containers), R10-1 detached stubs have a null parent — both are
+//namespace-level; class members fail the arm and keep the geometric
+//rules.
+bool ModuleRegistry::ForeignNamespaceAccessDenied(const SnField& member,
+	uint32_t accessorModule) const
+{
+	const uint32_t owner = OwnerOf(member);
+	if (owner == NO_OWNER || owner == accessorModule)
+		return false;
+	const SyntaxNode* pParent = member.Parent();
+	if (pParent != nullptr && pParent->Kind() != NK_Namespace)
+		return false;
+	//Protected's package rule (spec D5.2): same-package sibling modules
+	//would compare package paths here once dotted multi-module packages
+	//exist; today package == module, so every foreign accessor denies.
+	return member.AccessType() != FA_Public;
+}
+
 std::string ModuleRegistry::PackageOf(const SnField& member) const
 {
 	//The unit's dotted path is the package name; an untagged member

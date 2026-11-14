@@ -67,7 +67,7 @@ SnFunction *StatementResolveAccessor::SelectSuperCtor(SnSuperCallStmt &sn,
 			&& field.Name() == pParent->Name()
 			&& !field.ContainFlags(NF_Static)) {
 			auto *pCtor = static_cast<SnFunction*>(&field);
-			if (!pCtor->AllowAccess(*m_pCurrType)) {
+			if (!AccessAdmitted(m_Env.Registry(), *pCtor, *m_pCurrType)) {
 				bAnyInaccessible = true;
 				continue;
 			}

@@ -68,7 +68,7 @@ SnField *ExprResolveAccessor::FindFieldInAncestor(const std::string &sName,
 	const ISourceLocation *pSpillLoc)
 {
 	SnField *pField = parent.FindField(sName);
-	if (pField && pField->AllowAccess(accessor))
+	if (pField && AccessAdmitted(m_Env.Registry(), *pField, accessor))
 	{
 		//Module import visibility (D1/D7): the caller may narrow the bare
 		//pool — a function candidate sitting in a bare-pool scope
@@ -120,7 +120,7 @@ SnField *ExprResolveAccessor::FindEnumMemberSpill(SyntaxNode &scope,
 		if (decl.IsImported())
 			continue;
 		auto *pMember = static_cast<SnEnumMember *>(decl.FindField(sName));
-		if (!pMember || !pMember->AllowAccess(accessor))
+		if (!pMember || !AccessAdmitted(m_Env.Registry(), *pMember, accessor))
 			continue;
 		if (pHit)
 		{
@@ -154,7 +154,7 @@ SnField *ExprResolveAccessor::FindTypeNameInAncestor(const std::string &sName,
 	//candidate (the DuplicateFieldChecker rejects same-scope duplicates),
 	//so skipping a value hit cannot hide a same-scope type.
 	SnField *pField = parent.FindField(sName);
-	if (pField && pField->AllowAccess(accessor)
+	if (pField && AccessAdmitted(m_Env.Registry(), *pField, accessor)
 		&& (pField->IsTypeField()
 			|| (bIncludeNamespaces && pField->Kind() == NK_Namespace)))
 	{
