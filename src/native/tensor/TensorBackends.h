@@ -1,19 +1,14 @@
 /*---
-    TensorBackends.h — the kernel-backend seam of the tensor native
-    module. Every compute family the elementwise driver, matmul and
-    reductions need is a function-pointer slot in KernelOps; callers
-    look up ActiveKernelOps() once per module call and never learn what
-    hardware is underneath. Two orthogonal extension axes (2026-11-11
-    tensor vector ops spec §4.1):
-
-    - ISA tiers INSIDE a backend: the built-in CPU backend dispatches
-      Scalar/Sse2/Avx2 per entry (a future AVX-512 tier is a new
-      SimdTier value + TU — no interface change);
-    - device BACKENDS as whole tables: an AMD GPU/HIP (or any other)
-      backend implements the full KernelOps in its own TU/DLL and
-      registers it by name; NLANG_TENSOR_BACKEND selects it. Only the
-      CPU table ships in this iteration — the registry and the selector
-      are real but the second backend is future work.
+    TensorBackends.h — the CPU-internal SIMD tier seam of the tensor
+    native module (P1 of the v0.14.x device line retired this table from
+    the backend-registration role). Every compute family the elementwise
+    driver, matmul and reductions need is a function-pointer slot in
+    KernelOps; the CPU backend's TensorOps implementation (tensor_ops_
+    cpu.cpp, the whole-op contract in TensorOps.h) calls these per flat
+    span, dispatching Scalar/Sse2/Avx2 per entry — a future AVX-512 tier
+    is a new SimdTier value + TU, no interface change. Device backends
+    register whole TensorOps tables instead (the DeviceBackend plugin
+    contract); they never see this table.
 
     Numeric contracts shared by every backend (the scalar lanes are the
     authority): floats follow IEEE (div by zero yields inf/nan, no
