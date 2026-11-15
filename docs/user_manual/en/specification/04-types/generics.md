@@ -196,19 +196,13 @@ another generic instantiation. A `void` type argument is a compile-time error
 
 A user-declared generic class rejects function type arguments: a
 function value is a multi-slot record (target, receiver, form). A
-struct type argument is admitted — every boundary (constructor
-formals, local binds, field stores, `foreach`) deep-copies the
-record through the substituted type, so the field's value slot holds
-one private copy. The built-in containers accept struct type
+struct type argument is admitted — constructor formals, local binds,
+and `foreach` loop variables each establish a fresh record copied
+from the source, while field stores and field-to-field moves update
+records in place per §4.7.4, so the field's value slot holds one
+private copy. The built-in containers accept struct type
 arguments alike (a struct key in a `Dict` compares by field value,
 §12.2).
-
-One corner of the struct argument: inside a generic class's own
-method bodies, a `T`-to-`T` move between two `T`-typed fields
-(`item = other.item;`) transfers the record handle without a copy,
-so the two fields then share one record — a write through one shows
-through the other. Only the in-body field move aliases; every
-boundary deep-copies (§4.7.4).
 
 An array type argument — `List<int[]>` — stores the array values as
 raw references; the primitive-boxing rule does not apply to them.

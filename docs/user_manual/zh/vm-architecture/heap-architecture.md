@@ -27,6 +27,12 @@ struct与class对象共享`m_structHeap: vector<StructSlot>`，其中`StructSlot
 
 `m_slotStructIdx`之所以存在，是因为struct对象没有类型头。缺少它，MarkStruct在追踪引用时无从得知该查询哪个CompiledStruct的字段布局。替代方案（给struct对象加类型头）要求把所有LoadField/StoreField的偏移整体+1，改动面更大也更容易出错。
 
+### 记录生命周期与原位更新
+
+每个struct记录从建立起重生不变：语言层的每个存储位置（局部变量、字段、数组元素、容器元素、静态槽位）拥有终生一条记录（§4.7.4），写入既有位置走`OP_CopyStructInPlace`——覆盖记录的字段单元，堆槽位与句柄永不变动，只有建立新位置才分配新记录。该写入与其余存储操作一样按字段单元粒度进行：执行器不存在任何记录级锁。
+
+**跨载体可见性**：不加协调时，并发读取共享struct可能读到新旧字段混合的记录——整记录写（赋值与声明初始化）逐字段写入，整记录读（`==`比较、按值传参、`foreach`拷贝）同样逐字段读取。单字段值始终类型正确（不会损坏内存）；记录跨载体共享时，共享可变状态与跨字段不变式用`Mutex`协调（§10.2）。
+
 ### 隐式`Object`基类
 
 凡未显式继承其他类的用户类，都会由`RegisterClasses`的一个后置趟把`superClassIdx`设为合成Object类的索引。Object是唯一`superClassIdx == -1`的类。

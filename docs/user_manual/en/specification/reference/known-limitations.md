@@ -154,17 +154,23 @@ This page collects the language-level limitations visible to user programs, with
 
 - **Concurrency: storage is locked per data category, same-category
   operations serialize**: heap and string allocation proceeds per
-  carrier with no lock, object field reads and writes take no lock,
-  while containers (List/Dict), synchronization primitives, streams,
-  and string maintenance each hold their own lock — same-category
-  operations exclude each other, different categories overlap.
-  Pure-compute segments and object field access run in parallel across
-  carriers, but a dense loop leaning on containers or string
-  maintenance still serializes on its domain lock, and concurrent
-  reads and writes of a shared object's fields (shared through
-  `spawn` arguments or a channel) are a data race — a transitional
-  value may be read; single-value state takes
-  [AtomicInt](../library/18-concurrency-classes/atomic.md), multi-field invariants take a
+  carrier with no lock and field-level reads and writes take no lock;
+  struct values are no exception — a whole-record store (assignment
+  and declaration initialization) writes the record field by field,
+  and whole-record reads (`==` comparison, by-value passing,
+  `foreach` copies) read field by field, so a concurrent reader may
+  observe a mix of old and new field values (per-field values stay
+  type-correct); containers
+  (List/Dict), synchronization primitives, streams, and string
+  maintenance each hold their own lock — same-category operations
+  exclude each other, different categories overlap. Pure-compute
+  segments and field-level access run in parallel across carriers,
+  but a dense loop leaning on containers or string maintenance still
+  serializes on its domain lock, and concurrent field-level reads and
+  writes of a shared object's fields (shared through `spawn` arguments
+  or a channel) are a data race — a transitional value may be read;
+  single-value state takes
+  [AtomicInt](../library/18-concurrency-classes/atomic.md), cross-field invariants take a
   `Mutex`.
   Each virtual thread runs about 1000 loop iterations before yielding
   once, which keeps the rotation fair. Set the carrier count

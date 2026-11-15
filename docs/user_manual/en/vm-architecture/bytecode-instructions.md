@@ -73,7 +73,8 @@ String and Function Values below).
 | Opcode            | Operands                        | Description              |
 |-------------------|---------------------------------|--------------------------|
 | OP_AllocStruct    | dst, structIdx, fieldCount      | Allocate struct on heap  |
-| OP_CopyStruct     | dst, src, structIdx             | Deep-copy struct         |
+| OP_CopyStruct     | dst, src, structIdx             | Deep-copy struct (establishes a new record) |
+| OP_CopyStructInPlace | dst, src, structIdx          | Write src's value in place into the record dst already owns; dst ≤ 0 establishes one fresh record and yields its handle, dst == src is a no-op |
 | OP_New            | dst, classIdx, descIdx          | Allocate class on heap; descIdx names the instantiation descriptor for a generic class (0xFFFF = none) |
 | OP_LoadField      | dst, obj, fieldOff              | Read field from heap     |
 | OP_StoreField     | obj, fieldOff, src              | Write field to heap      |

@@ -67,41 +67,54 @@ the heap, matching the class-typed `new` (§4.8.4).
 
 ## 4.7.4 Value semantics
 
-Assignment between struct values copies the whole value: every
-field is copied, including nested struct fields, so the source and
-the copy are independent. A field of a reference type copies its
+Assignment between struct values writes the source's value into the
+record the target position already owns: every field cell is
+overwritten, including nested struct fields, so the source and the
+target stay independent. A field of a reference type copies its
 reference, so the two struct values then share that one object
 (chapter 9).
 
-The same deep copy applies everywhere a struct value moves:
+Every struct storage position — a local variable, a field, an array
+element, a container element, a static slot — owns one heap record
+for its entire life; a write into an existing position is an **in-
+place update**: it overwrites that record's field cells and
+allocates nothing. Only establishing a new storage position
+allocates a record and fills it with the initial value:
 
-- **Declaration** (`Point p;`) gives every field its default value
-  (§4.7.2).
-- **Parameter passing and return** deep-copy the value once on the
-  way in and once on the way back; the callee operates on its own
-  copy.
-- **As a class field**: assigning `obj.s = s1` deep-copies `s1`
-  into the class's field.
-- **As a static field's value**: storing a struct into a class or
-  interface static slot (a static field, a static constant's lazy
-  channel, or a static local of struct type) deep-copies it — the
-  slot owns an independent record, reading the slot into a
-  variable deep-copies again, and a member write through the slot
-  mutates the slot's own record (§4.8.8).
-- **As an array element**: `Point[n]` allocates a fresh,
-  independent struct per element at creation, nested struct fields
-  included. Reading an element into a struct variable deep-copies
-  it; writing through a subscript stores into the array's own
-  element (§4.10). A zero-length struct array is legal and
-  creates no elements.
+- **Declaration** (`Point p;`) establishes the local's record and
+  gives every field its default value (§4.7.2).
+- **Parameter passing and return** each establish a fresh record
+  copied from the source: once on the way in and once on the way
+  back; the callee operates on its own copy.
+- **As a class field**: assigning `obj.s = s1` writes `s1`'s value
+  in place into the record the field already owns.
+- **As a static field's value**: a class or interface static slot
+  (a static field, a static constant's lazy channel, or a static
+  local of struct type) owns one record for life — the first store
+  establishes it (or fills the type-default record an
+  initializer-less slot starts at), and every later store updates
+  it in place; reading the slot into a variable copies the value
+  into a new record, and a member write through the slot mutates
+  the slot's own record (§4.8.8).
+- **As an array element**: `Point[n]` establishes a fresh,
+  independent record per element at creation, nested struct fields
+  included. Reading an element into a struct variable copies the
+  value; writing through a subscript updates that element's
+  existing record in place (§4.10). A zero-length struct array is
+  legal and creates no elements.
+- **As a container element**: `List<T>` and `Dict<K,T>` `set`
+  writes a struct value in place into the record that position
+  owns; storing under a new key establishes a record for the new
+  position (chapter 12).
 - **Equality** (`==` / `!=`) compares by field value: nested struct
   fields recurse, `string` fields compare content, and reference-
   shaped fields (class, array, interface, `func`) compare identity —
-  exactly what a copy stores. Two structs of different types never
-  compare equal, and ordering a struct is a compile error (§4.5).
+  exactly what the record stores. Two structs of different types
+  never compare equal, and ordering a struct is a compile error
+  (§4.5).
 
 When a struct contains a class-typed field, the class reference is
-copied as-is during the struct copy: the original and the copy
+copied as-is during the copy: the original and the copy
 refer to the same class object on the heap.
 
 ```nlang

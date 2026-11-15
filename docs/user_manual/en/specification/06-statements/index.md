@@ -101,8 +101,9 @@ a class static constant (§4.8.8); any other expression runs lazily
 on the first execution.
 
 A static local of a struct type follows the struct value model:
-each store into the slot deep-copies the record, and a declaration
-without an initializer starts at the struct's zero value
+the slot owns one record for life — the first store establishes it
+(a declaration without an initializer starts at the struct's
+zeroed record), and every later store updates it in place
 (§4.7.4). Re-entering the initializer before it stores — a
 recursive call that reads its own static local — raises
 `InitializationException` (§8.3) at the reading site, catchable
