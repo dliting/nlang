@@ -66,11 +66,100 @@ usage() {
     exit 64
 }
 
+# --- write-directory derivation ---------------------------------------------
+#
+# The lock resource is the set of directories a gate command names for
+# itself: the build tree it writes, the test tree it writes, the docs site
+# directory it writes. Reading them out of the flags the caller already had
+# to type is what makes the lock say something true about the command, and
+# it keeps one spelling recipe shared by the lock and by --print-write-dirs.
+
+# Absolute path in the form the machine's own tools agree on. The choice is
+# made on tool availability rather than a guessed system name: cygpath
+# exists exactly where the Windows path rules apply. The case fold belongs
+# to that family only — NTFS is case-insensitive, so two spellings of one
+# directory have to converge, while POSIX is case-sensitive and a fold would
+# merge two directories that really are different. gate.sh never cds, so a
+# relative directory resolves against $PWD, the same directory the wrapped
+# command sees.
+norm_path() {
+    if command -v cygpath > /dev/null 2>&1; then
+        cygpath -ma "$1" | tr 'A-Z' 'a-z'
+    else
+        realpath -m "$1"
+    fi
+}
+
+# Lock directory name for one normalized path: a hash because a path holds
+# characters a directory name cannot, 16 hex digits because that is short
+# enough to read in a log and far beyond the handful of lock directories one
+# machine has. The path itself goes into the holder file, so the hash is
+# never the only way to find out which directory a lock covers.
+wdir_key() {
+    printf '%s' "$1" | sha256sum | cut -c1-16
+}
+
+# One normalized directory per line, in order of first appearance, keeping
+# the first of any duplicates. Every spelling counts: the separated flag,
+# the '=' form, and the short -B with or without its glue. A flag with no
+# value after it and an empty value are both skipped rather than normalized:
+# neither yields a path (cygpath and realpath both fail on the empty
+# string), and falling through would either lock the leg's own working
+# directory or put unrelated broken calls behind one key computed from
+# nothing. NLANG_GATE_WRITE_DIR is the third source, for a caller that
+# cannot add a flag to its command line; it holds one directory, because
+# several directories already have the command line.
+derive_write_dirs() {
+    local raw
+    {
+        while [ "$#" -gt 0 ]; do
+            raw=""
+            case "$1" in
+                --build|--test-dir|--site-dir|--workdir|-B)
+                    if [ "$#" -ge 2 ]; then
+                        raw="$2"
+                        shift
+                    fi
+                    ;;
+                --build=*|--test-dir=*|--site-dir=*|--workdir=*)
+                    raw="${1#*=}"
+                    ;;
+                -B*)
+                    # -B=DIR reads as the literal DIR: a broken call, still
+                    # worth locking rather than running unlocked.
+                    raw="${1#-B}"
+                    raw="${raw#=}"
+                    ;;
+            esac
+            shift
+            if [ -n "$raw" ]; then
+                norm_path "$raw"
+            fi
+        done
+        if [ -n "${NLANG_GATE_WRITE_DIR-}" ]; then
+            norm_path "$NLANG_GATE_WRITE_DIR"
+        fi
+    } | awk '!seen[$0]++'
+}
+
 shared_mode=0
 if [ "${1:-}" = "--shared" ]; then
     shared_mode=1
     shift
 fi
+
+# Key dump for the selftest and for the configure-time probe: no name, no
+# stem, and no lock of any kind, so configuring a build tree never queues
+# behind a gate batch. The keys are printed here rather than left for each
+# caller to hash, which would put the normalization recipe in several files.
+if [ "${1:-}" = "--print-write-dirs" ]; then
+    shift
+    derive_write_dirs "$@" | while read -r wdir_path; do
+        printf 'key %s path %s\n' "$(wdir_key "$wdir_path")" "$wdir_path"
+    done
+    exit 0
+fi
+
 if [ "$#" -lt 3 ]; then
     usage
 fi
@@ -194,6 +283,14 @@ release() {
 mkdir -p "$lock_dir"
 acquire
 trap release EXIT
+
+# A build gate that names no directory at all cannot be checked for a
+# conflicting write target, and running it silently unlocked is how two
+# batches end up in one tree again. Only build gates ask: a test gate owns
+# the machine, so nothing else is running to conflict with.
+if [ "$shared_mode" -eq 1 ] && [ -z "$(derive_write_dirs "$@")" ]; then
+    echo "LOCK $name: no write directory derived from the command line, no directory lock taken"
+fi
 
 "$@" >"$stem.out" 2>"$stem.err"
 rc=$?
