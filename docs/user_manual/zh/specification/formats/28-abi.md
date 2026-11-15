@@ -6,7 +6,7 @@
 
 ## 28.1 范围与版本
 
-**ABI版本。**本章描述ABI版本 **12**。宿主接受版本探针恰好报`12`的模块，并拒绝其他一切值，包括根本不导出探针的模块（§28.2）。ABI变更会提升版本并整章替换本章；规范只描述当前版本。
+**ABI版本。**本章描述ABI版本 **13**。宿主接受版本探针恰好报`13`的模块，并拒绝其他一切值，包括根本不导出探针的模块（§28.2）。ABI变更会提升版本并整章替换本章；规范只描述当前版本。
 
 **本章固定的内容。**模块发现与加载（§28.2）、模块导出与注册（§28.3）、调用约定与值单元（§28.4）、宿主函数表（§28.5）、固定数组视图（§28.6）与阻塞段契约及其上的IO停泊（§28.7）。
 
@@ -25,7 +25,7 @@
 **加载序列。**宿主打开模块文件，然后：
 
 1. 解析导出`nlang_abi_version`；没有该导出的模块被拒绝；
-2. 调用它；除`12`以外的值被拒绝；
+2. 调用它；除`13`以外的值被拒绝；
 3. 解析导出`nlang_native_init`；没有该导出的模块被拒绝；
 4. 调用它一次（§28.3）。
 
@@ -39,7 +39,7 @@
 
 | 导出 | 签名 | 契约 |
 |---|---|---|
-| `nlang_abi_version` | `unsigned (void)` | 返回`12`；唯一的版本权威（§28.2） |
+| `nlang_abi_version` | `unsigned (void)` | 返回`13`；唯一的版本权威（§28.2） |
 | `nlang_native_init` | `int (void* registry, RegisterNativeFn reg, RegisterNativeBlockingFn regBlocking)` | 探针通过后调用一次 |
 
 连同注册回调
@@ -95,20 +95,20 @@ void fn(NativeHost* host, uint8_t* ret,
 
 ## 28.5 宿主函数表
 
-**布局。**`NativeHost`是一个函数指针结构体，其第一个字段是`abiVersion`——一个持有`12`的`uint32_t`——之后按固定顺序跟随下列二十五个回调。每个回调都以表自身作为第一个参数，在签名中记作`self`：
+**布局。**`NativeHost`是一个函数指针结构体，其第一个字段是`abiVersion`——一个持有`13`的`uint32_t`——之后按固定顺序跟随下列二十五个回调。每个回调都以表自身作为第一个参数，在签名中记作`self`：
 
 | 回调 | 签名 |
 |---|---|
-| `getString` | `const char* (NativeHost* self, int32_t handle)` |
-| `newString` | `int32_t (NativeHost* self, const char* utf8)` |
-| `newListString` | `int32_t (NativeHost* self, const char* const* items, int count)` |
-| `writeOutput` | `void (NativeHost* self, const char* text)` |
-| `writeError` | `void (NativeHost* self, const char* text)` |
-| `readLine` | `const char* (NativeHost* self)` |
-| `readToken` | `const char* (NativeHost* self)` |
+| `getString` | `const char* (NativeHost* self, int32_t handle, int64_t* outLen)` |
+| `newString` | `int32_t (NativeHost* self, const char* utf8, int64_t len)` |
+| `newListString` | `int32_t (NativeHost* self, const char* const* items, const int64_t* lens, int count)` |
+| `writeOutput` | `void (NativeHost* self, const char* text, int64_t len)` |
+| `writeError` | `void (NativeHost* self, const char* text, int64_t len)` |
+| `readLine` | `const char* (NativeHost* self, int64_t* outLen)` |
+| `readToken` | `const char* (NativeHost* self, int64_t* outLen)` |
 | `readChar` | `int (NativeHost* self, uint32_t* outChar)` |
 | `hasInput` | `int (NativeHost* self)` |
-| `raiseException` | `void (NativeHost* self, int exceptionKind, const char* message)` |
+| `raiseException` | `void (NativeHost* self, int exceptionKind, const char* message, int64_t len)` |
 | `nextRandom` | `uint32_t (NativeHost* self)` |
 | `seedRandom` | `void (NativeHost* self, int32_t seed)` |
 | `getArrayView` | `int (NativeHost* self, int32_t handle, NativeArrayView* out)` |
@@ -125,9 +125,9 @@ void fn(NativeHost* host, uint8_t* ret,
 | `typeArgKind` | `uint8_t (NativeHost* self, uint32_t index)` |
 | `typeArgName` | `const char* (NativeHost* self, uint32_t index)` |
 
-**字符串。**`getString`返回`handle`背后字符串的字节；`newString`从一个以NUL结尾的Unicode转换格式（UTF-8）缓冲区创建字符串并返回其句柄；`newListString`在一次调用内从`count`个以NUL结尾的缓冲区创建一个`List<string>`。`getString`返回的缓冲区只有效到下一次宿主回调——原生函数立即复制它。声明返回`string`的原生函数必须向`ret`写入一个由`newString`获得的句柄：句柄0表示原生函数没有产出字符串，会抛出带函数名的宿主级错误；不再活动的句柄同样抛出。空字符串是`newString`发出的真实句柄，绝不是0。
+**字符串。**每个字符串条目都明说内容长度：原生交给宿主的文本随带一个`int64_t len`说明要读多少字节；宿主交给原生的文本随带一个`int64_t* outLen`，原生只要字节时可传空指针。空缓冲区与不是正数的长度都表示空内容；返回的缓冲区为便利仍以NUL结尾，但长度才是内容边界，所以字符串内部任意位置都可以含NUL字节。`getString`返回`handle`背后字符串的字节并把其个数写入`outLen`；`newString`从一个Unicode转换格式（UTF-8）缓冲区的前`len`个字节创建字符串并返回其句柄；`newListString`在一次调用内从`count`个缓冲区与相应的`count`个长度创建一个`List<string>`。`getString`返回的缓冲区只有效到下一次宿主回调——原生函数立即复制它。声明返回`string`的原生函数必须向`ret`写入一个由`newString`获得的句柄：句柄0表示原生函数没有产出字符串，会抛出带函数名的宿主级错误；不再活动的句柄同样抛出。空字符串是`newString`发出的真实句柄，绝不是0。
 
-**控制台。**`writeOutput`把文本逐字写入标准输出（§14.2）；`writeError`把它写入诊断通道——标准错误，或嵌入宿主掌管各流时会话的单一合并输出视图（§14.2）。`readLine`返回剥去行尾换行符的一行输入，输入结束时返回空指针；空行是`""`（§14.3）。`readToken`跨行跳过空白并返回下一个记号；输入结束时宿主在返回之前抛出，所以空指针结果仅为防御性（§14.3）。`readChar`把一个完整的UTF-8标量解码进`outChar`并返回`0`；输入结束时宿主在返回之前抛出，所以`1`结果仅为防御性（§14.3）。不是有效UTF-8的文本抛出基类`Exception`（§14.3）。`hasInput`在`readLine`仍能产出一行时返回`1`，且从不抛出（§14.3）。输入回调返回的缓冲区只有效到下一次宿主回调。
+**控制台。**`writeOutput`把`len`个字节的文本逐字写入标准输出（§14.2）；`writeError`把它们写入诊断通道——标准错误，或嵌入宿主掌管各流时会话的单一合并输出视图（§14.2）。`readLine`返回剥去行尾换行符的一行输入并把其长度写入`outLen`，输入结束时返回空指针；空行是空字符串而不是空指针（§14.3）。`readToken`跨行跳过空白并返回下一个记号，同样把长度写入`outLen`；输入结束时宿主在返回之前抛出，所以空指针结果仅为防御性（§14.3）。`readChar`把一个完整的UTF-8标量解码进`outChar`并返回`0`；输入结束时宿主在返回之前抛出，所以`1`结果仅为防御性（§14.3）。不是有效UTF-8的文本抛出基类`Exception`（§14.3）。`hasInput`在`readLine`仍能产出一行时返回`1`，且从不抛出（§14.3）。输入回调返回的缓冲区只有效到下一次宿主回调。
 
 **异常。**`raiseException`抛出由`exceptionKind`选中的那个类的异常，且永不返回：
 
@@ -139,7 +139,7 @@ void fn(NativeHost* host, uint8_t* ret,
 | `3` | `IndexOutOfBoundsException` |
 | `4` | `DivByZeroException` |
 
-被抛出的对象是一条以`message`为其消息的§8.3常规异常：NLang代码捕获它与捕获一次`throw`完全相同（§8.1）。
+被抛出的对象是一条以`message`的`len`个字节为其消息的§8.3常规异常：NLang代码捕获它与捕获一次`throw`完全相同（§8.1）。
 
 **随机。**`nextRandom`抽取下一个值，`seedRandom`为生成器播种；状态属于宿主，并被本次运行中的每个原生函数共享。
 

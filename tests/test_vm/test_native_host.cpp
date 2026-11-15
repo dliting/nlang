@@ -67,20 +67,21 @@ fs::path scratchDir() {
 //--- Test natives (registered in-process) ----------------------------------
 
 void HsCreate(NativeHost* host, uint8_t* ret, const uint8_t*, int) {
-    native::ReturnInt(ret, host->newString(host, "created"));
+    native::ReturnString(host, ret, std::string("created"));
 }
 void HsEcho(NativeHost* host, uint8_t* ret, const uint8_t* args, int) {
     native::ReturnString(host, ret, native::ArgString(host, args, 0));
 }
 void HsList(NativeHost* host, uint8_t* ret, const uint8_t*, int) {
     const char* items[] = {"x", "y"};
-    native::ReturnInt(ret, host->newListString(host, items, 2));
+    const int64_t lens[] = {1, 1};
+    native::ReturnInt(ret, host->newListString(host, items, lens, 2));
 }
 void HsRaiseIo(NativeHost* host, uint8_t*, const uint8_t*, int) {
-    host->raiseException(host, NEXC_IOException, "io boom");
+    native::Raise(host, NEXC_IOException, std::string("io boom"));
 }
 void HsRaiseBase(NativeHost* host, uint8_t*, const uint8_t*, int) {
-    host->raiseException(host, NEXC_Base, "base boom");
+    native::Raise(host, NEXC_Base, std::string("base boom"));
 }
 void HsRawRandom(NativeHost* host, uint8_t* ret, const uint8_t*, int) {
     native::ReturnInt(ret, static_cast<int32_t>(host->nextRandom(host)));
@@ -90,8 +91,9 @@ void HsSeededRandom(NativeHost* host, uint8_t* ret, const uint8_t* args, int) {
     native::ReturnInt(ret, static_cast<int32_t>(host->nextRandom(host)));
 }
 void HsReadLine(NativeHost* host, uint8_t* ret, const uint8_t*, int) {
-    const char* line = host->readLine(host);
-    native::ReturnInt(ret, host->newString(host, line));
+    int64_t len = 0;
+    const char* line = host->readLine(host, &len);
+    native::ReturnInt(ret, native::NewString(host, line, len));
 }
 
 void RegisterHs(VmExecutor& e, const std::string& pkg) {
@@ -303,7 +305,7 @@ void TestNullStringHandleRejected() {
 //literal. Without the non-zero create the boundary check would reject
 //these legitimate empty results.
 void HsEmptyString(NativeHost* host, uint8_t* ret, const uint8_t*, int) {
-    native::ReturnInt(ret, host->newString(host, ""));
+    native::ReturnInt(ret, native::NewString(host, std::string()));
 }
 
 void TestNativeEmptyStringRoundTrips() {
@@ -338,9 +340,12 @@ void TestNativeEmptyStringRoundTrips() {
 void HsEmptyArgCheck(NativeHost* host, uint8_t* ret,
                      const uint8_t* args, int) {
     //Raw getString view (not the ArgString std::string wrapper): the
-    //contract under test is the C pointer itself — non-NULL, empty body.
-    const char* s = host->getString(host, native::ArgInt(args, 0));
-    native::ReturnInt(ret, (s && s[0] == '\0') ? 0 : 1);
+    //contract under test is the C pointer and the answered length —
+    //non-NULL, zero-length body.
+    int64_t len = -1;
+    const char* s = host->getString(host, native::ArgInt(args, 0), &len);
+    native::ReturnInt(ret,
+        (s && len == 0 && s[0] == '\0') ? 0 : 1);
 }
 
 void TestNativeEmptyStringArgIsNotNull() {
@@ -358,6 +363,128 @@ void TestNativeEmptyStringArgIsNotNull() {
     }, &err);
     CHECK(rc == 0,
           "native getString on the empty string yields \"\", not NULL");
+}
+
+//A string is the UTF-8 byte sequence the VM stores, so a NUL byte is
+//ordinary content: the language's `\0` escape makes one and
+//`string.length()` counts it (a 3-byte "a\0b" literal reports length 3).
+//Every NativeHost string transfer therefore carries a byte length. While
+//they were NUL-terminated, a "a\0b" crossing the boundary arrived as one
+//byte in both directions while the VM still reported length 3 — the two
+//faces of the same string disagreed, which the string chapter does not
+//allow.
+void HsNulMade(NativeHost* host, uint8_t* ret, const uint8_t*, int) {
+    native::ReturnString(host, ret, std::string("a\0b", 3));
+}
+
+void HsNulArgLength(NativeHost* host, uint8_t* ret,
+                    const uint8_t* args, int) {
+    //Raw getString (not the ArgString std::string wrapper): the contract
+    //under test is the byte length the out-param answers.
+    int64_t len = 0;
+    const char* s = host->getString(host, native::ArgInt(args, 0), &len);
+    native::ReturnInt(ret, s ? static_cast<int32_t>(len) : -1);
+}
+
+void HsNulList(NativeHost* host, uint8_t* ret, const uint8_t*, int) {
+    const char* items[] = {"a\0b", "c"};
+    const int64_t lens[] = {3, 1};
+    native::ReturnInt(ret, host->newListString(host, items, lens, 2));
+}
+
+void HsNulRaise(NativeHost* host, uint8_t*, const uint8_t*, int) {
+    native::Raise(host, NEXC_IOException, std::string("a\0b", 3));
+}
+
+struct NulCapturingIo : IHostIo {
+    std::string out;
+    std::string err;
+    void OnOutput(std::string_view v) override { out.append(v); }
+    void OnError(std::string_view v) override { err.append(v); }
+};
+
+void TestNativeEmbeddedNulBytes() {
+    const std::string source =
+        "native string hsEcho(string s);\n"
+        "native string hsNulMade();\n"
+        "native int hsNulArgLength(string s);\n"
+        "native List<string> hsNulList();\n"
+        "native void hsNulRaise();\n"
+        "int main() {\n"
+        //newString out, getString and the echo helper back: one byte
+        //sequence in both directions.
+        "  if (hsNulMade().length() != 3) return 1;\n"
+        "  if (hsEcho(\"a\\0b\") != \"a\\0b\") return 2;\n"
+        "  if (hsNulArgLength(\"a\\0b\") != 3) return 3;\n"
+        "  List<string> l = hsNulList();\n"
+        "  if (l.length() != 2) return 4;\n"
+        "  if (l.get(0).length() != 3 || l.get(1).length() != 1) return 5;\n"
+        //The io package's byte conversions are the user-visible face of the
+        //same two transfers.
+        "  if (io.toBytes(\"a\\0b\").length() != 3) return 6;\n"
+        "  byte[] raw = byte[3];\n"
+        "  raw[0] = 97;\n"
+        "  raw[1] = 0;\n"
+        "  raw[2] = 98;\n"
+        "  if (io.fromBytes(raw).length() != 3) return 7;\n"
+        //The raise side carries the message bytes too.
+        "  int excLen = 0;\n"
+        "  bool caught = false;\n"
+        "  try {\n"
+        "    hsNulRaise();\n"
+        "  } catch (IOException e) {\n"
+        "    caught = true;\n"
+        "    excLen = e.message.length();\n"
+        "  }\n"
+        "  if (!caught) return 8;\n"
+        "  if (excLen != 3) return 9;\n"
+        //The console channels write bytes verbatim (the host seam already
+        //takes a string_view, so only the ABI boundary was dropping them).
+        "  io.write(\"a\\0b\");\n"
+        "  io.eprint(\"x\\0y\");\n"
+        "  return 0;\n"
+        "}\n";
+    NulCapturingIo nulIo;
+    std::string err;
+    const int rc = runSource("host_nul", source, [&nulIo](VmExecutor& e) {
+        RegisterHs(e, "host_nul");
+        e.RegisterNative("host_nul.hsNulMade", &HsNulMade);
+        e.RegisterNative("host_nul.hsNulArgLength", &HsNulArgLength);
+        e.RegisterNative("host_nul.hsNulList", &HsNulList);
+        e.RegisterNative("host_nul.hsNulRaise", &HsNulRaise);
+        e.SetHostIo(&nulIo);
+    }, &err);
+    if (rc != 0) {
+        std::fprintf(stderr, "NUL rows: program rc=%d err=[%s]\n", rc,
+                     err.c_str());
+    }
+    CHECK(rc == 0, "embedded NUL survives every native string transfer (rc)");
+    CHECK(nulIo.out == std::string("a\0b", 3),
+          "writeOutput writes the NUL bytes verbatim");
+    CHECK(nulIo.err == std::string("x\0y\n", 4),
+          "writeError writes the NUL bytes verbatim");
+}
+
+void TestReadLineKeepsNulBytes() {
+    const fs::path dir = scratchDir();
+    const fs::path inFile = dir / "stdin_nul.txt";
+    {
+        std::ofstream out(inFile, std::ios::binary);
+        out.write("a\0b\n", 4);
+    }
+    if (!std::freopen(inFile.string().c_str(), "r", stdin)) {
+        ++g_fail;
+        std::fprintf(stderr, "FAIL: could not redirect stdin (NUL line)\n");
+        return;
+    }
+    const std::string source =
+        "int main() {\n"
+        "  string s = io.readLine();\n"
+        "  if (s.length() != 3) return 1;\n"
+        "  return 0;\n"
+        "}\n";
+    int rc = runSource("host_nul_line", source, [](VmExecutor&) {});
+    CHECK(rc == 0, "readLine keeps a NUL byte inside the line (rc)");
 }
 
 void TestInputReadersOverStdin() {
@@ -631,6 +758,8 @@ int main() {
     TestNullStringHandleRejected();
     TestNativeEmptyStringRoundTrips();
     TestNativeEmptyStringArgIsNotNull();
+    TestNativeEmbeddedNulBytes();
+    TestReadLineKeepsNulBytes();
     TestInputReadersOverStdin();
     TestReadCharScalars();
     TestInputPromptSilentOnRedirectedStdout();

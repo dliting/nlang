@@ -98,13 +98,17 @@ void FsListFiles(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     }
     std::sort(names.begin(), names.end());
 
-    // Build the List<string> through the host; the c_str pointers stay valid
-    // for the duration of this one synchronous call.
+    // Build the List<string> through the host; the c_str pointers and the
+    // byte lengths stay valid for the duration of this one synchronous call.
     std::vector<const char*> ptrs;
+    std::vector<int64_t> lens;
     ptrs.reserve(names.size());
-    for (const std::string& n : names)
+    lens.reserve(names.size());
+    for (const std::string& n : names) {
         ptrs.push_back(n.c_str());
-    ReturnInt(ret, h->newListString(h, ptrs.data(),
+        lens.push_back(static_cast<int64_t>(n.size()));
+    }
+    ReturnInt(ret, h->newListString(h, ptrs.data(), lens.data(),
                                     static_cast<int>(ptrs.size())));
 }
 

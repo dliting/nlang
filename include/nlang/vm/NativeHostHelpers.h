@@ -18,6 +18,7 @@
 
 #include <cstring>
 #include <string>
+#include <string_view>
 
 #include <nlang/runtime/Config.h>
 
@@ -95,11 +96,20 @@ inline int32_t NewArrayView(NativeHost* host, int32_t targetHandle,
                               offset);
 }
 
+// A NLang string is a UTF-8 byte sequence in which a NUL byte is ordinary
+// content, so every string transfer below carries a byte length: the
+// returned pointer's NUL terminator is a convenience for C readers, never
+// the end of the content.
+inline std::string GetString(NativeHost* host, int32_t handle) {
+    int64_t len = 0;
+    const char* text = host->getString(host, handle, &len);
+    return (text && len > 0) ? std::string(text, static_cast<size_t>(len))
+                             : std::string();
+}
+
 inline std::string ArgString(NativeHost* host, const uint8_t* args,
                              int slot) {
-    int32_t handle = ArgInt(args, slot);
-    const char* text = host->getString(host, handle);
-    return text ? std::string(text) : std::string();
+    return GetString(host, ArgInt(args, slot));
 }
 
 inline void ReturnInt(uint8_t* ret, int32_t value) {
@@ -122,10 +132,31 @@ inline void ReturnLong(uint8_t* ret, int64_t value) {
     std::memcpy(ret, &value, sizeof(value));
 }
 
+// Create a heap string from `len` bytes at `data`. A null pointer or a
+// non-positive length is empty content, so callers may forward an input
+// callback's end-of-input sentinel without branching.
+inline int32_t NewString(NativeHost* host, const char* data, int64_t len) {
+    return host->newString(host, data, len > 0 ? len : 0);
+}
+
+// Create a heap string from a whole std::string, NUL bytes included.
+inline int32_t NewString(NativeHost* host, const std::string& value) {
+    return NewString(host, value.data(), static_cast<int64_t>(value.size()));
+}
+
 inline void ReturnString(NativeHost* host, uint8_t* ret,
                          const std::string& value) {
-    int32_t handle = host->newString(host, value.c_str());
-    ReturnInt(ret, handle);
+    ReturnInt(ret, NewString(host, value));
+}
+
+// Write text bytes verbatim to the program's standard output and to its
+// diagnostic channel (io.print/io.write and io.eprint's routes).
+inline void WriteOutput(NativeHost* host, std::string_view text) {
+    host->writeOutput(host, text.data(), static_cast<int64_t>(text.size()));
+}
+
+inline void WriteError(NativeHost* host, std::string_view text) {
+    host->writeError(host, text.data(), static_cast<int64_t>(text.size()));
 }
 
 // Raise and return a dummy value so a function body can write
@@ -133,7 +164,8 @@ inline void ReturnString(NativeHost* host, uint8_t* ret,
 // that do not treat the callback as noreturn).
 inline void Raise(NativeHost* host, int exceptionKind,
                   const std::string& message) {
-    host->raiseException(host, exceptionKind, message.c_str());
+    host->raiseException(host, exceptionKind, message.data(),
+                         static_cast<int64_t>(message.size()));
 }
 
 } // namespace native

@@ -44,40 +44,54 @@ struct MockHost {
     uint32_t rngValue = 12345u;
 };
 
-const char* MockGetString(NativeHost* self, int32_t handle) {
+//v13 string side: the byte length delimits the content, so the mock keeps
+//NUL bytes exactly like the real host does.
+const char* MockGetString(NativeHost* self, int32_t handle, int64_t* outLen) {
     auto* m = reinterpret_cast<MockHost*>(self);
     auto it = m->strings.find(handle);
-    return it == m->strings.end() ? nullptr : it->second.c_str();
+    if (it == m->strings.end()) {
+        if (outLen) *outLen = 0;
+        return nullptr;
+    }
+    if (outLen) *outLen = static_cast<int64_t>(it->second.size());
+    return it->second.c_str();
 }
 
-int32_t MockNewString(NativeHost* self, const char* utf8) {
+int32_t MockNewString(NativeHost* self, const char* utf8, int64_t len) {
     auto* m = reinterpret_cast<MockHost*>(self);
-    m->createdStrings.push_back(utf8 ? utf8 : "");
+    m->createdStrings.push_back((utf8 && len > 0)
+        ? std::string(utf8, static_cast<size_t>(len)) : std::string());
     return static_cast<int32_t>(1000 + m->createdStrings.size());
 }
 
 int32_t MockNewListString(NativeHost* self, const char* const* items,
-                          int count) {
+                          const int64_t* lens, int count) {
     auto* m = reinterpret_cast<MockHost*>(self);
     m->listItems.clear();
-    for (int i = 0; i < count; ++i)
-        m->listItems.push_back(items[i] ? items[i] : "");
+    for (int i = 0; i < count; ++i) {
+        const int64_t len = (items && items[i] && lens) ? lens[i] : 0;
+        m->listItems.push_back((items && items[i] && len > 0)
+            ? std::string(items[i], static_cast<size_t>(len)) : std::string());
+    }
     m->listHandle = 2000;
     return m->listHandle;
 }
 
-void MockWriteOutput(NativeHost* self, const char* text) {
+void MockWriteOutput(NativeHost* self, const char* text, int64_t len) {
     auto* m = reinterpret_cast<MockHost*>(self);
-    if (text) m->output += text;
+    if (text && len > 0)
+        m->output.append(text, static_cast<size_t>(len));
 }
 
-void MockWriteError(NativeHost* self, const char* text) {
+void MockWriteError(NativeHost* self, const char* text, int64_t len) {
     auto* m = reinterpret_cast<MockHost*>(self);
-    if (text) m->errorOutput += text;
+    if (text && len > 0)
+        m->errorOutput.append(text, static_cast<size_t>(len));
 }
 
-const char* MockReadLine(NativeHost* self) {
+const char* MockReadLine(NativeHost* self, int64_t* outLen) {
     auto* m = reinterpret_cast<MockHost*>(self);
+    if (outLen) *outLen = static_cast<int64_t>(m->nextLine.size());
     return m->nextLine.c_str();
 }
 
@@ -92,11 +106,13 @@ void MockSeedRandom(NativeHost* self, int32_t seed) {
 }
 
 // Raise needs to record into the mock; provide a recording variant.
-void MockRaiseRecord(NativeHost* self, int kind, const char* message) {
+void MockRaiseRecord(NativeHost* self, int kind, const char* message,
+                     int64_t len) {
     auto* m = reinterpret_cast<MockHost*>(self);
     m->raised = true;
     m->raisedKind = kind;
-    m->raisedMessage = message ? message : "";
+    m->raisedMessage = (message && len > 0)
+        ? std::string(message, static_cast<size_t>(len)) : std::string();
 }
 
 MockHost MakeMock() {
@@ -203,7 +219,8 @@ void TestReturnString() {
 void TestListCallback() {
     MockHost m = MakeMock();
     const char* items[] = {"a.n", "b.n", "c.n"};
-    int32_t h = m.table.newListString(&m.table, items, 3);
+    const int64_t lens[] = {3, 3, 3};
+    int32_t h = m.table.newListString(&m.table, items, lens, 3);
     CHECK(h == 2000, "newListString returns handle");
     CHECK(m.listItems.size() == 3 && m.listItems[1] == "b.n",
           "newListString forwards items");
@@ -211,14 +228,14 @@ void TestListCallback() {
 
 void TestIoCallbacks() {
     MockHost m = MakeMock();
-    m.table.writeOutput(&m.table, "line\n");
+    m.table.writeOutput(&m.table, "line\n", 5);
     CHECK(m.output == "line\n", "writeOutput records text");
 
-    m.table.writeError(&m.table, "boom\n");
+    m.table.writeError(&m.table, "boom\n", 5);
     CHECK(m.errorOutput == "boom\n", "writeError records diagnostics");
 
     m.nextLine = "typed text";
-    const char* line = m.table.readLine(&m.table);
+    const char* line = m.table.readLine(&m.table, nullptr);
     std::string copied = line ? line : "";   // copy immediately, as documented
     CHECK(copied == "typed text", "readLine returns line");
 }

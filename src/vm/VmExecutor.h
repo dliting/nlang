@@ -2019,20 +2019,26 @@ private:
         uint64_t savedRootOwner, ExecutionContext* ctx, size_t stolenDepth);
 
     //NativeHost ABI plumbing (definitions in VmExecutorNativeHost.cpp).
-    int32_t BuildListString(const char* const* items, int count);
+    int32_t BuildListString(const char* const* items, const int64_t* lens,
+                            int count);
     NativeLibraryLoader& EnsureNativeLoader();
     void EnsureNativeAvailable(const std::string& name);
     //NativeHost function-table callbacks (static; they restore the
     //VmExecutor through the VmNativeHost wrapper whose first member is the
-    //public table).
-    static const char* NativeGetString(NativeHost* self, int32_t handle);
-    static int32_t NativeNewString(NativeHost* self, const char* utf8);
+    //public table). v13: the string family carries byte lengths, because a
+    //NUL byte is ordinary string content (contract in NativeHost.h).
+    static const char* NativeGetString(NativeHost* self, int32_t handle,
+        int64_t* outLen);
+    static int32_t NativeNewString(NativeHost* self, const char* utf8,
+        int64_t len);
     static int32_t NativeNewListString(NativeHost* self,
-        const char* const* items, int count);
-    static void NativeWriteOutput(NativeHost* self, const char* text);
-    static void NativeWriteError(NativeHost* self, const char* text);
-    static const char* NativeReadLine(NativeHost* self);
-    static const char* NativeReadToken(NativeHost* self);
+        const char* const* items, const int64_t* lens, int count);
+    static void NativeWriteOutput(NativeHost* self, const char* text,
+        int64_t len);
+    static void NativeWriteError(NativeHost* self, const char* text,
+        int64_t len);
+    static const char* NativeReadLine(NativeHost* self, int64_t* outLen);
+    static const char* NativeReadToken(NativeHost* self, int64_t* outLen);
     static int NativeReadChar(NativeHost* self, uint32_t* outChar);
     static int NativeHasInput(NativeHost* self);
 
@@ -2041,7 +2047,7 @@ private:
     //never rebuilt.
     TokenView& EnsureInputView();
     static void NativeRaiseException(NativeHost* self, int exceptionKind,
-        const char* message);
+        const char* message, int64_t len);
     static uint32_t NativeNextRandom(NativeHost* self);
     static void NativeSeedRandom(NativeHost* self, int32_t seed);
     //v6 array side (contract in NativeHost.h): pinned payload view and

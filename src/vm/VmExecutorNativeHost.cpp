@@ -28,6 +28,7 @@ List<string> construction moved to VmExecutorNativeLoader.cpp.
 #include <iterator>
 #include <memory>
 #include <string>
+#include <string_view>
 
 #if defined(_WIN32)
 #include <io.h>
@@ -43,6 +44,16 @@ namespace {
 //member); restore the wrapper.
 VmNativeHost* Wrap(NativeHost* self) {
     return reinterpret_cast<VmNativeHost*>(self);
+}
+
+//v13: one native string payload. The byte length is the content boundary
+//(a NUL byte is ordinary string content), and a null pointer or a
+//non-positive length is the empty payload — defensive for a caller that
+//skips the null check its contract allows.
+std::string_view Content(const char* text, int64_t len) {
+    return (text != nullptr && len > 0)
+        ? std::string_view(text, static_cast<size_t>(len))
+        : std::string_view();
 }
 
 //True for a real console — including a ConPTY-attached process, whose
@@ -127,15 +138,21 @@ void VmExecutor::InitNativeHost(VmNativeHost& host) {
 //root registries) take their dedicated leaf mutexes. The two
 //scheduler-facing callbacks keep the store lock (see below).
 
-const char* VmExecutor::NativeGetString(NativeHost* self, int32_t handle) {
+const char* VmExecutor::NativeGetString(NativeHost* self, int32_t handle,
+                                        int64_t* outLen) {
     VmNativeHost* h = Wrap(self);
     //K8: lock-free — the copy walks the string store, which flattens
     //and interns under its own maintenance lock.
     h->stringScratch = h->executor->StrValCopy(handle);
+    //v13: the byte length is the content boundary; a NUL byte inside the
+    //sequence is content, and the c_str() terminator stays for C readers.
+    if (outLen)
+        *outLen = static_cast<int64_t>(h->stringScratch.size());
     return h->stringScratch.c_str();
 }
 
-int32_t VmExecutor::NativeNewString(NativeHost* self, const char* utf8) {
+int32_t VmExecutor::NativeNewString(NativeHost* self, const char* utf8,
+                                    int64_t len) {
     VmExecutor* e = Wrap(self)->executor;
     //Native-creator gate: creation and root push are one indivisible span
     //against a collection led by another carrier (contract in
@@ -151,9 +168,13 @@ int32_t VmExecutor::NativeNewString(NativeHost* self, const char* utf8) {
     //hands out 0. Interning "" returns the internal slot 0 (ruling D26),
     //so empty content gets a fresh non-interned empty object instead —
     //equality still holds (a non-interned "" compares by content).
+    //v13: `len` bytes at utf8; a null pointer or a non-positive length is
+    //empty content (a negative length is defensive, never a slice run).
+    const bool hasContent = (utf8 != nullptr) && (len > 0);
     int32_t handle = 0;
-    if (utf8 && *utf8)
-        handle = e->CreateNewString(utf8);
+    if (hasContent)
+        handle = e->CreateNewString(
+            std::string(utf8, static_cast<size_t>(len)));
     else
         handle = e->AllocStringObj();   //fresh Flat "" (non-interned)
     //White-box seam (SetCreationRootGapMsForTests): hold the creation-to-root
@@ -169,43 +190,47 @@ int32_t VmExecutor::NativeNewString(NativeHost* self, const char* utf8) {
 
 int32_t VmExecutor::NativeNewListString(NativeHost* self,
                                         const char* const* items,
-                                        int count) {
+                                        const int64_t* lens, int count) {
     VmExecutor* e = Wrap(self)->executor;
     //Native-creator gate (creation+root indivisible; contract in VmExecutor.h).
     NativeCreationGate creationGate(*e);
     //K8: lock-free — the list build holds the Container domain
     //internally; rooting rides the registry mutex.
-    const int32_t listHeapIdx = e->BuildListString(items, count);
+    const int32_t listHeapIdx = e->BuildListString(items, lens, count);
     //The list keeps its elements (MarkListElements); rooting the list
     //covers the whole created graph.
     e->RootCreatedNativeHandle(listHeapIdx);
     return listHeapIdx;
 }
 
-void VmExecutor::NativeWriteOutput(NativeHost* self, const char* text) {
+void VmExecutor::NativeWriteOutput(NativeHost* self, const char* text,
+                                   int64_t len) {
     VmExecutor* e = Wrap(self)->executor;
     //K8: host IO callbacks are not promised thread-safe — the console
     //output mutex keeps whole-line writes whole.
     std::lock_guard<std::mutex> outGuard(e->m_consoleOutMutex);
-    const char* out = text ? text : "";
+    //v13: `len` bytes are the payload; the IHostIo seam already travels
+    //by length, so a NUL byte reaches the host verbatim.
+    const std::string_view out = Content(text, len);
     if (e->m_pHostIo) {
         e->m_pHostIo->OnOutput(out);
     } else {
-        std::fwrite(out, 1, std::strlen(out), stdout);
+        std::fwrite(out.data(), 1, out.size(), stdout);
         std::fflush(stdout);
     }
 }
 
-void VmExecutor::NativeWriteError(NativeHost* self, const char* text) {
+void VmExecutor::NativeWriteError(NativeHost* self, const char* text,
+                                  int64_t len) {
     VmExecutor* e = Wrap(self)->executor;
     std::lock_guard<std::mutex> outGuard(e->m_consoleOutMutex);
-    const char* out = text ? text : "";
+    const std::string_view out = Content(text, len);
     if (e->m_pHostIo) {
         //Separate error channel (extension point ④): hosts with a
         //merged view keep it via IHostIo::OnError's OnOutput default.
         e->m_pHostIo->OnError(out);
     } else {
-        std::fwrite(out, 1, std::strlen(out), stderr);
+        std::fwrite(out.data(), 1, out.size(), stderr);
         std::fflush(stderr);
     }
 }
@@ -232,9 +257,11 @@ TokenView& VmExecutor::EnsureInputView() {
     return *m_upInputView;
 }
 
-const char* VmExecutor::NativeReadLine(NativeHost* self) {
+const char* VmExecutor::NativeReadLine(NativeHost* self, int64_t* outLen) {
     VmNativeHost* h = Wrap(self);
     VmExecutor* e = h->executor;
+    if (outLen)
+        *outLen = 0;   //both raising and end-of-input outcomes carry no bytes
     std::string line;
     InputReadStatus st;
     {
@@ -250,12 +277,15 @@ const char* VmExecutor::NativeReadLine(NativeHost* self) {
     if (st == InputReadStatus::Eof)
         return nullptr;   //end of input: io_native folds null into the
                           //"" sentinel — line-level reads never raise
-    //Trailing '\r' was already stripped by the line source.
+    //Trailing '\r' was already stripped by the line source. A NUL byte
+    //inside the line stayed in the buffer: it is content, not a boundary.
     h->lineScratch = std::move(line);
+    if (outLen)
+        *outLen = static_cast<int64_t>(h->lineScratch.size());
     return h->lineScratch.c_str();
 }
 
-const char* VmExecutor::NativeReadToken(NativeHost* self) {
+const char* VmExecutor::NativeReadToken(NativeHost* self, int64_t* outLen) {
     VmNativeHost* h = Wrap(self);
     VmExecutor* e = h->executor;
     std::string token;
@@ -271,6 +301,8 @@ const char* VmExecutor::NativeReadToken(NativeHost* self) {
         e->RaiseNlangException(e->m_ioExcClassIdx,
             "io.readToken: input ended.");
     h->lineScratch = std::move(token);
+    if (outLen)
+        *outLen = static_cast<int64_t>(h->lineScratch.size());
     return h->lineScratch.c_str();
 }
 

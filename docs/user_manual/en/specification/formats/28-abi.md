@@ -14,8 +14,8 @@ and the input/output (IO) parking built on it.
 
 ## 28.1 Scope and Version
 
-**ABI version.** This chapter describes ABI version **12**. The
-host accepts a module whose version probe reports exactly `12`
+**ABI version.** This chapter describes ABI version **13**. The
+host accepts a module whose version probe reports exactly `13`
 and rejects every other value, including a module that exports
 no probe at all (§28.2). An ABI change bumps the version and
 replaces this chapter wholesale; the specification describes
@@ -68,7 +68,7 @@ no directory raises a host-level run-time error at the call
 
 1. resolves the export `nlang_abi_version`; a module without
    the export is rejected;
-2. calls it; a value other than `12` is rejected;
+2. calls it; a value other than `13` is rejected;
 3. resolves the export `nlang_native_init`; a module without
    the export is rejected;
 4. calls it once (§28.3).
@@ -90,7 +90,7 @@ linkage, unmangled on every platform the ABI supports:
 
 | Export | Signature | Contract |
 |---|---|---|
-| `nlang_abi_version` | `unsigned (void)` | returns `12`; the single version authority (§28.2) |
+| `nlang_abi_version` | `unsigned (void)` | returns `13`; the single version authority (§28.2) |
 | `nlang_native_init` | `int (void* registry, RegisterNativeFn reg, RegisterNativeBlockingFn regBlocking)` | called once after the probe passes |
 
 with the registration callbacks
@@ -174,23 +174,23 @@ the call (§28.5, §28.6).
 ## 28.5 The Host Function Table
 
 **Layout.** `NativeHost` is a struct of function pointers
-whose first field is `abiVersion`, a `uint32_t` holding `12`,
+whose first field is `abiVersion`, a `uint32_t` holding `13`,
 followed in fixed order by the twenty-five callbacks below. Each
 callback takes the table itself as its first parameter, shown
 as `self` in the signatures:
 
 | Callback | Signature |
 |---|---|
-| `getString` | `const char* (NativeHost* self, int32_t handle)` |
-| `newString` | `int32_t (NativeHost* self, const char* utf8)` |
-| `newListString` | `int32_t (NativeHost* self, const char* const* items, int count)` |
-| `writeOutput` | `void (NativeHost* self, const char* text)` |
-| `writeError` | `void (NativeHost* self, const char* text)` |
-| `readLine` | `const char* (NativeHost* self)` |
-| `readToken` | `const char* (NativeHost* self)` |
+| `getString` | `const char* (NativeHost* self, int32_t handle, int64_t* outLen)` |
+| `newString` | `int32_t (NativeHost* self, const char* utf8, int64_t len)` |
+| `newListString` | `int32_t (NativeHost* self, const char* const* items, const int64_t* lens, int count)` |
+| `writeOutput` | `void (NativeHost* self, const char* text, int64_t len)` |
+| `writeError` | `void (NativeHost* self, const char* text, int64_t len)` |
+| `readLine` | `const char* (NativeHost* self, int64_t* outLen)` |
+| `readToken` | `const char* (NativeHost* self, int64_t* outLen)` |
 | `readChar` | `int (NativeHost* self, uint32_t* outChar)` |
 | `hasInput` | `int (NativeHost* self)` |
-| `raiseException` | `void (NativeHost* self, int exceptionKind, const char* message)` |
+| `raiseException` | `void (NativeHost* self, int exceptionKind, const char* message, int64_t len)` |
 | `nextRandom` | `uint32_t (NativeHost* self)` |
 | `seedRandom` | `void (NativeHost* self, int32_t seed)` |
 | `getArrayView` | `int (NativeHost* self, int32_t handle, NativeArrayView* out)` |
@@ -207,12 +207,21 @@ as `self` in the signatures:
 | `typeArgKind` | `uint8_t (NativeHost* self, uint32_t index)` |
 | `typeArgName` | `const char* (NativeHost* self, uint32_t index)` |
 
-**Strings.** `getString` returns the bytes of the string
-behind `handle`; `newString` creates a string from a
-NUL-terminated UTF-8 (Unicode Transformation Format) buffer
-and returns its handle; `newListString` creates a
-`List<string>` from `count` NUL-terminated buffers in one
-call. The buffer `getString` returns is valid only until the
+**Strings.** Every string entry names its content
+length: text the native hands to the host arrives with an
+`int64_t len` saying how many bytes to read, and text the host
+hands to the native comes with an `int64_t* outLen` the native
+may pass as null when it only wants the bytes. A null buffer
+and a length that is not positive both mean empty content; a
+returned buffer stays NUL-terminated as a convenience, but the
+length is the content boundary, so a string may hold NUL bytes
+anywhere inside it. `getString` reports the bytes of the string
+behind `handle` and writes their count into `outLen`;
+`newString` creates a string from the first `len` bytes of a
+UTF-8 (Unicode Transformation Format) buffer and returns its
+handle; `newListString` creates a `List<string>` from `count`
+buffers and a matching array of `count` lengths in one call.
+The buffer `getString` returns is valid only until the
 next host callback — the native copies it immediately. A
 native function declared to return `string` must write into
 `ret` a handle obtained from `newString`: handle 0 means the
@@ -221,14 +230,16 @@ naming the function, as does a handle that is no longer
 live. The empty string is a real handle from `newString`,
 never 0.
 
-**Console.** `writeOutput` writes text verbatim to standard
-output (§14.2); `writeError` writes it to the diagnostic
-channel — standard error, or the session's single merged
-output view when an embedding host owns the streams (§14.2).
-`readLine` returns one input line with the trailing newline
-stripped, or null at end of input; an empty line is `""`
-(§14.3). `readToken` skips whitespace across lines and
-returns the next token; at end of input the host raises
+**Console.** `writeOutput` writes `len` bytes of text
+verbatim to standard output (§14.2); `writeError` writes them
+to the diagnostic channel — standard error, or the session's
+single merged output view when an embedding host owns the
+streams (§14.2). `readLine` returns one input line with the
+trailing newline stripped and writes its length into `outLen`,
+or null at end of input; an empty line is the empty string,
+not null (§14.3). `readToken` skips whitespace across lines and
+returns the next token, likewise writing its length into
+`outLen`; at end of input the host raises
 before returning, so a null result is defensive only (§14.3).
 `readChar` decodes one full UTF-8 scalar into `outChar` and
 returns `0`; at end of input the host raises before returning,
@@ -250,9 +261,9 @@ class selected by `exceptionKind` and never returns:
 | `3` | `IndexOutOfBoundsException` |
 | `4` | `DivByZeroException` |
 
-The raised object is an ordinary exception of §8.3 with
-`message` as its message: NLang code catches it exactly as it
-catches a `throw` (§8.1).
+The raised object is an ordinary exception of §8.3 with the
+`len` bytes of `message` as its message: NLang code catches it
+exactly as it catches a `throw` (§8.1).
 
 **Random.** `nextRandom` draws the next value and `seedRandom`
 seeds the generator; the state belongs to the host and is
