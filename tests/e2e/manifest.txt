@@ -2386,3 +2386,5 @@ stabilize_array_oob 1
 xacc_fn_private compile_error The function "hiddenHelper" does not exist or is not accessible.
 xacc_type_private compile_error Type 'Vault' is not a member of package 'lib'.
 xacc_ok_public 28
+stabilize_list_set 42
+stabilize_dict_set 42

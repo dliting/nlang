@@ -485,6 +485,44 @@ static void testElementStoreZeroAlloc()
     PASS();
 }
 
+//Explicit List.set allocation pin (Task 6): `li.set(0, p)` suppresses
+//the emit-side staging copy — the runtime copies into the element's
+//EXISTING record in place, so a 1000-iteration loop allocates nothing.
+//Fixed base (list + p + the element record from add); the old
+//staging-copy-per-call path adds 1000.
+static void testListSetExplicitZeroAlloc()
+{
+    TEST(listSetExplicitZeroAlloc);
+    ExecResult r = runProgram("stabilize_copy_list_set",
+        "struct P {\n"
+        "    int x;\n"
+        "    int y;\n"
+        "}\n"
+        "int main() {\n"
+        "    List<P> li = {};\n"
+        "    P p;\n"
+        "    p.x = 1;\n"
+        "    p.y = 2;\n"
+        "    li.add(p);\n"
+        "    for (int i = 0; i < 1000; i = i + 1) {\n"
+        "        li.set(0, p);\n"
+        "    }\n"
+        "    if (li[0].x == 1 && li[0].y == 2) {\n"
+        "        return 42;\n"
+        "    }\n"
+        "    return 1;\n"
+        "}\n");
+    REQUIRE(r.built);
+    CHECK(r.exitCode == 42, "program exit");
+    const size_t allocs = r.exec->HeapAllocCountForTests();
+    if (allocs != 3) {
+        FAIL("1000 explicit List.set calls allocate nothing (expected 3 "
+             "fixed records, got " + std::to_string(allocs) + ")");
+        return;
+    }
+    PASS();
+}
+
 int main()
 {
     Runtime::StaticInit();
@@ -497,6 +535,7 @@ int main()
     testLocalAssignZeroAlloc();
     testFieldStoreZeroAlloc();
     testElementStoreZeroAlloc();
+    testListSetExplicitZeroAlloc();
     std::cerr << "stabilize_copy: " << g_pass << " passed, "
               << g_fail << " failed\n";
     return g_fail == 0 ? 0 : 1;

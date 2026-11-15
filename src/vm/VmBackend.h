@@ -80,6 +80,13 @@ public:
         bool bDynamic = false;
         uint8_t tag = 0;
         uint8_t dynOrdinal = 0;
+        //Record stabilization (v0.13.9 phase ②): List.set/Dict.set
+        //value slots suppress EmitBinding's emit-side struct staging
+        //copy — the intrinsic copies the value into the element's
+        //EXISTING record in place (the old element handle is only
+        //knowable at runtime). add keeps the staging copy (position
+        //establishment happens at emit time).
+        bool suppressStagingCopy = false;
     };
 
     VmBackend();
@@ -1020,11 +1027,16 @@ private:
     //work (e.g. boxing for built-in generic class methods).
     //claimBase: the base offset of the current evalArea claim slice
     //(or callParamBase for non-EmitCallArgs callers).
+    //pArgPlans: the call's boxing plans (EmitCallArgs' member-generic
+    //path); a slot plan with suppressStagingCopy skips the struct
+    //staging copy (the intrinsic copies in place instead).
     void EmitBinding(const FormalBinding* pBindings, size_t bindingIdx,
                      uint16_t slotIdx, size_t slotBase,
                      BytecodeEmitter& emitter,
                      uint16_t thisSlot,
-                     uint16_t claimBase);
+                     uint16_t claimBase,
+                     const std::map<uint16_t, ArgBoxPlan>* pArgPlans
+                         = nullptr);
     //B_Default arm of EmitBinding: the override scope, the default
     //expression, and the 0.7.5 in-place kind normalize to the formal.
     void EmitDefaultBinding(const FormalBinding* pBindings,
@@ -1115,7 +1127,9 @@ private:
                                size_t slotBase, uint16_t claimBase,
                                uint16_t thisSlot,
                                std::vector<OutSpill>* pOutSpills,
-                               const std::function<void(uint16_t)>& applyBox);
+                               const std::function<void(uint16_t)>& applyBox,
+                               const std::map<uint16_t, ArgBoxPlan>* pArgPlans
+                                   = nullptr);
 
     //RAII registration of "pFn's defaults are mid-emission", shared by the
     //three default-emission sites (function/method bindings, ctor
@@ -1272,7 +1286,9 @@ private:
                               BytecodeEmitter& emitter, uint16_t thisSlot,
                               uint16_t claimBase,
                               std::vector<OutSpill>* pOutSpills,
-                              const std::function<void(uint16_t)>& applyBox);
+                              const std::function<void(uint16_t)>& applyBox,
+                              const std::map<uint16_t, ArgBoxPlan>* pArgPlans
+                                  = nullptr);
 
     //Phase 9a: emit a compound-assign arithmetic op (locals[dst] op= locals[src]).
     //op is the underlying binary operator (Add/Sub/Mul/Div/Mod).

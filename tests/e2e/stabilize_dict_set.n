@@ -1,0 +1,29 @@
+//v0.13.9 phase (2) record stabilization: Dict.set value arm. The
+//new-key store must ESTABLISH a fresh record (p.x = 9 must not bleed
+//into d["a"]); the second store to the same key must REPLACE the
+//existing record in place (q.x = 7 must not bleed). Before the arm the
+//sugar stored raw handles (alias), so the pins read the mutations.
+struct P {
+    int x;
+    int y;
+}
+int main() {
+    Dict<string, P> d = {};
+    P p;
+    p.x = 1;
+    p.y = 2;
+    d["a"] = p;
+    p.x = 9;
+    if (d["a"].x != 1 || d["a"].y != 2) {
+        return 1;
+    }
+    P q;
+    q.x = 5;
+    q.y = 6;
+    d["a"] = q;
+    q.x = 7;
+    if (d["a"].x == 5 && d["a"].y == 6) {
+        return 42;
+    }
+    return 2;
+}

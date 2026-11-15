@@ -150,7 +150,8 @@ void VmBackend::EmitDefaultBinding(const FormalBinding* pBindings,
 void VmBackend::EmitBinding(const FormalBinding* pBindings, size_t bindingIdx,
                               uint16_t slotIdx, size_t slotBase,
                               BytecodeEmitter& emitter, uint16_t thisSlot,
-                              uint16_t claimBase)
+                              uint16_t claimBase,
+                              const std::map<uint16_t, ArgBoxPlan>* pArgPlans)
 {
     const auto& b = pBindings[bindingIdx];
     //claimBase is the evalArea claim slice base, provided by the two
@@ -175,7 +176,18 @@ void VmBackend::EmitBinding(const FormalBinding* pBindings, size_t bindingIdx,
     //RuntimeTypeKind files as RTK_Array — so arrays pass by reference
     //regardless of element kind, with no separate IsArrayType guard
     //(Phase 9d-3 dispatch invariant, now derived from the token).
-    if (pFormalType && RuntimeTypeKind(pFormalType) == RTK_Struct
+    //Record stabilization (v0.13.9 phase ②): a slot whose arg plan
+    //says suppressStagingCopy (List.set/Dict.set value) skips the
+    //staging copy — the intrinsic writes the value's cells into the
+    //element's EXISTING record in place.
+    bool suppressStagingCopy = false;
+    if (pArgPlans) {
+        auto it = pArgPlans->find(slotIdx);
+        if (it != pArgPlans->end())
+            suppressStagingCopy = it->second.suppressStagingCopy;
+    }
+    if (!suppressStagingCopy && pFormalType
+        && RuntimeTypeKind(pFormalType) == RTK_Struct
         && pFormalType->Kind() == NK_StructDecl) {
         EmitStructDeepCopy(m_currFunc->tempSlot, paramOffset,
             static_cast<SnStructDecl&>(*pFormalType), emitter);
@@ -351,7 +363,8 @@ bool VmBackend::EmitFormalBindingArgs(const SnInvokeExpr& invoke,
         SnFunction* pCallee, BytecodeEmitter& emitter, size_t slotBase,
         uint16_t claimBase, uint16_t thisSlot,
         std::vector<OutSpill>* pOutSpills,
-        const std::function<void(uint16_t)>& applyBox) {
+        const std::function<void(uint16_t)>& applyBox,
+        const std::map<uint16_t, ArgBoxPlan>* pArgPlans) {
     const auto& bindings = invoke.Bindings();
     if (bindings.size() + slotBase > kMaxFuncParams) {
         NLANG_ASSERT(false && "function parameters exceed kMaxFuncParams sanity ceiling");
@@ -370,7 +383,8 @@ bool VmBackend::EmitFormalBindingArgs(const SnInvokeExpr& invoke,
 
     for (size_t i = 0; i < bindings.size(); ++i) {
         EmitOneFormalBinding(bindings.data(), i, slotBase, emitter,
-                             thisSlot, claimBase, pOutSpills, applyBox);
+                             thisSlot, claimBase, pOutSpills, applyBox,
+                             pArgPlans);
     }
     return false;
 }
@@ -381,10 +395,11 @@ void VmBackend::EmitOneFormalBinding(const FormalBinding* pBindings,
         size_t bindingIdx, size_t slotBase, BytecodeEmitter& emitter,
         uint16_t thisSlot, uint16_t claimBase,
         std::vector<OutSpill>* pOutSpills,
-        const std::function<void(uint16_t)>& applyBox) {
+        const std::function<void(uint16_t)>& applyBox,
+        const std::map<uint16_t, ArgBoxPlan>* pArgPlans) {
     uint16_t slotIdx = static_cast<uint16_t>(bindingIdx + slotBase);
     EmitBinding(pBindings, bindingIdx, slotIdx, slotBase, emitter,
-                thisSlot, claimBase);
+                thisSlot, claimBase, pArgPlans);
     //v0.12.7: boundary rank check — an annotated formal receiving an
     //unannotated array argument (defaults carry no caller expression;
     //their scalar-only contract needs no check).
@@ -450,7 +465,7 @@ void VmBackend::EmitCallArgs(const SnInvokeExpr& invoke, SnFunction* pCallee,
                                  applyBox);
     } else if (EmitFormalBindingArgs(invoke, pCallee, emitter, slotBase,
                                      claimBase, thisSlot, pOutSpills,
-                                     applyBox)) {
+                                     applyBox, pArgPlans)) {
         return;
     }
 

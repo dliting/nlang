@@ -111,6 +111,20 @@ bool VmExecutor::ExecuteIntrinsicContainerStructural(uint16_t intrinsicId,
         if (idx < 0 || static_cast<size_t>(idx) >= lst.elements.size())
             throw DeferredNlangRaise{m_oobExcClassIdx,
                                      "NLang VM: List index out of bounds"};
+        //Record stabilization (v0.13.9 phase ②): a struct element is
+        //written INTO its existing record — record identity never
+        //changes, held references stay live (zero allocation). The
+        //emit side suppressed the staging copy for this slot; the old
+        //handle is only knowable here, at runtime. Runs inside the
+        //Container DomainGuard; StructCopy is a nested leaf (legal
+        //order). Non-struct elements keep the bare store.
+        int32_t old = lst.elements[idx];
+        if (old > 0
+            && m_slotKinds[static_cast<size_t>(old)] == RTK_Struct) {
+            CopyStructInPlaceLocked(
+                old, value, m_slotStructIdx[static_cast<size_t>(old)]);
+            return true;
+        }
         lst.elements[idx] = value;
         return true;
     }
@@ -211,7 +225,32 @@ bool VmExecutor::ExecuteIntrinsicContainerStructural(uint16_t intrinsicId,
         int32_t handle = ReadDictHandle(callParamBase, locals, "set");
         auto& entries = m_dictStore[handle - 1].entries;
         for (auto& kv : entries) {
-            if (DictKeysEqual(kv.first, k)) { kv.second = v; return true; }
+            if (DictKeysEqual(kv.first, k)) {
+                //Record stabilization replace arm (v0.13.9 phase ②):
+                //a struct value is written INTO the existing record —
+                //identity-preserving, zero allocation (mirrors
+                //INTR_List_Set; see the arm's comment there).
+                int32_t old = kv.second;
+                if (old > 0
+                    && m_slotKinds[static_cast<size_t>(old)] == RTK_Struct) {
+                    CopyStructInPlaceLocked(
+                        old, v, m_slotStructIdx[static_cast<size_t>(old)]);
+                    return true;
+                }
+                kv.second = v;
+                return true;
+            }
+        }
+        //Record stabilization new-key arm: no old record exists, so
+        //key-absence — not the old-handle shape — is the discriminator
+        //for struct values. CopyStructInPlaceLocked's establish
+        //fallback (dst ≤ 0) allocates ONE fresh record and returns its
+        //handle; the entry stores that handle, never v's raw identity.
+        if (v > 0 && m_slotKinds[static_cast<size_t>(v)] == RTK_Struct) {
+            int32_t fresh = CopyStructInPlaceLocked(0, v,
+                m_slotStructIdx[static_cast<size_t>(v)]);
+            entries.push_back({k, fresh});
+            return true;
         }
         entries.push_back({k, v});
         return true;
