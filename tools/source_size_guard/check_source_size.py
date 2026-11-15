@@ -1,4 +1,4 @@
-"""check_source_size.py -- repository source-size guard.
+r"""check_source_size.py -- repository source-size guard.
 
 Rules (spec 2026-09-25 maintainability refactor):
   * every scanned file is <= 500 lines;
@@ -13,13 +13,18 @@ file's both rules. Every entry MUST carry a non-empty reason.
 
 Detection heuristics (documented limits): signatures that end with
 "= default;" / "= delete;" / ";" before any "{" are skipped; one-line
-definitions are treated as zero-length. Column-0 style is the repo's
-prevailing layout; deviations miscount in BOTH directions -- indented
-definitions are invisible to the function rule (undercount), while
-unbraced col-0 constructs can swallow text up to the next col-0 "}"
-(overcount), and a signature whose "{" sits more than 4 lines down is
-measured from the 4th line (short by the difference). The allowlist is
-the escape hatch for both directions, and reasons keep it honest.
+definitions are treated as zero-length. The gap between the return
+type and the name admits * / & on either side ("Ret *Name(" is the
+repo's prevailing pointer-return style and must be measured; the
+historical \s+-only separator silently exempted that whole family).
+Column-0 style is the repo's prevailing layout; deviations miscount in
+BOTH directions -- indented definitions are invisible to the function
+rule (undercount), while unbraced col-0 constructs can swallow text up
+to the next col-0 "}" (overcount), and a signature whose "{" sits more
+than 4 lines down is measured from the 4th line (short by the
+difference). The allowlist is the escape hatch for both directions,
+and reasons keep it honest. check_source_size_test.py pins the
+separator rule.
 
 Overloads: spans are yielded in order of appearance, so each overload
 of a repeated name (e.g. the Access family) is measured separately; an
@@ -41,7 +46,7 @@ KEYWORDS = ("if", "for", "while", "switch", "return", "else", "namespace",
             "protected", "operator")
 SIG_RE = re.compile(
     r"^(?:static\s+|constexpr\s+|inline\s+|virtual\s+|explicit\s+)*"
-    r"(?:[A-Za-z_][A-Za-z0-9_:,<>\s&*]*?\s+)?"
+    r"(?:[A-Za-z_][A-Za-z0-9_:,<>\s&*]*?[\s*&]+)?"
     r"((?:[A-Za-z_][A-Za-z0-9_]*::)+~?[A-Za-z_][A-Za-z0-9_]*"
     r"|[A-Za-z_][A-Za-z0-9_]*)\s*\(")
 
