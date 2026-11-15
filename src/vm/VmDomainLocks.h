@@ -4,6 +4,17 @@
     Container < Sync < Stream < StrMaint < Growth is the fixed acquisition
     order; a reverse acquisition trips the wire (terminate in production).
     Leaf domains (StrMaint, Growth) never nest outward.
+
+    v0.13.9 phase ② audit: the executor's StructCopy leaf lock
+    (VmExecutor.h m_structCopyLock) sits OUTSIDE this set by design — it
+    guards whole struct-record cells, not a write domain, so the held
+    mask below does not track it. Its leaf discipline: holders may
+    acquire only Growth (establish-path shard growth in TakeHeapSlot —
+    legal because Growth tops the order and no path takes StructCopy
+    while holding Growth: the shard Pop runs entirely inside its guard
+    and calls no user code, so no reverse path exists). Nesting
+    Container/Sync/Stream/StrMaint while holding StructCopy is
+    forbidden.
 ---*/
 #pragma once
 

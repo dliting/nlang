@@ -364,7 +364,18 @@ int32_t VmExecutor::MaterializeViewRecord(int32_t viewHeapIdx) {
     return heapIdx;
 }
 
+//Locked face — the StructCopy leaf lock makes the read-walk + allocate +
+//publish sequence atomic for concurrent whole-record readers. The walk
+//self-recurses on struct-typed fields, and a non-recursive std::mutex
+//would self-deadlock, so the body lives in DeepCopyStructUnguarded.
 int32_t VmExecutor::DeepCopyStruct(int32_t srcHeapIdx, uint16_t structIdx) {
+    std::lock_guard<std::mutex> guard(m_structCopyLock);
+    return DeepCopyStructUnguarded(srcHeapIdx, structIdx);
+}
+
+//Unguarded deep-copy walk — caller holds m_structCopyLock.
+int32_t VmExecutor::DeepCopyStructUnguarded(int32_t srcHeapIdx,
+        uint16_t structIdx) {
     if (srcHeapIdx < 0 || static_cast<size_t>(srcHeapIdx) >= m_structHeap.size())
         throw std::runtime_error("NLang VM: invalid struct heap index in CopyStruct");
     if (structIdx >= m_currModule->structs.size())
@@ -377,12 +388,13 @@ int32_t VmExecutor::DeepCopyStruct(int32_t srcHeapIdx, uint16_t structIdx) {
     m_slotStructIdx[static_cast<size_t>(newHeapIdx)] = structIdx;
     //Deep-copy struct-typed fields (field i at cell 2i under the uniform
     //stride). Class-typed fields are shallow-copied (reference semantics
-    //— the index value is copied as-is).
+    //— the index value is copied as-is). The recursion stays on the
+    //UNGUARDED form — this call already holds the lock.
     for (uint16_t i = 0; i < cs.fieldCount; ++i) {
         if (cs.fieldTypeKinds[i] == RTK_Struct
             && cs.fieldStructIndices[i] != 0xFFFF) {
             int32_t innerSrcIdx = srcSlotCopy[i * 2];
-            int32_t innerNewIdx = DeepCopyStruct(innerSrcIdx,
+            int32_t innerNewIdx = DeepCopyStructUnguarded(innerSrcIdx,
                 cs.fieldStructIndices[i]);
             m_structHeap[static_cast<size_t>(newHeapIdx)][i * 2] = innerNewIdx;
         }
@@ -394,19 +406,23 @@ int32_t VmExecutor::DeepCopyStruct(int32_t srcHeapIdx, uint16_t structIdx) {
 }
 
 //Record stabilization (v0.13.9 phase ②): the in-place write primitive.
-//dst handle ≤ 0 → establish: delegate to DeepCopyStruct (its body is
-//exactly allocate-fresh-from-src + deep copy) and return the new handle.
-//dst == src → identity. Otherwise overwrite dst's existing cells in place
-//— zero allocation on that path. Callers hold the StructCopy leaf lock
-//once Task 2 lands; until then the executor is single-carrier on this
-//path. Established records are NOT re-marked: hasInitializer-style
-//marking belongs to the store sites, not the copy primitive.
+//Takes the StructCopy leaf lock once for the whole operation — the
+//whole-record read/write atomicity contract the concurrency fixtures
+//and Task 9's stress rely on. dst handle ≤ 0 → establish: delegate to
+//DeepCopyStructUnguarded (its body is exactly allocate-fresh-from-src +
+//deep copy) and return the new handle — NEVER the locked DeepCopyStruct,
+//which would self-deadlock under the lock held here. dst == src →
+//identity. Otherwise overwrite dst's existing cells in place — zero
+//allocation on that path. Established records are NOT re-marked:
+//hasInitializer-style marking belongs to the store sites, not the copy
+//primitive.
 int32_t VmExecutor::CopyStructInPlaceLocked(int32_t dstHeapIdx,
         int32_t srcHeapIdx, uint16_t structIdx) {
+    std::lock_guard<std::mutex> guard(m_structCopyLock);
     if (dstHeapIdx == srcHeapIdx)
         return dstHeapIdx;
     if (dstHeapIdx <= 0)
-        return DeepCopyStruct(srcHeapIdx, structIdx);
+        return DeepCopyStructUnguarded(srcHeapIdx, structIdx);
     CopyStructCellsInPlace(dstHeapIdx, srcHeapIdx, structIdx);
     return dstHeapIdx;
 }

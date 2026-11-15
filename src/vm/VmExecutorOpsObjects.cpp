@@ -6,6 +6,11 @@
     shared records, allocation goes through the per-carrier shard free
     lists, and error paths re-acquire inside RaiseNlangException. The
     throw family keeps the store lock (debug checkpoint).
+    v0.13.9 phase ②: the whole-record struct storage writes are the one
+    exception — OP_CopyStructInPlace routes through the executor's
+    StructCopy leaf lock (m_structCopyLock, VmExecutor.h) for whole-record
+    read/write atomicity. The single-cell ops below stay lock-free:
+    tearing beyond cell granularity was never promised.
 ---*/
 #include "VmExecutor.h"
 #include <nlang/runtime/PrimitiveTypes.h>

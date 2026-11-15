@@ -20,6 +20,7 @@
 #include <iostream>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 #ifndef STDLIB_DIR
@@ -113,10 +114,11 @@ int main() {
 }
 )";
 
-//Locate the two P records by their cell fingerprints (p.x == 1, q.x == 3)
-//and report P's struct-table index. Field i lives at cell 2i (the uniform
-//2-cell stride), so x is cell 0 and y is cell 2.
-static bool findRecords(VmExecutor& exec, int32_t& pH, int32_t& qH,
+//Locate the two P records by their cell fingerprints and report P's
+//struct-table index. Field i lives at cell 2i (the uniform 2-cell
+//stride), so x is cell 0 and y is cell 2.
+static bool findRecords(VmExecutor& exec, int32_t pX, int32_t pY,
+                        int32_t qX, int32_t qY, int32_t& pH, int32_t& qH,
                         uint16_t& structIdx)
 {
     const int32_t count =
@@ -124,11 +126,66 @@ static bool findRecords(VmExecutor& exec, int32_t& pH, int32_t& qH,
     for (int32_t h = 1; h < count; ++h) {
         if (exec.HeapSlotKindForTests(h) != RTK_Struct)
             continue;
-        if (exec.ReadHeapRecordCellForTests(h, 0) == 1
-            && exec.ReadHeapRecordCellForTests(h, 2) == 2)
+        if (exec.ReadHeapRecordCellForTests(h, 0) == pX
+            && exec.ReadHeapRecordCellForTests(h, 2) == pY)
             pH = h;
-        if (exec.ReadHeapRecordCellForTests(h, 0) == 3
-            && exec.ReadHeapRecordCellForTests(h, 2) == 4)
+        if (exec.ReadHeapRecordCellForTests(h, 0) == qX
+            && exec.ReadHeapRecordCellForTests(h, 2) == qY)
+            qH = h;
+        if (pH != 0 && qH != 0) {
+            structIdx = exec.HeapStructIdxForTests(pH);
+            return structIdx != 0xFFFF;
+        }
+    }
+    return false;
+}
+
+static const char kSrcNested[] = R"(struct Inner {
+    int a;
+    int b;
+}
+
+struct Outer {
+    Inner i;
+    int c;
+}
+
+int main() {
+    Outer p;
+    p.i.a = 11;
+    p.i.b = 12;
+    p.c = 103;
+    Outer q;
+    q.i.a = 21;
+    q.i.b = 22;
+    q.c = 203;
+    return q.c;
+}
+)";
+
+//Locate the two Outer records: c at cell 2 (103/203 disambiguate from
+//any Inner record) and the Inner child at cell 0 carrying (a, b) at its
+//own cells (0, 2).
+static bool findOuterRecords(VmExecutor& exec, int32_t& pH, int32_t& qH,
+                             uint16_t& structIdx)
+{
+    const int32_t count =
+        static_cast<int32_t>(exec.HeapSlotCountForTests());
+    for (int32_t h = 1; h < count; ++h) {
+        if (exec.HeapSlotKindForTests(h) != RTK_Struct)
+            continue;
+        const int32_t c = exec.ReadHeapRecordCellForTests(h, 2);
+        if (c != 103 && c != 203)
+            continue;
+        const int32_t innerH = exec.ReadHeapRecordCellForTests(h, 0);
+        if (innerH <= 0 || innerH >= count
+            || exec.HeapSlotKindForTests(innerH) != RTK_Struct)
+            continue;
+        const int32_t a = exec.ReadHeapRecordCellForTests(innerH, 0);
+        const int32_t b = exec.ReadHeapRecordCellForTests(innerH, 2);
+        if (a == 11 && b == 12 && c == 103)
+            pH = h;
+        if (a == 21 && b == 22 && c == 203)
             qH = h;
         if (pH != 0 && qH != 0) {
             structIdx = exec.HeapStructIdxForTests(pH);
@@ -147,7 +204,7 @@ static void testInPlaceAssignZeroAlloc()
     CHECK(r.exitCode == 7, "program exit");
     int32_t pH = 0, qH = 0;
     uint16_t structIdx = 0;
-    REQUIRE(findRecords(*r.exec, pH, qH, structIdx));
+    REQUIRE(findRecords(*r.exec, 1, 2, 3, 4, pH, qH, structIdx));
     const size_t before = r.exec->HeapAllocCountForTests();
     for (int i = 0; i < 1000; ++i)
         (void)r.exec->CopyStructInPlaceLocked(qH, pH, structIdx);
@@ -167,7 +224,7 @@ static void testSelfAssignNoOp()
     REQUIRE(r.built);
     int32_t pH = 0, qH = 0;
     uint16_t structIdx = 0;
-    REQUIRE(findRecords(*r.exec, pH, qH, structIdx));
+    REQUIRE(findRecords(*r.exec, 1, 2, 3, 4, pH, qH, structIdx));
     const size_t before = r.exec->HeapAllocCountForTests();
     (void)r.exec->CopyStructInPlaceLocked(pH, pH, structIdx);
     CHECK(r.exec->HeapAllocCountForTests() - before == 0,
@@ -185,7 +242,7 @@ static void testEstablishOnNullDst()
     REQUIRE(r.built);
     int32_t pH = 0, qH = 0;
     uint16_t structIdx = 0;
-    REQUIRE(findRecords(*r.exec, pH, qH, structIdx));
+    REQUIRE(findRecords(*r.exec, 1, 2, 3, 4, pH, qH, structIdx));
     const size_t before = r.exec->HeapAllocCountForTests();
     const int32_t fresh =
         r.exec->CopyStructInPlaceLocked(0, pH, structIdx);
@@ -200,6 +257,119 @@ static void testEstablishOnNullDst()
     PASS();
 }
 
+//Nested records: establish allocates the whole subtree fresh (outer +
+//inner); the in-place path reuses the dst sub-records — handle stable,
+//cells overwritten, zero allocation. A naive recursive entry lock would
+//self-deadlock on the child walk — this completing at all is the
+//no-self-deadlock guard for the StructCopy leaf lock split.
+static void testNestedRecords()
+{
+    TEST(nestedRecords);
+    ExecResult r = runProgram("stabilize_copy_nested", kSrcNested);
+    REQUIRE(r.built);
+    CHECK(r.exitCode == 203, "program exit");
+    int32_t pH = 0, qH = 0;
+    uint16_t structIdx = 0;
+    REQUIRE(findOuterRecords(*r.exec, pH, qH, structIdx));
+    const int32_t pInner = r.exec->ReadHeapRecordCellForTests(pH, 0);
+    const size_t before = r.exec->HeapAllocCountForTests();
+    const int32_t fresh =
+        r.exec->CopyStructInPlaceLocked(0, pH, structIdx);
+    CHECK(r.exec->HeapAllocCountForTests() - before == 2,
+          "establish allocates the whole subtree (outer + inner)");
+    CHECK(r.exec->HeapSlotKindForTests(fresh) == RTK_Struct, "fresh outer");
+    CHECK(r.exec->ReadHeapRecordCellForTests(fresh, 2) == 103, "fresh.c");
+    const int32_t freshInner =
+        r.exec->ReadHeapRecordCellForTests(fresh, 0);
+    CHECK(freshInner != pInner, "fresh subtree, not shared with src");
+    CHECK(r.exec->HeapSlotKindForTests(freshInner) == RTK_Struct,
+          "fresh inner");
+    CHECK(r.exec->ReadHeapRecordCellForTests(freshInner, 0) == 11,
+          "fresh inner.a");
+    CHECK(r.exec->ReadHeapRecordCellForTests(freshInner, 2) == 12,
+          "fresh inner.b");
+
+    //In-place nested copy: q's own inner record is REUSED.
+    const int32_t qInner = r.exec->ReadHeapRecordCellForTests(qH, 0);
+    (void)r.exec->CopyStructInPlaceLocked(qH, pH, structIdx);
+    CHECK(r.exec->HeapAllocCountForTests() - before == 2,
+          "in-place nested copy allocates nothing");
+    CHECK(r.exec->ReadHeapRecordCellForTests(qH, 0) == qInner,
+          "dst sub-record reused");
+    CHECK(r.exec->ReadHeapRecordCellForTests(qInner, 0) == 11, "q inner.a");
+    CHECK(r.exec->ReadHeapRecordCellForTests(qInner, 2) == 12, "q inner.b");
+    CHECK(r.exec->ReadHeapRecordCellForTests(qH, 2) == 103, "q.c copied");
+    PASS();
+}
+
+//Pair-shaped source for the concurrency fixture: both records carry
+//x == y so a torn snapshot is detectable as x != y.
+static const char kSrcPairs[] = R"(struct P {
+    int x;
+    int y;
+}
+
+int main() {
+    P p;
+    p.x = 7;
+    p.y = 7;
+    P q;
+    q.x = 9;
+    q.y = 9;
+    return q.x + q.y;
+}
+)";
+
+//Concurrent contract fixture: a writer hammers in-place writes of the
+//(7,7)/(9,9) pair records at one target while a reader refreshes a
+//private snapshot record and asserts the pair invariant. With the
+//StructCopy leaf lock every snapshot is an atomic whole-record read, so
+//x == y always — the green direction is unconditional (deterministic-
+//test ruling). The unlocked failure direction is probabilistic; its
+//runnable red is Task 9's e2e stress — this fixture pins the contract
+//and guards lock removal regressions.
+static void testConcurrentWriterReaderInvariant()
+{
+    TEST(concurrentWriterReaderInvariant);
+    ExecResult r = runProgram("stabilize_copy_race", kSrcPairs);
+    REQUIRE(r.built);
+    int32_t srcA = 0, srcB = 0;
+    uint16_t structIdx = 0;
+    REQUIRE(findRecords(*r.exec, 7, 7, 9, 9, srcA, srcB, structIdx));
+    const int32_t target =
+        r.exec->CopyStructInPlaceLocked(0, srcA, structIdx);
+    CHECK(target > 0, "target established");
+    const int32_t snapshot =
+        r.exec->CopyStructInPlaceLocked(0, srcA, structIdx);
+    CHECK(snapshot > 0 && snapshot != target, "snapshot established");
+    const size_t before = r.exec->HeapAllocCountForTests();
+    const int kIterations = 20000;
+    auto writer = [&]() {
+        for (int i = 0; i < kIterations; ++i) {
+            (void)r.exec->CopyStructInPlaceLocked(
+                target, (i & 1) ? srcA : srcB, structIdx);
+        }
+    };
+    auto reader = [&]() {
+        for (int i = 0; i < kIterations; ++i) {
+            (void)r.exec->CopyStructInPlaceLocked(
+                snapshot, target, structIdx);
+            if (r.exec->ReadHeapRecordCellForTests(snapshot, 0)
+                != r.exec->ReadHeapRecordCellForTests(snapshot, 2))
+                ++g_fail;   //torn snapshot — the invariant broke
+        }
+    };
+    std::thread wt(writer), rt(reader);
+    wt.join();
+    rt.join();
+    CHECK(r.exec->HeapAllocCountForTests() - before == 0,
+          "steady-state concurrent in-place traffic allocates nothing");
+    const int32_t tx = r.exec->ReadHeapRecordCellForTests(target, 0);
+    const int32_t ty = r.exec->ReadHeapRecordCellForTests(target, 2);
+    CHECK(tx == ty, "target ends on a valid pair");
+    PASS();
+}
+
 int main()
 {
     Runtime::StaticInit();
@@ -207,6 +377,8 @@ int main()
     testInPlaceAssignZeroAlloc();
     testSelfAssignNoOp();
     testEstablishOnNullDst();
+    testNestedRecords();
+    testConcurrentWriterReaderInvariant();
     std::cerr << "stabilize_copy: " << g_pass << " passed, "
               << g_fail << " failed\n";
     return g_fail == 0 ? 0 : 1;
