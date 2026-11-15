@@ -816,7 +816,7 @@ private:
     void EmitAssignStructField(SnAssignStmt& assign,
         SnMemberExpr& memberExpr, SnStructDecl* structDecl,
         BytecodeEmitter& emitter);
-    void EmitAssignStructFieldDeepCopy(SnAssignStmt& assign,
+    void EmitAssignStructFieldInPlace(SnAssignStmt& assign,
         SnMemberExpr& memberExpr, uint16_t fieldOff, SnField* fieldType,
         BytecodeEmitter& emitter);
     void EmitAssignStructFieldPlain(SnAssignStmt& assign,

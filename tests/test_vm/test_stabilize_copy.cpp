@@ -406,6 +406,42 @@ static void testLocalAssignZeroAlloc()
     PASS();
 }
 
+//Field-store pin (Task 4): `obj.f = p` on a class-typed field must
+//update the field's EXISTING record in place — a 1000-iteration loop
+//allocates nothing. Fixed allocations: obj (class) + its pre-established
+//f sub-record (AllocClassOnHeap recursion) + p = 3; the old
+//deep-copy-per-store path adds 1000.
+static void testFieldStoreZeroAlloc()
+{
+    TEST(fieldStoreZeroAlloc);
+    ExecResult r = runProgram("stabilize_copy_field_store",
+        "struct P {\n"
+        "    int x;\n"
+        "    int y;\n"
+        "}\n"
+        "class Box {\n"
+        "    public P f;\n"
+        "}\n"
+        "int main() {\n"
+        "    Box obj = Box();\n"
+        "    P p;\n"
+        "    p.x = 1;\n"
+        "    p.y = 2;\n"
+        "    for (int i = 0; i < 1000; i = i + 1) {\n"
+        "        obj.f = p;\n"
+        "    }\n"
+        "    if (obj.f.x == 1 && obj.f.y == 2) {\n"
+        "        return 42;\n"
+        "    }\n"
+        "    return 1;\n"
+        "}\n");
+    REQUIRE(r.built);
+    CHECK(r.exitCode == 42, "program exit");
+    CHECK(r.exec->HeapAllocCountForTests() == 3,
+          "1000 field stores allocate nothing (3 records total)");
+    PASS();
+}
+
 int main()
 {
     Runtime::StaticInit();
@@ -416,6 +452,7 @@ int main()
     testNestedRecords();
     testConcurrentWriterReaderInvariant();
     testLocalAssignZeroAlloc();
+    testFieldStoreZeroAlloc();
     std::cerr << "stabilize_copy: " << g_pass << " passed, "
               << g_fail << " failed\n";
     return g_fail == 0 ? 0 : 1;

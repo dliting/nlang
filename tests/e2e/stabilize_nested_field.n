@@ -1,0 +1,25 @@
+//v0.13.9 phase (2) record stabilization: struct-of-struct field stores
+//update the nested record in place. After a.inner = b.inner, the two
+//sub-records are independent values — a later write through b.inner
+//never bleeds into a.inner (independence pin).
+struct P {
+    int x;
+    int y;
+}
+struct Wrap {
+    P inner;
+}
+int main() {
+    Wrap a;
+    Wrap b;
+    b.inner.x = 1;
+    b.inner.y = 2;
+    a.inner.x = 5;
+    a.inner.y = 6;
+    a.inner = b.inner;
+    b.inner.x = 7;
+    if (a.inner.x == 1 && a.inner.y == 2 && b.inner.x == 7) {
+        return 42;
+    }
+    return 1;
+}
