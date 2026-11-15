@@ -1,0 +1,63 @@
+// v0.13.11 json: the serializer -- compact and indented layout (D-8),
+// minimal escaping (D-7), toString = serialize (D-9), non-finite guard.
+import io;
+import json;
+
+int main() {
+    int bad = 0;
+    string compact = "{\"a\":1,\"b\":[2,3],\"c\":\"x\\ny\"}";
+    if (json.parse(compact).serialize() != compact) { bad = bad + 1; }
+    // Two-space indent: key-value separator gains a space, each level is
+    // indented by exactly 2 spaces (D-8).
+    string indentTwo = "{\n  \"a\": 1,\n  \"b\": [\n    2,\n    3\n  ],\n  \"c\": \"x\\ny\"\n}";
+    if (json.parse(compact).serialize(2) != indentTwo) { bad = bad + 1; }
+    string objThree = "{\n   \"a\": 1,\n   \"b\": [\n      2,\n      3\n   ],\n   \"c\": \"x\\ny\"\n}";
+    if (json.parse(compact).serialize(3) != objThree) { bad = bad + 1; }
+    string arrTwo = "[\n  1,\n  2\n]";
+    if (json.parse("[1,2]").serialize(2) != arrTwo) { bad = bad + 1; }
+    // spaces <= 0 renders compact (D-8); serialize() is serialize(0).
+    if (json.parse(compact).serialize(-4) != compact) { bad = bad + 1; }
+    if (json.parse(compact).serialize(0) != compact) { bad = bad + 1; }
+    // Empty containers stay on one line under any spaces value (D-8).
+    if (json.parse("{}").serialize(4) != "{}") { bad = bad + 1; }
+    if (json.parse("[]").serialize(2) != "[]") { bad = bad + 1; }
+    // Builder documents keep insertion order; toString and concatenation
+    // both go through serialize (D-9; "at " + p precedent in class_basic).
+    JsonObject root = JsonObject();
+    JsonArray arr = JsonArray();
+    arr.add(1.5);
+    root.put("arr", arr);
+    root.put("n", 7);
+    root.put("s", "q\"x");
+    root.put("t", false);
+    if (root.serialize() != "{\"arr\":[1.5],\"n\":7,\"s\":\"q\\\"x\",\"t\":false}") { bad = bad + 1; }
+    if (root.toString() != root.serialize()) { bad = bad + 1; }
+    string joined = "v=" + root;
+    if (joined != "v=" + root.serialize()) { bad = bad + 1; }
+    // The control-character escape set round-trips unchanged (D-7 minimal
+    // set: named pairs for the five, \u00xx lowercase for the rest).
+    string escText = "\"\\b\\f\\n\\r\\t\\u0000\\u001f\\\"\\\\\"";
+    if (json.parse(escText).serialize() != escText) { bad = bad + 1; }
+    // Non-finite doubles raise the fixed message instead of emitting
+    // nan/inf/-inf (D-7; literal form pinned by probe_b P6).
+    double posInf = 1e400;
+    string nf = "json: cannot serialize non-finite double";
+    if (expectSerializeFail(JsonNumber(posInf), nf) != 0) { bad = bad + 1; }
+    if (expectSerializeFail(JsonNumber(-posInf), nf) != 0) { bad = bad + 1; }
+    if (expectSerializeFail(JsonNumber(posInf - posInf), nf) != 0) { bad = bad + 1; }
+    if (JsonNumber(-0.0).serialize() != "-0") { bad = bad + 1; }   // -0 passes the guard (D-7)
+    return bad;
+}
+
+// Returns 0 when doc.serialize() raises the exact wanted message.
+int expectSerializeFail(JsonValue doc, string want) {
+    string got = "";
+    try {
+        doc.serialize();
+    } catch (JsonException e) {
+        got = e.message;
+    }
+    if (got == want) { return 0; }
+    io.print("serialize row got [" + got + "] want [" + want + "]");
+    return 1;
+}

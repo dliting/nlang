@@ -130,8 +130,6 @@ class JsonValue {
     protected virtual string renderNumber() { assert(false); return "0"; }
 
     private string serializeNode(int depth, string unit) {
-        // T6: the indent branch (unit != "") lands with Task 6; until
-        // then every mode renders compact.
         JsonKind k = this.kind();
         if (k == JsonKind.Null) { return "null"; }
         if (k == JsonKind.Bool) { if (this.getBool()) { return "true"; } return "false"; }
@@ -140,30 +138,49 @@ class JsonValue {
         if (depth >= JsonText.MAX_DEPTH) {
             throw JsonException("json: nesting deeper than " + JsonText.MAX_DEPTH);
         }
-        string acc = "{";
-        string close = "}";
-        if (k == JsonKind.Array) { acc = "["; close = "]"; }
+        // Compact mode keeps every separator empty; indent mode puts each
+        // item on its own line, indented depth+1 units deep, and joins a
+        // key to its value with ": " (D-8). tailPad is the indentation the
+        // closing bracket returns to, so an empty unit collapses all four
+        // decorations to the compact form.
+        string nl = "";
+        string kvSep = ":";
+        string pad = "";
+        string tailPad = "";
+        if (unit != "") {
+            nl = "\n";
+            kvSep = ": ";
+            int level = 0;
+            while (level < depth) { tailPad = tailPad + unit; level = level + 1; }
+            pad = tailPad + unit;
+        }
+        string openBr = "{";
+        string closeBr = "}";
+        if (k == JsonKind.Array) { openBr = "["; closeBr = "]"; }
         if (k == JsonKind.Array) {
             int n = this.nodeLength();
-            if (n == 0) { return "[]"; }
+            if (n == 0) { return openBr + closeBr; }
+            string acc = openBr + nl;
             int i = 0;
             while (i < n) {
-                if (i > 0) { acc = acc + ","; }
-                acc = acc + this.nodeElem(i).serializeNode(depth + 1, unit);
+                if (i > 0) { acc = acc + "," + nl; }
+                acc = acc + pad + this.nodeElem(i).serializeNode(depth + 1, unit);
                 i = i + 1;
             }
-        } else {
-            List<string> names = this.nodeNames();
-            if (names.length() == 0) { return "{}"; }
-            int i = 0;
-            while (i < names.length()) {
-                if (i > 0) { acc = acc + ","; }
-                string name = names.get(i);
-                acc = acc + JsonText.quote(name) + ":" + this.nodeValue(name).serializeNode(depth + 1, unit);
-                i = i + 1;
-            }
+            return acc + nl + tailPad + closeBr;
         }
-        return acc + close;
+        List<string> names = this.nodeNames();
+        if (names.length() == 0) { return openBr + closeBr; }
+        string acc = openBr + nl;
+        int i = 0;
+        while (i < names.length()) {
+            if (i > 0) { acc = acc + "," + nl; }
+            string name = names.get(i);
+            acc = acc + pad + JsonText.quote(name) + kvSep
+                + this.nodeValue(name).serializeNode(depth + 1, unit);
+            i = i + 1;
+        }
+        return acc + nl + tailPad + closeBr;
     }
 
     private void badKind(string want) {
@@ -248,7 +265,14 @@ class JsonNumber : JsonValue {
     public string renderNumber() {
         if (m_rawText != "") { return m_rawText; }
         if (m_isLong) { return m_l.toString(); }
-        return m_d.toString();            // T6: gains the non-finite guard
+        string text = m_d.toString();
+        // nan/inf/-inf are the language's sentinels for non-finite
+        // doubles; JSON has no spelling for them, so the value is a
+        // serialization error (D-7). "-0" is legal JSON and passes.
+        if (text == "nan" || text == "inf" || text == "-inf") {
+            throw JsonException("json: cannot serialize non-finite double");
+        }
+        return text;
     }
 
     private static JsonNumber doubleFromToken(string token) {
