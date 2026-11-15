@@ -237,23 +237,41 @@ static bool SplitQualifiedName(std::vector<std::string> &rSegs,
 	return true;
 }
 
-//Phase 5: package-qualified VALUE access — the `alib.Color.Green`
-//enum-constant chain, resolved through the registry (see the header
-//declaration for the route contract). True = consumed (resolved or
-//diagnosed); false = declined, the generic path keeps the expression.
-bool ExprResolveAccessor::TryResolveQualifiedTypeValue(SnMemberExpr &snMember)
+//Chain head shared by the module-qualified reference paths (see the header
+//declaration): the segment collection plus the m12 priority probe.
+bool ExprResolveAccessor::QualifiedChainSegments(SnMemberExpr &snMember,
+	std::vector<std::string> &segs)
 {
-	std::vector<std::string> segs = OuterIdentifierChain(snMember);
+	segs = OuterIdentifierChain(snMember);
 	if (segs.empty()
 		|| !snMember.Inner()
 		|| snMember.Inner()->Kind() != NK_IdentifierExpr)
 		return false;
 	segs.push_back(
 		static_cast<SnIdentifierExpr *>(snMember.Inner())->Name());
-
 	//m12 priority: the leftmost local/field/type wins (as for calls).
 	if (ProbeNonFunctionField(segs.front())
 		|| IsBuiltinClassName(segs.front()))
+		return false;
+	return true;
+}
+
+void ExprResolveAccessor::LogModuleTypeNotFound(SyntaxNode &site,
+	const std::string &typeName, const std::string &modulePath)
+{
+	m_Env.Log(CLL_Error, site.Location(),
+		"Type '%s' is not a member of package '%s'.",
+		typeName.c_str(), modulePath.c_str());
+}
+
+//Phase 5: package-qualified VALUE access — the `alib.Color.Green`
+//enum-constant chain, resolved through the registry (see the header
+//declaration for the route contract). True = consumed (resolved or
+//diagnosed); false = declined, the generic path keeps the expression.
+bool ExprResolveAccessor::TryResolveQualifiedTypeValue(SnMemberExpr &snMember)
+{
+	std::vector<std::string> segs;
+	if (!QualifiedChainSegments(snMember, segs))
 		return false;
 
 	std::string modulePath, typeName, memberName;
@@ -276,9 +294,7 @@ bool ExprResolveAccessor::TryResolveQualifiedTypeValue(SnMemberExpr &snMember)
 		reg.OwnerOfContext(snMember), bDenied);
 	if (pType == nullptr)
 	{
-		m_Env.Log(CLL_Error, snMember.Location(),
-			"Type '%s' is not a member of package '%s'.",
-			typeName.c_str(), modulePath.c_str());
+		LogModuleTypeNotFound(snMember, typeName, modulePath);
 		FinishConsumedMember(snMember);
 		return true;
 	}
@@ -364,17 +380,8 @@ bool ExprResolveAccessor::TryResolveModuleFuncValue(SnMemberExpr &snMember)
 //generic path keeps it.
 bool ExprResolveAccessor::TryResolveModuleTypeRef(SnMemberExpr &snMember)
 {
-	std::vector<std::string> segs = OuterIdentifierChain(snMember);
-	if (segs.empty()
-		|| !snMember.Inner()
-		|| snMember.Inner()->Kind() != NK_IdentifierExpr)
-		return false;
-	segs.push_back(
-		static_cast<SnIdentifierExpr *>(snMember.Inner())->Name());
-
-	//m12 priority: the leftmost local/field/type wins (as for calls).
-	if (ProbeNonFunctionField(segs.front())
-		|| IsBuiltinClassName(segs.front()))
+	std::vector<std::string> segs;
+	if (!QualifiedChainSegments(snMember, segs))
 		return false;
 
 	std::string typeName = segs.back();
@@ -402,9 +409,7 @@ bool ExprResolveAccessor::TryResolveModuleTypeRef(SnMemberExpr &snMember)
 		reg.OwnerOfContext(snMember), bDenied);
 	if (pType == nullptr)
 	{
-		m_Env.Log(CLL_Error, snMember.Location(),
-			"Type '%s' is not a member of package '%s'.",
-			typeName.c_str(), modulePath.c_str());
+		LogModuleTypeNotFound(snMember, typeName, modulePath);
 		FinishConsumedMember(snMember);
 		return true;
 	}

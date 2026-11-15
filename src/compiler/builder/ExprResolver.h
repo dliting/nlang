@@ -1668,6 +1668,20 @@ private:
 	//the diagnostics of the bare `Mix` form.
 	bool TryResolveModuleTypeRef(SnMemberExpr &snMember);
 
+	//Head shared by the module-qualified reference paths: collects the
+	//chain segments (the tip identifier included) and applies the m12
+	//priority probe. Answers false when the node is not a plain identifier
+	//chain or the leftmost name belongs to a local / field / built-in type;
+	//the generic path keeps the node either way.
+	bool QualifiedChainSegments(SnMemberExpr &snMember,
+		std::vector<std::string> &segs);
+
+	//The not-a-member wording shared by the qualified-type admission sites
+	//(0.13.8 item 5): the literal lives in one place so the channels that
+	//fold a foreign non-public type into not-found cannot drift apart.
+	void LogModuleTypeNotFound(SyntaxNode &site, const std::string &typeName,
+		const std::string &modulePath);
+
 	ISyntaxNodeVisitor *m_pVisitor;
 	SyntaxNode *m_pContext;
 	SnField *m_pAccessor;

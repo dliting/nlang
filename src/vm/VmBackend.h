@@ -2218,7 +2218,11 @@ inline bool IsAbstractClassMember(const SnField& field)
 //member has neither a body nor the imported-stub flag, so filtering on the
 //implementation alone drops its row and shifts every later member's
 //ordinal — nlink then matches the wrong row and refuses (or, on a
-//coincidental name+arity match, silently binds) the call.
+//coincidental name+arity match, silently binds) the call. At the
+//producer's own-unit gate an imported stub never reaches the test
+//(IsOwnUnit excludes NF_Imported), so HasImplementation()'s imported
+//arm is inert there and the predicate stays equivalent to the
+//body/native/abstract test it replaced.
 inline bool IsRegisteredMember(const SnFunction& func)
 {
     return func.HasImplementation() || IsAbstractClassMember(func);
