@@ -1,0 +1,65 @@
+//v0.13.9 phase (2) cross-carrier tearing stress: one carrier writes a
+//shared object's struct field in place ((x,y) pairs with the x==y
+//invariant, alternating sources), a second carrier takes assignment-
+//form snapshots of the field and checks the invariant both inline and
+//through a by-value parameter pass. Whole-record reads and writes both
+//route through the executor's StructCopy leaf lock, so no carrier can
+//observe a torn snapshot — any torn observation exits nonzero. The
+//deterministic exit rides the torn counter only (no timing asserts);
+//the commit batch runs this file 100x in a shell loop.
+import thread;
+
+struct P {
+    int x;
+    int y;
+}
+class Shared {
+    public P rec;
+    public P a;
+    public P b;
+    public int torn = 0;
+    public void write() {
+        for (int i = 0; i < 20000; i = i + 1) {
+            if (i % 2 == 0) {
+                this.rec = this.a;
+            } else {
+                this.rec = this.b;
+            }
+        }
+    }
+    public void read() {
+        for (int i = 0; i < 20000; i = i + 1) {
+            P snap;
+            snap = this.rec;
+            if (snap.x != snap.y) {
+                this.torn = this.torn + 1;
+            }
+            if (check(snap) != 1) {
+                this.torn = this.torn + 1;
+            }
+        }
+    }
+}
+int check(P s) {
+    if (s.x == s.y) { return 1; }
+    return 0;
+}
+int main() {
+    Shared sh = Shared();
+    P a;
+    a.x = 1;
+    a.y = 1;
+    sh.a = a;
+    P b;
+    b.x = 2;
+    b.y = 2;
+    sh.b = b;
+    Thread w = thread.spawn(sh.write);
+    Thread r = thread.spawn(sh.read);
+    thread.join(w);
+    thread.join(r);
+    if (sh.torn == 0) {
+        return 42;
+    }
+    return 1;
+}

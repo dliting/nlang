@@ -2390,3 +2390,4 @@ stabilize_list_set 42
 stabilize_dict_set 42
 stabilize_static_store 42
 compile_error_struct_compound compile_error compound assignment is not supported on struct
+stabilize_concurrent_write 42
