@@ -19,7 +19,10 @@ int main() {
     c.write(buf, n);
     byte[] echo = byte[8];
     int m = cli.read(echo, 5000);
-    if (m != 2 || io.fromBytes(echo) != "v6") { return 2; }
+    //The buffer is wider than the message: read() answers with the byte count,
+    //and the padding cells are content of their own, so the message is the
+    //received prefix echo[0:m] (manual §14.5: no terminator is implied).
+    if (m != 2 || io.fromBytes(echo[0:m]) != "v6") { return 2; }
     cli.close();
     c.close();
     srv.close();

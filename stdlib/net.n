@@ -461,8 +461,8 @@ class TcpStream {
     // string has no null value), so read() answering 0 is the
     // end-of-stream signal. The bytes are collected in a buffer
     // and decoded once, so the line comes out exactly as the same
-    // bytes would through io.fromBytes (a NUL ends the text, and a
-    // character whose bytes arrive in separate reads stays whole);
+    // bytes would through io.fromBytes (a NUL is an ordinary content
+    // byte, and a character whose bytes arrive in separate reads stays whole);
     // decoding one byte at a time and joining would rebuild the
     // string once per byte.
     public string readLine(int timeoutMs = 0) {
