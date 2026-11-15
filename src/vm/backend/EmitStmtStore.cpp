@@ -123,6 +123,25 @@ SnField* VmBackend::ArrayElementStoreType(SnSubscriptAssignStmt& sub) {
 //in the index (subscript-get, binary arithmetic — both reuse the
 //shared temps) clobber the parked base/value. Claim slots are
 //exclusive, same discipline as the container path above.
+//Struct-element tail: load the element's ESTABLISHED record handle
+//into the claim's element slot — the load performs the bounds check the
+//dropped store used to perform — then copy the value into that record
+//IN PLACE. The record identity never changes, so held references to the
+//element stay live. Per-unit: a cross-unit element struct slots as an
+//import placeholder (the old silent-0 fallback could not).
+void VmBackend::EmitStabilizedElementStore(bool dynOps, uint16_t elemSlot,
+        uint16_t claimBase, uint16_t idxBase, uint16_t valueSlot,
+        uint16_t rank, SnField* elemType, BytecodeEmitter& emitter) {
+    emitter.Emit(dynOps ? OpCode::OP_LoadElementDyn
+                        : OpCode::OP_LoadElementN);
+    emitter.EmitUint16(elemSlot);
+    emitter.EmitUint16(claimBase);
+    emitter.EmitUint16(idxBase);
+    emitter.EmitUint16(rank);
+    EmitStructCopyInPlace(elemSlot, valueSlot,
+        static_cast<SnStructDecl&>(*elemType), emitter);
+}
+
 void VmBackend::EmitArrayElementStore(SnSubscriptAssignStmt& sub,
                                       BytecodeEmitter& emitter) {
     SnField* elemType = ArrayElementStoreType(sub);
@@ -153,21 +172,9 @@ void VmBackend::EmitArrayElementStore(SnSubscriptAssignStmt& sub,
     emitter.Emit(OpCode::OP_NullCheck);
     emitter.EmitUint16(claimBase);
     if (elemIsStruct) {
-        //Stabilized element store: load the element's ESTABLISHED
-        //record handle into the claim's element slot — the load
-        //performs the bounds check the dropped store used to perform —
-        //then copy the value into that record IN PLACE. The record
-        //identity never changes, so held references to the element
-        //stay live. Per-unit: a cross-unit element struct slots as an
-        //import placeholder (the old silent-0 fallback could not).
-        emitter.Emit(SubscriptNeedsDynOps(*sub.Array())
-            ? OpCode::OP_LoadElementDyn : OpCode::OP_LoadElementN);
-        emitter.EmitUint16(elemSlot);
-        emitter.EmitUint16(claimBase);
-        emitter.EmitUint16(idxBase);
-        emitter.EmitUint16(static_cast<uint16_t>(rank));
-        EmitStructCopyInPlace(elemSlot, valueSlot,
-            static_cast<SnStructDecl&>(*elemType), emitter);
+        EmitStabilizedElementStore(SubscriptNeedsDynOps(*sub.Array()),
+            elemSlot, claimBase, idxBase, valueSlot,
+            static_cast<uint16_t>(rank), elemType, emitter);
         return;
     }
     emitter.Emit(SubscriptNeedsDynOps(*sub.Array())

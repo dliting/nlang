@@ -784,6 +784,13 @@ private:
     void EmitArrayElementStore(SnSubscriptAssignStmt& sub,
                                BytecodeEmitter& emitter);
 
+    //Struct-element tail of EmitArrayElementStore (same TU): load the
+    //element's established record handle, then copy the value's cells
+    //into that record in place.
+    void EmitStabilizedElementStore(bool dynOps, uint16_t elemSlot,
+        uint16_t claimBase, uint16_t idxBase, uint16_t valueSlot,
+        uint16_t rank, SnField* elemType, BytecodeEmitter& emitter);
+
     //Assign store (EmitStmtDecl.cpp): bare-identifier and member
     //targets, one helper per destination shape. BareIdentifier
     //dispatches Local vs ThisField; MemberField tries the
