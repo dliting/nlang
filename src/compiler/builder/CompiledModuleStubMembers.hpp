@@ -26,33 +26,17 @@
 namespace nlang
 {
 
-//0.10.14: build a SnStructDecl stub for an imported struct. Own fields
-//AND constructors rebuild from the wire (the field data has been
-//serialized since v1.12); external field access resolves through the
-//stub members exactly like the class stub's. Struct members are always
-//public (the declaration contract rejects a non-public modifier — e2e
-//err_struct_field_private), so no wire access byte is needed.
-//Constructors rebuild from constructorIndices (declaration order) — a
-//cross-module `pkg.Vec(3,4)` needs member declarations to bind
-//against; the call itself emits an imported function slot, never local
-//bytecode. Each constructor stub carries its declared access
-//(constructorAccess) — a private struct ctor stays private at the
-//consumer.
-inline SnStructDecl *CreateStructStub(const CompiledStruct &cs,
-	const CompiledModule &cm, const ISourceLocation &loc)
+//Struct field members in wire order = producer declaration order — the
+//order FindFieldOffset counts, so stub offsets match the runtime
+//layout. Type synthesis mirrors the class stub's field loop (descriptor
+//first, NonSerialized sentinel falls back to the parallel kind table).
+//Struct members are always public (the declaration contract rejects a
+//non-public modifier — e2e err_struct_field_private), so no wire access
+//byte is needed.
+inline void BuildStructFieldStubs(const CompiledStruct &cs,
+	const CompiledModule &cm, const ISourceLocation &loc,
+	PtrList<SnField> *pMembers)
 {
-	//Field info stays in the loaded CompiledModule, which rides along
-	//to the load-time linker as a peer image.
-	//SnStructDecl takes UniquePtrList<SnField> by value; pass a raw
-	//PtrList* whose ownership is transferred via the implicit
-	//inner_collection* constructor.
-	auto *pMembers = new PtrList<SnField>();
-
-	//Field members in wire order = producer declaration order — the
-	//order FindFieldOffset counts, so stub offsets match the runtime
-	//layout. Type synthesis mirrors CreateClassStub's field loop
-	//(descriptor first, NonSerialized sentinel falls back to the
-	//parallel kind table).
 	for (uint16_t fi = 0; fi < cs.fieldCount
 		&& fi < cs.fieldNames.size(); ++fi)
 	{
@@ -66,7 +50,18 @@ inline SnStructDecl *CreateStructStub(const CompiledStruct &cs,
 			new std::string(cs.fieldNames[fi]), FA_Public, loc);
 		pMembers->push_back(pField);
 	}
+}
 
+//Constructors rebuild from constructorIndices (declaration order) — a
+//cross-module `pkg.Vec(3,4)` needs member declarations to bind
+//against; the call itself emits an imported function slot, never local
+//bytecode. Each constructor stub carries its declared access
+//(constructorAccess) — a private struct ctor stays private at the
+//consumer.
+inline void BuildStructCtorStubs(const CompiledStruct &cs,
+	const CompiledModule &cm, const ISourceLocation &loc,
+	PtrList<SnField> *pMembers)
+{
 	for (size_t ci = 0; ci < cs.constructorIndices.size(); ++ci)
 	{
 		//Out-of-range is a corrupt image — the loader validated the
@@ -80,6 +75,23 @@ inline SnStructDecl *CreateStructStub(const CompiledStruct &cs,
 		pMembers->push_back(CreateMethodStub(cm.functions[idx], cm, loc,
 			access, ProducerIdxClamp(idx)));
 	}
+}
+
+//0.10.14: build a SnStructDecl stub for an imported struct. Own fields
+//AND constructors rebuild from the wire (the field data has been
+//serialized since v1.12); external field access resolves through the
+//stub members exactly like the class stub's.
+inline SnStructDecl *CreateStructStub(const CompiledStruct &cs,
+	const CompiledModule &cm, const ISourceLocation &loc)
+{
+	//Field info stays in the loaded CompiledModule, which rides along
+	//to the load-time linker as a peer image.
+	//SnStructDecl takes UniquePtrList<SnField> by value; pass a raw
+	//PtrList* whose ownership is transferred via the implicit
+	//inner_collection* constructor.
+	auto *pMembers = new PtrList<SnField>();
+	BuildStructFieldStubs(cs, cm, loc, pMembers);
+	BuildStructCtorStubs(cs, cm, loc, pMembers);
 	auto pName = new std::string(LeafNameOfKey(cs.name));
 	auto *pDecl = new SnStructDecl(pName, pMembers, loc);
 	pDecl->AddFlags(NF_Imported);   //R6-2
@@ -91,6 +103,96 @@ inline SnStructDecl *CreateStructStub(const CompiledStruct &cs,
 	if (cs.isConstAggregate)
 		pDecl->SetConstAggregate();
 	return pDecl;
+}
+
+//Own fields only (the wire carries own-only since v2.7). Private fields
+//are rebuilt too — FindClassFieldOffset counts every slot along the
+//chain, and the visibility gate rejects non-public reads later, at the
+//use site. The v1.12 descriptor is the primary type source; the legacy
+//parallel kind array is the fallback (scalars resolve exactly through
+//SynthTypeExprFromDesc's RuntimeTypeKind arm; anything else degrades to
+//the int32 placeholder).
+inline void BuildClassFieldStubs(const CompiledClass &cc,
+	const CompiledModule &cm, const ISourceLocation &loc,
+	const std::vector<std::string> *typeParamNames,
+	PtrList<SnField> *pMembers)
+{
+	for (uint16_t fi = 0; fi < cc.fieldCount
+		&& fi < cc.fieldNames.size(); ++fi)
+	{
+		TypeDesc td;
+		if (fi < cc.fieldTypeDescs.size())
+			td = cc.fieldTypeDescs[fi];
+		if (td.kind == RTK_NonSerialized && fi < cc.fieldTypeKinds.size())
+			td.kind = cc.fieldTypeKinds[fi];
+		auto *pField = new SnClassField(
+			SynthTypeExprFromDesc(td, cm, loc, typeParamNames),
+			new std::string(cc.fieldNames[fi]),
+			fi < cc.fieldAccess.size()
+				? static_cast<FieldAccessType>(cc.fieldAccess[fi])
+				: FA_Public,
+			loc);
+		pMembers->push_back(pField);
+	}
+}
+
+//Methods. The producer registers every member function once and pushes
+//constructors into methodIndices as well (PopulateClassMethods);
+//constructors are rebuilt from constructorIndices by BuildClassCtorStubs,
+//so skip their entries here — otherwise every constructor would also
+//appear as a ghost instance method. Staticness rides the function
+//record (isStatic); the access byte is orthogonal. 0.13.1c: abstractness
+//rides the function record (isAbstract) — the stub member feeds Task 5's
+//on-demand CollectAbstractObligations/IsAbstractClass, so obligations
+//stay visible across the .ncu boundary.
+inline void BuildClassMethodStubs(const CompiledClass &cc,
+	const CompiledModule &cm, const ISourceLocation &loc,
+	const std::vector<std::string> *typeParamNames,
+	PtrList<SnField> *pMembers)
+{
+	std::unordered_set<uint16_t> ctorSet(
+		cc.constructorIndices.begin(), cc.constructorIndices.end());
+	for (size_t mi = 0; mi < cc.methodIndices.size(); ++mi)
+	{
+		const uint16_t idx = cc.methodIndices[mi];
+		//Ctor entry / defensive bound (the loader validated the indices).
+		if (ctorSet.count(idx) || idx >= cm.functions.size())
+			continue;
+		const FieldAccessType access = mi < cc.methodAccess.size()
+			? static_cast<FieldAccessType>(cc.methodAccess[mi])
+			: FA_Public;
+		SnFunction *pMethod = cm.functions[idx].isStatic
+			? CreateFunctionStub(cm.functions[idx], cm, loc, access,
+				ProducerIdxClamp(idx), typeParamNames)
+			: CreateMethodStub(cm.functions[idx], cm, loc, access,
+				ProducerIdxClamp(idx), typeParamNames);
+		if (mi < cc.methodVirtual.size() && cc.methodVirtual[mi])
+			pMethod->AddFlags(NF_Virtual);
+		if (cm.functions[idx].isAbstract)
+			pMethod->AddFlags(NF_Abstract);
+		pMembers->push_back(pMethod);
+	}
+}
+
+//Constructors carry their declared access (v2.7) — a private ctor
+//stays private at the consumer (`new lib.C()` / `lib.C(...)` are
+//rejected there).
+inline void BuildClassCtorStubs(const CompiledClass &cc,
+	const CompiledModule &cm, const ISourceLocation &loc,
+	const std::vector<std::string> *typeParamNames,
+	PtrList<SnField> *pMembers)
+{
+	for (size_t ci = 0; ci < cc.constructorIndices.size(); ++ci)
+	{
+		const uint16_t idx = cc.constructorIndices[ci];
+		if (idx >= cm.functions.size())
+			continue;
+		const FieldAccessType access = ci < cc.constructorAccess.size()
+			? static_cast<FieldAccessType>(cc.constructorAccess[ci])
+			: FA_Public;
+		pMembers->push_back(CreateMethodStub(cm.functions[idx], cm, loc,
+			access, ProducerIdxClamp(idx), typeParamNames));
+	}
 }
 
 //Build a SnClassDecl stub for an imported CompiledClass. 0.9.12 (v2.7):
@@ -112,80 +214,9 @@ inline SnClassDecl *CreateClassStub(const CompiledClass &cc,
 	//declaration (SetTypeParamNames below → IsGenericDeclaration()).
 	const std::vector<std::string> *typeParamNames =
 		cc.isTemplate ? &cc.typeParamNames : nullptr;
-
-	//Own fields only (the wire carries own-only since v2.7). Private
-	//fields are rebuilt too — FindClassFieldOffset counts every slot
-	//along the chain, and the visibility gate rejects non-public reads
-	//later, at the use site. The v1.12 descriptor is the primary type
-	//source; the legacy parallel kind array is the fallback (scalars
-	//resolve exactly through SynthTypeExprFromDesc's RuntimeTypeKind
-	//arm; anything else degrades to the int32 placeholder).
-	for (uint16_t fi = 0; fi < cc.fieldCount
-		&& fi < cc.fieldNames.size(); ++fi)
-	{
-		TypeDesc td;
-		if (fi < cc.fieldTypeDescs.size())
-			td = cc.fieldTypeDescs[fi];
-		if (td.kind == RTK_NonSerialized && fi < cc.fieldTypeKinds.size())
-			td.kind = cc.fieldTypeKinds[fi];
-		auto *pField = new SnClassField(
-			SynthTypeExprFromDesc(td, cm, loc, typeParamNames),
-			new std::string(cc.fieldNames[fi]),
-			fi < cc.fieldAccess.size()
-				? static_cast<FieldAccessType>(cc.fieldAccess[fi])
-				: FA_Public,
-			loc);
-		pMembers->push_back(pField);
-	}
-
-	//Methods. The producer registers every member function once and
-	//pushes constructors into methodIndices as well
-	//(PopulateClassMethods); constructors are rebuilt from
-	//constructorIndices below, so skip their entries here — otherwise
-	//every constructor would also appear as a ghost instance method.
-	std::unordered_set<uint16_t> ctorSet(
-		cc.constructorIndices.begin(), cc.constructorIndices.end());
-	for (size_t mi = 0; mi < cc.methodIndices.size(); ++mi)
-	{
-		const uint16_t idx = cc.methodIndices[mi];
-		//Ctor entry / defensive bound (the loader validated the indices).
-		if (ctorSet.count(idx) || idx >= cm.functions.size())
-			continue;
-		const FieldAccessType access = mi < cc.methodAccess.size()
-			? static_cast<FieldAccessType>(cc.methodAccess[mi])
-			: FA_Public;
-		//Staticness rides the function record (isStatic); the access
-		//byte is orthogonal.
-		SnFunction *pMethod = cm.functions[idx].isStatic
-			? CreateFunctionStub(cm.functions[idx], cm, loc, access,
-				ProducerIdxClamp(idx), typeParamNames)
-			: CreateMethodStub(cm.functions[idx], cm, loc, access,
-				ProducerIdxClamp(idx), typeParamNames);
-		if (mi < cc.methodVirtual.size() && cc.methodVirtual[mi])
-			pMethod->AddFlags(NF_Virtual);
-		//0.13.1c: abstractness rides the function record (isAbstract) —
-		//the stub member feeds Task 5's on-demand
-		//CollectAbstractObligations/IsAbstractClass, so obligations stay
-		//visible across the .ncu boundary.
-		if (cm.functions[idx].isAbstract)
-			pMethod->AddFlags(NF_Abstract);
-		pMembers->push_back(pMethod);
-	}
-
-	//Constructors carry their declared access (v2.7) — a private ctor
-	//stays private at the consumer (`new lib.C()` / `lib.C(...)` are
-	//rejected there).
-	for (size_t ci = 0; ci < cc.constructorIndices.size(); ++ci)
-	{
-		const uint16_t idx = cc.constructorIndices[ci];
-		if (idx >= cm.functions.size())
-			continue;
-		const FieldAccessType access = ci < cc.constructorAccess.size()
-			? static_cast<FieldAccessType>(cc.constructorAccess[ci])
-			: FA_Public;
-		pMembers->push_back(CreateMethodStub(cm.functions[idx], cm, loc,
-			access, ProducerIdxClamp(idx), typeParamNames));
-	}
+	BuildClassFieldStubs(cc, cm, loc, typeParamNames, pMembers);
+	BuildClassMethodStubs(cc, cm, loc, typeParamNames, pMembers);
+	BuildClassCtorStubs(cc, cm, loc, typeParamNames, pMembers);
 
 	//v0.12.6 Task 8: static fields + the $staticInit stub member
 	//(CompiledModuleStaticFieldStubs.hpp).
@@ -221,37 +252,18 @@ inline SnClassDecl *CreateClassStub(const CompiledClass &cc,
 	return pDecl;
 }
 
-//0.9.10 D5 + 0.9.12 (v2.7): build a SnInterfaceDecl stub — statics and
-//constants as before, plus bodyless instance-method stubs rebuilt from
-//the signature records. Interface-typed calls dispatch by name through
-//the receiver's runtime class (EmitMemberInterfaceCall), so the stubs
-//need no NF_Virtual and no bodies; the implements contract checks bind
-//against these signatures across modules.
-inline SnInterfaceDecl *CreateInterfaceStub(const CompiledInterface &ci,
-	const CompiledModule &cm, const ISourceLocation &loc)
+//0.9.10 D3: exported constants rebuild as `public static const` fields
+//whose synthesized literal initializer folds again at the consumer's use
+//sites (the declaration contract already ran at the producer; imported
+//stubs are exempt from re-checking). v0.12.6 Task 8: a runtime constant
+//(slotIdx valid) rebuilds initializer-less with the producer slot row
+//rider instead — the consumer's read gates the interface's lazy
+//initializer (kind 1) and loads the resolved slot (D11 across modules).
+inline void BuildInterfaceConstantStubs(const CompiledInterface &ci,
+	const CompiledModule &cm, const ISourceLocation &loc,
+	const std::vector<std::string> *typeParamNames,
+	PtrList<SnField> *pMembers)
 {
-	auto pName = new std::string(LeafNameOfKey(ci.name));
-	auto *pMembers = new PtrList<SnField>();
-	//v2.19 (0.13.1c Task 8): a template row's signatures rebuild against
-	//the row's own declared parameters — the T leaves name them by
-	//ordinal, and the consumer's resolver binds them through the stub
-	//declaration (SetTypeParamNames below → IsGenericDeclaration()).
-	const std::vector<std::string> *typeParamNames =
-		ci.isTemplate ? &ci.typeParamNames : nullptr;
-	for (auto idx : ci.staticMethodIndices)
-	{
-		if (idx < cm.functions.size())
-			pMembers->push_back(CreateFunctionStub(cm.functions[idx], cm,
-				loc, FA_Public, ProducerIdxClamp(idx), typeParamNames));
-	}
-	//0.9.10 D3: exported constants rebuild as `public static const`
-	//fields whose synthesized literal initializer folds again at the
-	//consumer's use sites (the declaration contract already ran at
-	//the producer; imported stubs are exempt from re-checking).
-	//v0.12.6 Task 8: a runtime constant (slotIdx valid) rebuilds
-	//initializer-less with the producer slot row rider instead — the
-	//consumer's read gates the interface's lazy initializer (kind 1)
-	//and loads the resolved slot (D11 across modules).
 	for (const auto &constant : ci.constants)
 	{
 		if (constant.slotIdx != 0xFFFF)
@@ -278,35 +290,29 @@ inline SnInterfaceDecl *CreateInterfaceStub(const CompiledInterface &ci,
 		pField->AddFlags(NF_Const);
 		pMembers->push_back(pField);
 	}
-	//0.9.12 (v2.7): instance-method signatures. The signature records
-	//carry no formal names (unlike function records' locals tables), so
-	//the stubs create "p<i>" placeholders — positional binding works,
-	//named-argument calls against an imported interface method do not
-	//bind. Interface members are implicitly public and non-static.
+}
+
+//0.9.12 (v2.7): instance-method signatures. The signature records carry
+//no formal names (unlike function records' locals tables), so the stubs
+//create "p<i>" placeholders — positional binding works, named-argument
+//calls against an imported interface method do not bind. Interface
+//members are implicitly public and non-static. Void signatures carry
+//the RTK_Void kind byte (the producer stamps it); any other kind
+//synthesizes through the standard descriptor channel (NonSerialized
+//degrades to the int32 placeholder, mirroring the function-record
+//degradation).
+inline void BuildInterfaceMethodStubs(const CompiledInterface &ci,
+	const CompiledModule &cm, const ISourceLocation &loc,
+	const std::vector<std::string> *typeParamNames,
+	PtrList<SnField> *pMembers)
+{
 	for (const auto &sig : ci.instanceMethods)
 	{
 		std::vector<std::string> stubFormalNames(sig.paramTypeDescs.size());
 		for (size_t i = 0; i < sig.paramTypeDescs.size(); ++i)
 			stubFormalNames[i] = "p" + std::to_string(i);
-		auto *pParams = new PtrList<SnFormalParam>();
-		for (size_t i = 0; i < sig.paramTypeDescs.size(); ++i)
-		{
-			const ParamTypeDesc &ptd = sig.paramTypeDescs[i];
-			NodeBits paramFlags = NF_NONE;
-			if (ptd.flags & PTDF_Out)
-				paramFlags |= NF_Out;
-			SnExpression *pDefault = nullptr;
-			if (i < sig.defaultValues.size())
-				pDefault = SynthDefaultExpr(sig.defaultValues[i], cm,
-					sig.name, static_cast<uint16_t>(i), stubFormalNames, loc);
-			pParams->push_back(new SnFormalParam(paramFlags,
-				SynthTypeExprFromDesc(ptd.type, cm, loc, typeParamNames),
-				new std::string(stubFormalNames[i]), pDefault, loc));
-		}
-		//Void signatures carry the RTK_Void kind byte (the producer
-		//stamps it); any other kind synthesizes through the standard
-		//descriptor channel (NonSerialized degrades to the int32
-		//placeholder, mirroring the function-record degradation).
+		auto *pParams = BuildStubFormalParamNodes(sig, cm, stubFormalNames,
+			loc, typeParamNames);
 		SnFieldExpr *pRetType = nullptr;
 		if (sig.returnType.kind != RTK_Void)
 			pRetType = SynthTypeExprFromDesc(sig.returnType, cm, loc,
@@ -316,6 +322,32 @@ inline SnInterfaceDecl *CreateInterfaceStub(const CompiledInterface &ci,
 		pFunc->AddFlags(NF_Imported);   //R6-2
 		pMembers->push_back(pFunc);
 	}
+}
+
+//0.9.10 D5 + 0.9.12 (v2.7): build a SnInterfaceDecl stub — statics and
+//constants as before, plus bodyless instance-method stubs rebuilt from
+//the signature records. Interface-typed calls dispatch by name through
+//the receiver's runtime class (EmitMemberInterfaceCall), so the stubs
+//need no NF_Virtual and no bodies; the implements contract checks bind
+//against these signatures across modules.
+inline SnInterfaceDecl *CreateInterfaceStub(const CompiledInterface &ci,
+	const CompiledModule &cm, const ISourceLocation &loc)
+{
+	auto pName = new std::string(LeafNameOfKey(ci.name));
+	auto *pMembers = new PtrList<SnField>();
+	//v2.19 (0.13.1c Task 8): a template row's signatures rebuild against
+	//the row's own declared parameters (SetTypeParamNames below →
+	//IsGenericDeclaration()).
+	const std::vector<std::string> *typeParamNames =
+		ci.isTemplate ? &ci.typeParamNames : nullptr;
+	for (auto idx : ci.staticMethodIndices)
+	{
+		if (idx < cm.functions.size())
+			pMembers->push_back(CreateFunctionStub(cm.functions[idx], cm,
+				loc, FA_Public, ProducerIdxClamp(idx), typeParamNames));
+	}
+	BuildInterfaceConstantStubs(ci, cm, loc, typeParamNames, pMembers);
+	BuildInterfaceMethodStubs(ci, cm, loc, typeParamNames, pMembers);
 	//v0.12.6 Task 8: the interface's $staticInit stub member — consumer
 	//kind-1 gates (runtime constant read, interface static method call)
 	//call it through the imported function slot. Interface statics ride

@@ -1168,6 +1168,27 @@ private:
 	//and structs answer false: their ctors are AST candidates.
 	bool FindCtorParamRange(SnField *pTypeDecl,
 		size_t &requiredArity, size_t &totalArity);
+	//The legacy arity texts for the no-AST-candidate shapes (0.9.11 T6):
+	//builtin/generic classes keep the intrinsic arity check via
+	//FindCtorParamRange; a type with no constructor at all rejects only
+	//when arguments were supplied (the legal bare-allocation shape).
+	//Shared by SelectCtorForArgs. Defined in ExprResolverNewCtor.cpp.
+	void LogLegacyCtorArity(SnField *pTypeDecl,
+		const std::vector<SnExpression*> &actuals,
+		const ISourceLocation *pLoc, const char *kindWord);
+	//The overload match plus the two named mismatch outcomes (ambiguous /
+	//no match), spelled with the caller's kind word ("struct"/"class")
+	//and type name. Shared by SelectCtorForArgs and — via the
+	//StatementResolveAccessor's m_ExprResolver — the super(...) parent-ctor
+	//path (SelectSuperCtor), whose texts are byte-identical with
+	//kindWord="class". Returns the selected ctor (the caller consumes the
+	//binding); null after logging on a mismatch. Defined in
+	//ExprResolverNewCtor.cpp.
+	SnFunction *MatchCtorOrLogMismatch(
+		const std::vector<SnExpression*> &actuals,
+		const std::vector<SnFunction*> &candidates,
+		const ISourceLocation *pLoc, const char *kindWord,
+		const std::string &typeName);
 	//0.9.11 T6 (D10): selects the constructor a call binds to. Collects
 	//the same-name candidate set (class Members() / struct Ctors()),
 	//runs MatchCtorAgainst, and reports the catalog diagnostics on
@@ -1784,6 +1805,22 @@ public:
 		const std::vector<SnFunction*> &candidates, bool &rbAmbiguous)
 	{
 		return m_Accessor.MatchCtorAgainst(actuals, candidates, rbAmbiguous);
+	}
+
+	//Statement-side entry of the ctor overload match PLUS its two named
+	//mismatch diagnostics — the super(...) selection in
+	//StatementResolverSuper. Same contract as the accessor member of the
+	//same name (kindWord="class" there); the match and its logging read
+	//only the resolved actuals and the candidate signatures, so no
+	//Resolve() context is required.
+	SnFunction *MatchCtorOrLogMismatch(
+		const std::vector<SnExpression*> &actuals,
+		const std::vector<SnFunction*> &candidates,
+		const ISourceLocation *pLoc, const char *kindWord,
+		const std::string &typeName)
+	{
+		return m_Accessor.MatchCtorOrLogMismatch(actuals, candidates,
+			pLoc, kindWord, typeName);
 	}
 
 	void ResolveFieldExprAs(SnFieldExpr &expr, SnField *pField)

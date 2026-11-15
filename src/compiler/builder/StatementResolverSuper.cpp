@@ -31,13 +31,38 @@ void StatementResolveAccessor::ResolveSuperCallArgs(SnSuperCallStmt &sn)
 	}
 }
 
+//The parent ctors a super(...) call may bind to: the parent's same-name
+//non-static members (a same-name static lives in the static namespace,
+//0.9.10 D2.4), gated by the subclass constructor's access authority
+//(0.9.12 D-new-5 — a private parent ctor is invisible to subclasses, a
+//protected one is visible; the caller validated the current function as
+//a user-class ctor before reaching here).
+static void CollectAccessibleSuperCtorCandidates(SnClassDecl *pParent,
+	BuildEnvironment &env, const SnField &currType,
+	std::vector<SnFunction*> &candidates, bool &bAnyInaccessible)
+{
+	for (auto& field : pParent->Members()) {
+		if (field.Kind() == NK_Function
+			&& field.Name() == pParent->Name()
+			&& !field.ContainFlags(NF_Static)) {
+			auto *pCtor = static_cast<SnFunction*>(&field);
+			if (!AccessAdmitted(env.Registry(), *pCtor, currType)) {
+				bAnyInaccessible = true;
+				continue;
+			}
+			candidates.push_back(pCtor);
+		}
+	}
+}
+
 //0.9.11 T6 (D10): the parent ctor a super(...) call binds to. User
 //parents run the overload match over the parent's same-name non-static
-//members (a same-name static lives in the static namespace, 0.9.10
-//D2.4); builtin parents keep the intrinsic Exception-ctor arity check
+//members; builtin parents keep the intrinsic Exception-ctor arity check
 //and answer null — their ctor is a table entry, not an AST member. A
 //parent without ctors is a legal no-op for a bare super(); anything
-//else logs and answers null.
+//else logs and answers null. The match/mismatch texts come from the
+//shared MatchCtorOrLogMismatch (kindWord="class" — byte-identical with
+//the direct ctor-call path).
 SnFunction *StatementResolveAccessor::SelectSuperCtor(SnSuperCallStmt &sn,
 	SnClassDecl *pParent)
 {
@@ -56,24 +81,10 @@ SnFunction *StatementResolveAccessor::SelectSuperCtor(SnSuperCallStmt &sn,
 		return nullptr;  //table-path ctor (codegen reads CtorSlotFor)
 	}
 
-	//0.9.12 D-new-5: the parent ctors a super(...) call may bind to are
-	//gated by the subclass constructor's access authority (the caller
-	//validated as a user-class ctor before reaching here): a private
-	//parent ctor is invisible to subclasses, a protected one is visible.
 	std::vector<SnFunction*> candidates;
 	bool bAnyInaccessible = false;
-	for (auto& field : pParent->Members()) {
-		if (field.Kind() == NK_Function
-			&& field.Name() == pParent->Name()
-			&& !field.ContainFlags(NF_Static)) {
-			auto *pCtor = static_cast<SnFunction*>(&field);
-			if (!AccessAdmitted(m_Env.Registry(), *pCtor, *m_pCurrType)) {
-				bAnyInaccessible = true;
-				continue;
-			}
-			candidates.push_back(pCtor);
-		}
-	}
+	CollectAccessibleSuperCtorCandidates(pParent, m_Env, *m_pCurrType,
+		candidates, bAnyInaccessible);
 	if (candidates.empty()) {
 		if (bAnyInaccessible) {
 			m_Env.Log(CLL_Error, sn.Location(),
@@ -88,22 +99,8 @@ SnFunction *StatementResolveAccessor::SelectSuperCtor(SnSuperCallStmt &sn,
 		return nullptr;  //bare super(); with no parent ctor is a legal no-op
 	}
 
-	bool bAmbiguous = false;
-	auto *pCtor = m_ExprResolver.MatchCtorAgainst(actuals, candidates,
-		bAmbiguous);
-	if (pCtor)
-		return pCtor;
-	if (bAmbiguous) {
-		m_Env.Log(CLL_Error, sn.Location(),
-			"ambiguous constructor call to class \"%s\": multiple "
-			"constructors match the argument list",
-			pParent->Name().c_str());
-	} else {
-		m_Env.Log(CLL_Error, sn.Location(),
-			"no constructor of class \"%s\" matches the argument list",
-			pParent->Name().c_str());
-	}
-	return nullptr;
+	return m_ExprResolver.MatchCtorOrLogMismatch(actuals, candidates,
+		sn.Location(), "class", pParent->Name());
 }
 
 //Phase 9d-2: super(args); — forwards ctor args to the direct parent

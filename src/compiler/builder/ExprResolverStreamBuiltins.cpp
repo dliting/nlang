@@ -35,6 +35,73 @@ namespace nlang
 //Returns nullptr after logging (context restored); readObject's declared
 //type may be a base class of the stream's actual type — polymorphic
 //deserialization is enforced in VmExecutor via IsSubclassOf (Phase 8d).
+//The visible-module candidate scan behind readStruct/readObject's
+//literal type argument (Phase 5 D10: the literal resolves to a
+//declaration NOW, from the visible packages — own package + imported
+//ones; no runtime unqualified-name fallback, the type tables are
+//qualified-keyed). The collection surface is the registry's
+//visible-module set, not FindField up the chain (import never adds a
+//chain node, D2): a dotted literal names its package in the first
+//segments, so only that module can own it; a bare literal competes
+//across ALL gate-opened modules (ambiguity surface).
+//
+//Candidate enumeration runs through the single-point import-gate policy
+//(ModuleRegistry::ImportGateAllows): an external owner (stub context)
+//sees every module — its references were validated at the producer's
+//own compile. "Sees every module" does NOT mean "binds every type": the
+//admission filter below pins only PUBLIC foreign types (0.13.8 item 5,
+//Task 4 — a foreign non-public type is no candidate, the denial skips
+//it like any other miss). A stub signature naming a foreign non-public
+//type therefore folds to the plain "type not found" diagnostic here.
+//
+//LinkKeyOf, not the registry display qualification: the string the VM
+//receives must spell the CLASS-TABLE row key exactly, and a generic
+//declaration keys its row under the erased bare name (dictionary
+//model). One key function on both sides or readObject's lookup misses
+//the row (the drift LinkKeyOf exists to prevent).
+//
+//On return, *ppFound (when non-null) is the admitted declaration and
+//*pFoundKey its table key. Returns the hit count — the caller logs the
+//ambiguity when it exceeds one.
+static size_t ScanStreamTypeCandidates(const ModuleRegistry &reg,
+	const std::string &typeName, NodeKind wantKind, uint32_t curModule,
+	SnField **ppFound, std::string *pFoundKey)
+{
+	const bool dotted = typeName.find('.') != std::string::npos;
+	const size_t lastDot = typeName.find_last_of('.');
+	const std::string prefix =
+		dotted ? typeName.substr(0, lastDot) : std::string();
+	const std::string leaf =
+		dotted ? typeName.substr(lastDot + 1) : typeName;
+	std::vector<std::string> seenKeys;
+	size_t hits = 0;
+	for (uint32_t i = 0; i < reg.ModuleCount(); ++i)
+	{
+		const std::string& path = reg.ModulePathOf(i);
+		if (i != curModule && !reg.ImportGateAllows(curModule, path))
+			continue;
+		if (dotted && path != prefix)
+			continue;
+		bool bDenied = false;
+		SnField* hit = FindAdmittedModuleType(reg, path, leaf,
+			curModule, bDenied);
+		if (!hit || hit->Kind() != wantKind)
+			continue;
+		const std::string key = LinkKeyOf(reg, *hit);
+		//A hit already seen (same qualified key) is the same type, not a
+		//second candidate — the per-package duplicate is rejected earlier
+		//by the name-conflict checks.
+		if (std::find(seenKeys.begin(), seenKeys.end(), key)
+			!= seenKeys.end())
+			continue;
+		seenKeys.push_back(key);
+		*ppFound = hit;
+		*pFoundKey = key;
+		++hits;
+	}
+	return hits;
+}
+
 SnField *ExprResolveAccessor::ResolveStreamSpecialTypeArg(
 	SnInvokeExpr &invoke, NodeKind wantKind, const char *pMethodDisp,
 	SyntaxNode *pSavedContext)
@@ -53,67 +120,13 @@ SnField *ExprResolveAccessor::ResolveStreamSpecialTypeArg(
 	auto& lit = static_cast<SnLiteralExpr&>(*it);
 	const std::string* pTypeName = lit.Value().Data().m_String;
 	const std::string typeName = pTypeName ? *pTypeName : std::string();
-	//Phase 5 D10: the literal resolves to a declaration NOW, from the
-	//visible packages (own package + imported ones), and the string that
-	//reaches the VM is rewritten to that declaration's table key. No
-	//runtime unqualified-name fallback: the type tables are qualified-keyed.
-	//The collection surface is the registry's visible-module set, not
-	//FindField up the chain (import never adds a chain node, D2).
+
 	SnField* found = nullptr;
 	std::string foundKey;
-	size_t hits = 0;
-	{
-		auto& reg = m_Env.Registry();
-		//Visible modules: the caller's own package plus every module its
-		//import gate opened. A dotted literal names its package in the
-		//first segments, so only that module can own it; a bare literal
-		//competes across ALL visible modules (ambiguity surface).
-		const bool dotted = typeName.find('.') != std::string::npos;
-		const size_t lastDot = typeName.find_last_of('.');
-		const std::string prefix =
-			dotted ? typeName.substr(0, lastDot) : std::string();
-		const std::string leaf =
-			dotted ? typeName.substr(lastDot + 1) : typeName;
-		const uint32_t curModule = reg.OwnerOfContext(*pSavedContext);
-		std::vector<std::string> seenKeys;
-		for (uint32_t i = 0; i < reg.ModuleCount(); ++i)
-		{
-			const std::string& path = reg.ModulePathOf(i);
-			//Candidate enumeration through the single-point import-gate
-			//policy (ModuleRegistry::ImportGateAllows): an external owner
-			//(stub context) sees every module — its references were
-			//validated at the producer's own compile; the hits below still
-			//pin the type identity (kind + dedup + ambiguity check).
-			if (i != curModule && !reg.ImportGateAllows(curModule, path))
-				continue;
-			if (dotted && path != prefix)
-				continue;
-			//0.13.8 item 5 (Task 4): a foreign non-public type is no
-			//candidate — the denial skips it like any other miss.
-			bool bDenied = false;
-			SnField* hit = FindAdmittedModuleType(reg, path, leaf,
-				curModule, bDenied);
-			if (!hit || hit->Kind() != wantKind)
-				continue;
-			//LinkKeyOf, not the registry display qualification: the string
-			//the VM receives must spell the CLASS-TABLE row key exactly,
-			//and a generic declaration keys its row under the erased bare
-			//name (dictionary model). One key function on both sides or
-			//readObject's lookup misses the row (the drift LinkKeyOf
-			//exists to prevent).
-			const std::string key = LinkKeyOf(reg, *hit);
-			//A hit already seen (same qualified key) is the same type,
-			//not a second candidate — the per-package duplicate is
-			//rejected earlier by the name-conflict checks.
-			if (std::find(seenKeys.begin(), seenKeys.end(), key)
-				!= seenKeys.end())
-				continue;
-			seenKeys.push_back(key);
-			found = hit;
-			foundKey = key;
-			++hits;
-		}
-	}
+	auto& reg = m_Env.Registry();
+	const uint32_t curModule = reg.OwnerOfContext(*pSavedContext);
+	const size_t hits = ScanStreamTypeCandidates(reg, typeName, wantKind,
+		curModule, &found, &foundKey);
 	if (hits > 1) {
 		m_Env.Log(CLL_Error, invoke.Location(),
 			"%s: type name '%s' is ambiguous (%zu visible types share it); "
