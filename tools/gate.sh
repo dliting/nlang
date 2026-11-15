@@ -199,12 +199,45 @@ holder_age_s() {
     fi
 }
 
+# The one age source for every lock's remnants. holder_age_s covers the case
+# where the holder file was written and is readable; this covers the other
+# half, which is exactly the half a killed process leaves: no holder file at
+# all (killed between the atomic mkdir and the write that follows), or one cut
+# off before the started= line. Both locks have that two-step shape, so both
+# need it, and reading the age in several places is how the two would drift
+# apart — a drift that only shows up the moment a gate is killed, which no
+# ordinary test run produces.
+#
+# The second argument names the object the flag itself was stood on, which is
+# where the creation time still is recorded when the holder file is not: the
+# flag directory where one is created before the holder is written, the holder
+# file itself where the file IS the flag. Nothing readable at all (a lock
+# cleaned up between the check and this call) ages as 0, the same answer
+# holder_age_s gives when it has nothing to go on.
+holder_age_or_mtime_s() {
+    local age stamp
+    age=$(holder_age_s "$1")
+    if [ "$age" -gt 0 ]; then
+        echo "$age"
+        return
+    fi
+    # A holder that says nothing: read the flag object's own clock instead.
+    # A holder written this very second also lands here, and its flag object
+    # was created just as recently, so the answer is the same.
+    stamp=$(stat -c %Y "$2" 2>/dev/null)
+    if [ -n "$stamp" ]; then
+        echo $(( $(date +%s) - stamp ))
+    else
+        echo 0
+    fi
+}
+
 # Drop holders that outlived their process (a gate killed with the shell
 # closed leaves its directory behind, and that must not freeze the
 # machine until someone notices).
 sweep_stale() {
     if [ -d "$excl_dir" ]; then
-        age=$(holder_age_s "$excl_dir/holder.info")
+        age=$(holder_age_or_mtime_s "$excl_dir/holder.info" "$excl_dir")
         if [ "$age" -gt "$LOCK_STALE_S" ]; then
             echo "LOCK $name: taking over an exclusive lock held ${age}s by $(holder_text "$excl_dir/holder.info")"
             rm -rf "$excl_dir"
@@ -212,7 +245,7 @@ sweep_stale() {
     fi
     for file in "$shared_dir"/*.info; do
         [ -f "$file" ] || continue
-        age=$(holder_age_s "$file")
+        age=$(holder_age_or_mtime_s "$file" "$file")
         if [ "$age" -gt "$LOCK_STALE_S" ]; then
             echo "LOCK $name: dropping a shared lock held ${age}s by $(holder_text "$file")"
             rm -f "$file"
@@ -247,7 +280,7 @@ acquire() {
                 echo "LOCK $name: shared lock acquired after ${waited}s ($lock_dir)"
                 return 0
             fi
-            desc="exclusive lock held $(holder_age_s "$excl_dir/holder.info")s by $(holder_text "$excl_dir/holder.info")"
+            desc="exclusive lock held $(holder_age_or_mtime_s "$excl_dir/holder.info" "$excl_dir")s by $(holder_text "$excl_dir/holder.info")"
         else
             # A test gate wants the machine to itself: no other exclusive
             # holder (mkdir is the atomic claim, so a losing racer just
@@ -260,7 +293,7 @@ acquire() {
                 fi
                 desc="exclusive lock claimed by another waiting gate"
             else
-                desc="exclusive lock held $(holder_age_s "$excl_dir/holder.info")s by $(holder_text "$excl_dir/holder.info")"
+                desc="exclusive lock held $(holder_age_or_mtime_s "$excl_dir/holder.info" "$excl_dir")s by $(holder_text "$excl_dir/holder.info")"
             fi
         fi
         wait_round "$waited" "$desc"
