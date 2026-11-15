@@ -1643,6 +1643,25 @@ private:
 	bool RejectPackageStringCoercion(SnInvokeExpr &invoke,
 		const std::vector<FormalBinding> &bindings,
 		const std::string &modulePath);
+	//Access arm of ResolveModuleQualifiedCallee (0.13.8 item 5): a
+	//foreign non-public namespace member consumes here with the
+	//manifest wording (the bare path's family), keeping codegen out.
+	//True = consumed, the caller returns false.
+	bool RejectInaccessibleCallee(SnInvokeExpr &invoke,
+		SnMemberExpr &snMember, SnFunction &callee);
+	//Shared prologue of the qualified VALUE routes (the enum-constant
+	//chain, the free-function value and the module type reference): the
+	//dotted chain with the tip pushed back, then the m12 priority probe
+	//(the leftmost local/field/type wins, as for calls). False =
+	//declined, the generic path keeps the expression.
+	bool RouteQualifiedValueChain(SnMemberExpr &snMember,
+		std::vector<std::string> &segs);
+	//The type admission of the qualified VALUE routes (0.13.8 item 5):
+	//the foreign non-public arm folds into not-found — the not-a-member
+	//wording covers both shapes and the member consumes on the miss.
+	//Null = reported and consumed; non-null = the admitted type.
+	SnField *FindAdmittedModuleTypeOrReport(SnMemberExpr &snMember,
+		const std::string &modulePath, const std::string &typeName);
 	void FinishConsumedMember(SnMemberExpr &snMember);
 
 	//Phase 5: package-qualified VALUE access (`alib.Color.Green`, the

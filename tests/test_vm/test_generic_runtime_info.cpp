@@ -134,9 +134,10 @@ static void testBoxIntRidesConstruction()
         if (hits.size() == 1) {
             const GenericInstDescriptor* desc =
                 r.exec->InstDescriptorOf(hits[0]);
-            CHECK(desc->Spelling() == "Box<int>",
-                  "spelling is the canonical Box<int>");
-            CHECK(desc->TemplateName() == "Box", "template name is bare");
+            CHECK(desc->Spelling() == "gri_box_int.Box<int>",
+                  "spelling is the module-path-qualified link identity");
+            CHECK(desc->TemplateName() == "gri_box_int.Box",
+                  "template name is the qualified link identity");
             CHECK(desc->TypeArgs().size() == 1, "one type argument");
         }
     }
@@ -195,7 +196,8 @@ static void testProbeBoundsAreNull()
 
 //A template-body construction composes its descriptor at run time from
 //the receiver's own arguments (D3 compositions): Hold<int> driving Box(x)
-//inside its ctor yields "Box<int>" alongside the static "Hold<int>".
+//inside its ctor yields the qualified "gri_composition.Box<int>" alongside
+//the static "gri_composition.Hold<int>".
 static void testCompositionComposesFromReceiver()
 {
     TEST(compositionComposesFromReceiver);
@@ -221,8 +223,8 @@ static void testCompositionComposesFromReceiver()
         for (int32_t idx : hits) {
             const std::string& spelling =
                 r.exec->InstDescriptorOf(idx)->Spelling();
-            sawHold = sawHold || spelling == "Hold<int>";
-            sawBox = sawBox || spelling == "Box<int>";
+            sawHold = sawHold || spelling == "gri_composition.Hold<int>";
+            sawBox = sawBox || spelling == "gri_composition.Box<int>";
         }
         CHECK(sawHold, "receiver Hold<int> rides the static row");
         CHECK(sawBox, "inner Box composed as Box<int> at run time");
@@ -260,9 +262,11 @@ static void testNestedCompositionComposes()
         bool sawNested = false;
         for (int32_t idx : hits)
             if (r.exec->InstDescriptorOf(idx)->Spelling()
-                    == "Box<Box<int>>")
+                    == "gri_composition_nested.Box<"
+                       "gri_composition_nested.Box<int>>")
                 sawNested = true;
-        CHECK(sawNested, "nested composition composed as Box<Box<int>>");
+        CHECK(sawNested, "nested composition composed with the qualified "
+              "link identity");
     }
     PASS();
 }
@@ -298,9 +302,11 @@ static void testStaticBodyComposesFromForwardedContext()
               "descriptors");
         bool sawBox = false;
         for (int32_t idx : hits)
-            if (r.exec->InstDescriptorOf(idx)->Spelling() == "Box<int>")
+            if (r.exec->InstDescriptorOf(idx)->Spelling()
+                    == "gri_static_ctor_fwd.Box<int>")
                 sawBox = true;
-        CHECK(sawBox, "the static-body construction composed as Box<int>");
+        CHECK(sawBox, "the static-body construction composed with the "
+              "qualified link identity");
     }
     PASS();
 }
@@ -380,7 +386,8 @@ static void testRecycledSlotsCarryNoDescriptor()
         for (int32_t idx : hits) {
             if (r.exec->HeapSlotKindForTests(idx) != RTK_Class)
                 foreignKind = true;
-            if (r.exec->InstDescriptorOf(idx)->Spelling() == "Box<int>")
+            if (r.exec->InstDescriptorOf(idx)->Spelling()
+                    == "gri_recycled_slots.Box<int>")
                 sawDeadBox = true;
         }
         CHECK(!foreignKind,
@@ -517,8 +524,9 @@ static void testGenericFrameSlotUnderGcStress()
                 foreignKind = true;
             const std::string spelling =
                 r.exec->InstDescriptorOf(idx)->Spelling();
-            sawInt = sawInt || spelling == "Hold<int>";
-            sawString = sawString || spelling == "Hold<string>";
+            sawInt = sawInt || spelling == "gri_gc_stress_chain.Hold<int>";
+            sawString = sawString
+                || spelling == "gri_gc_stress_chain.Hold<string>";
         }
         CHECK(!foreignKind,
               "descriptor slots stayed kind-restricted under stress");

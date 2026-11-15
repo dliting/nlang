@@ -39,8 +39,9 @@ void AppendLenPrefixed(std::vector<uint8_t>& out, uint8_t tag,
 //One argument's encoding (see DescriptorEntry): a placeholder spells
 //ARG_THIS with its declared-parameter ordinal; an array wraps its
 //element's encoding with the rank; a nested instantiation embeds a
-//length-prefixed child composition record (its spelling field is the bare template
-//name); a concrete leaf spells ARG_CONST with the complete leaf form.
+//length-prefixed child composition record (its spelling field is the
+//template's descriptor spelling — 0.13.8 item 8); a concrete leaf spells
+//ARG_CONST with the complete leaf form.
 void AppendArgComposition(std::vector<uint8_t>& out, const TypeArgDesc& arg)
 {
 	if (IsTypeParamArg(arg))
@@ -58,8 +59,9 @@ void AppendArgComposition(std::vector<uint8_t>& out, const TypeArgDesc& arg)
 	}
 	if (!arg.nested.empty())
 	{
-		//Child composition: TEMPLATE_HEAD with the nested template's bare
-		//name (the argument's spelling field), then its arguments.
+		//Child composition: TEMPLATE_HEAD with the nested template's
+		//descriptor spelling (the argument's spelling field), then its
+		//arguments.
 		std::vector<uint8_t> child;
 		child.push_back(0);
 		AppendU16(child, static_cast<uint16_t>(arg.spelling.size()));
@@ -112,24 +114,30 @@ uint16_t VmBackend::DescriptorRowIndexFor(const std::string& rowName,
 	return static_cast<uint16_t>(table.size() - 1);
 }
 
+//0.13.8 item 8: the row name is the DESCRIPTOR spelling — the
+//package-qualified link identity (DescriptorSpellingOf), not the bare
+//erasure name LinkKeyOf keeps for row keys. This is where top-level
+//descriptor rows become package-distinct.
 uint16_t VmBackend::DescriptorIndexFor(SnClassDecl& inst)
 {
 	if (!inst.IsGenericInstantiation())
 		return kNoInstDescriptor;
 	const std::vector<TypeArgDesc> args = BuildTypeArgsOf(*m_pRegistry, inst);
-	return DescriptorRowIndexFor(inst.BaseName(), args);
+	return DescriptorRowIndexFor(DescriptorSpellingOf(*m_pRegistry, inst),
+		args);
 }
 
 //0.13.1c Task 8: the interface twin — a static call through a generic
 //INTERFACE instantiation rides the interface's row (the created shell
-//carries the same BaseName/GenericTypeArgs identity the class creation
-//does).
+//carries the same descriptor spelling/GenericTypeArgs identity the class
+//creation does).
 uint16_t VmBackend::DescriptorIndexFor(SnInterfaceDecl& inst)
 {
 	if (!inst.IsGenericInstantiation())
 		return kNoInstDescriptor;
 	const std::vector<TypeArgDesc> args = BuildTypeArgsOf(*m_pRegistry, inst);
-	return DescriptorRowIndexFor(inst.BaseName(), args);
+	return DescriptorRowIndexFor(DescriptorSpellingOf(*m_pRegistry, inst),
+		args);
 }
 
 //0.13.1a Task 4 (D4): a generic FREE-function call site's descriptor row

@@ -25,17 +25,17 @@ class Born<T> {
 int main() {
     Hold<int> h = Hold();
     if (h.showArg() != "int") return 1;
-    if (h.showInner() != "Box<int>") return 2;
+    if (h.showInner() != "generic_typename_runtime.Box<int>") return 2;
     Hold<Box<int>> h2 = Hold();
-    if (h2.showArg() != "Box<int>") return 3;
+    if (h2.showArg() != "generic_typename_runtime.Box<int>") return 3;
     if (h.showArray() != "int[]") return 4;
-    if (h2.showArray() != "Box<int>[]") return 5;
+    if (h2.showArray() != "generic_typename_runtime.Box<int>[]") return 5;
     Born<int> b1 = Born(1);
     if (b1.tag != "int") return 6;
     if (b1.nullChecked) return 7;
     Box<int> nothing = null;
     Born<Box<int>> b2 = Born(nothing);
-    if (b2.tag != "Box<int>") return 8;
+    if (b2.tag != "generic_typename_runtime.Box<int>") return 8;
     if (!b2.nullChecked) return 9;
     return 0;
 }

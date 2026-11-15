@@ -448,9 +448,8 @@ void ExprResolveAccessor::BindQualifiedCtorTail(SnMemberExpr &snMember,
 
 //Module-qualified `shapes.Point(args)` without new: the module table has
 //no function of the name and the type table does. Member wiring mirrors
-//BindQualifiedInvoke (direct field/type slots; the caller's
-//FinishConsumedMember adds the resolved flags). 0.9.11 D2: structs join
-//classes as module-qualified ctor targets.
+//BindQualifiedInvoke (direct field/type slots; the caller closes the
+//member out). 0.9.11 D2: structs join classes as ctor targets.
 bool ExprResolveAccessor::TryResolveQualifiedCtorInvoke(SnMemberExpr &snMember,
 	SnInvokeExpr &invoke, const std::string &modulePath)
 {
@@ -474,12 +473,10 @@ bool ExprResolveAccessor::TryResolveQualifiedCtorInvoke(SnMemberExpr &snMember,
 		//0.9.0: the qualified twin of the bare-name reject. Builtin generics
 		//own no module declaration (FindModuleType scans unit-owned AST
 		//members only), so without this check `shapes.List()` would fall
-		//through to the generic function-not-found text. The type lookup
-		//runs first: an imported class named List is legal and must
-		//construct. Consuming with the logged error mirrors
-		//RejectUnimportedModuleCall — the caller's
-		//FinishConsumedMember flags the member and the error keeps
-		//codegen out.
+		//through to the generic function-not-found text; an imported class
+		//named List is legal and must construct. Consuming with the logged
+		//error mirrors RejectUnimportedModuleCall — the caller's
+		//FinishConsumedMember flags the member; codegen stays out.
 		if (IsBuiltinGenericTypeName(invoke.CalleeName()))
 		{
 			m_Env.Log(CLL_Error, invoke.Location(),

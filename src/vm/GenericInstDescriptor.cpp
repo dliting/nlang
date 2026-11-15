@@ -119,7 +119,13 @@ bool ParseArrayArgRange(const std::string& s, size_t begin, size_t end,
 
 //Leaf arm: scalar keyword, string, or a link key resolved against the
 //linked module's tables (struct/class/enum; enums are int32 at runtime
-//and the spelling keeps the enum name). An unresolved key stays
+//and the spelling keeps the enum name). 0.13.8 item 8: descriptor
+//spellings carry the qualified link identity, so a class leaf resolves
+//through the bare-or-unique-suffix bridge — plain-class spellings are
+//exact table keys (module-qualified outside the prelude), while a
+//qualified generic-template spelling lands on its erasure-bare row
+//through the bridge's dotted-input strip (0.13.8 item 8: the row-key
+//space keys templates by the bare BaseName). An unresolved key stays
 //RTK_Class with rowRef -1 — display-correct, dispatch degrades
 //gracefully.
 void ResolveLeafArg(const std::string& leaf, const CompiledModule& module,
@@ -145,7 +151,7 @@ void ResolveLeafArg(const std::string& leaf, const CompiledModule& module,
 		out.resolvedKind = RTK_Struct;
 		out.rowRef = idx;
 	}
-	else if (int idx = module.FindClass(leaf); idx >= 0)
+	else if (int idx = module.FindClassBareOrUniqueSuffix(leaf); idx >= 0)
 	{
 		out.resolvedKind = RTK_Class;
 		out.rowRef = idx;
@@ -160,8 +166,8 @@ void ResolveLeafArg(const std::string& leaf, const CompiledModule& module,
 }
 
 //Parse one argument substring into a TypeArgDesc: array, nested
-//instantiation (its own spelling field is the bare template name per
-//the canonical contract), or leaf, in that order.
+//instantiation (its own spelling field is the nested template's
+//descriptor spelling, 0.13.8 item 8), or leaf, in that order.
 bool ParseArgRange(const std::string& s, size_t begin, size_t end,
 	const CompiledModule& module, TypeArgDesc& out)
 {
@@ -177,9 +183,11 @@ bool ParseArgRange(const std::string& s, size_t begin, size_t end,
 			return false;
 		out.spelling = s.substr(begin, less - begin);
 		out.resolvedKind = RTK_Class;
-		//The template's class row rides the same lookup the leaf arm
-		//uses — a row-less argument cannot walk a cast super chain.
-		if (int idx = module.FindClass(out.spelling); idx >= 0)
+		//The template's class row rides the same bridge the leaf arm
+		//uses (see ResolveLeafArg) — a row-less argument cannot walk a
+		//cast super chain.
+		if (int idx = module.FindClassBareOrUniqueSuffix(out.spelling);
+			idx >= 0)
 			out.rowRef = idx;
 		for (const auto& [aBegin, aEnd] :
 			SplitTopLevelArgs(s, less + 1, end - 1))

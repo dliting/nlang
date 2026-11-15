@@ -352,7 +352,8 @@ void VmBackend::EmitInvokeDispatch(SnInvokeExpr& invoke, SnFunction* callee,
     NLANG_ASSERT(!callee->IsGenericDeclaration()
         || !invoke.InferredTypeArgs().empty());
     uint16_t descIdx = callee->IsGenericDeclaration()
-        ? FreeCallDescriptorIndexFor(callee->Name(),
+        ? FreeCallDescriptorIndexFor(
+            DescriptorSpellingOf(*m_pRegistry, *callee),
             invoke.InferredTypeArgs())
         : StaticCallDescIdxFor(*callee);
     EmitFreeFunctionCall(

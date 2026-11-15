@@ -448,14 +448,14 @@ struct CompiledModule {
         return -1;
     }
 
-    //D8 (concurrency import redesign): runtime by-name caches look
-    //classes up bare, but plain classes outside the prelude key
-    //package-qualified ("thread.Thread"). Bare hit first; otherwise a
-    //UNIQUE ".name" suffix hit across the module's class table; zero
-    //or ambiguous -> -1 (no silent pick between same-named classes).
+    //Bare input: the D8 UNIQUE ".name" suffix scan (ambiguous -> -1).
+    //Dotted input: only a generic-template spelling can miss exact —
+    //strip the package, FindClass first-match (rows key bare BaseName).
     int FindClassBareOrUniqueSuffix(const std::string& name) const {
         if (int idx = FindClass(name); idx >= 0)
             return idx;
+        if (name.find('.') != std::string::npos)   //erasure arm
+            return FindClass(name.substr(name.rfind('.') + 1));
         const std::string suffix = "." + name;
         int found = -1;
         for (size_t i = 0; i < classes.size(); ++i)

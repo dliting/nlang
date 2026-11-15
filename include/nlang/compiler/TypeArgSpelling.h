@@ -29,7 +29,9 @@ bool IsTypeMember(const SyntaxNode& node);
 //kind dispatch in the call pipeline). The spelling contract: a LEAF
 //argument's spelling is its complete form ("int", "int[]"); an argument
 //carrying `nested` (a nested instantiation) spells as its template's
-//UNQUALIFIED name — the tree in `nested` supplies the rest, and the canonical
+//descriptor spelling (DescriptorSpellingOf — module-path qualified for
+//owned members, bare for prelude/builtin), the tree in
+//`nested` supplies the rest, and the canonical
 //form is always derived through CanonicalArgSpelling (reversibility
 //per Rust RFC 2603: the structure defines the spelling, so feeding a
 //descriptor's stored fields back in reproduces the same key).
@@ -58,9 +60,13 @@ std::string CanonicalArgSpelling(const TypeArgDesc& arg);
 //domain disjoint from every legal row index.
 constexpr int32_t kTypeParamArgBase = -2;
 inline bool IsTypeParamArg(const TypeArgDesc& arg)
-{ return arg.rowRef <= kTypeParamArgBase; }
+{
+    return arg.rowRef <= kTypeParamArgBase;
+}
 inline int32_t TypeParamOrdinalOf(const TypeArgDesc& arg)
-{ return kTypeParamArgBase - arg.rowRef; }
+{
+    return kTypeParamArgBase - arg.rowRef;
+}
 
 //The link identity one field keys the VM tables under — the same
 //spelling Register.cpp writes class/struct/function records with.
@@ -69,11 +75,32 @@ inline int32_t TypeParamOrdinalOf(const TypeArgDesc& arg)
 //degrade to the unqualified name). Defined in TypeArgSpelling.cpp.
 std::string LinkKeyOf(const ModuleRegistry& reg, const SnField& field);
 
+//The descriptor-identity spelling one field keys the descriptor rows
+//and intern pool under — the ROW KEY SPACE and this space are two
+//key spaces with one producer each and must never cross (the two-key
+//contract): LinkKeyOf keeps the v0.12.3 erasure arm for generic
+//templates and instantiations alike (one shared row), while this
+//function spells the full qualified link identity — the instantiation
+//identity rides the spelling, not the row reference (generic_runtime_
+//typeinfo_design §D2). Derivation: a declared instantiation takes its
+//TEMPLATE's package (the synthetic node itself is ownerless; builtin
+//instantiations have no declared template and spell bare); everything
+//else takes its own package. Owned members qualify with their registry
+//module path ("a.Pipe", "t7_min.Box") — the same derivation the class
+//table keys use for plain classes, so leaf arguments resolve exactly,
+//and a qualified template spelling lands on its shared erasure-bare
+//row through the runtime's unique-suffix bridge
+//(FindClassBareOrUniqueSuffix); prelude members and ownerless nodes
+//stay bare. Defined in TypeArgSpelling.cpp.
+std::string DescriptorSpellingOf(const ModuleRegistry& reg,
+	const SnField& field);
+
 //Build the descriptor argument list of an instantiation node: each
 //element of GenericTypeArgs() maps to one TypeArgDesc — scalars by
 //canonical keyword, string as "string", class/interface/struct/enum by
-//their link key (qualified for package members, bare for prelude and
-//ownerless nodes), arrays as element spelling + rank marks with the
+//their descriptor spelling (module-path qualified outside the prelude,
+//bare for prelude and ownerless nodes), arrays as element spelling +
+//rank marks with the
 //element descriptor nested, nested instantiations recursively, and a
 //type-parameter placeholder as the position encoding above (its
 //spelling is the parameter name, diagnostic-only).
