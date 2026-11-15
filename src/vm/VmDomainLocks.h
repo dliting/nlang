@@ -14,7 +14,13 @@
     while holding Growth: the shard Pop runs entirely inside its guard
     and calls no user code, so no reverse path exists). Nesting
     Container/Sync/Stream/StrMaint while holding StructCopy is
-    forbidden.
+    forbidden. Task 7 exemption: OpStoreStatic acquires StructCopy at
+    DISPATCH level with no domain lock held — static slots are shared
+    cross-carrier positions and must route through the same writer
+    lock as every other whole-record write (spec §3.11 ruling 1);
+    the establish path inside the primitive is unguarded, so no
+    deadlock. Intrinsic writers (List/Dict set) hold Container when
+    they nest StructCopy — the one legal downward nesting.
 ---*/
 #pragma once
 

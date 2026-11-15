@@ -523,6 +523,51 @@ static void testListSetExplicitZeroAlloc()
     PASS();
 }
 
+//Static-slot pin (Task 7): a struct-typed static slot owns ONE record
+//for life — the first whole-value store establishes it, every later
+//store writes that record in place. Fixed base (p + q + one
+//establish); the old deep-copy-per-store path adds one per store.
+//The slot must end up owning a record (handle > 0).
+static void testStaticSlotStableRecord()
+{
+    TEST(staticSlotStableRecord);
+    ExecResult r = runProgram("stabilize_copy_static_store",
+        "struct P {\n"
+        "    int x;\n"
+        "    int y;\n"
+        "}\n"
+        "class Holder {\n"
+        "    public static P slot;\n"
+        "}\n"
+        "int main() {\n"
+        "    P p;\n"
+        "    p.x = 1;\n"
+        "    p.y = 2;\n"
+        "    Holder.slot = p;\n"
+        "    p.x = 9;\n"
+        "    if (Holder.slot.x != 1) { return 1; }\n"
+        "    P q;\n"
+        "    q.x = 5;\n"
+        "    q.y = 6;\n"
+        "    Holder.slot = q;\n"
+        "    q.x = 7;\n"
+        "    if (Holder.slot.x != 5 || Holder.slot.y != 6) { return 2; }\n"
+        "    return 42;\n"
+        "}\n");
+    REQUIRE(r.built);
+    CHECK(r.exitCode == 42, "program exit");
+    const size_t allocs = r.exec->HeapAllocCountForTests();
+    if (allocs != 3) {
+        FAIL("two whole-value static stores allocate exactly one record "
+             "(the first store's establish; expected 3 fixed records, "
+             "got " + std::to_string(allocs) + ")");
+        return;
+    }
+    CHECK(r.exec->StaticSlotHandleForTests(0) > 0,
+          "static slot owns a record");
+    PASS();
+}
+
 int main()
 {
     Runtime::StaticInit();
@@ -536,6 +581,7 @@ int main()
     testFieldStoreZeroAlloc();
     testElementStoreZeroAlloc();
     testListSetExplicitZeroAlloc();
+    testStaticSlotStableRecord();
     std::cerr << "stabilize_copy: " << g_pass << " passed, "
               << g_fail << " failed\n";
     return g_fail == 0 ? 0 : 1;

@@ -94,21 +94,34 @@ void VmExecutor::OpStoreStatic(BytecodeReader& reader, uint8_t* locals) {
     uint16_t src = reader.ReadUint16();
     const CompiledStaticSlot& meta = m_currModule->staticSlots[slotIdx];
     //v0.12.6 D14: a struct-typed slot is a value boundary — the slot
-    //owns an independent record, not the source's handle. Deep-copy at
-    //this single choke point so every producer (user stores, $staticInit
-    //assignments, static-local guard stores, cross-module consumers)
-    //shares the semantics. The slot metadata's typeIdx carries the
-    //struct table index, link-remapped by nlink like every TypeDesc.
-    //A zero handle passes through unchanged: null is not a struct
-    //value, and no legal program produces it here.
+    //owns an independent record, not the source's handle. Record
+    //stabilization (v0.13.9 phase ②): the slot owns ONE record for
+    //life — the first whole-value store establishes it (a fresh
+    //record, or the type-default zeroed record the slot already
+    //holds), every later store writes the value's cells INTO that
+    //record in place; the handle in the cell never changes. Runs at
+    //dispatch level with no domain lock held, so the leaf StructCopy
+    //acquire is legal (static slots are shared cross-carrier
+    //positions and MUST route through the same writer lock as every
+    //other whole-record write — spec §3.11 ruling 1); the establish
+    //path inside the primitive is unguarded, so no deadlock. Every
+    //producer (user stores, $staticInit assignments, static-local
+    //guard stores, cross-module consumers) shares the semantics. The
+    //slot metadata's typeIdx carries the struct table index,
+    //link-remapped by nlink like every TypeDesc. A zero source handle
+    //passes through unchanged: null is not a struct value, and no
+    //legal program produces it here.
     if (meta.type.kind == RTK_Struct) {
         int32_t srcHeapIdx;
         std::memcpy(&srcHeapIdx, locals + src, sizeof(srcHeapIdx));
         if (srcHeapIdx > 0) {
-            const int32_t copyIdx =
-                DeepCopyStruct(srcHeapIdx, meta.type.typeIdx);
-            std::memcpy(m_staticSlots.Cell(slotIdx), &copyIdx,
-                        sizeof(copyIdx));
+            int32_t dstHeapIdx;
+            std::memcpy(&dstHeapIdx, m_staticSlots.Cell(slotIdx),
+                        sizeof(dstHeapIdx));
+            const int32_t stableIdx = CopyStructInPlaceLocked(
+                dstHeapIdx, srcHeapIdx, meta.type.typeIdx);
+            std::memcpy(m_staticSlots.Cell(slotIdx), &stableIdx,
+                        sizeof(stableIdx));
             if (meta.hasInitializer)
                 m_staticSlots.MarkSlotInitialized(slotIdx);
             return;

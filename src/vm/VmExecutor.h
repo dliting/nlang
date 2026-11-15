@@ -404,6 +404,14 @@ public:
     uint16_t HeapStructIdxForTests(int32_t handle) const {
         return m_slotStructIdx[static_cast<size_t>(handle)];
     }
+    //Record stabilization pin (v0.13.9 phase ②): the raw handle a
+    //static slot's cell currently holds (low half of the uniform cell;
+    //0 = no record yet).
+    int32_t StaticSlotHandleForTests(uint16_t slotIdx) const {
+        int32_t handle;
+        std::memcpy(&handle, m_staticSlots.Cell(slotIdx), sizeof(handle));
+        return handle;
+    }
     //Test probe: exact record-allocation count. HeapSlotCountForTests
     //grows in shard-block quanta and can absorb small counts in block
     //slack — allocation pins read this counter instead.

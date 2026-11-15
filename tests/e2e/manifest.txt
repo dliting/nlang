@@ -2388,3 +2388,4 @@ xacc_type_private compile_error Type 'Vault' is not a member of package 'lib'.
 xacc_ok_public 28
 stabilize_list_set 42
 stabilize_dict_set 42
+stabilize_static_store 42
