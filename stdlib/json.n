@@ -288,7 +288,9 @@ class JsonNumber : JsonValue {
             throw JsonException("json: number out of long range");
         }
         if (value % 1.0 != 0.0) {       // % is fmod on doubles: tests integrality
-            throw JsonException("json: number out of long range");
+            // The fractional gate answers before the int window does, so
+            // the message names the fraction rather than a range.
+            throw JsonException("json: number has a fractional part");
         }
         return value as long;
     }

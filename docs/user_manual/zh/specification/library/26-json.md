@@ -123,8 +123,8 @@ json: nesting deeper than 200 at byte offset 200
 JSON的数只有一种写法；NLang用它仅有的两种类型来读，访问器决定一个数怎么回答：
 
 - 不含小数部分也不含指数的词元按64位带符号整数（`long`）保存；其余一律按`double`保存。
-- 数是范围`-9223372036854775808 … 9223372036854775807`内的精确整值时`getLong`作答。小数形式的词元只要值是整数也作答——`3e2`读回`300`。装着同一整值的`double`同样作答。超出范围、或带小数部分时，`getLong`抛`JsonException`，消息为`json: number out of long range`。
-- `getInt`在32位`int`范围内问同样的问题，范围外抛`json: number out of int range`。
+- 数是范围`-9223372036854775808 … 9223372036854775807`内的精确整值时`getLong`作答。小数形式的词元只要值是整数也作答——`3e2`读回`300`。装着同一整值的`double`同样作答。`getLong`抛出的`JsonException`点名失败的那一项：超出范围时为`json: number out of long range`，本身就带小数部分时为`json: number has a fractional part`。
+- `getInt`在32位`int`范围内问同样的问题，范围外抛`json: number out of int range`，本身带小数部分时抛上面那条点名小数部分的消息。
 - `getDouble`对每个数都作答。大到`long`装不下的整数词元以最近的`double`返回——`2^53`以上的`double`无法命名每个整数，所以30位数字词元在文本里保持精确，经`getDouble`则舍入。
 - 从文本解析出的数保留写下的每个字符：`1e2`、`0.10`、`-0`与30位整数都按原拼写序列化。程序用`long`或`double`构造的数按能读回同值的最短形式打印（`0.1 + 0.2`打印`0.30000000000000004`）。
 - 指数把数推出`double`范围时，在发现处就被拒：`1e999`抛`JsonException`，消息为`json: number out of range at byte offset <n>`。小到无法命名的数读作`0.0`。两种拼写文法都接受——RFC 8259允许它们——所以这条检查是解析器自己的范围规则，不是文法规则。

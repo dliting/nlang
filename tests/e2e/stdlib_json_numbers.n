@@ -48,6 +48,7 @@ int main() {
     long lMin = -9223372036854775808;
     string longRange = "json: number out of long range";
     string intRange = "json: number out of int range";
+    string fracPart = "json: number has a fractional part";
     // Integral tokens at the long extremes stay exact longs (D-2).
     JsonValue vMax = json.parse("9223372036854775807");
     if (vMax.getLong() != lMax) { bad = bad + 1; }
@@ -73,11 +74,11 @@ int main() {
     if (vDotZero.getLong() != 3) { bad = bad + 1; }
     if (vDotZero.getInt() != 3) { bad = bad + 1; }
     if (vDotZero.serialize() != "3.0") { bad = bad + 1; }
-    // A fractional double rejects both readers; getInt delegates to
-    // getLong, so the wording stays the long one (26章口径).
+    // A fractional double rejects both readers, and the message names
+    // the gate that failed: the fractional part, not a range (§26.4).
     JsonValue vFrac = json.parse("2.5");
-    if (expectThrowLong(vFrac, longRange) != 0) { bad = bad + 1; }
-    if (expectThrowInt(vFrac, longRange) != 0) { bad = bad + 1; }
+    if (expectThrowLong(vFrac, fracPart) != 0) { bad = bad + 1; }
+    if (expectThrowInt(vFrac, fracPart) != 0) { bad = bad + 1; }
     if (vFrac.getDouble() != 2.5) { bad = bad + 1; }
     // The int window is checked after getLong narrows (D-2).
     if (json.parse("2147483647").getInt() != 2147483647) { bad = bad + 1; }
@@ -102,7 +103,7 @@ int main() {
     if (JsonNumber(42).serialize() != "42") { bad = bad + 1; }
     if (JsonNumber(3.0).serialize() != "3") { bad = bad + 1; }
     if (JsonNumber(0.1 + 0.2).serialize() != "0.30000000000000004") { bad = bad + 1; }
-    if (expectThrowLong(JsonNumber(1.5), longRange) != 0) { bad = bad + 1; }
+    if (expectThrowLong(JsonNumber(1.5), fracPart) != 0) { bad = bad + 1; }
     if (JsonNumber(2.0).getInt() != 2) { bad = bad + 1; }
     return bad;
 }

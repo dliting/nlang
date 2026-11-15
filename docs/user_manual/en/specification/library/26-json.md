@@ -160,11 +160,13 @@ has, and the accessors decide what a number answers:
 - `getLong` answers when the number is an exact whole value inside
   `-9223372036854775808 … 9223372036854775807`. A decimal token with
   an integral value answers too — `3e2` reads back as `300`. A
-  `double` holding that same whole value answers the same. Outside
-  the range, or with a fractional part, `getLong` raises
-  `JsonException` with `json: number out of long range`.
+  `double` holding that same whole value answers the same. A
+  `JsonException` from `getLong` names what failed: `json: number out
+  of long range` for a value outside the range, and `json: number has
+  a fractional part` for a value that has a fraction to begin with.
 - `getInt` answers the same question inside the 32-bit `int` range,
-  raising `json: number out of int range` outside it.
+  raising `json: number out of int range` outside it and the
+  fractional-part message above for a value with a fraction.
 - `getDouble` answers for every number. An integer token too large
   for `long` comes back as the nearest `double` — above `2^53` a
   `double` cannot name every whole number, so a 30-digit token stays
