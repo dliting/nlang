@@ -659,6 +659,23 @@ private:
 		bool bIncludeNamespaces = true);
 
 	/*
+	0.13.8 D8.4: bare type resolution at one bare-pool scope. The same
+	top-level type name may be declared by several units (the
+	DuplicateFieldChecker exempts cross-pool same-name), so the single-
+	candidate FindField answer is the first-registered child regardless
+	of origin. Selection order: the accessor's own unit wins outright;
+	otherwise the function-side admission model (ownerless /
+	ShareBarePool / IsExactImportedBy) filters — one admitted candidate
+	answers, several diagnose the ambiguity naming every owner. A single
+	never-admitted foreign candidate stays visible (types are global).
+	True = rpOut holds the answer; false = no answer at this scope
+	(rbAmbiguous marks the diagnosed ambiguity so the ancestor walk must
+	not fall back to the first-registered child).
+	*/
+	bool FindTypeInPoolScope(const std::string &sName, SyntaxNode &scope,
+		const SnField &accessor, SnField *&rpOut, bool &rbAmbiguous);
+
+	/*
 	0.9.x: the shadow guard of Access(SnNameExpr&) — exchange a value
 	binding found by the inner resolution for the type/namespace binding
 	the type position requires. True = bound (the inner identifier is
