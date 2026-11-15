@@ -394,6 +394,16 @@ class JsonParser {
     private static const int UTF8_UNIT = 64;
     private static const int UTF8_UNIT2 = 4096;
     private static const int UTF8_UNIT3 = 262144;
+    // Surrogate pairing (D-6): a high half followed by another \u escape
+    // carrying a low half joins into one astral code point; a lone half
+    // maps to U+FFFD and the rest of the input stays as it is.
+    private static const int SURROGATE_BASE = 0x10000;
+    private static const int SURROGATE_HIGH_MIN = 0xD800;
+    private static const int SURROGATE_HIGH_MAX = 0xDBFF;
+    private static const int SURROGATE_LOW_MIN = 0xDC00;
+    private static const int SURROGATE_LOW_MAX = 0xDFFF;
+    private static const int SURROGATE_UNIT = 0x400;
+    private static const int CP_REPLACEMENT = 0xFFFD;
 
     private byte[] m_src;
     private int m_pos = 0;
@@ -544,12 +554,33 @@ class JsonParser {
         return io.fromBytes(m_buf[0:m_bufLen]);
     }
 
-    // T5: surrogate PAIRING lands with Task 5; Task 2 maps every half to
-    // U+FFFD on its own, so a valid pair currently yields two replacements.
+    // Decodes one \u escape. A high surrogate followed by \u + low
+    // surrogate becomes one code point above U+FFFF (encoded as 4-byte
+    // UTF-8); a lone half maps to U+FFFD. When the second escape is not
+    // a low half the position is restored, so it is re-read as the next
+    // ordinary escape of the string. (D-6)
     private void parseEscapeHex() {
         int cp = this.readHex4();
-        if (cp >= 0xD800 && cp <= 0xDBFF) { this.pushUtf8(0xFFFD); return; }
-        if (cp >= 0xDC00 && cp <= 0xDFFF) { this.pushUtf8(0xFFFD); return; }
+        if (cp >= SURROGATE_HIGH_MIN && cp <= SURROGATE_HIGH_MAX
+            && m_pos + 5 < m_src.length()
+            && this.rawByte(m_pos) == B_BACKSLASH && this.rawByte(m_pos + 1) == B_U) {
+            int lowStart = m_pos;
+            m_pos = m_pos + 2;                 // step over the "\u"
+            int low = this.readHex4();
+            if (low >= SURROGATE_LOW_MIN && low <= SURROGATE_LOW_MAX) {
+                int joined = SURROGATE_BASE + (cp - SURROGATE_HIGH_MIN) * SURROGATE_UNIT
+                    + (low - SURROGATE_LOW_MIN);
+                this.pushUtf8(joined);
+                return;
+            }
+            m_pos = lowStart;                  // not a pair: replay as escapes
+        }
+        if (cp >= SURROGATE_HIGH_MIN && cp <= SURROGATE_HIGH_MAX) {
+            this.pushUtf8(CP_REPLACEMENT); return;
+        }
+        if (cp >= SURROGATE_LOW_MIN && cp <= SURROGATE_LOW_MAX) {
+            this.pushUtf8(CP_REPLACEMENT); return;
+        }
         this.pushUtf8(cp);
     }
 
