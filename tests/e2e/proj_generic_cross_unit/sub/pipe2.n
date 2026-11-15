@@ -1,0 +1,40 @@
+//The SAME-NAME sibling of boxlib's Pipe<T>: identical generic body,
+//identical helper text, its own package rows. The erasure model gives
+//both units the same bare row key ("Pipe") — the qualified descriptor
+//spelling is what keeps pipe2.Pipe<int> a distinct runtime type, which
+//is exactly what the D8.4 acceptance family in main.n pins.
+import boxlib;
+
+class Pipe<T>
+{
+    public T item;
+    public Pipe(T v)
+    {
+        item = v;
+        //Per-instantiation compensation state keys the SHARED counter
+        //(boxlib's, via the qualified free call) by the canonical
+        //spelling — a conflation of the two packages' identities would
+        //merge their keys into one cell.
+        boxlib.bumpKey(typeName(Pipe<T>));
+    }
+    public T get() { return item; }
+}
+
+//Package-local faces, identical text to boxlib's: each resolves its
+//bare Pipe against its OWN package rows.
+string tagPipe() { return typeName(Pipe<int>); }
+Object makePipe()
+{
+    Pipe<int> p = Pipe(4);
+    return p;
+}
+Object makePipeStr()
+{
+    Pipe<string> p = Pipe("y");
+    return p;
+}
+int castBack(Object o)
+{
+    Pipe<int> p = o as Pipe<int>;
+    return p.get();
+}

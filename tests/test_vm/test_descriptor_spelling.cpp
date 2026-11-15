@@ -25,6 +25,7 @@ identical while the descriptor rows diverge by producing package.
 #include <nlang/vm/CompiledModuleRecords.h>
 #include "GenericInstDescriptor.h"
 #include "NcuLinker.h"
+#include "NcuLoader.h"
 #include "VmExecutor.h"
 #include "builder/ModuleRegistry.h"
 #include "test_support/test_scratch.h"
@@ -509,6 +510,67 @@ private slots:
         }
         QVERIFY2(threw,
             "executor init must refuse a poisoned row before main runs");
+    }
+
+    //D8.4(b): the descriptor table survives the wire verbatim —
+    //qualified spellings, nested spellings, the row-less func nested
+    //face and interface leaves all reload byte-identical, and the
+    //runtime-only merged-unit package-path set stays empty on the
+    //loaded side (the field is a linker product, never serialized).
+    void descriptorTableRoundTripsVerbatim()
+    {
+        namespace fs = std::filesystem;
+        const fs::path dir =
+            nlang::test::ScratchDir("nlang_descriptor_round_trip");
+        std::error_code fsError;
+        fs::remove_all(dir, fsError);
+        fs::create_directories(dir);
+
+        CompiledModule mod;
+        mod.modulePath = "pkg";
+        mod.name = "pkg";
+        mod.descriptorTable.push_back(
+            DescriptorEntry{"pkg.Pipe<int>", {}});
+        mod.descriptorTable.push_back(
+            DescriptorEntry{"pkg.Box<pkg.Pipe<int>>", {}});
+        mod.descriptorTable.push_back(
+            DescriptorEntry{"List<func<int,int>>", {}});
+        mod.descriptorTable.push_back(
+            DescriptorEntry{"pkg.Box<pkg.Shape>", {}});
+        //A composition row: the spelling is empty, the record bytes are
+        //opaque at this layer — only the verbatim reload is pinned.
+        mod.descriptorTable.push_back(
+            DescriptorEntry{"", {0x03, 'p', 'k', 'g', 0x02, 'a'}});
+
+        const fs::path artifact = dir / "pkg.ncu";
+        {
+            std::ofstream out(artifact, std::ios::binary);
+            QVERIFY2(WriteCompiledModule(out, mod, ""),
+                "the hand-built image must serialize");
+        }
+        NcuLoader::Options opts;
+        opts.searchDirs.push_back(dir.string());
+        NcuLoader::Result loaded =
+            NcuLoader::LoadClosure(artifact.string(), opts);
+        QVERIFY2(loaded.units.size() == 1, "the entry unit must load");
+        const CompiledModule& back = loaded.units[0];
+        QVERIFY2(back.descriptorTable.size() == mod.descriptorTable.size(),
+            "the descriptor table must reload with every row");
+        for (size_t i = 0; i < mod.descriptorTable.size(); ++i)
+        {
+            QVERIFY2(back.descriptorTable[i].spelling ==
+                    mod.descriptorTable[i].spelling,
+                qPrintable(QString::fromStdString(
+                    "spelling row " + std::to_string(i)
+                        + " must round-trip verbatim")));
+            QVERIFY2(back.descriptorTable[i].composition ==
+                    mod.descriptorTable[i].composition,
+                qPrintable(QString::fromStdString(
+                    "composition row " + std::to_string(i)
+                        + " must round-trip verbatim")));
+        }
+        QVERIFY2(back.mergedUnitPackagePaths.empty(),
+            "the runtime-only merged-unit set must never serialize");
     }
 };
 

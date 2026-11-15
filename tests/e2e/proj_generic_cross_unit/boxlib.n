@@ -8,3 +8,72 @@ class Box<T>
     public Box(T v) { item = v; }
     public T get() { return item; }
 }
+
+//D8.4 same-name family support. Pipe<T> is declared AGAIN in pipe2.n —
+//the erasure row key is the bare name in both units, and the qualified
+//descriptor spelling is what separates them at runtime. The
+//compensation-pattern counter (the manual's static-field pattern:
+//generic classes cannot hold static fields, so per-instantiation state
+//lives in a non-generic class keyed by the canonical spelling) is
+//shared: both packages' constructors bump ONE dict, so a spelling
+//conflation would merge their keys into one cell.
+class Counter
+{
+    //Lazy construction: a static field cannot carry a collection
+    //initializer (= {} is a local/decl-only form), so the dict is born
+    //on the first bump.
+    public static Dict<string, int> hits;
+    public static void bump(string key)
+    {
+        if (hits == null) { hits = {}; }
+        int cur = 0;
+        if (hits.containsKey(key)) { cur = hits[key]; }
+        hits[key] = cur + 1;
+    }
+    public static int at(string key)
+    {
+        if (hits == null) { return 0; }
+        if (hits.containsKey(key)) { return hits[key]; }
+        return 0;
+    }
+}
+
+//The same-name generic, this unit's copy. The helper faces keep bare
+//Pipe<T> spellings — identical source text lives in pipe2.n too, and
+//each copy resolves its bare name against its OWN package rows, so the
+//folded typeName and the cast's descriptor identity differ by package.
+class Pipe<T>
+{
+    public T item;
+    public Pipe(T v)
+    {
+        item = v;
+        Counter.bump(typeName(Pipe<T>));
+    }
+    public T get() { return item; }
+}
+
+//Package-local faces over the same-name family: called qualified from
+//main.n (boxlib.tagPipe() etc.), each resolves inside this package.
+string tagPipe() { return typeName(Pipe<int>); }
+Object makePipe()
+{
+    Pipe<int> p = Pipe(3);
+    return p;
+}
+Object makePipeStr()
+{
+    Pipe<string> p = Pipe("x");
+    return p;
+}
+//Cast a sibling package's instance back through THIS package's bare
+//Pipe<int> spelling: the descriptor identity must decide, so a
+//sibling's instance throws InvalidCastException from here.
+int castBack(Object o)
+{
+    Pipe<int> p = o as Pipe<int>;
+    return p.get();
+}
+//The shared counter's two faces for main.n (qualified free calls).
+void bumpKey(string key) { Counter.bump(key); }
+int countAt(string key) { return Counter.at(key); }
