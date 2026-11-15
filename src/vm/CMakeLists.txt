@@ -47,6 +47,7 @@ add_library(nlang_vm
     VmExecutorFormat.cpp
     VmExecutorIntrinsics.cpp
     VmExecutorNativeHost.cpp
+    VmExecutorNativeHostText.cpp
     VmExecutorNativeLoader.cpp
     VmExecutorNativeCallbacks.cpp
     VmExecutorNativeArray.cpp
