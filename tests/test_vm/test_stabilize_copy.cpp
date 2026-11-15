@@ -194,6 +194,93 @@ static bool findOuterRecords(VmExecutor& exec, int32_t& pH, int32_t& qH,
     return false;
 }
 
+//8-byte field rows survive the in-place copy: every field is a uniform
+//2-cell row and a wide scalar (long, ulong, double) carries its value
+//across BOTH cells — the lo cell alone truncates the value silently
+//(the e2e bs_struct_long_field signature: 5000000000 reads back as its
+//low half). double 1.5 is the cross-check: its bit pattern
+//0x3FF80000_00000000 puts the payload entirely in the HI cell, the
+//mirror image of the long's placement.
+static const char kSrcWideRows[] = R"(struct W {
+    long id;
+    double ratio;
+    int tag;
+}
+
+int main() {
+    W a;
+    a.id = 5000000000;
+    a.ratio = 1.5;
+    a.tag = 7;
+    W b = a;
+    b.tag = 8;
+    return 0;
+}
+)";
+
+//Locate the W records by their tag cell (cell 4; 7 and 8 disambiguate
+//src from dst): id at cells (0, 1), ratio at cells (2, 3), tag at cell 4.
+static bool findWideRecords(VmExecutor& exec, int32_t& aH, int32_t& bH,
+                            uint16_t& structIdx)
+{
+    const int32_t count =
+        static_cast<int32_t>(exec.HeapSlotCountForTests());
+    for (int32_t h = 1; h < count; ++h) {
+        if (exec.HeapSlotKindForTests(h) != RTK_Struct)
+            continue;
+        const int32_t tag = exec.ReadHeapRecordCellForTests(h, 4);
+        if (tag == 7)
+            aH = h;
+        if (tag == 8)
+            bH = h;
+        if (aH != 0 && bH != 0) {
+            structIdx = exec.HeapStructIdxForTests(aH);
+            return structIdx != 0xFFFF;
+        }
+    }
+    return false;
+}
+
+static void testWideRowCopyKeepsHiCells()
+{
+    TEST(wideRowCopyKeepsHiCells);
+    ExecResult r = runProgram("stabilize_copy_wide", kSrcWideRows);
+    REQUIRE(r.built);
+    int32_t aH = 0, bH = 0;
+    uint16_t structIdx = 0;
+    REQUIRE(findWideRecords(*r.exec, aH, bH, structIdx));
+    //In-place assign a→b already ran inside the program; b must carry
+    //both cells of every wide row.
+    const uint32_t bIdLo = static_cast<uint32_t>(
+        r.exec->ReadHeapRecordCellForTests(bH, 0));
+    const uint32_t bIdHi = static_cast<uint32_t>(
+        r.exec->ReadHeapRecordCellForTests(bH, 1));
+    CHECK((static_cast<uint64_t>(bIdHi) << 32) | bIdLo
+              == UINT64_C(5000000000),
+          "b.id: both cells of the long row copied");
+    const uint32_t bRatioLo = static_cast<uint32_t>(
+        r.exec->ReadHeapRecordCellForTests(bH, 2));
+    const uint32_t bRatioHi = static_cast<uint32_t>(
+        r.exec->ReadHeapRecordCellForTests(bH, 3));
+    CHECK((static_cast<uint64_t>(bRatioHi) << 32) | bRatioLo
+              == UINT64_C(0x3FF8000000000000),
+          "b.ratio: both cells of the double row copied");
+    CHECK(r.exec->ReadHeapRecordCellForTests(bH, 4) == 8,
+          "b.tag: post-copy store stands");
+    //The establish path (null dst → DeepCopyStruct) assigns the whole
+    //cell vector and was always width-correct — pin it against
+    //regression while the in-place walk is being fixed.
+    const int32_t fresh = r.exec->CopyStructInPlace(0, aH, structIdx);
+    const uint32_t fIdLo = static_cast<uint32_t>(
+        r.exec->ReadHeapRecordCellForTests(fresh, 0));
+    const uint32_t fIdHi = static_cast<uint32_t>(
+        r.exec->ReadHeapRecordCellForTests(fresh, 1));
+    CHECK((static_cast<uint64_t>(fIdHi) << 32) | fIdLo
+              == UINT64_C(5000000000),
+          "established record carries the full long row");
+    PASS();
+}
+
 //1000 in-place assignments allocate nothing and land the src cells in dst.
 static void testInPlaceAssignZeroAlloc()
 {
@@ -506,6 +593,7 @@ int main()
     testSelfAssignNoOp();
     testEstablishOnNullDst();
     testNestedRecords();
+    testWideRowCopyKeepsHiCells();
     testLocalAssignZeroAlloc();
     testFieldStoreZeroAlloc();
     testElementStoreZeroAlloc();

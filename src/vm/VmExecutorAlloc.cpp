@@ -418,10 +418,12 @@ int32_t VmExecutor::CopyStructInPlace(int32_t dstHeapIdx,
 
 //The unguarded cell walk: struct-typed fields recurse into the EXISTING
 //dst sub-records (both trees stay alive — no release, no allocation);
-//every other field copies the cell value as-is (strings carry immutable
-//handles; class/array/func fields copy the reference). dst and src trees
-//are type-level disjoint, so reading srcCells while writing dstCells
-//cannot alias.
+//every other field copies its FULL 2-cell row — a wide scalar (long,
+//ulong, double) carries its value across both cells, and dropping the
+//hi cell truncates it silently (the StructValuesEqual hi-cell rule, its
+//copy-side dual). Strings carry immutable handles; class/array/func
+//fields copy the reference. dst and src trees are type-level disjoint,
+//so reading srcCells while writing dstCells cannot alias.
 void VmExecutor::CopyStructCellsInPlace(int32_t dstHeapIdx,
         int32_t srcHeapIdx, uint16_t structIdx) {
     const auto& cs = m_currModule->structs[structIdx];
@@ -434,6 +436,7 @@ void VmExecutor::CopyStructCellsInPlace(int32_t dstHeapIdx,
                 cs.fieldStructIndices[i]);
         } else {
             dstCells[i * 2] = srcCells[i * 2];
+            dstCells[i * 2 + 1] = srcCells[i * 2 + 1];
         }
     }
 }
