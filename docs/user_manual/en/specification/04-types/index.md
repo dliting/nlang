@@ -220,8 +220,9 @@ compile-time error. In particular:
 - one generic instantiation to a different one.
 
 The `as` operator performs the explicit conversions — narrowing,
-`char` conversions, downcasts and unboxing — and §4.5 and §5.5
-define it.
+`char` conversions, downcasts and unboxing — and, between two scalar
+primitives, the conversions the rules above already allow implicitly;
+§4.5 and §5.5 define it.
 
 ### Numeric conversion matrix
 
@@ -264,7 +265,11 @@ arithmetic expressions (`byte b = 1 + 2;` still needs `as`). Double literals int
 
 **Explicit `as`**: all narrowing (`float→int`, `double→float`,
 `long→int`, `ulong→long`, ...), reverse cross-sign (`short→ubyte`, ...),
-and `numeric↔char`. See [Type Casts](casts.md).
+and `numeric↔char`. `as` also spells a conversion the two implicit tiers
+above already admit — `l as double`, `i as float`, `b as int` — which is
+how a program states the intent instead of leaning on the matrix, and the
+operator carries no precision-loss warning where the bare form does. See
+[Type Casts](casts.md).
 
 **Forbidden**: `bool` to or from any numeric type — bool reaches
 `string` by coercion and `Object` by boxing, and nothing else —

@@ -4,6 +4,7 @@ This file define the interface of the type cast information.
 -----------------------------------------------------------------------------*/
 #pragma once
 #include "SyntaxNode.h"
+#include <nlang/runtime/PrimitiveTypes.h>
 #include <nlang/runtime/StackDump.h>
 
 namespace nlang
@@ -32,6 +33,24 @@ enum TypeCastKind
 	//Emitted as OP_PrimCast <srcKind> <dstKind>.
 	TCK_Explicit
 };
+
+//An enum operand or target of a cast is the int32 it already occupies at
+//run time, so every cast decision and every emission arm reads it through
+//that kind. This is the one statement of the collapse: the cast table
+//(producer) and both emitters (consumers) must agree, or a kind that was
+//admitted at resolve time reaches codegen unfolded and finds no arm.
+inline NodeKind CastOperandKind(NodeKind kind)
+{
+	return (kind == NK_EnumDecl) ? NK_Int32 : kind;
+}
+
+//True when both cast operands are scalar primitives once enum operands
+//have collapsed — exactly the pairs OP_PrimCast can convert.
+inline bool IsScalarCastPair(NodeKind src, NodeKind tgt)
+{
+	return ScalarPrimIndexOf(CastOperandKind(src)) >= 0
+		&& ScalarPrimIndexOf(CastOperandKind(tgt)) >= 0;
+}
 
 class NLANG_COMPILER_API TypeCastInfo
 {

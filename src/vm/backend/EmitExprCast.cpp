@@ -225,8 +225,7 @@ void VmBackend::EmitCastNumericOrStringOp(NodeKind srcKind, NodeKind dstKind,
         EmitPrimToStr(emitter, srcKind);
         emitter.Emit(OpCode::OP_Assign);
         emitter.EmitUint16(resultOffset);
-    } else if (ScalarPrimIndexOf(srcKind) >= 0
-        && ScalarPrimIndexOf(dstKind) >= 0) {
+    } else if (IsScalarCastPair(srcKind, dstKind)) {
         EmitPResultRefresh(emitter, resultOffset);
         EmitPrimCast(emitter, srcKind, dstKind);
         emitter.Emit(OpCode::OP_Assign);
@@ -258,8 +257,8 @@ void VmBackend::Access(SnCastExpr& expr) {
                                    emitter, resultOffset)) {
                 return;
             }
-            if (srcKind == NK_EnumDecl) srcKind = NK_Int32;
-            if (dstKind == NK_EnumDecl) dstKind = NK_Int32;
+            srcKind = CastOperandKind(srcKind);
+            dstKind = CastOperandKind(dstKind);
             EmitCastNumericOrStringOp(srcKind, dstKind, emitter, resultOffset);
         }
         return;
@@ -326,31 +325,33 @@ void VmBackend::EmitAsDowncastOp(SnAsExpr& asExpr, BytecodeEmitter& emitter,
     emitter.EmitUint16(resultOffset);
 }
 
-//As arm: TCK_Explicit — 0.7.5 narrowing scalar conversion via the
-//kind-immediate OP_PrimCast (C# unchecked semantics: truncation for
-//float→int, wrap for wide→narrow integers). Only scalar pairs whose
-//cast-table cell is non-null reach codegen; bool is excluded by the
-//table itself. False = operand/target are not both scalars (the
-//caller falls through to the invariant throw).
-bool VmBackend::EmitAsExplicitNarrowOp(SnAsExpr& asExpr,
-                                       BytecodeEmitter& emitter,
-                                       uint16_t resultOffset) {
+//As arm: the scalar conversion arms — TCK_Explicit narrowing (0.7.5:
+//C# unchecked semantics, truncation for float→int, wrap for wide→narrow
+//integers) and, since 0.13.11, TCK_Auto widenings spelled with `as`. Both
+//ride the kind-immediate OP_PrimCast. The enum collapse is mandatory
+//here: the resolver decided the kind through CastOperandKind, so an
+//unfolded enum operand would find no conversion op and break codegen.
+//False = operand/target are not both scalars (the caller tries its next
+//arm, and ultimately throws the invariant break).
+bool VmBackend::EmitAsPrimCastOp(SnAsExpr& asExpr,
+                                 BytecodeEmitter& emitter,
+                                 uint16_t resultOffset) {
     auto* srcType = asExpr.Operand()->EvalDataType();
     auto* tgtType = asExpr.ResolvedTarget();
     if (!srcType || !tgtType
-        || ScalarPrimIndexOf(srcType->Kind()) < 0
-        || ScalarPrimIndexOf(tgtType->Kind()) < 0) {
+        || !IsScalarCastPair(srcType->Kind(), tgtType->Kind())) {
         return false;
     }
     EmitPResultRefresh(emitter, resultOffset);
-    EmitPrimCast(emitter, srcType->Kind(), tgtType->Kind());
+    EmitPrimCast(emitter, CastOperandKind(srcType->Kind()),
+                 CastOperandKind(tgtType->Kind()));
     emitter.Emit(OpCode::OP_Assign);
     emitter.EmitUint16(resultOffset);
     return true;
 }
 
-//As arm: `f as string` — the one resolver-approved TCK_Auto form.
-//Returns true when OP_Func_to_str was emitted.
+//As arm: `f as string` — a TCK_Auto edge the resolver grants only to a
+//function-handle source. Returns true when OP_Func_to_str was emitted.
 bool VmBackend::EmitAsFuncToString(SnAsExpr& asExpr, BytecodeEmitter& emitter,
                                    uint16_t resultOffset) {
     auto* srcType = asExpr.Operand()->EvalDataType();
@@ -412,18 +413,25 @@ bool VmBackend::EmitAsCastKindOp(SnAsExpr& asExpr, TypeCastKind kind,
     }
     if (kind == TCK_Explicit) {
         //Uncovered kind pair — the caller throws the invariant break.
-        return EmitAsExplicitNarrowOp(asExpr, emitter, resultOffset);
+        return EmitAsPrimCastOp(asExpr, emitter, resultOffset);
     }
-    //Phase 13: `f as string` — function handles render as "func <name>".
-    if (kind == TCK_Auto)
+    if (kind == TCK_Auto) {
+        //Two TCK_Auto edges reach codegen: a scalar widening spelled with
+        //`as` (0.13.11, PrimCast) and `f as string` (Phase 13, the handle
+        //renders as "func <name>"). PrimCast declines the handle because
+        //a function reference is not a scalar.
+        if (EmitAsPrimCastOp(asExpr, emitter, resultOffset))
+            return true;
         return EmitAsFuncToString(asExpr, emitter, resultOffset);
+    }
     return false;
 }
 
 //Phase 8e-1.5: `expr as T` runtime-checked cast. Valid kinds:
 //TCK_Same (no-op; v0.12.7 adds the array rank boundary), TCK_Box,
-//TCK_Unbox, TCK_Downcast (ancestor→subclass), TCK_Explicit; v0.13.1 D6
-//adds the type-parameter target (the runtime kind decides).
+//TCK_Unbox, TCK_Downcast (ancestor→subclass), TCK_Explicit, TCK_Auto for
+//a scalar pair (0.13.11) or a func→string render; v0.13.1 D6 adds the
+//type-parameter target (the runtime kind decides).
 void VmBackend::Access(SnAsExpr& expr) {
     BytecodeEmitter& emitter = *m_pCurrEmitter;
     uint16_t resultOffset = m_resultOffset;

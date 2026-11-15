@@ -238,7 +238,10 @@ class JsonNumber : JsonValue {
     }
 
     public double getDouble() {
-        if (m_isLong) { return m_l; }     // implicit long -> double widening
+        //`as double` records that the long -> double widening is meant:
+        //past 2^53 a double cannot hold every long value, and the bare
+        //form reports a precision-loss warning.
+        if (m_isLong) { return m_l as double; }
         return m_d;
     }
 

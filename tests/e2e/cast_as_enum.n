@@ -1,0 +1,17 @@
+// 0.13.11: an enum operand of `as` is the int32 it already is at runtime,
+// so the emitter collapses the enum kind before choosing the conversion
+// op. Both directions ride that collapse — the narrowing `Card c; c as
+// byte` used to break codegen with "unhandled `as` cast kind", and the
+// widening `c as long` is the implicitly admitted pair spelled with `as`.
+import io;
+enum Card { Ace = 1, Ten = 10 }
+int main() {
+    Card c = Card.Ten;
+    byte b = c as byte;
+    if (b != 10) { return 1; }
+    Card a = Card.Ace;
+    long l = a as long;
+    if (l != 1) { return 2; }
+    io.print("ok");
+    return 0;
+}

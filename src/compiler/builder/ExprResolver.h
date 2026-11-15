@@ -465,13 +465,19 @@ private:
 	void BindArrayTypeToken(SnExpression &expr);
 
 	//2026-09-26 decomposition of Access(SnAsExpr&): the array-operand
-	//guard and the cast-kind adjudication (func→string arm + the two
+	//guard and the cast-kind adjudication (the shape-decided arm + the two
 	//reject families). Each returns true when the expression is
-	//consumed (rejected with a named diagnostic, or resolved as the
-	//func→string rendering); false falls through to the binding tail.
+	//consumed (rejected with a named diagnostic, or resolved as a
+	//shape-decided rendering); false falls through to the binding tail.
 	bool RejectAsArrayOperand(SnAsExpr &sn);
 	bool ResolveAsCastKind(SnAsExpr &sn, SnField *pSrcType,
 		SnField *pTgtType, TypeCastKind kind);
+	//0.13.11 split of ResolveAsCastKind: the two `as` verdicts the operand
+	//and target shapes decide on their own — the typed null (`null as T[]`,
+	//v0.12.7) and the function-value rendering (`f as string`, Phase 13) —
+	//both settled before the conversion-matrix verdict is consulted.
+	bool TryResolveAsShapeCase(SnAsExpr &sn, SnField *pSrcType,
+		SnField *pTgtType);
 
 	//2026-10-29 decomposition of Access(SnAsExpr&): resolve the cast
 	//target and run its type-position gate (the v0.12.2 face gate — a

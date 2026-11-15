@@ -430,14 +430,14 @@ exactly as arithmetic does (`-1 & 1099511627776L` is `long`, so the
 
 ```nlang
 int main() {
-    ubyte b = 200;
-    int i = b as int;
+    int n = 7;
+    string s = n as string;
     return 0;
 }
 ```
 
 ```text
-Error: `as` cannot perform implicit conversion `UByte` → `Int32`.
+Error: `as` cannot perform implicit conversion `Int32` → `String`.
 ```
 
 ```nlang
@@ -452,11 +452,13 @@ int main() {
 Error: Invalid cast: `String as Int32` is not allowed.
 ```
 
-`as` exists only for pairs the conversion matrix does not admit —
-writing `as` for a widening that is already implicitly legal is
-redundant (`ubyte→int`: just `int i = b;`); `as` from string to a
-numeric type is forbidden — use the `s.toInt()`/`toLong()`/
-`toDouble()` method family. See [Type Casts](../04-types/casts.md).
+`as` covers the pairs the conversion matrix does not admit, and a
+widening between two scalar primitives that the matrix admits implicitly
+(`int i = b as int;` is legal, and `l as double` carries no
+precision-loss warning); what it refuses is an implicit edge into or out
+of a non-scalar type — `n as string` above — and `as` from string to a
+numeric type is forbidden — use the `s.toInt()`/`toLong()`/`toDouble()`
+method family. See [Type Casts](../04-types/casts.md).
 
 ### Dict initializer key type mismatch
 

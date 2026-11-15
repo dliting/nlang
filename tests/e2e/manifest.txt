@@ -2385,3 +2385,9 @@ stdlib_json_numbers 0
 # the formal's width, not the argument's own (bare call, direct
 # initialization, struct spellings, super(...), module-qualified call).
 ctor_arg_implicit_widen 0
+# --- v0.13.11: `as` is the explicit spelling of a scalar conversion the
+# language admits implicitly (widening long -> double/float, int ->
+# long/double), warning-free; an enum operand of `as` collapses to the
+# int32 it is at runtime.
+scalar_widen_as 0 ok
+cast_as_enum 0 ok

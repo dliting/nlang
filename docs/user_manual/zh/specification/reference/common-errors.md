@@ -330,14 +330,14 @@ Error: operator '&' requires integer operands, got "Double".
 
 ```nlang
 int main() {
-    ubyte b = 200;
-    int i = b as int;
+    int n = 7;
+    string s = n as string;
     return 0;
 }
 ```
 
 ```text
-Error: `as` cannot perform implicit conversion `UByte` → `Int32`.
+Error: `as` cannot perform implicit conversion `Int32` → `String`.
 ```
 
 ```nlang
@@ -352,7 +352,7 @@ int main() {
 Error: Invalid cast: `String as Int32` is not allowed.
 ```
 
-`as`只用于转换矩阵不放行的对——对已经隐式合法的加宽写`as`是冗余（`ubyte→int`直接`int i = b;`）；string→数值的`as`被禁止——用`s.toInt()`/`toLong()`/`toDouble()`方法族。详见[类型强制转换](../04-types/casts.md)。
+`as`覆盖矩阵不放行的对，也覆盖矩阵隐式已放行的两个标量基本类型之间的加宽（`int i = b as int;`合法，`l as double`不带精度损失警告）；它拒绝的是通往非标量类型的隐式边——上面的`n as string`——以及string→数值的`as`（用`s.toInt()`/`toLong()`/`toDouble()`方法族）。详见[类型强制转换](../04-types/casts.md)。
 
 ### 字典初始化器键类型不符
 

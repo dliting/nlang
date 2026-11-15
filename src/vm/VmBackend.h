@@ -1528,8 +1528,9 @@ private:
                                    BytecodeEmitter& emitter,
                                    uint16_t resultOffset);
 
-    //SnAsExpr arms: box / unbox / downcast / explicit narrowing, and
-    //the `f as string` render.
+    //SnAsExpr arms: box / unbox / downcast / the scalar PrimCast (both
+    //the 0.7.5 narrowing and the 0.13.11 explicit widening), and the
+    //`f as string` render.
     //v0.13.1 D6: `x as T` — the runtime kind decides (OP_As_TypeParam).
     void EmitAsTypeParamOp(BytecodeEmitter& emitter, uint16_t resultOffset,
                            uint8_t ordinal);
@@ -1543,8 +1544,8 @@ private:
                        uint16_t resultOffset);
     void EmitAsDowncastOp(SnAsExpr& asExpr, BytecodeEmitter& emitter,
                           uint16_t resultOffset);
-    bool EmitAsExplicitNarrowOp(SnAsExpr& asExpr, BytecodeEmitter& emitter,
-                                uint16_t resultOffset);
+    bool EmitAsPrimCastOp(SnAsExpr& asExpr, BytecodeEmitter& emitter,
+                          uint16_t resultOffset);
     bool EmitAsFuncToString(SnAsExpr& asExpr, BytecodeEmitter& emitter,
                             uint16_t resultOffset);
 

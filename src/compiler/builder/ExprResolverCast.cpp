@@ -214,10 +214,8 @@ int ExprResolveAccessor::CalcTypeDistance(const SnField &source,
 {
 	if (&source == &target)
 		return 0;
-	auto srcKind = source.Kind();
-	auto tgtKind = target.Kind();
-	if (srcKind == NK_EnumDecl) srcKind = NK_Int32;
-	if (tgtKind == NK_EnumDecl) tgtKind = NK_Int32;
+	auto srcKind = CastOperandKind(source.Kind());
+	auto tgtKind = CastOperandKind(target.Kind());
 	if (srcKind == NK_StructDecl && tgtKind == NK_StructDecl)
 		return (&source == &target) ? 0 : -1;
 	if (srcKind == NK_StructDecl || tgtKind == NK_StructDecl)
