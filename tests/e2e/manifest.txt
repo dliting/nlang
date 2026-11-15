@@ -2394,3 +2394,4 @@ cast_as_enum 0 ok
 stdlib_json_unicode 0
 stdlib_json_serialize 0
 stdlib_json_depth 0
+stdlib_json_roundtrip 0
