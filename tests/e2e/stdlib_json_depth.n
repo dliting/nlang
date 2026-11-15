@@ -1,0 +1,101 @@
+// v0.13.11 json: the nesting cap in both directions (D-5) -- 200
+// containers pass, 201 fail as a catchable JsonException long before the
+// VM's 1000-frame host-level fault (201 levels use about 402 frames).
+import io;
+import json;
+
+// n nested arrays: "[[...[]...]]" with exactly n opening brackets.
+string chain(int n) {
+    string acc = "";
+    int i = 0;
+    while (i < n) { acc = acc + "["; i = i + 1; }
+    i = 0;
+    while (i < n) { acc = acc + "]"; i = i + 1; }
+    return acc;
+}
+
+// The empty array wrapped in n JsonArray containers: n wrappers plus the
+// wrapped innermost array make n+1 containers.
+JsonArray wrapped(int n) {
+    JsonArray inner = JsonArray();
+    int i = 0;
+    while (i < n) {
+        JsonArray outer = JsonArray();
+        outer.add(inner);
+        inner = outer;
+        i = i + 1;
+    }
+    return inner;
+}
+
+// Walks the single-element array chain and counts descents: the empty
+// innermost array stops the walk without a descent into it, so 200
+// containers give 199 descents.
+int countArrayChain(JsonValue doc) {
+    int walked = 0;
+    JsonValue cur = doc;
+    while (true) {
+        JsonArray arr = cur.getArray();
+        if (arr.length() == 0) { return walked; }
+        cur = arr.get(0);
+        walked = walked + 1;
+    }
+    return walked;    // unreachable
+}
+
+// Returns 0 when parse(text) raises the exact wanted message.
+int expectParseFail(string text, string want) {
+    string got = "";
+    try {
+        json.parse(text);
+    } catch (JsonException e) {
+        got = e.message;
+    }
+    if (got == want) { return 0; }
+    io.print("parse depth row got [" + got + "] want [" + want + "]");
+    return 1;
+}
+
+// Returns 0 when doc.serialize() raises the exact wanted message.
+int expectSerializeFail(JsonValue doc, string want) {
+    string got = "";
+    try {
+        doc.serialize();
+    } catch (JsonException e) {
+        got = e.message;
+    }
+    if (got == want) { return 0; }
+    io.print("serialize depth row got [" + got + "] want [" + want + "]");
+    return 1;
+}
+
+int main() {
+    int bad = 0;
+    // Parse side: the 201st bracket is at offset 200 (one byte per level).
+    string deepParse = "json: nesting deeper than 200 at byte offset 200";
+    string deepSerialize = "json: nesting deeper than 200";
+    JsonValue ok200 = json.parse(chain(200));
+    if (countArrayChain(ok200) != 199) { bad = bad + 1; }
+    if (ok200.serialize() != chain(200)) { bad = bad + 1; }
+    if (expectParseFail(chain(201), deepParse) != 0) { bad = bad + 1; }
+    // Serialize side: the builder mirrors the parse side (the guard
+    // message carries no offset, D-10).
+    if (wrapped(199).serialize() != chain(200)) { bad = bad + 1; }
+    if (expectSerializeFail(wrapped(200), deepSerialize) != 0) { bad = bad + 1; }
+    // Objects share the cap; each level costs 5 bytes, so the 201st brace
+    // sits at offset 1000.
+    string objOpen200 = "";
+    string objClose200 = "";
+    int i = 0;
+    while (i < 200) {
+        objOpen200 = objOpen200 + "{\"a\":";
+        objClose200 = "}" + objClose200;
+        i = i + 1;
+    }
+    string objDoc200 = objOpen200 + "1" + objClose200;
+    JsonValue okObj = json.parse(objDoc200);
+    if (okObj.serialize() != objDoc200) { bad = bad + 1; }
+    string objDoc201 = objOpen200 + "{\"a\":" + "1" + "}" + objClose200;
+    if (expectParseFail(objDoc201, "json: nesting deeper than 200 at byte offset 1000") != 0) { bad = bad + 1; }
+    return bad;
+}
