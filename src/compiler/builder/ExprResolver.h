@@ -815,9 +815,14 @@ private:
 	silent: the caller owns the class/struct-flavored diagnostics, so no
 	out-bindings are handed back (codegen rebuilds them from the selected
 	ctor's Params()). Returns the selected ctor, or null on no viable
-	bind; rbAmbiguous separates the tie from a plain no-match.
+	bind; rbAmbiguous separates the tie from a plain no-match. 0.13.11: on
+	a successful match the winning bindings convert the arguments of
+	\p argsOwner (the node owning the actual-argument children) to the
+	formals' types in place, mirroring the invoke path's call-site
+	conversion.
 	*/
-	SnFunction *MatchCtorAgainst(const std::vector<SnExpression*> &actuals,
+	SnFunction *MatchCtorAgainst(SyntaxNode &argsOwner,
+		const std::vector<SnExpression*> &actuals,
 		const std::vector<SnFunction*> &candidates, bool &rbAmbiguous);
 
 	/*
@@ -970,9 +975,12 @@ private:
 	Phase 9c: apply implicit cast wrappers (SnCastExpr) to caller-side
 	expressions in bindings where needed (TCK_Auto / TCK_Box). B_Default
 	entries are skipped — their type was validated against the formal at
-	declaration time (StatementResolver Step 2).
+	declaration time (StatementResolver Step 2). 0.13.11: \p argsOwner is
+	any node whose children are the actual arguments (SnInvokeExpr,
+	SnNewExpr, SnSuperCallStmt), so the constructor call paths convert
+	their arguments too.
 	*/
-	void FixupParamTypesWithBindings(SnInvokeExpr &invoke,
+	void FixupParamTypesWithBindings(SyntaxNode &argsOwner,
 		std::vector<FormalBinding> &bindings);
 
 	/*
@@ -1046,7 +1054,7 @@ private:
 	ConstantFitGateResult ConstantFitGate(SnExpression &srcExpr,
 		TypeCastInfo &castInfo);
 	bool SkipNullIdentityWrap(SnExpression &srcExpr, TypeCastInfo &castInfo);
-	bool TryFixupNamedArgBinding(SnInvokeExpr &invoke, FormalBinding &b,
+	bool TryFixupNamedArgBinding(SyntaxNode &argsOwner, FormalBinding &b,
 		TypeCastInfo &castInfo);
 
 	/*
@@ -1157,7 +1165,9 @@ private:
 	//ambiguity / no-match; the intrinsic-arity shapes keep the legacy
 	//arity texts. Null = a diagnostic was logged (or the type has no
 	//ctor and no arguments — the legal bare-allocation shape).
-	SnFunction *SelectCtorForArgs(SnField *pTypeDecl,
+	//\p argsOwner is the node owning the actual-argument children, passed
+	//through to MatchCtorAgainst for the call-site argument conversion.
+	SnFunction *SelectCtorForArgs(SyntaxNode &argsOwner, SnField *pTypeDecl,
 		const std::vector<SnExpression*> &actuals,
 		const ISourceLocation *pLoc);
 	//Binds the resolved type declaration to the new-expression: classes keep
@@ -1756,12 +1766,15 @@ public:
 	//0.9.11 T6 (D10): statement-side entry of the ctor overload match —
 	//the super(...) selection in StatementResolverSuper. Same contract as
 	//the accessor member of the same name; the match reads only the
-	//resolved actuals and the candidate signatures, so no Resolve()
-	//context is required.
-	SnFunction *MatchCtorAgainst(const std::vector<SnExpression*> &actuals,
+	//resolved actuals and the candidate signatures, and wraps converted
+	//arguments in place under \p argsOwner, so no Resolve() context is
+	//required.
+	SnFunction *MatchCtorAgainst(SyntaxNode &argsOwner,
+		const std::vector<SnExpression*> &actuals,
 		const std::vector<SnFunction*> &candidates, bool &rbAmbiguous)
 	{
-		return m_Accessor.MatchCtorAgainst(actuals, candidates, rbAmbiguous);
+		return m_Accessor.MatchCtorAgainst(argsOwner, actuals, candidates,
+			rbAmbiguous);
 	}
 
 	void ResolveFieldExprAs(SnFieldExpr &expr, SnField *pField)

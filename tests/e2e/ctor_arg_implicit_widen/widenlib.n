@@ -1,0 +1,6 @@
+// Cross-module provider for the ctor_arg_implicit_widen test: supplies the
+// module-qualified constructor call form (`widenlib.WBox(42)`).
+class WBox {
+    public long l;
+    public WBox(long v) { l = v; }
+}

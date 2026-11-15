@@ -7,9 +7,9 @@
     classes whose overrides already existed elsewhere (SnSubscriptExpr,
     SnSliceItemExpr, SnCastExpr, SnNewArrayExpr, SnNewExpr,
     SnLocalDeclStmt, SnCatchClause, the type slots) stay in their own
-    TUs. SnSuperCallStmt's args are non-owning mirrors of the ctor
-    declaration's children — a tensor binary there is unreachable by
-    construction and caught by the TU-end sweep if that ever changes.
+    TUs. SnSuperCallStmt needs no override either: since 0.13.11 its
+    Args() is the live child-list view (the SnNewExpr::Args() shape), so
+    it caches nothing a tensor-lowered binary could invalidate.
 ---*/
 #include "SnExpressions.h"
 #include "SnStatements.h"

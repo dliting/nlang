@@ -26,11 +26,16 @@ namespace nlang
 //Phase 9c: apply implicit cast wrappers (SnCastExpr) to caller-side
 //expressions in bindings where needed (TCK_Auto / TCK_Box). B_Default
 //entries are skipped — their type was validated against the formal at
-//declaration time (StatementResolver Step 2).
-void ExprResolveAccessor::FixupParamTypesWithBindings(SnInvokeExpr &invoke,
+//declaration time (StatementResolver Step 2). 0.13.11: the argument owner
+//is any node whose children are the actual arguments — an SnInvokeExpr on
+//a function or bare-ctor call, an SnNewExpr (direct initialization
+//included) and an SnSuperCallStmt. The constructor paths reach this
+//through MatchCtorAgainst, which used to drop the winning bindings and
+//thereby stage every implicitly widened argument at its own width.
+void ExprResolveAccessor::FixupParamTypesWithBindings(SyntaxNode &argsOwner,
 	std::vector<FormalBinding> &bindings)
 {
-	auto &children = invoke.Children();
+	auto &children = argsOwner.Children();
 	for (auto &b : bindings)
 	{
 		if (b.kind == FormalBinding::B_Default)
@@ -56,7 +61,7 @@ void ExprResolveAccessor::FixupParamTypesWithBindings(SnInvokeExpr &invoke,
 		if (iFound == children.end())
 		{
 			//Named-arg path: no wrapper holds it → skip the binding.
-			if (!TryFixupNamedArgBinding(invoke, b, castInfo))
+			if (!TryFixupNamedArgBinding(argsOwner, b, castInfo))
 				continue;
 		}
 		else
@@ -73,10 +78,12 @@ void ExprResolveAccessor::FixupParamTypesWithBindings(SnInvokeExpr &invoke,
 //SnNamedArgExpr wrapper rather than directly in Children(). Find the
 //wrapper, fix up its inner expression and repoint the binding's caller
 //pointer. False = no wrapper holds this expr (binding skipped by caller).
-bool ExprResolveAccessor::TryFixupNamedArgBinding(SnInvokeExpr &invoke,
+//Constructor calls reject named arguments before matching, so in practice
+//this arm only ever runs for an SnInvokeExpr owner.
+bool ExprResolveAccessor::TryFixupNamedArgBinding(SyntaxNode &argsOwner,
 	FormalBinding &b, TypeCastInfo &castInfo)
 {
-	auto &children = invoke.Children();
+	auto &children = argsOwner.Children();
 	for (auto it = children.begin(); it != children.end(); ++it)
 	{
 		if ((*it).Kind() != NK_NamedArgExpr)

@@ -135,7 +135,8 @@ void ExprResolveAccessor::Access(SnNewExpr &sn)
 		if (&arg == sn.ClassName()) continue;  //Args() view includes it
 		actuals.push_back(&arg);
 	}
-	sn.CtorFunction(SelectCtorForArgs(pTypeField, actuals, sn.Location()));
+	sn.CtorFunction(SelectCtorForArgs(sn, pTypeField, actuals,
+		sn.Location()));
 }
 
 void ExprResolveAccessor::Access(SnNewArrayExpr &sn)
@@ -416,7 +417,7 @@ bool ExprResolveAccessor::TryResolveCtorInvoke(SnInvokeExpr &snInvoke)
 	std::vector<SnExpression*> actuals;
 	for (auto &param : snInvoke.Params())
 		actuals.push_back(&param);
-	snInvoke.CtorFunction(SelectCtorForArgs(pTypeDecl, actuals,
+	snInvoke.CtorFunction(SelectCtorForArgs(snInvoke, pTypeDecl, actuals,
 		snInvoke.Location()));
 	return true;
 }
@@ -440,7 +441,7 @@ void ExprResolveAccessor::BindQualifiedCtorTail(SnMemberExpr &snMember,
 	std::vector<SnExpression*> actuals;
 	for (auto &param : invoke.Params())
 		actuals.push_back(&param);
-	auto *pCtor = SelectCtorForArgs(&type, actuals, invoke.Location());
+	auto *pCtor = SelectCtorForArgs(invoke, &type, actuals, invoke.Location());
 	invoke.CtorFunction(pCtor);
 	snMember.m_pField = pCtor ? pCtor : &type;
 	snMember.EvalDataType(&type);

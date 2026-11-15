@@ -403,10 +403,15 @@ int ExprResolveAccessor::SweepInvokeCandidates(SnInvokeExpr &invoke,
 //0.9.11 T6 (D10): the constructor-call twin of MatchInvokeAgainst — the
 //same bind-then-closest-distance core over the candidate ctors of one
 //class/struct. Fully silent: the caller owns the class/struct-flavored
-//diagnostics, so no bindings are handed back (codegen rebuilds them
-//from the selected ctor's Params()). rbAmbiguous separates a tie at the
-//smallest viable distance from a plain no-viable-bind; both answer null.
+//diagnostics, so no bindings are handed back (codegen rebuilds them from
+//the selected ctor's Params()). 0.13.11: the winner's bindings are still
+//kept locally, because they drive FixupParamTypesWithBindings — the
+//call-site conversion the invoke path performs and this path had never
+//done, so an implicitly widened argument was staged at its own width
+//instead of the formal's. rbAmbiguous separates a tie at the smallest
+//viable distance from a plain no-viable-bind; both answer null.
 SnFunction *ExprResolveAccessor::MatchCtorAgainst(
+	SyntaxNode &argsOwner,
 	const std::vector<SnExpression*> &actuals,
 	const std::vector<SnFunction*> &candidates, bool &rbAmbiguous)
 {
@@ -416,6 +421,7 @@ SnFunction *ExprResolveAccessor::MatchCtorAgainst(
 
 	int nBestDistance = -1;
 	SnFunction *pBest = nullptr;
+	std::vector<FormalBinding> bestBindings;
 
 	for (auto *pCandidate : candidates)
 	{
@@ -429,6 +435,7 @@ SnFunction *ExprResolveAccessor::MatchCtorAgainst(
 		{
 			nBestDistance = n;
 			pBest = pCandidate;
+			bestBindings = std::move(tryBind);
 			rbAmbiguous = false;
 		}
 		else if (n == nBestDistance)
@@ -438,6 +445,7 @@ SnFunction *ExprResolveAccessor::MatchCtorAgainst(
 	}
 	if (nBestDistance < 0 || rbAmbiguous)
 		return nullptr;
+	FixupParamTypesWithBindings(argsOwner, bestBindings);
 	return pBest;
 }
 

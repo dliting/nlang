@@ -16,18 +16,18 @@ namespace nlang
 //an out argument could never write back.
 void StatementResolveAccessor::ResolveSuperCallArgs(SnSuperCallStmt &sn)
 {
-	for (auto* pArg : sn.Args()) {
-		if (pArg->Kind() == NK_NamedArgExpr) {
-			m_Env.Log(CLL_Error, pArg->Location(),
+	for (auto &arg : sn.Args()) {
+		if (arg.Kind() == NK_NamedArgExpr) {
+			m_Env.Log(CLL_Error, arg.Location(),
 				"named arguments are not supported in super(...)");
 			continue;
 		}
-		if (pArg->Kind() == NK_OutArgExpr) {
-			m_Env.Log(CLL_Error, pArg->Location(),
+		if (arg.Kind() == NK_OutArgExpr) {
+			m_Env.Log(CLL_Error, arg.Location(),
 				"out arguments are not supported in super(...)");
 			continue;
 		}
-		pArg->Accept(*m_pVisitor);
+		arg.Accept(*m_pVisitor);
 	}
 }
 
@@ -42,8 +42,8 @@ SnFunction *StatementResolveAccessor::SelectSuperCtor(SnSuperCallStmt &sn,
 	SnClassDecl *pParent)
 {
 	std::vector<SnExpression*> actuals;
-	for (auto *pArg : sn.Args())
-		actuals.push_back(pArg);
+	for (auto &arg : sn.Args())
+		actuals.push_back(&arg);
 
 	if (pParent->IsBuiltinClass()) {
 		//Builtin Exception family ctor is (this, message) → 1 user arg;
@@ -89,7 +89,7 @@ SnFunction *StatementResolveAccessor::SelectSuperCtor(SnSuperCallStmt &sn,
 	}
 
 	bool bAmbiguous = false;
-	auto *pCtor = m_ExprResolver.MatchCtorAgainst(actuals, candidates,
+	auto *pCtor = m_ExprResolver.MatchCtorAgainst(sn, actuals, candidates,
 		bAmbiguous);
 	if (pCtor)
 		return pCtor;

@@ -147,7 +147,8 @@ static std::vector<SnFunction*> CollectCtorCandidates(
 //error. Null = the call is not bound: either a diagnostic was logged,
 //or the type has no constructor and no arguments were supplied (the
 //legal bare-allocation shape).
-SnFunction *ExprResolveAccessor::SelectCtorForArgs(SnField *pTypeDecl,
+SnFunction *ExprResolveAccessor::SelectCtorForArgs(SyntaxNode &argsOwner,
+	SnField *pTypeDecl,
 	const std::vector<SnExpression*> &actuals, const ISourceLocation *pLoc)
 {
 	const char *kindWord = pTypeDecl->Kind() == NK_StructDecl
@@ -181,7 +182,8 @@ SnFunction *ExprResolveAccessor::SelectCtorForArgs(SnField *pTypeDecl,
 	if (!candidates.empty())
 	{
 		bool bAmbiguous = false;
-		auto *pCtor = MatchCtorAgainst(actuals, candidates, bAmbiguous);
+		auto *pCtor = MatchCtorAgainst(argsOwner, actuals, candidates,
+			bAmbiguous);
 		if (pCtor)
 			return pCtor;
 		if (bAmbiguous)
