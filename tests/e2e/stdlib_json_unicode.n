@@ -49,6 +49,10 @@ int main() {
     if (checkBytes(json.parse("\"\\ud800\"").getString(), [239, 191, 189]) != 0) { bad = bad + 1; }
     if (checkBytes(json.parse("\"\\udc00\"").getString(), [239, 191, 189]) != 0) { bad = bad + 1; }
     if (checkBytes(json.parse("\"\\ud800A\"").getString(), [239, 191, 189, 65]) != 0) { bad = bad + 1; }
+    // A second escape right after a high half is replayed, so it still
+    // decodes as the escape it is instead of being eaten by the pair.
+    if (checkBytes(json.parse("\"\\ud800\\u0041\"").getString(), [239, 191, 189, 65]) != 0) { bad = bad + 1; }
+    if (checkBytes(json.parse("\"\\ud800\\ud800\"").getString(), [239, 191, 189, 239, 191, 189]) != 0) { bad = bad + 1; }
     // Raw bytes at or above 0x80 pass through the parser and the
     // serializer untouched (no re-encoding, D-6).
     byte[] rawDoc = byte[4];            // "e-acute" as one UTF-8 string token
