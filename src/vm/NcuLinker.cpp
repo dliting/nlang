@@ -1,9 +1,8 @@
 /*---
     NcuLinker.cpp — nlink 链接器主体：对等合并→占位槽解析→统一重映射。
-    内核同源于已删除的 backend/Import.cpp Phase A/B（编译期合并路径，
-    d2 整链移除），但语义改为「N 个对等映像合并」（原为「并入既有
-    目标」，设计 §5）。Pass B（占位槽解析）在 NcuLinkerSlots.cpp
-    （2026-10-02 尺寸守卫触发的拆分）。
+    内核同源于已删除的 backend/Import.cpp Phase A/B（编译期合并路径），
+    语义为「N 个对等映像合并」（设计 §5）。Pass B（占位槽解析）在
+    NcuLinkerSlots.cpp（2026-10-02 尺寸守卫触发的拆分）。
 ---*/
 #include "NcuLinker.h"
 #include "NcuLinkerRemap.h"
@@ -104,9 +103,8 @@ static void MergeStrings(const CompiledModule& u, CompiledModule& merged,
 }
 
 //v2.15 (v0.13.1): descriptor rows merge by full entry (spelling +
-//composition bytes). A static entry's identity is its spelling (the intern
-//contract); composition entries share an empty spelling, so the bytes join
-//the key — identical compositions fold, divergent ones keep both rows.
+//composition bytes): a static entry's identity is its spelling (the
+//intern contract); composition entries fold only on identical bytes.
 static void MergeDescriptors(
     const CompiledModule& u, CompiledModule& merged, NcuOperandMaps& m,
     std::map<std::pair<std::string, std::vector<uint8_t>>, uint32_t>&
@@ -253,6 +251,7 @@ static void MergeUnitTables(const std::vector<CompiledModule>& units,
         internedDescriptors;
     BuiltinStubIndex builtinStubs;
     for (size_t ui = 0; ui < units.size(); ++ui) {
+        merged.mergedUnitPackagePaths.push_back(units[ui].modulePath);
         MergeStrings(units[ui], merged, maps[ui], internedStrings);
         MergeDescriptors(units[ui], merged, maps[ui], internedDescriptors);
         MergeClasses(units[ui], merged, maps[ui], pushes[ui]);

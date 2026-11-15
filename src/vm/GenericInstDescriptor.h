@@ -64,9 +64,11 @@ struct CompiledModule;
 //rebuilding its argument tree by parsing (reversibility — the structure
 //defines the spelling). Leaf link keys resolve against the linked
 //module's struct/class/enum tables so the parsed argument carries the
-//runtime kind; an unresolved key stays RTK_Class with rowRef -1
-//(display-correct; dispatch paths degrade gracefully). Throws
-//std::runtime_error on a non-canonical name (corrupt image).
+//runtime kind. 0.13.8 item 8: a dotted head must name a package the
+//module knows (its own modulePath, a live import slot's target, or a
+//nlink-merged unit's path), and every leaf and nested-template row must
+//resolve — anything else throws std::runtime_error (corrupt image), as
+//does a non-canonical name.
 GenericInstDescriptor* InternDescriptorFromSpelling(
 	const std::string& spelling, const CompiledModule& module);
 

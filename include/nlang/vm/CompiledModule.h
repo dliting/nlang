@@ -314,17 +314,13 @@ inline int ArrayElemCells(uint8_t elemRtk)
 //   4 ARG_NESTED     u16 compositionLen + child composition record bytes (a full
 //                    TEMPLATE_HEAD-led stream; length-prefixed so the
 //                    parent's argument loop resumes after the child)
-//Rows are self-describing by leading tag: a row from the instantiation
-//path (OP_New, typeName(Box<T>)) leads with TEMPLATE_HEAD; a typeName
-//row for a non-instantiation operand containing a type parameter (T[])
-//is a single ARG encoding — tag 1..4, never 0, so the two forms cannot
-//alias and byte-identical rows still merge.
-//A composition record row's spelling is empty; the runtime composes the canonical
-//spelling per execution (ARG_THIS reads the receiver's descriptor).
-//OP_New rows then intern it — the intern contract makes spelling
-//equality descriptor equality, so consumers resolve a row to a
-//GenericInstDescriptor by
-//interning.
+//Rows are self-describing by leading tag: an instantiation-path row
+//(OP_New, typeName(Box<T>)) leads with TEMPLATE_HEAD; a typeName row for
+//a non-instantiation operand with a type parameter (T[]) is a single ARG
+//encoding — tag 1..4, never 0, so the two forms cannot alias; identical
+//rows merge. A composition row's spelling is empty; the runtime composes
+//and interns the canonical spelling per execution — spelling equality IS
+//descriptor equality, so consumers resolve a row by interning it.
 struct DescriptorEntry {
     std::string spelling;
     std::vector<uint8_t> composition;
@@ -345,9 +341,8 @@ struct CompiledModule {
     //0.9.10 (v2.4): interface statics, keyed like enumKeys (qualified).
     std::vector<CompiledInterface> interfaces;
     std::vector<CompiledArrayType> arrayTypes;
-    //Phase 8e-9b: per-enum value name tables. Outer index = enumDefIdx (in
-    //declaration order across the module), inner index = enum int value.
-    //Used by OP_Enum_to_str to render `Color.Red.toString()` → "Red".
+    //Phase 8e-9b: per-enum value name tables (outer = enumDefIdx, inner =
+    //int value); OP_Enum_to_str renders `Color.Red.toString()` → "Red".
     std::vector<std::vector<std::string>> enumNames;
     //v2.0 phase 6: qualified key per enum entry, parallel to enumNames
     //(same count; placeholder slots carry the target's key with empty
@@ -355,12 +350,10 @@ struct CompiledModule {
     //by key — enumNames alone carries no type identity.
     std::vector<std::string> enumKeys;
     //v2.9 (0.10.14): per-enum member-method tables, parallel to
-    //enumNames/enumKeys (every construction site keeps the four vectors
-    //in lockstep, including placeholder slots, which carry empty
-    //vectors). enumMethodIndices[i] = the enum's method functions'
-    //indices into the producer's own function table, declaration order;
-    //enumMethodAccess[i] = the per-method declared access byte (FA_*),
-    //mirroring the class methodAccess gate on the consumer side.
+    //enumNames/enumKeys (all sites keep the vectors in lockstep;
+    //placeholder slots carry empty vectors). enumMethodIndices[i] = the
+    //enum's method functions' indices into the producer's own table,
+    //declaration order; enumMethodAccess[i] = the per-method byte (FA_*).
     std::vector<std::vector<uint16_t>> enumMethodIndices;
     std::vector<std::vector<uint8_t>> enumMethodAccess;
     //v2.20 (0.13.8 item 5): the per-enum declared access byte (FA_*),
@@ -368,10 +361,9 @@ struct CompiledModule {
     //TYPE's visibility, which the consumer stub rebuilds the declaration
     //from (the method tables above carry the MEMBERS' access).
     std::vector<uint8_t> enumAccess;
-    //v2.13 (v0.12.6): the module's static slot table — one entry per
-    //runtime-addressed static (mutable class statics, runtime-const
-    //fields, static locals), in allocation order. Bytecode addresses
-    //slots by index into this table.
+    //v2.13 (v0.12.6): static slot table — one entry per runtime-addressed
+    //static (mutable class statics, runtime-const fields, static locals)
+    //in allocation order; bytecode addresses slots by index.
     std::vector<CompiledStaticSlot> staticSlots;
 
     //v2.0 phase 6: cross-unit reference slots. Each unit's tables hold its
@@ -388,10 +380,9 @@ struct CompiledModule {
         uint32_t paramCount = 0;  //functions only
         //Functions only (empty for the type tables): "" = namespace-level
         //function (name is its qualified key); non-empty = a method or
-        //constructor of that class's qualified key (name is the unqualified name;
-        //the class's unqualified name for a constructor). Table keys stay bare —
-        //runtime dispatch is by name — the owner key lives in the slot
-        //record only (phase6 design section 2).
+        //constructor of that class's qualified key (unqualified name, the
+        //class's name for a constructor). Table keys stay bare — the owner
+        //key lives in the slot record only (phase6 design section 2).
         std::string ownerClassKey;
         //0.9.10 (v2.4): part of the linkage identity — a static and an
         //instance member of the same name and arity are distinct slots.
@@ -416,16 +407,16 @@ struct CompiledModule {
     std::vector<SymbolImport> structImports;     //slots after own structs
     std::vector<SymbolImport> enumImports;       //slots after own enum tables
     //v2.13 (v0.12.6): cross-unit static-slot placeholder tail. ownerKind
-    //here has its OWN table-local encoding — 0 = class owner, 1 =
-    //interface owner — deliberately unrelated to functionImports'
-    //0=namespace/1=class-member/2=struct-member domain (this table is
-    //never dispatched that way).
+    //here is table-local — 0 = class owner, 1 = interface owner —
+    //unrelated to functionImports' encoding (never dispatched that way).
     std::vector<SymbolImport> staticSlotImports; //slots after own staticSlots
 
-    //Runtime only (never serialized): set by nlink after linking — the
-    //global function index of this module's main(), or the entry the tool
-    //layer selected. -1 until then.
+    //Runtime only (never serialized): nlink sets it after linking — the
+    //global index of this module's main() (or the tool layer's entry).
     int32_t entryPoint = -1;
+    //Runtime only (never serialized): every linked unit's modulePath —
+    //admits descriptor heads at intern (linked images keep no imports).
+    std::vector<std::string> mergedUnitPackagePaths;
 
     int FindFunction(const std::string& funcName) const {
         for (int i = 0; i < static_cast<int>(functions.size()); ++i)
@@ -476,6 +467,15 @@ struct CompiledModule {
     int FindEnum(const std::string& enumKey) const {
         for (int i = 0; i < static_cast<int>(enumKeys.size()); ++i)
             if (enumKeys[i] == enumKey)
+                return i;
+        return -1;
+    }
+
+    //Interface rows key the KeyOf spellings exactly (no erasure model,
+    //no dotted-strip bridge — both producer faces spell the same name).
+    int FindInterface(const std::string& ifaceName) const {
+        for (int i = 0; i < static_cast<int>(interfaces.size()); ++i)
+            if (interfaces[i].name == ifaceName)
                 return i;
         return -1;
     }

@@ -23,6 +23,9 @@ identical while the descriptor rows diverge by producing package.
 #include <nlang/compiler/SyntaxTree.h>
 #include <nlang/vm/CompiledModule.h>
 #include <nlang/vm/CompiledModuleRecords.h>
+#include "GenericInstDescriptor.h"
+#include "NcuLinker.h"
+#include "VmExecutor.h"
 #include "builder/ModuleRegistry.h"
 #include "test_support/test_scratch.h"
 #include <filesystem>
@@ -66,11 +69,16 @@ bool writeFile(const std::filesystem::path& file, const char* szBody)
 }
 
 //Two one-file packages, each declaring the SAME-named generic template —
-//the erasure model's hardest case for descriptor identity.
+//the erasure model's hardest case for descriptor identity. The generic
+//interface rides along: its rows key the interfaces table (KeyOf exact,
+//no erasure bridge), the other family the intern resolver must admit.
 const char* szPipeLib =
     "class Pipe<T> {\n"
     "    public native Pipe();\n"
     "    public native int f(T v);\n"
+    "}\n"
+    "interface Sink<T> {\n"
+    "    public void put(T v);\n"
     "}\n";
 
 //IDENTICAL main source text used twice: once importing package a, once
@@ -279,6 +287,228 @@ private slots:
         QVERIFY2(contains(unitA, "List<int>"),
             qPrintable("builtin instantiation must spell bare — rows: "
                 + spellingDump(unitA)));
+    }
+
+    //0.13.8 item 8 (D8.3): a dotted descriptor head must belong to the
+    //image's known package set at intern time — self modulePath, live
+    //SymbolImport.modulePath slots, or the nlink-populated merged-unit
+    //package paths. Anything else is a corrupt image and throws, and so
+    //does an unresolvable leaf (the old silent rowRef -1 is gone). The
+    //executor face: InitDescriptorTable interns every row at Execute, so
+    //a poisoned row refuses before main runs.
+    void qualifiedHeadValidatedAtIntern()
+    {
+        namespace fs = std::filesystem;
+        const fs::path dir =
+            nlang::test::ScratchDir("nlang_descriptor_head_validation");
+        const fs::path out = dir / "out";
+        std::error_code fsError;
+        fs::remove_all(dir, fsError);
+        fs::create_directories(out, fsError);
+        QVERIFY2(writeFile(dir / "a.n", szPipeLib),
+            "lib a source could not be written");
+
+        auto buildUnit = [&dir, &out](const char* szSourceName,
+            const char* szModuleName, const char* szBody,
+            bool bImportLibs, QString& errorsText)
+            -> ModuleBuilder::UnitImages
+        {
+            const fs::path src =
+                dir / (std::string(szSourceName) + ".n");
+            if (!writeFile(src, szBody))
+                return {};
+            BuildParams params;
+            params.m_SourceFiles.push_back(src.string());
+            params.m_sOutputModule = szModuleName;
+            params.m_sOutputDir = out.string();
+            params.m_sTempDir = out.string();
+            params.m_sStdLibDir = STDLIB_DIR;
+            //The import arm needs the live-slot shape: -I resolves the
+            //imported package's .ncu stub (no sibling source-inline).
+            if (bImportLibs)
+                params.m_ImportDirs.push_back(out.string());
+            MemLogger logger;
+            ModuleBuilder builder(params, logger);
+            ModuleBuilder::UnitImages imgs;
+            bool built = false;
+            try { imgs = builder.BuildUnitImages(); built = true; }
+            catch (const std::exception&) {}
+            for (const auto& e : logger.errorsText())
+                errorsText += QString::fromStdString(e) + " | ";
+            if (!built || !logger.errorsText().empty())
+                return {};
+            return imgs;
+        };
+        //The lib's .ncu must exist under out/ before main_a compiles —
+        //the -I layer resolves package imports against written artifacts.
+        {
+            BuildParams params;
+            params.m_SourceFiles.push_back((dir / "a.n").string());
+            params.m_sOutputModule = "a";
+            params.m_sOutputDir = out.string();
+            params.m_sTempDir = out.string();
+            params.m_sStdLibDir = STDLIB_DIR;
+            MemLogger logger;
+            ModuleBuilder builder(params, logger);
+            bool built = false;
+            try { built = builder.BuildArtifacts(); }
+            catch (const std::exception&) {}
+            QString artifactsErrors;
+            for (const auto& e : logger.errorsText())
+                artifactsErrors += QString::fromStdString(e) + " | ";
+            QVERIFY2(built && logger.errorsText().empty(),
+                qPrintable("lib a must artifact clean — " + artifactsErrors));
+        }
+
+        auto internsClean = [](const char* szSpelling,
+            const CompiledModule& module) -> bool
+        {
+            try
+            {
+                InternDescriptorFromSpelling(szSpelling, module);
+                return true;
+            }
+            catch (const std::exception&)
+            {
+                return false;
+            }
+        };
+        auto internsThrowing = [](const char* szSpelling,
+            const CompiledModule& module,
+            QString& what) -> bool
+        {
+            try
+            {
+                InternDescriptorFromSpelling(szSpelling, module);
+                return false;
+            }
+            catch (const std::exception& e)
+            {
+                what = QString::fromLatin1(e.what());
+                return true;
+            }
+        };
+
+        //The import arm: the UNLINKED main unit still carries its live
+        //import slots and has an empty merged-unit set — only
+        //SymbolImport.modulePath can admit the head.
+        std::string bodyOfA = szMainBody;
+        {
+            const size_t at = bodyOfA.find("%PKG%");
+            if (at != std::string::npos)
+                bodyOfA.replace(at, 5, "a");
+        }
+        QString errors;
+        ModuleBuilder::UnitImages imgsMainA = buildUnit("main_a",
+            "main_a", bodyOfA.c_str(), true, errors);
+        QVERIFY2(!imgsMainA.units.empty(),
+            qPrintable("main_a must build clean — " + errors));
+        QVERIFY2(internsClean("a.Pipe<int>", imgsMainA.units[0]),
+            "the import arm must admit the imported package's head");
+
+        //The self arm: an entry unit declaring its own generic — the
+        //spelling carries the unit's own package.
+        const char* szAppBody =
+            "class Box<T> {\n"
+            "    public native Box();\n"
+            "    public native int f(T v);\n"
+            "}\n"
+            "interface Shape {\n"
+            "    public int area();\n"
+            "}\n"
+            "int main() {\n"
+            "    Box<int> b = Box();\n"
+            "    Box<Shape> bs = Box();\n"
+            "    return b.f(1);\n"
+            "}\n";
+        QString errorsApp;
+        ModuleBuilder::UnitImages imgsApp = buildUnit("app", "app",
+            szAppBody, false, errorsApp);
+        QVERIFY2(!imgsApp.units.empty(),
+            qPrintable("app must build clean — " + errorsApp));
+        CompiledModule mergedApp = NcuLinker::Link(
+            std::move(imgsApp.units), "app.main");
+        QVERIFY2(internsClean("app.Box<int>", mergedApp),
+            "the self arm must admit the unit's own package head");
+
+        //Interface leaves admit through the interfaces table (KeyOf
+        //exact — the registry package path both sides), rowless:
+        //consumers are class-row scoped (arg kind model v2, roadmap).
+        QVERIFY2(internsClean("app.Box<app.Shape>", mergedApp),
+            qPrintable("an interface leaf must admit — rows: "
+                + spellingDump(mergedApp)));
+
+        //The merged arm: link main + lib a. The merged image keeps NO
+        //import records and its self path is main_a — only the
+        //nlink-populated merged-unit set can admit "a".
+        ModuleBuilder::UnitImages imgsLibA = buildUnit("a", "a",
+            szPipeLib, false, errorsApp);
+        QVERIFY2(!imgsLibA.units.empty(),
+            qPrintable("lib a must build clean — " + errorsApp));
+        std::vector<CompiledModule> unitsMainFirst;
+        unitsMainFirst.push_back(std::move(imgsMainA.units[0]));
+        unitsMainFirst.push_back(std::move(imgsLibA.units[0]));
+        CompiledModule merged = NcuLinker::Link(
+            std::move(unitsMainFirst), "main_a.main");
+        QVERIFY2(merged.functionImports.empty()
+            && merged.classImports.empty(),
+            "the merged image must keep no import records");
+        QVERIFY2(internsClean("a.Pipe<int>", merged),
+            "the merged arm must admit a linked unit's package head");
+
+        //Corrupt-image faces: an unknown head (the dotted strip makes it
+        //resolve onto the shared erasure row today — the silent wrong
+        //identity), an unresolvable leaf (silent rowRef -1 today) and a
+        //nested unknown template all refuse with the corrupt-image
+        //wording.
+        QString what;
+        QVERIFY2(internsThrowing("ghost.Pipe<int>", merged, what),
+            "an unknown head must refuse — it silently interned today");
+        QVERIFY2(what.contains("corrupt"),
+            qPrintable("the refusal must name the corrupt-image family — "
+                + what));
+        QVERIFY2(internsThrowing("a.Pipe<ghost.Foo>", merged, what),
+            "an unresolvable leaf must refuse — it stayed rowRef -1 today");
+        QVERIFY2(internsThrowing("a.Pipe<ghost.Pipe<int>>", merged, what),
+            "a nested unknown template must refuse — it silently interned "
+                "today");
+
+        //Bare prelude spellings keep the bare arm (no head to validate).
+        QVERIFY2(internsClean("List<int>", merged),
+            "bare prelude spellings must keep interning");
+
+        //The func builtin template is the one legitimate row-less nested
+        //template: a keyword type has no class row and its handle never
+        //walks a super chain (the func_ref_list_store e2e family).
+        QVERIFY2(internsClean("List<func<int,int>>", merged),
+            "the row-less func nested template must keep interning");
+
+        //Interface families admit exactly (KeyOf spellings, no erasure
+        //bridge): a packaged interface as leaf, and a generic interface
+        //instantiation as nested template head.
+        QVERIFY2(internsClean("a.Pipe<a.Sink>", merged),
+            "a packaged interface leaf must admit exactly");
+        QVERIFY2(internsClean("a.Sink<a.Pipe<int>>", merged),
+            "a generic interface instantiation must admit as a nested "
+                "template head");
+
+        //The executor face: a poisoned descriptor row refuses at
+        //InitDescriptorTable, before main runs (first use is executor
+        //init, not load).
+        merged.descriptorTable.push_back(
+            DescriptorEntry{"ghost.Pipe<int>", {}});
+        VmExecutor exec;
+        bool threw = false;
+        try
+        {
+            exec.Execute(merged);
+        }
+        catch (const std::exception&)
+        {
+            threw = true;
+        }
+        QVERIFY2(threw,
+            "executor init must refuse a poisoned row before main runs");
     }
 };
 
