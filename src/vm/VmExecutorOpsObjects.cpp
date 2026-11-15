@@ -6,11 +6,11 @@
     shared records, allocation goes through the per-carrier shard free
     lists, and error paths re-acquire inside RaiseNlangException. The
     throw family keeps the store lock (debug checkpoint).
-    v0.13.9 phase ②: the whole-record struct storage writes are the one
-    exception — OP_CopyStructInPlace routes through the executor's
-    StructCopy leaf lock (m_structCopyLock, VmExecutor.h) for whole-record
-    read/write atomicity. The single-cell ops below stay lock-free:
-    tearing beyond cell granularity was never promised.
+    v0.13.9 phase ② ruling revision: the whole-record struct write
+    primitive OP_CopyStructInPlace is cell-granularity too — no
+    record-level lock anywhere (concurrent shared-record coordination is
+    the user's duty, spec §10.1). Every op below is lock-free on the
+    struct-copy path.
 ---*/
 #include "VmExecutor.h"
 #include <nlang/runtime/PrimitiveTypes.h>
@@ -99,12 +99,10 @@ void VmExecutor::OpStoreStatic(BytecodeReader& reader, uint8_t* locals) {
     //life — the first whole-value store establishes it (a fresh
     //record, or the type-default zeroed record the slot already
     //holds), every later store writes the value's cells INTO that
-    //record in place; the handle in the cell never changes. Runs at
-    //dispatch level with no domain lock held, so the leaf StructCopy
-    //acquire is legal (static slots are shared cross-carrier
-    //positions and MUST route through the same writer lock as every
-    //other whole-record write — spec §3.11 ruling 1); the establish
-    //path inside the primitive is unguarded, so no deadlock. Every
+    //record in place; the handle in the cell never changes. The write
+    //is cell-granularity — static slots are shared cross-carrier
+    //positions and cross-record coordination is the user's duty
+    //(spec §10.1), same as every other storage position. Every
     //producer (user stores, $staticInit assignments, static-local
     //guard stores, cross-module consumers) shares the semantics. The
     //slot metadata's typeIdx carries the struct table index,
@@ -118,7 +116,7 @@ void VmExecutor::OpStoreStatic(BytecodeReader& reader, uint8_t* locals) {
             int32_t dstHeapIdx;
             std::memcpy(&dstHeapIdx, m_staticSlots.Cell(slotIdx),
                         sizeof(dstHeapIdx));
-            const int32_t stableIdx = CopyStructInPlaceLocked(
+            const int32_t stableIdx = CopyStructInPlace(
                 dstHeapIdx, srcHeapIdx, meta.type.typeIdx);
             std::memcpy(m_staticSlots.Cell(slotIdx), &stableIdx,
                         sizeof(stableIdx));
@@ -196,7 +194,7 @@ void VmExecutor::OpCopyStructInPlace(BytecodeReader& reader,
     int32_t srcHeapIdx;
     std::memcpy(&srcHeapIdx, locals + src, sizeof(srcHeapIdx));
     const int32_t resultHeapIdx =
-        CopyStructInPlaceLocked(dstHeapIdx, srcHeapIdx, structIdx);
+        CopyStructInPlace(dstHeapIdx, srcHeapIdx, structIdx);
     std::memcpy(locals + dst, &resultHeapIdx, sizeof(resultHeapIdx));
 }
 

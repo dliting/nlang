@@ -1,5 +1,5 @@
 //v0.13.9 phase ② Task 1: the record-stabilization write primitive.
-//OP_CopyStructInPlace + VmExecutor::CopyStructInPlaceLocked overwrite an
+//OP_CopyStructInPlace + VmExecutor::CopyStructInPlace overwrite an
 //existing struct record's cells in place (zero allocation); a null dst
 //establishes exactly one fresh record. The primitive is exercised
 //C++-directly on records a real program built (the test_generic_runtime_info
@@ -20,7 +20,6 @@
 #include <iostream>
 #include <memory>
 #include <string>
-#include <thread>
 #include <vector>
 
 #ifndef STDLIB_DIR
@@ -207,7 +206,7 @@ static void testInPlaceAssignZeroAlloc()
     REQUIRE(findRecords(*r.exec, 1, 2, 3, 4, pH, qH, structIdx));
     const size_t before = r.exec->HeapAllocCountForTests();
     for (int i = 0; i < 1000; ++i)
-        (void)r.exec->CopyStructInPlaceLocked(qH, pH, structIdx);
+        (void)r.exec->CopyStructInPlace(qH, pH, structIdx);
     CHECK(r.exec->HeapAllocCountForTests() - before == 0,
           "1000 in-place assigns must allocate nothing");
     CHECK(r.exec->ReadHeapRecordCellForTests(qH, 0) == 1, "q.x copied");
@@ -226,7 +225,7 @@ static void testSelfAssignNoOp()
     uint16_t structIdx = 0;
     REQUIRE(findRecords(*r.exec, 1, 2, 3, 4, pH, qH, structIdx));
     const size_t before = r.exec->HeapAllocCountForTests();
-    (void)r.exec->CopyStructInPlaceLocked(pH, pH, structIdx);
+    (void)r.exec->CopyStructInPlace(pH, pH, structIdx);
     CHECK(r.exec->HeapAllocCountForTests() - before == 0,
           "self-assign must allocate nothing");
     CHECK(r.exec->ReadHeapRecordCellForTests(pH, 0) == 1, "p.x intact");
@@ -245,7 +244,7 @@ static void testEstablishOnNullDst()
     REQUIRE(findRecords(*r.exec, 1, 2, 3, 4, pH, qH, structIdx));
     const size_t before = r.exec->HeapAllocCountForTests();
     const int32_t fresh =
-        r.exec->CopyStructInPlaceLocked(0, pH, structIdx);
+        r.exec->CopyStructInPlace(0, pH, structIdx);
     CHECK(r.exec->HeapAllocCountForTests() - before == 1,
           "establish allocates exactly one record");
     CHECK(fresh > 0 && fresh != pH, "fresh handle returned");
@@ -259,9 +258,8 @@ static void testEstablishOnNullDst()
 
 //Nested records: establish allocates the whole subtree fresh (outer +
 //inner); the in-place path reuses the dst sub-records — handle stable,
-//cells overwritten, zero allocation. A naive recursive entry lock would
-//self-deadlock on the child walk — this completing at all is the
-//no-self-deadlock guard for the StructCopy leaf lock split.
+//cells overwritten, zero allocation. The recursion completing at all is
+//the no-runaway guard for the child walk.
 static void testNestedRecords()
 {
     TEST(nestedRecords);
@@ -274,7 +272,7 @@ static void testNestedRecords()
     const int32_t pInner = r.exec->ReadHeapRecordCellForTests(pH, 0);
     const size_t before = r.exec->HeapAllocCountForTests();
     const int32_t fresh =
-        r.exec->CopyStructInPlaceLocked(0, pH, structIdx);
+        r.exec->CopyStructInPlace(0, pH, structIdx);
     CHECK(r.exec->HeapAllocCountForTests() - before == 2,
           "establish allocates the whole subtree (outer + inner)");
     CHECK(r.exec->HeapSlotKindForTests(fresh) == RTK_Struct, "fresh outer");
@@ -291,7 +289,7 @@ static void testNestedRecords()
 
     //In-place nested copy: q's own inner record is REUSED.
     const int32_t qInner = r.exec->ReadHeapRecordCellForTests(qH, 0);
-    (void)r.exec->CopyStructInPlaceLocked(qH, pH, structIdx);
+    (void)r.exec->CopyStructInPlace(qH, pH, structIdx);
     CHECK(r.exec->HeapAllocCountForTests() - before == 2,
           "in-place nested copy allocates nothing");
     CHECK(r.exec->ReadHeapRecordCellForTests(qH, 0) == qInner,
@@ -299,74 +297,6 @@ static void testNestedRecords()
     CHECK(r.exec->ReadHeapRecordCellForTests(qInner, 0) == 11, "q inner.a");
     CHECK(r.exec->ReadHeapRecordCellForTests(qInner, 2) == 12, "q inner.b");
     CHECK(r.exec->ReadHeapRecordCellForTests(qH, 2) == 103, "q.c copied");
-    PASS();
-}
-
-//Pair-shaped source for the concurrency fixture: both records carry
-//x == y so a torn snapshot is detectable as x != y.
-static const char kSrcPairs[] = R"(struct P {
-    int x;
-    int y;
-}
-
-int main() {
-    P p;
-    p.x = 7;
-    p.y = 7;
-    P q;
-    q.x = 9;
-    q.y = 9;
-    return q.x + q.y;
-}
-)";
-
-//Concurrent contract fixture: a writer hammers in-place writes of the
-//(7,7)/(9,9) pair records at one target while a reader refreshes a
-//private snapshot record and asserts the pair invariant. With the
-//StructCopy leaf lock every snapshot is an atomic whole-record read, so
-//x == y always — the green direction is unconditional (deterministic-
-//test ruling). The unlocked failure direction is probabilistic; its
-//runnable red is Task 9's e2e stress — this fixture pins the contract
-//and guards lock removal regressions.
-static void testConcurrentWriterReaderInvariant()
-{
-    TEST(concurrentWriterReaderInvariant);
-    ExecResult r = runProgram("stabilize_copy_race", kSrcPairs);
-    REQUIRE(r.built);
-    int32_t srcA = 0, srcB = 0;
-    uint16_t structIdx = 0;
-    REQUIRE(findRecords(*r.exec, 7, 7, 9, 9, srcA, srcB, structIdx));
-    const int32_t target =
-        r.exec->CopyStructInPlaceLocked(0, srcA, structIdx);
-    CHECK(target > 0, "target established");
-    const int32_t snapshot =
-        r.exec->CopyStructInPlaceLocked(0, srcA, structIdx);
-    CHECK(snapshot > 0 && snapshot != target, "snapshot established");
-    const size_t before = r.exec->HeapAllocCountForTests();
-    const int kIterations = 20000;
-    auto writer = [&]() {
-        for (int i = 0; i < kIterations; ++i) {
-            (void)r.exec->CopyStructInPlaceLocked(
-                target, (i & 1) ? srcA : srcB, structIdx);
-        }
-    };
-    auto reader = [&]() {
-        for (int i = 0; i < kIterations; ++i) {
-            (void)r.exec->CopyStructInPlaceLocked(
-                snapshot, target, structIdx);
-            if (r.exec->ReadHeapRecordCellForTests(snapshot, 0)
-                != r.exec->ReadHeapRecordCellForTests(snapshot, 2))
-                ++g_fail;   //torn snapshot — the invariant broke
-        }
-    };
-    std::thread wt(writer), rt(reader);
-    wt.join();
-    rt.join();
-    CHECK(r.exec->HeapAllocCountForTests() - before == 0,
-          "steady-state concurrent in-place traffic allocates nothing");
-    const int32_t tx = r.exec->ReadHeapRecordCellForTests(target, 0);
-    const int32_t ty = r.exec->ReadHeapRecordCellForTests(target, 2);
-    CHECK(tx == ty, "target ends on a valid pair");
     PASS();
 }
 
@@ -576,7 +506,6 @@ int main()
     testSelfAssignNoOp();
     testEstablishOnNullDst();
     testNestedRecords();
-    testConcurrentWriterReaderInvariant();
     testLocalAssignZeroAlloc();
     testFieldStoreZeroAlloc();
     testElementStoreZeroAlloc();

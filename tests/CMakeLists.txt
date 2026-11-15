@@ -584,7 +584,7 @@ target_compile_definitions(test_generic_runtime_info
 add_test(NAME generic_runtime_info_tests COMMAND test_generic_runtime_info)
 
 # v0.13.9 phase ②: the record-stabilization write primitive
-# (OP_CopyStructInPlace / CopyStructInPlaceLocked), compile+execute
+# (OP_CopyStructInPlace / CopyStructInPlace), compile+execute
 # in-process; allocation pins read HeapAllocCountForTests.
 add_executable(test_stabilize_copy
     test_vm/test_stabilize_copy.cpp

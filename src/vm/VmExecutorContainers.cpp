@@ -161,18 +161,10 @@ bool VmExecutor::BoxedValuesEqual(int32_t a, int32_t b) const
         || recA[kBoxedValueSlot + 1] == recB[kBoxedValueSlot + 1];
 }
 
-//Locked face — whole-record read atomicity against concurrent in-place
-//writers (StructCopy leaf lock, v0.13.9 phase ②). The walk self-recurses
-//and a non-recursive std::mutex would self-deadlock, so the body lives
-//in StructValuesEqualUnguarded.
+//Struct equality walk — cell-granularity, no record-level lock (see the
+//m_slotKinds block in VmExecutor.h). The self-recursion on struct-typed
+//fields stays on this same function.
 bool VmExecutor::StructValuesEqual(int32_t a, int32_t b) const
-{
-    std::lock_guard<std::mutex> guard(m_structCopyLock);
-    return StructValuesEqualUnguarded(a, b);
-}
-
-//Unguarded equality walk — caller holds m_structCopyLock.
-bool VmExecutor::StructValuesEqualUnguarded(int32_t a, int32_t b) const
 {
     //Identity fast path; 0 is the null sentinel and equals only itself.
     if (a == b) return true;
@@ -193,13 +185,12 @@ bool VmExecutor::StructValuesEqualUnguarded(int32_t a, int32_t b) const
     const auto& recB = m_structHeap[static_cast<size_t>(b)];
     //Field i lives at cell 2i (uniform stride). The walk mirrors
     //DeepCopyStruct's member rule — its recursion arm here recurses,
-    //its verbatim-copy arms compare handles. The recursion stays on the
-    //UNGUARDED form — this call already holds the lock.
+    //its verbatim-copy arms compare handles.
     for (uint16_t i = 0; i < cs.fieldCount; ++i) {
         const uint8_t kind = cs.fieldTypeKinds[i];
         const int32_t cell = i * 2;
         if (kind == RTK_Struct && cs.fieldStructIndices[i] != 0xFFFF) {
-            if (!StructValuesEqualUnguarded(recA[cell], recB[cell]))
+            if (!StructValuesEqual(recA[cell], recB[cell]))
                 return false;
         } else if (kind == RTK_String) {
             if (StrValCopy(recA[cell]) != StrValCopy(recB[cell]))

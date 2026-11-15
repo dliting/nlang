@@ -419,18 +419,16 @@ public:
         return m_heapAllocCountForTests;
     }
     //Record stabilization (v0.13.9 phase ②): the in-place write
-    //primitive. Takes the StructCopy leaf lock (whole-record read/write
-    //atomicity — see m_structCopyLock). dst handle ≤ 0 establishes one
-    //fresh record (delegating to DeepCopyStructUnguarded — NEVER the
-    //locked DeepCopyStruct, which would self-deadlock under the lock
-    //held here); dst == src is a no-op; otherwise dst's cells are
-    //overwritten in place with zero allocation. Returns the dst handle —
-    //the existing record or the newly established one — so callers can
-    //store the handle back. Public for the white-box stabilization tests;
-    //the runtime write arms (intrinsics, OpStoreStatic) reach it as
-    //members.
-    int32_t CopyStructInPlaceLocked(int32_t dstHeapIdx, int32_t srcHeapIdx,
-                                    uint16_t structIdx);
+    //primitive. dst handle ≤ 0 establishes one fresh record (delegating
+    //to DeepCopyStruct); dst == src is a no-op; otherwise dst's cells
+    //are overwritten in place with zero allocation. Cell-granularity —
+    //no record-level lock (see the m_slotKinds block). Returns the dst
+    //handle — the existing record or the newly established one — so
+    //callers can store the handle back. Public for the white-box
+    //stabilization tests; the runtime write arms (intrinsics,
+    //OpStoreStatic) reach it as members.
+    int32_t CopyStructInPlace(int32_t dstHeapIdx, int32_t srcHeapIdx,
+                              uint16_t structIdx);
     //Builds a production-shaped stack-local host (the native-call path
     //wires one per call). Public for the white-box defense tests only:
     //VmNativeHost itself is private to src/vm, so the method is
@@ -1020,13 +1018,11 @@ private:
     void OpRethrow();
     void OpPopHandler();
 
-    //Deep-copy a struct from srcHeapIdx to a new heap slot.
-    //Locked face — takes the StructCopy leaf lock for the read-walk +
-    //allocate + publish sequence; the walk itself is self-recursive, so
-    //the body lives in DeepCopyStructUnguarded (caller holds the lock).
-    //Returns the new heap index.
+    //Deep-copy a struct from srcHeapIdx to a new heap slot (the read
+    //walk + allocate + publish establish path). Cell-granularity — no
+    //record-level lock (see the m_slotKinds block). Returns the new
+    //heap index.
     int32_t DeepCopyStruct(int32_t srcHeapIdx, uint16_t structIdx);
-    int32_t DeepCopyStructUnguarded(int32_t srcHeapIdx, uint16_t structIdx);
 
     //Record stabilization (v0.13.9 phase ②): overwrite dst's existing
     //cells in place from src, following DeepCopyStruct's member rule
@@ -2178,13 +2174,9 @@ private:
     //structs recurse; strings by content; scalars width-aware, the
     //BoxedValuesEqual cell discipline); reference-shaped fields
     //(class/array/interface/func) compare by handle, exactly what the
-    //copy path stores. v0.13.9 phase ②: locked face — takes the
-    //StructCopy leaf lock for whole-record read atomicity against
-    //concurrent in-place writers (the walk is self-recursive, so the
-    //body lives in StructValuesEqualUnguarded; mutable lock — this
-    //method is const).
+    //copy path stores. Cell-granularity — no record-level lock (see the
+    //m_slotKinds block).
     bool StructValuesEqual(int32_t a, int32_t b) const;
-    bool StructValuesEqualUnguarded(int32_t a, int32_t b) const;
 
     //v0.13.0 D4: content equality for two RTK_Func records — the
     //OpFuncEquality triple (target, receiver, form) lifted into a const
@@ -2446,35 +2438,14 @@ private:
     //GC infrastructure.
     ChunkedArray<uint8_t>  m_slotKinds;      //parallel to m_structHeap: RTK_Class/RTK_Struct/0=free
     ChunkedArray<uint16_t> m_slotStructIdx;  //parallel to m_structHeap: struct CompiledStruct index (class uses slot[0])
-    //StructCopy leaf lock (v0.13.9 phase ②): whole-record read/write
-    //atomicity for struct storage. LEAF in the lock order — a holder may
-    //acquire only Growth (establish-path shard growth in TakeHeapSlot;
-    //Growth tops Container<Sync<Stream<StrMaint<Growth and no path takes
-    //this lock while holding Growth, so the nesting is one-way legal);
-    //taking Container/Sync/Stream/StrMaint while held is forbidden.
-    //Locked faces (wrapper / unguarded split — the walks self-recurse
-    //and a non-recursive std::mutex would self-deadlock):
-    //  - DeepCopyStruct → DeepCopyStructUnguarded (writer)
-    //  - StructValuesEqual → StructValuesEqualUnguarded (reader; also
-    //    reached via DictKeysEqual / FindListElement / OpStructEquality)
-    //  - CopyStructInPlaceLocked → CopyStructCellsInPlace (writer)
-    //Whole-record reader audit:
-    //  - Serialization face (SerializeStructFields, host/debug only):
-    //    the write-side intrinsic call sites take this lock — the walk
-    //    is self-recursive, so the lock lives at the face, not the
-    //    entry. DeserializeStructFields writes only freshly-allocated
-    //    records, unpublished until the intrinsic returns — lock-free
-    //    by design.
-    //  - FormatHeapValue's RTK_Struct arm renders the opaque "<struct>"
-    //    without reading cells — no lock needed.
-    //Single-cell ops (OpLoadField/OpStoreField/element cells) stay
-    //lock-free per the K8 benign-sharing contract: tearing beyond cell
-    //granularity was never promised. GC-safe by construction:
-    //NoteGcPressure is a pending-flag store, not a safepoint — the
-    //GcWorldStop rendezvous happens only at dispatch boundaries, where
-    //no struct-copy lock is held (locks are scoped within one opcode
-    //dispatch). mutable: StructValuesEqual is a const method.
-    mutable std::mutex m_structCopyLock;
+    //v0.13.9 phase ② ruling revision: whole-record struct reads and
+    //writes are CELL-granularity, same as single-field access — no
+    //record-level lock. Concurrent torn observation of a shared struct
+    //is the user's coordination duty (Mutex/AtomicInt, spec §10.1),
+    //matching the mainstream precedent (C# struct copy, Go value copy).
+    //GC-safe by construction: NoteGcPressure is a pending-flag store,
+    //not a safepoint — the GcWorldStop rendezvous happens only at
+    //dispatch boundaries, never mid-copy-walk.
     //v0.13.1 (D1): per-object instantiation descriptor, parallel to
     //m_structHeap — construction (OP_New) writes the interned
     //GenericInstDescriptor*; every other slot kind and every free slot

@@ -5,22 +5,10 @@
     order; a reverse acquisition trips the wire (terminate in production).
     Leaf domains (StrMaint, Growth) never nest outward.
 
-    v0.13.9 phase ② audit: the executor's StructCopy leaf lock
-    (VmExecutor.h m_structCopyLock) sits OUTSIDE this set by design — it
-    guards whole struct-record cells, not a write domain, so the held
-    mask below does not track it. Its leaf discipline: holders may
-    acquire only Growth (establish-path shard growth in TakeHeapSlot —
-    legal because Growth tops the order and no path takes StructCopy
-    while holding Growth: the shard Pop runs entirely inside its guard
-    and calls no user code, so no reverse path exists). Nesting
-    Container/Sync/Stream/StrMaint while holding StructCopy is
-    forbidden. Task 7 exemption: OpStoreStatic acquires StructCopy at
-    DISPATCH level with no domain lock held — static slots are shared
-    cross-carrier positions and must route through the same writer
-    lock as every other whole-record write (spec §3.11 ruling 1);
-    the establish path inside the primitive is unguarded, so no
-    deadlock. Intrinsic writers (List/Dict set) hold Container when
-    they nest StructCopy — the one legal downward nesting.
+    v0.13.9 phase ② ruling revision: there is no record-level struct
+    lock — struct whole-record reads and writes are cell-granularity,
+    same as single-cell ops (concurrent shared-record coordination is
+    the user's duty, spec §10.1). Nothing sits outside this set anymore.
 ---*/
 #pragma once
 
