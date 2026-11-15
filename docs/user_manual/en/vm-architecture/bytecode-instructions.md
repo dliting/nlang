@@ -110,7 +110,7 @@ creation (sizes from expressions) reads them from evaluation slots.
 
 The uint16 `descIdx` operand on the static-call family names a row in
 the module's generic-instantiation descriptor table (the `.ncu`
-template table, §26.4 of the specification): a call into a generic
+template table, §27.4 of the specification): a call into a generic
 function or a generic class member carries the descriptor so the
 callee's `T` reads and kind dispatches key on the actual type
 arguments. `0xFFFF` marks a non-generic call site; `0xFFFE` inherits
@@ -162,7 +162,7 @@ boxing plan cannot resolve the tag — the receiver's type argument is
 the calling generic body's own placeholder, so the executing frame's
 descriptor decides.
 
-The descriptor wire format lives in [The `.ncu` Unit Image](../specification/formats/26-ncu.md);
+The descriptor wire format lives in [The `.ncu` Unit Image](../specification/formats/27-ncu.md);
 how the compiler creates and binds per-instantiation bodies is
 [Library Mechanism](library-mechanism.md)'s subject.
 

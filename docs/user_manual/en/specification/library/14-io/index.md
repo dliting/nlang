@@ -174,7 +174,9 @@ rarely call these directly.
   (UTF-8) bytes of `s` as a `byte[]` array; `io.fromBytes(data)`
   decodes a `byte[]` array back to a `string`. The conversions
   bypass the string method surface (§17.2) and carry no length
-  prefix or terminator — the byte-level bridge for socket and
+  prefix or terminator; a NUL byte is ordinary content on both
+  sides, because a `string` carries its own length and round-trips
+  through the pair unaltered — the byte-level bridge for socket and
   stream payloads.
 
 *Informative:* `toBytes` and `fromBytes` moved here from the

@@ -22,7 +22,7 @@ may open once `net.ipv4.ping_group_range` covers that user or group.
 A `timeoutMs` of `0` sets no deadline: echo requests keep coming
 until one is answered, so a host that never answers leaves `ping`
 waiting indefinitely. Each echo request runs on the host's native
-worker pool (§28.5): one that carries a deadline is queued at high
+worker pool (§29.5): one that carries a deadline is queued at high
 priority, one with no deadline at normal priority, since a wait of
 unbounded length has no latency of its own to protect. That queue
 order is why a positive timeout is the right choice for an address

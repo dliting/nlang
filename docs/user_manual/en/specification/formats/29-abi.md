@@ -1,36 +1,36 @@
-# 28. The Native Application Binary Interface (ABI)
+# 29. The Native Application Binary Interface (ABI)
 
 A *native module* is a shared library that implements native
 functions — the functions declared `native` in §7.5 and called
 through the qualified key `<ns>.<name>` — against the native
 application binary interface (ABI). The standard library
-modules and third-party modules use the same interface. §28.1
-sets the scope and the ABI version; §28.2 fixes module
-discovery and loading; §28.3 fixes the module exports and
-registration; §28.4 fixes the calling convention and the value
-cell; §28.5 defines the host function table; §28.6 defines the
-pinned array view; §28.7 states the blocking-section contract
+modules and third-party modules use the same interface. §29.1
+sets the scope and the ABI version; §29.2 fixes module
+discovery and loading; §29.3 fixes the module exports and
+registration; §29.4 fixes the calling convention and the value
+cell; §29.5 defines the host function table; §29.6 defines the
+pinned array view; §29.7 states the blocking-section contract
 and the input/output (IO) parking built on it.
 
-## 28.1 Scope and Version
+## 29.1 Scope and Version
 
 **ABI version.** This chapter describes ABI version **13**. The
 host accepts a module whose version probe reports exactly `13`
 and rejects every other value, including a module that exports
-no probe at all (§28.2). An ABI change bumps the version and
+no probe at all (§29.2). An ABI change bumps the version and
 replaces this chapter wholesale; the specification describes
 only the current version.
 
 **What this chapter fixes.** Module discovery and loading
-(§28.2), the module exports and registration (§28.3), the
-calling convention and the value cell (§28.4), the host
-function table (§28.5), the pinned array view (§28.6) and the
+(§29.2), the module exports and registration (§29.3), the
+calling convention and the value cell (§29.4), the host
+function table (§29.5), the pinned array view (§29.6) and the
 blocking-section contract and the IO parking built on it
-(§28.7).
+(§29.7).
 
 **What it does not fix.** The language-side `native`
 declaration, its keying and its argument rules (§7.5); the
-instruction encoding inside a unit image (chapter 26); and the
+instruction encoding inside a unit image (chapter 27); and the
 embedding interface by which a host supplies a native
 implementation directly instead of through a module — such a
 host implementation answers before any module lookup, is
@@ -40,9 +40,9 @@ and is not bound by the module exports.
 **Statelessness.** A native module keeps no state the language
 can observe: the pseudorandom number generator (PRNG) and the
 console live in the host and are reachable only through the
-host function table (§28.5).
+host function table (§29.5).
 
-## 28.2 Module Discovery and Loading
+## 29.2 Module Discovery and Loading
 
 **Module file.** The module that implements namespace `<ns>`
 is a shared library named `nlang_<ns>.dll` on Windows,
@@ -71,7 +71,7 @@ no directory raises a host-level run-time error at the call
 2. calls it; a value other than `13` is rejected;
 3. resolves the export `nlang_native_init`; a module without
    the export is rejected;
-4. calls it once (§28.3).
+4. calls it once (§29.3).
 
 A rejection at any step unloads the module before its init
 runs: the registrations of an incompatible module — pointers
@@ -83,14 +83,14 @@ error at the call (§8.1).
 shuts down, and modules are unloaded in reverse order of
 loading.
 
-## 28.3 Exports and Registration
+## 29.3 Exports and Registration
 
 **Exports.** The ABI surface of a module is two symbols with C
 linkage, unmangled on every platform the ABI supports:
 
 | Export | Signature | Contract |
 |---|---|---|
-| `nlang_abi_version` | `unsigned (void)` | returns `13`; the single version authority (§28.2) |
+| `nlang_abi_version` | `unsigned (void)` | returns `13`; the single version authority (§29.2) |
 | `nlang_native_init` | `int (void* registry, RegisterNativeFn reg, RegisterNativeBlockingFn regBlocking)` | called once after the probe passes |
 
 with the registration callbacks
@@ -105,7 +105,7 @@ void regBlocking(void* registry, const char* ns,
 **Registration.** Inside `nlang_native_init` the module
 registers each of its functions through `reg` — a non-blocking
 native, which runs with no lock held (§10.1) — or through
-`regBlocking` — a native with a blocking section (§28.7) —
+`regBlocking` — a native with a blocking section (§29.7) —
 passing the opaque `registry` pointer through unchanged. The registered key is `<ns>.<name>`. The return
 value of `nlang_native_init` is informational; the probe is
 the single version authority.
@@ -126,7 +126,7 @@ NLANG_DEFINE_NATIVE_INIT {
 The macro emits the `nlang_abi_version` probe automatically,
 so a module cannot drift from the header's version constant.
 
-## 28.4 Calling Convention and Value Cell
+## 29.4 Calling Convention and Value Cell
 
 **Signature.** A native function has the signature
 
@@ -135,7 +135,7 @@ void fn(NativeHost* host, uint8_t* ret,
         const uint8_t* args, int argc);
 ```
 
-- `host` — the host function table (§28.5);
+- `host` — the host function table (§29.5);
 - `ret` — one value cell that receives the return value; a
   `void` native writes nothing;
 - `args` — the base of `argc` value cells holding the
@@ -169,9 +169,9 @@ through the host table and never dereferences it directly.
 **Frame discipline.** The native reads `args` and writes `ret`
 and nothing else; no frame memory beyond the cells is visible
 to it, and nothing obtained through the host table survives
-the call (§28.5, §28.6).
+the call (§29.5, §29.6).
 
-## 28.5 The Host Function Table
+## 29.5 The Host Function Table
 
 **Layout.** `NativeHost` is a struct of function pointers
 whose first field is `abiVersion`, a `uint32_t` holding `13`,
@@ -272,7 +272,7 @@ shared by every native in the run.
 **Arrays.** `newArray` creates a one-dimensional array and
 `newArrayShaped` an array of the given rank (§4.10), both
 zero-initialized, and return the handle. The element kind is
-one of six codes, which mirror the type-kind codes of §26.5:
+one of six codes, which mirror the type-kind codes of §27.5:
 
 | Code | Element type |
 |---|---|
@@ -289,11 +289,11 @@ allocation guard, raises `IndexOutOfBoundsException` — the
 same outcome as a negative sized creation on the language side
 (§4.10, §8.3). A rank outside `1` to `64` raises the base
 `Exception` (§4.10). The created handle is kept alive by the
-host until the native writes it into `ret` (§28.7).
+host until the native writes it into `ret` (§29.7).
 
 `newArrayView` creates a view (§4.10) over the array — or view —
 behind `targetHandle`, with the given rank, dims, strides and
-offset (element units, §28.6); the element kind comes from the
+offset (element units, §29.6); the element kind comes from the
 target. The validation is the one the language's own view
 creation applies: a null or non-array target raises
 `NullPointerException` or `IndexOutOfBoundsException`
@@ -302,9 +302,9 @@ element kind raises the base `Exception`, and bad dims or a
 range exceeding the target's bounds raise
 `IndexOutOfBoundsException` (§4.10). The created handle is kept
 alive by the host until the native writes it into `ret`
-(§28.7).
+(§29.7).
 
-`getArrayView` fills `*out` with the pinned view of §28.6 of
+`getArrayView` fills `*out` with the pinned view of §29.6 of
 the array — owning record or view record — behind `handle` and
 returns `1`; a handle that is null or out of range raises
 `NullPointerException`, and a handle of a non-array value
@@ -314,14 +314,14 @@ raises the base `Exception` — there is no non-raising failure.
 convention: one `int32_t` cell per element holding the value
 in its low byte. A view of such an array reports
 `elemCellBytes` `4` like an `int` array; the addressing of
-§28.6 is unchanged.
+§29.6 is unchanged.
 
 **IO parking and the work pool.** `nowMs` returns monotonic
 milliseconds — the clock domain every park deadline in this
 section uses (§10.1); it is not wall time. `parkForIo`
 registers interest in `fd` for `events` — `NLANG_EV_READ` `1`,
 `NLANG_EV_WRITE` `2` — plus an optional absolute deadline, and
-unwinds the caller as §28.7 describes. `wakeIoWaiters`
+unwinds the caller as §29.7 describes. `wakeIoWaiters`
 unregisters the poller's interest in `fd` and wakes every
 context parked on it — the socket-close path; it takes no
 lock of its own and may be called with none held.
@@ -350,10 +350,10 @@ relies on.
 **Receiver type arguments.** `typeArgCount`, `typeArgKind` and
 `typeArgName` read the runtime instantiation information
 (§4.12.9) of the current call's receiver: the receiver is the
-value in slot 0 of the call's argument area (§28.4).
+value in slot 0 of the call's argument area (§29.4).
 `typeArgCount` returns the number of type arguments of the
 receiver's instantiation; `typeArgKind` returns the kind code of
-argument `index` (the §26.5 kind codes), and `typeArgName` the
+argument `index` (the §27.5 kind codes), and `typeArgName` the
 buffer of its canonical name. An out-of-range `index`:
 `typeArgKind` reports `0xFF` and `typeArgName` returns a null
 pointer. A call with no receiver — a free function or a static
@@ -364,7 +364,7 @@ carriers each park on their own call, and every native call sees
 its own receiver. The buffer `typeArgName` returns is valid at
 least until the native returns — copy it immediately.
 
-## 28.6 Pinned Array Views
+## 29.6 Pinned Array Views
 
 **View.** `NativeArrayView` describes one heap array's
 payload — an owning record's, or a view record's window into
@@ -376,11 +376,11 @@ its owning record:
 | `dims` | `const int32_t*` | the dimension lengths; points into the array record |
 | `strides` | `const int32_t*` | the strides in elements; points into the view itself |
 | `elemCount` | `int64_t` | the total element count |
-| `elemKind` | `uint8_t` | the element kind (§28.5) |
+| `elemKind` | `uint8_t` | the element kind (§29.5) |
 | `elemCellBytes` | `uint8_t` | the per-element stride in bytes: `4`, or `8` for `long` and `double` |
 | `reserved` | `uint8_t[2]` | written `0`; the reader ignores the field |
-| `offset` | `int64_t` | where element zero lives, in elements (§28.6 addressing) |
-| `stridesInline` | `int32_t[64]` | the storage `strides` points at: 64 entries, the rank ceiling (§28.5) |
+| `offset` | `int64_t` | where element zero lives, in elements (§29.6 addressing) |
+| `stridesInline` | `int32_t[64]` | the storage `strides` points at: 64 entries, the rank ceiling (§29.5) |
 | `data` | `void*` | the payload base of the owning record |
 
 **Addressing.** The element at indices `i[0] … i[rank-1]`
@@ -408,7 +408,7 @@ each view owns its strides: copying the struct leaves the
 copy's `strides` pointing into the original. Request a fresh
 view instead of copying one.
 
-## 28.7 Blocking Sections
+## 29.7 Blocking Sections
 
 **The two channels.** A native registered through `reg` runs
 with no lock held: it must not wait on anything outside the
@@ -429,7 +429,7 @@ and resumes the context. The native sees the same `args` and
 
 **Parking.** A blocking native that would wait on a file
 descriptor parks instead of blocking its carrier: it calls
-`parkForIo` (§28.5) with the descriptor, the event bits it
+`parkForIo` (§29.5) with the descriptor, the event bits it
 waits for, and an optional absolute deadline in `nowMs`
 domain. On the first entry `parkForIo` returns `0` — the
 interest is registered and the native must return immediately
@@ -455,7 +455,7 @@ its section; the native itself must not assume exclusive
 access to the virtual machine inside the section.
 
 **Rooting.** A handle created inside a blocking section
-(§28.5) is kept alive by the host until the native writes it
+(§29.5) is kept alive by the host until the native writes it
 into `ret`; a created handle that is never published may be
 collected once the section ends.
 

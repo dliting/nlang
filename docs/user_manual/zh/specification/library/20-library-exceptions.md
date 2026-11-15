@@ -2,7 +2,7 @@
 
 # 20. 库异常
 
-本章把库操作的失败——第11、12与17章的内建类与方法，以及第13、14、15、16、18、19、21、22、23、24与25章的各包——映射到§8.3的内建异常类。§20.1是映射表；§20.2固定它所依据的惯例。每个位置的语义都在定义该操作的那一章里；本章不添加自己的失败行为。
+本章把库操作的失败——第11、12与17章的内建类与方法，以及第13、14、15、16、18、19、21、22、23、24、25与26章的各包——映射到§8.3的内建异常类。§20.1是映射表；§20.2固定它所依据的惯例。每个位置的语义都在定义该操作的那一章里；本章不添加自己的失败行为。
 
 ## 20.1 按单元的抛出映射
 
@@ -34,11 +34,12 @@
 | `http`（§23.4–§23.6） | `TimeoutException` | `HttpBodyReader.read`在截止时刻结束等待；超过`callTimeoutMs`的连接池等待（客户端调用之下的`net`失败原样透出，§23.8） |
 | `gzip`（§24.1） | `GzipException` | 被编码器拒绝的`compress`；未能解出一条完整流的输入的`decompress` |
 | `regex`（§25.2、§25.3） | `RegexException` | 被引擎拒绝的模式的`Regex`构造；下标越界或组名未知的`group` |
+| `json`（§26.3–§26.7） | `JsonException` | 格式错误、顶层值之后有多余字节、或嵌套超过深度上限的`parse`（各带字节偏移）；对另一种类别的值调用访问器；`long`或`int`范围之外的`getLong`或`getInt`；缺失键的`get`；超过嵌套上限或非有限`double`的`serialize` |
 
 经由`null`接收者的调用在每个单元里都抛出`NullPointerException`（§11.2）；表中各行只列定义章节除此之外另行点名的位置。
 
 ## 20.2 惯例
 
-- 库声明八个自己的异常类：`ChannelClosedException`，`Exception`的直接子类，由`concurrent`包声明；`SocketException`与`TimeoutException`，`IOException`的子类，由`net`包声明；`UrlException`，`IOException`的子类，由`url`包声明；`HttpException`与`GzipException`，`IOException`的子类，分别由`http`与`gzip`包声明；`RegexException`，`IOException`的子类，由`regex`包声明；以及`DateTimeException`，`Exception`的直接子类，由`system`包声明（§8.3）。其余每个库失败都抛出§8.3的类（§11.4）。用户代码可以声明自己的类（§8.4）。
+- 库声明九个自己的异常类：`ChannelClosedException`，`Exception`的直接子类，由`concurrent`包声明；`SocketException`与`TimeoutException`，`IOException`的子类，由`net`包声明；`UrlException`，`IOException`的子类，由`url`包声明；`HttpException`与`GzipException`，`IOException`的子类，分别由`http`与`gzip`包声明；`RegexException`，`IOException`的子类，由`regex`包声明；`JsonException`，`Exception`的直接子类，由`json`包声明；以及`DateTimeException`，`Exception`的直接子类，由`system`包声明（§8.3）。其余每个库失败都抛出§8.3的类（§11.4）。用户代码可以声明自己的类（§8.4）。
 - 基类`Exception`是没有专属类的实参、范围与解析错误所用的类；不存在`IllegalArgumentException`或同级类。
 - 抛出不是唯一的失败通道。谓词与查询以返回值报告：`fs`的谓词与缺失路径上的`remove`（§16.3）、`io.hasInput`（§14.3），以及`math`超越函数家族产出NaN的定义域错误（§13.4）。null句柄之外的流失败是*宿主级*执行期错误（§14.6，§8.1）：没有`catch`子句处理它们。

@@ -162,9 +162,13 @@ At program scope, visibility depends on what the name denotes:
 - a *top-level function* is visible by unqualified name only if it is a built-in
   function or it is declared by a unit in the same directory as the
   referring unit. A function declared in another directory is not
-  unqualified-visible; the diagnostic names the module that declares it.
+  unqualified-visible; the diagnostic names the module that declares it. A
+  function that is not `public` is visible by unqualified name only inside the
+  unit that declares it (§4.8.2).
 - a *type* (class, struct, enum or interface) declared at top level
-  is visible program-wide, whatever directory its unit lives in.
+  is visible program-wide, whatever directory its unit lives in, provided it is
+  `public`; a `private` or `protected` type is visible only inside the unit that
+  declares it (§4.8.2).
 - if the walk finds no binding, an unqualified identifier may still resolve
   to a built-in class name; §4.11, §4.12, §8.3 and chapter 10
   enumerate the built-in classes.
@@ -177,7 +181,9 @@ package `p` only through the import gate of the referring
 compilation unit (§3.3): the path `p` must be opened, by an
 explicit import or by the same-directory rule. Member lookup inside
 `p` does not continue into outer scopes. §3.9 defines module
-naming, path resolution and the gate in full.
+naming, path resolution and the gate in full. The gate also consults
+the declared access modifier: of an imported module or package only
+its `public` top-level declarations are reachable (§4.8.2).
 
 Overload selection among same-named functions is defined in
 chapter 7.

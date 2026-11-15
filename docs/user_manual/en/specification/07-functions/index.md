@@ -17,14 +17,16 @@ formal parameters, and a body. A method declaration with no return
 type names a constructor (§4.8.6).
 
 A top-level function is *bare* when it carries no access modifier
-and no flags (§2.2). The distinction is grammatical only: at top
-level the access modifiers and the `static` and `virtual` flags
-are accepted and have no effect — they govern class members
-(§4.8). Within its own unit every top-level function is
-visible by unqualified name. Across units, unqualified-name visibility follows §3.6, and the
-qualified name reaches the function through the import gate
-(§3.6, §3.9); neither path consults the modifiers. Only
-`native` carries meaning at top level (§7.5).
+and no flags (§2.2). The bare form means the same as `public`: at top
+level a function written without a modifier is `public`. The `static`
+and `virtual` flags are accepted and have no effect — they govern
+class members (§4.8). Within its own unit every top-level function is
+visible by unqualified name. Across units, unqualified-name
+visibility follows §3.6, and the qualified name reaches the function
+through the import gate (§3.6, §3.9); both paths consult the declared
+access modifier, so a `private` or `protected` function is reachable
+only inside the unit that declares it (§4.8.2). Only `native` carries
+meaning at top level (§7.5).
 
 A body written `;` declares a function without a body: a native
 function (§7.5) at top level, or an interface member with no

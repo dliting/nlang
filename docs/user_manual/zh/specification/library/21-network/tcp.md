@@ -26,7 +26,7 @@
 | `read(buf, timeoutMs = 0)` | →`int` | 用非空`buf`最多填`buf.length`个字节并返回个数；`0`表示流结束——对端关闭了它的写端；`buf`为空抛`SocketException`，因为`0`已留给流结束这个信号。字节按序到达；一次`read`可能返回少于请求的字节数。接收窗口（见下）里已经躺着的字节会先交付，然后才碰套接字，所以永远不会乱序 |
 | `write(data, count = -1, timeoutMs = 0)` | →`int` | 发送`data`的前`count`个字节——`count`为`-1`时全发；停泊直到字节移交给协议栈。`timeoutMs`约束整个写全量：对端停止读取且截止时刻到来时抛`TimeoutException`，此时载荷可能已经发出了一部分 |
 | `write(s, timeoutMs = 0)` | →`int` | 文本简写：把`s`编码为Unicode转换格式（UTF-8）字节并发送，超时行为与字节重载相同 |
-| `readLine(timeoutMs = 0)` | →`string` | 读到下一个`\n`为止（含），去掉它（及它前面的`\r`）并返回该行；流在行中间结束时返回残缺的行，流结束且什么都没读到时返回空串——空行与输入结束在这里无法区分（`string`没有`null`值，见§4.3），输入结束的信号是`read`返回`0` |
+| `readLine(timeoutMs = 0)` | →`string` | 读到下一个`\n`为止（含），去掉它（及它前面的`\r`）并返回该行；流在行中间结束时返回残缺的行，流结束且什么都没读到时返回空串——空行与输入结束在这里无法区分（`string`没有`null`值，见§4.3），输入结束的信号是`read`返回`0`；行内的NUL字节是普通内容，只有`\n`结束一行 |
 | `readExactly(count, timeoutMs = 0)` | →`byte[]` | 读满恰好`count`个字节到新数组；流提前结束抛`SocketException`——按`Content-Length`分帧的正文就该用它。窗口里已有字节时它先从窗口取；`count`之外多到的字节留在窗口里留给下次读，不会丢 |
 | `peekFilled(minBytes = 1, timeoutMs = 0)` | →`byte[]` | 等到流的接收窗口（见下）攒够`minBytes`个字节、窗口满（`WINDOW_CAP`）、或对端不再发送，然后把窗口当前内容作为视图返回；三者之一到来或截止时刻到来之前停泊。`minBytes`小于`1`抛`SocketException`；超过`WINDOW_CAP`的阈值由满窗口满足——把一个个满窗口拼接起来是调用方的事。等待在截止时刻结束抛`TimeoutException`；视图短于`minBytes`而又不超时的唯一情形是流结束——所以空视图意味着对端关闭了写端且窗口已经排空。`close()`之后调用抛`SocketException`，即使窗口里还有字节（见下） |
 | `consume(count)` | — | 告诉流：调用方已消费最近一次`peekFilled`视图的前`count`个字节，下一个视图从那之后开始。`count`不在`1…未消费数`之内抛`SocketException`——不静默钳制。`close()`之后调用抛`SocketException`，即使窗口里还有字节 |

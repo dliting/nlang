@@ -185,11 +185,13 @@ every other subclass. The `http` package (§3.9.4) declares
 `HttpException`, a subclass of `IOException` raised by the
 operations of chapter 23, and the `gzip` package (§3.9.4) declares
 `GzipException`, a subclass of `IOException` raised by the
-operations of chapter 24, and the `regex` package (§3.9.4)
+operations of chapter 24, the `regex` package (§3.9.4)
 declares `RegexException`, a subclass of `IOException` raised by
-pattern compilation and group access in chapter 25; all three
-reach scope through their `import` like any package class, and
-`catch` treats them like every other subclass.
+pattern compilation and group access in chapter 25, and the
+`json` package (§3.9.4) declares `JsonException`, a direct
+subclass of `Exception` raised by the operations of chapter 26;
+all four reach scope through their `import` like any package
+class, and `catch` treats them like every other subclass.
 
 Every built-in exception class is a const class (§4.8.12), and
 every constructor has the same shape:
