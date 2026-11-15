@@ -190,6 +190,11 @@ class JsonBool : JsonValue {
 // language's shortest-roundtrip double formatting -- unless the source
 // token is kept, which wins for fidelity.
 class JsonNumber : JsonValue {
+    // Half-open long window as doubles: 2^63 is one past the largest long,
+    // so a double converts exactly only inside [LONG_MIN_AS_DOUBLE, LONG_MAX_PLUS).
+    private static const double LONG_MIN_AS_DOUBLE = -9223372036854775808.0;
+    private static const double LONG_MAX_PLUS = 9223372036854775808.0;
+
     private bool m_isLong = true;
     private long m_l = 0;
     private double m_d = 0.0;
@@ -227,7 +232,9 @@ class JsonNumber : JsonValue {
     }
 
     public int getInt() {
-        return this.getLong() as int;          // T4: gains the int-range check
+        long v = this.getLong();               // the long-range error comes first
+        if ((v as int) != v) { throw JsonException("json: number out of int range"); }
+        return v as int;
     }
 
     public double getDouble() {
@@ -250,7 +257,13 @@ class JsonNumber : JsonValue {
     }
 
     private static long longFromDouble(double value) {
-        return value as long;             // T4: floor + exactness + range rules
+        if (value < LONG_MIN_AS_DOUBLE || value >= LONG_MAX_PLUS) {
+            throw JsonException("json: number out of long range");
+        }
+        if (value % 1.0 != 0.0) {       // % is fmod on doubles: tests integrality
+            throw JsonException("json: number out of long range");
+        }
+        return value as long;
     }
 }
 

@@ -2380,6 +2380,7 @@ xacc_type_private compile_error Type 'Vault' is not a member of package 'lib'.
 xacc_ok_public 28
 stdlib_json_parse_basic 0
 stdlib_json_parse_reject 0
+stdlib_json_numbers 0
 # --- v0.13.11: a constructor call stages an implicitly widened argument at
 # the formal's width, not the argument's own (bare call, direct
 # initialization, struct spellings, super(...), module-qualified call).
