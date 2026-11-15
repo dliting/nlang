@@ -442,6 +442,49 @@ static void testFieldStoreZeroAlloc()
     PASS();
 }
 
+//Element-store pin (Task 5): `arr[0] = p` must update the element's
+//EXISTING record in place — a 1000-iteration loop allocates nothing.
+//Fixed base (RED-observed): 8 records (e0, e1, the array, its element
+//records, init-list staging copies, p); the old deep-copy-per-store
+//path adds 1000 on top.
+static void testElementStoreZeroAlloc()
+{
+    TEST(elementStoreZeroAlloc);
+    ExecResult r = runProgram("stabilize_copy_elem_store",
+        "struct P {\n"
+        "    int x;\n"
+        "    int y;\n"
+        "}\n"
+        "int main() {\n"
+        "    P e0;\n"
+        "    e0.x = 1;\n"
+        "    e0.y = 2;\n"
+        "    P e1;\n"
+        "    e1.x = 3;\n"
+        "    e1.y = 4;\n"
+        "    P[] arr = [e0, e1];\n"
+        "    P p;\n"
+        "    p.x = 1;\n"
+        "    p.y = 2;\n"
+        "    for (int i = 0; i < 1000; i = i + 1) {\n"
+        "        arr[0] = p;\n"
+        "    }\n"
+        "    if (arr[0].x == 1 && arr[0].y == 2) {\n"
+        "        return 42;\n"
+        "    }\n"
+        "    return 1;\n"
+        "}\n");
+    REQUIRE(r.built);
+    CHECK(r.exitCode == 42, "program exit");
+    const size_t allocs = r.exec->HeapAllocCountForTests();
+    if (allocs != 8) {
+        FAIL("1000 element stores allocate nothing (expected 8 fixed "
+             "records, got " + std::to_string(allocs) + ")");
+        return;
+    }
+    PASS();
+}
+
 int main()
 {
     Runtime::StaticInit();
@@ -453,6 +496,7 @@ int main()
     testConcurrentWriterReaderInvariant();
     testLocalAssignZeroAlloc();
     testFieldStoreZeroAlloc();
+    testElementStoreZeroAlloc();
     std::cerr << "stabilize_copy: " << g_pass << " passed, "
               << g_fail << " failed\n";
     return g_fail == 0 ? 0 : 1;

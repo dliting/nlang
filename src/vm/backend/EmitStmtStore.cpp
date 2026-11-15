@@ -100,20 +100,25 @@ void VmBackend::EmitBoxedOperand(SnExpression& operand, uint16_t slot,
 //property covers every base shape (identifier, member, subscript,
 //call — the resolver's element-type gate stamps the property on every
 //shape). Mirrors the resolver's test in Access(SnSubscriptAssignStmt)
-//so struct deep-copy fires for every base shape, not just identifier
-//and member bases. The deep-copy detection keys on the ELEMENT row,
+//so struct stabilization fires for every base shape, not just
+//identifier and member bases. The detection keys on the ELEMENT row,
 //either spelling of the base's array type (token or Array<E>) — a
-//token-only peel skipped deep-copy for the generic spelling.
-static SnField* ArrayElementStoreType(SnSubscriptAssignStmt& sub) {
+//token-only peel skipped the struct path for the generic spelling.
+//Also consumed by SubscriptAssignStmtPeakDepth (claim-size mirror).
+SnField* VmBackend::ArrayElementStoreType(SnSubscriptAssignStmt& sub) {
     if (!sub.Array()->IsArrayValued())
         return nullptr;
     return ArrayElementRowOf(sub.Array()->EvalDataType());
 }
 
 //Array element store (non-container bases): claims [array, index,
-//value] then OP_StoreElement, with struct deep-copy of the value when
-//the element type is a struct. Phase 10 audit round-2: runs entirely
-//inside an EvalAreaClaim(3) [array, index, value] — the old
+//value] then OP_StoreElement. For struct element types the record-
+//stabilization path replaces the store: OP_LoadElement loads the
+//element's established record handle (and performs the bounds check
+//the dropped store used to perform), then OP_CopyStructInPlace
+//writes the value's cells into that record — zero allocation, and
+//identity-preserving. Phase 10 audit round-2: runs entirely inside
+//an EvalAreaClaim [array, indices..., value, (elem)] — the old
 //tempSlot/tempSlot2/callParamBase staging let any nested expression
 //in the index (subscript-get, binary arithmetic — both reuse the
 //shared temps) clobber the parked base/value. Claim slots are
@@ -121,13 +126,18 @@ static SnField* ArrayElementStoreType(SnSubscriptAssignStmt& sub) {
 void VmBackend::EmitArrayElementStore(SnSubscriptAssignStmt& sub,
                                       BytecodeEmitter& emitter) {
     SnField* elemType = ArrayElementStoreType(sub);
-    //Stage-2: N indices + value + receiver in one exclusive claim;
-    //the receiver parks LAST (null-checked) like the rank-1 form.
+    const bool elemIsStruct = elemType
+        && RuntimeTypeKind(elemType) == RTK_Struct
+        && elemType->Kind() == NK_StructDecl;
+    //Stage-2: N indices + value + receiver (+ one element-handle slot
+    //on the struct path) in one exclusive claim; the receiver parks
+    //LAST (null-checked) like the rank-1 form.
     const size_t rank = sub.Indices().size();
-    EvalAreaClaim claim(*this, rank + 2);
+    EvalAreaClaim claim(*this, rank + (elemIsStruct ? 3 : 2));
     uint16_t claimBase = claim.base();
     uint16_t idxBase = claimBase + kFrameSlotBytes;
     uint16_t valueSlot = claimBase + (rank + 1) * kFrameSlotBytes;
+    uint16_t elemSlot = claimBase + (rank + 2) * kFrameSlotBytes;
     //Object[] element stores arrive pre-boxed: the resolver's
     //element-type gate (Access(SnSubscriptAssignStmt)) wraps
     //primitive values in a TCK_Box cast, so this emit includes the
@@ -142,13 +152,23 @@ void VmBackend::EmitArrayElementStore(SnSubscriptAssignStmt& sub,
     EmitExpression(*sub.Array(), emitter, claimBase);
     emitter.Emit(OpCode::OP_NullCheck);
     emitter.EmitUint16(claimBase);
-    //For struct element types, deep-copy value before storing.
-    //Per-unit: a cross-unit element struct slots as an import
-    //placeholder (the old silent-0 fallback could not).
-    if (elemType && RuntimeTypeKind(elemType) == RTK_Struct
-        && elemType->Kind() == NK_StructDecl) {
-        EmitStructDeepCopy(valueSlot, valueSlot,
+    if (elemIsStruct) {
+        //Stabilized element store: load the element's ESTABLISHED
+        //record handle into the claim's element slot — the load
+        //performs the bounds check the dropped store used to perform —
+        //then copy the value into that record IN PLACE. The record
+        //identity never changes, so held references to the element
+        //stay live. Per-unit: a cross-unit element struct slots as an
+        //import placeholder (the old silent-0 fallback could not).
+        emitter.Emit(SubscriptNeedsDynOps(*sub.Array())
+            ? OpCode::OP_LoadElementDyn : OpCode::OP_LoadElementN);
+        emitter.EmitUint16(elemSlot);
+        emitter.EmitUint16(claimBase);
+        emitter.EmitUint16(idxBase);
+        emitter.EmitUint16(static_cast<uint16_t>(rank));
+        EmitStructCopyInPlace(elemSlot, valueSlot,
             static_cast<SnStructDecl&>(*elemType), emitter);
+        return;
     }
     emitter.Emit(SubscriptNeedsDynOps(*sub.Array())
         ? OpCode::OP_StoreElementDyn : OpCode::OP_StoreElementN);

@@ -1057,6 +1057,11 @@ private:
                                    uint16_t objSlot, uint16_t fieldOff,
                                    uint16_t valueSlot,
                                    BytecodeEmitter& emitter);
+    //Element row of an array-element store's base (nullptr when the
+    //base is not array-valued). Shared by EmitArrayElementStore and
+    //SubscriptAssignStmtPeakDepth so the walker's claim size mirrors
+    //codegen exactly (struct elements claim one extra handle slot).
+    SnField* ArrayElementStoreType(SnSubscriptAssignStmt& sub);
 
     //EmitCallArgs decomposition (2026-09-25): one arm/phase per helper.
     //applyBox flows through as std::function so the per-arg boxing

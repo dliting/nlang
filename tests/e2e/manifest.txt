@@ -2381,6 +2381,8 @@ array_struct_identity 4
 stabilize_local_assign 42
 stabilize_field_store 42
 stabilize_nested_field 42
+stabilize_array_store 42
+stabilize_array_oob 1
 xacc_fn_private compile_error The function "hiddenHelper" does not exist or is not accessible.
 xacc_type_private compile_error Type 'Vault' is not a member of package 'lib'.
 xacc_ok_public 28

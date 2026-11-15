@@ -1,0 +1,19 @@
+//v0.13.9 phase (2) record stabilization OOB pin: the element load the
+//in-place store path emits performs the bounds check the dropped store
+//used to perform — an out-of-range element store still raises the
+//bounds error (uncaught: nvm exits 1).
+struct P {
+    int x;
+    int y;
+}
+int main() {
+    P e0;
+    e0.x = 1;
+    e0.y = 2;
+    P e1;
+    e1.x = 3;
+    e1.y = 4;
+    P[] arr = [e0, e1];
+    arr[5] = e0;
+    return 42;
+}
