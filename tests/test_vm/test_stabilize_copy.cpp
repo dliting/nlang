@@ -370,6 +370,42 @@ static void testConcurrentWriterReaderInvariant()
     PASS();
 }
 
+//Local assignment pin (Task 3): the emitted `q = p` must write the
+//EXISTING record in place — a 1000-iteration assignment loop allocates
+//nothing, so the two program records are the only allocations. The old
+//OP_CopyStruct path allocates per assignment (1002) — this pin is the
+//task's runnable red.
+static void testLocalAssignZeroAlloc()
+{
+    TEST(localAssignZeroAlloc);
+    ExecResult r = runProgram("stabilize_copy_local_assign",
+        "struct P {\n"
+        "    int x;\n"
+        "    int y;\n"
+        "}\n"
+        "\n"
+        "int main() {\n"
+        "    P p;\n"
+        "    p.x = 1;\n"
+        "    p.y = 2;\n"
+        "    P q;\n"
+        "    q.x = 3;\n"
+        "    q.y = 4;\n"
+        "    for (int i = 0; i < 1000; i = i + 1) {\n"
+        "        q = p;\n"
+        "    }\n"
+        "    if (q.x == 1 && q.y == 2) {\n"
+        "        return 42;\n"
+        "    }\n"
+        "    return 1;\n"
+        "}\n");
+    REQUIRE(r.built);
+    CHECK(r.exitCode == 42, "program exit");
+    CHECK(r.exec->HeapAllocCountForTests() == 2,
+          "1000 local assigns allocate nothing (2 records total)");
+    PASS();
+}
+
 int main()
 {
     Runtime::StaticInit();
@@ -379,6 +415,7 @@ int main()
     testEstablishOnNullDst();
     testNestedRecords();
     testConcurrentWriterReaderInvariant();
+    testLocalAssignZeroAlloc();
     std::cerr << "stabilize_copy: " << g_pass << " passed, "
               << g_fail << " failed\n";
     return g_fail == 0 ? 0 : 1;

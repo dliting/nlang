@@ -1039,6 +1039,14 @@ private:
     void EmitStructDeepCopy(uint16_t dst, uint16_t src,
                             SnStructDecl& structDecl,
                             BytecodeEmitter& emitter);
+    //Record stabilization twin (v0.13.9 phase ②): copy the heap subtree
+    //src → dst IN PLACE via OP_CopyStructInPlace — dst's existing record
+    //is overwritten (zero allocation, stable record identity); a null
+    //dst establishes one fresh record. Same operand shape as
+    //EmitStructDeepCopy (dst/src byte offsets + struct table index).
+    void EmitStructCopyInPlace(uint16_t dst, uint16_t src,
+                               SnStructDecl& structDecl,
+                               BytecodeEmitter& emitter);
     //v0.12.6 D14: struct-aware field store — when the field's declared
     //type is a struct, deep-copy the staged value in place before the
     //store (a struct moving into a field is copied, manual 4.7.4);

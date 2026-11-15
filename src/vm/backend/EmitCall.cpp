@@ -101,6 +101,19 @@ void VmBackend::EmitStructDeepCopy(uint16_t dst, uint16_t src,
     emitter.EmitUint16(static_cast<uint16_t>(StructSlotFor(structDecl)));
 }
 
+//Record stabilization twin (v0.13.9 phase ②): copy the heap subtree
+//src → dst IN PLACE — dst's existing record is overwritten (zero
+//allocation, stable record identity); a null dst establishes one fresh
+//record. The VM primitive takes the StructCopy leaf lock, so concurrent
+//whole-record readers stay atomic.
+void VmBackend::EmitStructCopyInPlace(uint16_t dst, uint16_t src,
+        SnStructDecl& structDecl, BytecodeEmitter& emitter) {
+    emitter.Emit(OpCode::OP_CopyStructInPlace);
+    emitter.EmitUint16(dst);
+    emitter.EmitUint16(src);
+    emitter.EmitUint16(static_cast<uint16_t>(StructSlotFor(structDecl)));
+}
+
 //B_Default arm of EmitBinding: emit the default expression under the
 //earlier-formals override scope, then normalize the staged slot. The
 //default expression carries its own literal kind (an unsuffixed float

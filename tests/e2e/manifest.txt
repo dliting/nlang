@@ -2378,6 +2378,7 @@ tensor_import_required compile_error Package 'tensor' is not imported
 stdlib_tensor_uniform 0
 stdlib_tensor_uniform_throw 1
 array_struct_identity 4
+stabilize_local_assign 42
 xacc_fn_private compile_error The function "hiddenHelper" does not exist or is not accessible.
 xacc_type_private compile_error Type 'Vault' is not a member of package 'lib'.
 xacc_ok_public 28

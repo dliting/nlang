@@ -84,10 +84,13 @@ void VmBackend::EmitAssignToLocal(SnAssignStmt& assign, uint16_t offset,
         SnField* varType, BytecodeEmitter& emitter) {
     if (varType && RuntimeTypeKind(varType) == RTK_Struct
         && varType->Kind() == NK_StructDecl) {
-        //Struct assignment: evaluate right to temp, then deep-copy.
-        //Per-unit: cross-unit structs slot as import placeholders.
+        //Struct assignment: evaluate right to temp, then write the
+        //EXISTING record in place (v0.13.9 phase ② — zero allocation,
+        //stable record identity; a null dst establishes one fresh
+        //record). Per-unit: cross-unit structs slot as import
+        //placeholders.
         EmitExpression(*assign.Right(), emitter, m_currFunc->tempSlot2);
-        EmitStructDeepCopy(offset, m_currFunc->tempSlot2,
+        EmitStructCopyInPlace(offset, m_currFunc->tempSlot2,
             static_cast<SnStructDecl&>(*varType), emitter);
     } else {
         //Phase 10 audit round-7: stage the RHS in an EvalAreaClaim(1)
