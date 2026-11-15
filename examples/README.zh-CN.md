@@ -40,6 +40,7 @@
 | tensor_tour.n | tensor包：跨元素类型的创建、逐元素与归约核 | 0 |
 | url_tour.n | url包：解析/查看/resolve/查询参数/百分号转义 | 0 |
 | regex_tour.n | regex包：匹配、命名捕获组、全部匹配、替换模板 | 0 |
+| json_tour.n | json包：解析、经kind()读取、DOM编辑、紧凑与缩进序列化、字节偏移诊断 | 0 |
 | http_hello.n | http包：同一进程里的hello服务与其客户端（缓冲GET、echo POST、持久连接复用） | 0 |
 | http_conc_bench.n | http包：1000个虚拟线程客户端共用一个客户端，每主机至多4条连接 | 0 |
 | http_sse.n | http包：分块流上的服务器推送事件（SSE）、客户端提前断开、生产者取消 | 0 |
