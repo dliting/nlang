@@ -337,9 +337,16 @@ of each argument — read by equality dispatch, casts and `typeName`
 
 `typeName` takes a type expression and returns its canonical
 spelling as a string. Spellings of concrete types fold at compile
-time — `typeName(int)` is `"int"`, `typeName(Box<int>)` is
-`"Box<int>"`, `typeName(int[,])` is `"int[,]"` (rank in brackets),
-`typeName(List<List<int>>)` is `"List<List<int>>"`. Forms containing
+time — `typeName(int)` is `"int"`, `typeName(int[,])` is
+`"int[,]"` (rank in brackets), and the built-in containers keep
+their bare names: `typeName(List<List<int>>)` is
+`"List<List<int>>"`. A user unit's generic template spells with
+its owning package path prefixed (§3.9.3): in a unit compiled
+from `demo.n`, `typeName(Box<int>)` is `"demo.Box<int>"`, and the
+same-named template imported from package `alib` spells
+`"alib.Box<int>"` — two packages declaring a same-named template
+produce two distinct spellings, across `typeName`, casts and
+equality alike. Forms containing
 a type parameter resolve at runtime through the receiver's
 instantiation information:
 
@@ -349,9 +356,9 @@ class Box<T> {
     public Box(T v) { this.value = v; }
 }
 class Hold<T> {
-    public string showArg() { return typeName(T); }        // "int" / "Box<int>"
-    public string showInner() { return typeName(Box<T>); } // "Box<int>"
-    public string showArray() { return typeName(T[]); }    // "int[]" / "Box<int>[]"
+    public string showArg() { return typeName(T); }        // "int" / "demo.Box<int>"
+    public string showInner() { return typeName(Box<T>); } // "demo.Box<int>"
+    public string showArray() { return typeName(T[]); }    // "int[]" / "demo.Box<int>[]"
 }
 ```
 

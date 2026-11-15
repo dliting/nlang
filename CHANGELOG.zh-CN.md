@@ -1,4 +1,4 @@
-## [0.13.8] - 2026-11-14
+## [0.13.8] - 2026-11-15
 
 泛型机制术语统一（依据`docs/dev/generic_term_reference.md`）：运行时拼出实例化规范名称的那份记录统一称为*拼接记录*（代码中为`composition`），取代此前的"配方"措辞；"铸造/mint"措辞按语义并入创建／实例化词族。
 
@@ -8,6 +8,11 @@
 - **"铸造/mint"标识符与注释按语义改名。**造对象走`Create*`（`CreateHostString`、`CreateShell`、`CreateThreadObject`），泛型实例化机制走`*Instantiation*`（`ExprResolverGenericInstantiation`、`InstantiationDepthClaim`；三个源文件随之改名），创建状态与门控走`Created`/`CreationGate`（`NativeCreationGate`、`creationGate`）。用户可见变化：native数组绑定诊断改为"element kind is not a creatable scalar"（原"mintable"）。无行为变化。
 - **"裸名"统一为"非限定名"**：源码注释与测试标识符中指名字解析（包前缀）语义的写法统一为unqualified name。泛型构造诊断保留既有文案"cannot be constructed by bare name"；仅注释与测试变化，无行为变化。
 - **手册泛型章节统一术语**——拼接记录、规范拼写、非限定名——覆盖中英文规格与VM架构各页（措辞统一，无语义变更）。
+
+### 新增
+
+- **跨模块访问控制（顶层函数与类型）。**`private`/`protected`/`public`前缀可用于顶层函数与类/结构体/接口/枚举，并在编译期强制：`private`把成员限定在自身单元内，`protected`放宽到同一包的兄弟单元，`public`——裸声明的缺省（D5.1：缺省可导入；封装以显式`private`/`protected`表达）——对每个过导入门的单元开放。被拒成员对查找不可见，而不是命中后再拒绝：外来私有类型在限定名中无法解析（`Type 'Vault' is not a member of package 'lib'.`），外来私有函数在限定与非限定两条路径上都报标准未找到诊断。在自身单元内，成员不论访问级别都可达。模块映像格式升到2.20：函数记录与类/结构体/接口记录在记录尾携带访问字节，枚举节扩出类型级访问表（三张平行表变四张），装载侧把`0`或高于`3`的访问字节按损坏映像拒绝；既有`.ncu`/`.npkg`需重新编译。
+- **泛型拼写的描述符限定身份。**用户单元泛型实例化的`typeName`规范拼写携带所属包路径（`"demo.Box<int>"`、`"alib.Box<int>"`；根单元类型保持裸名），落实0.13.1概要设计的D2拼写规则；类记录行键维持裸名（登记键与拼写键是两个键空间），加载侧的拼写解析与序列化往返接受带点模板头。不同包的同名模板现在身份不同：`typeName`拼写互不相同，经`Object`的跨包转型按限定拼写失败，静态字段补偿模式按键区分。非限定类型名解析自身单元优先；多个可见包声明同名时是歧义错误，诊断点名每个持有者的包；拼写键intern对重复键硬失败。
 
 ## [0.13.7] - 2026-11-12
 

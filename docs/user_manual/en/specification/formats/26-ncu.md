@@ -12,7 +12,7 @@ states the loading contract.
 ## 26.1 Scope and Version
 
 **Format version.** This chapter describes format version
-**2.19**, recorded in the header as major `2`, minor `19`
+**2.20**, recorded in the header as major `2`, minor `20`
 (§26.2). A conforming loader accepts exactly this version and
 rejects every other: an older image with a "recompile"
 diagnostic, a newer image with an "upgrade the toolchain"
@@ -29,8 +29,8 @@ loading contract (§26.8).
 
 **What it does not fix.** The encoding of the instructions
 inside a function's bytecode array: the array is an opaque byte
-string here. It is pinned to the same format version — a 2.19
-image carries the instruction set of the 2.19 toolchain — but
+string here. It is pinned to the same format version — a 2.20
+image carries the instruction set of the 2.20 toolchain — but
 the opcode values and instruction forms are not part of this
 specification. The native calling convention is §28.4; the
 archive that packs images is chapter 27.
@@ -153,6 +153,7 @@ constructor of the unit, in registration order. Each record:
 | parameter descriptor count | u16 | followed by one parameter descriptor per entry |
 | return descriptor | u16 length + descriptor | the return type descriptor (§26.5); present only when the return kind is not `0xFE` |
 | handle mask size | u32 | followed by that many mask bytes |
+| access byte | u8 | the declared access (§26.4): `1` `private`, `2` `protected`, `3` `public`; a bare top-level function writes `3` |
 
 **Defaults.** The default count is one entry per written
 formal: for a free function it equals the parameter count; for
@@ -195,6 +196,11 @@ writes size `0`.
 
 **Access bytes.** A member's declared access is one byte: `0`
 default, `1` `private`, `2` `protected`, `3` `public` (§4.8.2).
+The type declarations themselves carry the same code as a
+type-level access byte at their record tails (§3.9.3), and
+function records carry the same byte at their tail (§26.3):
+written values run `1`–`3` — a `0` (default, unassigned) or a
+value above `3` is refused at load (§26.8).
 
 **Structs.** One record per struct, in declaration order:
 
@@ -211,6 +217,7 @@ default, `1` `private`, `2` `protected`, `3` `public` (§4.8.2).
 | constructor count | u16 | followed by that many u16 function-table indices, declaration order |
 | field default count | u16 | equals the field count; followed by one default value record per field (§26.6) |
 | constructor access | u8 each | |
+| access byte | u8 | the struct's declared type-level access |
 
 A field default of *no default* (§26.6) leaves the field at
 its type's zero value; the others are applied at every
@@ -237,6 +244,7 @@ allocation (§4.7.2).
 | constructor access | u8 each | |
 | static field count | u16 | each entry: a u32-length name, a length-prefixed type descriptor, an access byte, a const flag (`1` = `const`), and a u16 slot index into the static slot table — `0xFFFF` marks a compile-time-folded constant, which carries its folded value as a default value record (§26.6) instead |
 | static-initializer index | u16 | the function-table index of the class's static initializer (§4.8.8); `0xFFFF` = none |
+| access byte | u8 | the class's declared type-level access |
 
 The field list carries only the fields this class declares:
 the full instance layout is derived at load time by walking the
@@ -253,6 +261,7 @@ in the method list; the constructor table selects them.
 | signature count | u16 | each entry: a u16-length name, a u16 parameter count, per formal a flags byte and a length-prefixed type descriptor, a length-prefixed return descriptor, and a u16 default count followed by that many default value records |
 | static-initializer index | u16 | the function-table index of the interface's static initializer; `0xFFFF` = none |
 | generic declaration tail | u8 + u16 + names | the generic-interface template marker, the class-record shape: a u8 template flag (`1` marks the template declaration) followed, for template interfaces, by a u16 type-parameter count and that many length-prefixed type-parameter names (§4.12.11) |
+| access byte | u8 | the interface's declared type-level access |
 
 Interface constants are scalar or string (§4.9.3); their default
 value record carries the folded initializer. Instance-method
@@ -261,20 +270,22 @@ interface-typed receiver and check the `implements` contract
 across the package border (§4.9.1). The return descriptor is
 always present: `void` is the `0xFE` kind byte. Interface
 members are implicitly public and non-virtual, so no access or
-virtual bytes are recorded.
+virtual bytes are recorded; the interface record itself carries
+the type-level access byte.
 
 **Array types.** One record per distinct array type the unit
 uses: the element kind (u8, §26.5), the element type index
 (u16; `0xFFFF` for a primitive element), and the rank (u8,
 §4.10).
 
-**Enums.** The enum section is three tables in parallel, one
+**Enums.** The enum section is four tables in parallel, one
 row per enumeration, in declaration order. First the member
 values: a u32 count followed by each value name (u32 length +
 bytes). Then the qualified keys: one per enumeration (u16
-length + bytes), no separate count. Then the member methods: a
-u32 count followed by, per method, a u16 function-table index
-and an access byte (§4.6.2).
+length + bytes), no separate count. Then the type-level access
+bytes: one per enumeration, the §26.4 code. Then the member
+methods: a u32 count followed by, per method, a u16
+function-table index and an access byte (§4.6.2).
 
 **Static slots.** One record per runtime-addressed static the
 unit declares — mutable class statics, runtime-initialized
@@ -424,9 +435,11 @@ rejected image never runs in part. The rejection sites:
 
 - **magic.** Header bytes other than the magic → reject.
 - **truncation.** A stream that ends mid-record → reject.
-- **version.** Below 2.19 → reject with a "recompile with the
-  current compiler" diagnostic; above 2.19 → reject with an
+- **version.** Below 2.20 → reject with a "recompile with the
+  current compiler" diagnostic; above 2.20 → reject with an
   "upgrade the toolchain" diagnostic (§26.1).
+- **access bytes.** A function-record or type-level access byte
+  of `0` or above `3` → reject as a corrupt image (§26.4).
 - **count and length caps.** Counts and lengths are bounded
   before allocation. Capped at 2^24: the unit name, the string
   constant count and each constant length, the array type

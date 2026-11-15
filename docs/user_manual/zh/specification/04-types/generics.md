@@ -168,7 +168,7 @@ class Box<T> {
 
 ## 4.12.9 运行时类型信息与类型参数
 
-`typeName`以类型表达式为实参，返回它的规范拼写字符串。具体类型的拼写编译期折叠——`typeName(int)`是`"int"`，`typeName(Box<int>)`是`"Box<int>"`，`typeName(int[,])`是`"int[,]"`（秩进括号），`typeName(List<List<int>>)`是`"List<List<int>>"`。含类型参数的形态在运行期经接收者的实例化信息解析：
+`typeName`以类型表达式为实参，返回它的规范拼写字符串。具体类型的拼写编译期折叠——`typeName(int)`是`"int"`，`typeName(int[,])`是`"int[,]"`（秩进括号），内建容器保持裸名：`typeName(List<List<int>>)`是`"List<List<int>>"`。用户单元的泛型模板拼写带所属包路径前缀（§3.9.3）：在由`demo.n`编译的单元里，`typeName(Box<int>)`是`"demo.Box<int>"`；从包`alib`导入的同名模板拼写为`"alib.Box<int>"`——两个包声明同名模板得到两个不同的拼写，`typeName`、转型与判等一体遵行。含类型参数的形态在运行期经接收者的实例化信息解析：
 
 ```nlang
 class Box<T> {
@@ -176,9 +176,9 @@ class Box<T> {
     public Box(T v) { this.value = v; }
 }
 class Hold<T> {
-    public string showArg() { return typeName(T); }        // "int" / "Box<int>"
-    public string showInner() { return typeName(Box<T>); } // "Box<int>"
-    public string showArray() { return typeName(T[]); }    // "int[]" / "Box<int>[]"
+    public string showArg() { return typeName(T); }        // "int" / "demo.Box<int>"
+    public string showInner() { return typeName(Box<T>); } // "demo.Box<int>"
+    public string showArray() { return typeName(T[]); }    // "int[]" / "demo.Box<int>[]"
 }
 ```
 
