@@ -1,3 +1,103 @@
+## [0.13.11] - 2026-11-15
+
+The JSON library: a `json` package that reads, edits and writes JSON
+text, written in NLang itself and shipped in the preset package. This
+release also settles two language-surface items the library needed and
+fixes two defects it uncovered.
+
+### Added
+
+- **The `json` package** — `json.parse(text)` turns one JSON document
+  into a tree of `JsonValue` nodes; `serialize()` writes a tree back as
+  compact one-line text and `serialize(spaces)` renders the indented
+  form (spaces per level, a value of 0 or less stays compact).
+  `toString()` shows the same text as `serialize()`.
+- **Reading a document** — `kind()` answers which of `JsonKind`'s six
+  kinds a node holds, and the typed accessors (`getString`, `getBool`,
+  `getLong`, `getInt`, `getDouble`, `getObject`, `getArray`) answer for
+  the kind that is there and raise `JsonException` naming the kind when
+  asked for another. `JsonArray` gives `add` (six value types), `get`,
+  `set`, `removeAt` and `length`; `JsonObject` gives `put` (six value
+  types), `get`, `has`, `remove`, `names` and `count`.
+- **Building a document** — the scalars are constructible directly
+  (`JsonNull()`, `JsonBool(true)`, `JsonNumber(7)`, `JsonString("s")`),
+  so a tree can be assembled without parsing anything first.
+- **A strict grammar with located errors** — the grammar is RFC 8259
+  read strictly: no comments, no trailing commas, no leading `+` or
+  leading-zero integers, no `NaN` or `Infinity`, and the literals
+  `true`, `false` and `null` only in lower case. Every violation raises
+  a catchable `JsonException` whose message carries the byte offset of
+  the offending byte, so the position still holds after re-reading the
+  file.
+- **Numbers keep their source text** — a number parsed from text
+  serializes back with the exact characters it was written with (`1.0`,
+  `1e3`, `-0`, a 30-digit integer); `getLong` and `getInt` answer exact
+  whole values inside their own range, and the `JsonException` they
+  raise names what failed — a value outside the range or a value with a
+  fraction — while `getDouble` answers for every number. An
+  exponent past `double` range (`1e999`) is rejected where it is found.
+  A `JsonNumber` built from a non-finite `double` refuses to serialize:
+  JSON has no such literal.
+- **Text round-trips through escapes** — `parse` composes a `\uXXXX`
+  surrogate pair into the character it names and turns a lone half
+  surrogate into the replacement character U+FFFD; `serialize()` escapes
+  only the double quote, the backslash and bytes below `0x20`, so every
+  other byte, UTF-8 sequences included, passes through as it came.
+- **A duplicate key keeps one place** — the last value written wins, and
+  the key keeps the position where it first appeared, so re-serializing
+  a document preserves the original key order.
+- **Depth is a catchable error in both directions** — `JsonText.MAX_DEPTH`
+  (200) bounds nesting while parsing and while serializing, so a
+  pathologically deep document fails as `JsonException` instead of
+  exhausting the VM's frames, which is a host-level error no `catch`
+  reaches.
+- **A tour example** — `examples/json_tour.n` parses a document, reads a
+  node by kind, edits the tree and writes it back in both the compact
+  and the indented form; §26.1 shows the same program with the output it
+  prints.
+
+### Changed
+
+- **`as` now spells widenings as well as narrowings.** An explicit cast
+  between scalar primitives used to be accepted only when it narrowed,
+  so a `long` → `double` conversion a program genuinely intended had no
+  spelling that silenced the precision-loss warning. `as` now takes any
+  pair of scalar types whose conversion the implicit rules already
+  allow — the conversion is the same one, the cast only says it is
+  meant. An `enum` member on the left of `as` collapses to the `int` it
+  already is at runtime, so `Colour.Red as double` needs no detour
+  through an `int` variable.
+- **A native extension receives its strings by byte length (the native
+  ABI moves to 13).** Every string parameter now arrives with an
+  `int64_t` content length beside it and every string result leaves
+  with an `int64_t*` out length, and a NUL byte is ordinary string
+  content on both sides: `io.toBytes`/`io.fromBytes` and
+  `TcpStream.readLine` round-trip a string that contains a NUL, where
+  the NUL used to cut the text short. A returned buffer stays
+  NUL-terminated as a convenience only; the length is the content
+  boundary. The C++ wrappers keep taking and returning `std::string`,
+  so only an extension that reads the host function table directly is
+  affected, and the ABI chapter carries the new signatures.
+
+### Fixed
+
+- **Constructor arguments of a widened type carry the right value.** An
+  `int` actual for a `long` or `double` formal (and a `long` actual for
+  a `double` formal) was staged into the call slot at the argument's own
+  width, so the rest of the slot kept whatever the previous expression
+  left there: a `Box(42)` written just after a call returning a `double`
+  received a stale high half. Bare constructor calls, direct
+  initialization, struct spellings, `super(...)` and module-qualified
+  construction now stage every actual at the formal's declared width.
+- **A class method declared after an abstract member links again.** A
+  consumer that reads a class from source — which is how every shipped
+  package arrives — numbered the class's methods without counting its
+  abstract members, so each method declared after one came out one row
+  short: `nlink` refused the call with "provides no member with that
+  signature", and where a name and an arity coincidentally matched it
+  silently bound the wrong method. An abstract member now occupies its
+  method-table row in the consumer's count as it does in the provider's.
+
 ## [0.13.8] - 2026-11-14
 
 Terminology pass over the generic machinery, per
