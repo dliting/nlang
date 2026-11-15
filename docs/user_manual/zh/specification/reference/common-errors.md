@@ -352,7 +352,7 @@ int main() {
 Error: Invalid cast: `String as Int32` is not allowed.
 ```
 
-`as`覆盖矩阵不放行的对，也覆盖矩阵隐式已放行的两个标量基本类型之间的加宽（`int i = b as int;`合法，`l as double`不带精度损失警告）；它拒绝的是通往非标量类型的隐式边——上面的`n as string`——以及string→数值的`as`（用`s.toInt()`/`toLong()`/`toDouble()`方法族）。详见[类型强制转换](../04-types/casts.md)。
+`as`覆盖矩阵不放行的对，也覆盖矩阵隐式已放行的两个标量基本类型之间的加宽（`b as int`即ubyte→int，`l as double`即long→double且不带精度损失警告，见§4.4）；它拒绝的是通往非标量类型的隐式边——上面的`n as string`——以及string→数值的`as`（用`s.toInt()`/`toLong()`/`toDouble()`方法族）。详见[类型强制转换](../04-types/casts.md)。
 
 ### 字典初始化器键类型不符
 

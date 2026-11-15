@@ -452,11 +452,11 @@ int main() {
 Error: Invalid cast: `String as Int32` is not allowed.
 ```
 
-`as` covers the pairs the conversion matrix does not admit, and a
-widening between two scalar primitives that the matrix admits implicitly
-(`int i = b as int;` is legal, and `l as double` carries no
-precision-loss warning); what it refuses is an implicit edge into or out
-of a non-scalar type — `n as string` above — and `as` from string to a
+`as` covers the pairs the conversion matrix does not admit, and a widening
+between two scalar primitives that the matrix admits implicitly (`b as int`
+is ubyte→int, and `l as double` is long→double, which carries no
+precision-loss warning, §4.4); what it refuses is an implicit edge into or
+out of a non-scalar type — `n as string` above — and `as` from string to a
 numeric type is forbidden — use the `s.toInt()`/`toLong()`/`toDouble()`
 method family. See [Type Casts](../04-types/casts.md).
 
