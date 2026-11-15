@@ -157,7 +157,14 @@ def _fail_on_stale_tools(ncc, nvm, ndb):
 
 
 def _manifest_configs():
-    """(manifest, sources_dir, out_dir) triples to run in order."""
+    """(manifest, sources_dir, out_dir) triples to run in order.
+    NLANG_E2E_MANIFEST=<path> selects ONLY that manifest — the tiered
+    gate's subset leg runs a family file in place of the full tour (the
+    orphan-sidecar check is meaningless for a subset and is skipped,
+    see main)."""
+    override = os.environ.get('NLANG_E2E_MANIFEST')
+    if override:
+        return [(os.path.abspath(override), SCRIPT_DIR, SCRIPT_DIR)]
     configs = [(MANIFEST, SCRIPT_DIR, SCRIPT_DIR)]
     if os.path.isfile(EXAMPLES_MANIFEST):
         configs.append((EXAMPLES_MANIFEST, EXAMPLES_DIR, EXAMPLES_TMP))
@@ -341,7 +348,10 @@ def main():
     errors = []
 
     #Sidecar coverage: every <name>.run.stderr must key a manifest
-    #entry, else its diagnostic assertion is silently skipped.
+    #entry, else its diagnostic assertion is silently skipped. A subset
+    #leg (NLANG_E2E_MANIFEST set) sees only its family's entries, so
+    #the orphan check would flag every other family's sidecar — suite
+    #coverage is a full-tour invariant, skip it here.
     known_names = set()
     for manifest_path, _, _ in _manifest_configs():
         with open(manifest_path, encoding='utf-8') as mf:
@@ -349,11 +359,12 @@ def main():
                 line = line.strip()
                 if line and not line.startswith('#'):
                     known_names.add(line.split(None, 1)[0])
-    for orphan in _orphan_run_stderr_sidecars(known_names):
-        print(f"FAIL {orphan} (run.stderr sidecar matches no manifest entry)")
-        failed += 1
-        errors.append(
-            f"  {orphan}: run.stderr sidecar matches no manifest entry")
+    if not os.environ.get('NLANG_E2E_MANIFEST'):
+        for orphan in _orphan_run_stderr_sidecars(known_names):
+            print(f"FAIL {orphan} (run.stderr sidecar matches no manifest entry)")
+            failed += 1
+            errors.append(
+                f"  {orphan}: run.stderr sidecar matches no manifest entry")
 
     for manifest_path, sources_dir, out_dir in _manifest_configs():
       with open(manifest_path, 'r', encoding='utf-8') as f:
