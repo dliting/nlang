@@ -25,6 +25,7 @@ int32_t VmExecutor::TakeHeapSlot() {
         if (m_heapShards.Empty(shard))   //double-check under the lock
             GrowHeapShardBlockLocked(shard);
     }
+    ++m_heapAllocCountForTests;
     return m_heapShards.Pop(shard);
 }
 
@@ -390,6 +391,46 @@ int32_t VmExecutor::DeepCopyStruct(int32_t srcHeapIdx, uint16_t structIdx) {
     //raising the pending flag — GC would never trigger on this path.
     NoteGcPressure();
     return newHeapIdx;
+}
+
+//Record stabilization (v0.13.9 phase ②): the in-place write primitive.
+//dst handle ≤ 0 → establish: delegate to DeepCopyStruct (its body is
+//exactly allocate-fresh-from-src + deep copy) and return the new handle.
+//dst == src → identity. Otherwise overwrite dst's existing cells in place
+//— zero allocation on that path. Callers hold the StructCopy leaf lock
+//once Task 2 lands; until then the executor is single-carrier on this
+//path. Established records are NOT re-marked: hasInitializer-style
+//marking belongs to the store sites, not the copy primitive.
+int32_t VmExecutor::CopyStructInPlaceLocked(int32_t dstHeapIdx,
+        int32_t srcHeapIdx, uint16_t structIdx) {
+    if (dstHeapIdx == srcHeapIdx)
+        return dstHeapIdx;
+    if (dstHeapIdx <= 0)
+        return DeepCopyStruct(srcHeapIdx, structIdx);
+    CopyStructCellsInPlace(dstHeapIdx, srcHeapIdx, structIdx);
+    return dstHeapIdx;
+}
+
+//The unguarded cell walk: struct-typed fields recurse into the EXISTING
+//dst sub-records (both trees stay alive — no release, no allocation);
+//every other field copies the cell value as-is (strings carry immutable
+//handles; class/array/func fields copy the reference). dst and src trees
+//are type-level disjoint, so reading srcCells while writing dstCells
+//cannot alias.
+void VmExecutor::CopyStructCellsInPlace(int32_t dstHeapIdx,
+        int32_t srcHeapIdx, uint16_t structIdx) {
+    const auto& cs = m_currModule->structs[structIdx];
+    const auto& srcCells = m_structHeap[static_cast<size_t>(srcHeapIdx)];
+    auto& dstCells = m_structHeap[static_cast<size_t>(dstHeapIdx)];
+    for (uint16_t i = 0; i < cs.fieldCount; ++i) {
+        if (cs.fieldTypeKinds[i] == RTK_Struct
+            && cs.fieldStructIndices[i] != 0xFFFF) {
+            CopyStructCellsInPlace(dstCells[i * 2], srcCells[i * 2],
+                cs.fieldStructIndices[i]);
+        } else {
+            dstCells[i * 2] = srcCells[i * 2];
+        }
+    }
 }
 
 } // namespace nlang

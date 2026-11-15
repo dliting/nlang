@@ -300,6 +300,9 @@ static bool DisasmObjectOps(OpCode op, BytecodeReader &r,
         case OpCode::OP_CopyStruct:
             DisasmU16xN(3, r, out, head, " %u %u struct=%u");
             return true;
+        case OpCode::OP_CopyStructInPlace:
+            DisasmU16xN(3, r, out, head, " %u %u struct=%u");
+            return true;
         case OpCode::OP_New:
             EmitNew(r, out, head, module);
             return true;

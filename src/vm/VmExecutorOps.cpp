@@ -394,6 +394,10 @@ void VmExecutor::DispatchFrames(size_t baseDepth)
             OpCopyStruct(reader, locals);
             break;
 
+        case OpCode::OP_CopyStructInPlace:
+            OpCopyStructInPlace(reader, locals);
+            break;
+
         case OpCode::OP_AllocArrayN:
             OpAllocArrayN(reader, locals);
             break;

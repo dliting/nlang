@@ -189,6 +189,11 @@ static void PatchTypeOperands(OpCode op, std::vector<uint8_t>& bc, size_t pos,
         case OpCode::OP_CopyStruct:
             PatchOperand(bc, pos + 5, maps.structs, "struct", onUnmapped);
             break;
+        case OpCode::OP_CopyStructInPlace:
+            //Same operand layout as OP_CopyStruct — the structIdx is a
+            //unit-local index and must be remapped in merged-unit closures.
+            PatchOperand(bc, pos + 5, maps.structs, "struct", onUnmapped);
+            break;
         case OpCode::OP_AllocArrayN:
         case OpCode::OP_AssembleArrayN:
             PatchOperand(bc, pos + 3, maps.arrayTypes, "array type",

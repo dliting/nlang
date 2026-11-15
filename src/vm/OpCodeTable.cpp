@@ -106,6 +106,7 @@ static const char* s_OpCodeNames[] = {
     "as_type_param",
     "box_type_arg",
     "unbox_type_arg",
+    "copy_struct_in_place",
 };
 
 const char* OpCodeName(OpCode op) {

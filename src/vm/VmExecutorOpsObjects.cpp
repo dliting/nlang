@@ -165,6 +165,23 @@ void VmExecutor::OpCopyStruct(BytecodeReader& reader, uint8_t* locals) {
     std::memcpy(locals + dst, &newHeapIdx, sizeof(newHeapIdx));
 }
 
+//Record stabilization (v0.13.9 phase ②): same operand layout as
+//OP_CopyStruct, but the dst slot's EXISTING record is overwritten in
+//place — the slot's handle only changes when it was null (establish).
+void VmExecutor::OpCopyStructInPlace(BytecodeReader& reader,
+                                     uint8_t* locals) {
+    uint16_t dst = reader.ReadUint16();
+    uint16_t src = reader.ReadUint16();
+    uint16_t structIdx = reader.ReadUint16();
+    int32_t dstHeapIdx;
+    std::memcpy(&dstHeapIdx, locals + dst, sizeof(dstHeapIdx));
+    int32_t srcHeapIdx;
+    std::memcpy(&srcHeapIdx, locals + src, sizeof(srcHeapIdx));
+    const int32_t resultHeapIdx =
+        CopyStructInPlaceLocked(dstHeapIdx, srcHeapIdx, structIdx);
+    std::memcpy(locals + dst, &resultHeapIdx, sizeof(resultHeapIdx));
+}
+
 
 void VmExecutor::OpBox(BytecodeReader& reader, uint8_t* pResult) {
     BoxAccumulatorAs(reader.ReadByte(), pResult);
