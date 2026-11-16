@@ -14,7 +14,6 @@
 #include "nlang/vm/CompiledModule.h"
 #include "VmExecutor.h"
 #include "ModuleLoader.h"
-#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -271,36 +270,41 @@ void test_intern_sweep_purifies_table()
 //to mark the whole live chain on every safepoint once the store crossed
 //the fixed trigger (the store never shrinks, so the size trigger is
 //level-triggered). The sweep-end threshold backoff (2x surviving
-//population) makes triggers advance geometrically with live data — this
-//shape ran minutes-level before the backoff and must stay in the
-//sub-second range now; the bound is measured seconds x 10 headroom.
-void test_deep_chain_append_bounded_time()
+//population) makes triggers advance geometrically with live data. The
+//pin asserts the collection COUNT, not wall time: the count is
+//allocation arithmetic — identical on Debug, Release and ASan, immune
+//to machine speed. The backoff shape collects 194 times for this
+//workload; the regression shape collects at every safepoint past the
+//crossing (measured ~2x10^4 for a 2x10^4 chain, ~10^5 at this scale).
+//The wall-clock form this replaces flaked the ASan gate: its 15s bound
+//grazed the real ASan duration (~13-16s) and sweep-time machine state
+//tipped it over.
+static const size_t kDeepChainSweepBudget = 500;
+void test_deep_chain_append_bounded_sweeps()
 {
-    TEST(deep_chain_append_bounded_time);
+    TEST(deep_chain_append_bounded_sweeps);
+    const int chainAppends = 100000;
+    const int chainChars = chainAppends * 2;
     CompiledModule mod;
-    CHECK(loadSource("deep_chain_time",
+    CHECK(loadSource("deep_chain_sweeps",
         "int main() {\n"
         "    string s = \"\";\n"
         "    int i = 0;\n"
-        "    while (i < 100000) {\n"
+        "    while (i < " + std::to_string(chainAppends) + ") {\n"
         "        s = s + \"ab\";\n"
         "        i = i + 1;\n"
         "    }\n"
-        "    if (s.length() != 200000) return 1;\n"
-        "    if (s.substring(199998, 200000) != \"ab\") return 2;\n"
+        "    if (s.length() != " + std::to_string(chainChars) + ") return 1;\n"
+        "    if (s.substring(" + std::to_string(chainChars - 2) + ", "
+            + std::to_string(chainChars) + ") != \"ab\") return 2;\n"
         "    return 0;\n"
         "}\n", mod), "build failed");
     VmExecutor exec;
-    const auto start = std::chrono::steady_clock::now();
     CHECK(exec.Execute(mod) == 0, "chain must read back correct");
-    const auto elapsed = std::chrono::steady_clock::now() - start;
-    //The pin discriminates quadratic marking (tens of seconds) from the
-    //linear shape (~1s in release). The bound is generous because the
-    //ASan leg runs the same chain ~5x slower (~8s) — still 3x+ under
-    //any quadratic measurement.
-    CHECK(elapsed < std::chrono::seconds(15),
-        "10^5 default-threshold chain appends must stay well under 15s "
-        "(quadratic marking measures in the tens of seconds)");
+    CHECK(exec.GcCollectionCount() <= kDeepChainSweepBudget,
+        "10^5 default-threshold chain appends must stay within "
+            + std::to_string(kDeepChainSweepBudget) + " collections "
+            "(level-triggered thresholds collect at every safepoint)");
     PASS();
 }
 
@@ -397,7 +401,7 @@ int main()
 {
     Runtime::StaticInit();   //in-process host requirement (IdString tables)
     TypeCastInfo::StaticInit();   //cast table (0.7.5: no longer inside Runtime::StaticInit)
-    test_deep_chain_append_bounded_time();
+    test_deep_chain_append_bounded_sweeps();
     test_intern_reuse_short_strings();
     test_intern_sweep_purifies_table();
     test_bounded_concat_live_count();
