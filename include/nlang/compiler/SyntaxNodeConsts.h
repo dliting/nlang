@@ -117,7 +117,8 @@ static_assert(NK_CP_END < NODE_KIND_LIMIT,
 	MACRO_IMPL(Out,		9, "out parameter (Phase 9e)") \
 	MACRO_IMPL(ExplicitVoid, 10, "explicit 'void' return type") \
 	MACRO_IMPL(ScriptEntry, 11, "synthesized script entry (D8)") \
-	MACRO_IMPL(TensorOp, 12, "lowered to a tensor module call (v0.13.7)")
+	MACRO_IMPL(TensorOp, 12, "lowered to a tensor module call (v0.13.7)") \
+	MACRO_IMPL(Ref, 13, "reference & mark (declarator/type-arg, v0.13.9)")
 
 enum CompNodeFlag: NodeBits
 {
