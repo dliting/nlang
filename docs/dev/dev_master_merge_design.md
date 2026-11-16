@@ -5,7 +5,7 @@
 这不是一次新功能，是把两条各自已经停靠的开发线并回一条：
 
 - **dev线**：v0.13.11的`json`库（纯NLang实现，已成版，本地提交未推送）、json暴露的两项语言面事项与两个缺陷修复、门禁写目录锁（`tools/gate.sh`的写目录认领，`docs/dev/gate_write_dir_lock_design.md`）。
-- **master线**：v0.13.8收官面（类型级与函数级访问控制、描述符拼写改走包限定链接身份）、v0.13.9第四期②的记录稳定化在途工作（`OP_CopyStructInPlace`、字段/元素/局部变量原位写、随后撤掉`StructCopy`记录锁改按cell粒度）、门禁分层工具链（`tools/gate_tier.sh`＋`tools/gate_tiers.txt`＋`tools/test_impact.py`＋`tools/e2e_shard.py`＋`tools/tier_coverage_check.py`＋CONTRIBUTING的三档说明）。
+- **master线**：v0.13.8收官面（类型级与函数级访问控制、描述符拼写改走包限定链接身份）、v0.13.9第②期的记录稳定化在途工作（`OP_CopyStructInPlace`、字段/元素/局部变量原位写、随后撤掉`StructCopy`记录锁改按cell粒度）、门禁分层工具链（`tools/gate_tier.sh`＋`tools/gate_tiers.txt`＋`tools/test_impact.py`＋`tools/e2e_shard.py`＋`tools/tier_coverage_check.py`＋CONTRIBUTING的三档说明）。
 
 分叉点`aaa82bb5`，master领先28条提交，dev领先若干（含v0.13.11成版与写目录锁8条）。
 
@@ -40,7 +40,7 @@
 
 ## 四、版本号裁决
 
-`VERSION`：分叉点是`0.13.8`，dev已抬到`0.13.11`（json成版），master仍是`0.13.8`（它的新工作是v0.13.9②的在途改动，自己也没抬版本、没开CHANGELOG段）。**合并树取`0.13.11`**，master侧的记录稳定化改动作为v0.13.9第四期的在途工作留在树上，暂不开`[0.13.9]`段，等四期收齐一次写。理由与现状无关：roadmap的版本号已经分配完毕（0.13.9值类型引用、0.13.10 lambda、0.13.11 json已交付、0.13.12 WEB框架、0.13.13+泛型完善可拆多版），dev侧json已按0.13.11成版且手册`26-json.md`与之配套；把一个已成版的号回退去迁就在途工作，等于让未交付面改写已交付面的身份。这条改动roadmap上的版本叙事（0.13.9排在0.13.11之后交付），已请用户裁决，见第七节。
+`VERSION`：分叉点是`0.13.8`，dev已抬到`0.13.11`（json成版），master仍是`0.13.8`（它的新工作是v0.13.9②的在途改动，自己也没抬版本、没开CHANGELOG段）。**合并树取`0.13.11`**，master侧的记录稳定化改动作为v0.13.9第②期的在途工作留在树上，暂不开`[0.13.9]`段，等四期收齐一次写。理由与现状无关：roadmap的版本号已经分配完毕（0.13.9值类型引用、0.13.10 lambda、0.13.11 json已交付、0.13.12 WEB框架、0.13.13+泛型完善可拆多版），dev侧json已按0.13.11成版且手册`26-json.md`与之配套；把一个已成版的号回退去迁就在途工作，等于让未交付面改写已交付面的身份。这条改动roadmap上的版本叙事（0.13.9排在0.13.11之后交付），已请用户裁决，见第七节。
 
 ## 五、两套门禁工具并存
 
@@ -56,6 +56,8 @@
 合并批还要单独跑一次master带来的四份工具单元测试：`tools/e2e_shard_test.py`、`tools/test_impact_test.py`、`tools/tier_coverage_check_test.py`、`tools/source_size_guard/check_source_size_test.py`。实测两条线的注册面都没有跑它们的位置——ctest里只有守卫本体`check_source_size.py`（master的`tests/CMakeLists.txt:2386`）与docs管线pytest（`nlang_docs_pytest`），`gate_tier.sh`只把`test_impact.py`本体用作影响面映射。三树ctest因此全绿也不覆盖这四份；它们跟master一起进来时是「有测试、无运行」的状态，合并批必须亲手跑一次拿结果，并把「要不要挂进某条腿」记成master线的待办而不是就此当作已覆盖。
 
 e2e腿还带一条主机前提：ICMP的ping用例要主机真能收发echo。本机现况是不行——Oray VPN的过滤profile在场时，对环回与默认网关的ping都100%丢包（`CONTRIBUTING.md`的门禁一节已记这条前提）。合并批若在这台机器上跑，那几条ping用例会红，而这是环境缺能力、不是回归：按「门禁判决先看失败项身份」的既有做法先单独复现确认，再决定是等能力恢复后重跑该腿，还是把这条腿标成受环境限制并当场记录。不得为了让腿变绿去改测试预期（测试断言不依赖时间的裁定同样适用于这里）。
+
+本轮实测印证了这条前提：15:16–15:37那条e2e腿只有两条ping用例红（`stdlib_net_ping_loopback`、`stdlib_net_ping_stress`），stderr都是`TimeoutException: net: ping 127.0.0.1 timed out`，即3000ms与4000ms的期限内没有echo应答；同一条腿里不需要echo应答的两条对照用例反倒全绿（`stdlib_net_icmp_raw`只冒烟raw socket绑定，`stdlib_net_ping_error_text`只看解析失败的措辞）。隔两分钟系统`ping 127.0.0.1`丢包100%，再隔两分钟用同一批二进制复跑那四条用例五轮全绿、系统ping三次全应答：能力在场与否随分钟级翻转，红腿的判决跟着能力走而不是跟着代码走。合并提交本身没碰net原生模块（`git show --stat a8b966eb`里没有任何net路径的文件），单元测试面按`test_net_platform.cpp`钉住判决集合而不要求应答，所以三树ctest全绿与此并行不悖。「等能力恢复后重跑该腿」这条处置试过而不成立：复跑整腿（约20分钟）仍在那两条ping用例红，红腿跨越了分钟级的翻转窗，等待不能把窗口挪到腿外。终局处置是把master线当日（2026-11-16）15:06刚落地的环境门控接进本线——`tests/e2e/env_gates.txt`登记「条目→能力键」，运行器每轮以带外OS先知采一次，能力缺席即打印可见的SKIP行并计入skipped。该提交（`e4b252cb`）比合并所取的master侧更新，所以合并树本来就没有它，本次按移植接入而非合并hunk；理由与先知新鲜度前提记在`docs/dev/gate_tiering_design.md`的环境门控一节。单测面沿用本线既有的纯契约写法（`test_net_platform.cpp`钉住出口集合、不要求应答），未取master侧的先知写法。两条ping用例的测试预期一路未改。
 
 ## 七、用户裁决（2026-11-16）
 
