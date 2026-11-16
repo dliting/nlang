@@ -707,7 +707,7 @@ tools/gate.sh http-perf temp/t12_perf bash tools/http_perf/run_baseline.sh
 
 经`tools/gate.sh`跑是为了拿机器锁：测量类门禁要独占整机，它会等到既没有其他测量门禁、也没有任何构建门禁
 在跑才持锁，持锁期间别的门禁一律排队；构建类门禁（`--shared`）之间可以并行，但不能与持锁的测量门禁重叠。
-锁有个已知的松处：还在排队的测量门禁不会挡住刚起跑的构建门禁（`tools/gate.sh`的`acquire()`机器锁认领段，今天落在`:349-377`）。
+锁有个已知的松处：还在排队的测量门禁不会挡住刚起跑的构建门禁（`tools/gate.sh`的`acquire()`机器锁认领段，今天落在`:362-390`）。
 前置条件（`run_baseline.sh`头部有完整清单）：oha、nginx 1.31.8（官方zip，sha512 12ff3672…0cbbc8）、
 node、go、cargo（axum/hyper需要rustc 1.85以上，工具链由`srv_rust/rust-toolchain.toml`钉住）。
 
@@ -795,7 +795,7 @@ tools/gate.sh --shared e1-revert temp/t21 cmake --build build-dev --config Relea
 档位由`PERF_SLICE_CONNS`控制（默认`1 4 32 128`），每臂两趟取中位数。防覆盖要分两层：标签管探针自己的
 产物（JSON叫`slice<标签>_<连接数>c.json`，服务器日志叫`slice_<标签>.log`，打印出来的读数行也以
 `slice<标签>_`开头，本节E1表的四格读数即出自`off1`／`off2`／`tb1`／`tb2`四个标签的JSON），门禁的
-`.out`／`.err`则只按`gate.sh`的第二个参数命名（`tools/gate.sh`里`"$@" >"$stem.out" 2>"$stem.err"`那一行，今天落在`:468`），四个臂共用一个前缀就会让后一趟
+`.out`／`.err`则只按`gate.sh`的第二个参数命名（`tools/gate.sh`里`"$@" >"$stem.out" 2>"$stem.err"`那一行，今天落在`:494`），四个臂共用一个前缀就会让后一趟
 把前一趟的控制台读数盖掉，故上面第二到第五条各带一个前缀。只有两条重建用`--shared`（编译不争用时钟），
 四条测量仍走独占机器锁；`NLANG_TIMEBEGIN`经`gate.sh`透传给探针脚本再传给`nvm.exe`，不设即对照臂。
 
