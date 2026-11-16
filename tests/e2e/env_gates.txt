@@ -1,0 +1,21 @@
+#env_gates.txt -- environment-gated e2e entries.
+#`name <capability...>`: the entry's live-success premise needs a
+#machine capability that ambient software can revoke (VPN filter
+#drivers swallowing ICMP, DNS hijacks answering reserved TLDs). The
+#runner probes each capability once via an out-of-band OS oracle and
+#skips gated entries, visibly, when the oracle says it is absent.
+#Pure-contract entries are never gated. See run_e2e_tests.py
+#(ENV_PROBES for the oracle definitions).
+#
+#  icmp  the OS gets loopback ICMP echo answers (ping exit code)
+#  dns   the resolver fails a reserved TLD (.invalid, RFC 2606)
+
+stdlib_net_ping_loopback icmp
+stdlib_net_ping_stress icmp
+#Both resolver-phrase cases rest on the same premise: the resolver answers
+#the reserved TLD with NXDOMAIN. A fake-ip DNS hijack hands out an address
+#for `.invalid`, and the case then connects or pings instead of reporting
+#"host not found" — so stdlib_net_resolve_text joins the dns group here
+#(this line's addition; master's registry listed only the ping case).
+stdlib_net_ping_error_text dns
+stdlib_net_resolve_text dns
