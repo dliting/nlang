@@ -30,6 +30,10 @@ Release构建与Release e2e维持「仅发布时点」裁定不变，不因分�
 
 判决行带层名：`GATE T1-debug-unit: PASS`／`GATE T1-asan-e2e-subset: PASS`／`GATE T2-release-e2e: PASS`。门禁判决纪律不变：只认gate.sh判决行或退出码。
 
+## 环境门控（活成功前提的环境依赖）
+
+部分条目的活成功前提依赖机器能力（环回ICMP回声、保留TLD的NXDOMAIN诚实性），而环境软件可静默吊销之（VPN过滤驱动吞ICMP、DNS劫持应答保留域名——2026-11-16实证：OrayBoxVpnEnt隧道激活后OS级`ping 127.0.0.1`全丢，同二进制晨绿午红）。这类条目由带外OS先知（oracle）门控：`tests/e2e/env_gates.txt`登记「条目→能力键」，运行器每轮先知一次，能力缺失即打印SKIP行并计入skipped（不算失败，也绝不静默绿）。纯契约断言永不门控——门控只承认「机器根本做不了」，不承认「做得慢、想跳过」。单测侧同型（test_net_platform的活回声以OS ping出口码门控）。
+
 ## 落地物
 
 - tools/gate_tier.sh：按层名组装既有gate.sh腿（T0/T1/T2各一入口），复用既有机器级锁。

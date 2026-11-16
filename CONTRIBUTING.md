@@ -52,6 +52,13 @@ a full re-sweep.
 Tests should exercise real behavior (compile real `.n` files, execute real
 bytecode), not mocks of the compiler.
 
+Entries whose live-success premise rides on a machine capability that
+ambient software can revoke — loopback ICMP echo behind VPN filter
+drivers, reserved-TLD NXDOMAIN honesty behind DNS hijacks — are gated in
+`tests/e2e/env_gates.txt`: an OS oracle probes the capability once per
+run and the entry skips with a printed SKIP line when it is absent. A
+skip is counted and visible, never a silent pass.
+
 ## Versioning and Releases
 
 The version number lives in one place: the repository root `VERSION` file.

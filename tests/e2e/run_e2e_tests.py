@@ -30,11 +30,17 @@ negation semantics as the compile-phase .stderr file.
 Also reads examples_manifest.txt (when present): entries resolve against
 ../../examples, their .ncu and scratch artifacts live under
 _examples_tmp/ (their run CWD), removed at end of run.
+Reads env_gates.txt (when present): `name <capability...>` rows gate an
+entry behind a machine capability (icmp: OS loopback echo answers; dns:
+reserved-TLD NXDOMAIN honesty). When the out-of-band OS oracle says the
+capability is absent (VPN filter drivers, DNS hijacks), the entry is
+skipped with a printed SKIP line — counted, never silently green.
 """
 
 import os
 import sys
 import glob
+import socket
 import subprocess
 import shutil
 import shlex
@@ -169,6 +175,81 @@ def _manifest_configs():
     if os.path.isfile(EXAMPLES_MANIFEST):
         configs.append((EXAMPLES_MANIFEST, EXAMPLES_DIR, EXAMPLES_TMP))
     return configs
+
+#Environment gating: an entry whose live-success premise needs a
+#machine capability that ambient software can revoke (VPN filter
+#drivers swallowing ICMP, DNS hijacks answering reserved TLDs) is
+#skipped, visibly, when an out-of-band OS oracle says the capability
+#is absent. Gates live in env_gates.txt (name -> capability keys), a
+#bypass file rather than a manifest column: the stdout column is free
+#text, and manifest-verbatim consumers (tier coverage, shard tool,
+#subset derivation) stay untouched. Pure-contract assertions are never
+#gated — the oracle only admits "the machine cannot do this at all".
+ENV_GATES_FILE = os.path.join(SCRIPT_DIR, 'env_gates.txt')
+
+def _probe_icmp():
+    """True when the OS itself gets loopback ICMP echo answers
+    (locale-independent exit code; 2 attempts so one lost echo is
+    noise, not an outage verdict)."""
+    cmd = (['ping', '-n', '2', '-w', '800', '127.0.0.1']
+           if os.name == 'nt'
+           else ['ping', '-c', '2', '-W', '1', '127.0.0.1'])
+    try:
+        result = subprocess.run(cmd, capture_output=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0
+
+def _probe_dns():
+    """True when the resolver honestly fails a reserved TLD
+    (RFC 2606: .invalid is guaranteed NXDOMAIN on any compliant
+    resolver; fake-ip DNS hijacks answer it, voiding the premise of
+    resolver-phrase tests)."""
+    try:
+        socket.getaddrinfo('nlang-no-such-host.invalid', None)
+        return False
+    except socket.gaierror:
+        return True
+
+ENV_PROBES = {'icmp': _probe_icmp, 'dns': _probe_dns}
+
+def parse_env_gates(path):
+    """name -> set of capability keys. Unknown keys and keyless rows
+    fail loud: a silent no-op gate would run environment-dependent
+    entries unguarded."""
+    gates = {}
+    if not os.path.isfile(path):
+        return gates
+    with open(path, encoding='utf-8') as gf:
+        for line in gf:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            parts = line.split()
+            name, keys = parts[0], parts[1:]
+            if not keys:
+                raise ValueError(f"env_gates.txt: {name}: no capability key")
+            unknown = [k for k in keys if k not in ENV_PROBES]
+            if unknown:
+                raise ValueError(
+                    f"env_gates.txt: {name}: unknown capability "
+                    f"{','.join(unknown)}")
+            gates[name] = set(keys)
+    return gates
+
+def probe_env(keys_needed):
+    """capability -> availability for the union of keys the gates
+    reference; probes run at most once per invocation."""
+    return {key: ENV_PROBES[key]() for key in sorted(keys_needed)}
+
+def env_skip_reason(name, gates, env_state):
+    """Skip reason for a gated entry whose capabilities are absent,
+    else None. env_state is injected so tests never subprocess."""
+    keys = gates.get(name)
+    if not keys:
+        return None
+    missing = [key for key in sorted(keys) if not env_state.get(key)]
+    return f"env {','.join(missing)} unavailable" if missing else None
 
 def _orphan_run_stderr_sidecars(known_names):
     """Names of <name>.run.stderr files whose <name> is no manifest
@@ -342,8 +423,20 @@ def main():
         print(f"ERROR: manifest.txt not found at {MANIFEST}")
         sys.exit(1)
 
+    env_gates = {}
+    try:
+        env_gates = parse_env_gates(ENV_GATES_FILE)
+    except ValueError as e:
+        print(f"ERROR: {e}")
+        sys.exit(2)
+    keys_needed = set()
+    for keys in env_gates.values():
+        keys_needed |= keys
+    env_state = probe_env(keys_needed)
+
     passed = 0
     failed = 0
+    skipped = 0
     warnings = []
     errors = []
 
@@ -386,6 +479,15 @@ def main():
             if len(parts) < 2:
                 continue
             name = parts[0]
+            #Environment gate: a gated entry whose capability the OS
+            #oracle says is absent is skipped before any tooling runs
+            #(the reason is authoritative — the machine cannot perform
+            #the premise, not a NLang regression).
+            gate_reason = env_skip_reason(name, env_gates, env_state)
+            if gate_reason:
+                print(f"SKIP {name} ({gate_reason})")
+                skipped += 1
+                continue
             #Expected may be an int (runtime exit code) or the literal
             #"compile_error" to assert that ncc rejects the source.
             if parts[1] == "compile_error":
@@ -844,7 +946,8 @@ def main():
         shutil.rmtree(EXAMPLES_TMP)
 
     print()
-    print(f"Results: {passed} passed, {failed} failed")
+    print(f"Results: {passed} passed, {failed} failed, "
+          f"{skipped} skipped (env-gated)")
     if warnings:
         print(f"Warnings ({len(warnings)} — possible masked bugs):")
         for w in warnings:
