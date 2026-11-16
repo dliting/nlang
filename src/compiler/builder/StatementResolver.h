@@ -182,6 +182,14 @@ private:
 	//pre-existing `s += arr` toString-coercion surface. True = rejected.
 	bool RejectArrayCompoundAssign(SnCompoundAssignStmt &sn,
 		const SnField *pTargetType, const SnField *pSourceType);
+	//v0.13.9 phase ②: struct-involved compound assignment is rejected
+	//by name — structs have no arithmetic operators (the expanded
+	//binary form is already rejected at the cast ladder), so an
+	//in-place compound arm has no coherent semantics; without the gate
+	//the emitter would run int-typed ops on the record's handle cells.
+	//True = rejected.
+	bool RejectStructCompoundAssign(SnCompoundAssignStmt &sn,
+		const SnField *pTargetType, const SnField *pSourceType);
 	//The type-admission prologue of Access(SnCompoundAssignStmt&) —
 	//target/source rows plus the array-involved compound gate. False =
 	//resolved-by-rejection. Definition in StatementResolverCompound.cpp.

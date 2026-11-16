@@ -18,6 +18,14 @@ values by the categories of §9.1. The subscript forms `li[i]` and
 container methods take named arguments under the ordinary rule
 (§7.2).
 
+Struct elements follow record stabilization (§4.7.4): `set` writes
+the value in place into the record that position already owns —
+the record's handle never moves, and code that earlier read the
+element into a variable never sees the change (the independence of
+a by-value copy); every position's record, including a new key's,
+is independent of the source from the moment it is established —
+a source value and a container element never share a record.
+
 ## 12.1 List
 
 A `List<T>` (§4.12) is a growable, ordered, index-addressable
@@ -27,7 +35,7 @@ sequence of elements of type `T`.
 | --- | --- | --- | --- |
 | `add(value)` | `void add(T value)` | appends `value` | — |
 | `get(i)` | `T get(int i)` | the element at position `i` | out of range raises `IndexOutOfBoundsException` |
-| `set(i, value)` | `void set(int i, T value)` | replaces the element at `i` | out of range raises `IndexOutOfBoundsException` |
+| `set(i, value)` | `void set(int i, T value)` | replaces the element at `i` (a struct value is written in place into the record that position owns, §4.7.4) | out of range raises `IndexOutOfBoundsException` |
 | `length()` | `int length()` | the element count | — |
 | `removeAt(i)` | `void removeAt(int i)` | removes the element at `i`, shifting later elements down | out of range raises `IndexOutOfBoundsException` |
 | `indexOf(value)` | `int indexOf(T value)` | the first position matching `value`, `-1` if none | — |
@@ -76,7 +84,7 @@ A `Dict<K, V>` (§4.12) maps keys of type `K` to values of type `V`.
 
 | Method | Signature | Effect | Failure behavior |
 | --- | --- | --- | --- |
-| `set(key, value)` | `void set(K key, V value)` | stores `value` under `key`; re-storing a key replaces the value and keeps the key's position | — |
+| `set(key, value)` | `void set(K key, V value)` | stores `value` under `key`; re-storing a key replaces the value in place and keeps the key's position | — |
 | `get(key)` | `V get(K key)` | the value stored under `key` | no entry for `key` raises `Exception` |
 | `containsKey(key)` | `bool containsKey(K key)` | whether an entry for `key` exists | — |
 | `remove(key)` | `int remove(K key)` | removes the entry for `key`; yields `1` if one was removed, `0` if the key was not found | — |

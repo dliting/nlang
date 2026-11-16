@@ -6,6 +6,8 @@
 
 经由`null`容器引用调用任何方法，抛出可捕获的`NullPointerException`，消息为`NLang VM: null reference error`——与其他类引用一致（§4.8.10、§8.3）。容器的存入或取出按§9.1的类别移动值。下标形式`li[i]`与`d[k]`是`get`与`set`的语法糖（§5.7、§4.12.7），容器方法按通常规则接受具名实参（§7.2）。
 
+结构体元素遵循记录稳定化（§4.7.4）：`set`把值原位写入该位置已有的记录——记录句柄不变，此前经`get`把元素读入变量的代码不会看到`set`后的改动（按值拷贝的独立性）；每个位置（含新键）的记录在建立时起就与源独立，源值与容器元素从不共享记录。
+
 ## 12.1 List
 
 `List<T>`（§4.12）是可增长、有序、可按索引访问的`T`类型元素序列。
@@ -14,7 +16,7 @@
 | --- | --- | --- | --- |
 | `add(value)` | `void add(T value)` | 追加`value` | — |
 | `get(i)` | `T get(int i)` | 位置`i`处的元素 | 越界抛出`IndexOutOfBoundsException` |
-| `set(i, value)` | `void set(int i, T value)` | 替换`i`处的元素 | 越界抛出`IndexOutOfBoundsException` |
+| `set(i, value)` | `void set(int i, T value)` | 替换`i`处的元素（struct值原位写入该位置已有的记录，§4.7.4） | 越界抛出`IndexOutOfBoundsException` |
 | `length()` | `int length()` | 元素数 | — |
 | `removeAt(i)` | `void removeAt(int i)` | 移除`i`处的元素，后续元素下移 | 越界抛出`IndexOutOfBoundsException` |
 | `indexOf(value)` | `int indexOf(T value)` | 匹配`value`的首个位置，没有则为`-1` | — |

@@ -187,10 +187,22 @@ import adds `lib`'s functions to this file's unqualified-name pool. A wildcard
 import opens qualified calls only. Same-directory files share the
 directory's unqualified-name pool without any import.
 
+Each member's declared access applies on top of the gate.
+`private` confines a member to its own unit; `protected` admits
+the units of the same package; `public` — the default for
+top-level functions and types — admits every gated unit. A
+denied member is invisible to lookup rather than rejected after
+the fact: a foreign private type does not resolve in a qualified
+name (`Type 'Vault' is not a member of package 'lib'.`), and a
+foreign private function reports the standard not-found
+diagnostic on either path. Within its own unit every member is
+reachable regardless of its access.
+
 Qualified type names are spelled the same way: `alib.Point`,
 `gfx.color.deep.Shade`. Unlike functions, a type is also reachable by
 its unqualified name program-wide, whatever package declares it — the
-normative rule is §3.6.
+normative rule is §3.6; the declared access filters the foreign
+candidates there the same way.
 Two packages sharing a last path segment (`a.io`, `b.io`) are two
 different packages; each keeps its own functions and its own types.
 

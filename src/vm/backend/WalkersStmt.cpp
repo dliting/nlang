@@ -328,8 +328,17 @@ uint16_t VmBackend::SubscriptAssignStmtPeakDepth(SnStatement& stmt,
     auto& sa = static_cast<SnSubscriptAssignStmt&>(stmt);
     //Stage-2: the store claim is receiver + N indices + value (the
     //container path lowers to a set() call — same count). Walker
-    //symmetry with EmitArrayElementStore's claim(rank + 2).
-    const uint16_t claim = static_cast<uint16_t>(2 + sa.Indices().size());
+    //symmetry with EmitArrayElementStore's claim(rank + 2), plus one
+    //element-handle slot on the stabilization path (struct element
+    //type) — the same predicate codegen uses, shared via
+    //ArrayElementStoreType.
+    const bool elemIsStruct = [this, &sa]() {
+        SnField* elemType = ArrayElementStoreType(sa);
+        return elemType && RuntimeTypeKind(elemType) == RTK_Struct
+            && elemType->Kind() == NK_StructDecl;
+    }();
+    const uint16_t claim = static_cast<uint16_t>(
+        (elemIsStruct ? 3 : 2) + sa.Indices().size());
     uint16_t d = 0;
     for (auto *pIndex : sa.Indices())
         d = std::max(d, ExprPeakDepth(*pIndex, visited));

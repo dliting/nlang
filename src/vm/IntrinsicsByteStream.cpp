@@ -247,6 +247,11 @@ bool VmExecutor::ExecuteIntrinsicByteStream(uint16_t intrinsicId,
                 throw std::runtime_error("NLang VM: WriteStruct on null struct");
             uint16_t structIdx = m_slotStructIdx[static_cast<size_t>(structHeapIdx)];
             size_t sizeBefore = st->buf.size();
+            //Whole-record read walk — cell-granularity, no record-level
+            //lock (VmExecutor.h m_slotKinds block). The ReadStruct arm
+            //below stays the same: deserialize writes only
+            //freshly-allocated records, unpublished until the intrinsic
+            //returns.
             //Writer lambda: append bytes to the ByteStream's buffer.
             SerializeStructFields(structHeapIdx, structIdx,
                 [&](const uint8_t* p, size_t n) {

@@ -292,22 +292,30 @@ bool ExprResolveAccessor::ResolveModuleQualifiedCallee(
 		FinishConsumedMember(snMember);
 		return false;
 	}
-	//0.13.8 item 5 (Task 4): the qualified call's access checkpoint — the
-	//stub table never checked the declared access before the gate; a
-	//foreign non-public member consumes here with the manifest wording.
-	if (!AccessAdmitted(reg, *pCallee, *m_pAccessor))
-	{
-		m_Env.Log(CLL_Error, invoke.Location(),
-			"The function \"%s\" does not exist or is not accessible.",
-			invoke.CalleeName().c_str());
-		FinishConsumedMember(snMember);
+	//0.13.8 item 5 (Task 4): the qualified call's access checkpoint (the
+	//stub table never checked declared access; see the helper).
+	if (RejectInaccessibleCallee(invoke, snMember, *pCallee))
 		return false;
-	}
 	if (!BindQualifiedInvoke(snMember, invoke, *pCallee, res, bindings))
 	{
 		FinishConsumedMember(snMember);
 		return false;
 	}
+	return true;
+}
+
+//0.13.8 item 5 (Task 4): the qualified call's access checkpoint — a
+//foreign non-public namespace member consumes here with the manifest
+//wording (the bare path's family), keeping codegen out.
+bool ExprResolveAccessor::RejectInaccessibleCallee(
+	SnInvokeExpr &invoke, SnMemberExpr &snMember, SnFunction &callee)
+{
+	if (AccessAdmitted(m_Env.Registry(), callee, *m_pAccessor))
+		return false;
+	m_Env.Log(CLL_Error, invoke.Location(),
+		"The function \"%s\" does not exist or is not accessible.",
+		invoke.CalleeName().c_str());
+	FinishConsumedMember(snMember);
 	return true;
 }
 

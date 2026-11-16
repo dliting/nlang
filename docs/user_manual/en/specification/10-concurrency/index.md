@@ -77,11 +77,16 @@ serialized by a global lock: storage protection is grouped by
 streams, and string maintenance. Operations in one category
 serialize against each other; different categories proceed at the
 same time, and heap and string allocation needs no global lock.
-Object field reads and writes take no lock, so once an object is
-shared across carriers — through a `spawn` argument or a channel —
-concurrent reads and writes of its fields are a *data race*: a
-half-written transitional value may be read, but memory is never
-corrupted. The internal structure of a container or a string is
+Struct values are no exception: a whole-record store (assignment and
+declaration initialization) writes the record field by field, and
+whole-record reads (`==` comparison, by-value passing, `foreach`
+copies) read field by field — a concurrent reader may observe a mix
+of old and new field values, while every field value stays
+type-correct. Field-level reads and writes take no
+lock, so once an object is shared across carriers — through a
+`spawn` argument or a channel — concurrent reads and writes of its
+fields are a *data race*: a half-written transitional value may be
+read, but memory is never corrupted. The internal structure of a container or a string is
 therefore never torn by concurrency, and shared mutable state is
 coordinated with a `Mutex` (§10.2). A native call that declares a
 blocking section (§29.7) releases the locks it holds while it

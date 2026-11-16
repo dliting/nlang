@@ -60,7 +60,8 @@
 | 操作码            | 操作数                          | 说明                     |
 |-------------------|---------------------------------|--------------------------|
 | OP_AllocStruct    | dst, structIdx, fieldCount      | 在堆上分配struct        |
-| OP_CopyStruct     | dst, src, structIdx             | 深拷贝struct            |
+| OP_CopyStruct     | dst, src, structIdx             | 深拷贝struct（建立新记录） |
+| OP_CopyStructInPlace | dst, src, structIdx          | 把src记录的值原位写入dst已有的记录；dst≤0时建立一条新记录并返回其句柄，dst==src为空操作 |
 | OP_New            | dst, classIdx, descIdx          | 在堆上分配class；descIdx为泛型class指定实例化描述符（0xFFFF = 无） |
 | OP_LoadField      | dst, obj, fieldOff              | 从堆读取字段             |
 | OP_StoreField     | obj, fieldOff, src              | 把字段写入堆             |

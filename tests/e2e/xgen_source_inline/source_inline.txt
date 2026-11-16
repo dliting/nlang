@@ -1,0 +1,5 @@
+Marker file: stage every module source into one shared dir and compile
+with -I pointing at it, so ncc's library source discovery inlines the
+earlier modules' .n sources as library translation units (the stdlib
+flow) instead of loading compiled .ncu stubs. The sibling .ncu artifacts
+join the run closure through the entry-dir search default.

@@ -84,10 +84,13 @@ void VmBackend::EmitAssignToLocal(SnAssignStmt& assign, uint16_t offset,
         SnField* varType, BytecodeEmitter& emitter) {
     if (varType && RuntimeTypeKind(varType) == RTK_Struct
         && varType->Kind() == NK_StructDecl) {
-        //Struct assignment: evaluate right to temp, then deep-copy.
-        //Per-unit: cross-unit structs slot as import placeholders.
+        //Struct assignment: evaluate right to temp, then write the
+        //EXISTING record in place (v0.13.9 phase ② — zero allocation,
+        //stable record identity; a null dst establishes one fresh
+        //record). Per-unit: cross-unit structs slot as import
+        //placeholders.
         EmitExpression(*assign.Right(), emitter, m_currFunc->tempSlot2);
-        EmitStructDeepCopy(offset, m_currFunc->tempSlot2,
+        EmitStructCopyInPlace(offset, m_currFunc->tempSlot2,
             static_cast<SnStructDecl&>(*varType), emitter);
     } else {
         //Phase 10 audit round-7: stage the RHS in an EvalAreaClaim(1)
@@ -362,19 +365,31 @@ void VmBackend::EmitAssignClassField(SnAssignStmt& assign,
     }
 }
 
-//v0.12.6 D14: struct-aware field store — the emit-side twin of the
-//static slot's runtime deep-copy (OpStoreStatic). When the field's
-//declared type is a struct, the staged value is deep-copied in place
-//first, so the field owns an independent record (manual 4.7.4); every
-//other kind stores the 8-byte cell as-is. Same Kind()-after-
-//RuntimeTypeKind shape as EmitAssignToLocal's struct branch.
+//v0.12.6 D14: struct-aware field store. v0.13.9 phase ②: when the
+//field's declared type is a struct, the field's EXISTING record is
+//updated in place — load its handle, then OP_CopyStructInPlace; the
+//old deep-copy + OP_StoreField publication is gone (struct-typed
+//fields are established from birth by AllocClassOnHeap and their
+//handles never change under stabilization). The receiver handle is
+//already emitted when this tail runs (callers evaluate it before
+//staging the RHS) and no user code runs before the load below, so the
+//field handle cannot go stale. Every other kind stores the 8-byte
+//cell as-is. Same Kind()-after-RuntimeTypeKind shape as
+//EmitAssignToLocal's struct branch.
 void VmBackend::EmitStructAwareStoreField(SnField* fieldType,
         uint16_t objSlot, uint16_t fieldOff, uint16_t valueSlot,
         BytecodeEmitter& emitter) {
     if (fieldType && RuntimeTypeKind(fieldType) == RTK_Struct
         && fieldType->Kind() == NK_StructDecl) {
-        EmitStructDeepCopy(valueSlot, valueSlot,
+        EvalAreaClaim claim(*this, 1);
+        uint16_t fieldSlot = claim.base();
+        emitter.Emit(OpCode::OP_LoadField);
+        emitter.EmitUint16(fieldSlot);
+        emitter.EmitUint16(objSlot);
+        emitter.EmitUint16(fieldOff);
+        EmitStructCopyInPlace(fieldSlot, valueSlot,
             static_cast<SnStructDecl&>(*fieldType), emitter);
+        return;
     }
     emitter.Emit(OpCode::OP_StoreField);
     emitter.EmitUint16(objSlot);
@@ -404,7 +419,7 @@ void VmBackend::EmitAssignStructField(SnAssignStmt& assign,
         }
     }
     if (fieldType && RuntimeTypeKind(fieldType) == RTK_Struct) {
-        EmitAssignStructFieldDeepCopy(assign, memberExpr, fieldOff,
+        EmitAssignStructFieldInPlace(assign, memberExpr, fieldOff,
             fieldType, emitter);
     } else {
         EmitAssignStructFieldPlain(assign, memberExpr, fieldOff,
@@ -412,29 +427,35 @@ void VmBackend::EmitAssignStructField(SnAssignStmt& assign,
     }
 }
 
-//Struct-to-struct field assignment: deep-copy first. Phase 10 audit
-//round-4: stage rhs/copy/outer in an EvalAreaClaim(3) — same parking
-//discipline as the other member targets (temps are pure scratch; the
-//fresh-copy handle must survive the outer emission).
-void VmBackend::EmitAssignStructFieldDeepCopy(SnAssignStmt& assign,
+//Struct-to-struct field assignment: update the existing nested record
+//in place. Phase 10 audit round-4 order preserved — the RHS stages
+//before the outer receiver load (current struct-arm order); under
+//stabilization the dst handle cannot go stale, because no user code
+//runs between the receiver evaluation and the LoadField below.
+//v0.13.9 phase ②: EvalAreaClaim(3) [fieldHandle, receiver, rhs] — the
+//field-handle slot reuses the old copy slot. Struct-typed fields are
+//established from birth (AllocStructOnHeap recursion) and their
+//handles never change under stabilization, so the old OP_StoreField
+//publication is gone.
+void VmBackend::EmitAssignStructFieldInPlace(SnAssignStmt& assign,
         SnMemberExpr& memberExpr, uint16_t fieldOff, SnField* fieldType,
         BytecodeEmitter& emitter) {
     EvalAreaClaim claim(*this, 3);
-    uint16_t copySlot = claim.base();
-    uint16_t objSlot = copySlot + kFrameSlotBytes;
+    uint16_t fieldSlot = claim.base();
+    uint16_t objSlot = fieldSlot + kFrameSlotBytes;
     uint16_t rhsSlot = objSlot + kFrameSlotBytes;
     EmitExpression(*assign.Right(), emitter, rhsSlot);
-    //fieldType is the resolver-bound field-type node, so the slot
-    //helper spells the same key the registration writer stored.
-    EmitStructDeepCopy(copySlot, rhsSlot,
-        static_cast<SnStructDecl&>(*fieldType), emitter);
     //Evaluate outer (parent struct's heap index)
     EmitExpression(*memberExpr.Outer(), emitter, objSlot);
-    //Store the new heap index into the parent's field
-    emitter.Emit(OpCode::OP_StoreField);
+    //Load the field's existing record handle, then write it in place.
+    emitter.Emit(OpCode::OP_LoadField);
+    emitter.EmitUint16(fieldSlot);
     emitter.EmitUint16(objSlot);
     emitter.EmitUint16(fieldOff);
-    emitter.EmitUint16(copySlot);
+    //fieldType is the resolver-bound field-type node, so the slot
+    //helper spells the same key the registration writer stored.
+    EmitStructCopyInPlace(fieldSlot, rhsSlot,
+        static_cast<SnStructDecl&>(*fieldType), emitter);
 }
 
 //Primitive/enum/string/array field assignment. Phase 10 audit round-4:

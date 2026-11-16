@@ -147,6 +147,73 @@ static std::vector<SnFunction*> CollectCtorCandidates(
 //error. Null = the call is not bound: either a diagnostic was logged,
 //or the type has no constructor and no arguments were supplied (the
 //legal bare-allocation shape).
+//The legacy arity texts for the no-AST-candidate shapes (0.9.11 T6):
+//builtin/generic classes keep the intrinsic arity check via
+//FindCtorParamRange — a call outside its arity window names the expected
+//count(s) and stays unbound; a type with no constructor at all rejects
+//only when arguments were supplied (the legal bare-allocation shape).
+void ExprResolveAccessor::LogLegacyCtorArity(SnField *pTypeDecl,
+	const std::vector<SnExpression*> &actuals, const ISourceLocation *pLoc,
+	const char *kindWord)
+{
+	size_t requiredArity = 0;
+	size_t totalArity = 0;
+	const size_t argCount = actuals.size();
+	if (FindCtorParamRange(pTypeDecl, requiredArity, totalArity))
+	{
+		if (argCount < requiredArity || argCount > totalArity)
+		{
+			if (requiredArity == totalArity)
+			{
+				m_Env.Log(CLL_Error, pLoc,
+					"constructor of \"%s\" expects %zu argument(s), got %zu",
+					pTypeDecl->Name().c_str(), requiredArity, argCount);
+			}
+			else
+			{
+				m_Env.Log(CLL_Error, pLoc,
+					"constructor of \"%s\" expects between %zu and %zu "
+					"argument(s), got %zu",
+					pTypeDecl->Name().c_str(), requiredArity, totalArity,
+					argCount);
+			}
+		}
+		return;
+	}
+	if (argCount != 0)
+	{
+		m_Env.Log(CLL_Error, pLoc,
+			"%s \"%s\" has no constructor; %s() cannot take arguments",
+			kindWord, pTypeDecl->Name().c_str(),
+			pTypeDecl->Name().c_str());
+	}
+}
+
+//The overload match plus the two named mismatch outcomes. See the
+//declaration in ExprResolver.h for the sharing story (ctor calls and
+//the super(...) parent-ctor path).
+SnFunction *ExprResolveAccessor::MatchCtorOrLogMismatch(
+	SyntaxNode &argsOwner, const std::vector<SnExpression*> &actuals,
+	const std::vector<SnFunction*> &candidates,
+	const ISourceLocation *pLoc, const char *kindWord,
+	const std::string &typeName)
+{
+	bool bAmbiguous = false;
+	auto *pCtor = MatchCtorAgainst(argsOwner, actuals, candidates, bAmbiguous);
+	if (pCtor)
+		return pCtor;
+	if (bAmbiguous)
+		m_Env.Log(CLL_Error, pLoc,
+			"ambiguous constructor call to %s \"%s\": multiple "
+			"constructors match the argument list",
+			kindWord, typeName.c_str());
+	else
+		m_Env.Log(CLL_Error, pLoc,
+			"no constructor of %s \"%s\" matches the argument list",
+			kindWord, typeName.c_str());
+	return nullptr;
+}
+
 SnFunction *ExprResolveAccessor::SelectCtorForArgs(SyntaxNode &argsOwner,
 	SnField *pTypeDecl,
 	const std::vector<SnExpression*> &actuals, const ISourceLocation *pLoc)
@@ -180,58 +247,13 @@ SnFunction *ExprResolveAccessor::SelectCtorForArgs(SyntaxNode &argsOwner,
 		return nullptr;
 	}
 	if (!candidates.empty())
-	{
-		bool bAmbiguous = false;
-		auto *pCtor = MatchCtorAgainst(argsOwner, actuals, candidates,
-			bAmbiguous);
-		if (pCtor)
-			return pCtor;
-		if (bAmbiguous)
-			m_Env.Log(CLL_Error, pLoc,
-				"ambiguous constructor call to %s \"%s\": multiple "
-				"constructors match the argument list",
-				kindWord, pTypeDecl->Name().c_str());
-		else
-			m_Env.Log(CLL_Error, pLoc,
-				"no constructor of %s \"%s\" matches the argument list",
-				kindWord, pTypeDecl->Name().c_str());
-		return nullptr;
-	}
+		return MatchCtorOrLogMismatch(argsOwner, actuals, candidates, pLoc,
+			kindWord, pTypeDecl->Name());
 
 	//No AST candidates: the intrinsic-arity shapes (builtin/generic
 	//classes) keep the legacy arity texts; a type with no constructor
 	//at all rejects only when arguments were supplied.
-	size_t requiredArity = 0;
-	size_t totalArity = 0;
-	const size_t argCount = actuals.size();
-	if (FindCtorParamRange(pTypeDecl, requiredArity, totalArity))
-	{
-		if (argCount < requiredArity || argCount > totalArity)
-		{
-			if (requiredArity == totalArity)
-			{
-				m_Env.Log(CLL_Error, pLoc,
-					"constructor of \"%s\" expects %zu argument(s), got %zu",
-					pTypeDecl->Name().c_str(), requiredArity, argCount);
-			}
-			else
-			{
-				m_Env.Log(CLL_Error, pLoc,
-					"constructor of \"%s\" expects between %zu and %zu "
-					"argument(s), got %zu",
-					pTypeDecl->Name().c_str(), requiredArity, totalArity,
-					argCount);
-			}
-		}
-		return nullptr;
-	}
-	if (argCount != 0)
-	{
-		m_Env.Log(CLL_Error, pLoc,
-			"%s \"%s\" has no constructor; %s() cannot take arguments",
-			kindWord, pTypeDecl->Name().c_str(),
-			pTypeDecl->Name().c_str());
-	}
+	LogLegacyCtorArity(pTypeDecl, actuals, pLoc, kindWord);
 	return nullptr;
 }
 

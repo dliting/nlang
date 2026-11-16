@@ -665,6 +665,23 @@ private:
 		bool bIncludeNamespaces = true);
 
 	/*
+	0.13.8 D8.4: bare type resolution at one bare-pool scope. The same
+	top-level type name may be declared by several units (the
+	DuplicateFieldChecker exempts cross-pool same-name), so the single-
+	candidate FindField answer is the first-registered child regardless
+	of origin. Selection order: the accessor's own unit wins outright;
+	otherwise the function-side admission model (ownerless /
+	ShareBarePool / IsExactImportedBy) filters — one admitted candidate
+	answers, several diagnose the ambiguity naming every owner. A single
+	never-admitted foreign candidate stays visible (types are global).
+	True = rpOut holds the answer; false = no answer at this scope
+	(rbAmbiguous marks the diagnosed ambiguity so the ancestor walk must
+	not fall back to the first-registered child).
+	*/
+	bool FindTypeInPoolScope(const std::string &sName, SyntaxNode &scope,
+		const SnField &accessor, SnField *&rpOut, bool &rbAmbiguous);
+
+	/*
 	0.9.x: the shadow guard of Access(SnNameExpr&) — exchange a value
 	binding found by the inner resolution for the type/namespace binding
 	the type position requires. True = bound (the inner identifier is
@@ -1165,6 +1182,28 @@ private:
 	//and structs answer false: their ctors are AST candidates.
 	bool FindCtorParamRange(SnField *pTypeDecl,
 		size_t &requiredArity, size_t &totalArity);
+	//The legacy arity texts for the no-AST-candidate shapes (0.9.11 T6):
+	//builtin/generic classes keep the intrinsic arity check via
+	//FindCtorParamRange; a type with no constructor at all rejects only
+	//when arguments were supplied (the legal bare-allocation shape).
+	//Shared by SelectCtorForArgs. Defined in ExprResolverNewCtor.cpp.
+	void LogLegacyCtorArity(SnField *pTypeDecl,
+		const std::vector<SnExpression*> &actuals,
+		const ISourceLocation *pLoc, const char *kindWord);
+	//The overload match plus the two named mismatch outcomes (ambiguous /
+	//no match), spelled with the caller's kind word ("struct"/"class")
+	//and type name. Shared by SelectCtorForArgs and — via the
+	//StatementResolveAccessor's m_ExprResolver — the super(...) parent-ctor
+	//path (SelectSuperCtor), whose texts are byte-identical with
+	//kindWord="class". Returns the selected ctor (the caller consumes the
+	//binding); null after logging on a mismatch. \p argsOwner is the node
+	//owning the actual-argument children, handed to MatchCtorAgainst for
+	//the call-site argument conversion. Defined in ExprResolverNewCtor.cpp.
+	SnFunction *MatchCtorOrLogMismatch(SyntaxNode &argsOwner,
+		const std::vector<SnExpression*> &actuals,
+		const std::vector<SnFunction*> &candidates,
+		const ISourceLocation *pLoc, const char *kindWord,
+		const std::string &typeName);
 	//0.9.11 T6 (D10): selects the constructor a call binds to. Collects
 	//the same-name candidate set (class Members() / struct Ctors()),
 	//runs MatchCtorAgainst, and reports the catalog diagnostics on
@@ -1659,6 +1698,30 @@ private:
 	bool RejectPackageStringCoercion(SnInvokeExpr &invoke,
 		const std::vector<FormalBinding> &bindings,
 		const std::string &modulePath);
+	//Access arm of ResolveModuleQualifiedCallee (0.13.8 item 5): a
+	//foreign non-public namespace member consumes here with the
+	//manifest wording (the bare path's family), keeping codegen out.
+	//True = consumed, the caller returns false.
+	bool RejectInaccessibleCallee(SnInvokeExpr &invoke,
+		SnMemberExpr &snMember, SnFunction &callee);
+	//Shared prologue of the qualified VALUE routes (the enum-constant
+	//chain, the free-function value and the module type reference): the
+	//dotted chain with the tip pushed back, then the m12 priority probe
+	//(the leftmost local/field/type wins, as for calls). False =
+	//declined, the generic path keeps the expression.
+	bool RouteQualifiedValueChain(SnMemberExpr &snMember,
+		std::vector<std::string> &segs);
+	//The not-a-member wording shared by the qualified-type admission sites
+	//(0.13.8 item 5): the literal lives in one place so the channels that
+	//fold a foreign non-public type into not-found cannot drift apart.
+	void LogModuleTypeNotFound(SyntaxNode &site, const std::string &typeName,
+		const std::string &modulePath);
+	//The type admission of the qualified VALUE routes (0.13.8 item 5):
+	//the foreign non-public arm folds into not-found — the not-a-member
+	//wording covers both shapes and the member consumes on the miss.
+	//Null = reported and consumed; non-null = the admitted type.
+	SnField *FindAdmittedModuleTypeOrReport(SnMemberExpr &snMember,
+		const std::string &modulePath, const std::string &typeName);
 	void FinishConsumedMember(SnMemberExpr &snMember);
 
 	//Phase 5: package-qualified VALUE access (`alib.Color.Green`, the
@@ -1683,20 +1746,6 @@ private:
 	//the type scope — the qualified spelling shares the stub record and
 	//the diagnostics of the bare `Mix` form.
 	bool TryResolveModuleTypeRef(SnMemberExpr &snMember);
-
-	//Head shared by the module-qualified reference paths: collects the
-	//chain segments (the tip identifier included) and applies the m12
-	//priority probe. Answers false when the node is not a plain identifier
-	//chain or the leftmost name belongs to a local / field / built-in type;
-	//the generic path keeps the node either way.
-	bool QualifiedChainSegments(SnMemberExpr &snMember,
-		std::vector<std::string> &segs);
-
-	//The not-a-member wording shared by the qualified-type admission sites
-	//(0.13.8 item 5): the literal lives in one place so the channels that
-	//fold a foreign non-public type into not-found cannot drift apart.
-	void LogModuleTypeNotFound(SyntaxNode &site, const std::string &typeName,
-		const std::string &modulePath);
 
 	ISyntaxNodeVisitor *m_pVisitor;
 	SyntaxNode *m_pContext;
@@ -1781,6 +1830,23 @@ public:
 	{
 		return m_Accessor.MatchCtorAgainst(argsOwner, actuals, candidates,
 			rbAmbiguous);
+	}
+
+	//Statement-side entry of the ctor overload match PLUS its two named
+	//mismatch diagnostics — the super(...) selection in
+	//StatementResolverSuper. Same contract as the accessor member of the
+	//same name (kindWord="class" there); the match and its logging read
+	//only the resolved actuals and the candidate signatures, and wrap
+	//converted arguments in place under \p argsOwner, so no Resolve()
+	//context is required.
+	SnFunction *MatchCtorOrLogMismatch(SyntaxNode &argsOwner,
+		const std::vector<SnExpression*> &actuals,
+		const std::vector<SnFunction*> &candidates,
+		const ISourceLocation *pLoc, const char *kindWord,
+		const std::string &typeName)
+	{
+		return m_Accessor.MatchCtorOrLogMismatch(argsOwner, actuals,
+			candidates, pLoc, kindWord, typeName);
 	}
 
 	void ResolveFieldExprAs(SnFieldExpr &expr, SnField *pField)

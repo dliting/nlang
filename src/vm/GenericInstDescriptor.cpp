@@ -41,6 +41,11 @@ std::string CanonicalSpelling(const std::string& templateName,
 
 namespace
 {
+//The func template is a keyword builtin with no row in any table — its
+//handle kind never walks a super chain, so rowRef stays -1 for it (the
+//only template keyed by a reserved word, so the bare name is unambiguous).
+constexpr const char* kFuncTemplateKey = "func";
+
 //Split [begin, end) on top-level commas (depth counts <> pairs; the
 //array bracket run never contains a comma at array-argument level —
 //rank commas live inside the trailing [] group).
@@ -74,6 +79,37 @@ size_t FindTopLevelLess(const std::string& s, size_t begin, size_t end)
 		if (s[i] == '<')
 			return i;
 	return std::string::npos;
+}
+
+//0.13.8 item 8 (D8.3): a dotted template name's head must name a
+//package the module actually knows — its own modulePath, a live import
+//slot's target, or (on linked images, which keep no import records) a
+//unit nlink merged in. Anything else is a corrupt image: the dotted
+//strip in the bare-or-unique-suffix bridge would silently land the
+//name on whatever erasure-bare row shares it, forging identity.
+void ValidateDescriptorHead(const std::string& templateName,
+	const CompiledModule& module)
+{
+	const size_t lastDot = templateName.rfind('.');
+	if (lastDot == std::string::npos)
+		return;
+	const std::string head = templateName.substr(0, lastDot);
+	if (head == module.modulePath)
+		return;
+	for (const std::string& path : module.mergedUnitPackagePaths)
+		if (path == head)
+			return;
+	const std::vector<CompiledModule::SymbolImport>* importLists[] = {
+		&module.functionImports, &module.classImports,
+		&module.structImports, &module.enumImports,
+		&module.staticSlotImports};
+	for (const auto* pList : importLists)
+		for (const CompiledModule::SymbolImport& imp : *pList)
+			if (imp.modulePath == head)
+				return;
+	throw std::runtime_error(
+		"corrupt descriptor spelling: unknown package head '"
+		+ head + "' in '" + templateName + "'");
 }
 
 //Mutual recursion: the array arm's element parses through the general
@@ -119,9 +155,14 @@ bool ParseArrayArgRange(const std::string& s, size_t begin, size_t end,
 
 //Leaf arm: scalar keyword, string, or a link key resolved against the
 //linked module's tables (struct/class/enum; enums are int32 at runtime
-//and the spelling keeps the enum name). An unresolved key stays
-//RTK_Class with rowRef -1 — display-correct, dispatch degrades
-//gracefully.
+//and the spelling keeps the enum name). 0.13.8 item 8: descriptor
+//spellings carry the qualified link identity, so a class leaf resolves
+//through the bare-or-unique-suffix bridge — plain-class spellings are
+//exact table keys (module-qualified outside the prelude), while a
+//qualified generic-template spelling lands on its erasure-bare row
+//through the bridge's dotted-input strip (0.13.8 item 8: the row-key
+//space keys templates by the bare BaseName). An unresolved key is a
+//corrupt image and throws — the old silent rowRef -1 forged identity.
 void ResolveLeafArg(const std::string& leaf, const CompiledModule& module,
 	TypeArgDesc& out)
 {
@@ -145,7 +186,7 @@ void ResolveLeafArg(const std::string& leaf, const CompiledModule& module,
 		out.resolvedKind = RTK_Struct;
 		out.rowRef = idx;
 	}
-	else if (int idx = module.FindClass(leaf); idx >= 0)
+	else if (int idx = module.FindClassBareOrUniqueSuffix(leaf); idx >= 0)
 	{
 		out.resolvedKind = RTK_Class;
 		out.rowRef = idx;
@@ -155,13 +196,23 @@ void ResolveLeafArg(const std::string& leaf, const CompiledModule& module,
 		out.resolvedKind = RTK_Int32;
 		out.rowRef = idx;
 	}
-	else
+	else if (module.FindInterface(leaf) >= 0)
+	{
+		//Admitted rowless: consumers are class-row scoped — an interface
+		//row index would cross-table collide in ClassMatchesTarget
+		//(descriptor arg kind model v2, roadmap 0.13.8). The exact hit
+		//is the admission fact.
 		out.resolvedKind = RTK_Class;
+	}
+	else
+		throw std::runtime_error(
+			"corrupt descriptor spelling: unresolved link key '"
+			+ leaf + "'");
 }
 
 //Parse one argument substring into a TypeArgDesc: array, nested
-//instantiation (its own spelling field is the bare template name per
-//the canonical contract), or leaf, in that order.
+//instantiation (its own spelling field is the nested template's
+//descriptor spelling, 0.13.8 item 8), or leaf, in that order.
 bool ParseArgRange(const std::string& s, size_t begin, size_t end,
 	const CompiledModule& module, TypeArgDesc& out)
 {
@@ -177,10 +228,22 @@ bool ParseArgRange(const std::string& s, size_t begin, size_t end,
 			return false;
 		out.spelling = s.substr(begin, less - begin);
 		out.resolvedKind = RTK_Class;
-		//The template's class row rides the same lookup the leaf arm
-		//uses — a row-less argument cannot walk a cast super chain.
-		if (int idx = module.FindClass(out.spelling); idx >= 0)
-			out.rowRef = idx;
+		//0.13.8 item 8: the nested template rides the same head gate and
+		//must resolve (see ValidateDescriptorHead and ResolveLeafArg) —
+		//classes via the bare-or-unique-suffix bridge, interfaces exact
+		//(KeyOf spellings), func the keyword builtin rowless. A silent
+		//miss forged identity. Non-class hits keep rowRef -1: consumers
+		//are class-row scoped (descriptor arg kind model v2, roadmap).
+		ValidateDescriptorHead(out.spelling, module);
+		if (int classRow =
+				module.FindClassBareOrUniqueSuffix(out.spelling);
+			classRow >= 0)
+			out.rowRef = classRow;
+		else if (out.spelling != kFuncTemplateKey
+			&& module.FindInterface(out.spelling) < 0)
+			throw std::runtime_error(
+				"corrupt descriptor spelling: unresolved template row '"
+				+ out.spelling + "'");
 		for (const auto& [aBegin, aEnd] :
 			SplitTopLevelArgs(s, less + 1, end - 1))
 		{
@@ -205,6 +268,7 @@ GenericInstDescriptor* InternDescriptorFromSpelling(
 		throw std::runtime_error(
 			"corrupt descriptor spelling: " + spelling);
 	const std::string templateName = spelling.substr(0, less);
+	ValidateDescriptorHead(templateName, module);
 	std::vector<TypeArgDesc> args;
 	for (const auto& [aBegin, aEnd] :
 		SplitTopLevelArgs(spelling, less + 1, spelling.size() - 1))

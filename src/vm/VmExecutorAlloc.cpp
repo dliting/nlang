@@ -25,6 +25,7 @@ int32_t VmExecutor::TakeHeapSlot() {
         if (m_heapShards.Empty(shard))   //double-check under the lock
             GrowHeapShardBlockLocked(shard);
     }
+    ++m_heapAllocCountForTests;
     return m_heapShards.Pop(shard);
 }
 
@@ -363,7 +364,12 @@ int32_t VmExecutor::MaterializeViewRecord(int32_t viewHeapIdx) {
     return heapIdx;
 }
 
-int32_t VmExecutor::DeepCopyStruct(int32_t srcHeapIdx, uint16_t structIdx) {
+//Deep-copy walk — the read + allocate + publish establish path.
+//Cell-granularity, no record-level lock (see the m_slotKinds block in
+//VmExecutor.h). The self-recursion on struct-typed fields stays on this
+//same function.
+int32_t VmExecutor::DeepCopyStruct(int32_t srcHeapIdx,
+        uint16_t structIdx) {
     if (srcHeapIdx < 0 || static_cast<size_t>(srcHeapIdx) >= m_structHeap.size())
         throw std::runtime_error("NLang VM: invalid struct heap index in CopyStruct");
     if (structIdx >= m_currModule->structs.size())
@@ -390,6 +396,49 @@ int32_t VmExecutor::DeepCopyStruct(int32_t srcHeapIdx, uint16_t structIdx) {
     //raising the pending flag — GC would never trigger on this path.
     NoteGcPressure();
     return newHeapIdx;
+}
+
+//Record stabilization (v0.13.9 phase ②): the in-place write primitive.
+//dst handle ≤ 0 → establish: delegate to DeepCopyStruct (its body is
+//exactly allocate-fresh-from-src + deep copy) and return the new
+//handle. dst == src → identity. Otherwise overwrite dst's existing
+//cells in place — zero allocation on that path. Cell-granularity — no
+//record-level lock (see the m_slotKinds block in VmExecutor.h).
+//Established records are NOT re-marked: hasInitializer-style marking
+//belongs to the store sites, not the copy primitive.
+int32_t VmExecutor::CopyStructInPlace(int32_t dstHeapIdx,
+        int32_t srcHeapIdx, uint16_t structIdx) {
+    if (dstHeapIdx == srcHeapIdx)
+        return dstHeapIdx;
+    if (dstHeapIdx <= 0)
+        return DeepCopyStruct(srcHeapIdx, structIdx);
+    CopyStructCellsInPlace(dstHeapIdx, srcHeapIdx, structIdx);
+    return dstHeapIdx;
+}
+
+//The unguarded cell walk: struct-typed fields recurse into the EXISTING
+//dst sub-records (both trees stay alive — no release, no allocation);
+//every other field copies its FULL 2-cell row — a wide scalar (long,
+//ulong, double) carries its value across both cells, and dropping the
+//hi cell truncates it silently (the StructValuesEqual hi-cell rule, its
+//copy-side dual). Strings carry immutable handles; class/array/func
+//fields copy the reference. dst and src trees are type-level disjoint,
+//so reading srcCells while writing dstCells cannot alias.
+void VmExecutor::CopyStructCellsInPlace(int32_t dstHeapIdx,
+        int32_t srcHeapIdx, uint16_t structIdx) {
+    const auto& cs = m_currModule->structs[structIdx];
+    const auto& srcCells = m_structHeap[static_cast<size_t>(srcHeapIdx)];
+    auto& dstCells = m_structHeap[static_cast<size_t>(dstHeapIdx)];
+    for (uint16_t i = 0; i < cs.fieldCount; ++i) {
+        if (cs.fieldTypeKinds[i] == RTK_Struct
+            && cs.fieldStructIndices[i] != 0xFFFF) {
+            CopyStructCellsInPlace(dstCells[i * 2], srcCells[i * 2],
+                cs.fieldStructIndices[i]);
+        } else {
+            dstCells[i * 2] = srcCells[i * 2];
+            dstCells[i * 2 + 1] = srcCells[i * 2 + 1];
+        }
+    }
 }
 
 } // namespace nlang

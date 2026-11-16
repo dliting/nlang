@@ -292,6 +292,14 @@ enum class OpCode : uint8_t {
                         // tag (OpUnbox mechanics), reference kinds pass
                         // through as the handle
 
+    //Record stabilization (v0.13.9 phase ②): overwrite the dst record's
+    //cells in place from src — zero allocation on the established path.
+    //A null dst handle (≤ 0) establishes one fresh record instead. Same
+    //operand layout as OP_CopyStruct; appended at the table end (the
+    //enum is append-only — mid-table rows would renumber every later
+    //opcode and break every stored image).
+    OP_CopyStructInPlace,  // uint16 dst, uint16 src, uint16 structIdx
+
     OP_Count
 };
 
@@ -365,7 +373,8 @@ static constexpr OpCode kStrideThreeWords[] = {
     OpCode::OP_AllocStruct, OpCode::OP_LoadField,
     OpCode::OP_StoreField, OpCode::OP_CopyStruct,
     OpCode::OP_LoadElementFlat, OpCode::OP_StrByteAt,
-    OpCode::OP_ClassInitGate, OpCode::OP_CheckArrayRank};
+    OpCode::OP_ClassInitGate, OpCode::OP_CheckArrayRank,
+    OpCode::OP_CopyStructInPlace};
 static constexpr OpCode kStrideFourWords[] = {
     OpCode::OP_LoadElementN, OpCode::OP_StoreElementN,
     OpCode::OP_LoadElementDyn, OpCode::OP_StoreElementDyn,

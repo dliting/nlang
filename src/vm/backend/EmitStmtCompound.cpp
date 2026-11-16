@@ -312,13 +312,11 @@ void VmBackend::EmitCompoundSubscriptArray(SnCompoundAssignStmt& ca,
     emitter.EmitUint16(static_cast<uint16_t>(sub.Indices().size()));
     EmitExpression(*ca.Right(), emitter, rhsSlot);
     EmitCompoundOp(op, emitter, oldValSlot, rhsSlot, elemType);
-    //Struct deep-copy of the computed value before the store
-    //(value-semantics boundary, mirrors EmitArrayElementStore).
-    if (RuntimeTypeKind(elemType) == RTK_Struct
-        && elemType->Kind() == NK_StructDecl) {
-        EmitStructDeepCopy(oldValSlot, oldValSlot,
-            static_cast<SnStructDecl&>(*elemType), emitter);
-    }
+    //Struct operands never reach this emitter: the resolver's
+    //RejectStructCompoundAssign gate (v0.13.9 phase ② Task 8) rejects
+    //compound operators on struct values by name — the old dead
+    //deep-copy arm here implied an in-place semantics no operator
+    //exists to define.
     emitter.Emit(SubscriptNeedsDynOps(*sub.Array())
         ? OpCode::OP_StoreElementDyn : OpCode::OP_StoreElementN);
     emitter.EmitUint16(claimBase);

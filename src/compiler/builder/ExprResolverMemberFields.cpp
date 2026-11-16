@@ -147,9 +147,169 @@ bool IsTypeOrNamespaceBinding(const SnField *pField)
 	return pField->IsTypeField() || pField->Kind() == NK_Namespace;
 }
 
+//0.13.8 D8.4 (Task 9): every same-named type candidate among the
+//scope's OWN bare-pool members, in registration order. Child
+//namespaces stay out on purpose: their members are reachable only in
+//the qualified form, so they are not bare-position candidates at this
+//scope (the function-side scan recurses because its miss hint names
+//hidden providers anywhere in the pool surface — a different duty).
+static void CollectSameNameTypes(SnFunctionParentField &pool,
+	const std::string &sName, std::vector<SnField *> &rOut)
+{
+	auto range = pool.Members().NameDict().equal_range(sName);
+	for (auto iField = range.first; iField != range.second; ++iField)
+	{
+		if (iField->second->IsTypeField())
+			rOut.push_back(iField->second);
+	}
+}
+
+//0.13.8 D8.4 (Task 9): bare type resolution at one bare-pool scope.
+//The same top-level type name may be declared by several units (the
+//DuplicateFieldChecker exempts cross-pool same-name), and merged
+//members hang flat under one scope, so the single-candidate FindField
+//answer is the first-registered child regardless of origin — a later
+//unit silently bound the earlier unit's declaration in every bare
+//type position (annotations, ctor probes, casts, typeName operands).
+//Selection order: the accessor's own unit wins outright; otherwise the
+//function-side admission model (ownerless / ShareBarePool /
+//IsExactImportedBy) filters — one admitted candidate answers, several
+//diagnose the ambiguity naming every owner. A single never-admitted
+//foreign candidate stays visible (types are global, spec §5.5). True =
+//rpOut holds the answer; false = no answer at this scope, with
+//rbAmbiguous marking the diagnosed ambiguity so the ancestor walk must
+//not fall back to the first-registered child.
+//0.13.8 D8.4 (Task 9): the pool admission half of the visibility model,
+//shared with the function side (IsBareVisible above): ownerless
+//built-ins, same-directory pools, and exact imports are admitted;
+//everything else stays foreign.
+static bool PoolAdmitted(const ModuleRegistry &registry, uint32_t owner,
+	uint32_t curModule)
+{
+	if (owner == ModuleRegistry::NO_OWNER)
+		return true;
+	if (curModule == ModuleRegistry::NO_OWNER)
+		return false;
+	return registry.ShareBarePool(owner, curModule)
+		|| registry.IsExactImportedBy(curModule, owner);
+}
+
+//0.13.8 D8.4 (Task 9): the cross-pool ambiguity diagnostic, naming
+//every owner so the fix is actionable (the same wording discipline as
+//the enum-member collision above).
+static void LogPoolTypeAmbiguity(BuildEnvironment &env,
+	const ModuleRegistry &registry, const std::string &sName,
+	const SnField &accessor, const std::vector<SnField *> &candidates)
+{
+	std::string packages;
+	for (auto *pCandidate : candidates)
+	{
+		if (!packages.empty())
+			packages += ", ";
+		packages += registry.OwnerOf(*pCandidate)
+				== ModuleRegistry::NO_OWNER
+			? "'<builtins>'"
+			: "'" + registry.PackageOf(*pCandidate) + "'";
+	}
+	env.Log(CLL_Error, accessor.Location(),
+		"The type \"%s\" is ambiguous: it matches declarations in "
+		"packages %s. Qualify the name with its package, or rename "
+		"one of the declarations.",
+		sName.c_str(), packages.c_str());
+}
+
+//0.13.8 D8.4 (Task 9): scan the same-name candidates in registration
+//order — the accessor's own unit wins outright (one unit declares a
+//given name at most once, so the scan stops there); every other
+//candidate goes through the admission filter. Setting the own-unit
+//winner leaves the admitted list short on purpose: the caller's
+//ambiguity branch is guarded by the winner, not by the list.
+static void ScanPoolCandidates(const ModuleRegistry &registry,
+	const std::vector<SnField *> &candidates, uint32_t curModule,
+	SnField *&rpOwn, std::vector<SnField *> &rAdmitted)
+{
+	for (auto *pCandidate : candidates)
+	{
+		const uint32_t owner = registry.OwnerOf(*pCandidate);
+		if (owner != ModuleRegistry::NO_OWNER && owner == curModule)
+		{
+			rpOwn = pCandidate;
+			break;
+		}
+		if (PoolAdmitted(registry, owner, curModule))
+			rAdmitted.push_back(pCandidate);
+	}
+}
+
+bool ExprResolveAccessor::FindTypeInPoolScope(const std::string &sName,
+	SyntaxNode &scope, const SnField &accessor, SnField *&rpOut,
+	bool &rbAmbiguous)
+{
+	rpOut = nullptr;
+	rbAmbiguous = false;
+	auto &registry = m_Env.Registry();
+	std::vector<SnField *> sameName;
+	CollectSameNameTypes(static_cast<SnFunctionParentField &>(scope),
+		sName, sameName);
+	if (sameName.empty())
+		return false;
+	const uint32_t curModule = registry.OwnerOfContext(accessor);
+	SnField *pOwn = nullptr;
+	std::vector<SnField *> admitted;
+	ScanPoolCandidates(registry, sameName, curModule, pOwn, admitted);
+	//Several same-name candidates with no own-unit winner: diagnose the
+	//ambiguity naming every owner instead of answering with the
+	//first-registered child. (ScanPoolCandidates leaves the admitted
+	//list short when the own-unit winner is set — the pOwn guard keeps
+	//own-wins out of this branch.)
+	if (!pOwn && (admitted.size() > 1
+		|| (admitted.empty() && sameName.size() > 1)))
+	{
+		LogPoolTypeAmbiguity(m_Env, registry, sName, accessor,
+			admitted.empty() ? sameName : admitted);
+		rbAmbiguous = true;
+		return false;
+	}
+	if (pOwn || admitted.size() == 1)
+	{
+		SnField *pTyped = pOwn ? pOwn : admitted.front();
+		if (AccessAdmitted(registry, *pTyped, accessor))
+		{
+			rpOut = pTyped;
+			return true;
+		}
+		//Denied (a private pick): read as a miss at this scope; the
+		//ancestor walk continues exactly as the legacy path does.
+		return false;
+	}
+	//A single foreign candidate stays visible (types are global),
+	//behind the same access gate as before.
+	if (AccessAdmitted(registry, *sameName.front(), accessor))
+	{
+		rpOut = sameName.front();
+		return true;
+	}
+	return false;
+}
+
 SnField *ExprResolveAccessor::FindTypeNameInAncestor(const std::string &sName,
 	SyntaxNode &parent, const SnField &accessor, bool bIncludeNamespaces)
 {
+	//0.13.8 D8.4: at a bare-pool scope the same type name may be
+	//declared by several units; pool scopes resolve types unit-aware
+	//(FindTypeInPoolScope above). Namespaces merge across TUs (unique
+	//per name) and value-kind hits keep the legacy single-candidate
+	//path, so every miss below falls through unchanged.
+	if (IsBarePoolScope(parent))
+	{
+		SnField *pTyped = nullptr;
+		bool bAmbiguous = false;
+		if (FindTypeInPoolScope(sName, parent, accessor, pTyped,
+				bAmbiguous))
+			return pTyped;
+		if (bAmbiguous)
+			return nullptr;
+	}
 	//Per scope the virtual FindField returns the single same-named
 	//candidate (the DuplicateFieldChecker rejects same-scope duplicates),
 	//so skipping a value hit cannot hide a same-scope type.

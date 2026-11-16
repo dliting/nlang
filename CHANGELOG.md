@@ -98,7 +98,7 @@ fixes two defects it uncovered.
   silently bound the wrong method. An abstract member now occupies its
   method-table row in the consumer's count as it does in the provider's.
 
-## [0.13.8] - 2026-11-14
+## [0.13.8] - 2026-11-15
 
 Terminology pass over the generic machinery, per
 `docs/dev/generic_term_reference.md`: the runtime record that spells a
@@ -136,6 +136,43 @@ instantiation families.
   composition record, canonical name, unqualified name — across the
   Chinese and English specification and VM-architecture pages
   (wording unification, no semantic change).
+
+### Added
+
+- **Cross-module access control for top-level functions and types.**
+  `private`/`protected`/`public` prefixes are accepted on top-level
+  functions, classes, structs, interfaces, and enums and enforced at
+  compile time: `private` admits a member only inside its own unit,
+  `protected` widens to the sibling units of the same package, and
+  `public` — the default for bare declarations (D5.1: importable by
+  default; encapsulation is expressed with explicit `private`/
+  `protected`) — admits every unit past the import gate. A denied
+  member is invisible to lookup rather than rejected after a hit: a
+  foreign private type fails qualified-name resolution (`Type 'Vault'
+  is not a member of package 'lib'.`), and a foreign private function
+  reports the standard not-found diagnostic on both the qualified and
+  the unqualified path. Inside its own unit every member is reachable
+  regardless of access. The module image format rises to 2.20:
+  function records and class/struct/interface records carry an access
+  byte at the record tail, the enums section grows a type-level access
+  table (three parallel tables become four), and the loader rejects an
+  access byte of `0` or above `3` as a corrupt image; existing
+  `.ncu`/`.npkg` files must be recompiled.
+- **Qualified descriptor identity for generic spellings.** The
+  canonical `typeName` spellings of user-unit generic instantiations
+  carry the owning package path (`"demo.Box<int>"`, `"alib.Box<int>"`;
+  root-unit types stay bare), implementing the D2 spelling rule of the
+  0.13.1 design; class-record keys stay bare (registration keys and
+  spelling keys are separate key spaces), and the loader accepts
+  dotted template heads in spelling resolution and serialization
+  round trips. Templates of the same name in different packages now
+  have distinct identities: their `typeName` spellings differ, a
+  cross-package cast through `Object` fails on the qualified spelling,
+  and the static-field compensation pattern keys on the qualified
+  name. Unqualified type names resolve own-unit first; a name shared
+  by several visible packages is an ambiguity error naming every
+  owner's package, and spelling-key interning hard-fails on a
+  duplicate key.
 
 ## [0.13.7] - 2026-11-12
 

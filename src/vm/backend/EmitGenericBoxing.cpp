@@ -168,7 +168,16 @@ void VmBackend::PlanGenericMethodBoxing(SnClassDecl& classDecl,
         ArgBoxPlan plan = PlanBoundaryBox(
             UnanimousFormalPlaceholder(methods, iParam, declaredGenerics),
             &classDecl);
-        if (plan.needsBox)
+        //Record stabilization (v0.13.9 phase ②): set's value slot
+        //copies into the element's EXISTING record at runtime, so the
+        //emit-side staging copy is suppressed. Struct values never
+        //box, so this rides the plan map alone (hence the widened
+        //insertion guard).
+        if (iParam == 1 && methodName == "set"
+            && (baseName == kBuiltinListTypeName
+                || baseName == kBuiltinDictTypeName))
+            plan.suppressStagingCopy = true;
+        if (plan.needsBox || plan.suppressStagingCopy)
             argPlans[static_cast<uint16_t>(iParam + 1)] = plan;
     }
     returnPlan = PlanBoundaryBox(

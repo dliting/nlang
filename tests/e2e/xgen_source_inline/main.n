@@ -1,0 +1,20 @@
+//Consumer: the import resolves against xgenlib.n as an inlined library
+//source (the stdlib flow), not against a compiled stub. The qualified
+//descriptor head "xgenlib" rides the import records the image replays,
+//and the D8.4 family pins the whole chain on the source-inline shape
+//proj_generic_cross_unit never covers: qualified spelling fold
+//(typeName), Object round-trip cast, and construction — all against a
+//template whose declaration lives in an inlined sibling unit.
+//5 + 5 = 10.
+import xgenlib;
+
+int main()
+{
+    Pipe<int> p = Pipe(5);
+    string tag = typeName(Pipe<int>);
+    if (tag != "xgenlib.Pipe<int>") { return 7; }
+    Object o = p;
+    Pipe<int> back = o as Pipe<int>;
+    if (back.get() != 5) { return 9; }
+    return 10;
+}

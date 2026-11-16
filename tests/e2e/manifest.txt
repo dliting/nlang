@@ -1493,7 +1493,7 @@ compound_subscript_const_base 6
 compound_subscript_fini_for 55
 compound_subscript_string_base_error compile_error string does not support subscript access
 compound_subscript_string_elem_op_error compile_error operator not supported on string
-compound_subscript_struct_elem_error compile_error Incompatible type
+compound_subscript_struct_elem_error compile_error compound assignment is not supported on struct values
 compound_subscript_void_error compile_error cannot assign the result of void function
 # --- #11 L3: intrinsic-by-name chained methods ---
 intrinsic_chain_l3 8
@@ -2063,6 +2063,9 @@ generic_mixed_members_run 1
 generic_two_instantiations 0
 generic_nested_instantiation 0
 generic_arg_domain 0
+# --- 0.13.8 item 8 / D8.4: source-inline library + qualified generic
+# --- cast/new family (the shape proj_generic_cross_unit never covers).
+xgen_source_inline 10
 kl_generic_struct_arg 0
 kl_generic_struct_independence 0
 kl_generic_struct_transfer_corner 0
@@ -2375,6 +2378,11 @@ tensor_import_required compile_error Package 'tensor' is not imported
 stdlib_tensor_uniform 0
 stdlib_tensor_uniform_throw 1
 array_struct_identity 4
+stabilize_local_assign 42
+stabilize_field_store 42
+stabilize_nested_field 42
+stabilize_array_store 42
+stabilize_array_oob 1
 xacc_fn_private compile_error The function "hiddenHelper" does not exist or is not accessible.
 xacc_type_private compile_error Type 'Vault' is not a member of package 'lib'.
 xacc_ok_public 28
@@ -2396,3 +2404,9 @@ stdlib_json_serialize 0
 stdlib_json_depth 0
 stdlib_json_roundtrip 0
 stdlib_json_edit 0
+stabilize_list_set 42
+stabilize_dict_set 42
+stabilize_static_store 42
+compile_error_struct_compound compile_error compound assignment is not supported on struct
+stabilize_concurrent_write 42
+stabilize_indep_sweep 42

@@ -306,6 +306,18 @@ static void test_find_class_bare_or_unique_suffix()
     m.classes.push_back({"other.Mutex"});
     CHECK(m.FindClassBareOrUniqueSuffix("Mutex") == -1,
         "two suffix hits must refuse");
+    //0.13.8 item 8, two-key contract: a QUALIFIED generic-template
+    //spelling ("probe.Box") resolves onto its erasure-bare row ("Box")
+    //— the row-key space keys generic templates by the bare BaseName,
+    //so neither the exact hit nor the ".name" suffix scan can find it.
+    //The dotted arm strips the package; the bare arm keeps the D8
+    //suffix scan.
+    m.classes.push_back({"Box"});           //probe.Box<T>'s erasure row
+    CHECK(m.FindClassBareOrUniqueSuffix("probe.Box") == 4,
+        "qualified generic spelling must hit its erasure-bare row");
+    m.classes.push_back({"other.Box"});     //unrelated plain class
+    CHECK(m.FindClassBareOrUniqueSuffix("probe.Box") == 4,
+        "dotted input must not suffix-scan onto other.Box");
     PASS();
 }
 

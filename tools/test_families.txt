@@ -1,0 +1,44 @@
+# test_families.txt -- the T0 impact-map families
+# (docs/dev/gate_tiering_design.md). Consumed by tools/test_impact.py.
+#
+# Curation rules (conservatism):
+#   - only NARROW, high-confidence src leaves get a family; anything
+#     wide (compiler frontend, module loader/linker, the opcode
+#     dispatcher) stays OUT so T0 falls back to full Debug units;
+#   - every family with a src rule MUST declare a unit rule (the mapper
+#     treats its absence as a data bug and falls back);
+#   - an e2e rule is optional (some families are unit-only).
+#
+#   family <name> src <glob>      (glob over repo-relative paths)
+#   family <name> unit <ctest -R regex fragment>
+#   family <name> e2e <manifest-name regex fragment>
+#   ignore <glob>
+
+family serialization src src/vm/IntrinsicsByteStream.cpp
+family serialization src src/vm/IntrinsicsFileStream.cpp
+family serialization src src/vm/VmExecutorSer.h
+family serialization src src/vm/VmExecutorSerArray.h
+family serialization src src/vm/VmExecutorSerInstDesc.h
+family serialization unit bs_|serial|ncu_package|stdlib|file_
+family serialization e2e ^(bs_|file_|stdlib_)
+
+family stabilizer src src/vm/VmExecutorAlloc.cpp
+family stabilizer src src/vm/VmExecutorOpsObjects.cpp
+family stabilizer src src/vm/VmExecutorContainers.cpp
+family stabilizer src src/vm/backend/EmitStmtAssign.cpp
+family stabilizer src src/vm/backend/EmitStmtStore.cpp
+family stabilizer src src/vm/backend/EmitStmtCompound.cpp
+family stabilizer src src/vm/backend/EmitCall.cpp
+family stabilizer unit stabilize|struct|array|boxing|chunkedarray|generic
+family stabilizer e2e ^(stabilize_|bs_|struct|array|compound_)
+
+family concurrency src src/vm/IntrinsicsThread.cpp
+family concurrency src src/vm/IntrinsicsAtomic.cpp
+family concurrency src src/vm/VmCarrierPool.cpp
+family concurrency src src/vm/VmSchedulerSync.cpp
+family concurrency src src/vm/VmDomainLocks.h
+family concurrency unit thread|conc|domainlock|carrier|work_pool|gcworldstop
+family concurrency e2e ^(conc_|carrier|thread|atomic|sync|selectany)
+
+ignore docs/**
+ignore temp/**

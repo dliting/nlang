@@ -4,6 +4,11 @@
     Container < Sync < Stream < StrMaint < Growth is the fixed acquisition
     order; a reverse acquisition trips the wire (terminate in production).
     Leaf domains (StrMaint, Growth) never nest outward.
+
+    v0.13.9 phase ② ruling revision: there is no record-level struct
+    lock — struct whole-record reads and writes are cell-granularity,
+    same as single-cell ops (concurrent shared-record coordination is
+    the user's duty, spec §10.1). Nothing sits outside this set anymore.
 ---*/
 #pragma once
 

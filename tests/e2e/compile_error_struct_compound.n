@@ -1,0 +1,17 @@
+//v0.13.9 phase (2): compound operators on struct operands are rejected
+//by name at compile time — structs have no arithmetic operators, and
+//the compound emitter's kind dispatch would emit int-typed ops on the
+//record's handle cells (a runtime crash before the gate existed). The
+//resolver reports the error before the build fails.
+struct P {
+    int x;
+    int y;
+}
+int main() {
+    P p;
+    p.x = 1;
+    p.y = 2;
+    P[] arr = [p];
+    arr[0] += p;
+    return 0;
+}

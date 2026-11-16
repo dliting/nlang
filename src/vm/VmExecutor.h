@@ -399,6 +399,36 @@ public:
     size_t HeapSlotCountForTests() const {
         return m_instDescByHeap.size();
     }
+    //Test probe: the record's struct-table index (0xFFFF when the slot
+    //carries no struct).
+    uint16_t HeapStructIdxForTests(int32_t handle) const {
+        return m_slotStructIdx[static_cast<size_t>(handle)];
+    }
+    //Record stabilization pin (v0.13.9 phase ②): the raw handle a
+    //static slot's cell currently holds (low half of the uniform cell;
+    //0 = no record yet).
+    int32_t StaticSlotHandleForTests(uint16_t slotIdx) const {
+        int32_t handle;
+        std::memcpy(&handle, m_staticSlots.Cell(slotIdx), sizeof(handle));
+        return handle;
+    }
+    //Test probe: exact record-allocation count. HeapSlotCountForTests
+    //grows in shard-block quanta and can absorb small counts in block
+    //slack — allocation pins read this counter instead.
+    size_t HeapAllocCountForTests() const {
+        return m_heapAllocCountForTests;
+    }
+    //Record stabilization (v0.13.9 phase ②): the in-place write
+    //primitive. dst handle ≤ 0 establishes one fresh record (delegating
+    //to DeepCopyStruct); dst == src is a no-op; otherwise dst's cells
+    //are overwritten in place with zero allocation. Cell-granularity —
+    //no record-level lock (see the m_slotKinds block). Returns the dst
+    //handle — the existing record or the newly established one — so
+    //callers can store the handle back. Public for the white-box
+    //stabilization tests; the runtime write arms (intrinsics,
+    //OpStoreStatic) reach it as members.
+    int32_t CopyStructInPlace(int32_t dstHeapIdx, int32_t srcHeapIdx,
+                              uint16_t structIdx);
     //Builds a production-shaped stack-local host (the native-call path
     //wires one per call). Public for the white-box defense tests only:
     //VmNativeHost itself is private to src/vm, so the method is
@@ -793,6 +823,10 @@ private:
     void OpTypeNameCompose(BytecodeReader& reader, uint8_t* locals);
     void OpNullCheck(BytecodeReader& reader, uint8_t* locals);
     void OpCopyStruct(BytecodeReader& reader, uint8_t* locals);
+    //Record stabilization: same operand layout as OP_CopyStruct, but the
+    //dst slot's existing record is overwritten in place (establish on a
+    //null dst handle). Implementation beside OpCopyStruct.
+    void OpCopyStructInPlace(BytecodeReader& reader, uint8_t* locals);
     void OpAllocArrayN(BytecodeReader& reader, uint8_t* locals);
     //v0.12.7 Task 11: create the slice-subscript view (OP_MakeArrayView)
     //— normalize staged endpoints/steps, fold scalar axes into the
@@ -984,9 +1018,21 @@ private:
     void OpRethrow();
     void OpPopHandler();
 
-    //Deep-copy a struct from srcHeapIdx to a new heap slot.
-    //Returns the new heap index.
+    //Deep-copy a struct from srcHeapIdx to a new heap slot (the read
+    //walk + allocate + publish establish path). Cell-granularity — no
+    //record-level lock (see the m_slotKinds block). Returns the new
+    //heap index.
     int32_t DeepCopyStruct(int32_t srcHeapIdx, uint16_t structIdx);
+
+    //Record stabilization (v0.13.9 phase ②): overwrite dst's existing
+    //cells in place from src, following DeepCopyStruct's member rule
+    //(struct-typed fields recurse into the EXISTING dst sub-records;
+    //everything else copies the cell as-is). Zero allocation — callers
+    //must guarantee dst's record already exists. dst and src trees are
+    //type-level disjoint (a record cannot be its own subtree), so no
+    //snapshot copy is needed.
+    void CopyStructCellsInPlace(int32_t dstHeapIdx, int32_t srcHeapIdx,
+                                uint16_t structIdx);
 
     //Serialize all fields of a struct to a byte sink.
     //Recursive over nested struct, class and array fields (class via
@@ -2134,8 +2180,8 @@ private:
     //structs recurse; strings by content; scalars width-aware, the
     //BoxedValuesEqual cell discipline); reference-shaped fields
     //(class/array/interface/func) compare by handle, exactly what the
-    //copy path stores. Read-only: no allocation, no GC, benign under
-    //the sharing model (the OpFuncEquality precedent).
+    //copy path stores. Cell-granularity — no record-level lock (see the
+    //m_slotKinds block).
     bool StructValuesEqual(int32_t a, int32_t b) const;
 
     //v0.13.0 D4: content equality for two RTK_Func records — the
@@ -2398,6 +2444,14 @@ private:
     //GC infrastructure.
     ChunkedArray<uint8_t>  m_slotKinds;      //parallel to m_structHeap: RTK_Class/RTK_Struct/0=free
     ChunkedArray<uint16_t> m_slotStructIdx;  //parallel to m_structHeap: struct CompiledStruct index (class uses slot[0])
+    //v0.13.9 phase ② ruling revision: whole-record struct reads and
+    //writes are CELL-granularity, same as single-field access — no
+    //record-level lock. Concurrent torn observation of a shared struct
+    //is the user's coordination duty (Mutex/AtomicInt, spec §10.1),
+    //matching the mainstream precedent (C# struct copy, Go value copy).
+    //GC-safe by construction: NoteGcPressure is a pending-flag store,
+    //not a safepoint — the GcWorldStop rendezvous happens only at
+    //dispatch boundaries, never mid-copy-walk.
     //v0.13.1 (D1): per-object instantiation descriptor, parallel to
     //m_structHeap — construction (OP_New) writes the interned
     //GenericInstDescriptor*; every other slot kind and every free slot
@@ -2497,6 +2551,7 @@ private:
     bool m_lastRaiseCreatedRootedForTests = false;  //I1 pin: window registry hit
     size_t m_gcCollections = 0;    //K6 D7: per-run collection count
     bool   m_conservativeBandForTests = false;  //K2 slice 5 A/B knob
+    size_t m_heapAllocCountForTests = 0;  //exact TakeHeapSlot count (pins)
 
     //String-store GC plumbing (collection activates in Task 2).
     static const size_t kStrGcThresholdDefault = 1024;

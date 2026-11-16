@@ -44,9 +44,10 @@ static std::string SourceFilePathOf(const SnFunction& func) {
 //Codegen-side accessor: every name written into or looked up in the VM
 //tables goes through here, so the spelling cannot drift from what the
 //resolver reports. Requires the registry injected by ModuleBuilder.
-//The key rules themselves (member/prelude/generic-erasure cases) live
-//in the shared LinkKeyOf (builder/TypeArgSpelling.cpp) — the resolver's
-//descriptor spellings and the row keys come from one function there.
+//Two-key contract (0.13.8 item 8): THIS is the row-key space — the key
+//rules (member/prelude/generic-erasure cases) live in LinkKeyOf
+//(builder/TypeArgSpelling.cpp); descriptor rows and intern keys take
+//DescriptorSpellingOf instead and must never route through here.
 std::string VmBackend::KeyOf(const SnField& field) const {
     NLANG_ASSERT(m_pRegistry && "VmBackend::KeyOf before SetModuleRegistry");
     return LinkKeyOf(*m_pRegistry, field);

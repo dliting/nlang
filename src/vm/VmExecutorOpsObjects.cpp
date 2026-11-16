@@ -6,6 +6,11 @@
     shared records, allocation goes through the per-carrier shard free
     lists, and error paths re-acquire inside RaiseNlangException. The
     throw family keeps the store lock (debug checkpoint).
+    v0.13.9 phase ② ruling revision: the whole-record struct write
+    primitive OP_CopyStructInPlace is cell-granularity too — no
+    record-level lock anywhere (concurrent shared-record coordination is
+    the user's duty, spec §10.1). Every op below is lock-free on the
+    struct-copy path.
 ---*/
 #include "VmExecutor.h"
 #include <nlang/runtime/PrimitiveTypes.h>
@@ -89,21 +94,32 @@ void VmExecutor::OpStoreStatic(BytecodeReader& reader, uint8_t* locals) {
     uint16_t src = reader.ReadUint16();
     const CompiledStaticSlot& meta = m_currModule->staticSlots[slotIdx];
     //v0.12.6 D14: a struct-typed slot is a value boundary — the slot
-    //owns an independent record, not the source's handle. Deep-copy at
-    //this single choke point so every producer (user stores, $staticInit
-    //assignments, static-local guard stores, cross-module consumers)
-    //shares the semantics. The slot metadata's typeIdx carries the
-    //struct table index, link-remapped by nlink like every TypeDesc.
-    //A zero handle passes through unchanged: null is not a struct
-    //value, and no legal program produces it here.
+    //owns an independent record, not the source's handle. Record
+    //stabilization (v0.13.9 phase ②): the slot owns ONE record for
+    //life — the first whole-value store establishes it (a fresh
+    //record, or the type-default zeroed record the slot already
+    //holds), every later store writes the value's cells INTO that
+    //record in place; the handle in the cell never changes. The write
+    //is cell-granularity — static slots are shared cross-carrier
+    //positions and cross-record coordination is the user's duty
+    //(spec §10.1), same as every other storage position. Every
+    //producer (user stores, $staticInit assignments, static-local
+    //guard stores, cross-module consumers) shares the semantics. The
+    //slot metadata's typeIdx carries the struct table index,
+    //link-remapped by nlink like every TypeDesc. A zero source handle
+    //passes through unchanged: null is not a struct value, and no
+    //legal program produces it here.
     if (meta.type.kind == RTK_Struct) {
         int32_t srcHeapIdx;
         std::memcpy(&srcHeapIdx, locals + src, sizeof(srcHeapIdx));
         if (srcHeapIdx > 0) {
-            const int32_t copyIdx =
-                DeepCopyStruct(srcHeapIdx, meta.type.typeIdx);
-            std::memcpy(m_staticSlots.Cell(slotIdx), &copyIdx,
-                        sizeof(copyIdx));
+            int32_t dstHeapIdx;
+            std::memcpy(&dstHeapIdx, m_staticSlots.Cell(slotIdx),
+                        sizeof(dstHeapIdx));
+            const int32_t stableIdx = CopyStructInPlace(
+                dstHeapIdx, srcHeapIdx, meta.type.typeIdx);
+            std::memcpy(m_staticSlots.Cell(slotIdx), &stableIdx,
+                        sizeof(stableIdx));
             if (meta.hasInitializer)
                 m_staticSlots.MarkSlotInitialized(slotIdx);
             return;
@@ -163,6 +179,23 @@ void VmExecutor::OpCopyStruct(BytecodeReader& reader, uint8_t* locals) {
     std::memcpy(&srcHeapIdx, locals + src, sizeof(srcHeapIdx));
     int32_t newHeapIdx = DeepCopyStruct(srcHeapIdx, structIdx);
     std::memcpy(locals + dst, &newHeapIdx, sizeof(newHeapIdx));
+}
+
+//Record stabilization (v0.13.9 phase ②): same operand layout as
+//OP_CopyStruct, but the dst slot's EXISTING record is overwritten in
+//place — the slot's handle only changes when it was null (establish).
+void VmExecutor::OpCopyStructInPlace(BytecodeReader& reader,
+                                     uint8_t* locals) {
+    uint16_t dst = reader.ReadUint16();
+    uint16_t src = reader.ReadUint16();
+    uint16_t structIdx = reader.ReadUint16();
+    int32_t dstHeapIdx;
+    std::memcpy(&dstHeapIdx, locals + dst, sizeof(dstHeapIdx));
+    int32_t srcHeapIdx;
+    std::memcpy(&srcHeapIdx, locals + src, sizeof(srcHeapIdx));
+    const int32_t resultHeapIdx =
+        CopyStructInPlace(dstHeapIdx, srcHeapIdx, structIdx);
+    std::memcpy(locals + dst, &resultHeapIdx, sizeof(resultHeapIdx));
 }
 
 

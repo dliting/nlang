@@ -258,6 +258,10 @@ bool VmExecutor::ExecuteIntrinsicFileStream(uint16_t intrinsicId,
                 || static_cast<size_t>(structHeapIdx) >= m_structHeap.size())
                 throw std::runtime_error("NLang VM: WriteStruct on null struct");
             uint16_t structIdx = m_slotStructIdx[static_cast<size_t>(structHeapIdx)];
+            //Whole-record read walk — cell-granularity, no record-level
+            //lock (VmExecutor.h m_slotKinds block). The ReadStruct arm
+            //stays the same: deserialize writes only freshly-allocated
+            //records, unpublished until the intrinsic returns.
             SerializeStructFields(structHeapIdx, structIdx,
                 [&](const uint8_t* p, size_t n) {
                     st->fs->write(reinterpret_cast<const char*>(p),

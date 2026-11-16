@@ -42,6 +42,27 @@ layout when tracing references. The alternative (adding a type header to
 struct objects) would require shifting all LoadField/StoreField offsets by +1,
 a larger and more error-prone change.
 
+### Record Lifetime and In-Place Updates
+
+A struct record, once established, is stable for life: every storage
+position in the language (a local variable, a field, an array element,
+a container element, a static slot) owns one record for its entire life
+(§4.7.4), and a write into an existing position runs
+`OP_CopyStructInPlace` — the record's field cells are overwritten while
+the heap slot and its handle never move; only establishing a new
+position allocates a new record. The write is cell-granularity, like
+every other storage operation: there is no record-level lock anywhere
+in the executor.
+
+**Cross-carrier observability**: without coordination, a concurrent
+reader of a shared struct may observe a mix of old and new field values
+— a whole-record store (assignment or declaration initialization)
+writes the record field by field, and whole-record reads (`==`
+comparison, by-value parameter passing, `foreach` copies) read field by
+field the same way. Per-field values are always type-correct (memory is
+never corrupted); when a record is shared across carriers, coordinate
+shared mutable state and cross-field invariants with a `Mutex` (§10.2).
+
 ### Implicit `Object` Base Class
 
 Every user class that does not explicitly inherit from another class has

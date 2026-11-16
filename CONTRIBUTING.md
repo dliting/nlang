@@ -39,6 +39,33 @@ A change is done when the suites below pass, not when it compiles.
 The e2e runner takes ncc/nvm paths as positional arguments and defaults to the
 `build/` tree — pass explicit paths when testing an IDE (`build-ide/`) build.
 
+Full runs are batched into three tiers (`tools/gate_tier.sh`, design in
+`docs/dev/gate_tiering_design.md`): T0 runs only the test families an
+iteration's changed sources map to (unmapped changes fall back to the full
+Debug unit suite); T1 is the phase dock — full Debug units and e2e, the IDE
+tree, ASan units and the ASan memory-risk e2e subset; T2 adds full ASan e2e,
+the Release build and e2e, and the docs pipeline, and runs once at version
+close. Every e2e manifest entry must be selected by at least one tier
+(`tools/tier_coverage_check.py`); a red leg voids the whole batch and forces
+a full re-sweep.
+
+A tier only decides which legs run; `tools/gate.sh` decides when each one may
+start and what counts as its result, and the tier script starts every leg
+through it. A leg is therefore judged by that script's verdict line or exit
+code and never by a piped tail (a pipe reports the tail's code, which once
+turned a four-failure ctest run into a recorded "all green"), and a leg that
+runs tests holds a machine-wide lock while it runs, because two batches on one
+machine would otherwise share the CPU the timing- and concurrency-sensitive VM
+tests measure and the desktop whose foreground process owns the keyboard focus
+chain the IDE tests need. The tier script never asks to run legs in parallel:
+it works through its batch one leg at a time, so a tier measures one machine
+at a time. Parallelism belongs to the person assembling a batch instead, and
+the tool for it is the script's `--shared` flag: a command that only builds (a
+configure, a compile, a docs build) still waits for any running test gate, but
+overlaps other build gates, while claiming each build directory its own
+command line names, so two build gates can never fight over one tree even
+though different trees build side by side.
+
 The network cases assume a working loopback. The TCP and UDP cases bind their
 own peers, so they only need loopback sockets; `stdlib_net_ping_loopback` and
 the raw-ICMP case additionally need the host to answer an ICMP echo, which a

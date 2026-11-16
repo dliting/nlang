@@ -69,9 +69,42 @@ bool StatementResolveAccessor::AdmitCompoundOperandTypes(
 		return false;
 	if (!TryGetAssignSourceType(*sn.Right(), pTargetType, pSourceType))
 		return false;
+	//v0.13.9 phase ②: struct operands reject compound assignment by
+	//name (rationale on the helper).
+	if (RejectStructCompoundAssign(sn, pTargetType, pSourceType))
+		return false;
 	//v0.13.7: arrays reject compound assignment by name (rationale on
 	//the helper).
 	return !RejectArrayCompoundAssign(sn, pTargetType, pSourceType);
+}
+
+//v0.13.9 phase ②: struct-involved compound assignment is rejected by
+//name — structs have no arithmetic operators (the expanded form
+//`a = a + b` is already rejected at the arithmetic ladder's cast
+//gates), so an in-place compound arm has no coherent semantics to
+//implement; the compound emitter's kind dispatch would emit int-typed
+//ops on the record's handle cells. True = rejected (the caller stops).
+bool StatementResolveAccessor::RejectStructCompoundAssign(
+	SnCompoundAssignStmt &sn, const SnField *pTargetType,
+	const SnField *pSourceType)
+{
+	if (pTargetType->Kind() == NK_StructDecl)
+	{
+		m_Env.Log(CLL_Error, sn.Location(),
+			"operator '%s=': compound assignment is not supported "
+			"on struct values; structs have no arithmetic operators.",
+			SnBinaryExpr::OperatorSymbol(sn.Op()));
+		return true;
+	}
+	if (pSourceType->Kind() == NK_StructDecl)
+	{
+		m_Env.Log(CLL_Error, sn.Location(),
+			"operator '%s=': compound assignment with a struct value "
+			"is not supported on this target type.",
+			SnBinaryExpr::OperatorSymbol(sn.Op()));
+		return true;
+	}
+	return false;
 }
 
 //v0.13.7: array-involved compound assignment is rejected by name —

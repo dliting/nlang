@@ -583,6 +583,34 @@ target_compile_definitions(test_generic_runtime_info
 
 add_test(NAME generic_runtime_info_tests COMMAND test_generic_runtime_info)
 
+# v0.13.9 phase ②: the record-stabilization write primitive
+# (OP_CopyStructInPlace / CopyStructInPlace), compile+execute
+# in-process; allocation pins read HeapAllocCountForTests.
+add_executable(test_stabilize_copy
+    test_vm/test_stabilize_copy.cpp
+)
+
+target_include_directories(test_stabilize_copy
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_stabilize_copy
+    PRIVATE
+        nlang_vm
+        nlang_compiler
+        nlang_runtime
+        nlang_langservice
+)
+nlang_stdlib_test(test_stabilize_copy)
+target_compile_definitions(test_stabilize_copy
+    PRIVATE
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+)
+
+add_test(NAME stabilize_copy_tests COMMAND test_stabilize_copy)
+
 target_include_directories(test_array_view_record
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
@@ -1619,6 +1647,38 @@ if(NLANG_BUILD_IDE)
             Qt5::Test
     )
     nlang_add_qtest(generic_descriptor_tests test_generic_descriptor)
+
+    # Descriptor two-key contract (0.13.8 Task 7): row keys stay bare
+    # under erasure while descriptor spellings carry the producing
+    # package. Builds two same-named packages in-process and walks the
+    # main unit's emitted descriptor rows (needs stdlib for List<int>).
+    add_executable(test_descriptor_spelling
+        test_vm/test_descriptor_spelling.cpp
+    )
+    target_include_directories(test_descriptor_spelling
+        PRIVATE
+            ${PROJECT_SOURCE_DIR}/src/vm
+            ${PROJECT_SOURCE_DIR}/src/compiler
+    )
+    target_link_libraries(test_descriptor_spelling
+        PRIVATE
+            nlang_compiler
+            nlang_runtime
+            nlang_vm
+            Qt5::Test
+    )
+    nlang_stdlib_test(test_descriptor_spelling)
+    target_compile_definitions(test_descriptor_spelling
+        PRIVATE
+            STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+    )
+    if(WIN32)
+        add_custom_command(TARGET test_descriptor_spelling POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:Qt5::Core> $<TARGET_FILE:Qt5::Test>
+                $<TARGET_FILE_DIR:test_descriptor_spelling>)
+    endif()
+    nlang_add_qtest(descriptor_spelling_tests test_descriptor_spelling)
 
     # Type-parameter slot-kind unit tests (v0.12.3 Task 4): the RTK_TypeParam
     # label, the placeholder node predicate and the compile-time kind

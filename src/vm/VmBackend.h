@@ -80,6 +80,13 @@ public:
         bool bDynamic = false;
         uint8_t tag = 0;
         uint8_t dynOrdinal = 0;
+        //Record stabilization (v0.13.9 phase ②): List.set/Dict.set
+        //value slots suppress EmitBinding's emit-side struct staging
+        //copy — the intrinsic copies the value into the element's
+        //EXISTING record in place (the old element handle is only
+        //knowable at runtime). add keeps the staging copy (position
+        //establishment happens at emit time).
+        bool suppressStagingCopy = false;
     };
 
     VmBackend();
@@ -777,6 +784,13 @@ private:
     void EmitArrayElementStore(SnSubscriptAssignStmt& sub,
                                BytecodeEmitter& emitter);
 
+    //Struct-element tail of EmitArrayElementStore (same TU): load the
+    //element's established record handle, then copy the value's cells
+    //into that record in place.
+    void EmitStabilizedElementStore(bool dynOps, uint16_t elemSlot,
+        uint16_t claimBase, uint16_t idxBase, uint16_t valueSlot,
+        uint16_t rank, SnField* elemType, BytecodeEmitter& emitter);
+
     //Assign store (EmitStmtDecl.cpp): bare-identifier and member
     //targets, one helper per destination shape. BareIdentifier
     //dispatches Local vs ThisField; MemberField tries the
@@ -816,7 +830,7 @@ private:
     void EmitAssignStructField(SnAssignStmt& assign,
         SnMemberExpr& memberExpr, SnStructDecl* structDecl,
         BytecodeEmitter& emitter);
-    void EmitAssignStructFieldDeepCopy(SnAssignStmt& assign,
+    void EmitAssignStructFieldInPlace(SnAssignStmt& assign,
         SnMemberExpr& memberExpr, uint16_t fieldOff, SnField* fieldType,
         BytecodeEmitter& emitter);
     void EmitAssignStructFieldPlain(SnAssignStmt& assign,
@@ -1020,11 +1034,16 @@ private:
     //work (e.g. boxing for built-in generic class methods).
     //claimBase: the base offset of the current evalArea claim slice
     //(or callParamBase for non-EmitCallArgs callers).
+    //pArgPlans: the call's boxing plans (EmitCallArgs' member-generic
+    //path); a slot plan with suppressStagingCopy skips the struct
+    //staging copy (the intrinsic copies in place instead).
     void EmitBinding(const FormalBinding* pBindings, size_t bindingIdx,
                      uint16_t slotIdx, size_t slotBase,
                      BytecodeEmitter& emitter,
                      uint16_t thisSlot,
-                     uint16_t claimBase);
+                     uint16_t claimBase,
+                     const std::map<uint16_t, ArgBoxPlan>* pArgPlans
+                         = nullptr);
     //B_Default arm of EmitBinding: the override scope, the default
     //expression, and the 0.7.5 in-place kind normalize to the formal.
     void EmitDefaultBinding(const FormalBinding* pBindings,
@@ -1039,6 +1058,14 @@ private:
     void EmitStructDeepCopy(uint16_t dst, uint16_t src,
                             SnStructDecl& structDecl,
                             BytecodeEmitter& emitter);
+    //Record stabilization twin (v0.13.9 phase ②): copy the heap subtree
+    //src → dst IN PLACE via OP_CopyStructInPlace — dst's existing record
+    //is overwritten (zero allocation, stable record identity); a null
+    //dst establishes one fresh record. Same operand shape as
+    //EmitStructDeepCopy (dst/src byte offsets + struct table index).
+    void EmitStructCopyInPlace(uint16_t dst, uint16_t src,
+                               SnStructDecl& structDecl,
+                               BytecodeEmitter& emitter);
     //v0.12.6 D14: struct-aware field store — when the field's declared
     //type is a struct, deep-copy the staged value in place before the
     //store (a struct moving into a field is copied, manual 4.7.4);
@@ -1049,6 +1076,11 @@ private:
                                    uint16_t objSlot, uint16_t fieldOff,
                                    uint16_t valueSlot,
                                    BytecodeEmitter& emitter);
+    //Element row of an array-element store's base (nullptr when the
+    //base is not array-valued). Shared by EmitArrayElementStore and
+    //SubscriptAssignStmtPeakDepth so the walker's claim size mirrors
+    //codegen exactly (struct elements claim one extra handle slot).
+    SnField* ArrayElementStoreType(SnSubscriptAssignStmt& sub);
 
     //EmitCallArgs decomposition (2026-09-25): one arm/phase per helper.
     //applyBox flows through as std::function so the per-arg boxing
@@ -1102,7 +1134,9 @@ private:
                                size_t slotBase, uint16_t claimBase,
                                uint16_t thisSlot,
                                std::vector<OutSpill>* pOutSpills,
-                               const std::function<void(uint16_t)>& applyBox);
+                               const std::function<void(uint16_t)>& applyBox,
+                               const std::map<uint16_t, ArgBoxPlan>* pArgPlans
+                                   = nullptr);
 
     //RAII registration of "pFn's defaults are mid-emission", shared by the
     //three default-emission sites (function/method bindings, ctor
@@ -1259,7 +1293,9 @@ private:
                               BytecodeEmitter& emitter, uint16_t thisSlot,
                               uint16_t claimBase,
                               std::vector<OutSpill>* pOutSpills,
-                              const std::function<void(uint16_t)>& applyBox);
+                              const std::function<void(uint16_t)>& applyBox,
+                              const std::map<uint16_t, ArgBoxPlan>* pArgPlans
+                                  = nullptr);
 
     //Phase 9a: emit a compound-assign arithmetic op (locals[dst] op= locals[src]).
     //op is the underlying binary operator (Add/Sub/Mul/Div/Mod).

@@ -93,9 +93,7 @@ int main() {
 
 类型实参可以是标量基本类型、`string`、枚举、类类型、接口类型、结构体类型、数组类型，或另一个泛型实例化。`void`类型实参是编译期错误（§7.4）。
 
-用户声明的泛型类拒绝函数类型实参：函数值是多槽位记录（目标、接收者、形态）。结构体类型实参被接受——每个边界（构造函数形参、局部绑定、字段存储、`foreach`）都经替换类型深拷贝记录，字段的值槽位持有一份私有副本。内建容器同样接受结构体类型实参（`Dict`中的结构体键按字段值比较，§12.2）。
-
-结构体实参有一个角落：在泛型类自身的方法体内，两个`T`类型字段之间的`T`到`T`搬运（`item = other.item;`）不经拷贝地转移记录句柄，两个字段随即共享同一记录——经一方的写入会透传到另一方。只有体内字段搬运会发生别名；每个边界都深拷贝（§4.7.4）。
+用户声明的泛型类拒绝函数类型实参：函数值是多槽位记录（目标、接收者、形态）。结构体类型实参被接受——构造函数形参、局部绑定与`foreach`循环变量各自建立新记录并从源拷贝，字段存储与字段间搬运按§4.7.4原位更新，字段的值槽位持有一份私有副本。内建容器同样接受结构体类型实参（`Dict`中的结构体键按字段值比较，§12.2）。
 
 数组类型实参——`List<int[]>`——把数组值作为裸引用存储；基本类型装箱规则不适用于它们。方括号拼写与泛型拼写是同一类型（§4.10.1），`List<Array<int>>`与`List<int[]>`是一类型两写法。经`get`或下标取出的元素保留其数组类型，因此`foreach (int[] row in grid)`可直接迭代它们（第6章）。`indexOf`与`contains`按句柄恒等比较数组元素。锯齿类型实参（`List<int[][]>`）与其他锯齿声明一样被拒绝（§4.10.1）——泛型服装下的同一锯齿形状同样如此：`Array<Array<int>>`就是`int[][]`，无论写在何处都是编译期错误。无标注的`Array<T>`是普通的类型实参：泛型类内的`List<Array<T>>`声明类型参数的数组列表。
 
@@ -168,7 +166,7 @@ class Box<T> {
 
 ## 4.12.9 运行时类型信息与类型参数
 
-`typeName`以类型表达式为实参，返回它的规范拼写字符串。具体类型的拼写编译期折叠——`typeName(int)`是`"int"`，`typeName(Box<int>)`是`"Box<int>"`，`typeName(int[,])`是`"int[,]"`（秩进括号），`typeName(List<List<int>>)`是`"List<List<int>>"`。含类型参数的形态在运行期经接收者的实例化信息解析：
+`typeName`以类型表达式为实参，返回它的规范拼写字符串。具体类型的拼写编译期折叠——`typeName(int)`是`"int"`，`typeName(int[,])`是`"int[,]"`（秩进括号），内建容器保持裸名：`typeName(List<List<int>>)`是`"List<List<int>>"`。用户单元的泛型模板拼写带所属包路径前缀（§3.9.3）：在由`demo.n`编译的单元里，`typeName(Box<int>)`是`"demo.Box<int>"`；从包`alib`导入的同名模板拼写为`"alib.Box<int>"`——两个包声明同名模板得到两个不同的拼写，`typeName`、转型与判等一体遵行。含类型参数的形态在运行期经接收者的实例化信息解析：
 
 ```nlang
 class Box<T> {
@@ -176,9 +174,9 @@ class Box<T> {
     public Box(T v) { this.value = v; }
 }
 class Hold<T> {
-    public string showArg() { return typeName(T); }        // "int" / "Box<int>"
-    public string showInner() { return typeName(Box<T>); } // "Box<int>"
-    public string showArray() { return typeName(T[]); }    // "int[]" / "Box<int>[]"
+    public string showArg() { return typeName(T); }        // "int" / "demo.Box<int>"
+    public string showInner() { return typeName(Box<T>); } // "demo.Box<int>"
+    public string showArray() { return typeName(T[]); }    // "int[]" / "demo.Box<int>[]"
 }
 ```
 

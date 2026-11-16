@@ -238,6 +238,7 @@ struct GateProjectOptions
     const char* szExtraBody = nullptr;    //explicit extra.n body
     bool withUtils2MyClass = false;  //also register utils2/MyClass.n
     bool withCoreHelper = false;     //also register core/helper.n (same stem, other dir)
+    const char* szCoreHelperBody = nullptr; //explicit core/helper.n body
     bool withRichLib = false;        //also build libsrc/rlib.n (type surface lib)
     bool withAccessLib = false;      //also build libsrc/xlib.n (0.13.8 Task 4 access-surface lib)
 };
@@ -302,9 +303,10 @@ GateResult buildGateProject(const GateProjectOptions& opts)
             writeFile(proj / "utils2" / "MyClass.n",
                 "int m() { return 8; }\n")) &&
         (!opts.withCoreHelper ||
-            writeFile(proj / "core" / "helper.n",
-                "int help() { return 5; }\n"
-                "struct Cfg { int c; }\n")) &&
+            writeFile(proj / "core" / "helper.n", opts.szCoreHelperBody
+                ? opts.szCoreHelperBody
+                : "int help() { return 5; }\n"
+                  "struct Cfg { int c; }\n")) &&
         (!opts.withRichLib ||
             writeFile(libSrc / "rlib.n",
                 "class Widget {\n"
@@ -2622,6 +2624,116 @@ private slots:
         QVERIFY2(run.runtimeError.empty(), "execution must be clean");
         QVERIFY2(run.exitValue == 10,
             "the consumer's own helper() must win (10, not 9)");
+    }
+
+    //--- 0.13.8 D8.4: same-name types across bare pools -----------------
+    //
+    //utils/helper.n and core/helper.n each declare the same-named
+    //generic family (the DuplicateFieldChecker explicitly permits
+    //cross-pool same-name: "utils.helper.Cfg vs core.helper.Cfg ...
+    //each keeps its own identity"). Expression-position bare type
+    //resolution (annotations, ctor invocations, casts, typeName) must
+    //bind the ACCESSOR'S OWN unit's declaration first; the sibling
+    //pool's same-name type is reachable only qualified. Today the
+    //bare-pool scope hands back the FIRST-REGISTERED same-name child
+    //regardless of origin, so the later unit silently binds the
+    //earlier one.
+
+    //Runtime witness: each package's tagPipe() folds ITS OWN
+    //instantiation spelling, each makePipe() constructs its own, and
+    //each castLen() accepts only its own instance.
+    void sameNameGenericBindsOwnPoolAtRuntime()
+    {
+        GateProjectOptions opts;
+        opts.withCoreHelper = true;
+        //Identical source text in both packages except the len()
+        //constant, so a conflation shows as a wrong value, not a
+        //compile error.
+        opts.szHelperBody =
+            "class Pipe<T>\n"
+            "{\n"
+            "    public T item;\n"
+            "    public Pipe(T v) { item = v; }\n"
+            "    public int len() { return 3; }\n"
+            "}\n"
+            "string tagPipe() { return typeName(Pipe<int>); }\n"
+            "Object makePipe() { Pipe<int> p = Pipe(3); return p; }\n"
+            "int castLen(Object o)\n"
+            "{\n"
+            "    Pipe<int> p = o as Pipe<int>;\n"
+            "    return p.len();\n"
+            "}\n";
+        opts.szCoreHelperBody =
+            "class Pipe<T>\n"
+            "{\n"
+            "    public T item;\n"
+            "    public Pipe(T v) { item = v; }\n"
+            "    public int len() { return 4; }\n"
+            "}\n"
+            "string tagPipe() { return typeName(Pipe<int>); }\n"
+            "Object makePipe() { Pipe<int> p = Pipe(4); return p; }\n"
+            "int castLen(Object o)\n"
+            "{\n"
+            "    Pipe<int> p = o as Pipe<int>;\n"
+            "    return p.len();\n"
+            "}\n";
+        opts.szMainBody =
+            "import utils.helper;\n"
+            "import core.helper;\n"
+            "int main()\n"
+            "{\n"
+            "    string a = utils.helper.tagPipe();\n"
+            "    string b = core.helper.tagPipe();\n"
+            "    if (a != \"utils.helper.Pipe<int>\") { return 12; }\n"
+            "    if (b != \"core.helper.Pipe<int>\") { return 13; }\n"
+            "    Object oa = utils.helper.makePipe();\n"
+            "    Object ob = core.helper.makePipe();\n"
+            "    if (utils.helper.castLen(oa) != 3) { return 14; }\n"
+            "    if (core.helper.castLen(ob) != 4) { return 15; }\n"
+            "    try { core.helper.castLen(oa); return 16; }\n"
+            "    catch (InvalidCastException e) { }\n"
+            "    try { utils.helper.castLen(ob); return 17; }\n"
+            "    catch (InvalidCastException e) { }\n"
+            "    return 0;\n"
+            "}\n";
+        auto run = runGateProject(opts);
+        QVERIFY2(run.ok, runFailureText(run,
+            "same-name family must compile").c_str());
+        QVERIFY2(run.runtimeError.empty(), "execution must be clean");
+        QVERIFY2(run.exitValue == 0,
+            ("each package must bind its own Pipe<int>; exit="
+             + std::to_string(run.exitValue)).c_str());
+    }
+
+    //A bare use with NO own declaration and several imported foreign
+    //candidates of the same name must diagnose the ambiguity (naming
+    //both packages) instead of silently answering with the first
+    //registered unit.
+    void sameNameForeignBareUseDiagnosesAmbiguity()
+    {
+        GateProjectOptions opts;
+        opts.withCoreHelper = true;
+        opts.szHelperBody = "class Solo { public int v = 1; }\n";
+        opts.szCoreHelperBody = "class Solo { public int v = 2; }\n";
+        opts.szMainBody =
+            "import utils.helper;\n"
+            "import core.helper;\n"
+            "int main()\n"
+            "{\n"
+            "    Solo s = Solo();\n"
+            "    return 0;\n"
+            "}\n";
+        auto res = buildGateProject(opts);
+        QVERIFY2(res.builder != nullptr,
+            ("gate scaffold failed before the gate stage; errors: "
+             + joinErrors(res.errors)).c_str());
+        QVERIFY2(!res.ok,
+            "a bare use of two foreign same-name types must be "
+            "ambiguous, not first-registered-wins");
+        QVERIFY2(containsError(res.errors, "utils.helper")
+            && containsError(res.errors, "core.helper"),
+            ("the ambiguity diagnostic must name both packages; errors: "
+             + joinErrors(res.errors)).c_str());
     }
 };
 
