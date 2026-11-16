@@ -7,6 +7,7 @@
     ordering against a held guard.
 ---*/
 #include "VmExecutor.h"
+#include <nlang/runtime/StackDump.h>
 #include <cstring>
 #include <stdexcept>
 
@@ -121,6 +122,8 @@ bool VmExecutor::ExecuteIntrinsicContainerStructural(uint16_t intrinsicId,
         int32_t old = lst.elements[idx];
         if (old > 0
             && m_slotKinds[static_cast<size_t>(old)] == RTK_Struct) {
+            NLANG_ASSERT(value > 0
+                && "struct-typed store sources are established records");
             CopyStructInPlace(
                 old, value, m_slotStructIdx[static_cast<size_t>(old)]);
             return true;
@@ -233,6 +236,8 @@ bool VmExecutor::ExecuteIntrinsicContainerStructural(uint16_t intrinsicId,
                 int32_t old = kv.second;
                 if (old > 0
                     && m_slotKinds[static_cast<size_t>(old)] == RTK_Struct) {
+                    NLANG_ASSERT(v > 0
+                        && "struct-typed store sources are established records");
                     CopyStructInPlace(
                         old, v, m_slotStructIdx[static_cast<size_t>(old)]);
                     return true;
@@ -246,6 +251,20 @@ bool VmExecutor::ExecuteIntrinsicContainerStructural(uint16_t intrinsicId,
         //for struct values. CopyStructInPlace's establish fallback
         //(dst ≤ 0) allocates ONE fresh record and returns its handle;
         //the entry stores that handle, never v's raw identity.
+        //The KEY side mirrors the value side: a struct key is an owned
+        //deep copy, not an alias of the caller's record. Keys are
+        //deep-compared (DictKeysEqual), so the copy is the only shape
+        //consistent with the documented set-stores-a-copy contract —
+        //and the sugar spelling d[k]=v stages the key raw
+        //(PlanBoundaryBox boxes primitives only), so this chokepoint
+        //is what makes both spellings agree. The copy lives at
+        //establishment only: the replace arm above keeps its
+        //zero-allocation in-place path and never rewrites the stored
+        //key.
+        if (k > 0 && m_slotKinds[static_cast<size_t>(k)] == RTK_Struct) {
+            k = CopyStructInPlace(0, k,
+                m_slotStructIdx[static_cast<size_t>(k)]);
+        }
         if (v > 0 && m_slotKinds[static_cast<size_t>(v)] == RTK_Struct) {
             int32_t fresh = CopyStructInPlace(0, v,
                 m_slotStructIdx[static_cast<size_t>(v)]);

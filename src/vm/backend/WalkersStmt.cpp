@@ -109,11 +109,13 @@ uint16_t VmBackend::AssignStmtPeakDepth(SnStatement& stmt,
                 *member.Inner()).Indices().size();
         claim = static_cast<uint16_t>(2 + n);
     }
-    //Identifier targets (plain local `x = rhs`) stage the RHS in an
-    //EvalAreaClaim(1) before copying to the destination (round-7 —
-    //aliasing family). The struct branch (CopyStruct staging) and the
-    //implicit this-field branch use temps only after their last
-    //nested emission, needing no claim — over-reserve is safe.
+    //Identifier targets stage the RHS in an EvalAreaClaim(1) before
+    //copying to the destination (round-7 — aliasing family). The same
+    //budget covers the struct shapes: the plain-local struct branch
+    //stages via tempSlot2 (no claim), while the implicit this-field
+    //branch nests the struct-aware store tail's own claim(1)
+    //(EmitStructAwareStoreField) — the uniform identifier claim of 1
+    //fits both (over-reserve is the safe direction).
     else if (assign.Left()
         && assign.Left()->Kind() == NK_IdentifierExpr)
         claim = 1;

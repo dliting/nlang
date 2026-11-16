@@ -2392,3 +2392,5 @@ stabilize_static_store 42
 compile_error_struct_compound compile_error compound assignment is not supported on struct
 stabilize_concurrent_write 42
 stabilize_indep_sweep 42
+stdlib_dict_struct_key 42
+stdlib_stabilize_uncoordinated_race 42
