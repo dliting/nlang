@@ -400,6 +400,15 @@ native Array<long> broadcastTo(Array<long> a, int[] shape);
 native Array<float> broadcastTo(Array<float> a, int[] shape);
 native Array<double> broadcastTo(Array<double> a, int[] shape);
 
+// Materialize to a dense row-major copy: the original handle is
+// returned when the source is already contiguous, a dense copy
+// otherwise (PyTorch's contiguous). The copy keeps the source's
+// residency (a device view stays on device).
+native Array<int> contiguous(Array<int> a);
+native Array<long> contiguous(Array<long> a);
+native Array<float> contiguous(Array<float> a);
+native Array<double> contiguous(Array<double> a);
+
 // Reshape re-views a contiguous source at the same offset (O(1)); a
 // strided source materializes a dense copy first. Exactly one shape
 // dim may be

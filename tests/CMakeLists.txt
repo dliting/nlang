@@ -2889,6 +2889,7 @@ add_executable(test_native_tensor
     test_native_tensor/TestMatMul.cpp
     test_native_tensor/TestElementwise.cpp
     test_native_tensor/TestReduce.cpp
+    test_native_tensor/TestReduceStrided.cpp
 )
 target_link_libraries(test_native_tensor PRIVATE nlang_tensor_kernels)
 target_include_directories(test_native_tensor PRIVATE

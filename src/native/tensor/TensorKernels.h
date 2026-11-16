@@ -291,13 +291,17 @@ void TensorMatmul(NativeHost* host, uint8_t* ret, const uint8_t* args,
 //--- view entries (tensor_views.cpp, v0.12.7 Task 12) ---------------------------
 //transpose dispatches on argc: 1 = full axis reversal, 2 = permutation
 //(axes). flatten/reshape view contiguous sources and materialize the
-//rest; slice is the all-axes function form; broadcastTo is the
-//read-only zero-stride view.
+//rest; contiguous is the explicit materialization surface (the original
+//handle when already row-major contiguous, a dense copy otherwise);
+//slice is the all-axes function form; broadcastTo is the read-only
+//zero-stride view.
 
 void TensorSlice(NativeHost* host, uint8_t* ret, const uint8_t* args,
                  int argc);
 void TensorBroadcastTo(NativeHost* host, uint8_t* ret, const uint8_t* args,
                        int argc);
+void TensorContiguous(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                      int argc);
 
 //Scalar arms of the elementwise family: registered under their own
 //names (addScalar/...) because the array and scalar forms share argc=2;

@@ -76,7 +76,11 @@ documented surface.
   copy is made and the result never aliases `a`.
 - `concat(a, b, axis)` joins two arrays of the same rank along
   `axis`: the result takes the summed length on `axis` and the
-  operand lengths everywhere else, which must be equal.
+  operand lengths everywhere else, which must be equal. A
+  strided operand (a `transpose` result, a step slice) is read
+  through its recorded strides on the device backend — the
+  join makes no copy (§18.3); on the host it is materialized
+  first (an invisible dense copy).
 - `flatten(a)` returns the elements of an array of any rank as a
   rank-1 array in row-major order — a view when the elements are
   contiguous, a copy otherwise (the same rule as `reshape` with
@@ -101,6 +105,18 @@ documented surface.
   position raises `Exception` (§4.10.9), while size-1 repeated
   axes stay writable. Element reads, reductions and
   serialization see the repeated content.
+- `contiguous(a)` materializes `a` to a dense row-major
+  array: when `a` is already row-major contiguous — an array
+  the program created, or a view whose elements sit in
+  dense order (a full-row slice, any offset) — `a` itself is
+  returned and the result aliases it (a write through the
+  result reaches `a`); otherwise a fresh dense copy is made
+  and the result never aliases `a`. The copy keeps the
+  source's residency (§18.7): a device view lands a device
+  array. *Informative:* this is the explicit form of what the
+  kernels do invisibly — feeding a strided view to any kernel
+  needs no copy, and `contiguous` is for when the caller
+  wants its own dense array to keep, index or hand out.
 
 ```nlang
 import io;
@@ -157,10 +173,14 @@ int main() {
 For rank-2 operands the elementwise kernels keep the operand
 shape, and the reductions flatten over the elements in
 row-major order. Views are ordinary operands: every kernel
-reads through the view's own shape and strides (a `transpose`
-result feeds `matmul` directly), and kernels that need
-contiguous cells — `matmul` and `concat` — copy a
-non-contiguous operand first, invisibly to the program.
+reads through the view's own shape and strides — the
+reductions and `dot` take a strided view (a `transpose`
+result, a step slice) with no copy, and on the device
+backend so do `matmul` and `concat` (§18.7). On the host,
+`matmul` and `concat` materialize a strided operand first —
+an invisible dense copy the program never sees. A dense
+copy as a value is an explicit decision: `tensor.contiguous`
+(§18.2) materializes a strided view on demand.
 
 ```nlang
 import io;
@@ -202,7 +222,11 @@ with both shapes (§18.6).
 `[aRows, aCols] * [bRows, bCols]` yields `[aRows, bCols]`, and
 the inner dimensions must match. The arithmetic follows the
 language-wide rules (§4.2): `int` and `long` wrap around,
-`float` and `double` follow IEEE.
+`float` and `double` follow IEEE. A strided operand (a
+`transpose` result, a row slice) is read through its recorded
+strides on the device backend — the product makes no copy
+(§18.3); on the host it is materialized first (an invisible
+dense copy).
 
 ```nlang
 int[,] m = [[1, 2], [3, 4]];
@@ -491,19 +515,21 @@ across backends is asserting on an implementation detail.
 
 ### Known limitations
 
-Two operations are not yet on the CUDA backend, and one source
-shape is not yet handled by the reduction kernels.
+Two operations are not yet on the CUDA backend, and the device
+concat and per-axis reductions cover only part of the surface.
 
 * `tensor.clamp` on an integer array (`int`, `long`) raises
   `Exception` — only the `float` and `double` clamp are on the
   device.
 * `tensor.gather` with `double` or `long` elements raises
   `Exception` — the `float` and `int` gather are on the device.
-
-The whole-array and per-axis reduction kernels (`tensor.sum`,
-`tensor.max`/`tensor.min`, `tensor.mean`, `tensor.dot`,
-`tensor.reduce`, `tensor.argmax`/`tensor.argmin`) read their
-source as a dense span. A strided (non-contiguous) device array
-passed to one of them reads the wrong elements; a contiguous
-slice is handled correctly. `tensor.matmul` and `tensor.concat`
-materialize a strided operand first, so they are not affected.
+* `tensor.concat` along any axis but the outermost (axis 0) raises
+  `Exception` — the device kernel implements the axis-0 join
+  only; the host path handles every axis.
+* `sum`/`max`/`min` with an axis arm (`reduce`) on the device
+  supports `float` only, and only the last axis (any rank) or axis 0
+  of a rank-2 array; other kinds and middle axes of a rank-3+ array
+  raise `Exception` — the host path handles every kind and axis.
+* `argmax`/`argmin` with an axis arm on the device supports `float`
+  only and only the last axis; other kinds and axes raise
+  `Exception` — the host path handles every kind and axis.

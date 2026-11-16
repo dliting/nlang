@@ -99,29 +99,6 @@ LaunchView ToLaunch(const NativeArrayView& v) {
     return lv;
 }
 
-//The dense-flat variant: the flat kernels index data[] directly (no
-//strides), so the source must be dense. Matmul materializes non-
-//contiguous operands up front (ContiguousOperand); the reduction family
-//(sum/extreme/mean/dot) passes the view through, so it is correct for
-//dense and CONTIGUOUS-slice sources — a strided device source is a known
-//gap (it reads the owner densely from the folded offset). Either way the
-//base pointer must FOLD the offset — an unfolded base reads the owner's
-//element zero (every mnist batch slice read batch 0's rows).
-LaunchView ToLaunchDense(const NativeArrayView& v) {
-    auto lv = ToLaunch(v);
-    int32_t stride = 1;
-    for (int32_t d = v.rank - 1; d >= 0; --d) {
-        lv.strides[d] = stride;
-        stride *= v.dims[d];
-    }
-    const int cellBytes =
-        (v.elemKind == NEK_Float64 || v.elemKind == NEK_Int64) ? 8 : 4;
-    lv.data = static_cast<uint8_t*>(lv.data)
-        + static_cast<size_t>(lv.offset) * cellBytes;
-    lv.offset = 0;
-    return lv;
-}
-
 //--- the TensorOps CUDA table -------------------------------------------
 //Each slot: RequireCuda (the lazy context) → launch → raise on errors.
 //The op codes ride the shared enums; the launcher-level errors surface
@@ -147,35 +124,37 @@ TensorOps MakeCudaTable() {
     //implement yet carries a named NotSupported raise — a null slot
     //would be a null function-pointer call once the per-call routing
     //directs device operands here. The uniform stub is the spelling.
-    //extreme (full reduction): the flat partial kernel indexes densely, so
-    //the source must be dense; ToLaunchDense folds a contiguous slice's
-    //offset (a strided device source is a known gap — see the docs).
+    //extreme (full reduction): the launcher branches on IsDense — a dense
+    //view takes the flat dense kernel (offset folded into the base), a
+    //strided view takes the strided-aware kernel (FlatAddress per
+    //element). The dispatcher does not materialize; the slot passes the
+    //real view through.
     t.extremeF32 = [](NativeHost* host, bool isMax, NativeArrayView& src,
                       float* out) {
         RequireCuda(host);
         double f = 0.0;
-        CUDA_CHECK(LaunchExtreme(isMax, ToLaunchDense(src), &f, nullptr,
+        CUDA_CHECK(LaunchExtreme(isMax, ToLaunch(src), &f, nullptr,
             false), "tensor (cuda extreme)");
         *out = (float)f;
     };
     t.extremeF64 = [](NativeHost* host, bool isMax, NativeArrayView& src,
                       double* out) {
         RequireCuda(host);
-        CUDA_CHECK(LaunchExtreme(isMax, ToLaunchDense(src), out, nullptr,
+        CUDA_CHECK(LaunchExtreme(isMax, ToLaunch(src), out, nullptr,
             false), "tensor (cuda extreme)");
     };
     t.extremeI32 = [](NativeHost* host, bool isMax, NativeArrayView& src,
                       int32_t* out) {
         RequireCuda(host);
         int64_t i = 0;
-        CUDA_CHECK(LaunchExtreme(isMax, ToLaunchDense(src), nullptr, &i,
+        CUDA_CHECK(LaunchExtreme(isMax, ToLaunch(src), nullptr, &i,
             true), "tensor (cuda extreme)");
         *out = (int32_t)i;
     };
     t.extremeI64 = [](NativeHost* host, bool isMax, NativeArrayView& src,
                       int64_t* out) {
         RequireCuda(host);
-        CUDA_CHECK(LaunchExtreme(isMax, ToLaunchDense(src), nullptr, out,
+        CUDA_CHECK(LaunchExtreme(isMax, ToLaunch(src), nullptr, out,
             true), "tensor (cuda extreme)");
     };
     //mean: reuse the device sum; the CPU's double accumulation and double
@@ -186,7 +165,7 @@ TensorOps MakeCudaTable() {
         [](NativeHost* host, NativeArrayView& src, double* out) {
         RequireCuda(host);
         double s = 0.0;
-        CUDA_CHECK(LaunchSumAll(ToLaunchDense(src), &s, nullptr, false),
+        CUDA_CHECK(LaunchSumAll(ToLaunch(src), &s, nullptr, false),
             "tensor (cuda mean)");
         *out = s / static_cast<double>(src.elemCount);
     };
@@ -194,22 +173,22 @@ TensorOps MakeCudaTable() {
         [](NativeHost* host, NativeArrayView& src, double* out) {
         RequireCuda(host);
         int64_t s = 0;
-        CUDA_CHECK(LaunchSumAll(ToLaunchDense(src), nullptr, &s, true),
+        CUDA_CHECK(LaunchSumAll(ToLaunch(src), nullptr, &s, true),
             "tensor (cuda mean)");
         *out = static_cast<double>(s) / static_cast<double>(src.elemCount);
     };
     t.matmulF64 = [](NativeHost* host, NativeArrayView& a,
                      NativeArrayView& b, NativeArrayView& dst) {
         RequireCuda(host);
-        CUDA_CHECK(LaunchMatmul(ToLaunchDense(a), ToLaunchDense(b),
-            ToLaunchDense(dst), a.elemKind), "tensor (cuda matmul)");
+        CUDA_CHECK(LaunchMatmul(ToLaunch(a), ToLaunch(b),
+            ToLaunch(dst), a.elemKind), "tensor (cuda matmul)");
     };
     t.matmulI32 = t.matmulI64 =
         [](NativeHost* host, NativeArrayView& a, NativeArrayView& b,
            NativeArrayView& dst) {
         RequireCuda(host);
-        CUDA_CHECK(LaunchMatmul(ToLaunchDense(a), ToLaunchDense(b),
-            ToLaunchDense(dst), a.elemKind), "tensor (cuda matmul)");
+        CUDA_CHECK(LaunchMatmul(ToLaunch(a), ToLaunch(b),
+            ToLaunch(dst), a.elemKind), "tensor (cuda matmul)");
     };
     t.clampI32 = [](NativeHost* host, bool, NativeArrayView&, int32_t,
                     NativeArrayView&) {
@@ -310,14 +289,14 @@ TensorOps MakeCudaTable() {
     t.sumAllF32 = [](NativeHost* host, NativeArrayView& src,
                      double* out) {
         RequireCuda(host);
-        CUDA_CHECK(LaunchSumAll(ToLaunchDense(src), out, nullptr, false),
+        CUDA_CHECK(LaunchSumAll(ToLaunch(src), out, nullptr, false),
             "tensor (cuda sum)");
     };
     t.sumAllF64 = t.sumAllF32;
     t.sumAllI32 = [](NativeHost* host, NativeArrayView& src,
                      int64_t* out) {
         RequireCuda(host);
-        CUDA_CHECK(LaunchSumAll(ToLaunchDense(src), nullptr, out, true),
+        CUDA_CHECK(LaunchSumAll(ToLaunch(src), nullptr, out, true),
             "tensor (cuda sum)");
     };
     t.sumAllI64 = t.sumAllI32;
@@ -326,20 +305,20 @@ TensorOps MakeCudaTable() {
                   NativeArrayView& b, float* out) {
         RequireCuda(host);
         double acc = 0.0;
-        CUDA_CHECK(LaunchDot(ToLaunchDense(a), ToLaunchDense(b), &acc,
+        CUDA_CHECK(LaunchDot(ToLaunch(a), ToLaunch(b), &acc,
             nullptr, false), "tensor (cuda dot)");
         *out = (float)acc;
     };
     t.dotF64 = [](NativeHost* host, NativeArrayView& a,
                   NativeArrayView& b, double* out) {
         RequireCuda(host);
-        CUDA_CHECK(LaunchDot(ToLaunchDense(a), ToLaunchDense(b), out,
+        CUDA_CHECK(LaunchDot(ToLaunch(a), ToLaunch(b), out,
             nullptr, false), "tensor (cuda dot)");
     };
     t.dotI32 = [](NativeHost* host, NativeArrayView& a,
                   NativeArrayView& b, int64_t* out) {
         RequireCuda(host);
-        CUDA_CHECK(LaunchDot(ToLaunchDense(a), ToLaunchDense(b), nullptr,
+        CUDA_CHECK(LaunchDot(ToLaunch(a), ToLaunch(b), nullptr,
             out, true), "tensor (cuda dot)");
     };
     t.dotI64 = t.dotI32;
@@ -369,8 +348,8 @@ TensorOps MakeCudaTable() {
     t.matmulF32 = [](NativeHost* host, NativeArrayView& a,
                      NativeArrayView& b, NativeArrayView& dst) {
         RequireCuda(host);
-        CUDA_CHECK(LaunchMatmul(ToLaunchDense(a), ToLaunchDense(b),
-            ToLaunchDense(dst), a.elemKind), "tensor (cuda matmul)");
+        CUDA_CHECK(LaunchMatmul(ToLaunch(a), ToLaunch(b),
+            ToLaunch(dst), a.elemKind), "tensor (cuda matmul)");
     };
 
     t.gatherF32 = [](NativeHost* host, NativeArrayView& src, int32_t axis,
@@ -443,22 +422,22 @@ TensorOps MakeCudaTable() {
             "tensor (cuda copy)");
     };
 
+    //The REAL axis reaches the launcher's geometry gate: rank-2 axis-1
+    //raises NotSupported (the slot used to hardcode 0 — silently wrong).
     t.concatF32 = [](NativeHost* host, NativeArrayView& a,
                      NativeArrayView& b, int32_t axis,
                      NativeArrayView& dst) {
-        (void)axis;
         RequireCuda(host);
-        CUDA_CHECK(LaunchConcat(ToLaunchDense(a), ToLaunchDense(b), 0,
-            ToLaunchDense(dst), 1), "tensor (cuda concat)");
+        CUDA_CHECK(LaunchConcat(ToLaunch(a), ToLaunch(b), axis,
+            ToLaunch(dst), 1), "tensor (cuda concat)");
     };
     t.concatF64 = t.concatF32;
     t.concatI32 = [](NativeHost* host, NativeArrayView& a,
                      NativeArrayView& b, int32_t axis,
                      NativeArrayView& dst) {
-        (void)axis;
         RequireCuda(host);
-        CUDA_CHECK(LaunchConcat(ToLaunchDense(a), ToLaunchDense(b), 0,
-            ToLaunchDense(dst), 0), "tensor (cuda concat)");
+        CUDA_CHECK(LaunchConcat(ToLaunch(a), ToLaunch(b), axis,
+            ToLaunch(dst), 0), "tensor (cuda concat)");
     };
     t.concatI64 = t.concatI32;
 
@@ -466,8 +445,8 @@ TensorOps MakeCudaTable() {
                          NativeArrayView& src, int32_t axis,
                          NativeArrayView& dst) {
         RequireCuda(host);
-        CUDA_CHECK(LaunchReduceAxis((int)op, ToLaunchDense(src), axis,
-            ToLaunchDense(dst), nullptr), "tensor (cuda reduce)");
+        CUDA_CHECK(LaunchReduceAxis((int)op, ToLaunch(src), axis,
+            ToLaunch(dst), nullptr), "tensor (cuda reduce)");
     };
     t.reduceAxisF64 = t.reduceAxisF32;
     t.reduceAxisI32 = t.reduceAxisF32;
@@ -476,8 +455,8 @@ TensorOps MakeCudaTable() {
     t.argmaxI32 = [](NativeHost* host, bool isMax, NativeArrayView& src,
                      int32_t axis, NativeArrayView& dst) {
         RequireCuda(host);
-        CUDA_CHECK(LaunchArgExtreme(isMax, ToLaunchDense(src), axis,
-            ToLaunchDense(dst)), "tensor (cuda argmax)");
+        CUDA_CHECK(LaunchArgExtreme(isMax, ToLaunch(src), axis,
+            ToLaunch(dst)), "tensor (cuda argmax)");
     };
 
     t.uniformF32 = [](NativeHost* host, NativeArrayView& dst, float low,

@@ -1,0 +1,41 @@
+// tensor.contiguous (v0.14.0): the explicit materialization. A strided
+// source materializes a fresh dense copy (no aliasing with the owner);
+// an already-contiguous source — dense with any offset — is passed
+// through, aliased with its storage.
+import io;
+import tensor;
+
+int main() {
+    float[,] cm = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]];
+    float[,] cmt = tensor.transpose(cm);                  // 3x2 strided
+    // strided source: a fresh dense copy
+    float[,] cmat = tensor.contiguous(cmt);
+    if (cmat[0, 0] != 1.0 || cmat[0, 1] != 4.0 || cmat[2, 1] != 6.0)
+        return 1;
+    cmat[0, 0] = 100.0;
+    if (cm[0, 0] != 1.0) return 2;                        // owner untouched
+
+    // dense source: the original handle (a write is visible in the
+    // source — same storage)
+    float[,] dens = [[1.0, 2.0], [3.0, 4.0]];
+    float[,] dsame = tensor.contiguous(dens);
+    dsame[0, 0] = 9.0;
+    if (dens[0, 0] != 9.0) return 3;
+
+    // dense view with a non-zero offset (full-row slice) is contiguous:
+    // passed through and aliased with the owner.
+    int[,] o = [[1, 2], [3, 4], [5, 6]];
+    int[,] os = o[1:, :];                                 // offset 2
+    int[,] osame = tensor.contiguous(os);
+    osame[0, 0] = 77;
+    if (o[1, 0] != 77) return 4;
+
+    // int32 strided source
+    int[,] ci = [[1, 2], [3, 4]];
+    int[,] cit = tensor.transpose(ci);
+    int[,] icmat = tensor.contiguous(cit);
+    if (icmat[0, 1] != 3 || icmat[1, 0] != 2) return 5;
+    icmat[0, 0] = 7;
+    if (ci[0, 0] != 1) return 6;
+    return 0;
+}

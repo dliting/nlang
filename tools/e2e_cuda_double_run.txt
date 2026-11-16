@@ -56,6 +56,10 @@ op_device_auto
 op_device_unknown_env
 op_device_bad_flag
 op_tensor_extreme_inf
+op_tensor_strided_reduce
+op_tensor_strided_matmul
+op_tensor_contiguous
+op_tensor_concat_axis_throw
 
 # --- 2. full-set sample (control surface) ---
 # file / io: byte-buffer domain must stay host-resident

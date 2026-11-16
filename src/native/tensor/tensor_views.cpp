@@ -247,6 +247,22 @@ void TensorReshape(NativeHost* host, uint8_t* ret, const uint8_t* args,
     ReturnInt(ret, handle);
 }
 
+//contiguous(a): PyTorch semantics — return the original handle when a
+//is already row-major contiguous (any offset; IsContiguous is the
+//stride test), else materialize a dense copy by source residency
+//(device -> D2D, host -> host). A thin wrapper over the same
+//MaterializeByResidency router the matmul/concat/flatten/reshape
+//entries use, so the copy lands on the right side of every residency.
+void TensorContiguous(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                      int argc) {
+    (void)argc;
+    NativeArrayView view;
+    ArgArray(host, args, 0, &view);
+    const int32_t handle =
+        MaterializeByResidency(host, ArgInt(args, 0), &view);
+    ReturnInt(ret, handle);
+}
+
 //slice(a, starts, stops, steps): the all-axes function form. Each axis
 //normalizes (explicit endpoints, no defaults) and keeps its stride ×
 //step in owner space — the true affine step per the view-record layout

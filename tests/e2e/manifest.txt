@@ -2293,3 +2293,7 @@ op_device_auto 0
 op_device_unknown_env 0
 op_device_bad_flag 2
 op_tensor_extreme_inf 0
+op_tensor_strided_reduce 0
+op_tensor_strided_matmul 0
+op_tensor_contiguous 0
+op_tensor_concat_axis_throw 0

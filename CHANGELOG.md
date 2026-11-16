@@ -54,6 +54,12 @@ deployment detail, not a program detail.
   paths; floating-point results may differ in the last digit
   (different reduction order), so an exact-equality assertion across
   backends asserts on an implementation detail.
+- **`tensor.contiguous`** — the explicit dense materialization: a
+  strided view (a `transpose` result, a step slice) returns a fresh
+  dense row-major copy, and an already-contiguous source is returned
+  as is (the copy keeps the source's residency). The kernels need no
+  such call — they read strided operands directly; `contiguous` is
+  for when a program wants its own dense array to keep or hand out.
 
 ### Changed
 
@@ -61,6 +67,22 @@ deployment detail, not a program detail.
   results are hardware-independent; `NLANG_E2E_TENSOR_BACKEND=cuda|mirror`
   selects a device double-run leg, and a per-test `.env` sidecar
   layers environment-driven behavior over the pin.
+- **Strided views are first-class operands on the device.** The
+  reduction family (`sum`, `max`/`min`, `mean`, `dot`, `reduce`,
+  `argmax`/`argmin`), `matmul` and `concat` now read a strided
+  operand (a `transpose` result, a step slice, a dense view with an
+  offset) through its recorded strides on the CUDA backend, with no
+  materialization — previously the CUDA reduction kernels read a
+  strided source as a dense span (wrong elements) and `matmul`/
+  `concat` materialized a strided operand first. The host CPU table
+  was already stride-aware for the reduction family; host-resident
+  `matmul`/`concat` operands still materialize (the host kernels
+  keep flat dense addressing). Device `concat` implements the
+  outermost axis only; any other axis raises `Exception` (it was
+  silently wrong before). The per-axis `reduce` and `argmax`/
+  `argmin` keep their pre-existing device scope (float, specific
+  axes — see the tensor Known limitations); the strided-awareness
+  applies to the cases they already supported.
 - **Host ABI 12 → 13.** `nlang_native_init` now takes the executor's
   `NativeHost*` as a fourth argument — per-executor hook registration:
   each executor's loader runs the module's init once, with its own

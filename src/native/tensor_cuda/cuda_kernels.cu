@@ -44,14 +44,17 @@ constexpr uint32_t kErrOOB = 1;
 
 //The device operand geometry: by-value kernel parameter (constant
 //memory). The inline arrays read directly from the parameter storage.
+//The rank arrays carry the full kMaxRank: the strided kernels fold a
+//rank up to 64 (FlatAddress/IsDense walk every axis), and a truncated
+//DevView would read the parameter storage past the fill.
 struct DevView {
     int32_t rank;
     int64_t elemCount;
     int64_t offset;
     void* data;
     int32_t elemKind;
-    int32_t dims[16];
-    int32_t strides[16];
+    int32_t dims[kMaxRank];
+    int32_t strides[kMaxRank];
 };
 
 DevView ToDevView(const LaunchView& v) {
@@ -61,7 +64,7 @@ DevView ToDevView(const LaunchView& v) {
     d.offset = v.offset;
     d.data = v.data;
     d.elemKind = v.elemKind;
-    for (int32_t i = 0; i < v.rank && i < 16; ++i) {
+    for (int32_t i = 0; i < v.rank && i < kMaxRank; ++i) {
         d.dims[i] = v.dims[i];
         d.strides[i] = v.strides[i];
     }
@@ -80,6 +83,21 @@ __device__ int64_t FlatAddress(const DevView& v, int64_t flat) {
         addr += coord * v.strides[d];
     }
     return addr;
+}
+
+//True when the view's strides equal the dense row-major strides of its
+//dims (any offset allowed — the offset is folded separately). Mirrors the
+//CPU IsContiguous semantics; the reduction launchers branch on it: dense
+//views take the flat dense kernel (zero cost), strided views take the
+//strided-aware kernel (FlatAddress per element).
+__host__ __device__ bool IsDense(const DevView& v) {
+    int64_t stride = 1;
+    for (int32_t d = v.rank - 1; d >= 0; --d) {
+        if (v.strides[d] != stride)
+            return false;
+        stride *= (v.dims[d] > 0 ? v.dims[d] : 1);
+    }
+    return true;
 }
 
 //The single stream + the cell-error flags ([0] = kind, [1] = cell).
@@ -540,11 +558,70 @@ __global__ void SumPartialKernelI64(const int64_t* src, int64_t count,
     }
 }
 
+//--- strided-aware whole-array kernels (the strided branch of the
+//reduction launchers) ------------------------------------------------
+//The dense kernels above index data[] directly (a dense view). These read
+//the element at FlatAddress(v, i) — the recorded strides plus the view
+//offset folded per element — so a strided device view (transpose/slice)
+//reduces the right elements with zero copy. Same block-partials + host
+//finalize structure as the dense kernels; only the addressing differs.
+//Per-dtype accumulator/identity mirror the dense kernels (the parity
+//contract), so the templates carry the carrier type per family: the float
+//kinds accumulate double, the int kinds int64.
+
+//T = float or double; DOUBLE accumulator (the CPU walk's contract).
+template <typename T>
+__global__ void SumStridedKernel(DevView v, int64_t count, double* partials) {
+    __shared__ double local[kThreads];
+    const int tid = threadIdx.x;
+    local[tid] = 0.0;
+    const int64_t base = blockIdx.x * (int64_t)kThreads;
+    for (int64_t i = base + tid; i < count;
+         i += (int64_t)gridDim.x * kThreads) {
+        local[tid] += (double)((const T*)v.data)[FlatAddress(v, i)];
+    }
+    __syncthreads();
+    if (tid == 0) {
+        double acc = 0.0;
+        for (int t = 0; t < kThreads; ++t)
+            acc += local[t];
+        partials[blockIdx.x] = acc;
+    }
+}
+
+//T = int32_t or int64_t; INT64 accumulator (the wrap happens at the final
+//narrow, matching the CPU's static_cast<T>(acc) exactly).
+template <typename T>
+__global__ void SumStridedKernelInt(DevView v, int64_t count,
+                                   int64_t* partials) {
+    __shared__ int64_t local[kThreads];
+    const int tid = threadIdx.x;
+    local[tid] = 0;
+    const int64_t base = blockIdx.x * (int64_t)kThreads;
+    for (int64_t i = base + tid; i < count;
+         i += (int64_t)gridDim.x * kThreads) {
+        local[tid] += (int64_t)((const T*)v.data)[FlatAddress(v, i)];
+    }
+    __syncthreads();
+    if (tid == 0) {
+        int64_t acc = 0;
+        for (int t = 0; t < kThreads; ++t)
+            acc += local[t];
+        partials[blockIdx.x] = acc;
+    }
+}
+
 cudaError_t LaunchSumAll(const LaunchView& src, double* out,
                          int64_t* outI, bool isInt) {
-    //The contiguous flat sum (owned device records are dense).
+    //The offset-fold discipline (design D1): ToLaunch keeps the real
+    //strides + offset; the launcher branches on IsDense and each branch
+    //folds the offset exactly once — the dense branch folds it into the
+    //base pointer (the dense kernels index data[] directly), the strided
+    //branch keeps it in the DevView (FlatAddress folds it per element).
     const int64_t count = src.elemCount;
     const int64_t blocks = (count + kThreads - 1) / kThreads;
+    const DevView v = ToDevView(src);
+    const bool dense = IsDense(v);
     if (isInt) {
         //int arrays accumulate in int64 (the CPU walk's Acc carrier —
         //the wrap happens at the final narrow, matching the CPU's
@@ -554,12 +631,25 @@ cudaError_t LaunchSumAll(const LaunchView& src, double* out,
         if (cudaMalloc((void**)&dPartial,
             blocks * sizeof(int64_t)) != cudaSuccess)
             return cudaErrorMemoryAllocation;
-        if (src.elemKind == 0) {
-            SumPartialKernelI32<<<(int)blocks, kThreads, 0, g_stream>>>(
-                (const int32_t*)src.data, count, dPartial);
+        if (dense) {
+            //The base pointer folds the offset (element units).
+            if (src.elemKind == 0) {
+                SumPartialKernelI32<<<(int)blocks, kThreads, 0,
+                    g_stream>>>((const int32_t*)src.data + src.offset, count,
+                    dPartial);
+            } else {
+                SumPartialKernelI64<<<(int)blocks, kThreads, 0,
+                    g_stream>>>((const int64_t*)src.data + src.offset, count,
+                    dPartial);
+            }
         } else {
-            SumPartialKernelI64<<<(int)blocks, kThreads, 0, g_stream>>>(
-                (const int64_t*)src.data, count, dPartial);
+            if (src.elemKind == 0) {
+                SumStridedKernelInt<int32_t><<<(int)blocks, kThreads, 0,
+                    g_stream>>>(v, count, dPartial);
+            } else {
+                SumStridedKernelInt<int64_t><<<(int)blocks, kThreads, 0,
+                    g_stream>>>(v, count, dPartial);
+            }
         }
         std::vector<int64_t> partials(blocks);
         cudaMemcpy(partials.data(), dPartial, blocks * sizeof(int64_t),
@@ -577,12 +667,25 @@ cudaError_t LaunchSumAll(const LaunchView& src, double* out,
         return cudaErrorMemoryAllocation;
     //The float kinds branch by cell width: an f32 array read as
     //doubles would consume two cells per element (garbage + OOB).
-    if (src.elemKind == 1)
-        SumPartialKernelF32<<<(int)blocks, kThreads, 0, g_stream>>>(
-            (const float*)src.data, count, dPartial);
-    else
-        SumPartialKernel<<<(int)blocks, kThreads, 0, g_stream>>>(
-            (const double*)src.data, count, dPartial);
+    if (dense) {
+        if (src.elemKind == 1) {
+            SumPartialKernelF32<<<(int)blocks, kThreads, 0,
+                g_stream>>>((const float*)src.data + src.offset, count,
+                dPartial);
+        } else {
+            SumPartialKernel<<<(int)blocks, kThreads, 0,
+                g_stream>>>((const double*)src.data + src.offset, count,
+                dPartial);
+        }
+    } else {
+        if (src.elemKind == 1) {
+            SumStridedKernel<float><<<(int)blocks, kThreads, 0,
+                g_stream>>>(v, count, dPartial);
+        } else {
+            SumStridedKernel<double><<<(int)blocks, kThreads, 0,
+                g_stream>>>(v, count, dPartial);
+        }
+    }
     std::vector<double> partials(blocks);
     cudaMemcpy(partials.data(), dPartial, blocks * sizeof(double),
         cudaMemcpyDeviceToHost);
@@ -701,6 +804,106 @@ __global__ void ExtremeAxis0KernelF32(const float* src, int64_t rows,
     dst[col] = best;
 }
 
+//--- strided-aware per-axis kernels (f32, mirroring the dense axis
+//kernels above; only the addressing differs) ---------------------------
+//The output coordinate folds back to an input address per element. For
+//the axis-last arm the input flat index is row * seg + s (row-major, so
+//FlatAddress decomposes it exactly); for the axis-0 rank-2 arm it is
+//r * inner + col. The algebra mirrors the CPU ReduceAxisImpl /
+//CpuArgExtreme walks (the row-major flat order).
+
+//Axis-last sum: one block per output row, the FlatAddress scan over the
+//segment.
+__global__ void SumAxisLastStridedKernelF32(DevView v, int64_t rows,
+                                            int64_t seg, float* dst) {
+    __shared__ double local[kThreads];
+    const int tid = threadIdx.x;
+    local[tid] = 0.0;
+    const int64_t row = blockIdx.x;
+    const int64_t base = row * (int64_t)seg;
+    for (int64_t s = tid; s < seg; s += (int64_t)blockDim.x) {
+        local[tid] +=
+            (double)((const float*)v.data)[FlatAddress(v, base + s)];
+    }
+    __syncthreads();
+    if (tid == 0) {
+        double acc = 0.0;
+        for (int t = 0; t < kThreads; ++t)
+            acc += local[t];
+        dst[row] = (float)acc;
+    }
+}
+
+//Axis-0 rank-2 sum: one thread per output column, the FlatAddress scan
+//down the rows.
+__global__ void SumAxis0StridedKernelF32(DevView v, int64_t rows,
+                                         int64_t inner, float* dst) {
+    const int64_t col = blockIdx.x * (int64_t)blockDim.x + threadIdx.x;
+    if (col >= inner)
+        return;
+    double acc = 0.0;
+    for (int64_t r = 0; r < rows; ++r)
+        acc += (double)((const float*)v.data)[FlatAddress(v, r * inner + col)];
+    dst[col] = (float)acc;
+}
+
+//Axis-last max/min: one thread per output row, the first-wins FlatAddress
+//scan over the segment.
+__global__ void ExtremeAxisLastStridedKernelF32(DevView v, int64_t rows,
+                                                int64_t seg, bool isMax,
+                                                float* dst) {
+    const int64_t row = blockIdx.x * (int64_t)blockDim.x + threadIdx.x;
+    if (row >= rows)
+        return;
+    const int64_t base = row * seg;
+    float best = ((const float*)v.data)[FlatAddress(v, base)];
+    for (int64_t s = 1; s < seg; ++s) {
+        const float cur = ((const float*)v.data)[FlatAddress(v, base + s)];
+        if (isMax ? cur > best : cur < best)
+            best = cur;
+    }
+    dst[row] = best;
+}
+
+//Axis-0 rank-2 max/min: one thread per output column, the first-wins
+//FlatAddress scan down the rows.
+__global__ void ExtremeAxis0StridedKernelF32(DevView v, int64_t rows,
+                                             int64_t inner, bool isMax,
+                                             float* dst) {
+    const int64_t col = blockIdx.x * (int64_t)blockDim.x + threadIdx.x;
+    if (col >= inner)
+        return;
+    float best = ((const float*)v.data)[FlatAddress(v, col)];
+    for (int64_t r = 1; r < rows; ++r) {
+        const float cur =
+            ((const float*)v.data)[FlatAddress(v, r * inner + col)];
+        if (isMax ? cur > best : cur < best)
+            best = cur;
+    }
+    dst[col] = best;
+}
+
+//Axis-last winner index (argmax/argmin): one thread per output row, the
+//first-wins FlatAddress scan; ties keep the earliest index.
+__global__ void ArgExtremeLastStridedKernelF32(DevView v, int64_t rows,
+                                               int64_t seg, bool isMax,
+                                               int32_t* dst) {
+    const int64_t row = blockIdx.x * (int64_t)blockDim.x + threadIdx.x;
+    if (row >= rows)
+        return;
+    const int64_t base = row * seg;
+    int32_t best = 0;
+    float bestVal = ((const float*)v.data)[FlatAddress(v, base)];
+    for (int64_t s = 1; s < seg; ++s) {
+        const float cur = ((const float*)v.data)[FlatAddress(v, base + s)];
+        if (isMax ? cur > bestVal : cur < bestVal) {
+            bestVal = cur;
+            best = (int32_t)s;
+        }
+    }
+    dst[row] = best;
+}
+
 cudaError_t LaunchReduceAxis(int op, const LaunchView& src, int axis,
                              const LaunchView& dst, int32_t* errorOut) {
     //P3 scope (design 2026-11-15 §R6): Sum and Max/Min on the
@@ -716,20 +919,38 @@ cudaError_t LaunchReduceAxis(int op, const LaunchView& src, int axis,
     const int64_t inner = rank == 2 ? src.dims[1] : 1;
     const int64_t outer = rank == 2 ? src.dims[0] : 1;
     //The gate above pins f32 — FLOAT cells, DOUBLE accumulators (the
-    //CPU walk's contract).
-    const float* fSrc = (const float*)src.data + src.offset;
+    //CPU walk's contract). The dst is a fresh dense array (the dispatcher
+    //mints it), so its offset is 0; the fold below is a no-op that keeps
+    //both branches consistent.
+    const DevView v = ToDevView(src);
+    const bool dense = IsDense(v);
+    //The dense branch folds the src offset into the base pointer; the
+    //strided branch keeps it in the DevView (FlatAddress folds it).
+    const float* fSrc = dense
+        ? (const float*)src.data + src.offset
+        : (const float*)src.data;
     float* fDst = (float*)dst.data + dst.offset;
     const bool isExtreme = op == 1 || op == 2;
     if (isExtreme) {
         const bool isMax = op == 1;
         if (axis == rank - 1) {
             const int64_t rows = dst.elemCount;
-            ExtremeAxisLastKernelF32<<<(int)rows, 1, 0, g_stream>>>(
-                fSrc, rows, along, isMax, fDst);
+            if (dense) {
+                ExtremeAxisLastKernelF32<<<(int)rows, 1, 0, g_stream>>>(
+                    fSrc, rows, along, isMax, fDst);
+            } else {
+                ExtremeAxisLastStridedKernelF32<<<(int)rows, 1, 0,
+                    g_stream>>>(v, rows, along, isMax, fDst);
+            }
         } else if (axis == 0 && rank == 2) {
             const int64_t blocks = (inner + kThreads - 1) / kThreads;
-            ExtremeAxis0KernelF32<<<(int)blocks, kThreads, 0, g_stream>>>(
-                fSrc, outer, inner, isMax, fDst);
+            if (dense) {
+                ExtremeAxis0KernelF32<<<(int)blocks, kThreads, 0,
+                    g_stream>>>(fSrc, outer, inner, isMax, fDst);
+            } else {
+                ExtremeAxis0StridedKernelF32<<<(int)blocks, kThreads, 0,
+                    g_stream>>>(v, outer, inner, isMax, fDst);
+            }
         } else {
             return cudaErrorNotSupported;
         }
@@ -737,12 +958,22 @@ cudaError_t LaunchReduceAxis(int op, const LaunchView& src, int axis,
     }
     if (axis == rank - 1) {
         const int64_t rows = dst.elemCount;
-        SumAxisLastKernelF32<<<(int)rows, kThreads, 0, g_stream>>>(
-            fSrc, rows, along, fDst);
+        if (dense) {
+            SumAxisLastKernelF32<<<(int)rows, kThreads, 0, g_stream>>>(
+                fSrc, rows, along, fDst);
+        } else {
+            SumAxisLastStridedKernelF32<<<(int)rows, kThreads, 0,
+                g_stream>>>(v, rows, along, fDst);
+        }
     } else if (axis == 0 && rank == 2) {
         const int64_t blocks = (inner + kThreads - 1) / kThreads;
-        SumAxis0KernelF32<<<(int)blocks, kThreads, 0, g_stream>>>(
-            fSrc, outer, inner, fDst);
+        if (dense) {
+            SumAxis0KernelF32<<<(int)blocks, kThreads, 0, g_stream>>>(
+                fSrc, outer, inner, fDst);
+        } else {
+            SumAxis0StridedKernelF32<<<(int)blocks, kThreads, 0,
+                g_stream>>>(v, outer, inner, fDst);
+        }
     } else {
         return cudaErrorNotSupported;
     }
@@ -779,8 +1010,22 @@ cudaError_t LaunchArgExtreme(bool isMax, const LaunchView& src,
     const int64_t rows = dst.elemCount;
     const int64_t seg = src.dims[axis];
     const int64_t blocks = (rows + kThreads - 1) / kThreads;
-    ArgExtremeLastKernel<<<(int)blocks, kThreads, 0, g_stream>>>(
-        (const float*)src.data, rows, seg, isMax, (int32_t*)dst.data);
+    const DevView v = ToDevView(src);
+    const bool dense = IsDense(v);
+    //The dense branch folds the src offset into the base pointer (the dst
+    //is a fresh dense array, offset 0); the strided branch keeps it in the
+    //DevView (FlatAddress folds it).
+    const float* fSrc = dense
+        ? (const float*)src.data + src.offset
+        : (const float*)src.data;
+    int32_t* fDst = (int32_t*)dst.data + dst.offset;
+    if (dense) {
+        ArgExtremeLastKernel<<<(int)blocks, kThreads, 0, g_stream>>>(
+            fSrc, rows, seg, isMax, fDst);
+    } else {
+        ArgExtremeLastStridedKernelF32<<<(int)blocks, kThreads, 0,
+            g_stream>>>(v, rows, seg, isMax, fDst);
+    }
     return cudaStreamSynchronize(g_stream);
 }
 
@@ -863,10 +1108,69 @@ __global__ void DotPartialKernelI64(const int64_t* a, const int64_t* b,
     }
 }
 
+//--- strided-aware dot (both operands fold, each via its own DevView) ---
+
+//T = float or double; T accumulator (the CPU carrier contract — f32
+//accumulates float, f64 double).
+template <typename T>
+__global__ void DotStridedKernel(DevView va, DevView vb, int64_t count,
+                                T* partials) {
+    __shared__ T local[kThreads];
+    const int tid = threadIdx.x;
+    local[tid] = T(0);
+    const int64_t base = blockIdx.x * (int64_t)kThreads;
+    for (int64_t i = base + tid; i < count;
+         i += (int64_t)gridDim.x * kThreads) {
+        const T av = ((const T*)va.data)[FlatAddress(va, i)];
+        const T bv = ((const T*)vb.data)[FlatAddress(vb, i)];
+        local[tid] += av * bv;
+    }
+    __syncthreads();
+    if (tid == 0) {
+        T acc = T(0);
+        for (int t = 0; t < kThreads; ++t)
+            acc += local[t];
+        partials[blockIdx.x] = acc;
+    }
+}
+
+//T = int32_t or int64_t; INT64 accumulator (the CPU carrier contract).
+template <typename T>
+__global__ void DotStridedKernelInt(DevView va, DevView vb, int64_t count,
+                                   int64_t* partials) {
+    __shared__ int64_t local[kThreads];
+    const int tid = threadIdx.x;
+    local[tid] = 0;
+    const int64_t base = blockIdx.x * (int64_t)kThreads;
+    for (int64_t i = base + tid; i < count;
+         i += (int64_t)gridDim.x * kThreads) {
+        const int64_t av = (int64_t)((const T*)va.data)[FlatAddress(va, i)];
+        const int64_t bv = (int64_t)((const T*)vb.data)[FlatAddress(vb, i)];
+        local[tid] += av * bv;
+    }
+    __syncthreads();
+    if (tid == 0) {
+        int64_t acc = 0;
+        for (int t = 0; t < kThreads; ++t)
+            acc += local[t];
+        partials[blockIdx.x] = acc;
+    }
+}
+
 cudaError_t LaunchDot(const LaunchView& a, const LaunchView& b,
                       double* out, int64_t* outI, bool isInt) {
+    (void)isInt;
     const int64_t count = a.elemCount;
     const int64_t blocks = (count + kThreads - 1) / kThreads;
+    //The offset-fold discipline (design D1): ToLaunch keeps the real
+    //strides + offset; the launcher branches on IsDense and each branch
+    //folds the offset exactly once. Both operands fold (dot is symmetric
+    //in a and b) — either strided takes the strided kernel, which is
+    //also correct for a dense operand (FlatAddress degenerates to the
+    //dense address).
+    const DevView va = ToDevView(a);
+    const DevView vb = ToDevView(b);
+    const bool dense = IsDense(va) && IsDense(vb);
     //The kind branches: f32 accumulates float (the CPU carrier
     //contract), the int kinds int64, f64 double. The old double-only
     //kernel mis-read every other kind's cells.
@@ -875,8 +1179,14 @@ cudaError_t LaunchDot(const LaunchView& a, const LaunchView& b,
         if (cudaMalloc((void**)&dPartial,
             blocks * sizeof(float)) != cudaSuccess)
             return cudaErrorMemoryAllocation;
-        DotPartialKernelF32<<<(int)blocks, kThreads, 0, g_stream>>>(
-            (const float*)a.data, (const float*)b.data, count, dPartial);
+        if (dense) {
+            DotPartialKernelF32<<<(int)blocks, kThreads, 0, g_stream>>>(
+                (const float*)a.data + a.offset,
+                (const float*)b.data + b.offset, count, dPartial);
+        } else {
+            DotStridedKernel<float><<<(int)blocks, kThreads, 0,
+                g_stream>>>(va, vb, count, dPartial);
+        }
         std::vector<float> partials(blocks);
         cudaMemcpy(partials.data(), dPartial, blocks * sizeof(float),
             cudaMemcpyDeviceToHost);
@@ -895,14 +1205,25 @@ cudaError_t LaunchDot(const LaunchView& a, const LaunchView& b,
         if (cudaMalloc((void**)&dPartial,
             blocks * sizeof(int64_t)) != cudaSuccess)
             return cudaErrorMemoryAllocation;
-        if (a.elemKind == 0)
-            DotPartialKernelI32<<<(int)blocks, kThreads, 0, g_stream>>>(
-                (const int32_t*)a.data, (const int32_t*)b.data, count,
-                dPartial);
-        else
-            DotPartialKernelI64<<<(int)blocks, kThreads, 0, g_stream>>>(
-                (const int64_t*)a.data, (const int64_t*)b.data, count,
-                dPartial);
+        if (dense) {
+            if (a.elemKind == 0)
+                DotPartialKernelI32<<<(int)blocks, kThreads, 0,
+                    g_stream>>>(
+                    (const int32_t*)a.data + a.offset,
+                    (const int32_t*)b.data + b.offset, count, dPartial);
+            else
+                DotPartialKernelI64<<<(int)blocks, kThreads, 0,
+                    g_stream>>>(
+                    (const int64_t*)a.data + a.offset,
+                    (const int64_t*)b.data + b.offset, count, dPartial);
+        } else {
+            if (a.elemKind == 0)
+                DotStridedKernelInt<int32_t><<<(int)blocks, kThreads, 0,
+                    g_stream>>>(va, vb, count, dPartial);
+            else
+                DotStridedKernelInt<int64_t><<<(int)blocks, kThreads, 0,
+                    g_stream>>>(va, vb, count, dPartial);
+        }
         std::vector<int64_t> partials(blocks);
         cudaMemcpy(partials.data(), dPartial, blocks * sizeof(int64_t),
             cudaMemcpyDeviceToHost);
@@ -917,8 +1238,14 @@ cudaError_t LaunchDot(const LaunchView& a, const LaunchView& b,
     if (cudaMalloc((void**)&dPartial,
         blocks * sizeof(double)) != cudaSuccess)
         return cudaErrorMemoryAllocation;
-    DotPartialKernel<<<(int)blocks, kThreads, 0, g_stream>>>(
-        (const double*)a.data, (const double*)b.data, count, dPartial);
+    if (dense) {
+        DotPartialKernel<<<(int)blocks, kThreads, 0, g_stream>>>(
+            (const double*)a.data + a.offset,
+            (const double*)b.data + b.offset, count, dPartial);
+    } else {
+        DotStridedKernel<double><<<(int)blocks, kThreads, 0,
+            g_stream>>>(va, vb, count, dPartial);
+    }
     std::vector<double> partials(blocks);
     cudaMemcpy(partials.data(), dPartial, blocks * sizeof(double),
         cudaMemcpyDeviceToHost);
@@ -1062,6 +1389,117 @@ __global__ void ExtremePartialKernelI64(const int64_t* src, int64_t count,
     }
 }
 
+//--- strided-aware extreme (first-wins; the per-dtype tail-block identity
+//mirrors the dense kernels: ±inf for the float kinds — beyond any real
+//element, including an overflow-produced ±inf — INT_MIN/MAX for the int
+//kinds) ----------------------------------------------------------------
+
+__global__ void ExtremeStridedKernelF32(DevView v, int64_t count, bool isMax,
+                                       float* partials) {
+    __shared__ float local[kThreads];
+    const int tid = threadIdx.x;
+    const int64_t base = blockIdx.x * (int64_t)kThreads;
+    const float inf = __int_as_float(0x7f800000);
+    if (base + tid < count)
+        local[tid] = ((const float*)v.data)[FlatAddress(v, base + tid)];
+    else
+        local[tid] = isMax ? -inf : inf;
+    for (int64_t i = base + tid + gridDim.x * kThreads; i < count;
+         i += (int64_t)gridDim.x * kThreads) {
+        const float cur = ((const float*)v.data)[FlatAddress(v, i)];
+        if (isMax ? cur > local[tid] : cur < local[tid])
+            local[tid] = cur;
+    }
+    __syncthreads();
+    if (tid == 0) {
+        float best = local[0];
+        for (int t = 1; t < kThreads; ++t) {
+            if (isMax ? local[t] > best : local[t] < best)
+                best = local[t];
+        }
+        partials[blockIdx.x] = best;
+    }
+}
+
+__global__ void ExtremeStridedKernelF64(DevView v, int64_t count, bool isMax,
+                                       double* partials) {
+    __shared__ double local[kThreads];
+    const int tid = threadIdx.x;
+    const int64_t base = blockIdx.x * (int64_t)kThreads;
+    const double inf = __longlong_as_double(0x7ff0000000000000LL);
+    if (base + tid < count)
+        local[tid] = ((const double*)v.data)[FlatAddress(v, base + tid)];
+    else
+        local[tid] = isMax ? -inf : inf;
+    for (int64_t i = base + tid + gridDim.x * kThreads; i < count;
+         i += (int64_t)gridDim.x * kThreads) {
+        const double cur = ((const double*)v.data)[FlatAddress(v, i)];
+        if (isMax ? cur > local[tid] : cur < local[tid])
+            local[tid] = cur;
+    }
+    __syncthreads();
+    if (tid == 0) {
+        double best = local[0];
+        for (int t = 1; t < kThreads; ++t) {
+            if (isMax ? local[t] > best : local[t] < best)
+                best = local[t];
+        }
+        partials[blockIdx.x] = best;
+    }
+}
+
+__global__ void ExtremeStridedKernelI32(DevView v, int64_t count, bool isMax,
+                                       int32_t* partials) {
+    __shared__ int32_t local[kThreads];
+    const int tid = threadIdx.x;
+    const int64_t base = blockIdx.x * (int64_t)kThreads;
+    if (base + tid < count)
+        local[tid] = ((const int32_t*)v.data)[FlatAddress(v, base + tid)];
+    else
+        local[tid] = isMax ? INT32_MIN : INT32_MAX;
+    for (int64_t i = base + tid + gridDim.x * kThreads; i < count;
+         i += (int64_t)gridDim.x * kThreads) {
+        const int32_t cur = ((const int32_t*)v.data)[FlatAddress(v, i)];
+        if (isMax ? cur > local[tid] : cur < local[tid])
+            local[tid] = cur;
+    }
+    __syncthreads();
+    if (tid == 0) {
+        int32_t best = local[0];
+        for (int t = 1; t < kThreads; ++t) {
+            if (isMax ? local[t] > best : local[t] < best)
+                best = local[t];
+        }
+        partials[blockIdx.x] = best;
+    }
+}
+
+__global__ void ExtremeStridedKernelI64(DevView v, int64_t count, bool isMax,
+                                       int64_t* partials) {
+    __shared__ int64_t local[kThreads];
+    const int tid = threadIdx.x;
+    const int64_t base = blockIdx.x * (int64_t)kThreads;
+    if (base + tid < count)
+        local[tid] = ((const int64_t*)v.data)[FlatAddress(v, base + tid)];
+    else
+        local[tid] = isMax ? INT64_MIN : INT64_MAX;
+    for (int64_t i = base + tid + gridDim.x * kThreads; i < count;
+         i += (int64_t)gridDim.x * kThreads) {
+        const int64_t cur = ((const int64_t*)v.data)[FlatAddress(v, i)];
+        if (isMax ? cur > local[tid] : cur < local[tid])
+            local[tid] = cur;
+    }
+    __syncthreads();
+    if (tid == 0) {
+        int64_t best = local[0];
+        for (int t = 1; t < kThreads; ++t) {
+            if (isMax ? local[t] > best : local[t] < best)
+                best = local[t];
+        }
+        partials[blockIdx.x] = best;
+    }
+}
+
 cudaError_t LaunchExtreme(bool isMax, const LaunchView& src,
                           double* outF, int64_t* outI, bool isInt) {
     const int64_t count = src.elemCount;
@@ -1074,13 +1512,24 @@ cudaError_t LaunchExtreme(bool isMax, const LaunchView& src,
         return cudaSuccess;
     }
     const int64_t blocks = (count + kThreads - 1) / kThreads;
+    //The offset-fold discipline (design D1): the dense branch folds the
+    //offset into the base pointer; the strided branch keeps it in the
+    //DevView (FlatAddress folds it).
+    const DevView v = ToDevView(src);
+    const bool dense = IsDense(v);
     if (src.elemKind == 1) {
         float* dPartial = nullptr;
         if (cudaMalloc((void**)&dPartial,
             blocks * sizeof(float)) != cudaSuccess)
             return cudaErrorMemoryAllocation;
-        ExtremePartialKernelF32<<<(int)blocks, kThreads, 0, g_stream>>>(
-            (const float*)src.data, count, isMax, dPartial);
+        if (dense) {
+            ExtremePartialKernelF32<<<(int)blocks, kThreads, 0,
+                g_stream>>>((const float*)src.data + src.offset, count,
+                isMax, dPartial);
+        } else {
+            ExtremeStridedKernelF32<<<(int)blocks, kThreads, 0,
+                g_stream>>>(v, count, isMax, dPartial);
+        }
         std::vector<float> partials(blocks);
         cudaMemcpy(partials.data(), dPartial, blocks * sizeof(float),
             cudaMemcpyDeviceToHost);
@@ -1098,8 +1547,14 @@ cudaError_t LaunchExtreme(bool isMax, const LaunchView& src,
         if (cudaMalloc((void**)&dPartial,
             blocks * sizeof(int32_t)) != cudaSuccess)
             return cudaErrorMemoryAllocation;
-        ExtremePartialKernelI32<<<(int)blocks, kThreads, 0, g_stream>>>(
-            (const int32_t*)src.data, count, isMax, dPartial);
+        if (dense) {
+            ExtremePartialKernelI32<<<(int)blocks, kThreads, 0,
+                g_stream>>>((const int32_t*)src.data + src.offset, count,
+                isMax, dPartial);
+        } else {
+            ExtremeStridedKernelI32<<<(int)blocks, kThreads, 0,
+                g_stream>>>(v, count, isMax, dPartial);
+        }
         std::vector<int32_t> partials(blocks);
         cudaMemcpy(partials.data(), dPartial, blocks * sizeof(int32_t),
             cudaMemcpyDeviceToHost);
@@ -1118,8 +1573,14 @@ cudaError_t LaunchExtreme(bool isMax, const LaunchView& src,
         if (cudaMalloc((void**)&dPartial,
             blocks * sizeof(int64_t)) != cudaSuccess)
             return cudaErrorMemoryAllocation;
-        ExtremePartialKernelI64<<<(int)blocks, kThreads, 0, g_stream>>>(
-            (const int64_t*)src.data, count, isMax, dPartial);
+        if (dense) {
+            ExtremePartialKernelI64<<<(int)blocks, kThreads, 0,
+                g_stream>>>((const int64_t*)src.data + src.offset, count,
+                isMax, dPartial);
+        } else {
+            ExtremeStridedKernelI64<<<(int)blocks, kThreads, 0,
+                g_stream>>>(v, count, isMax, dPartial);
+        }
         std::vector<int64_t> partials(blocks);
         cudaMemcpy(partials.data(), dPartial, blocks * sizeof(int64_t),
             cudaMemcpyDeviceToHost);
@@ -1136,8 +1597,14 @@ cudaError_t LaunchExtreme(bool isMax, const LaunchView& src,
     if (cudaMalloc((void**)&dPartial,
         blocks * sizeof(double)) != cudaSuccess)
         return cudaErrorMemoryAllocation;
-    ExtremePartialKernel<<<(int)blocks, kThreads, 0, g_stream>>>(
-        (const double*)src.data, count, isMax, dPartial);
+    if (dense) {
+        ExtremePartialKernel<<<(int)blocks, kThreads, 0,
+            g_stream>>>((const double*)src.data + src.offset, count, isMax,
+            dPartial);
+    } else {
+        ExtremeStridedKernelF64<<<(int)blocks, kThreads, 0,
+            g_stream>>>(v, count, isMax, dPartial);
+    }
     std::vector<double> partials(blocks);
     cudaMemcpy(partials.data(), dPartial, blocks * sizeof(double),
         cudaMemcpyDeviceToHost);
@@ -1258,32 +1725,100 @@ __global__ void MatmulKernelI64(const int64_t* a, const int64_t* b,
         dst[row * cols + col] = acc;
 }
 
+//The strided matmul: the same 16x16 tiling as MatmulKernelF, but A and B
+//are read per load through the recorded rank-2 strides (offset +
+//i*strides[0] + j*strides[1] — the two-term fold; rank-2 is the only
+//matmul rank, so no odometer). Any strided view (transpose, step-slice)
+//reads correctly without materializing; a dense operand folds to the
+//flat index, so either operand strided takes this kernel. The write
+//stays dense (the dispatcher mints the output).
+template <typename T>
+__global__ void MatmulKernelStrided(DevView a, DevView b, DevView dst,
+                                   int32_t rows, int32_t inner,
+                                   int32_t cols) {
+    __shared__ T tileA[16][16];
+    __shared__ T tileB[16][16];
+    const int row = blockIdx.y * 16 + threadIdx.y;
+    const int col = blockIdx.x * 16 + threadIdx.x;
+    T acc = 0;
+    const int tiles = (inner + 15) / 16;
+    for (int t = 0; t < tiles; ++t) {
+        const int aCol = t * 16 + threadIdx.x;
+        const int bRow = t * 16 + threadIdx.y;
+        tileA[threadIdx.y][threadIdx.x] =
+            row < rows && aCol < inner
+                ? ((const T*)a.data)[a.offset + (int64_t)row * a.strides[0]
+                      + (int64_t)aCol * a.strides[1]]
+                : T(0);
+        tileB[threadIdx.y][threadIdx.x] =
+            bRow < inner && col < cols
+                ? ((const T*)b.data)[b.offset + (int64_t)bRow * b.strides[0]
+                      + (int64_t)col * b.strides[1]]
+                : T(0);
+        __syncthreads();
+        for (int k = 0; k < 16; ++k)
+            acc += tileA[threadIdx.y][k] * tileB[k][threadIdx.x];
+        __syncthreads();
+    }
+    if (row < rows && col < cols)
+        ((T*)dst.data)[dst.offset + (int64_t)row * cols + col] = acc;
+}
+
+//The offset-fold discipline (spec D1): a dense A/B takes the flat dense
+//kernel with the offset folded into the base pointer; either strided
+//takes the strided kernel (per-load fold, correct for a dense operand
+//too — the dense branch is only taken when BOTH are dense, so the flat
+//index is exact there).
 cudaError_t LaunchMatmul(const LaunchView& a, const LaunchView& b,
                          const LaunchView& dst, int elemKindCode) {
-    //Dense row-major rank-2 operands (the dispatcher materialized).
+    const DevView va = ToDevView(a);
+    const DevView vb = ToDevView(b);
+    const DevView vd = ToDevView(dst);
+    const bool dense = IsDense(va) && IsDense(vb);
     const int32_t rows = a.dims[0];
     const int32_t inner = a.dims[1];
     const int32_t cols = b.dims[1];
     dim3 grid((cols + 15) / 16, (rows + 15) / 16);
     dim3 block(16, 16);
-    if (elemKindCode == 1)
-        MatmulKernelF<<<grid, block, 0, g_stream>>>(
-            (const float*)a.data, (const float*)b.data, (float*)dst.data,
-            rows, inner, cols);
-    else if (elemKindCode == 17)
-        MatmulKernelF64<<<grid, block, 0, g_stream>>>(
-            (const double*)a.data, (const double*)b.data, (double*)dst.data,
-            rows, inner, cols);
-    else if (elemKindCode == 0)
-        MatmulKernelI32<<<grid, block, 0, g_stream>>>(
-            (const int32_t*)a.data, (const int32_t*)b.data,
-            (int32_t*)dst.data, rows, inner, cols);
-    else if (elemKindCode == 15)
-        MatmulKernelI64<<<grid, block, 0, g_stream>>>(
-            (const int64_t*)a.data, (const int64_t*)b.data,
-            (int64_t*)dst.data, rows, inner, cols);
-    else
-        return cudaErrorNotSupported;
+    if (dense) {
+        if (elemKindCode == 1)
+            MatmulKernelF<<<grid, block, 0, g_stream>>>(
+                (const float*)a.data + a.offset,
+                (const float*)b.data + b.offset,
+                (float*)dst.data + dst.offset, rows, inner, cols);
+        else if (elemKindCode == 17)
+            MatmulKernelF64<<<grid, block, 0, g_stream>>>(
+                (const double*)a.data + a.offset,
+                (const double*)b.data + b.offset,
+                (double*)dst.data + dst.offset, rows, inner, cols);
+        else if (elemKindCode == 0)
+            MatmulKernelI32<<<grid, block, 0, g_stream>>>(
+                (const int32_t*)a.data + a.offset,
+                (const int32_t*)b.data + b.offset,
+                (int32_t*)dst.data + dst.offset, rows, inner, cols);
+        else if (elemKindCode == 15)
+            MatmulKernelI64<<<grid, block, 0, g_stream>>>(
+                (const int64_t*)a.data + a.offset,
+                (const int64_t*)b.data + b.offset,
+                (int64_t*)dst.data + dst.offset, rows, inner, cols);
+        else
+            return cudaErrorNotSupported;
+    } else {
+        if (elemKindCode == 1)
+            MatmulKernelStrided<float><<<grid, block, 0, g_stream>>>(
+                va, vb, vd, rows, inner, cols);
+        else if (elemKindCode == 17)
+            MatmulKernelStrided<double><<<grid, block, 0, g_stream>>>(
+                va, vb, vd, rows, inner, cols);
+        else if (elemKindCode == 0)
+            MatmulKernelStrided<int32_t><<<grid, block, 0, g_stream>>>(
+                va, vb, vd, rows, inner, cols);
+        else if (elemKindCode == 15)
+            MatmulKernelStrided<int64_t><<<grid, block, 0, g_stream>>>(
+                va, vb, vd, rows, inner, cols);
+        else
+            return cudaErrorNotSupported;
+    }
     return cudaStreamSynchronize(g_stream);
 }
 
@@ -1595,20 +2130,41 @@ cudaError_t LaunchCopy(const LaunchView& src, const LaunchView& dst,
     return cudaStreamSynchronize(g_stream);
 }
 
-//concat: the axis-0/last dense-halves copy (the concat geometry's two
-//source windows are contiguous spans of the destination when the axis
-//is 0 of rank-2 or the last dim of rank-1 — the e2e concat shapes).
-//Other axis positions land with the parity suite.
+//The strided concat: one element per thread, the source half chosen by
+//the destination's flat index (i < aCount reads a at flat i, else b at
+//flat i - aCount — exact for the gate's layouts, rank-1 and rank-2
+//axis-0, where the flat ordinal maps onto the source's row-major
+//ordinal), the write dense (the dispatcher mints dst). A dense operand
+//folds to flat i + offset, so either operand strided takes this kernel.
+__global__ void ConcatStridedKernel(int elemKindCode, DevView a, DevView b,
+                                   DevView dst, int64_t aCount) {
+    const int64_t i = blockIdx.x * (int64_t)blockDim.x + threadIdx.x;
+    if (i >= dst.elemCount)
+        return;
+    const DevView src = i < aCount ? a : b;
+    const int64_t sa = FlatAddress(src, i < aCount ? i : i - aCount);
+    const int64_t sd = dst.offset + i;
+    if (elemKindCode == 1)
+        ((float*)dst.data)[sd] = ((const float*)src.data)[sa];
+    else if (elemKindCode == 17)
+        ((double*)dst.data)[sd] = ((const double*)src.data)[sa];
+    else if (elemKindCode == 0)
+        ((int32_t*)dst.data)[sd] = ((const int32_t*)src.data)[sa];
+    else
+        ((int64_t*)dst.data)[sd] = ((const int64_t*)src.data)[sa];
+}
+
+//concat: dense operands take the two D2D span copies (the offset folded
+//into the base — a dense view's logical cells are a contiguous run from
+//its offset); either strided takes the strided kernel. The flat two-half
+//copy is valid ONLY along the outermost axis (axis 0, any rank): any
+//other axis interleaves the halves inside dst and needs an interleaved
+//kernel (NotSupported until the parity suite lands it — the old
+//hardcoded axis-0 was silently wrong there).
 cudaError_t LaunchConcat(const LaunchView& a, const LaunchView& b,
                          int axis, const LaunchView& dst,
                          int elemKindCode) {
-    //Geometry gate (design §R6): only the layouts whose dst halves are
-    //contiguous spans — rank 1 (axis 0) and rank-2 axis 0. Other axis
-    //positions raise NotSupported (the parity suite adds them); a
-    //tiled two-half copy there would interleave.
-    const bool contiguousHalves =
-        a.rank == 1 || (a.rank == 2 && axis == 0);
-    if (!contiguousHalves)
+    if (axis != 0)
         return cudaErrorNotSupported;
     const int64_t aCount = a.elemCount;
     const int64_t bCount = b.elemCount;
@@ -1616,14 +2172,27 @@ cudaError_t LaunchConcat(const LaunchView& a, const LaunchView& b,
     //bytes for f64/i64).
     const int cellBytes = (elemKindCode == 17 || elemKindCode == 15)
         ? 8 : 4;
-    //Both spans are device-dense (the dispatcher materialized the
-    //operands) — D2D for both; the first span's host-signed copy read
-    //device memory as a host source.
-    cudaMemcpyAsync(dst.data, a.data, aCount * cellBytes,
-        cudaMemcpyDeviceToDevice, g_stream);
-    cudaMemcpyAsync((uint8_t*)dst.data + aCount * cellBytes,
-        b.data, bCount * cellBytes, cudaMemcpyDeviceToDevice,
-        g_stream);
+    if (IsDense(ToDevView(a)) && IsDense(ToDevView(b))) {
+        const uint8_t* aBase =
+            static_cast<const uint8_t*>(a.data)
+            + static_cast<size_t>(a.offset) * cellBytes;
+        const uint8_t* bBase =
+            static_cast<const uint8_t*>(b.data)
+            + static_cast<size_t>(b.offset) * cellBytes;
+        cudaMemcpyAsync(dst.data, aBase, aCount * cellBytes,
+            cudaMemcpyDeviceToDevice, g_stream);
+        cudaMemcpyAsync((uint8_t*)dst.data + aCount * cellBytes,
+            bBase, bCount * cellBytes, cudaMemcpyDeviceToDevice,
+            g_stream);
+    } else {
+        const DevView da = ToDevView(a);
+        const DevView db = ToDevView(b);
+        const DevView dd = ToDevView(dst);
+        const int64_t blocks =
+            (dst.elemCount + kThreads - 1) / kThreads;
+        ConcatStridedKernel<<<(int)blocks, kThreads, 0, g_stream>>>(
+            elemKindCode, da, db, dd, aCount);
+    }
     return cudaStreamSynchronize(g_stream);
 }
 

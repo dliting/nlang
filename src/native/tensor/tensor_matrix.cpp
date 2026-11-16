@@ -26,18 +26,27 @@ namespace tensor {
 
 namespace {
 
-//A view of the operand, materialized to a dense owning record when its
-//strides are not row-major dense (the copy path needs flat addressing).
-//Returns the handle actually backing the computation — the original
-//when it was already contiguous. The minted handle stays rooted per the
-//newArray contract until this native returns.
+//An operand view for the flat-addressing kernels (matmul/concat):
+//materialized to a dense owning record when its strides are not
+//row-major dense — EXCEPT a device-resident view under the CUDA plugin,
+//which passes through strided: the cuda matmul/concat slots fold each
+//load through the recorded strides (per-load fold), so no D2D copy.
+//Host-resident striding still materializes on host (the CPU matmul/
+//concat slots keep flat dense addressing), and mirror device-resident
+//striding still materializes D2D (the cpu table serves it). Returns the
+//handle actually backing the computation — the original when it passes
+//through. The minted handle stays rooted per the newArray contract
+//until this native returns.
 int32_t ContiguousOperand(NativeHost* host, const uint8_t* args, int slot,
                           NativeArrayView* view) {
     ArgArray(host, args, slot, view);
-    //R7 (design 2026-11-15): the materialization routes by SOURCE
-    //residency — contiguous operands pass through, strided host sources
-    //materialize on host (cpu table), strided device sources on device
-    //(D2D). One router for the whole host-materialization family.
+    //R8 (design 2026-11-16): device-resident operands pass through even
+    //when strided — the cuda table (OpsForResidency(1) is the plugin
+    //table exactly when g_backend.ops != nullptr; under mirror it is the
+    //cpu table, which still needs the dense materialization) serves the
+    //strided-aware slot.
+    if (view->reserved[0] == 1 && ActiveDeviceBackend().ops != nullptr)
+        return ArgInt(args, slot);
     return MaterializeByResidency(host, ArgInt(args, slot), view);
 }
 

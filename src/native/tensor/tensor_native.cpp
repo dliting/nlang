@@ -292,6 +292,8 @@ NLANG_DEFINE_NATIVE_INIT {
     regBlocking(registry, "tensor", "slice", &tensor::TensorSlice);
     regBlocking(registry, "tensor", "broadcastTo",
                 &tensor::TensorBroadcastTo);
+    regBlocking(registry, "tensor", "contiguous",
+                &tensor::TensorContiguous);
     regBlocking(registry, "tensor", "addScalar",
                 &tensor::TensorAddScalar);
     regBlocking(registry, "tensor", "subScalar",

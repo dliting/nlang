@@ -1,0 +1,107 @@
+// matmul over strided views (v0.14.0): a strided operand (transpose,
+// row slice) is read through its recorded strides and a dense operand
+// folds its offset once into the base pointer — no materialization in
+// either case.
+import io;
+import tensor;
+
+int main() {
+    float[,] m = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]];        // 2x3
+    float[,] n = [[7.0, 8.0], [9.0, 10.0], [11.0, 12.0]];   // 3x2
+    float[,] mt = tensor.transpose(m);                     // 3x2 strided
+    float[,] nt = tensor.transpose(n);                     // 2x3 strided
+
+    // strided x strided: m^T n^T == (n m)^T
+    float[,] rs = tensor.matmul(mt, nt);
+    float[,] rref = tensor.transpose(tensor.matmul(n, m));
+    if (tensor.sum(tensor.eq(rs, rref)) != 9) return 1;
+    if (rs[0, 0] != 39.0 || rs[1, 1] != 68.0 || rs[2, 2] != 105.0)
+        return 2;
+
+    // dense x strided and strided x dense
+    float[,] q = [[1.0, 2.0], [3.0, 4.0]];
+    float[,] qt = tensor.transpose(q);
+    float[,] rd = tensor.matmul(q, qt);
+    if (rd[0, 0] != 5.0 || rd[1, 1] != 25.0) return 3;
+    float[,] rq = tensor.matmul(qt, q);
+    if (rq[0, 0] != 10.0 || rq[1, 1] != 20.0) return 4;
+
+    // int32 and double strided
+    int[,] im = [[1, 2], [3, 4]];
+    int[,] imt = tensor.transpose(im);
+    int[,] ri = tensor.matmul(im, imt);
+    if (ri[0, 0] != 5 || ri[1, 1] != 25) return 5;
+    double[,] dm = [[1.5, 2.5], [3.5, 4.5]];
+    double[,] dmt = tensor.transpose(dm);
+    double[,] rdd = tensor.matmul(dm, dmt);
+    if (rdd[0, 0] != 8.5 || rdd[1, 1] != 32.5) return 6;
+
+    // dense view with a non-zero offset (full-row slice): the dense
+    // branch folds the offset into the base pointer.
+    int[,] o = [[10, 20], [30, 40], [50, 60]];
+    int[,] os = o[1:, :];                                  // offset 2
+    int[,] ro = tensor.matmul(os, os);
+    if (ro[0, 0] != 2900 || ro[1, 1] != 5600) return 7;
+
+    // strided operand with a NONZERO offset: the transpose of os (o[1:,:],
+    // offset 2) is [2,2] strided (strides [1,2]) carrying that same offset —
+    // the strided fold must add the offset per element, not just the strides
+    // (the "missed fold" the offset-fold discipline guards against). The
+    // dense reference materializes osT first; on the device the strided path
+    // is exercised directly.
+    int[,] osT = tensor.transpose(os);                     // [2,2] strided, off 2
+    int[,] rostr = tensor.matmul(osT, osT);
+    int[,] roref =
+        tensor.matmul(tensor.contiguous(osT), tensor.contiguous(osT));
+    if (rostr[0, 1] != roref[0, 1] || rostr[1, 0] != roref[1, 0]
+        || rostr[0, 0] != roref[0, 0] || rostr[1, 1] != roref[1, 1]) return 13;
+    if (rostr[0, 1] != 4500) return 14;
+
+    // concat: strided operands read per element; the dense path keeps
+    // its span copies.
+    float[] v = tensor.arangeF(0.0, 10.0, 1.0);            // 0..9 dense
+    float[,] cm = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]];
+    float[,] cn = [[7.0, 8.0, 9.0], [10.0, 11.0, 12.0]];
+    float[,] cmt = tensor.transpose(cm);                  // 3x2 strided
+    float[,] cnt = tensor.transpose(cn);                  // 3x2 strided
+    float[,] cc = tensor.concat(cmt, cnt, 0);             // 6x2
+    float[,] cd1 = [[1.0, 4.0], [2.0, 5.0], [3.0, 6.0]];
+    float[,] cd2 = [[7.0, 10.0], [8.0, 11.0], [9.0, 12.0]];
+    float[,] cref = tensor.concat(cd1, cd2, 0);
+    if (tensor.sum(tensor.eq(cc, cref)) != 12) return 8;
+    if (cc[0, 0] != 1.0 || cc[5, 1] != 12.0) return 9;
+    // rank-1 strided (step-2 slice) concat
+    float[] cs = tensor.slice(v, [0], [10], [2]);          // 0,2,4,6,8
+    float[] ccat = tensor.concat(cs, cs, 0);               // 10 cells
+    if (ccat[4] != 8.0 || ccat[5] != 0.0 || ccat[9] != 8.0) return 10;
+    // int32 strided concat
+    int[,] ci = [[1, 2], [3, 4]];
+    int[,] cit = tensor.transpose(ci);
+    int[,] cic = tensor.concat(cit, cit, 0);               // 4x2
+    if (cic[0, 1] != 3 || cic[1, 1] != 4 || cic[3, 1] != 4) return 11;
+    // dense regression: axis-0 on dense operands (the span-copy path)
+    int[,] cdd = tensor.concat(ci, ci, 0);
+    if (cdd[0, 0] != 1 || cdd[3, 1] != 4) return 12;
+
+    // strided concat with a NONZERO offset: the strided osT (offset 2) read
+    // per element; the dense reference materializes it first.
+    int[,] cos = tensor.concat(osT, osT, 0);
+    int[,] cosref =
+        tensor.concat(tensor.contiguous(osT), tensor.contiguous(osT), 0);
+    if (cos[0, 1] != cosref[0, 1] || cos[3, 0] != cosref[3, 0]) return 15;
+    if (cos[0, 1] != 50 || cos[3, 0] != 40) return 16;
+
+    // rank-3 axis-0 concat: the flat two-half copy and the strided kernel are
+    // both rank-agnostic (FlatAddress walks every axis), so pin the "any rank"
+    // claim at rank 3. A rank-3 literal registers the type (full(dims, value)
+    // cannot mint it); transpose reverses every axis, so transpose(c3a) is a
+    // [2,2,2] strided view.
+    int[,,] c3a = [[[1, 2], [3, 4]], [[5, 6], [7, 8]]];
+    int[,,] c3b = [[[9, 10], [11, 12]], [[13, 14], [15, 16]]];
+    int[,,] c3c = tensor.concat(c3a, c3b, 0);               // [4,2,2] dense
+    if (c3c[0, 0, 0] != 1 || c3c[3, 1, 1] != 16) return 17;
+    int[,,] c3t = tensor.transpose(c3a);                    // [2,2,2] strided
+    int[,,] c3s = tensor.concat(c3t, c3t, 0);              // [4,2,2] strided
+    if (c3s[0, 0, 0] != 1 || c3s[3, 1, 1] != 8) return 18;
+    return 0;
+}

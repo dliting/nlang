@@ -1,0 +1,82 @@
+// Reductions over strided views (v0.14.0): transpose and step slices
+// are zero-copy re-views; sum/max/min/mean/dot/argmax read through the
+// recorded strides without materializing the view.
+import io;
+import tensor;
+
+int main() {
+    // [3,4] dense payload, integer-valued so reductions are exact.
+    float[,] a = [[1.0, 2.0, 3.0, 4.0],
+                  [5.0, 6.0, 7.0, 8.0],
+                  [9.0, 10.0, 11.0, 12.0]];
+    float[,] t = tensor.transpose(a);          // [4,3] strided
+
+    // whole-array reductions on the strided view
+    if (tensor.sum(t) != 78.0) return 1;
+    if (tensor.max(t) != 12.0) return 2;
+    if (tensor.min(t) != 1.0) return 3;
+    if (tensor.mean(t) != 6.5) return 4;
+
+    // dense regression: the same ops on the dense source
+    if (tensor.sum(a) != 78.0) return 5;
+    if (tensor.max(a) != 12.0) return 6;
+
+    // rank-1 step-2 slice (strided): sum and dot
+    float[] v = tensor.arangeF(0.0, 10.0, 1.0);     // 0..9 dense
+    float[] s = tensor.slice(v, [0], [10], [2]);    // 0,2,4,6,8 strided
+    if (tensor.sum(s) != 20.0) return 7;
+    if (tensor.dot(s, s) != 120.0) return 8;        // 0+4+16+36+64
+    if (tensor.dot(v, v) != 285.0) return 9;       // dense regression
+
+    // per-axis: t is [4,3]; axis 0 is the strided dim, so its row-sums
+    // must equal the dense reference sum(a, 1) and the hand values.
+    float[] st0 = tensor.sum(t, 0);
+    float[] a1 = tensor.sum(a, 1);
+    if (tensor.sum(tensor.eq(st0, a1)) != 3) return 10;
+    if (st0[0] != 10.0 || st0[1] != 26.0 || st0[2] != 42.0) return 11;
+
+    // axis-last on the strided view vs the dense reference sum(a, 0)
+    float[] t1 = tensor.sum(t, 1);
+    float[] a0 = tensor.sum(a, 0);
+    if (tensor.sum(tensor.eq(t1, a0)) != 4) return 12;
+
+    // argmax axis-last on the strided view: t[r, c] == td[r, c] where
+    // td is the hand-built dense payload; the winners land on column 2.
+    float[,] td = [[1.0, 5.0, 9.0], [2.0, 6.0, 10.0],
+                   [3.0, 7.0, 11.0], [4.0, 8.0, 12.0]];
+    int[] am = tensor.argmax(t, 1);
+    int[] amd = tensor.argmax(td, 1);
+    if (am[0] != amd[0] || am[1] != amd[1]
+        || am[2] != amd[2] || am[3] != amd[3]) return 13;
+    if (am[0] != 2 || am[3] != 2) return 14;
+
+    // rank-17 dense regression: a truncated DevView fill let IsDense/
+    // FlatAddress read the dims/strides past the 16th axis and misroute a
+    // dense rank-17 source to the strided kernel. The literal registers
+    // the rank-17 array type (full(dims, value) cannot mint it: no tensor
+    // signature names a rank-17 row, so the type table has no entry).
+    // Shape [1]*16 + [2] keeps the payload two cells; the exact int sum
+    // pins the dense path.
+    int[,,,,,,,,,,,,,,,,] big17 =
+        [[[[[[[[[[[[[[[[[ 3, 3 ]]]]]]]]]]]]]]]]];
+    if (tensor.sum(big17) != 6) return 15;
+
+    // negative-stride rank-1 slice: v[9:0:-1] reads tail to head through a
+    // recorded negative stride; the whole sum is unchanged (0+1+..+9).
+    float[] rs = tensor.slice(v, [9], [0], [-1]);
+    if (tensor.sum(rs) != 45.0) return 16;
+
+    // zero-stride broadcast: broadcastTo adds a leading stride-0 axis; the
+    // sum counts the source once per broadcast row (4 rows of [0, 1]).
+    float[,] br = tensor.broadcastTo(tensor.slice(v, [0], [2], [1]), [4, 2]);
+    if (tensor.sum(br) != 4.0) return 17;
+
+    // dot of two DISTINCT strided views: dot(s, s) folds the same view into
+    // both operands, so a symmetric fold error in the second operand would
+    // be masked; two offset step slices pin each operand's fold separately
+    // (0*1 + 2*3 + 4*5 + 6*7 + 8*9).
+    float[] s1 = tensor.slice(v, [0], [10], [2]);          // 0,2,4,6,8
+    float[] s2 = tensor.slice(v, [1], [10], [2]);          // 1,3,5,7,9
+    if (tensor.dot(s1, s2) != 140.0) return 18;
+    return 0;
+}
