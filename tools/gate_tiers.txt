@@ -1,0 +1,18 @@
+# gate_tiers.txt -- tier definitions for the tiered gates
+# (docs/dev/gate_tiering_design.md). One source of truth: consumed by
+# tools/tier_coverage_check.py (coverage invariant) and referenced by
+# tools/gate_tier.sh when it assembles each tier's e2e legs.
+#
+#   tier <leg-name> selector <regex over manifest test names>
+#
+# The coverage invariant: every manifest row must be selected by at
+# least one tier selector; a selector matching zero rows fails the
+# guard. The full-manifest selectors (".") make today's tiers trivially
+# complete — the guard exists so a future tier edit cannot silently
+# orphan a test family.
+
+tier T1-debug-e2e selector .
+tier T1-asan-subset selector stabilize|concurren|carrier|thread|mutex|channel|atomic|sync|list|dict|container|collect|gc|exception|throw|catch|serial|stream|struct|boxing|array|slice|view|tearing|race
+tier T2-debug-e2e selector .
+tier T2-asan-e2e selector .
+tier T2-release-e2e selector .
