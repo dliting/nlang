@@ -52,7 +52,11 @@ a container element, a static slot) owns one record for its entire life
 the heap slot and its handle never move; only establishing a new
 position allocates a new record. The write is cell-granularity, like
 every other storage operation: there is no record-level lock anywhere
-in the executor.
+in the executor. A field's storage corresponds to a *memory location*
+in the C/C++ standards: per-field reads and writes are atomic;
+concurrent access to different fields needs no coordination, and
+unsynchronized concurrent access to the same field is a data race
+(§10.1).
 
 **Cross-carrier observability**: without coordination, a concurrent
 reader of a shared struct may observe a mix of old and new field values

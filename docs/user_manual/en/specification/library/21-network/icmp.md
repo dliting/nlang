@@ -34,8 +34,12 @@ import io;
 import net;
 
 int main() {
-    int rtt = net.ping("127.0.0.1", 3000);
-    io.print("loopback rtt=" + rtt.toString() + "ms\n");
+    try {
+        int rtt = net.ping("127.0.0.1", 3000);
+        io.print("loopback rtt=" + rtt.toString() + "ms\n");
+    } catch (TimeoutException e) {
+        io.print("no answer inside the deadline\n");
+    }
     return 0;
 }
 ```
