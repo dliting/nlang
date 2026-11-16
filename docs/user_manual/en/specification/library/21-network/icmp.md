@@ -34,8 +34,14 @@ import io;
 import net;
 
 int main() {
-    int rtt = net.ping("127.0.0.1", 3000);
-    io.print("loopback rtt=" + rtt.toString() + "ms\n");
+    try {
+        int rtt = net.ping("127.0.0.1", 3000);
+        io.print("loopback rtt=" + rtt.toString() + "ms\n");
+    } catch (TimeoutException e) {
+        io.print("no echo before the deadline\n");
+    } catch (SocketException e) {
+        io.print("icmp unavailable: " + e.message + "\n");
+    }
     return 0;
 }
 ```
