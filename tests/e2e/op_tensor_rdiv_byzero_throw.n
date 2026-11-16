@@ -1,0 +1,15 @@
+// Reverse division by a zero array cell: uncaught Exception, exit 1 by
+// design. The scalar is the dividend, an array cell is the divisor —
+// the language raises DivByZero when a zero cell is reached (the
+// array/array walk's per-cell contract; the device kernel writes the
+// cell error flag and the slot must raise the named exception).
+import tensor;
+
+int main() {
+    int[] a = int[3];
+    a[0] = 2;
+    a[1] = 0;
+    a[2] = 4;
+    int[] b = 2 / a;
+    return 0;
+}

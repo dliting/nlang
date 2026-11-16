@@ -214,3 +214,9 @@ err_enum_bare_ambiguous
 err_struct_method
 err_ctor_typed_rettype
 err_struct_ctor_super
+op_tensor_scalar_divzero_throw
+op_tensor_onehot_throw
+op_tensor_gather_negative_throw
+op_tensor_rdiv_byzero_throw
+op_tensor_scalar_rdiv
+op_tensor_onehot_empty

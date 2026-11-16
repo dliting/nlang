@@ -8,7 +8,7 @@ All notable changes to NLang are documented here. The format follows
 
 ## [Unreleased]
 
-## [0.14.0]
+## [0.14.1]
 
 The tensor device-backend release: the whole tensor kernel table can now
 run on an accelerator through a pluggable device backend, and a CUDA
@@ -63,6 +63,23 @@ deployment detail, not a program detail.
 
 ### Changed
 
+- **Asynchronous device execution** — the tensor operations enqueue
+  their kernels on the device and return without waiting for them, so
+  a chain of device operations pipelines instead of paying a
+  synchronization wait per operation (the CuPy/PyTorch model). The
+  results are guaranteed complete at every observation point —
+  element access, print/serialize, `toHost`/`toDevice`, and the
+  scalar reductions. The device errors the language raises (integer
+  division by zero, a negative `gather` index, an out-of-range
+  `oneHot` label) still raise at the operation itself, with the
+  host path's classes and messages. The `mnist_mlp` training on the
+  device drops from 10.7 s to 3.0 s (3.6×, measured back-to-back on
+  the same machine); the host path is bit-for-bit unchanged
+  (1.52 s both). Kernel scratch buffers ride the device pool instead
+  of a `cudaMalloc`/`cudaFree` pair per launch. Empty-array
+  reductions compute their identities without a launch (a
+  zero-block scratch request can never reach the allocator, whose
+  zero-byte `cudaMalloc` succeeds with a NULL pointer).
 - The e2e suite pins the tensor backend to `cpu` by default so its
   results are hardware-independent; `NLANG_E2E_TENSOR_BACKEND=cuda|mirror`
   selects a device double-run leg, and a per-test `.env` sidecar
@@ -91,14 +108,40 @@ deployment detail, not a program detail.
   `newArrayResident`; `snapshotRngForDevice` snapshots the shared
   MT19937 stream atomically for device-side random fills.
 
+### Fixed
+
+- **Scalar reverse division by a zero cell crashed.** `2 / a` with a
+  zero cell in `a` crashed on both backends — a hardware division
+  fault on the host (the scalar walk never checked the divisor cell)
+  and a wild pointer write on the device (the slot passed a null
+  error cell). It now raises `DivByZeroException` per cell,
+  mirroring the array/array walk's contract.
+- **`0 / a` raised a false division-by-zero.** The scalar reverse
+  division gated on the scalar being zero — the wrong operand: the
+  scalar is the dividend, the array cells are the divisors. `0 / a`
+  is now legal unless an array cell is zero, matching the
+  elementwise semantics of the mainstream array stacks.
+- **`tensor.oneHot` crashed on an out-of-range label on the device.**
+  A label outside `[0, n)` took the kernel's error-flag path into a
+  null error cell — the process died with an access violation. It
+  now raises `IndexOutOfBoundsException` with the host path's
+  message.
+- **The stdlib symbol-count pins lagged the surface** (library index
+  and language service both pinned 324 against an actual 328 after
+  the recent stdlib additions); refreshed to 328.
+
 ### Known limitations
 
 - Device residency is limited to the tensor package's numeric four
   kinds; a hot loop over a device array must be written as tensor
   kernels — an element-level subscript pays a transfer per access.
-- Single stream, no kernel overlap: a performance architecture
-  decision, not a correctness gap; the upgrade path is on the
-  backlog.
+- Single-stream pipeline: kernels execute on one stream in enqueue
+  order; multi-stream overlap, event orchestration and CUDA Graphs
+  stay on the backlog. Faults detected while the device runs its
+  kernels are reported at the next observation point (deferred
+  attribution, the mainstream tradeoff); in the narrow case where
+  such a fault is followed only by output with no further tensor
+  operation, the output can be wrong instead of raising.
 - The CUDA plugin needs the CUDA 12.6 toolchain at build time and a
   compatible driver at run time; the host runtime itself has no GPU
   dependency.

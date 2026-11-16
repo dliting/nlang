@@ -1,0 +1,12 @@
+// Out-of-range oneHot label: uncaught Exception, exit 1 by design. The
+// device kernel writes the cell error flags for a label outside [0, n);
+// the slot must raise the named exception (the CPU walk does the same).
+import tensor;
+
+int main() {
+    int[] labels = int[2];
+    labels[0] = 0;
+    labels[1] = 5;
+    float[,] hot = tensor.oneHot(labels, 3);
+    return 0;
+}

@@ -110,6 +110,11 @@ void CpuBinaryScalar(NativeHost* host, BinaryKernelOp op,
     T* cout = CellsOf<T>(vout);
     int64_t at = 0;
     StrideWalk(v, [&](int64_t addr) {
+        //rdiv's divisor is the array cell: the per-cell raise mirrors
+        //the array/array walk (the scalar walk's own contract).
+        if (op == BinaryKernelOp::Rdiv && cells[addr] == T(0))
+            Raise(host, NEXC_DivideByZero,
+                  "tensor.div: integer division by zero");
         cout[at++] = ApplyBinWrap<T>(op, cells[addr], scalar);
     });
     (void)host;

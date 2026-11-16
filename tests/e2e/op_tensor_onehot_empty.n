@@ -1,0 +1,12 @@
+// Empty-label oneHot: the [0, n) output has no cells — the device
+// early-out must yield the same empty result as the CPU walk (and no
+// zero-block scratch request, which cudaMalloc(0)'s NULL pointer would
+// misreport as OOM).
+import tensor;
+
+int main() {
+    int[] labels = int[0];
+    float[,] hot = tensor.oneHot(labels, 3);
+    if (hot.length() != 0) return 1;
+    return 0;
+}

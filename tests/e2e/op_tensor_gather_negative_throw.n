@@ -1,0 +1,14 @@
+// Negative gather index: uncaught Exception, exit 1 by design. Under a
+// device backend the dispatcher stages the source and walks on the CPU
+// table, so both legs raise the same way today; when the device
+// take-per-position kernel lands, its cell-error-flags path must raise
+// identically.
+import tensor;
+
+int main() {
+    float[,] one = float[1, 4];
+    int[] bad = int[1];
+    bad[0] = -1;
+    float[] boom = tensor.gather(one, 1, bad);
+    return 0;
+}

@@ -281,11 +281,9 @@ void ReversedScalarKernel(NativeHost* host, uint8_t* ret,
     ArgArray(host, args, 0, &v);
     if (v.elemKind != kind)
         Raise(host, NEXC_Base, "tensor: unexpected element kind");
-    if constexpr (std::is_integral_v<T>) {
-        if (op == BinOp::Div && scalar == T(0))
-            Raise(host, NEXC_DivideByZero,
-                  "tensor.div: integer division by zero");
-    }
+    //No scalar-zero gate here: the reversed division's divisor is the
+    //array, not the scalar — the walks do the per-cell check (the
+    //array/array walk's contract).
     const int32_t handle = MintOutputLike(host, kind, v.rank, v.dims, v);
     NativeArrayView vout;
     host->getArrayView(host, handle, &vout);

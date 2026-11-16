@@ -2,7 +2,8 @@
     cuda_backend.cpp — the CUDA device backend (P3): the free-list
     pool, the TensorDeviceHooks (the VM routes device records through
     them — spec D3), the TensorOps CUDA table (each slot: validate,
-    launch, sync, check the device error flags, raise the named NLang
+    launch under the differentiated sync discipline — async by default,
+    the error-capable families drain per op — and raise the named NLang
     exception), and the plugin exports (probe/name/init — the
     DeviceBackend contract, spec D5).
 
@@ -260,17 +261,25 @@ TensorOps MakeCudaTable() {
                            NativeArrayView& a, int32_t scalar,
                            NativeArrayView& dst) {
         RequireCuda(host);
+        int32_t errCell = -1;
         CUDA_CHECK(LaunchBinaryScalar((int)op, ToLaunch(a), scalar,
             op == BinaryKernelOp::Rsub || op == BinaryKernelOp::Rdiv,
-            ToLaunch(dst), nullptr), "tensor (cuda scalar)");
+            ToLaunch(dst), &errCell), "tensor (cuda scalar)");
+        if (errCell >= 0)
+            nlang::native::Raise(host, NEXC_DivideByZero,
+                "tensor.div: integer division by zero");
     };
     t.binaryScalarI64 = [](NativeHost* host, BinaryKernelOp op,
                            NativeArrayView& a, int64_t scalar,
                            NativeArrayView& dst) {
         RequireCuda(host);
+        int32_t errCell = -1;
         CUDA_CHECK(LaunchBinaryScalar((int)op, ToLaunch(a), scalar,
             op == BinaryKernelOp::Rsub || op == BinaryKernelOp::Rdiv,
-            ToLaunch(dst), nullptr), "tensor (cuda scalar)");
+            ToLaunch(dst), &errCell), "tensor (cuda scalar)");
+        if (errCell >= 0)
+            nlang::native::Raise(host, NEXC_DivideByZero,
+                "tensor.div: integer division by zero");
     };
 
     t.clampF32 = [](NativeHost* host, bool isMax, NativeArrayView& src,
@@ -341,8 +350,19 @@ TensorOps MakeCudaTable() {
     t.oneHotI32 = [](NativeHost* host, NativeArrayView& labels,
                      int32_t n, NativeArrayView& dst) {
         RequireCuda(host);
+        int32_t errCell = -1;
         CUDA_CHECK(LaunchOneHot(ToLaunch(labels), n, ToLaunch(dst),
-            nullptr), "tensor (cuda oneHot)");
+            &errCell), "tensor (cuda oneHot)");
+        if (errCell >= 0) {
+            //The dispatcher stages the labels to host before the slot
+            //(the kernel reads them from host memory), so the offending
+            //value is readable here — the message mirrors the CPU walk.
+            const int32_t bad = static_cast<const int32_t*>(
+                labels.data)[labels.offset + errCell];
+            nlang::native::Raise(host, NEXC_OutOfBounds,
+                "tensor.oneHot: label " + std::to_string(bad)
+                + " out of range for " + std::to_string(n) + " classes");
+        }
     };
 
     t.matmulF32 = [](NativeHost* host, NativeArrayView& a,
@@ -356,8 +376,19 @@ TensorOps MakeCudaTable() {
                      NativeArrayView& indices, NativeArrayView& dst) {
         (void)axis;
         RequireCuda(host);
+        int32_t errCell = -1;
         CUDA_CHECK(LaunchGather(ToLaunch(src), 0, ToLaunch(indices),
-            ToLaunch(dst), nullptr), "tensor (cuda gather)");
+            ToLaunch(dst), &errCell), "tensor (cuda gather)");
+        if (errCell >= 0) {
+            //The dispatcher stages the indices to host before the slot;
+            //the message mirrors the CPU walk's per-index raise.
+            const int32_t bad = static_cast<const int32_t*>(
+                indices.data)[indices.offset + errCell];
+            nlang::native::Raise(host, NEXC_OutOfBounds,
+                "tensor.gather: index " + std::to_string(bad)
+                + " out of bounds for axis " + std::to_string(axis)
+                + " with size " + std::to_string(src.dims[axis]));
+        }
     };
     t.gatherI32 = t.gatherF32;
 
@@ -446,7 +477,7 @@ TensorOps MakeCudaTable() {
                          NativeArrayView& dst) {
         RequireCuda(host);
         CUDA_CHECK(LaunchReduceAxis((int)op, ToLaunch(src), axis,
-            ToLaunch(dst), nullptr), "tensor (cuda reduce)");
+            ToLaunch(dst)), "tensor (cuda reduce)");
     };
     t.reduceAxisF64 = t.reduceAxisF32;
     t.reduceAxisI32 = t.reduceAxisF32;

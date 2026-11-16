@@ -168,7 +168,7 @@ def _needs_script_cwd(name):
 #these suffixes are excluded from the P3.7 hidden-throw detector: their
 #exit=1 is by design (runtime throws → exit 1 = expected 1).
 INTENTIONAL_THROW_SUFFIXES = (
-    '_throws', '_null', '_oob', '_bounds', '_eos',
+    '_throws', '_throw', '_null', '_oob', '_bounds', '_eos',
     '_missing', '_bad_mode', '_cycle',
 )
 

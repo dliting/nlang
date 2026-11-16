@@ -10,10 +10,16 @@
     through the recorded strides (the strided-view discipline — views
     ride their layout without materializing).
 
-    Every launcher: launch on the single stream, cudaStreamSynchronize
-    (one op one sync — spec D4), check the device error flags (the
-    cell-level raise mechanism — errorOut carries the offending cell
-    index for the caller's named NLang raise), return the cudaError for
+    Differentiated sync discipline (spec 2026-11-16 §3): launchers
+    whose kernels raise no cell errors are asynchronous — they enqueue
+    on the single stream and return cudaGetLastError() (launch-config
+    errors attribute at this op; execution faults surface at the next
+    host boundary). The four error-capable launcher families (int
+    binary, int binary-scalar, gather, oneHot) keep the per-op
+    clear-launch-sync-read drain so the cell-level raise stays at this
+    op. The reduction family's blocking partials read is its host
+    boundary. errorOut carries the offending cell index for the
+    caller's named NLang raise; the launcher returns the cudaError for
     the CHECK-style wrapper.
 
     This TU compiles -fmad=false (spec 第8轮N2): the uniform mapping's
@@ -191,8 +197,9 @@ void* PoolAlloc(size_t bytes) {
 }
 
 void PoolZero(void* ptr, size_t bytes) {
+    //Stream-ordered: subsequent kernels and the host-boundary copies
+    //(CopyBytes) observe the zeroed cells; no per-op sync.
     cudaMemsetAsync(ptr, 0, bytes, g_stream);
-    cudaStreamSynchronize(g_stream);
 }
 
 void PoolFree(void* ptr) {
@@ -304,19 +311,22 @@ __global__ void BinaryKernelInt(int op, DevView a, DevView b, DevView dst,
 cudaError_t LaunchBinary(int op, const LaunchView& a,
                          const LaunchView& b, const LaunchView& dst,
                          int32_t* errorOut) {
+    //Differentiated sync (spec 2026-11-16 §3): the float arms raise no
+    //cell errors — enqueue and go; the int arms write the per-cell
+    //division-by-zero flag, so they keep the clear-launch-sync-read
+    //drain that raises at this op.
     const DevView da = ToDevView(a);
     const DevView db = ToDevView(b);
     const DevView dd = ToDevView(dst);
     const int64_t blocks = (dst.elemCount + kThreads - 1) / kThreads;
+    if (dst.elemKind == 1 || dst.elemKind == 17) {
+        BinaryKernel<<<(int)blocks, kThreads, 0, g_stream>>>(
+            op, da, db, dd, 0.0, false, false);
+        return cudaGetLastError();
+    }
     const uint32_t none[2] = {kErrNone, 0};
     cudaMemcpy(g_error, none, 2 * sizeof(int32_t), cudaMemcpyHostToDevice);
-    if (dst.elemKind == 1) {
-        BinaryKernel<<<(int)blocks, kThreads, 0, g_stream>>>(
-            op, da, db, dd, 0.0, false, false);
-    } else if (dst.elemKind == 17) {
-        BinaryKernel<<<(int)blocks, kThreads, 0, g_stream>>>(
-            op, da, db, dd, 0.0, false, false);
-    } else if (dst.elemKind == 0) {
+    if (dst.elemKind == 0) {
         BinaryKernelInt<int32_t><<<(int)blocks, kThreads, 0, g_stream>>>(
             op, da, db, dd, 0, false, false, g_error);
     } else {
@@ -336,18 +346,19 @@ cudaError_t LaunchBinary(int op, const LaunchView& a,
 cudaError_t LaunchBinaryScalar(int op, const LaunchView& a,
                                double scalar, bool scalarLeft,
                                const LaunchView& dst, int32_t* errorOut) {
+    //Differentiated sync (see LaunchBinary): the reverse-division arm
+    //divides by array cells, so the int arms drain the flag at this op.
     const DevView da = ToDevView(a);
     const DevView dd = ToDevView(dst);
     const int64_t blocks = (dst.elemCount + kThreads - 1) / kThreads;
+    if (dst.elemKind == 1 || dst.elemKind == 17) {
+        BinaryKernel<<<(int)blocks, kThreads, 0, g_stream>>>(
+            op, da, dd, dd, scalar, scalarLeft, true);
+        return cudaGetLastError();
+    }
     const uint32_t none[2] = {kErrNone, 0};
     cudaMemcpy(g_error, none, 2 * sizeof(int32_t), cudaMemcpyHostToDevice);
-    if (dst.elemKind == 1) {
-        BinaryKernel<<<(int)blocks, kThreads, 0, g_stream>>>(
-            op, da, dd, dd, scalar, scalarLeft, true);
-    } else if (dst.elemKind == 17) {
-        BinaryKernel<<<(int)blocks, kThreads, 0, g_stream>>>(
-            op, da, dd, dd, scalar, scalarLeft, true);
-    } else if (dst.elemKind == 0) {
+    if (dst.elemKind == 0) {
         BinaryKernelInt<int32_t><<<(int)blocks, kThreads, 0, g_stream>>>(
             op, da, dd, dd, (int64_t)scalar, scalarLeft, true, g_error);
     } else {
@@ -431,7 +442,7 @@ cudaError_t LaunchUnary(int op, const LaunchView& src,
         UnaryKernelI32<<<(int)blocks, kThreads, 0, g_stream>>>(op, ds, dd);
     else
         UnaryKernelI64<<<(int)blocks, kThreads, 0, g_stream>>>(op, ds, dd);
-    return cudaStreamSynchronize(g_stream);
+    return cudaGetLastError();
 }
 
 __global__ void ClampKernel(bool isMax, DevView src, double bound,
@@ -471,7 +482,7 @@ cudaError_t LaunchClamp(bool isMax, const LaunchView& src, double bound,
     else
         ClampKernel<<<(int)blocks, kThreads, 0, g_stream>>>(
             isMax, ds, bound, dd);
-    return cudaStreamSynchronize(g_stream);
+    return cudaGetLastError();
 }
 
 //--- reductions ----------------------------------------------------------
@@ -611,8 +622,36 @@ __global__ void SumStridedKernelInt(DevView v, int64_t count,
     }
 }
 
+//The reduction drain: the host-boundary sync of the block-partial
+//family. A launch error must short-circuit before the copy (a failed
+//launch leaves the scratch stale and the blocking read would succeed
+//over garbage); an execution fault surfaces as the copy's return (the
+//stream sync rides the blocking memcpy).
+static cudaError_t ReadPartials(void* dPartial, void* dst, size_t bytes) {
+    const cudaError_t launchErr = cudaGetLastError();
+    if (launchErr != cudaSuccess) {
+        PoolFree(dPartial);
+        return launchErr;
+    }
+    const cudaError_t copyErr = cudaMemcpy(dst, dPartial, bytes,
+        cudaMemcpyDeviceToHost);
+    PoolFree(dPartial);
+    return copyErr;
+}
+
 cudaError_t LaunchSumAll(const LaunchView& src, double* out,
                          int64_t* outI, bool isInt) {
+    //The empty identity (the CPU walk's contract — the suite pins
+    //sum(empty) == 0): no launch, no scratch. A zero-block scratch
+    //request must not reach PoolAlloc — cudaMalloc(0) succeeds with a
+    //NULL pointer, which the null check would misread as OOM.
+    if (src.elemCount == 0) {
+        if (isInt)
+            *outI = 0;
+        else
+            *out = 0.0;
+        return cudaSuccess;
+    }
     //The offset-fold discipline (design D1): ToLaunch keeps the real
     //strides + offset; the launcher branches on IsDense and each branch
     //folds the offset exactly once — the dense branch folds it into the
@@ -627,9 +666,9 @@ cudaError_t LaunchSumAll(const LaunchView& src, double* out,
         //the wrap happens at the final narrow, matching the CPU's
         //static_cast<T>(acc) exactly). The int32/int64 cells ride their
         //own partial kernel (reading them as doubles would corrupt).
-        int64_t* dPartial = nullptr;
-        if (cudaMalloc((void**)&dPartial,
-            blocks * sizeof(int64_t)) != cudaSuccess)
+        int64_t* dPartial = static_cast<int64_t*>(
+            PoolAlloc(blocks * sizeof(int64_t)));
+        if (dPartial == nullptr)
             return cudaErrorMemoryAllocation;
         if (dense) {
             //The base pointer folds the offset (element units).
@@ -652,18 +691,19 @@ cudaError_t LaunchSumAll(const LaunchView& src, double* out,
             }
         }
         std::vector<int64_t> partials(blocks);
-        cudaMemcpy(partials.data(), dPartial, blocks * sizeof(int64_t),
-            cudaMemcpyDeviceToHost);
-        cudaFree(dPartial);
+        const cudaError_t readErr = ReadPartials(
+            dPartial, partials.data(), blocks * sizeof(int64_t));
+        if (readErr != cudaSuccess)
+            return readErr;
         int64_t acc = 0;
         for (int64_t p : partials)
             acc += p;
         *outI = acc;
-        return cudaStreamSynchronize(g_stream);
+        return cudaSuccess;
     }
-    double* dPartial = nullptr;
-    if (cudaMalloc((void**)&dPartial,
-        blocks * sizeof(double)) != cudaSuccess)
+    double* dPartial = static_cast<double*>(
+        PoolAlloc(blocks * sizeof(double)));
+    if (dPartial == nullptr)
         return cudaErrorMemoryAllocation;
     //The float kinds branch by cell width: an f32 array read as
     //doubles would consume two cells per element (garbage + OOB).
@@ -687,14 +727,15 @@ cudaError_t LaunchSumAll(const LaunchView& src, double* out,
         }
     }
     std::vector<double> partials(blocks);
-    cudaMemcpy(partials.data(), dPartial, blocks * sizeof(double),
-        cudaMemcpyDeviceToHost);
-    cudaFree(dPartial);
+    const cudaError_t readErr = ReadPartials(
+        dPartial, partials.data(), blocks * sizeof(double));
+    if (readErr != cudaSuccess)
+        return readErr;
     double acc = 0.0;
     for (double p : partials)
         acc += p;
     *out = acc;
-    return cudaStreamSynchronize(g_stream);
+    return cudaSuccess;
 }
 
 //--- axis reductions -----------------------------------------------------
@@ -905,7 +946,7 @@ __global__ void ArgExtremeLastStridedKernelF32(DevView v, int64_t rows,
 }
 
 cudaError_t LaunchReduceAxis(int op, const LaunchView& src, int axis,
-                             const LaunchView& dst, int32_t* errorOut) {
+                             const LaunchView& dst) {
     //P3 scope (design 2026-11-15 §R6): Sum and Max/Min on the
     //first/last axes of f32 (mnist's whole surface); middle axes and
     //the int/f64 kinds land with the parity suite (plan T3.9).
@@ -954,7 +995,7 @@ cudaError_t LaunchReduceAxis(int op, const LaunchView& src, int axis,
         } else {
             return cudaErrorNotSupported;
         }
-        return cudaStreamSynchronize(g_stream);
+        return cudaGetLastError();
     }
     if (axis == rank - 1) {
         const int64_t rows = dst.elemCount;
@@ -977,7 +1018,7 @@ cudaError_t LaunchReduceAxis(int op, const LaunchView& src, int axis,
     } else {
         return cudaErrorNotSupported;
     }
-    return cudaStreamSynchronize(g_stream);
+    return cudaGetLastError();
 }
 
 //--- argmax/argmin (the axis-last winner-index kernel) -------------------
@@ -1026,7 +1067,7 @@ cudaError_t LaunchArgExtreme(bool isMax, const LaunchView& src,
         ArgExtremeLastStridedKernelF32<<<(int)blocks, kThreads, 0,
             g_stream>>>(v, rows, seg, isMax, fDst);
     }
-    return cudaStreamSynchronize(g_stream);
+    return cudaGetLastError();
 }
 
 __global__ void DotPartialKernel(const double* a, const double* b,
@@ -1161,6 +1202,15 @@ cudaError_t LaunchDot(const LaunchView& a, const LaunchView& b,
                       double* out, int64_t* outI, bool isInt) {
     (void)isInt;
     const int64_t count = a.elemCount;
+    //The empty identity (the CPU walk's contract — dot(empty) == 0);
+    //see LaunchSumAll for the zero-block scratch rationale.
+    if (count == 0) {
+        if (outI)
+            *outI = 0;
+        if (out)
+            *out = 0.0;
+        return cudaSuccess;
+    }
     const int64_t blocks = (count + kThreads - 1) / kThreads;
     //The offset-fold discipline (design D1): ToLaunch keeps the real
     //strides + offset; the launcher branches on IsDense and each branch
@@ -1175,9 +1225,9 @@ cudaError_t LaunchDot(const LaunchView& a, const LaunchView& b,
     //contract), the int kinds int64, f64 double. The old double-only
     //kernel mis-read every other kind's cells.
     if (a.elemKind == 1) {
-        float* dPartial = nullptr;
-        if (cudaMalloc((void**)&dPartial,
-            blocks * sizeof(float)) != cudaSuccess)
+        float* dPartial = static_cast<float*>(
+            PoolAlloc(blocks * sizeof(float)));
+        if (dPartial == nullptr)
             return cudaErrorMemoryAllocation;
         if (dense) {
             DotPartialKernelF32<<<(int)blocks, kThreads, 0, g_stream>>>(
@@ -1188,9 +1238,10 @@ cudaError_t LaunchDot(const LaunchView& a, const LaunchView& b,
                 g_stream>>>(va, vb, count, dPartial);
         }
         std::vector<float> partials(blocks);
-        cudaMemcpy(partials.data(), dPartial, blocks * sizeof(float),
-            cudaMemcpyDeviceToHost);
-        cudaFree(dPartial);
+        const cudaError_t readErr = ReadPartials(
+            dPartial, partials.data(), blocks * sizeof(float));
+        if (readErr != cudaSuccess)
+            return readErr;
         float acc = 0.0f;
         for (float p : partials)
             acc += p;
@@ -1198,12 +1249,12 @@ cudaError_t LaunchDot(const LaunchView& a, const LaunchView& b,
             *outI = (int64_t)acc;
         if (out)
             *out = (double)acc;
-        return cudaStreamSynchronize(g_stream);
+        return cudaSuccess;
     }
     if (a.elemKind == 0 || a.elemKind == 15) {
-        int64_t* dPartial = nullptr;
-        if (cudaMalloc((void**)&dPartial,
-            blocks * sizeof(int64_t)) != cudaSuccess)
+        int64_t* dPartial = static_cast<int64_t*>(
+            PoolAlloc(blocks * sizeof(int64_t)));
+        if (dPartial == nullptr)
             return cudaErrorMemoryAllocation;
         if (dense) {
             if (a.elemKind == 0)
@@ -1225,18 +1276,19 @@ cudaError_t LaunchDot(const LaunchView& a, const LaunchView& b,
                     g_stream>>>(va, vb, count, dPartial);
         }
         std::vector<int64_t> partials(blocks);
-        cudaMemcpy(partials.data(), dPartial, blocks * sizeof(int64_t),
-            cudaMemcpyDeviceToHost);
-        cudaFree(dPartial);
+        const cudaError_t readErr = ReadPartials(
+            dPartial, partials.data(), blocks * sizeof(int64_t));
+        if (readErr != cudaSuccess)
+            return readErr;
         int64_t acc = 0;
         for (int64_t p : partials)
             acc += p;
         *outI = acc;
-        return cudaStreamSynchronize(g_stream);
+        return cudaSuccess;
     }
-    double* dPartial = nullptr;
-    if (cudaMalloc((void**)&dPartial,
-        blocks * sizeof(double)) != cudaSuccess)
+    double* dPartial = static_cast<double*>(
+        PoolAlloc(blocks * sizeof(double)));
+    if (dPartial == nullptr)
         return cudaErrorMemoryAllocation;
     if (dense) {
         DotPartialKernel<<<(int)blocks, kThreads, 0, g_stream>>>(
@@ -1247,16 +1299,17 @@ cudaError_t LaunchDot(const LaunchView& a, const LaunchView& b,
             g_stream>>>(va, vb, count, dPartial);
     }
     std::vector<double> partials(blocks);
-    cudaMemcpy(partials.data(), dPartial, blocks * sizeof(double),
-        cudaMemcpyDeviceToHost);
-    cudaFree(dPartial);
+    const cudaError_t readErr = ReadPartials(
+        dPartial, partials.data(), blocks * sizeof(double));
+    if (readErr != cudaSuccess)
+        return readErr;
     {
         double acc = 0.0;
         for (double p : partials)
             acc += p;
         *out = acc;
     }
-    return cudaStreamSynchronize(g_stream);
+    return cudaSuccess;
 }
 
 //--- extreme (value reduction with the first-wins rule) ------------------
@@ -1518,9 +1571,9 @@ cudaError_t LaunchExtreme(bool isMax, const LaunchView& src,
     const DevView v = ToDevView(src);
     const bool dense = IsDense(v);
     if (src.elemKind == 1) {
-        float* dPartial = nullptr;
-        if (cudaMalloc((void**)&dPartial,
-            blocks * sizeof(float)) != cudaSuccess)
+        float* dPartial = static_cast<float*>(
+            PoolAlloc(blocks * sizeof(float)));
+        if (dPartial == nullptr)
             return cudaErrorMemoryAllocation;
         if (dense) {
             ExtremePartialKernelF32<<<(int)blocks, kThreads, 0,
@@ -1531,21 +1584,22 @@ cudaError_t LaunchExtreme(bool isMax, const LaunchView& src,
                 g_stream>>>(v, count, isMax, dPartial);
         }
         std::vector<float> partials(blocks);
-        cudaMemcpy(partials.data(), dPartial, blocks * sizeof(float),
-            cudaMemcpyDeviceToHost);
-        cudaFree(dPartial);
+        const cudaError_t readErr = ReadPartials(
+            dPartial, partials.data(), blocks * sizeof(float));
+        if (readErr != cudaSuccess)
+            return readErr;
         float best = partials[0];
         for (size_t i = 1; i < partials.size(); ++i) {
             if (isMax ? partials[i] > best : partials[i] < best)
                 best = partials[i];
         }
         *outF = (double)best;
-        return cudaStreamSynchronize(g_stream);
+        return cudaSuccess;
     }
     if (src.elemKind == 0) {
-        int32_t* dPartial = nullptr;
-        if (cudaMalloc((void**)&dPartial,
-            blocks * sizeof(int32_t)) != cudaSuccess)
+        int32_t* dPartial = static_cast<int32_t*>(
+            PoolAlloc(blocks * sizeof(int32_t)));
+        if (dPartial == nullptr)
             return cudaErrorMemoryAllocation;
         if (dense) {
             ExtremePartialKernelI32<<<(int)blocks, kThreads, 0,
@@ -1556,9 +1610,10 @@ cudaError_t LaunchExtreme(bool isMax, const LaunchView& src,
                 g_stream>>>(v, count, isMax, dPartial);
         }
         std::vector<int32_t> partials(blocks);
-        cudaMemcpy(partials.data(), dPartial, blocks * sizeof(int32_t),
-            cudaMemcpyDeviceToHost);
-        cudaFree(dPartial);
+        const cudaError_t readErr = ReadPartials(
+            dPartial, partials.data(), blocks * sizeof(int32_t));
+        if (readErr != cudaSuccess)
+            return readErr;
         int64_t best = partials[0];
         for (size_t i = 1; i < partials.size(); ++i) {
             if (isMax ? (int64_t)partials[i] > best
@@ -1566,12 +1621,12 @@ cudaError_t LaunchExtreme(bool isMax, const LaunchView& src,
                 best = partials[i];
         }
         *outI = best;
-        return cudaStreamSynchronize(g_stream);
+        return cudaSuccess;
     }
     if (src.elemKind == 15) {
-        int64_t* dPartial = nullptr;
-        if (cudaMalloc((void**)&dPartial,
-            blocks * sizeof(int64_t)) != cudaSuccess)
+        int64_t* dPartial = static_cast<int64_t*>(
+            PoolAlloc(blocks * sizeof(int64_t)));
+        if (dPartial == nullptr)
             return cudaErrorMemoryAllocation;
         if (dense) {
             ExtremePartialKernelI64<<<(int)blocks, kThreads, 0,
@@ -1582,20 +1637,21 @@ cudaError_t LaunchExtreme(bool isMax, const LaunchView& src,
                 g_stream>>>(v, count, isMax, dPartial);
         }
         std::vector<int64_t> partials(blocks);
-        cudaMemcpy(partials.data(), dPartial, blocks * sizeof(int64_t),
-            cudaMemcpyDeviceToHost);
-        cudaFree(dPartial);
+        const cudaError_t readErr = ReadPartials(
+            dPartial, partials.data(), blocks * sizeof(int64_t));
+        if (readErr != cudaSuccess)
+            return readErr;
         int64_t best = partials[0];
         for (size_t i = 1; i < partials.size(); ++i) {
             if (isMax ? partials[i] > best : partials[i] < best)
                 best = partials[i];
         }
         *outI = best;
-        return cudaStreamSynchronize(g_stream);
+        return cudaSuccess;
     }
-    double* dPartial = nullptr;
-    if (cudaMalloc((void**)&dPartial,
-        blocks * sizeof(double)) != cudaSuccess)
+    double* dPartial = static_cast<double*>(
+        PoolAlloc(blocks * sizeof(double)));
+    if (dPartial == nullptr)
         return cudaErrorMemoryAllocation;
     if (dense) {
         ExtremePartialKernel<<<(int)blocks, kThreads, 0,
@@ -1606,9 +1662,10 @@ cudaError_t LaunchExtreme(bool isMax, const LaunchView& src,
             g_stream>>>(v, count, isMax, dPartial);
     }
     std::vector<double> partials(blocks);
-    cudaMemcpy(partials.data(), dPartial, blocks * sizeof(double),
-        cudaMemcpyDeviceToHost);
-    cudaFree(dPartial);
+    const cudaError_t readErr = ReadPartials(
+        dPartial, partials.data(), blocks * sizeof(double));
+    if (readErr != cudaSuccess)
+        return readErr;
     double best = partials[0];
     for (size_t i = 1; i < partials.size(); ++i) {
         if (isMax ? partials[i] > best : partials[i] < best)
@@ -1618,7 +1675,7 @@ cudaError_t LaunchExtreme(bool isMax, const LaunchView& src,
         *outI = (int64_t)best;
     else
         *outF = best;
-    return cudaStreamSynchronize(g_stream);
+    return cudaSuccess;
 }
 
 //--- matmul: shared-memory tiled kernel ----------------------------------
@@ -1819,7 +1876,7 @@ cudaError_t LaunchMatmul(const LaunchView& a, const LaunchView& b,
         else
             return cudaErrorNotSupported;
     }
-    return cudaStreamSynchronize(g_stream);
+    return cudaGetLastError();
 }
 
 //--- gather / eq / oneHot ------------------------------------------------
@@ -1856,9 +1913,9 @@ cudaError_t LaunchGather(const LaunchView& src, int axis,
     (void)axis;   //rank-1 fancy indexing (the dispatcher flattens)
     //The indices land host-side (the dispatcher staged them); H2D here.
     const int64_t count = indices.elemCount;
-    int64_t* dIdx = nullptr;
-    if (cudaMalloc((void**)&dIdx,
-        count * sizeof(int64_t)) != cudaSuccess)
+    int64_t* dIdx = static_cast<int64_t*>(
+        PoolAlloc(count * sizeof(int64_t)));
+    if (dIdx == nullptr)
         return cudaErrorMemoryAllocation;
     //The indices view is int32 — read them on the host and widen.
     std::vector<int64_t> wide(count);
@@ -1877,7 +1934,7 @@ cudaError_t LaunchGather(const LaunchView& src, int axis,
     GatherKernel<<<(int)blocks, kThreads, 0, g_stream>>>(
         dst.elemKind, ds, dIdx, count, dd, g_error);
     cudaError_t err = cudaStreamSynchronize(g_stream);
-    cudaFree(dIdx);
+    PoolFree(dIdx);
     if (err != cudaSuccess)
         return err;
     int32_t flags[2] = {kErrNone, 0};
@@ -1919,7 +1976,7 @@ cudaError_t LaunchEq(const LaunchView& a, const LaunchView& b,
     const int64_t blocks = (dst.elemCount + kThreads - 1) / kThreads;
     EqKernel<<<(int)blocks, kThreads, 0, g_stream>>>(
         elemKindCode, da, db, dd);
-    return cudaStreamSynchronize(g_stream);
+    return cudaGetLastError();
 }
 
 __global__ void OneHotKernel(const int32_t* labels, int64_t count,
@@ -1940,9 +1997,13 @@ __global__ void OneHotKernel(const int32_t* labels, int64_t count,
 cudaError_t LaunchOneHot(const LaunchView& labels, int32_t n,
                          const LaunchView& dst, int32_t* errorOut) {
     const int64_t count = labels.elemCount;
-    int32_t* dLabels = nullptr;
-    if (cudaMalloc((void**)&dLabels,
-        count * sizeof(int32_t)) != cudaSuccess)
+    //Empty labels: the [0, n) output has no cells — no launch, no
+    //scratch (see LaunchSumAll for the zero-block rationale).
+    if (count == 0)
+        return cudaSuccess;
+    int32_t* dLabels = static_cast<int32_t*>(
+        PoolAlloc(count * sizeof(int32_t)));
+    if (dLabels == nullptr)
         return cudaErrorMemoryAllocation;
     cudaMemcpyAsync(dLabels, (const int32_t*)labels.data,
         count * sizeof(int32_t), cudaMemcpyHostToDevice, g_stream);
@@ -1953,7 +2014,7 @@ cudaError_t LaunchOneHot(const LaunchView& labels, int32_t n,
     OneHotKernel<<<(int)blocks, kThreads, 0, g_stream>>>(
         dLabels, count, n, (float*)dst.data, g_error);
     cudaError_t err = cudaStreamSynchronize(g_stream);
-    cudaFree(dLabels);
+    PoolFree(dLabels);
     if (err != cudaSuccess)
         return err;
     int32_t flags[2] = {kErrNone, 0};
@@ -1998,9 +2059,13 @@ cudaError_t LaunchUniform(const LaunchView& dst, double low,
                           double high, const uint32_t* mt624,
                           uint32_t position, bool isDouble) {
     const int64_t count = dst.elemCount;
-    uint32_t* dState = nullptr;
-    if (cudaMalloc((void**)&dState, 624 * sizeof(uint32_t))
-        != cudaSuccess)
+    //Empty draw: no cells to fill — no launch, no scratch (see
+    //LaunchSumAll for the zero-block rationale).
+    if (count == 0)
+        return cudaSuccess;
+    uint32_t* dState = static_cast<uint32_t*>(
+        PoolAlloc(624 * sizeof(uint32_t)));
+    if (dState == nullptr)
         return cudaErrorMemoryAllocation;
     cudaMemcpyAsync(dState, mt624, 624 * sizeof(uint32_t),
         cudaMemcpyHostToDevice, g_stream);
@@ -2014,8 +2079,8 @@ cudaError_t LaunchUniform(const LaunchView& dst, double low,
             (float*)dst.data, count, (float)low, (float)(high - low),
             dState, position);
     }
-    cudaError_t err = cudaStreamSynchronize(g_stream);
-    cudaFree(dState);
+    const cudaError_t err = cudaGetLastError();
+    PoolFree(dState);
     return err;
 }
 
@@ -2043,7 +2108,7 @@ cudaError_t LaunchFill(const LaunchView& dst, double value,
     const int64_t blocks = (dst.elemCount + kThreads - 1) / kThreads;
     FillKernel<<<(int)blocks, kThreads, 0, g_stream>>>(
         elemKindCode, dd, value, iValue);
-    return cudaStreamSynchronize(g_stream);
+    return cudaGetLastError();
 }
 
 __global__ void ArangeKernelD(double* dst, int64_t count, double start,
@@ -2101,7 +2166,7 @@ cudaError_t LaunchArange(const LaunchView& dst, double start,
             ArangeKernelD<<<(int)blocks, kThreads, 0, g_stream>>>(
                 (double*)dst.data, dst.elemCount, start, step);
     }
-    return cudaStreamSynchronize(g_stream);
+    return cudaGetLastError();
 }
 
 __global__ void CopyKernel(int elemKindCode, DevView src, DevView dst) {
@@ -2127,7 +2192,7 @@ cudaError_t LaunchCopy(const LaunchView& src, const LaunchView& dst,
     const int64_t blocks = (dst.elemCount + kThreads - 1) / kThreads;
     CopyKernel<<<(int)blocks, kThreads, 0, g_stream>>>(
         elemKindCode, ds, dd);
-    return cudaStreamSynchronize(g_stream);
+    return cudaGetLastError();
 }
 
 //The strided concat: one element per thread, the source half chosen by
@@ -2193,7 +2258,7 @@ cudaError_t LaunchConcat(const LaunchView& a, const LaunchView& b,
         ConcatStridedKernel<<<(int)blocks, kThreads, 0, g_stream>>>(
             elemKindCode, da, db, dd, aCount);
     }
-    return cudaStreamSynchronize(g_stream);
+    return cudaGetLastError();
 }
 
 } // namespace tensor_cuda

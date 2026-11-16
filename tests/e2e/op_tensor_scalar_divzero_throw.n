@@ -1,0 +1,14 @@
+// Integer array divided by scalar zero: uncaught Exception, exit 1 by
+// design. The device int kernel writes the division-by-zero cell flag;
+// the slot must raise the named exception (the CPU walk does the same).
+import tensor;
+
+int main() {
+    int[] a = int[4];
+    a[0] = 1;
+    a[1] = 2;
+    a[2] = 3;
+    a[3] = 4;
+    int[] b = a / 0;
+    return 0;
+}

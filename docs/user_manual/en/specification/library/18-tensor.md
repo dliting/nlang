@@ -489,6 +489,27 @@ a tensor kernel instead (`tensor.add`, `tensor.sum`, …) and the
 data moves once. Element-level subscripts are for the
 interactive and I/O edges of a program, not for the inner loop.
 
+### Execution model
+
+Device work is asynchronous: the tensor operations enqueue
+kernels on the device and return without waiting for them to
+finish, so a chain of device operations pipelines instead of
+paying a wait per operation. The results are guaranteed complete
+at every point where the program can observe them — reading or
+writing an element, printing or serializing, `tensor.toHost` and
+`tensor.toDevice`, and the scalar reductions (`tensor.sum`,
+`tensor.dot`, `tensor.max`, `tensor.min`, `tensor.mean`) — and
+each of these waits for the device work enqueued so far. A
+program cannot observe a half-finished device array.
+
+The device errors the language raises — an integer division by
+zero, a negative `gather` index, an out-of-range `oneHot` label —
+are raised at the operation itself, exactly as on the host.
+Faults detected while the device runs its kernels (an illegal
+access, for example) surface at the next observation point rather
+than at the operation that caused them; see the known limitations
+below.
+
 ### Deployment
 
 The CUDA backend is a plugin: `nlang_tensor_cuda.dll` beside
@@ -533,3 +554,10 @@ concat and per-axis reductions cover only part of the surface.
 * `argmax`/`argmin` with an axis arm on the device supports `float`
   only and only the last axis; other kinds and axes raise
   `Exception` — the host path handles every kind and axis.
+* A fault detected while the device runs its kernels (an illegal
+  access, for example) is reported at the next observation point,
+  not at the operation that caused it — deferred attribution, the
+  same tradeoff the mainstream device stacks make. In the narrow
+  case where such a fault is followed only by output (printing)
+  with no further tensor operation, the output can be wrong
+  instead of raising.

@@ -2,11 +2,21 @@
     cuda_kernels.h — the host-side launch entry points of the CUDA
     backend's device kernels (P3 T3.3-T3.7). The TensorOps slot
     implementations in cuda_backend.cpp call these; each launcher
-    builds the operand geometry, launches on the single stream,
-    synchronizes (one op one sync — spec D4), checks the device error
-    flags (the cell-level raise mechanism — errorOut carries the
-    offending cell index for the caller's named NLang raise), and
-    returns a cudaError for the CHECK-style wrapper.
+    builds the operand geometry and enqueues on the single stream.
+
+    Differentiated sync discipline (spec 2026-11-16 §3): launchers
+    whose kernels raise no cell errors are asynchronous — they return
+    cudaGetLastError() (launch-config errors attribute at this op;
+    execution faults surface at the next host boundary, which is any
+    CopyBytes transfer or a reduction's blocking partials read). The
+    error-capable families keep the per-op clear-launch-sync-read
+    drain and raise at this op:
+      int binary / int binary-scalar  -> DivByZero (per-cell divisor)
+      gather                          -> OutOfBounds (negative index)
+      oneHot                          -> OutOfBounds (label range)
+    errorOut carries the offending cell index for the caller's named
+    NLang raise; every launcher returns a cudaError for the CHECK-style
+    wrapper.
 ---*/
 #pragma once
 
@@ -74,7 +84,7 @@ cudaError_t LaunchDot(const LaunchView& a, const LaunchView& b,
 cudaError_t LaunchExtreme(bool isMax, const LaunchView& src,
                           double* outF, int64_t* outI, bool isInt);
 cudaError_t LaunchReduceAxis(int op, const LaunchView& src, int axis,
-                             const LaunchView& dst, int32_t* errorOut);
+                             const LaunchView& dst);
 cudaError_t LaunchMatmul(const LaunchView& a, const LaunchView& b,
                          const LaunchView& dst, int elemKindCode);
 cudaError_t LaunchGather(const LaunchView& src, int axis,

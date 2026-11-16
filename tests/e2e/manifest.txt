@@ -2297,3 +2297,9 @@ op_tensor_strided_reduce 0
 op_tensor_strided_matmul 0
 op_tensor_contiguous 0
 op_tensor_concat_axis_throw 0
+op_tensor_scalar_divzero_throw 1
+op_tensor_onehot_throw 1
+op_tensor_gather_negative_throw 1
+op_tensor_rdiv_byzero_throw 1
+op_tensor_scalar_rdiv 0
+op_tensor_onehot_empty 0
