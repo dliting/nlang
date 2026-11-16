@@ -398,6 +398,32 @@ void VmExecutor::DispatchFrames(size_t baseDepth)
             OpCopyStructInPlace(reader, locals);
             break;
 
+        //v0.13.9 phase ③: the byref slot representation — the RefOf*
+        //family builds (base handle, cell offset) pairs, RefHandle
+        //extracts the base handle, LoadRef/StoreRef dereference. All
+        //lock-free, zero allocation (VmExecutorOpsRef.cpp).
+        case OpCode::OP_RefOfLocal:
+            OpRefOfLocal(reader, locals);
+            break;
+        case OpCode::OP_RefOfPromoted:
+            OpRefOfPromoted(reader, locals);
+            break;
+        case OpCode::OP_RefOfField:
+            OpRefOfField(reader, locals);
+            break;
+        case OpCode::OP_RefOfElement:
+            OpRefOfElement(reader, locals);
+            break;
+        case OpCode::OP_RefHandle:
+            OpRefHandle(reader, locals);
+            break;
+        case OpCode::OP_LoadRef:
+            OpLoadRef(reader, locals);
+            break;
+        case OpCode::OP_StoreRef:
+            OpStoreRef(reader, locals);
+            break;
+
         case OpCode::OP_AllocArrayN:
             OpAllocArrayN(reader, locals);
             break;

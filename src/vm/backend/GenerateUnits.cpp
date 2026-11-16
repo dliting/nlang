@@ -269,7 +269,7 @@ VmBackend::UnitBuildResult VmBackend::GenerateUnits(
 
 //K2 slice 5: root class for one RTK kind byte. The kinds mirror
 //MarkFrameLocals' routing exactly — string slots carry store handles,
-//the four reference kinds carry heap indices, everything else is scalar.
+//the reference kinds carry heap indices, everything else is scalar.
 //A T slot's representation depends on the instantiation (store handle,
 //heap index or inline scalar), unknowable at compile time, so it takes
 //the conservative both-domain class: over-marking is safe in a non-
@@ -283,6 +283,7 @@ uint8_t VmBackend::EvalSlotClassOfKind(uint8_t rtk) {
     case RTK_Array:
     case RTK_ArrayView:   //v0.12.7: runtime-only view kind — never declared today, mapped for kind-table completeness
     case RTK_Func:
+    case RTK_Byref:       //v0.13.9 phase ③: the pair's base handle is always a heap-domain record (single domain — no Dual)
         return ESC_HeapIndex;
     case RTK_TypeParam:
         return ESC_Dual;

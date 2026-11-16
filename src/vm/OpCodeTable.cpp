@@ -107,6 +107,13 @@ static const char* s_OpCodeNames[] = {
     "box_type_arg",
     "unbox_type_arg",
     "copy_struct_in_place",
+    "ref_of_local",
+    "ref_of_promoted",
+    "ref_of_field",
+    "ref_of_element",
+    "ref_handle",
+    "load_ref",
+    "store_ref",
 };
 
 const char* OpCodeName(OpCode op) {

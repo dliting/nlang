@@ -284,6 +284,41 @@ static bool DisasmTypeArgOps(OpCode op, BytecodeReader &r,
     }
 }
 
+//v0.13.9 phase ③: the byref slot family — dst/src pairs, the
+//cell-offset builders, and the kind-tagged dereference pair.
+static bool DisasmRefOps(OpCode op, BytecodeReader &r,
+    std::ostringstream &out, const std::string &head) {
+    switch (op) {
+        case OpCode::OP_RefOfLocal:
+        case OpCode::OP_RefOfPromoted:
+        case OpCode::OP_RefHandle:
+            DisasmU16xN(2, r, out, head, " dst=%u src=%u");
+            return true;
+        case OpCode::OP_RefOfField:
+            DisasmU16xN(3, r, out, head, " dst=%u base=%u cell=%u");
+            return true;
+        case OpCode::OP_RefOfElement:
+            DisasmU16xN(3, r, out, head, " dst=%u arr=%u flat=%u");
+            return true;
+        case OpCode::OP_LoadRef:
+        case OpCode::OP_StoreRef: {
+            //kind byte + two slot operands in one line (read all
+            //operands before formatting — the MSVC ordering discipline
+            //DisasmU16xN documents).
+            const int tag = r.ReadByte();
+            const uint16_t a = r.ReadUint16();
+            const uint16_t b = r.ReadUint16();
+            char buf[96];
+            snprintf(buf, sizeof(buf), " typeTag=%d dst=%u src=%u",
+                     tag, a, b);
+            out << head << buf << "\n";
+            return true;
+        }
+        default:
+            return false;
+    }
+}
+
 static bool DisasmObjectOps(OpCode op, BytecodeReader &r,
     std::ostringstream &out, const std::string &head,
     const CompiledModule &module) {
@@ -346,6 +381,7 @@ std::vector<DisasmLine> DisassembleCode(const CompiledFunction& func,
             !DisasmStringOps(op, reader, out, head, module) &&
             !DisasmCallOps(op, reader, out, head, module) &&
             !DisasmObjectOps(op, reader, out, head, module) &&
+            !DisasmRefOps(op, reader, out, head) &&
             !DisasmArrayRecordOps(op, reader, out, head) &&
             !DisasmFuncValueOps(op, reader, out, head, module)) {
             out << offsetBuf << ": unknown_op("

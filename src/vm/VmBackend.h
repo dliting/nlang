@@ -272,6 +272,13 @@ public:
     void Access(SnStatement&);       //fallback: unhandled statement kind
     void Access(SyntaxNode&);        //fallback: non-emissible node (internal error)
 
+    //K2 slice 5: root class for one RTK kind byte (the serialized form
+    //the locals table and the return kind arrive in). Public: the class
+    //taxonomy is a VM-wide contract — the band mask the emitter packs,
+    //the GC root scan's mask consumer and the white-box classification
+    //tests all read it; the emit helpers are the only writers.
+    static uint8_t EvalSlotClassOfKind(uint8_t rtk);
+
 private:
     void GenerateFunction(SnFunction& func, size_t funcIdx);
     //GenerateFunction's native arm (split for the 50-line function
@@ -616,9 +623,6 @@ private:
     //CompiledFunction::evalAreaHandleMask).
     void BuildEvalAreaHandleMask(CompiledFunction& cf,
                                  const FuncContext& ctx);
-    //K2 slice 5: root class for one RTK kind byte (the serialized form
-    //the locals table and the return kind arrive in).
-    static uint8_t EvalSlotClassOfKind(uint8_t rtk);
 
     //Recursive frame-depth walkers behind ComputeCallSlotStats.
     //visited guards recursion through callee default expressions.

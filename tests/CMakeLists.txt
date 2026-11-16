@@ -611,6 +611,38 @@ target_compile_definitions(test_stabilize_copy
 
 add_test(NAME stabilize_copy_tests COMMAND test_stabilize_copy)
 
+# v0.13.9 phase ③ Task 3: the byref slot representation and its opcode
+# family (OP_RefOf*/OP_RefHandle/OP_LoadRef/OP_StoreRef), real-compiled
+# modules + bytecode-tail surgery; the GC-survival pin exercises the
+# band-mask rooting of a byref slot through allocation churn.
+add_executable(test_ref_ops
+    test_vm/test_ref_ops.cpp
+)
+
+target_include_directories(test_ref_ops
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        #VmBackend.h (the EvalSlotClassOfKind pin) privately includes
+        #compiler-side headers — the same reverse precedent nlang_vm lists.
+        ${PROJECT_SOURCE_DIR}/src/compiler
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_ref_ops
+    PRIVATE
+        nlang_vm
+        nlang_compiler
+        nlang_runtime
+        nlang_langservice
+)
+nlang_stdlib_test(test_ref_ops)
+target_compile_definitions(test_ref_ops
+    PRIVATE
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+)
+
+add_test(NAME ref_ops_tests COMMAND test_ref_ops)
+
 target_include_directories(test_array_view_record
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm

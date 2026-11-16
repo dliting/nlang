@@ -40,6 +40,16 @@ static constexpr uint8_t RTK_TypeParam = 20;
 //offsets) and whose tail carries strides/offset/target. The target cell
 //always names an OWNED RTK_Array record (depth one).
 static constexpr uint8_t RTK_ArrayView = 21;
+//v0.13.9 phase ③: declared kind of a byref slot (an &-bound local,
+//parameter or return slot). The slot holds the pair (base heap-record
+//handle, cell offset) — design doc §3.2 — so the base handle is always a
+//heap-domain record (struct/boxed/array) and the GC classifies the slot
+//as ESC_HeapIndex (single domain, like a struct slot's low half). Byrefs
+//are never stored: no field, element, container entry or static slot ever
+//declares this kind — it exists only on frame slot descriptors (and the
+//return-kind cell), which is why MarkFrameLocals/MarkFrameBand style
+//consumers route it and record-side consumers never see it.
+static constexpr uint8_t RTK_Byref = 22;
 //Descriptor-only kinds RTK_List / RTK_Dict / RTK_NonSerialized live in
 //TypeDesc.h (they appear inside TypeDesc, never in these legacy bytes).
 static constexpr uint8_t RTK_Null   = 0xFD;  //Option B: null default value (any reference type)

@@ -793,6 +793,23 @@ private:
     void OpAllocStruct(BytecodeReader& reader, uint8_t* locals);
     void OpLoadField(BytecodeReader& reader, uint8_t* locals);
     void OpStoreField(BytecodeReader& reader, uint8_t* locals);
+    //v0.13.9 phase ③: the byref slot representation. The RefOf* family
+    //builds the (base heap-record handle, cell offset) pair — struct
+    //locals at offset 0, promoted scalar/string locals at their boxing
+    //record's payload cell, record fields at the field's own cell,
+    //array elements through the flat-address walk (views peel to the
+    //owner). OpRefHandle extracts the base handle back into a
+    //struct-valued slot (byrefs are never stored, so consumption goes
+    //through the handle); OpLoadRef/OpStoreRef dereference the pair.
+    //Every op is lock-free (cell-granularity value races only, the
+    //phase ② ruling) and allocates nothing.
+    void OpRefOfLocal(BytecodeReader& reader, uint8_t* locals);
+    void OpRefOfPromoted(BytecodeReader& reader, uint8_t* locals);
+    void OpRefOfField(BytecodeReader& reader, uint8_t* locals);
+    void OpRefOfElement(BytecodeReader& reader, uint8_t* locals);
+    void OpRefHandle(BytecodeReader& reader, uint8_t* locals);
+    void OpLoadRef(BytecodeReader& reader, uint8_t* locals);
+    void OpStoreRef(BytecodeReader& reader, uint8_t* locals);
     //0.12.6: static slot cell copies against the module's VmStaticSlots
     //table (lock-free like the field family — benign value races, K8).
     void OpLoadStatic(BytecodeReader& reader, uint8_t* locals);
@@ -906,6 +923,14 @@ private:
     //across a heap-growing call.
     std::vector<int32_t>& ElementPayloadRecord(
         std::vector<int32_t>& slot, uint8_t kind, size_t& payloadBaseOut);
+    //v0.13.9 phase ③: read a byref pair from a frame slot and validate
+    //the dereference window [cell, cell+cells) against the base record.
+    //Returns the base handle, writes the validated cell through cellOut;
+    //a corrupt pair (stale handle or out-of-range window) is an
+    //uncatchable invariant — the emitter only produces pairs the RefOf*
+    //family validated at build time.
+    int32_t ByrefTarget(uint16_t slotOff, uint8_t* locals, size_t cells,
+                        const char* opName, size_t& cellOut);
     //Affine address of the flat-eth element (row-major over the record's
     //own dims) of a VIEW record, in owner payload space. Callers bound
     //flat by the record's elemCount first.

@@ -300,6 +300,38 @@ enum class OpCode : uint8_t {
     //opcode and break every stored image).
     OP_CopyStructInPlace,  // uint16 dst, uint16 src, uint16 structIdx
 
+    // === v0.13.9 phase ③: the byref slot representation ===
+    //A reference value is one uniform 8-byte frame slot holding the pair
+    //(base heap-record handle, cell offset within that record) — design
+    //doc §3.2. The RefOf* family builds the pair for every bindable
+    //location; OP_RefHandle extracts the base handle back into a
+    //struct-valued slot (byrefs are never stored, so consumption always
+    //goes through the handle); OP_LoadRef/OP_StoreRef dereference the
+    //pair. The pair is a raw slot value: moving it between slots is the
+    //existing 8-byte raw copy (OP_VarLocal/OP_Assign), zero allocation.
+    OP_RefOfLocal,      // uint16 dst, uint16 src — src is a struct-record
+                        // slot; dst = (handle, 0)
+    OP_RefOfPromoted,   // uint16 dst, uint16 src — src low half is a boxed
+                        // record handle (an &-bound scalar/string local's
+                        // stable boxing record); dst = (handle, 1)
+    OP_RefOfField,      // uint16 dst, uint16 base, uint16 cellOff — dst =
+                        // (base handle, cellOff); cellOff is in HEAP CELLS
+                        // (int32 units), not bytes — byref dereference walks
+                        // record cells directly, while the field ops' byte
+                        // offsets address the 8-byte frame/field rows
+    OP_RefOfElement,    // uint16 dst, uint16 arr, uint16 flatSlot — null
+                        // check + bounds check + view affine like
+                        // OP_LoadElementFlat; dst = (arr handle, payload
+                        // base + flat*elemCells)
+    OP_RefHandle,       // uint16 dst, uint16 src — dst low half = the
+                        // byref pair's base handle (struct& consumption)
+    OP_LoadRef,         // uint8 kind, uint16 dst, uint16 src — read the
+                        // cells the src pair addresses into dst (8-byte
+                        // slot fill; scalar width by kind, strings one cell)
+    OP_StoreRef,        // uint8 kind, uint16 dstByref, uint16 srcVal —
+                        // write the cells the dstByref pair addresses
+                        // from srcVal
+
     OP_Count
 };
 
@@ -358,11 +390,16 @@ static constexpr OpCode kStrideTwoWords[] = {
     OpCode::OP_ClassInitDone, OpCode::OP_ClassInitFail,
     //v0.13.1: OP_CheckCast gained its second u16 (descIdx) — classIdx,
     //descIdx, the same extent family as the two-word loads.
-    OpCode::OP_SlotInitGate, OpCode::OP_TypeNameCompose, OpCode::OP_CheckCast};
+    OpCode::OP_SlotInitGate, OpCode::OP_TypeNameCompose, OpCode::OP_CheckCast,
+    //v0.13.9 phase ③: the ref-value family — dst/src word pairs (RefOfLocal
+    //and RefOfPromoted build the pair, RefHandle extracts the base handle).
+    OpCode::OP_RefOfLocal, OpCode::OP_RefOfPromoted, OpCode::OP_RefHandle};
 static constexpr OpCode kStrideKindTwoWords[] = {
     OpCode::OP_Add, OpCode::OP_Sub, OpCode::OP_Mul, OpCode::OP_Div,
     OpCode::OP_Mod, OpCode::OP_Shl, OpCode::OP_Shr,
-    OpCode::OP_BitAnd, OpCode::OP_BitOr, OpCode::OP_BitXor};
+    OpCode::OP_BitAnd, OpCode::OP_BitOr, OpCode::OP_BitXor,
+    //v0.13.9 phase ③: the ref dereference pair — kind byte + dst/src words.
+    OpCode::OP_LoadRef, OpCode::OP_StoreRef};
 static constexpr OpCode kStrideThreeWords[] = {
     //v0.13.1: OP_New gained its third u16 (descIdx) — dst, classIdx,
     //descIdx, the same extent family as AllocStruct's three words.
@@ -374,7 +411,9 @@ static constexpr OpCode kStrideThreeWords[] = {
     OpCode::OP_StoreField, OpCode::OP_CopyStruct,
     OpCode::OP_LoadElementFlat, OpCode::OP_StrByteAt,
     OpCode::OP_ClassInitGate, OpCode::OP_CheckArrayRank,
-    OpCode::OP_CopyStructInPlace};
+    OpCode::OP_CopyStructInPlace,
+    //v0.13.9 phase ③: the field/element ref builders — three word operands.
+    OpCode::OP_RefOfField, OpCode::OP_RefOfElement};
 static constexpr OpCode kStrideFourWords[] = {
     OpCode::OP_LoadElementN, OpCode::OP_StoreElementN,
     OpCode::OP_LoadElementDyn, OpCode::OP_StoreElementDyn,
