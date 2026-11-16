@@ -810,6 +810,11 @@ private:
     //coordinate count verifies at run time (catchable OOB on mismatch).
     void OpLoadElementDyn(BytecodeReader& reader, uint8_t* locals);
     void OpStoreElementDyn(BytecodeReader& reader, uint8_t* locals);
+    //Shared prologue of the element op family: resolves the base slot
+    //and rejects a null or non-array-typed base (the kind gate is a
+    //compiler invariant violation, so uncatchable).
+    int32_t ResolveElementArrayBase(uint16_t arr, uint8_t* locals,
+                                    const char* opcode);
     //v0.12.7 Task 4: `Array(dims)` — the rank is dims.length() and the
     //extents are the dims payload, validated through AllocArrayOnHeap.
     void OpAllocArrayDyn(BytecodeReader& reader, uint8_t* locals);
@@ -1165,9 +1170,14 @@ private:
     //stores the device pointer in the record's descriptor cells.
     int32_t AllocDeviceArrayOnHeap(uint16_t arrayTypeIdx, uint8_t rank,
         const int32_t* dims);
-    //Device payload helpers (definitions in VmExecutorNativeCallbacks
-    //.cpp): the 64-bit device pointer lives in the record's payload-
-    //area descriptor cells.
+    //The spec D2 kind/mechanism gate: true when the mint routes to
+    //AllocDeviceArrayOnHeap (numeric four-kind + FollowActiveDevice +
+    //active hooks).
+    bool FollowActiveDeviceMint(uint16_t arrayTypeIdx,
+                               ArrayResidency residency);
+    //Device payload helpers (definitions in VmExecutorDeviceArray.cpp):
+    //the 64-bit device pointer lives in the record's payload-area
+    //descriptor cells.
     void* DevicePayloadOf(int32_t heapIdx) const;
     void SetDevicePayload(int32_t heapIdx, void* devicePtr);
     //Transparent element access on device records (the subscript ops'
@@ -1186,6 +1196,18 @@ private:
     //one copy from a caller-owned host buffer.
     void DeviceStageFromHost(int32_t heapIdx, const void* src,
         size_t bytes) const;
+    //The view materialization's device arm: stages the view's owner
+    //payload (the owner's WHOLE element space) into `staged` when the
+    //owner is device-resident; false (and `staged` empty) when it is
+    //host-resident.
+    bool StageDeviceOwnerForView(int32_t viewHeapIdx, uint8_t rank,
+                                 int cells,
+                                 std::vector<int32_t>& staged);
+    //The formatter's device arm: stages the record's real payload into
+    //`stagedSlot` (a record-shaped local) when it is device-resident;
+    //leaves it empty when host-resident.
+    void StageDeviceArrayForFormat(int32_t heapIdx,
+        std::vector<int32_t>& stagedSlot) const;
     //True when the handle's record carries a device payload.
     bool IsDeviceArray(int32_t heapIdx) const;
     //Per-dim and product validation; raises OutOfBounds. Returns elemCount.
@@ -1287,6 +1309,10 @@ private:
     void FreeOwnedStructs(int32_t heapIdx);
     void FreeNestedStructs(int32_t heapIdx, uint16_t structIdx);
     void FreeOwnedArrayStructElements(int32_t heapIdx);
+    //The sweep's RTK_Array arm: release a dead device-resident array's
+    //payload through the hooks, clear the residency mark, then free the
+    //record's struct elements.
+    void FreeDeadArrayRecord(int32_t heapIdx);
 
     //Build a backtrace string from UnwindFrames(). Called when an exception
     //propagates out of main(); format is "  at <func> (<module>.n:<line>)".
@@ -1959,6 +1985,16 @@ private:
     //declaration's empty bytecode.
     void CallNative(const CompiledFunction& callee, uint16_t callParamBase,
         uint8_t* locals, uint8_t* pResult);
+    //Extension point ⑤'s dispatch arm (definition in
+    //VmExecutorBlockingNative.cpp): the host hook through the blocking
+    //protocol; false when there is no host or the hook declined.
+    bool DispatchHostFunction(const CompiledFunction& callee,
+        uint16_t callParamBase, uint8_t* locals, uint8_t* pResult);
+    //The spec D2 consumer-side gate: raise by name when a device-resident
+    //array reaches a non-tensor native (definition in
+    //VmExecutorDeviceArray.cpp).
+    void CheckDeviceArrayArgs(const CompiledFunction& callee,
+        uint16_t callParamBase, uint8_t* locals);
 
     //K2 slice 4 (§2.5): the blocking-native arm. `invoke` runs the
     //native (or the host hook) against the staged cells and returns

@@ -99,12 +99,14 @@ LaunchView ToLaunch(const NativeArrayView& v) {
     return lv;
 }
 
-//The dense-flat variant (the reductions/matmul's dense contract — the
-//dispatcher materialized non-contiguous device operands already; a
-//CONTIGUOUS slice view passes through with its offset, so the offset
-//must FOLD into the base pointer — the flat kernels index data[]
-//directly and an unfolded base reads the owner's element zero: every
-//mnist batch slice read batch 0's rows).
+//The dense-flat variant: the flat kernels index data[] directly (no
+//strides), so the source must be dense. Matmul materializes non-
+//contiguous operands up front (ContiguousOperand); the reduction family
+//(sum/extreme/mean/dot) passes the view through, so it is correct for
+//dense and CONTIGUOUS-slice sources — a strided device source is a known
+//gap (it reads the owner densely from the folded offset). Either way the
+//base pointer must FOLD the offset — an unfolded base reads the owner's
+//element zero (every mnist batch slice read batch 0's rows).
 LaunchView ToLaunchDense(const NativeArrayView& v) {
     auto lv = ToLaunch(v);
     int32_t stride = 1;
@@ -145,41 +147,70 @@ TensorOps MakeCudaTable() {
     //implement yet carries a named NotSupported raise — a null slot
     //would be a null function-pointer call once the per-call routing
     //directs device operands here. The uniform stub is the spelling.
-    t.extremeF32 = [](NativeHost* host, bool, NativeArrayView&,
-                      float*) {
-        nlang::native::Raise(host, NEXC_Base,
-            "tensor: full-reduction max/min is not implemented on the "
-            "cuda backend yet"); };
-    t.extremeF64 = [](NativeHost* host, bool, NativeArrayView&,
-                      double*) {
-        nlang::native::Raise(host, NEXC_Base,
-            "tensor: full-reduction max/min is not implemented on the "
-            "cuda backend yet"); };
-    t.extremeI32 = [](NativeHost* host, bool, NativeArrayView&,
-                      int32_t*) {
-        nlang::native::Raise(host, NEXC_Base,
-            "tensor: full-reduction max/min is not implemented on the "
-            "cuda backend yet"); };
-    t.extremeI64 = [](NativeHost* host, bool, NativeArrayView&,
-                      int64_t*) {
-        nlang::native::Raise(host, NEXC_Base,
-            "tensor: full-reduction max/min is not implemented on the "
-            "cuda backend yet"); };
-    t.meanF32 = t.meanF64 = t.meanI32 = t.meanI64 =
-        [](NativeHost* host, NativeArrayView&, double*) {
-        nlang::native::Raise(host, NEXC_Base,
-            "tensor.mean: not implemented on the cuda backend yet"); };
-    t.matmulF64 = [](NativeHost* host, NativeArrayView&,
-                     NativeArrayView&, NativeArrayView&) {
-        nlang::native::Raise(host, NEXC_Base,
-            "tensor.matmul: f64 is not implemented on the cuda "
-            "backend yet"); };
+    //extreme (full reduction): the flat partial kernel indexes densely, so
+    //the source must be dense; ToLaunchDense folds a contiguous slice's
+    //offset (a strided device source is a known gap — see the docs).
+    t.extremeF32 = [](NativeHost* host, bool isMax, NativeArrayView& src,
+                      float* out) {
+        RequireCuda(host);
+        double f = 0.0;
+        CUDA_CHECK(LaunchExtreme(isMax, ToLaunchDense(src), &f, nullptr,
+            false), "tensor (cuda extreme)");
+        *out = (float)f;
+    };
+    t.extremeF64 = [](NativeHost* host, bool isMax, NativeArrayView& src,
+                      double* out) {
+        RequireCuda(host);
+        CUDA_CHECK(LaunchExtreme(isMax, ToLaunchDense(src), out, nullptr,
+            false), "tensor (cuda extreme)");
+    };
+    t.extremeI32 = [](NativeHost* host, bool isMax, NativeArrayView& src,
+                      int32_t* out) {
+        RequireCuda(host);
+        int64_t i = 0;
+        CUDA_CHECK(LaunchExtreme(isMax, ToLaunchDense(src), nullptr, &i,
+            true), "tensor (cuda extreme)");
+        *out = (int32_t)i;
+    };
+    t.extremeI64 = [](NativeHost* host, bool isMax, NativeArrayView& src,
+                      int64_t* out) {
+        RequireCuda(host);
+        CUDA_CHECK(LaunchExtreme(isMax, ToLaunchDense(src), nullptr, out,
+            true), "tensor (cuda extreme)");
+    };
+    //mean: reuse the device sum; the CPU's double accumulation and double
+    //return match it (int kinds never wrap the sum) — bit-identical whenever
+    //the sum and every partial are exactly representable (|sum| < 2^53; int32
+    //inputs always satisfy it, int64 inputs need no wrap, |sum| < 2^63).
+    t.meanF32 = t.meanF64 =
+        [](NativeHost* host, NativeArrayView& src, double* out) {
+        RequireCuda(host);
+        double s = 0.0;
+        CUDA_CHECK(LaunchSumAll(ToLaunchDense(src), &s, nullptr, false),
+            "tensor (cuda mean)");
+        *out = s / static_cast<double>(src.elemCount);
+    };
+    t.meanI32 = t.meanI64 =
+        [](NativeHost* host, NativeArrayView& src, double* out) {
+        RequireCuda(host);
+        int64_t s = 0;
+        CUDA_CHECK(LaunchSumAll(ToLaunchDense(src), nullptr, &s, true),
+            "tensor (cuda mean)");
+        *out = static_cast<double>(s) / static_cast<double>(src.elemCount);
+    };
+    t.matmulF64 = [](NativeHost* host, NativeArrayView& a,
+                     NativeArrayView& b, NativeArrayView& dst) {
+        RequireCuda(host);
+        CUDA_CHECK(LaunchMatmul(ToLaunchDense(a), ToLaunchDense(b),
+            ToLaunchDense(dst), a.elemKind), "tensor (cuda matmul)");
+    };
     t.matmulI32 = t.matmulI64 =
-        [](NativeHost* host, NativeArrayView&, NativeArrayView&,
-           NativeArrayView&) {
-        nlang::native::Raise(host, NEXC_Base,
-            "tensor.matmul: integer kinds are not implemented on the "
-            "cuda backend yet"); };
+        [](NativeHost* host, NativeArrayView& a, NativeArrayView& b,
+           NativeArrayView& dst) {
+        RequireCuda(host);
+        CUDA_CHECK(LaunchMatmul(ToLaunchDense(a), ToLaunchDense(b),
+            ToLaunchDense(dst), a.elemKind), "tensor (cuda matmul)");
+    };
     t.clampI32 = [](NativeHost* host, bool, NativeArrayView&, int32_t,
                     NativeArrayView&) {
         nlang::native::Raise(host, NEXC_Base,
@@ -339,7 +370,7 @@ TensorOps MakeCudaTable() {
                      NativeArrayView& b, NativeArrayView& dst) {
         RequireCuda(host);
         CUDA_CHECK(LaunchMatmul(ToLaunchDense(a), ToLaunchDense(b),
-            ToLaunchDense(dst)), "tensor (cuda matmul)");
+            ToLaunchDense(dst), a.elemKind), "tensor (cuda matmul)");
     };
 
     t.gatherF32 = [](NativeHost* host, NativeArrayView& src, int32_t axis,

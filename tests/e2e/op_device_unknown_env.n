@@ -1,0 +1,13 @@
+// Device-line P4: a misspelt backend name in the environment must not
+// silently cost the acceleration the user asked for. The module reports
+// once on stderr and runs on cpu (the .run.stderr sidecar pins the
+// line). The nvm CLI rejects the same value outright, so only the
+// environment spelling can reach this arm — hence the `.env` sidecar.
+import tensor;
+
+int main() {
+    if (tensor.backend() != "cpu") return 1;
+    float[] a = tensor.full(2, 3.0f);
+    if (tensor.sum(a) != 6.0f) return 2;
+    return 0;
+}

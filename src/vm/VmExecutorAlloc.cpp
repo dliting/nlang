@@ -153,19 +153,10 @@ int32_t VmExecutor::AllocArrayOnHeap(uint16_t arrayTypeIdx, uint8_t rank,
         throw std::runtime_error("NLang VM: invalid array type index");
     const auto& at = m_currModule->arrayTypes[arrayTypeIdx];
     const int32_t size = ValidateArrayDims(rank, dims);
-    //v0.14.x device line: language creation of a numeric four-kind
-    //array with an active device backend mints device-resident (the
-    //spec D2 kind/mechanism gate — byte/ubyte and every ForceHost
-    //caller stay host). The device path skips the inline payload
-    //entirely: the record carries the 64-bit device pointer in its
-    //payload-area descriptor cells instead.
-    const bool numericKind =
-        at.elemKind == RTK_Int32 || at.elemKind == RTK_Long
-        || at.elemKind == RTK_Float || at.elemKind == RTK_Double;
-    if (residency == ArrayResidency::FollowActiveDevice
-        && m_tensorHooksActive && numericKind) {
+    //The device path skips the inline payload (the record carries the
+    //64-bit device pointer in the descriptor cells instead).
+    if (FollowActiveDeviceMint(arrayTypeIdx, residency))
         return AllocDeviceArrayOnHeap(arrayTypeIdx, rank, dims);
-    }
     //0.7.5: 8-byte scalar elements occupy two cells each (registry-
     //driven stride — see ArrayElemCells).
     const int cells = ArrayElemCells(at.elemKind);
@@ -180,8 +171,7 @@ int32_t VmExecutor::AllocArrayOnHeap(uint16_t arrayTypeIdx, uint8_t rank,
     m_slotKinds[static_cast<size_t>(heapIdx)] = RTK_Array;
     m_slotStructIdx[static_cast<size_t>(heapIdx)] = arrayTypeIdx;
     //v0.13.1 D5: clear the descriptor carrier cell — free-list slots
-    //recycle across kinds, and the element stamp write (StampElemDescriptor)
-    //is optional, so a previous tenant's stamp must not survive here.
+    //recycle across kinds, and the optional stamp write may leave a stale stamp.
     m_instDescByHeap[static_cast<size_t>(heapIdx)] = nullptr;
     //v0.14.x: host residency (the free-list reuse guard — a previous
     //device tenant's mark must not survive here either; the device
@@ -206,105 +196,6 @@ int32_t VmExecutor::AllocArrayOnHeap(uint16_t arrayTypeIdx, uint8_t rank,
         }
     }
     return heapIdx;
-}
-
-//The device mint (newArrayResident's path and the FollowActiveDevice
-//arm above): the hooks allocate and zero the payload; the record
-//carries the 64-bit device pointer in its payload-area descriptor
-//cells (two int32 cells) and the residency side vector marks it.
-int32_t VmExecutor::AllocDeviceArrayOnHeap(uint16_t arrayTypeIdx,
-    uint8_t rank, const int32_t* dims) {
-    if (arrayTypeIdx >= m_currModule->arrayTypes.size())
-        throw std::runtime_error("NLang VM: invalid array type index");
-    const auto& at = m_currModule->arrayTypes[arrayTypeIdx];
-    const int32_t size = ValidateArrayDims(rank, dims);
-    if (!m_tensorHooksActive)
-        RaiseNlangException(m_exceptionClassIdx,
-            "tensor: no device backend active (backend=cpu); "
-            "device-resident arrays need --tensor-backend mirror/cuda");
-    if (at.elemKind != RTK_Int32 && at.elemKind != RTK_Long
-        && at.elemKind != RTK_Float && at.elemKind != RTK_Double) {
-        RaiseNlangException(m_exceptionClassIdx,
-            "tensor: only int/long/float/double arrays can live on the "
-            "device (byte/ubyte are host I/O buffers)");
-    }
-    const int cells = ArrayElemCells(at.elemKind);
-    const size_t bytes = static_cast<size_t>(size) * cells
-        * kHeapCellBytes;
-    NoteGcPressure();
-    const int32_t heapIdx = TakeHeapSlot();
-    //Header-only record + the 2-cell device-pointer descriptor.
-    const int32_t totalSlots =
-        static_cast<int32_t>(ArrayHeaderCells(rank)) + 2;
-    m_structHeap[static_cast<size_t>(heapIdx)].assign(totalSlots, 0);
-    m_slotKinds[static_cast<size_t>(heapIdx)] = RTK_Array;
-    m_slotStructIdx[static_cast<size_t>(heapIdx)] = arrayTypeIdx;
-    m_instDescByHeap[static_cast<size_t>(heapIdx)] = nullptr;
-    auto& record = m_structHeap[static_cast<size_t>(heapIdx)];
-    record[0] = RTK_Array;
-    record[1] = arrayTypeIdx;
-    record[2] = rank;
-    record[3] = size;
-    for (uint8_t d = 0; d < rank; ++d) record[4 + d] = dims[d];
-    void* devicePtr = m_tensorHooks.alloc(bytes);
-    m_tensorHooks.zero(devicePtr, bytes);
-    SetDevicePayload(heapIdx, devicePtr);
-    m_arrResidency[static_cast<size_t>(heapIdx)] = 1;
-    return heapIdx;
-}
-
-//The device pointer lives in the record's payload-area descriptor
-//cells (two int32 cells right after the header — the payload area of
-//a device record is the descriptor, there are no inline elements).
-void* VmExecutor::DevicePayloadOf(int32_t heapIdx) const {
-    auto& record = m_structHeap[static_cast<size_t>(heapIdx)];
-    const size_t base = ArrayPayloadBase(record);
-    void* ptr = nullptr;
-    std::memcpy(&ptr, &record[base], sizeof(ptr));
-    return ptr;
-}
-
-void VmExecutor::SetDevicePayload(int32_t heapIdx, void* devicePtr) {
-    auto& record = m_structHeap[static_cast<size_t>(heapIdx)];
-    const size_t base = ArrayPayloadBase(record);
-    std::memcpy(&record[base], &devicePtr, sizeof(devicePtr));
-    std::memset(&record[base + 2], 0,
-        sizeof(int32_t) * 2 - sizeof(devicePtr));
-}
-
-bool VmExecutor::IsDeviceArray(int32_t heapIdx) const {
-    return m_arrResidency[static_cast<size_t>(heapIdx)] == 1;
-}
-
-//Transparent element access on device records: one-element synchronous
-//transfer through the hooks (spec D2's industry-standard semantics —
-//PyTorch tensor[0] and CuPy arr[i] do the same implicit transfer).
-//The cell is the 8-byte frame cell; 4-byte kinds live in the low half.
-void VmExecutor::DeviceLoadElement(int32_t heapIdx, int64_t elemCell,
-    int64_t cellBytes, uint8_t* cell) const {
-    std::memset(cell, 0, NLANG_VALUE_SIZE);
-    uint8_t* base = static_cast<uint8_t*>(DevicePayloadOf(heapIdx));
-    m_tensorHooks.copyD2H(cell,
-        base + static_cast<size_t>(elemCell) * cellBytes,
-        static_cast<size_t>(cellBytes));
-}
-
-void VmExecutor::DeviceStoreElement(int32_t heapIdx, int64_t elemCell,
-    int64_t cellBytes, const uint8_t* cell) const {
-    uint8_t* base = static_cast<uint8_t*>(DevicePayloadOf(heapIdx));
-    m_tensorHooks.copyH2D(
-        base + static_cast<size_t>(elemCell) * cellBytes, cell,
-        static_cast<size_t>(cellBytes));
-}
-
-void VmExecutor::DeviceStageToHost(int32_t heapIdx, void* dst,
-    size_t bytes) const {
-    m_tensorHooks.copyD2H(dst, DevicePayloadOf(heapIdx), bytes);
-}
-
-void VmExecutor::DeviceStageFromHost(int32_t heapIdx, const void* src,
-    size_t bytes) const {
-    m_tensorHooks.copyH2D(DevicePayloadOf(heapIdx), src, bytes);
 }
 
 //Validation half of AllocViewOnHeap (split for the function-size guard):
@@ -470,22 +361,9 @@ int32_t VmExecutor::MaterializeViewRecord(int32_t viewHeapIdx) {
     //v0.14.x device line: the owner's payload stages before the walk
     //when it lives on the device (one bulk D2H; the mint is ForceHost —
     //the materialized copy is host-resident by definition).
-    const int32_t ownerIdx = m_structHeap[static_cast<size_t>(viewHeapIdx)]
-        [ArrayViewTargetCell(rank)];
     std::vector<int32_t> stagedOwner;
     const bool deviceOwner =
-        m_arrResidency[static_cast<size_t>(ownerIdx)] == 1;
-    if (deviceOwner) {
-        //The staging covers the OWNER's whole payload: the affine
-        //addresses range over the owner's element space (the view's
-        //elemCount is only the gathered subset — a slice view's
-        //addresses reach past it).
-        const int32_t ownerCount =
-            m_structHeap[static_cast<size_t>(ownerIdx)][3];
-        stagedOwner.resize(static_cast<size_t>(ownerCount) * cells);
-        DeviceStageToHost(ownerIdx, stagedOwner.data(),
-            stagedOwner.size() * sizeof(int32_t));
-    }
+        StageDeviceOwnerForView(viewHeapIdx, rank, cells, stagedOwner);
     auto& owner = ElementPayloadRecord(
         m_structHeap[static_cast<size_t>(viewHeapIdx)], RTK_ArrayView,
         ownerBase);

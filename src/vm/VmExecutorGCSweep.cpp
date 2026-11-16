@@ -30,20 +30,8 @@ void VmExecutor::SweepPhase() {
             }
             if (m_slotKinds[i] == RTK_Struct)
                 FreeNestedStructs(static_cast<int32_t>(i), m_slotStructIdx[i]);
-            if (m_slotKinds[i] == RTK_Array) {
-                //v0.14.x device line: a dead device-resident array's
-                //payload lives outside the record — release it through
-                //the hooks BEFORE the record clears, and clear the
-                //residency mark so the free slot never inherits a
-                //stale device mark (every alloc re-asserts host on
-                //take anyway).
-                if (m_arrResidency[i] == 1 && m_tensorHooksActive) {
-                    m_tensorHooks.free(DevicePayloadOf(
-                        static_cast<int32_t>(i)));
-                }
-                m_arrResidency[i] = 0;
-                FreeOwnedArrayStructElements(static_cast<int32_t>(i));
-            }
+            if (m_slotKinds[i] == RTK_Array)
+                FreeDeadArrayRecord(static_cast<int32_t>(i));
             m_structHeap[i].clear();
             m_slotKinds[i] = 0;
             HeapSweepPush(static_cast<int32_t>(i));
@@ -63,6 +51,18 @@ void VmExecutor::SweepPhase() {
     //the backoff runs unconditionally (pre-K6 stress semantics).
     m_gcThreshold = std::max(m_gcThreshold,
         std::max(m_structHeap.size(), 2 * liveSlots));
+}
+
+//The sweep's RTK_Array arm: a dead device-resident array's payload
+//lives outside the record — release it through the hooks BEFORE the
+//record clears, and clear the residency mark so the free slot never
+//inherits a stale device mark (every alloc re-asserts host on take
+//anyway).
+void VmExecutor::FreeDeadArrayRecord(int32_t heapIdx) {
+    if (m_arrResidency[heapIdx] == 1 && m_tensorHooksActive)
+        m_tensorHooks.free(DevicePayloadOf(heapIdx));
+    m_arrResidency[heapIdx] = 0;
+    FreeOwnedArrayStructElements(heapIdx);
 }
 
 //Dead class instance's container-handle recycling (the sweep's RTK_Class

@@ -346,66 +346,17 @@ void VmExecutor::RegisterNativeBlocking(const std::string& name,
 void VmExecutor::CallNative(const CompiledFunction& callee,
     uint16_t callParamBase, uint8_t* locals, uint8_t* pResult)
 {
-    //Extension point ⑤: the host dispatch hook answers first — host
-    //registrations win over same-named DLL natives and never trigger a
-    //DLL load attempt (that is why this precedes EnsureNativeAvailable).
-    //K2 slice 4 (§2.5): host code is unauditable, so the hook always
-    //runs through the blocking protocol (staged cells + GIL release);
-    //a declined call merely wastes the (state-neutral) dance.
-    if (m_pHostFunctions) {
-        const CompiledFunction* cal = &callee;
-        //K7: the blocking protocol hands the GIL over through the
-        //thread's current holder — the guard supplies that holder
-        //once the dispatch window is gone.
-        GilEnsureGuard g(*this);
-        if (RunBlockingNative(callee, callParamBase, locals, pResult,
-                [this, cal](const uint8_t* args, uint32_t argc,
-                            uint8_t* ret) {
-                    return m_pHostFunctions->Call(*cal, args, argc, ret);
-                }))
-            return;
-    }
+    //Extension point ⑤ first, then the DLL-native dispatch: the host
+    //hook answers before EnsureNativeAvailable (see
+    //DispatchHostFunction in VmExecutorBlockingNative.cpp).
+    if (DispatchHostFunction(callee, callParamBase, locals, pResult))
+        return;
     EnsureNativeAvailable(callee.name);
     auto it = m_natives.find(callee.name);
     if (it == m_natives.end())
         throw std::runtime_error(
             "NLang VM: native function not registered: " + callee.name);
-    //v0.14.x device line (spec D2's consumer-side gate): a device-
-    //resident array reaching a NON-tensor native hands that native a
-    //device pointer it cannot dereference — raise by name instead.
-    //The gate sits here (the DLL-native dispatch) because the embedded-
-    //host arm routes array reads/writes through HostArrayGet/SetCell,
-    //which already carry device arms. Param types come from the
-    //callee's isParam locals rows in declaration (offset) order; a
-    //device-resident array argument to the tensor package is fine —
-    //its slots are the device kernels.
-    if (m_tensorHooksActive && callee.name.rfind("tensor.", 0) != 0) {
-        std::vector<const LocalDescriptor*> params;
-        for (const auto& ld : callee.locals)
-            if (ld.isParam)
-                params.push_back(&ld);
-        std::sort(params.begin(), params.end(),
-            [](const LocalDescriptor* a, const LocalDescriptor* b) {
-                return a->offset < b->offset;
-            });
-        for (uint16_t i = 0; i < callee.paramCount
-                && i < params.size(); ++i) {
-            const uint8_t pk = params[i]->typeKind;
-            if (pk != RTK_Array && pk != RTK_ArrayView)
-                continue;
-            int32_t handle = 0;
-            std::memcpy(&handle, locals + callParamBase
-                + static_cast<size_t>(i) * kFrameSlotBytes,
-                sizeof(handle));
-            if (handle > 0
-                && static_cast<size_t>(handle) < m_structHeap.size()
-                && m_arrResidency[static_cast<size_t>(handle)] == 1) {
-                RaiseNlangException(m_exceptionClassIdx,
-                    "device array passed to a host-only native ("
-                    + callee.name + "); move it with tensor.toHost");
-            }
-        }
-    }
+    CheckDeviceArrayArgs(callee, callParamBase, locals);
     VmNativeHost host;
     InitNativeHost(host);
     FillNativeReceiver(host, callee, callParamBase, locals);

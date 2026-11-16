@@ -308,6 +308,59 @@ std::string VmExecutor::FormatCauseChainTail(int32_t excHeapIdx) const {
     return tail;
 }
 
+//K2 slice 4: the building half of RaiseNlangException, split out so
+//NativeRaiseException can root the fresh object before throwing —
+//between the throw and the blocking arm's catch the GIL is away (the
+//unwinding callback guard releases it), and a GC on another carrier
+//must not sweep the in-flight exception.
+int32_t VmExecutor::BuildNlangException(int16_t classIdx,
+                                         const std::string& msg) {
+    //K8: single Container-domain lock (the backtrace List slot); allocations and mints are forward.
+    DomainGuard g(m_domainLocks, DomainId::Container);
+    if (classIdx < 0)
+        throw std::runtime_error("NLang VM: exception class not registered");
+    int32_t heapIdx = AllocClassOnHeap(static_cast<uint16_t>(classIdx));
+
+    //cell[1] = message. Mint a string object, store its handle.
+    //Do NOT hold a reference to m_structHeap[heapIdx] across the List
+    //allocation below — AllocClassOnHeap may push_back to m_structHeap and
+    //invalidate the reference (vector resize).
+    int32_t msgHandle = MintNewString(msg);
+    m_structHeap[static_cast<size_t>(heapIdx)][1] = msgHandle;
+
+    //cell[5] = cause (v0.12.4 D7): VM-raised exceptions wrap nothing,
+    //so the field is explicitly null — never rely on allocation zeroing.
+    m_structHeap[static_cast<size_t>(heapIdx)][5] = 0;
+
+    //cell[3] = backtrace (field 1 under the uniform 2-cell stride):
+    //one boxed frame string per active call entry, innermost-first.
+    int32_t listHeapIdx = MintBacktraceList();
+    //Now write listHeapIdx to cell[3] of the Exception. Safe because no
+    //further allocations happen before the throw.
+    if (listHeapIdx > 0)
+        m_structHeap[static_cast<size_t>(heapIdx)][3] = listHeapIdx;
+    return heapIdx;
+}
+
+//Phase 9d: build a fresh Exception instance of the requested subclass,
+//populate message + backtrace, then throw NLangThrow to unwind to the
+//nearest catch handler (or top-level if none).
+[[noreturn]] void VmExecutor::RaiseNlangException(int16_t classIdx,
+                                                   const std::string& msg) {
+    //K8: the exception build self-locks (one Container section); the
+    //guard stays for FireOnThrow — the throw-site checkpoint takes the
+    //scheduler domain lock (same family as OpThrow/OpRethrow).
+    GilEnsureGuard g(*this);
+    const int32_t heapIdx = BuildNlangException(classIdx, msg);
+    //Debugger checkpoint at the throw site, before unwinding starts
+    //(the full NLang stack is still alive).
+    FireOnThrow();
+    //v0.12.4 D8: route the report through ThrownMessageOf so VM-raised
+    //failures print the same "<Type>: <message>" top line as user
+    //throws (the old raw msg lost the type name).
+    throw NLangThrow(heapIdx, ThrownMessageOf(heapIdx, msg.c_str()));
+}
+
 void VmExecutor::OpThrow(BytecodeReader& reader, uint8_t* locals) {
     //Throw arm keeps the store lock: FireOnThrow's debug checkpoint
     //(OnThrow + scheduler focus) is serialized only by it (OP_DebugInfo

@@ -1,0 +1,3 @@
+# `auto` overrides the harness's cpu pin (the nvm CLI wins over the
+# inherited environment) — the probe itself decides.
+--tensor-backend=auto

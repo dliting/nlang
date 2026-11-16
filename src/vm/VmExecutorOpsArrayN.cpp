@@ -148,18 +148,9 @@ void VmExecutor::OpLoadElementN(BytecodeReader& reader, uint8_t* locals) {
     uint16_t arr = reader.ReadUint16();
     uint16_t idxBase = reader.ReadUint16();
     uint16_t rank = reader.ReadUint16();
-    int32_t heapIdx;
-    std::memcpy(&heapIdx, locals + arr, sizeof(heapIdx));
-    if (heapIdx <= 0 || static_cast<size_t>(heapIdx) >= m_structHeap.size())
-        RaiseNlangException(m_nullPtrExcClassIdx,
-                            "NLang VM: null array access");
-    //Element opcodes are only emitted for array-typed bases, and both
-    //record kinds are array-typed values; any other slot kind is a
-    //compiler invariant violation (uncatchable).
+    int32_t heapIdx = ResolveElementArrayBase(arr, locals,
+                                              "OP_LoadElementN");
     const uint8_t kind = m_slotKinds[static_cast<size_t>(heapIdx)];
-    if (kind != RTK_Array && kind != RTK_ArrayView)
-        throw std::runtime_error(
-            "NLang VM: OP_LoadElementN expects an array slot");
     auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
     const int32_t recRank = slot[2];
     if (static_cast<uint16_t>(recRank) != rank)
@@ -200,16 +191,9 @@ void VmExecutor::OpStoreElementN(BytecodeReader& reader, uint8_t* locals) {
     uint16_t idxBase = reader.ReadUint16();
     uint16_t src = reader.ReadUint16();
     uint16_t rank = reader.ReadUint16();
-    int32_t heapIdx;
-    std::memcpy(&heapIdx, locals + arr, sizeof(heapIdx));
-    if (heapIdx <= 0 || static_cast<size_t>(heapIdx) >= m_structHeap.size())
-        RaiseNlangException(m_nullPtrExcClassIdx,
-                            "NLang VM: null array access");
-    //Same kind gate as OP_LoadElementN (invariant violation, uncatchable).
+    int32_t heapIdx = ResolveElementArrayBase(arr, locals,
+                                              "OP_StoreElementN");
     const uint8_t kind = m_slotKinds[static_cast<size_t>(heapIdx)];
-    if (kind != RTK_Array && kind != RTK_ArrayView)
-        throw std::runtime_error(
-            "NLang VM: OP_StoreElementN expects an array slot");
     auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
     const int32_t recRank = slot[2];
     if (static_cast<uint16_t>(recRank) != rank)
@@ -272,16 +256,11 @@ void VmExecutor::OpLoadElementFlat(BytecodeReader& reader, uint8_t* locals) {
     uint16_t dst = reader.ReadUint16();
     uint16_t arr = reader.ReadUint16();
     uint16_t flatSlot = reader.ReadUint16();
-    int32_t heapIdx, flat;
-    std::memcpy(&heapIdx, locals + arr, sizeof(heapIdx));
+    int32_t flat;
     std::memcpy(&flat, locals + flatSlot, sizeof(flat));
-    if (heapIdx <= 0 || static_cast<size_t>(heapIdx) >= m_structHeap.size())
-        RaiseNlangException(m_nullPtrExcClassIdx,
-                            "NLang VM: null array access");
+    int32_t heapIdx = ResolveElementArrayBase(arr, locals,
+                                              "OP_LoadElementFlat");
     const uint8_t kind = m_slotKinds[static_cast<size_t>(heapIdx)];
-    if (kind != RTK_Array && kind != RTK_ArrayView)
-        throw std::runtime_error(
-            "NLang VM: OP_LoadElementFlat expects an array slot");
     auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
     const int32_t elemCount = slot[3];
     if (flat < 0 || flat >= elemCount)
@@ -365,15 +344,9 @@ void VmExecutor::OpLoadElementDyn(BytecodeReader& reader, uint8_t* locals) {
     uint16_t arr = reader.ReadUint16();
     uint16_t idxBase = reader.ReadUint16();
     uint16_t nCoords = reader.ReadUint16();
-    int32_t heapIdx;
-    std::memcpy(&heapIdx, locals + arr, sizeof(heapIdx));
-    if (heapIdx <= 0 || static_cast<size_t>(heapIdx) >= m_structHeap.size())
-        RaiseNlangException(m_nullPtrExcClassIdx,
-                            "NLang VM: null array access");
+    int32_t heapIdx = ResolveElementArrayBase(arr, locals,
+                                              "OP_LoadElementDyn");
     const uint8_t kind = m_slotKinds[static_cast<size_t>(heapIdx)];
-    if (kind != RTK_Array && kind != RTK_ArrayView)
-        throw std::runtime_error(
-            "NLang VM: OP_LoadElementDyn expects an array slot");
     auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
     const int32_t recRank = slot[2];
     if (static_cast<uint16_t>(recRank) != nCoords)
@@ -411,15 +384,9 @@ void VmExecutor::OpStoreElementDyn(BytecodeReader& reader, uint8_t* locals) {
     uint16_t idxBase = reader.ReadUint16();
     uint16_t src = reader.ReadUint16();
     uint16_t nCoords = reader.ReadUint16();
-    int32_t heapIdx;
-    std::memcpy(&heapIdx, locals + arr, sizeof(heapIdx));
-    if (heapIdx <= 0 || static_cast<size_t>(heapIdx) >= m_structHeap.size())
-        RaiseNlangException(m_nullPtrExcClassIdx,
-                            "NLang VM: null array access");
+    int32_t heapIdx = ResolveElementArrayBase(arr, locals,
+                                              "OP_StoreElementDyn");
     const uint8_t kind = m_slotKinds[static_cast<size_t>(heapIdx)];
-    if (kind != RTK_Array && kind != RTK_ArrayView)
-        throw std::runtime_error(
-            "NLang VM: OP_StoreElementDyn expects an array slot");
     auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
     const int32_t recRank = slot[2];
     if (static_cast<uint16_t>(recRank) != nCoords)

@@ -1,0 +1,8 @@
+// Device-line P4: the nvm CLI validates --tensor-backend before the
+// module ever loads, so a misspelt name is exit 2 (manifest column 2)
+// rather than a silent cpu run. The body never executes.
+import tensor;
+
+int main() {
+    return 0;
+}

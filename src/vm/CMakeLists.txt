@@ -37,11 +37,13 @@ add_library(nlang_vm
     VmExecutorGCRoots.cpp
     VmExecutorGCSweep.cpp
     VmExecutorAlloc.cpp
+    VmExecutorDeviceArray.cpp
     VmClassLayout.cpp
     VmStaticSlots.cpp
     VmDefaultMaterializer.cpp
     VmExecutorContainers.cpp
     VmExecutorFormat.cpp
+    VmExecutorFormatArray.cpp
     VmExecutorIntrinsics.cpp
     VmExecutorNativeHost.cpp
     VmExecutorNativeCallbacks.cpp

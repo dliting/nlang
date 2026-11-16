@@ -193,5 +193,27 @@
     "path": "src/native/tensor/tensor_reduce.cpp",
     "function": "ReturnScalar",
     "reason": "four one-line carrier-width forwarding overloads; the col-0 signature line makes the span heuristic overcount into the next function"
+  },
+  {
+    "path": "src/native/tensor/tensor_gather.cpp",
+    "function": "GatherKernel",
+    "reason": "the gather template kernel: validation, device staging and the cpu-walk routing are one algorithm; splitting it fragments the staging-plus-dispatch"
+  },
+  {
+    "path": "src/native/tensor/tensor_ops_cpu.cpp",
+    "reason": "the CPU tensor-ops table initializer plus the kernels it wires are one cohesive TU; the table arm count tracks the op set, so every op addition grows this TU by design"
+  },
+  {
+    "path": "src/native/tensor_cuda/cuda_backend.cpp",
+    "reason": "the CUDA device backend: the table initializer, the kernel landing and the device hook wiring are one cohesive TU; the table arm count tracks the op set, so every op addition grows this TU by design"
+  },
+  {
+    "path": "src/vm/VmExecutorSerArray.h",
+    "function": "VmExecutor::SerializeArrayRecord",
+    "reason": "serialization template; the template type parameters force single-header instantiation (same shape as the struct/class serialization templates in VmExecutorSer.h)"
+  },
+  {
+    "path": "include/nlang/vm/NativeHost.h",
+    "reason": "the native ABI header: the NativeHost hook table plus the device/tensor hook structs are one public ABI; the hook count tracks the native surface, so every native addition grows this header by design"
   }
 ]

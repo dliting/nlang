@@ -17,6 +17,12 @@ namespace nlang {
 namespace {
 //K6 D11: per-blocking-arm identities (monotonic; 0 stays invalid).
 std::atomic<uint64_t> g_nextNativeRootOwner{1};
+
+//A native side holds NativeHost* equal to &vmNativeHost.c (the first
+//member); restore the wrapper.
+VmNativeHost* Wrap(NativeHost* self) {
+    return reinterpret_cast<VmNativeHost*>(self);
+}
 }
 
 //--- Native call bridge (K2 slice 4, §2.5) -----------------------------------
@@ -214,6 +220,95 @@ void VmExecutor::RootMintedNativeHandle(int32_t handle)
         m_nativeCallRoots.push_back(
             {nullptr, 0, handle, t_currentNativeRootOwner});
     }
+}
+
+//Extension point ⑤: the host dispatch hook answers first — host
+//registrations win over same-named DLL natives and never trigger a
+//DLL load attempt (that is why this precedes EnsureNativeAvailable).
+//K2 slice 4 (§2.5): host code is unauditable, so the hook always
+//runs through the blocking protocol (staged cells + GIL release);
+//a declined call merely wastes the (state-neutral) dance.
+bool VmExecutor::DispatchHostFunction(const CompiledFunction& callee,
+    uint16_t callParamBase, uint8_t* locals, uint8_t* pResult) {
+    if (!m_pHostFunctions)
+        return false;
+    const CompiledFunction* cal = &callee;
+    //K7: the blocking protocol hands the GIL over through the
+    //thread's current holder — the guard supplies that holder
+    //once the dispatch window is gone.
+    GilEnsureGuard g(*this);
+    return RunBlockingNative(callee, callParamBase, locals, pResult,
+            [this, cal](const uint8_t* args, uint32_t argc, uint8_t* ret) {
+                return m_pHostFunctions->Call(*cal, args, argc, ret);
+            });
+}
+
+//--- scheduler-facing natives of the blocking protocol (v11) -----------
+//The park/wake/context/work entries ride this protocol: parkForIo
+//arms the context, FinishBlockingNative's ioParkPending catch performs
+//the unwind, and wakeIoWaiters/currentContextId/submitWork stay
+//callable from GIL-free worker threads.
+
+int VmExecutor::NativeParkForIo(NativeHost* self, int fd, unsigned events,
+    long long deadlineMs, int hasDeadline) {
+    VmExecutor* e = Wrap(self)->executor;
+    //Entered from a blocking-channel native: the protocol released the
+    //GIL around invoke, so this guard re-takes it (R7 contract).
+    GilEnsureGuard gil(*e);
+    VmScheduler* sched = e->m_spScheduler.get();
+    const int selfId = sched->CurrentContextId();
+    ExecutionContext* ctx = sched->FindMutable(selfId);
+    //Re-entry after wake: WakeForIo armed this context; clear the flag
+    //and answer 1 so the native retries its syscall.
+    if (ctx && ctx->ioParkArmed) {
+        ctx->ioParkArmed = false;
+        return 1;
+    }
+    if (!ctx)
+        return 0;                        //embed path: nothing to park
+    //First entry: a park needs a carrier to release (same gate as the
+    //intrinsic RequestPark path; throws before any state mutation —
+    //the complete-or-park invariant).
+    e->EnsureSuspensionAllowed();
+    const bool has = hasDeadline != 0 && deadlineMs > 0;
+    //No fd and no deadline: no readiness source and nothing to expire
+    //— parking would hang with no possible wake. Answer ready instead
+    //(the caller's wait is a programming error, not a deadlock;
+    //final review M14).
+    if (fd < 0 && !has)
+        return 1;
+    const std::chrono::steady_clock::time_point deadline{
+        std::chrono::milliseconds(deadlineMs)};
+    sched->ParkForIo(selfId, fd, events, deadline, has);
+    //FinishBlockingNative sees the flag and unwinds with ParkSignal(Io)
+    //instead of restoring frames: the carrier parks this context, and
+    //the wake re-executes this CallNative with the same staged
+    //arguments (R7).
+    ctx->ioParkPending = true;
+    return 0;
+}
+
+void VmExecutor::NativeWakeIoWaiters(NativeHost* self, int fd) {
+    VmExecutor* e = Wrap(self)->executor;
+    //R13: callable without the GIL (a worker thread closing a socket);
+    //the scheduler method takes the lock internally.
+    e->m_spScheduler->WakeIoWaitersForFd(fd);
+}
+
+int VmExecutor::NativeCurrentContextId(NativeHost* self) {
+    VmExecutor* e = Wrap(self)->executor;
+    //R14: the carrier-slot read needs no GIL. Stable across the park/
+    //re-entry window: the re-executed CallNative re-dispatches on the
+    //same context. -1 outside a blocking-channel native.
+    return e->m_spScheduler->CurrentContextId();
+}
+
+int VmExecutor::NativeSubmitWork(NativeHost* self, void (*fn)(void*),
+    void* arg, int ackFd, int priority) {
+    VmExecutor* e = Wrap(self)->executor;
+    //r1 note 4: the pool queue lock is independent of the GIL, so a
+    //submit from a GIL-free blocking native (or a worker) is safe.
+    return e->m_spScheduler->SubmitWork(fn, arg, ackFd, priority);
 }
 
 } // namespace nlang

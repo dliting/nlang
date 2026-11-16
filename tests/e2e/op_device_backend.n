@@ -1,0 +1,21 @@
+// Device-line P4: the backend surface (backend() plus the transfer
+// surface toDevice/toHost), hardware-independent — it must pass on both
+// the cpu baseline and the cuda double-run. On cpu the transfer is a
+// no-op (toDevice/toHost return the same elements, the kernels are the
+// host path); on cuda it performs the real device transfers.
+import tensor;
+
+int main() {
+    string b = tensor.backend();
+    if (b != "cpu" && b != "cuda") return 1;
+
+    float[] host = tensor.full(4, 2.0f);
+    host[1] = 5.0f;
+    float[] same = tensor.toDevice(host);
+    if (same[1] != 5.0f) return 2;
+    if (tensor.sum(tensor.toHost(same)) != 11.0f) return 3;
+
+    float[] doubled = host + host;
+    if (tensor.sum(doubled) != 22.0f) return 4;
+    return 0;
+}

@@ -1,0 +1,19 @@
+// Device-line P4: `auto` probes the plugin list and never fails. The
+// active backend is cpu (no device) or cuda (device present) — always a
+// name the selection offers, and arithmetic works either way. The
+// assertions stay hardware-independent on purpose: this fixture has to
+// pass on a GPU-less machine too. sum is the one reduction the P3 kernels
+// implement on every backend (mean/max/min are named cuda stubs), so the
+// arithmetic assertions key on sum alone.
+import tensor;
+
+int main() {
+    string b = tensor.backend();
+    if (b != "cpu" && b != "cuda") return 1;
+
+    float[] a = tensor.full(3, 1.5f);
+    if (tensor.sum(a) != 4.5f) return 2;
+    float[] c = tensor.full(2, 2.0f);
+    if (tensor.sum(c) != 4.0f) return 3;
+    return 0;
+}

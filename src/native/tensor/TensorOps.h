@@ -3,8 +3,8 @@
     module (v0.14.x device line, P1). Where KernelOps is the CPU-internal
     SIMD seam (flat spans), TensorOps is THE registration surface every
     backend implements: one slot per tensor operation, whole-op signature.
-    Callers look up ActiveTensorOps() once per module call and never
-    learn what hardware is underneath.
+    The dispatchers reach a table through OpsForResidency (backend
+    registry) and never learn what hardware is underneath.
 
     Dispatch layering (spec 2026-11-14 D1):
       dispatcher (kind checks, shape/broadcast validation, residency
@@ -241,20 +241,9 @@ struct TensorOps {
                     NativeArrayView& dst);
 };
 
-//The active table: NLANG_TENSOR_BACKEND names the backend (cpu default;
-//mirror = the P2 test backend; cuda = the device plugin). Selection
-//details live in the backend registry (T3.8).
-const TensorOps& ActiveTensorOps();
-
 //The cpu table's direct lookup (design 2026-11-15 R2): the host arm of
 //OpsForResidency and every "run this on host" site (staged walks,
-//transfer twins) — never the env-selected table.
+//transfer twins) — never the env-selected backend's table.
 const TensorOps& CpuTensorOps();
-
-//Test seam: register a whole table by name (the cpu table registers at
-//static init; backends defined outside this TU — the cuda plugin, the
-//P2 mirror registration — register through this hook). Name must stay
-//alive.
-void RegisterTensorOps(const char* name, const TensorOps* ops);
 
 } // namespace tensor

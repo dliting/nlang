@@ -402,45 +402,6 @@ long long VmExecutor::NativeNowMs(NativeHost* /*self*/) {
         std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 
-int VmExecutor::NativeParkForIo(NativeHost* self, int fd, unsigned events,
-    long long deadlineMs, int hasDeadline) {
-    VmExecutor* e = Wrap(self)->executor;
-    //Entered from a blocking-channel native: the protocol released the
-    //GIL around invoke, so this guard re-takes it (R7 contract).
-    GilEnsureGuard gil(*e);
-    VmScheduler* sched = e->m_spScheduler.get();
-    const int selfId = sched->CurrentContextId();
-    ExecutionContext* ctx = sched->FindMutable(selfId);
-    //Re-entry after wake: WakeForIo armed this context; clear the flag
-    //and answer 1 so the native retries its syscall.
-    if (ctx && ctx->ioParkArmed) {
-        ctx->ioParkArmed = false;
-        return 1;
-    }
-    if (!ctx)
-        return 0;                        //embed path: nothing to park
-    //First entry: a park needs a carrier to release (same gate as the
-    //intrinsic RequestPark path; throws before any state mutation —
-    //the complete-or-park invariant).
-    e->EnsureSuspensionAllowed();
-    const bool has = hasDeadline != 0 && deadlineMs > 0;
-    //No fd and no deadline: no readiness source and nothing to expire
-    //— parking would hang with no possible wake. Answer ready instead
-    //(the caller's wait is a programming error, not a deadlock;
-    //final review M14).
-    if (fd < 0 && !has)
-        return 1;
-    const std::chrono::steady_clock::time_point deadline{
-        std::chrono::milliseconds(deadlineMs)};
-    sched->ParkForIo(selfId, fd, events, deadline, has);
-    //FinishBlockingNative sees the flag and unwinds with ParkSignal(Io)
-    //instead of restoring frames: the carrier parks this context, and
-    //the wake re-executes this CallNative with the same staged
-    //arguments (R7).
-    ctx->ioParkPending = true;
-    return 0;
-}
-
 void* VmExecutor::NativeModuleState(NativeHost* self, const char* tag,
     void* (*ctor)(void), void (*dtor)(void*)) {
     VmExecutor* e = Wrap(self)->executor;
@@ -454,29 +415,6 @@ void* VmExecutor::NativeModuleState(NativeHost* self, const char* tag,
     void* state = ctor();
     e->m_moduleStates.emplace(key, std::make_pair(state, dtor));
     return state;
-}
-
-void VmExecutor::NativeWakeIoWaiters(NativeHost* self, int fd) {
-    VmExecutor* e = Wrap(self)->executor;
-    //R13: callable without the GIL (a worker thread closing a socket);
-    //the scheduler method takes the lock internally.
-    e->m_spScheduler->WakeIoWaitersForFd(fd);
-}
-
-int VmExecutor::NativeCurrentContextId(NativeHost* self) {
-    VmExecutor* e = Wrap(self)->executor;
-    //R14: the carrier-slot read needs no GIL. Stable across the park/
-    //re-entry window: the re-executed CallNative re-dispatches on the
-    //same context. -1 outside a blocking-channel native.
-    return e->m_spScheduler->CurrentContextId();
-}
-
-int VmExecutor::NativeSubmitWork(NativeHost* self, void (*fn)(void*),
-    void* arg, int ackFd, int priority) {
-    VmExecutor* e = Wrap(self)->executor;
-    //r1 note 4: the pool queue lock is independent of the GIL, so a
-    //submit from a GIL-free blocking native (or a worker) is safe.
-    return e->m_spScheduler->SubmitWork(fn, arg, ackFd, priority);
 }
 
 //--- v12: receiver type-argument reads ---------------------------------------
@@ -507,59 +445,6 @@ const char* VmExecutor::NativeTypeArgName(NativeHost* self, uint32_t i) {
     if (!desc || i >= desc->TypeArgs().size())
         return nullptr;   //the name sentinel
     return desc->TypeArgs()[i].spelling.c_str();
-}
-
-//v13 tensor device side (contracts in NativeHost.h). Registration is
-//an init-sequence event (the tensor module's nlang_native_init runs
-//before any user frame or carrier); a second registration is a module
-//contract violation. All hook slots must be populated — the VM routes
-//device records through them and never links vendor runtimes itself.
-void VmExecutor::NativeSetTensorDeviceHooks(NativeHost* self,
-    const TensorDeviceHooks* hooks) {
-    VmExecutor* e = Wrap(self)->executor;
-    GilEnsureGuard gil(*e);
-    if (e->m_tensorHooksActive)
-        e->RaiseNlangExceptionBase(
-            "setTensorDeviceHooks: hooks already registered for this "
-            "executor");
-    if (hooks == nullptr || hooks->alloc == nullptr
-        || hooks->zero == nullptr || hooks->free == nullptr
-        || hooks->copyH2D == nullptr || hooks->copyD2H == nullptr
-        || hooks->sync == nullptr) {
-        e->RaiseNlangExceptionBase(
-            "setTensorDeviceHooks: incomplete hook set");
-    }
-    e->m_tensorHooks = *hooks;
-    e->m_tensorHooksActive = true;
-}
-
-int32_t VmExecutor::NativeNewArrayResident(NativeHost* self,
-    uint8_t elemKind, int32_t rank, const int32_t* dims) {
-    VmExecutor* e = Wrap(self)->executor;
-    GilEnsureGuard gil(*e);
-    if (elemKind != NEK_Int32 && elemKind != NEK_Int64
-        && elemKind != NEK_Float32 && elemKind != NEK_Float64) {
-        e->RaiseNlangExceptionBase(
-            "newArrayResident: only int/long/float/double arrays can "
-            "live on the device (byte/ubyte are host I/O buffers)");
-    }
-    const uint16_t arrayTypeIdx = e->FindScalarArrayTypeIdx(elemKind,
-        static_cast<uint8_t>(rank));
-    const int32_t handle = e->AllocDeviceArrayOnHeap(arrayTypeIdx,
-        static_cast<uint8_t>(rank), dims);
-    e->RootMintedNativeHandle(handle);
-    return handle;
-}
-
-//The atomic snapshot+discard composite (spec D3): one mutex-protected
-//step — a read/discard pair would race between concurrent carriers and
-//hand two uniform draws the same snapshot.
-void VmExecutor::NativeSnapshotRngForDevice(NativeHost* self,
-    uint32_t* out624, uint32_t* outPosition, int64_t n) {
-    VmExecutor* e = Wrap(self)->executor;
-    std::lock_guard<std::mutex> rngGuard(e->m_rngMutex);
-    e->m_rng.Snapshot(out624, outPosition);
-    e->m_rng.discard(n);
 }
 
 } // namespace nlang

@@ -67,12 +67,15 @@ void TestLoadAndCall(const std::string& fixtureDir) {
 
     std::map<std::string, NativeFn> fns;
     std::map<std::string, bool> blocking;
+    //The fixture modules' init functions never touch the host argument,
+    //so nullptr stands in for the executor's host here.
     loader.EnsureLoaded("sample",
         [&](const std::string& ns, const std::string& name, NativeFn fn,
             bool isBlocking) {
             fns[ns + "." + name] = fn;
             blocking[ns + "." + name] = isBlocking;
-        });
+        },
+        nullptr);
 
     CHECK(fns.size() == 4, "sample module registers 4 functions");
     CHECK(fns.count("sample.add") && fns.count("sample.doubleFloat")
@@ -131,12 +134,14 @@ void TestIdempotent(const std::string& fixtureDir) {
     loader.EnsureLoaded("sample",
         [&](const std::string&, const std::string&, NativeFn, bool) {
             ++firstCount;
-        });
+        },
+        nullptr);
     int secondCount = 0;
     loader.EnsureLoaded("sample",
         [&](const std::string&, const std::string&, NativeFn, bool) {
             ++secondCount;
-        });
+        },
+        nullptr);
     CHECK(firstCount == 4, "first init registers 4");
     CHECK(secondCount == 0, "second EnsureLoaded does not re-init");
 }
@@ -149,7 +154,8 @@ void TestNotFound() {
     std::string message;
     try {
         loader.EnsureLoaded("ghost",
-            [](const std::string&, const std::string&, NativeFn, bool) {});
+            [](const std::string&, const std::string&, NativeFn, bool) {},
+            nullptr);
     } catch (const std::runtime_error& e) {
         threw = true;
         message = e.what();
@@ -170,7 +176,8 @@ void TestBadAbi(const std::string& fixtureDir) {
         loader.EnsureLoaded("badabi",
             [&](const std::string&, const std::string&, NativeFn, bool) {
                 ++registrations;
-            });
+            },
+            nullptr);
     } catch (const std::runtime_error& e) {
         threw = true;
         message = e.what();
@@ -200,7 +207,8 @@ void TestMissingAbiProbe(const std::string& fixtureDir) {
         loader.EnsureLoaded("noprobe",
             [&](const std::string&, const std::string&, NativeFn, bool) {
                 ++registrations;
-            });
+            },
+            nullptr);
     } catch (const std::runtime_error& e) {
         threw = true;
         message = e.what();
@@ -225,7 +233,8 @@ void TestInitReturnInformational(const std::string& fixtureDir) {
         loader.EnsureLoaded("badreturn",
             [&](const std::string&, const std::string&, NativeFn, bool) {
                 ++registrations;
-            });
+            },
+            nullptr);
     } catch (const std::runtime_error&) {
         threw = true;
     }
@@ -241,7 +250,8 @@ void TestNoEntry(const std::string& fixtureDir) {
     std::string message;
     try {
         loader.EnsureLoaded("noentry",
-            [](const std::string&, const std::string&, NativeFn, bool) {});
+            [](const std::string&, const std::string&, NativeFn, bool) {},
+            nullptr);
     } catch (const std::runtime_error& e) {
         threw = true;
         message = e.what();
@@ -288,7 +298,8 @@ void TestExplicitDirsWinOverFallback() {
     std::string message;
     try {
         loader.EnsureLoaded("io",
-            [](const std::string&, const std::string&, NativeFn, bool) {});
+            [](const std::string&, const std::string&, NativeFn, bool) {},
+            nullptr);
     } catch (const std::runtime_error& e) {
         threw = true;
         message = e.what();

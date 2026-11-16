@@ -11,10 +11,10 @@
     still run the host path directly, so nullptr is never invoked
     mid-migration (order: implement slot, then switch the dispatcher).
 
-    The registry: the cpu table registers at static init;
-    ActiveTensorOps() resolves NLANG_TENSOR_BACKEND (unset/unknown →
-    cpu). RegisterTensorOps is the hook for out-of-TU backends (the P2
-    mirror registration, the cuda plugin).
+    The registry: the cpu table is the module's only static table;
+    CpuTensorOps() returns it directly and OpsForResidency routes
+    device-resident operands to the active backend's table (design
+    2026-11-15 R2 — one routing rule, no name lookup).
 ---*/
 #include "TensorOps.h"
 #include "backend_registry.h"
@@ -24,8 +24,6 @@
 
 #include <cmath>
 #include <cstdint>
-#include <cstdlib>
-#include <cstring>
 #include <type_traits>
 #include <vector>
 
@@ -975,63 +973,15 @@ TensorOps MakeCpuTable() {
 
 const TensorOps kCpuTable = MakeCpuTable();
 
-//Registered backend tables by name; the cpu table is always present.
-struct BackendEntry {
-    const char* name;
-    const TensorOps* ops;
-    BackendEntry* next;
-};
-
-BackendEntry* g_backends = nullptr;
-const TensorOps* g_active = nullptr;   //resolved once, then cached
-
-void RegisterBuiltinBackends() {
-    static BackendEntry cpuEntry = {"cpu", &kCpuTable, nullptr};
-    cpuEntry.next = g_backends;
-    g_backends = &cpuEntry;
-}
-
 } //namespace
-
-void RegisterTensorOps(const char* name, const TensorOps* ops) {
-    if (g_backends == nullptr)
-        RegisterBuiltinBackends();
-    auto* entry = new BackendEntry{name, ops, g_backends};
-    g_backends = entry;
-    g_active = nullptr;   //re-resolve on next use
-}
-
-const TensorOps& ActiveTensorOps() {
-    if (g_backends == nullptr)
-        RegisterBuiltinBackends();
-    if (g_active == nullptr) {
-        const char* requested = std::getenv("NLANG_TENSOR_BACKEND");
-        const TensorOps* found =
-            (requested == nullptr) ? &kCpuTable : nullptr;
-        for (BackendEntry* e = g_backends; e != nullptr && found == nullptr;
-             e = e->next) {
-            if (requested != nullptr && std::strcmp(e->name, requested) == 0)
-                found = e->ops;
-        }
-        //Unknown/unset names resolve to the built-in cpu backend (the
-        //KernelOps-era selector contract; device plugins register under
-        //their own names and load their tables in T3.8).
-        if (found == nullptr)
-            found = &kCpuTable;
-        g_active = found;
-    }
-    return *g_active;
-}
 
 //The cpu table's stable lookup (design 2026-11-15 R2): OpsForResidency's
 //host arm — and every "run this on host" site (staged walks, transfer
 //twins) — must reach the cpu table DIRECTLY. The historical
-//device-first override on ActiveTensorOps routed a staged host walk to
-//the cuda table under NLANG_TENSOR_BACKEND=cuda (the mirror backend
-//masked this — its table IS the cpu table).
+//device-first override on the env-selected lookup routed a staged host
+//walk to the cuda table under NLANG_TENSOR_BACKEND=cuda (the mirror
+//backend masked this — its table IS the cpu table).
 const TensorOps& CpuTensorOps() {
-    if (g_backends == nullptr)
-        RegisterBuiltinBackends();
     return kCpuTable;
 }
 

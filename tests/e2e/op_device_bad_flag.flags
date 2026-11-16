@@ -1,0 +1,3 @@
+# A misspelt backend name: the CLI refuses before the module loads
+# (exit 2), so the run never reaches the registry's cpu fallback.
+--tensor-backend=bogus

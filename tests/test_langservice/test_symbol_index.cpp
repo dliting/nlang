@@ -25,7 +25,7 @@ static int g_failures = 0;
 //TestLoadsRealStdLib). A surface change updates the constant AND the
 //breakdown comment; the printer turns any future drift into a
 //per-package diff instead of bare FAIL lines.
-constexpr std::size_t kStdlibSymbolPin = 315;
+constexpr std::size_t kStdlibSymbolPin = 324;
 
 static void PrintIndexShape(const SymbolIndex &index)
 {
@@ -43,18 +43,20 @@ static void PrintIndexShape(const SymbolIndex &index)
 static void TestLoadsRealStdLib() {
     SymbolIndex index;
     index.LoadLibraryDir(STDLIB_DIR);
-    // 315 functions: io 19 (14 natives + 5 typed-reader wrappers; the
+    // 324 functions: io 19 (14 natives + 5 typed-reader wrappers; the
     // v11 clock/park natives and the byte helpers moved from net),
     // math 25, fs 10 (the binary read pair readBytes/readFloats),
     // thread 7 (the K3 materialized package plus the P2-2 failure
-    // probes), tensor 200 (the v0.12.7 surface: broadcasting
+    // probes), tensor 209 (the v0.12.7 surface: broadcasting
     // elementwise with scalar arms, the view family
     // transpose(+axes)/flatten/slice/broadcastTo, axis sums, generic
     // reshape with -1 inference, elementwise exp/log/clamp, concat,
     // matmul, and the plain-NLang layer relu/softmax/crossEntropyLoss;
     // the v0.13.7 vector-ops layer: neg, the reversed scalar arms,
     // axis max/min, gather, argmax/argmin, eq, oneHot, uniform, and
-    // the activation additions reluGrad/tanh),
+    // the activation additions reluGrad/tanh; the v0.14.0 device line:
+    // toDevice/toHost overloads for the four numeric kinds and
+    // backend()),
     // net 54 (the script ping plus the internal _nowMs/_lastErrorText/
     // _throwNet/_ping/resolveList, the _tcp* natives incl. the option
     // setters and the internal _toBytes/_fromBytes, the 20 _udp*

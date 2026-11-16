@@ -3,9 +3,11 @@
     and the THREE payload-transfer choke points (P2/P3 consolidation,
     design 2026-11-15-p3-routing-design.md).
 
-    NLANG_TENSOR_BACKEND resolves at module init: cpu (default), mirror
-    (the P2 test backend — malloc hooks + the cpu table), cuda (the P3
-    plugin). InitBackendSelection registers the hooks into the VM.
+    NLANG_TENSOR_BACKEND resolves at module init: auto (default —
+    probe the plugin list, first working device wins, silent cpu
+    fallback), cpu, mirror (the P2 test backend — malloc hooks + the
+    cpu table), cuda (the P3 plugin). InitBackendSelection registers
+    the hooks into the VM.
 
     Architectural ruling (the mirror backend masked these classes — its
     table IS the cpu table and its "device" memory IS host memory, so
@@ -33,9 +35,9 @@
        the staged readers are the only sanctioned spelling.
        → StageOperandToHost / ReadIntListStaged.
 
-    ActiveTensorOps() stays ONLY as the cpu/mirror table lookup — the
-    dispatchers' compute paths use OpsForResidency so a toHost result
-    under cuda runs host kernels.
+    ActiveTensorOps() is gone (the P3 routing design): the dispatchers'
+    compute paths use OpsForResidency alone, so a toHost result under
+    cuda runs host kernels.
 ---*/
 #pragma once
 
@@ -62,7 +64,8 @@ const DeviceBackendState& ActiveDeviceBackend();
 //Called once from nlang_native_init (before any registration use):
 //parses NLANG_TENSOR_BACKEND, prepares the hooks, and registers them
 //into the VM when the backend is device. Explicit cuda with a missing
-//plugin fails fast (spec D3a); unknown names fall back to cpu.
+//plugin fails fast (spec D3a); an unknown name reports once on stderr
+//and runs on cpu.
 void InitBackendSelection(NativeHost* host);
 
 //--- CLASS 1: compute routing -------------------------------------------

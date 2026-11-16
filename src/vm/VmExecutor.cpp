@@ -435,25 +435,6 @@ std::string FormatBacktraceFrame(const std::string& funcName,
         + (line != 0 ? std::to_string(static_cast<unsigned>(line))
                      : std::string("?")) + ")";
 }
-//Phase 9d: build a fresh Exception instance of the requested subclass,
-//populate message + backtrace, then throw NLangThrow to unwind to the
-//nearest catch handler (or top-level if none).
-[[noreturn]] void VmExecutor::RaiseNlangException(int16_t classIdx,
-                                                   const std::string& msg) {
-    //K8: the exception build self-locks (one Container section); the
-    //guard stays for FireOnThrow — the throw-site checkpoint takes the
-    //scheduler domain lock (same family as OpThrow/OpRethrow).
-    GilEnsureGuard g(*this);
-    const int32_t heapIdx = BuildNlangException(classIdx, msg);
-    //Debugger checkpoint at the throw site, before unwinding starts
-    //(the full NLang stack is still alive).
-    FireOnThrow();
-    //v0.12.4 D8: route the report through ThrownMessageOf so VM-raised
-    //failures print the same "<Type>: <message>" top line as user
-    //throws (the old raw msg lost the type name).
-    throw NLangThrow(heapIdx, ThrownMessageOf(heapIdx, msg.c_str()));
-}
-
 //0.13.1c: a name-based dispatch landing on an abstract record means the
 //artifact escaped the compiler's instantiation gate (third-party
 //producer or tampering) — the record has no bytecode to run. Same
@@ -464,39 +445,19 @@ std::string FormatBacktraceFrame(const std::string& funcName,
         + "\" has no implementation.");
 }
 
-//K2 slice 4: the building half of RaiseNlangException, split out so
-//NativeRaiseException can root the fresh object before throwing —
-//between the throw and the blocking arm's catch the GIL is away (the
-//unwinding callback guard releases it), and a GC on another carrier
-//must not sweep the in-flight exception.
-int32_t VmExecutor::BuildNlangException(int16_t classIdx,
-                                         const std::string& msg) {
-    //K8: single Container-domain lock (the backtrace List slot); allocations and mints are forward.
-    DomainGuard g(m_domainLocks, DomainId::Container);
-    if (classIdx < 0)
-        throw std::runtime_error("NLang VM: exception class not registered");
-    int32_t heapIdx = AllocClassOnHeap(static_cast<uint16_t>(classIdx));
-
-    //cell[1] = message. Mint a string object, store its handle.
-    //Do NOT hold a reference to m_structHeap[heapIdx] across the List
-    //allocation below — AllocClassOnHeap may push_back to m_structHeap and
-    //invalidate the reference (vector resize).
-    int32_t msgHandle = MintNewString(msg);
-    m_structHeap[static_cast<size_t>(heapIdx)][1] = msgHandle;
-
-    //cell[5] = cause (v0.12.4 D7): VM-raised exceptions wrap nothing,
-    //so the field is explicitly null — never rely on allocation zeroing.
-    m_structHeap[static_cast<size_t>(heapIdx)][5] = 0;
-
-    //cell[3] = backtrace (field 1 under the uniform 2-cell stride):
-    //one boxed frame string per active call entry, innermost-first
-    //(MintBacktraceList lives with the exception-formatting family in
-    //VmExecutorOpsControl.cpp).
-    int32_t listHeapIdx = MintBacktraceList();
-    //Now write listHeapIdx to cell[3] of the Exception. Safe because no
-    //further allocations happen before the throw.
-    if (listHeapIdx > 0)
-        m_structHeap[static_cast<size_t>(heapIdx)][3] = listHeapIdx;
+int32_t VmExecutor::ResolveElementArrayBase(uint16_t arr, uint8_t* locals,
+                                             const char* opcode) {
+    int32_t heapIdx;
+    std::memcpy(&heapIdx, locals + arr, sizeof(heapIdx));
+    if (heapIdx <= 0 || static_cast<size_t>(heapIdx) >= m_structHeap.size())
+        RaiseNlangException(m_nullPtrExcClassIdx, "NLang VM: null array access");
+    //Element opcodes are only emitted for array-typed bases, and both
+    //record kinds are array-typed values; any other slot kind is a
+    //compiler invariant violation (uncatchable).
+    const uint8_t kind = m_slotKinds[static_cast<size_t>(heapIdx)];
+    if (kind != RTK_Array && kind != RTK_ArrayView)
+        throw std::runtime_error(std::string("NLang VM: ") + opcode
+            + " expects an array slot");
     return heapIdx;
 }
 

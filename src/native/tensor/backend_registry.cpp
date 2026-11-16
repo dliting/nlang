@@ -61,15 +61,90 @@ int64_t AffineElementAt(const NativeArrayView& v, int64_t flat) {
     return addr;
 }
 
+//The CUDA plugin probe: nlang_tensor_cuda.dll sits next to
+//nlang_tensor.dll (GetModuleHandleEx from this DLL's address resolves
+//the native dir without search-path games). pluginError means the
+//plugin is absent (auto stays silent there); probeError means the
+//plugin is present but the probe failed (auto says so on stderr).
+struct CudaProbe {
+    const DeviceBackendDescriptor* desc = nullptr;
+    const char* pluginError = nullptr;
+    const char* probeError = nullptr;
+};
+
+CudaProbe ProbeCudaPlugin() {
+    HMODULE self = nullptr;
+    GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS
+        | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+        (LPCSTR)&ProbeCudaPlugin, &self);
+    char selfPath[MAX_PATH] = {};
+    GetModuleFileNameA(self, selfPath, MAX_PATH);
+    std::string dir = selfPath;
+    const size_t slash = dir.find_last_of("\\/");
+    dir = slash == std::string::npos ? "" : dir.substr(0, slash + 1);
+    const std::string pluginPath = dir + "nlang_tensor_cuda.dll";
+    CudaProbe probe;
+    HMODULE plugin = LoadLibraryA(pluginPath.c_str());
+    if (plugin == nullptr) {
+        probe.pluginError = "the plugin DLL is not in the native directory";
+        return probe;
+    }
+    auto* initFn = (const void* (*)(void))GetProcAddress(
+        plugin, "nlang_device_backend_init");
+    if (initFn == nullptr) {
+        probe.probeError = "the plugin does not export "
+            "nlang_device_backend_init";
+        return probe;
+    }
+    probe.desc = (const DeviceBackendDescriptor*)initFn();
+    if (probe.desc->deviceCount < 1)
+        probe.probeError = "no CUDA device present";
+    return probe;
+}
+
 } // namespace
 
 const DeviceBackendState& ActiveDeviceBackend() {
     return g_backend;
 }
 
+//The cuda/auto arm (spec D3a): explicit cuda fails fast (exit 3) when
+//the probe fails — a silent cpu fallback would be lying; auto says so
+//on stderr when the plugin is present but broken, and stays silent
+//when the plugin is absent (the normal deployment).
+void ActivateCudaOrFallBack(NativeHost* host, bool explicitCuda) {
+    const CudaProbe probe = ProbeCudaPlugin();
+    const bool usable = probe.desc != nullptr
+        && probe.desc->deviceCount >= 1;
+    if (!usable) {
+        const char* reason = probe.probeError ? probe.probeError
+            : probe.pluginError;
+        if (explicitCuda) {
+            std::string msg = "tensor: backend 'cuda' failed: ";
+            msg += reason;
+            host->writeError(host, (msg + "\n").c_str());
+            std::exit(3);
+        }
+        if (probe.probeError != nullptr)
+            host->writeError(host,
+                (std::string("tensor: cuda backend unavailable (")
+                + probe.probeError + ") — running on cpu\n").c_str());
+        g_backend = DeviceBackendState{};
+        return;
+    }
+    g_backend.hooks = *(const TensorDeviceHooks*)probe.desc->hooks;
+    g_backend.device = true;
+    g_backend.name = "cuda";
+    g_backend.ops = probe.desc->ops;
+    host->setTensorDeviceHooks(host, &g_backend.hooks);
+}
+
 void InitBackendSelection(NativeHost* host) {
+    //Unset selects auto (spec D3a): a shipped build uses an installed
+    //device backend without any opt-in and falls back silently on a
+    //machine without one — one build, every machine.
     const char* requested = std::getenv("NLANG_TENSOR_BACKEND");
-    const std::string name = requested ? requested : "cpu";
+    const std::string name = requested ? requested : "auto";
     if (name == "cpu") {
         g_backend = DeviceBackendState{};
         return;
@@ -82,65 +157,13 @@ void InitBackendSelection(NativeHost* host) {
         return;
     }
     if (name == "cuda" || name == "auto") {
-        //The plugin load: nlang_tensor_cuda.dll sits next to
-        //nlang_tensor.dll (GetModuleHandleEx from this DLL's address
-        //resolves the native dir without search-path games).
-        HMODULE self = nullptr;
-        GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS
-            | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-            (LPCSTR)&InitBackendSelection, &self);
-        char selfPath[MAX_PATH] = {};
-        GetModuleFileNameA(self, selfPath, MAX_PATH);
-        std::string dir = selfPath;
-        const size_t slash = dir.find_last_of("\\/");
-        dir = slash == std::string::npos ? "" : dir.substr(0, slash + 1);
-        const std::string pluginPath = dir + "nlang_tensor_cuda.dll";
-        HMODULE plugin = LoadLibraryA(pluginPath.c_str());
-        const bool pluginLoaded = plugin != nullptr;
-        const char* pluginError = pluginLoaded
-            ? nullptr : "the plugin DLL is not in the native directory";
-        auto* initFn = pluginLoaded
-            ? (const void* (*)(void))GetProcAddress(plugin,
-                "nlang_device_backend_init")
-            : nullptr;
-        const char* probeError = nullptr;
-        const DeviceBackendDescriptor* desc = nullptr;
-        if (initFn == nullptr) {
-            if (pluginLoaded)
-                probeError = "the plugin does not export "
-                    "nlang_device_backend_init";
-        } else {
-            desc = (const DeviceBackendDescriptor*)initFn();
-            if (desc->deviceCount < 1)
-                probeError = "no CUDA device present";
-        }
-        if (name == "cuda" && (!pluginLoaded || probeError)) {
-            //Explicit cuda: fail fast (spec D3a — silent cpu fallback
-            //would be lying). The reason names the stage.
-            std::string msg = "tensor: backend 'cuda' failed: ";
-            msg += probeError ? probeError : pluginError;
-            host->writeError(host, (msg + "\n").c_str());
-            std::exit(3);
-        }
-        if (name == "auto" && probeError) {
-            //Installed-but-broken: one stderr line (spec D3a).
-            host->writeError(host,
-                (std::string("tensor: cuda backend unavailable (")
-                + probeError + ") — running on cpu\n").c_str());
-        }
-        if (name == "cuda" && desc != nullptr && desc->deviceCount >= 1) {
-            g_backend.hooks = *(const TensorDeviceHooks*)desc->hooks;
-            g_backend.device = true;
-            g_backend.name = "cuda";
-            g_backend.ops = desc->ops;
-            host->setTensorDeviceHooks(host, &g_backend.hooks);
-            return;
-        }
-        //auto falls through to cpu (silent — the normal deployment).
-        g_backend = DeviceBackendState{};
+        ActivateCudaOrFallBack(host, name == "cuda");
         return;
     }
-    //Unknown name: the historical selector contract resolves to cpu.
+    //Unknown name: run on cpu and say so. A typo in NLANG_TENSOR_BACKEND
+    //must not silently lose the acceleration the user asked for.
+    host->writeError(host, (std::string("tensor: unknown backend '")
+        + name + "' — running on cpu\n").c_str());
     g_backend = DeviceBackendState{};
 }
 

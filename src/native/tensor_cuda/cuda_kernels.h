@@ -76,7 +76,7 @@ cudaError_t LaunchExtreme(bool isMax, const LaunchView& src,
 cudaError_t LaunchReduceAxis(int op, const LaunchView& src, int axis,
                              const LaunchView& dst, int32_t* errorOut);
 cudaError_t LaunchMatmul(const LaunchView& a, const LaunchView& b,
-                         const LaunchView& dst, int elemKindCode = 1);
+                         const LaunchView& dst, int elemKindCode);
 cudaError_t LaunchGather(const LaunchView& src, int axis,
                          const LaunchView& indices,
                          const LaunchView& dst, int32_t* errorOut);

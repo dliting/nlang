@@ -3,6 +3,11 @@
 
 Usage:
     conda run -n py313 python run_e2e_tests.py [ncc_path] [nvm_path]
+        [ndb_path] [filter_file]
+
+Every run pins NLANG_TENSOR_BACKEND (default `cpu`) so a machine with a
+GPU cannot silently move the suite onto the device; set
+NLANG_E2E_TENSOR_BACKEND=mirror|cuda for the device double-runs.
 
 Reads manifest.txt (name + expected_exit_code [+ optional expected stdout
 substring]), compiles each <name>.n, runs the .ncu, and reports results.
@@ -42,6 +47,17 @@ DEFAULT_NVM = os.path.join(
     SCRIPT_DIR, '..', '..', 'build', 'src', 'tools', 'nvm', 'Release', 'nvm.exe')
 MANIFEST = os.path.join(SCRIPT_DIR, 'manifest.txt')
 TIMEOUT_SEC = 30
+#Tensor-backend pinning for the run phase. The product default is `auto`
+#(spec D3a — use an installed device backend, fall back to cpu), so a
+#machine with a GPU would otherwise move this whole suite's float paths
+#onto the device and make the gate's results hardware-dependent. The
+#suite therefore pins one backend explicitly; NLANG_E2E_TENSOR_BACKEND
+#selects which run this is (cpu / mirror / cuda — the double-run and the
+#conditional cuda tree). A fixture's own `.flags` still wins: the nvm CLI
+#overrides the inherited environment.
+E2E_TENSOR_BACKEND = os.environ.get('NLANG_E2E_TENSOR_BACKEND', 'cpu')
+RUN_ENV = dict(os.environ)
+RUN_ENV['NLANG_TENSOR_BACKEND'] = E2E_TENSOR_BACKEND
 PHASE8_TMP = os.path.join(SCRIPT_DIR, '_phase8_tmp')
 PHASE11_TMP = os.path.join(SCRIPT_DIR, '_p11_tmp')
 #Per-test artifact dir for multi-module imports (see the directory-form
@@ -190,6 +206,25 @@ def _runner_argv(name, ndb, nvm):
     return [nvm]
 
 
+def _run_env(name, sources_dir):
+    """The run-phase environment for one entry: the suite's pinned
+    tensor backend plus the entry's own `.env` sidecar (KEY=VALUE lines,
+    '#' comments) — the only way a fixture can pin environment-driven
+    behavior such as NLANG_TENSOR_BACKEND's unknown-name diagnostic,
+    which the nvm CLI rejects before the module ever loads."""
+    env = dict(RUN_ENV)
+    path = os.path.join(sources_dir, f"{name}.env")
+    if os.path.isfile(path):
+        with open(path, encoding='utf-8') as ef:
+            for line in ef:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                key, _, value = line.partition('=')
+                env[key.strip()] = value.strip()
+    return env
+
+
 def _matchable_stdout(name, raw_stdout):
     """Decode a run's stdout for manifest substring matching. Machine-mode
     (dbgm_) events are tab-joined; separator tabs fold to spaces so
@@ -266,6 +301,14 @@ def main():
     tools_dir = os.path.dirname(os.path.dirname(os.path.dirname(nvm)))
     ndb = sys.argv[3] if len(sys.argv) > 3 else os.path.join(
         tools_dir, 'ndb', 'Release', 'ndb.exe')
+    #Optional fourth argument: a filter file restricting the run to the
+    #named manifest entries (one name per line, '#' comments). The
+    #device double-run legs (tools/e2e_cuda_double_run.txt, spec D7)
+    #pin an explicit subset so a device run stays inside the 3-minute
+    #per-test cap; the full-suite regression net stays with the cpu
+    #mode. A name in the file that keys no manifest entry fails the
+    #run — a stale list would otherwise shrink the net silently.
+    filter_path = sys.argv[4] if len(sys.argv) > 4 else None
     _fail_on_stale_tools(ncc, nvm, ndb)
     #Debug (and ASan, which builds the Debug config) runs several times
     #slower than Release: asserts on, no optimization, gc-stress
@@ -302,6 +345,22 @@ def main():
         errors.append(
             f"  {orphan}: run.stderr sidecar matches no manifest entry")
 
+    filter_names = None
+    if filter_path is not None:
+        with open(filter_path, encoding='utf-8') as ff:
+            filter_names = set()
+            for line in ff:
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    filter_names.add(line)
+        for stale in sorted(filter_names - known_names):
+            print(f"FAIL {stale} (filter names no manifest entry)")
+            failed += 1
+            errors.append(
+                f"  {stale}: filter names no manifest entry")
+        if failed:
+            sys.exit(1)
+
     for manifest_path, sources_dir, out_dir in _manifest_configs():
       with open(manifest_path, 'r', encoding='utf-8') as f:
         #Scratch dir for the examples pass: reset once before its lines
@@ -322,6 +381,8 @@ def main():
             if len(parts) < 2:
                 continue
             name = parts[0]
+            if filter_names is not None and name not in filter_names:
+                continue
             #Expected may be an int (runtime exit code) or the literal
             #"compile_error" to assert that ncc rejects the source.
             if parts[1] == "compile_error":
@@ -486,7 +547,7 @@ def main():
                     result = subprocess.run(
                         _runner_argv(name, ndb, nvm) + [main_nmod],
                         capture_output=True, timeout=TIMEOUT_SEC,
-                        input=stdin_bytes)
+                        input=stdin_bytes, env=_run_env(name, test_dir))
                     actual = result.returncode
                     stderr_text = _matchable_stderr(result.stderr)
                 except Exception as e:
@@ -680,7 +741,8 @@ def main():
                 result = subprocess.run(
                     _runner_argv(name, ndb, nvm) + [nmod_file] + extra_flags,
                     capture_output=True, timeout=TIMEOUT_SEC,
-                    cwd=run_cwd, input=stdin_bytes)
+                    cwd=run_cwd, input=stdin_bytes,
+                    env=_run_env(name, sources_dir))
                 actual = result.returncode
                 stderr_text = _matchable_stderr(result.stderr)
             except Exception as e:

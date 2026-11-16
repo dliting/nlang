@@ -28,6 +28,7 @@
 #include <cuda_runtime.h>
 
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -203,6 +204,10 @@ __global__ void BinaryKernel(int op, DevView a, DevView b, DevView dst,
             case 1: out = l - r; break;
             case 2: out = l * r; break;
             case 3: out = l / r; break;
+            //Rsub/Rdiv are the scalar-left variants: l/r are already
+            //swapped by scalarLeft, so they compute identically to Sub/Div.
+            case 4: out = l - r; break;
+            case 5: out = l / r; break;
             case 6: out = r > 0.0f ? l : 0.0f; break;
         }
         ((float*)dst.data)[ad] = out;
@@ -220,6 +225,9 @@ __global__ void BinaryKernel(int op, DevView a, DevView b, DevView dst,
         case 1: out = l - r; break;
         case 2: out = l * r; break;
         case 3: out = l / r; break;
+        //Rsub/Rdiv: l/r already swapped by scalarLeft (see the float arm).
+        case 4: out = l - r; break;
+        case 5: out = l / r; break;
         case 6: out = r > 0.0 ? l : 0.0; break;
     }
     ((double*)dst.data)[ad] = out;
@@ -370,7 +378,18 @@ __global__ void UnaryKernelF(int op, DevView src, DevView dst) {
     ((float*)dst.data)[sd] = (float)out;
 }
 
-__global__ void UnaryKernelI(int op, DevView src, DevView dst) {
+__global__ void UnaryKernelI32(int op, DevView src, DevView dst) {
+    const int64_t i = blockIdx.x * (int64_t)blockDim.x + threadIdx.x;
+    if (i >= dst.elemCount)
+        return;
+    const int64_t sa = FlatAddress(src, i);
+    const int64_t sd = FlatAddress(dst, i);
+    //int neg wraps like language arithmetic.
+    int32_t v = ((const int32_t*)src.data)[sa];
+    ((int32_t*)dst.data)[sd] = -v;
+}
+
+__global__ void UnaryKernelI64(int op, DevView src, DevView dst) {
     const int64_t i = blockIdx.x * (int64_t)blockDim.x + threadIdx.x;
     if (i >= dst.elemCount)
         return;
@@ -390,8 +409,10 @@ cudaError_t LaunchUnary(int op, const LaunchView& src,
         UnaryKernelF<<<(int)blocks, kThreads, 0, g_stream>>>(op, ds, dd);
     else if (dst.elemKind == 17)
         UnaryKernel<<<(int)blocks, kThreads, 0, g_stream>>>(op, ds, dd);
+    else if (dst.elemKind == 0)
+        UnaryKernelI32<<<(int)blocks, kThreads, 0, g_stream>>>(op, ds, dd);
     else
-        UnaryKernelI<<<(int)blocks, kThreads, 0, g_stream>>>(op, ds, dd);
+        UnaryKernelI64<<<(int)blocks, kThreads, 0, g_stream>>>(op, ds, dd);
     return cudaStreamSynchronize(g_stream);
 }
 
@@ -917,8 +938,19 @@ __global__ void ExtremePartialKernel(const double* src, int64_t count,
                                      bool isMax, double* partials) {
     __shared__ double local[kThreads];
     const int tid = threadIdx.x;
-    local[tid] = src[blockIdx.x * (int64_t)kThreads + tid];
     const int64_t base = blockIdx.x * (int64_t)kThreads;
+    //Tail-block threads past the end take the identity (-inf for max, +inf
+    //for min) so they never win; a real first element still lands directly
+    //first-wins (a later NaN in the strided range never replaces it). The
+    //identity is +/-DBL_MAX, not literal infinity: no real double exceeds
+    //DBL_MAX, so the identity never wins, and it is finite (a double
+    //INFINITY is a float in device code and overflows to inf, tripping the
+    //nvcc 221-D warning on the implicit conversion).
+    const double inf = isMax ? -DBL_MAX : DBL_MAX;
+    if (base + tid < count)
+        local[tid] = src[base + tid];
+    else
+        local[tid] = inf;
     for (int64_t i = base + tid + gridDim.x * kThreads; i < count;
          i += (int64_t)gridDim.x * kThreads) {
         const double cur = src[i];
@@ -942,8 +974,18 @@ __global__ void ExtremePartialKernelF32(const float* src, int64_t count,
                                         bool isMax, float* partials) {
     __shared__ float local[kThreads];
     const int tid = threadIdx.x;
-    local[tid] = src[blockIdx.x * (int64_t)kThreads + tid];
     const int64_t base = blockIdx.x * (int64_t)kThreads;
+    //Tail-block threads past the end take the identity (-inf for max, +inf
+    //for min) so they never win; a real first element still lands directly
+    //first-wins (a later NaN in the strided range never replaces it). The
+    //float infinity is the IEEE bit pattern — a double INFINITY would
+    //overflow to inf and trip the nvcc 221-D warning on the implicit
+    //double-to-float, and a __host__ limits call is not allowed in a kernel.
+    const float inf = __int_as_float(0x7f800000);
+    if (base + tid < count)
+        local[tid] = src[base + tid];
+    else
+        local[tid] = isMax ? -inf : inf;
     for (int64_t i = base + tid + gridDim.x * kThreads; i < count;
          i += (int64_t)gridDim.x * kThreads) {
         const float cur = src[i];
@@ -961,9 +1003,71 @@ __global__ void ExtremePartialKernelF32(const float* src, int64_t count,
     }
 }
 
+//The int extreme partials: INT32/INT64 cells, first-wins compare, identity
+//INT32_MIN/MAX and INT64_MIN/MAX for the tail-block OOB threads.
+__global__ void ExtremePartialKernelI32(const int32_t* src, int64_t count,
+                                        bool isMax, int32_t* partials) {
+    __shared__ int32_t local[kThreads];
+    const int tid = threadIdx.x;
+    const int64_t base = blockIdx.x * (int64_t)kThreads;
+    if (base + tid < count)
+        local[tid] = src[base + tid];
+    else
+        local[tid] = isMax ? INT32_MIN : INT32_MAX;
+    for (int64_t i = base + tid + gridDim.x * kThreads; i < count;
+         i += (int64_t)gridDim.x * kThreads) {
+        const int32_t cur = src[i];
+        if (isMax ? cur > local[tid] : cur < local[tid])
+            local[tid] = cur;
+    }
+    __syncthreads();
+    if (tid == 0) {
+        int32_t best = local[0];
+        for (int t = 1; t < kThreads; ++t) {
+            if (isMax ? local[t] > best : local[t] < best)
+                best = local[t];
+        }
+        partials[blockIdx.x] = best;
+    }
+}
+
+__global__ void ExtremePartialKernelI64(const int64_t* src, int64_t count,
+                                        bool isMax, int64_t* partials) {
+    __shared__ int64_t local[kThreads];
+    const int tid = threadIdx.x;
+    const int64_t base = blockIdx.x * (int64_t)kThreads;
+    if (base + tid < count)
+        local[tid] = src[base + tid];
+    else
+        local[tid] = isMax ? INT64_MIN : INT64_MAX;
+    for (int64_t i = base + tid + gridDim.x * kThreads; i < count;
+         i += (int64_t)gridDim.x * kThreads) {
+        const int64_t cur = src[i];
+        if (isMax ? cur > local[tid] : cur < local[tid])
+            local[tid] = cur;
+    }
+    __syncthreads();
+    if (tid == 0) {
+        int64_t best = local[0];
+        for (int t = 1; t < kThreads; ++t) {
+            if (isMax ? local[t] > best : local[t] < best)
+                best = local[t];
+        }
+        partials[blockIdx.x] = best;
+    }
+}
+
 cudaError_t LaunchExtreme(bool isMax, const LaunchView& src,
                           double* outF, int64_t* outI, bool isInt) {
     const int64_t count = src.elemCount;
+    if (count == 0) {
+        //Match the CPU reduction's empty behavior (extreme → 0).
+        if (isInt)
+            *outI = 0;
+        else
+            *outF = 0.0;
+        return cudaSuccess;
+    }
     const int64_t blocks = (count + kThreads - 1) / kThreads;
     if (src.elemKind == 1) {
         float* dPartial = nullptr;
@@ -982,6 +1086,45 @@ cudaError_t LaunchExtreme(bool isMax, const LaunchView& src,
                 best = partials[i];
         }
         *outF = (double)best;
+        return cudaStreamSynchronize(g_stream);
+    }
+    if (src.elemKind == 0) {
+        int32_t* dPartial = nullptr;
+        if (cudaMalloc((void**)&dPartial,
+            blocks * sizeof(int32_t)) != cudaSuccess)
+            return cudaErrorMemoryAllocation;
+        ExtremePartialKernelI32<<<(int)blocks, kThreads, 0, g_stream>>>(
+            (const int32_t*)src.data, count, isMax, dPartial);
+        std::vector<int32_t> partials(blocks);
+        cudaMemcpy(partials.data(), dPartial, blocks * sizeof(int32_t),
+            cudaMemcpyDeviceToHost);
+        cudaFree(dPartial);
+        int64_t best = partials[0];
+        for (size_t i = 1; i < partials.size(); ++i) {
+            if (isMax ? (int64_t)partials[i] > best
+                     : (int64_t)partials[i] < best)
+                best = partials[i];
+        }
+        *outI = best;
+        return cudaStreamSynchronize(g_stream);
+    }
+    if (src.elemKind == 15) {
+        int64_t* dPartial = nullptr;
+        if (cudaMalloc((void**)&dPartial,
+            blocks * sizeof(int64_t)) != cudaSuccess)
+            return cudaErrorMemoryAllocation;
+        ExtremePartialKernelI64<<<(int)blocks, kThreads, 0, g_stream>>>(
+            (const int64_t*)src.data, count, isMax, dPartial);
+        std::vector<int64_t> partials(blocks);
+        cudaMemcpy(partials.data(), dPartial, blocks * sizeof(int64_t),
+            cudaMemcpyDeviceToHost);
+        cudaFree(dPartial);
+        int64_t best = partials[0];
+        for (size_t i = 1; i < partials.size(); ++i) {
+            if (isMax ? partials[i] > best : partials[i] < best)
+                best = partials[i];
+        }
+        *outI = best;
         return cudaStreamSynchronize(g_stream);
     }
     double* dPartial = nullptr;
@@ -1032,20 +1175,110 @@ __global__ void MatmulKernelF(const float* a, const float* b, float* dst,
         dst[row * cols + col] = acc;
 }
 
+//The f64 matmul: the same 16×16 shared-memory tiling as MatmulKernelF with
+//double cells.
+__global__ void MatmulKernelF64(const double* a, const double* b, double* dst,
+                                int32_t rows, int32_t inner, int32_t cols) {
+    __shared__ double tileA[16][16];
+    __shared__ double tileB[16][16];
+    const int row = blockIdx.y * 16 + threadIdx.y;
+    const int col = blockIdx.x * 16 + threadIdx.x;
+    double acc = 0.0;
+    const int tiles = (inner + 15) / 16;
+    for (int t = 0; t < tiles; ++t) {
+        const int aCol = t * 16 + threadIdx.x;
+        const int bRow = t * 16 + threadIdx.y;
+        tileA[threadIdx.y][threadIdx.x] =
+            row < rows && aCol < inner ? a[row * inner + aCol] : 0.0;
+        tileB[threadIdx.y][threadIdx.x] =
+            bRow < inner && col < cols ? b[bRow * cols + col] : 0.0;
+        __syncthreads();
+        for (int k = 0; k < 16; ++k)
+            acc += tileA[threadIdx.y][k] * tileB[k][threadIdx.x];
+        __syncthreads();
+    }
+    if (row < rows && col < cols)
+        dst[row * cols + col] = acc;
+}
+
+//The int matmul: int32 cells with C++ int32 product/accumulate wrapping, or
+//int64 cells with int64 product/accumulate (no wrap in the test range).
+__global__ void MatmulKernelI32(const int32_t* a, const int32_t* b,
+                                int32_t* dst, int32_t rows, int32_t inner,
+                                int32_t cols) {
+    __shared__ int32_t tileA[16][16];
+    __shared__ int32_t tileB[16][16];
+    const int row = blockIdx.y * 16 + threadIdx.y;
+    const int col = blockIdx.x * 16 + threadIdx.x;
+    int32_t acc = 0;
+    const int tiles = (inner + 15) / 16;
+    for (int t = 0; t < tiles; ++t) {
+        const int aCol = t * 16 + threadIdx.x;
+        const int bRow = t * 16 + threadIdx.y;
+        tileA[threadIdx.y][threadIdx.x] =
+            row < rows && aCol < inner ? a[row * inner + aCol] : 0;
+        tileB[threadIdx.y][threadIdx.x] =
+            bRow < inner && col < cols ? b[bRow * cols + col] : 0;
+        __syncthreads();
+        for (int k = 0; k < 16; ++k)
+            acc += tileA[threadIdx.y][k] * tileB[k][threadIdx.x];
+        __syncthreads();
+    }
+    if (row < rows && col < cols)
+        dst[row * cols + col] = acc;
+}
+
+__global__ void MatmulKernelI64(const int64_t* a, const int64_t* b,
+                                int64_t* dst, int32_t rows, int32_t inner,
+                                int32_t cols) {
+    __shared__ int64_t tileA[16][16];
+    __shared__ int64_t tileB[16][16];
+    const int row = blockIdx.y * 16 + threadIdx.y;
+    const int col = blockIdx.x * 16 + threadIdx.x;
+    int64_t acc = 0;
+    const int tiles = (inner + 15) / 16;
+    for (int t = 0; t < tiles; ++t) {
+        const int aCol = t * 16 + threadIdx.x;
+        const int bRow = t * 16 + threadIdx.y;
+        tileA[threadIdx.y][threadIdx.x] =
+            row < rows && aCol < inner ? a[row * inner + aCol] : 0;
+        tileB[threadIdx.y][threadIdx.x] =
+            bRow < inner && col < cols ? b[bRow * cols + col] : 0;
+        __syncthreads();
+        for (int k = 0; k < 16; ++k)
+            acc += tileA[threadIdx.y][k] * tileB[k][threadIdx.x];
+        __syncthreads();
+    }
+    if (row < rows && col < cols)
+        dst[row * cols + col] = acc;
+}
+
 cudaError_t LaunchMatmul(const LaunchView& a, const LaunchView& b,
                          const LaunchView& dst, int elemKindCode) {
-    //Dense rank-2 operands (the dispatcher materialized); f32 kernel —
-    //the f64/i32/i64 variants land with the parity suite (T3.5).
-    if (elemKindCode != 1)
-        return cudaErrorNotSupported;
+    //Dense row-major rank-2 operands (the dispatcher materialized).
     const int32_t rows = a.dims[0];
     const int32_t inner = a.dims[1];
     const int32_t cols = b.dims[1];
     dim3 grid((cols + 15) / 16, (rows + 15) / 16);
     dim3 block(16, 16);
-    MatmulKernelF<<<grid, block, 0, g_stream>>>(
-        (const float*)a.data, (const float*)b.data, (float*)dst.data,
-        rows, inner, cols);
+    if (elemKindCode == 1)
+        MatmulKernelF<<<grid, block, 0, g_stream>>>(
+            (const float*)a.data, (const float*)b.data, (float*)dst.data,
+            rows, inner, cols);
+    else if (elemKindCode == 17)
+        MatmulKernelF64<<<grid, block, 0, g_stream>>>(
+            (const double*)a.data, (const double*)b.data, (double*)dst.data,
+            rows, inner, cols);
+    else if (elemKindCode == 0)
+        MatmulKernelI32<<<grid, block, 0, g_stream>>>(
+            (const int32_t*)a.data, (const int32_t*)b.data,
+            (int32_t*)dst.data, rows, inner, cols);
+    else if (elemKindCode == 15)
+        MatmulKernelI64<<<grid, block, 0, g_stream>>>(
+            (const int64_t*)a.data, (const int64_t*)b.data,
+            (int64_t*)dst.data, rows, inner, cols);
+    else
+        return cudaErrorNotSupported;
     return cudaStreamSynchronize(g_stream);
 }
 
@@ -1281,6 +1514,17 @@ __global__ void ArangeKernelD(double* dst, int64_t count, double start,
     dst[i] = start + (double)i * step;
 }
 
+//The float arange: direct formula start + i*step (NumPy's approach, matching
+//the double kernel above; the CPU's historical cumulative rounding differs
+//by ULPs for i>=2 — the documented deviation).
+__global__ void ArangeKernelF(float* dst, int64_t count, float start,
+                              float step) {
+    const int64_t i = blockIdx.x * (int64_t)blockDim.x + threadIdx.x;
+    if (i >= count)
+        return;
+    dst[i] = start + (float)i * step;
+}
+
 __global__ void ArangeKernelI32(int32_t* dst, int64_t count,
                                 int64_t start, int64_t step) {
     const int64_t i = blockIdx.x * (int64_t)blockDim.x + threadIdx.x;
@@ -1310,8 +1554,12 @@ cudaError_t LaunchArange(const LaunchView& dst, double start,
                 (int64_t*)dst.data, dst.elemCount, (int64_t)start,
                 (int64_t)step);
     } else {
-        ArangeKernelD<<<(int)blocks, kThreads, 0, g_stream>>>(
-            (double*)dst.data, dst.elemCount, start, step);
+        if (dst.elemKind == 1)
+            ArangeKernelF<<<(int)blocks, kThreads, 0, g_stream>>>(
+                (float*)dst.data, dst.elemCount, (float)start, (float)step);
+        else
+            ArangeKernelD<<<(int)blocks, kThreads, 0, g_stream>>>(
+                (double*)dst.data, dst.elemCount, start, step);
     }
     return cudaStreamSynchronize(g_stream);
 }

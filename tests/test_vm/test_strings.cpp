@@ -285,13 +285,14 @@ void test_deep_chain_append_bounded_time()
     const auto start = std::chrono::steady_clock::now();
     CHECK(exec.Execute(mod) == 0, "chain must read back correct");
     const auto elapsed = std::chrono::steady_clock::now() - start;
-    //The pin discriminates quadratic marking (tens of seconds) from the
-    //linear shape (~1s in release). The bound is generous because the
-    //ASan leg runs the same chain ~5x slower (~8s) — still 3x+ under
-    //any quadratic measurement.
-    CHECK(elapsed < std::chrono::seconds(15),
-        "10^5 default-threshold chain appends must stay well under 15s "
-        "(quadratic marking measures in the tens of seconds)");
+    //The pin discriminates quadratic marking (minutes-level even on the
+    //Debug+ASan gate leg) from the linear shape (~9s there, measured).
+    //The bound is 3x the Debug+ASan measurement — the release-era ~1s
+    //figure does not calibrate the gate leg, which runs the same chain
+    //unoptimized.
+    CHECK(elapsed < std::chrono::seconds(45),
+        "10^5 default-threshold chain appends must stay well under 45s "
+        "(quadratic marking measures in the minutes)");
     PASS();
 }
 

@@ -1,0 +1,211 @@
+# tools/e2e_cuda_double_run.txt — explicit list for the device
+# double-run legs (spec D7, review I4). Consumed by run_e2e_tests.py's
+# optional filter argument and driven by tools/gate_cuda_tree.sh.
+#
+# Two layers, per the D7 two-layer strategy:
+#   1. the tensor-related subset — every op_tensor_*, stdlib_tensor_*
+#      and op_device_* entry of manifest.txt — in FULL under
+#      backend=cuda (same exit codes as the pinned-cpu suite);
+#   2. a full-set SAMPLE of the control surface (file/io/net byte
+#      buffers, strings, classes, enums, structs, exceptions,
+#      containers, the debugger, concurrency) — the families whose
+#      arrays must stay host-resident under an active device backend.
+# The full 2100-entry suite is not double-run on the device: the
+# subscript-heavy cases ride the per-element transfer cost and would
+# push against the 3-minute per-test cap; the full-suite regression
+# net stays with the cpu mode of the gate.
+#
+# One name per line; '#' comments. A name that keys no manifest entry
+# fails the run (the runner validates the list), so a rename or
+# removal in manifest.txt cannot silently shrink this net.
+
+# --- 1. tensor subset (full) ---
+stdlib_tensor_creation
+stdlib_tensor_elementwise
+stdlib_tensor_length_mismatch_throws
+stdlib_tensor_dot_length_mismatch
+stdlib_tensor_null_npe_throws
+stdlib_tensor_string_reject
+stdlib_tensor_reductions
+stdlib_tensor_empty_max_throws
+stdlib_tensor_gc_race
+stdlib_tensor_transpose
+stdlib_tensor_reshape
+stdlib_tensor_matmul
+stdlib_tensor_matmul_bad
+stdlib_tensor_nd2
+stdlib_tensor_reshape_negdim
+stdlib_tensor_neg
+stdlib_tensor_axis_max
+stdlib_tensor_rsub_rdiv
+stdlib_tensor_softmax2d
+stdlib_tensor_sigmoid_tanh
+stdlib_tensor_relugrad
+op_tensor_gather_zero_axis
+op_tensor_gather
+op_tensor_reduce2
+op_tensor_gather_throw
+op_tensor_gather_empty
+op_tensor_reduce_empty
+stdlib_tensor_uniform
+stdlib_tensor_uniform_throw
+op_device_mirror
+op_device_mirror_throw
+op_device_backend
+op_device_auto
+op_device_unknown_env
+op_device_bad_flag
+
+# --- 2. full-set sample (control surface) ---
+# file / io: byte-buffer domain must stay host-resident
+file_stream_write_read
+file_stream_append
+file_stream_strings
+file_stream_bad_mode
+file_stream_missing_read_throws
+io_hasinput_loop
+io_read_int_pair
+io_read_int_crossline
+io_readline_remainder
+io_readline_trailing_partial
+io_readline_empty_final_line
+io_hasinput_empty_input
+io_read_token_eof_throws
+io_read_int_eof_throws
+io_read_int_bad_format_throws
+io_read_char_literal
+io_read_bool
+io_func_chain_member_error
+io_print_array
+
+# net: the widest byte-buffer consumer
+stdlib_net_tcp_bind_probe
+stdlib_net_tcp_echo
+stdlib_net_tcp_connect_refused
+stdlib_net_tcp_read_timeout
+stdlib_net_tcp_localhost
+stdlib_net_tcp_close_wakes_reader
+stdlib_net_tcp_concurrent_reader
+stdlib_net_tcp_write_closed
+stdlib_net_tcp_write_timeout
+stdlib_net_tcp_ipv6
+stdlib_net_tcp_options
+stdlib_net_tcp_readline
+stdlib_net_udp_echo
+stdlib_net_udp_send_park
+stdlib_net_udp_multicast
+stdlib_net_conc_echo
+stdlib_net_conc_bytes
+stdlib_net_error_code
+stdlib_net_last_error_text
+stdlib_net_closed_slot_setters
+# stdlib_net_ping_loopback / stdlib_net_ping_stress are NOT in the
+# sample: the reference machine has no ICMP loopback (shell ping
+# 127.0.0.1 loses 100%), so they fail in every backend mode alike —
+# the pinned-cpu leg of the gate covers them.
+
+# strings
+string_length
+string_concat
+string_eq
+string_param
+string_empty
+string_concat_length
+string_escape_backslash
+string_concat_float
+string_concat_null
+string_byte_at_oob
+string_charat
+string_null_arg_semantics
+
+# classes
+class_basic
+class_method
+class_null
+class_downcast_invalid_throws
+class_null_check
+class_data_only
+class_super_ctor
+class_array_field_tostring
+
+# enums
+enum_switch
+enum_explicit
+enum_param
+enum_to_int
+enum_neg_reject
+enum_bare_member
+enum_bare_switch
+enum_bare_method_body
+
+# structs
+struct_basic
+struct_float
+struct_string_field
+struct_param
+struct_nested
+struct_nested_assign
+struct_ctor_basic
+struct_ctor_defaults
+struct_ctor_this_bare_field
+struct_return
+
+# exceptions
+exception_basic_throw_catch
+exception_divzero_catch
+exception_oob_catch
+exception_npe_catch
+exception_rethrow
+exception_backtrace_field
+exception_dict_key_not_found_catch
+exception_break_in_catch
+exception_continue_in_catch
+exception_vm_message
+
+# containers
+list_int_basic
+list_set
+list_get_oob_throws
+list_class_ref_shared
+list_subscript_struct_read
+list_subscript_deep_member
+list_tostring_class
+list_null_class_element
+dict_int_int_basic
+dict_string_int
+dict_get_missing_throws
+dict_subscript
+dict_subscript_missing_throws
+dict_tostring_int_keys
+dict_set_key_coercion
+dict_value_array_roundtrip
+
+# debugger (native + array formatting)
+dbg_break_continue
+dbg_step_semantics
+dbg_bt_locals
+dbg_exit_code
+dbg_multifile_break
+dbg_quit_eof
+dbg_source_list
+dbg_disasm
+dbg_catch_throw
+dbg_threads
+dbg_verbose_search
+dbg_verbose_short
+dbg_str_cons
+dbg_nodebug_warn
+
+# concurrency
+concurrent_waitgroup
+concurrent_semaphore
+concurrent_channel_park_gcwindow
+concurrent_gate_hammer
+concurrent_pkg_smoke
+concurrent_churn_gc
+
+# compile-time rejection (ncc-side; cheap)
+err_enum_bare_ambiguous
+err_struct_method
+err_ctor_typed_rettype
+err_struct_ctor_super
