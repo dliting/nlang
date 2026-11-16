@@ -104,6 +104,22 @@ wdir_key() {
     printf '%s' "$1" | sha256sum | cut -c1-16
 }
 
+# Take the normalized directories on stdin, one per line, and re-emit each as
+# "key<TAB>path" in ascending key order. Every leg claims in this order whatever
+# its command line happened to name first, and one total order shared by every
+# leg is the sufficient condition for never deadlocking: two legs whose commands
+# name the same two directories in different orders would otherwise each claim
+# one and then wait for the other (spec D-5). LC_ALL=C pins the comparison to
+# byte order, so the claim order does not depend on the locale a gate happens to
+# run under either.
+wdir_keyed_pairs() {
+    local wdir_path
+    while IFS= read -r wdir_path; do
+        [ -n "$wdir_path" ] || continue
+        printf '%s\t%s\n' "$(wdir_key "$wdir_path")" "$wdir_path"
+    done | LC_ALL=C sort
+}
+
 # One normalized directory per line, in order of first appearance, keeping
 # the first of any duplicates. Every spelling counts: the separated flag,
 # the '=' form, and the short -B with or without its glue. A flag with no
@@ -355,9 +371,11 @@ acquire_wdirs() {
         echo "LOCK $name: no write directory derived from the command line, no directory lock taken"
         return 0
     fi
-    while IFS= read -r wdir_path; do
-        [ -n "$wdir_path" ] || continue
-        key=$(wdir_key "$wdir_path")
+    # Ascending key order, not argv order: see wdir_keyed_pairs. The key is the
+    # fixed width prefix of each pair, so the tab split below cannot be confused
+    # by a directory name that contains one.
+    while IFS=$'\t' read -r key wdir_path; do
+        [ -n "$key" ] || continue
         waited=0
         while :; do
             # Re-made every round, for the same reason acquire() re-makes the lock
@@ -381,7 +399,7 @@ acquire_wdirs() {
             sleep "$LOCK_POLL_S"
             waited=$(( waited + LOCK_POLL_S ))
         done
-    done <<< "$wdirs"
+    done <<< "$(printf '%s\n' "$wdirs" | wdir_keyed_pairs)"
 }
 
 release() {

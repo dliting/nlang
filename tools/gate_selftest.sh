@@ -83,13 +83,26 @@ deadline() { # seconds left in the global budget, never negative
 
 pending_gos=()   # GO files still to hand out, released on the way out
 
-cleanup() {
-    # A leg whose case failed is still waiting for its GO; hand it out, then
-    # wait, so no stub process outlives the workspace it writes into.
+# The key-to-directory mapping A3 builds in its mapping window, kept for A4,
+# whose argv has to be written before its own legs hold the locks. One key and
+# one path per line, in the same order (the lock key is the claim directory's
+# name, spec D-8). Empty until A3 has seen both claims.
+a3_keys=""
+a3_paths=""
+
+# release_all_legs: hand out every GO still owed, and forget about them.
+release_all_legs() {
     local go
     for go in ${pending_gos[@]+"${pending_gos[@]}"}; do
         [ -e "$go" ] || touch "$go"
     done
+    pending_gos=()
+}
+
+cleanup() {
+    # A leg whose case failed is still waiting for its GO; hand it out, then
+    # wait, so no stub process outlives the workspace it writes into.
+    release_all_legs
     wait
     rm -rf "$WS"
 }
@@ -99,7 +112,17 @@ failures=0
 
 pass() { printf 'selftest: PASS %s\n' "$1"; }
 
-fail() { printf 'selftest: FAIL %s: %s\n' "$1" "$2"; failures=$(( failures + 1 )); }
+# A failed case leaves its legs parked on their GOs, and a parked leg keeps the
+# write-directory lock it claimed. The next case then counts that lock among its
+# own holders and fails for a reason that belongs to the previous case, so a
+# single defect would burn the whole budget. Draining the legs here keeps a red
+# run to exactly the case that is red.
+fail() {
+    printf 'selftest: FAIL %s: %s\n' "$1" "$2"
+    failures=$(( failures + 1 ))
+    release_all_legs
+    wait
+}
 
 skip() { printf 'selftest: SKIP %s: %s\n' "$1" "$2"; }
 
@@ -412,6 +435,110 @@ case_a3_different_trees() {
     pass "$case_name"
 }
 
+case_a4_two_tree_vs_single() {
+    # One leg claiming two directories, against one leg claiming one of them. The
+    # two-directory leg's argv names its directories in the reverse of the claim
+    # order this case expects, which is the crossing shape no single leg can
+    # resolve by itself: only an order every leg shares settles it (spec D-5).
+    if [ -z "$a3_keys" ] || [ -z "$a3_paths" ]; then
+        fail "$case_name" "A3 left no key-to-directory mapping to order the argv by"
+        return
+    fi
+    # Which key comes first is read off the keys themselves, never assumed from the
+    # t1/t2 labels: a key is the first 16 hex digits of a hash over a mktemp
+    # directory name, so which tree wins is a coin flip, and assuming it would
+    # make the reverse-ordered argv below equal to the sorted order whenever the
+    # assumption missed — the case would then be a no-op on those runs. LC_ALL=C is
+    # also the comparison basis of the sort in acquire_wdirs, so the "reverse
+    # order" premise cannot flip under some other locale.
+    local -a a4_keys=() a4_paths=()
+    mapfile -t a4_keys <<< "$a3_keys"
+    mapfile -t a4_paths <<< "$a3_paths"
+    if [ "${#a4_keys[@]}" -ne 2 ] || [ "${#a4_paths[@]}" -ne 2 ]; then
+        fail "$case_name" "expected two mapped keys and paths, found ${#a4_keys[@]} and ${#a4_paths[@]}"
+        return
+    fi
+    local early_key late_key early_dir late_dir first
+    if [ "${a4_keys[0]}" = "${a4_keys[1]}" ]; then
+        # Two holders means two distinct keys, so this cannot happen while A3
+        # passed; said anyway, because equal keys would make the order below
+        # unorderable rather than red.
+        fail "$case_name" "A3's two lock keys are equal (${a4_keys[0]}): nothing to order"
+        return
+    fi
+    first=$(printf '%s\n' "${a4_keys[0]}" "${a4_keys[1]}" | LC_ALL=C sort | head -1)
+    if [ "$first" = "${a4_keys[0]}" ]; then
+        early_key="${a4_keys[0]}"; late_key="${a4_keys[1]}"
+        early_dir="${a4_paths[0]}"; late_dir="${a4_paths[1]}"
+    else
+        early_key="${a4_keys[1]}"; late_key="${a4_keys[0]}"
+        early_dir="${a4_paths[1]}"; late_dir="${a4_paths[0]}"
+    fi
+    local nameM=a4M stemM=a4M nameS=a4S stemS=a4S
+    local ev="$WS/a4.events" goM goS want acqM early_line late_line
+    local want_events="start multi
+finish multi
+start single
+finish single"
+    goM=$(go_file "$case_name" multi)
+    goS=$(go_file "$case_name" single)
+    # Reverse-ordered argv: the later key's directory is named first, so a claim
+    # order that just follows argv would claim late-then-early.
+    leg "$nameM" "$stemM" "$goM" bash "$SELF" --stub multi "$ev" "$goM" --build "$late_dir" --site-dir "$early_dir"
+    # The stub starts only once both directory locks are held, so this await is
+    # what makes the two acquired lines read below already exist.
+    if ! await "$ev" "start multi"; then
+        fail "$case_name" "the two-directory leg never started: console=[$(cat "$stemM.console" 2>/dev/null)] holders=[$(holder_dump)]"
+        return
+    fi
+    # The single-tree leg asks for the directory the two-directory leg claimed
+    # last, so it has to queue. That wait line is this case's precondition, as in
+    # the env case: waiting for it before handing out any GO is what keeps the
+    # serialization order below from depending on how busy the machine is. The
+    # --build spelling is pinned here as well, so that deleting that flag arm
+    # turns this leg red instead of leaving it running unlocked by luck.
+    leg "$nameS" "$stemS" "$goS" bash "$SELF" --stub single "$ev" "$goS" --build "$late_dir"
+    want="LOCK $nameS: waiting for the write-directory lock on $late_dir ("
+    if ! await "$stemS.console" "$want"; then
+        fail "$case_name" "the single-tree leg never printed the write-directory wait line for $late_dir: console=[$(cat "$stemS.console" 2>/dev/null)] holders=[$(holder_dump)]"
+        return
+    fi
+    release_leg "$goM"
+    if ! await "$ev" "finish multi" || ! await "$stemM.console" "GATE $nameM: PASS"; then
+        fail "$case_name" "the two-directory leg never finished: console=[$(cat "$stemM.console" 2>/dev/null)]"
+        return
+    fi
+    # The claim order, read off the two acquired lines in the order they were
+    # printed: ascending lock key. The "write-directory lock acquired" wording
+    # keeps the machine lock's own acquired line out of the count, and each
+    # directory is named by exactly one of the two lines.
+    acqM=$(count_lines "$stemM.console" "write-directory lock acquired after")
+    early_line=$(grep -n -F -m 1 -- "($early_dir)" "$stemM.console" 2>/dev/null | cut -d: -f1)
+    late_line=$(grep -n -F -m 1 -- "($late_dir)" "$stemM.console" 2>/dev/null | cut -d: -f1)
+    if [ "$acqM" -ne 2 ]; then
+        fail "$case_name" "expected two directory-lock acquired lines, found $acqM: console=[$(cat "$stemM.console" 2>/dev/null)]"
+        return
+    fi
+    if [ -z "$early_line" ] || [ -z "$late_line" ]; then
+        fail "$case_name" "an acquired line is missing for one of the two directories: early=[$early_dir at line ${early_line:-none}] late=[$late_dir at line ${late_line:-none}]"
+        return
+    fi
+    if [ "$early_line" -ge "$late_line" ]; then
+        fail "$case_name" "claims are not in ascending lock-key order: key=$early_key ($early_dir) at line $early_line, key=$late_key ($late_dir) at line $late_line"
+        return
+    fi
+    release_leg "$goS"
+    if ! await "$ev" "finish single" || ! await "$stemS.console" "GATE $nameS: PASS"; then
+        fail "$case_name" "the single-tree leg never finished: console=[$(cat "$stemS.console" 2>/dev/null)]"
+        return
+    fi
+    if [ "$(cat "$ev" 2>/dev/null)" != "$want_events" ]; then
+        fail "$case_name" "legs not serialized: events=[$(tr '\n' ';' < "$ev" 2>/dev/null)]"
+        return
+    fi
+    pass "$case_name"
+}
+
 case_a5_env_write_dir() {
     # One directory reached two ways: leg A through argv, leg B through an inline
     # NLANG_GATE_WRITE_DIR with no flag at all. Claims are keyed by the
@@ -577,6 +704,7 @@ run_case() { # run_case <name> <function>: no case runs once the budget is gone
 run_case a1-same-tree-spellings case_a1_same_tree_spellings
 run_case a2-same-tree-case case_a2_same_tree_case
 run_case a3-different-trees case_a3_different_trees
+run_case a4-two-tree-vs-single case_a4_two_tree_vs_single
 run_case a5-env-write-dir case_a5_env_write_dir
 run_case a6-no-write-dir case_a6_no_write_dir
 run_case a7-print-write-dirs case_a7_print_write_dirs
