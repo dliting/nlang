@@ -485,18 +485,6 @@ int32_t VmExecutor::MaterializeViewRecord(int32_t viewHeapIdx) {
         stagedOwner.resize(static_cast<size_t>(ownerCount) * cells);
         DeviceStageToHost(ownerIdx, stagedOwner.data(),
             stagedOwner.size() * sizeof(int32_t));
-        std::string d = "[dbg] matz staged last2=";
-        d += std::to_string(stagedOwner[stagedOwner.size() - 2]);
-        d += ",";
-        d += std::to_string(stagedOwner[stagedOwner.size() - 1]);
-        d += " ownerCount=";
-        d += std::to_string(ownerCount);
-        d += " ownerIdx=";
-        d += std::to_string(ownerIdx);
-        d += "\n";
-        VmNativeHost tmp;
-        InitNativeHost(tmp);
-        tmp.c.writeError(&tmp.c, d.c_str());
     }
     auto& owner = ElementPayloadRecord(
         m_structHeap[static_cast<size_t>(viewHeapIdx)], RTK_ArrayView,

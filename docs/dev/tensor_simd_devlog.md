@@ -82,3 +82,14 @@
 
 - **核函数读实参数组必须走记录的offset/strides**：oneHot内核直接`labels[i]`读`v.data`——拥有数组offset=0时全对，切片视图（`labels[first:first+rows]`，offset=first）就从属主元素0开始读。mlp改写用切片视图喂oneHot后训练静默发散（每批标签都错但都合法，无异常可抓），靠三段变体二分（uniform只换init收敛→oneHot换写收敛→切片视图发散）定位。修复走`v.offset + i*strides[0]`。教训：**内核单测用拥有数组永远测不出视图offset bug**——e2e回归钉必须含"切片视图喂核函数"用例（op_tensor_gather/op_tensor_reduce2已加）。此前gather/eq内核写了stride遍历是对的，oneHot漏了——同一文件里两套写法并存，说明"读视图"没有统一的强制入口，值得将来把StrideWalk提为唯一合法路径（编译期约定）。
 - **uniform骑宿主PRNG流**：随机数组内核不own生成器，逐元素调`host->nextRandom`——与math.random同一条流、同一[0,1)映射（高24位/2^24），行主序抽取顺序与嵌套循环逐元素调用完全一致，"调用方播种则整跑可复现"的契约原样保持。e2e钉子同时钉两个方向：同种子uniform自 reproduces、同种子下uniform与math.random嵌套循环逐元素相等。float实参读低半cell（ArgFloat非ArgDouble）——写完走一遍F/D两臂各有reader的创建家族宏模式。
+
+##13. P3四条根因：mirror掩盖层（2026-11-16）
+
+mirror后端（malloc hooks+cpu表）验收了P2驻留模型，但它的"设备"内存就是宿主内存、它的表就是cpu表——**任何错误路由在mirror下都碰巧正确**。cuda真跑把四个被掩盖的实现缺陷全部引爆，每条都值得留档：
+
+- **全局选表VS逐调用路由**：P2给ActiveTensorOps加了"设备优先"覆盖，P3又在staged路径里调`OpsForResidency(0)`想拿cpu表——后者委托前者，于是"宿主walk"实际跑的是cuda表（staged gather把宿主staging缓冲的指针喂给GPU内核=illegal address）。教训：**同一张表有两个获取入口（环境选择vs按驻留选择）时，"设备优先"的全局入口必然反噬显式要cpu的调用点**。修复=ActiveTensorOps回归纯cpu查表+新增CpuTensorOps直接入口，设备路由只归OpsForResidency一个函数。
+- **flat内核忽略视图offset**：mnist每个batch的行切片视图（offset=first*784）经IsContiguous直通后，matmul等flat内核从`data[0]`读——**所有batch都读batch 0的行**。症状极具迷惑性：训练机械跑通、loss从2.34降到2.303（ln10）后平台、accuracy 0.184≈随机。修复=ToLaunchDense把offset折进基指针（一处修复覆盖所有dense内核）。教训：**连续≠offset为0**——切片视图连续但它不是从owner元素0开始；探针必须覆盖"同owner不同offset的切片"。
+- **枚举序手写数字**：ReduceAxisOp{Sum,Max,Min,...}，内核门写成op2/op3（错位一位）——max被拒NotSupported。修复时又发现槽实现硬编码op=0（Sum）——max返回了每行的和（12而非9）。教训：**跨边界传枚举必须用枚举名传参，禁止手写数字字面量**；症状"结果看着像别的东西"（和vs最大值）时先查op编码。
+- **LaunchView忘拷elemKind**：ToLaunch建几何结构时漏了一个字段，f32数组的elemKind默认0(=int32)——归约内核的门把它当int拒掉。教训：**手写结构体拷贝函数必须逐字段对照定义**，漏字段在默认值恰好合法时静默通过。
+
+这四条与镜像掩盖的关系是系统性的：**验收后端与生产后端共享越少代码路径，掩盖越少**。mirror的长期定位是"驻留语义测试 vehicle"，性能与路由正确性必须靠真cuda的parity钉。

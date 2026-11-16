@@ -4,7 +4,7 @@
     arity dispatch, kind dispatch, validation (axis range, empty
     arrays, the rank-1 axis-arm raise, count mismatches), the rank-1
     scalar-return arms and output minting; the run rides the
-    ActiveTensorOps() slots (sumAll/dot/extreme/mean/clamp/reduceAxis).
+    OpsForResidency routing (sumAll/dot/extreme/mean/clamp/reduceAxis).
     Integer sums wrap like language int arithmetic (declared T return);
     dot accumulates in 64 bits for ints and returns long; mean always
     returns double (int kinds accumulate double — never wraps).
@@ -49,7 +49,7 @@ void UnaryReduceKernel(NativeHost* host, uint8_t* ret,
     if (op != RedOp::Sum && v.elemCount == 0)
         Raise(host, NEXC_Base, op == RedOp::Max
             ? "tensor.max: empty array" : "tensor.min: empty array");
-    const TensorOps& ops = ActiveTensorOps();
+    const TensorOps& ops = OpsForResidency(v.reserved[0]);
     if (op == RedOp::Sum) {
         double acc = 0.0;
         int64_t accI = 0;
@@ -98,7 +98,7 @@ void MeanKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
     if (v.elemCount == 0)
         Raise(host, NEXC_Base, "tensor.mean: empty array");
     double mean = 0.0;
-    const TensorOps& ops = ActiveTensorOps();
+    const TensorOps& ops = OpsForResidency(v.reserved[0]);
     if constexpr (std::is_same_v<T, float>) {
         ops.meanF32(host, v, &mean);
     } else if constexpr (std::is_same_v<T, double>) {
@@ -130,7 +130,7 @@ void DotKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
         const NativeArrayView operands[] = {va, vb};
         AssertSameResidency(host, operands, 2);
     }
-    const TensorOps& ops = ActiveTensorOps();
+    const TensorOps& ops = OpsForResidency(va.reserved[0]);
     if constexpr (std::is_same_v<T, float>) {
         float acc = 0.0f;
         ops.dotF32(host, va, vb, &acc);
@@ -160,7 +160,7 @@ void ClampKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
     const int32_t handle = MintOutputLike(host, v.elemKind, v.rank, v.dims, v);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
-    const TensorOps& ops = ActiveTensorOps();
+    const TensorOps& ops = OpsForResidency(v.reserved[0]);
     if constexpr (std::is_same_v<T, float>) {
         ops.clampF32(host, isMax, v, bound, out);
     } else if constexpr (std::is_same_v<T, double>) {
@@ -216,7 +216,7 @@ void SumAxisKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
         //Rank-1 + axis 0: the full reduction (the scalar return).
         double acc = 0.0;
         int64_t accI = 0;
-        const TensorOps& ops = ActiveTensorOps();
+        const TensorOps& ops = OpsForResidency(v.reserved[0]);
         if constexpr (std::is_same_v<T, float>) {
             ops.sumAllF32(host, v, &acc);
             ReturnScalar(ret, static_cast<T>(acc));
@@ -238,7 +238,7 @@ void SumAxisKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
                                           outDims, v);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
-    const TensorOps& ops = ActiveTensorOps();
+    const TensorOps& ops = OpsForResidency(v.reserved[0]);
     if constexpr (std::is_same_v<T, float>) {
         ops.reduceAxisF32(host, ReduceAxisOp::Sum, v, axis, out);
     } else if constexpr (std::is_same_v<T, double>) {
@@ -286,7 +286,7 @@ void ExtremeAxisKernel(NativeHost* host, uint8_t* ret,
                                           outDims, v);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
-    const TensorOps& ops = ActiveTensorOps();
+    const TensorOps& ops = OpsForResidency(v.reserved[0]);
     if constexpr (std::is_same_v<T, float>) {
         ops.reduceAxisF32(host, isMax ? ReduceAxisOp::Max
                                       : ReduceAxisOp::Min,

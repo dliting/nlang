@@ -1,14 +1,41 @@
 /*---
     backend_registry.h — the tensor module's device-backend selection
-    and staging helpers (P2 T2.9-T2.11).
+    and the THREE payload-transfer choke points (P2/P3 consolidation,
+    design 2026-11-15-p3-routing-design.md).
 
-    NLANG_TENSOR_BACKEND resolves at module init: cpu (default, no
-    hooks), mirror (the P2 test backend — malloc hooks + the cpu table,
-    so every device path runs on host memory), cuda (the P3 plugin).
-    InitBackendSelection registers the hooks into the VM through
-    setTensorDeviceHooks when the backend is device; the tensor
-    dispatchers read ActiveDeviceBackend() for the residency gate and
-    the metadata staging transfers.
+    NLANG_TENSOR_BACKEND resolves at module init: cpu (default), mirror
+    (the P2 test backend — malloc hooks + the cpu table), cuda (the P3
+    plugin). InitBackendSelection registers the hooks into the VM.
+
+    Architectural ruling (the mirror backend masked these classes — its
+    table IS the cpu table and its "device" memory IS host memory, so
+    any mis-routing silently worked):
+
+    Every payload access in the tensor dispatchers is exactly ONE of
+    three classes, each with ONE sanctioned entry point here:
+
+    1. COMPUTE — same-residency operands. Route PER CALL by the primary
+       operand's residency: host operands run the cpu table even under
+       a device backend (PyTorch's discipline — CPU tensors run CPU
+       kernels), device operands run the active device table.
+       → OpsForResidency(residency).
+
+    2. TRANSFER — host↔device (toDevice/toHost/uniform's landing).
+       Never a compute slot (either table dereferences the wrong side);
+       the hooks' byte copies are the mechanism. Strided sources
+       materialize by SOURCE residency first (MaterializeByResidency).
+       → CopyHostToDevice / CopyDeviceToHost / TransferToDevice /
+         TransferToHost.
+
+    3. METADATA — shape-determining reads (dims/indices/labels/axes).
+       A device-resident operand stages to host FIRST (single-block
+       D2H when contiguous, per-element affine reads when strided);
+       the staged readers are the only sanctioned spelling.
+       → StageOperandToHost / ReadIntListStaged.
+
+    ActiveTensorOps() stays ONLY as the cpu/mirror table lookup — the
+    dispatchers' compute paths use OpsForResidency so a toHost result
+    under cuda runs host kernels.
 ---*/
 #pragma once
 
@@ -25,6 +52,7 @@ struct DeviceBackendState {
     TensorDeviceHooks hooks = {};
     bool device = false;      //hooks registered into the VM
     std::string name = "cpu"; //"cpu" / "mirror" / "cuda"
+    const void* ops = nullptr; //the device TensorOps table (cuda)
 };
 
 //Resolved once at module init; immutable afterwards (the hooks
@@ -34,17 +62,67 @@ const DeviceBackendState& ActiveDeviceBackend();
 //Called once from nlang_native_init (before any registration use):
 //parses NLANG_TENSOR_BACKEND, prepares the hooks, and registers them
 //into the VM when the backend is device. Explicit cuda with a missing
-//plugin raises by name (spec D3a fail-fast); unknown names fall back
-//to cpu (the KernelOps-era selector contract).
+//plugin fails fast (spec D3a); unknown names fall back to cpu.
 void InitBackendSelection(NativeHost* host);
 
+//--- CLASS 1: compute routing -------------------------------------------
+
+//Per-call table routing by the primary operand's residency (the
+//operands agreed — AssertSameResidency ran): 0 = host → the cpu table
+//(even under a device backend), 1 = device → the active device table
+//(the cpu table under mirror — its ops stay null — the plugin table
+//under cuda).
+const TensorOps& OpsForResidency(uint8_t residency);
+
+//--- CLASS 2: transfers --------------------------------------------------
+
+//Dense byte transfers through the hooks. No compute slots, no
+//residency mixing. Raise by name when no device backend is active.
+void CopyHostToDevice(NativeHost* host, void* deviceDst,
+                      const void* hostSrc, size_t bytes);
+void CopyDeviceToHost(NativeHost* host, void* hostDst,
+                      const void* deviceSrc, size_t bytes);
+
+//toDevice/toHost bodies: same-residency operands return the original
+//handle (the array API to_device contract; toDevice is a no-op under
+//backend=cpu). Strided sources materialize by SOURCE residency
+//(MaterializeByResidency), then the hooks transfer lands the payload.
+int32_t TransferToDevice(NativeHost* host, uint8_t* ret,
+                         const uint8_t* args);
+int32_t TransferToHost(NativeHost* host, uint8_t* ret,
+                       const uint8_t* args);
+
+//--- CLASS 3: metadata staging -------------------------------------------
+
 //Metadata staging (plan C4): if v is device-resident, copies its
-//payload into buf (through the hooks) and returns a HOST view over
-//the staging — shape-determining reads (dims/indices) never
-//dereference device pointers. Host operands return unchanged (buf
-//stays empty). The staging lives as long as buf.
+//payload into buf — single-block D2H when the view is contiguous,
+//per-element affine hooks reads when strided (element i at
+//data + (offset + sum(idx*strides)) * cellBytes) — and returns a HOST
+//view over the staging. The staged view's dense strides live in buf
+//AFTER the payload (the returned view's pointers never dangle). Host
+//operands return unchanged (buf stays empty). The staging lives as
+//long as buf.
 NativeArrayView StageOperandToHost(NativeHost* host, NativeArrayView& v,
                                    std::vector<uint8_t>* buf);
+
+//The staged exact-length reader (ReadIntList's twin): stages slot's
+//operand when device-resident, then reads `want` cells. The ONLY
+//sanctioned metadata read for the views family.
+void ReadIntListStaged(NativeHost* host, const uint8_t* args, int slot,
+                       int32_t want, const char* who, int32_t* out);
+
+//--- materialization by residency ---------------------------------------
+
+//The host-materialization family's residency router (ContiguousOperand
+///FlattenMaterialized/reshape's copy arm): contiguous views pass
+//through unchanged; a strided HOST source materializes via the cpu
+//table (host memory); a strided DEVICE source materializes on-device
+//(newArrayResident + the device table's copy — D2D). Returns the
+//handle backing the computation and refills *view.
+int32_t MaterializeByResidency(NativeHost* host, int32_t handle,
+                               NativeArrayView* view);
+
+//--- creation mints ------------------------------------------------------
 
 //The creation family's residency dispatch (spec D2): the tensor
 //creation family follows the active device — device backends mint via

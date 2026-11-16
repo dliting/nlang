@@ -3,7 +3,7 @@ tensor_native.cpp — registration unit and the creation-kernel family of
 the `tensor` package's native module (nlang_tensor.dll). P1 T1.2e
 migration: the creation kernels keep their validation (arange's
 step/count contracts, the dims gates) and minting; the fill/arange
-runs ride the ActiveTensorOps() slots. The elementwise binary family
+runs route per call by residency (OpsForResidency). The elementwise binary family
 lives in tensor_binary.cpp; every entry point is declared in
 TensorKernels.h. See that header and include/nlang/vm/NativeHost.h
 for the payload-view contract.
@@ -59,7 +59,7 @@ void FillKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
 //carries int64/double values; the T narrowing is the kernel's).
 void FillThroughSlot(NativeHost* host, NativeArrayView& v, double fValue,
                      int64_t iValue) {
-    const TensorOps& ops = ActiveTensorOps();
+    const TensorOps& ops = OpsForResidency(v.reserved[0]);
     switch (v.elemKind) {
         case NEK_Int32:  ops.fillI32(host, v, iValue); break;
         case NEK_Int64:  ops.fillI64(host, v, iValue); break;
@@ -126,7 +126,7 @@ void ArangeKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
     const int32_t handle = MintArray1(host, kind, static_cast<int32_t>(n));
     NativeArrayView v;
     host->getArrayView(host, handle, &v);
-    const TensorOps& ops = ActiveTensorOps();
+    const TensorOps& ops = OpsForResidency(v.reserved[0]);
     if constexpr (std::is_same_v<T, float>) {
         ops.arangeF32(host, v, static_cast<double>(start),
                       static_cast<double>(step));
@@ -143,64 +143,20 @@ void ArangeKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
     ReturnInt(ret, handle);
 }
 
-//v0.14.x device surface: toDevice/toHost/backend (spec D6). toDevice
-//mints a device-resident copy (a view's own dims — the plan's "views
-//materialize first"); toHost lands one on the host. A same-residency
-//operand returns as-is (the array API standard's to_device contract).
+//v0.14.x device surface: toDevice/toHost/backend (spec D6). The
+//transfers ride the registry's CLASS-2 entry points — a mixed-
+//residency copy through a compute slot would dereference the wrong
+//side under cuda (the mirror backend masked this).
 void TensorToDevice(NativeHost* host, uint8_t* ret, const uint8_t* args,
                     int argc) {
     (void)argc;
-    NativeArrayView v;
-    ArgArray(host, args, 0, &v);
-    //A same-device operand returns as-is (the array API standard's
-    //to_device contract): under backend=cpu EVERY array is already on
-    //the active device, so toDevice is a no-op there — the same source
-    //runs on both backends.
-    if (!ActiveDeviceBackend().device || v.reserved[0] == 1) {
-        ReturnInt(ret, ArgInt(args, 0));
-        return;
-    }
-    const int32_t handle = host->newArrayResident(host, v.elemKind,
-        v.rank, v.dims);
-    NativeArrayView dst;
-    host->getArrayView(host, handle, &dst);
-    const TensorOps& ops = ActiveTensorOps();
-    switch (v.elemKind) {
-        case NEK_Int32:  ops.copyI32(host, v, dst); break;
-        case NEK_Int64:  ops.copyI64(host, v, dst); break;
-        case NEK_Float32: ops.copyF32(host, v, dst); break;
-        case NEK_Float64: ops.copyF64(host, v, dst); break;
-        default:
-            Raise(host, NEXC_Base,
-                  "tensor.toDevice: unsupported element kind");
-    }
-    ReturnInt(ret, handle);
+    TransferToDevice(host, ret, args);
 }
 
 void TensorToHost(NativeHost* host, uint8_t* ret, const uint8_t* args,
                   int argc) {
     (void)argc;
-    NativeArrayView v;
-    ArgArray(host, args, 0, &v);
-    if (v.reserved[0] != 1) {
-        ReturnInt(ret, ArgInt(args, 0));   //already host
-        return;
-    }
-    const int32_t handle = NewArrayShaped(host, v.elemKind, v.rank,
-                                          v.dims);
-    NativeArrayView dst;
-    host->getArrayView(host, handle, &dst);
-    const TensorOps& ops = ActiveTensorOps();
-    switch (v.elemKind) {
-        case NEK_Int32:  ops.copyI32(host, v, dst); break;
-        case NEK_Int64:  ops.copyI64(host, v, dst); break;
-        case NEK_Float32: ops.copyF32(host, v, dst); break;
-        case NEK_Float64: ops.copyF64(host, v, dst); break;
-        default:
-            Raise(host, NEXC_Base,
-                  "tensor.toHost: unsupported element kind");
-    }
-    ReturnInt(ret, handle);
+    TransferToHost(host, ret, args);
 }
 
 void TensorBackend(NativeHost* host, uint8_t* ret, const uint8_t* args,

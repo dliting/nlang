@@ -17,6 +17,8 @@
     mirror registration, the cuda plugin).
 ---*/
 #include "TensorOps.h"
+#include "backend_registry.h"
+#include "../tensor_cuda/backend_descriptor.h"
 
 #include "Elementwise.h"
 
@@ -1019,6 +1021,18 @@ const TensorOps& ActiveTensorOps() {
         g_active = found;
     }
     return *g_active;
+}
+
+//The cpu table's stable lookup (design 2026-11-15 R2): OpsForResidency's
+//host arm — and every "run this on host" site (staged walks, transfer
+//twins) — must reach the cpu table DIRECTLY. The historical
+//device-first override on ActiveTensorOps routed a staged host walk to
+//the cuda table under NLANG_TENSOR_BACKEND=cuda (the mirror backend
+//masked this — its table IS the cpu table).
+const TensorOps& CpuTensorOps() {
+    if (g_backends == nullptr)
+        RegisterBuiltinBackends();
+    return kCpuTable;
 }
 
 } // namespace tensor

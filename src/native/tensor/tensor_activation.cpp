@@ -1,8 +1,8 @@
 /*---
     tensor_activation.cpp — the ReLU gate backward and tanh of the
     tensor native module. P1 T1.2a migration: validation and output
-    minting stay in the dispatcher; the run rides the ActiveTensorOps()
-    slots — reluGrad is the BinaryKernelOp::ReLUGrad binary (flat kernel
+    minting stay in the dispatcher; the run routes per call by the primary operand's residency
+    (OpsForResidency) — reluGrad is the BinaryKernelOp::ReLUGrad binary (flat kernel
     on contiguous spans, paired odometers otherwise), tanh the VecMath
     unary lane. float/double only — integers have no activation
     semantics.
@@ -51,7 +51,7 @@ void ReluGradKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
                                           vd.dims, vd);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
-    const TensorOps& ops = ActiveTensorOps();
+    const TensorOps& ops = OpsForResidency(vd.reserved[0]);
     if constexpr (std::is_same_v<T, float>) {
         ops.binaryF32(host, BinaryKernelOp::ReLUGrad, vd, vz, out);
     } else {
@@ -68,7 +68,7 @@ void TanhKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
                                           v.dims, v);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
-    const TensorOps& ops = ActiveTensorOps();
+    const TensorOps& ops = OpsForResidency(v.reserved[0]);
     if constexpr (std::is_same_v<T, float>) {
         ops.unaryF32(host, UnaryKernelOp::Tanh, v, out);
     } else {

@@ -153,6 +153,57 @@ foreach(mod IN LISTS NLANG_NATIVE_MODULES)
         RUNTIME_OUTPUT_DIRECTORY "${NLANG_NATIVE_OUTPUT_DIR}")
 endforeach()
 
+#--- v0.14.x device line: the CUDA plugin (spec D5 — the vendor
+#runtime ships inside the plugin DLL; the build compiles the kernels
+#via nvcc directly — the CUDA VS integration is not a dependency).
+#Optional: the NLANG_CUDA_ROOT cache var gates the target (absent =
+#the plugin target skips; the cpu/mirror backends are unaffected).
+set(NLANG_CUDA_ROOT "" CACHE PATH "CUDA toolkit root (enables the cuda device plugin)")
+if(NLANG_CUDA_ROOT)
+    set(NLANG_CUDA_NVCC "${NLANG_CUDA_ROOT}/bin/nvcc.exe")
+    if(NOT EXISTS "${NLANG_CUDA_NVCC}")
+        message(WARNING "NLANG_CUDA_ROOT set but nvcc.exe not found — the cuda plugin is skipped")
+    else()
+        set(NLANG_CUDA_ARCH "sm_86" CACHE STRING "CUDA arch (sm_86 = RTX 30-class)")
+        set(NLANG_TENSOR_CUDA_OBJ "${CMAKE_CURRENT_BINARY_DIR}/tensor_cuda/cuda_kernels.obj")
+        file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/tensor_cuda")
+        add_custom_command(
+            OUTPUT "${NLANG_TENSOR_CUDA_OBJ}"
+            COMMAND "${NLANG_CUDA_NVCC}" -arch=${NLANG_CUDA_ARCH}
+                -ccbin "D:/dev/VS2022/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/cl.exe"
+                -I"${NLANG_CUDA_ROOT}/include"
+                -I"${PROJECT_SOURCE_DIR}/include"
+                -I"${PROJECT_SOURCE_DIR}/src/vm"
+                -I"${CMAKE_CURRENT_SOURCE_DIR}/tensor"
+                "-std=c++17" -Xcompiler "/EHsc /GR /std:c++17 /wd4819 /MD"
+                -fmad=false
+                -c "${CMAKE_CURRENT_SOURCE_DIR}/tensor_cuda/cuda_kernels.cu"
+                -o "${NLANG_TENSOR_CUDA_OBJ}"
+            DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tensor_cuda/cuda_kernels.cu"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tensor_cuda/cuda_kernels.h"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tensor_cuda/cuda_mt19937.cuh"
+            COMMENT "nvcc: cuda_kernels.cu (${NLANG_CUDA_ARCH} + PTX)")
+        add_library(nlang_tensor_cuda SHARED
+            tensor_cuda/cuda_backend.cpp
+            tensor_cuda/backend_descriptor.h
+            "${NLANG_TENSOR_CUDA_OBJ}")
+        target_include_directories(nlang_tensor_cuda
+            PRIVATE ${PROJECT_SOURCE_DIR}/include
+                ${PROJECT_SOURCE_DIR}/src/vm
+                ${CMAKE_CURRENT_SOURCE_DIR}/tensor
+                ${NLANG_CUDA_ROOT}/include)
+        set_target_properties(nlang_tensor_cuda PROPERTIES
+            CXX_STANDARD 17
+            CXX_STANDARD_REQUIRED ON
+            LINK_FLAGS "/NODEFAULTLIB:LIBCMT")
+        target_link_libraries(nlang_tensor_cuda PRIVATE
+            "${NLANG_CUDA_ROOT}/lib/x64/cudart_static.lib")
+        set_target_properties(nlang_tensor_cuda PROPERTIES
+            LIBRARY_OUTPUT_DIRECTORY "${NLANG_NATIVE_OUTPUT_DIR}"
+            RUNTIME_OUTPUT_DIRECTORY "${NLANG_NATIVE_OUTPUT_DIR}")
+    endif()
+endif()
+
 # Install: the modules ship beside the executables in bin/, where the loader's
 # executable-dir search finds them.
 install(TARGETS nlang_math nlang_io nlang_fs nlang_tensor nlang_net

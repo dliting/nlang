@@ -11,6 +11,7 @@
 #include "TensorKernels.h"
 
 #include "backend_registry.h"
+#include <vector>
 
 
 
@@ -46,6 +47,8 @@ void UniformKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
                    uint8_t kind, T lowArg, T highArg) {
     NativeArrayView dims;
     ArgArray(host, args, 0, &dims);
+    std::vector<uint8_t> dimsStage;
+    dims = StageOperandToHost(host, dims, &dimsStage);
     int32_t shape[nlang::kMaxArrayRank];
     const int32_t rank =
         CollectIntCells(host, dims, "tensor.uniform", shape);
@@ -76,12 +79,8 @@ void UniformKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
             cells[i] = static_cast<T>(low + span * NextUnit(host));
         NativeArrayView dv;
         host->getArrayView(host, handle, &dv);
-        const TensorOps& ops = ActiveTensorOps();
-        if constexpr (std::is_same_v<T, float>) {
-            ops.copyF32(host, sv, dv);
-        } else {
-            ops.copyF64(host, sv, dv);
-        }
+        CopyHostToDevice(host, dv.data, CellsOf<const T>(sv),
+            static_cast<size_t>(sv.elemCount) * sv.elemCellBytes);
         ReturnInt(ret, handle);
         return;
     }

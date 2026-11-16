@@ -246,6 +246,11 @@ struct TensorOps {
 //details live in the backend registry (T3.8).
 const TensorOps& ActiveTensorOps();
 
+//The cpu table's direct lookup (design 2026-11-15 R2): the host arm of
+//OpsForResidency and every "run this on host" site (staged walks,
+//transfer twins) — never the env-selected table.
+const TensorOps& CpuTensorOps();
+
 //Test seam: register a whole table by name (the cpu table registers at
 //static init; backends defined outside this TU — the cuda plugin, the
 //P2 mirror registration — register through this hook). Name must stay

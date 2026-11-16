@@ -3,7 +3,7 @@
     module. P1 T1.2c migration: the dispatcher keeps operand
     materialization (non-contiguous views copy to dense records first —
     the kernels keep flat addressing), shape gates and output minting;
-    the run rides the ActiveTensorOps() slots (matmul forwards to the
+    the run routes per call by the primary operand's residency (OpsForResidency) (matmul forwards to the
     KernelOps tier table; concat's byte-level copy is kind-independent).
     transpose/flatten/reshape live in tensor_views.cpp since v0.12.7
     Task 12.
@@ -34,40 +34,11 @@ namespace {
 int32_t ContiguousOperand(NativeHost* host, const uint8_t* args, int slot,
                           NativeArrayView* view) {
     ArgArray(host, args, slot, view);
-    //v0.14.x device line: a CONTIGUOUS device operand passes through —
-    //the slots take flat addressing and the device kernels (and the
-    //mirror backend's host memory) read it directly. A NON-CONTIGUOUS
-    //device operand materializes to a DEVICE-resident dense copy (the
-    //copy slot's device→device arm) — StrideCopy would read the 2-cell
-    //descriptor, and a host landing would break the sibling operands'
-    //residency (the mixed check would fire on the materialized copy).
-    if (view->reserved[0] == 1) {
-        if (IsContiguous(*view))
-            return ArgInt(args, slot);
-        const int32_t handle = host->newArrayResident(host,
-            view->elemKind, view->rank, view->dims);
-        NativeArrayView dst;
-        host->getArrayView(host, handle, &dst);
-        const TensorOps& ops = ActiveTensorOps();
-        switch (view->elemKind) {
-            case NEK_Int32:  ops.copyI32(host, *view, dst); break;
-            case NEK_Int64:  ops.copyI64(host, *view, dst); break;
-            case NEK_Float32: ops.copyF32(host, *view, dst); break;
-            case NEK_Float64: ops.copyF64(host, *view, dst); break;
-            default:
-                Raise(host, NEXC_Base,
-                      "tensor: unsupported element kind");
-        }
-        view->elemKind = 0xEE;
-        host->getArrayView(host, handle, view);
-        return handle;
-    }
-    if (IsContiguous(*view))
-        return ArgInt(args, slot);
-    const int32_t handle = Materialize(host, *view);
-    view->elemKind = 0xEE;
-    host->getArrayView(host, handle, view);
-    return handle;
+    //R7 (design 2026-11-15): the materialization routes by SOURCE
+    //residency — contiguous operands pass through, strided host sources
+    //materialize on host (cpu table), strided device sources on device
+    //(D2D). One router for the whole host-materialization family.
+    return MaterializeByResidency(host, ArgInt(args, slot), view);
 }
 
 //Concat body: equal ranks, every dim equal except the axis dim (which
@@ -106,7 +77,7 @@ void ConcatKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
     const int32_t handle = MintOutputLike(host, a.elemKind, a.rank, outDims, a);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
-    const TensorOps& ops = ActiveTensorOps();
+    const TensorOps& ops = OpsForResidency(a.reserved[0]);
     switch (a.elemKind) {
         case NEK_Int32:
             ops.concatI32(host, a, b, axis, out); break;
@@ -155,7 +126,7 @@ void MatMulTyped(NativeHost* host, uint8_t* ret, NativeArrayView& a,
     const int32_t handle = MintOutputLike(host, a.elemKind, 2, outDims, a);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
-    const TensorOps& ops = ActiveTensorOps();
+    const TensorOps& ops = OpsForResidency(a.reserved[0]);
     if constexpr (std::is_same_v<T, float>) {
         ops.matmulF32(host, a, b, out);
     } else if constexpr (std::is_same_v<T, double>) {

@@ -8,6 +8,7 @@
     compose: a view over a view peels to the same owning record.
 ---*/
 #include "TensorKernels.h"
+#include "backend_registry.h"
 
 #include <cstdint>
 #include <string>
@@ -118,12 +119,28 @@ int32_t NormalizeSliceAxis(NativeHost* host, int32_t len, int32_t start,
 }
 
 //flatten over a non-contiguous source: a dense rank-1 copy.
-int32_t FlattenMaterialized(NativeHost* host, const NativeArrayView& src) {
+int32_t FlattenMaterialized(NativeHost* host, NativeArrayView& src,
+                            int32_t srcHandle) {
+    //R7: materialize by source residency (host sources keep the host
+    //twin; device sources land a device-dense flatten — StrideCopy
+    //would dereference the device payload on host).
+    const int32_t denseHandle =
+        MaterializeByResidency(host, srcHandle, &src);
     const int32_t flat = static_cast<int32_t>(src.elemCount);
-    const int32_t handle = NewArrayShaped(host, src.elemKind, 1, &flat);
+    const int32_t handle =
+        MintOutputLike(host, src.elemKind, 1, &flat, src);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
-    StrideCopy(src, out);
+    const TensorOps& ops = OpsForResidency(src.reserved[0]);
+    switch (src.elemKind) {
+        case NEK_Int32:  ops.copyI32(host, src, out); break;
+        case NEK_Int64:  ops.copyI64(host, src, out); break;
+        case NEK_Float32: ops.copyF32(host, src, out); break;
+        case NEK_Float64: ops.copyF64(host, src, out); break;
+        default:
+            Raise(host, NEXC_Base, "tensor.flatten: unsupported kind");
+    }
+    (void)denseHandle;
     return handle;
 }
 
@@ -145,7 +162,8 @@ void TensorTranspose(NativeHost* host, uint8_t* ret, const uint8_t* args,
         }
     } else {
         int32_t axes[nlang::kMaxArrayRank];
-        ReadIntList(host, args, 1, src.rank, "tensor.transpose", axes);
+        ReadIntListStaged(host, args, 1, src.rank, "tensor.transpose",
+                          axes);
         bool seen[nlang::kMaxArrayRank] = {false};
         for (int32_t d = 0; d < src.rank; ++d) {
             const int32_t ax = axes[d];
@@ -176,7 +194,8 @@ void TensorFlatten(NativeHost* host, uint8_t* ret, const uint8_t* args,
                                     strides, src.offset));
         return;
     }
-    ReturnInt(ret, FlattenMaterialized(host, src));
+    const int32_t srcHandle = ArgInt(args, 0);
+    ReturnInt(ret, FlattenMaterialized(host, src, srcHandle));
 }
 
 //reshape: a contiguous source re-views to the target shape (same
@@ -190,6 +209,8 @@ void TensorReshape(NativeHost* host, uint8_t* ret, const uint8_t* args,
     ArgArray(host, args, 0, &src);
     NativeArrayView shape;
     ArgArray(host, args, 1, &shape);
+    std::vector<uint8_t> shapeStage;
+    shape = StageOperandToHost(host, shape, &shapeStage);
     int32_t shapeCells[nlang::kMaxArrayRank];
     const int32_t shapeLen =
         CollectIntCells(host, shape, "tensor.reshape", shapeCells);
@@ -202,11 +223,27 @@ void TensorReshape(NativeHost* host, uint8_t* ret, const uint8_t* args,
                                     dense, src.offset));
         return;
     }
+    //R7 (design 2026-11-15): a non-contiguous source materializes by
+    //its residency — StrideCopy walks the payload on host, which is a
+    //device-pointer dereference for device sources. The materialized
+    //dense pair (device or host) then copies on its own table.
+    NativeArrayView dense = src;
+    const int32_t denseHandle =
+        MaterializeByResidency(host, ArgInt(args, 0), &dense);
     const int32_t handle =
-        NewArrayShaped(host, src.elemKind, shapeLen, dims);
+        MintOutputLike(host, dense.elemKind, shapeLen, dims, dense);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
-    StrideCopy(src, out);
+    const TensorOps& ops = OpsForResidency(dense.reserved[0]);
+    switch (dense.elemKind) {
+        case NEK_Int32:  ops.copyI32(host, dense, out); break;
+        case NEK_Int64:  ops.copyI64(host, dense, out); break;
+        case NEK_Float32: ops.copyF32(host, dense, out); break;
+        case NEK_Float64: ops.copyF64(host, dense, out); break;
+        default:
+            Raise(host, NEXC_Base, "tensor.reshape: unsupported kind");
+    }
+    (void)denseHandle;
     ReturnInt(ret, handle);
 }
 
@@ -222,9 +259,9 @@ void TensorSlice(NativeHost* host, uint8_t* ret, const uint8_t* args,
     int32_t starts[nlang::kMaxArrayRank];
     int32_t stops[nlang::kMaxArrayRank];
     int32_t steps[nlang::kMaxArrayRank];
-    ReadIntList(host, args, 1, src.rank, "tensor.slice", starts);
-    ReadIntList(host, args, 2, src.rank, "tensor.slice", stops);
-    ReadIntList(host, args, 3, src.rank, "tensor.slice", steps);
+    ReadIntListStaged(host, args, 1, src.rank, "tensor.slice", starts);
+    ReadIntListStaged(host, args, 2, src.rank, "tensor.slice", stops);
+    ReadIntListStaged(host, args, 3, src.rank, "tensor.slice", steps);
     int32_t dims[nlang::kMaxArrayRank];
     int32_t strides[nlang::kMaxArrayRank];
     int64_t offset = src.offset;
@@ -264,6 +301,8 @@ void TensorBroadcastTo(NativeHost* host, uint8_t* ret, const uint8_t* args,
     ArgArray(host, args, 0, &src);
     NativeArrayView shape;
     ArgArray(host, args, 1, &shape);
+    std::vector<uint8_t> shapeStage;
+    shape = StageOperandToHost(host, shape, &shapeStage);
     int32_t shapeCells[nlang::kMaxArrayRank];
     const int32_t targetRank =
         CollectIntCells(host, shape, "tensor.broadcastTo", shapeCells);

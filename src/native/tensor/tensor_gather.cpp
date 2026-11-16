@@ -5,7 +5,7 @@
     P1 T1.2d migration: the dispatcher keeps argument reads, validations
     (axis range, the gather-axis empty guard, index kind/rank, the
     index-count agreement, the argmax rank-1 raise), the rank-1 out
-    shape and output minting; the run rides the ActiveTensorOps() slots
+    shape and output minting; the run routes per call by residency (OpsForResidency)
     (gather/argmaxI32/eq/oneHot). uniform stays in tensor_random.cpp —
     its snapshot signature is a P2 artifact (plan M1).
 ---*/
@@ -96,6 +96,16 @@ void GatherKernel(NativeHost* host, uint8_t* ret, const uint8_t* args)
     //indices view to host first (memcpy under mirror, D2H under cuda).
     std::vector<uint8_t> idxStage;
     vIdx = StageOperandToHost(host, vIdx, &idxStage);
+    //R5 (design 2026-11-15): gather routes through the HOST walk under
+    //a device backend — the src stages dense (single-block D2H when
+    //contiguous), the cpu table walks with the staged indices, the
+    //result lands with one H2D. The bandwidth is src+out sized (batch
+    //scale in real programs); the cuda take-per-position kernel lands
+    //with the parity suite.
+    std::vector<uint8_t> srcStage;
+    NativeArrayView srcHost = va;
+    if (ActiveDeviceBackend().device && va.reserved[0] == 1)
+        srcHost = StageOperandToHost(host, va, &srcStage);
     int32_t outDims[nlang::kMaxArrayRank];
     int32_t outRank = va.rank - 1;
     if (va.rank == 1)
@@ -107,17 +117,43 @@ void GatherKernel(NativeHost* host, uint8_t* ret, const uint8_t* args)
     {
         outRank = GatherOutShape(host, va, axis, vIdx.elemCount, outDims);
     }
+    if (ActiveDeviceBackend().device && va.reserved[0] == 1)
+    {
+        //Staged path: cpu walk into a host twin, one H2D landing.
+        const int32_t hostOut = host->newArrayShaped(host, va.elemKind,
+            outRank, outDims);
+        NativeArrayView hv;
+        host->getArrayView(host, hostOut, &hv);
+        const TensorOps& cpu = OpsForResidency(0);
+        if constexpr (std::is_same_v<T, float>) {
+            cpu.gatherF32(host, srcHost, axis, vIdx, hv);
+        } else if constexpr (std::is_same_v<T, double>) {
+            cpu.gatherF64(host, srcHost, axis, vIdx, hv);
+        } else if constexpr (std::is_same_v<T, int32_t>) {
+            cpu.gatherI32(host, srcHost, axis, vIdx, hv);
+        } else {
+            cpu.gatherI64(host, srcHost, axis, vIdx, hv);
+        }
+        const int32_t handle = host->newArrayResident(host, va.elemKind,
+            outRank, outDims);
+        NativeArrayView out;
+        host->getArrayView(host, handle, &out);
+        CopyHostToDevice(host, out.data, hv.data,
+            static_cast<size_t>(hv.elemCount) * hv.elemCellBytes);
+        ReturnInt(ret, handle);
+        return;
+    }
     const int32_t handle =
         MintOutputLike(host, va.elemKind, outRank, outDims, va);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
-    const TensorOps& ops = ActiveTensorOps();
+    const TensorOps& ops = OpsForResidency(va.reserved[0]);
     if constexpr (std::is_same_v<T, float>) {
         ops.gatherF32(host, va, axis, vIdx, out);
-    } else if constexpr (std::is_same_v<T, double>) {
-        ops.gatherF64(host, va, axis, vIdx, out);
     } else if constexpr (std::is_same_v<T, int32_t>) {
         ops.gatherI32(host, va, axis, vIdx, out);
+    } else if constexpr (std::is_same_v<T, double>) {
+        ops.gatherF64(host, va, axis, vIdx, out);
     } else {
         ops.gatherI64(host, va, axis, vIdx, out);
     }
@@ -155,7 +191,8 @@ void ExtremeAxisIndicesKernel(NativeHost* host, uint8_t* ret,
                                           outDims, va);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
-    ActiveTensorOps().argmaxI32(host, isMax, va, axis, out);
+    OpsForResidency(va.reserved[0]).argmaxI32(host, isMax, va, axis,
+                                               out);
     ReturnInt(ret, handle);
 }
 
@@ -177,7 +214,7 @@ void EqKernel(NativeHost* host, uint8_t* ret, const uint8_t* args)
                                           outDims, va);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
-    const TensorOps& ops = ActiveTensorOps();
+    const TensorOps& ops = OpsForResidency(va.reserved[0]);
     if constexpr (std::is_same_v<T, float>) {
         ops.eqF32(host, va, vb, out);
     } else if constexpr (std::is_same_v<T, double>) {
@@ -192,9 +229,9 @@ void EqKernel(NativeHost* host, uint8_t* ret, const uint8_t* args)
 
 //oneHot(labels, n): float[len, n], row i ones at labels[i]. The
 //dispatcher keeps the rank/kind/class-count gates and the mint; the
-//slot walks the label strides (a slice view's element zero sits offset
-//elements into the owner — a direct data[i] read would take labels from
-//the wrong place) and raises the range gate.
+//labels STAGE to host first under a device backend (the cuda kernel
+//reads them from host memory), then the slot runs by the minted
+//output's residency.
 void OneHotKernel(NativeHost* host, uint8_t* ret, const uint8_t* args)
 {
     NativeArrayView v;
@@ -206,11 +243,13 @@ void OneHotKernel(NativeHost* host, uint8_t* ret, const uint8_t* args)
     if (n <= 0)
         Raise(host, NEXC_Base, "tensor.oneHot: class count must be "
               "positive");
+    std::vector<uint8_t> labelStage;
+    v = StageOperandToHost(host, v, &labelStage);
     int32_t outDims[2] = {v.dims[0], n};
     const int32_t handle = MintArray(host, NEK_Float32, 2, outDims);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
-    ActiveTensorOps().oneHotI32(host, v, n, out);
+    OpsForResidency(out.reserved[0]).oneHotI32(host, v, n, out);
     ReturnInt(ret, handle);
 }
 
