@@ -1,0 +1,9 @@
+// v0.13.9 phase 3 (D12 boundary): a static reference declarator has no
+// module-slot byref representation — static storage promotion is out of
+// scope this phase, so the declaration is rejected instead of silently
+// degrading into a value copy of the initializer.
+int main() {
+    static int seed = 5;
+    static int& r = seed;
+    return r;
+}

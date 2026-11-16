@@ -643,6 +643,38 @@ target_compile_definitions(test_ref_ops
 
 add_test(NAME ref_ops_tests COMMAND test_ref_ops)
 
+# v0.13.9 phase ③ Task 4: scalar/string local promotion — a &-bound local
+# or value formal gets its storage compiled into one stable boxed record
+# (activation-lifetime GC root). Real-compiled modules, no surgery: the
+# pins are source-level behavior plus heap-allocation counts.
+add_executable(test_promote_local
+    test_vm/test_promote_local.cpp
+)
+
+target_include_directories(test_promote_local
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        #VmExecutor's build chain pulls compiler-side headers, same as
+        #test_ref_ops above.
+        ${PROJECT_SOURCE_DIR}/src/compiler
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_promote_local
+    PRIVATE
+        nlang_vm
+        nlang_compiler
+        nlang_runtime
+        nlang_langservice
+)
+nlang_stdlib_test(test_promote_local)
+target_compile_definitions(test_promote_local
+    PRIVATE
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+)
+
+add_test(NAME promote_local_tests COMMAND test_promote_local)
+
 target_include_directories(test_array_view_record
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm

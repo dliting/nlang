@@ -1,0 +1,7 @@
+// v0.13.9 phase 3 Task 4 guard: a promoted local without an initializer
+// reads the type default (0) from the zeroed box payload.
+int main() {
+    int x;
+    int& r = x;
+    return x;
+}

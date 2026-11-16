@@ -210,6 +210,12 @@ SnAssignStmt *StatementResolveAccessor::BuildLocalInitAssign(
 	//never carry it.
 	if (sn.NodeFlags() & NF_Static)
 		pAssign->AddFlags(NF_Generated);
+	//v0.13.9 phase 3 Task 4: a & declarator's decomposed init is the
+	//binding itself — the flag discriminates it from later write-through
+	//stores through the same reference (the emit-side binding arm keys
+	//on it exactly like the static once-guard above).
+	if (sn.Type() && sn.Type()->ContainFlags(NF_Ref))
+		pAssign->AddFlags(NF_Generated);
 	return pAssign;
 }
 
@@ -228,8 +234,11 @@ void StatementResolveAccessor::ResolveInitDeclarator(SnLocalDeclStmt &sn,
 	pAssign->Accept(*m_pVisitor);
 	decl.pInitExpr = nullptr;
 	if (sn.Type()->ContainFlags(NF_Ref) && pAssign->Right())
-		RejectRefBindTarget(*pAssign->Right(), pTypeField,
-			sn.Location());
+	{
+		if (!RejectRefBindTarget(*pAssign->Right(), pTypeField,
+				sn.Location()))
+			MarkPromotedBindTarget(*pAssign->Right());
+	}
 }
 
 //0.9.0: BuildCtorInitAssign — the `T name(args);` synthesis — lives in
@@ -259,6 +268,9 @@ SnLocalVar *StatementResolveAccessor::CreateDeclaratorLocal(
 	SnField *pDeclField = (pSizedArrayField && decl.pArraySize)
 		? pSizedArrayField : pTypeField;
 	auto *pLocal = new SnLocalVar(decl.name, pDeclField, loc);
+	//v0.13.9 phase 3 Task 4: hand the descriptor back through the decl
+	//so codegen can read its NF_Promoted flag.
+	decl.pNode = pLocal;
 	//0.9.0/0.10.7: bare [...] inference and member receivers key on
 	//the array flag — a head-array statement flags every
 	//declarator, a size payload flags only its own.

@@ -34,33 +34,56 @@ void VmBackend::Access(SnLocalDeclStmt& stmt) {
             RegisterStaticLocalDeclarators(decl, evalType);
             return;
         }
-        for (auto& local : decl.Decls()) {
-            //0.10.7 D2: per-declarator slot kind — a size payload makes
-            //only its own slot an array handle; siblings keep the head
-            //type's kind (the statement type is never re-bound).
-            uint8_t typeKind = local.bArrayType
-                ? RTK_Array : RuntimeTypeKind(evalType);
-            uint16_t offset = AllocLocal(local.name, kFrameSlotBytes, typeKind, false);
-            //For struct types, emit OP_AllocStruct to allocate on heap.
-            //Per-unit: a cross-unit struct slots as an import placeholder
-            //(StructSlotFor). The fieldCount operand comes from the AST —
-            //a placeholder record carries no metadata (the executor
-            //allocates from the linked table; the operand is a
-            //disassembly aid, identical to the table for own entries).
-            if (typeKind == RTK_Struct && evalType
-                && evalType->Kind() == NK_StructDecl) {
-                auto& structDecl =
-                    static_cast<SnStructDecl&>(*evalType);
-                emitter.Emit(OpCode::OP_AllocStruct);
-                emitter.EmitUint16(offset);
-                emitter.EmitUint16(static_cast<uint16_t>(
-                    StructSlotFor(structDecl)));
-                emitter.EmitUint16(static_cast<uint16_t>(
-                    structDecl.FieldCount()));
-            }
-            //Class and array types start as null (0) — no allocation needed.
-        }
+        for (auto& local : decl.Decls())
+            EmitLocalDeclaratorStorage(decl, local, evalType, emitter);
         return;
+}
+
+//One non-static declarator's storage: slot allocation plus the
+//kind-specific creation opcodes. 0.10.7 D2: per-declarator slot kind —
+//a size payload makes only its own slot an array handle; siblings keep
+//the head type's kind (the statement type is never re-bound).
+//v0.13.9 phase 3 Task 4: a promoted target and a reference declarator
+//both take the byref pair representation (the GC roots the pair's base
+//handle); the promoted one also gets its activation-time box (EmitStmt-
+//Ref.cpp), the reference one gets its pair from the binding assign
+//that follows.
+uint16_t VmBackend::EmitLocalDeclaratorStorage(SnLocalDeclStmt& decl,
+    const SnLocalDeclStmt::LocalDecl& local, SnField* evalType,
+    BytecodeEmitter& emitter)
+{
+    auto* pDeclNode = local.pNode;
+    const bool bPromoted = pDeclNode
+        && pDeclNode->ContainFlags(NF_Promoted);
+    const bool bRefLocal = decl.Type()->ContainFlags(NF_Ref);
+    uint8_t typeKind = bPromoted || bRefLocal
+        ? RTK_Byref
+        : (local.bArrayType ? RTK_Array : RuntimeTypeKind(evalType));
+    uint16_t offset = AllocLocal(local.name, kFrameSlotBytes, typeKind,
+        false);
+    if (bPromoted) {
+        EmitPromotedDeclStorage(offset, evalType, emitter);
+        return offset;
+    }
+    //For struct types, emit OP_AllocStruct to allocate on heap.
+    //Per-unit: a cross-unit struct slots as an import placeholder
+    //(StructSlotFor). The fieldCount operand comes from the AST —
+    //a placeholder record carries no metadata (the executor
+    //allocates from the linked table; the operand is a
+    //disassembly aid, identical to the table for own entries).
+    if (typeKind == RTK_Struct && evalType
+        && evalType->Kind() == NK_StructDecl) {
+        auto& structDecl =
+            static_cast<SnStructDecl&>(*evalType);
+        emitter.Emit(OpCode::OP_AllocStruct);
+        emitter.EmitUint16(offset);
+        emitter.EmitUint16(static_cast<uint16_t>(
+            StructSlotFor(structDecl)));
+        emitter.EmitUint16(static_cast<uint16_t>(
+            structDecl.FieldCount()));
+    }
+    //Class and array types start as null (0) — no allocation needed.
+    return offset;
 }
 
 //v0.12.6 Task 7 (spec §8): one module slot per static declarant —

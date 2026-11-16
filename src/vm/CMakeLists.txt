@@ -112,6 +112,7 @@ add_library(nlang_vm
     backend/EmitArrayOpcodes.cpp
     backend/EmitStmtDecl.cpp
     backend/EmitStmtAssign.cpp
+    backend/EmitStmtRef.cpp
     backend/EmitStmtCompound.cpp
     backend/EmitStmtStore.cpp
     backend/EmitStmtFlow.cpp

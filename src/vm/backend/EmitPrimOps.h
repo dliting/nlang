@@ -7,6 +7,8 @@
 #include "BytecodeOps.h"
 #include "BytecodeEmitter.h"      // src/vm/BytecodeEmitter.h
 #include "nlang/runtime/PrimitiveTypes.h"
+#include "nlang/runtime/NodeConsts.h"   // NodeKind/NK_* runtime rows
+#include "nlang/compiler/SyntaxNodeConsts.h"   // NK_EnumDecl (compile-only kind)
 #include "nlang/vm/CompiledModule.h"   // RTK_String (non-scalar tag row)
 
 namespace nlang {

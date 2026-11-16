@@ -81,8 +81,10 @@ static SnField* UnanimousReturnPlaceholder(
 //tag, the calling body's own placeholder plans the descriptor-
 //dispatched dynamic variant (the uniform-T-representation invariant).
 //A concrete slot (the sugar sites' receiver type args, e.g. List<int>'s
-//element) plans the static tag by its own kind; everything else —
-//string/class/array kinds — passes through raw.
+//element) plans the static tag by its own kind — scalars AND strings
+//(strings box under their RTK_String tag at the boundary, exactly like
+//the scalar rows); only class/array kinds pass through raw (their
+//handle already names the heap record).
 VmBackend::ArgBoxPlan VmBackend::PlanBoundaryBox(SnField* pElemType,
                                                  SnClassDecl* pReceiverInst)
 {

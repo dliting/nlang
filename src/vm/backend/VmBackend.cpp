@@ -149,8 +149,14 @@ void VmBackend::AllocParamsAndDefaults(SnFunction& func, FuncContext& ctx,
 
     // Allocate slots for parameters
     for (auto& param : func.Params()) {
+        //v0.13.9 phase 3 Task 4: a promoted formal's slot holds the
+        //byref pair (EmitPromotedParamPrologue rewrites it right after
+        //frame entry); the GC roots the pair's base handle via the
+        //RTK_Byref slot class (ESC_HeapIndex).
         AllocLocal(param.Name(), kFrameSlotBytes,
-                   RuntimeTypeKind(param.EvalDataType()),
+                   param.ContainFlags(NF_Promoted)
+                       ? RTK_Byref
+                       : RuntimeTypeKind(param.EvalDataType()),
                    true);
     }
     compiledFunc.paramCount = static_cast<uint16_t>(
@@ -225,6 +231,9 @@ VmBackend::CallSlotStats VmBackend::ReserveReturnAndCallSlots(
 
 void VmBackend::EmitBodyAndImplicitReturn(SnFunction& func, FuncContext& ctx,
                                           BytecodeEmitter& emitter) {
+    //v0.13.9 phase 3 Task 4: promoted formals re-wrap the raw argument
+    //into their stable boxed record before any body statement runs.
+    EmitPromotedParamPrologue(func, emitter);
     // Generate bytecode for body
     if (func.Body()) {
         for (auto& stmt : func.Body()->Statements()) {

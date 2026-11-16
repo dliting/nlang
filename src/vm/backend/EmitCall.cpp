@@ -198,18 +198,6 @@ void VmBackend::EmitBinding(const FormalBinding* pBindings, size_t bindingIdx,
     }
 }
 
-void VmBackend::EmitOutSpills(const std::vector<OutSpill>& spills,
-                              BytecodeEmitter& emitter)
-{
-    for (const auto& s : spills) {
-        emitter.Emit(OpCode::OP_VarLocal);
-        emitter.EmitUint16(m_currFunc->callParamBase
-                           + s.slotIdx * kFrameSlotBytes);
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(s.localOffset);
-    }
-}
-
 uint32_t VmBackend::BuildOutMask(const std::vector<OutSpill>& spills)
 {
     uint32_t mask = 0;
@@ -307,12 +295,14 @@ void VmBackend::EmitUnresolvedInvokeArgs(const SnInvokeExpr& invoke,
                     "NLang backend: out argument is not a local variable");
             EmitExpression(*outArg.Inner(), emitter, paramOffset);
             if (pOutSpills) {
-                auto target = ResolveBareIdentifier(
-                    static_cast<SnIdentifierExpr&>(*outArg.Inner()).Field());
+                auto* pTargetField = static_cast<SnIdentifierExpr&>(
+                    *outArg.Inner()).Field();
+                auto target = ResolveBareIdentifier(pTargetField);
                 if (target.kind != BareIdTarget::Local)
                     throw std::runtime_error(
                         "NLang backend: out argument is not a local variable");
-                pOutSpills->push_back({paramIdx, target.localOffset});
+                pOutSpills->push_back({paramIdx, target.localOffset,
+                    OutSpillRefKindOf(pTargetField)});
             }
         } else {
             EmitExpression(param, emitter, paramOffset);
@@ -423,7 +413,8 @@ void VmBackend::EmitOneFormalBinding(const FormalBinding* pBindings,
             throw std::runtime_error(
                 "NLang backend: out argument is not a local variable");
         if (pOutSpills)
-            pOutSpills->push_back({slotIdx, target.localOffset});
+            pOutSpills->push_back({slotIdx, target.localOffset,
+                OutSpillRefKindOf(idExpr.Field())});
     }
 }
 

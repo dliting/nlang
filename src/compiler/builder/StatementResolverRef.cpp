@@ -162,6 +162,37 @@ bool StatementResolveAccessor::RejectRefBindPosition(SnExpression &expr,
 	return false;
 }
 
+//v0.13.9 phase 3 Task 4: promotion marking for a &-binding whose
+//target resolved to a plain identifier. Only scalar/enum/string locals
+//and value formals promote — their storage compiles into one stable
+//boxed record (design §3.2, the closure-cell family). Struct targets
+//keep their heap-record slot (OP_RefOfLocal binds them directly) and
+//fields/elements bind through their owner records (Task 5). Runs
+//AFTER the binding judgment, so const/static/reference targets never
+//reach here.
+void StatementResolveAccessor::MarkPromotedBindTarget(SnExpression &expr)
+{
+	if (expr.Kind() != NK_IdentifierExpr)
+		return;
+	auto *pField = static_cast<SnIdentifierExpr &>(expr).Field();
+	//Only frame-slot storage promotes: the lightweight local descriptor
+	//and the real formal param (both NK_FormalParam — SnLocalVar reuses
+	//the kind). Struct/class fields, statics and enum members bind
+	//through other representations or were already rejected.
+	if (!pField || pField->Kind() != NK_FormalParam)
+		return;
+	auto *pType = pField->EvalDataType();
+	if (!pType)
+		return;
+	const NodeKind kind = pType->Kind();
+	//Scalars and string ride the primitive rows; enums ride their
+	//int32 carrier. Struct/class/array-token kinds keep their own
+	//storage shape.
+	if (!IsPrimitiveType(kind) && kind != NK_EnumDecl)
+		return;
+	pField->AddFlags(NF_Promoted);
+}
+
 //v0.13.9 phase 3: the &-binding judgment for one resolved initializer
 //(see StatementResolver.h).
 bool StatementResolveAccessor::RejectRefBindTarget(SnExpression &expr,

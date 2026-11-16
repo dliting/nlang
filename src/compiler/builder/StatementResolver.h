@@ -102,6 +102,11 @@ private:
 	//in StatementResolverRef.cpp.
 	bool RejectRefBindTarget(SnExpression &expr, SnField *pTypeField,
 		const ISourceLocation *pLoc);
+	//v0.13.9 phase 3 Task 4: promotion marking for an accepted &-binding
+	//— scalar/enum/string local and formal targets get NF_Promoted so
+	//codegen compiles their storage as one stable boxed record.
+	//Definition in StatementResolverRef.cpp.
+	void MarkPromotedBindTarget(SnExpression &expr);
 	//v0.13.9 phase 3: the position family of the &-binding judgment
 	//(the out-argument template: identifier/member/subscript) — member
 	//and identifier targets run the shared storage gates, subscript

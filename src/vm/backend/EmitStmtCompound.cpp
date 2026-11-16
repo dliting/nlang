@@ -48,6 +48,15 @@ void VmBackend::EmitCompoundAssignBareIdentifier(SnCompoundAssignStmt& ca,
     }
     BareIdTarget target = ResolveBareIdentifier(field);
     if (target.kind == BareIdTarget::Local) {
+        //v0.13.9 phase 3 Task 4: promoted/reference locals read-modify-
+        //write through their storage (EmitStmtRef.cpp); aggregate-typed
+        //references keep the in-place slot form below: their pair slot
+        //is handle-compatible with the field ops.
+        if (field->ContainFlags(NF_Promoted)
+            || IsDerefRefDescriptor(field)) {
+            EmitCompoundRefLocal(ca, field, target, op, emitter);
+            return;
+        }
         //Local variable: compute in-place on the local slot
         EmitExpression(*ca.Right(), emitter, m_currFunc->tempSlot2);
         EmitCompoundOp(op, emitter, target.localOffset,

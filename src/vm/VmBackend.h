@@ -3,6 +3,9 @@
 #include "nlang/vm/CompiledModule.h"
 #include "nlang/vm/TypeDesc.h"
 #include "BytecodeEmitter.h"
+//Kind-immediate opcode encodings incl. BoxTypeTagOfKind (the promoted-
+//storage emitters key their box tags through it; v0.13.9 phase 3).
+#include "backend/EmitPrimOps.h"
 //Intrinsic binding table + package/name projections (compile-time
 //declaration metadata; moved compiler-side with the concurrency import
 //redesign so pure-compiler link targets resolve).
@@ -279,6 +282,15 @@ public:
     //tests all read it; the emit helpers are the only writers.
     static uint8_t EvalSlotClassOfKind(uint8_t rtk);
 
+    //v0.13.9 phase 3 Task 4: true when a bare-identifier descriptor is a
+    //reference to scalar/enum/string storage — the OP_LoadRef/
+    //OP_StoreRef dereference ops apply to its pair slot. Aggregate-
+    //typed references (struct/class/array) never take the dereference
+    //arms: their pair slot reads as an ordinary handle slot to the
+    //field ops and CopyStructInPlace. Public: consumed from TU-level
+    //helpers (the out-spill shape selector) as well as member arms.
+    static bool IsDerefRefDescriptor(SnField* pField);
+
 private:
     void GenerateFunction(SnFunction& func, size_t funcIdx);
     //GenerateFunction's native arm (split for the 50-line function
@@ -329,6 +341,12 @@ private:
     //access (the declaration is lexically upstream of all uses).
     void RegisterStaticLocalDeclarators(SnLocalDeclStmt& decl,
         SnField* evalType);
+    //One non-static declarator's storage (split for the 50-line
+    //function budget): slot allocation plus the kind-specific creation
+    //opcodes; returns the slot offset.
+    uint16_t EmitLocalDeclaratorStorage(SnLocalDeclStmt& decl,
+        const SnLocalDeclStmt::LocalDecl& local, SnField* evalType,
+        BytecodeEmitter& emitter);
     void EmitStaticLocalInitSequence(SnAssignStmt& assign, uint16_t slotIdx,
         BytecodeEmitter& emitter);
 
@@ -336,6 +354,45 @@ private:
     //quirk and the "s" + (a+b) dedup bug — see the definition comment in
     //EmitCall.cpp). Consumed by every emission path.
     static void EmitPResultRefresh(BytecodeEmitter& emitter, uint16_t slot);
+
+    //v0.13.9 phase 3 Task 4 — promoted reference storage (definitions in
+    //EmitStmtRef.cpp). A promoted local/param's frame slot holds the
+    //pair (boxed-record handle, ...) instead of a bare value; reads and
+    //writes ride the payload cells at BYTE offset kHeapCellBytes inside
+    //the box (the box tag lives in cell 0). All helpers take the
+    //emission context as parameters (nested emission overwrites
+    //m_pCurrEmitter/m_resultOffset). The box's type tag comes from the
+    //existing BoxTypeTagOfKind (EmitPrimOps.h).
+    //Prologue for a promoted value formal: wraps the raw argument (still
+    //in the frame slot) into a fresh boxed record and rewrites the slot
+    //to the pair. Emitted before the body in EmitBodyAndImplicitReturn.
+    void EmitPromotedParamPrologue(SnFunction& func,
+        BytecodeEmitter& emitter);
+    //The decomposed `r = init` binding store (assign carries
+    //NF_Generated): point the reference slot at its target storage.
+    void EmitRefBindInit(SnAssignStmt& assign, SnField* pLeftField,
+        uint16_t offset, BytecodeEmitter& emitter);
+    //Write-through store to a promoted local's payload.
+    void EmitPromotedAssignBareLocal(SnAssignStmt& assign,
+        SnField* pLeftField, uint16_t offset, BytecodeEmitter& emitter);
+    //Write-through store through a reference slot (bound or rvalue
+    //temporary): the tagged StoreRef, not a slot assign.
+    void EmitRefAssignBareLocal(SnAssignStmt& assign, SnField* pLeftField,
+        uint16_t offset, BytecodeEmitter& emitter);
+    struct BareIdTarget;   //same forward-declaration pattern as OutSpill
+    //Activation-time box for one promoted declarator (the type-default
+    //payload; the decomposed init assign overwrites it).
+    void EmitPromotedDeclStorage(uint16_t offset, SnField* evalType,
+        BytecodeEmitter& emitter);
+    //Identifier read arm for promoted/reference locals: emits the
+    //payload or dereference read and returns true; false leaves the
+    //caller on the plain 8-byte copy (aggregate-typed references).
+    bool EmitRefLocalRead(SnField* field, const BareIdTarget& target,
+        uint16_t resultOffset, BytecodeEmitter& emitter);
+    //Compound read-modify-write through promoted/reference local
+    //storage (old value + RHS in an exclusive EvalAreaClaim(2)).
+    void EmitCompoundRefLocal(SnCompoundAssignStmt& ca, SnField* field,
+        const BareIdTarget& target, int op, BytecodeEmitter& emitter);
 
     //Shared shape predicates, consumed by both the emission members and
     //the frame-size walkers (Walkers*.cpp) so the dispatch
@@ -991,14 +1048,24 @@ private:
 
     //Phase 9e: an out-argument writeback. After the *Out call opcode
     //copies callee frame slot `slotIdx` back into callParamBase, this
-    //records the caller local to spill it into.
-    struct OutSpill { uint16_t slotIdx; uint16_t localOffset; };
+    //records the caller local to spill it into. refKind (v0.13.9 phase 3
+    //Task 4) selects the spill shape: 0 = plain 8-byte assign, RTK_Byref
+    //= a promoted local's payload StoreField, any scalar/string tag = a
+    //through-reference StoreRef.
+    struct OutSpill {
+        uint16_t slotIdx;
+        uint16_t localOffset;
+        uint8_t refKind = 0;
+    };
 
     //Phase 9e: emit the post-call spill code for out arguments:
     //per spill, `OP_VarLocal callParamBase+slotIdx*kFrameSlotBytes;
     //OP_Assign localOffset`.
     void EmitOutSpills(const std::vector<OutSpill>& spills,
                        BytecodeEmitter& emitter);
+    //v0.13.9 phase 3 Task 4: the out-spill shape selector (see the
+    //OutSpill refKind comment). Static: pure over the descriptor.
+    static uint8_t OutSpillRefKindOf(SnField* pField);
 
     //Phase 9e: build the outMask operand from spills (bit i set = staging
     //slot i is out). Caps at 32 slots — kMaxFuncParams is 64, but out

@@ -43,8 +43,20 @@ void VmBackend::EmitAssignBareIdentifier(SnAssignStmt& assign,
         SnField* field, BytecodeEmitter& emitter) {
     auto target = ResolveBareIdentifier(field);
     if (target.kind == BareIdTarget::Local) {
-        EmitAssignToLocal(assign, target.localOffset,
-            field->EvalDataType(), emitter);
+        //v0.13.9 phase 3 Task 4: promoted and reference locals take
+        //their own store shapes; aggregate-typed references (struct/
+        //class/array) keep the plain path — the pair slot reads as a
+        //handle slot, so the struct in-place branch below writes the
+        //target record directly.
+        if (field->ContainFlags(NF_Promoted))
+            EmitPromotedAssignBareLocal(assign, field,
+                target.localOffset, emitter);
+        else if (IsDerefRefDescriptor(field))
+            EmitRefAssignBareLocal(assign, field,
+                target.localOffset, emitter);
+        else
+            EmitAssignToLocal(assign, target.localOffset,
+                field->EvalDataType(), emitter);
     } else if (target.kind == BareIdTarget::StaticSlot) {
         //v0.12.6 Task 7: a static LOCAL's declaration-site init (the
         //decomposed NF_Generated assign) runs under the slot's own

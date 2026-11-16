@@ -2405,6 +2405,7 @@ refbind_reject_param_default compile_error cannot have a default value
 refbind_reject_dict_keys compile_error iterate Dict keys by reference
 refbind_reject_string_foreach compile_error iterate a string by reference
 refbind_reject_static_scalar compile_error cannot bind a reference to static storage
+refbind_reject_static_ref_decl compile_error syntax error
 refbind_reject_no_init compile_error must bind an initializer
 refbind_reject_ctor_cont compile_error constructor initialization
 refbind_reject_size_cont compile_error array declarator
@@ -2416,3 +2417,10 @@ refbind_reject_generic_arg compile_error syntax error
 refbind_reject_field_decl compile_error syntax error
 refbind_reject_callsite_amp compile_error syntax error
 refbind_reject_ref_array compile_error syntax error
+refbind_promote_local 7
+refbind_promote_param 7
+refbind_promote_loop 33
+refbind_promote_string 1
+refbind_promote_gc_survival 9
+refbind_promote_direct_guard 8
+refbind_promote_zero_init_guard 0
