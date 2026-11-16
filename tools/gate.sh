@@ -29,7 +29,12 @@
 #             safe next to another --shared gate; never next to a test gate
 #             (leave it off for ctest, e2e, and anything timing- or
 #             GUI-sensitive: forgetting the flag costs a wait, forgetting
-#             it where it was needed costs a polluted measurement)
+#             it where it was needed costs a polluted measurement). The
+#             contract is enforced, not trusted: the write directories a
+#             command names are derived from its own argv, so two
+#             --shared gates writing the same directory are still
+#             serialized one directory at a time, while gates writing
+#             different trees overlap freely.
 #
 # The lock lives in $TMPDIR/nlang-gate-<user>/ by default (one directory
 # per machine user, shared by every worktree); set NLANG_GATE_LOCK_DIR to
@@ -44,9 +49,32 @@
 # waiting (the waiting gate prints its elapsed wait, so it is visible);
 # in a batch the test gates come last anyway.
 #
+# Write-directory lock: a --shared gate also claims every directory its own
+# command names (--build/-B, --test-dir, --site-dir, --workdir, or an
+# inline NLANG_GATE_WRITE_DIR), because a build tree's CPack and CMakeCache
+# files sit at its root and are shared by every configuration — two
+# configurations of one tree building at once fight over the same .tmp
+# files. Claims are keyed by the normalized path, taken with an atomic
+# mkdir of wdir/<key>/ under the same lock directory, and released in the
+# reverse order they were taken; a leg that holds several claims takes
+# them in ascending key order, which is what keeps two such legs from
+# deadlock. The stale rule is the machine lock's, age only: a remnant older
+# than LOCK_STALE_S is taken over whether or not its holder is still alive,
+# and the holder's pid= line is written for a human to read — nothing checks
+# it, because an MSYS pid says nothing about liveness across a reboot. A
+# directory claimed by a leg that was killed therefore still waits out that
+# same threshold; when that is too long, the waiting line prints the holder
+# (its path= names the directory), the claim can be removed by hand, or
+# NLANG_GATE_STALE_S lowers the threshold. A --shared gate from which no
+# directory can be derived prints a warning and runs unlocked.
+#
 # Env overrides, for the probes in temp/ and for CI:
 #   NLANG_GATE_LOCK_DIR (the lock directory itself), NLANG_GATE_POLL_S,
-#   NLANG_GATE_REPORT_EVERY_S, NLANG_GATE_STALE_S.
+#   NLANG_GATE_REPORT_EVERY_S, NLANG_GATE_STALE_S,
+#   NLANG_GATE_WRITE_DIR (force the write directory of one leg, as an
+#   inline prefix only — exporting it would silently re-point every later
+#   gate on the machine), NLANG_GATE_SH (read only by the selftest driver:
+#   the switch that points it at a mutated gate.sh).
 
 set -u
 
