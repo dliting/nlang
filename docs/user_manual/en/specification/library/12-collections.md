@@ -98,6 +98,12 @@ Key matching is the kind-aware equality of §12.1. The built-in
 containers accept a `struct` type argument, and a struct key
 therefore compares by field value (§4.12.5); a `func` key compares
 handle content — two references to one function are the same key.
+The storage rule covers the key side the same way: inserting a new
+key gives the entry a private copy of the key record — mutating the
+variable used in the insert afterwards never rewrites the stored
+entry, and both spellings (`d[k] = v` and `d.set(k, v)`) behave
+identically; storing again under an existing key replaces only the
+value record and never touches the stored key record.
 
 `keys()` is the ordering guarantee for the whole dictionary
 surface: the returned list holds every key in insertion order —
