@@ -215,7 +215,9 @@ error — and each index is an integer expression. An index outside
 run-time error, on a read and on a write alike (chapter 8). A
 subscript read yields the stored element; for an element of struct
 type it yields a copy (§4.10). A subscript write stores a value
-assignable to the element type (§4.4).
+assignable to the element type (§4.4). When the array is
+device-resident (§18.7), the access transfers that single element
+across the device boundary — a transparent element read or write.
 
 A string subscript `s[i]` reads the byte at byte offset `i` as a
 `ubyte`; the index must be an integer expression, and an

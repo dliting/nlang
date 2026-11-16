@@ -83,6 +83,13 @@ int f[100] = [7, 8];      // declaration position, partial init: rest zero-fille
 - The element type may be a struct (each element is an independent
   value, §4.7.4) or a class (references are stored, §4.8.1).
 
+*Informative:* when a tensor device backend is active, a created
+array of the four numeric element kinds (`int`, `long`, `float`,
+`double`) may be device-resident (§18.7): the value is the same,
+the elements simply live on the accelerator. `byte` and `ubyte`
+arrays always stay on the host. The choice is made by the device
+selection, not by the program.
+
 ## 4.10.3 Reference semantics
 
 An array value is a reference type: assignment copies the
@@ -151,6 +158,13 @@ Array<int> m = Array(dims);           // rank 2
 m[1, 2] = 9;                          // two coordinates, rank 2: fine
 int v = m[0];                         // run-time error: 1 coordinate vs rank 2
 ```
+
+*Informative:* when the subscripted array is device-resident
+(§18.7), each element access transfers that single element across
+the device boundary — a transparent element read or write, not a
+copy of the whole array. A hot loop that indexes a device array one
+element at a time pays a transfer per index; express it as a tensor
+kernel instead.
 
 ## 4.10.6 Out of bounds
 

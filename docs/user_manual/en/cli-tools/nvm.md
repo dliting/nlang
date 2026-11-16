@@ -7,7 +7,7 @@ program repeatedly, and as the execution step in scripts and pipelines
 where the exit code decides the outcome.
 
 ```text
-nvm <program.ncu|.npkg> [-I <dir>...] [--verbose | -v] [--gc-stress=N] [--carriers=N]
+nvm <program.ncu|.npkg> [-I <dir>...] [--verbose | -v] [--gc-stress=N] [--carriers=N] [--tensor-backend=NAME]
 ```
 
 Runs a compiled program; the process exit code is `main`'s return value
@@ -24,6 +24,12 @@ defaults to at most four (capped by the machine's parallelism), and
 `--carriers=1` pins a single carrier for deterministic interleaving
 (see [the GIL and multiple carriers](../specification/10-concurrency/carriers.md)).
 A value outside the range is rejected before the program starts.
+`--tensor-backend=NAME` selects the [tensor device backend](../specification/library/18-tensor.md)
+(`cpu`, `cuda`, `auto`, or `mirror`); it overrides the
+`NLANG_TENSOR_BACKEND` environment variable, which takes the same
+values. The default is `auto`: use an installed device backend when
+present, otherwise run on the host. A value outside the set is
+rejected before the program starts.
 
 The artifact itself carries no library code: the loader first discovers
 every dependency along the search path (the standard-library archive,

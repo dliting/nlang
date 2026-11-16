@@ -8,7 +8,8 @@ of §5, and the array members of §4.10 apply unchanged. §18.1
 fixes the package form; §18.2 defines construction and shape
 operations; §18.3 defines the elementwise kernels and
 reductions; §18.4 defines the matrix product; §18.5 defines the
-example layer; §18.6 fixes the error model.
+example layer; §18.6 fixes the error model; §18.7 fixes the
+device backends.
 
 ## 18.1 Package Form
 
@@ -383,3 +384,126 @@ kernels.
 > build put elementwise `add` at roughly 49× the hand-written
 > loop and `dot` at roughly 117×; the figures describe the
 > current implementation, not a promise of the language.
+
+## 18.7 Device Backends
+
+The kernels can run on an accelerator. The language is
+unchanged — the same programs, the same arrays, the same
+results — and the device is a deployment detail, not a
+program detail. This section fixes how the device is chosen,
+which arrays live on it, and what a deployment ships.
+
+### Selection
+
+`nvm` names the backend with `--tensor-backend`
+(§CLI, `nvm`):
+
+```
+nvm --tensor-backend cuda app.npkg
+```
+
+The same value can be set with the environment variable
+`NLANG_TENSOR_BACKEND`; the flag overrides the variable. The
+accepted values are `cpu`, `cuda`, `auto`, and `mirror`.
+
+The default is `auto`. `auto` probes the installed device
+backends and uses the first one whose driver comes up; if none
+is present it falls back to `cpu` without a message. A shipped
+build therefore runs everywhere: on a machine with a GPU the
+kernels accelerate, on a machine without one they run on the
+host, and the program is unchanged. Selecting `cuda` when the
+CUDA plugin is absent is an error, not a fallback — naming a
+backend you expect and silently running on the host would be a
+lie. The same rule applies to a plugin that is present but
+fails to come up: `auto` reports one line on the error stream
+and continues on `cpu`, because a broken installation is worth
+one report. `mirror` is a host-side test backend: it exercises
+every device path over ordinary host memory, so the device code
+can be accepted on a machine with no GPU. `cpu` always runs the
+host path.
+
+`tensor.backend()` reports the active backend by name
+(`"cpu"`, `"cuda"`, or `"mirror"`), so a program can state its
+own device choice.
+
+### Where arrays live
+
+When a device backend is active, the four numeric element
+kinds (`int`, `long`, `float`, `double`) created by the
+language follow the device (§4.10.2): `float[3]`, `Array(dims)`,
+and the tensor creation family all mint device-resident arrays.
+`byte` and `ubyte` arrays never leave the host — they are the
+I/O buffer domain (file and network payloads), and a device
+pointer there would be a foreign dereference.
+
+Arrays move on request, not on accident. `tensor.toDevice(a)`
+lands a copy on the active device and `tensor.toHost(a)` lands
+one back; an operand already on the target is returned as-is, so
+both are safe to call unconditionally. A view's `toDevice`
+materializes the view's elements into the device copy. A kernel
+whose operands disagree on residency raises `Exception`, naming
+both sides and the fix:
+
+```
+tensor: operands on different devices (cuda vs host);
+        move them with tensor.toDevice/toHost
+```
+
+### Reading and writing a device array
+
+Subscripting a device array reads and writes one element per
+access, transferring that element across the device boundary
+each time. This is the same semantics as `tensor[0]` on a
+PyTorch or CuPy array — a transparent element access, not a
+copy of the whole array. Printing or serializing a device array
+transfers the payload once, in a single block, not element by
+element.
+
+*Informative:* a hot loop that indexes a device array one
+element at a time pays a transfer per index. Express the loop as
+a tensor kernel instead (`tensor.add`, `tensor.sum`, …) and the
+data moves once. Element-level subscripts are for the
+interactive and I/O edges of a program, not for the inner loop.
+
+### Deployment
+
+The CUDA backend is a plugin: `nlang_tensor_cuda.dll` beside
+`nlang_tensor.dll` in the native directory. Copy the two files
+together and the GPU path is available; omit the plugin and
+`auto` falls back to `cpu` with no further configuration. The
+host runtime never links the GPU driver, so a build without the
+plugin runs identically on a machine without a GPU.
+
+The backend contract is device-agnostic: a future accelerator
+(ROCm/HIP, for example) plugs in by shipping a sibling plugin
+DLL against the same contract, with no change to the core.
+
+### Cross-backend agreement
+
+The device path raises the same exception classes with the
+same message text as the host path — a `DivByZeroException` in
+an integer division, an `IndexOutOfBoundsException` for a
+gather index — so a `catch` written for the host reads the same
+on the device. Floating-point results may differ in the last
+digit between backends (the host and device use different
+reduction orderings); a program that asserts exact equality
+across backends is asserting on an implementation detail.
+
+### Known limitations
+
+Two operations are not yet on the CUDA backend, and one source
+shape is not yet handled by the reduction kernels.
+
+* `tensor.clamp` on an integer array (`int`, `long`) raises
+  `Exception` — only the `float` and `double` clamp are on the
+  device.
+* `tensor.gather` with `double` or `long` elements raises
+  `Exception` — the `float` and `int` gather are on the device.
+
+The whole-array and per-axis reduction kernels (`tensor.sum`,
+`tensor.max`/`tensor.min`, `tensor.mean`, `tensor.dot`,
+`tensor.reduce`, `tensor.argmax`/`tensor.argmin`) read their
+source as a dense span. A strided (non-contiguous) device array
+passed to one of them reads the wrong elements; a contiguous
+slice is handled correctly. `tensor.matmul` and `tensor.concat`
+materialize a strided operand first, so they are not affected.

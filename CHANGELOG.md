@@ -8,6 +8,79 @@ All notable changes to NLang are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.14.0]
+
+The tensor device-backend release: the whole tensor kernel table can now
+run on an accelerator through a pluggable device backend, and a CUDA
+plugin ships with the reference build. The language surface is
+unchanged — same programs, same arrays, same results; the device is a
+deployment detail, not a program detail.
+
+### Added
+
+- **CUDA device backend** — `nlang_tensor_cuda.dll` runs the whole
+  TensorOps table (creation, elementwise, reductions, matmul) on the
+  GPU; the `mnist_mlp` example trains to 0.895 test accuracy on the
+  device. Deploy it by copying the plugin beside
+  `nlang_tensor.dll`; the host runtime never links the GPU driver, so a
+  build without the plugin runs on machines without a GPU with no
+  configuration. The backend contract is device-agnostic: a future
+  accelerator (ROCm/HIP) plugs in as another plugin DLL in the same
+  directory with zero core changes.
+- **Backend selection** — `nvm --tensor-backend=NAME` and the
+  `NLANG_TENSOR_BACKEND` environment variable take `cpu`, `cuda`,
+  `auto` or `mirror`; the flag overrides the variable. The default is
+  `auto`: probe the installed device backends and use the first one
+  whose driver starts, or fall back to `cpu` silently when none is
+  present — one build, every machine. Naming `cuda` without the
+  plugin is an error, not a fallback (the process exits before the
+  program starts), and a misspelt name reports once on stderr and
+  runs on `cpu`. `tensor.backend()` reports the active backend's name
+  so a program can state its own device choice.
+- **Residency model** — with a device backend active, language
+  creation of the four numeric element kinds (`int`, `long`, `float`,
+  `double`) is device-resident; `byte`/`ubyte` arrays never leave the
+  host (I/O buffer domain). `tensor.toDevice(a)` and `tensor.toHost(a)`
+  move explicit copies; a same-residency operand returns as-is, so
+  both are safe to call unconditionally. A kernel call with
+  mixed-residency operands raises `Exception` naming both sides and
+  the fix.
+- **Device array access** — subscripts a device array element by
+  element: each access transfers that single element across the device
+  boundary (the PyTorch/CuPy semantics), and printing or serializing
+  moves the payload in one block.
+- **Cross-backend agreement** — exception classes and diagnostic
+  messages are word-for-word identical between the host and device
+  paths; floating-point results may differ in the last digit
+  (different reduction order), so an exact-equality assertion across
+  backends asserts on an implementation detail.
+
+### Changed
+
+- The e2e suite pins the tensor backend to `cpu` by default so its
+  results are hardware-independent; `NLANG_E2E_TENSOR_BACKEND=cuda|mirror`
+  selects a device double-run leg, and a per-test `.env` sidecar
+  layers environment-driven behavior over the pin.
+- **Host ABI 12 → 13.** `nlang_native_init` now takes the executor's
+  `NativeHost*` as a fourth argument — per-executor hook registration:
+  each executor's loader runs the module's init once, with its own
+  host. Device backends register the tensor's device hooks through
+  `setTensorDeviceHooks`; residency-aware array mints go through
+  `newArrayResident`; `snapshotRngForDevice` snapshots the shared
+  MT19937 stream atomically for device-side random fills.
+
+### Known limitations
+
+- Device residency is limited to the tensor package's numeric four
+  kinds; a hot loop over a device array must be written as tensor
+  kernels — an element-level subscript pays a transfer per access.
+- Single stream, no kernel overlap: a performance architecture
+  decision, not a correctness gap; the upgrade path is on the
+  backlog.
+- The CUDA plugin needs the CUDA 12.6 toolchain at build time and a
+  compatible driver at run time; the host runtime itself has no GPU
+  dependency.
+
 ## [0.13.7]
 
 The tensor vector-ops release: numpy-style array arithmetic in the

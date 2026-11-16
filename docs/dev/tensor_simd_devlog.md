@@ -93,3 +93,11 @@ mirror后端（malloc hooks+cpu表）验收了P2驻留模型，但它的"设备"
 - **LaunchView忘拷elemKind**：ToLaunch建几何结构时漏了一个字段，f32数组的elemKind默认0(=int32)——归约内核的门把它当int拒掉。教训：**手写结构体拷贝函数必须逐字段对照定义**，漏字段在默认值恰好合法时静默通过。
 
 这四条与镜像掩盖的关系是系统性的：**验收后端与生产后端共享越少代码路径，掩盖越少**。mirror的长期定位是"驻留语义测试 vehicle"，性能与路由正确性必须靠真cuda的parity钉。
+
+##14. D3a选择语义与P4收尾（2026-11-16）
+
+- **静默落回对拼错的名字是谎话**：D3a把默认定为auto（未设置env→探测→第一个驱动成功启动的设备，缺席静默落回cpu），但显式名字是契约——拼错的`NLANG_TENSOR_BACKEND=cdua`若也静默落回，用户要的加速就无声丢了。裁决：未知名向错误流写一行（`tensor: unknown backend 'cdua' — running on cpu`）并跑cpu；显式`cuda`缺席则fail-fast（进程在程序启动前退出）。验收靠四条e2e钉：cpu断言、auto双值断言（b=="cpu"||b=="cuda"，硬件无关）、env侧车钉stderr文案、坏flag钉退出码2（CLI在模块加载前就拒绝）。
+- **注册表死代码**：P3路由定稿后`ActiveTensorOps()`（env名字查表）与`RegisterTensorOps()`（名字注册）零调用方——删掉名字查找间接层，宿主路径一律走`CpuTensorOps()`直接入口。这与§13第一条是同一类病的两次发作：**同一张表有两个获取入口时，全局名字入口必然反噬显式要cpu的调用点**；mirror的表就是cpu表，所以名字查找在mirror下永远碰巧对。
+- **e2e套件的硬件无关化**：套件默认钉`NLANG_TENSOR_BACKEND=cpu`（结果不依赖本机有没有GPU），`NLANG_E2E_TENSOR_BACKEND=cuda|mirror`开设备双跑腿，逐测试`.env`伴随文件（KEY=VALUE行）在钉上叠环境变量——env-only的臂（如未知名诊断）nvm CLI够不着（CLI在模块加载前就拒了），只能靠运行期环境钉。`.flags`仍优先于env。
+- **staleness守卫是有意的过近似**：工具mtime必须≥最新src、npkg必须≥ncc.exe。工具不依赖tensor源时，no-op重建不刷mtime，`touch`合法（守卫文档明说的过近似）；npkg那条则必须真重建`nlang_stdlib_package`，touch会留下假新。
+- **ABI改签名漏改测试**：P2给模块init加`NativeHost*`参数（ABI v13）时同步改了`NativeLibraryLoader::EnsureLoaded`的形参表，但`test_native_loader.cpp`的八处调用没补第三个实参——已提交代码在tests开启的树上编译不过。Release树配成`NLANG_BUILD_TESTS=OFF`，单测腿不存在，编译错误要到Debug树的ctest才炸出来。教训：**ABI类变更的完成定义包含测试树的全量编译**——"生产树能编"不等于"分支能编"；三树门禁的价值正在于各树测试配置不同，单树门禁看不见这种缺口。
