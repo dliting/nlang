@@ -620,9 +620,10 @@ case_a6_no_write_dir() {
 }
 
 # The print mode must fold every spelling of one directory onto one lock key;
-# the eleven spellings below are listed in the plan because each one is a
-# separate arm of the flag set (four long flags, one short flag, the '=' form,
-# the relative form, the backslash form, and the env channel).
+# the thirteen spellings below are listed in the plan because each one is a
+# separate arm of the flag set (four long flags, one short flag, the '=' form
+# of each long flag, the relative form, the backslash form, and the env
+# channel).
 case_a7_print_write_dirs() {
     local dir="$WS/t1"
     mkdir -p "$dir"
@@ -653,7 +654,9 @@ case_a7_print_write_dirs() {
     a7_run test-dir --test-dir "$abs"
     a7_run test-dir-eq "--test-dir=$abs"
     a7_run site-dir --site-dir "$abs"
+    a7_run site-dir-eq "--site-dir=$abs"
     a7_run workdir --workdir "$abs"
+    a7_run workdir-eq "--workdir=$abs"
     local env_line env_rc
     env_line=$(NLANG_GATE_WRITE_DIR="$abs" bash "$GATE_SH" --print-write-dirs 2> "a7-env.err")
     env_rc=$?
@@ -690,6 +693,83 @@ case_a7_print_write_dirs() {
     fi
 }
 
+# The usage line is the only documentation a person who mistypes the
+# invocation actually reads, and --print-write-dirs is an advertised way to run
+# gate.sh (the docs-build legs and the configure-time probe both use it), so it
+# has to be named there next to --shared (spec 九).
+case_a8_usage_lists_print_mode() {
+    local err=a8-usage.err rc
+    # A bare call has no name, no stem and no command, so usage() is the only
+    # path it can take; usage goes to stderr, like the other error output.
+    bash "$GATE_SH" > a8-usage.out 2> "$err"
+    rc=$?
+    if [ "$rc" -ne 64 ]; then
+        fail "$case_name" "bare invocation should exit 64, got $rc"
+        return
+    fi
+    if [ "$(count_lines "$err" "--print-write-dirs")" -ne 1 ]; then
+        fail "$case_name" "usage does not mention --print-write-dirs: $(tr '\n' ';' < "$err" 2>/dev/null)"
+    else
+        pass "$case_name"
+    fi
+}
+
+# A missing lock key is the one derivation failure the exit code cannot see: the
+# directory is real and sha256sum succeeded, it just printed no digest (a tool
+# shadowed by a stub, a digest tool mid-update). The leg has to run anyway —
+# that is the same degradation policy as an undervivable directory (spec D-7) —
+# but it has to say so, naming the directory that is going unlocked.
+case_a9_no_digest_warning() {
+    local name=a9 stem=a9 dir="$WS/t9" bin="$WS/bin-a9"
+    mkdir -p "$dir" "$bin"
+    # The normalized path the warning has to name, taken from the print mode
+    # with the real digest tool: reusing gate.sh's own recipe here keeps the
+    # test from carrying a second copy of the normalization (spec 八.2).
+    local want_path
+    want_path=$(bash "$GATE_SH" --print-write-dirs --build "$dir" 2> "$stem.print.err")
+    want_path=${want_path#* path }
+    if [ -z "$want_path" ]; then
+        fail "$case_name" "print mode gave no path for $dir: $(cat "$stem.print.err" 2>/dev/null)"
+        return
+    fi
+    printf '#!/usr/bin/env bash\nexit 0\n' > "$bin/sha256sum"
+    chmod +x "$bin/sha256sum"
+    # PATH is set for this one call only, and on the same line as the command
+    # (exporting it would re-point every later leg) — the same reason leg_env()
+    # cannot go through leg(). sha256sum has exactly one consumer in gate.sh
+    # (wdir_key), so the stub cannot be quietly reached through by the machine
+    # lock or by the wrapped command, which is a `bash -c` that ignores the two
+    # tokens the derivation still has to read. The leg is awaited on the suite's
+    # own deadline rather than run in the foreground, because the defect this
+    # case pins is a leg that never reaches its verdict: with an empty key half
+    # (read strips a leading tab) the path landed in $key and the leg waited for
+    # a lock directory that could never be created.
+    PATH="$bin:$PATH" bash "$GATE_SH" --shared "$name" "$stem" \
+        bash -c 'exit 0' ignore --build "$dir" > "$stem.console" 2>&1 &
+    local leg_pid=$!
+    if ! await "$stem.console" "GATE $name: PASS"; then
+        # Nothing releases a leg stuck in the acquire loop — the lock directory
+        # it waits for can never exist, so no stale takeover will ever fire — and
+        # fail() waits for every leg of the case. Killing it keeps a red run to
+        # this case instead of hanging the suite.
+        kill "$leg_pid" 2>/dev/null
+        wait "$leg_pid" 2>/dev/null
+        fail "$case_name" "no PASS verdict with a missing digest: $(tr '\n' ';' < "$stem.console" 2>/dev/null)"
+        return
+    fi
+    local warned
+    warned=$(count_lines "$stem.console" "no lock key for")
+    if [ "$warned" -ne 1 ]; then
+        fail "$case_name" "expected exactly one 'no lock key for' line, found $warned: $(tr '\n' ';' < "$stem.console" 2>/dev/null)"
+    elif ! grep -F -q -e "no lock key for $want_path" -- "$stem.console"; then
+        fail "$case_name" "warning does not name $want_path: $(tr '\n' ';' < "$stem.console" 2>/dev/null)"
+    elif ! holder_records 0 > /dev/null; then
+        fail "$case_name" "a lock got claimed under an empty key: $(holder_dump | tr '\n' ';')"
+    else
+        pass "$case_name"
+    fi
+}
+
 run_case() { # run_case <name> <function>: no case runs once the budget is gone
     local case_name="$1"   # visible to the case body through bash's dynamic scope
     if [ "$(deadline)" -eq 0 ]; then
@@ -708,6 +788,8 @@ run_case a4-two-tree-vs-single case_a4_two_tree_vs_single
 run_case a5-env-write-dir case_a5_env_write_dir
 run_case a6-no-write-dir case_a6_no_write_dir
 run_case a7-print-write-dirs case_a7_print_write_dirs
+run_case a8-usage-lists-print-mode case_a8_usage_lists_print_mode
+run_case a9-no-digest-warning case_a9_no_digest_warning
 
 verdict() {
     if [ "$failures" -eq 0 ]; then

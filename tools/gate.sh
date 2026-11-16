@@ -7,6 +7,7 @@
 # through this script instead of a piped tail.
 #
 # Usage: tools/gate.sh [--shared] <name> <logfile-stem> <command> [args...]
+#        tools/gate.sh --print-write-dirs <command> [args...]
 #   - stdout and stderr are captured SEPARATELY to <stem>.out/.err
 #     (merged capture can interleave and drop lines).
 #   - The command runs without a pipe; its own exit code is final.
@@ -66,7 +67,16 @@
 # same threshold; when that is too long, the waiting line prints the holder
 # (its path= names the directory), the claim can be removed by hand, or
 # NLANG_GATE_STALE_S lowers the threshold. A --shared gate from which no
-# directory can be derived prints a warning and runs unlocked.
+# directory can be derived prints a warning and runs unlocked, and one whose
+# digest tool printed no hash for a directory it did derive warns the same way
+# rather than claiming a lock under an unusable name.
+#
+# --print-write-dirs runs that same derivation and prints one
+# "key <16 hex> path <dir>" line per derived directory: no leg name, no lock of
+# any kind, no output files, so a configure-time probe can read the keys without
+# queueing behind a batch. It is the only place the normalization recipe lives
+# for a caller; hashing the paths itself would put a second copy of the recipe
+# in that caller's file.
 #
 # Env overrides, for the probes in temp/ and for CI:
 #   NLANG_GATE_LOCK_DIR (the lock directory itself), NLANG_GATE_POLL_S,
@@ -96,6 +106,9 @@ wdir_held=""
 
 usage() {
     echo "usage: tools/gate.sh [--shared] <name> <logfile-stem> <command> [args...]" >&2
+    echo "       tools/gate.sh --print-write-dirs <command> [args...]" >&2
+    echo "           prints the derived write-directory keys; takes no lock and" >&2
+    echo "           writes no file, so a configure-time probe can run in a batch" >&2
     exit 64
 }
 
@@ -386,7 +399,7 @@ acquire() {
 # side. Only build gates ask: the machine lock already keeps every test gate out
 # of every build gate's way, so a test gate has nothing left to conflict with.
 acquire_wdirs() {
-    local wdirs wdir_path key desc waited
+    local wdirs pair wdir_path key desc waited
     if [ "$shared_mode" -ne 1 ]; then
         return 0
     fi
@@ -399,11 +412,24 @@ acquire_wdirs() {
         echo "LOCK $name: no write directory derived from the command line, no directory lock taken"
         return 0
     fi
-    # Ascending key order, not argv order: see wdir_keyed_pairs. The key is the
-    # fixed width prefix of each pair, so the tab split below cannot be confused
-    # by a directory name that contains one.
-    while IFS=$'\t' read -r key wdir_path; do
-        [ -n "$key" ] || continue
+    # Ascending key order, not argv order: see wdir_keyed_pairs. The pair is
+    # split by hand at the first tab instead of with IFS=$'\t', because read
+    # treats a tab as IFS whitespace and strips a leading one: an empty key half
+    # (a digest tool that printed no hash) would then land the path in $key,
+    # leave $wdir_path empty, and have the claim below wait for a lock directory
+    # that can never be created. The key half is hex-only, so the first tab is
+    # never ambiguous (spec D-8).
+    while IFS= read -r pair; do
+        [ -n "$pair" ] || continue
+        key=${pair%%$'\t'*}
+        wdir_path=${pair#*$'\t'}
+        if [ -z "$key" ]; then
+            # The same degradation as an undervivable directory above (spec
+            # D-7): the leg still runs, but it names the directory that is
+            # getting no lock, so a silently unlocked tree stays impossible.
+            echo "LOCK $name: no lock key for $wdir_path (the digest tool printed no hash), no directory lock taken"
+            continue
+        fi
         waited=0
         while :; do
             # Re-made every round, for the same reason acquire() re-makes the lock
