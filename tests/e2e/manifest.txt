@@ -2292,3 +2292,4 @@ op_device_backend 0
 op_device_auto 0
 op_device_unknown_env 0
 op_device_bad_flag 2
+op_tensor_extreme_inf 0

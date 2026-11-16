@@ -55,6 +55,7 @@ op_device_backend
 op_device_auto
 op_device_unknown_env
 op_device_bad_flag
+op_tensor_extreme_inf
 
 # --- 2. full-set sample (control surface) ---
 # file / io: byte-buffer domain must stay host-resident

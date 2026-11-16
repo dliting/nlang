@@ -1,0 +1,20 @@
+// Device-line P4: the extreme kernel's tail-block identity must not beat a
+// real ±inf element. IEEE 754 overflow can produce ±inf (1e200 * 1e200); on
+// the device the OOB threads take ±inf, so only ±inf is beyond a real ±inf.
+// A finite DBL_MAX identity would let an OOB thread beat a real ±inf and
+// return the wrong value. The cpu path is always correct (a first-flag
+// walk), so this pins the device path via the cuda double-run.
+import tensor;
+
+int main() {
+    double big = 1e200;
+    double inf = big * big;        // +inf (overflow)
+    double ninf = -inf;             // -inf
+    double[] a = [ninf, ninf];     // every element is -inf
+    double m = tensor.max(a);
+    if (m != ninf) return 1;        // max of all -inf is -inf
+    double[] b = [inf, inf];        // every element is +inf
+    double n = tensor.min(b);
+    if (n != inf) return 2;         // min of all +inf is +inf
+    return 0;
+}

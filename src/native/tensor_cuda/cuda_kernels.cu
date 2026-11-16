@@ -942,11 +942,16 @@ __global__ void ExtremePartialKernel(const double* src, int64_t count,
     //Tail-block threads past the end take the identity (-inf for max, +inf
     //for min) so they never win; a real first element still lands directly
     //first-wins (a later NaN in the strided range never replaces it). The
-    //identity is +/-DBL_MAX, not literal infinity: no real double exceeds
-    //DBL_MAX, so the identity never wins, and it is finite (a double
-    //INFINITY is a float in device code and overflows to inf, tripping the
-    //nvcc 221-D warning on the implicit conversion).
-    const double inf = isMax ? -DBL_MAX : DBL_MAX;
+    //identity is ±inf, not a finite bound: a real element can be an
+    //overflow-produced ±inf (IEEE 754, e.g. 1e200 * 1e200), and only ±inf
+    //is beyond it, so a finite DBL_MAX would let an OOB thread beat a real
+    //±inf. Constructed from the IEEE bit pattern (DBL_INFINITY is a __host__
+    //limits value, undefined in device code), so no double→float conversion
+    //and no nvcc 221-D warning — the double analog of the f32 kernel's
+    //__int_as_float(0x7f800000).
+    const double inf = isMax
+        ? -__longlong_as_double(0x7ff0000000000000LL)
+        :  __longlong_as_double(0x7ff0000000000000LL);
     if (base + tid < count)
         local[tid] = src[base + tid];
     else
