@@ -103,6 +103,12 @@ derive_asan_subset() {
   [ -n "$selector" ] || { echo "T1-asan-subset selector missing" >&2; return 1; }
   grep -E "$selector" "$REPO/tests/e2e/manifest.txt" \
       > "$WORK/asan_subset_derived.txt"
+  if [ ! -s "$WORK/asan_subset_derived.txt" ]; then
+    #A selector matching zero manifest rows is a mapping/table
+    #inconsistency; running the leg would be vacuously green.
+    echo "T1-asan-subset selector '$selector' matched no manifest rows" >&2
+    return 2
+  fi
 }
 
 docs_legs() {
@@ -160,6 +166,12 @@ t0() {
   if [ -n "$e2e_regex" ]; then
     grep -E "$e2e_regex" "$REPO/tests/e2e/manifest.txt" \
         > "$WORK/t0_subset.txt"
+    if [ ! -s "$WORK/t0_subset.txt" ]; then
+      #A nonempty selector matching zero manifest rows is a mapping/
+      #table inconsistency; running the leg would be vacuously green.
+      echo "T0: e2e selector '$e2e_regex' matched no manifest rows"
+      return 2
+    fi
     e2e_leg T0-e2e "$MASTER_TREE" Debug "$WORK/t0_subset.txt" 120
   fi
   [ ${#LEG_NAMES[@]} -gt 0 ] || { echo "T0: nothing to run"; return 0; }
@@ -193,4 +205,10 @@ for name in "${LEG_NAMES[@]}"; do
   echo "$line"
   [[ "$line" == *FAIL* || "$line" == *NO-VERDICT* ]] && local_rc=1
 done
-exit $batch_rc
+#The exit code follows the VERDICTS, not the assembly return: a batch
+#whose legs all ran but drew a FAIL/NO-VERDICT verdict line must exit
+#nonzero (the assembly rc only covers leg-launch failures). The
+#verdict-discipline ruling: gate verdicts are the GATE lines and the
+#exit code, together.
+[ "$local_rc" -ne 0 ] && exit 1
+exit "$batch_rc"
