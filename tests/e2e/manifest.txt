@@ -2424,3 +2424,16 @@ refbind_promote_string 1
 refbind_promote_gc_survival 9
 refbind_promote_direct_guard 8
 refbind_promote_zero_init_guard 0
+# --- v0.13.9 phase 3 Task 5: & parameters and reference bindings ---
+refbind_param_local 11
+refbind_param_field 42
+refbind_param_element 2
+refbind_param_struct 12
+refbind_param_rvalue 3
+refbind_param_exception 5
+refbind_param_alias 6
+refbind_param_byval_floor 1
+refbind_local_member 9
+refbind_local_element 8
+refbind_local_chain 9
+refbind_local_rvalue 3

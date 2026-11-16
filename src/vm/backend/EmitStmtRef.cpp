@@ -127,15 +127,12 @@ void VmBackend::EmitPromotedAssignBareLocal(SnAssignStmt& assign,
 
 //Store through a reference local. The decomposed binding assign (the
 //decl's own `r = init`, NF_Generated) points the pair at the target
-//storage; user stores dereference. Task 4 emits only the promoted-
-//identifier binding; every other accepted binding shape (member,
-//subscript, rvalue — the MakeRef family) arrives with the &-parameter
-//task and throws until then.
+//storage via the MakeRef family; user stores dereference.
 void VmBackend::EmitRefAssignBareLocal(SnAssignStmt& assign,
     SnField* pLeftField, uint16_t offset, BytecodeEmitter& emitter)
 {
     if (assign.ContainFlags(NF_Generated)) {
-        EmitRefBindInit(assign, pLeftField, offset, emitter);
+        EmitRefBindInit(assign, offset, emitter);
         return;
     }
     EvalAreaClaim claim(*this, 1);
@@ -150,33 +147,12 @@ void VmBackend::EmitRefAssignBareLocal(SnAssignStmt& assign,
     emitter.EmitUint16(valueSlot);
 }
 
-//The `r = init` binding store. Task 4: the initializer resolved to a
-//promoted local/param identifier — one RefOfPromoted copies the
-//(box handle, payload cell) pair into the reference slot. All other
-//shapes are Task 5's; reaching emission before that task means the
-//resolver accepted a form whose emitter has not landed — fail the
-//build with the sequencing note instead of emitting wrong code.
-void VmBackend::EmitRefBindInit(SnAssignStmt& assign, SnField* pLeftField,
-    uint16_t offset, BytecodeEmitter& emitter)
+//The `r = init` binding store. Task 5: the same MakeRef family the
+//&-argument arm uses (spec §3.9 — one judgment, one emission).
+void VmBackend::EmitRefBindInit(SnAssignStmt& assign, uint16_t offset,
+    BytecodeEmitter& emitter)
 {
-    auto& rhs = *assign.Right();
-    if (rhs.Kind() == NK_IdentifierExpr) {
-        auto* pTarget = static_cast<SnIdentifierExpr&>(rhs).Field();
-        if (pTarget && pTarget->ContainFlags(NF_Promoted)) {
-            auto src = ResolveBareIdentifier(pTarget);
-            NLANG_ASSERT(src.kind == BareIdTarget::Local);
-            emitter.Emit(OpCode::OP_RefOfPromoted);
-            emitter.EmitUint16(offset);
-            emitter.EmitUint16(src.localOffset);
-            return;
-        }
-        throw std::runtime_error(
-            "NLang backend: reference binding to a non-promoted target "
-            "awaits the &-parameter task (phase 3 Task 5)");
-    }
-    throw std::runtime_error(
-        "NLang backend: reference binding to a non-identifier initializer "
-        "awaits the &-parameter task (phase 3 Task 5)");
+    EmitMakeRef(offset, *assign.Right(), emitter);
 }
 
 //Compound read-modify-write through promoted/reference local storage:

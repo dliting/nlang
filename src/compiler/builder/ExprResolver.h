@@ -866,6 +866,12 @@ private:
 	bool ResolveInvokeWithFunc(SnInvokeExpr &invoke, SnFunction &func,
 		FindFuncResult match, std::vector<FormalBinding> &bindings);
 
+	//Phase 13: the func-ref argument binder of ResolveInvokeWithFunc
+	//(source-size split) — binds unbound identifier/member function
+	//references against the chosen overload's formal func types. Logs
+	//and returns false on the first failure.
+	bool BindArgFuncRefs(std::vector<FormalBinding> &bindings);
+
 	//Phase 9e: out arguments on virtual (or by-name dispatched) methods are
 	//rejected — the writeback mask is baked into the call instruction
 	//against the static callee's parameter layout; a runtime override

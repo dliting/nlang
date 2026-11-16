@@ -1,0 +1,11 @@
+// v0.13.9 phase 3 Task 5: a & formal binds an array element cell; the
+// write lands in a[0].
+void bump(int& v) {
+    v = v + 1;
+}
+int main() {
+    int a[3];
+    a[0] = 1;
+    bump(a[0]);
+    return a[0];
+}

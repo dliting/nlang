@@ -1,0 +1,9 @@
+// v0.13.9 phase 3 Task 5: the no-& floor — value semantics unchanged.
+void byVal(int v) {
+    v = 99;
+}
+int main() {
+    int x = 1;
+    byVal(x);
+    return x;
+}

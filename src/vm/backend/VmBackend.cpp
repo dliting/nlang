@@ -149,12 +149,15 @@ void VmBackend::AllocParamsAndDefaults(SnFunction& func, FuncContext& ctx,
 
     // Allocate slots for parameters
     for (auto& param : func.Params()) {
-        //v0.13.9 phase 3 Task 4: a promoted formal's slot holds the
-        //byref pair (EmitPromotedParamPrologue rewrites it right after
-        //frame entry); the GC roots the pair's base handle via the
-        //RTK_Byref slot class (ESC_HeapIndex).
+        //v0.13.9 phase 3 Task 4/5: promoted formals (the raw argument
+        //re-wrapped into the stable box by EmitPromotedParamPrologue)
+        //and & formals (the caller stores the (base record, cell) pair
+        //directly) both hold byref pairs; the GC roots the pair's base
+        //handle via the RTK_Byref slot class (ESC_HeapIndex). The two
+        //marks are mutually exclusive: ref-to-ref binding is rejected.
         AllocLocal(param.Name(), kFrameSlotBytes,
-                   param.ContainFlags(NF_Promoted)
+                   (param.ContainFlags(NF_Promoted)
+                        || param.ContainFlags(NF_Ref))
                        ? RTK_Byref
                        : RuntimeTypeKind(param.EvalDataType()),
                    true);

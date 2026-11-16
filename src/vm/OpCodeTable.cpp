@@ -111,6 +111,7 @@ static const char* s_OpCodeNames[] = {
     "ref_of_promoted",
     "ref_of_field",
     "ref_of_element",
+    "ref_of_element_n",
     "ref_handle",
     "load_ref",
     "store_ref",

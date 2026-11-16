@@ -167,35 +167,53 @@ void VmBackend::EmitBinding(const FormalBinding* pBindings, size_t bindingIdx,
                            paramOffset, emitter, thisSlot);
     } else {
         NLANG_ASSERT(b.pCallerExpr);
+        //v0.13.9 phase 3 Task 5: a & formal binds the caller's storage
+        //— one MakeRef pair into the claim slot; the raw bulk copy to
+        //callParamBase moves it unchanged. Skips the rank boundary, the
+        //box plans and the struct deep copy below: the callee aliases
+        //the caller's record, it never receives a copy.
+        if (b.pFormal->ContainFlags(NF_Ref)) {
+            EmitMakeRef(paramOffset, *b.pCallerExpr, emitter);
+            return;
+        }
         EmitExpression(*b.pCallerExpr, emitter, paramOffset);
     }
 
-    //Struct deep-copy: if the formal is a struct type, copy the heap
-    //subtree so the callee gets its own. Array-typed formals carry their
-    //interned array token in EvalDataType (0.7.3 B), which
-    //RuntimeTypeKind files as RTK_Array — so arrays pass by reference
-    //regardless of element kind, with no separate IsArrayType guard
-    //(Phase 9d-3 dispatch invariant, now derived from the token).
-    //Record stabilization (v0.13.9 phase ②): a slot whose arg plan
-    //says suppressStagingCopy (List.set/Dict.set value) skips the
-    //staging copy — the intrinsic writes the value's cells into the
-    //element's EXISTING record in place.
+    EmitStructBindingCopy(pFormalType, paramOffset, slotIdx, pArgPlans,
+                          emitter);
+}
+
+//Struct deep-copy arm of EmitBinding: if the formal is a struct type,
+//copy the heap subtree so the callee gets its own. Array-typed formals
+//carry their interned array token in EvalDataType (0.7.3 B), which
+//RuntimeTypeKind files as RTK_Array — so arrays pass by reference
+//regardless of element kind, with no separate IsArrayType guard
+//(Phase 9d-3 dispatch invariant, now derived from the token).
+//Record stabilization (v0.13.9 phase ②): a slot whose arg plan
+//says suppressStagingCopy (List.set/Dict.set value) skips the
+//staging copy — the intrinsic writes the value's cells into the
+//element's EXISTING record in place.
+void VmBackend::EmitStructBindingCopy(SnField* pFormalType,
+    uint16_t paramOffset, uint16_t slotIdx,
+    const std::map<uint16_t, ArgBoxPlan>* pArgPlans,
+    BytecodeEmitter& emitter)
+{
     bool suppressStagingCopy = false;
     if (pArgPlans) {
         auto it = pArgPlans->find(slotIdx);
         if (it != pArgPlans->end())
             suppressStagingCopy = it->second.suppressStagingCopy;
     }
-    if (!suppressStagingCopy && pFormalType
-        && RuntimeTypeKind(pFormalType) == RTK_Struct
-        && pFormalType->Kind() == NK_StructDecl) {
-        EmitStructDeepCopy(m_currFunc->tempSlot, paramOffset,
-            static_cast<SnStructDecl&>(*pFormalType), emitter);
-        emitter.Emit(OpCode::OP_VarLocal);
-        emitter.EmitUint16(m_currFunc->tempSlot);
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(paramOffset);
-    }
+    if (suppressStagingCopy || !pFormalType
+        || RuntimeTypeKind(pFormalType) != RTK_Struct
+        || pFormalType->Kind() != NK_StructDecl)
+        return;
+    EmitStructDeepCopy(m_currFunc->tempSlot, paramOffset,
+        static_cast<SnStructDecl&>(*pFormalType), emitter);
+    emitter.Emit(OpCode::OP_VarLocal);
+    emitter.EmitUint16(m_currFunc->tempSlot);
+    emitter.Emit(OpCode::OP_Assign);
+    emitter.EmitUint16(paramOffset);
 }
 
 uint32_t VmBackend::BuildOutMask(const std::vector<OutSpill>& spills)

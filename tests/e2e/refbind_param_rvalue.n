@@ -1,0 +1,12 @@
+// v0.13.9 phase 3 Task 5: an rvalue argument to a & formal binds a
+// temporary record — legal, writes lost, reads see the fresh value.
+void bump(int& v) {
+    v = v + 1;
+}
+int read(int& v) {
+    return v;
+}
+int main() {
+    bump(1 + 2);
+    return read(3);
+}

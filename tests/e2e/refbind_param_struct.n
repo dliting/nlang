@@ -1,0 +1,17 @@
+// v0.13.9 phase 3 Task 5: a struct & formal binds the caller's record —
+// no deep copy, the callee's mutation is visible.
+struct Point {
+    int x;
+    int y;
+}
+void scale(Point& p) {
+    p.x = p.x * 2;
+    p.y = p.y * 2;
+}
+int main() {
+    Point pt;
+    pt.x = 1;
+    pt.y = 5;
+    scale(pt);
+    return pt.x + pt.y;
+}

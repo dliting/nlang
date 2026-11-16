@@ -675,6 +675,36 @@ target_compile_definitions(test_promote_local
 
 add_test(NAME promote_local_tests COMMAND test_promote_local)
 
+# v0.13.9 phase ③ Task 5: & parameters and reference bindings — write-
+# through to the caller's local/field/element, struct & formals without
+# deep copy, rvalue bindings legal with writes lost, exception partial-
+# write visibility, f(x,x) aliasing, argument-side box suppression.
+add_executable(test_ref_params
+    test_vm/test_ref_params.cpp
+)
+
+target_include_directories(test_ref_params
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/compiler
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_ref_params
+    PRIVATE
+        nlang_vm
+        nlang_compiler
+        nlang_runtime
+        nlang_langservice
+)
+nlang_stdlib_test(test_ref_params)
+target_compile_definitions(test_ref_params
+    PRIVATE
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+)
+
+add_test(NAME ref_params_tests COMMAND test_ref_params)
+
 target_include_directories(test_array_view_record
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm

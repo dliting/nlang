@@ -154,6 +154,54 @@ void VmExecutor::OpRefOfElement(BytecodeReader& reader, uint8_t* locals) {
     std::memcpy(locals + dst, pair, sizeof(pair));
 }
 
+//Rank-N array element bind: the flat-address walk of OP_LoadElementN
+//(the emitter cannot precompute the flat index for dynamic shapes),
+//but the destination is the (owner record, cell) pair like
+//OP_RefOfElement. The view peel and the payload window check are the
+//rank-1 opcode's, shared verbatim.
+void VmExecutor::OpRefOfElementN(BytecodeReader& reader, uint8_t* locals) {
+    const uint16_t dst = reader.ReadUint16();
+    const uint16_t arr = reader.ReadUint16();
+    const uint16_t idxBase = reader.ReadUint16();
+    const uint16_t rank = reader.ReadUint16();
+    int32_t heapIdx;
+    std::memcpy(&heapIdx, locals + arr, sizeof(heapIdx));
+    if (heapIdx <= 0 || static_cast<size_t>(heapIdx) >= m_structHeap.size())
+        RaiseNlangException(m_nullPtrExcClassIdx,
+                            "NLang VM: null array access");
+    const uint8_t kind = m_slotKinds[static_cast<size_t>(heapIdx)];
+    if (kind != RTK_Array && kind != RTK_ArrayView)
+        throw std::runtime_error(
+            "NLang VM: OP_RefOfElementN expects an array slot");
+    auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
+    if (static_cast<uint16_t>(slot[2]) != rank)
+        throw std::runtime_error(
+            "NLang VM: OP_RefOfElementN rank mismatch");
+    const int64_t flat =
+        ElementFlatAddress(slot, kind, rank, idxBase, locals);
+    uint16_t elemArrayTypeIdx = static_cast<uint16_t>(slot[1]);
+    if (elemArrayTypeIdx >= m_currModule->arrayTypes.size())
+        throw std::runtime_error(
+            "NLang VM: OP_RefOfElementN on invalid array type");
+    const int cells = ArrayElemCells(
+        m_currModule->arrayTypes[elemArrayTypeIdx].elemKind);
+    int32_t baseHandle = heapIdx;
+    if (kind == RTK_ArrayView)
+        baseHandle = slot[ArrayViewTargetCell(
+            static_cast<uint8_t>(slot[2]))];
+    size_t payloadBase;
+    auto& payload = ElementPayloadRecord(slot, kind, payloadBase);
+    const int64_t cell = static_cast<int64_t>(payloadBase)
+        + flat * cells;
+    if (cell < 0
+        || static_cast<size_t>(cell) + static_cast<size_t>(cells)
+            > payload.size())
+        throw std::runtime_error(
+            "NLang VM: OP_RefOfElementN cell window out of bounds");
+    const int32_t pair[2] = {baseHandle, static_cast<int32_t>(cell)};
+    std::memcpy(locals + dst, pair, sizeof(pair));
+}
+
 //Struct& consumption: extract the pair's base handle back into a
 //struct-valued slot (offset 0) — the field ops take it from there.
 void VmExecutor::OpRefHandle(BytecodeReader& reader, uint8_t* locals) {

@@ -2,8 +2,13 @@
     StatementResolverRef.cpp — 引用绑定家族（v0.13.9 phase 3）：声明符形态、
     存储门、绑定判定、&返回契约与foreach &源检查。
     按语句族分文件（source-size guard，沿用DeclDefaults先例）。
+    Task 5: the shared judgment (binding targets, promotion marking,
+    storage gates, position family) moved to the free functions in
+    RefBindJudgment.cpp — the &-argument call site consumes the same
+    judgment; these members are thin delegates.
 ---*/
 #include "StatementResolver.h"
+#include "RefBindJudgment.h"
 #include <nlang/compiler/CastInfo.h>
 #include <nlang/runtime/BuiltinGenericNames.h>
 
@@ -48,202 +53,46 @@ bool StatementResolveAccessor::RejectRefDeclaratorShapes(
 }
 
 //v0.13.9 phase 3: the storage gates shared by the identifier and member
-//arms of the &-binding judgment AND by the &-return judgment — the
-//out-argument three-check template (const/static) widened with the
-//constant-position family. Locals and formals carry NF_Ref on their
-//DESCRIPTOR (propagated from the type node); the binding-to-a-reference
-//gate is a BINDING-only rule (RejectRefTargetIsReference) because
-//returning a reference formal is the canonical legal shape. True =
-//rejected.
+//arms of the &-binding judgment AND by the &-return judgment. Delegate
+//(RefBindJudgment.cpp) — the &-argument call site consumes the same
+//gates. True = rejected.
 bool StatementResolveAccessor::RejectRefTargetStorage(SnField *pField,
 	const ISourceLocation *pLoc)
 {
-	if (!pField)
-		return false;	//resolution already reported the shape
-	if (pField->Kind() == NK_EnumMember)
-	{
-		m_Env.Log(CLL_Error, pLoc,
-			"cannot bind a reference to enum member \"%s\".",
-			pField->Name().c_str());
-		return true;
-	}
-	if (pField->ContainFlags(NF_Const)
-		|| IsInterfaceConstantField(*pField))
-	{
-		m_Env.Log(CLL_Error, pLoc,
-			"cannot bind a reference to const storage \"%s\"; a "
-			"reference may write through its target.",
-			pField->Name().c_str());
-		return true;
-	}
-	if (pField->ContainFlags(NF_Static))
-	{
-		m_Env.Log(CLL_Error, pLoc,
-			"cannot bind a reference to static storage \"%s\"; static "
-			"storage promotion is not supported yet.",
-			pField->Name().c_str());
-		return true;
-	}
-	return false;
+	return ::nlang::RejectRefTargetStorage(m_Env, pField, pLoc);
 }
 
 //v0.13.9 phase 3: the binding-only gate — a binding aliases STORAGE,
-//not a binding slot, so the target must not itself be a reference
-//(locals and formals carry NF_Ref on their descriptor). A reference
-//formal MAY be returned (the canonical &-param plumbing), which is why
-//this gate is not part of the shared storage check.
+//not a binding slot, so the target must not itself be a reference.
+//Delegate (RefBindJudgment.cpp). True = rejected.
 bool StatementResolveAccessor::RejectRefTargetIsReference(SnField *pField,
 	const ISourceLocation *pLoc)
 {
-	if (!pField)
-		return false;
-	auto *pTargetType = pField->EvalDataType();
-	if (pField->ContainFlags(NF_Ref)
-		|| (pTargetType && pTargetType->ContainFlags(NF_Ref)))
-	{
-		m_Env.Log(CLL_Error, pLoc,
-			"cannot bind a reference to reference \"%s\"; a binding "
-			"aliases storage, not a binding slot.",
-			pField->Name().c_str());
-		return true;
-	}
-	return false;
+	return ::nlang::RejectRefTargetIsReference(m_Env, pField, pLoc);
 }
 
-//v0.13.9 phase 3: the position family of the &-binding judgment (see
-//StatementResolver.h) — the out-argument position template widened to
-//the bindable-position list. Member/identifier targets run the shared
-//storage gates; subscript binds elements and rejects slices. True =
-//rejected.
+//v0.13.9 phase 3: the position family of the &-binding judgment.
+//Delegate (RefBindJudgment.cpp). True = rejected.
 bool StatementResolveAccessor::RejectRefBindPosition(SnExpression &expr,
 	const ISourceLocation *pLoc)
 {
-	if (expr.Kind() == NK_MemberExpr)
-	{
-		auto &member = static_cast<SnMemberExpr &>(expr);
-		if (member.Inner() && member.Inner()->Kind() == NK_InvokeExpr)
-		{
-			m_Env.Log(CLL_Error, pLoc,
-				"cannot bind a reference to a method call result.");
-			return true;
-		}
-		if (RejectRefTargetStorage(
-				member.Inner() ? member.Inner()->Field() : nullptr,
-				pLoc))
-			return true;
-	}
-	else if (expr.Kind() == NK_SubscriptExpr)
-	{
-		//Element positions bind; a slice is a view over a range, not
-		//one element's storage.
-		for (auto *pIndex
-				: static_cast<SnSubscriptExpr &>(expr).Indices())
-		{
-			if (pIndex->Kind() == NK_SliceItemExpr)
-			{
-				m_Env.Log(CLL_Error, pLoc,
-					"a reference cannot bind a slice; slices are "
-					"views, not element storage.");
-				return true;
-			}
-		}
-	}
-	else if (expr.Kind() == NK_IdentifierExpr)
-	{
-		auto *pTargetField
-			= static_cast<SnIdentifierExpr &>(expr).Field();
-		if (RejectRefTargetStorage(pTargetField, pLoc))
-			return true;
-		//Only a named binding target can itself be a reference (fields
-		//cannot carry &: the grammar rejects the declaration spelling).
-		if (RejectRefTargetIsReference(pTargetField, pLoc))
-			return true;
-	}
-	return false;
+	return ::nlang::RejectRefBindPosition(m_Env, expr, pLoc);
 }
 
-//v0.13.9 phase 3 Task 4: promotion marking for a &-binding whose
-//target resolved to a plain identifier. Only scalar/enum/string locals
-//and value formals promote — their storage compiles into one stable
-//boxed record (design §3.2, the closure-cell family). Struct targets
-//keep their heap-record slot (OP_RefOfLocal binds them directly) and
-//fields/elements bind through their owner records (Task 5). Runs
-//AFTER the binding judgment, so const/static/reference targets never
-//reach here.
+//v0.13.9 phase 3 Task 4: promotion marking for an accepted &-binding.
+//Delegate (RefBindJudgment.cpp).
 void StatementResolveAccessor::MarkPromotedBindTarget(SnExpression &expr)
 {
-	if (expr.Kind() != NK_IdentifierExpr)
-		return;
-	auto *pField = static_cast<SnIdentifierExpr &>(expr).Field();
-	//Only frame-slot storage promotes: the lightweight local descriptor
-	//and the real formal param (both NK_FormalParam — SnLocalVar reuses
-	//the kind). Struct/class fields, statics and enum members bind
-	//through other representations or were already rejected.
-	if (!pField || pField->Kind() != NK_FormalParam)
-		return;
-	auto *pType = pField->EvalDataType();
-	if (!pType)
-		return;
-	const NodeKind kind = pType->Kind();
-	//Scalars and string ride the primitive rows; enums ride their
-	//int32 carrier. Struct/class/array-token kinds keep their own
-	//storage shape.
-	if (!IsPrimitiveType(kind) && kind != NK_EnumDecl)
-		return;
-	pField->AddFlags(NF_Promoted);
+	::nlang::MarkPromotedBindTarget(expr);
 }
 
-//v0.13.9 phase 3: the &-binding judgment for one resolved initializer
-//(see StatementResolver.h).
+//v0.13.9 phase 3: the &-binding judgment for one resolved initializer.
+//Delegate (RefBindJudgment.cpp) — Task 5 shares it with the
+//&-argument call site.
 bool StatementResolveAccessor::RejectRefBindTarget(SnExpression &expr,
 	SnField *pTypeField, const ISourceLocation *pLoc)
 {
-	//Identity types: & is a no-op mark — the statement degrades to a
-	//plain value declaration with no binding contract (spec 3.1).
-	if (IsRefNoOpType(pTypeField))
-		return false;
-	if (RejectRefBindPosition(expr, pLoc))
-		return true;
-	//Everything else (constructor/free-function invoke results,
-	//literals, binary results, explicit `as`) is an accepted rvalue:
-	//the binding aliases a fresh temporary and writes to it are lost
-	//(spec 3.9 rvalue-binding contract, documented).
-	//A compiler-inserted SnCastExpr is different: it wraps the resolved
-	//initializer AFTER resolution (the assign-side cast fixup), so its
-	//EvalDataType already reports the conversion TARGET and the exact
-	//compare below would pass. A non-Same cast means a conversion
-	//happened — conversions build new storage and break alias pointing,
-	//so the reject names the cast's SOURCE type (the byte in
-	//`int& r = b;`). Explicit `as` keeps the rvalue contract.
-	if (expr.Kind() == NK_CastExpr
-		&& static_cast<SnCastExpr &>(expr).CastKind() != TCK_Same)
-	{
-		auto &cast = static_cast<SnCastExpr &>(expr);
-		auto *pSourceType = cast.Source() && cast.Source()->IsResolved()
-			? cast.Source()->EvalDataType() : nullptr;
-		if (pSourceType && pTypeField)
-		{
-			m_Env.Log(CLL_Error, pLoc,
-				"cannot bind %s to %s&; a reference binding requires "
-				"the exact type.",
-				pSourceType->Name().c_str(),
-				pTypeField->Name().c_str());
-			return true;
-		}
-	}
-	//Exact-type rule for slot-copy bindings: a conversion would build
-	//new storage and break alias pointing, so even widening is a
-	//reject — enums and their underlying integers included.
-	auto *pInitType = expr.EvalDataType();
-	if (pInitType && pTypeField && pInitType != pTypeField)
-	{
-		m_Env.Log(CLL_Error, pLoc,
-			"cannot bind %s to %s&; a reference binding requires "
-			"the exact type.",
-			pInitType->Name().c_str(), pTypeField->Name().c_str());
-		return true;
-	}
-	return false;
+	return ::nlang::RejectRefBindTarget(m_Env, expr, pTypeField, pLoc);
 }
 
 //v0.13.9 phase 3: the &-return target contract (see StatementResolver.h).
@@ -263,7 +112,7 @@ bool StatementResolveAccessor::RejectRefReturnTarget(SnFunction &outerFunc,
 		{
 			//Static/const slots take no aliasing at all (the shared
 			//storage gates; the same boundary as the &-binding site).
-			if (RejectRefTargetStorage(pField, pLoc))
+			if (::nlang::RejectRefTargetStorage(m_Env, pField, pLoc))
 				return true;
 			//A local's storage ends with the call — the record
 			//survives (GC) but writes land in an orphan. Locals are

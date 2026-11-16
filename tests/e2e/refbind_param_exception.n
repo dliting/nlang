@@ -1,0 +1,14 @@
+// v0.13.9 phase 3 Task 5: writes through a & formal survive an exception
+// escaping the callee — partial writes are visible (spec §3.9).
+void setThenThrow(int& v) {
+    v = 5;
+    throw Exception("after write");
+}
+int main() {
+    int x = 10;
+    try {
+        setThenThrow(x);
+    } catch (Exception e) {
+    }
+    return x;
+}

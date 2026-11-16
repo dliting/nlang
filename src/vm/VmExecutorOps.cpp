@@ -414,6 +414,9 @@ void VmExecutor::DispatchFrames(size_t baseDepth)
         case OpCode::OP_RefOfElement:
             OpRefOfElement(reader, locals);
             break;
+        case OpCode::OP_RefOfElementN:
+            OpRefOfElementN(reader, locals);
+            break;
         case OpCode::OP_RefHandle:
             OpRefHandle(reader, locals);
             break;

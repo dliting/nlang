@@ -1,0 +1,11 @@
+// v0.13.9 phase 3 Task 5: f(x, x) aliases the same variable in two &
+// formals — the caller's duty, no diagnostic; sequential writes compose.
+void setBoth(int& a, int& b) {
+    a = 5;
+    b = b + 1;
+}
+int main() {
+    int x = 10;
+    setBoth(x, x);
+    return x;
+}

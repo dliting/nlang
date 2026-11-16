@@ -1,0 +1,12 @@
+// v0.13.9 phase 3 Task 5: a local & binding to a field points at the
+// field's cell; stores through r land in b.f.
+struct Box {
+    int f;
+}
+int main() {
+    Box b;
+    b.f = 1;
+    int& r = b.f;
+    r = 9;
+    return b.f;
+}

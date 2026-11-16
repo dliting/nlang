@@ -807,6 +807,7 @@ private:
     void OpRefOfPromoted(BytecodeReader& reader, uint8_t* locals);
     void OpRefOfField(BytecodeReader& reader, uint8_t* locals);
     void OpRefOfElement(BytecodeReader& reader, uint8_t* locals);
+    void OpRefOfElementN(BytecodeReader& reader, uint8_t* locals);
     void OpRefHandle(BytecodeReader& reader, uint8_t* locals);
     void OpLoadRef(BytecodeReader& reader, uint8_t* locals);
     void OpStoreRef(BytecodeReader& reader, uint8_t* locals);

@@ -46,6 +46,7 @@ class SnCastExpr;
 class SnAsExpr;
 class SnSubscriptExpr;
 class SnMemberExpr;
+class SnIdentifierExpr;
 class SnAssignStmt;
 class SnCompoundAssignStmt;
 
@@ -370,8 +371,28 @@ private:
         BytecodeEmitter& emitter);
     //The decomposed `r = init` binding store (assign carries
     //NF_Generated): point the reference slot at its target storage.
-    void EmitRefBindInit(SnAssignStmt& assign, SnField* pLeftField,
-        uint16_t offset, BytecodeEmitter& emitter);
+    void EmitRefBindInit(SnAssignStmt& assign, uint16_t offset,
+        BytecodeEmitter& emitter);
+    //v0.13.9 phase 3 Task 5: build the (base record, cell) byref pair
+    //for one bindable expression — the &-formal argument arm and the
+    //&-binding initializer arm share it (spec §3.9, one MakeRef
+    //judgment). Arms: identifier (pair copy / RefOfPromoted /
+    //RefOfLocal), member chain (RefOfField over the owner record),
+    //subscript (RefOfElement / RefOfElementN), rvalue (fresh temporary
+    //record; writes lost). Definitions in EmitExprRef.cpp.
+    void EmitMakeRef(uint16_t dstOffset, SnExpression& expr,
+        BytecodeEmitter& emitter);
+    void EmitMakeRefOfIdentifier(uint16_t dstOffset,
+        SnIdentifierExpr& idExpr, BytecodeEmitter& emitter);
+    //Compile-time cell offset of one field within its owner record
+    //(the field ops' byte offsets mapped to heap cells).
+    int RefFieldCellOffset(SyntaxNode& ownerDecl, SnField& field);
+    void EmitMakeRefOfMemberChain(uint16_t dstOffset,
+        SnMemberExpr& member, BytecodeEmitter& emitter);
+    void EmitMakeRefOfSubscript(uint16_t dstOffset,
+        SnSubscriptExpr& sub, BytecodeEmitter& emitter);
+    void EmitMakeRefOfRvalue(uint16_t dstOffset,
+        SnExpression& expr, BytecodeEmitter& emitter);
     //Write-through store to a promoted local's payload.
     void EmitPromotedAssignBareLocal(SnAssignStmt& assign,
         SnField* pLeftField, uint16_t offset, BytecodeEmitter& emitter);
@@ -719,6 +740,20 @@ private:
     //NK_NewExpr: {this, formals...} claim + arg/default depth.
     static uint16_t NewExprPeakDepth(SnExpression& expr,
         const std::unordered_set<SnFunction*>& visited);
+    //v0.13.9 phase 3 Task 5: an argument bound to a & formal emits
+    //through the MakeRef family (EmitBinding's ref arm → EmitExprRef.cpp)
+    //whose nested claims ride above the call's own arg claim band.
+    //MakeRefPeakDepth mirrors those claim shapes; the invoke-family arg
+    //loops charge it when CalleeHasRefFormal gates the callee (per-arg
+    //max — over-reserving is the safe direction).
+    static bool CalleeHasRefFormal(SnFunction* pCallee);
+    static uint16_t MakeRefPeakDepth(SnExpression& expr,
+        const std::unordered_set<SnFunction*>& visited);
+    //Per-argument depth for the three invoke-family arg loops (plain
+    //depth widened by the MakeRef mirror under the CalleeHasRefFormal
+    //gate).
+    static uint16_t ArgPeakDepth(SnExpression& arg,
+        const std::unordered_set<SnFunction*>& visited, bool bHasRefFormal);
     //Shared tail of the three ctor-call depth arms (NewExpr /
     //ctor-invoke / super()): max(argDepth, parent-ctor default-
     //expression depth) under the visited-set recursion guard.
@@ -1136,6 +1171,13 @@ private:
     //EmitStructDeepCopy (dst/src byte offsets + struct table index).
     void EmitStructCopyInPlace(uint16_t dst, uint16_t src,
                                SnStructDecl& structDecl,
+                               BytecodeEmitter& emitter);
+    //Struct deep-copy arm of EmitBinding (source-size split): a
+    //struct-typed formal receives its own heap subtree unless the slot's
+    //arg plan says suppressStagingCopy (List.set/Dict.set value).
+    void EmitStructBindingCopy(SnField* pFormalType, uint16_t paramOffset,
+                               uint16_t slotIdx,
+                               const std::map<uint16_t, ArgBoxPlan>* pArgPlans,
                                BytecodeEmitter& emitter);
     //v0.12.6 D14: struct-aware field store — when the field's declared
     //type is a struct, deep-copy the staged value in place before the

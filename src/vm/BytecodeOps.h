@@ -317,12 +317,14 @@ enum class OpCode : uint8_t {
     OP_RefOfField,      // uint16 dst, uint16 base, uint16 cellOff — dst =
                         // (base handle, cellOff); cellOff is in HEAP CELLS
                         // (int32 units), not bytes — byref dereference walks
-                        // record cells directly, while the field ops' byte
-                        // offsets address the 8-byte frame/field rows
+                        // cells directly, field ops address 8-byte rows
     OP_RefOfElement,    // uint16 dst, uint16 arr, uint16 flatSlot — null
                         // check + bounds check + view affine like
                         // OP_LoadElementFlat; dst = (arr handle, payload
                         // base + flat*elemCells)
+    OP_RefOfElementN,   // uint16 dst, arr, idxBase, rank — rank-N
+                        // spelling of RefOfElement; the runtime computes
+                        // the flat address from the staged indices
     OP_RefHandle,       // uint16 dst, uint16 src — dst low half = the
                         // byref pair's base handle (struct& consumption)
     OP_LoadRef,         // uint8 kind, uint16 dst, uint16 src — read the
@@ -417,6 +419,7 @@ static constexpr OpCode kStrideThreeWords[] = {
 static constexpr OpCode kStrideFourWords[] = {
     OpCode::OP_LoadElementN, OpCode::OP_StoreElementN,
     OpCode::OP_LoadElementDyn, OpCode::OP_StoreElementDyn,
+    OpCode::OP_RefOfElementN,
     //v0.13.1: OP_CheckArrayType gained its descIdx word — dst, src,
     //arrayTypeIdx, descIdx; OP_AllocArrayDyn gained its element
     //descriptor word the same way (Array(dims) allocations stamp too).

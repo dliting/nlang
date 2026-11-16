@@ -89,6 +89,7 @@ add_library(nlang_vm
     backend/EmitCall.cpp
     backend/EmitCtorCall.cpp
     backend/WalkersExpr.cpp
+    backend/WalkersExprRef.cpp
     backend/WalkersStmt.cpp
     backend/WalkersMaxArgs.cpp
     backend/EmitExprCore.cpp
@@ -113,6 +114,7 @@ add_library(nlang_vm
     backend/EmitStmtDecl.cpp
     backend/EmitStmtAssign.cpp
     backend/EmitStmtRef.cpp
+    backend/EmitExprRef.cpp
     backend/EmitStmtCompound.cpp
     backend/EmitStmtStore.cpp
     backend/EmitStmtFlow.cpp

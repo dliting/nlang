@@ -300,6 +300,10 @@ static bool DisasmRefOps(OpCode op, BytecodeReader &r,
         case OpCode::OP_RefOfElement:
             DisasmU16xN(3, r, out, head, " dst=%u arr=%u flat=%u");
             return true;
+        case OpCode::OP_RefOfElementN:
+            DisasmU16xN(4, r, out, head,
+                        " dst=%u arr=%u idxBase=%u rank=%u");
+            return true;
         case OpCode::OP_LoadRef:
         case OpCode::OP_StoreRef: {
             //kind byte + two slot operands in one line (read all
