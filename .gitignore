@@ -67,3 +67,7 @@ AGENTS.reference.md
 _CPack_Packages/
 build-src-entry/
 build-sync/
+build-bench/
+build-gate-dbg/
+build-gate-asan/
+_p11_tmp/
