@@ -2809,6 +2809,43 @@ if(NLANG_BUILD_DOCS)
     endif()
 endif()
 
+#--- gate.sh selftest (bash) -------------------------------------------------
+#The write-directory lock is a shell mechanism, so its pin is a shell test.
+#bash is not a build requirement, so a machine without it loses one gate
+#entry -- but the skip must say so, exactly like the pytest block above
+#reports a missing pytest instead of silently dropping the entry.
+#A file named "bash" in PATH is not yet a bash that can run this script:
+#PATH may resolve to WSL's bash, or to a shell without the digest tool the
+#lock key needs. Probe it with the print mode, which takes no lock and
+#writes no file, so asking at configure time is cheap and side-effect free.
+find_program(BASH_PROGRAM bash)
+if(BASH_PROGRAM)
+    execute_process(
+        COMMAND ${BASH_PROGRAM} ${PROJECT_SOURCE_DIR}/tools/gate.sh
+                --print-write-dirs --build ${PROJECT_SOURCE_DIR}
+        RESULT_VARIABLE NLANG_GATE_BASH_PROBE
+        OUTPUT_VARIABLE NLANG_GATE_BASH_OUT
+        ERROR_QUIET OUTPUT_STRIP_TRAILING_WHITESPACE)
+    #An absent sha256sum leaves the key empty ("key  path ..." with two
+    #spaces), so a non-empty hex run is what proves the tool is there.
+    #[0-9a-f]+ rather than {16}: CMake's MATCHES does not support bounded
+    #repetition at all (measured on CMake 3.25.2 -- the {16} form never
+    #matches), and the exact 16-hex shape is A7's assertion to make.
+    if(NLANG_GATE_BASH_PROBE EQUAL 0
+            AND NLANG_GATE_BASH_OUT MATCHES "^key [0-9a-f]+ path ")
+        add_test(NAME nlang_gate_selftest
+            COMMAND ${BASH_PROGRAM} ${PROJECT_SOURCE_DIR}/tools/gate_selftest.sh
+            WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+        set_tests_properties(nlang_gate_selftest PROPERTIES TIMEOUT 180)
+    else()
+        message(STATUS "nlang_gate_selftest skipped: '${BASH_PROGRAM}' cannot "
+            "print a write-directory key (needs bash with sha256sum and "
+            "cygpath or realpath)")
+    endif()
+else()
+    message(STATUS "nlang_gate_selftest skipped: bash not found in PATH")
+endif()
+
 # In-process VM tests resolve the stdlib native modules through the
 # loader's build-tree fallback (NativeLibraryLoader walks up from the test
 # exe to <build>/native/<config>, the single authoritative module output).
