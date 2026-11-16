@@ -153,16 +153,32 @@ release_leg() {
     touch "$go"
 }
 
-# await_holder <count>: poll until exactly <count> write-directory holder
-# files exist, then print the path= line of each. The driver reads the
-# key-to-directory pairing out of the holder files rather than re-running the
-# normalization recipe itself: a second copy of that recipe in the test would
-# turn red twice over whenever the implementation changes, and a green run
-# would then prove nothing about the pairing (spec 八.2). find instead of a
-# glob, because an unmatched glob stays literal and prints its own
-# no-such-file line into the result.
-await_holder() {
-    local want="$1" n files f
+# leg_env <name> <stem> <go> <dir> <command...>: as leg, but the write directory
+# reaches gate.sh through the environment instead of argv. The assignment has to
+# sit on the same line as the command — exporting it would re-point every later
+# gate on the machine (spec D-3) — which is why this cannot go through leg().
+leg_env() {
+    local name="$1" stem="$2" go="$3" dir="$4"
+    shift 4
+    if [ -n "$go" ]; then
+        pending_gos+=("$go")
+    fi
+    NLANG_GATE_WRITE_DIR="$dir" bash "$GATE_SH" --shared "$name" "$stem" "$@" > "$stem.console" 2>&1 &
+}
+
+# holder_records <count>: poll until exactly <count> write-directory holder
+# files exist, then print one line per holder as <key>, <name>, <path>,
+# tab-separated. The driver reads the key-to-directory pairing out of the
+# holder files rather than re-running the normalization recipe itself: a second
+# copy of that recipe in the test would turn red twice over whenever the
+# implementation changes, and a green run would then prove nothing about the
+# pairing (spec 八.2). The key half is what a later case needs to order its own
+# argv, and the name= half says which leg made which claim, which is the only
+# way to tell a claim on the right directory from a claim on some other one.
+# find instead of a glob, because an unmatched glob stays literal and prints
+# its own no-such-file line into the result.
+holder_records() {
+    local want="$1" n files f key name path
     while :; do
         files=$(find "$WS/lock/wdir" -mindepth 2 -maxdepth 2 -name holder.info -print 2>/dev/null)
         n=$(printf '%s\n' "$files" | grep -c .)
@@ -171,7 +187,13 @@ await_holder() {
         sleep "$NLANG_GATE_POLL_S"
     done
     while IFS= read -r f; do
-        [ -n "$f" ] && sed -n 's/^path=//p' "$f"
+        [ -n "$f" ] || continue
+        # The directory the lock was claimed under is named by the key (spec
+        # D-8), so the parent directory's name is the key itself.
+        key=$(basename "$(dirname "$f")")
+        name=$(sed -n 's/^name=//p' "$f" | head -1)
+        path=$(sed -n 's/^path=//p' "$f" | head -1)
+        printf '%s\t%s\t%s\n' "$key" "$name" "$path"
     done <<< "$files"
 }
 
@@ -193,7 +215,7 @@ holder_dump() {
 # the protocol and its evidence exist in exactly one copy.
 one_tree_pair() {
     local stemA="$1" stemB="$2" ev="$3" flagA="$4" dirA="$5" flagB="$6" dirB="$7"
-    local goA goB holder_path want first
+    local goA goB records holder_path want first
     goA=$(go_file "$case_name" A)
     goB=$(go_file "$case_name" B)
     leg "$stemA" "$stemA" "$goA" bash "$SELF" --stub A "$ev" "$goA" "$flagA" "$dirA"
@@ -201,10 +223,11 @@ one_tree_pair() {
         fail "$case_name" "leg A never started: events=[$(cat "$ev" 2>/dev/null)]"
         return
     fi
-    if ! holder_path=$(await_holder 1); then
+    if ! records=$(holder_records 1); then
         fail "$case_name" "no single write-directory holder appeared: holders=[$(holder_dump)] events=[$(cat "$ev" 2>/dev/null)]"
         return
     fi
+    holder_path=${records##*$'\t'}
     leg "$stemB" "$stemB" "$goB" bash "$SELF" --stub B "$ev" "$goB" "$flagB" "$dirB"
     # The wait line has to name the directory the holder recorded, which is
     # what shows B waiting for A's tree and not for something unrelated; the
@@ -285,6 +308,169 @@ case_a2_same_tree_case() {
         return
     fi
     one_tree_pair a2A a2B "$WS/a2.events" --build "$absA" -B "$absB"
+}
+
+case_a3_different_trees() {
+    # Two legs writing two different trees have to overlap: keying the lock by
+    # directory rather than by machine is the whole point of the mechanism. Leg
+    # A names its tree with --build and leg B with --site-dir, because those are
+    # the flags the real commands use (cmake --build, nlang_docs --site-dir) and
+    # the mutation checks delete one arm at a time — pin the spelling here or a
+    # deleted arm has no case it is supposed to turn red.
+    local dirA="$WS/t1" dirB="$WS/t2"
+    mkdir -p "$dirA" "$dirB"
+    local nameA=a3A nameB=a3B stemA=a3A stemB=a3B
+    local ev="$WS/a3.events" goA goB records n key="" name="" path=""
+    local keyA="" keyB="" pathA="" pathB="" waitA waitB acqA acqB head2 tail2
+    goA=$(go_file "$case_name" A)
+    goB=$(go_file "$case_name" B)
+    leg "$nameA" "$stemA" "$goA" bash "$SELF" --stub A "$ev" "$goA" --build "$dirA"
+    if ! await "$ev" "start A"; then
+        fail "$case_name" "leg A never started: events=[$(cat "$ev" 2>/dev/null)]"
+        return
+    fi
+    leg "$nameB" "$stemB" "$goB" bash "$SELF" --stub B "$ev" "$goB" --site-dir "$dirB"
+    if ! await "$ev" "start B"; then
+        fail "$case_name" "leg B never started: console=[$(cat "$stemB.console" 2>/dev/null)] holders=[$(holder_dump)] events=[$(cat "$ev" 2>/dev/null)]"
+        return
+    fi
+    # The mapping window: both legs are inside their stubs, no GO has been handed
+    # out, so this is the only moment the case can see both claims at once. The
+    # two key names go to the driver's variables here rather than being listed
+    # again by the case that needs them, because that case has to write its
+    # reverse-ordered argv before its own legs hold the locks.
+    if ! records=$(holder_records 2); then
+        fail "$case_name" "expected two write-directory holders, holders=[$(holder_dump)] events=[$(cat "$ev" 2>/dev/null)]"
+        return
+    fi
+    n=0
+    while IFS=$'\t' read -r key name path; do
+        [ -n "$key" ] || continue
+        n=$(( n + 1 ))
+        # Each leg claimed its own tree. The holder count alone would not show a
+        # flag arm wired to the wrong directory: a wrong but distinct directory
+        # still gives two holders and still lets the legs run at the same time,
+        # so only this pairing turns that write red. It fails together with the
+        # count half when an arm is deleted outright (then leg B claims nothing
+        # at all), and that joint failure is what makes the pair discriminating.
+        case "$name:$path" in
+            "$nameA":*/t1) keyA="$key"; pathA="$path" ;;
+            "$nameB":*/t2) keyB="$key"; pathB="$path" ;;
+            *) fail "$case_name" "holder $key says name=$name path=$path, expected $nameA for $dirA and $nameB for $dirB"; return ;;
+        esac
+    done <<< "$records"
+    if [ "$n" -ne 2 ] || [ -z "$keyA" ] || [ -z "$keyB" ]; then
+        fail "$case_name" "expected one holder per leg, found $n: records=[$(printf '%s\n' "$records" | tr '\n' ';')]"
+        return
+    fi
+    a3_keys="$keyA"$'\n'"$keyB"
+    a3_paths="$pathA"$'\n'"$pathB"
+    # Neither leg waited: the two claims are for different keys. The negative
+    # half is anchored on the directory lock's own first-round wording, because a
+    # machine-lock wait line would fail it for the wrong reason and the repeat
+    # lines look the same for both locks. The acquired lines are asserted as
+    # well: a leg that claimed no directory also prints no wait line.
+    waitA=$(count_lines "$stemA.console" "waiting for the write-directory lock on")
+    waitB=$(count_lines "$stemB.console" "waiting for the write-directory lock on")
+    acqA=$(count_lines "$stemA.console" "write-directory lock acquired after")
+    acqB=$(count_lines "$stemB.console" "write-directory lock acquired after")
+    if [ "$waitA" -ne 0 ] || [ "$waitB" -ne 0 ]; then
+        fail "$case_name" "a different-tree leg waited: A=$waitA B=$waitB wait lines"
+        return
+    fi
+    if [ "$acqA" -ne 1 ] || [ "$acqB" -ne 1 ]; then
+        fail "$case_name" "expected one directory-lock acquired line per leg, found A=$acqA B=$acqB"
+        return
+    fi
+    # Each leg's acquired line has to name the directory its own holder recorded
+    # (spec 七: the directory in the log is the normalized path, the same string
+    # as the holder's path= line). Comparing the two is how the test checks that
+    # without copying the normalization recipe into itself.
+    if [ "$(count_lines "$stemA.console" "($pathA)")" -ne 1 ] ||
+       [ "$(count_lines "$stemB.console" "($pathB)")" -ne 1 ]; then
+        fail "$case_name" "a leg acquired a directory other than its holder's: A=[$pathA] B=[$pathB]"
+        return
+    fi
+    release_leg "$goA"
+    release_leg "$goB"
+    if ! await "$stemA.console" "GATE $nameA: PASS" || ! await "$stemB.console" "GATE $nameB: PASS"; then
+        fail "$case_name" "a leg never printed its verdict: A=[$(cat "$stemA.console" 2>/dev/null)] B=[$(cat "$stemB.console" 2>/dev/null)]"
+        return
+    fi
+    # Both starts before either finish, in either order within each pair: that is
+    # "two trees do not serialize", stated about the event file rather than about
+    # any timing.
+    head2=$(head -n 2 "$ev" 2>/dev/null | LC_ALL=C sort | tr '\n' ';')
+    tail2=$(tail -n 2 "$ev" 2>/dev/null | LC_ALL=C sort | tr '\n' ';')
+    if [ "$(count_lines "$ev" "start ")" -ne 2 ] ||
+       [ "$(count_lines "$ev" "finish ")" -ne 2 ] ||
+       [ "$head2" != "start A;start B;" ] ||
+       [ "$tail2" != "finish A;finish B;" ]; then
+        fail "$case_name" "legs not overlapping: events=[$(tr '\n' ';' < "$ev" 2>/dev/null)]"
+        return
+    fi
+    pass "$case_name"
+}
+
+case_a5_env_write_dir() {
+    # One directory reached two ways: leg A through argv, leg B through an inline
+    # NLANG_GATE_WRITE_DIR with no flag at all. Claims are keyed by the
+    # normalized path, so the two sources have to collide; were the environment
+    # channel ignored, leg B would run unlocked and both legs would write one
+    # tree at once.
+    local dir="$WS/t3"
+    mkdir -p "$dir"
+    local nameA=a5A nameB=a5B stemA=a5A stemB=a5B
+    local ev="$WS/a5.events" goA goB records holder_path want
+    goA=$(go_file "$case_name" A)
+    goB=$(go_file "$case_name" B)
+    leg "$nameA" "$stemA" "$goA" bash "$SELF" --stub A "$ev" "$goA" --build "$dir"
+    if ! await "$ev" "start A"; then
+        fail "$case_name" "leg A never started: events=[$(cat "$ev" 2>/dev/null)]"
+        return
+    fi
+    if ! records=$(holder_records 1); then
+        fail "$case_name" "no write-directory holder for leg A: holders=[$(holder_dump)] events=[$(cat "$ev" 2>/dev/null)]"
+        return
+    fi
+    holder_path=${records##*$'\t'}
+    leg_env "$nameB" "$stemB" "$goB" "$dir" bash "$SELF" --stub B "$ev" "$goB"
+    # This wait line is the case's precondition, not one of its assertions: the
+    # stub only finishes on its GO, so leg B necessarily started while A still
+    # held the directory, and a working directory lock has to print this line.
+    # Waiting for it before releasing A is what keeps the case from degrading
+    # into something that depends on how busy the machine is.
+    want="LOCK $nameB: waiting for the write-directory lock on $holder_path ("
+    if ! await "$stemB.console" "$want"; then
+        fail "$case_name" "leg B never printed the write-directory wait line for $holder_path: console=[$(cat "$stemB.console" 2>/dev/null)] holders=[$(holder_dump)]"
+        return
+    fi
+    release_leg "$goA"
+    if ! await "$ev" "finish A" || ! await "$stemA.console" "GATE $nameA: PASS"; then
+        fail "$case_name" "leg A never finished: console=[$(cat "$stemA.console" 2>/dev/null)]"
+        return
+    fi
+    release_leg "$goB"
+    if ! await "$ev" "finish B" || ! await "$stemB.console" "GATE $nameB: PASS"; then
+        fail "$case_name" "leg B never finished: console=[$(cat "$stemB.console" 2>/dev/null)]"
+        return
+    fi
+    # Leg B's own acquired line has to name the directory A's holder recorded:
+    # the two sources produced one key. The closing parenthesis keeps this off
+    # the wait line, which ends "<dir> (<holder>)" instead.
+    if [ "$(count_lines "$stemB.console" "($holder_path)")" -ne 1 ]; then
+        fail "$case_name" "leg B acquired a directory other than $holder_path: console=[$(cat "$stemB.console" 2>/dev/null)]"
+        return
+    fi
+    local want_events="start A
+finish A
+start B
+finish B"
+    if [ "$(cat "$ev" 2>/dev/null)" != "$want_events" ]; then
+        fail "$case_name" "legs not serialized: events=[$(tr '\n' ';' < "$ev" 2>/dev/null)]"
+        return
+    fi
+    pass "$case_name"
 }
 
 case_a6_no_write_dir() {
@@ -390,6 +576,8 @@ run_case() { # run_case <name> <function>: no case runs once the budget is gone
 
 run_case a1-same-tree-spellings case_a1_same_tree_spellings
 run_case a2-same-tree-case case_a2_same_tree_case
+run_case a3-different-trees case_a3_different_trees
+run_case a5-env-write-dir case_a5_env_write_dir
 run_case a6-no-write-dir case_a6_no_write_dir
 run_case a7-print-write-dirs case_a7_print_write_dirs
 
