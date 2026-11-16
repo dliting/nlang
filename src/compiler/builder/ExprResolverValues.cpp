@@ -22,6 +22,28 @@
 namespace nlang
 {
 
+//v0.13.9 phase 3: the & no-op classification (see ExprResolver.h).
+//Identity reference types carry reference semantics already — objects,
+//interfaces, and arrays (the interned token covers both bracket and
+//Array<E> spellings; container instantiations are class decls). Every
+//other type binds a reference with real aliasing semantics.
+bool IsRefNoOpType(const SnField *pTypeField)
+{
+	if (!pTypeField)
+		return false;
+	const NodeKind kind = pTypeField->Kind();
+	return kind == NK_ClassDecl || kind == NK_InterfaceDecl
+		|| kind == NK_ArrayTypeToken;
+}
+
+//v0.13.9 phase 3: the shared type-argument bypass assert (see
+//ExprResolver.h).
+void AssertNoRefTypeArgs(const std::vector<SnField *> &typeArgs)
+{
+	for (auto *pArg : typeArgs)
+		NLANG_ASSERT(!pArg || !pArg->ContainFlags(NF_Ref));
+}
+
 void ExprResolveAccessor::Access(SnLiteralExpr &sn)
 {
 	NLANG_ASSERT(sn.IsResolved());

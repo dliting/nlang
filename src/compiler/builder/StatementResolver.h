@@ -55,6 +55,11 @@ private:
 		std::vector<SnFormalParam*> &formals);
 	void ResolveFunctionFormals(SnFunction &sn,
 		std::vector<SnFormalParam*> &formals);
+	//v0.13.9 phase 3 split: the default-value contract for one formal
+	//(resolution + the checks below). Definition in
+	//StatementResolverDeclDefaults.cpp.
+	void ResolveFormalDefault(SnFunction &sn,
+		std::vector<SnFormalParam*> &formals, size_t i);
 	void CheckDefaultForwardRefs(std::vector<SnFormalParam*> &formals,
 		size_t i);
 	void CheckDefaultTypeCompat(SnFormalParam *param);
@@ -84,6 +89,39 @@ private:
 	void RejectTypeNameVariable(const std::string &name, SyntaxNode &scope,
 		const SnField &accessor, const ISourceLocation *pLoc);
 	void RejectConstWithoutInit(SnLocalDeclStmt &sn);
+	//v0.13.9 phase 3: the &-declarator shape contract — a reference
+	//binding rides the '=' continuation only; constructor continuations,
+	//sized-array declarators and bare declarations name their own
+	//diagnostics. True = rejected (the caller stops). Definition in
+	//StatementResolverRef.cpp.
+	bool RejectRefDeclaratorShapes(SnLocalDeclStmt &sn);
+	//v0.13.9 phase 3: the &-binding judgment for one resolved
+	//initializer — the position family plus the cast/exact-type tail.
+	//Identity types (class/interface/array/container) are no-op
+	//marks and skip the judgment entirely. True = rejected. Definition
+	//in StatementResolverRef.cpp.
+	bool RejectRefBindTarget(SnExpression &expr, SnField *pTypeField,
+		const ISourceLocation *pLoc);
+	//v0.13.9 phase 3: the position family of the &-binding judgment
+	//(the out-argument template: identifier/member/subscript) — member
+	//and identifier targets run the shared storage gates, subscript
+	//binds elements and rejects slices. True = rejected. Definition in
+	//StatementResolverRef.cpp.
+	bool RejectRefBindPosition(SnExpression &expr,
+		const ISourceLocation *pLoc);
+	//v0.13.9 phase 3: the storage gates shared by the identifier and
+	//member arms of RejectRefBindTarget AND by RejectRefReturnTarget
+	//(enum members, const/static slots). True = rejected. Definition in
+	//StatementResolverRef.cpp.
+	bool RejectRefTargetStorage(SnField *pField,
+		const ISourceLocation *pLoc);
+	//v0.13.9 phase 3: the binding-only gate — the target must not
+	//itself be a reference (a binding aliases storage, not a binding
+	//slot). A reference formal MAY be returned, so this gate is not
+	//part of the shared storage check. True = rejected. Definition in
+	//StatementResolverRef.cpp.
+	bool RejectRefTargetIsReference(SnField *pField,
+		const ISourceLocation *pLoc);
 	//True = the declaration is the unbraced body of a control-flow
 	//statement (a child of the control node, not of the paragraph); the
 	//decomposition anchor would silently misplace its AssignStmts, so
@@ -117,6 +155,12 @@ private:
 	void SynthesizeSizedArrayDeclarator(SnLocalDeclStmt &sn,
 		SnLocalDeclStmt::LocalDecl &decl, SnParagraph &paragraph,
 		NodeIterator iInsert, SnField *pSizedElemField);
+	//v0.13.9 phase 3 split: resolve one init declarator's decomposition
+	//(build, insert, resolve) and judge the &-binding against the
+	//resolved initializer. Definition in StatementResolverDecls.cpp.
+	void ResolveInitDeclarator(SnLocalDeclStmt &sn,
+		SnLocalDeclStmt::LocalDecl &decl, SnParagraph &paragraph,
+		NodeIterator iInsert, SnField *pTypeField);
 	//0.9.0: build the decomposition of a sized declarator
 	//`Type name[n]` (+ optional `[...]` partial init): one creation
 	//assign plus one subscript-store statement per initializer entry.
@@ -211,6 +255,12 @@ private:
 	//binding and the cast fixup against the declared return type. False
 	//when the binding failed (diagnostic logged).
 	bool FinishReturnExpr(SnFunction &outerFunc, SnReturnStmt &sn);
+	//v0.13.9 phase 3: &-typed returns must return storage that outlives
+	//the call — a local's record survives (GC) but writes land in an
+	//orphan, and const/static slots take no aliasing at all. True =
+	//rejected. Definition in StatementResolverRef.cpp.
+	bool RejectRefReturnTarget(SnFunction &outerFunc, SnExpression &expr,
+		const ISourceLocation *pLoc);
 	//0.9.11 D1: constructor declaration-shape predicates. IsCtorNameShape
 	//= a member function of a class or struct whose name equals the type
 	//name, regardless of flags — the declaration contract must also
@@ -267,6 +317,15 @@ private:
 	void LogVoidSubscriptStoreValue(SnSubscriptAssignStmt &sn);
 	void CheckForeachSource(SnForeachStmt &sn);
 	void MatchForeachElemType(SnForeachStmt &sn, SnField *pVarField);
+	//v0.13.9 phase 3 split: the foreach loop-var registration in the
+	//enclosing paragraph. Definition in StatementResolverFlow.cpp.
+	void RegisterForeachLoopVar(SnForeachStmt &sn, SnParagraph &paragraph,
+		SnField *pVarField);
+	//v0.13.9 phase 3: a & loop variable aliases the iteration element;
+	//Dict keys and string code points are materialized copies, so their
+	//& loops name their own diagnostics. Definition in
+	//StatementResolverRef.cpp.
+	void RejectRefForeachSource(SnForeachStmt &sn);
 	void ResolveForInitDecl(SnForStmt &sn);
 	SnAssignStmt *BuildForInitAssign(SnLocalDeclStmt &decl,
 		SnLocalDeclStmt::LocalDecl &d, SnParagraph *pParagraph);

@@ -1,0 +1,7 @@
+// v0.13.9 phase 3: enum members are folded constants, not storage — a
+// reference cannot bind them.
+enum Color { Red }
+int main() {
+    Color& c = Color.Red;
+    return 0;
+}

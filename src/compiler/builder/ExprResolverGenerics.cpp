@@ -144,17 +144,13 @@ SnClassDecl* GetGenericClassDecl(ModuleRegistry& reg,
 	if (baseName != kBuiltinFuncTypeName || typeArgs.empty())
 		return nullptr;
 
-	//Build display name e.g. "List<int>", "Dict<string, int>". Array-typed
-	//arguments ARE interned tokens; their Name() is empty by design, so
-	//render them via ToString ("Int32[]") — without this the split
-	//instantiations would be indistinguishable in diagnostics.
+	//Display name e.g. "List<int>"; array-typed arguments are interned
+	//tokens with empty Name(), so render them via ToString ("Int32[]").
 	std::string instName = baseName + "<";
 	for (size_t i = 0; i < typeArgs.size(); ++i) {
 		if (i) instName += ", ";
-		if (typeArgs[i]->Kind() == NK_ArrayTypeToken)
-			instName += typeArgs[i]->ToString();
-		else
-			instName += typeArgs[i]->Name();
+		instName += typeArgs[i]->Kind() == NK_ArrayTypeToken
+			? typeArgs[i]->ToString() : typeArgs[i]->Name();
 	}
 	instName += ">";
 
@@ -165,6 +161,10 @@ SnClassDecl* GetGenericClassDecl(ModuleRegistry& reg,
 		DeclLocation(pLoc, fallback));
 	pClass->SetBuiltinClass();
 	pClass->SetGenericInstantiation();
+	//v0.13.9 phase 3: the func arms own the & type-arg spelling; a &
+	//container argument is a grammar bypass (assert-grade).
+	if (baseName != kBuiltinFuncTypeName)
+		AssertNoRefTypeArgs(typeArgs);
 	pClass->SetGenericTypeArgs(typeArgs);
 	pClass->SetGenericOutFlags(normOutFlags);
 	pClass->SetBaseName(baseName);

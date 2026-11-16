@@ -117,6 +117,23 @@ bool IsPlainLvalueShape(const SnExpression& expr);
 //Definition lives in ExprResolverTypes.cpp.
 int ArrayTypeDepth(const SnFieldExpr* pType);
 
+//v0.13.9 phase 3: true when & on the type is a no-op mark — identity
+//reference types (class, interface, interned array token; container and
+//Array<E> instantiations are class decls). Slot-copy types (scalars,
+//enum, struct, string) bind references with real aliasing semantics
+//(spec 3.1). Shared by the reference-binding contract (declaration
+//side) and the generic fork warning hook (instantiation points judge
+//T& members against the bound type argument with this predicate).
+//Definition in ExprResolverValues.cpp.
+bool IsRefNoOpType(const SnField *pTypeField);
+
+//v0.13.9 phase 3: & cannot appear in a container/generic type argument
+//(the grammar rejects the spelling; only the func-type arms own it), so
+//a marked argument reaching a creation path is a bypass — the check
+//asserts instead of diagnosing. Shared by the synthetic-builtin and
+//user-generic instantiation shells. Definition in ExprResolverValues.cpp.
+void AssertNoRefTypeArgs(const std::vector<SnField *> &typeArgs);
+
 //Per-argument reject gate of the generic type-argument loop: void and
 //out are func-only features (void only in the return slot, out only on
 //parameter slots), and a jagged argument has no VM layout (spec §5.5).

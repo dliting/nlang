@@ -1,0 +1,8 @@
+// v0.13.9 phase 3 grammar: const cannot carry a reference declarator
+// (named reject in the grammar's const arm).
+struct Point { int x; }
+int main() {
+    Point p;
+    const Point& r = p;
+    return 0;
+}

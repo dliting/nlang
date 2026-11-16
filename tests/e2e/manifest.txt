@@ -2394,3 +2394,25 @@ stabilize_concurrent_write 42
 stabilize_indep_sweep 42
 stdlib_dict_struct_key 42
 stdlib_stabilize_uncoordinated_race 42
+# --- v0.13.9 phase 3: reference-binding rejects (named diagnostics) ---
+refbind_reject_const_target compile_error cannot bind a reference to const storage
+refbind_reject_return_local compile_error cannot return a reference to local
+refbind_reject_scalar_convert compile_error cannot bind Byte to Int32&
+refbind_reject_enum_to_int_ref compile_error cannot bind Color to Int32&
+refbind_reject_int_to_enum_ref compile_error cannot bind Int32 to Color&
+refbind_reject_enum_member compile_error cannot bind a reference to enum member
+refbind_reject_param_default compile_error cannot have a default value
+refbind_reject_dict_keys compile_error iterate Dict keys by reference
+refbind_reject_string_foreach compile_error iterate a string by reference
+refbind_reject_static_scalar compile_error cannot bind a reference to static storage
+refbind_reject_no_init compile_error must bind an initializer
+refbind_reject_ctor_cont compile_error constructor initialization
+refbind_reject_size_cont compile_error array declarator
+refbind_reject_method_result compile_error method call result
+refbind_reject_ref_to_ref compile_error cannot bind a reference to reference
+# --- v0.13.9 phase 3: reference storage rejects pinned at the grammar layer ---
+refbind_reject_const_decl compile_error const variable cannot bind a reference
+refbind_reject_generic_arg compile_error syntax error
+refbind_reject_field_decl compile_error syntax error
+refbind_reject_callsite_amp compile_error syntax error
+refbind_reject_ref_array compile_error syntax error

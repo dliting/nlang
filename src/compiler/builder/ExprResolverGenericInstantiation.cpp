@@ -104,6 +104,7 @@ bool ExprResolveAccessor::FillInstanceMembers(SnClassDecl& tmpl,
 static SnClassDecl *CreateInstanceShell(const SnClassDecl &tmpl,
 	const std::vector<SnField*> &typeArgs)
 {
+	AssertNoRefTypeArgs(typeArgs);
 	auto* pInstance = new SnClassDecl(new std::string(tmpl.Name()),
 		nullptr, new PtrList<SnField>(), *tmpl.Location());
 	pInstance->SuperClass(tmpl.SuperClass());

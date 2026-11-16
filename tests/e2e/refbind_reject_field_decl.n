@@ -1,0 +1,7 @@
+// v0.13.9 phase 3 grammar: fields admit no & declarator — references
+// cannot be stored in records.
+struct Point { int x; }
+struct Holder { Point& p; }
+int main() {
+    return 0;
+}

@@ -1,0 +1,8 @@
+// v0.13.9 phase 3 (D12): static slot scalars cannot bind a reference —
+// static storage promotion is out of scope this phase (aligned with the
+// out mechanism's static rejection).
+int main() {
+    static int g = 5;
+    int& r = g;
+    return r;
+}

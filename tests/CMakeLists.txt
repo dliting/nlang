@@ -1633,6 +1633,36 @@ if(NLANG_BUILD_IDE)
     endif()
     nlang_add_qtest(ref_declarator_tests test_ref_declarator)
 
+    # The reference-binding contract (v0.13.9 phase 3 Task 2): named
+    # diagnostics, bindable positions, identity no-op downgrades and the
+    # IsRefNoOpType hook. Same in-process shape as test_ref_declarator.
+    add_executable(test_ref_binding
+        test_compiler/test_ref_binding.cpp
+    )
+    target_include_directories(test_ref_binding
+        PRIVATE
+            ${PROJECT_SOURCE_DIR}/src/compiler
+    )
+    target_link_libraries(test_ref_binding
+        PRIVATE
+            nlang_compiler
+            nlang_runtime
+            nlang_vm
+            Qt5::Test
+    )
+    nlang_stdlib_test(test_ref_binding)
+    target_compile_definitions(test_ref_binding
+        PRIVATE
+            STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+    )
+    if(WIN32)
+        add_custom_command(TARGET test_ref_binding POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:Qt5::Core> $<TARGET_FILE:Qt5::Test>
+                $<TARGET_FILE_DIR:test_ref_binding>)
+    endif()
+    nlang_add_qtest(ref_binding_tests test_ref_binding)
+
     # Const-aggregate declaration marker tests (v0.12.4 Task 1): the
     # `const class` / `const struct` prefix, marker propagation through
     # inheritance. Same in-process shape as test_generic_decl.
