@@ -39,6 +39,14 @@ A change is done when the suites below pass, not when it compiles.
 The e2e runner takes ncc/nvm paths as positional arguments and defaults to the
 `build/` tree — pass explicit paths when testing an IDE (`build-ide/`) build.
 
+The network cases assume a working loopback. The TCP and UDP cases bind their
+own peers, so they only need loopback sockets; `stdlib_net_ping_loopback` and
+the raw-ICMP case additionally need the host to answer an ICMP echo, which a
+filter driver can prevent for every address, loopback included. The unit suite
+therefore does not require an answer — `test_net_platform.cpp` pins the
+documented verdict set instead — so a host with no ICMP echo still gives a
+green unit gate, and the strict echo proof stays in the e2e suite.
+
 Tests should exercise real behavior (compile real `.n` files, execute real
 bytecode), not mocks of the compiler.
 
