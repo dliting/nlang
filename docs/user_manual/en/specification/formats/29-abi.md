@@ -354,7 +354,7 @@ value in slot 0 of the call's argument area (§29.4).
 `typeArgCount` returns the number of type arguments of the
 receiver's instantiation; `typeArgKind` returns the kind code of
 argument `index` (the §27.5 kind codes), and `typeArgName` the
-buffer of its canonical name. An out-of-range `index`:
+buffer of its canonical spelling. An out-of-range `index`:
 `typeArgKind` reports `0xFF` and `typeArgName` returns a null
 pointer. A call with no receiver — a free function or a static
 member — and a call whose receiver is not a generic

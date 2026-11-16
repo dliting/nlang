@@ -57,7 +57,7 @@ IEEE 754 binary32 and binary64 encodings (§4.2).
 |---|---|---|
 | magic | 8 bytes | `NLANGCU` followed by a zero byte |
 | version major | u16 | `2` |
-| version minor | u16 | `19` |
+| version minor | u16 | `20` |
 | module path | u16 length + bytes | the package path of the unit (§3.9.1) |
 | name | u32 length + bytes | the unit name: the same string as the module path in every image the current toolchain writes |
 | entry key | u16 length + bytes | the qualified key (§3.6) of the entry function (§9.3); empty for a library image (§3.9.1) |
@@ -101,19 +101,19 @@ the unit registers (§4.12.9), one row each:
 
 | Field | Width | Content |
 |---|---|---|
-| canonical name | u16 length + bytes | the instantiation's canonical name, e.g. `Box<int>`; empty for a composition record row |
+| canonical spelling | u16 length + bytes | the instantiation's canonical spelling: the template's spelling followed by its type arguments, e.g. `List<int>` or `demo.Box<int>` (§4.12.9); empty for a composition record row |
 | composition | u16 length + bytes | the composition record behind the spelling; empty for a static row |
 
 An empty record means the spelling is the whole fact — the row
 describes an instantiation whose arguments are known at compile
 time. A non-empty record leaves the spelling empty, and the
-canonical name is composed at runtime from the record (forms
+canonical spelling is composed at runtime from the record (forms
 containing a type parameter, §4.12.9). The record is a tag
 stream:
 
 | Tag | Content |
 |---|---|
-| `0` template head | u16 length + bytes: the template's unqualified name |
+| `0` template head | u16 length + bytes: the template's spelling — with its owning package path prefixed for a declared template, bare for a built-in container (§4.12.9) |
 | `1` constant argument | u16 length + bytes: the complete argument spelling |
 | `2` receiver argument | u8: the argument index in the receiver's descriptor |
 | `3` array wrapper | a u8 rank (§4.10) + one child argument encoding |
@@ -127,6 +127,20 @@ shapes cannot alias, and byte-identical rows still merge.
 Linking merges the rows of all units; objects constructed across
 units carry their instantiation information as usual (§4.12.8,
 §4.12.9).
+
+A spelling is validated where its row is interned: a dotted
+head — the template's own, or that of a nested instantiation — must
+name a package the image knows: its own module path, a merged unit's
+path or an import slot's target. Each type argument and each nested
+template name must then resolve to an entry of the linked tables,
+except the names this format spells without a table row: a scalar
+keyword, `string` and `func`. The outermost template name is not
+resolved; only its package head is checked. A spelling that fails
+one of these checks, that is not a name followed by a type-argument
+list, or that does not rebuild to the string it was interned under,
+means a corrupt image: the run aborts with a `corrupt descriptor
+spelling` diagnostic instead of landing on the same-named row of
+another package (§4.12.9).
 
 ## 27.3 Function Records
 

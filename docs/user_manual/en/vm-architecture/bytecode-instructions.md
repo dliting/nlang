@@ -146,7 +146,7 @@ type-parameter list.
 
 | Opcode              | Operands                    | Description              |
 |---------------------|-----------------------------|--------------------------|
-| OP_TypeNameArg      | dst, paramOrdinal (uint8)   | Read the receiver's instantiation descriptor, take the ordinal-th type argument's canonical name, create a string (`typeName(T)`) |
+| OP_TypeNameArg      | dst, paramOrdinal (uint8)   | Read the receiver's instantiation descriptor, take the ordinal-th type argument's canonical spelling, create a string (`typeName(T)`) |
 | OP_TypeNameCompose  | dst, compositionIdx         | Compose a nested spelling from a composition record against the receiver's instantiation and intern it (`typeName(List<T>)`) |
 | OP_Eq_T             | dst, paramOrdinal, lhs, rhs | Compare two T-typed slots under the ordinal-th type argument's kind (scalar cell, string content, struct field value, class/array identity, function-record content); lhs/rhs `0xFFFF` marks the null-literal side |
 | OP_Ne_T             | dst, paramOrdinal, lhs, rhs | Negated verdict of OP_Eq_T |

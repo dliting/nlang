@@ -134,6 +134,13 @@ operator:
 - for a `string` lvalue only `+=` is defined; the other compound
   operators are compile-time errors (§5.3).
 
+A compound assignment is a compile-time error when either operand is
+a `struct` value: struct values have no arithmetic operators — §5.2
+fixes the operand types of `+ - * / %` to the numeric types — so
+`s += t` has no expanded form `s = s + t` to fall back on. The plain
+assignment `s = s + t` is rejected too, since its `s + t` is itself a
+compile-time error.
+
 A compound assignment whose lvalue is a `Dict` subscript raises a
 catchable run-time error at the read of the current value when the
 key is absent (§4.12, chapter 8).

@@ -312,7 +312,7 @@ dispatch at the consumer's call sites work exactly as in the
 declaring unit (§4.12.10).
 
 *Informative:* a unit also carries a template table — one row per
-instantiation the unit registers (canonical name and
+instantiation the unit registers (canonical spelling and
 composition record). Linking merges the rows of all units; objects
 constructed across units carry their instantiation information as
 usual (§4.12.9), and equality, casting and `typeName` behave
@@ -323,7 +323,7 @@ compiled row; per-object state lives in the instances. A bound
 method reference to a template member works: `func<int> f = b.get;`
 (§7.4). Instantiations are not transparent at runtime: every object
 constructed from an instantiation carries a piece of *instantiation
-information* — the template name and the kind and canonical name
+information* — the template name and the kind and canonical spelling
 of each argument — read by equality dispatch, casts and `typeName`
 (§4.12.2, §4.12.9).
 
@@ -423,7 +423,7 @@ class Holder<T> {
 }
 ```
 
-The key is the canonical name `typeName(T)` produces, so
+The key is the canonical spelling `typeName(T)` produces, so
 `Holder<int>` and `Holder<Box<int>>` each take their own slot.
 
 ## 4.12.10 Generic free functions
