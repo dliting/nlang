@@ -41,6 +41,14 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"
 GATE=(bash "$REPO/tools/gate.sh")
 PY="D:/dev/miniconda3/envs/py313/python.exe"
 WORK="${NLANG_GATE_TIER_WORK:-$REPO/temp/tier}"
+# Absolutized here: mkdocs resolves --site-dir against the config file's own
+# directory, so a relative override had the build legs write under docs/ while
+# the check legs walked the caller's directory and reported zero pages for a
+# batch whose content was fine (gate_selftest.sh case A12).
+case "$WORK" in
+  /*|[A-Za-z]:*) ;;
+  *) WORK="$PWD/$WORK" ;;
+esac
 LOGS="$WORK/gates"
 DOCS_CONFIG_EN="$REPO/docs/mkdocs.en.yml"
 DOCS_CONFIG_ZH="$REPO/docs/mkdocs.zh.yml"

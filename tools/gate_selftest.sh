@@ -831,6 +831,31 @@ case_a11_docs_leg_order() {
     pass "$case_name"
 }
 
+case_a12_docs_site_dir_absolute() {
+    # mkdocs resolves --site-dir against the config file's directory, not the
+    # caller's, so a relative NLANG_GATE_TIER_WORK once built one site and
+    # checked another: the check leg reported zero pages and 112 nav coverage
+    # violations for a batch whose content was fine. The assembler therefore has
+    # to absolutize the work directory before any leg prints it.
+    local out=a12-site-dir.out rc seen bad
+    NLANG_GATE_TIER_WORK=rel-tier bash "$TIER_SH" T1 --docs --dry-run \
+        --master-tree "$WS/no-such-tree" --asan-tree "$WS/no-such-tree" \
+        --ide-tree "$WS/no-such-tree" > "$out" 2>&1
+    rc=$?
+    seen=$(sed -n 's/.* --site-dir \([^ ]*\).*/\1/p' "$out" | wc -l)
+    bad=$(sed -n 's/.* --site-dir \([^ ]*\).*/\1/p' "$out" \
+        | grep -v -E '^(/|[A-Za-z]:[\\/])' | tr '\n' ' ')
+    if [ "$seen" -ne 4 ]; then
+        fail "$case_name" "expected 4 --site-dir arguments in the docs legs (rc=$rc): got $seen"
+        return
+    fi
+    if [ -n "$bad" ] || [ "$rc" -ne 0 ]; then
+        fail "$case_name" "a relative work dir leaked a relative --site-dir (rc=$rc): [$bad]"
+        return
+    fi
+    pass "$case_name"
+}
+
 run_case() { # run_case <name> <function>: no case runs once the budget is gone
     local case_name="$1"   # visible to the case body through bash's dynamic scope
     if [ "$(deadline)" -eq 0 ]; then
@@ -855,6 +880,7 @@ run_case a9-no-digest-warning case_a9_no_digest_warning
 # locking cases, which own the run order spec 八.3 fixes for gate.sh.
 run_case a10-gate-tier-batch case_a10_gate_tier_batch
 run_case a11-docs-leg-order case_a11_docs_leg_order
+run_case a12-docs-site-dir-absolute case_a12_docs_site_dir_absolute
 
 verdict() {
     if [ "$failures" -eq 0 ]; then
