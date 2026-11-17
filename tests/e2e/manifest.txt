@@ -533,6 +533,12 @@ err_generic_t_order compile_error cannot be applied to a type parameter
 err_generic_t_arith compile_error cannot be applied to a type parameter
 err_static_t_order_stays compile_error cannot be applied to a type parameter
 err_generic_func_value compile_error cannot be referenced as a value
+err_generic_type_arg_type compile_error Cannot resolve the field: Type.
+err_generic_infer_type_arg compile_error Cannot resolve the field: Type.
+# the internal type names (§1.4) bind no type anywhere and stay free as
+# ordinary identifiers ---
+err_builtin_type_name compile_error Cannot resolve the field: Int32.;Cannot resolve the field: Type.;Cannot resolve the field: Void.
+builtin_type_name_free 0
 # --- P3.8: lock class field default values (int/float/string/class-ref) ---
 class_field_defaults 7
 # --- P3.8: cover switch on string discriminator ---
@@ -612,6 +618,8 @@ boxed_tostring 0
 boxed_field_gc 0
 boxed_struct_field_gc 0
 boxed_array_elem_gc 0
+iface_field_gc 0
+iface_local_gc 0
 object_array_null_store 7
 list_int_indexof_zero 7
 dict_float_zero_key 7
@@ -1177,6 +1185,7 @@ func_tostring_member 0
 func_tostring_cast 0
 func_ref_void_return 41
 func_ref_list_store 0
+func_ref_list_void 0
 func_array_subscript_store 25
 null_overload_ambiguity_reject compile_error ambiguous
 # fitted-constant overload scoring: a fitting literal reaches an

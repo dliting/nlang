@@ -134,7 +134,7 @@ name a package the image knows: its own module path, a merged unit's
 path or an import slot's target. Each type argument and each nested
 template name must then resolve to an entry of the linked tables,
 except the names this format spells without a table row: a scalar
-keyword, `string` and `func`. The outermost template name is not
+keyword, `string`, `func` and `void`. The outermost template name is not
 resolved; only its package head is checked. A spelling that fails
 one of these checks, that is not a name followed by a type-argument
 list, or that does not rebuild to the string it was interned under,

@@ -10,8 +10,11 @@ and ParseOne in lockstep with the struct comment in TypeDesc.h.
 #include "nlang/vm/CompiledModule.h"
 #include <nlang/compiler/SnArrayTypeToken.h>
 #include <nlang/runtime/BuiltinGenericNames.h>
+#include <nlang/runtime/StackDump.h>
 #include <nlang/compiler/SnMisc.h>
+#include <nlang/compiler/SyntaxNodeConsts.h>
 #include <stdexcept>
+#include <string>
 
 namespace nlang {
 
@@ -416,8 +419,25 @@ TypeDesc BuildTypeDesc(SnField* pType, const TypeLeafSlots& slots,
 				return td;
 			}
 			const uint8_t rtk = RtkOfKind(pType->Kind());
-			td.kind = (rtk != 0xFF) ? rtk : RTK_NonSerialized;
-			return td;
+			if (rtk != 0xFF)
+			{
+				td.kind = rtk;
+				return td;
+			}
+			//The other NonSerialized exits above are designed degradations
+			//(no interfaces table, the nesting cap). This one is not: it is a
+			//kind with no wire code at all. Every type shape a resolved
+			//declaration can name has an arm here — the builtin leaves, the
+			//four declaration kinds, the interned array token, func handles,
+			//type parameters and the three builtin container erasures — so
+			//landing here means a declaration kind was added without its
+			//descriptor route. The silent degrade wrote a descriptor the
+			//consumer reads as "unknown type", which is how such an omission
+			//hid until a boxing or GC decision read the wrong kind.
+			NLANG_ASSERT(false && "type has no wire type kind");
+			throw std::logic_error(
+				std::string("no type descriptor for node kind ")
+					+ NodeKindDebugName(pType->Kind()));
 		}
 	}
 	td.kind = RTK_NonSerialized;   //defensive tail: every arm returns

@@ -153,7 +153,7 @@ bool ParseArrayArgRange(const std::string& s, size_t begin, size_t end,
 	return true;
 }
 
-//Leaf arm: scalar keyword, string, or a link key resolved against the
+//Leaf arm: a builtin type keyword, or a link key resolved against the
 //linked module's tables (struct/class/enum; enums are int32 at runtime
 //and the spelling keeps the enum name). 0.13.8 item 8: descriptor
 //spellings carry the qualified link identity, so a class leaf resolves
@@ -168,17 +168,12 @@ void ResolveLeafArg(const std::string& leaf, const CompiledModule& module,
 {
 	out.spelling = leaf;
 	out.rowRef = -1;
-	for (size_t pi = 0; pi < kScalarPrimCount; ++pi)
+	//Keyword leaves (the 12 scalars, `string`, `void`) come from the shared
+	//vocabulary table: no module table is involved, and the producer spells
+	//the same rows, so a keyword can no longer be known on one side only.
+	if (const TypeLeafKeyword* pLeaf = FindTypeLeafKeyword(leaf))
 	{
-		if (leaf == kScalarPrims[pi].name)
-		{
-			out.resolvedKind = kScalarPrims[pi].rtk;
-			return;
-		}
-	}
-	if (leaf == "string")
-	{
-		out.resolvedKind = RTK_String;
+		out.resolvedKind = pLeaf->rtk;
 		return;
 	}
 	if (int idx = module.FindStruct(leaf); idx >= 0)

@@ -84,6 +84,18 @@ private slots:
 		QCOMPARE(VmBackend::RuntimeTypeKind(pPlain), RTK_Class);
 	}
 
+	//An interface-typed declared slot holds a heap object reference just
+	//like a class-typed one, so it classifies as RTK_Class: the GC traces a
+	//slot by its DECLARED kind (frame local roots, class-field marks), and
+	//classifying the slot as an int32 leaves the collector free the live
+	//receiver (tests/e2e/iface_field_gc.n, iface_local_gc.n).
+	void runtimeTypeKindClassifiesInterfaceSlots()
+	{
+		auto* pIface = new SnInterfaceDecl(new std::string("IGreeter"),
+			new PtrList<SnField>(), ScriptLocation());
+		QCOMPARE(VmBackend::RuntimeTypeKind(pIface), RTK_Class);
+	}
+
 	//Serialization pin (passes today: both sides move the kind as a raw
 	//byte, no whitelist) — guards the label against a future loader-side
 	//kind validation rejecting it.

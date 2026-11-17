@@ -121,6 +121,19 @@ An alias is a pure spelling layer: it names the same type in every
 position, and diagnostics and `typeName` always print the canonical
 name — `typeName(int32)` is `"int"`.
 
+A primitive type has no spelling besides its keyword and, for the
+numeric ones, the alias above. The runtime's *internal names* —
+`Int32`, `UInt32`, `ULong`, `Float`, `String`, `Void`, `Type` — are
+display names: some diagnostics print them in rendered signatures
+(see [Common Error Messages](reference/common-errors.md)). `String` is
+the only one of them a program declares — the face class holding the
+string methods, like `Array<T>` for arrays (§4.10.4) — and using it as
+a type is refused as a builtin face class, with the message naming
+`string` as the spelling to write. The others name no type, in a
+declaration or in a type-argument list alike, so `Int32 x;` is an
+undeclared name; none of them is a reserved word, so each stays usable
+as an ordinary identifier — `int Int32 = 5;` is legal.
+
 ## 1.5 Literals
 
 ### 1.5.1 Integer literals

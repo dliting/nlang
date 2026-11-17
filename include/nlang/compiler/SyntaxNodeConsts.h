@@ -103,6 +103,25 @@ enum CompNodeKind: NodeKind
 static_assert(NK_CP_END < NODE_KIND_LIMIT,
 	"Syntax node kind definition error.");
 
+//The name a diagnostic prints for a node kind. The compiler-bug paths of the
+//type-classification layers (a kind with no runtime type kind, a kind with no
+//type-argument spelling) must say WHICH construct reached them: a bare NK_*
+//number sent a developer hunting through the declaration macros. Generated
+//from the same macros that declare the kinds, so a new kind needs no edit
+//here, and two kinds sharing one value would be a duplicate-case compile
+//error — that is what keeps this table exhaustive instead of a hand-written
+//list that silently falls behind.
+inline const char* NodeKindDebugName(NodeKind k)
+{
+	switch (k)
+	{
+#define MACRO_IMPL(T) case NK_##T: return #T;
+		SYNTAX_NODE_DECL(MACRO_IMPL)
+#undef MACRO_IMPL
+	default: return "?";   //NK_BEFOR (the NK_RT_END marker) or an out-of-range kind
+	}
+}
+
 //Enumerations of extra syntax node flags.
 #define COMPILE_ONLY_NODE_FLAG_DECL(MACRO_IMPL)								\
 	MACRO_IMPL(Expression,	0, "expression")								\

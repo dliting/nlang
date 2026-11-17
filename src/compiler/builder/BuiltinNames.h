@@ -60,9 +60,9 @@ inline bool IsStreamClassName(const std::string& name)
 }
 
 //v0.12.2 face classes (spec D2/D10): String/Array hold the method faces
-//of the string keyword and the array types. Shared by the resolver gates,
-//the implicit-Object early-out, and the root mirror name-yield pass
-//(ImportedNodeBuilder) — one set, no drift.
+//of the string keyword and the array types. The face gate in
+//ExprResolverBuiltinClasses.cpp and the built-in surface coverage test read
+//this one name set, so the two cannot drift.
 inline bool IsPreludeFaceClassName(const std::string& name)
 {
 	return name == "String" || name == "Array";

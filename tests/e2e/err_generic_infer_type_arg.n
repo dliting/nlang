@@ -1,0 +1,18 @@
+//compile_error: the call-site inference route, which never spells a type
+//argument and so bypasses the spelling layer entirely. It used to bind T
+//to `Type`, hand the instantiation descriptor a leaf the load side could
+//not resolve, and let the VM refuse the whole image at start-up. The
+//declaration closes it first: `Type` has no keyword and its builtin-type
+//mirror gives up the internal name the runtime tables stringize for it,
+//so `Type t;` resolves no type at all.
+import io;
+
+string kindOf<T>(T v) {
+    return typeName(T);
+}
+
+int main() {
+    Type t;
+    io.print(kindOf(t));
+    return 0;
+}

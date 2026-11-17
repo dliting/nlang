@@ -2,8 +2,12 @@
     CompiledModuleRecords.h — per-table record types of the .ncu image
     (public header). Split out of CompiledModule.h (0.9.12 source-size
     maintainability refactor, zero behavior change): this header carries
-    the runtime type-kind constants and the record structs the container
-    vectors hold. The container itself (CompiledModule), the format
+    the record structs the container vectors hold; the runtime type kind
+    constants they used to define here live in
+    nlang/runtime/RuntimeTypeCodes.h and are included from there (0.13.11
+    layering fix: the compiler's spelling header needs those constants, and
+    including a VM header from a compiler header is the wrong direction). The
+    container itself (CompiledModule), the format
     version and the slot-width ABI stay in CompiledModule.h, which
     includes this one — consumers keep including CompiledModule.h alone.
 ---*/
@@ -11,41 +15,12 @@
 #include "Intrinsics.h"
 #include "TypeDesc.h"
 #include <nlang/runtime/PrimitiveTypes.h>
+#include <nlang/runtime/RuntimeTypeCodes.h>
 #include <cstdint>
 #include <string>
 #include <vector>
 
 namespace nlang {
-
-//Runtime type kind constants for serialization (compile-time NK_* values
-//exceed uint8_t range). The scalar codes (RTK_Int32/RTK_Float = 0/1 plus
-//RTK_Byte..RTK_Char = 10..19) live in PrimitiveTypes.h — single source.
-static constexpr uint8_t RTK_String = 2;
-static constexpr uint8_t RTK_Struct = 3;
-static constexpr uint8_t RTK_Class  = 4;
-static constexpr uint8_t RTK_Array  = 5;
-static constexpr uint8_t RTK_Boxed  = 6;  //boxed primitive (slot[0]=tag, slots[1..2]=value; 8-byte family uses both cells)
-static constexpr uint8_t RTK_Func   = 7;  //Phase 13: function handle (slot[0]=target, slot[1]=this, slot[2]=form; 0=static, 1=virtual)
-//v0.12.3: declared kind of a type-parameter (T) slot — the template row's
-//one-implementation layout. A T slot holds one value slot whatever the
-//instantiation binds, and its runtime representation depends on the type
-//argument (string store handle / heap index / inline scalar), so every
-//consumer routes it conservatively (GC tests both domains). First kind
-//above the scalar block (10..19), keeping the two ranges disjoint.
-static constexpr uint8_t RTK_TypeParam = 20;
-//v0.12.7: runtime-only kind of an array VIEW record (spec §4.2 of the
-//array/tensor design). Never a declared type kind — it never appears on
-//the wire or in locals tables; it labels heap records whose header
-//prefix mirrors RTK_Array (kind/typeIdx/rank/elemCount/dims at the same
-//offsets) and whose tail carries strides/offset/target. The target cell
-//always names an OWNED RTK_Array record (depth one).
-static constexpr uint8_t RTK_ArrayView = 21;
-//Descriptor-only kinds RTK_List / RTK_Dict / RTK_NonSerialized live in
-//TypeDesc.h (they appear inside TypeDesc, never in these legacy bytes).
-static constexpr uint8_t RTK_Null   = 0xFD;  //Option B: null default value (any reference type)
-static constexpr uint8_t RTK_Unfoldable = 0xFC;  //Option B: had default but not constant-foldable
-static constexpr uint8_t RTK_Expr   = 0xFB;  //v2.3: default is the ExprDesc tree in exprBytes
-static constexpr uint8_t RTK_Void   = 0xFE;  //used for ctor/void method stubs
 
 struct LocalDescriptor {
     uint16_t offset = 0;

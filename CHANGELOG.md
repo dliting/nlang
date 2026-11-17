@@ -3,7 +3,7 @@
 The JSON library: a `json` package that reads, edits and writes JSON
 text, written in NLang itself and shipped in the preset package. This
 release also settles two language-surface items the library needed and
-fixes two defects it uncovered.
+fixes four defects it uncovered.
 
 ### Added
 
@@ -78,6 +78,25 @@ fixes two defects it uncovered.
   boundary. The C++ wrappers keep taking and returning `std::string`,
   so only an extension that reads the host function table directly is
   affected, and the ABI chapter carries the new signatures.
+- **An internal type name is no longer a type spelling.** The runtime's
+  internal type names — `Int32`, `UInt32`, `ULong`, `Float`, `String`,
+  `Void`, `Type` among them — are the display spellings the rendered
+  signatures print; a program could
+  also use them as types, because the mirror the compiler
+  builds of the runtime's builtin types indexed those names in the
+  global namespace. Some of them compiled into something that then
+  failed at load: `Void v;` named a type with no value representation,
+  and `Type t;` reached the generic instantiation layer, which defines
+  no spelling for a metaclass, so the module was refused only once it
+  was running. Those names now resolve like any undeclared name
+  (`Cannot resolve the field: Void.`), because the types of the language
+  are its keywords and numeric aliases (§1.4) together with the names a
+  program declares: write `int` or `int32`, write `string`, and write
+  the declared class, interface, struct or enum name. The preset
+  package's own face classes keep the messages they already had —
+  `"String" is a builtin face class; it cannot be used as a type. Use
+  the string keyword instead.` — because those names come from
+  declarations, not from the mirror.
 
 ### Fixed
 
@@ -97,6 +116,32 @@ fixes two defects it uncovered.
   signature", and where a name and an arity coincidentally matched it
   silently bound the wrong method. An abstract member now occupies its
   method-table row in the consumer's count as it does in the provider's.
+- **A function type with no return value inside a type argument
+  loads.** `List<func<void, Ctx>>` — a list of functions taking a `Ctx`
+  and returning no value — compiled, and then the whole module was
+  refused at start-up with "corrupt descriptor spelling: unresolved
+  link key '?'": a type argument has to be spelled into the
+  instantiation record, and the compiler and the
+  virtual machine each kept their own list of the spellings, with
+  `void` on neither. The compiler wrote the placeholder `?` for the
+  `void` it could not name and the loader, which had never seen `?`,
+  rejected the image. The two now read one shared table, so a type
+  argument the compiler cannot spell is a compile-time contract
+  violation instead of a record the virtual machine can only refuse
+  after the image is written.
+- **An interface-typed field or local keeps its object alive.** A class
+  field, local or parameter declared with an interface type reached the
+  collector as an integer rather than as an object reference: the
+  classifier mapping a declared type to a runtime type kind answered for
+  class, struct and enum declarations and had no answer for `interface`,
+  so it fell back to the integer. The collector skipped the slot and
+  freed the receiver as soon as a collection ran, and the program then
+  died on the next call with `method not found: …` — the slot named a
+  record the allocator had already handed out again. An interface-typed
+  slot now classifies as an object reference (an interface value is an
+  instance of a class that implements it), and a declared type with no
+  answer in that classifier fails the build naming the kind instead of
+  degrading to an integer and losing the object.
 
 ## [0.13.8] - 2026-11-15
 

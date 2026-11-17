@@ -1,0 +1,28 @@
+//iface_local_gc.n — an object held in an interface-typed local must survive
+//garbage collection. The local's declared type is an interface, and its
+//runtime kind used to fall back to RTK_Int32, which the local-root scan
+//skips, so the collector freed the receiver while the frame still held it.
+interface IGreeter
+{
+    string greet();
+}
+
+class Impl implements IGreeter
+{
+    public string greet() { return "hello"; }
+}
+
+class Cell
+{
+    public int v;
+    public Cell(int x) { v = x; }
+}
+
+int main() {
+    IGreeter local = Impl();
+    for (int i = 0; i < 5000; i = i + 1) {
+        Cell c = Cell(i);
+    }
+    if (local.greet() != "hello") { return 1; }
+    return 0;
+}
