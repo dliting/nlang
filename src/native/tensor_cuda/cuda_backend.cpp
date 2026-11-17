@@ -192,22 +192,20 @@ TensorOps MakeCudaTable() {
         CUDA_CHECK(LaunchMatmul(ToLaunch(a), ToLaunch(b),
             ToLaunch(dst), a.elemKind), "tensor (cuda matmul)");
     };
-    t.clampI32 = [](NativeHost* host, bool, NativeArrayView&, int32_t,
-                    NativeArrayView&) {
-        nlang::native::Raise(host, NEXC_Base,
-            "tensor: integer clamp is not implemented on the cuda "
-            "backend yet"); };
-    t.clampI64 = [](NativeHost* host, bool, NativeArrayView&, int64_t,
-                    NativeArrayView&) {
-        nlang::native::Raise(host, NEXC_Base,
-            "tensor: integer clamp is not implemented on the cuda "
-            "backend yet"); };
-    t.gatherF64 = t.gatherI64 =
-        [](NativeHost* host, NativeArrayView&, int32_t,
-           NativeArrayView&, NativeArrayView&) {
-        nlang::native::Raise(host, NEXC_Base,
-            "tensor.gather: f64/int64 are not implemented on the cuda "
-            "backend yet"); };
+    t.clampI32 = [](NativeHost* host, bool isMax, NativeArrayView& src,
+                    int32_t bound, NativeArrayView& dst) {
+        RequireCuda(host);
+        CUDA_CHECK(LaunchClamp(isMax, ToLaunch(src), 0.0, bound,
+            ToLaunch(dst)), "tensor (cuda clamp)");
+    };
+    t.clampI64 = [](NativeHost* host, bool isMax, NativeArrayView& src,
+                    int64_t bound, NativeArrayView& dst) {
+        RequireCuda(host);
+        CUDA_CHECK(LaunchClamp(isMax, ToLaunch(src), 0.0, bound,
+            ToLaunch(dst)), "tensor (cuda clamp)");
+    };
+    t.gatherF64 = t.gatherF32;
+    t.gatherI64 = t.gatherF32;
 
     t.unaryF32 = [](NativeHost* host, UnaryKernelOp op,
                     NativeArrayView& src, NativeArrayView& dst) {
@@ -286,13 +284,13 @@ TensorOps MakeCudaTable() {
     t.clampF32 = [](NativeHost* host, bool isMax, NativeArrayView& src,
                     float bound, NativeArrayView& dst) {
         RequireCuda(host);
-        CUDA_CHECK(LaunchClamp(isMax, ToLaunch(src), bound, ToLaunch(dst)),
+        CUDA_CHECK(LaunchClamp(isMax, ToLaunch(src), bound, 0, ToLaunch(dst)),
             "tensor (cuda clamp)");
     };
     t.clampF64 = [](NativeHost* host, bool isMax, NativeArrayView& src,
                     double bound, NativeArrayView& dst) {
         RequireCuda(host);
-        CUDA_CHECK(LaunchClamp(isMax, ToLaunch(src), bound, ToLaunch(dst)),
+        CUDA_CHECK(LaunchClamp(isMax, ToLaunch(src), bound, 0, ToLaunch(dst)),
             "tensor (cuda clamp)");
     };
 
@@ -468,21 +466,9 @@ TensorOps MakeCudaTable() {
 
     t.gatherF32 = [](NativeHost* host, NativeArrayView& src, int32_t axis,
                      NativeArrayView& indices, NativeArrayView& dst) {
-        (void)axis;
         RequireCuda(host);
-        int32_t errCell = -1;
-        CUDA_CHECK(LaunchGather(ToLaunch(src), 0, ToLaunch(indices),
-            ToLaunch(dst), &errCell), "tensor (cuda gather)");
-        if (errCell >= 0) {
-            //The dispatcher stages the indices to host before the slot;
-            //the message mirrors the CPU walk's per-index raise.
-            const int32_t bad = static_cast<const int32_t*>(
-                indices.data)[indices.offset + errCell];
-            nlang::native::Raise(host, NEXC_OutOfBounds,
-                "tensor.gather: index " + std::to_string(bad)
-                + " out of bounds for axis " + std::to_string(axis)
-                + " with size " + std::to_string(src.dims[axis]));
-        }
+        CUDA_CHECK(LaunchGather(ToLaunch(src), axis, ToLaunch(indices),
+            ToLaunch(dst)), "tensor (cuda gather)");
     };
     t.gatherI32 = t.gatherF32;
 

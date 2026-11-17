@@ -1,0 +1,20 @@
+// The integer clamp family on the device backend (v0.14.3): max/min
+// with an int/long bound, exact int64 carrier (no double roundtrip).
+// Exit 0 when every check holds.
+import tensor;
+
+int main() {
+    int[] a = tensor.arange(-2, 3, 1);
+    int[] lo = tensor.min(a, 0);
+    if (lo[0] != -2 || lo[1] != -1 || lo[2] != 0 || lo[3] != 0
+        || lo[4] != 0) return 1;
+    int[] hi = tensor.max(a, 1);
+    if (hi[0] != 1 || hi[1] != 1 || hi[2] != 1 || hi[3] != 1
+        || hi[4] != 2) return 2;
+    //The long arm with an exact above-2^53 bound.
+    long[] big = tensor.full(2, 9007199254740993);
+    long[] clamped = tensor.min(big, 9007199254740992);
+    if (clamped[0] != 9007199254740992) return 3;
+    if (clamped[1] != 9007199254740992) return 4;
+    return 0;
+}

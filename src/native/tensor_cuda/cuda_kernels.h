@@ -83,7 +83,7 @@ cudaError_t LaunchBinaryScalar(int op, const LaunchView& a,
                                double scalar, bool scalarLeft,
                                const LaunchView& dst, int32_t* errorOut);
 cudaError_t LaunchClamp(bool isMax, const LaunchView& src, double bound,
-                        const LaunchView& dst);
+                        int64_t iBound, const LaunchView& dst);
 cudaError_t LaunchSumAll(const LaunchView& src, double* out,
                          int64_t* outI, bool isInt);
 cudaError_t LaunchDot(const LaunchView& a, const LaunchView& b,
@@ -114,9 +114,12 @@ cudaError_t LaunchScatter(const LaunchView& a, const LaunchView& indices,
                           int32_t* errorOut);
 cudaError_t LaunchMatmul(const LaunchView& a, const LaunchView& b,
                          const LaunchView& dst, int elemKindCode);
+//gather (take-per-position, all kinds, all axes): ASYNC — the index
+//bounds ride the dispatcher's host-side validation over the staged
+//indices; the kernel is a pure strided copy.
 cudaError_t LaunchGather(const LaunchView& src, int axis,
                          const LaunchView& indices,
-                         const LaunchView& dst, int32_t* errorOut);
+                         const LaunchView& dst);
 cudaError_t LaunchArgExtreme(bool isMax, const LaunchView& src,
                              int axis, const LaunchView& dst);
 cudaError_t LaunchEq(const LaunchView& a, const LaunchView& b,

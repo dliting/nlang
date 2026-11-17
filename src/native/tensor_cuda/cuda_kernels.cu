@@ -471,17 +471,41 @@ __global__ void ClampKernelF(bool isMax, DevView src, float bound,
     ((float*)dst.data)[sd] = out;
 }
 
+//The int clamp: the bound rides the exact int64 field (the slot's
+//typed scalar — no double roundtrip, the 0.14.2 discipline); the
+//FlatAddress addressing matches the float kernels.
+template <typename T>
+__global__ void ClampKernelInt(bool isMax, DevView src, T bound,
+                               DevView dst) {
+    const int64_t i = blockIdx.x * (int64_t)blockDim.x + threadIdx.x;
+    if (i >= dst.elemCount)
+        return;
+    const int64_t sa = FlatAddress(src, i);
+    const int64_t sd = FlatAddress(dst, i);
+    const T v = ((const T*)src.data)[sa];
+    ((T*)dst.data)[sd] = isMax ? (v > bound ? v : bound)
+                               : (v < bound ? v : bound);
+}
+
 cudaError_t LaunchClamp(bool isMax, const LaunchView& src, double bound,
-                        const LaunchView& dst) {
+                        int64_t iBound, const LaunchView& dst) {
+    //Async (no cell errors). The float kinds read the double bound; the
+    //int kinds the exact int64 twin.
     const DevView ds = ToDevView(src);
     const DevView dd = ToDevView(dst);
     const int64_t blocks = (dst.elemCount + kThreads - 1) / kThreads;
     if (dst.elemKind == 1)
         ClampKernelF<<<(int)blocks, kThreads, 0, g_stream>>>(
             isMax, ds, (float)bound, dd);
-    else
+    else if (dst.elemKind == 17)
         ClampKernel<<<(int)blocks, kThreads, 0, g_stream>>>(
             isMax, ds, bound, dd);
+    else if (dst.elemKind == 0)
+        ClampKernelInt<int32_t><<<(int)blocks, kThreads, 0, g_stream>>>(
+            isMax, ds, static_cast<int32_t>(iBound), dd);
+    else
+        ClampKernelInt<int64_t><<<(int)blocks, kThreads, 0, g_stream>>>(
+            isMax, ds, iBound, dd);
     return cudaGetLastError();
 }
 
@@ -738,334 +762,128 @@ cudaError_t LaunchSumAll(const LaunchView& src, double* out,
     return cudaSuccess;
 }
 
-//--- axis reductions -----------------------------------------------------
+//--- axis reductions (v0.14.3: the general per-output-element scan;
+//the specialized f32-only axis kernels retired) --------------------------
 
-//The f32 axis sums: FLOAT cells, DOUBLE accumulators (the CPU walk's
-//contract — softmax's sum(e, 1) rides these).
-__global__ void SumAxis0KernelF32(const float* src, int64_t rows,
-                                  int64_t inner, float* dst) {
-    const int64_t col = blockIdx.x * (int64_t)blockDim.x + threadIdx.x;
-    if (col >= inner)
+//One thread per output element: the element's row-major ordinal over
+//the non-axis dims decomposes onto the source address (the odometer
+//division skips the axis dim), and the scan walks the axis. Sum rides
+//the CPU walk's carrier (the float kinds accumulate double, the int
+//kinds int64 — the final narrow back to T); Max/Min keep the first-wins
+//T compare. All kinds, all axes, async (no cell errors).
+template <typename T, typename ACC>
+__global__ void ReduceAxisScanKernel(DevView src, int32_t axis,
+                                     int32_t op, DevView dst) {
+    const int64_t p = blockIdx.x * (int64_t)blockDim.x + threadIdx.x;
+    if (p >= dst.elemCount)
         return;
-    double acc = 0.0;
-    for (int64_t r = 0; r < rows; ++r)
-        acc += (double)src[r * inner + col];
-    dst[col] = (float)acc;
-}
-
-__global__ void SumAxisLastKernelF32(const float* src, int64_t rows,
-                                     int64_t seg, float* dst) {
-    const int tid = threadIdx.x;
-    __shared__ double local[kThreads];
-    local[tid] = 0.0;
-    const int64_t row = blockIdx.x;
-    const int64_t base = row * (int64_t)seg;
-    for (int64_t i = base + tid; i < base + seg;
-         i += (int64_t)blockDim.x) {
-        local[tid] += (double)src[i];
+    int64_t addr = src.offset;
+    int64_t rem = p;
+    for (int32_t d = src.rank - 1; d >= 0; --d) {
+        if (d == axis)
+            continue;
+        const int64_t dim = src.dims[d];
+        const int64_t coord = dim > 0 ? rem % dim : 0;
+        rem /= (dim > 0 ? dim : 1);
+        addr += coord * src.strides[d];
     }
-    __syncthreads();
-    if (tid == 0) {
-        double acc = 0.0;
-        for (int t = 0; t < kThreads; ++t)
-            acc += local[t];
-        dst[row] = (float)acc;
-    }
-}
-
-//Axis-0 sum: one thread per output column, accumulating down the rows
-//(the double accumulator contract).
-__global__ void SumAxis0Kernel(const double* src, int64_t rows,
-                               int64_t inner, double* dst) {
-    const int64_t col = blockIdx.x * (int64_t)blockDim.x + threadIdx.x;
-    if (col >= inner)
-        return;
-    double acc = 0.0;
-    for (int64_t r = 0; r < rows; ++r)
-        acc += src[r * inner + col];
-    dst[col] = acc;
-}
-
-//Axis-last sum: one thread per output row, summing the contiguous
-//segment (the block-partial form — kThreads-wide segments with the
-//shared-memory reduce).
-__global__ void SumAxisLastKernel(const double* src, int64_t rows,
-                                  int64_t seg, double* dst) {
-    __shared__ double local[kThreads];
-    const int tid = threadIdx.x;
-    local[tid] = 0.0;
-    const int64_t row = blockIdx.x;
-    const int64_t base = row * (int64_t)seg;
-    for (int64_t i = base + tid; i < base + seg;
-         i += (int64_t)blockDim.x) {
-        local[tid] += src[i];
-    }
-    __syncthreads();
-    if (tid == 0) {
-        double acc = 0.0;
-        for (int t = 0; t < kThreads; ++t)
-            acc += local[t];
-        dst[row] = acc;
-    }
-}
-
-//Max/Min along the LAST axis (f32): one thread per output row, the
-//first-wins scan over the contiguous segment (softmax's
-//max(logits, 1)).
-__global__ void ExtremeAxisLastKernelF32(const float* src, int64_t rows,
-                                         int64_t seg, bool isMax,
-                                         float* dst) {
-    const int64_t row = blockIdx.x * (int64_t)blockDim.x + threadIdx.x;
-    if (row >= rows)
-        return;
-    const int64_t base = row * seg;
-    float best = src[base];
-    for (int64_t s = 1; s < seg; ++s) {
-        const float cur = src[base + s];
-        if (isMax ? cur > best : cur < best)
-            best = cur;
-    }
-    dst[row] = best;
-}
-
-//Max/Min along axis 0 (f32): one thread per output column, the
-//first-wins scan down the rows.
-__global__ void ExtremeAxis0KernelF32(const float* src, int64_t rows,
-                                      int64_t inner, bool isMax,
-                                      float* dst) {
-    const int64_t col = blockIdx.x * (int64_t)blockDim.x + threadIdx.x;
-    if (col >= inner)
-        return;
-    float best = src[col];
-    for (int64_t r = 1; r < rows; ++r) {
-        const float cur = src[r * inner + col];
-        if (isMax ? cur > best : cur < best)
-            best = cur;
-    }
-    dst[col] = best;
-}
-
-//--- strided-aware per-axis kernels (f32, mirroring the dense axis
-//kernels above; only the addressing differs) ---------------------------
-//The output coordinate folds back to an input address per element. For
-//the axis-last arm the input flat index is row * seg + s (row-major, so
-//FlatAddress decomposes it exactly); for the axis-0 rank-2 arm it is
-//r * inner + col. The algebra mirrors the CPU ReduceAxisImpl /
-//CpuArgExtreme walks (the row-major flat order).
-
-//Axis-last sum: one block per output row, the FlatAddress scan over the
-//segment.
-__global__ void SumAxisLastStridedKernelF32(DevView v, int64_t rows,
-                                            int64_t seg, float* dst) {
-    __shared__ double local[kThreads];
-    const int tid = threadIdx.x;
-    local[tid] = 0.0;
-    const int64_t row = blockIdx.x;
-    const int64_t base = row * (int64_t)seg;
-    for (int64_t s = tid; s < seg; s += (int64_t)blockDim.x) {
-        local[tid] +=
-            (double)((const float*)v.data)[FlatAddress(v, base + s)];
-    }
-    __syncthreads();
-    if (tid == 0) {
-        double acc = 0.0;
-        for (int t = 0; t < kThreads; ++t)
-            acc += local[t];
-        dst[row] = (float)acc;
-    }
-}
-
-//Axis-0 rank-2 sum: one thread per output column, the FlatAddress scan
-//down the rows.
-__global__ void SumAxis0StridedKernelF32(DevView v, int64_t rows,
-                                         int64_t inner, float* dst) {
-    const int64_t col = blockIdx.x * (int64_t)blockDim.x + threadIdx.x;
-    if (col >= inner)
-        return;
-    double acc = 0.0;
-    for (int64_t r = 0; r < rows; ++r)
-        acc += (double)((const float*)v.data)[FlatAddress(v, r * inner + col)];
-    dst[col] = (float)acc;
-}
-
-//Axis-last max/min: one thread per output row, the first-wins FlatAddress
-//scan over the segment.
-__global__ void ExtremeAxisLastStridedKernelF32(DevView v, int64_t rows,
-                                                int64_t seg, bool isMax,
-                                                float* dst) {
-    const int64_t row = blockIdx.x * (int64_t)blockDim.x + threadIdx.x;
-    if (row >= rows)
-        return;
-    const int64_t base = row * seg;
-    float best = ((const float*)v.data)[FlatAddress(v, base)];
-    for (int64_t s = 1; s < seg; ++s) {
-        const float cur = ((const float*)v.data)[FlatAddress(v, base + s)];
-        if (isMax ? cur > best : cur < best)
-            best = cur;
-    }
-    dst[row] = best;
-}
-
-//Axis-0 rank-2 max/min: one thread per output column, the first-wins
-//FlatAddress scan down the rows.
-__global__ void ExtremeAxis0StridedKernelF32(DevView v, int64_t rows,
-                                             int64_t inner, bool isMax,
-                                             float* dst) {
-    const int64_t col = blockIdx.x * (int64_t)blockDim.x + threadIdx.x;
-    if (col >= inner)
-        return;
-    float best = ((const float*)v.data)[FlatAddress(v, col)];
-    for (int64_t r = 1; r < rows; ++r) {
-        const float cur =
-            ((const float*)v.data)[FlatAddress(v, r * inner + col)];
-        if (isMax ? cur > best : cur < best)
-            best = cur;
-    }
-    dst[col] = best;
-}
-
-//Axis-last winner index (argmax/argmin): one thread per output row, the
-//first-wins FlatAddress scan; ties keep the earliest index.
-__global__ void ArgExtremeLastStridedKernelF32(DevView v, int64_t rows,
-                                               int64_t seg, bool isMax,
-                                               int32_t* dst) {
-    const int64_t row = blockIdx.x * (int64_t)blockDim.x + threadIdx.x;
-    if (row >= rows)
-        return;
-    const int64_t base = row * seg;
-    int32_t best = 0;
-    float bestVal = ((const float*)v.data)[FlatAddress(v, base)];
-    for (int64_t s = 1; s < seg; ++s) {
-        const float cur = ((const float*)v.data)[FlatAddress(v, base + s)];
-        if (isMax ? cur > bestVal : cur < bestVal) {
-            bestVal = cur;
-            best = (int32_t)s;
+    const int64_t along = src.dims[axis];
+    ACC acc = ACC(0);
+    T best = ((const T*)src.data)[addr];
+    for (int64_t k = 0; k < along; ++k) {
+        const T cur =
+            ((const T*)src.data)[addr + k * src.strides[axis]];
+        if (op == 0) {
+            acc += static_cast<ACC>(cur);
+        } else if (k > 0) {
+            //Max=1 / Min=2: the first-wins compare (a later equal or
+            //NaN cell never replaces the incumbent).
+            if (op == 1 ? (cur > best) : (cur < best))
+                best = cur;
         }
     }
-    dst[row] = best;
+    ((T*)dst.data)[dst.offset + p] =
+        op == 0 ? static_cast<T>(acc) : best;
+}
+
+//The argmax/argmin scan: the same odometer addressing; the winner is
+//the first max/min along the axis (ties keep the earliest index).
+template <typename T>
+__global__ void ArgExtremeScanKernel(DevView src, int32_t axis,
+                                     bool isMax, DevView dst) {
+    const int64_t p = blockIdx.x * (int64_t)blockDim.x + threadIdx.x;
+    if (p >= dst.elemCount)
+        return;
+    int64_t addr = src.offset;
+    int64_t rem = p;
+    for (int32_t d = src.rank - 1; d >= 0; --d) {
+        if (d == axis)
+            continue;
+        const int64_t dim = src.dims[d];
+        const int64_t coord = dim > 0 ? rem % dim : 0;
+        rem /= (dim > 0 ? dim : 1);
+        addr += coord * src.strides[d];
+    }
+    const int64_t along = src.dims[axis];
+    int32_t bestAt = 0;
+    T best = ((const T*)src.data)[addr];
+    for (int64_t k = 1; k < along; ++k) {
+        const T cur =
+            ((const T*)src.data)[addr + k * src.strides[axis]];
+        if (isMax ? (cur > best) : (cur < best)) {
+            best = cur;
+            bestAt = static_cast<int32_t>(k);
+        }
+    }
+    static_cast<int32_t*>(dst.data)[dst.offset + p] = bestAt;
 }
 
 cudaError_t LaunchReduceAxis(int op, const LaunchView& src, int axis,
                              const LaunchView& dst) {
-    //P3 scope (design 2026-11-15 §R6): Sum and Max/Min on the
-    //first/last axes of f32 (mnist's whole surface); middle axes and
-    //the int/f64 kinds land with the parity suite (plan T3.9).
-    //ReduceAxisOp: Sum=0, Max=1, Min=2 (the enum order).
+    //ReduceAxisOp: Sum=0, Max=1, Min=2 (the enum order). Async (no
+    //cell errors); all kinds and axes (v0.14.3 — the f32-only scope
+    //and the specialized axis kernels retired).
     if (op != 0 && op != 1 && op != 2)
         return cudaErrorNotSupported;
-    if (src.elemKind != 1)
-        return cudaErrorNotSupported;
-    const int32_t rank = src.rank;
-    const int64_t along = src.dims[axis];
-    const int64_t inner = rank == 2 ? src.dims[1] : 1;
-    const int64_t outer = rank == 2 ? src.dims[0] : 1;
-    //The gate above pins f32 — FLOAT cells, DOUBLE accumulators (the
-    //CPU walk's contract). The dst is a fresh dense array (the dispatcher
-    //mints it), so its offset is 0; the fold below is a no-op that keeps
-    //both branches consistent.
-    const DevView v = ToDevView(src);
-    const bool dense = IsDense(v);
-    //The dense branch folds the src offset into the base pointer; the
-    //strided branch keeps it in the DevView (FlatAddress folds it).
-    const float* fSrc = dense
-        ? (const float*)src.data + src.offset
-        : (const float*)src.data;
-    float* fDst = (float*)dst.data + dst.offset;
-    const bool isExtreme = op == 1 || op == 2;
-    if (isExtreme) {
-        const bool isMax = op == 1;
-        if (axis == rank - 1) {
-            const int64_t rows = dst.elemCount;
-            if (dense) {
-                ExtremeAxisLastKernelF32<<<(int)rows, 1, 0, g_stream>>>(
-                    fSrc, rows, along, isMax, fDst);
-            } else {
-                ExtremeAxisLastStridedKernelF32<<<(int)rows, 1, 0,
-                    g_stream>>>(v, rows, along, isMax, fDst);
-            }
-        } else if (axis == 0 && rank == 2) {
-            const int64_t blocks = (inner + kThreads - 1) / kThreads;
-            if (dense) {
-                ExtremeAxis0KernelF32<<<(int)blocks, kThreads, 0,
-                    g_stream>>>(fSrc, outer, inner, isMax, fDst);
-            } else {
-                ExtremeAxis0StridedKernelF32<<<(int)blocks, kThreads, 0,
-                    g_stream>>>(v, outer, inner, isMax, fDst);
-            }
-        } else {
-            return cudaErrorNotSupported;
-        }
-        return cudaGetLastError();
-    }
-    if (axis == rank - 1) {
-        const int64_t rows = dst.elemCount;
-        if (dense) {
-            SumAxisLastKernelF32<<<(int)rows, kThreads, 0, g_stream>>>(
-                fSrc, rows, along, fDst);
-        } else {
-            SumAxisLastStridedKernelF32<<<(int)rows, kThreads, 0,
-                g_stream>>>(v, rows, along, fDst);
-        }
-    } else if (axis == 0 && rank == 2) {
-        const int64_t blocks = (inner + kThreads - 1) / kThreads;
-        if (dense) {
-            SumAxis0KernelF32<<<(int)blocks, kThreads, 0, g_stream>>>(
-                fSrc, outer, inner, fDst);
-        } else {
-            SumAxis0StridedKernelF32<<<(int)blocks, kThreads, 0,
-                g_stream>>>(v, outer, inner, fDst);
-        }
+    const DevView ds = ToDevView(src);
+    const DevView dd = ToDevView(dst);
+    const int64_t blocks = (dst.elemCount + kThreads - 1) / kThreads;
+    if (src.elemKind == 1) {
+        ReduceAxisScanKernel<float, double><<<(int)blocks, kThreads, 0,
+            g_stream>>>(ds, axis, op, dd);
+    } else if (src.elemKind == 17) {
+        ReduceAxisScanKernel<double, double><<<(int)blocks, kThreads, 0,
+            g_stream>>>(ds, axis, op, dd);
+    } else if (src.elemKind == 0) {
+        ReduceAxisScanKernel<int32_t, int64_t><<<(int)blocks, kThreads,
+            0, g_stream>>>(ds, axis, op, dd);
     } else {
-        return cudaErrorNotSupported;
+        ReduceAxisScanKernel<int64_t, int64_t><<<(int)blocks, kThreads,
+            0, g_stream>>>(ds, axis, op, dd);
     }
     return cudaGetLastError();
 }
 
-//--- argmax/argmin (the axis-last winner-index kernel) -------------------
-
-__global__ void ArgExtremeLastKernel(const float* src, int64_t rows,
-                                     int64_t seg, bool isMax,
-                                     int32_t* dst) {
-    const int64_t row = blockIdx.x * (int64_t)blockDim.x + threadIdx.x;
-    if (row >= rows)
-        return;
-    const int64_t base = row * seg;
-    int32_t best = 0;
-    float bestVal = src[base];
-    for (int64_t s = 1; s < seg; ++s) {
-        const float cur = src[base + s];
-        if (isMax ? cur > bestVal : cur < bestVal) {
-            bestVal = cur;
-            best = (int32_t)s;
-        }
-    }
-    dst[row] = best;
-}
-
+//The argmax/argmin launcher (int32 winner indices, first-wins ties):
+//the kind gate retired with the f32-only scan kernel.
 cudaError_t LaunchArgExtreme(bool isMax, const LaunchView& src,
                              int axis, const LaunchView& dst) {
-    //The axis-last arm (accuracy's argmax(probs, 1)); other axes land
-    //with the parity suite.
-    if (axis != src.rank - 1 || src.elemKind != 1)
-        return cudaErrorNotSupported;
-    const int64_t rows = dst.elemCount;
-    const int64_t seg = src.dims[axis];
-    const int64_t blocks = (rows + kThreads - 1) / kThreads;
-    const DevView v = ToDevView(src);
-    const bool dense = IsDense(v);
-    //The dense branch folds the src offset into the base pointer (the dst
-    //is a fresh dense array, offset 0); the strided branch keeps it in the
-    //DevView (FlatAddress folds it).
-    const float* fSrc = dense
-        ? (const float*)src.data + src.offset
-        : (const float*)src.data;
-    int32_t* fDst = (int32_t*)dst.data + dst.offset;
-    if (dense) {
-        ArgExtremeLastKernel<<<(int)blocks, kThreads, 0, g_stream>>>(
-            fSrc, rows, seg, isMax, fDst);
+    //Async (no cell errors).
+    const DevView ds = ToDevView(src);
+    const DevView dd = ToDevView(dst);
+    const int64_t blocks = (dst.elemCount + kThreads - 1) / kThreads;
+    if (src.elemKind == 1) {
+        ArgExtremeScanKernel<float><<<(int)blocks, kThreads, 0,
+            g_stream>>>(ds, axis, isMax, dd);
+    } else if (src.elemKind == 17) {
+        ArgExtremeScanKernel<double><<<(int)blocks, kThreads, 0,
+            g_stream>>>(ds, axis, isMax, dd);
+    } else if (src.elemKind == 0) {
+        ArgExtremeScanKernel<int32_t><<<(int)blocks, kThreads, 0,
+            g_stream>>>(ds, axis, isMax, dd);
     } else {
-        ArgExtremeLastStridedKernelF32<<<(int)blocks, kThreads, 0,
-            g_stream>>>(v, rows, seg, isMax, fDst);
+        ArgExtremeScanKernel<int64_t><<<(int)blocks, kThreads, 0,
+            g_stream>>>(ds, axis, isMax, dd);
     }
     return cudaGetLastError();
 }
@@ -1942,43 +1760,51 @@ cudaError_t LaunchWhere(const LaunchView& mask, const LaunchView& x,
     return cudaGetLastError();
 }
 
-__global__ void GatherKernel(int elemKindCode, DevView src,
-                             const int64_t* indices, int64_t indexCount,
-                             DevView dst, int32_t* errorOut) {
+//The take-per-position gather (the PyTorch gather shape): one thread
+//per output element — the element's row-major ordinal over the
+//non-axis dims decomposes onto the source address (the axis dim reads
+//from the gathered index). Rank-1 degenerates to flat fancy indexing
+//(no non-axis dims; the address is offset + index*strides[0]). The
+//index bounds were validated host-side over the staged indices — the
+//kernel is a pure copy (async group).
+template <typename T>
+__global__ void GatherKernel(DevView src, const int64_t* indices,
+                             int32_t axis, DevView dst) {
     const int64_t i = blockIdx.x * (int64_t)blockDim.x + threadIdx.x;
-    if (i >= indexCount)
+    if (i >= dst.elemCount)
         return;
-    const int64_t idx = indices[i];
-    if (idx < 0) {
-        errorOut[0] = kErrOOB;
-        errorOut[1] = i;
-        return;
+    //Decompose the output ordinal over the non-axis dims (the odometer
+    //division skips the gather axis; row-major, innermost first).
+    int64_t addr = src.offset;
+    int64_t rem = i;
+    for (int32_t d = src.rank - 1; d >= 0; --d) {
+        if (d == axis)
+            continue;
+        const int64_t dim = src.dims[d];
+        const int64_t coord = dim > 0 ? rem % dim : 0;
+        rem /= (dim > 0 ? dim : 1);
+        addr += coord * src.strides[d];
     }
-    //The per-index bounds check rides the caller (the count/axis gates)
-    //— the kernel copies element idx from the source's flat storage.
-    const int64_t sa = src.offset + idx;
-    const int64_t sd = dst.offset + i;
-    if (elemKindCode == 1)
-        ((float*)dst.data)[sd] = ((const float*)src.data)[sa];
-    else if (elemKindCode == 17)
-        ((double*)dst.data)[sd] = ((const double*)src.data)[sa];
-    else if (elemKindCode == 0)
-        ((int32_t*)dst.data)[sd] = ((const int32_t*)src.data)[sa];
-    else
-        ((int64_t*)dst.data)[sd] = ((const int64_t*)src.data)[sa];
+    const int64_t index = indices[i];
+    ((T*)dst.data)[dst.offset + i] =
+        ((const T*)src.data)[addr + index * src.strides[axis]];
 }
 
 cudaError_t LaunchGather(const LaunchView& src, int axis,
                          const LaunchView& indices,
-                         const LaunchView& dst, int32_t* errorOut) {
-    (void)axis;   //rank-1 fancy indexing (the dispatcher flattens)
-    //The indices land host-side (the dispatcher staged them); H2D here.
+                         const LaunchView& dst) {
+    //Async (no cell errors — the bounds rode the host validation).
+    //Empty index set: the out has no cells — no launch, no scratch (a
+    //zero-byte PoolAlloc would misread cudaMalloc(0)'s NULL as OOM).
+    if (indices.elemCount == 0)
+        return cudaSuccess;
+    //The indices land host-side (the dispatcher staged them); widen
+    //int32 to int64 and H2D via the pool scratch.
     const int64_t count = indices.elemCount;
     int64_t* dIdx = static_cast<int64_t*>(
         PoolAlloc(count * sizeof(int64_t)));
     if (dIdx == nullptr)
         return cudaErrorMemoryAllocation;
-    //The indices view is int32 — read them on the host and widen.
     std::vector<int64_t> wide(count);
     const int32_t* cells = (const int32_t*)indices.data;
     const int64_t addr0 = indices.offset;
@@ -1988,21 +1814,21 @@ cudaError_t LaunchGather(const LaunchView& src, int axis,
         cudaMemcpyHostToDevice, g_stream);
     const DevView ds = ToDevView(src);
     const DevView dd = ToDevView(dst);
-    const uint32_t none[2] = {kErrNone, 0};
-    cudaMemcpyAsync(g_error, none, 2 * sizeof(int32_t),
-        cudaMemcpyHostToDevice, g_stream);
-    const int64_t blocks = (count + kThreads - 1) / kThreads;
-    GatherKernel<<<(int)blocks, kThreads, 0, g_stream>>>(
-        dst.elemKind, ds, dIdx, count, dd, g_error);
-    cudaError_t err = cudaStreamSynchronize(g_stream);
+    const int64_t blocks = (dst.elemCount + kThreads - 1) / kThreads;
+    if (src.elemKind == 1)
+        GatherKernel<float><<<(int)blocks, kThreads, 0, g_stream>>>(
+            ds, dIdx, axis, dd);
+    else if (src.elemKind == 17)
+        GatherKernel<double><<<(int)blocks, kThreads, 0, g_stream>>>(
+            ds, dIdx, axis, dd);
+    else if (src.elemKind == 0)
+        GatherKernel<int32_t><<<(int)blocks, kThreads, 0, g_stream>>>(
+            ds, dIdx, axis, dd);
+    else
+        GatherKernel<int64_t><<<(int)blocks, kThreads, 0, g_stream>>>(
+            ds, dIdx, axis, dd);
     PoolFree(dIdx);
-    if (err != cudaSuccess)
-        return err;
-    int32_t flags[2] = {kErrNone, 0};
-    cudaMemcpy(flags, g_error, 2 * sizeof(int32_t), cudaMemcpyDeviceToHost);
-    if (flags[0] != kErrNone)
-        *errorOut = flags[1];
-    return cudaSuccess;
+    return cudaGetLastError();
 }
 
 //The per-point compare (six ops). IEEE ordering for the float kinds:

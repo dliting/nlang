@@ -252,11 +252,6 @@ CUDA后端是一个插件：`nlang_tensor_cuda.dll`与`nlang_tensor.dll`同在�
 
 ### 已知限制
 
-有两个操作尚未进入CUDA后端，设备端的`concat`与按轴归约只覆盖部分表面。
+沿最外层轴（轴0）以外的轴做`tensor.concat`抛`Exception`——设备核函数只实现轴0拼接；宿主路径支持所有轴。
 
-* 对整数数组（`int`、`long`）做`tensor.clamp`抛`Exception`——设备上只有`float`与`double`的`clamp`。
-* 元素为`double`或`long`的`tensor.gather`抛`Exception`——设备上有`float`与`int`的`gather`。
-* 沿最外层轴（轴0）以外的轴做`tensor.concat`抛`Exception`——设备核函数只实现轴0拼接；宿主路径支持所有轴。
-* 带轴臂的`sum`/`max`/`min`（`reduce`）在设备上只支持`float`，且只支持最后一个轴（任意秩）或秩2数组的轴0；其它元素种类与秩3以上数组的中间轴抛`Exception`——宿主路径支持所有种类与轴。
-* 带轴臂的`argmax`/`argmin`在设备上只支持`float`且只支持最后一个轴；其它种类与轴抛`Exception`——宿主路径支持所有种类与轴。
 * 设备运行内核期间发现的故障（例如非法访问）在下一个观察点上报，而不是在引发它的操作处——延迟归因，与主流设备栈相同的取舍。在故障之后只做输出（打印）、再无任何张量操作的窄场景里，输出可能是错值而非抛异常。

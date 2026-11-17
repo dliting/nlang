@@ -2312,3 +2312,7 @@ op_tensor_scatter_throw 1
 op_tensor_fancy_assign 0
 op_tensor_fancy_assign_throw 1
 op_tensor_int64_scalar 0
+op_tensor_gather_positive_throw 1
+op_tensor_clamp_int 0
+op_tensor_reduce_axis_mid 0
+op_tensor_reduce_axis_mid 0

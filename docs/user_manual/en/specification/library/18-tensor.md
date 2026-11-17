@@ -587,24 +587,11 @@ across backends is asserting on an implementation detail.
 
 ### Known limitations
 
-Two operations are not yet on the CUDA backend, and the device
-concat and per-axis reductions cover only part of the surface.
+The device concat covers only the outermost axis.
 
-* `tensor.clamp` on an integer array (`int`, `long`) raises
-  `Exception` — only the `float` and `double` clamp are on the
-  device.
-* `tensor.gather` with `double` or `long` elements raises
-  `Exception` — the `float` and `int` gather are on the device.
 * `tensor.concat` along any axis but the outermost (axis 0) raises
   `Exception` — the device kernel implements the axis-0 join
   only; the host path handles every axis.
-* `sum`/`max`/`min` with an axis arm (`reduce`) on the device
-  supports `float` only, and only the last axis (any rank) or axis 0
-  of a rank-2 array; other kinds and middle axes of a rank-3+ array
-  raise `Exception` — the host path handles every kind and axis.
-* `argmax`/`argmin` with an axis arm on the device supports `float`
-  only and only the last axis; other kinds and axes raise
-  `Exception` — the host path handles every kind and axis.
 * A fault detected while the device runs its kernels (an illegal
   access, for example) is reported at the next observation point,
   not at the operation that caused it — deferred attribution, the

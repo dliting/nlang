@@ -8,6 +8,45 @@ All notable changes to NLang are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.14.3]
+
+The device-path completion: `gather`, integer `clamp` and the whole
+per-axis reduction family run on the CUDA backend for every element
+kind and every axis — the §18.7 device known-limitations list
+shrinks to the concat axis restriction and the deferred-fault
+attribution note.
+
+### Added
+
+- **`tensor.gather` on the device for every element kind and every
+  axis** — the take-per-position kernel (one thread per output
+  element; the element's row-major ordinal over the non-axis dims
+  decomposes onto the source address, the gather axis reads from the
+  gathered index) replaces the host-walk staging. The index bounds
+  are validated host-side over the staged indices (both bounds, the
+  host path's wording verbatim), making the kernel a pure copy in
+  the async group. Strided views (a `transpose` result) are ordinary
+  operands.
+- **Integer `clamp` on the device** — `max(a, bound)`/`min(a, bound)`
+  with an `int`/`long` bound rides the exact int64 carrier (the
+  0.14.2 discipline).
+- **The full per-axis reduction family on the device** —
+  `sum`/`max`/`min` with an axis arm and `argmax`/`argmin` now run
+  for every element kind on every axis (a rank-3 middle axis
+  included): one general per-output-element scan kernel whose
+  odometer addressing mirrors the gather mapping; sum rides the CPU
+  walk's carriers (double for the float kinds, int64 for the int
+  kinds — the final narrow back to the element kind), max/min and
+  the arg winners keep the first-wins tie rule. The specialized
+  f32-only axis kernels are retired.
+
+### Changed
+
+- The device `gather` moved into the async group (the bounds ride
+  the host-side validation; the kernel is a pure copy) and the
+  host-walk staging under a device backend is retired — the
+  bandwidth drops from src+out sized to indices-sized.
+
 ## [0.14.2]
 
 The tensor indexing surface: the comparison operators become

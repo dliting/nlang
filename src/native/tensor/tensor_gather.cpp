@@ -99,16 +99,21 @@ void GatherKernel(NativeHost* host, uint8_t* ret, const uint8_t* args)
     //indices view to host first (memcpy under mirror, D2H under cuda).
     std::vector<uint8_t> idxStage;
     vIdx = StageOperandToHost(host, vIdx, &idxStage);
-    //R5 (design 2026-11-15): gather routes through the HOST walk under
-    //a device backend — the src stages dense (single-block D2H when
-    //contiguous), the cpu table walks with the staged indices, the
-    //result lands with one H2D. The bandwidth is src+out sized (batch
-    //scale in real programs); the cuda take-per-position kernel lands
-    //with the parity suite.
-    std::vector<uint8_t> srcStage;
-    NativeArrayView srcHost = va;
-    if (ActiveDeviceBackend().device && va.reserved[0] == 1)
-        srcHost = StageOperandToHost(host, va, &srcStage);
+    //The bounds check rides the staged indices (both bounds, no wrap —
+    //the CPU walk's wording verbatim); with the indices host-side
+    //anyway this makes the device kernel a pure copy.
+    {
+        const int32_t* cells =
+            static_cast<const int32_t*>(vIdx.data);
+        for (int64_t i = 0; i < vIdx.elemCount; ++i) {
+            const int32_t index = cells[vIdx.offset + i];
+            if (index < 0 || index >= along)
+                Raise(host, NEXC_OutOfBounds,
+                    "tensor.gather: index " + std::to_string(index)
+                    + " out of bounds for axis " + std::to_string(axis)
+                    + " with size " + std::to_string(along));
+        }
+    }
     int32_t outDims[nlang::kMaxArrayRank];
     int32_t outRank = va.rank - 1;
     if (va.rank == 1)
@@ -120,32 +125,10 @@ void GatherKernel(NativeHost* host, uint8_t* ret, const uint8_t* args)
     {
         outRank = GatherOutShape(host, va, axis, vIdx.elemCount, outDims);
     }
-    if (ActiveDeviceBackend().device && va.reserved[0] == 1)
-    {
-        //Staged path: cpu walk into a host twin, one H2D landing.
-        const int32_t hostOut = host->newArrayShaped(host, va.elemKind,
-            outRank, outDims);
-        NativeArrayView hv;
-        host->getArrayView(host, hostOut, &hv);
-        const TensorOps& cpu = OpsForResidency(0);
-        if constexpr (std::is_same_v<T, float>) {
-            cpu.gatherF32(host, srcHost, axis, vIdx, hv);
-        } else if constexpr (std::is_same_v<T, double>) {
-            cpu.gatherF64(host, srcHost, axis, vIdx, hv);
-        } else if constexpr (std::is_same_v<T, int32_t>) {
-            cpu.gatherI32(host, srcHost, axis, vIdx, hv);
-        } else {
-            cpu.gatherI64(host, srcHost, axis, vIdx, hv);
-        }
-        const int32_t handle = host->newArrayResident(host, va.elemKind,
-            outRank, outDims);
-        NativeArrayView out;
-        host->getArrayView(host, handle, &out);
-        CopyHostToDevice(host, out.data, hv.data,
-            static_cast<size_t>(hv.elemCount) * hv.elemCellBytes);
-        ReturnInt(ret, handle);
-        return;
-    }
+    //v0.14.3 (D1): the device-resident source routes to the device
+    //take-per-position kernel directly (the R5 host-walk staging was
+    //the kernel's placeholder — superseded); the indices ride the
+    //host-staged view and H2D inside the launcher.
     const int32_t handle =
         MintOutputLike(host, va.elemKind, outRank, outDims, va);
     NativeArrayView out;

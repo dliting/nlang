@@ -1,0 +1,12 @@
+// Positive out-of-range gather index on the DEVICE take-per-position
+// path: the dispatcher validates both bounds over the staged indices
+// (the kernel is a pure copy); uncaught Exception, exit 1 by design.
+import tensor;
+
+int main() {
+    float[,] one = float[1, 4];
+    int[] bad = int[1];
+    bad[0] = 4;
+    float[] boom = tensor.gather(one, 1, bad);
+    return 0;
+}
