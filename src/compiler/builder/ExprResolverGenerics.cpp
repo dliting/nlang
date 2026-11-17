@@ -86,28 +86,6 @@ void SyntheticBuiltinRegistry::AdoptFaceClass(const std::string& typeName,
 	Own(pDecl);
 }
 
-//Phase 13: the func instantiation's parameter out markers. Stored ON the
-//node since the per-build registry migration (context-free predicates
-//like IsUnboundFuncRef read a synthetic func's signature with no
-//registry handle); default-empty for non-func classes.
-const std::vector<uint8>& GetGenericOutFlags(SnClassDecl* pClass)
-{
-	static const std::vector<uint8> s_empty;
-	return pClass ? pClass->GenericOutFlags() : s_empty;
-}
-
-//Type arguments of a generic instantiation (List<T> → {T}, Dict<K,V> →
-//{K,V}; empty otherwise). Every creation — synthetic AND declared — sets
-//GenericTypeArgs on the node itself; the historical process-global side
-//table (whose fallback branch no creation could ever miss) is gone with the
-//per-build registry.
-std::vector<SnField*> GetGenericTypeArgs(SnClassDecl* pClass)
-{
-	if (pClass && pClass->IsGenericInstantiation())
-		return pClass->GenericTypeArgs();
-	return {};
-}
-
 //Returns true if class decl is a synthetic generic instantiation
 //(e.g., List<int>). Used to dispatch member calls in Access(SnMemberExpr&).
 bool IsGenericClassDecl(SnClassDecl* pClass)
@@ -117,21 +95,42 @@ bool IsGenericClassDecl(SnClassDecl* pClass)
 
 //Creates (or fetches) a synthetic SnClassDecl for the given generic
 //instantiation. Phase 8e-3: List<T> (arity 1). Phase 8e-4: Dict<K,V> (arity 2).
-//Phase 13: func<R, P...> (variadic, >= 1). outFlags are normalized here
-//so callers that infer instantiations (func handle coercion) can pass
-//an empty vector while declaration-path keys stay distinct.
+//Phase 13: func<R, P...> (variadic, >= 1). outFlags and refFlags are
+//normalized here so callers that infer instantiations (func handle
+//coercion) can pass empty vectors while declaration-path keys stay
+//distinct.
 //The cache is per-build (ModuleRegistry's SyntheticBuiltinRegistry):
 //the key is built from interned type-arg pointers, which only keep
 //identity within one build's syntax tree.
+//Display name e.g. "List<int>"; array-typed arguments are interned
+//tokens with empty Name(), so render them via ToString ("Int32[]").
+static std::string RenderGenericInstName(const std::string& baseName,
+	const std::vector<SnField*>& typeArgs)
+{
+	std::string instName = baseName + "<";
+	for (size_t i = 0; i < typeArgs.size(); ++i) {
+		if (i) instName += ", ";
+		instName += typeArgs[i]->Kind() == NK_ArrayTypeToken
+			? typeArgs[i]->ToString() : typeArgs[i]->Name();
+	}
+	instName += ">";
+	return instName;
+}
+
 SnClassDecl* GetGenericClassDecl(ModuleRegistry& reg,
 	const std::string& baseName,
 	const std::vector<SnField*>& typeArgs, const std::vector<uint8>& outFlags,
-	const ISourceLocation* pLoc)
+	const std::vector<uint8>& refFlags, const ISourceLocation* pLoc)
 {
 	std::vector<uint8> normOutFlags(outFlags);
 	normOutFlags.resize(typeArgs.size(), 0);
+	//v0.13.9 phase 3: the & marks share the out flags' normalization —
+	//short caller vectors pad to per-argument zeros so the key stays
+	//position-stable.
+	std::vector<uint8> normRefFlags(refFlags);
+	normRefFlags.resize(typeArgs.size(), 0);
 	SyntheticBuiltinRegistry::GenericInstKey key{baseName, typeArgs,
-		normOutFlags};
+		normOutFlags, normRefFlags};
 	auto& synthetics = reg.SyntheticBuiltins();
 	if (SnClassDecl* pCached = synthetics.FindGeneric(key))
 		return pCached;
@@ -144,15 +143,7 @@ SnClassDecl* GetGenericClassDecl(ModuleRegistry& reg,
 	if (baseName != kBuiltinFuncTypeName || typeArgs.empty())
 		return nullptr;
 
-	//Display name e.g. "List<int>"; array-typed arguments are interned
-	//tokens with empty Name(), so render them via ToString ("Int32[]").
-	std::string instName = baseName + "<";
-	for (size_t i = 0; i < typeArgs.size(); ++i) {
-		if (i) instName += ", ";
-		instName += typeArgs[i]->Kind() == NK_ArrayTypeToken
-			? typeArgs[i]->ToString() : typeArgs[i]->Name();
-	}
-	instName += ">";
+	const std::string instName = RenderGenericInstName(baseName, typeArgs);
 
 	auto* pName = new std::string(instName);
 	auto* pMembers = new PtrList<SnField>();
@@ -167,6 +158,7 @@ SnClassDecl* GetGenericClassDecl(ModuleRegistry& reg,
 		AssertNoRefTypeArgs(typeArgs);
 	pClass->SetGenericTypeArgs(typeArgs);
 	pClass->SetGenericOutFlags(normOutFlags);
+	pClass->SetGenericRefFlags(normRefFlags);
 	pClass->SetBaseName(baseName);
 	synthetics.AdoptGeneric(key, pClass);
 	return pClass;

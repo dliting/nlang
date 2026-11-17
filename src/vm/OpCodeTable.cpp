@@ -114,7 +114,9 @@ static const char* s_OpCodeNames[] = {
     "ref_of_element_n",
     "ref_handle",
     "load_ref",
+    "load_ref_t",
     "store_ref",
+    "store_ref_t",
 };
 
 const char* OpCodeName(OpCode op) {

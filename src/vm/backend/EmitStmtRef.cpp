@@ -35,25 +35,41 @@ bool VmBackend::IsDerefRefDescriptor(SnField* pField)
     return IsPrimitiveType(kind) || kind == NK_EnumDecl;
 }
 
-//Task 6: the value-side deref kind byte for a &-returning callee. 0
-//(no normalization) for non-ref callees and for struct/class/array
-//returns — the pair's low half is the record handle every value
-//consumer (deep copy, member read) already reads. Scalar, string and
-//enum returns name the payload tag OP_LoadRef derefs on any bindable
-//pair (field cells, promoted boxes alike).
+//Task 8: the T& formal test — NF_Ref with a type-parameter placeholder
+//declared type (the placeholder is an NK_ClassDecl, so the deref-family
+//test above never fires for it).
+bool VmBackend::IsTypeArgRefFormal(SnField* pField)
+{
+    if (!pField || !pField->ContainFlags(NF_Ref))
+        return false;
+    auto* pType = pField->EvalDataType();
+    if (!pType)
+        return false;
+    return TypeParamOrdinalOfType(*pType)
+        != SnTypeNameExpr::kNoTypeParamOrdinal;
+}
+
+//Task 6: the value-side deref kind byte for a &-returning callee.
+//kNoRefDeref (no normalization) for non-ref callees and for struct/
+//class/array returns — the pair's low half is the record handle every
+//value consumer (deep copy, member read) already reads. Scalar, string
+//and enum returns name the payload tag OP_LoadRef derefs on any
+//bindable pair (field cells, promoted boxes alike). Task 8: the
+//sentinel is kNoRefDeref — RTK_Int32 is 0, so a 0 sentinel silently
+//dropped the int/enum normalization.
 uint8_t VmBackend::RefReturnDerefKind(SnFunction* pCallee) {
     if (!pCallee || !pCallee->ReturnType())
-        return 0;
+        return kNoRefDeref;
     auto* pRetType = pCallee->ReturnType();
     if (!pRetType->ContainFlags(NF_Ref))
-        return 0;
+        return kNoRefDeref;
     auto* pInner = pRetType->Field();
     if (!pInner)
-        return 0;
+        return kNoRefDeref;
     const NodeKind kind = pInner->Kind();
     if (kind != NK_String && kind != NK_EnumDecl
         && ScalarPrimIndexOf(kind) < 0)
-        return 0;
+        return kNoRefDeref;
     return BoxTypeTagOfKind(kind);
 }
 
@@ -136,6 +152,17 @@ bool VmBackend::EmitRefLocalRead(SnField* field, const BareIdTarget& target,
         emitter.EmitUint16(target.localOffset);
         return true;
     }
+    if (IsTypeArgRefFormal(field)) {
+        //Task 8: reference to a generic formal's storage — the pair's
+        //kind resolves at runtime (frame context's type argument):
+        //scalar/string dereference, struct/identity raw pair copy (D9).
+        emitter.Emit(OpCode::OP_LoadRef_T);
+        emitter.EmitByte(TypeParamOrdinalOfType(
+            *field->EvalDataType()));
+        emitter.EmitUint16(resultOffset);
+        emitter.EmitUint16(target.localOffset);
+        return true;
+    }
     return false;
 }
 
@@ -188,6 +215,27 @@ void VmBackend::EmitRefBindInit(SnAssignStmt& assign, uint16_t offset,
     EmitMakeRef(offset, *assign.Right(), emitter);
 }
 
+//Task 8: user store through a T& formal in a generic body. The body is
+//template-shared across instantiations, so no compile-time kind exists
+//— OP_StoreRef_T resolves the pair's kind from the executing frame's
+//instantiation descriptor (scalar/string cell write, struct in-place
+//record overwrite, identity slot rebind per D9). The decomposed
+//binding assign keeps EmitRefAssignBareLocal's MakeRef path above.
+void VmBackend::EmitRefTypeArgAssignBareLocal(SnAssignStmt& assign,
+    SnField* pLeftField, uint16_t offset, BytecodeEmitter& emitter)
+{
+    EvalAreaClaim claim(*this, 1);
+    uint16_t valueSlot = claim.base();
+    EmitExpression(*assign.Right(), emitter, valueSlot);
+    EmitArrayRankBoundary(pLeftField->EvalDataType(), assign.Right(),
+        valueSlot, emitter);
+    emitter.Emit(OpCode::OP_StoreRef_T);
+    emitter.EmitByte(TypeParamOrdinalOfType(
+        *pLeftField->EvalDataType()));
+    emitter.EmitUint16(offset);
+    emitter.EmitUint16(valueSlot);
+}
+
 //Compound read-modify-write through promoted/reference local storage:
 //old value and RHS park in an exclusive EvalAreaClaim(2) across the
 //RHS emission (the same clobber discipline as the member arms). The
@@ -200,11 +248,19 @@ void VmBackend::EmitCompoundRefLocal(SnCompoundAssignStmt& ca,
     EvalAreaClaim claim(*this, 2);
     uint16_t oldValSlot = claim.base();
     uint16_t rhsSlot = claim.base() + kFrameSlotBytes;
+    const bool isTypeArgRef = IsTypeArgRefFormal(field);
     if (field->ContainFlags(NF_Promoted)) {
         emitter.Emit(OpCode::OP_LoadField);
         emitter.EmitUint16(oldValSlot);
         emitter.EmitUint16(target.localOffset);
         emitter.EmitUint16(kHeapCellBytes);
+    } else if (isTypeArgRef) {
+        //Task 8: the T& formal's old value — descriptor-dispatched read.
+        emitter.Emit(OpCode::OP_LoadRef_T);
+        emitter.EmitByte(TypeParamOrdinalOfType(
+            *field->EvalDataType()));
+        emitter.EmitUint16(oldValSlot);
+        emitter.EmitUint16(target.localOffset);
     } else {
         emitter.Emit(OpCode::OP_LoadRef);
         emitter.EmitByte(BoxTypeTagOfKind(
@@ -219,6 +275,12 @@ void VmBackend::EmitCompoundRefLocal(SnCompoundAssignStmt& ca,
         emitter.Emit(OpCode::OP_StoreField);
         emitter.EmitUint16(target.localOffset);
         emitter.EmitUint16(kHeapCellBytes);
+        emitter.EmitUint16(oldValSlot);
+    } else if (isTypeArgRef) {
+        emitter.Emit(OpCode::OP_StoreRef_T);
+        emitter.EmitByte(TypeParamOrdinalOfType(
+            *field->EvalDataType()));
+        emitter.EmitUint16(target.localOffset);
         emitter.EmitUint16(oldValSlot);
     } else {
         emitter.Emit(OpCode::OP_StoreRef);

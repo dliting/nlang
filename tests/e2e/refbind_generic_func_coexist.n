@@ -1,0 +1,8 @@
+//Task 8 probe: func<int, int&> and func<int, int> coexist as distinct keys.
+int twice(int& v) { v = v * 2; return v; }
+int plain(int v) { return v + 1; }
+int main() {
+    func<int, int&> h = twice;
+    func<int, int> g = plain;
+    return 7;
+}

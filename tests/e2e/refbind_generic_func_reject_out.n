@@ -1,0 +1,6 @@
+//Task 8 probe: a &-function must NOT bind to the plain func<int, int>.
+int twice(int& v) { v = v * 2; return v; }
+int main() {
+    func<int, int> g = twice;
+    return 0;
+}

@@ -233,6 +233,13 @@ void VmBackend::EmitMakeRefOfInvoke(uint16_t dstOffset,
         EmitBareInvokeShape(invoke, dstOffset, /*bRawRefResult=*/true);
         return;
     }
+    if (!pCallee && DelegateKeyHasRefReturn(invoke)) {
+        //Task 8: a delegate key with a & return — the dispatch parks
+        //the raw pair (same MakeRef contract as a &-returning direct
+        //callee; argument-side staging runs in EmitUnresolvedInvokeArgs).
+        EmitBareInvokeShape(invoke, dstOffset, /*bRawRefResult=*/true);
+        return;
+    }
     EmitMakeRefOfRvalue(dstOffset, invoke, emitter);
 }
 
@@ -266,8 +273,15 @@ void VmBackend::EmitMakeRefOfMemberCall(uint16_t dstOffset,
             }
         }
         auto* pCallee = invoke.Callee();
-        if (pCallee && pCallee->ReturnType()
-            && pCallee->ReturnType()->ContainFlags(NF_Ref)) {
+        //Task 8: a direct &-returning callee and a delegate key with
+        //a & return (Callee() null) share the pass-through arm — the
+        //resolver's MemberCallBindsStorage gate admits exactly these
+        //two shapes.
+        const bool bRawRefPair = pCallee
+            ? (pCallee->ReturnType()
+                && pCallee->ReturnType()->ContainFlags(NF_Ref))
+            : DelegateKeyHasRefReturn(invoke);
+        if (bRawRefPair) {
             auto* pOuterType = member.Outer()->EvalDataType();
             NLANG_ASSERT(pOuterType != nullptr);
             if (pOuterType->Kind() != NK_ClassDecl)

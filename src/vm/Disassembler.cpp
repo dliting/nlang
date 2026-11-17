@@ -318,6 +318,18 @@ static bool DisasmRefOps(OpCode op, BytecodeReader &r,
             out << head << buf << "\n";
             return true;
         }
+        case OpCode::OP_LoadRef_T:
+        case OpCode::OP_StoreRef_T: {
+            //Task 8: the T& read/store — ordinal byte + two slot operands.
+            const int ordinal = r.ReadByte();
+            const uint16_t a = r.ReadUint16();
+            const uint16_t b = r.ReadUint16();
+            char buf[96];
+            snprintf(buf, sizeof(buf),
+                     " ordinal=%d dst=%u src=%u", ordinal, a, b);
+            out << head << buf << "\n";
+            return true;
+        }
         default:
             return false;
     }

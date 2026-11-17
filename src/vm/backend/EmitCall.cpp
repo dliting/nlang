@@ -302,6 +302,17 @@ void VmBackend::EmitUnresolvedInvokeArgs(const SnInvokeExpr& invoke,
     //caller's current value, matching the direct-call binding path
     //(EmitBinding stages the caller expression). The spill below
     //still records the write-back target for the post-call refresh.
+    //Task 8: the delegate key's & marks (refFlags[i+1], judgment and
+    //promotion marking ran at the resolver) — a &-position argument
+    //stages its pair, the same MakeRef contract as a direct call's
+    //& formal (spec §3.9). Non-delegate unresolved invokes read an
+    //empty flag vector and keep the plain value path. No resolution
+    //gate on Field(): codegen runs only post-resolution, and a local
+    //descriptor never carries NF_Resolved (only the bound invoke does).
+    auto* pFuncType = invoke.Field()
+        ? DelegateFuncTypeOfField(invoke.Field()) : nullptr;
+    const auto& refFlags = pFuncType ? pFuncType->GenericRefFlags()
+        : std::vector<uint8_t>{};
     uint16_t paramIdx = static_cast<uint16_t>(slotBase);
     for (auto& param : invoke.Params()) {
         uint16_t paramOffset = claimBase + paramIdx * kFrameSlotBytes;
@@ -312,16 +323,13 @@ void VmBackend::EmitUnresolvedInvokeArgs(const SnInvokeExpr& invoke,
                 throw std::runtime_error(
                     "NLang backend: out argument is not a local variable");
             EmitExpression(*outArg.Inner(), emitter, paramOffset);
-            if (pOutSpills) {
-                auto* pTargetField = static_cast<SnIdentifierExpr&>(
-                    *outArg.Inner()).Field();
-                auto target = ResolveBareIdentifier(pTargetField);
-                if (target.kind != BareIdTarget::Local)
-                    throw std::runtime_error(
-                        "NLang backend: out argument is not a local variable");
-                pOutSpills->push_back({paramIdx, target.localOffset,
-                    OutSpillRefKindOf(pTargetField)});
-            }
+            if (pOutSpills)
+                RecordOutSpill(static_cast<SnIdentifierExpr&>(
+                    *outArg.Inner()).Field(), paramIdx, pOutSpills);
+        } else if (static_cast<size_t>(paramIdx) + 1 < refFlags.size()
+            && refFlags[paramIdx + 1] != 0) {
+            //& position: stage the pair (MakeRef contract, spec §3.9).
+            EmitMakeRef(paramOffset, param, emitter);
         } else {
             EmitExpression(param, emitter, paramOffset);
             applyBox(paramIdx);
@@ -399,6 +407,20 @@ bool VmBackend::EmitFormalBindingArgs(const SnInvokeExpr& invoke,
 
 //One iteration of the resolved-binding loop: emit the binding, apply the
 //optional boxing plan, and record out-argument spill targets (Phase 9e).
+//Shared out-argument tail (both argument paths): the resolver
+//guarantees the out target is a plain identifier on a caller-frame
+//slot, so the spill target is a plain frame offset.
+void VmBackend::RecordOutSpill(SnField* pTargetField, uint16_t slotIdx,
+    std::vector<OutSpill>* pOutSpills) {
+    auto target = ResolveBareIdentifier(pTargetField);
+    if (target.kind != BareIdTarget::Local)
+        throw std::runtime_error(
+            "NLang backend: out argument is not a local variable");
+    if (pOutSpills)
+        pOutSpills->push_back({slotIdx, target.localOffset,
+            OutSpillRefKindOf(pTargetField)});
+}
+
 void VmBackend::EmitOneFormalBinding(const FormalBinding* pBindings,
         size_t bindingIdx, size_t slotBase, BytecodeEmitter& emitter,
         uint16_t thisSlot, uint16_t claimBase,
@@ -420,19 +442,11 @@ void VmBackend::EmitOneFormalBinding(const FormalBinding* pBindings,
     }
     applyBox(slotIdx);
     //Phase 9e: out binding — record the caller local for the
-    //post-call spill. The resolver guarantees pCallerExpr is a
-    //plain identifier bound to a caller-frame slot (local var or
-    //formal param), so the spill target is a plain frame offset.
+    //post-call spill.
     if (pBindings[bindingIdx].bIsOut) {
         auto& idExpr = static_cast<SnIdentifierExpr&>(
             *pBindings[bindingIdx].pCallerExpr);
-        auto target = ResolveBareIdentifier(idExpr.Field());
-        if (target.kind != BareIdTarget::Local)
-            throw std::runtime_error(
-                "NLang backend: out argument is not a local variable");
-        if (pOutSpills)
-            pOutSpills->push_back({slotIdx, target.localOffset,
-                OutSpillRefKindOf(idExpr.Field())});
+        RecordOutSpill(idExpr.Field(), slotIdx, pOutSpills);
     }
 }
 

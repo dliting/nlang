@@ -229,6 +229,15 @@ std::vector<SnField*> GetGenericTypeArgs(SnClassDecl* pClass);
 //GetGenericTypeArgs; default-empty on miss).
 //Definition in ExprResolverGenerics.cpp.
 const std::vector<uint8>& GetGenericOutFlags(SnClassDecl* pClass);
+//v0.13.9 phase 3: &-mark read of a func instantiation (same parallel
+//discipline; default-empty on miss).
+//Definition in ExprResolverGenerics.cpp.
+const std::vector<uint8>& GetGenericRefFlags(SnClassDecl* pClass);
+//D9 fork warning: declared-template instantiation point check — a T&
+//formal whose argument binds an identity type warns (writes reach only
+//the local formal). Definition in RefBindJudgment.cpp.
+void WarnIdentityRefFormals(BuildEnvironment &env, const SnClassDecl &tmpl,
+	const std::vector<SnField*> &typeArgs, const ISourceLocation *pLoc);
 
 //Reference-only use below; definition in ScriptLocation.h.
 class ScriptLocation;
@@ -252,7 +261,7 @@ bool IsGenericClassDecl(SnClassDecl* pClass);
 SnClassDecl* GetGenericClassDecl(ModuleRegistry& reg,
 	const std::string& baseName,
 	const std::vector<SnField*>& typeArgs, const std::vector<uint8>& outFlags,
-	const ISourceLocation* pLoc);
+	const std::vector<uint8>& refFlags, const ISourceLocation* pLoc);
 //Location pass-through for on-demand created decls (built-in classes,
 //generic instantiations): the caller's location when one exists, the
 //fallback otherwise. Polymorphic locations must flow through
@@ -1561,7 +1570,7 @@ private:
 	*/
 	bool TryResolveGenericTypeArgs(SnGenericTypeExpr &genType,
 		const std::string &baseName, std::vector<SnField*> &typeArgs,
-		std::vector<uint8> &outFlags);
+		std::vector<uint8> &outFlags, std::vector<uint8> &refFlags);
 	//Access(SnGenericTypeExpr&)'s declared-template arm (scope probe,
 	//arity check, instantiation create-and-bind).
 	bool TryResolveDeclaredGenericInstance(SnGenericTypeExpr &genType,

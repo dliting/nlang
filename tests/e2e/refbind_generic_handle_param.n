@@ -1,0 +1,8 @@
+//Task 8 probe: & parameter through a func handle — pair staging.
+int twice(int& v) { v = v * 2; return v; }
+int main() {
+    func<int, int&> h = twice;
+    int x = 21;
+    int a = h(x);
+    return x * 1000 + a;
+}

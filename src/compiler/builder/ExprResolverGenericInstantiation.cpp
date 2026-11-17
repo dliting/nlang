@@ -311,6 +311,13 @@ void ExprResolveAccessor::BindSubstitutedLeaf(SnFieldExpr& copy,
 		? typeArgs[generics.PlaceholderIndex(srcLeaf.Field())]
 		: srcLeaf.Field();
 	ResolveFieldExprAs(copy, pBinding);
+	//v0.13.9 phase 3: the & spelling rides the template's leaf — the
+	//instance's cloned signature must keep it (RefReturnDerefKind and
+	//the expr-flag readers consume the CLONE's type exprs), and a
+	//nested func<...> member type keys its own instantiation through
+	//the same flags.
+	if (srcLeaf.ContainFlags(NF_Ref))
+		copy.AddFlags(NF_Ref);
 }
 
 //SubstituteTypeExpr's array arm (definition moved out of the dispatch
@@ -401,37 +408,6 @@ SnFieldExpr* ExprResolveAccessor::SubstituteGenericTypeExpr(
 	if (gen.IsResolved())
 		Access(*pCopy);
 	return pCopy;
-}
-
-//0.13.1a Task 4 (D4): the call-site value type of a generic free
-//function — the template row's return type expression substituted with
-//the invoke's inferred arguments, per the established convention (the
-//value slot reads the return type expr's resolved Field, exactly what
-//SnFunction::EvalDataType yields). The substituted copy is transient:
-//the substitution binds its leaves, and the resolved field it yields is
-//tree/registry-owned, so the invoke's slot outlives the copy.
-//No Access() re-entry here: the copy's static type is the base
-//SnFieldExpr, so an Access call static-dispatches to the defaulted
-//accessor and asserts regardless of the dynamic kind (the Task 4
-//Debug-only crash). Every SubstituteTypeExpr arm already owns the
-//copy's resolution — a resolved source leaf resolves the copy via
-//ResolveFieldExprAs/token interning/an explicit Access on the precise
-//SnGenericTypeExpr static type, and an unresolved source leaf stays
-//unresolved on purpose (the template row's own diagnostic already
-//fired; re-resolving the name at the call site would consult the
-//wrong scope).
-void ExprResolveAccessor::SubstituteInvokeReturnType(
-	SnInvokeExpr& invoke, SnFunction& func)
-{
-	if (!func.HasReturn() || !func.ReturnType())
-		return;
-	std::unique_ptr<SnFieldExpr> pRetCopy(
-		SubstituteTypeExpr(*func.ReturnType(),
-			invoke.InferredTypeArgs()));
-	if (!pRetCopy)
-		return;
-	if (pRetCopy->IsResolved())
-		invoke.EvalDataType(pRetCopy->Field());
 }
 
 ExprResolveAccessor::TypeParamBindResult

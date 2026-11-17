@@ -423,8 +423,14 @@ void VmExecutor::DispatchFrames(size_t baseDepth)
         case OpCode::OP_LoadRef:
             OpLoadRef(reader, locals);
             break;
+        case OpCode::OP_LoadRef_T:
+            OpLoadRefTypeArg(reader, locals);
+            break;
         case OpCode::OP_StoreRef:
             OpStoreRef(reader, locals);
+            break;
+        case OpCode::OP_StoreRef_T:
+            OpStoreRefTypeArg(reader, locals);
             break;
 
         case OpCode::OP_AllocArrayN:

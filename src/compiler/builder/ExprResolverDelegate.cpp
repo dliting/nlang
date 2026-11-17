@@ -3,6 +3,7 @@
     从 ExprResolver.cpp 抽取（2026-09-26 可维护性重构，零行为变化）。
 ---*/
 #include "ExprResolver.h"
+#include "RefBindJudgment.h"
 #include "SnExtraTypes.h"
 #include "SnMisc.h"
 #include "SnArrayTypeToken.h"
@@ -93,27 +94,39 @@ bool ExprResolveAccessor::CheckDelegateArgument(SnExpression &arg,
 	return bOK;
 }
 
+//Task 8: a & mark on the key's argument position — the same MakeRef
+//judgment as a direct call's & formal (spec §3.9): storage gates plus
+//exact type, then the promotion mark so the caller's scalar local
+//compiles to the pair's stable record. Out positions stay on the out
+//path (the marks are disjoint by construction; out wins defensively,
+//matching the emit order). True = rejected (diagnostic logged).
+static bool RejectDelegateRefMark(BuildEnvironment &env,
+	SnExpression &arg, SnField *pFormal)
+{
+	if (arg.Kind() == NK_OutArgExpr)
+		return false;
+	return RejectRefBindTarget(env, arg, pFormal, arg.Location());
+}
+
 void ExprResolveAccessor::BindDelegateInvoke(SnInvokeExpr &invoke,
 	SnField *pDelegateField)
 {
-	auto *pFuncDecl = static_cast<SnClassDecl*>(
-		pDelegateField->EvalDataType());
+	auto *pFuncDecl = static_cast<SnClassDecl*>(pDelegateField->EvalDataType());
 	const auto typeArgs = GetGenericTypeArgs(pFuncDecl);
 	const auto &outFlags = GetGenericOutFlags(pFuncDecl);
-	//The func signature has no parameter names — by-name dispatch is
-	//impossible.
+	const auto &refFlags = GetGenericRefFlags(pFuncDecl);
+	//The func signature has no parameter names — no by-name dispatch.
 	if (HasNamedArgument(invoke))
 	{
 		m_Env.Log(CLL_Error, invoke.Location(),
 			"named arguments are not supported in delegate calls.");
 		return;
 	}
-	size_t paramCount = typeArgs.size() - 1;
-	if (ArgCountOf(invoke) != paramCount)
+	if (ArgCountOf(invoke) != typeArgs.size() - 1)
 	{
 		m_Env.Log(CLL_Error, invoke.Location(),
 			"delegate call expects %zu argument(s), got %zu.",
-			paramCount, ArgCountOf(invoke));
+			typeArgs.size() - 1, ArgCountOf(invoke));
 		return;
 	}
 	bool bOK = true;
@@ -123,17 +136,22 @@ void ExprResolveAccessor::BindDelegateInvoke(SnInvokeExpr &invoke,
 		if (!CheckDelegateArgument(arg, typeArgs[i + 1],
 			outFlags[i + 1] != 0, i))
 			bOK = false;
+		else if (i + 1 < refFlags.size() && refFlags[i + 1] != 0)
+		{
+			if (RejectDelegateRefMark(m_Env, arg, typeArgs[i + 1]))
+				bOK = false;
+			else
+				MarkPromotedBindTarget(arg);
+		}
 		++i;
 	}
 	if (!bOK)
 		return;
 	//Field() carries the delegate value — codegen detects the delegate
 	//shape structurally (a resolved invoke whose Field() is not an
-	//SnFunction), so no dedicated flag exists. EvalDataType follows the
-	//func's return slot — nullptr for void, the established void-invoke
-	//convention. Set directly (like the generic-method path) rather than
-	//through ResolveFieldExprAs, whose PostResolveCheck expects a type
-	//field here.
+	//SnFunction). EvalDataType follows the func's return slot — nullptr
+	//for void, set directly (ResolveFieldExprAs's PostResolveCheck
+	//expects a type field here).
 	invoke.m_pField = pDelegateField;
 	if (typeArgs[0]->Kind() != NK_Void)
 		invoke.EvalDataType(typeArgs[0]);

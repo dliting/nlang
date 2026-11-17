@@ -1,6 +1,7 @@
 #pragma once
 #include "nlang/vm/CompiledModule.h"
 #include "BytecodeOps.h"
+#include "BytecodeStrides.h"
 #include <cstdint>
 #include <string>
 #include <vector>

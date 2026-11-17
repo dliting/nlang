@@ -235,6 +235,14 @@ void VmExecutor::OpLoadRef(BytecodeReader& reader, uint8_t* locals) {
     const uint8_t kind = reader.ReadByte();
     const uint16_t dst = reader.ReadUint16();
     const uint16_t src = reader.ReadUint16();
+    LoadRefCells(kind, dst, src, locals);
+}
+
+//The OP_LoadRef body over an explicit kind byte (shared with the
+//descriptor-dispatched T& read, which resolves the kind from the frame
+//context at runtime).
+void VmExecutor::LoadRefCells(uint8_t kind, uint16_t dst, uint16_t src,
+    uint8_t* locals) {
     const size_t cells = RefDerefCells(kind);
     size_t cell;
     const int32_t handle =
@@ -249,12 +257,74 @@ void VmExecutor::OpStoreRef(BytecodeReader& reader, uint8_t* locals) {
     const uint8_t kind = reader.ReadByte();
     const uint16_t dstByref = reader.ReadUint16();
     const uint16_t srcVal = reader.ReadUint16();
+    StoreRefCells(kind, dstByref, srcVal, locals);
+}
+
+//The OP_StoreRef body over an explicit kind byte (shared with the
+//descriptor-dispatched T& store, which resolves the kind from the frame
+//context at runtime).
+void VmExecutor::StoreRefCells(uint8_t kind, uint16_t dstByref,
+    uint16_t srcVal, uint8_t* locals) {
     const size_t cells = RefDerefCells(kind);
     size_t cell;
     const int32_t handle =
         ByrefTarget(dstByref, locals, cells, "NLang VM: OP_StoreRef", cell);
     std::memcpy(m_structHeap[static_cast<size_t>(handle)].data() + cell,
                 locals + srcVal, cells * sizeof(int32_t));
+}
+
+//Task 8: the generic-body store through a T& formal — the body is
+//template-shared, so the pair's kind is only known at runtime (the
+//frame context's ordinal-th type argument). Scalar/string kinds take
+//the OP_StoreRef cell write. A struct kind overwrites the pair's base
+//record in place under the descriptor's own struct row — writes reach
+//the caller's record, the by-slot-copy fork of D9 (a null base
+//establishes one fresh record, handle written back into the pair).
+//Identity kinds rebind the formal's slot alone (T&≡T): the staged pair
+//is an offset-0 pair that reads as the plain record handle, so the raw
+//8-byte copy IS the slot write.
+void VmExecutor::OpStoreRefTypeArg(BytecodeReader& reader,
+    uint8_t* locals) {
+    const uint8_t ordinal = reader.ReadByte();
+    const uint16_t dstByref = reader.ReadUint16();
+    const uint16_t srcVal = reader.ReadUint16();
+    const TypeArgDesc& arg = ContextTypeArgOf(ordinal);
+    if (ScalarPrimIndexOfRtk(arg.resolvedKind) >= 0
+        || arg.resolvedKind == RTK_String) {
+        StoreRefCells(arg.resolvedKind, dstByref, srcVal, locals);
+        return;
+    }
+    if (arg.resolvedKind == RTK_Struct) {
+        int32_t pair[2];
+        std::memcpy(pair, locals + dstByref, sizeof(pair));
+        int32_t srcHandle;
+        std::memcpy(&srcHandle, locals + srcVal, sizeof(srcHandle));
+        pair[0] = CopyStructInPlace(pair[0], srcHandle,
+            static_cast<uint16_t>(arg.rowRef));
+        std::memcpy(locals + dstByref, pair, sizeof(pair));
+        return;
+    }
+    std::memcpy(locals + dstByref, locals + srcVal, kFrameSlotBytes);
+}
+
+//Task 8: the generic-body read through a T& formal — the body is
+//template-shared, so the pair's kind is only known at runtime (the
+//frame context's ordinal-th type argument). Scalar/string kinds
+//dereference like OP_LoadRef (the pair names a promoted-box payload or
+//field cell). Struct/identity kinds copy the pair raw: an offset-0 pair
+//reads as the plain record handle every value consumer already reads
+//per D9, so the raw 8-byte copy IS the value read.
+void VmExecutor::OpLoadRefTypeArg(BytecodeReader& reader, uint8_t* locals) {
+    const uint8_t ordinal = reader.ReadByte();
+    const uint16_t dst = reader.ReadUint16();
+    const uint16_t src = reader.ReadUint16();
+    const TypeArgDesc& arg = ContextTypeArgOf(ordinal);
+    if (ScalarPrimIndexOfRtk(arg.resolvedKind) >= 0
+        || arg.resolvedKind == RTK_String) {
+        LoadRefCells(arg.resolvedKind, dst, src, locals);
+        return;
+    }
+    std::memcpy(locals + dst, locals + src, kFrameSlotBytes);
 }
 
 } // namespace nlang

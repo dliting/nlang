@@ -53,7 +53,8 @@ void VmBackend::EmitCompoundAssignBareIdentifier(SnCompoundAssignStmt& ca,
         //references keep the in-place slot form below: their pair slot
         //is handle-compatible with the field ops.
         if (field->ContainFlags(NF_Promoted)
-            || IsDerefRefDescriptor(field)) {
+            || IsDerefRefDescriptor(field)
+            || IsTypeArgRefFormal(field)) {
             EmitCompoundRefLocal(ca, field, target, op, emitter);
             return;
         }

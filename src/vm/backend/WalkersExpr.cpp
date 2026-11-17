@@ -120,38 +120,38 @@ uint16_t VmBackend::ExprPeakDepth(SnExpression& expr,
 uint16_t VmBackend::InvokeExprPeakDepth(SnExpression& expr,
     const std::unordered_set<SnFunction*>& visited, bool isMethodContext) {
     auto& invoke = static_cast<SnInvokeExpr&>(expr);
-    //0.9.0: a ctor-carrying invoke shares the NewExpr claim shape.
-    //0.9.11 D2: the struct twin joins (same claim layout).
+    //0.9.0/0.9.11: a ctor-carrying invoke (class or struct twin)
+    //shares the NewExpr claim shape.
     if (invoke.CtorClass() || invoke.CtorStruct() || invoke.ArrayDynCtor())
         return CtorInvokePeakDepth(invoke, visited);
     auto* callee = invoke.Callee();
     size_t formalCount = callee ? callee->Params().size() : 0;
     if (!callee) { for (auto& p : invoke.Params()) ++formalCount; }
-    //Method call (slotBase=1) when caller signals method context,
-    //OR when callee is resolved to a method (Parent is class/struct/
-    //interface). The method-context flag is authoritative for
-    //built-in method calls where callee is null.
+    //Method call (slotBase=1) when caller signals method context, OR
+    //when the callee resolves to a method (Parent is class/struct/
+    //interface); the flag is authoritative when callee is null.
     bool isMethod = isMethodContext || (callee && callee->Parent()
         && (callee->Parent()->Kind() == NK_ClassDecl
             || callee->Parent()->Kind() == NK_StructDecl
             || callee->Parent()->Kind() == NK_InterfaceDecl));
-    size_t slotBase = isMethod ? 1 : 0;
-    size_t claimSize = formalCount + slotBase;
+    size_t claimSize = formalCount + (isMethod ? 1 : 0);
     //Phase 13: a delegate invoke materializes its callee handle into
-    //one scratch slot. The claims are sequential (args first, then
-    //callee), so this is over-reservation — the safe direction.
+    //one scratch slot (claims sequential: args first, then callee —
+    //over-reservation, the safe direction).
     if (!callee && VmBackend::IsDelegateInvoke(invoke))
         claimSize += 1;
 
     //Peak depth of argument sub-expressions (the &-formal charge is
-    //ArgPeakDepth's, gated by CalleeHasRefFormal — WalkersExprRef.cpp).
-    const bool bHasRefFormal = CalleeHasRefFormal(callee);
+    //ArgPeakDepth's — CalleeHasRefFormal, or a delegate key's
+    //refFlags for the pair staging; WalkersExprRef.cpp, Task 8).
+    const bool bHasRefFormal = CalleeHasRefFormal(callee)
+        || DelegateKeyHasRefArg(invoke);
     uint16_t argDepth = 0;
     for (auto& param : invoke.Params())
         argDepth = std::max(argDepth,
             ArgPeakDepth(param, visited, bHasRefFormal));
 
-    //Peak depth of callee's default expressions (evaluated in caller frame).
+    //Callee default expressions evaluate in the caller frame.
     uint16_t defaultDepth = 0;
     if (callee && visited.find(callee) == visited.end()) {
         auto visitedPlus = visited;

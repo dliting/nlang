@@ -153,10 +153,13 @@ void VmBackend::Access(SnLiteralExpr& expr) {
 //Delegate invoke arm: materialize the bound callee handle into a scratch
 //evalArea slot (the field form must not disturb callParamBase), then
 //dispatch through EmitDelegateDispatch.
+//Task 8: a raw &-return binds the pair itself (binding targets, nested
+//ref-calls); a value read normalizes through the key's return deref tag.
 void VmBackend::EmitDelegateInvoke(const SnInvokeExpr& invoke,
                                    BytecodeEmitter& emitter,
                                    uint16_t resultOffset,
-                                   const std::vector<OutSpill>& outSpills) {
+                                   const std::vector<OutSpill>& outSpills,
+                                   bool bRawRefResult) {
     auto target = ResolveBareIdentifier(invoke.Field());
     EvalAreaClaim calleeClaim(*this, 1);
     uint16_t calleeSlot = calleeClaim.base();
@@ -183,7 +186,10 @@ void VmBackend::EmitDelegateInvoke(const SnInvokeExpr& invoke,
             "NLang backend: delegate callee has no codegen "
             "binding: " + invoke.CalleeName());
     }
-    EmitDelegateDispatch(emitter, calleeSlot, resultOffset, outSpills);
+    const uint8_t refDerefKind = bRawRefResult ? kNoRefDeref
+        : DelegateReturnDerefKind(DelegateFuncTypeOfField(invoke.Field()));
+    EmitDelegateDispatch(emitter, calleeSlot, resultOffset, outSpills,
+        refDerefKind);
     emitter.Emit(OpCode::OP_ParaEnd);
 }
 
@@ -195,15 +201,21 @@ void VmBackend::EmitDelegateInvoke(const SnInvokeExpr& invoke,
 void VmBackend::EmitDelegateDispatch(BytecodeEmitter& emitter,
                                      uint16_t calleeSlot,
                                      uint16_t resultOffset,
-                                     const std::vector<OutSpill>& outSpills) {
+                                     const std::vector<OutSpill>& outSpills,
+                                     uint8_t refDerefKind) {
     if (!outSpills.empty()) {
         emitter.Emit(OpCode::OP_CallDelegateOut);
         emitter.EmitUint16(calleeSlot);
         emitter.EmitUint16(m_currFunc->callParamBase);
         emitter.EmitInt32(static_cast<int32_t>(
             BuildOutMask(outSpills)));
+        //Result first: the spills below clobber pResult via OP_VarLocal
+        //(same ordering discipline as OP_CallStaticOut). A ref-returning
+        //key parks a raw pair — deref in place before the spills.
         emitter.Emit(OpCode::OP_Assign);
         emitter.EmitUint16(resultOffset);
+        if (refDerefKind != kNoRefDeref)
+            EmitRefDerefInPlace(refDerefKind, resultOffset, emitter);
         EmitOutSpills(outSpills, emitter);
     } else {
         emitter.Emit(OpCode::OP_CallDelegate);
@@ -211,6 +223,8 @@ void VmBackend::EmitDelegateDispatch(BytecodeEmitter& emitter,
         emitter.EmitUint16(m_currFunc->callParamBase);
         emitter.Emit(OpCode::OP_Assign);
         emitter.EmitUint16(resultOffset);
+        if (refDerefKind != kNoRefDeref)
+            EmitRefDerefInPlace(refDerefKind, resultOffset, emitter);
     }
 }
 
@@ -237,7 +251,7 @@ void VmBackend::EmitFreeFunctionCall(int funcIndex, BytecodeEmitter& emitter,
         //(Task 6, value semantics at the read site).
         emitter.Emit(OpCode::OP_Assign);
         emitter.EmitUint16(resultOffset);
-        if (refDerefKind != 0)
+        if (refDerefKind != kNoRefDeref)
             EmitRefDerefInPlace(refDerefKind, resultOffset, emitter);
         EmitOutSpills(outSpills, emitter);
     } else {
@@ -250,7 +264,7 @@ void VmBackend::EmitFreeFunctionCall(int funcIndex, BytecodeEmitter& emitter,
         //(Task 6, value semantics at the read site).
         emitter.Emit(OpCode::OP_Assign);
         emitter.EmitUint16(resultOffset);
-        if (refDerefKind != 0)
+        if (refDerefKind != kNoRefDeref)
             EmitRefDerefInPlace(refDerefKind, resultOffset, emitter);
     }
 }
@@ -348,7 +362,8 @@ void VmBackend::EmitInvokeDispatch(SnInvokeExpr& invoke, SnFunction* callee,
     //above; materialize the handle into a scratch evalArea slot (the
     //field form must not disturb callParamBase) and dispatch.
     if (IsDelegateInvoke(invoke)) {
-        EmitDelegateInvoke(invoke, emitter, resultOffset, outSpills);
+        EmitDelegateInvoke(invoke, emitter, resultOffset, outSpills,
+            bRawRefResult);
         return;
     }
 
@@ -381,7 +396,7 @@ void VmBackend::EmitInvokeDispatch(SnInvokeExpr& invoke, SnFunction* callee,
     EmitFreeFunctionCall(
         static_cast<int>(FunctionSlotFor(*callee)),
         emitter, resultOffset, outSpills, descIdx,
-        bRawRefResult ? uint8_t{0} : RefReturnDerefKind(callee));
+        bRawRefResult ? kNoRefDeref : RefReturnDerefKind(callee));
     emitter.Emit(OpCode::OP_ParaEnd);
 }
 

@@ -1,0 +1,14 @@
+//Task 8 probe: declared-generic T& formal write-through for a struct arg.
+struct Point { int x; int y; }
+class Util<T> {
+    public void set(T& v, T d) { v = d; }
+}
+int main() {
+    Point p = Point();
+    p.x = 1; p.y = 2;
+    Point q = Point();
+    q.x = 70; q.y = 80;
+    Util<Point> u = Util<Point>();
+    u.set(p, q);
+    return p.x * 100 + p.y;
+}

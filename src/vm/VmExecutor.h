@@ -835,7 +835,24 @@ private:
         const std::vector<int32_t>& payload, int64_t cell, uint8_t* locals);
     void OpRefHandle(BytecodeReader& reader, uint8_t* locals);
     void OpLoadRef(BytecodeReader& reader, uint8_t* locals);
+    //The OP_LoadRef body over an explicit kind byte — shared with the
+    //descriptor-dispatched T& read below.
+    void LoadRefCells(uint8_t kind, uint16_t dst, uint16_t src,
+        uint8_t* locals);
     void OpStoreRef(BytecodeReader& reader, uint8_t* locals);
+    //The OP_StoreRef body over an explicit kind byte — shared with the
+    //descriptor-dispatched T& store below.
+    void StoreRefCells(uint8_t kind, uint16_t dstByref, uint16_t srcVal,
+        uint8_t* locals);
+    //Task 8: the generic-body store through a T& formal pair — the kind
+    //rides the frame context's ordinal-th type argument (scalar/string
+    //→ cell write, struct → in-place record overwrite, identity → slot
+    //rebind per D9).
+    void OpStoreRefTypeArg(BytecodeReader& reader, uint8_t* locals);
+    //Task 8: the generic-body read through a T& formal pair — scalar/
+    //string deref like OP_LoadRef, struct/identity copy the pair raw
+    //(offset-0 pairs read as record handles, D9).
+    void OpLoadRefTypeArg(BytecodeReader& reader, uint8_t* locals);
     //0.12.6: static slot cell copies against the module's VmStaticSlots
     //table (lock-free like the field family — benign value races, K8).
     void OpLoadStatic(BytecodeReader& reader, uint8_t* locals);

@@ -292,6 +292,12 @@ public:
     //helpers (the out-spill shape selector) as well as member arms.
     static bool IsDerefRefDescriptor(SnField* pField);
 
+    //Task 8: true when a bare-identifier descriptor is a T& formal of a
+    //generic body — NF_Ref with a type-parameter placeholder declared
+    //type. The OP_LoadRef_T/OP_StoreRef_T descriptor-dispatched ops
+    //apply: the pair's kind resolves at runtime from the frame context.
+    bool IsTypeArgRefFormal(SnField* pField);
+
 private:
     void GenerateFunction(SnFunction& func, size_t funcIdx);
     //GenerateFunction's native arm (split for the 50-line function
@@ -410,11 +416,15 @@ private:
     void EmitMakeRefOfRvalue(uint16_t dstOffset,
         SnExpression& expr, BytecodeEmitter& emitter);
     //Task 6: the value-side deref kind byte for a &-returning callee —
-    //0 when no normalization is needed (non-ref callees; struct/class/
-    //array returns: the pair's low half IS the record handle every
-    //value consumer reads). Scalar/string/enum returns name the payload
-    //tag OP_LoadRef derefs, valid on any bindable pair — not just the
-    //promoted-box pairs OP_Unbox accepts.
+    //kNoRefDeref when no normalization is needed (non-ref callees;
+    //struct/class/array returns: the pair's low half IS the record
+    //handle every value consumer reads). Scalar/string/enum returns
+    //name the payload tag OP_LoadRef derefs, valid on any bindable
+    //pair — not just the promoted-box pairs OP_Unbox accepts.
+    //Task 8: the sentinel is 0xFF (BoxTypeTagOfKind's "not a boxable
+    //kind" convention) — RTK_Int32 is 0, so a 0 sentinel silently
+    //dropped the int/enum &-return normalization.
+    static constexpr uint8_t kNoRefDeref = 0xFF;
     uint8_t RefReturnDerefKind(SnFunction* pCallee);
     //In-place dereference of a pair already parked in a frame slot:
     //OP_LoadRef with dst==src (safe — the executor captures the pair
@@ -428,6 +438,11 @@ private:
     //temporary): the tagged StoreRef, not a slot assign.
     void EmitRefAssignBareLocal(SnAssignStmt& assign, SnField* pLeftField,
         uint16_t offset, BytecodeEmitter& emitter);
+    //Task 8: user store through a T& formal in a generic body — the
+    //kind-aware OP_StoreRef_T (the body is template-shared, so the
+    //store's kind resolves from the frame's instantiation descriptor).
+    void EmitRefTypeArgAssignBareLocal(SnAssignStmt& assign,
+        SnField* pLeftField, uint16_t offset, BytecodeEmitter& emitter);
     struct BareIdTarget;   //same forward-declaration pattern as OutSpill
     //Activation-time box for one promoted declarator (the type-default
     //payload; the decomposed init assign overwrites it).
@@ -448,6 +463,23 @@ private:
     //decision cannot drift between codegen and walkers.
     static bool IsContainerSubscript(SnExpression& baseExpr);
     static bool IsDelegateInvoke(const SnInvokeExpr& invoke);
+
+    //Task 8: the func<...> key behind a delegate slot (the local/field's
+    //declared type) — null when the slot is not a func-typed value. The
+    //key's GenericRefFlags carry the & marks: [0] the return slot,
+    //[i+1] the argument positions.
+    static SnClassDecl* DelegateFuncTypeOfField(const SnField* pSlot);
+    //Any & mark on the key's ARGUMENT positions — gates the walker's
+    //MakeRef charge and the argument-side pair staging.
+    static bool DelegateKeyHasRefArg(const SnInvokeExpr& invoke);
+    //The key's RETURN & mark (refFlags[0]) — gates the &-context
+    //staging of a delegate invoke (raw pair, MakeRef contract).
+    static bool DelegateKeyHasRefReturn(const SnInvokeExpr& invoke);
+    //Value-side return normalization tag for a delegate key: refFlags[0]
+    //set with a scalar/string/enum return slot names the OP_LoadRef tag;
+    //struct/identity & returns and plain keys return 0 (raw pass-through
+    //per the offset-0-pair convention).
+    static uint8_t DelegateReturnDerefKind(const SnClassDecl* pFuncType);
 
     //Flattened member-field offset helpers (definitions live in
     //FieldOffsets.cpp), shared by the member-read, assign-store,
@@ -636,7 +668,8 @@ private:
     void EmitMemberDelegateInvoke(SnInvokeExpr& invoke,
                                   SnClassDecl& classDecl,
                                   BytecodeEmitter& emitter,
-                                  uint16_t resultOffset);
+                                  uint16_t resultOffset,
+                                  bool bRawRefResult);
     void EmitMemberGenericMethodCall(SnInvokeExpr& invoke,
                                      SnClassDecl& classDecl,
                                      BytecodeEmitter& emitter,
@@ -941,6 +974,10 @@ private:
                                      const std::string& fieldName);
     void EmitAssignBareIdentifier(SnAssignStmt& assign, SnField* field,
                                   BytecodeEmitter& emitter);
+    //Static-slot arm of the bare-identifier assign: declaration-site
+    //init under the slot's once-guard, or the plain gated slot write.
+    void EmitAssignStaticSlot(SnAssignStmt& assign, SnField* field,
+                              uint16_t slotIdx, BytecodeEmitter& emitter);
     void EmitAssignToLocal(SnAssignStmt& assign, uint16_t offset,
                            SnField* varType, BytecodeEmitter& emitter);
     void EmitAssignToThisField(SnAssignStmt& assign, int fieldOff,
@@ -1456,6 +1493,10 @@ private:
                               const std::function<void(uint16_t)>& applyBox,
                               const std::map<uint16_t, ArgBoxPlan>* pArgPlans
                                   = nullptr);
+    //Shared out-argument tail (both argument paths): resolve the caller
+    //local behind the out target and record the post-call spill.
+    void RecordOutSpill(SnField* pTargetField, uint16_t slotIdx,
+                        std::vector<OutSpill>* pOutSpills);
 
     //Phase 9a: emit a compound-assign arithmetic op (locals[dst] op= locals[src]).
     //op is the underlying binary operator (Add/Sub/Mul/Div/Mod).
@@ -1683,15 +1724,17 @@ private:
     //the free-function OP_CallStatic/OP_CallStaticOut tail.
     void EmitDelegateInvoke(const SnInvokeExpr& invoke,
                             BytecodeEmitter& emitter, uint16_t resultOffset,
-                            const std::vector<OutSpill>& outSpills);
+                            const std::vector<OutSpill>& outSpills,
+                            bool bRawRefResult);
     void EmitDelegateDispatch(BytecodeEmitter& emitter, uint16_t calleeSlot,
                               uint16_t resultOffset,
-                              const std::vector<OutSpill>& outSpills);
+                              const std::vector<OutSpill>& outSpills,
+                              uint8_t refDerefKind);
     void EmitFreeFunctionCall(int funcIndex, BytecodeEmitter& emitter,
                               uint16_t resultOffset,
                               const std::vector<OutSpill>& outSpills,
                               uint16_t descIdx,
-                              uint8_t refDerefKind = 0);
+                              uint8_t refDerefKind = kNoRefDeref);
     //0.13.1a: a receiverless callee's descriptor operand —
     //kInstDescForwardCaller for a same-generic-row callee, kInstDescNone
     //otherwise (see EmitExprCore.cpp for the rule).

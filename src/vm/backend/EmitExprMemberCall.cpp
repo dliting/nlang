@@ -192,7 +192,8 @@ void VmBackend::EmitMemberClassMethodCall(SnInvokeExpr& invoke,
     //Phase 13 Step 2: delegate member invoke (obj.cb(x)) — shape note in
     //EmitMemberDelegateInvoke.
     if (IsDelegateInvoke(invoke)) {
-        EmitMemberDelegateInvoke(invoke, classDecl, emitter, resultOffset);
+        EmitMemberDelegateInvoke(invoke, classDecl, emitter, resultOffset,
+            bRawRefResult);
         return;
     }
     EmitMemberGenericMethodCall(invoke, classDecl, emitter, resultOffset,
@@ -211,7 +212,8 @@ void VmBackend::EmitMemberClassMethodCall(SnInvokeExpr& invoke,
 void VmBackend::EmitMemberDelegateInvoke(SnInvokeExpr& invoke,
                                          SnClassDecl& classDecl,
                                          BytecodeEmitter& emitter,
-                                         uint16_t resultOffset) {
+                                         uint16_t resultOffset,
+                                         bool bRawRefResult) {
     int off = FindClassFieldOffset(classDecl, invoke.CalleeName());
     if (off < 0) {
         throw std::runtime_error(
@@ -231,8 +233,13 @@ void VmBackend::EmitMemberDelegateInvoke(SnInvokeExpr& invoke,
                  /*pArgPlans=*/nullptr,
                  /*thisSlot=*/UINT16_MAX,
                  &delegateOutSpills);
+    //Task 8: a raw &-return binds the pair itself; a value read
+    //normalizes through the key's return deref tag (same contract as
+    //the bare-form delegate arm).
+    const uint8_t refDerefKind = bRawRefResult ? kNoRefDeref
+        : DelegateReturnDerefKind(DelegateFuncTypeOfField(invoke.Field()));
     EmitDelegateDispatch(emitter, calleeSlot, resultOffset,
-                         delegateOutSpills);
+                         delegateOutSpills, refDerefKind);
     emitter.Emit(OpCode::OP_ParaEnd);
 }
 
@@ -328,7 +335,7 @@ void VmBackend::EmitMemberMethodDispatch(const SnInvokeExpr& invoke,
 void VmBackend::EmitMethodReturnNormalization(SnFunction* callee,
     const ArgBoxPlan& returnPlan, bool bRawRefResult,
     uint16_t resultOffset, BytecodeEmitter& emitter) {
-    uint8_t derefKind = 0;
+    uint8_t derefKind = kNoRefDeref;
     if (bRawRefResult) {
         //reference consumer: no normalization
     } else if (returnPlan.needsBox) {
@@ -338,7 +345,7 @@ void VmBackend::EmitMethodReturnNormalization(SnFunction* callee,
     }
     emitter.Emit(OpCode::OP_Assign);
     emitter.EmitUint16(resultOffset);
-    if (derefKind != 0)
+    if (derefKind != kNoRefDeref)
         EmitRefDerefInPlace(derefKind, resultOffset, emitter);
 }
 

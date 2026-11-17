@@ -111,6 +111,20 @@ bool MemberCallBindsStorage(SnMemberExpr &member)
 	if (auto *pCallee = invoke.Callee())
 		return pCallee->ReturnType()
 			&& pCallee->ReturnType()->ContainFlags(NF_Ref);
+	//Task 8: a member delegate slot whose func key marks the return & —
+	//the dispatch parks the raw pair, so the binding aliases the
+	//callee's target (same contract as a &-returning method). No
+	//resolution gate: Field() is bound only by the completed delegate
+	//bind, and slot descriptors never carry NF_Resolved.
+	auto *pSlot = invoke.Field();
+	if (pSlot && pSlot->Kind() != NK_Function
+		&& IsFuncTypeDecl(pSlot->EvalDataType()))
+	{
+		auto *pFuncType
+			= static_cast<SnClassDecl *>(pSlot->EvalDataType());
+		const auto &refFlags = pFuncType->GenericRefFlags();
+		return !refFlags.empty() && refFlags[0] != 0;
+	}
 	return false;
 }
 
@@ -273,6 +287,47 @@ bool RejectRefBindTarget(BuildEnvironment &env, SnExpression &expr,
 		return true;
 	}
 	return false;
+}
+
+//D9 fork warning (v0.13.9 phase 3): a template member writing through a
+//T& formal is visible to the caller only when T binds a by-slot-copy
+//type; when T binds an identity type (class/interface/array) the write
+//reaches the local formal alone. The instantiation point warns per
+//T& formal so the silent fork is named at the spelling that chose it.
+//Warning-level — the program stays legal (spec 3.1 declares T&≡T for
+//identity types).
+void WarnIdentityRefFormals(BuildEnvironment &env, const SnClassDecl &tmpl,
+	const std::vector<SnField*> &typeArgs, const ISourceLocation *pLoc)
+{
+	auto &generics = env.Registry().DeclaredGenerics();
+	for (const SnField &member : tmpl.Members())
+	{
+		if (member.Kind() != NK_Function)
+			continue;
+		const auto &fn = static_cast<const SnFunction &>(member);
+		for (auto &param : fn.Params())
+		{
+			auto *pType = param.Type();
+			if (!pType || !pType->IsResolved()
+				|| !pType->ContainFlags(NF_Ref))
+				continue;
+			auto *pField = pType->Field();
+			if (!pField || !generics.IsPlaceholder(pField))
+				continue;
+			const size_t idx = generics.PlaceholderIndex(pField);
+			if (idx >= typeArgs.size() || !typeArgs[idx])
+				continue;
+			const NodeKind kind = typeArgs[idx]->Kind();
+			if (kind == NK_ClassDecl || kind == NK_InterfaceDecl
+				|| kind == NK_ArrayTypeToken)
+			{
+				env.Log(CLL_Warn, pLoc,
+					"the T& formal of \"%s\" binds an identity type; "
+					"writes through it reach only the local formal.",
+					fn.Name().c_str());
+			}
+		}
+	}
 }
 
 } //namespace nlang

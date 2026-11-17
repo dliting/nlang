@@ -2461,3 +2461,15 @@ refbind_foreach_array_struct 60
 refbind_foreach_list_scalar 112
 refbind_foreach_list_struct 77
 refbind_local_struct_element 8
+# --- v0.13.9 phase 3 Task 8: generic keys, T& well-formedness, fork warning ---
+refbind_generic_func_coexist 7
+refbind_generic_func_reject_out compile_error does not match the signature
+refbind_generic_func_reject_in compile_error does not match the signature
+refbind_generic_class_write 7080
+refbind_generic_class_identity 3
+refbind_generic_handle_param 42042
+refbind_generic_handle_ret 105
+refbind_generic_field_struct 149
+refbind_generic_member_handle_param 42042
+refbind_generic_member_handle_ret 105
+refbind_generic_handle_ret_value 508
