@@ -1,9 +1,12 @@
-//0.7.3 B D8: relational operators on arrays are rejected — identity
-//comparison is the only ordering-free meaning, and `<`/`<=`/`>`/`>=`
-//would silently compare raw heap handles.
+//0.14.2: relational operators on arrays lower to the elementwise
+//compare family for NUMERIC element kinds (op_tensor_compare pins
+//that surface); a NON-numeric array (string here) still has no
+//ordering — the relational spellings keep their named rejection.
+import tensor;
+
 int main() {
-    int[] a = int[2];
-    int[] b = int[2];
+    string[] a = string[1];
+    string[] b = string[1];
     if (a < b) { return 1; }
     return 0;
 }

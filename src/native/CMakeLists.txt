@@ -23,6 +23,8 @@ set(NLANG_TENSOR_KERNEL_SOURCES
     tensor/KernelOpsCpu.cpp
     tensor/VecMathEntries.cpp
     tensor/tensor_binary.cpp
+    tensor/tensor_where.cpp
+    tensor/tensor_scatter.cpp
     tensor/tensor_matrix.cpp
     tensor/tensor_reduce.cpp
     tensor/tensor_views.cpp

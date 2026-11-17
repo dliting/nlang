@@ -203,11 +203,221 @@ native Array<int> argmin(Array<int> a, int axis);
 native Array<int> argmin(Array<float> a, int axis);
 native Array<int> argmin(Array<double> a, int axis);
 
-// Elementwise equality: int32 0/1 out (IEEE ==/!= for floats).
+// Elementwise comparisons: int32 0/1 mask out (IEEE ordering for the
+// float kinds — NaN is false in every ordered compare and in eq, true
+// in ne). The language's comparison operators lower to these spellings.
 native Array<int> eq(Array<int> a, Array<int> b);
 native Array<int> eq(Array<long> a, Array<long> b);
 native Array<int> eq(Array<float> a, Array<float> b);
 native Array<int> eq(Array<double> a, Array<double> b);
+native Array<int> ne(Array<int> a, Array<int> b);
+native Array<int> ne(Array<long> a, Array<long> b);
+native Array<int> ne(Array<float> a, Array<float> b);
+native Array<int> ne(Array<double> a, Array<double> b);
+native Array<int> gt(Array<int> a, Array<int> b);
+native Array<int> gt(Array<long> a, Array<long> b);
+native Array<int> gt(Array<float> a, Array<float> b);
+native Array<int> gt(Array<double> a, Array<double> b);
+native Array<int> ge(Array<int> a, Array<int> b);
+native Array<int> ge(Array<long> a, Array<long> b);
+native Array<int> ge(Array<float> a, Array<float> b);
+native Array<int> ge(Array<double> a, Array<double> b);
+native Array<int> lt(Array<int> a, Array<int> b);
+native Array<int> lt(Array<long> a, Array<long> b);
+native Array<int> lt(Array<float> a, Array<float> b);
+native Array<int> lt(Array<double> a, Array<double> b);
+native Array<int> le(Array<int> a, Array<int> b);
+native Array<int> le(Array<long> a, Array<long> b);
+native Array<int> le(Array<float> a, Array<float> b);
+// Scalar overloads at the base spellings: the (Array, scalar) arm
+// delegates to the *Scalar native — overload resolution picks it when
+// the right operand is a scalar (the add/mul precedent).
+Array<int> eq(Array<int> a, int value) {
+    return eqScalar(a, value);
+}
+Array<int> eq(Array<long> a, long value) {
+    return eqScalar(a, value);
+}
+Array<int> eq(Array<float> a, float value) {
+    return eqScalar(a, value);
+}
+Array<int> eq(Array<double> a, double value) {
+    return eqScalar(a, value);
+}
+Array<int> ne(Array<int> a, int value) {
+    return neScalar(a, value);
+}
+Array<int> ne(Array<long> a, long value) {
+    return neScalar(a, value);
+}
+Array<int> ne(Array<float> a, float value) {
+    return neScalar(a, value);
+}
+Array<int> ne(Array<double> a, double value) {
+    return neScalar(a, value);
+}
+Array<int> gt(Array<int> a, int value) {
+    return gtScalar(a, value);
+}
+Array<int> gt(Array<long> a, long value) {
+    return gtScalar(a, value);
+}
+Array<int> gt(Array<float> a, float value) {
+    return gtScalar(a, value);
+}
+Array<int> gt(Array<double> a, double value) {
+    return gtScalar(a, value);
+}
+Array<int> ge(Array<int> a, int value) {
+    return geScalar(a, value);
+}
+Array<int> ge(Array<long> a, long value) {
+    return geScalar(a, value);
+}
+Array<int> ge(Array<float> a, float value) {
+    return geScalar(a, value);
+}
+Array<int> ge(Array<double> a, double value) {
+    return geScalar(a, value);
+}
+Array<int> lt(Array<int> a, int value) {
+    return ltScalar(a, value);
+}
+Array<int> lt(Array<long> a, long value) {
+    return ltScalar(a, value);
+}
+Array<int> lt(Array<float> a, float value) {
+    return ltScalar(a, value);
+}
+Array<int> lt(Array<double> a, double value) {
+    return ltScalar(a, value);
+}
+Array<int> le(Array<int> a, int value) {
+    return leScalar(a, value);
+}
+Array<int> le(Array<long> a, long value) {
+    return leScalar(a, value);
+}
+Array<int> le(Array<float> a, float value) {
+    return leScalar(a, value);
+}
+Array<int> le(Array<double> a, double value) {
+    return leScalar(a, value);
+}
+// The scalar arm natives (the language's `a > 5` spellings; the
+// scalar-left forms are the compiler's reflected operators — 5 < a
+// lowers to ltScalar with the operands unchanged).
+native Array<int> eqScalar(Array<int> a, int value);
+native Array<int> eqScalar(Array<long> a, long value);
+native Array<int> eqScalar(Array<float> a, float value);
+native Array<int> eqScalar(Array<double> a, double value);
+native Array<int> neScalar(Array<int> a, int value);
+native Array<int> neScalar(Array<long> a, long value);
+native Array<int> neScalar(Array<float> a, float value);
+native Array<int> neScalar(Array<double> a, double value);
+native Array<int> gtScalar(Array<int> a, int value);
+native Array<int> gtScalar(Array<long> a, long value);
+native Array<int> gtScalar(Array<float> a, float value);
+native Array<int> gtScalar(Array<double> a, double value);
+native Array<int> geScalar(Array<int> a, int value);
+native Array<int> geScalar(Array<long> a, long value);
+native Array<int> geScalar(Array<float> a, float value);
+native Array<int> geScalar(Array<double> a, double value);
+native Array<int> ltScalar(Array<int> a, int value);
+native Array<int> ltScalar(Array<long> a, long value);
+native Array<int> ltScalar(Array<float> a, float value);
+native Array<int> ltScalar(Array<double> a, double value);
+native Array<int> leScalar(Array<int> a, int value);
+native Array<int> leScalar(Array<long> a, long value);
+native Array<int> leScalar(Array<float> a, float value);
+native Array<int> leScalar(Array<double> a, double value);
+
+// Mask select: mask != 0 picks x else y; the three operands broadcast
+// together (the comparison operators' int 0/1 masks are the producers).
+native Array<float> where(Array<int> mask, Array<float> x, Array<float> y);
+native Array<double> where(Array<int> mask, Array<double> x, Array<double> y);
+native Array<int> where(Array<int> mask, Array<int> x, Array<int> y);
+native Array<long> where(Array<int> mask, Array<long> x, Array<long> y);
+native Array<float> whereYScalar(Array<int> mask, Array<float> x, float y);
+native Array<double> whereYScalar(Array<int> mask, Array<double> x, double y);
+native Array<int> whereYScalar(Array<int> mask, Array<int> x, int y);
+native Array<long> whereYScalar(Array<int> mask, Array<long> x, long y);
+native Array<float> whereXScalar(Array<int> mask, float x, Array<float> y);
+native Array<double> whereXScalar(Array<int> mask, double x, Array<double> y);
+native Array<int> whereXScalar(Array<int> mask, int x, Array<int> y);
+native Array<long> whereXScalar(Array<int> mask, long x, Array<long> y);
+// The scalar-arm overloads at the base spelling (the add/mul precedent).
+Array<float> where(Array<int> mask, Array<float> x, float y) {
+    return whereYScalar(mask, x, y);
+}
+Array<double> where(Array<int> mask, Array<double> x, double y) {
+    return whereYScalar(mask, x, y);
+}
+Array<int> where(Array<int> mask, Array<int> x, int y) {
+    return whereYScalar(mask, x, y);
+}
+Array<long> where(Array<int> mask, Array<long> x, long y) {
+    return whereYScalar(mask, x, y);
+}
+Array<float> where(Array<int> mask, float x, Array<float> y) {
+    return whereXScalar(mask, x, y);
+}
+Array<double> where(Array<int> mask, double x, Array<double> y) {
+    return whereXScalar(mask, x, y);
+}
+Array<int> where(Array<int> mask, int x, Array<int> y) {
+    return whereXScalar(mask, x, y);
+}
+Array<long> where(Array<int> mask, long x, Array<long> y) {
+    return whereXScalar(mask, x, y);
+}
+// Long-mask forms (a long comparison mask has no producer today; kept
+// for symmetry with the mask gate).
+native Array<float> where(Array<long> mask, Array<float> x, Array<float> y);
+native Array<double> where(Array<long> mask, Array<double> x, Array<double> y);
+native Array<int> where(Array<long> mask, Array<int> x, Array<int> y);
+native Array<long> where(Array<long> mask, Array<long> x, Array<long> y);
+
+// Scatter: the write twin of gather — per position i,
+// out[position(i)][indices[i]] = values[i]; value semantics (returns a
+// new array, `a` unchanged). Out-of-range indices raise
+// IndexOutOfBoundsException (both bounds; no negative wrap).
+native Array<float> scatter(Array<float> a, int axis, Array<int> indices, Array<float> values);
+native Array<double> scatter(Array<double> a, int axis, Array<int> indices, Array<double> values);
+native Array<int> scatter(Array<int> a, int axis, Array<int> indices, Array<int> values);
+native Array<long> scatter(Array<long> a, int axis, Array<int> indices, Array<long> values);
+// The scalar-values arm (broadcast — the numpy put_along_axis rule).
+native Array<float> scatterScalar(Array<float> a, int axis, Array<int> indices, float value);
+native Array<double> scatterScalar(Array<double> a, int axis, Array<int> indices, double value);
+native Array<int> scatterScalar(Array<int> a, int axis, Array<int> indices, int value);
+native Array<long> scatterScalar(Array<long> a, int axis, Array<int> indices, long value);
+// The in-place assignment forms (the language's `a[indices] = values`
+// lowering; void — the write lands in `a`'s own payload).
+native void scatterInto(Array<int> a, Array<int> indices, Array<int> values);
+native void scatterInto(Array<long> a, Array<int> indices, Array<long> values);
+native void scatterInto(Array<float> a, Array<int> indices, Array<float> values);
+native void scatterInto(Array<double> a, Array<int> indices, Array<double> values);
+native void scatterIntoS(Array<int> a, Array<int> indices, int value);
+native void scatterIntoS(Array<long> a, Array<int> indices, long value);
+native void scatterIntoS(Array<float> a, Array<int> indices, float value);
+native void scatterIntoS(Array<double> a, Array<int> indices, double value);
+
+// The scalar overload at the base spelling.
+Array<float> scatter(Array<float> a, int axis, Array<int> indices,
+    float value) {
+    return scatterScalar(a, axis, indices, value);
+}
+Array<double> scatter(Array<double> a, int axis, Array<int> indices,
+    double value) {
+    return scatterScalar(a, axis, indices, value);
+}
+Array<int> scatter(Array<int> a, int axis, Array<int> indices, int value) {
+    return scatterScalar(a, axis, indices, value);
+}
+Array<long> scatter(Array<long> a, int axis, Array<int> indices,
+    long value) {
+    return scatterScalar(a, axis, indices, value);
+}
 
 // One-hot expansion: float[len, n], row i ones at labels[i].
 native Array<float> oneHot(Array<int> labels, int n);

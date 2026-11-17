@@ -5,6 +5,10 @@
     复合赋值已抽至 StatementResolverCompound.cpp（0.9.10，按语句族分文件）。
 ---*/
 #include "StatementResolver.h"
+#include "SnArrayTypeToken.h"
+#include "SyntaxTree.h"
+#include "ModuleRegistry.h"
+#include <nlang/runtime/NodeContainers.h>
 #include <nlang/runtime/BuiltinGenericNames.h>
 #include <nlang/runtime/StackDump.h>
 
@@ -164,32 +168,6 @@ void StatementResolveAccessor::FinishAssignTypeCheck(SnAssignStmt &sn)
 //element for array-valued bases (the interned token peeled), or the
 //container's value slot (List → type-args[0], Dict → type-args[1]).
 //Null = the base carries no derivable element type.
-static SnField* SubscriptStoreElemType(SnExpression *pBase)
-{
-	if (!pBase)
-		return nullptr;
-	auto* pBaseType = pBase->EvalDataType();
-	if (!pBaseType)
-		return nullptr;
-	//Element row, either spelling of the base's array type (the
-	//interned token or the Array<E> instantiation) — the Array<E>
-	//arm feeds the bare-brace store's inferred target too.
-	if (SnField* pElemRow = ArrayElementRowOf(pBaseType))
-		return pElemRow;
-	if (pBaseType->Kind() == NK_ClassDecl)
-	{
-		auto* pGen = static_cast<SnClassDecl*>(pBaseType);
-		auto typeArgs = GetGenericTypeArgs(pGen);
-		if (pGen->BaseName() == kBuiltinDictTypeName
-			&& typeArgs.size() > 1)
-			return typeArgs[1];
-		if (pGen->BaseName() == kBuiltinListTypeName
-			&& !typeArgs.empty())
-			return typeArgs[0];
-	}
-	return nullptr;
-}
-
 //v0.12.7 Task 11: resolve the store's index expressions; a slice
 //index stops the statement — slice lvalues PARSE (the unified
 //subscript list) but have no store semantics until a writable view
@@ -217,18 +195,15 @@ void StatementResolveAccessor::Access(SnSubscriptAssignStmt &sn)
 	if (sn.IsResolved())
 		return;
 	NLANG_ASSERT(m_pCurrType);
-	if (sn.Array() && !sn.Array()->IsResolved())
-		m_ExprResolver.Resolve(*sn.Array(), *sn.Array()->Parent(), *m_pCurrType, ERF_None);
-	if (ResolveStoreIndices(sn))
+	//The operands resolve before the tensor classification (the
+	//binary-lowering order — the shape gate reads resolved types).
+	if (ResolveSubscriptAssignOperands(sn))
 		return;
-	//0.9.0: a bare brace stored value takes the base's element type as
-	//its target (the array element, or the container's value slot). The
-	//base is resolved by now, so the element type is derivable.
-	if (auto *pInitList = sn.Value()
-		? UntypedInitListOf(*sn.Value()) : nullptr)
-		pInitList->InferredTarget(SubscriptStoreElemType(sn.Array()));
-	if (sn.Value() && !sn.Value()->IsResolved())
-		m_ExprResolver.Resolve(*sn.Value(), *sn.Value()->Parent(), *m_pCurrType, ERF_None);
+	//v0.14.2: the fancy-index assignment — an array-valued index
+	//lowers to tensor.scatterInto (the write twin of gather; the
+	//in-place arm). Consumed statements skip the plain store paths.
+	if (TryTensorScatterInto(sn))
+		return;
 	//0.9.0: a creation twin (`int[3] = v`) has a TYPE base — rejected
 	//before the plain-subscript gates read it as a location.
 	if (RejectCreationStoreTarget(*sn.Array(), sn.Location()))

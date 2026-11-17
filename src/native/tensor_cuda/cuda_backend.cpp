@@ -27,6 +27,7 @@
 using tensor::TensorOps;
 using tensor::UnaryKernelOp;
 using tensor::BinaryKernelOp;
+using tensor::CompareOp;
 using tensor::ReduceAxisOp;
 using tensor::DeviceBackendDescriptor;
 
@@ -332,20 +333,113 @@ TensorOps MakeCudaTable() {
     };
     t.dotI64 = t.dotI32;
 
-    t.eqF32 = [](NativeHost* host, NativeArrayView& a,
-                 NativeArrayView& b, NativeArrayView& dst) {
+    t.compareF32 = [](NativeHost* host, CompareOp op, NativeArrayView& a,
+                      NativeArrayView& b, NativeArrayView& dst) {
         RequireCuda(host);
-        CUDA_CHECK(LaunchEq(ToLaunch(a), ToLaunch(b), ToLaunch(dst), 1),
-            "tensor (cuda eq)");
+        CUDA_CHECK(LaunchCompare(op, ToLaunch(a), ToLaunch(b),
+            ToLaunch(dst)), "tensor (cuda compare)");
     };
-    t.eqF64 = t.eqF32;
-    t.eqI32 = [](NativeHost* host, NativeArrayView& a,
-                 NativeArrayView& b, NativeArrayView& dst) {
+    t.compareF64 = t.compareF32;
+    t.compareI32 = t.compareF32;
+    t.compareI64 = t.compareF32;
+    //The scalar arm lands with the device compare kernel (v0.14.2 Task
+    //3); named raises keep the slots callable.
+    t.compareScalarF32 = [](NativeHost* host, CompareOp op,
+                            NativeArrayView& a, double scalar,
+                            NativeArrayView& dst) {
         RequireCuda(host);
-        CUDA_CHECK(LaunchEq(ToLaunch(a), ToLaunch(b), ToLaunch(dst), 0),
-            "tensor (cuda eq)");
+        CUDA_CHECK(LaunchCompareScalar(op, ToLaunch(a), scalar, 0,
+            ToLaunch(dst)), "tensor (cuda compare scalar)");
     };
-    t.eqI64 = t.eqI32;
+    t.compareScalarF64 = t.compareScalarF32;
+    t.compareScalarI32 = [](NativeHost* host, CompareOp op,
+                            NativeArrayView& a, int64_t scalar,
+                            NativeArrayView& dst) {
+        RequireCuda(host);
+        CUDA_CHECK(LaunchCompareScalar(op, ToLaunch(a), 0.0, scalar,
+            ToLaunch(dst)), "tensor (cuda compare scalar)");
+    };
+    t.compareScalarI64 = t.compareScalarI32;
+    t.whereF32 = [](NativeHost* host, NativeArrayView& mask,
+                    NativeArrayView& x, NativeArrayView& y,
+                    NativeArrayView& dst, bool maskLong, bool xScalar,
+                    bool yScalar, double sx, double sy) {
+        RequireCuda(host);
+        CUDA_CHECK(LaunchWhere(ToLaunch(mask), ToLaunch(x), ToLaunch(y),
+            ToLaunch(dst), 1, maskLong, xScalar, yScalar, sx, sy, 0, 0),
+            "tensor (cuda where)");
+    };
+    t.whereF64 = [](NativeHost* host, NativeArrayView& mask,
+                    NativeArrayView& x, NativeArrayView& y,
+                    NativeArrayView& dst, bool maskLong, bool xScalar,
+                    bool yScalar, double sx, double sy) {
+        RequireCuda(host);
+        CUDA_CHECK(LaunchWhere(ToLaunch(mask), ToLaunch(x), ToLaunch(y),
+            ToLaunch(dst), 17, maskLong, xScalar, yScalar, sx, sy, 0, 0),
+            "tensor (cuda where)");
+    };
+    t.whereI32 = [](NativeHost* host, NativeArrayView& mask,
+                    NativeArrayView& x, NativeArrayView& y,
+                    NativeArrayView& dst, bool maskLong, bool xScalar,
+                    bool yScalar, int64_t isx, int64_t isy) {
+        RequireCuda(host);
+        CUDA_CHECK(LaunchWhere(ToLaunch(mask), ToLaunch(x), ToLaunch(y),
+            ToLaunch(dst), 0, maskLong, xScalar, yScalar, 0.0, 0.0, isx,
+            isy), "tensor (cuda where)");
+    };
+    t.whereI64 = [](NativeHost* host, NativeArrayView& mask,
+                    NativeArrayView& x, NativeArrayView& y,
+                    NativeArrayView& dst, bool maskLong, bool xScalar,
+                    bool yScalar, int64_t isx, int64_t isy) {
+        RequireCuda(host);
+        CUDA_CHECK(LaunchWhere(ToLaunch(mask), ToLaunch(x), ToLaunch(y),
+            ToLaunch(dst), 15, maskLong, xScalar, yScalar, 0.0, 0.0, isx,
+            isy), "tensor (cuda where)");
+    };
+
+    t.scatterF32 = [](NativeHost* host, NativeArrayView& a,
+                      int32_t axis, NativeArrayView& indices,
+                      NativeArrayView& values, NativeArrayView& dst,
+                      bool valuesScalar, double sv, int32_t* errorOut) {
+        (void)axis;
+        RequireCuda(host);
+        int32_t errCell = -1;
+        CUDA_CHECK(LaunchScatter(ToLaunch(a), ToLaunch(indices),
+            ToLaunch(values), ToLaunch(dst), valuesScalar, sv, 0,
+            &errCell), "tensor (cuda scatter)");
+        if (errCell >= 0) {
+            //The dispatcher stages the indices to host; the message
+            //mirrors the CPU walk's per-index raise.
+            const int32_t bad = static_cast<const int32_t*>(
+                indices.data)[indices.offset + errCell];
+            nlang::native::Raise(host, NEXC_OutOfBounds,
+                "tensor.scatter: index " + std::to_string(bad)
+                + " out of bounds for axis 0 with size "
+                + std::to_string(a.dims[0]));
+        }
+    };
+    t.scatterF64 = t.scatterF32;
+    t.scatterI32 = [](NativeHost* host, NativeArrayView& a,
+                      int32_t axis, NativeArrayView& indices,
+                      NativeArrayView& values, NativeArrayView& dst,
+                      bool valuesScalar, int64_t isv, int32_t* errorOut) {
+        (void)axis;
+        (void)errorOut;
+        RequireCuda(host);
+        int32_t errCell = -1;
+        CUDA_CHECK(LaunchScatter(ToLaunch(a), ToLaunch(indices),
+            ToLaunch(values), ToLaunch(dst), valuesScalar, 0.0, isv,
+            &errCell), "tensor (cuda scatter)");
+        if (errCell >= 0) {
+            const int32_t bad = static_cast<const int32_t*>(
+                indices.data)[indices.offset + errCell];
+            nlang::native::Raise(host, NEXC_OutOfBounds,
+                "tensor.scatter: index " + std::to_string(bad)
+                + " out of bounds for axis 0 with size "
+                + std::to_string(a.dims[0]));
+        }
+    };
+    t.scatterI64 = t.scatterI32;
 
     t.oneHotI32 = [](NativeHost* host, NativeArrayView& labels,
                      int32_t n, NativeArrayView& dst) {

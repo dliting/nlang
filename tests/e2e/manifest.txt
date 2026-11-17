@@ -1399,10 +1399,9 @@ binary_array_numeric_reject compile_error no matching tensor primitive
 binary_str_array_concat 0 x[1, 2]
 arg_array_to_string_param 5
 io_print_array 0 [1, 2]
-array_eq_identity 4
+array_compare_semantics 0
 array_eq_null 6
 array_relational_reject compile_error identity comparison only
-array_eq_scalar_reject compile_error identity comparison only
 condition_array_reject compile_error condition must be bool
 delegate_arg_upcast 2
 delegate_arg_array_exact 9
@@ -2303,3 +2302,13 @@ op_tensor_gather_negative_throw 1
 op_tensor_rdiv_byzero_throw 1
 op_tensor_scalar_rdiv 0
 op_tensor_onehot_empty 0
+op_tensor_compare 0
+op_tensor_compare_nan 0
+op_tensor_compare_null 0
+op_tensor_where 0
+op_tensor_where_throw compile_error has type "Float[]"
+op_tensor_scatter 0
+op_tensor_scatter_throw 1
+op_tensor_fancy_assign 0
+op_tensor_fancy_assign_throw 1
+op_tensor_int64_scalar 0

@@ -1,0 +1,9 @@
+// Float mask rejected by name: masks come from the comparison
+// operators' int output. Uncaught Exception, exit 1 by design.
+import tensor;
+
+int main() {
+    float[] f = tensor.fullF(2, 1.0f);
+    float[] picked = tensor.where(f, f, f);
+    return 0;
+}

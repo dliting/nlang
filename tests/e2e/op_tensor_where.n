@@ -1,0 +1,33 @@
+// tensor.where: mask != 0 picks x else y (numpy's truthiness). The
+// three operands broadcast together; the scalar arms carry the relu
+// idiom `where(a > 0, a, 0)`. Exit 0 when every check holds.
+import tensor;
+
+int main() {
+    int[] mask = tensor.gt(tensor.arange(1, 5, 1), 2);
+    if (mask[0] != 0 || mask[1] != 0 || mask[2] != 1 || mask[3] != 1)
+        return 1;
+    int[] picked = tensor.where(mask, tensor.arange(10, 14, 1),
+        tensor.arange(50, 54, 1));
+    if (picked[0] != 50 || picked[1] != 51 || picked[2] != 12
+        || picked[3] != 13) return 2;
+    //The relu idiom: y-scalar arm.
+    float[] f = tensor.arange(0.0f, 3.0f, 1.0f);
+    f[0] = -1.0f;
+    float[] relu = tensor.where(f > 0.0f, f, 0.0f);
+    if (relu[0] != 0.0f || relu[1] != 1.0f || relu[2] != 2.0f) return 3;
+    //The x-scalar arm (rank-1 broadcast).
+    float[] neg = tensor.fullF(3, -1.0f);
+    float[] clamped = tensor.where(f > 0.0f, 100.0f, neg);
+    if (clamped[0] != -1.0f || clamped[1] != 100.0f
+        || clamped[2] != 100.0f) return 4;
+    //Broadcast: a rank-1 mask with rank-1 x and rank-2 y (row-broadcast).
+    int[] dims = int[2];
+    dims[0] = 2;
+    dims[1] = 3;
+    float[,] m = tensor.where(f > 0.0f, f,
+        tensor.fullDimsF(dims, -7.0f));
+    if (m[0, 0] != -7.0f || m[0, 1] != 1.0f || m[0, 2] != 2.0f) return 5;
+    if (m[1, 0] != -7.0f || m[1, 1] != 1.0f || m[1, 2] != 2.0f) return 6;
+    return 0;
+}

@@ -1,0 +1,31 @@
+// NaN comparison ordering: NaN is false in every ordered compare and in
+// eq, true in ne (numpy's rule). The NaN cells come from an IEEE
+// overflow chain (float mulScalar never raises; inf - inf is NaN), so
+// the pin exercises the real quiet-NaN bit pattern. Exit 0 when the
+// ordering holds; any leaked NaN cell returns non-zero.
+import tensor;
+
+int main() {
+    float[] big = tensor.fullF(2, 1e30f);
+    float[] x = big * 1000.0f;
+    x = x * 1000.0f;
+    x = x * 1000.0f;
+    float[] nan = x - x;
+    if (nan[0] == nan[0]) return 1;
+    float[] b = float[2];
+    b[0] = 0.0f;
+    b[1] = 0.0f;
+    int[] gt = nan > b;
+    if (gt[0] != 0 || gt[1] != 0) return 2;
+    int[] lt = nan < b;
+    if (lt[0] != 0 || lt[1] != 0) return 3;
+    int[] eq = nan == b;
+    if (eq[0] != 0 || eq[1] != 0) return 4;
+    int[] ne = nan != b;
+    if (ne[0] != 1 || ne[1] != 1) return 5;
+    int[] ge = nan >= b;
+    if (ge[0] != 0 || ge[1] != 0) return 6;
+    int[] le = nan <= b;
+    if (le[0] != 0 || le[1] != 0) return 7;
+    return 0;
+}

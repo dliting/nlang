@@ -1,0 +1,16 @@
+// Null comparisons keep the sentinel path (not the elementwise mask):
+// `a == null` is a bool null check, and a null on either side does not
+// reach the tensor lowering. Uncaught Exception on wrong behavior is
+// impossible here — the pins assert by return codes.
+import tensor;
+
+int main() {
+    int[] a = int[2];
+    a[0] = 1;
+    a[1] = 2;
+    if (a == null) return 1;
+    if (!(a != null)) return 2;
+    int[] b = null;
+    if (b != null) return 3;
+    return 0;
+}

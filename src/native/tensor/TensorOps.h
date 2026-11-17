@@ -173,15 +173,79 @@ struct TensorOps {
     void (*argmaxI32)(NativeHost* host, bool isMax,
                       NativeArrayView& src, int32_t axis,
                       NativeArrayView& dst);
-    //eq: broadcast elementwise same-kind compare, int32 0/1 out.
-    void (*eqF32)(NativeHost* host, NativeArrayView& a,
-                  NativeArrayView& b, NativeArrayView& dst);
-    void (*eqF64)(NativeHost* host, NativeArrayView& a,
-                  NativeArrayView& b, NativeArrayView& dst);
-    void (*eqI32)(NativeHost* host, NativeArrayView& a,
-                  NativeArrayView& b, NativeArrayView& dst);
-    void (*eqI64)(NativeHost* host, NativeArrayView& a,
-                  NativeArrayView& b, NativeArrayView& dst);
+    //compare: broadcast elementwise same-kind compare, int32 0/1 mask
+    //out (Eq/Ne/Gt/Ge/Lt/Le — the language's comparison family; eq is
+    //the Eq member).
+    void (*compareF32)(NativeHost* host, CompareOp op,
+                       NativeArrayView& a, NativeArrayView& b,
+                       NativeArrayView& dst);
+    void (*compareF64)(NativeHost* host, CompareOp op,
+                       NativeArrayView& a, NativeArrayView& b,
+                       NativeArrayView& dst);
+    void (*compareI32)(NativeHost* host, CompareOp op,
+                       NativeArrayView& a, NativeArrayView& b,
+                       NativeArrayView& dst);
+    void (*compareI64)(NativeHost* host, CompareOp op,
+                       NativeArrayView& a, NativeArrayView& b,
+                       NativeArrayView& dst);
+    //compareScalar: the same family with the right operand a scalar
+    //(the language's `a > 5` spellings; the scalar kind matches the
+    //array's element kind — the slot's scalar field carries it).
+    void (*compareScalarF32)(NativeHost* host, CompareOp op,
+                             NativeArrayView& a, double scalar,
+                             NativeArrayView& dst);
+    void (*compareScalarF64)(NativeHost* host, CompareOp op,
+                             NativeArrayView& a, double scalar,
+                             NativeArrayView& dst);
+    void (*compareScalarI32)(NativeHost* host, CompareOp op,
+                             NativeArrayView& a, int64_t scalar,
+                             NativeArrayView& dst);
+    void (*compareScalarI64)(NativeHost* host, CompareOp op,
+                             NativeArrayView& a, int64_t scalar,
+                             NativeArrayView& dst);
+    //where: mask != 0 picks x else y (numpy's truthiness). The three
+    //operands broadcast together; the scalar arms carry the value in
+    //sx/sy (the float kinds) or isx/isy (the int kinds — the exact
+    //int64: a double roundtrip loses precision above 2^53) with the
+    //flag set (the view of a scalar arm is unused). Async: where
+    //raises no cell errors.
+    void (*whereF32)(NativeHost* host, NativeArrayView& mask,
+                     NativeArrayView& x, NativeArrayView& y,
+                     NativeArrayView& dst, bool maskLong, bool xScalar,
+                     bool yScalar, double sx, double sy);
+    void (*whereF64)(NativeHost* host, NativeArrayView& mask,
+                     NativeArrayView& x, NativeArrayView& y,
+                     NativeArrayView& dst, bool maskLong, bool xScalar,
+                     bool yScalar, double sx, double sy);
+    void (*whereI32)(NativeHost* host, NativeArrayView& mask,
+                     NativeArrayView& x, NativeArrayView& y,
+                     NativeArrayView& dst, bool maskLong, bool xScalar,
+                     bool yScalar, int64_t isx, int64_t isy);
+    void (*whereI64)(NativeHost* host, NativeArrayView& mask,
+                     NativeArrayView& x, NativeArrayView& y,
+                     NativeArrayView& dst, bool maskLong, bool xScalar,
+                     bool yScalar, int64_t isx, int64_t isy);
+    //scatter: the write twin of gather — per position i,
+    //dst[position(i)][indices[i]] = values[i] (or the scalar,
+    //broadcast). SYNC-GROUP: the device kernel writes the cell error
+    //flags for an out-of-range index (both bounds; no negative wrap)
+    //and drains per op — the named raise stays at this op.
+    void (*scatterF32)(NativeHost* host, NativeArrayView& a, int32_t axis,
+                       NativeArrayView& indices, NativeArrayView& values,
+                       NativeArrayView& dst, bool valuesScalar,
+                       double sv, int32_t* errorOut);
+    void (*scatterF64)(NativeHost* host, NativeArrayView& a, int32_t axis,
+                       NativeArrayView& indices, NativeArrayView& values,
+                       NativeArrayView& dst, bool valuesScalar,
+                       double sv, int32_t* errorOut);
+    void (*scatterI32)(NativeHost* host, NativeArrayView& a, int32_t axis,
+                       NativeArrayView& indices, NativeArrayView& values,
+                       NativeArrayView& dst, bool valuesScalar,
+                       int64_t isv, int32_t* errorOut);
+    void (*scatterI64)(NativeHost* host, NativeArrayView& a, int32_t axis,
+                       NativeArrayView& indices, NativeArrayView& values,
+                       NativeArrayView& dst, bool valuesScalar,
+                       int64_t isv, int32_t* errorOut);
     //oneHot: int32 labels → float32 [len, n] rows.
     void (*oneHotI32)(NativeHost* host, NativeArrayView& labels,
                       int32_t n, NativeArrayView& dst);

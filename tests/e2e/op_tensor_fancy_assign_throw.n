@@ -1,0 +1,12 @@
+// Out-of-range fancy-assignment index: uncaught Exception, exit 1 by
+// design. The device kernel writes the cell error flags (both bounds);
+// the slot raises the named exception at the op.
+import tensor;
+
+int main() {
+    int[] a = tensor.arange(0, 4, 1);
+    int[] idx = int[1];
+    idx[0] = 4;
+    a[idx] = 7;
+    return 0;
+}

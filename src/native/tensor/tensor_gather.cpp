@@ -19,7 +19,10 @@
 #include <vector>
 
 using nlang::native::ArgArray;
+using nlang::native::ArgDouble;
+using nlang::native::ArgFloat;
 using nlang::native::ArgInt;
+using nlang::native::ArgLong;
 using nlang::native::NewArrayShaped;
 using nlang::native::Raise;
 using nlang::native::ReturnInt;
@@ -200,7 +203,8 @@ void ExtremeAxisIndicesKernel(NativeHost* host, uint8_t* ret,
 //pairs (the binary family rule); IEEE ==/!= for floats. The dispatcher
 //keeps the kind gate, the broadcast shape and the mint.
 template <typename T>
-void EqKernel(NativeHost* host, uint8_t* ret, const uint8_t* args)
+void EqKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
+              CompareOp op)
 {
     NativeArrayView va;
     NativeArrayView vb;
@@ -216,13 +220,13 @@ void EqKernel(NativeHost* host, uint8_t* ret, const uint8_t* args)
     host->getArrayView(host, handle, &out);
     const TensorOps& ops = OpsForResidency(va.reserved[0]);
     if constexpr (std::is_same_v<T, float>) {
-        ops.eqF32(host, va, vb, out);
+        ops.compareF32(host, op, va, vb, out);
     } else if constexpr (std::is_same_v<T, double>) {
-        ops.eqF64(host, va, vb, out);
+        ops.compareF64(host, op, va, vb, out);
     } else if constexpr (std::is_same_v<T, int32_t>) {
-        ops.eqI32(host, va, vb, out);
+        ops.compareI32(host, op, va, vb, out);
     } else {
-        ops.eqI64(host, va, vb, out);
+        ops.compareI64(host, op, va, vb, out);
     }
     ReturnInt(ret, handle);
 }
@@ -326,24 +330,129 @@ void TensorArgMin(NativeHost* host, uint8_t* ret, const uint8_t* args,
     }
 }
 
+void TensorCmp(NativeHost* host, uint8_t* ret, const uint8_t* args,
+               int argc, CompareOp op);
+
 void TensorEq(NativeHost* host, uint8_t* ret, const uint8_t* args,
               int argc)
+{
+    (void)argc;
+    TensorCmp(host, ret, args, argc, CompareOp::Eq);
+}
+
+//The shared compare entry: one native, six ops (the op rides as the
+//third int argument from the stdlib wrappers; tensor.eq passes Eq
+//directly). The who prefix keeps each wrapper's diagnostics named.
+void TensorCmp(NativeHost* host, uint8_t* ret, const uint8_t* args,
+               int argc, CompareOp op)
 {
     (void)argc;
     switch (ElemKindOfArg(host, args, 0))
     {
         case NEK_Int32:
-            EqKernel<int32_t>(host, ret, args); break;
+            EqKernel<int32_t>(host, ret, args, op); break;
         case NEK_Int64:
-            EqKernel<int64_t>(host, ret, args); break;
+            EqKernel<int64_t>(host, ret, args, op); break;
         case NEK_Float32:
-            EqKernel<float>(host, ret, args); break;
+            EqKernel<float>(host, ret, args, op); break;
         case NEK_Float64:
-            EqKernel<double>(host, ret, args); break;
+            EqKernel<double>(host, ret, args, op); break;
         default:
-            Raise(host, NEXC_Base, "tensor.eq: unsupported element kind");
+            Raise(host, NEXC_Base,
+                  "tensor.compare: unsupported element kind");
     }
 }
+
+//The five op adapters behind the ne/gt/ge/lt/le native spellings (the
+//op is prebound; the kind rides the argument views).
+void TensorNe(NativeHost* host, uint8_t* ret, const uint8_t* args,
+              int argc) { TensorCmp(host, ret, args, argc, CompareOp::Ne); }
+
+//The scalar-arm adapters: (a, scalar) with the kind riding arg0's view
+//(the scalar cell is read per the array's element kind — the float
+//half-cell rule the uniform family pinned). The mask out mints with
+//the array's shape.
+template <typename T>
+void CmpScalarKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                     CompareOp op)
+{
+    NativeArrayView va;
+    ArgArray(host, args, 0, &va);
+    const int32_t handle = MintOutputLike(host, NEK_Int32, va.rank,
+        va.dims, va);
+    NativeArrayView out;
+    host->getArrayView(host, handle, &out);
+    const TensorOps& ops = OpsForResidency(va.reserved[0]);
+    if constexpr (std::is_same_v<T, float>) {
+        ops.compareScalarF32(host, op, va, ArgFloat(args, 1), out);
+    } else if constexpr (std::is_same_v<T, double>) {
+        ops.compareScalarF64(host, op, va, ArgDouble(args, 1), out);
+    } else if constexpr (std::is_same_v<T, int32_t>) {
+        ops.compareScalarI32(host, op, va, ArgInt(args, 1), out);
+    } else {
+        ops.compareScalarI64(host, op, va, ArgLong(args, 1), out);
+    }
+    ReturnInt(ret, handle);
+}
+
+void TensorCmpScalar(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                     int argc, CompareOp op)
+{
+    (void)argc;
+    switch (ElemKindOfArg(host, args, 0))
+    {
+        case NEK_Int32:
+            CmpScalarKernel<int32_t>(host, ret, args, op); break;
+        case NEK_Int64:
+            CmpScalarKernel<int64_t>(host, ret, args, op); break;
+        case NEK_Float32:
+            CmpScalarKernel<float>(host, ret, args, op); break;
+        case NEK_Float64:
+            CmpScalarKernel<double>(host, ret, args, op); break;
+        default:
+            Raise(host, NEXC_Base,
+                  "tensor.compare: unsupported element kind");
+    }
+}
+
+void TensorEqScalar(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                    int argc)
+{
+    TensorCmpScalar(host, ret, args, argc, CompareOp::Eq);
+}
+void TensorNeScalar(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                    int argc)
+{
+    TensorCmpScalar(host, ret, args, argc, CompareOp::Ne);
+}
+void TensorGtScalar(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                    int argc)
+{
+    TensorCmpScalar(host, ret, args, argc, CompareOp::Gt);
+}
+void TensorGeScalar(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                    int argc)
+{
+    TensorCmpScalar(host, ret, args, argc, CompareOp::Ge);
+}
+void TensorLtScalar(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                    int argc)
+{
+    TensorCmpScalar(host, ret, args, argc, CompareOp::Lt);
+}
+void TensorLeScalar(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                    int argc)
+{
+    TensorCmpScalar(host, ret, args, argc, CompareOp::Le);
+}
+void TensorGt(NativeHost* host, uint8_t* ret, const uint8_t* args,
+              int argc) { TensorCmp(host, ret, args, argc, CompareOp::Gt); }
+void TensorGe(NativeHost* host, uint8_t* ret, const uint8_t* args,
+              int argc) { TensorCmp(host, ret, args, argc, CompareOp::Ge); }
+void TensorLt(NativeHost* host, uint8_t* ret, const uint8_t* args,
+              int argc) { TensorCmp(host, ret, args, argc, CompareOp::Lt); }
+void TensorLe(NativeHost* host, uint8_t* ret, const uint8_t* args,
+              int argc) { TensorCmp(host, ret, args, argc, CompareOp::Le); }
 
 void TensorOneHot(NativeHost* host, uint8_t* ret, const uint8_t* args,
                   int argc)

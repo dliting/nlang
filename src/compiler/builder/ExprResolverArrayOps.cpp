@@ -73,6 +73,18 @@ bool NestedOperandInvalid(const SnBinaryExpr &sn)
 		|| (sn.Right() && sn.Right()->IsInvalid());
 }
 
+//The comparison family this lowering serves (mirrors the static
+//helper in ExprResolverBinary.cpp; the resolver TUs keep their own).
+static bool IsCompareOp(SnBinaryExpr::Operator op)
+{
+	return op == SnBinaryExpr::OP_Equal
+		|| op == SnBinaryExpr::OP_NotEqual
+		|| op == SnBinaryExpr::OP_Greater
+		|| op == SnBinaryExpr::OP_GreaterEqual
+		|| op == SnBinaryExpr::OP_Less
+		|| op == SnBinaryExpr::OP_LessEqual;
+}
+
 const char *OpSpelling(SnBinaryExpr::Operator op)
 {
 	switch (op)
@@ -94,6 +106,33 @@ const char *TensorFnFor(SnBinaryExpr::Operator op, bool scalarLeft)
 {
 	if (op == SnBinaryExpr::OP_Neg)
 		return "neg";
+	//Comparisons: the base spelling carries a scalar overload at the
+	//same name (the add/mul precedent — overload resolution picks the
+	//(Array, scalar) arm when the right operand is a scalar), so only a
+	//scalar LEFT needs a reflected spelling: 5 < a ≡ a > 5 binds
+	//gtScalar (the spelling computes a[i] > v with the operands
+	//unchanged), the relational precedent of rsub/rdiv.
+	if (IsCompareOp(op))
+	{
+		switch (op)
+		{
+			case SnBinaryExpr::OP_Equal:
+			case SnBinaryExpr::OP_NotEqual:
+				return scalarLeft ? (op == SnBinaryExpr::OP_Equal
+					? "eqScalar" : "neScalar")
+					: (op == SnBinaryExpr::OP_Equal ? "eq" : "ne");
+			case SnBinaryExpr::OP_Greater:
+				return scalarLeft ? "ltScalar" : "gt";
+			case SnBinaryExpr::OP_GreaterEqual:
+				return scalarLeft ? "leScalar" : "ge";
+			case SnBinaryExpr::OP_Less:
+				return scalarLeft ? "gtScalar" : "lt";
+			case SnBinaryExpr::OP_LessEqual:
+				return scalarLeft ? "geScalar" : "le";
+			default:
+				return nullptr;
+		}
+	}
 	switch (op)
 	{
 		case SnBinaryExpr::OP_Add:
@@ -141,7 +180,8 @@ bool ExprResolveAccessor::TryTensorBinaryAdmission(SnBinaryExpr &sn)
 	const auto op = sn.Op();
 	if (op != SnBinaryExpr::OP_Add && op != SnBinaryExpr::OP_Sub
 		&& op != SnBinaryExpr::OP_Neg && op != SnBinaryExpr::OP_Mul
-		&& op != SnBinaryExpr::OP_Div)
+		&& op != SnBinaryExpr::OP_Div
+		&& !IsCompareOp(op))
 		return false;
 	auto *pLchk = sn.Left()->EvalDataType();
 	auto *pRchk = sn.Right() ? sn.Right()->EvalDataType() : nullptr;
@@ -152,6 +192,21 @@ bool ExprResolveAccessor::TryTensorBinaryAdmission(SnBinaryExpr &sn)
 		|| (sn.Right() && sn.Right()->ContainFlags(NF_NullLiteral));
 	if (stringSide || nullSide)
 		return false;
+	//The comparison family lowers only for NUMERIC element rows — a
+	//non-numeric array's ==/!= keep the identity comparison (the
+	//compare-gate fallback below). The arithmetic family's numeric
+	//gate rides the shape/binding as before.
+	if (IsCompareOp(op))
+	{
+		auto *pLrow = IsArrayRow(pLchk)
+			? ArrayElementRowOf(pLchk) : nullptr;
+		auto *pRrow = pRchk && IsArrayRow(pRchk)
+			? ArrayElementRowOf(pRchk) : nullptr;
+		const bool numeric = (pLrow && IsNumericElementRow(pLrow))
+			|| (pRrow && IsNumericElementRow(pRrow));
+		if (!numeric)
+			return false;
+	}
 	return TryTensorBinaryShape(sn, op);
 }
 

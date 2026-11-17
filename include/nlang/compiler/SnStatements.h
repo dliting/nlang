@@ -362,6 +362,15 @@ public:
 	}
 	const std::vector<SnExpression *> &Indices() const { return m_pIndices; }
 	SnExpression *Value() const { return m_pValue; }
+	//v0.14.2: the fancy-index assignment's lowering body — a resolved
+	//tensor._scatterInto invoke owning the detached operands (the
+	//binary-lowering pattern transplanted to the statement). Null on
+	//every plain store path.
+	SnInvokeExpr *TensorBody() const { return m_pTensorBody.get(); }
+	void TensorBody(std::unique_ptr<SnInvokeExpr> pBody)
+	{
+		m_pTensorBody = std::move(pBody);
+	}
 
 	std::string ToString() const override;
 	SnField *FindField(const std::string& sName) const override;
@@ -371,6 +380,7 @@ private:
 	SnExpression *m_pArray;
 	std::vector<SnExpression *> m_pIndices;
 	SnExpression *m_pValue;
+	std::unique_ptr<SnInvokeExpr> m_pTensorBody;
 	bool ReplaceChildNode(SyntaxNode*, SyntaxNode*) override; //SnSubscriptAssignStmt.m_pValue
 };
 

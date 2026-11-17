@@ -151,6 +151,7 @@ add_library(nlang_compiler
     builder/StatementResolverTypes.cpp
     builder/StatementResolverInterface.cpp
     builder/StatementResolverAssign.cpp
+    builder/StatementResolverTensorAssign.cpp
     builder/StatementResolverCompound.cpp
     builder/StatementResolverFlow.cpp
     builder/StatementResolverSwitchTry.cpp

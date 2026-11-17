@@ -341,9 +341,25 @@ void CpuArgExtreme(NativeHost* host, bool isMax, const NativeArrayView& va,
 
 //One eq slot body (lifted from EqKernel: the broadcast odometer with
 //the == compare).
+//The per-point compare: IEEE ordering for the float kinds (NaN false
+//in every ordered compare and in Eq, true in Ne — numpy's rule); plain
+//integer ordering for the int kinds. Returns the 0/1 mask cell.
 template <typename T>
-void CpuEq(const NativeArrayView& va, const NativeArrayView& vb,
-           const NativeArrayView& out) {
+int32_t ApplyCompare(CompareOp op, T a, T b) {
+    switch (op) {
+        case CompareOp::Eq: return a == b ? 1 : 0;
+        case CompareOp::Ne: return a != b ? 1 : 0;
+        case CompareOp::Gt: return a > b ? 1 : 0;
+        case CompareOp::Ge: return a >= b ? 1 : 0;
+        case CompareOp::Lt: return a < b ? 1 : 0;
+        case CompareOp::Le: return a <= b ? 1 : 0;
+    }
+    return 0;
+}
+
+template <typename T>
+void CpuCompare(CompareOp op, const NativeArrayView& va,
+                const NativeArrayView& vb, const NativeArrayView& out) {
     const T* ca = static_cast<const T*>(va.data);
     const T* cb = static_cast<const T*>(vb.data);
     int32_t* cout = static_cast<int32_t*>(out.data);
@@ -355,8 +371,80 @@ void CpuEq(const NativeArrayView& va, const NativeArrayView& vb,
     BroadcastStrides(va, out.rank, sa);
     BroadcastStrides(vb, out.rank, sb);
     for (int64_t i = 0; i < out.elemCount; ++i) {
-        cout[i] = ca[addA] == cb[addB] ? 1 : 0;
+        cout[i] = ApplyCompare(op, ca[addA], cb[addB]);
         BroadcastAdvance(sa, sb, out.dims, out.rank, idx, &addA, &addB);
+    }
+}
+
+//The scalar arm of the compare family: one odometer over the array
+//(the scalar side carries no strides).
+template <typename T>
+void CpuCompareScalar(CompareOp op, const NativeArrayView& va, T scalar,
+                      const NativeArrayView& out) {
+    const T* ca = static_cast<const T*>(va.data);
+    int32_t* cout = static_cast<int32_t*>(out.data);
+    int64_t at = va.offset;
+    for (int64_t i = 0; i < out.elemCount; ++i) {
+        cout[i] = ApplyCompare(op, ca[at], scalar);
+        at += va.strides[0];
+    }
+}
+
+//The where walk: one odometer over the output advancing three tracks
+//(mask always an array; x/y arrays or scalar arms reading the slot's
+//field). Mask != 0 picks x else y (numpy's truthiness).
+template <typename T, typename M>
+void CpuWhere(const NativeArrayView& mask, const NativeArrayView& vx,
+              const NativeArrayView& vy, const NativeArrayView& out,
+              bool maskLong, bool xScalar, bool yScalar, double sx,
+              double sy, int64_t isx, int64_t isy) {
+    const M* cm = static_cast<const M*>(mask.data);
+    const T* cx = static_cast<const T*>(vx.data);
+    const T* cy = static_cast<const T*>(vy.data);
+    T* cout = static_cast<T*>(out.data);
+    int64_t idx[nlang::kMaxArrayRank] = {0};
+    int64_t addM = mask.offset;
+    int64_t addX = vx.offset;
+    int64_t addY = vy.offset;
+    int32_t sm[nlang::kMaxArrayRank];
+    int32_t sxb[nlang::kMaxArrayRank];
+    int32_t syb[nlang::kMaxArrayRank];
+    BroadcastStrides(mask, out.rank, sm);
+    (void)maskLong;
+    if (!xScalar)
+        BroadcastStrides(vx, out.rank, sxb);
+    if (!yScalar)
+        BroadcastStrides(vy, out.rank, syb);
+    //The scalar fields: the float kinds read the double; the int
+    //kinds read the exact int64 twin (the double roundtrip would lose
+    //precision above 2^53).
+    const T xs = std::is_integral_v<T> ? static_cast<T>(isx)
+                                       : static_cast<T>(sx);
+    const T ys = std::is_integral_v<T> ? static_cast<T>(isy)
+                                       : static_cast<T>(sy);
+    for (int64_t i = 0; i < out.elemCount; ++i) {
+        cout[i] = cm[addM] != 0
+            ? (xScalar ? xs : cx[addX])
+            : (yScalar ? ys : cy[addY]);
+        //Advance the three odometers (the manual form — BroadcastAdvance
+        //advances exactly two tracks).
+        for (int32_t d = out.rank - 1; d >= 0; --d) {
+            idx[d] += 1;
+            if (idx[d] < out.dims[d]) {
+                addM += sm[d];
+                if (!xScalar)
+                    addX += sxb[d];
+                if (!yScalar)
+                    addY += syb[d];
+                break;
+            }
+            idx[d] = 0;
+            addM -= sm[d] * (out.dims[d] - 1);
+            if (!xScalar)
+                addX -= sxb[d] * (out.dims[d] - 1);
+            if (!yScalar)
+                addY -= syb[d] * (out.dims[d] - 1);
+        }
     }
 }
 
@@ -776,25 +864,129 @@ TensorOps MakeCpuTable() {
                 CpuArgExtreme<double>(host, isMax, src, axis, dst); break;
         }
     };
-    t.eqF32 = [](NativeHost* host, NativeArrayView& a, NativeArrayView& b,
-                 NativeArrayView& dst) {
+    t.compareF32 = [](NativeHost* host, CompareOp op, NativeArrayView& a,
+                      NativeArrayView& b, NativeArrayView& dst) {
         (void)host;
-        CpuEq<float>(a, b, dst);
+        CpuCompare<float>(op, a, b, dst);
     };
-    t.eqF64 = [](NativeHost* host, NativeArrayView& a, NativeArrayView& b,
-                 NativeArrayView& dst) {
+    t.compareF64 = [](NativeHost* host, CompareOp op, NativeArrayView& a,
+                      NativeArrayView& b, NativeArrayView& dst) {
         (void)host;
-        CpuEq<double>(a, b, dst);
+        CpuCompare<double>(op, a, b, dst);
     };
-    t.eqI32 = [](NativeHost* host, NativeArrayView& a, NativeArrayView& b,
-                 NativeArrayView& dst) {
+    t.compareI32 = [](NativeHost* host, CompareOp op, NativeArrayView& a,
+                      NativeArrayView& b, NativeArrayView& dst) {
         (void)host;
-        CpuEq<int32_t>(a, b, dst);
+        CpuCompare<int32_t>(op, a, b, dst);
     };
-    t.eqI64 = [](NativeHost* host, NativeArrayView& a, NativeArrayView& b,
-                 NativeArrayView& dst) {
+    t.compareI64 = [](NativeHost* host, CompareOp op, NativeArrayView& a,
+                      NativeArrayView& b, NativeArrayView& dst) {
         (void)host;
-        CpuEq<int64_t>(a, b, dst);
+        CpuCompare<int64_t>(op, a, b, dst);
+    };
+    t.compareScalarF32 = [](NativeHost* host, CompareOp op,
+                            NativeArrayView& a, double scalar,
+                            NativeArrayView& dst) {
+        (void)host;
+        CpuCompareScalar<float>(op, a, static_cast<float>(scalar), dst);
+    };
+    t.compareScalarF64 = [](NativeHost* host, CompareOp op,
+                            NativeArrayView& a, double scalar,
+                            NativeArrayView& dst) {
+        (void)host;
+        CpuCompareScalar<double>(op, a, scalar, dst);
+    };
+    t.compareScalarI32 = [](NativeHost* host, CompareOp op,
+                            NativeArrayView& a, int64_t scalar,
+                            NativeArrayView& dst) {
+        (void)host;
+        CpuCompareScalar<int32_t>(op, a, static_cast<int32_t>(scalar), dst);
+    };
+    t.compareScalarI64 = [](NativeHost* host, CompareOp op,
+                            NativeArrayView& a, int64_t scalar,
+                            NativeArrayView& dst) {
+        (void)host;
+        CpuCompareScalar<int64_t>(op, a, scalar, dst);
+    };
+    t.whereF32 = [](NativeHost* host, NativeArrayView& mask,
+                    NativeArrayView& x, NativeArrayView& y,
+                    NativeArrayView& dst, bool maskLong, bool xScalar,
+                    bool yScalar, double sx, double sy) {
+        (void)host;
+        if (maskLong)
+            CpuWhere<float, int64_t>(mask, x, y, dst, maskLong, xScalar,
+                yScalar, sx, sy, 0, 0);
+        else
+            CpuWhere<float, int32_t>(mask, x, y, dst, maskLong, xScalar,
+                yScalar, sx, sy, 0, 0);
+    };
+    t.whereF64 = [](NativeHost* host, NativeArrayView& mask,
+                    NativeArrayView& x, NativeArrayView& y,
+                    NativeArrayView& dst, bool maskLong, bool xScalar,
+                    bool yScalar, double sx, double sy) {
+        (void)host;
+        if (maskLong)
+            CpuWhere<double, int64_t>(mask, x, y, dst, maskLong, xScalar,
+                yScalar, sx, sy, 0, 0);
+        else
+            CpuWhere<double, int32_t>(mask, x, y, dst, maskLong, xScalar,
+                yScalar, sx, sy, 0, 0);
+    };
+    t.whereI32 = [](NativeHost* host, NativeArrayView& mask,
+                    NativeArrayView& x, NativeArrayView& y,
+                    NativeArrayView& dst, bool maskLong, bool xScalar,
+                    bool yScalar, int64_t isx, int64_t isy) {
+        (void)host;
+        if (maskLong)
+            CpuWhere<int32_t, int64_t>(mask, x, y, dst, maskLong, xScalar,
+                yScalar, 0.0, 0.0, isx, isy);
+        else
+            CpuWhere<int32_t, int32_t>(mask, x, y, dst, maskLong, xScalar,
+                yScalar, 0.0, 0.0, isx, isy);
+    };
+    t.scatterF32 = [](NativeHost* host, NativeArrayView& a,
+                      int32_t axis, NativeArrayView& indices,
+                      NativeArrayView& values, NativeArrayView& dst,
+                      bool valuesScalar, double sv, int32_t* errorOut) {
+        (void)errorOut;
+        ScatterCpuF32(host, a, axis, indices, values, dst, valuesScalar,
+            sv, errorOut);
+    };
+    t.scatterF64 = [](NativeHost* host, NativeArrayView& a,
+                      int32_t axis, NativeArrayView& indices,
+                      NativeArrayView& values, NativeArrayView& dst,
+                      bool valuesScalar, double sv, int32_t* errorOut) {
+        (void)errorOut;
+        ScatterCpuF64(host, a, axis, indices, values, dst, valuesScalar,
+            sv, errorOut);
+    };
+    t.scatterI32 = [](NativeHost* host, NativeArrayView& a,
+                      int32_t axis, NativeArrayView& indices,
+                      NativeArrayView& values, NativeArrayView& dst,
+                      bool valuesScalar, int64_t isv, int32_t* errorOut) {
+        (void)errorOut;
+        ScatterCpuI32(host, a, axis, indices, values, dst, valuesScalar,
+            isv, errorOut);
+    };
+    t.scatterI64 = [](NativeHost* host, NativeArrayView& a,
+                      int32_t axis, NativeArrayView& indices,
+                      NativeArrayView& values, NativeArrayView& dst,
+                      bool valuesScalar, int64_t isv, int32_t* errorOut) {
+        (void)errorOut;
+        ScatterCpuI64(host, a, axis, indices, values, dst, valuesScalar,
+            isv, errorOut);
+    };
+    t.whereI64 = [](NativeHost* host, NativeArrayView& mask,
+                    NativeArrayView& x, NativeArrayView& y,
+                    NativeArrayView& dst, bool maskLong, bool xScalar,
+                    bool yScalar, int64_t isx, int64_t isy) {
+        (void)host;
+        if (maskLong)
+            CpuWhere<int64_t, int64_t>(mask, x, y, dst, maskLong, xScalar,
+                yScalar, 0.0, 0.0, isx, isy);
+        else
+            CpuWhere<int64_t, int32_t>(mask, x, y, dst, maskLong, xScalar,
+                yScalar, 0.0, 0.0, isx, isy);
     };
     t.oneHotI32 = [](NativeHost* host, NativeArrayView& labels, int32_t n,
                      NativeArrayView& dst) {

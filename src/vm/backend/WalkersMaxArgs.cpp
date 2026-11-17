@@ -241,6 +241,15 @@ void VmBackend::MaxArgsCompoundAssignStmt(SnStatement& stmt, uint16_t& maxArgs) 
 //MaxArgs walker, NK_SubscriptAssignStmt arm.
 void VmBackend::MaxArgsSubscriptAssignStmt(SnStatement& stmt, uint16_t& maxArgs) {
     auto& sa = static_cast<SnSubscriptAssignStmt&>(stmt);
+    //v0.14.2: a bound tensor body IS a 3-arg tensor call — account its
+    //claim like an invoke, then recurse into the params for nested
+    //calls (the binary-lowering walker symmetry).
+    if (sa.TensorBody()) {
+        if (maxArgs < 3) maxArgs = 3;
+        for (auto &param : sa.TensorBody()->Params())
+            MaxArgsWalkExpr(param, maxArgs);
+        return;
+    }
     //List/Dict subscript store lowers to a set() call that
     //bulk-copies 3 slots into callParamBase — reserve them.
     //Array stores read their claim slots directly (StoreElement

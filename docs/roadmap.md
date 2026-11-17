@@ -121,6 +121,16 @@ NLang 是一门面向嵌入与自动化场景的类型安全语言，配有字�
 - **v0.13.10：Lambda函数/闭包**
 - **v0.13.11：WEB框架**——基于`http`包的web框架（路由/中间件/session/静态资源＋SSE helper，本项目只给HTTP分帧能力不解释SSE语义）；随本版一并清偿HTTP库收尾两项：服务器优雅关闭（连接登记表＋排空/强关，含`HttpServer.close()`后重新`start()`/`serve()`不复位关闭标志的复位项）、net`TcpStream.read`区分超时与对端EOF
 
+## 0.14.x：张量/设备后端线（tensor-simd分支，用户裁定2026-11-17按工作量拆分排期）
+
+- **v0.14.0：张量设备后端**（已交付，tensor-simd分支）——可插拔设备后端（ABI v13：newArrayResident/setTensorDeviceHooks，VM永不链接厂商运行时）＋CUDA插件真跑（mnist 0.895）＋驻留模型＋后端选择。手册§18.7。
+- **v0.14.1：设备端异步执行＋差异化同步**（已交付，tensor-simd分支，提交a04a1cca）——不产生cell级异常的launcher异步化（去每op同步，单流stream ordering保证池块复用安全），四个错误能力家族（int二元/int二元标量/gather/oneHot）保留每op自我排空，异常在op当场抛且文案与宿主逐字同；scratch改池化；顺带修复rdiv三处崩溃/假阳性、oneHot设备崩溃、空数组恒等式、符号pin漂移。mnist设备腿10.7s→3.0s（3.6×），宿主腿零回归。手册§18.7"执行模型"。
+- **v0.14.2：索引表面完成**（phase2 backlog核心）——数组有序比较算子（`>`/`>=`/`<`/`<=`/`!=`，同种类数值数组，产出int 0/1掩码，与`eq`同族；现"identity comparison only"具名拒绝解除）＋`tensor.where(mask, x, y)`（掩码非零取x否则y，x/y数组或标量任意侧，广播规则同二元算术；relu等掩码组合的主要消费者）＋`tensor.scatter(a, axis, indices, values)`（gather的写孪生，take-per-position同契）＋花式索引赋值`a[indices] = values`（下标赋值点检出数组索引降低到scatter秩1拼写）。掩码取int 0/1不引入bool数组种类（与eq既有idiom一致，避免双掩码表示；bool数组为远期项）。CPU+设备双腿parity（where/scatter设备核函数随本版落地）。spec见docs/superpowers/specs/2026-11-17-tensor-indexing-surface-design.md（本地）。
+- **v0.14.3：设备路径补齐**——gather设备take-per-position内核落地（dispatcher去staging，现状CUDA gather槽为死代码）；§18.7已知限制按可行性逐项清偿（clamp int族、gather f64/i64、per-axis reduce/argmax的中间轴与其它种类），不可行项保留具名理由。
+- **v0.14.4：可失败hook契约＋完全异步错误模型**（ABI v13→v14）——TensorDeviceStatus厂商中立错误记录（类别枚举+cell+文本，禁止cudaError_t进共享契约），粘性错误宿主边界排空，清偿"故障后仅打印"吞错窗口（0.14.1递延的Minor）；手册已知限制改写。mirror后端同契约验证中立性。
+- **v0.14.5：多流流水线**——流感知内存池（free-list按流分列，RMM设计点）、事件编排、（可选）CUDA Graphs对静态op链的捕获、pinned staging池（darknet块池参照）。per-device流机制是多GPU的直接构件。
+- **多GPU**：维持硬件触发（本机单GPU不可真跑验收，以多GPU验收机到位为启动条件）；届时residency从布尔→设备索引、per-device上下文/流/池、跨设备传输语义、`tensor.setDevice`。
+
 ## 远期特性
 
 - enum 方法引用；多播委托；Func 协变/逆变

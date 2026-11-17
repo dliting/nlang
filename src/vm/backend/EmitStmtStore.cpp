@@ -23,6 +23,25 @@ namespace nlang {
 void VmBackend::Access(SnSubscriptAssignStmt& stmt) {
     BytecodeEmitter& emitter = *m_pCurrEmitter;
         auto& sub = static_cast<SnSubscriptAssignStmt&>(stmt);
+        //v0.14.2: a bound tensor body lowers through the standard
+        //invoke path — the bytecode is identical to a hand-written
+        //tensor._scatterInto call (the binary-lowering emission shape).
+        if (sub.TensorBody()) {
+            auto* pCallee = sub.TensorBody()->Callee();
+            auto* pPlan = sub.TensorBody();
+            if (!pCallee)
+                throw std::runtime_error(
+                    "NLang backend: tensor fancy assignment reached "
+                    "codegen unbound");
+            std::vector<OutSpill> outSpills;
+            EmitCallArgs(*pPlan, pCallee, emitter, /*slotBase=*/0,
+                         /*pArgPlans=*/nullptr, /*thisSlot=*/UINT16_MAX,
+                         &outSpills);
+            //Void native: no result slot to write.
+            EmitInvokeDispatch(*pPlan, pCallee, emitter,
+                               /*resultOffset=*/0, outSpills);
+            return;
+        }
         //List<T>/Dict<K,V> subscript store sugar dispatches to the
         //set() intrinsic; every other base shape is an array element
         //store.

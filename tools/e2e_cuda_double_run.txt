@@ -220,3 +220,13 @@ op_tensor_gather_negative_throw
 op_tensor_rdiv_byzero_throw
 op_tensor_scalar_rdiv
 op_tensor_onehot_empty
+op_tensor_compare
+op_tensor_compare_nan
+op_tensor_compare_null
+op_tensor_where
+op_tensor_where_throw
+op_tensor_scatter
+op_tensor_scatter_throw
+op_tensor_fancy_assign
+op_tensor_fancy_assign_throw
+op_tensor_int64_scalar

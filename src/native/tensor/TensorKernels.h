@@ -351,6 +351,61 @@ void TensorArgMin(NativeHost* host, uint8_t* ret, const uint8_t* args,
                   int argc);
 void TensorEq(NativeHost* host, uint8_t* ret, const uint8_t* args,
               int argc);
+void TensorNe(NativeHost* host, uint8_t* ret, const uint8_t* args,
+              int argc);
+void TensorGt(NativeHost* host, uint8_t* ret, const uint8_t* args,
+              int argc);
+void TensorGe(NativeHost* host, uint8_t* ret, const uint8_t* args,
+              int argc);
+void TensorLt(NativeHost* host, uint8_t* ret, const uint8_t* args,
+              int argc);
+void TensorLe(NativeHost* host, uint8_t* ret, const uint8_t* args,
+              int argc);
+void TensorEqScalar(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                    int argc);
+void TensorNeScalar(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                    int argc);
+void TensorGtScalar(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                    int argc);
+void TensorGeScalar(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                    int argc);
+void TensorLtScalar(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                    int argc);
+void TensorLeScalar(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                    int argc);
+//--- v0.14.2: the mask-select surface (tensor_where.cpp) ---
+void TensorWhere(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                 int argc);
+void TensorWhereYScalar(NativeHost* host, uint8_t* ret,
+                        const uint8_t* args, int argc);
+void TensorWhereXScalar(NativeHost* host, uint8_t* ret,
+                        const uint8_t* args, int argc);
+//--- v0.14.2: the scatter surface (tensor_scatter.cpp) ---
+void TensorScatter(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                   int argc);
+void TensorScatterScalar(NativeHost* host, uint8_t* ret,
+                         const uint8_t* args, int argc);
+void TensorScatterInto(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                       int argc);
+void TensorScatterIntoScalar(NativeHost* host, uint8_t* ret,
+                             const uint8_t* args, int argc);
+//The exported CPU walk wrappers (the CPU table's slots call them).
+void ScatterCpuF32(NativeHost* host, const NativeArrayView& a,
+                   int32_t axis, const NativeArrayView& indices,
+                   const NativeArrayView& values, NativeArrayView& dst,
+                   bool valuesScalar, double sv, int32_t* errorOut);
+void ScatterCpuF64(NativeHost* host, const NativeArrayView& a,
+                   int32_t axis, const NativeArrayView& indices,
+                   const NativeArrayView& values, NativeArrayView& dst,
+                   bool valuesScalar, double sv, int32_t* errorOut);
+void ScatterCpuI32(NativeHost* host, const NativeArrayView& a,
+                   int32_t axis, const NativeArrayView& indices,
+                   const NativeArrayView& values, NativeArrayView& dst,
+                   bool valuesScalar, int64_t isv, int32_t* errorOut);
+void ScatterCpuI64(NativeHost* host, const NativeArrayView& a,
+                   int32_t axis, const NativeArrayView& indices,
+                   const NativeArrayView& values, NativeArrayView& dst,
+                   bool valuesScalar, int64_t isv, int32_t* errorOut);
 void TensorOneHot(NativeHost* host, uint8_t* ret, const uint8_t* args,
                   int argc);
 

@@ -152,28 +152,48 @@ int main() {
 - `eq(a, b)`对同元素种类的两个数组逐元素比较（适用§18.3.1的广播规则），返回int的0/1数组；浮点遵循IEEE的`==`——NaN与任何值都不相等。
 - `oneHot(labels, n)`把秩1的int标签数组映射为float的`[len, n]`数组，每行的标签处置1——分类器训练步的目标拼写。
 
+### 18.5.3 比较算子与掩码
+
+在数值元素数组（`int`、`long`、`float`、`double`）上，六个比较算子都是逐元素的：`==`、`!=`、`>`、`>=`、`<`、`<=`逐格比较（适用§18.3.1的广播规则，任一侧可为标量），产出int的0/1掩码——与`eq`产出的掩码同型，所以`tensor.sum(a > 0)`数出正元个数，`where`直接消费这些掩码。浮点遵循IEEE排序：NaN在一切有序比较与`==`中为假、在`!=`中为真。非数值元素种类的数组，其`==`/`!=`保持恒等比较（同一数组的两个名字比较为真），`a == null`也保持null判别——两种形式都不降低为掩码。
+
 ```nlang
 import tensor;
 
 int main() {
-    float[,] logits = tensor.full([2, 3], 0.0f);
-    int[] labels = int[2];
-    labels[0] = 2; labels[1] = 0;
-    float[] picked = tensor.gather(logits, 1, labels);
-                                       // logits[i, labels[i]]
-    int[] pred = tensor.argmax(logits, 1);
-                                       // 每行的胜者
-    int hits = tensor.sum(tensor.eq(pred, labels));
-                                       // 命中的行数
-    float[,] hot = tensor.oneHot(labels, 3);
-                                       // [len, 3]独热行
+    float[] f = tensor.arange(0.0f, 3.0f, 1.0f);
+    int[] pos = f > 0.0f;              // [0, 1, 1]掩码
+    float[] relu = tensor.where(pos, f, 0.0f);
+                                       // relu拼写
+    return 0;
+}
+```
+
+### 18.5.4 Where与Scatter
+
+- `where(mask, x, y)`逐元素选择：掩码格非零取`x`，为零取`y`——relu习语即`where(f > 0.0f, f, 0.0f)`。掩码必须是`int`或`long`数组（比较算子的输出）；`x`与`y`是共享一种元素种类的数组或标量，三者一起广播（§18.3.1）。结果的元素种类即`x`/`y`的种类。
+- `scatter(a, axis, indices, values)`是`gather`的写孪生：逐位置写入`out[position][indices[i]] = values[i]`，每个下标一个值，返回新数组（`a`不变——值语义，与所有张量函数一致）。`values`可为数组（长度与下标个数一致）或标量（广播到每个被写的格）。越界下标——负数或越过末端，任一界——抛出`IndexOutOfBoundsException`；下标不回绕。
+
+语言的花式索引赋值降低到同一条写路径的原地形态：在秩1数值数组上，`a[indices] = values`（values为数组或标量）原地变异`a`自身的格，所以掩码习语`a[a > 0] = 0`把选中的格清零。赋值对越界下标抛出同一个`IndexOutOfBoundsException`。
+
+```nlang
+import tensor;
+
+int main() {
+    int[] a = tensor.arange(0, 6, 1);
+    int[] idx = int[2];
+    idx[0] = 5; idx[1] = 0;
+    int[] scattered = tensor.scatter(a, 0, idx, 42);
+                                       // [42, 1, 2, 3, 4, 42]
+    a[idx] = 42;                       // 原地：同一批格
+    int[] zeroed = tensor.where(a > 4, a, 0);
+                                       // 掩码选择
     return 0;
 }
 ```
 
 ## 18.6 错误行为
 
-每次张量失败都是`Exception`家族的一个可捕获值（§8.3）。`null`数组实参抛出`NullPointerException`。负的创建长度、或越过§4.10创建上限的元素数，在创建位点抛出`IndexOutOfBoundsException`；负的`reshape`维度（单个推断的`-1`除外）抛出同一个类。`arange`在生成之前检查其元素数，数列会超出上限时抛出`Exception`。零的`arange`步长、或无法朝`stop`推进的步长，抛出`Exception`。双操作数核函数中的广播不匹配、`reshape`的形状其长度与目标秩不符、其乘积与元素数不符或其`-1`推断不整除、`transpose`的重排漏掉或重复某个轴、`broadcastTo`的目标形状源形状无法填满、`sum`的轴在数组的秩之外、`slice`的列表长度与秩不符、`concat`的操作数在秩或非`axis`维上不一致，以及对空数组调用`max`、`min`或`mean`，都抛出`Exception`；形状与长度不匹配的消息会点名两侧，轴类消息会点名轴与秩。`gather`的某个下标越过轴范围、或`oneHot`的某个标签越过类别范围，抛出`IndexOutOfBoundsException`，消息点名下标与范围；`gather`的下标个数与非轴位置个数不符，抛出`Exception`。`gather`的采集轴是零维时抛出`Exception`；零尺寸的源数组只要采集轴非零维，就采集出空结果（其非轴位置个数为零）。`uniform`的`low`大于`high`抛出`Exception`。
+每次张量失败都是`Exception`家族的一个可捕获值（§8.3）。`null`数组实参抛出`NullPointerException`。负的创建长度、或越过§4.10创建上限的元素数，在创建位点抛出`IndexOutOfBoundsException`；负的`reshape`维度（单个推断的`-1`除外）抛出同一个类。`arange`在生成之前检查其元素数，数列会超出上限时抛出`Exception`。零的`arange`步长、或无法朝`stop`推进的步长，抛出`Exception`。双操作数核函数中的广播不匹配、`reshape`的形状其长度与目标秩不符、其乘积与元素数不符或其`-1`推断不整除、`transpose`的重排漏掉或重复某个轴、`broadcastTo`的目标形状源形状无法填满、`sum`的轴在数组的秩之外、`slice`的列表长度与秩不符、`concat`的操作数在秩或非`axis`维上不一致，以及对空数组调用`max`、`min`或`mean`，都抛出`Exception`；形状与长度不匹配的消息会点名两侧，轴类消息会点名轴与秩。`gather`的某个下标越过轴范围、`oneHot`的某个标签越过类别范围，或`scatter`（含花式索引赋值）经越界下标写入，抛出`IndexOutOfBoundsException`，消息点名下标与范围；`gather`的下标个数与非轴位置个数不符，抛出`Exception`。`gather`的采集轴是零维时抛出`Exception`；零尺寸的源数组只要采集轴非零维，就采集出空结果（其非轴位置个数为零）。`uniform`的`low`大于`high`抛出`Exception`。
 
 *资料性：*诊断消息的写法形如`matmul`的`tensor.matmul: shape mismatch (2x3 vs 2x2)`、逐元素核函数的`tensor: shape mismatch (2x3 vs 2x2)`。
 

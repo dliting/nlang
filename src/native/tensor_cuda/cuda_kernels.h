@@ -8,12 +8,15 @@
     whose kernels raise no cell errors are asynchronous — they return
     cudaGetLastError() (launch-config errors attribute at this op;
     execution faults surface at the next host boundary, which is any
-    CopyBytes transfer or a reduction's blocking partials read). The
-    error-capable families keep the per-op clear-launch-sync-read
+    CopyBytes transfer or a reduction's blocking partials read):
+      unary / clamp / compare / compare-scalar / matmul / reduceAxis /
+      argExtreme / eq / where / fill / arange / copy / concat / uniform
+    The error-capable families keep the per-op clear-launch-sync-read
     drain and raise at this op:
       int binary / int binary-scalar  -> DivByZero (per-cell divisor)
       gather                          -> OutOfBounds (negative index)
       oneHot                          -> OutOfBounds (label range)
+      scatter                         -> OutOfBounds (index, both bounds)
     errorOut carries the offending cell index for the caller's named
     NLang raise; every launcher returns a cudaError for the CHECK-style
     wrapper.
@@ -22,10 +25,14 @@
 
 #include <nlang/vm/NativeHost.h>
 
+#include "../tensor/TensorBackends.h"
+
 #include <cuda_runtime.h>
 
 #include <cstdint>
 #include <string>
+
+using tensor::CompareOp;
 
 namespace tensor_cuda {
 
@@ -85,6 +92,26 @@ cudaError_t LaunchExtreme(bool isMax, const LaunchView& src,
                           double* outF, int64_t* outI, bool isInt);
 cudaError_t LaunchReduceAxis(int op, const LaunchView& src, int axis,
                              const LaunchView& dst);
+//The compare family (six ops, array + scalar arms): asynchronous — no
+//cell error flags; IEEE ordering on the device matches the CPU walk.
+cudaError_t LaunchCompare(CompareOp op, const LaunchView& a,
+                          const LaunchView& b, const LaunchView& dst);
+cudaError_t LaunchCompareScalar(CompareOp op, const LaunchView& a,
+                                double scalar, int64_t iScalar,
+                                const LaunchView& dst);
+//where (three-way broadcast, scalar arms): asynchronous — no cell
+//error flags.
+cudaError_t LaunchWhere(const LaunchView& mask, const LaunchView& x,
+                        const LaunchView& y, const LaunchView& dst,
+                        int elemKindCode, bool maskLong, bool xScalar,
+                        bool yScalar, double sx, double sy, int64_t isx,
+                        int64_t isy);
+//scatter (rank-1): SYNC-GROUP — the per-cell out-of-range flag drains
+//per op (errorOut carries the offending index ordinal).
+cudaError_t LaunchScatter(const LaunchView& a, const LaunchView& indices,
+                          const LaunchView& values, const LaunchView& dst,
+                          bool valuesScalar, double sv, int64_t isv,
+                          int32_t* errorOut);
 cudaError_t LaunchMatmul(const LaunchView& a, const LaunchView& b,
                          const LaunchView& dst, int elemKindCode);
 cudaError_t LaunchGather(const LaunchView& src, int axis,

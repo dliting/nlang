@@ -1,0 +1,27 @@
+// The exact-int64 scalar contract: an int-kind scalar operand must
+// reach the kernel as an exact int64 — the double carrier loses
+// precision above 2^53 (9007199254740993 rounds to 9007199254740992),
+// which silently corrupts compare/where/scatter on long arrays.
+// Exit 0 when every check holds.
+import tensor;
+
+int main() {
+    //9007199254740993 = 2^53 + 1: the value a double cannot represent.
+    long[] l = tensor.full(3, 9007199254740993);
+    //1. compare scalar: cell == scalar must be true (a double-carried
+    //scalar reads 2^53 and misses).
+    int[] eq = tensor.eqScalar(l, 9007199254740993);
+    if (eq[0] != 1 || eq[1] != 1 || eq[2] != 1) return 1;
+    //2. where x-scalar: the true cells pick the exact scalar.
+    int[] m = tensor.fullI(3, 1);
+    long[] w = tensor.where(m, 9007199254740993, l);
+    if (w[0] != 9007199254740993) return 2;
+    if (w[2] != 9007199254740993) return 3;
+    //3. scatter scalar: the written cell is the exact scalar.
+    int[] idx = int[1];
+    idx[0] = 2;
+    long[] s = tensor.scatter(l, 0, idx, 9007199254740993);
+    if (s[2] != 9007199254740993) return 4;
+    if (s[0] != 9007199254740993) return 5;
+    return 0;
+}

@@ -1881,6 +1881,67 @@ cudaError_t LaunchMatmul(const LaunchView& a, const LaunchView& b,
 
 //--- gather / eq / oneHot ------------------------------------------------
 
+//The where kernel: mask != 0 picks x else y (numpy's truthiness). The
+//three operands ride FlatAddress strided reads; the scalar arms read
+//the kernel parameters. Async (no cell errors) — see LaunchCompare.
+template <typename T, typename M>
+__global__ void WhereKernel(DevView mask, DevView x, DevView y, DevView dst,
+                            bool xScalar, bool yScalar, double sx,
+                            double sy, int64_t isx, int64_t isy) {
+    const int64_t i = blockIdx.x * (int64_t)blockDim.x + threadIdx.x;
+    if (i >= dst.elemCount)
+        return;
+    const int64_t am = FlatAddress(mask, i);
+    const int64_t ad = dst.offset + i;
+    const M pick = ((const M*)mask.data)[am];
+    //The scalar fields: the float kinds read the double; the int kinds
+    //read the exact int64 twin (the double roundtrip would lose
+    //precision above 2^53).
+    const T xs = std::is_integral_v<T> ? static_cast<T>(isx)
+                                       : static_cast<T>(sx);
+    const T ys = std::is_integral_v<T> ? static_cast<T>(isy)
+                                       : static_cast<T>(sy);
+    T v;
+    if (pick != 0) {
+        v = xScalar ? xs : ((const T*)x.data)[FlatAddress(x, i)];
+    } else {
+        v = yScalar ? ys : ((const T*)y.data)[FlatAddress(y, i)];
+    }
+    ((T*)dst.data)[ad] = v;
+}
+
+cudaError_t LaunchWhere(const LaunchView& mask, const LaunchView& x,
+                        const LaunchView& y, const LaunchView& dst,
+                        int elemKindCode, bool maskLong, bool xScalar,
+                        bool yScalar, double sx, double sy, int64_t isx,
+                        int64_t isy) {
+    //Async (no cell errors) — see LaunchCompare. The kind rides the
+    //explicit code: a scalar arm's view is empty and cannot carry it.
+    const DevView dm = ToDevView(mask);
+    const DevView dx = ToDevView(x);
+    const DevView dy = ToDevView(y);
+    const DevView dd = ToDevView(dst);
+    const int64_t blocks = (dst.elemCount + kThreads - 1) / kThreads;
+    #define NLANG_WHERE_LAUNCH(T, M) \
+        WhereKernel<T, M><<<(int)blocks, kThreads, 0, g_stream>>>(\
+            dm, dx, dy, dd, xScalar, yScalar, sx, sy, isx, isy)
+    if (elemKindCode == 1) {
+        if (maskLong) NLANG_WHERE_LAUNCH(float, int64_t);
+        else NLANG_WHERE_LAUNCH(float, int32_t);
+    } else if (elemKindCode == 17) {
+        if (maskLong) NLANG_WHERE_LAUNCH(double, int64_t);
+        else NLANG_WHERE_LAUNCH(double, int32_t);
+    } else if (elemKindCode == 0) {
+        if (maskLong) NLANG_WHERE_LAUNCH(int32_t, int64_t);
+        else NLANG_WHERE_LAUNCH(int32_t, int32_t);
+    } else {
+        if (maskLong) NLANG_WHERE_LAUNCH(int64_t, int64_t);
+        else NLANG_WHERE_LAUNCH(int64_t, int32_t);
+    }
+    #undef NLANG_WHERE_LAUNCH
+    return cudaGetLastError();
+}
+
 __global__ void GatherKernel(int elemKindCode, DevView src,
                              const int64_t* indices, int64_t indexCount,
                              DevView dst, int32_t* errorOut) {
@@ -1944,38 +2005,131 @@ cudaError_t LaunchGather(const LaunchView& src, int axis,
     return cudaSuccess;
 }
 
-__global__ void EqKernel(int elemKindCode, DevView a,
-                         DevView b, DevView dst) {
+//The per-point compare (six ops). IEEE ordering for the float kinds:
+//the C++ comparison operators already give the NaN rule (false in every
+//ordered compare and in Eq, true in Ne) on the device, matching the CPU
+//walk's ApplyCompare.
+__device__ int32_t DevCompare(CompareOp op, float a, float b) {
+    switch (op) {
+        case CompareOp::Eq: return a == b ? 1 : 0;
+        case CompareOp::Ne: return a != b ? 1 : 0;
+        case CompareOp::Gt: return a > b ? 1 : 0;
+        case CompareOp::Ge: return a >= b ? 1 : 0;
+        case CompareOp::Lt: return a < b ? 1 : 0;
+        case CompareOp::Le: return a <= b ? 1 : 0;
+    }
+    return 0;
+}
+
+__device__ int32_t DevCompare(CompareOp op, double a, double b) {
+    switch (op) {
+        case CompareOp::Eq: return a == b ? 1 : 0;
+        case CompareOp::Ne: return a != b ? 1 : 0;
+        case CompareOp::Gt: return a > b ? 1 : 0;
+        case CompareOp::Ge: return a >= b ? 1 : 0;
+        case CompareOp::Lt: return a < b ? 1 : 0;
+        case CompareOp::Le: return a <= b ? 1 : 0;
+    }
+    return 0;
+}
+
+__device__ int32_t DevCompare(CompareOp op, int32_t a, int32_t b) {
+    switch (op) {
+        case CompareOp::Eq: return a == b ? 1 : 0;
+        case CompareOp::Ne: return a != b ? 1 : 0;
+        case CompareOp::Gt: return a > b ? 1 : 0;
+        case CompareOp::Ge: return a >= b ? 1 : 0;
+        case CompareOp::Lt: return a < b ? 1 : 0;
+        case CompareOp::Le: return a <= b ? 1 : 0;
+    }
+    return 0;
+}
+
+__device__ int32_t DevCompare(CompareOp op, int64_t a, int64_t b) {
+    switch (op) {
+        case CompareOp::Eq: return a == b ? 1 : 0;
+        case CompareOp::Ne: return a != b ? 1 : 0;
+        case CompareOp::Gt: return a > b ? 1 : 0;
+        case CompareOp::Ge: return a >= b ? 1 : 0;
+        case CompareOp::Lt: return a < b ? 1 : 0;
+        case CompareOp::Le: return a <= b ? 1 : 0;
+    }
+    return 0;
+}
+
+template <typename T>
+__global__ void CompareKernel(CompareOp op, DevView a, DevView b,
+                              DevView dst) {
     const int64_t i = blockIdx.x * (int64_t)blockDim.x + threadIdx.x;
     if (i >= dst.elemCount)
         return;
     const int64_t aa = FlatAddress(a, i);
     const int64_t ab = FlatAddress(b, i);
     const int64_t ad = dst.offset + i;
-    int32_t out = 0;
-    if (elemKindCode == 1)
-        out = ((const float*)a.data)[aa]
-            == ((const float*)b.data)[ab] ? 1 : 0;
-    else if (elemKindCode == 17)
-        out = ((const double*)a.data)[aa]
-            == ((const double*)b.data)[ab] ? 1 : 0;
-    else if (elemKindCode == 0)
-        out = ((const int32_t*)a.data)[aa]
-            == ((const int32_t*)b.data)[ab] ? 1 : 0;
-    else
-        out = ((const int64_t*)a.data)[aa]
-            == ((const int64_t*)b.data)[ab] ? 1 : 0;
-    ((int32_t*)dst.data)[ad] = out;
+    ((int32_t*)dst.data)[ad] = DevCompare(op,
+        ((const T*)a.data)[aa], ((const T*)b.data)[ab]);
 }
 
-cudaError_t LaunchEq(const LaunchView& a, const LaunchView& b,
-                     const LaunchView& dst, int elemKindCode) {
+cudaError_t LaunchCompare(CompareOp op, const LaunchView& a,
+                          const LaunchView& b, const LaunchView& dst) {
+    //Differentiated sync (spec 2026-11-16 §3): comparisons raise no
+    //cell errors — enqueue and go.
     const DevView da = ToDevView(a);
     const DevView db = ToDevView(b);
     const DevView dd = ToDevView(dst);
     const int64_t blocks = (dst.elemCount + kThreads - 1) / kThreads;
-    EqKernel<<<(int)blocks, kThreads, 0, g_stream>>>(
-        elemKindCode, da, db, dd);
+    if (a.elemKind == 1)
+        CompareKernel<float><<<(int)blocks, kThreads, 0, g_stream>>>(
+            op, da, db, dd);
+    else if (a.elemKind == 17)
+        CompareKernel<double><<<(int)blocks, kThreads, 0, g_stream>>>(
+            op, da, db, dd);
+    else if (a.elemKind == 0)
+        CompareKernel<int32_t><<<(int)blocks, kThreads, 0, g_stream>>>(
+            op, da, db, dd);
+    else
+        CompareKernel<int64_t><<<(int)blocks, kThreads, 0, g_stream>>>(
+            op, da, db, dd);
+    return cudaGetLastError();
+}
+
+//The scalar arm: one odometer over the array (the scalar rides the
+//kernel parameter — no second view).
+template <typename T>
+__global__ void CompareScalarKernel(CompareOp op, DevView a, double scalar,
+                                    int64_t iScalar, DevView dst) {
+    const int64_t i = blockIdx.x * (int64_t)blockDim.x + threadIdx.x;
+    if (i >= dst.elemCount)
+        return;
+    const int64_t aa = FlatAddress(a, i);
+    const int64_t ad = dst.offset + i;
+    //The scalar fields: the float kinds read the double; the int kinds
+    //read the exact int64 twin (the double roundtrip would lose
+    //precision above 2^53).
+    const T s = std::is_integral_v<T> ? static_cast<T>(iScalar)
+                                      : static_cast<T>(scalar);
+    ((int32_t*)dst.data)[ad] = DevCompare(op, ((const T*)a.data)[aa], s);
+}
+
+cudaError_t LaunchCompareScalar(CompareOp op, const LaunchView& a,
+                                double scalar, int64_t iScalar,
+                                const LaunchView& dst) {
+    //Async (no cell errors) — see LaunchCompare.
+    const DevView da = ToDevView(a);
+    const DevView dd = ToDevView(dst);
+    const int64_t blocks = (dst.elemCount + kThreads - 1) / kThreads;
+    if (a.elemKind == 1)
+        CompareScalarKernel<float><<<(int)blocks, kThreads, 0, g_stream>>>(
+            op, da, scalar, iScalar, dd);
+    else if (a.elemKind == 17)
+        CompareScalarKernel<double><<<(int)blocks, kThreads, 0, g_stream>>>(
+            op, da, scalar, iScalar, dd);
+    else if (a.elemKind == 0)
+        CompareScalarKernel<int32_t><<<(int)blocks, kThreads, 0, g_stream>>>(
+            op, da, scalar, iScalar, dd);
+    else
+        CompareScalarKernel<int64_t><<<(int)blocks, kThreads, 0, g_stream>>>(
+            op, da, scalar, iScalar, dd);
     return cudaGetLastError();
 }
 
@@ -2085,6 +2239,125 @@ cudaError_t LaunchUniform(const LaunchView& dst, double low,
 }
 
 //--- generation & movement ----------------------------------------------
+
+//The scatter kernel (rank-1): one thread per index — the bounds check
+//(both bounds, no negative wrap) rides the cell error flags; the value
+//is the scalar arm's field or the values array's cell. SYNC-GROUP: the
+//flags drain per op (the named OutOfBounds raise stays at this op).
+template <typename T>
+__global__ void ScatterKernel(DevView src, const int64_t* indices,
+                              int64_t indexCount, DevView dst,
+                              DevView values, double value, int64_t iValue,
+                              bool valuesScalar, int64_t along,
+                              int32_t* errorOut) {
+    const int64_t i = blockIdx.x * (int64_t)blockDim.x + threadIdx.x;
+    if (i >= indexCount)
+        return;
+    const int64_t index = indices[i];
+    if (index < 0 || index >= along) {
+        if (errorOut[0] == kErrNone) {
+            errorOut[0] = kErrOOB;
+            errorOut[1] = static_cast<int32_t>(i);
+        }
+        return;
+    }
+    //Rank-1 flat addressing: the scattered cell is dst.flat[index]
+    //(the dispatcher gates rank-1; the copy phase already filled the
+    //rest of the payload).
+    //The scalar fields: the float kinds read the double; the int
+    //kinds read the exact int64 twin (the double roundtrip would lose
+    //precision above 2^53).
+    const T v = valuesScalar
+        ? (std::is_integral_v<T> ? static_cast<T>(iValue)
+                                 : static_cast<T>(value))
+        : ((const T*)values.data)[values.offset + i];
+    ((T*)dst.data)[dst.offset + index] = v;
+}
+
+cudaError_t LaunchScatter(const LaunchView& a, const LaunchView& indices,
+                          const LaunchView& values, const LaunchView& dst,
+                          bool valuesScalar, double sv, int64_t isv,
+                          int32_t* errorOut) {
+    //SYNC-GROUP (spec 2026-11-16 §3): scatter writes the per-cell
+    //out-of-range flag — clear-launch-sync-read drains at this op.
+    const int64_t count = indices.elemCount;
+    const int64_t along = a.dims[0];
+    int64_t* dIdx = static_cast<int64_t*>(
+        PoolAlloc(count * sizeof(int64_t)));
+    if (dIdx == nullptr)
+        return cudaErrorMemoryAllocation;
+    //The indices view is int32 — read on the host and widen.
+    std::vector<int64_t> wide(count);
+    const int32_t* cells = static_cast<const int32_t*>(indices.data);
+    const int64_t addr0 = indices.offset;
+    for (int64_t i = 0; i < count; ++i)
+        wide[i] = cells[addr0 + i];
+    cudaMemcpyAsync(dIdx, wide.data(), count * sizeof(int64_t),
+        cudaMemcpyHostToDevice, g_stream);
+    //The values arm: the dispatcher stages a non-scalar values view to
+    //HOST (the metadata pattern) — H2D it here so the kernel reads a
+    //device pointer; a scalar arm carries the value in the parameter
+    //and the view stays empty.
+    const int cellBytes = a.elemKind == 17 || a.elemKind == 15 ? 8 : 4;
+    void* dVals = nullptr;
+    if (!valuesScalar) {
+        dVals = PoolAlloc(static_cast<size_t>(count) * cellBytes);
+        if (dVals == nullptr) {
+            PoolFree(dIdx);
+            return cudaErrorMemoryAllocation;
+        }
+        cudaMemcpyAsync(dVals,
+            static_cast<const uint8_t*>(values.data)
+                + static_cast<size_t>(values.offset) * cellBytes,
+            static_cast<size_t>(count) * cellBytes,
+            cudaMemcpyHostToDevice, g_stream);
+    }
+    //The copy phase: a dense rank-1 span copy (the dispatcher gates
+    //rank-1; the offset folds into the base pointers).
+    cudaMemcpyAsync(
+        static_cast<uint8_t*>(dst.data)
+            + static_cast<size_t>(dst.offset) * cellBytes,
+        static_cast<const uint8_t*>(a.data)
+            + static_cast<size_t>(a.offset) * cellBytes,
+        static_cast<size_t>(a.elemCount) * cellBytes,
+        cudaMemcpyDeviceToDevice, g_stream);
+    const uint32_t none[2] = {kErrNone, 0};
+    cudaMemcpy(g_error, none, 2 * sizeof(int32_t), cudaMemcpyHostToDevice);
+    const int64_t blocks = (count + kThreads - 1) / kThreads;
+    //The kernel's values operand: the H2D scratch (array arm) or an
+    //empty view (the scalar arm never reads it).
+    LaunchView valuesDev = values;
+    if (!valuesScalar)
+        valuesDev.data = dVals;
+    valuesDev.offset = 0;
+    if (a.elemKind == 1)
+        ScatterKernel<float><<<(int)blocks, kThreads, 0, g_stream>>>(
+            ToDevView(a), dIdx, count, ToDevView(dst),
+            ToDevView(valuesDev), sv, isv, valuesScalar, along, g_error);
+    else if (a.elemKind == 17)
+        ScatterKernel<double><<<(int)blocks, kThreads, 0, g_stream>>>(
+            ToDevView(a), dIdx, count, ToDevView(dst),
+            ToDevView(valuesDev), sv, isv, valuesScalar, along, g_error);
+    else if (a.elemKind == 0)
+        ScatterKernel<int32_t><<<(int)blocks, kThreads, 0, g_stream>>>(
+            ToDevView(a), dIdx, count, ToDevView(dst),
+            ToDevView(valuesDev), sv, isv, valuesScalar, along, g_error);
+    else
+        ScatterKernel<int64_t><<<(int)blocks, kThreads, 0, g_stream>>>(
+            ToDevView(a), dIdx, count, ToDevView(dst),
+            ToDevView(valuesDev), sv, isv, valuesScalar, along, g_error);
+    cudaError_t err = cudaStreamSynchronize(g_stream);
+    if (dVals != nullptr)
+        PoolFree(dVals);
+    PoolFree(dIdx);
+    if (err != cudaSuccess)
+        return err;
+    int32_t flags[2] = {kErrNone, 0};
+    cudaMemcpy(flags, g_error, 2 * sizeof(int32_t), cudaMemcpyDeviceToHost);
+    if (flags[0] != kErrNone)
+        *errorOut = flags[1];
+    return cudaSuccess;
+}
 
 __global__ void FillKernel(int elemKindCode, DevView dst,
                            double value, int64_t iValue) {

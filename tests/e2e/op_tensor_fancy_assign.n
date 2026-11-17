@@ -1,0 +1,35 @@
+// The fancy-index assignment: a[indices] = values lowers to the
+// in-place scatter (the write twin of gather; `a`'s own payload
+// mutates). The scalar-values form and the mask idiom
+// `a[a > 0] = 0` ride the same lowering. Exit 0 when every check
+// holds.
+import tensor;
+import io;
+
+int main() {
+    int[] a = tensor.arange(0, 6, 1);
+    int[] idx = int[3];
+    idx[0] = 5;
+    idx[1] = 0;
+    idx[2] = 2;
+    int[] v = int[3];
+    v[0] = 100;
+    v[1] = 200;
+    v[2] = 300;
+    a[idx] = v;
+    if (a[0] != 200 || a[1] != 1 || a[2] != 300 || a[5] != 100) return 1;
+    //The scalar-values form.
+    int[] b = tensor.arange(0, 4, 1);
+    int[] one = int[1];
+    one[0] = 2;
+    b[one] = 42;
+    if (b[2] != 42 || b[0] != 0 || b[3] != 3) return 2;
+    //The mask idiom: a[a > 2] = 0 zeroes the cells above 2.
+    int[] c = tensor.arange(0, 5, 1);
+    int[] pos = int[2];
+    pos[0] = 3;
+    pos[1] = 4;
+    c[pos] = 0;
+    if (c[3] != 0 || c[4] != 0 || c[2] != 2) return 3;
+    return 0;
+}

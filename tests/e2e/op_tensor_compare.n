@@ -1,0 +1,46 @@
+// The six elementwise comparison operators on numeric arrays: int 0/1
+// mask out, scalar arms on both sides (the scalar-left spelling is the
+// compiler's reflected operator), broadcast arithmetic rules. Under the
+// v0.14.2 semantics the numeric-array ==/!= are elementwise (the old
+// identity comparison remains for non-numeric arrays and null checks).
+import tensor;
+
+int main() {
+    int[] a = int[3];
+    a[0] = 1;
+    a[1] = 3;
+    a[2] = 2;
+    int[] b = int[3];
+    b[0] = 2;
+    b[1] = 3;
+    b[2] = 1;
+    int[] gt = a > b;
+    if (gt[0] != 0 || gt[1] != 0 || gt[2] != 1) return 1;
+    int[] lt = a < b;
+    if (lt[0] != 1 || lt[1] != 0 || lt[2] != 0) return 2;
+    int[] ge = a >= b;
+    if (ge[0] != 0 || ge[1] != 1 || ge[2] != 1) return 3;
+    int[] le = a <= b;
+    if (le[0] != 1 || le[1] != 1 || le[2] != 0) return 4;
+    int[] eq = a == b;
+    if (eq[0] != 0 || eq[1] != 1 || eq[2] != 0) return 5;
+    int[] ne = a != b;
+    if (ne[0] != 1 || ne[1] != 0 || ne[2] != 1) return 6;
+    int[] gs = a > 2;
+    if (gs[0] != 0 || gs[1] != 1 || gs[2] != 0) return 7;
+    int[] ls = a < 2;
+    if (ls[0] != 1 || ls[1] != 0 || ls[2] != 0) return 8;
+    int[] reflected = 2 < a;
+    if (reflected[0] != 0 || reflected[1] != 1 || reflected[2] != 0) return 9;
+    float[] f = float[2];
+    f[0] = 0.5f;
+    f[1] = 1.5f;
+    int[] fs = f >= 1.0f;
+    if (fs[0] != 0 || fs[1] != 1) return 10;
+    if (a == null) return 11;
+    int[] self = a == a;
+    int total = 0;
+    for (int i = 0; i < 3; i += 1) total += self[i];
+    if (total != 3) return 12;
+    return 0;
+}

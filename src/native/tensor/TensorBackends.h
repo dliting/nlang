@@ -38,6 +38,11 @@ enum class UnaryKernelOp : int32_t { Exp, Log, Tanh, Neg };
 //pre-activation, a the outgoing gradient).
 enum class BinaryKernelOp : int32_t
     { Add, Sub, Mul, Div, Rsub, Rdiv, ReLUGrad };
+//The elementwise comparison family: int32 0/1 mask out for every source
+//kind (the language's mask idiom — sum(mask) counts). IEEE ordering for
+//the float kinds: NaN is false in every ordered compare and in Eq, true
+//in Ne (numpy's rule).
+enum class CompareOp : int32_t { Eq = 0, Ne, Gt, Ge, Lt, Le };
 
 struct KernelOps {
     //Elementwise family: flat spans, count <= 0 must be a no-op.

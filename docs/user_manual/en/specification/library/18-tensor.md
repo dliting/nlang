@@ -345,21 +345,71 @@ match the truth.
   float `[len, n]` array with a one at each row's label — the
   target spelling of a classifier's training step.
 
+### 18.5.3 Comparison Operators and Masks
+
+On numeric-element arrays (`int`, `long`, `float`, `double`)
+the six comparison operators are elementwise: `==`, `!=`, `>`,
+`>=`, `<`, `<=` compare cell by cell (the broadcasting rule of
+§18.3.1 applies, and either side may be a scalar) and produce
+an `int` 0/1 mask — the same mask type `eq` produces, so
+`tensor.sum(a > 0)` counts the positive cells and
+`where` consumes the masks directly. Floats follow IEEE
+ordering: NaN is false in every ordered comparison and in
+`==`, true in `!=`. Arrays of non-numeric element kinds keep
+the identity comparison for `==`/`!=` (two names for the same
+array compare true), and `a == null` stays the null check —
+neither form lowers to a mask.
+
 ```nlang
 import tensor;
 
 int main() {
-    float[,] logits = tensor.full([2, 3], 0.0f);
-    int[] labels = int[2];
-    labels[0] = 2; labels[1] = 0;
-    float[] picked = tensor.gather(logits, 1, labels);
-                                       // logits[i, labels[i]]
-    int[] pred = tensor.argmax(logits, 1);
-                                       // per-row winner
-    int hits = tensor.sum(tensor.eq(pred, labels));
-                                       // matching rows
-    float[,] hot = tensor.oneHot(labels, 3);
-                                       // [len, 3] one-hot rows
+    float[] f = tensor.arange(0.0f, 3.0f, 1.0f);
+    int[] pos = f > 0.0f;              // [0, 1, 1] mask
+    float[] relu = tensor.where(pos, f, 0.0f);
+                                       // the relu spelling
+    return 0;
+}
+```
+
+### 18.5.4 Where and Scatter
+
+- `where(mask, x, y)` selects per element: a nonzero mask
+  cell picks `x`, a zero cell picks `y` — the relu idiom is
+  `where(f > 0.0f, f, 0.0f)`. The mask must be an `int` or
+  `long` array (the comparison operators' output); `x` and
+  `y` are arrays of one shared element kind or scalars, and
+  the three operands broadcast together (§18.3.1). The
+  result's element kind is `x`/`y`'s kind.
+- `scatter(a, axis, indices, values)` is the write twin of
+  `gather`: per position it writes
+  `out[position][indices[i]] = values[i]`, one value per
+  index, and returns a NEW array (`a` is unchanged — value
+  semantics, like every tensor function). `values` may be an
+  array (its length rides the index count) or a scalar
+  (broadcast to every written cell). An out-of-range index —
+  negative or past the end, either bound — raises
+  `IndexOutOfBoundsException`; indices do not wrap.
+
+The language's fancy-index assignment lowers onto the same
+write path in place: on a rank-1 numeric array,
+`a[indices] = values` (values an array or a scalar) mutates
+`a`'s own cells, so the mask idiom `a[a > 0] = 0` zeroes the
+selected cells. The assignment raises the same
+`IndexOutOfBoundsException` for an out-of-range index.
+
+```nlang
+import tensor;
+
+int main() {
+    int[] a = tensor.arange(0, 6, 1);
+    int[] idx = int[2];
+    idx[0] = 5; idx[1] = 0;
+    int[] scattered = tensor.scatter(a, 0, idx, 42);
+                                       // [42, 1, 2, 3, 4, 42]
+    a[idx] = 42;                       // in place: same cells
+    int[] zeroed = tensor.where(a > 4, a, 0);
+                                       // mask select
     return 0;
 }
 ```
@@ -386,10 +436,11 @@ the rank, a `concat` whose operands disagree on rank or on the
 non-axis dimensions, and `max`, `min` or `mean` on an empty
 array all raise `Exception`; the shape and length mismatch
 messages name both sides, and the axis messages name the axis
-and the rank. A `gather` index outside the axis range, or a
-`oneHot` label outside the class range, raises
-`IndexOutOfBoundsException` naming the index and the range; a
-`gather` index count that misses the non-axis position count
+and the rank. A `gather` index outside the axis range, a
+`oneHot` label outside the class range, or a `scatter` (and a
+fancy-index assignment) writing through an out-of-range index
+raises `IndexOutOfBoundsException` naming the index and the
+range; a `gather` index count that misses the non-axis position count
 raises `Exception`. A `gather` whose gather axis is a zero
 dimension raises `Exception`; a zero-size source whose gather
 axis is nonzero gathers an empty result (its non-axis position

@@ -8,6 +8,60 @@ All notable changes to NLang are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.14.2]
+
+The tensor indexing surface: the comparison operators become
+elementwise mask producers, `where` and `scatter` close the
+mask-select and write-twin gaps, and the fancy-index assignment
+removes the last per-element write loops. Both backends (host and
+CUDA) implement the full surface with matching exceptions.
+
+### Added
+
+- **Elementwise comparison operators** — on numeric arrays (`int`,
+  `long`, `float`, `double`) `==`, `!=`, `>`, `>=`, `<`, `<=`
+  compare cell by cell (§18.3.1 broadcasting; either side may be a
+  scalar) and produce an int 0/1 mask — the mask idiom
+  `tensor.sum(a > 0)` and the `where` feed. IEEE ordering on the
+  float kinds: NaN is false in every ordered comparison and in
+  `==`, true in `!=`. Non-numeric arrays keep the identity
+  comparison for `==`/`!=`, and `a == null` stays the null check.
+- **`tensor.where(mask, x, y)`** — per-element mask select (nonzero
+  picks `x`, zero picks `y`; the relu idiom is
+  `where(f > 0, f, 0)`). The mask is an `int`/`long` array (the
+  comparison operators' output — a float mask is a compile-time
+  type error); `x`/`y` are arrays of one shared kind or scalars;
+  the three operands broadcast together.
+- **`tensor.scatter(a, axis, indices, values)`** — the write twin
+  of `gather`: per position
+  `out[position][indices[i]] = values[i]`, value semantics (returns
+  a new array, `a` unchanged), `values` an array or a broadcast
+  scalar. Out-of-range indices (negative or past the end, either
+  bound) raise `IndexOutOfBoundsException` naming the index —
+  indices do not wrap.
+- **Fancy-index assignment** — on a rank-1 numeric array,
+  `a[indices] = values` (values an array or a scalar) mutates `a`'s
+  own cells in place: the mask idiom `a[a > 0] = 0` is loop-free.
+  The same out-of-range raise applies.
+
+### Changed
+
+- **`==`/`!=` on numeric arrays are elementwise.** The previous
+  identity comparison (two names for one array compare true) is
+  gone on the numeric kinds — a mask producer is the useful
+  semantics, and the array-array identity spelling remains for
+  non-numeric kinds. Code that relied on numeric-array identity
+  comparison must compare elements or compare against null.
+
+### Fixed
+
+- **Exact int64 scalar operands.** An `int`-kind scalar riding into
+  the compare-scalar, `where` or `scatter` kernels is carried as an
+  exact int64; the previous double carrier silently corrupted
+  values above 2^53 (9007199254740993 read as
+  9007199254740992). Pinned end to end on long arrays through all
+  three families, both backends.
+
 ## [0.14.1]
 
 The tensor device-backend release: the whole tensor kernel table can now

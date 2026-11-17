@@ -317,6 +317,29 @@ NLANG_DEFINE_NATIVE_INIT {
     regBlocking(registry, "tensor", "argmax", &tensor::TensorArgMax);
     regBlocking(registry, "tensor", "argmin", &tensor::TensorArgMin);
     regBlocking(registry, "tensor", "eq", &tensor::TensorEq);
+    regBlocking(registry, "tensor", "ne", &tensor::TensorNe);
+    regBlocking(registry, "tensor", "gt", &tensor::TensorGt);
+    regBlocking(registry, "tensor", "ge", &tensor::TensorGe);
+    regBlocking(registry, "tensor", "lt", &tensor::TensorLt);
+    regBlocking(registry, "tensor", "le", &tensor::TensorLe);
+    regBlocking(registry, "tensor", "eqScalar", &tensor::TensorEqScalar);
+    regBlocking(registry, "tensor", "neScalar", &tensor::TensorNeScalar);
+    regBlocking(registry, "tensor", "gtScalar", &tensor::TensorGtScalar);
+    regBlocking(registry, "tensor", "geScalar", &tensor::TensorGeScalar);
+    regBlocking(registry, "tensor", "ltScalar", &tensor::TensorLtScalar);
+    regBlocking(registry, "tensor", "leScalar", &tensor::TensorLeScalar);
+    regBlocking(registry, "tensor", "where", &tensor::TensorWhere);
+    regBlocking(registry, "tensor", "whereYScalar",
+        &tensor::TensorWhereYScalar);
+    regBlocking(registry, "tensor", "whereXScalar",
+        &tensor::TensorWhereXScalar);
+    regBlocking(registry, "tensor", "scatter", &tensor::TensorScatter);
+    regBlocking(registry, "tensor", "scatterScalar",
+        &tensor::TensorScatterScalar);
+    regBlocking(registry, "tensor", "scatterInto",
+        &tensor::TensorScatterInto);
+    regBlocking(registry, "tensor", "scatterIntoS",
+        &tensor::TensorScatterIntoScalar);
     regBlocking(registry, "tensor", "oneHot", &tensor::TensorOneHot);
     regBlocking(registry, "tensor", "toDevice", &tensor::TensorToDevice);
     regBlocking(registry, "tensor", "toHost", &tensor::TensorToHost);

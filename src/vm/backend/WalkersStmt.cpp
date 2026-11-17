@@ -326,6 +326,17 @@ uint16_t VmBackend::CompoundAssignStmtPeakDepth(SnStatement& stmt,
 uint16_t VmBackend::SubscriptAssignStmtPeakDepth(SnStatement& stmt,
     const std::unordered_set<SnFunction*>& visited) {
     auto& sa = static_cast<SnSubscriptAssignStmt&>(stmt);
+    //v0.14.2: a bound tensor body IS a 3-arg tensor call — the claim is
+    //the arg count plus the params' nested depths (the binary-lowering
+    //walker symmetry).
+    if (sa.TensorBody()) {
+        uint16_t argDepth = 0;
+        for (auto &param : sa.TensorBody()->Params()) {
+            uint16_t d = ExprPeakDepth(param, visited);
+            if (d > argDepth) argDepth = d;
+        }
+        return 3 + argDepth;
+    }
     //Stage-2: the store claim is receiver + N indices + value (the
     //container path lowers to a set() call — same count). Walker
     //symmetry with EmitArrayElementStore's claim(rank + 2).
