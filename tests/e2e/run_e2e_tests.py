@@ -6,6 +6,10 @@ Usage:
 
 Reads manifest.txt (name + expected_exit_code [+ optional expected stdout
 substring]), compiles each <name>.n, runs the .ncu, and reports results.
+Every entry of a pass runs with that pass's fixed CWD (manifest.txt:
+tests/e2e/, examples_manifest.txt: its own scratch dir), so a corpus that
+writes files must address them under ../temp/, which .gitignore keeps out
+of the repository — never next to the corpora.
 --timeout=SEC raises the flat 30 s per-test subprocess cap for this
 invocation only: the ASan-instrumented tree runs ~7x slower than Release,
 and its gate run needs more headroom for the pattern-budget case
@@ -29,7 +33,7 @@ passing test (io.eprint's console target) — same substring and leading-'!'
 negation semantics as the compile-phase .stderr file.
 Also reads examples_manifest.txt (when present): entries resolve against
 ../../examples, their .ncu and scratch artifacts live under
-_examples_tmp/ (their run CWD), removed at end of run.
+../temp/examples/ (their run CWD), removed at end of run.
 Reads env_gates.txt (when present): `name <capability...>` rows gate an
 entry behind a machine capability (icmp: OS loopback echo answers; dns:
 reserved-TLD NXDOMAIN honesty). When the out-of-band OS oracle says the
@@ -55,11 +59,15 @@ MANIFEST = os.path.join(SCRIPT_DIR, 'manifest.txt')
 #Flat per-test subprocess cap (compile and run), overridable per invocation
 #with --timeout=SEC (see the module docstring).
 TIMEOUT_SEC = 30
-PHASE8_TMP = os.path.join(SCRIPT_DIR, '_phase8_tmp')
-PHASE11_TMP = os.path.join(SCRIPT_DIR, '_p11_tmp')
+#Scratch for corpora that write files by relative path: the manifest pass
+#runs with CWD = tests/e2e/, so its corpora address this dir as
+#../temp/fs/... . One dir replaces the two per-phase dirs it grew out of
+#(they held the same thing); every scratch dir lives under tests/temp/,
+#which .gitignore keeps out of the repository.
+FS_SCRATCH = os.path.join(SCRIPT_DIR, '..', 'temp', 'fs')
 #Per-test artifact dir for multi-module imports (see the directory-form
 #compile block): holds ONLY the earlier modules' .ncu files.
-IMPORTS_TMP = os.path.join(SCRIPT_DIR, '_imports_tmp')
+IMPORTS_TMP = os.path.join(SCRIPT_DIR, '..', 'temp', 'imports')
 
 #Shipped examples (examples/) run through the same compile+run gate.
 #Entries resolve against EXAMPLES_DIR; their .ncu/stdin/scratch all
@@ -68,7 +76,7 @@ IMPORTS_TMP = os.path.join(SCRIPT_DIR, '_imports_tmp')
 EXAMPLES_MANIFEST = os.path.join(SCRIPT_DIR, 'examples_manifest.txt')
 EXAMPLES_DIR = os.path.normpath(
     os.path.join(SCRIPT_DIR, '..', '..', 'examples'))
-EXAMPLES_TMP = os.path.join(SCRIPT_DIR, '_examples_tmp')
+EXAMPLES_TMP = os.path.join(SCRIPT_DIR, '..', 'temp', 'examples')
 
 
 def _newest_file(paths):
@@ -262,14 +270,6 @@ def _orphan_run_stderr_sidecars(known_names):
         if stem not in known_names:
             orphans.append(stem)
     return orphans
-
-#Tests that need CWD=SCRIPT_DIR for their relative file paths, plus a
-#scratch dir pre-cleaned before and removed after the run.
-def _needs_script_cwd(name):
-    return (name.startswith('file_stream_') or name.startswith('fs_struct_')
-            or name.startswith('fs_object_') or name.startswith('stdlib_io_')
-            or name.startswith('stdlib_fs_')
-            or name.startswith('stream_long_'))
 
 #Test name suffixes that mark intentional throw-tests. Tests ending in
 #these suffixes are excluded from the P3.7 hidden-throw detector: their
@@ -702,20 +702,14 @@ def main():
                         errors.append(f"    stderr: {stderr_text.splitlines()[0]}")
                 continue
 
-            #Pass-1 (manifest.txt) entries only. The examples pass always
-            #runs with CWD = its own scratch dir, and a future example
-            #whose name happens to start with one of the prefixes below
-            #must not churn the phase scratch dirs mid-pass.
-            needs_script_cwd = out_dir == SCRIPT_DIR and _needs_script_cwd(name)
-            #Phase 8/11: ensure the scratch dirs exist and are clean for
-            #file-path tests (file_stream_*/fs_*_*/stdlib_io_*/stdlib_fs_*).
-            if needs_script_cwd:
-                if os.path.isdir(PHASE8_TMP):
-                    shutil.rmtree(PHASE8_TMP)
-                os.makedirs(PHASE8_TMP, exist_ok=True)
-                if os.path.isdir(PHASE11_TMP):
-                    shutil.rmtree(PHASE11_TMP)
-                os.makedirs(PHASE11_TMP, exist_ok=True)
+            #Manifest pass only: its CWD is tests/e2e/, so the scratch dir
+            #has to exist and be empty when the program starts — one entry
+            #must not see another's leftovers. The examples pass owns its
+            #own pre-cleaned CWD (see the out_dir handling in main).
+            if out_dir == SCRIPT_DIR:
+                if os.path.isdir(FS_SCRATCH):
+                    shutil.rmtree(FS_SCRATCH)
+                os.makedirs(FS_SCRATCH, exist_ok=True)
 
             # Compile
             #0.7.5: <name>.ncc.flags (if present) supplies extra ncc CLI
@@ -817,12 +811,11 @@ def main():
                     continue
 
             # Run
-            #Phase 8/11: file-path tests need CWD = tests/e2e/ so their
-            #relative paths (_phase8_tmp/..., _p11_tmp/...) resolve.
-            run_cwd = SCRIPT_DIR if needs_script_cwd else None
-            #Shipped examples always run in the scratch dir: several
-            #write files next to their CWD (fs_example/, io_example.txt).
-            run_cwd = out_dir if out_dir != SCRIPT_DIR else run_cwd
+            #One fixed CWD per pass: manifest entries run in tests/e2e/ so
+            #their ../temp/fs/... scratch paths resolve, and shipped
+            #examples run in their scratch dir because several write files
+            #next to their CWD (fs_example/, io_example.txt).
+            run_cwd = out_dir
             #Phase 11: <name>.stdin (if present) is piped to the program —
             #io.readLine tests drive stdin through it.
             stdin_path = os.path.join(sources_dir, f"{name}.stdin")
@@ -943,15 +936,11 @@ def main():
                     errors.append(
                         f"    stderr: {stderr_text.splitlines()[0]}")
 
-    #Final cleanup: remove scratch dirs if they exist.
-    if os.path.isdir(PHASE8_TMP):
-        shutil.rmtree(PHASE8_TMP)
-    if os.path.isdir(PHASE11_TMP):
-        shutil.rmtree(PHASE11_TMP)
-    if os.path.isdir(IMPORTS_TMP):
-        shutil.rmtree(IMPORTS_TMP)
-    if os.path.isdir(EXAMPLES_TMP):
-        shutil.rmtree(EXAMPLES_TMP)
+    #Final cleanup: drop the scratch dirs — a stale file left here would be
+    #the next run's first file-path corpus reading someone else's output.
+    for scratch in (FS_SCRATCH, IMPORTS_TMP, EXAMPLES_TMP):
+        if os.path.isdir(scratch):
+            shutil.rmtree(scratch)
 
     print()
     print(f"Results: {passed} passed, {failed} failed, "

@@ -27,8 +27,6 @@ blog/
 # Third-party reference inputs kept under docs/ (not shipped documentation)
 docs/ref/
 scratch/
-tests/e2e/_examples_tmp/
-tests/e2e/_imports_tmp/
 
 # IDE files
 .vs/

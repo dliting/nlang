@@ -40,13 +40,13 @@ int main() {
     if (f != 60000) { return 8; }
 
     // --- FileStream through a temp file ---
-    FileStream fw = FileStream("_phase8_tmp/test_long_double.bin", "w");
+    FileStream fw = FileStream("../temp/fs/test_long_double.bin", "w");
     fw.writeLong(9223372036854775807);
     fw.writeDouble(-0.25);
     fw.writeLong(42);              // int, widened in place
     fw.close();
-    if (fs.size("_phase8_tmp/test_long_double.bin") != 24) { return 9; }
-    FileStream fr = FileStream("_phase8_tmp/test_long_double.bin", "r");
+    if (fs.size("../temp/fs/test_long_double.bin") != 24) { return 9; }
+    FileStream fr = FileStream("../temp/fs/test_long_double.bin", "r");
     long g = fr.readLong();
     double h = fr.readDouble();
     long i = fr.readLong();

@@ -3,7 +3,7 @@
 import io;
 int main() {
     try {
-        string s = io.readFile("_p11_tmp/definitely_missing.txt");
+        string s = io.readFile("../temp/fs/definitely_missing.txt");
         return 1;  //should have thrown
     } catch (IOException e) {
         if (e.message == "") return 2;

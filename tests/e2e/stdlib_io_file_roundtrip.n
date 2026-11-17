@@ -2,12 +2,12 @@
 // returns the exact bytes written ('\n' escape round-trips).
 import io;
 int main() {
-    io.writeFile("_p11_tmp/rt.txt", "line1\nline2");
-    string s = io.readFile("_p11_tmp/rt.txt");
+    io.writeFile("../temp/fs/rt.txt", "line1\nline2");
+    string s = io.readFile("../temp/fs/rt.txt");
     if (s != "line1\nline2") return 1;
     //Truncate on rewrite: a second writeFile replaces the content.
-    io.writeFile("_p11_tmp/rt.txt", "short");
-    string t = io.readFile("_p11_tmp/rt.txt");
+    io.writeFile("../temp/fs/rt.txt", "short");
+    string t = io.readFile("../temp/fs/rt.txt");
     if (t != "short") return 2;
     return 0;
 }
