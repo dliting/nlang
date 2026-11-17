@@ -112,6 +112,21 @@ static ForeachIterableKind ClassifyForeachIterable(
     return k;
 }
 
+//Task 7 (D6): the & mark is effective for the bindable element family
+//— scalar/string cells and struct records. Dict/string sources were
+//rejected at the resolver; class/array elements degrade to value form
+//(spec 3.1).
+static bool ForeachRefForm(SnForeachStmt& fe,
+        const ForeachIterableKind& iter, uint8_t elemKind) {
+    const bool bRefMarked = fe.VarType()
+        && fe.VarType()->ContainFlags(NF_Ref);
+    NLANG_ASSERT(!(bRefMarked && (iter.isDict || iter.isString))
+        && "reference-form Dict/string foreach must be rejected at the resolver");
+    return bRefMarked
+        && (elemKind == RTK_Struct || elemKind == RTK_String
+            || ScalarPrimIndexOfRtk(elemKind) >= 0);
+}
+
 void VmBackend::Access(SnForeachStmt& stmt) {
     BytecodeEmitter& emitter = *m_pCurrEmitter;
         auto& fe = static_cast<SnForeachStmt&>(stmt);
@@ -138,8 +153,9 @@ void VmBackend::Access(SnForeachStmt& stmt) {
         //token to RTK_Array through the IsArrayType() override — so one
         //channel tags the loop-var slot, and the GC traces the handle.
         uint8_t elemKind = RuntimeTypeKind(iter.elemType);
+        const bool bRefLoop = ForeachRefForm(fe, iter, elemKind);
         ForeachSlots slots = AllocForeachLocals(fe, elemKind,
-            iter.isArray);
+            iter.isArray, bRefLoop);
         //Evaluate the iterable into iterSlot.
         EmitExpression(*fe.Iterable(), emitter, slots.iterSlot);
         if (iter.isDict)
@@ -154,7 +170,7 @@ void VmBackend::Access(SnForeachStmt& stmt) {
         size_t loopStart = EmitForeachLoopHead(slots.iSlot, slots.nSlot,
             emitter);
         EmitForeachLoadElement(iter.isArray, iter.elemType, elemKind,
-            iter.elemBox, slots, emitter);
+            iter.elemBox, bRefLoop, slots, emitter);
         EmitStatement(*fe.Body(), emitter);
         EmitForeachLoopTail(loopStart, slots.iSlot, emitter);
         return;
@@ -164,10 +180,13 @@ void VmBackend::Access(SnForeachStmt& stmt) {
 //by name, so uniquify hidden locals via per-function counter (nested
 //foreach would otherwise collide on __foreach_iter etc.).
 VmBackend::ForeachSlots VmBackend::AllocForeachLocals(SnForeachStmt& fe,
-        uint8_t elemKind, bool isArray) {
+        uint8_t elemKind, bool isArray, bool bRefLoop) {
     ForeachSlots slots;
     uint16_t counter = m_currFunc->foreachCounter++;
-    slots.userVarSlot = AllocLocal(fe.VarName(), kFrameSlotBytes, elemKind,
+    //Effective reference form: the loop-var slot holds a (record, cell)
+    //pair — a GC-rooted byref slot, not the element value.
+    slots.userVarSlot = AllocLocal(fe.VarName(), kFrameSlotBytes,
+        bRefLoop ? static_cast<uint8_t>(RTK_Byref) : elemKind,
         false);
     //Array iter is RTK_Array; List and Dict-via-Keys are RTK_Class.
     uint8_t iterKind = isArray
@@ -263,13 +282,21 @@ size_t VmBackend::EmitForeachLoopHead(uint16_t iSlot, uint16_t nSlot,
 
 //Body-prelude: load element i into the user variable slot. Array:
 //OP_LoadElement, plus struct deep-copy on read (value semantics).
+//Reference form (Task 7 D6): bind the element in place instead of
+//copying it out — array cells via OP_RefOfElement, List elements via
+//the parked raw handle (RefOfPromoted for boxed scalar/string
+//payloads, RefOfLocal for struct records).
 //List (and Dict-after-Keys): get(i) — callParamBase[1] = i,
 //callParamBase[0] = this, OP_CallMethod, then unbox primitive T.
 void VmBackend::EmitForeachLoadElement(bool isArray, SnField* pElemType,
-        uint8_t elemKind, const ArgBoxPlan& elemBox,
+        uint8_t elemKind, const ArgBoxPlan& elemBox, bool bRefLoop,
         const ForeachSlots& slots,
         BytecodeEmitter& emitter) {
     if (isArray) {
+        if (bRefLoop) {
+            EmitForeachArrayRefBind(slots, emitter);
+            return;
+        }
         //Stage-2: OP_LoadElementFlat <dst> <arr> <flatIdx> — the payload
         //is contiguous row-major, so the linear index walks rank-1 and
         //rank-N arrays identically.
@@ -300,11 +327,36 @@ void VmBackend::EmitForeachLoadElement(bool isArray, SnField* pElemType,
     emitter.Emit(OpCode::OP_CallMethod);
     emitter.EmitUint16(nameIdx);
     emitter.EmitUint16(m_currFunc->callParamBase);
-    if (elemBox.needsBox)
+    if (elemBox.needsBox && !bRefLoop)
         EmitBoundaryUnbox(elemBox, emitter);
     emitter.Emit(OpCode::OP_Assign);
     emitter.EmitUint16(slots.userVarSlot);
+    if (bRefLoop)
+        EmitForeachListRefPair(elemBox, slots, emitter);
     emitter.Emit(OpCode::OP_ParaEnd);
+}
+
+//Array & bind (Task 7 D6): the & twin of LoadElementFlat — bind the
+//(record, cell) pair; scalar cells bind the cell address, struct cells
+//deref to the element record (OP_RefOfElement).
+void VmBackend::EmitForeachArrayRefBind(const ForeachSlots& slots,
+        BytecodeEmitter& emitter) {
+    emitter.Emit(OpCode::OP_RefOfElement);
+    emitter.EmitUint16(slots.userVarSlot);
+    emitter.EmitUint16(slots.iterSlot);
+    emitter.EmitUint16(slots.iSlot);
+}
+
+//List & bind tail (Task 7 D6): park the raw element handle, then build
+//the pair in place — no allocation sits between the park and the pair,
+//so no GC window opens. Boxed scalar/string elements bind the boxing
+//record's payload cell; struct records bind themselves.
+void VmBackend::EmitForeachListRefPair(const ArgBoxPlan& elemBox,
+        const ForeachSlots& slots, BytecodeEmitter& emitter) {
+    emitter.Emit(elemBox.needsBox ? OpCode::OP_RefOfPromoted
+                                  : OpCode::OP_RefOfLocal);
+    emitter.EmitUint16(slots.userVarSlot);
+    emitter.EmitUint16(slots.userVarSlot);
 }
 
 //Loop tail: continue target (i = i + 1), back-jump to the loop start,

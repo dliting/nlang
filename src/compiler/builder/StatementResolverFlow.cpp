@@ -301,6 +301,18 @@ void StatementResolveAccessor::RegisterForeachLoopVar(SnForeachStmt &sn,
 		*sn.Location());
 	if (sn.VarType()->IsArrayType())
 		pLocal->SetArrayType(true);
+	//Task 7 (D6): the & mark rides the VarType wrapper; the descriptor
+	//is built from the stripped inner node, so re-attach the flag for
+	//the dereference machinery to engage on body reads/writes. Bindable
+	//scalar/enum/string elements only — struct elements follow the
+	//pair-reads-as-handle convention without a flag, and class/array
+	//elements degrade to value form (spec 3.1).
+	if (sn.VarType()->ContainFlags(NF_Ref) && pVarField)
+	{
+		const NodeKind elemKind = pVarField->Kind();
+		if (IsPrimitiveType(elemKind) || elemKind == NK_EnumDecl)
+			pLocal->AddFlags(NF_Ref);
+	}
 	paragraph.AddLocal(sn.VarName(), pLocal);
 }
 

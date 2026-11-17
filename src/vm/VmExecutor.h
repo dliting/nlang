@@ -825,6 +825,14 @@ private:
     void OpRefOfField(BytecodeReader& reader, uint8_t* locals);
     void OpRefOfElement(BytecodeReader& reader, uint8_t* locals);
     void OpRefOfElementN(BytecodeReader& reader, uint8_t* locals);
+    //Shared bind tail of both element binds: peel views to the owner,
+    //decode the flat address, validate the cell window, store the pair
+    //(struct cells deref to the element record — offset-0 pair = record
+    //handle convention). Throws on corrupt records.
+    void StoreElementBindPair(uint16_t dst, std::vector<int32_t>& slot,
+        uint8_t kind, int32_t ownerHandle, int64_t flat, uint8_t* locals);
+    void BindStructElementCell(uint16_t dst,
+        const std::vector<int32_t>& payload, int64_t cell, uint8_t* locals);
     void OpRefHandle(BytecodeReader& reader, uint8_t* locals);
     void OpLoadRef(BytecodeReader& reader, uint8_t* locals);
     void OpStoreRef(BytecodeReader& reader, uint8_t* locals);

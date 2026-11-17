@@ -1033,7 +1033,7 @@ private:
         uint16_t nSlot = 0;
     };
     ForeachSlots AllocForeachLocals(SnForeachStmt& fe, uint8_t elemKind,
-                                    bool isArray);
+                                    bool isArray, bool bRefLoop);
     //Dict arm: inline keys() prelude replacing iterSlot with List<K>.
     void EmitForeachDictKeysPrelude(uint16_t iterSlot,
                                     BytecodeEmitter& emitter);
@@ -1046,9 +1046,18 @@ private:
     size_t EmitForeachLoopHead(uint16_t iSlot, uint16_t nSlot,
                                BytecodeEmitter& emitter);
     //Body-prelude: element i into the user slot (LoadElement +
-    //struct deep copy vs get() + unbox under the boundary plan).
+    //struct deep copy vs get() + unbox under the boundary plan; the
+    //reference form binds the pair instead — Task 7 D6).
     void EmitForeachLoadElement(bool isArray, SnField* pElemType,
                                 uint8_t elemKind, const ArgBoxPlan& elemBox,
+                                bool bRefLoop, const ForeachSlots& slots,
+                                BytecodeEmitter& emitter);
+    //Array & bind: OP_RefOfElement twin of LoadElementFlat (Task 7 D6).
+    void EmitForeachArrayRefBind(const ForeachSlots& slots,
+                                 BytecodeEmitter& emitter);
+    //List & bind tail: park the raw handle, build the pair in place
+    //(RefOfPromoted for boxed payloads, RefOfLocal for struct records).
+    void EmitForeachListRefPair(const ArgBoxPlan& elemBox,
                                 const ForeachSlots& slots,
                                 BytecodeEmitter& emitter);
     //Loop tail: i+=1 continue target, back-jump, break/continue

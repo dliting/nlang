@@ -2455,3 +2455,9 @@ refbind_getter_dict_struct_ref 7
 refbind_return_method 9
 refbind_return_method_value 7
 refbind_reject_iface_ref_return compile_error reference return
+# --- v0.13.9 phase 3 Task 7: reference-form foreach over arrays and lists ---
+refbind_foreach_array_scalar 67
+refbind_foreach_array_struct 60
+refbind_foreach_list_scalar 112
+refbind_foreach_list_struct 77
+refbind_local_struct_element 8

@@ -99,6 +99,67 @@ void VmExecutor::OpRefOfField(BytecodeReader& reader, uint8_t* locals) {
     std::memcpy(locals + dst, pair, sizeof(pair));
 }
 
+//Struct array cells hold the element record's handle, so the bind
+//derefs the cell: the pair names the ELEMENT record itself, keeping
+//the phase-3 convention that an offset-0 pair reads as a plain record
+//handle (member ops and in-place whole-stores consume the pair's low
+//half). Scalar/string cells stay cell-address pairs — the dereference
+//ops resolve them to the cell directly.
+void VmExecutor::BindStructElementCell(uint16_t dst,
+        const std::vector<int32_t>& payload, int64_t cell,
+        uint8_t* locals) {
+    int32_t elemHandle;
+    std::memcpy(&elemHandle, &payload[static_cast<size_t>(cell)],
+        sizeof(elemHandle));
+    if (elemHandle <= 0
+        || static_cast<size_t>(elemHandle) >= m_structHeap.size()
+        || m_slotKinds[static_cast<size_t>(elemHandle)] != RTK_Struct)
+        throw std::runtime_error(
+            "NLang VM: element bind on a corrupt struct element cell");
+    const int32_t pair[2] = {elemHandle, 0};
+    std::memcpy(locals + dst, pair, sizeof(pair));
+}
+
+//Shared bind tail of both element binds: peel views to the owner
+//(depth-one), decode the flat address over the view's own dims, and
+//validate the cell window before storing the (record, cell) pair —
+//struct cells deref to the element record (BindStructElementCell).
+//ElementPayloadRecord validates the view's depth-one target (throw on
+//a corrupt record) and returns the record owning the cells.
+void VmExecutor::StoreElementBindPair(uint16_t dst,
+        std::vector<int32_t>& slot, uint8_t kind, int32_t ownerHandle,
+        int64_t flat, uint8_t* locals) {
+    int32_t baseHandle = ownerHandle;
+    if (kind == RTK_ArrayView)
+        baseHandle = slot[ArrayViewTargetCell(
+            static_cast<uint8_t>(slot[2]))];
+    const int64_t addr = kind == RTK_ArrayView
+        ? ViewFlatElementAddress(slot, static_cast<int32_t>(flat))
+        : flat;
+    size_t payloadBase;
+    auto& payload = ElementPayloadRecord(slot, kind, payloadBase);
+    const uint16_t elemArrayTypeIdx = static_cast<uint16_t>(slot[1]);
+    if (elemArrayTypeIdx >= m_currModule->arrayTypes.size())
+        throw std::runtime_error(
+            "NLang VM: element bind on invalid array type");
+    const uint8_t elemKind =
+        m_currModule->arrayTypes[elemArrayTypeIdx].elemKind;
+    const int cells = ArrayElemCells(elemKind);
+    const int64_t cell = static_cast<int64_t>(payloadBase)
+        + addr * cells;
+    if (cell < 0
+        || static_cast<size_t>(cell) + static_cast<size_t>(cells)
+            > payload.size())
+        throw std::runtime_error(
+            "NLang VM: element bind cell window out of bounds");
+    if (elemKind == RTK_Struct) {
+        BindStructElementCell(dst, payload, cell, locals);
+        return;
+    }
+    const int32_t pair[2] = {baseHandle, static_cast<int32_t>(cell)};
+    std::memcpy(locals + dst, pair, sizeof(pair));
+}
+
 //Array element bind: the flat-address walk of OP_LoadElementFlat, but
 //the destination is the (record, cell) pair instead of the payload. A
 //view's payload lives in its owner (depth-one peel), so the pair must
@@ -122,43 +183,14 @@ void VmExecutor::OpRefOfElement(BytecodeReader& reader, uint8_t* locals) {
     if (flat < 0 || flat >= elemCount)
         RaiseNlangException(m_oobExcClassIdx,
                             "NLang VM: array index out of bounds");
-    uint16_t elemArrayTypeIdx = static_cast<uint16_t>(slot[1]);
-    if (elemArrayTypeIdx >= m_currModule->arrayTypes.size())
-        throw std::runtime_error(
-            "NLang VM: OP_RefOfElement on invalid array type");
-    const int cells = ArrayElemCells(
-        m_currModule->arrayTypes[elemArrayTypeIdx].elemKind);
-    int32_t baseHandle = heapIdx;
-    if (kind == RTK_ArrayView)
-        baseHandle = slot[ArrayViewTargetCell(
-            static_cast<uint8_t>(slot[2]))];
-    //A view's payload is not contiguous: decode the linear index to
-    //coordinates over the view's own dims, then apply the affine map
-    //into owner payload space.
-    const int64_t addr = kind == RTK_ArrayView
-        ? ViewFlatElementAddress(slot, flat)
-        : static_cast<int64_t>(flat);
-    size_t payloadBase;
-    //ElementPayloadRecord validates the view's depth-one target (throw on
-    //a corrupt record) and returns the record owning the cells — the one
-    //baseHandle names.
-    auto& payload = ElementPayloadRecord(slot, kind, payloadBase);
-    const int64_t cell = static_cast<int64_t>(payloadBase)
-        + addr * cells;
-    if (cell < 0
-        || static_cast<size_t>(cell) + static_cast<size_t>(cells)
-            > payload.size())
-        throw std::runtime_error(
-            "NLang VM: OP_RefOfElement cell window out of bounds");
-    const int32_t pair[2] = {baseHandle, static_cast<int32_t>(cell)};
-    std::memcpy(locals + dst, pair, sizeof(pair));
+    StoreElementBindPair(dst, slot, kind, heapIdx, flat, locals);
 }
 
 //Rank-N array element bind: the flat-address walk of OP_LoadElementN
 //(the emitter cannot precompute the flat index for dynamic shapes),
 //but the destination is the (owner record, cell) pair like
-//OP_RefOfElement. The view peel and the payload window check are the
-//rank-1 opcode's, shared verbatim.
+//OP_RefOfElement. The view peel, the cell window check and the struct
+//deref are the rank-1 opcode's, shared verbatim.
 void VmExecutor::OpRefOfElementN(BytecodeReader& reader, uint8_t* locals) {
     const uint16_t dst = reader.ReadUint16();
     const uint16_t arr = reader.ReadUint16();
@@ -179,27 +211,7 @@ void VmExecutor::OpRefOfElementN(BytecodeReader& reader, uint8_t* locals) {
             "NLang VM: OP_RefOfElementN rank mismatch");
     const int64_t flat =
         ElementFlatAddress(slot, kind, rank, idxBase, locals);
-    uint16_t elemArrayTypeIdx = static_cast<uint16_t>(slot[1]);
-    if (elemArrayTypeIdx >= m_currModule->arrayTypes.size())
-        throw std::runtime_error(
-            "NLang VM: OP_RefOfElementN on invalid array type");
-    const int cells = ArrayElemCells(
-        m_currModule->arrayTypes[elemArrayTypeIdx].elemKind);
-    int32_t baseHandle = heapIdx;
-    if (kind == RTK_ArrayView)
-        baseHandle = slot[ArrayViewTargetCell(
-            static_cast<uint8_t>(slot[2]))];
-    size_t payloadBase;
-    auto& payload = ElementPayloadRecord(slot, kind, payloadBase);
-    const int64_t cell = static_cast<int64_t>(payloadBase)
-        + flat * cells;
-    if (cell < 0
-        || static_cast<size_t>(cell) + static_cast<size_t>(cells)
-            > payload.size())
-        throw std::runtime_error(
-            "NLang VM: OP_RefOfElementN cell window out of bounds");
-    const int32_t pair[2] = {baseHandle, static_cast<int32_t>(cell)};
-    std::memcpy(locals + dst, pair, sizeof(pair));
+    StoreElementBindPair(dst, slot, kind, heapIdx, flat, locals);
 }
 
 //Struct& consumption: extract the pair's base handle back into a
