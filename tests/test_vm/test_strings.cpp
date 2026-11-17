@@ -14,7 +14,6 @@
 #include "nlang/vm/CompiledModule.h"
 #include "VmExecutor.h"
 #include "ModuleLoader.h"
-#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -269,16 +268,21 @@ void test_intern_sweep_purifies_table()
 
 //O(n^2) regression pin at DEFAULT thresholds: appending a deep chain used
 //to mark the whole live chain on every safepoint once the store crossed
-//the fixed trigger (the store never shrinks, so the size trigger is
-//level-triggered). The sweep-end threshold backoff (2x surviving
-//population) makes triggers advance geometrically with live data — this
-//shape ran minutes-level before the backoff and must stay in the
-//sub-second range now; the bound is measured seconds x 10 headroom.
-void test_deep_chain_append_bounded_time()
+//the fixed trigger (the store vector never shrinks, so the size trigger
+//stayed level-triggered from then on). The sweep-end threshold backoff
+//(twice the surviving population, floored at the store's high-water size)
+//puts the trigger ahead of the store, so a collection only happens when the
+//store itself has to grow — one per allocation block past the initial
+//threshold, measured 194 for 10^5 appends — instead of one per safepoint
+//(~10^5, each still marking the whole resident store). The collection count
+//is the deterministic shape of that difference. Wall time observed the same
+//regime but also observed the machine (the ASan leg runs the chain about 5x
+//slower), which is not what this pin is about.
+void test_deep_chain_append_bounded_collections()
 {
-    TEST(deep_chain_append_bounded_time);
+    TEST(deep_chain_append_bounded_collections);
     CompiledModule mod;
-    CHECK(loadSource("deep_chain_time",
+    CHECK(loadSource("deep_chain_collections",
         "int main() {\n"
         "    string s = \"\";\n"
         "    int i = 0;\n"
@@ -291,16 +295,22 @@ void test_deep_chain_append_bounded_time()
         "    return 0;\n"
         "}\n", mod), "build failed");
     VmExecutor exec;
-    const auto start = std::chrono::steady_clock::now();
+    //Calibrated on the measured 194 (one collection per store-growth block):
+    //5x headroom for a smaller allocation quantum or an extra store resident.
+    //The other regime was measured with the same pin, not estimated: disabling
+    //the backoff gave one collection per append (20000 at a 20k-append chain,
+    //and the 10^5 chain did not finish inside 400 s), so the ceiling separates
+    //the two regimes by two orders of magnitude.
+    constexpr size_t kDeepChainMaxCollections = 1024;
     CHECK(exec.Execute(mod) == 0, "chain must read back correct");
-    const auto elapsed = std::chrono::steady_clock::now() - start;
-    //The pin discriminates quadratic marking (tens of seconds) from the
-    //linear shape (~1s in release). The bound is generous because the
-    //ASan leg runs the same chain ~5x slower (~8s) — still 3x+ under
-    //any quadratic measurement.
-    CHECK(elapsed < std::chrono::seconds(15),
-        "10^5 default-threshold chain appends must stay well under 15s "
-        "(quadratic marking measures in the tens of seconds)");
+    //Read back the count instead of a stopwatch: the same regime holds on
+    //every tree and machine, so the pin cannot turn red on a downclocked leg
+    //nor green on a faster one.
+    CHECK(exec.GcCollectionCount() <= kDeepChainMaxCollections,
+        "10^5 default-threshold chain appends must stay in the backed-off "
+        "collection regime, got " + std::to_string(exec.GcCollectionCount())
+        + " collections (the level-triggered regime costs one per safepoint, "
+        "~10^5 here)");
     PASS();
 }
 
@@ -397,7 +407,7 @@ int main()
 {
     Runtime::StaticInit();   //in-process host requirement (IdString tables)
     TypeCastInfo::StaticInit();   //cast table (0.7.5: no longer inside Runtime::StaticInit)
-    test_deep_chain_append_bounded_time();
+    test_deep_chain_append_bounded_collections();
     test_intern_reuse_short_strings();
     test_intern_sweep_purifies_table();
     test_bounded_concat_live_count();
