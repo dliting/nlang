@@ -8,6 +8,7 @@
 //silently failed to match under MSVC (OP_ConstInt32 walked to the miss
 //on every module).
 #include "BytecodeOps.h"
+#include "BytecodeStrides.h"
 #include <iostream>
 #include <iterator>
 

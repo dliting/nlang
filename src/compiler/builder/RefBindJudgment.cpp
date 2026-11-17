@@ -24,7 +24,7 @@ namespace nlang
 //BINDING-only rule (RejectRefTargetIsReference) because returning a
 //reference formal is the canonical legal shape.
 bool RejectRefTargetStorage(BuildEnvironment &env, SnField *pField,
-	const ISourceLocation *pLoc)
+	const ISourceLocation *pLoc, bool constBinding)
 {
 	if (!pField)
 		return false;	//resolution already reported the shape
@@ -35,8 +35,12 @@ bool RejectRefTargetStorage(BuildEnvironment &env, SnField *pField,
 			pField->Name().c_str());
 		return true;
 	}
-	if (pField->ContainFlags(NF_Const)
-		|| IsInterfaceConstantField(*pField))
+	//Task 9: a const T& binding is the read-only form — const storage
+	//(and interface constants) alias legally; only the writable & form
+	//keeps the write-through argument.
+	if ((pField->ContainFlags(NF_Const)
+			|| IsInterfaceConstantField(*pField))
+		&& !constBinding)
 	{
 		env.Log(CLL_Error, pLoc,
 			"cannot bind a reference to const storage \"%s\"; a "
@@ -128,13 +132,71 @@ bool MemberCallBindsStorage(SnMemberExpr &member)
 	return false;
 }
 
+//Task 9: the root storage a member-chain receiver writes into, or
+//null when the chain leaves a local's own slots. Struct-typed hops
+//descend through slot-copy storage (every hop stores into the root's
+//record); a class/array-typed field hop stops the walk — deeper
+//stores mutate the shared object, not the root's slots (const is
+//shallow for identity types). This/call/subscript receivers are never
+//const frame storage.
+SnField *FindMemberChainRootStorage(SnExpression *pReceiver)
+{
+	while (pReceiver)
+	{
+		if (pReceiver->Kind() == NK_MemberExpr)
+		{
+			auto &hop = static_cast<SnMemberExpr &>(*pReceiver);
+			auto *pHopField = hop.Field();
+			auto *pHopType
+				= pHopField ? pHopField->EvalDataType() : nullptr;
+			if (!pHopType || pHopType->Kind() != NK_StructDecl)
+				return nullptr;	//identity hop or unresolved: pointee store
+			pReceiver = hop.Outer();
+			continue;
+		}
+		if (pReceiver->Kind() == NK_IdentifierExpr)
+			return static_cast<SnIdentifierExpr &>(*pReceiver).Field();
+		return nullptr;
+	}
+	return nullptr;
+}
+
+//Task 9: a const struct local/formal root — every store through the
+//chain writes its record, so both the member-store gate and the
+//writable &-binding judgment reject against it.
+bool IsConstStructStorage(SnField *pRoot)
+{
+	if (!pRoot || !pRoot->ContainFlags(NF_Const)
+		|| pRoot->Kind() == NK_ClassField
+		|| pRoot->Kind() == NK_EnumMember)
+		return false;
+	auto *pRootType = pRoot->EvalDataType();
+	return pRootType && pRootType->Kind() == NK_StructDecl;
+}
+
+//Task 9: the RECEIVER's constness bounds a member binding too — a
+//writable & through a member of const storage would write through the
+//const record (the const& form binds it read-only). True = rejected.
+static bool RejectConstReceiverBinding(BuildEnvironment &env,
+	SnMemberExpr &member, const ISourceLocation *pLoc)
+{
+	auto *pChainRoot = FindMemberChainRootStorage(member.Outer());
+	if (!IsConstStructStorage(pChainRoot))
+		return false;
+	env.Log(CLL_Error, pLoc,
+		"cannot bind a reference to const storage \"%s\"; a "
+		"reference may write through its target.",
+		pChainRoot->Name().c_str());
+	return true;
+}
+
 //The position family of the &-binding judgment — the out-argument
 //position template widened to the bindable-position list. Member/
 //identifier targets run the shared storage gates; subscript binds
 //elements and rejects slices. Task 6: a member-call target binds when
 //the callee hands back a reference (MemberCallBindsStorage).
 bool RejectRefBindPosition(BuildEnvironment &env, SnExpression &expr,
-	const ISourceLocation *pLoc)
+	const ISourceLocation *pLoc, bool constBinding)
 {
 	if (expr.Kind() == NK_MemberExpr)
 	{
@@ -146,9 +208,11 @@ bool RejectRefBindPosition(BuildEnvironment &env, SnExpression &expr,
 				"cannot bind a reference to a method call result.");
 			return true;
 		}
+		if (!constBinding && RejectConstReceiverBinding(env, member, pLoc))
+			return true;
 		if (RejectRefTargetStorage(env,
 				member.Inner() ? member.Inner()->Field() : nullptr,
-				pLoc))
+				pLoc, constBinding))
 			return true;
 	}
 	else if (expr.Kind() == NK_SubscriptExpr)
@@ -171,7 +235,7 @@ bool RejectRefBindPosition(BuildEnvironment &env, SnExpression &expr,
 	{
 		auto *pTargetField
 			= static_cast<SnIdentifierExpr &>(expr).Field();
-		if (RejectRefTargetStorage(env, pTargetField, pLoc))
+		if (RejectRefTargetStorage(env, pTargetField, pLoc, constBinding))
 			return true;
 		//Only a named binding target can itself be a reference (fields
 		//cannot carry &: the grammar rejects the declaration spelling).
@@ -228,9 +292,12 @@ bool RejectRefBindCallArgs(BuildEnvironment &env,
 		if (!b.pFormal || !b.pCallerExpr
 			|| !b.pFormal->ContainFlags(NF_Ref))
 			continue;
+		//Task 9: a const T& formal binds read-only — its arguments run
+		//the judgment in constBinding mode (const storage aliases).
+		const bool constBinding = b.pFormal->ContainFlags(NF_Const);
 		if (RejectRefBindTarget(env, *b.pCallerExpr,
 				b.pFormal->EvalDataType(),
-				b.pCallerExpr->Location()))
+				b.pCallerExpr->Location(), constBinding))
 			return false;
 		MarkPromotedBindTarget(*b.pCallerExpr);
 	}
@@ -239,13 +306,13 @@ bool RejectRefBindCallArgs(BuildEnvironment &env,
 
 //The &-binding judgment for one resolved initializer or argument.
 bool RejectRefBindTarget(BuildEnvironment &env, SnExpression &expr,
-	SnField *pTypeField, const ISourceLocation *pLoc)
+	SnField *pTypeField, const ISourceLocation *pLoc, bool constBinding)
 {
 	//Identity types: & is a no-op mark — the statement degrades to a
 	//plain value declaration with no binding contract (spec 3.1).
 	if (IsRefNoOpType(pTypeField))
 		return false;
-	if (RejectRefBindPosition(env, expr, pLoc))
+	if (RejectRefBindPosition(env, expr, pLoc, constBinding))
 		return true;
 	//Everything else (constructor/free-function invoke results,
 	//literals, binary results, explicit `as`) is an accepted rvalue:
@@ -307,6 +374,10 @@ void WarnIdentityRefFormals(BuildEnvironment &env, const SnClassDecl &tmpl,
 		const auto &fn = static_cast<const SnFunction &>(member);
 		for (auto &param : fn.Params())
 		{
+			//Task 9: a const T& formal is read-only — no write can fork,
+			//so the identity binding carries nothing to warn about.
+			if (param.ContainFlags(NF_Const))
+				continue;
 			auto *pType = param.Type();
 			if (!pType || !pType->IsResolved()
 				|| !pType->ContainFlags(NF_Ref))

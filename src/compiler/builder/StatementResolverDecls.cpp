@@ -235,8 +235,11 @@ void StatementResolveAccessor::ResolveInitDeclarator(SnLocalDeclStmt &sn,
 	decl.pInitExpr = nullptr;
 	if (sn.Type()->ContainFlags(NF_Ref) && pAssign->Right())
 	{
+		//Task 9: a const T& declaration binds read-only — const storage
+		//aliases in that mode (the statement's const bit rides the stmt
+		//from construction, before the descriptor's own NF_Const lands).
 		if (!RejectRefBindTarget(*pAssign->Right(), pTypeField,
-				sn.Location()))
+				sn.Location(), sn.IsConst()))
 			MarkPromotedBindTarget(*pAssign->Right());
 	}
 }

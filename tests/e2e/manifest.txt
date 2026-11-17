@@ -2396,6 +2396,7 @@ stdlib_dict_struct_key 42
 stdlib_stabilize_uncoordinated_race 42
 # --- v0.13.9 phase 3: reference-binding rejects (named diagnostics) ---
 refbind_reject_const_target compile_error cannot bind a reference to const storage
+refbind_reject_const_member compile_error cannot bind a reference to const storage
 refbind_reject_return_local compile_error cannot return a reference to local
 refbind_reject_scalar_convert compile_error cannot bind Byte to Int32&
 refbind_reject_enum_to_int_ref compile_error cannot bind Color to Int32&
@@ -2412,7 +2413,6 @@ refbind_reject_size_cont compile_error array declarator
 refbind_reject_method_result compile_error method call result
 refbind_reject_ref_to_ref compile_error cannot bind a reference to reference
 # --- v0.13.9 phase 3: reference storage rejects pinned at the grammar layer ---
-refbind_reject_const_decl compile_error const variable cannot bind a reference
 refbind_reject_generic_arg compile_error syntax error
 refbind_reject_field_decl compile_error syntax error
 refbind_reject_callsite_amp compile_error syntax error
@@ -2473,3 +2473,13 @@ refbind_generic_field_struct 149
 refbind_generic_member_handle_param 42042
 refbind_generic_member_handle_ret 105
 refbind_generic_handle_ret_value 508
+# --- v0.13.9 phase 3 Task 9: const T& read-only references ---
+const_ref_materialize 47
+const_ref_const_storage 15
+const_ref_write_reject compile_error cannot assign to const local
+const_ref_member_write_reject compile_error through the const storage
+const_ref_struct_member_reject compile_error through the const storage
+const_ref_param 0
+const_ref_param_write_reject compile_error through the const storage
+const_ref_generic 0
+const_ref_generic_write_reject compile_error cannot assign to const local

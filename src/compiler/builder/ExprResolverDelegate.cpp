@@ -105,7 +105,10 @@ static bool RejectDelegateRefMark(BuildEnvironment &env,
 {
 	if (arg.Kind() == NK_OutArgExpr)
 		return false;
-	return RejectRefBindTarget(env, arg, pFormal, arg.Location());
+	//Task 9: a const-marked key position binds read-only (const storage
+	//aliases), matching the direct-call &-argument judgment.
+	return RejectRefBindTarget(env, arg, pFormal, arg.Location(),
+		pFormal->ContainFlags(NF_Const));
 }
 
 void ExprResolveAccessor::BindDelegateInvoke(SnInvokeExpr &invoke,

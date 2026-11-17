@@ -90,9 +90,10 @@ void StatementResolveAccessor::MarkPromotedBindTarget(SnExpression &expr)
 //Delegate (RefBindJudgment.cpp) — Task 5 shares it with the
 //&-argument call site.
 bool StatementResolveAccessor::RejectRefBindTarget(SnExpression &expr,
-	SnField *pTypeField, const ISourceLocation *pLoc)
+	SnField *pTypeField, const ISourceLocation *pLoc, bool constBinding)
 {
-	return ::nlang::RejectRefBindTarget(m_Env, expr, pTypeField, pLoc);
+	return ::nlang::RejectRefBindTarget(m_Env, expr, pTypeField, pLoc,
+		constBinding);
 }
 
 //v0.13.9 phase 3: the &-return target contract (see StatementResolver.h).

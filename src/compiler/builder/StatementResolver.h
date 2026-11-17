@@ -96,12 +96,11 @@ private:
 	//StatementResolverRef.cpp.
 	bool RejectRefDeclaratorShapes(SnLocalDeclStmt &sn);
 	//v0.13.9 phase 3: the &-binding judgment for one resolved
-	//initializer — the position family plus the cast/exact-type tail.
-	//Identity types (class/interface/array/container) are no-op
-	//marks and skip the judgment entirely. True = rejected. Definition
-	//in StatementResolverRef.cpp.
+	//initializer. Identity types are no-op marks; constBinding marks
+	//a const T& declaration (Task 9). Definition in
+	//StatementResolverRef.cpp.
 	bool RejectRefBindTarget(SnExpression &expr, SnField *pTypeField,
-		const ISourceLocation *pLoc);
+		const ISourceLocation *pLoc, bool constBinding = false);
 	//v0.13.9 phase 3 Task 4: promotion marking for an accepted &-binding
 	//— scalar/enum/string local and formal targets get NF_Promoted so
 	//codegen compiles their storage as one stable boxed record.
@@ -203,6 +202,10 @@ private:
 		SnField *pTargetType, SnField* &pSourceType);
 	void RejectConstStoreTarget(SnExpression &left,
 		const ISourceLocation *pLoc);
+	//Task 9: the const-receiver arm of RejectConstStoreTarget's member
+	//branch. Definition in StatementResolverStoreGates.cpp.
+	void RejectConstReceiverMemberStore(SnMemberExpr &left,
+		SnField *pMemberField, const ISourceLocation *pLoc);
 	//v0.12.4 D3/D4: the const-aggregate field-store gate shared by both
 	//arms of RejectConstStoreTarget. A member (not a free helper) because
 	//the ctor exemption needs the private IsConstructorFunction.

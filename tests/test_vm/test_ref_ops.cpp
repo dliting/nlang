@@ -24,6 +24,7 @@
 #include "NcuLoader.h"
 #include "NcuLinker.h"
 #include "BytecodeOps.h"
+#include "BytecodeStrides.h"
 #include <cstdint>
 #include <cstring>
 #include <filesystem>

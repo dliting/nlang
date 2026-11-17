@@ -1069,19 +1069,14 @@ LocalDeclStmt: HeadType LocalDeclList ';' {
 						$$ = new SnLocalDeclStmt($3, $4, NF_Static | NF_Const, @1);
 					} ;
 
-//v0.13.9 phase 3: const cannot bind a reference (design 3.1: the const
-//storage binding is rejected) — the shape parses only so the rejection
-//names the rule, mirroring the top-level const-function diagnostic
-//arms. The '&' here is the same inline declarator mark the plain
-//LocalDeclStmt arm takes, so `const int& r` and `const Point& r` both
-//reach this diagnostic.
+//v0.13.9 phase 3 Task 9: the const read-only reference form. The '&'
+//rides the type node exactly like the plain reference arm above, and
+//the const bit rides the statement — the resolver's write gates key on
+//the descriptor's NF_Const, while the binding judgment relaxes its
+//const-storage arm for a const binding (RefBindJudgment).
 DeclLocalConst:	KT_Const HeadType '&' LocalDeclList ';' {
-				parser.Log(CLL_Error, @1,
-					"a const variable cannot bind a reference; "
-					"drop the '&' or drop the const.");
-				delete $2;
-				delete $4;
-				$$ = nullptr;
+				$2->AddFlags(NF_Ref);
+				$$ = new SnLocalDeclStmt($2, $4, true, @1);
 			} ;
 
 LocalDeclList: LocalDeclList ',' TT_Identifier {

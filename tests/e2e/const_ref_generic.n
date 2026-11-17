@@ -1,0 +1,22 @@
+//Task 9: generic const T& formals read through the runtime kind row for
+//every argument kind; T binding an identity type carries no fork warning
+//— a read-only formal cannot diverge (sidecar pins the warning absent).
+class Tag {
+    public int v;
+    public Tag(int v) { this.v = v; }
+}
+class Cmp<T> {
+    public Cmp() { }
+    public bool same(const T& a, const T& b) { return a == b; }
+}
+int main() {
+    Cmp<int> c = Cmp<int>();
+    if (!c.same(3, 3)) return 1;
+    if (c.same(3, 4)) return 2;
+    Cmp<string> s = Cmp<string>();
+    if (!s.same("ab", "ab")) return 3;
+    Cmp<Tag> t = Cmp<Tag>();
+    Tag one = Tag(7);
+    if (!t.same(one, one)) return 4;
+    return 0;
+}

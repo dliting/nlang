@@ -1,0 +1,13 @@
+//Task 9: a non-const & cannot alias INTO const storage through a
+//member read — the receiver's constness bounds the binding, not just
+//the member's own flags (const& binds the same shape read-only).
+struct Pt {
+    int x;
+    public Pt(int x) { this.x = x; }
+}
+int main() {
+    const Pt p = Pt(1);
+    int& r = p.x;
+    r = 5;
+    return p.x;
+}

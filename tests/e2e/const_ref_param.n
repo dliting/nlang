@@ -1,0 +1,19 @@
+//Task 9: const reference formals read their argument storage — lvalues
+//bind by alias and rvalues by materialization; the write shapes are
+//pinned on the compile-error side.
+struct Pt {
+    int x; int y;
+    public Pt(int x, int y) { this.x = x; this.y = y; }
+}
+int sum(const Pt& v) { return v.x + v.y; }
+int add(const int& a, const int& b) { return a + b; }
+int main() {
+    Pt p = Pt(1, 2);
+    if (sum(p) != 3) return 1;
+    if (add(40, 2) != 42) return 2;
+    int x = 5;
+    if (add(x, x) != 10) return 3;
+    const Pt q = Pt(4, 5);
+    if (sum(q) != 9) return 4;
+    return 0;
+}
