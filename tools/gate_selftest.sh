@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# gate_selftest.sh — behaviour tests for gate.sh's write-directory lock.
+# gate_selftest.sh — behaviour tests for gate.sh's write-directory lock and for
+# gate_tier.sh's batch assembly.
 #
 # Two modes:
 #   (no arguments)            driver: run the cases below, print one line per
@@ -16,11 +17,13 @@
 #                             real flags are written in, and the stub has no
 #                             business parsing them.
 #
-# The gate script under test is <repo>/tools/gate.sh. NLANG_GATE_SH overrides
-# that path: the mutation checks point it at a modified copy under temp/,
-# which is the only way to test a broken gate.sh without editing the
-# repository copy (the repository copy must not be edited at all while some
-# other gate batch is running).
+# The gate script under test is <repo>/tools/gate.sh, and the batch assembler
+# case A10 drives is <repo>/tools/gate_tier.sh. NLANG_GATE_SH and
+# NLANG_GATE_TIER_SH override those paths: the mutation checks point gate.sh at a
+# modified copy under temp/, which is the only way to test a broken gate.sh
+# without editing the repository copy (the repository copy must not be edited at
+# all while some other gate batch is running). A10 needs no override — it drives
+# the repository copy and only redirects where that script writes its logs.
 #
 # All driver artifacts live in one private workspace: the test trees, the
 # event files, the GO files, each leg's <stem>.console, and a private
@@ -37,6 +40,7 @@ SELFTEST_SENTINEL_S=120
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 GATE_SH=${NLANG_GATE_SH:-$REPO/tools/gate.sh}
+TIER_SH=${NLANG_GATE_TIER_SH:-$REPO/tools/gate_tier.sh}
 SELF="$REPO/tools/gate_selftest.sh"
 
 # --- stub mode --------------------------------------------------------------
@@ -770,6 +774,63 @@ case_a9_no_digest_warning() {
     fi
 }
 
+# gate_tier.sh is the assembler: it works out which legs a change needs and hands
+# each one to gate.sh. Two properties have to hold for a batch to mean anything,
+# and neither is visible from inside gate.sh:
+#   - every leg really reaches gate.sh. A leg whose command cannot even start has
+#     to come out as a FAIL verdict, not as the "NO-VERDICT" placeholder the
+#     verdict block prints for a leg that never wrote a log.
+#   - the batch's exit code carries the legs' verdicts. A person scripting the
+#     batch reads the exit code; one that stays 0 while every leg is red turns a
+#     red batch green.
+# One leg pins both, and it is the cheapest leg the assembler can build: T0 with a
+# path the impact map does not know falls back to the full Debug unit family and
+# schedules no e2e leg at all, and a build tree that does not exist fails that leg
+# the moment the shell tries to enter it. The tier work directory is redirected
+# into this workspace so the leg's logs cannot collide with a real batch's, and
+# the legs inherit the private NLANG_GATE_LOCK_DIR exported above.
+case_a10_gate_tier_batch() {
+    local out=a10-tier.out rc
+    NLANG_GATE_TIER_WORK="$WS/a10" bash "$TIER_SH" T0 \
+        --master-tree "$WS/no-such-tree" \
+        --paths src/__selftest_unmapped__.cpp > "$out" 2>&1
+    rc=$?
+    if ! grep -F -q -- "GATE T0-unit: FAIL" "$out" 2>/dev/null; then
+        fail "$case_name" "the batch printed no FAIL verdict for its leg (rc=$rc): [$(tr '\n' ';' < "$out" 2>/dev/null)]"
+        return
+    fi
+    if [ "$rc" -eq 0 ]; then
+        fail "$case_name" "a batch with a failing leg exited 0: [$(tr '\n' ';' < "$out" 2>/dev/null)]"
+        return
+    fi
+    pass "$case_name"
+}
+
+# The docs checker walks the cross-language links (en pages point at
+# ../../zh/index.html and the reverse), so a language whose sibling site has
+# not been built yet reports that sibling's home page as a missing target. The
+# assembler therefore builds en and zh before checking either — an order
+# property the legs themselves cannot defend, since each leg only sees its own
+# site directory. The per-language build-then-check order passed for months
+# because an earlier run had left the sibling site on disk, so nothing but the
+# leg sequence pins it. A dry run prints the planned legs without executing
+# them, which makes the check a string comparison instead of four docs builds.
+case_a11_docs_leg_order() {
+    local out=a11-docs-order.out rc order
+    NLANG_GATE_TIER_WORK="$WS/a11" bash "$TIER_SH" T1 --docs --dry-run \
+        --master-tree "$WS/no-such-tree" --asan-tree "$WS/no-such-tree" \
+        --ide-tree "$WS/no-such-tree" > "$out" 2>&1
+    rc=$?
+    order=$(sed -n 's/^LEG \(T-docs-[a-z-]*\):.*/\1/p' "$out" \
+        | tr '\n' ' ' | sed 's/[ ]*$//')
+    if [ "$order" != \
+        "T-docs-pytest T-docs-build-en T-docs-build-zh T-docs-check-en T-docs-check-zh" ]; then
+        fail "$case_name" "docs legs are not both builds before both checks (rc=$rc): [$order]"
+        return
+    fi
+    pass "$case_name"
+}
+
 run_case() { # run_case <name> <function>: no case runs once the budget is gone
     local case_name="$1"   # visible to the case body through bash's dynamic scope
     if [ "$(deadline)" -eq 0 ]; then
@@ -790,6 +851,10 @@ run_case a6-no-write-dir case_a6_no_write_dir
 run_case a7-print-write-dirs case_a7_print_write_dirs
 run_case a8-usage-lists-print-mode case_a8_usage_lists_print_mode
 run_case a9-no-digest-warning case_a9_no_digest_warning
+# A10 drives the batch assembler rather than gate.sh itself, so it comes after the
+# locking cases, which own the run order spec 八.3 fixes for gate.sh.
+run_case a10-gate-tier-batch case_a10_gate_tier_batch
+run_case a11-docs-leg-order case_a11_docs_leg_order
 
 verdict() {
     if [ "$failures" -eq 0 ]; then

@@ -21,13 +21,24 @@
 # "GATE <leg>: PASS|FAIL"); all legs run regardless of earlier reds —
 # any red voids the batch and forces a full re-sweep. --dry-run prints
 # the planned legs without executing (assembly self-check).
+#
+# The exit code is 0 only when every leg printed a PASS verdict and the
+# assembly itself worked; a red leg, a leg that never reached gate.sh
+# (no verdict line) and a failed subset derivation all make it non-zero,
+# so a caller scripting the batch cannot mistake a red batch for a green
+# one (gate_selftest.sh case A10). NLANG_GATE_TIER_WORK redirects the log
+# and scratch directory (default temp/tier) for a caller that must not
+# collide with a batch already running.
 
 set -u
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
-GATE="bash $REPO/tools/gate.sh"
+# An array, not a string: a quoted "$GATE" string would be looked up as one
+# command name ("bash <path>/gate.sh"), which no shell can find, and every leg
+# would then die with 127 before gate.sh ever saw it.
+GATE=(bash "$REPO/tools/gate.sh")
 PY="D:/dev/miniconda3/envs/py313/python.exe"
-LOGS="$REPO/temp/tier/gates"
-WORK="$REPO/temp/tier"
+WORK="${NLANG_GATE_TIER_WORK:-$REPO/temp/tier}"
+LOGS="$WORK/gates"
 DOCS_CONFIG_EN="$REPO/docs/mkdocs.en.yml"
 DOCS_CONFIG_ZH="$REPO/docs/mkdocs.zh.yml"
 
@@ -41,7 +52,10 @@ DRY=0
 CHANGED_PATHS=()
 LEG_NAMES=()
 
-usage() { grep '^#' "$0" | head -32; exit 2; }
+# Usage is the leading comment block: printing it by line count would need a
+# number to keep in step with the header, so the block ends where the comments
+# end.
+usage() { awk 'NR>1 { if ($0 !~ /^#/) exit; sub(/^# ?/, ""); print }' "$0"; exit 2; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -70,8 +84,9 @@ leg() { # leg <name> <command...>
     echo "LEG $name: $*"
     return 0
   fi
-  "$GATE" "$name" "$LOGS/$name" "$@" > "$LOGS/$name.gate" 2>&1
-  echo "leg $name rc=$?"
+  local rc=0
+  "${GATE[@]}" "$name" "$LOGS/$name" "$@" > "$LOGS/$name.gate" 2>&1 || rc=$?
+  echo "leg $name rc=$rc"
 }
 
 ctest_leg() { # ctest_leg <name> <tree>
@@ -112,12 +127,21 @@ docs_legs() {
   leg "T-docs-pytest" env PYTHONPATH="$REPO/tools/nlang-docs/src" \
     "NLANG_NCC=$ncc" "NLANG_NVM=$nvm" \
     "$PY" -m pytest "$REPO/tools/nlang-docs/tests" -q
+  #Both builds precede both checks: the checker walks the cross-language
+  #links (en pages point at ../../zh/index.html and the reverse), so a
+  #language checked before its sibling site exists reports that sibling's
+  #home page as a missing target. The per-language build-then-check order
+  #only ever passed because an earlier run had left the sibling site on
+  #disk.
   for lang in en zh; do
     local config="$REPO/docs/mkdocs.$lang.yml"
     leg "T-docs-build-$lang" env PYTHONPATH="$REPO/tools/nlang-docs/src" \
       "$PY" -m nlang_docs build --config "$config" \
       --site-dir "$WORK/docs-site/$lang" --ncc "$ncc" --nvm "$nvm" \
       --defer-site-audit
+  done
+  for lang in en zh; do
+    local config="$REPO/docs/mkdocs.$lang.yml"
     leg "T-docs-check-$lang" env PYTHONPATH="$REPO/tools/nlang-docs/src" \
       "$PY" -m nlang_docs check --site-dir "$WORK/docs-site/$lang" \
       --config "$config"
@@ -186,11 +210,24 @@ esac
 batch_rc=$?
 
 echo "===== $TIER verdicts ====="
-local_rc=0
-for name in "${LEG_NAMES[@]}"; do
-  line=$(grep -h "GATE $name" "$LOGS/$name.gate" 2>/dev/null || \
-         echo "GATE $name: NO-VERDICT (dry-run or missing)")
-  echo "$line"
-  [[ "$line" == *FAIL* || "$line" == *NO-VERDICT* ]] && local_rc=1
-done
-exit $batch_rc
+verdict_rc=0
+if [ "$DRY" = 1 ]; then
+  # A dry run checks the assembly, not the tree: the legs were listed and never
+  # run, so a missing verdict is what it should look like, not a red batch.
+  for name in ${LEG_NAMES[@]+"${LEG_NAMES[@]}"}; do
+    echo "GATE $name: NO-VERDICT (dry run)"
+  done
+else
+  # The verdict lines are the batch's result: a leg that is red and a leg that
+  # never reached gate.sh (no line of its own) both keep the batch non-zero.
+  for name in ${LEG_NAMES[@]+"${LEG_NAMES[@]}"}; do
+    line=$(grep -h "GATE $name" "$LOGS/$name.gate" 2>/dev/null || \
+           echo "GATE $name: NO-VERDICT (the leg printed no verdict)")
+    echo "$line"
+    [[ "$line" == *FAIL* || "$line" == *NO-VERDICT* ]] && verdict_rc=1
+  done
+  # An assembly failure after some legs ran (a missing subset selector) leaves
+  # every leg green and must still turn the batch red.
+  [ "$batch_rc" -ne 0 ] && verdict_rc=1
+fi
+exit "$verdict_rc"
