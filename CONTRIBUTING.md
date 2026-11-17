@@ -42,10 +42,13 @@ The e2e runner takes ncc/nvm paths as positional arguments and defaults to the
 Full runs are batched into three tiers (`tools/gate_tier.sh`, design in
 `docs/dev/gate_tiering_design.md`): T0 runs only the test families an
 iteration's changed sources map to (unmapped changes fall back to the full
-Debug unit suite); T1 is the phase dock — full Debug units and e2e, the IDE
-tree, ASan units and the ASan memory-risk e2e subset; T2 adds full ASan e2e,
-the Release build and e2e, and the docs pipeline, and runs once at version
-close. Every e2e manifest entry must be selected by at least one tier
+Debug unit suite) and closes out an ordinary task; T1 is the phase dock — full
+Debug units and e2e, the IDE tree, ASan units and the ASan memory-risk e2e
+subset, the slow-test batch, and the docs legs (only when the manual changed) —
+and runs when a change touches a memory-risk family (concurrency, containers,
+GC/exceptions/serialization) or at a major phase dock; T2 runs everything once
+before the release tag, adding full ASan e2e, the Release build and e2e, and
+the products. Every e2e manifest entry must be selected by at least one tier
 (`tools/tier_coverage_check.py`); a red leg voids the whole batch and forces
 a full re-sweep.
 

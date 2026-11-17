@@ -6,10 +6,13 @@
 #   gate_tier.sh T1 --master-tree DIR --asan-tree DIR --ide-tree DIR [--docs]
 #   gate_tier.sh T2 --master-tree DIR --asan-tree DIR --ide-tree DIR
 #
-# T0  (per-iteration, minutes): impact-mapped Debug unit families +
-#     matching e2e subset; any unmapped changed path falls back to the
-#     FULL Debug unit suite (never fewer tests).
-# T1  (phase dock, ~1-1.5h): full Debug units + full Debug e2e (cap
+# T0  (per iteration, and the close-out of an ordinary task, minutes):
+#     impact-mapped Debug unit families + matching e2e subset; any
+#     unmapped changed path falls back to the FULL Debug unit suite
+#     (never fewer tests).
+# T1  (phase dock, ~1-1.5h; also the close-out of a task whose change
+#     touches a memory-risk family — concurrency, containers,
+#     GC/exceptions/serialization): full Debug units + full Debug e2e (cap
 #     120x3, calibrated against stdlib_regex_size's 244s Debug reality)
 #     + IDE tree + ASan units + ASan memory-risk e2e subset. The subset
 #     is DERIVED at run time from tools/gate_tiers.txt (the stale-copy
