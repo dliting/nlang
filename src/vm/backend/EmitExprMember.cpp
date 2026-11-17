@@ -293,10 +293,13 @@ bool VmBackend::EmitMemberBuiltinDispatch(SnMemberExpr& member,
 
 //Typed-receiver phase: struct field read, class field read or method call,
 //interface method call. Returns true when the receiver type matched.
+//bRawRefResult (Task 6) threads to the class-method dispatch tail: the
+//MakeRef &-return arm drives this entry directly with true.
 bool VmBackend::EmitMemberTypedReceiverDispatch(SnMemberExpr& member,
                                                 SnField* outerType,
                                                 BytecodeEmitter& emitter,
-                                                uint16_t resultOffset) {
+                                                uint16_t resultOffset,
+                                                bool bRawRefResult) {
     //Struct field access (e.g. pt.x, pt.inner.x)
     if (outerType && outerType->Kind() == NK_StructDecl) {
         auto* structDecl = static_cast<SnStructDecl*>(outerType);
@@ -325,7 +328,7 @@ bool VmBackend::EmitMemberTypedReceiverDispatch(SnMemberExpr& member,
         } else if (inner && inner->Kind() == NK_InvokeExpr) {
             auto& invoke = static_cast<SnInvokeExpr&>(*inner);
             EmitMemberClassMethodCall(invoke, *classDecl, emitter,
-                                      resultOffset);
+                                      resultOffset, bRawRefResult);
         }
         return true;
     }

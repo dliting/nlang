@@ -2437,3 +2437,21 @@ refbind_local_member 9
 refbind_local_element 8
 refbind_local_chain 9
 refbind_local_rvalue 3
+# --- v0.13.9 phase 3 Task 6: container getter T& and reference returns ---
+refbind_getter_value_copy 7
+refbind_getter_ref_write 9
+refbind_getter_member_write 9
+refbind_getter_boxed_elem 8
+refbind_getter_alias_set 6
+refbind_getter_alias_remove 8
+refbind_getter_alias_clear 8
+refbind_getter_alias_grow 9
+refbind_getter_dict_miss 1
+refbind_return_scalar 9
+refbind_return_element 9
+refbind_return_value_ctx 7
+refbind_getter_explicit_get_ref 9
+refbind_getter_dict_struct_ref 7
+refbind_return_method 9
+refbind_return_method_value 7
+refbind_reject_iface_ref_return compile_error reference return

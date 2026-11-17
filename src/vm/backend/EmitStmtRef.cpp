@@ -16,6 +16,7 @@
 #include <nlang/compiler/SnExtraTypes.h>
 #include <nlang/compiler/ScriptLocation.h>
 #include <nlang/runtime/NodeConsts.h>
+#include <nlang/runtime/PrimitiveTypes.h>
 #include <cassert>
 
 namespace nlang {
@@ -32,6 +33,38 @@ bool VmBackend::IsDerefRefDescriptor(SnField* pField)
         return false;
     const NodeKind kind = pType->Kind();
     return IsPrimitiveType(kind) || kind == NK_EnumDecl;
+}
+
+//Task 6: the value-side deref kind byte for a &-returning callee. 0
+//(no normalization) for non-ref callees and for struct/class/array
+//returns — the pair's low half is the record handle every value
+//consumer (deep copy, member read) already reads. Scalar, string and
+//enum returns name the payload tag OP_LoadRef derefs on any bindable
+//pair (field cells, promoted boxes alike).
+uint8_t VmBackend::RefReturnDerefKind(SnFunction* pCallee) {
+    if (!pCallee || !pCallee->ReturnType())
+        return 0;
+    auto* pRetType = pCallee->ReturnType();
+    if (!pRetType->ContainFlags(NF_Ref))
+        return 0;
+    auto* pInner = pRetType->Field();
+    if (!pInner)
+        return 0;
+    const NodeKind kind = pInner->Kind();
+    if (kind != NK_String && kind != NK_EnumDecl
+        && ScalarPrimIndexOf(kind) < 0)
+        return 0;
+    return BoxTypeTagOfKind(kind);
+}
+
+//See VmBackend.h — the slot holds a parked pair; the deref reads it
+//back into itself.
+void VmBackend::EmitRefDerefInPlace(uint8_t derefKind, uint16_t slot,
+    BytecodeEmitter& emitter) {
+    emitter.Emit(OpCode::OP_LoadRef);
+    emitter.EmitByte(derefKind);
+    emitter.EmitUint16(slot);
+    emitter.EmitUint16(slot);
 }
 
 //Activation-time box for one promoted declarator (design §3.2): the

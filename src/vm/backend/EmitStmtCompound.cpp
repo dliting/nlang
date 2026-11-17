@@ -270,7 +270,7 @@ void VmBackend::EmitSubscriptGetFromClaim(uint16_t claimBase,
         uint16_t indexSlot, uint16_t oldValSlot, const ArgBoxPlan& valBox,
         BytecodeEmitter& emitter) {
     CopyClaimToCallParams(claimBase, 2, emitter);
-    uint16_t nameIdx = AddStringConstant("get");
+    uint16_t nameIdx = AddStringConstant(kBuiltinGetMethodName);
     emitter.Emit(OpCode::OP_CallMethod);
     emitter.EmitUint16(nameIdx);
     emitter.EmitUint16(m_currFunc->callParamBase);

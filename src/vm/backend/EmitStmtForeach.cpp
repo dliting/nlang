@@ -296,7 +296,7 @@ void VmBackend::EmitForeachLoadElement(bool isArray, SnField* pElemType,
     emitter.EmitUint16(slots.iterSlot);
     emitter.Emit(OpCode::OP_Assign);
     emitter.EmitUint16(m_currFunc->callParamBase);
-    uint16_t nameIdx = AddStringConstant("get");
+    uint16_t nameIdx = AddStringConstant(kBuiltinGetMethodName);
     emitter.Emit(OpCode::OP_CallMethod);
     emitter.EmitUint16(nameIdx);
     emitter.EmitUint16(m_currFunc->callParamBase);

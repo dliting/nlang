@@ -1,16 +1,19 @@
 /*---
-    EmitExprRef.cpp — v0.13.9 phase 3 Task 5: the MakeRef emission
-    family. One (base record, cell) pair builder serves both consumption
+    EmitExprRef.cpp — v0.13.9 phase 3 Tasks 5/6: the MakeRef emission
+    family. One (base record, cell) pair builder serves the consumption
     sites of the shared judgment (RefBindJudgment.cpp): a &-formal
     argument at a call site and a &-binding initializer. Identifier,
-    member-chain, subscript and rvalue arms — the rvalue contract binds
-    a fresh temporary record and writes to it are lost (spec §3.9).
+    member-chain, member-call, invoke, subscript (array and container
+    cores) and rvalue arms — the rvalue contract binds a fresh
+    temporary record and writes to it are lost (spec §3.9). Task 6:
+    &-returning callees pass the raw pair through the call boundary.
     Split from EmitStmtRef.cpp per the source-size guard.
 ---*/
 #include "VmBackend.h"
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnExpressions.h>
 #include <nlang/compiler/SnData.h>
+#include <nlang/runtime/BuiltinGenericNames.h>
 #include <nlang/runtime/NodeConsts.h>
 #include <cassert>
 #include <stdexcept>
@@ -147,15 +150,53 @@ void VmBackend::EmitMakeRefOfMemberChain(uint16_t dstOffset,
     }
 }
 
-//Subscript arm: the read path's staging shape (array + indices in one
-//exclusive claim), then the ref opcodes. Rank-1 binds through
-//OP_RefOfElement (the single index IS the flat address); rank-N binds
-//through OP_RefOfElementN — the runtime computes the flat address from
-//the staged indices, so static tokens and dynamic shapes bind alike.
-//Slices never reach here (the resolver rejects them).
+//Container & read (Task 6): subscript sugar `pts[0]` and the explicit
+//`pts.get(0)` spelling share this core. The get() call stages through
+//the shared helper (result in the accumulator, raw — no return unbox),
+//then the & tail pair-builds: a primitive element's boxed record holds
+//the payload at cell 1 (OP_RefOfPromoted); a struct/class element IS a
+//record (OP_RefOfLocal, cell 0). A Dict miss raises the same runtime
+//error as the value read.
+void VmBackend::EmitMakeRefOfContainerGet(uint16_t dstOffset,
+    SnExpression& receiver, SnExpression& index, BytecodeEmitter& emitter)
+{
+    ArgBoxPlan keyBox;
+    ArgBoxPlan valBox;
+    ClassifyContainerGet(receiver, keyBox, valBox);
+    EvalAreaClaim claim(*this, 2);
+    StageContainerGetCall(receiver, index, keyBox, claim.base(), emitter);
+    //The accumulator holds the raw get() result: park it in claim[0]
+    //(the receiver slot — consumed by the call) and pair-build.
+    emitter.Emit(OpCode::OP_Assign);
+    emitter.EmitUint16(claim.base());
+    if (valBox.needsBox) {
+        emitter.Emit(OpCode::OP_RefOfPromoted);
+        emitter.EmitUint16(dstOffset);
+        emitter.EmitUint16(claim.base());
+    } else {
+        emitter.Emit(OpCode::OP_RefOfLocal);
+        emitter.EmitUint16(dstOffset);
+        emitter.EmitUint16(claim.base());
+    }
+    emitter.Emit(OpCode::OP_ParaEnd);
+}
+
+//Subscript arm: containers route to the get()-based core — the array
+//ref opcodes are invalid on a container record. Plain arrays keep the
+//read path's staging shape (array + indices in one exclusive claim),
+//then the ref opcodes. Rank-1 binds through OP_RefOfElement (the single
+//index IS the flat address); rank-N binds through OP_RefOfElementN —
+//the runtime computes the flat address from the staged indices, so
+//static tokens and dynamic shapes bind alike. Slices never reach here
+//(the resolver rejects them).
 void VmBackend::EmitMakeRefOfSubscript(uint16_t dstOffset,
     SnSubscriptExpr& sub, BytecodeEmitter& emitter)
 {
+    if (IsContainerSubscript(*sub.Array())) {
+        EmitMakeRefOfContainerGet(dstOffset, *sub.Array(), *sub.Index(),
+            emitter);
+        return;
+    }
     const size_t rank = sub.Indices().size();
     EvalAreaClaim claim(*this, rank + 1);
     uint16_t claimBase = claim.base();
@@ -177,6 +218,71 @@ void VmBackend::EmitMakeRefOfSubscript(uint16_t dstOffset,
     emitter.EmitUint16(claimBase);
     emitter.EmitUint16(claimBase + kFrameSlotBytes);
     emitter.EmitUint16(static_cast<uint16_t>(rank));
+}
+
+//&-returning invoke: the callee's return slot holds the raw
+//(record, cell) pair — stage the call straight into the destination
+//(bRawRefResult suppresses the value-side normalization). Everything
+//else is an rvalue: the documented temporary-record contract.
+void VmBackend::EmitMakeRefOfInvoke(uint16_t dstOffset,
+    SnInvokeExpr& invoke, BytecodeEmitter& emitter)
+{
+    auto* pCallee = invoke.Callee();
+    if (pCallee && pCallee->ReturnType()
+        && pCallee->ReturnType()->ContainFlags(NF_Ref)) {
+        EmitBareInvokeShape(invoke, dstOffset, /*bRawRefResult=*/true);
+        return;
+    }
+    EmitMakeRefOfRvalue(dstOffset, invoke, emitter);
+}
+
+//Member-call shape in a & context (Task 6): three routes.
+//  - a &-returning class method: the ladder threads bRawRefResult so
+//    the raw pair lands in the destination (write-through);
+//  - the builtin container get: the same core as the subscript sugar;
+//  - anything else: rvalue (temporary record, writes lost).
+//Field-read chains fall through to the member-chain arm below.
+void VmBackend::EmitMakeRefOfMemberCall(uint16_t dstOffset,
+    SnMemberExpr& member, BytecodeEmitter& emitter)
+{
+    auto* pInner = member.Inner();
+    if (pInner && pInner->Kind() == NK_InvokeExpr) {
+        auto& invoke = static_cast<SnInvokeExpr&>(*pInner);
+        //Container get first: the receiver shape identifies the route —
+        //the callee resolves to the containers.n declaration whose
+        //instantiation does not carry the & mark (generic synthesis,
+        //phase 3 Task 8), so the mark is no discriminator here.
+        if (invoke.CalleeName() == kBuiltinGetMethodName
+            && IsContainerSubscript(*member.Outer())) {
+            SnExpression* pIndex = nullptr;
+            for (auto& param : invoke.Params()) {
+                pIndex = &param;
+                break;
+            }
+            if (pIndex) {
+                EmitMakeRefOfContainerGet(dstOffset, *member.Outer(),
+                    *pIndex, emitter);
+                return;
+            }
+        }
+        auto* pCallee = invoke.Callee();
+        if (pCallee && pCallee->ReturnType()
+            && pCallee->ReturnType()->ContainFlags(NF_Ref)) {
+            auto* pOuterType = member.Outer()->EvalDataType();
+            NLANG_ASSERT(pOuterType != nullptr);
+            if (pOuterType->Kind() != NK_ClassDecl)
+                throw std::runtime_error(
+                    "NLang backend: reference-returning call on a "
+                    "non-class receiver (declaration gate missed)");
+            EmitMemberTypedReceiverDispatch(member,
+                static_cast<SnClassDecl*>(pOuterType), emitter,
+                dstOffset, /*bRawRefResult=*/true);
+            return;
+        }
+        EmitMakeRefOfRvalue(dstOffset, member, emitter);
+        return;
+    }
+    EmitMakeRefOfMemberChain(dstOffset, member, emitter);
 }
 
 //Rvalue arm: everything the position family does not name — literals,
@@ -221,8 +327,12 @@ void VmBackend::EmitMakeRef(uint16_t dstOffset, SnExpression& expr,
             static_cast<SnIdentifierExpr&>(expr), emitter);
         return;
     case NK_MemberExpr:
-        EmitMakeRefOfMemberChain(dstOffset,
+        EmitMakeRefOfMemberCall(dstOffset,
             static_cast<SnMemberExpr&>(expr), emitter);
+        return;
+    case NK_InvokeExpr:
+        EmitMakeRefOfInvoke(dstOffset,
+            static_cast<SnInvokeExpr&>(expr), emitter);
         return;
     case NK_SubscriptExpr:
         EmitMakeRefOfSubscript(dstOffset,

@@ -36,6 +36,11 @@ inline constexpr const char* kBuiltinFutureTypeName = "Future";
 //RTK_Array records — so the constant serves name identity only
 //(scanner generic-open set, template-row method matching).
 inline constexpr const char* kBuiltinArrayTypeName = "Array";
+//The method name the container subscript sugar lowers to (`li[i]` and
+//`d[k]` read as a `get` call — resolver judgment and emit sites share
+//the spelling; the store sugar's counterpart lives in the assign
+//resolver).
+inline constexpr const char* kBuiltinGetMethodName = "get";
 //Promise is a DECLARED generic (stdlib/thread.n template + hidden
 //__handle slot + intrinsics), NOT a member of the synthetic-creation
 //whitelist below: every consumer of IsBuiltinGenericTypeName routes on

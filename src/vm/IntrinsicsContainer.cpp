@@ -17,6 +17,71 @@ namespace nlang {
 //family) — same contract: thrown by structural arms inside the domain
 //guard, converted at the section boundary.
 
+//Container set() element stabilization (see VmExecutor.h). The boxed
+//arm copies payload cells 1..2 verbatim: both boxes were allocated for
+//the same declared element type (AllocBoxedValue's 3-cell layout —
+//tag, payload low, payload high), so the copy is width-correct for
+//narrow and wide payloads alike and the tag cell needs no rewrite.
+bool VmExecutor::StabilizeContainerElement(int32_t oldHeapIdx,
+    int32_t freshHeapIdx)
+{
+    if (oldHeapIdx <= 0)
+        return false;
+    const uint8_t kind
+        = m_slotKinds[static_cast<size_t>(oldHeapIdx)];
+    if (kind == RTK_Struct) {
+        NLANG_ASSERT(freshHeapIdx > 0
+            && "struct-typed store sources are established records");
+        CopyStructInPlace(oldHeapIdx, freshHeapIdx,
+            m_slotStructIdx[static_cast<size_t>(oldHeapIdx)]);
+        return true;
+    }
+    if (kind == RTK_Boxed) {
+        NLANG_ASSERT(freshHeapIdx > 0
+            && m_slotKinds[static_cast<size_t>(freshHeapIdx)] == RTK_Boxed
+            && "boxed store sources are established boxes");
+        auto& oldRec = m_structHeap[static_cast<size_t>(oldHeapIdx)];
+        const auto& freshRec
+            = m_structHeap[static_cast<size_t>(freshHeapIdx)];
+        NLANG_ASSERT(oldRec[0] == freshRec[0]
+            && "boxed element stores keep one declared payload type");
+        oldRec[1] = freshRec[1];
+        oldRec[2] = freshRec[2];
+        return true;
+    }
+    return false;
+}
+
+//Value-carrier isolation (see VmExecutor.h). Boxed payloads ride the
+//AllocBoxedValue layout (tag, payload low, payload high) — rebuild the
+//payload integer by the source tag's width. Strings share the string
+//record (immutable); only the box is fresh.
+int32_t VmExecutor::CloneValueCarrier(int32_t heapIdx)
+{
+    if (heapIdx <= 0)
+        return heapIdx;
+    const uint8_t kind = m_slotKinds[static_cast<size_t>(heapIdx)];
+    if (kind == RTK_Boxed) {
+        const auto& rec = m_structHeap[static_cast<size_t>(heapIdx)];
+        const uint8_t tag = static_cast<uint8_t>(rec[0]);
+        const int prim = ScalarPrimIndexOfRtk(tag);
+        int64_t val;
+        if (prim >= 0 && kScalarPrims[prim].slotWidth == 8) {
+            const uint64_t lo = static_cast<uint32_t>(rec[1]);
+            const uint64_t hi = static_cast<uint32_t>(rec[2]);
+            val = static_cast<int64_t>((hi << 32) | lo);
+        } else {
+            val = rec[1];
+        }
+        return AllocBoxedValue(tag, val);
+    }
+    if (kind == RTK_Struct) {
+        return CopyStructInPlace(0, heapIdx,
+            m_slotStructIdx[static_cast<size_t>(heapIdx)]);
+    }
+    return heapIdx;
+}
+
 bool VmExecutor::ExecuteIntrinsicContainer(uint16_t intrinsicId,
     uint16_t callParamBase, uint8_t* locals, uint8_t* pResult)
 {
@@ -112,22 +177,17 @@ bool VmExecutor::ExecuteIntrinsicContainerStructural(uint16_t intrinsicId,
         if (idx < 0 || static_cast<size_t>(idx) >= lst.elements.size())
             throw DeferredNlangRaise{m_oobExcClassIdx,
                                      "NLang VM: List index out of bounds"};
-        //Record stabilization (v0.13.9 phase ②): a struct element is
-        //written INTO its existing record — record identity never
-        //changes, held references stay live (zero allocation). The
+        //Record stabilization (v0.13.9 phase ②; Task 6 completes the
+        //boxed arm): the element's existing record is written in place —
+        //struct elements deep-copy, boxed scalar/string elements take
+        //the fresh box's payload cells — so record identity never
+        //changes and references taken before the set stay live. The
         //emit side suppressed the staging copy for this slot; the old
         //handle is only knowable here, at runtime. Cell-granularity —
         //no record-level lock (VmExecutor.h m_slotKinds block).
-        //Non-struct elements keep the bare store.
         int32_t old = lst.elements[idx];
-        if (old > 0
-            && m_slotKinds[static_cast<size_t>(old)] == RTK_Struct) {
-            NLANG_ASSERT(value > 0
-                && "struct-typed store sources are established records");
-            CopyStructInPlace(
-                old, value, m_slotStructIdx[static_cast<size_t>(old)]);
+        if (StabilizeContainerElement(old, value))
             return true;
-        }
         lst.elements[idx] = value;
         return true;
     }
@@ -184,8 +244,10 @@ bool VmExecutor::ExecuteIntrinsicContainerStructural(uint16_t intrinsicId,
     }
     //INTR_List_Copy (v0.12.4 D9): shallow copy — allocate a fresh List
     //object + side slot (the Dict_Keys allocation shape), then copy the
-    //element vector by value. Element handles ride along, so nested
-    //objects stay shared.
+    //element vector. Class elements ride along shared (nested objects);
+    //boxed carriers and struct records are cloned per element
+    //(CloneValueCarrier) — in-place stores through the copy must not
+    //write through to the source (D5 copy-on-read seal).
     if (intrinsicId == INTR_List_Copy) {
         int32_t srcHandle = ReadListHandle(callParamBase, locals, "copy");
         if (m_listClassIdx < 0)
@@ -195,8 +257,11 @@ bool VmExecutor::ExecuteIntrinsicContainerStructural(uint16_t intrinsicId,
         int32_t listHandle  = AllocListHandle();
         m_structHeap[static_cast<size_t>(listHeapIdx)]
             [kListHandleFieldOffset] = listHandle;
-        m_listStore[listHandle - 1].elements =
-            m_listStore[srcHandle - 1].elements;
+        auto& src = m_listStore[srcHandle - 1].elements;
+        auto& dst = m_listStore[listHandle - 1].elements;
+        dst.reserve(src.size());
+        for (int32_t elem : src)
+            dst.push_back(CloneValueCarrier(elem));
         std::memcpy(pResult, &listHeapIdx, sizeof(listHeapIdx));
         NoteGcPressure();
         return true;
@@ -230,18 +295,12 @@ bool VmExecutor::ExecuteIntrinsicContainerStructural(uint16_t intrinsicId,
         for (auto& kv : entries) {
             if (DictKeysEqual(kv.first, k)) {
                 //Record stabilization replace arm (v0.13.9 phase ②):
-                //a struct value is written INTO the existing record —
+                //the existing element record is written in place —
                 //identity-preserving, zero allocation (mirrors
                 //INTR_List_Set; see the arm's comment there).
                 int32_t old = kv.second;
-                if (old > 0
-                    && m_slotKinds[static_cast<size_t>(old)] == RTK_Struct) {
-                    NLANG_ASSERT(v > 0
-                        && "struct-typed store sources are established records");
-                    CopyStructInPlace(
-                        old, v, m_slotStructIdx[static_cast<size_t>(old)]);
+                if (StabilizeContainerElement(old, v))
                     return true;
-                }
                 kv.second = v;
                 return true;
             }
@@ -350,19 +409,22 @@ bool VmExecutor::ExecuteIntrinsicContainerStructural(uint16_t intrinsicId,
         m_structHeap[static_cast<size_t>(listHeapIdx)]
             [kListHandleFieldOffset] = listHandle;
 
-        //Populate elements from dict keys.
+        //Populate elements from dict keys (cloned carriers: a store
+        //through the keys list must not write the dict's own key
+        //boxes — same isolation as the copy intrinsics).
         auto& dst = m_listStore[listHandle - 1].elements;
         dst.reserve(src.size());
         for (auto& kv : src)
-            dst.push_back(kv.first);
+            dst.push_back(CloneValueCarrier(kv.first));
 
         std::memcpy(pResult, &listHeapIdx, sizeof(listHeapIdx));
         NoteGcPressure();
         return true;
     }
     //INTR_Dict_Copy (v0.12.4 D9): shallow copy — the Dict twin of
-    //INTR_List_Copy: fresh Dict object + side slot, entry vector copied
-    //by value (key/value handles ride along).
+    //INTR_List_Copy: fresh Dict object + side slot, entry vector
+    //rebuilt with cloned carriers (keys and values; class entries ride
+    //along shared).
     if (intrinsicId == INTR_Dict_Copy) {
         int32_t srcHandle = ReadDictHandle(callParamBase, locals, "copy");
         if (m_dictClassIdx < 0)
@@ -372,8 +434,12 @@ bool VmExecutor::ExecuteIntrinsicContainerStructural(uint16_t intrinsicId,
         int32_t dictHandle  = AllocDictHandle();
         m_structHeap[static_cast<size_t>(dictHeapIdx)]
             [kListHandleFieldOffset] = dictHandle;
-        m_dictStore[dictHandle - 1].entries =
-            m_dictStore[srcHandle - 1].entries;
+        auto& src = m_dictStore[srcHandle - 1].entries;
+        auto& dst = m_dictStore[dictHandle - 1].entries;
+        dst.reserve(src.size());
+        for (auto& kv : src)
+            dst.push_back({CloneValueCarrier(kv.first),
+                           CloneValueCarrier(kv.second)});
         std::memcpy(pResult, &dictHeapIdx, sizeof(dictHeapIdx));
         NoteGcPressure();
         return true;

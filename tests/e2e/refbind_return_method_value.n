@@ -1,0 +1,17 @@
+// Task 6: a value binding of a &-returning class method dereferences
+// — x reads the field value; its write stays local.
+class Box {
+    public int f;
+    public int& getF() {
+        return f;
+    }
+}
+
+int main() {
+    Box b = Box();
+    b.f = 5;
+    int x = b.getF();
+    x = 3;
+    if (x == 3 && b.f == 5) return 7;
+    return 4;
+}

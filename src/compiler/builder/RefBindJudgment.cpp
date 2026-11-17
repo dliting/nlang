@@ -11,6 +11,7 @@
 #include <nlang/compiler/SnExpressions.h>
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnStatements.h>
+#include <nlang/runtime/BuiltinGenericNames.h>
 
 namespace nlang
 {
@@ -77,17 +78,55 @@ bool RejectRefTargetIsReference(BuildEnvironment &env, SnField *pField,
 	return false;
 }
 
+//True when a member-call target names storage a reference may bind.
+//A &-returning callee passes the raw (record, cell) pair through the
+//call boundary, so the binding aliases the callee's target. The
+//container get spelling is identified by the receiver shape: the callee
+//resolves to the containers.n declaration whose instantiation does not
+//carry the & mark (generic synthesis, phase 3 Task 8), so the mark is
+//no discriminator there. Every other method result is a temporary
+//record — spec 3.9.
+bool MemberCallBindsStorage(SnMemberExpr &member)
+{
+	auto *pInner = member.Inner();
+	if (!pInner || pInner->Kind() != NK_InvokeExpr)
+		return false;
+	auto &invoke = static_cast<SnInvokeExpr &>(*pInner);
+	auto *pOuterType = member.Outer() && member.Outer()->IsResolved()
+		? member.Outer()->EvalDataType() : nullptr;
+	if (invoke.CalleeName() == kBuiltinGetMethodName
+		&& pOuterType && pOuterType->Kind() == NK_ClassDecl)
+	{
+		auto *pClass = static_cast<SnClassDecl *>(pOuterType);
+		if (pClass->IsGenericInstantiation())
+		{
+			const auto &baseName = pClass->BaseName();
+			const auto &typeArgs = pClass->GenericTypeArgs();
+			if ((baseName == kBuiltinListTypeName && !typeArgs.empty())
+				|| (baseName == kBuiltinDictTypeName
+					&& typeArgs.size() > 1))
+				return true;
+		}
+	}
+	if (auto *pCallee = invoke.Callee())
+		return pCallee->ReturnType()
+			&& pCallee->ReturnType()->ContainFlags(NF_Ref);
+	return false;
+}
+
 //The position family of the &-binding judgment — the out-argument
 //position template widened to the bindable-position list. Member/
 //identifier targets run the shared storage gates; subscript binds
-//elements and rejects slices.
+//elements and rejects slices. Task 6: a member-call target binds when
+//the callee hands back a reference (MemberCallBindsStorage).
 bool RejectRefBindPosition(BuildEnvironment &env, SnExpression &expr,
 	const ISourceLocation *pLoc)
 {
 	if (expr.Kind() == NK_MemberExpr)
 	{
 		auto &member = static_cast<SnMemberExpr &>(expr);
-		if (member.Inner() && member.Inner()->Kind() == NK_InvokeExpr)
+		if (member.Inner() && member.Inner()->Kind() == NK_InvokeExpr
+			&& !MemberCallBindsStorage(member))
 		{
 			env.Log(CLL_Error, pLoc,
 				"cannot bind a reference to a method call result.");

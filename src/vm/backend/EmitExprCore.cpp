@@ -221,7 +221,8 @@ void VmBackend::EmitDelegateDispatch(BytecodeEmitter& emitter,
 void VmBackend::EmitFreeFunctionCall(int funcIndex, BytecodeEmitter& emitter,
                                      uint16_t resultOffset,
                                      const std::vector<OutSpill>& outSpills,
-                                     uint16_t descIdx) {
+                                     uint16_t descIdx,
+                                     uint8_t refDerefKind) {
     if (!outSpills.empty()) {
         emitter.Emit(OpCode::OP_CallStaticOut);
         emitter.EmitUint16(static_cast<uint16_t>(funcIndex));
@@ -231,18 +232,26 @@ void VmBackend::EmitFreeFunctionCall(int funcIndex, BytecodeEmitter& emitter,
             BuildOutMask(outSpills)));
         //Result first: the spills below clobber pResult via
         //OP_VarLocal, so the call's return value must be stored
-        //before any writeback.
+        //before any writeback. A &-returning callee parks a raw
+        //(record, cell) pair — deref it in place afterwards
+        //(Task 6, value semantics at the read site).
         emitter.Emit(OpCode::OP_Assign);
         emitter.EmitUint16(resultOffset);
+        if (refDerefKind != 0)
+            EmitRefDerefInPlace(refDerefKind, resultOffset, emitter);
         EmitOutSpills(outSpills, emitter);
     } else {
         emitter.Emit(OpCode::OP_CallStatic);
         emitter.EmitUint16(static_cast<uint16_t>(funcIndex));
         emitter.EmitUint16(m_currFunc->callParamBase);
         emitter.EmitUint16(descIdx);
-        // Result is in pResult, store to resultOffset
+        //Result is in pResult, store to resultOffset. A &-returning
+        //callee parks a raw pair: deref the payload cell in place
+        //(Task 6, value semantics at the read site).
         emitter.Emit(OpCode::OP_Assign);
         emitter.EmitUint16(resultOffset);
+        if (refDerefKind != 0)
+            EmitRefDerefInPlace(refDerefKind, resultOffset, emitter);
     }
 }
 
@@ -293,32 +302,45 @@ void VmBackend::Access(SnInvokeExpr& expr) {
             return;
         }
 
-        auto* callee = invoke.Callee();
+        EmitBareInvokeShape(invoke, resultOffset,
+                            /*bRawRefResult=*/false);
+}
 
-        //v0.12.6 D2: a bare static-method call (the in-class spelling)
-        //is a first active use too — gate the callee's declaring class
-        //before any argument evaluation. Free functions carry no owner
-        //class and the gate is a no-op.
-        EmitStaticFieldGate(callee, emitter);
-
-        //Phase 9c: binding-aware argument emission. Handles positional,
-        //named, and default-param bindings via EmitCallArgs.
-        //Phase 9e: out arguments are collected here and written back
-        //right after the call via the *Out opcode + spills.
-        std::vector<OutSpill> outSpills;
-        EmitCallArgs(invoke, callee, emitter, /*slotBase=*/0,
-                     /*pArgPlans=*/nullptr, /*thisSlot=*/UINT16_MAX,
-                     &outSpills);
-
-        EmitInvokeDispatch(invoke, callee, emitter, resultOffset, outSpills);
+//Shared bare-invoke staging (value reads and the MakeRef &-return
+//pass-through both land here): the static-field gate, binding-aware
+//argument emission, then dispatch. bRawRefResult suppresses the
+//value-side return normalization so a &-returning callee's raw
+//(record, cell) pair reaches the caller untouched (Task 6).
+void VmBackend::EmitBareInvokeShape(SnInvokeExpr& invoke,
+                                    uint16_t resultOffset,
+                                    bool bRawRefResult) {
+    BytecodeEmitter& emitter = *m_pCurrEmitter;
+    //v0.12.6 D2: a bare static-method call (the in-class spelling)
+    //is a first active use too — gate the callee's declaring class
+    //before any argument evaluation. Free functions carry no owner
+    //class and the gate is a no-op.
+    auto* callee = invoke.Callee();
+    EmitStaticFieldGate(callee, emitter);
+    //Phase 9c: binding-aware argument emission. Handles positional,
+    //named, and default-param bindings via EmitCallArgs.
+    //Phase 9e: out arguments are collected here and written back
+    //right after the call via the *Out opcode + spills.
+    std::vector<OutSpill> outSpills;
+    EmitCallArgs(invoke, callee, emitter, /*slotBase=*/0,
+                 /*pArgPlans=*/nullptr, /*thisSlot=*/UINT16_MAX,
+                 &outSpills);
+    EmitInvokeDispatch(invoke, callee, emitter, resultOffset, outSpills,
+                       bRawRefResult);
 }
 
 //Staged-invoke dispatch tail (split out of Access for the 50-line
-//function budget).
+//function budget). bRawRefResult (Task 6): suppress the value-side
+//deref so a &-returning callee's raw pair reaches the caller.
 void VmBackend::EmitInvokeDispatch(SnInvokeExpr& invoke, SnFunction* callee,
                                    BytecodeEmitter& emitter,
                                    uint16_t resultOffset,
-                                   const std::vector<OutSpill>& outSpills) {
+                                   const std::vector<OutSpill>& outSpills,
+                                   bool bRawRefResult) {
     //Phase 13: delegate invoke — the resolver bound the callee name to
     //a func-typed value (local/param, or an implicit this-field)
     //instead of a function declaration (Callee() null, Field() set).
@@ -358,7 +380,8 @@ void VmBackend::EmitInvokeDispatch(SnInvokeExpr& invoke, SnFunction* callee,
         : StaticCallDescIdxFor(*callee);
     EmitFreeFunctionCall(
         static_cast<int>(FunctionSlotFor(*callee)),
-        emitter, resultOffset, outSpills, descIdx);
+        emitter, resultOffset, outSpills, descIdx,
+        bRawRefResult ? uint8_t{0} : RefReturnDerefKind(callee));
     emitter.Emit(OpCode::OP_ParaEnd);
 }
 

@@ -429,6 +429,23 @@ public:
     //OpStoreStatic) reach it as members.
     int32_t CopyStructInPlace(int32_t dstHeapIdx, int32_t srcHeapIdx,
                               uint16_t structIdx);
+    //Task 6: container set() element stabilization for one old/new pair
+    //(List and Dict replace arms share it). Struct elements deep-copy in
+    //place (the phase ② arm); boxed scalar/string elements — whose
+    //record identity aliases taken before the set hold (RefOfPromoted
+    //pairs) — copy their payload cells into the existing box. Other
+    //kinds (class refs are identities) keep the bare store: false =
+    //not stabilized, the caller stores the fresh handle.
+    bool StabilizeContainerElement(int32_t oldHeapIdx, int32_t freshHeapIdx);
+    //Task 6: value-carrier isolation for freshly populated containers
+    //(List_Copy/Dict_Copy/Dict_Keys). A boxed scalar/string element is
+    //the value's invisible storage and a struct element is a value
+    //record — a copy owns fresh carriers, so a later in-place store
+    //(StabilizeContainerElement) through the copy cannot write through
+    //to the source container (the v0.12.4 D5 copy-on-read seal rides
+    //List_Copy/Dict_Copy). Class refs stay shared: reference
+    //semantics.
+    int32_t CloneValueCarrier(int32_t heapIdx);
     //Builds a production-shaped stack-local host (the native-call path
     //wires one per call). Public for the white-box defense tests only:
     //VmNativeHost itself is private to src/vm, so the method is

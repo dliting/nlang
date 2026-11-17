@@ -389,10 +389,38 @@ private:
     int RefFieldCellOffset(SyntaxNode& ownerDecl, SnField& field);
     void EmitMakeRefOfMemberChain(uint16_t dstOffset,
         SnMemberExpr& member, BytecodeEmitter& emitter);
+    //Task 6: member-call shape in a & context — &-returning class
+    //methods pass the raw pair through; builtin container get shares
+    //the subscript core; everything else is the rvalue contract.
+    void EmitMakeRefOfMemberCall(uint16_t dstOffset,
+        SnMemberExpr& member, BytecodeEmitter& emitter);
+    //Task 6: &-returning invoke — the raw (record, cell) pair stages
+    //straight into the destination.
+    void EmitMakeRefOfInvoke(uint16_t dstOffset,
+        SnInvokeExpr& invoke, BytecodeEmitter& emitter);
     void EmitMakeRefOfSubscript(uint16_t dstOffset,
         SnSubscriptExpr& sub, BytecodeEmitter& emitter);
+    //Task 6: the container & read core shared by subscript sugar and
+    //the explicit .get(i) spelling — get() staging plus pair-build
+    //(primitive elements name the boxed payload cell, struct/class
+    //elements name the element record).
+    void EmitMakeRefOfContainerGet(uint16_t dstOffset,
+        SnExpression& receiver, SnExpression& index,
+        BytecodeEmitter& emitter);
     void EmitMakeRefOfRvalue(uint16_t dstOffset,
         SnExpression& expr, BytecodeEmitter& emitter);
+    //Task 6: the value-side deref kind byte for a &-returning callee —
+    //0 when no normalization is needed (non-ref callees; struct/class/
+    //array returns: the pair's low half IS the record handle every
+    //value consumer reads). Scalar/string/enum returns name the payload
+    //tag OP_LoadRef derefs, valid on any bindable pair — not just the
+    //promoted-box pairs OP_Unbox accepts.
+    uint8_t RefReturnDerefKind(SnFunction* pCallee);
+    //In-place dereference of a pair already parked in a frame slot:
+    //OP_LoadRef with dst==src (safe — the executor captures the pair
+    //before copying the payload cells).
+    void EmitRefDerefInPlace(uint8_t derefKind, uint16_t slot,
+        BytecodeEmitter& emitter);
     //Write-through store to a promoted local's payload.
     void EmitPromotedAssignBareLocal(SnAssignStmt& assign,
         SnField* pLeftField, uint16_t offset, BytecodeEmitter& emitter);
@@ -507,7 +535,8 @@ private:
     bool EmitMemberTypedReceiverDispatch(SnMemberExpr& member,
                                          SnField* outerType,
                                          BytecodeEmitter& emitter,
-                                         uint16_t resultOffset);
+                                         uint16_t resultOffset,
+                                         bool bRawRefResult = false);
     bool EmitMemberSubscriptElementRead(SnMemberExpr& member,
                                         SnFieldExpr* inner,
                                         BytecodeEmitter& emitter,
@@ -602,7 +631,8 @@ private:
     void EmitMemberClassMethodCall(SnInvokeExpr& invoke,
                                    SnClassDecl& classDecl,
                                    BytecodeEmitter& emitter,
-                                   uint16_t resultOffset);
+                                   uint16_t resultOffset,
+                                   bool bRawRefResult = false);
     void EmitMemberDelegateInvoke(SnInvokeExpr& invoke,
                                   SnClassDecl& classDecl,
                                   BytecodeEmitter& emitter,
@@ -610,7 +640,8 @@ private:
     void EmitMemberGenericMethodCall(SnInvokeExpr& invoke,
                                      SnClassDecl& classDecl,
                                      BytecodeEmitter& emitter,
-                                     uint16_t resultOffset);
+                                     uint16_t resultOffset,
+                                     bool bRawRefResult = false);
     //Phase 8e-4 boundary plan for generic method calls, derived
     //from the declared template signatures (phase-2 D6; the dynamic
     //variant is 0.13.1a Task 5).
@@ -625,10 +656,17 @@ private:
                                   const ArgBoxPlan& returnPlan,
                                   const std::vector<OutSpill>& outSpills,
                                   BytecodeEmitter& emitter,
-                                  uint16_t resultOffset);
+                                  uint16_t resultOffset,
+                                  bool bRawRefResult = false);
     void EmitMemberDirectMethodCall(SnFunction* callee,
                                     const std::vector<OutSpill>& outSpills,
                                     BytecodeEmitter& emitter);
+    //Dispatch tail's return normalization (split for the 50-line
+    //function budget): container unbox, or the &-return park + in-place
+    //deref (see EmitExprMemberCall.cpp).
+    void EmitMethodReturnNormalization(SnFunction* callee,
+        const ArgBoxPlan& returnPlan, bool bRawRefResult,
+        uint16_t resultOffset, BytecodeEmitter& emitter);
     void EmitMemberBuiltinMethodCall(const SnInvokeExpr& invoke,
                                      const std::vector<OutSpill>& outSpills,
                                      BytecodeEmitter& emitter);
@@ -1643,16 +1681,23 @@ private:
     void EmitFreeFunctionCall(int funcIndex, BytecodeEmitter& emitter,
                               uint16_t resultOffset,
                               const std::vector<OutSpill>& outSpills,
-                              uint16_t descIdx);
+                              uint16_t descIdx,
+                              uint8_t refDerefKind = 0);
     //0.13.1a: a receiverless callee's descriptor operand —
     //kInstDescForwardCaller for a same-generic-row callee, kInstDescNone
     //otherwise (see EmitExprCore.cpp for the rule).
     uint16_t StaticCallDescIdxFor(const SnFunction& callee) const;
     //The staged-invoke dispatch tail: delegate handle or the
-    //Round-11-guarded free-function call.
+    //Round-11-guarded free-function call. bRawRefResult (Task 6)
+    //suppresses the value-side deref for &-returning callees.
     void EmitInvokeDispatch(SnInvokeExpr& invoke, SnFunction* callee,
                             BytecodeEmitter& emitter, uint16_t resultOffset,
-                            const std::vector<OutSpill>& outSpills);
+                            const std::vector<OutSpill>& outSpills,
+                            bool bRawRefResult = false);
+    //Task 6: shared bare-invoke staging for value reads and the
+    //&-return pass-through (static gate + args + dispatch).
+    void EmitBareInvokeShape(SnInvokeExpr& invoke, uint16_t resultOffset,
+                             bool bRawRefResult);
 
     //SnCastExpr arms: boxing, the to-string special cases (enum detection,
     //func/class/array), and the numeric/primitive-string conversions.
@@ -1703,6 +1748,14 @@ private:
     void EmitContainerSubscriptGet(SnSubscriptExpr& sub,
                                    BytecodeEmitter& emitter,
                                    uint16_t resultOffset);
+    //Task 6: the get() classification and staging shared by the value
+    //read and the & read (receiver + index expressions cover both the
+    //subscript sugar and the explicit .get(i) spelling).
+    void ClassifyContainerGet(SnExpression& receiver, ArgBoxPlan& keyBox,
+                              ArgBoxPlan& valBox);
+    void StageContainerGetCall(SnExpression& receiver, SnExpression& index,
+                               const ArgBoxPlan& keyBox, uint16_t claimBase,
+                               BytecodeEmitter& emitter);
     void EmitContainerGetCall(SnSubscriptExpr& sub, const ArgBoxPlan& keyBox,
                               const ArgBoxPlan& valBox,
                               BytecodeEmitter& emitter, uint16_t resultOffset);
@@ -2167,6 +2220,10 @@ private:
         //check reads the annotation from it. Static-init contexts leave
         //the default (their synthesized functions are void).
         SnField* pDeclaredReturnType = nullptr;
+        //Task 6: whether the declared return carries the & mark. Kept
+        //beside pDeclaredReturnType because that points at the INNER
+        //type node (ReturnType()->Field()) — the mark rides the wrapper.
+        bool bDeclaredReturnRef = false;
     };
     FuncContext* m_currFunc = nullptr;
 

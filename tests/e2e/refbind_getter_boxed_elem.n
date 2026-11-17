@@ -1,0 +1,9 @@
+// Task 6: a & binding of a primitive container element names the
+// boxed payload record — the write through n changes the element.
+int main() {
+    List<int> nums = {};
+    nums.add(5);
+    int& n = nums[0];
+    n = 8;
+    return nums[0];
+}

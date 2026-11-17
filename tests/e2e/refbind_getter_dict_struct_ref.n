@@ -1,0 +1,18 @@
+// Task 6: Dict struct values — a & binding of d["k"] aliases the
+// stored record; the member read on the subscript sees the write.
+struct Point {
+    int x;
+    int y;
+}
+
+int main() {
+    Dict<string, Point> d = {};
+    Point p0;
+    p0.x = 1;
+    p0.y = 2;
+    d.set("k", p0);
+    Point& r = d["k"];
+    r.x = 9;
+    if (d["k"].x == 9) return 7;
+    return 4;
+}

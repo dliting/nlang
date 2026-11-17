@@ -1,0 +1,10 @@
+// Container ops x alias: set() copies into the element's existing
+// record, so an alias taken before the set sees the new value.
+int main() {
+    List<int> nums = {};
+    nums.add(5);
+    int& n = nums[0];
+    nums.set(0, 7);
+    if (n == 7) return 6;
+    return 4;
+}

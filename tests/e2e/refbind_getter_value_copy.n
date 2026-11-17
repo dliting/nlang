@@ -1,0 +1,18 @@
+// Task 6 guard pin: a value binding of a container element stays a
+// copy — the write to q must not reach the container.
+struct Point {
+    int x;
+    int y;
+}
+
+int main() {
+    List<Point> pts = {};
+    Point p0;
+    p0.x = 1;
+    p0.y = 2;
+    pts.add(p0);
+    Point q = pts[0];
+    q.x = 99;
+    if (pts[0].x == 1 && q.x == 99) return 7;
+    return 5;
+}

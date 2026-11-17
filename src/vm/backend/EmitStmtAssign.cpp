@@ -43,15 +43,18 @@ void VmBackend::EmitAssignBareIdentifier(SnAssignStmt& assign,
         SnField* field, BytecodeEmitter& emitter) {
     auto target = ResolveBareIdentifier(field);
     if (target.kind == BareIdTarget::Local) {
-        //v0.13.9 phase 3 Task 4: promoted and reference locals take
-        //their own store shapes; aggregate-typed references (struct/
-        //class/array) keep the plain path — the pair slot reads as a
-        //handle slot, so the struct in-place branch below writes the
-        //target record directly.
+        //v0.13.9 phase 3: promoted and reference locals take their own
+        //store shapes. Aggregate-typed references keep the plain path
+        //for user stores (the pair slot reads as a handle slot); the
+        //binding INIT (the NF_Generated decomposed decl assign) is the
+        //one store that ESTABLISHES the pair — a value copy would
+        //sever the alias (EmitRefAssignBareLocal's NF_Generated arm).
         if (field->ContainFlags(NF_Promoted))
             EmitPromotedAssignBareLocal(assign, field,
                 target.localOffset, emitter);
-        else if (IsDerefRefDescriptor(field))
+        else if (IsDerefRefDescriptor(field)
+            || (field->ContainFlags(NF_Ref)
+                && assign.ContainFlags(NF_Generated)))
             EmitRefAssignBareLocal(assign, field,
                 target.localOffset, emitter);
         else

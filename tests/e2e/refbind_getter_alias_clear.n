@@ -1,0 +1,12 @@
+// Container ops x alias: clear() drops every element; the alias's
+// orphaned record absorbs writes safely and invisibly.
+int main() {
+    List<int> nums = {};
+    nums.add(5);
+    int& n = nums[0];
+    nums.clear();
+    n = 42;
+    nums.add(6);
+    if (nums[0] == 6) return 8;
+    return 4;
+}

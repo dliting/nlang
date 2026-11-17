@@ -30,6 +30,14 @@ void StatementResolveAccessor::RejectIllegalEnumMethod(SnFunction &method)
 		m_Env.Log(CLL_Error, method.Location(),
 			"enum method \"%s\" must have a body.",
 			method.Name().c_str());
+	//Task 6: reference returns ride raw (record, cell) pairs on free
+	//functions and class methods; enum values have no aliased storage
+	//to name — reject at the declaration.
+	if (method.ReturnType() && method.ReturnType()->ContainFlags(NF_Ref))
+		m_Env.Log(CLL_Error, method.Location(),
+			"enum method \"%s\" cannot declare a reference return: "
+			"enum values have no aliased storage.",
+			method.Name().c_str());
 	for (auto &param : method.Params())
 	{
 		//D4: default values need the callee-bound call path

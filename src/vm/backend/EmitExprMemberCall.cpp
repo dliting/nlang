@@ -168,11 +168,13 @@ void VmBackend::EmitMemberInterfaceCall(SnMemberExpr& member,
 }
 
 //Class-receiver invoke arm: func-handle toString, delegate invoke, then
-//the generic-plan + dispatch machinery.
+//the generic-plan + dispatch machinery. bRawRefResult (Task 6) threads
+//to the dispatch tail: a &-returning callee's raw pair passes through.
 void VmBackend::EmitMemberClassMethodCall(SnInvokeExpr& invoke,
                                           SnClassDecl& classDecl,
                                           BytecodeEmitter& emitter,
-                                          uint16_t resultOffset) {
+                                          uint16_t resultOffset,
+                                          bool bRawRefResult) {
     //Phase 13: function-handle toString() — the only built-in
     //method on a func<...> receiver. The receiver is already
     //at resultOffset (loaded by the class-receiver prologue
@@ -193,7 +195,8 @@ void VmBackend::EmitMemberClassMethodCall(SnInvokeExpr& invoke,
         EmitMemberDelegateInvoke(invoke, classDecl, emitter, resultOffset);
         return;
     }
-    EmitMemberGenericMethodCall(invoke, classDecl, emitter, resultOffset);
+    EmitMemberGenericMethodCall(invoke, classDecl, emitter, resultOffset,
+                                bRawRefResult);
 }
 
 //Phase 13 Step 2: delegate member invoke (obj.cb(x)) —
@@ -238,7 +241,8 @@ void VmBackend::EmitMemberDelegateInvoke(SnInvokeExpr& invoke,
 void VmBackend::EmitMemberGenericMethodCall(SnInvokeExpr& invoke,
                                             SnClassDecl& classDecl,
                                             BytecodeEmitter& emitter,
-                                            uint16_t resultOffset) {
+                                            uint16_t resultOffset,
+                                            bool bRawRefResult) {
     std::map<uint16_t, ArgBoxPlan> argPlans;
     ArgBoxPlan returnPlan;
     if (classDecl.IsGenericInstantiation()) {
@@ -264,18 +268,23 @@ void VmBackend::EmitMemberGenericMethodCall(SnInvokeExpr& invoke,
     //EmitCallArgs now copies `this` to claim[0] and bulk-copies
     //to callParamBase[0] — no separate this-copy needed here.
     EmitMemberMethodDispatch(invoke, callee, returnPlan,
-                             outSpills, emitter, resultOffset);
+                             outSpills, emitter, resultOffset,
+                             bRawRefResult);
 }
 
 //Class method dispatch: virtual name-based, direct by function index
 //(with/without out spills), or builtin/intrinsic name-based; then the
-//return unbox, result assign, out spills and ParaEnd.
+//return normalization, result assign, out spills and ParaEnd.
+//bRawRefResult (Task 6): a &-returning callee hands back a raw
+//(record, cell) pair — skip the box normalization so a reference
+//consumer receives the pair untouched.
 void VmBackend::EmitMemberMethodDispatch(const SnInvokeExpr& invoke,
                                          SnFunction* callee,
                                          const ArgBoxPlan& returnPlan,
                                          const std::vector<OutSpill>& outSpills,
                                          BytecodeEmitter& emitter,
-                                         uint16_t resultOffset) {
+                                         uint16_t resultOffset,
+                                         bool bRawRefResult) {
     bool isVirtual = callee && callee->ContainFlags(NF_Virtual);
     if (isVirtual) {
         //Virtual method dispatch — name-based lookup at runtime
@@ -300,15 +309,37 @@ void VmBackend::EmitMemberMethodDispatch(const SnInvokeExpr& invoke,
     //Task 5: when the receiver's type argument is the calling body's
     //own placeholder, the descriptor-dispatched variant lets the
     //executing frame decide (uniform-T-representation invariant).
-    if (returnPlan.needsBox)
-        EmitBoundaryUnbox(returnPlan, emitter);
-    emitter.Emit(OpCode::OP_Assign);
-    emitter.EmitUint16(resultOffset);
+    EmitMethodReturnNormalization(callee, returnPlan, bRawRefResult,
+                                  resultOffset, emitter);
     //Phase 9e: out spills LAST — OP_VarLocal clobbers pResult,
     //so the return value (and any unbox) must complete first.
     if (!outSpills.empty())
         EmitOutSpills(outSpills, emitter);
     emitter.Emit(OpCode::OP_ParaEnd);
+}
+
+//The dispatch tail's return normalization (split for the 50-line
+//function budget): unbox the container get() payload, or park the raw
+//pair of a &-returning user method and deref it IN PLACE for a value
+//consumer (scalar/string/enum returns only; struct/class returns ride
+//the pair's low-half handle into every deep copy). A reference
+//consumer takes the raw pair untouched. OP_LoadRef derefs any bindable
+//pair — field-cell pairs included, unlike OP_Unbox.
+void VmBackend::EmitMethodReturnNormalization(SnFunction* callee,
+    const ArgBoxPlan& returnPlan, bool bRawRefResult,
+    uint16_t resultOffset, BytecodeEmitter& emitter) {
+    uint8_t derefKind = 0;
+    if (bRawRefResult) {
+        //reference consumer: no normalization
+    } else if (returnPlan.needsBox) {
+        EmitBoundaryUnbox(returnPlan, emitter);
+    } else {
+        derefKind = RefReturnDerefKind(callee);
+    }
+    emitter.Emit(OpCode::OP_Assign);
+    emitter.EmitUint16(resultOffset);
+    if (derefKind != 0)
+        EmitRefDerefInPlace(derefKind, resultOffset, emitter);
 }
 
 //Direct-call arm: non-virtual (final) method, dispatched by function

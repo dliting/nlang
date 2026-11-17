@@ -53,6 +53,7 @@ void VmBackend::GenerateFunction(SnFunction& func, size_t funcIdx) {
     //interned token).
     auto* pRetType = func.ReturnType();
     ctx.pDeclaredReturnType = pRetType ? pRetType->Field() : nullptr;
+    ctx.bDeclaredReturnRef = pRetType && pRetType->ContainFlags(NF_Ref);
     m_currFunc = &ctx;
     //The emitter pointer only ever points at this function's stack
     //emitter (set by EmitStatement/EmitExpression). Null it here so
