@@ -692,9 +692,14 @@ add_test(NAME nd_resolve_tests COMMAND test_nd_resolve)
 #entries. --stress selects ONLY the soak — the two entries are a
 #partition, not a superset. The soak needs its own ceiling: the 180 s
 #family timeout cannot hold the ASan measurement, same shape as the
-#mnist_mlp_run ruling.
+#mnist_mlp_run ruling. The 900 s ceiling clipped the ASan leg on
+#2026-11-17 while a direct run of the same binary on the same tree
+#measured 605 s: the ceiling has to host the loaded-machine form of the
+#soak (machine oscillation, the documented ~1.8x downclock band), not the
+#idle measurement. 1200 s hosts the 766 s high end with the same
+#oscillation slack the regex_redos_run ruling used.
 add_test(NAME nd_resolve_stress_tests COMMAND test_nd_resolve --stress)
-set_tests_properties(nd_resolve_stress_tests PROPERTIES TIMEOUT 900)
+set_tests_properties(nd_resolve_stress_tests PROPERTIES TIMEOUT 1200)
 
 # Stride-table integrity: every opcode resolves to an extent in
 # [1, 9] (the rewrite regression — inline-braced constexpr rows
