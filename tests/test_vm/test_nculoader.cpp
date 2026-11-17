@@ -452,7 +452,7 @@ void TestMinorAboveFloorRejected() {
     CompiledModule old = MakeUnit("old");
     AddFunc(old, "old.f", 0);
     WriteUnit(dir, old);
-    PatchMinorVersion(dir / "old.ncu", 21);  //one above the v2.20 current
+    PatchMinorVersion(dir / "old.ncu", 22);  //one above the v2.21 current
 
     const FailResult fr = MustFail((dir / "main.ncu").string(),
                                    { dir.string() });
@@ -467,7 +467,7 @@ void TestMinorAboveFloorRejected() {
 // --- format-minor constant (spec §7 "NCU_FORMAT_MINOR constant check").
 
 void TestEnumMethodTablesRoundTrip() {
-    CHECK(NCU_FORMAT_MINOR == 20, "format minor is 20 (v2.20)");
+    CHECK(NCU_FORMAT_MINOR == 21, "format minor is 21 (v2.21)");
     CompiledModule cm = MakeUnit("enumtbl");
     cm.enumNames.push_back({"Red", "Green"});
     cm.enumKeys.push_back("enumtbl.Color");
@@ -541,7 +541,7 @@ void TestConstAggregateMarkerRoundTrip() {
 // --- and misparses at the first record, so the floor refuses it.
 
 void TestDescriptorTableRoundTrip() {
-    CHECK(NCU_FORMAT_MINOR == 20, "format minor is 20 (v2.20)");
+    CHECK(NCU_FORMAT_MINOR == 21, "format minor is 21 (v2.21)");
     const auto dir = scenarioDir("descriptor_table");
     CompiledModule cm = MakeUnit("descmod");
     AddFunc(cm, "descmod.main", 0);
@@ -585,7 +585,7 @@ void TestDescriptorTableRoundTrip() {
 // --- members instead of failing loudly).
 
 void TestAccessBytesRoundTrip() {
-    CHECK(NCU_FORMAT_MINOR == 20, "format minor is 20 (v2.20)");
+    CHECK(NCU_FORMAT_MINOR == 21, "format minor is 21 (v2.21)");
     CompiledModule cm = MakeUnit("accmod");
     AddFunc(cm, "accmod.hide", 0);
     cm.functions[0].access = FA_Private;

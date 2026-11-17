@@ -1,0 +1,9 @@
+import lib;
+int main() {
+    int x = 4;
+    if (lib.bump(x) != 5) { return 1; }
+    if (x != 5) { return 2; }
+    lib.Box b = lib.Box();
+    if (b.use() != 1010) { return 3; }
+    return 7;
+}

@@ -2483,3 +2483,7 @@ const_ref_param 0
 const_ref_param_write_reject compile_error through the const storage
 const_ref_generic 0
 const_ref_generic_write_reject compile_error cannot assign to const local
+
+# --- v0.13.9 phase 3 Task 10: cross-module reference signatures ---
+ref_sig_crossmod 7
+ref_sig_func_key 7

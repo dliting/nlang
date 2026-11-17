@@ -16,7 +16,8 @@ and ParseOne in lockstep with the struct comment in TypeDesc.h.
 namespace nlang {
 
 //RTK_Func body: u8 paramCount, then the params and the return as
-//nested descriptors (mirror of ParseFuncElems).
+//nested descriptors, each followed by its u8 qualifier flags
+//(mirror of ParseFuncElems).
 void AppendTypeDescBytes(std::vector<uint8_t>& out, const TypeDesc& td);
 
 void AppendFuncElems(std::vector<uint8_t>& out, const TypeDesc& td)
@@ -26,8 +27,14 @@ void AppendFuncElems(std::vector<uint8_t>& out, const TypeDesc& td)
 			"type descriptor arity violation: func without its "
 			"return descriptor");
 	out.push_back(static_cast<uint8_t>(td.elems.size() - 1));
-	for (const auto &elem : td.elems)
-		AppendTypeDescBytes(out, elem);
+	for (size_t i = 0; i < td.elems.size(); ++i)
+	{
+		AppendTypeDescBytes(out, td.elems[i]);
+		//v2.21: the qualifier flags ride after each element — a
+		//descriptor-only construction without the parallel vector
+		//serializes unmarked positions (all-zero bytes).
+		out.push_back(i < td.elemFlags.size() ? td.elemFlags[i] : 0);
+	}
 }
 
 void AppendTypeDescBytes(std::vector<uint8_t>& out, const TypeDesc& td)
@@ -82,7 +89,8 @@ TypeDesc ParseOne(const uint8_t* pData, size_t size, size_t& pos,
 	size_t depth);
 
 //RTK_Func body: u8 paramCount, then the params and the return as
-//nested descriptors (mirror of AppendTypeDescBytes).
+//nested descriptors, each followed by its u8 qualifier flags (mirror
+//of AppendFuncElems — v2.21 layout).
 void ParseFuncElems(TypeDesc& td, const uint8_t* pData, size_t size,
 	size_t& pos, size_t depth)
 {
@@ -90,9 +98,14 @@ void ParseFuncElems(TypeDesc& td, const uint8_t* pData, size_t size,
 		throw std::runtime_error(
 			"Invalid module: truncated type descriptor");
 	const uint8_t paramCount = pData[pos++];
-	for (uint8_t param = 0; param < paramCount; ++param)
+	for (uint8_t elem = 0; elem < paramCount + 1; ++elem)
+	{
 		td.elems.push_back(ParseOne(pData, size, pos, depth + 1));
-	td.elems.push_back(ParseOne(pData, size, pos, depth + 1));
+		if (pos >= size)
+			throw std::runtime_error(
+				"Invalid module: truncated type descriptor");
+		td.elemFlags.push_back(pData[pos++]);
+	}
 }
 
 //RTK_Array body: the element descriptor, then the v2.11 rank byte
@@ -321,15 +334,35 @@ TypeDesc BuildTypeDesc(SnField* pType, const TypeLeafSlots& slots,
 					return td;
 				}
 				td.kind = RTK_Func;
+				//v2.21: the qualifier marks ride the instantiation's
+				//parallel flag vectors (out and &, indexed by argument
+				//position—0 = return). The wire element order is
+				//params first, return last, so the vectors are read position-
+				//flipped to stay parallel to elems.
+				const auto &outFlags = pClass->GenericOutFlags();
+				const auto &refFlags = pClass->GenericRefFlags();
+				const auto qualifierOf = [&outFlags, &refFlags](size_t argIdx)
+				{
+					uint8_t bits = 0;
+						if (argIdx < outFlags.size() && outFlags[argIdx])
+							bits |= PTDF_Out;
+						if (argIdx < refFlags.size() && refFlags[argIdx])
+							bits |= PTDF_Ref;
+					return bits;
+				};
 				for (size_t i = 1; i < args.size(); ++i)
+				{
 					td.elems.push_back(
 						BuildTypeDesc(args[i], slots, depth + 1));
+					td.elemFlags.push_back(qualifierOf(i));
+				}
 				//Void is expressible only as the func return slot —
 				//the grammar has no other void leaf position.
 				td.elems.push_back(
 					args[0]->Kind() == NK_Void
 						? TypeDesc{RTK_Void}
 						: BuildTypeDesc(args[0], slots, depth + 1));
+				td.elemFlags.push_back(qualifierOf(0));
 				return td;
 			}
 			if (pClass->IsTypeParamPlaceholder())

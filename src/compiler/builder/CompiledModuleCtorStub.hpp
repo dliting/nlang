@@ -79,6 +79,17 @@ inline PtrList<SnFormalParam> *BuildStubFormalParamNodes(
 				paramFlags |= NF_Out;
 			pParamType = SynthTypeExprFromDesc(ptd.type, cm, loc,
 				typeParamNames);
+			//v2.21: the & and const marks re-stamp on the formal AND its
+			//type node — the post-resolution state of a source-declared
+			//formal (the grammar puts & on the type node, resolution
+			//propagates it onto the descriptor; const sits on the formal).
+			if (ptd.flags & PTDF_Ref)
+			{
+				paramFlags |= NF_Ref;
+				pParamType->AddFlags(NF_Ref);
+			}
+			if (ptd.flags & PTDF_Const)
+				paramFlags |= NF_Const;
 		}
 		else
 		{

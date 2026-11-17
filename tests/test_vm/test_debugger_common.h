@@ -85,6 +85,7 @@ nlang::CompiledModule loadLinked(const std::string& tag);
 //Per-topic runners (one per test_debugger_*.cpp); the driver calls
 //them in this order — the original single-TU execution sequence.
 void run_debugger_format_tests();
+void run_ncu_ref_sig_tests();
 void run_debugger_gc_tests();
 void run_debugger_hooks_tests();
 void run_debugger_linepc_tests();

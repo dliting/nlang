@@ -38,6 +38,13 @@ void VmBackend::AppendInterfaceSignatures(SnInterfaceDecl& sn,
             ParamTypeDesc ptd;
             if (param.ContainFlags(NF_Out))
                 ptd.flags |= PTDF_Out;
+            //v2.21: the & and const marks ride with the out flag (the
+            //function-record fill in VmBackendSignatures explains the
+            //consumer crash the missing bits caused).
+            if (param.ContainFlags(NF_Ref))
+                ptd.flags |= PTDF_Ref;
+            if (param.ContainFlags(NF_Const))
+                ptd.flags |= PTDF_Const;
             ptd.type = BuildTypeDesc(param.EvalDataType(),
                 LeafSlotResolvers());
             sig.paramTypeDescs.push_back(std::move(ptd));

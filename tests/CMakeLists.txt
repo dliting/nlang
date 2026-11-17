@@ -1433,6 +1433,7 @@ add_executable(test_debugger
     test_vm/test_debugger.cpp
     test_vm/test_debugger_common.cpp
     test_vm/test_debugger_format.cpp
+    test_vm/test_ncu_ref_sig.cpp
     test_vm/test_debugger_gc.cpp
     test_vm/test_debugger_hooks.cpp
     test_vm/test_debugger_linepc.cpp

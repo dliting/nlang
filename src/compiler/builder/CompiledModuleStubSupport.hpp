@@ -209,16 +209,36 @@ inline SnFieldExpr *SynthTypeExprFromDesc(const TypeDesc &td,
 			if (!td.elems.empty())
 			{
 				auto *pArgs = new std::vector<SnFieldExpr*>();
+				//v2.21: the qualifier flags re-stamp on the rebuilt argument
+				//expressions — the resolver derives the instantiation key
+				//from the argument nodes (TryResolveGenericTypeArgs), so the
+				//marks must ride the nodes exactly as the func<...> spelling
+				//leaves them. Wire element order is params first, return last;
+				//the spelling order is return first.
+				const auto elemQualifier = [&td](size_t elemIdx)
+					{
+						return elemIdx < td.elemFlags.size()
+							? td.elemFlags[elemIdx] : 0;
+					};
 				//Void serializes as the RTK_Void leaf; rebuild the
 				//same NK_Void node the parser creates for func<void,...>.
 				pArgs->push_back(td.elems.back().kind == RTK_Void
 					? PreboundLeafExpr(NK_Void, loc)
 					: SynthTypeExprFromDesc(td.elems.back(), cm, loc,
 						typeParamNames));
+				if (elemQualifier(td.elems.size() - 1) & PTDF_Ref)
+					(*pArgs)[0]->AddFlags(NF_Ref);
 				for (size_t i = 0; i + 1 < td.elems.size(); ++i)
-					pArgs->push_back(
-						SynthTypeExprFromDesc(td.elems[i], cm, loc,
-							typeParamNames));
+					{
+						auto *pArg = SynthTypeExprFromDesc(td.elems[i], cm, loc,
+							typeParamNames);
+						const uint8_t quals = elemQualifier(i);
+						if (quals & PTDF_Ref)
+							pArg->AddFlags(NF_Ref);
+						if (quals & PTDF_Out)
+							pArg->AddFlags(NF_Out);
+						pArgs->push_back(pArg);
+					}
 				return new SnGenericTypeExpr(
 					NamedLeafExpr(kBuiltinFuncTypeName, loc),
 					pArgs, loc);
