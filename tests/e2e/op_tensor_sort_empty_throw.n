@@ -1,0 +1,12 @@
+// Zero-size source: uncaught Exception, exit 1 by design (the reduce
+// family's empty convention — the sort walks divide the line count by
+// the axis dim). Rank 1 is the only shape user code can mint empty
+// today (the multi-dim mint raises on a zero dim); the guard covers
+// every rank as defense in depth for the slice surface.
+import tensor;
+
+int main() {
+    int[] empty = int[0];
+    int[] s = tensor.sort(empty, 0);
+    return 0;
+}

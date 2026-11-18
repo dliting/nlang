@@ -225,6 +225,28 @@ struct TensorOps {
                      NativeArrayView& x, NativeArrayView& y,
                      NativeArrayView& dst, bool maskLong, bool xScalar,
                      bool yScalar, int64_t isx, int64_t isy);
+    //sort/argsort: the stable ascending sort per axis line (NaN to
+    //the end; the argsort arm returns the int32 permutation — the
+    //first-wins family's ordinal contract). CPU walk + device kernel.
+    //The line-length cap the device dispatcher gates on (the kernel's
+    //fixed in-thread buffer; oversized lines host-walk).
+    static constexpr int64_t kSortMaxLine = 4096;
+    void (*sortF32)(NativeHost* host, NativeArrayView& a, int32_t axis,
+                    NativeArrayView& dst);
+    void (*sortF64)(NativeHost* host, NativeArrayView& a, int32_t axis,
+                    NativeArrayView& dst);
+    void (*sortI32)(NativeHost* host, NativeArrayView& a, int32_t axis,
+                    NativeArrayView& dst);
+    void (*sortI64)(NativeHost* host, NativeArrayView& a, int32_t axis,
+                    NativeArrayView& dst);
+    void (*argsortF32)(NativeHost* host, NativeArrayView& a,
+                       int32_t axis, NativeArrayView& dst);
+    void (*argsortF64)(NativeHost* host, NativeArrayView& a,
+                       int32_t axis, NativeArrayView& dst);
+    void (*argsortI32)(NativeHost* host, NativeArrayView& a,
+                       int32_t axis, NativeArrayView& dst);
+    void (*argsortI64)(NativeHost* host, NativeArrayView& a,
+                       int32_t axis, NativeArrayView& dst);
     //scatter: the write twin of gather — per position i,
     //dst[position(i)][indices[i]] = values[i] (or the scalar,
     //broadcast). SYNC-GROUP: the device kernel writes the cell error

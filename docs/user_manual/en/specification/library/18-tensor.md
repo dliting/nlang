@@ -337,6 +337,15 @@ match the truth.
   index array of the axis winners over the remaining dims,
   one index per non-axis position; ties keep the first along
   the scan.
+- `sort(a, axis)` and `argsort(a, axis)` sort each axis line
+  independently in ascending order and return a new array of
+  the same shape (`sort`) or the int32 permutation that would
+  sort it (`argsort`). The sort is stable — equal elements keep
+  their original relative order — and floats follow the numpy
+  NaN rule: a NaN cell sorts to the end of the line. The rank-1
+  spelling round-trips through `gather`: `gather(a, 0,
+  argsort(a, 0))` is the sorted array; a higher-rank permutation
+  is read per line with element indexing.
 - `eq(a, b)` compares two arrays of the same element kind
   elementwise (the broadcasting rule of §18.3.1 applies) and
   returns the int 0/1 array; floats follow IEEE `==` — NaN
@@ -430,11 +439,13 @@ mismatch in a two-operand kernel, a `reshape` shape whose
 length misses the target rank, whose product misses the
 element count, or whose `-1` inference divides unevenly, a
 `transpose` permutation that misses or repeats an axis, a
-`broadcastTo` target a source shape cannot fill, a `sum` axis
-outside the array's rank, a `slice` list whose length misses
+`broadcastTo` target a source shape cannot fill, a `sum`,
+`sort` or `argsort` axis outside the array's rank, a `slice`
+list whose length misses
 the rank, a `concat` whose operands disagree on rank or on the
-non-axis dimensions, and `max`, `min` or `mean` on an empty
-array all raise `Exception`; the shape and length mismatch
+non-axis dimensions, and `max`, `min`, `mean`, `sort` or
+`argsort` on an empty array all raise `Exception`; the shape
+and length mismatch
 messages name both sides, and the axis messages name the axis
 and the rank. A `gather` index outside the axis range, a
 `oneHot` label outside the class range, or a `scatter` (and a

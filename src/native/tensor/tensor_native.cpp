@@ -340,6 +340,8 @@ NLANG_DEFINE_NATIVE_INIT {
         &tensor::TensorScatterInto);
     regBlocking(registry, "tensor", "scatterIntoS",
         &tensor::TensorScatterIntoScalar);
+    regBlocking(registry, "tensor", "sort", &tensor::TensorSort);
+    regBlocking(registry, "tensor", "argsort", &tensor::TensorArgSort);
     regBlocking(registry, "tensor", "oneHot", &tensor::TensorOneHot);
     regBlocking(registry, "tensor", "toDevice", &tensor::TensorToDevice);
     regBlocking(registry, "tensor", "toHost", &tensor::TensorToHost);

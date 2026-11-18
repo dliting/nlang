@@ -121,6 +121,13 @@ cudaError_t LaunchScatter(const LaunchView& a, const LaunchView& indices,
                           int32_t* errorOut);
 cudaError_t LaunchMatmul(const LaunchView& a, const LaunchView& b,
                          const LaunchView& dst, int elemKindCode);
+//sort/argsort (stable ascending per axis line, NaN to the end): ASYNC
+//— one thread per line, an in-thread insertion sort. Lines above
+//kSortMaxLine (declared in TensorOps.h — both dispatchers read it)
+//must NOT reach this launcher (the kernel's fixed in-thread buffer);
+//the dispatcher routes them to the host walk.
+cudaError_t LaunchSort(bool withIndices, const LaunchView& src,
+                       int axis, const LaunchView& dst);
 //gather (take-per-position, all kinds, all axes): ASYNC — the index
 //bounds ride the dispatcher's host-side validation over the staged
 //indices; the kernel is a pure strided copy.

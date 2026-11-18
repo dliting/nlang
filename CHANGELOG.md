@@ -8,6 +8,39 @@ All notable changes to NLang are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.14.6]
+
+The stable sort pair for the tensor surface: `sort` and `argsort`
+per axis line, in the numpy sense — ascending, stable, NaN to the
+end — closing the gap between the argmax family (a winner per
+line) and the full ordering.
+
+### Added
+
+- **`tensor.sort(a, axis)`** — each axis line sorts independently
+  in ascending order and the result keeps the input's shape. The
+  sort is stable (equal elements keep their original relative
+  order); floats follow the numpy NaN rule — a NaN cell sorts to
+  the end of the line.
+- **`tensor.argsort(a, axis)`** — the int32 permutation that would
+  sort each line (the argmax family's first-wins ordinal
+  contract), same shape as the source. The rank-1 spelling
+  round-trips through `gather`: `gather(a, 0, argsort(a, 0))` is
+  the sorted array; higher-rank consumers read the permutation per
+  line (element indexing — a take-along-axis surface is future
+  work).
+- **CPU walk + device kernel** — the CPU path runs
+  `std::stable_sort` per line over (value, ordinal) pairs; the
+  CUDA path runs one thread per line with an in-thread insertion
+  sort. Lines above `kSortMaxLine` (4096) route to the host walk
+  so the fixed device buffer cannot overflow. All four numeric
+  element kinds on both paths.
+
+Gate: Debug unit 133/135, ASan unit 133/135 (net_platform = known
+environment failure; debugger freeze = load-timing flake, serial
+green), full cpu e2e 1987 passed + 2 known net-ping environment
+failures, CUDA double-run 191/191. mnist guardrail: acc 0.895.
+
 ## [0.14.5]
 
 The stream-ordered memory and the compute/transfer overlap: the

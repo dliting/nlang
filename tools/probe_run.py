@@ -16,8 +16,13 @@ phantom VM bug out of a passing run. Two supported conventions:
      code:  probe_run.py PROBE.n --expect 131071  (no truncation here)
 
 Usage:
-  python tools/probe_run.py PROBE.n [--expect CODE] [--build DIR]
-                                    [--keep] [-q]
+  python tools/probe_run.py PROBE.n [--expect CODE] [--backend NAME]
+                                    [--build DIR] [--keep] [-q]
+
+The tensor backend pins ride --backend (NLANG_TENSOR_BACKEND, the env
+nvm reads); verify a backend-sensitive probe per leg, e.g.
+  python tools/probe_run.py pin.n --expect 0 --backend cpu
+  python tools/probe_run.py pin.n --expect 0        (default/auto leg)
 
 --build defaults to <repo-root>/build; ncc/nvm are resolved under
 <build>/src/tools/{ncc,nvm}/Release/. The compiled module is written
@@ -29,6 +34,7 @@ stderr print on separate labeled lines so merged-capture interleaving
 can never forge output.
 """
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -44,6 +50,11 @@ def main() -> int:
     ap.add_argument("probe", type=Path, help="the .n probe source")
     ap.add_argument("--expect", type=int, default=None,
                     help="expected 32-bit exit code (default: just report)")
+    ap.add_argument("--backend", default=None,
+                    help="pin NLANG_TENSOR_BACKEND for the run (e.g. cpu; "
+                         "the only backend env nvm itself reads — the "
+                         "e2e harness's NLANG_E2E_TENSOR_BACKEND is the "
+                         "RUNNER's variable and nvm ignores it)")
     ap.add_argument("--build", type=Path, default=None,
                     help="build root (default: <repo-root>/build)")
     ap.add_argument("--keep", action="store_true",
@@ -80,8 +91,11 @@ def main() -> int:
         print(f"ncc reported success but no module: {module}", file=sys.stderr)
         return 2
 
+    run_env = dict(os.environ)
+    if args.backend:
+        run_env["NLANG_TENSOR_BACKEND"] = args.backend
     run = subprocess.run([str(nvm), str(module)],
-                         capture_output=True, text=True)
+                         capture_output=True, text=True, env=run_env)
     if not args.quiet:
         if run.stdout:
             print(f"--- run stdout ---\n{run.stdout}", end="")

@@ -281,6 +281,25 @@ TensorOps MakeCudaTable() {
     t.gatherF64 = t.gatherF32;
     t.gatherI64 = t.gatherF32;
 
+    t.sortF32 = [](NativeHost* host, NativeArrayView& a, int32_t axis,
+                   NativeArrayView& dst) {
+        RequireCuda(host);
+        CUDA_CHECK(LaunchSort(false, ToLaunch(a), axis, ToLaunch(dst)),
+            "tensor (cuda sort)");
+    };
+    t.sortF64 = t.sortF32;
+    t.sortI32 = t.sortF32;
+    t.sortI64 = t.sortF32;
+    t.argsortF32 = [](NativeHost* host, NativeArrayView& a,
+                      int32_t axis, NativeArrayView& dst) {
+        RequireCuda(host);
+        CUDA_CHECK(LaunchSort(true, ToLaunch(a), axis, ToLaunch(dst)),
+            "tensor (cuda argsort)");
+    };
+    t.argsortF64 = t.argsortF32;
+    t.argsortI32 = t.argsortF32;
+    t.argsortI64 = t.argsortF32;
+
     t.unaryF32 = [](NativeHost* host, UnaryKernelOp op,
                     NativeArrayView& src, NativeArrayView& dst) {
         RequireCuda(host);

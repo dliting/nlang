@@ -223,33 +223,18 @@ void ScatterRun(NativeHost* host, uint8_t* ret, const uint8_t* args,
         ReturnInt(ret, handle);
         return;
     }
-    //Device non-rank-1: the staged walk (the gather R5 pattern).
-    if (va.reserved[0] == 1) {
-        std::vector<uint8_t> aStage;
-        NativeArrayView srcHost = StageOperandToHost(host, va, &aStage);
-        const int32_t hostOut = host->newArrayShaped(host, va.elemKind,
-            va.rank, outDims);
-        NativeArrayView hv;
-        host->getArrayView(host, hostOut, &hv);
-        CallScatterSlot<T>(OpsForResidency(0), host, srcHost, axis, vIdx,
-            vals.values, hv, vals, nullptr);
-        const int32_t handle = host->newArrayResident(host, va.elemKind,
-            va.rank, outDims);
-        NativeArrayView out;
-        host->getArrayView(host, handle, &out);
-        CopyHostToDevice(host, out.data, hv.data,
-            static_cast<size_t>(hv.elemCount) * hv.elemCellBytes);
-        ReturnInt(ret, handle);
-        return;
-    }
-    //Host-resident: the CPU walk into a host mint.
-    const int32_t handle = MintOutputLike(host, va.elemKind, va.rank,
+    //The CPU walk landing (the shared StagedWalkOut form): a host
+    //source fills the mint directly; a device source (non-rank-1)
+    //stages to host, fills the twin and lands H2D (the gather R5
+    //pattern's shared form).
+    std::vector<uint8_t> aStage;
+    NativeArrayView srcHost = StageOperandToHost(host, va, &aStage);
+    StagedWalkOut land = PrepareStagedWalkOut(host, va.elemKind, va.rank,
         outDims, va);
-    NativeArrayView out;
-    host->getArrayView(host, handle, &out);
-    CallScatterSlot<T>(OpsForResidency(0), host, va, axis, vIdx,
-        vals.values, out, vals, nullptr);
-    ReturnInt(ret, handle);
+    CallScatterSlot<T>(OpsForResidency(0), host, srcHost, axis, vIdx,
+        vals.values, land.fill, vals, nullptr);
+    LandStagedWalkOut(host, &land);
+    ReturnInt(ret, land.handle);
 }
 
 //The values-arm reader shared by the two entries: a scalar rides the
@@ -295,12 +280,8 @@ void ScatterEntry(NativeHost* host, uint8_t* ret, const uint8_t* args,
     NativeArrayView va;
     ArgArray(host, args, 0, &va);
     const int32_t axis = ArgInt(args, 1);
-    if (axis < 0 || axis >= va.rank)
-        Raise(host, NEXC_Base, "tensor.scatter: axis "
-            + std::to_string(axis) + " out of range for rank "
-            + std::to_string(va.rank));
-    if (va.elemCount == 0)
-        Raise(host, NEXC_Base, "tensor.scatter: empty array");
+    RejectAxisOutOfRange(host, "tensor.scatter", va, axis);
+    RejectZeroSizeSource(host, "tensor.scatter", va);
     NativeArrayView vIdx;
     ArgArray(host, args, 2, &vIdx);
     ValidateScatterIndices(host, vIdx);
@@ -426,8 +407,7 @@ void ScatterIntoEntry(NativeHost* host, uint8_t* ret, const uint8_t* args,
     //The assignment form is (a, indices, values) — rank-1, axis 0
     //implicit (no axis argument).
     const int32_t axis = 0;
-    if (va.elemCount == 0)
-        Raise(host, NEXC_Base, "tensor.scatter: empty array");
+    RejectZeroSizeSource(host, "tensor.scatter", va);
     if (va.rank != 1)
         Raise(host, NEXC_Base,
             "tensor.scatter: the assignment form expects a rank-1 array "

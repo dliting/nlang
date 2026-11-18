@@ -447,4 +447,48 @@ void AssertSameResidency(NativeHost* host, const NativeArrayView* operands,
     }
 }
 
+StagedWalkOut PrepareStagedWalkOut(NativeHost* host, uint8_t elemKind,
+                                   int32_t rank, const int32_t* dims,
+                                   const NativeArrayView& srcLike) {
+    StagedWalkOut landing;
+    if (srcLike.reserved[0] == 1 && g_backend.device) {
+        //Device-resident source: the walk fills a HOST twin mint and
+        //Land copies it into the device mint (the twin order keeps the
+        //walk's target a plain host buffer).
+        const int32_t twinHandle = host->newArrayShaped(host, elemKind,
+            rank, dims);
+        host->getArrayView(host, twinHandle, &landing.fill);
+        landing.handle = host->newArrayResident(host, elemKind, rank,
+            dims);
+        host->getArrayView(host, landing.handle, &landing.device);
+        landing.deviceIs = true;
+        return landing;
+    }
+    landing.handle = host->newArrayShaped(host, elemKind, rank, dims);
+    host->getArrayView(host, landing.handle, &landing.fill);
+    return landing;
+}
+
+void LandStagedWalkOut(NativeHost* host, StagedWalkOut* landing) {
+    if (!landing->deviceIs)
+        return;
+    CopyHostToDevice(host, landing->device.data, landing->fill.data,
+        static_cast<size_t>(landing->fill.elemCount)
+            * landing->fill.elemCellBytes);
+}
+
+void RejectAxisOutOfRange(NativeHost* host, const std::string& who,
+                          const NativeArrayView& a, int32_t axis) {
+    if (axis < 0 || axis >= a.rank)
+        Raise(host, NEXC_Base, who + ": axis "
+            + std::to_string(axis) + " out of range for rank "
+            + std::to_string(a.rank));
+}
+
+void RejectZeroSizeSource(NativeHost* host, const std::string& who,
+                          const NativeArrayView& a) {
+    if (a.elemCount == 0)
+        Raise(host, NEXC_Base, who + ": empty array");
+}
+
 } // namespace tensor

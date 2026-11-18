@@ -30,6 +30,7 @@
 ---*/
 #include "cuda_kernels.h"
 #include "cuda_mt19937.cuh"
+#include "../tensor/TensorOps.h"
 
 #include <cuda_runtime.h>
 
@@ -1874,6 +1875,107 @@ cudaError_t LaunchGather(const LaunchView& src, int axis,
         GatherKernel<int64_t><<<(int)blocks, kThreads, 0, g_stream>>>(
             ds, dIdx, axis, dd);
     PoolFree(dIdx, g_stream);
+    return cudaGetLastError();
+}
+
+//The stable ascending line sort (the device arm): one thread per
+//LINE — the line's elements gather into the thread's local buffer, an
+//in-thread insertion sort orders them (stable; NaN to the end per the
+//CPU walk's SortLess rule), and the line scatters back to the output's
+//dense coordinates. The line length is capped: the dispatcher routes
+//lines above kSortMaxLine to the host walk (the insertion sort is
+//teaching-scale).
+//The device-side line entry (the value plus the original ordinal —
+//the ordinal feeds argsort and makes the insertion sort stable).
+template <typename T>
+struct SortLineEntry {
+    T value;
+    int32_t ordinal;
+};
+
+//The device-side comparison (the CPU walk's SortLess rule inlined).
+template <typename T>
+__device__ bool SortLessDev(T a, T b) {
+    if constexpr (std::is_same_v<T, float> || std::is_same_v<T, double>) {
+        const bool aNan = isnan(a);
+        const bool bNan = isnan(b);
+        if (aNan)
+            return false;
+        if (bNan)
+            return true;
+    }
+    return a < b;
+}
+
+template <typename T>
+__global__ void SortAxisKernel(DevView src, int32_t axis, DevView dst,
+                               bool withIndices) {
+    const int64_t line = blockIdx.x * (int64_t)blockDim.x + threadIdx.x;
+    const int64_t lineCount = dst.elemCount / dst.dims[axis];
+    if (line >= lineCount)
+        return;
+    //The line base: the output ordinal decomposes over the non-axis
+    //dims (the odometer division skips the axis dim).
+    int64_t srcAddr = src.offset;
+    int64_t dstAddr = dst.offset;
+    int64_t rem = line;
+    for (int32_t d = src.rank - 1; d >= 0; --d) {
+        if (d == axis)
+            continue;
+        const int64_t dim = src.dims[d];
+        const int64_t coord = dim > 0 ? rem % dim : 0;
+        rem /= (dim > 0 ? dim : 1);
+        srcAddr += coord * src.strides[d];
+        dstAddr += coord * dst.strides[d];
+    }
+    const int64_t along = src.dims[axis];
+    SortLineEntry<T> entries[tensor::TensorOps::kSortMaxLine];
+    for (int64_t k = 0; k < along; ++k) {
+        const T v = ((const T*)src.data)[
+            srcAddr + k * src.strides[axis]];
+        //The insertion position: after every strictly-smaller element
+        //and every equal element (stable), after every non-NaN (a NaN
+        //goes to the end), before another NaN.
+        int64_t pos = 0;
+        //The stable insertion point: the first element strictly greater
+        //than v (equal elements keep the newcomer after them — the
+        //original ordinals stay in order).
+        while (pos < k && !SortLessDev(v, entries[pos].value))
+            ++pos;
+        for (int64_t m = k; m > pos; --m)
+            entries[m] = entries[m - 1];
+        entries[pos] = {v, static_cast<int32_t>(k)};
+    }
+    for (int64_t k = 0; k < along; ++k) {
+        if (withIndices)
+            static_cast<int32_t*>(dst.data)[
+                dstAddr + k * dst.strides[axis]] = entries[k].ordinal;
+        else
+            ((T*)dst.data)[
+                dstAddr + k * dst.strides[axis]] = entries[k].value;
+    }
+}
+
+cudaError_t LaunchSort(bool withIndices, const LaunchView& src,
+                       int axis, const LaunchView& dst) {
+    //Async (no cell errors). One thread per line; the line count is
+    //the output's element count over the line length.
+    const DevView ds = ToDevView(src);
+    const DevView dd = ToDevView(dst);
+    const int64_t lineCount = dst.elemCount / ds.dims[axis];
+    const int64_t blocks = (lineCount + kThreads - 1) / kThreads;
+    if (src.elemKind == 1)
+        SortAxisKernel<float><<<(int)blocks, kThreads, 0, g_stream>>>(
+            ds, axis, dd, withIndices);
+    else if (src.elemKind == 17)
+        SortAxisKernel<double><<<(int)blocks, kThreads, 0, g_stream>>>(
+            ds, axis, dd, withIndices);
+    else if (src.elemKind == 0)
+        SortAxisKernel<int32_t><<<(int)blocks, kThreads, 0, g_stream>>>(
+            ds, axis, dd, withIndices);
+    else
+        SortAxisKernel<int64_t><<<(int)blocks, kThreads, 0, g_stream>>>(
+            ds, axis, dd, withIndices);
     return cudaGetLastError();
 }
 

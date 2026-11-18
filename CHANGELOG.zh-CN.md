@@ -8,6 +8,18 @@
 
 ## [未发布]
 
+## [0.14.6]
+
+张量表面的稳定排序对：`sort`与`argsort`按轴线排序，语义与numpy一致——升序、稳定、NaN排末尾——补齐argmax家族（每线一个胜者）与完整排序之间的空档。
+
+### 新增
+
+- **`tensor.sort(a, axis)`**——每条轴线独立按升序整理，结果保持输入形状。排序是稳定的（相等元素保持原有相对顺序）；浮点遵循numpy的NaN规则——NaN单元排到线尾。
+- **`tensor.argsort(a, axis)`**——把每条线排好序的int32排列（argmax家族的首见胜下标契约），形状与源一致。秩1拼写经`gather`可往返：`gather(a, 0, argsort(a, 0))`即排好序的数组；更高秩的消费者逐线读排列（元素索引——take-along-axis表面属后续工作）。
+- **CPU遍历+设备内核**——CPU路径对每线的（值，原序号）对跑`std::stable_sort`；CUDA路径每线一线程，线程内插入排序。超过`kSortMaxLine`（4096）的线改走宿主遍历，固定设备缓冲不可能溢出。四种数值元素种类在两条路径上齐备。
+
+门禁：Debug单测133/135、ASan单测133/135（net_platform为已知环境失败；debugger冻结为负载时序偶发，串行全绿）、cpu e2e全量1987过+2个已知net-ping环境失败、CUDA双跑191/191。mnist护栏：acc 0.895。
+
 ## [0.14.5]
 
 流有序内存与计算/传输重叠：手写设备池退役，改用CUDA的流有序分配器（`cudaMallocAsync`/`cudaFreeAsync`）；整块传输在staging流上运行，与计算流已排队的内核重叠。手写池的零块病态路径（`cudaMalloc(0)`的NULL被误读为内存耗尽）随之退役。

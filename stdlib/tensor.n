@@ -378,6 +378,18 @@ native Array<double> where(Array<long> mask, Array<double> x, Array<double> y);
 native Array<int> where(Array<long> mask, Array<int> x, Array<int> y);
 native Array<long> where(Array<long> mask, Array<long> x, Array<long> y);
 
+// Stable ascending sort per axis line (numpy NaN-to-the-end; argsort
+// returns the int32 permutation, stable). Rank-1 with axis 0 is the
+// flat spelling.
+native Array<int> sort(Array<int> a, int axis);
+native Array<long> sort(Array<long> a, int axis);
+native Array<float> sort(Array<float> a, int axis);
+native Array<double> sort(Array<double> a, int axis);
+native Array<int> argsort(Array<int> a, int axis);
+native Array<long> argsort(Array<long> a, int axis);
+native Array<int> argsort(Array<float> a, int axis);
+native Array<int> argsort(Array<double> a, int axis);
+
 // Scatter: the write twin of gather — per position i,
 // out[position(i)][indices[i]] = values[i]; value semantics (returns a
 // new array, `a` unchanged). Out-of-range indices raise

@@ -234,3 +234,6 @@ op_tensor_gather_positive_throw
 op_tensor_clamp_int
 op_tensor_reduce_axis_mid
 op_tensor_reduce_axis_mid
+op_tensor_sort
+op_tensor_sort
+op_tensor_sort_empty_throw

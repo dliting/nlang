@@ -140,6 +140,47 @@ int32_t MintArray1(NativeHost* host, uint8_t elemKind, int32_t length);
 int32_t MintOutputLike(NativeHost* host, uint8_t elemKind, int32_t rank,
                        const int32_t* dims, const NativeArrayView& like);
 
+//--- the staged-walk landing ---------------------------------------------
+
+//The CPU-walk families' shared output landing (the gather R5 shape's
+//one form): Prepare mints the output like `srcLike` and returns the
+//view the walk fills — a device-resident source gets a HOST twin
+//mint (the walk writes host memory), a host-resident source gets the
+//mint itself. Land publishes the filled view: the device shape copies
+//it H2D (a device backend is active by construction — a device view
+//only exists with one), the host shape is already in place. Pairing
+//the two calls is the sanctioned way to land a CPU walk, so a family
+//cannot hand a host mint to a device transfer (the backend=cpu raise,
+//or a host pointer handed to the cuda copy under cuda — the v0.14.6
+//sort defect class).
+struct StagedWalkOut {
+    int32_t handle = 0;     //the output array's handle
+    NativeArrayView fill;   //the view the CPU walk writes
+    bool deviceIs = false;  //the device-side landing is pending
+    NativeArrayView device; //the landing target (deviceIs only)
+};
+
+StagedWalkOut PrepareStagedWalkOut(NativeHost* host, uint8_t elemKind,
+                                   int32_t rank, const int32_t* dims,
+                                   const NativeArrayView& srcLike);
+void LandStagedWalkOut(NativeHost* host, StagedWalkOut* landing);
+
+//--- the axis family's shared validations --------------------------------
+
+//The axis contract every per-axis family shares: the axis in range —
+//the diagnostic names the axis and the rank (the §18.7 shape).
+void RejectAxisOutOfRange(NativeHost* host, const std::string& who,
+                          const NativeArrayView& a, int32_t axis);
+
+//The per-line families' empty convention (sum/mean's scalar arm, the
+//axis arms, sort/argsort): a zero-size source has no line to walk and
+//no cell to start a scan from — the walks below divide the line count
+//by the axis dim. The position families (gather/scatter) keep their
+//own shape instead: a zero AXIS DIM raises, a zero-size source with a
+//nonzero axis is a legitimate empty result.
+void RejectZeroSizeSource(NativeHost* host, const std::string& who,
+                          const NativeArrayView& a);
+
 //The mixed-residency diagnostic (spec D6's format): raises when the
 //operands disagree on residency.
 void AssertSameResidency(NativeHost* host, const NativeArrayView* operands,

@@ -77,13 +77,12 @@ void GatherKernel(NativeHost* host, uint8_t* ret, const uint8_t* args)
     NativeArrayView va;
     ArgArray(host, args, 0, &va);
     const int32_t axis = ArgInt(args, 1);
-    if (axis < 0 || axis >= va.rank)
-        Raise(host, NEXC_Base, "tensor.gather: axis "
-              + std::to_string(axis) + " out of range for rank "
-              + std::to_string(va.rank));
+    RejectAxisOutOfRange(host, "tensor.gather", va, axis);
     //The empty guard keys on the GATHER AXIS being the zero dim — the
-    //shape whose non-axis count below would divide by zero; a zero-size
-    //source with a nonzero axis gathers empty (take-per-position).
+    //position family's shape, distinct from the per-line families'
+    //zero-size-source convention (RejectZeroSizeSource): a zero-size
+    //source with a nonzero axis gathers empty (take-per-position), but
+    //a zero axis dim makes the non-axis count below divide by zero.
     const int32_t along = va.dims[axis];
     if (along == 0)
         Raise(host, NEXC_Base, "tensor.gather: empty array");
@@ -157,18 +156,14 @@ void ExtremeAxisIndicesKernel(NativeHost* host, uint8_t* ret,
     NativeArrayView va;
     ArgArray(host, args, 0, &va);
     const int32_t axis = ArgInt(args, 1);
-    if (axis < 0 || axis >= va.rank)
-        Raise(host, NEXC_Base, std::string(who) + ": axis "
-              + std::to_string(axis) + " out of range for rank "
-              + std::to_string(va.rank));
+    RejectAxisOutOfRange(host, who, va, axis);
     //The axis arm needs rank >= 2 (the max/min family precedent): the
     //result drops the axis dim, and rank-1 would need a scalar return
     //the Array-typed surface cannot spell.
     if (va.rank == 1)
         Raise(host, NEXC_Base, std::string(who)
               + ": rank-1 arrays have no axis arm");
-    if (va.elemCount == 0)
-        Raise(host, NEXC_Base, std::string(who) + ": empty array");
+    RejectZeroSizeSource(host, who, va);
 
     const int32_t outRank = va.rank - 1;
     int32_t outDims[nlang::kMaxArrayRank];

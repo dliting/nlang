@@ -944,6 +944,46 @@ TensorOps MakeCpuTable() {
             CpuWhere<int32_t, int32_t>(mask, x, y, dst, maskLong, xScalar,
                 yScalar, 0.0, 0.0, isx, isy);
     };
+    t.sortF32 = [](NativeHost* host, NativeArrayView& a, int32_t axis,
+                   NativeArrayView& dst) {
+        (void)host;
+        SortCpuF32(a, axis, false, dst);
+    };
+    t.sortF64 = [](NativeHost* host, NativeArrayView& a, int32_t axis,
+                   NativeArrayView& dst) {
+        (void)host;
+        SortCpuF64(a, axis, false, dst);
+    };
+    t.sortI32 = [](NativeHost* host, NativeArrayView& a, int32_t axis,
+                   NativeArrayView& dst) {
+        (void)host;
+        SortCpuI32(a, axis, false, dst);
+    };
+    t.sortI64 = [](NativeHost* host, NativeArrayView& a, int32_t axis,
+                   NativeArrayView& dst) {
+        (void)host;
+        SortCpuI64(a, axis, false, dst);
+    };
+    t.argsortF32 = [](NativeHost* host, NativeArrayView& a,
+                      int32_t axis, NativeArrayView& dst) {
+        (void)host;
+        SortCpuF32(a, axis, true, dst);
+    };
+    t.argsortF64 = [](NativeHost* host, NativeArrayView& a,
+                      int32_t axis, NativeArrayView& dst) {
+        (void)host;
+        SortCpuF64(a, axis, true, dst);
+    };
+    t.argsortI32 = [](NativeHost* host, NativeArrayView& a,
+                      int32_t axis, NativeArrayView& dst) {
+        (void)host;
+        SortCpuI32(a, axis, true, dst);
+    };
+    t.argsortI64 = [](NativeHost* host, NativeArrayView& a,
+                      int32_t axis, NativeArrayView& dst) {
+        (void)host;
+        SortCpuI64(a, axis, true, dst);
+    };
     t.scatterF32 = [](NativeHost* host, NativeArrayView& a,
                       int32_t axis, NativeArrayView& indices,
                       NativeArrayView& values, NativeArrayView& dst,

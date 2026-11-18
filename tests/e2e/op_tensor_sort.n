@@ -1,0 +1,62 @@
+// The stable ascending sort primitives (v0.14.6): each axis line
+// sorts independently (numpy NaN-to-the-end; argsort returns the
+// int32 permutation, stable — equal elements keep their relative
+// order). The exact values pin the ordering and the odometer
+// addressing; the permutation and round-trip invariants are
+// self-checking (immune to hand-written-expectation slips). Exit 0
+// when every check holds.
+import tensor;
+
+int main() {
+    //Rank-1 flat: negatives, duplicates, zero.
+    int[] a = int[6];
+    a[0] = 3; a[1] = -1; a[2] = 3; a[3] = 0; a[4] = -1; a[5] = 5;
+    int[] s = tensor.sort(a, 0);
+    if (s[0] != -1 || s[1] != -1 || s[2] != 0 || s[3] != 3
+        || s[4] != 3 || s[5] != 5) return 1;
+    //Stable argsort: the ordinals of the two -1 cells keep their
+    //original order (1 then 4).
+    int[] ord = tensor.argsort(a, 0);
+    if (ord[0] != 1 || ord[1] != 4 || ord[2] != 3 || ord[3] != 0
+        || ord[4] != 2 || ord[5] != 5) return 2;
+    //The ordinals are a permutation: sorted, they are the identity
+    //(a repeated or missing ordinal cannot sort to 0..5; the sort's
+    //ordering on distinct values rides the rank-1 pin above).
+    int[] ordSorted = tensor.sort(ord, 0);
+    for (int i = 0; i < 6; i = i + 1)
+        if (ordSorted[i] != i) return 3;
+    //argsort round-trip: a[as] IS the sorted array, cell for cell.
+    int[] rt = tensor.gather(a, 0, ord);
+    for (int i = 0; i < 6; i = i + 1)
+        if (rt[i] != s[i]) return 4;
+    //Rank-3 middle axis (the odometer addressing): every line holds a
+    //descending pair, so the sort must actually reorder along axis 1.
+    int[,,] cube = [[[3, 1], [2, 0]], [[7, 5], [6, 4]]];
+    int[,,] dsc = tensor.sort(cube, 1);
+    if (dsc[0, 0, 0] != 2 || dsc[0, 0, 1] != 0 || dsc[0, 1, 0] != 3
+        || dsc[0, 1, 1] != 1) return 5;
+    if (dsc[1, 0, 0] != 6 || dsc[1, 0, 1] != 4 || dsc[1, 1, 0] != 7
+        || dsc[1, 1, 1] != 5) return 6;
+    //argsort's ordinals reconstruct the sorted lines (the
+    //take-along-axis identity, spelled with element indexing — the
+    //gather surface is per-position, so rank>1 round-trips per line).
+    int[,,] ord3 = tensor.argsort(cube, 1);
+    for (int i = 0; i < 2; i = i + 1)
+        for (int j = 0; j < 2; j = j + 1)
+            for (int k = 0; k < 2; k = k + 1) {
+                int p = ord3[i, j, k];
+                if (cube[i, p, k] != dsc[i, j, k]) return 7;
+            }
+    //Float NaN to the end (the division producing NaN never raises on
+    //the tensor kernels): the real cell sorts before the NaN cell, and
+    //the NaN cell stays NaN (IEEE self-inequality).
+    float[] f2 = tensor.full(2, 1.0f);
+    float[] nanv = tensor.div(tensor.full(2, 0.0f), tensor.full(2, 0.0f));
+    int[] m = tensor.fullI(2, 1);
+    m[1] = 0;
+    float[] mixed = tensor.where(m == 1, f2, nanv);
+    float[] fs = tensor.sort(mixed, 0);
+    if (fs[0] != 1.0f) return 8;   //a NaN sorted first would fail here
+    if (fs[1] == fs[1]) return 9;  //the last cell is the NaN
+    return 0;
+}

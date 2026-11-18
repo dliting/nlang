@@ -389,6 +389,21 @@ void TensorScatterInto(NativeHost* host, uint8_t* ret, const uint8_t* args,
                        int argc);
 void TensorScatterIntoScalar(NativeHost* host, uint8_t* ret,
                              const uint8_t* args, int argc);
+//--- v0.14.6: the stable sort surface (tensor_sort.cpp) ---
+void TensorSort(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                int argc);
+void TensorArgSort(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                   int argc);
+//The exported sort CPU walk wrappers (the CPU table's slots call
+//them).
+void SortCpuF32(const NativeArrayView& a, int32_t axis, bool withIndices,
+                NativeArrayView& dst);
+void SortCpuF64(const NativeArrayView& a, int32_t axis, bool withIndices,
+                NativeArrayView& dst);
+void SortCpuI32(const NativeArrayView& a, int32_t axis, bool withIndices,
+                NativeArrayView& dst);
+void SortCpuI64(const NativeArrayView& a, int32_t axis, bool withIndices,
+                NativeArrayView& dst);
 //The exported CPU walk wrappers (the CPU table's slots call them).
 void ScatterCpuF32(NativeHost* host, const NativeArrayView& a,
                    int32_t axis, const NativeArrayView& indices,

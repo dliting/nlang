@@ -46,9 +46,9 @@ void UnaryReduceKernel(NativeHost* host, uint8_t* ret,
                        const uint8_t* args, RedOp op) {
     NativeArrayView v;
     ArgArray(host, args, 0, &v);
-    if (op != RedOp::Sum && v.elemCount == 0)
-        Raise(host, NEXC_Base, op == RedOp::Max
-            ? "tensor.max: empty array" : "tensor.min: empty array");
+    if (op != RedOp::Sum)
+        RejectZeroSizeSource(host, op == RedOp::Max ? "tensor.max"
+                                                    : "tensor.min", v);
     const TensorOps& ops = OpsForResidency(v.reserved[0]);
     if (op == RedOp::Sum) {
         double acc = 0.0;
@@ -95,8 +95,7 @@ template <typename T>
 void MeanKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
     NativeArrayView v;
     ArgArray(host, args, 0, &v);
-    if (v.elemCount == 0)
-        Raise(host, NEXC_Base, "tensor.mean: empty array");
+    RejectZeroSizeSource(host, "tensor.mean", v);
     double mean = 0.0;
     const TensorOps& ops = OpsForResidency(v.reserved[0]);
     if constexpr (std::is_same_v<T, float>) {
@@ -207,10 +206,7 @@ void SumAxisKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
     NativeArrayView v;
     ArgArray(host, args, 0, &v);
     const int32_t axis = ArgInt(args, 1);
-    if (axis < 0 || axis >= v.rank)
-        Raise(host, NEXC_Base, "tensor.sum: axis "
-              + std::to_string(axis) + " out of range for rank "
-              + std::to_string(v.rank));
+    RejectAxisOutOfRange(host, "tensor.sum", v, axis);
     const int32_t outRank = v.rank - 1;
     if (outRank == 0) {
         //Rank-1 + axis 0: the full reduction (the scalar return).
@@ -262,16 +258,12 @@ void ExtremeAxisKernel(NativeHost* host, uint8_t* ret,
     NativeArrayView v;
     ArgArray(host, args, 0, &v);
     const int32_t axis = ArgInt(args, 1);
-    if (axis < 0 || axis >= v.rank)
-        Raise(host, NEXC_Base, who + std::string(": axis ")
-              + std::to_string(axis) + " out of range for rank "
-              + std::to_string(v.rank));
+    RejectAxisOutOfRange(host, who, v, axis);
     //The family-consistent empty guard (the scalar reductions and
     //argmax/argmin raise the same way): a zero-size source has no
     //position to start the scan from — cells[base] below reads past
     //the allocation when the axis dim itself is zero.
-    if (v.elemCount == 0)
-        Raise(host, NEXC_Base, std::string(who) + ": empty array");
+    RejectZeroSizeSource(host, who, v);
     const int32_t outRank = v.rank - 1;
     if (outRank == 0)
         Raise(host, NEXC_Base, std::string(who)
