@@ -40,5 +40,10 @@ family concurrency src src/vm/VmDomainLocks.h
 family concurrency unit thread|conc|domainlock|carrier|work_pool|gcworldstop
 family concurrency e2e ^(conc_|carrier|thread|atomic|sync|selectany)
 
+family stdlib_math src stdlib/math.n
+family stdlib_math src src/native/math/math_native.cpp
+family stdlib_math unit library_index|langservice|library_source|stdlib_tests|ncu_package
+family stdlib_math e2e ^stdlib_math_
+
 ignore docs/**
 ignore temp/**

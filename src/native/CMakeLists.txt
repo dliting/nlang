@@ -145,6 +145,12 @@ target_sources(nlang_gzip PRIVATE
 target_include_directories(nlang_gzip PRIVATE ${PROJECT_SOURCE_DIR}/third_party/zlib)
 target_compile_definitions(nlang_gzip PRIVATE _CRT_SECURE_NO_WARNINGS)
 
+# math.randomBytes pulls entropy from the OS CSPRNG: BCryptGenRandom on
+# Windows (bcrypt), getrandom() or /dev/urandom on POSIX (no extra link).
+if(WIN32)
+    target_link_libraries(nlang_math PRIVATE bcrypt)
+endif()
+
 # Single authoritative output and NOTHING copies the modules around the
 # build tree — hosts resolve them through NativeLibraryLoader's build-tree
 # fallback (walk-up discovery, consulted after explicit search dirs; see

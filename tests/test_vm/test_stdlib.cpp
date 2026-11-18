@@ -272,28 +272,15 @@ void test_stdlib_native_full_dispatch()
             args += std::string(i ? ", " : "") + lit;
         }
         std::string call = "math." + sig->name + "(" + args + ")";
+        //Declare the result with its declared spelling, so the walk also
+        //pins that the call yields the type the declaration promises.
+        //TypeKind has no array kind, so the byte[] natives land here too.
         std::string src;
-        switch (sig->returnKind)
-        {
-        case langservice::TypeKind::Void:
+        if (sig->returnKind == langservice::TypeKind::Void)
             src = "int main() { " + call + "; return 0; }\n";
-            break;
-        case langservice::TypeKind::Float:
-            src = "int main() { float r = " + call + "; return 0; }\n";
-            break;
-        case langservice::TypeKind::Double:
-            src = "int main() { double r = " + call + "; return 0; }\n";
-            break;
-        case langservice::TypeKind::Long:
-            src = "int main() { long r = " + call + "; return 0; }\n";
-            break;
-        case langservice::TypeKind::String:
-            src = "int main() { string r = " + call + "; return 0; }\n";
-            break;
-        default:
-            src = "int main() { int r = " + call + "; return 0; }\n";
-            break;
-        }
+        else
+            src = "int main() { " + sig->returnType + " r = " + call +
+                  "; return 0; }\n";
         //Unique output tag per entry: the builder's module registry
         //rejects a second module with the same name in one process.
         const int rc = runSource("native_" + sig->name, src);
@@ -301,9 +288,9 @@ void test_stdlib_native_full_dispatch()
             + " (rc=" + std::to_string(rc) + ")").c_str());
         ++checked;
     }
-    //25 is stdlib/math.n's native declaration count: a deliberate tripwire,
+    //26 is stdlib/math.n's native declaration count: a deliberate tripwire,
     //so a declaration cannot silently disappear from the library source.
-    CHECK(checked == 25,
+    CHECK(checked == 26,
         "every math native declaration must be exercised by this walk");
     PASS();
 }

@@ -26,7 +26,7 @@ static int g_failures = 0;
 //TestLoadsRealStdLib). A surface change updates the constant AND the
 //breakdown comment; the printer turns any future drift into a
 //per-package diff instead of bare FAIL lines.
-constexpr std::size_t kStdlibSymbolPin = 336;
+constexpr std::size_t kStdlibSymbolPin = 337;
 
 static void PrintIndexShape(const SymbolIndex &index)
 {
@@ -44,10 +44,11 @@ static void PrintIndexShape(const SymbolIndex &index)
 static void TestLoadsRealStdLib() {
     SymbolIndex index;
     index.LoadLibraryDir(STDLIB_DIR);
-    // 336 functions: io 22 (13 natives + 5 typed-reader wrappers + 4
+    // 337 functions: io 22 (13 natives + 5 typed-reader wrappers + 4
     // Base64 codecs; the v11 park native and the byte helpers moved
     // from net, the monotonic clock moved to system in v0.13.4),
-    // math 25, fs 10 (the binary read pair readBytes/readFloats),
+    // math 26 (the v0.13.12 CSPRNG byte surface randomBytes),
+    // fs 10 (the binary read pair readBytes/readFloats),
     // thread 7 (the K3 materialized package plus the P2-2 failure
     // probes), tensor 200 (the v0.12.7 surface: broadcasting
     // elementwise with scalar arms, the view family

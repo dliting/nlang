@@ -166,8 +166,9 @@ Verdict: all 11 top-level declarations public; nothing to hide.
 | native function | random | public |
 | native function | srand | public |
 | native function | randomi | public |
+| native function | randomBytes | public |
 
-Verdict: all 25 top-level declarations public; nothing to hide.
+Verdict: all 26 top-level declarations public; nothing to hide.
 
 ## net.n
 
@@ -497,4 +498,4 @@ Verdict: all 10 top-level declarations public; nothing to hide.
 
 Verdict: all 6 top-level declarations public; nothing to hide.
 
-Total: 387 top-level declarations across 14 modules; verdict: the stdlib is a fully public curated face, matching D5.6's expectation (no hidden members, no cross-module denial risk introduced by the access gate).
+Total: 388 top-level declarations across 14 modules; verdict: the stdlib is a fully public curated face, matching D5.6's expectation (no hidden members, no cross-module denial risk introduced by the access gate).

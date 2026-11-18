@@ -1013,6 +1013,8 @@ stdlib_math_random_deterministic 0
 stdlib_math_randomi_range 0
 stdlib_math_randomi_minmax_throws 1
 stdlib_math_clamp_lo_gt_hi_throws 1
+# --- CSPRNG byte surface (session ids and multipart boundaries) ---
+stdlib_math_random_bytes 0
 stdlib_io_print 0 hello
 stdlib_io_write 0 AB
 stdlib_io_write_prompt 0 Name: Hi Alice
