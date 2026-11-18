@@ -1,0 +1,16 @@
+// v0.13.9 phase 3 Task 12: a string & formal binds the caller's
+// string slot — reassignment through the formal is visible to the
+// caller (string references are slot-level: the store swaps the
+// handle in the bound variable, no character-level aliasing).
+// Expected exit code: 0.
+void retag(string& s) {
+    s = s + "!";
+}
+
+int main() {
+    string name = "phase3";
+    retag(name);
+    if (name == "phase3!")
+        return 0;
+    return 1;
+}

@@ -2498,3 +2498,8 @@ cross_mod_interface_rtk_gc 0
 cross_mod_interface_return 7
 refbind_foreach_list_remove 0
 refbind_foreach_list_grow 0
+refbind_local_whole_struct 0
+refbind_enum_write 0
+refbind_param_string 0
+refbind_virtual_dispatch 0
+refbind_iface_dispatch 0

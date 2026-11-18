@@ -1,0 +1,29 @@
+// v0.13.9 phase 3 Task 12 (D14 ruling): a & formal on a virtual
+// method rides the ordinary parameter slot — the dispatch machinery
+// is unaware of it, so the write lands in the caller's variable
+// through BOTH the base impl and the override (the gap out retired
+// for out-params). Expected exit code: 0.
+class Base {
+    public virtual void bump(int& v) {
+        v = v + 1;
+    }
+    public virtual void pick(int& v) {
+        v = v + 10;
+    }
+}
+class Derived : Base {
+    public void pick(int& v) {
+        v = v + 20;
+    }
+}
+
+int main() {
+    Base b = Base();
+    int a = 0;
+    b.bump(a);
+    Base d = Derived();
+    d.pick(a);   //virtual: the override wins, & still writes through
+    if (a == 21)
+        return 0;
+    return 1;
+}

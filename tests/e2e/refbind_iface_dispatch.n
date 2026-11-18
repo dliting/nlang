@@ -1,0 +1,30 @@
+// v0.13.9 phase 3 Task 12 (D14 ruling + fix): a & formal on an
+// interface method rides the ordinary parameter slot through
+// interface dispatch, and the churn loop walks the interface runtime
+// kind through collections — both the byref write and the interface
+// GC routing of this exact shape must hold. Expected exit code: 0.
+interface Accum {
+    void add(int& v);
+}
+class Impl implements Accum {
+    public void add(int& v) {
+        v = v + 2;
+    }
+}
+
+int main() {
+    Accum a = Impl();
+    int result = 1;
+    a.add(result);
+    int c = 0;
+    while (c < 3000) {
+        Accum g = Impl();
+        int scratch = 0;
+        g.add(scratch);
+        c = c + 1;
+    }
+    a.add(result);   //still the same live instance after the collections
+    if (result == 5)
+        return 0;
+    return 1;
+}

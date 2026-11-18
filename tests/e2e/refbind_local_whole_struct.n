@@ -1,0 +1,22 @@
+// v0.13.9 phase 3 Task 12: a whole-struct local binding names the
+// caller's record — member stores land in the bound variable, and a
+// byval snapshot taken through the binding is an independent copy
+// that freezes at the moment of the copy. Expected exit code: 0.
+struct Point {
+    int x;
+    int y;
+}
+
+int main() {
+    Point pt;
+    pt.x = 3;
+    pt.y = 4;
+    Point& r = pt;
+    r.x = 30;
+    Point copy = r;
+    r.y = 40;
+    if (pt.x == 30 && pt.y == 40 && r.x == 30 && r.y == 40
+        && copy.x == 30 && copy.y == 4)
+        return 0;
+    return 1;
+}
