@@ -209,6 +209,34 @@ static bool GrantsImplicitToString(NodeKind srcKind, const SnField &source)
 	return srcKind == NK_ArrayTypeToken;
 }
 
+//The Object-target rungs of CalcTypeDistance. Array<E> under either spelling
+//(the type token and the instantiated class) is a direct Object subclass — one
+//hop that the class ladder cannot see, because the instantiation declares no
+//Object base (spec 4.1); CanImplicitlyBind reads that same edge through
+//CastInfo's TCK_Same verdict. A scalar primitive, string or enumeration value
+//entering an Object position boxes; the cast table's TCK_Box verdict is the one
+//authority on which kinds that covers, so the ladder asks it rather than
+//restating the kind list. Without the boxing rung the box would be granted on
+//initialization and assignment only, and the third documented entry point — an
+//argument, as in `TakesObject(42)` — would leave the candidate unviable and the
+//call a type error (spec 4.11.3). Both rungs outrank every primitive conversion
+//the ladder grants, so an exact or widened formal still wins the overload
+//sweep. -1 means the target is not Object or grants no rung: the ladder's own
+//arms judge the pair.
+static int ObjectTargetDistance(const SnField &source, const SnField &target,
+	NodeKind srcKind, NodeKind tgtKind)
+{
+	if (tgtKind != NK_ClassDecl || target.Name() != "Object")
+		return -1;
+	if (srcKind == NK_ArrayTypeToken
+		|| ArrayInstantiationElem(const_cast<SnField*>(&source)))
+		return 1;
+	if (TypeCastInfo(const_cast<SnField*>(&source),
+		const_cast<SnField*>(&target)).Kind() == TCK_Box)
+		return kDistToBox;
+	return -1;
+}
+
 int ExprResolveAccessor::CalcTypeDistance(const SnField &source,
 	const SnField &target) const
 {
@@ -228,14 +256,11 @@ int ExprResolveAccessor::CalcTypeDistance(const SnField &source,
 	if (SameArrayType(const_cast<SnField*>(&source),
 		const_cast<SnField*>(&target)))
 		return 0;
-	//v0.12.7 Task 5: Array<E> <: Object (spec 4.1) — one hop (a direct
-	//superclass step) for BOTH spellings: the token and the Array<E>
-	//instance (no declared Object base, so the class ladder cannot see
-	//the edge). CanImplicitlyBind reads it via the TCK_Same verdict.
-	if (tgtKind == NK_ClassDecl && target.Name() == "Object"
-		&& (srcKind == NK_ArrayTypeToken
-			|| ArrayInstantiationElem(const_cast<SnField*>(&source))))
-		return 1;
+	//The rungs entering an Object position (the Array<E> hop, the boxed kinds)
+	//live in ObjectTargetDistance; -1 there leaves the pair to the arms below.
+	const int nDist = ObjectTargetDistance(source, target, srcKind, tgtKind);
+	if (nDist >= 0)
+		return nDist;
 	//v0.13.6: the implicit →string conversion is ONE assignable relation over
 	//initialization, assignment, argument passing and return (spec 4.4), so
 	//the call path grants candidacy on the same single rung the cast table

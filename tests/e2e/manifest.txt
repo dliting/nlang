@@ -366,6 +366,11 @@ object_gethashcode_override 1
 string_gethashcode 7
 string_equals 7
 box_primitive 0
+# §4.11.3 names three entry points into an Object position; the argument one
+# needs its own rung in the overload ladder, so both directions are pinned —
+# scalars/string/enum box on the way in, a struct still has no path.
+boxed_arg_object 0
+boxed_arg_struct_reject compile_error has type "struct Point"; "class Object" expected
 # --- Phase 8e-1.5: explicit unbox/downcast via `expr as T` ---
 unbox_primitive 5
 unbox_type_mismatch_throws 1
