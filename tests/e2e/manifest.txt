@@ -2272,6 +2272,11 @@ stdlib_http_big_head 0
 stdlib_http_single_write 0
 stdlib_http_date_cache 0
 stdlib_http_reject503 0
+# --- HttpServer graceful shutdown: drain returns 0 once its in-flight count
+#settles, force-closes an idle keep-alive wait, reports the residual count when
+#the grace window runs out, resets so the same instance can start again, refuses
+#a second start, and stays idempotent across repeated drain/close calls ---
+stdlib_http_drain_close 0
 #v0.13.6 closed-handle pin: after close() every method of a net handle
 #raises SocketException, close is idempotent, isClosed reports true, and
 #after shutdownWrite() writes raise while reads work until end of stream.
