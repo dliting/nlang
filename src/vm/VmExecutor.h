@@ -823,6 +823,10 @@ private:
     void OpRefOfLocal(BytecodeReader& reader, uint8_t* locals);
     void OpRefOfPromoted(BytecodeReader& reader, uint8_t* locals);
     void OpRefOfField(BytecodeReader& reader, uint8_t* locals);
+    //Task 13: the generic-body field bind — the frame context's type
+    //argument kind picks the pair shape (cell pair for scalar/string,
+    //offset-0 record pair for struct/identity).
+    void OpRefOfFieldTypeArg(BytecodeReader& reader, uint8_t* locals);
     void OpRefOfElement(BytecodeReader& reader, uint8_t* locals);
     void OpRefOfElementN(BytecodeReader& reader, uint8_t* locals);
     //Shared bind tail of both element binds: peel views to the owner,

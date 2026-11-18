@@ -99,6 +99,41 @@ void VmExecutor::OpRefOfField(BytecodeReader& reader, uint8_t* locals) {
     std::memcpy(locals + dst, pair, sizeof(pair));
 }
 
+//Task 13: the generic-body field bind — the final hop's kind is only
+//known at runtime (the frame context's ordinal-th type argument), the
+//field-bind twin of OP_LoadRef_T/OP_StoreRef_T. Scalar/string kinds
+//pair the field's own cell (OP_RefOfField's shape); struct and
+//identity kinds deref the cell first — it names the record/object,
+//and the offset-0 pair reads as that handle (D9).
+void VmExecutor::OpRefOfFieldTypeArg(BytecodeReader& reader,
+    uint8_t* locals) {
+    const uint8_t ordinal = reader.ReadByte();
+    const uint16_t dst = reader.ReadUint16();
+    const uint16_t base = reader.ReadUint16();
+    const uint16_t cellOff = reader.ReadUint16();
+    const TypeArgDesc& arg = ContextTypeArgOf(ordinal);
+    int32_t handle;
+    std::memcpy(&handle, locals + base, sizeof(handle));
+    if (handle <= 0 || static_cast<size_t>(handle) >= m_structHeap.size()
+        || static_cast<size_t>(cellOff)
+            >= m_structHeap[static_cast<size_t>(handle)].size())
+        throw std::runtime_error(
+            "NLang VM: OP_RefOfField_T on an invalid record or field "
+            "offset");
+    int32_t pair[2];
+    if (ScalarPrimIndexOfRtk(arg.resolvedKind) >= 0
+        || arg.resolvedKind == RTK_String) {
+        pair[0] = handle;
+        pair[1] = static_cast<int32_t>(cellOff);
+    } else {
+        std::memcpy(&pair[0],
+            m_structHeap[static_cast<size_t>(handle)].data() + cellOff,
+            sizeof(int32_t));
+        pair[1] = 0;
+    }
+    std::memcpy(locals + dst, pair, sizeof(pair));
+}
+
 //Struct array cells hold the element record's handle, so the bind
 //derefs the cell: the pair names the ELEMENT record itself, keeping
 //the phase-3 convention that an offset-0 pair reads as a plain record

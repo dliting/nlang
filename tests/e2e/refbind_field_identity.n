@@ -1,0 +1,19 @@
+// v0.13.9 phase 3 Task 13: the & on an identity-typed field is
+// equivalent notation — the binding names the object, member writes
+// land in the object, and the owner record stays intact.
+class Inner {
+    public int x;
+}
+class Holder {
+    public Inner inner;
+    public Holder() { inner = Inner(); inner.x = 5; }
+}
+int main() {
+    Holder h = Holder();
+    Inner& r = h.inner;
+    r.x = 9;
+    if (h.inner.x == 9) {
+        return 1;
+    }
+    return 2;
+}

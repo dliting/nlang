@@ -389,7 +389,7 @@ private:
     //for one bindable expression — the &-formal argument arm and the
     //&-binding initializer arm share it (spec §3.9, one MakeRef
     //judgment). Arms: identifier (pair copy / RefOfPromoted /
-    //RefOfLocal), member chain (RefOfField over the owner record),
+    //RefOfLocal), member chain (the field-shape throat of Task 13),
     //subscript (RefOfElement / RefOfElementN), rvalue (fresh temporary
     //record; writes lost). Definitions in EmitExprRef.cpp.
     void EmitMakeRef(uint16_t dstOffset, SnExpression& expr,
@@ -399,6 +399,19 @@ private:
     //Compile-time cell offset of one field within its owner record
     //(the field ops' byte offsets mapped to heap cells).
     int RefFieldCellOffset(SyntaxNode& ownerDecl, SnField& field);
+    //Task 13: the pair-shape ruling for binding one field — ONE throat
+    //both field-bind sites route through (the ThisField arm and the
+    //member-chain final hop), so the struct/identity deref can never
+    //drift between sites again. pType is the final hop's USE-SITE type
+    //node; cellOff is in heap cells (the pair convention).
+    enum class FieldRefShape { Cell, Record, Handle, Descriptor };
+    FieldRefShape ShapeOfFieldBind(const SyntaxNode* pType);
+    void EmitFieldRefBind(const SyntaxNode* pType, uint16_t dstOffset,
+        uint16_t baseSlot, int cellOff, uint16_t scratchSlot,
+        BytecodeEmitter& emitter);
+    //Collect a member chain final-hop-first; returns the root expression.
+    SnExpression* CollectMemberChain(SnMemberExpr& member,
+        std::vector<SnField*>& chain);
     void EmitMakeRefOfMemberChain(uint16_t dstOffset,
         SnMemberExpr& member, BytecodeEmitter& emitter);
     //Task 6: member-call shape in a & context — &-returning class

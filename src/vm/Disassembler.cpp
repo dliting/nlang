@@ -297,6 +297,11 @@ static bool DisasmRefOps(OpCode op, BytecodeReader &r,
         case OpCode::OP_RefOfField:
             DisasmU16xN(3, r, out, head, " dst=%u base=%u cell=%u");
             return true;
+        case OpCode::OP_RefOfField_T:
+            //Task 13: the generic-body field bind — ordinal + three slots.
+            DisasmTagU16xN(3, r, out, head,
+                           " ordinal=%d dst=%u base=%u cell=%u");
+            return true;
         case OpCode::OP_RefOfElement:
             DisasmU16xN(3, r, out, head, " dst=%u arr=%u flat=%u");
             return true;
@@ -305,31 +310,14 @@ static bool DisasmRefOps(OpCode op, BytecodeReader &r,
                         " dst=%u arr=%u idxBase=%u rank=%u");
             return true;
         case OpCode::OP_LoadRef:
-        case OpCode::OP_StoreRef: {
-            //kind byte + two slot operands in one line (read all
-            //operands before formatting — the MSVC ordering discipline
-            //DisasmU16xN documents).
-            const int tag = r.ReadByte();
-            const uint16_t a = r.ReadUint16();
-            const uint16_t b = r.ReadUint16();
-            char buf[96];
-            snprintf(buf, sizeof(buf), " typeTag=%d dst=%u src=%u",
-                     tag, a, b);
-            out << head << buf << "\n";
+        case OpCode::OP_StoreRef:
+            DisasmTagU16xN(2, r, out, head, " typeTag=%d dst=%u src=%u");
             return true;
-        }
         case OpCode::OP_LoadRef_T:
-        case OpCode::OP_StoreRef_T: {
+        case OpCode::OP_StoreRef_T:
             //Task 8: the T& read/store — ordinal byte + two slot operands.
-            const int ordinal = r.ReadByte();
-            const uint16_t a = r.ReadUint16();
-            const uint16_t b = r.ReadUint16();
-            char buf[96];
-            snprintf(buf, sizeof(buf),
-                     " ordinal=%d dst=%u src=%u", ordinal, a, b);
-            out << head << buf << "\n";
+            DisasmTagU16xN(2, r, out, head, " ordinal=%d dst=%u src=%u");
             return true;
-        }
         default:
             return false;
     }

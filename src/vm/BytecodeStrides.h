@@ -81,6 +81,10 @@ static constexpr OpCode kStrideKindTwoWords[] = {
     //Task 8: the T& read and store — ordinal byte + dst/src words
     //(same extent).
     OpCode::OP_LoadRef_T, OpCode::OP_StoreRef_T};
+static constexpr OpCode kStrideKindThreeWords[] = {
+    //Task 13: the generic-body field bind — ordinal byte + dst/base/cell
+    //words, the three-word twin of the kind-two-words family.
+    OpCode::OP_RefOfField_T};
 static constexpr OpCode kStrideThreeWords[] = {
     //v0.13.1: OP_New gained its third u16 (descIdx) — dst, classIdx,
     //descIdx, the same extent family as AllocStruct's three words.
@@ -141,23 +145,45 @@ constexpr StrideExtentGroup StrideGroup(const OpCode (&ops)[N],
     return {ops, N, stride};
 }
 
+static constexpr StrideExtentGroup kStrideGroups[] = {
+    StrideGroup(kStrideNoOperands, 1),
+    StrideGroup(kStrideByteTag, 1 + 1),
+    StrideGroup(kStrideOneWord, 1 + 2),
+    StrideGroup(kStrideKindWord, 1 + 1 + 2),
+    StrideGroup(kStrideKindByte, 1 + 1 + 1),
+    StrideGroup(kStrideTwoWords, 1 + 2 + 2),
+    StrideGroup(kStrideKindTwoWords, 1 + 1 + 2 + 2),
+    StrideGroup(kStrideKindThreeWords, 1 + 1 + 2 + 2 + 2),
+    StrideGroup(kStrideThreeWords, 1 + 2 + 2 + 2),
+    StrideGroup(kStrideFourWords, 1 + 2 + 2 + 2 + 2),
+    StrideGroup(kStrideFiveWords, 1 + 2 + 2 + 2 + 2 + 2),
+    StrideGroup(kStrideOutMaskWords, 1 + 2 + 2 + 4),
+    StrideGroup(kStrideOutMaskDescWords, 1 + 2 + 2 + 2 + 4),
+    StrideGroup(kStrideCmpHead, 1 + 1 + 1 + 2 + 2),
+    StrideGroup(kStrideConst32, 1 + 4),
+    StrideGroup(kStrideConst64, 1 + 8)};
+
+//Compile-time completeness gate: every OpCode must sit in exactly one
+//extent group. A missing row (a new opcode never registered — the name
+//table's static_assert cannot see this table) or a duplicate (one
+//opcode in two groups) is an authoring bug, caught here at build time
+//instead of the runtime throw below.
+constexpr bool StrideGroupsCoverAllOpCodes() {
+    for (size_t op = 0; op < static_cast<size_t>(OpCode::OP_Count); ++op) {
+        size_t hits = 0;
+        for (const StrideExtentGroup& group : kStrideGroups)
+            for (size_t i = 0; i < group.count; ++i)
+                if (group.ops[i] == static_cast<OpCode>(op))
+                    ++hits;
+        if (hits != 1)
+            return false;
+    }
+    return true;
+}
+static_assert(StrideGroupsCoverAllOpCodes(),
+    "every OpCode must appear in exactly one stride extent group");
+
 inline size_t InstructionStride(OpCode op) {
-    static constexpr StrideExtentGroup kStrideGroups[] = {
-        StrideGroup(kStrideNoOperands, 1),
-        StrideGroup(kStrideByteTag, 1 + 1),
-        StrideGroup(kStrideOneWord, 1 + 2),
-        StrideGroup(kStrideKindWord, 1 + 1 + 2),
-        StrideGroup(kStrideKindByte, 1 + 1 + 1),
-        StrideGroup(kStrideTwoWords, 1 + 2 + 2),
-        StrideGroup(kStrideKindTwoWords, 1 + 1 + 2 + 2),
-        StrideGroup(kStrideThreeWords, 1 + 2 + 2 + 2),
-        StrideGroup(kStrideFourWords, 1 + 2 + 2 + 2 + 2),
-        StrideGroup(kStrideFiveWords, 1 + 2 + 2 + 2 + 2 + 2),
-        StrideGroup(kStrideOutMaskWords, 1 + 2 + 2 + 4),
-        StrideGroup(kStrideOutMaskDescWords, 1 + 2 + 2 + 2 + 4),
-        StrideGroup(kStrideCmpHead, 1 + 1 + 1 + 2 + 2),
-        StrideGroup(kStrideConst32, 1 + 4),
-        StrideGroup(kStrideConst64, 1 + 8)};
     for (const StrideExtentGroup& group : kStrideGroups)
         for (size_t i = 0; i < group.count; ++i)
             if (group.ops[i] == op)

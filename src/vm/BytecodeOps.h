@@ -318,10 +318,17 @@ enum class OpCode : uint8_t {
                         // (base handle, cellOff); cellOff is in HEAP CELLS
                         // (int32 units), not bytes — byref dereference walks
                         // cells directly, field ops address 8-byte rows
+    OP_RefOfField_T,    // uint8 paramOrdinal, uint16 dst, uint16 base,
+                        // uint16 cellOff — the generic-body field bind: the
+                        // frame context's type argument kind picks the pair
+                        // shape — scalar/string pair the field's cell like
+                        // OP_RefOfField, struct/identity deref the cell and
+                        // pair the record it names (offset 0)
     OP_RefOfElement,    // uint16 dst, uint16 arr, uint16 flatSlot — null
                         // check + bounds check + view affine like
                         // OP_LoadElementFlat; dst = (arr handle, payload
                         // base + flat*elemCells)
+
     OP_RefOfElementN,   // uint16 dst, arr, idxBase, rank — rank-N
                         // spelling of RefOfElement; the runtime computes
                         // the flat address from the staged indices
