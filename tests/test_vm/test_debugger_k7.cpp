@@ -27,6 +27,16 @@
 
 using namespace nlang;
 
+//Upper bound on how long a frozen window may stay open waiting for the
+//peer carrier to reach the state the scenario inspects. The waits it
+//bounds are polled on observable VM state, so this is a hang guard for
+//the pre-K7 shape (that one stalls a peer forever, not merely slowly),
+//not a claim about how fast a scenario runs: the in-flight segments
+//here are interpreted loops whose measured cost is ~6s in the Debug
+//layer and tens of seconds with the whole box shared by other build
+//trees, so the guard sits above the slowest measured leg.
+constexpr int kFreezeWindowGuardMs = 120000;
+
 //Thread-safe output capturer: workers append from carrier threads while
 //the frozen window's pump thread polls (the plain string capturer in
 //test_threads.cpp is single-threaded only).
@@ -81,6 +91,11 @@ struct MultiFrontEnd : IDebugFrontEnd
 void test_freeze_releases_inflight_segment()
 {
     TEST(freeze_releases_inflight_segment);
+    //The loop's backedge count is what the trip budget has to stay
+    //above: one counted backedge per iteration (the loop's OpJump), so
+    //the budget below is derived from this count and cannot fall behind
+    //it if the count changes.
+    constexpr int kWorkerLoopIterations = 2000000;
     BuildOutcome b = buildSource("k7_freeze_release",
         "import concurrent;\n"                    //1
         "import thread;\n"                        //2
@@ -91,7 +106,7 @@ void test_freeze_releases_inflight_segment()
         "    public void run() {\n"               //7
         "        go = 1;\n"                       //8
         "        int i = 0;\n"                    //9
-        "        while (i < 2000000) {\n"         //10
+        "        while (i < " + std::to_string(kWorkerLoopIterations) + ") {\n"  //10
         "            i = i + 1;\n"                //11
         "        }\n"                             //12
         "        io.write(\"b1\");\n"             //13
@@ -129,17 +144,14 @@ void test_freeze_releases_inflight_segment()
             return;
         //With the lock released by the freeze park, the in-flight
         //segment's output write lands and the following receive parks —
-        //both observable before the window closes. The deadline is
-        //generous (the pre-K7 regression stalls the write FOREVER, not
-        //merely slowly): the ASan leg's 2M-iteration segment alone
-        //runs ~2s, so a tight bound would misfire there.
+        //both observable before the window closes.
         auto deadline = std::chrono::steady_clock::now()
-            + std::chrono::milliseconds(10000);
+            + std::chrono::milliseconds(kFreezeWindowGuardMs);
         while (!io.contains("b1")
                && std::chrono::steady_clock::now() < deadline)
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
         sawB1 = io.contains("b1");
-        deadline += std::chrono::milliseconds(10000);
+        deadline += std::chrono::milliseconds(kFreezeWindowGuardMs);
         do {
             workerState = c.View().ContextInfo(1).stateName;
             if (workerState == "parked-chan-recv")
@@ -152,7 +164,7 @@ void test_freeze_releases_inflight_segment()
     exec.SetDebugHooks(&controller);
     exec.SetHostIo(&io);
     exec.SetCarrierThreadCount(2);
-    exec.SetSchedulerTripForTests(3000000);
+    exec.SetSchedulerTripForTests(kWorkerLoopIterations * 2);
     //The run must complete without the deadlock guard firing: a frozen
     //parked context is not dead work — the guard must not see a drained
     //queue as fatal while the freeze gate is closed.
@@ -320,6 +332,20 @@ void test_breakpoint_edits_during_freeze_stay_consistent()
 void test_second_freezer_queues_and_keeps_its_hit()
 {
     TEST(second_freezer_queues_and_keeps_its_hit);
+    //The worker's delay loop, and the hold that has to outlast it. The
+    //frozen window cannot watch the peer's progress while its carrier
+    //keeps holding it (ContextInfo reports frameCount 0 and line 0 for a
+    //carrier-held context, and the stop is only delivered once the
+    //window closes), so nothing observable says "the worker's checkpoint
+    //has decided the hit": this hold is a sufficient wait, not an
+    //assertion. Its margin is measured, and a withdrawal that came too
+    //early is a loud failure (two windows instead of three): the loop
+    //costs ~80ms in the Debug layer on an idle box, and the slowest
+    //sampled leg — the same box shared with 16 competing CPU hogs — runs
+    //it ~2.5x later, which still leaves the hold above it by more than
+    //an order of magnitude.
+    constexpr int kWorkerDelayIterations = 30000;
+    constexpr int kQueueDecideHoldMs = 6000;
     BuildOutcome b = buildSource("k7_double_freeze",
         "import thread;\n"                          //1
         "class Pair {\n"                            //2
@@ -327,7 +353,7 @@ void test_second_freezer_queues_and_keeps_its_hit()
         "    public void second() {\n"              //4
         "        go = 1;\n"                         //5
         "        int j = 0;\n"                      //6
-        "        while (j < 120000) {\n"            //7
+        "        while (j < " + std::to_string(kWorkerDelayIterations) + ") {\n"  //7
         "            j = j + 1;\n"                  //8
         "        }\n"                               //9
         "        int hit = 1;\n"                    //10  <- bp2
@@ -356,11 +382,10 @@ void test_second_freezer_queues_and_keeps_its_hit()
         if (s.reason != StopInfo::Reason::Breakpoint)
             return;
         if (s.contextId == 0) {
-            //Hold the window past the worker's delay loop (~100ms) so
-            //its checkpoint has decided and queued the hit, then
-            //withdraw bp2 — an undecided hit would be silenced.
+            //Withdraw bp2 only after the worker's checkpoint has decided
+            //the hit and queued it; an undecided hit would be silenced.
             std::this_thread::sleep_for(
-                std::chrono::milliseconds(1500));
+                std::chrono::milliseconds(kQueueDecideHoldMs));
             c.DeleteBreakpoint(bp2);
         } else if (s.contextId == 1) {
             bStopped = true;
@@ -375,6 +400,14 @@ void test_second_freezer_queues_and_keeps_its_hit()
     VmExecutor exec;
     exec.SetDebugHooks(&controller);
     exec.SetCarrierThreadCount(2);
+    //The worker's delay loop stays one dispatch segment (as in (a), the
+    //budget is derived from its backedge count). Left at the default
+    //budget it would be re-queued every 1000 backedges — some 30 times —
+    //and each re-queue pays a wake-up latency, so on a box shared by
+    //other build trees the loop's wall time grows by that latency times
+    //the queue count rather than by the machine's speed, and the hold
+    //above no longer reliably outlasts it.
+    exec.SetSchedulerTripForTests(kWorkerDelayIterations * 2);
     std::string thrown;
     int rc = -1;
     try {
