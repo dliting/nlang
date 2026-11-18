@@ -558,8 +558,14 @@ zero, a negative `gather` index, an out-of-range `oneHot` label —
 are raised at the operation itself, exactly as on the host.
 Faults detected while the device runs its kernels (an illegal
 access, for example) surface at the next observation point rather
-than at the operation that caused them; see the known limitations
-below.
+than at the operation that caused them — the device backend keeps
+the failure in a sticky register and every observation point
+drains it as data before its own work, so the fault cannot be
+lost; see the known limitations below. The same contract covers
+the device's own resource failures: a device out-of-memory
+condition raises at the allocation, and the garbage collector's
+release path never throws — a release failure parks sticky and
+surfaces at the next observation point.
 
 ### Deployment
 
@@ -595,7 +601,8 @@ The device concat covers only the outermost axis.
 * A fault detected while the device runs its kernels (an illegal
   access, for example) is reported at the next observation point,
   not at the operation that caused it — deferred attribution, the
-  same tradeoff the mainstream device stacks make. In the narrow
-  case where such a fault is followed only by output (printing)
-  with no further tensor operation, the output can be wrong
-  instead of raising.
+  same tradeoff the mainstream device stacks make; the sticky
+  register drains as data at every observation point, so the fault
+  cannot be lost. In the narrow case where such a fault is followed
+  only by output (printing) with no further tensor operation, the
+  output can be wrong instead of raising.

@@ -148,6 +148,12 @@ cudaError_t CopyBytes(void* dst, const void* src, size_t bytes,
     return cudaStreamSynchronize(g_stream);
 }
 
+//The full-stream observation point (the sync hook's body): the
+//async group's execution faults surface here.
+cudaError_t SyncStream() {
+    return cudaStreamSynchronize(g_stream);
+}
+
 //--- the device-record hooks (the pool + the byte transfers) ------------
 
 namespace {

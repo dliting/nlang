@@ -20,6 +20,39 @@ VmNativeHost* Wrap(NativeHost* self) {
 }
 }
 
+//v14 (ABI): the device status → language exception conversion — the
+//single mapping table (the category semantics are fixed in the
+//TensorDeviceStatus doc comment in NativeHost.h). ok returns; every
+//other category raises the mapped family with the cell or the
+//vendor's detail text named.
+void VmExecutor::RaiseDeviceStatus(const TensorDeviceStatus& st) {
+    switch (st.category) {
+        case DEVICE_OK:
+            return;
+        case DEVICE_OUT_OF_MEMORY:
+            RaiseNlangException(m_exceptionClassIdx,
+                st.detail ? std::string("tensor: ") + st.detail
+                          : std::string("tensor: device out of memory"));
+            return;
+        case DEVICE_BAD_INDEX:
+            RaiseNlangException(m_oobExcClassIdx,
+                "device index " + std::to_string(st.cell)
+                + " is out of bounds");
+            return;
+        case DEVICE_DIVIDE_BY_ZERO:
+            RaiseNlangException(m_divZeroExcClassIdx,
+                "device integer division by zero at cell "
+                + std::to_string(st.cell));
+            return;
+        case DEVICE_FAULT:
+        default:
+            RaiseNlangException(m_exceptionClassIdx,
+                st.detail ? std::string("tensor: ") + st.detail
+                          : std::string("tensor: device fault"));
+            return;
+    }
+}
+
 //The device mint (newArrayResident's path and the FollowActiveDevice
 //arm): the hooks allocate and zero the payload; the record
 //carries the 64-bit device pointer in its payload-area descriptor
@@ -58,8 +91,13 @@ int32_t VmExecutor::AllocDeviceArrayOnHeap(uint16_t arrayTypeIdx,
     record[2] = rank;
     record[3] = size;
     for (uint8_t d = 0; d < rank; ++d) record[4 + d] = dims[d];
-    void* devicePtr = m_tensorHooks.alloc(bytes);
-    m_tensorHooks.zero(devicePtr, bytes);
+    void* devicePtr = nullptr;
+    TensorDeviceStatus st = m_tensorHooks.alloc(&devicePtr, bytes);
+    if (st.category != DEVICE_OK)
+        RaiseDeviceStatus(st);
+    st = m_tensorHooks.zero(devicePtr, bytes);
+    if (st.category != DEVICE_OK)
+        RaiseDeviceStatus(st);
     SetDevicePayload(heapIdx, devicePtr);
     m_arrResidency[static_cast<size_t>(heapIdx)] = 1;
     return heapIdx;
@@ -108,31 +146,44 @@ bool VmExecutor::IsDeviceArray(int32_t heapIdx) const {
 //transfer through the hooks (spec D2's industry-standard semantics —
 //PyTorch tensor[0] and CuPy arr[i] do the same implicit transfer).
 //The cell is the 8-byte frame cell; 4-byte kinds live in the low half.
+//The accessors are const reads; raising is an effect that leaves this
+//object untouched (the exception unwinds), so the const boundary
+//casts locally at every status check.
 void VmExecutor::DeviceLoadElement(int32_t heapIdx, int64_t elemCell,
     int64_t cellBytes, uint8_t* cell) const {
     std::memset(cell, 0, NLANG_VALUE_SIZE);
     uint8_t* base = static_cast<uint8_t*>(DevicePayloadOf(heapIdx));
-    m_tensorHooks.copyD2H(cell,
+    TensorDeviceStatus st = m_tensorHooks.copyD2H(cell,
         base + static_cast<size_t>(elemCell) * cellBytes,
         static_cast<size_t>(cellBytes));
+    if (st.category != DEVICE_OK)
+        const_cast<VmExecutor*>(this)->RaiseDeviceStatus(st);
 }
 
 void VmExecutor::DeviceStoreElement(int32_t heapIdx, int64_t elemCell,
     int64_t cellBytes, const uint8_t* cell) const {
     uint8_t* base = static_cast<uint8_t*>(DevicePayloadOf(heapIdx));
-    m_tensorHooks.copyH2D(
+    TensorDeviceStatus st = m_tensorHooks.copyH2D(
         base + static_cast<size_t>(elemCell) * cellBytes, cell,
         static_cast<size_t>(cellBytes));
+    if (st.category != DEVICE_OK)
+        const_cast<VmExecutor*>(this)->RaiseDeviceStatus(st);
 }
 
 void VmExecutor::DeviceStageToHost(int32_t heapIdx, void* dst,
     size_t bytes) const {
-    m_tensorHooks.copyD2H(dst, DevicePayloadOf(heapIdx), bytes);
+    TensorDeviceStatus st = m_tensorHooks.copyD2H(dst,
+        DevicePayloadOf(heapIdx), bytes);
+    if (st.category != DEVICE_OK)
+        const_cast<VmExecutor*>(this)->RaiseDeviceStatus(st);
 }
 
 void VmExecutor::DeviceStageFromHost(int32_t heapIdx, const void* src,
     size_t bytes) const {
-    m_tensorHooks.copyH2D(DevicePayloadOf(heapIdx), src, bytes);
+    TensorDeviceStatus st = m_tensorHooks.copyH2D(
+        DevicePayloadOf(heapIdx), src, bytes);
+    if (st.category != DEVICE_OK)
+        const_cast<VmExecutor*>(this)->RaiseDeviceStatus(st);
 }
 
 //The view materialization's device arm: the owner's payload stages

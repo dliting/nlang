@@ -62,6 +62,9 @@ bool CudaLazyInit(std::string* error);
 cudaError_t CopyBytes(void* dst, const void* src, size_t bytes,
                       bool toDevice);
 
+//The full-stream observation point (the sync hook's body).
+cudaError_t SyncStream();
+
 //The device-record hooks (the VM routes device records through them —
 //spec D3): pool alloc/zero/free + the byte transfers. alloc returns
 //nullptr on failure (the caller raises by name); the rest are void

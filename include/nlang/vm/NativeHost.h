@@ -82,7 +82,14 @@ extern "C" {
 // calls would race between concurrent carriers). NativeArrayView's
 // reserved[0] now carries the array residency (0 = host payload, 1 =
 // device payload; the fill sites set it).
-#define NLANG_HOST_ABI_VERSION 13u
+//
+// v14: the device hooks are fallible — every hook returns a
+// TensorDeviceStatus (vendor-neutral error data; the VM converts a
+// non-ok status into the language exception at the call site, the
+// mapping table living once next to the record). alloc writes its
+// pointer through an out parameter (a failed allocation has no
+// pointer to return).
+#define NLANG_HOST_ABI_VERSION 14u
 
 // Every NLang runtime value occupies one 8-byte frame cell (see
 // kFrameSlotBytes in CompiledModule.h). Scalars of 4 bytes or less live
@@ -115,13 +122,53 @@ extern "C" {
 // so the carrier lock is already released). Null in any slot = no
 // device backend active (the creation and transfer paths raise the
 // Base family by name).
+//
+// Every hook returns a TensorDeviceStatus. ok means the effect is
+// observable (the blocking-hook invariant); anything else means the
+// operation failed and the VM raises at the call site. The category
+// to exception-family mapping lives once next to the record (see the
+// DeviceStatusCategory note). free is the one exception to the
+// raise-at-call-site rule: the GC release path cannot throw (it runs
+// inside the sweep's invariants), so its status parks in the
+// backend's sticky register and surfaces at the next observation
+// point.
+
+// The device operation's outcome, in vendor-neutral vocabulary — no
+// vendor error code or vendor text enters this record (the vendor's
+// wording rides the static detail string only). The VM's category →
+// exception-family mapping (the single conversion table):
+//   ok                -> no exception
+//   out_of_memory     -> Base, detail text
+//   bad_index         -> IndexOutOfBounds, the cell named
+//   divide_by_zero    -> DivByZero, the cell named
+//   fault             -> Base, detail text (the vendor runtime's
+//                        wording; launch configuration, execution
+//                        fault, context error)
+typedef enum DeviceStatusCategory {
+    DEVICE_OK = 0,
+    DEVICE_OUT_OF_MEMORY,
+    DEVICE_BAD_INDEX,
+    DEVICE_DIVIDE_BY_ZERO,
+    DEVICE_FAULT
+} DeviceStatusCategory;
+
+typedef struct TensorDeviceStatus {
+    int32_t category;    // DeviceStatusCategory
+    int32_t cell;        // the offending flat cell index (bad index /
+                         // divide by zero); unused otherwise
+    const char* detail;  // the vendor's static text (fault); null
+                         // otherwise — a static string, never owned
+} TensorDeviceStatus;
+
 struct TensorDeviceHooks {
-    void* (*alloc)(size_t bytes);
-    void (*zero)(void* ptr, size_t bytes);
-    void (*free)(void* ptr);
-    void (*copyH2D)(void* dst, const void* src, size_t bytes);
-    void (*copyD2H)(void* dst, const void* src, size_t bytes);
-    void (*sync)();
+    TensorDeviceStatus (*alloc)(void** out, size_t bytes);
+    TensorDeviceStatus (*zero)(void* ptr, size_t bytes);
+    TensorDeviceStatus (*free)(void* ptr);
+    TensorDeviceStatus (*copyH2D)(void* dst, const void* src,
+                                  size_t bytes);
+    TensorDeviceStatus (*copyD2H)(void* dst, const void* src,
+                                  size_t bytes);
+    TensorDeviceStatus (*sync)();
 };
 
 struct NativeHost;

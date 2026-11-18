@@ -25,16 +25,33 @@ DeviceBackendState g_backend;
 //device path (creation, element transfer, GC release, staging) then
 //exercises for real on host memory — P2's acceptance vehicle (plan
 //C3 fix).
-void* MirrorAlloc(size_t bytes) { return std::malloc(bytes); }
-void MirrorZero(void* ptr, size_t bytes) { std::memset(ptr, 0, bytes); }
-void MirrorFree(void* ptr) { std::free(ptr); }
-void MirrorCopyH2D(void* dst, const void* src, size_t bytes) {
-    std::memcpy(dst, src, bytes);
+TensorDeviceStatus MirrorAlloc(void** out, size_t bytes) {
+    void* ptr = std::malloc(bytes);
+    if (ptr == nullptr)
+        return {DEVICE_OUT_OF_MEMORY, 0,
+                "mirror: host allocation failed"};
+    *out = ptr;
+    return {DEVICE_OK, 0, nullptr};
 }
-void MirrorCopyD2H(void* dst, const void* src, size_t bytes) {
-    std::memcpy(dst, src, bytes);
+TensorDeviceStatus MirrorZero(void* ptr, size_t bytes) {
+    std::memset(ptr, 0, bytes);
+    return {DEVICE_OK, 0, nullptr};
 }
-void MirrorSync() {}
+TensorDeviceStatus MirrorFree(void* ptr) {
+    std::free(ptr);
+    return {DEVICE_OK, 0, nullptr};
+}
+TensorDeviceStatus MirrorCopyH2D(void* dst, const void* src,
+                                 size_t bytes) {
+    std::memcpy(dst, src, bytes);
+    return {DEVICE_OK, 0, nullptr};
+}
+TensorDeviceStatus MirrorCopyD2H(void* dst, const void* src,
+                                 size_t bytes) {
+    std::memcpy(dst, src, bytes);
+    return {DEVICE_OK, 0, nullptr};
+}
+TensorDeviceStatus MirrorSync() { return {DEVICE_OK, 0, nullptr}; }
 
 TensorDeviceHooks MakeMirrorHooks() {
     TensorDeviceHooks h;
@@ -45,6 +62,21 @@ TensorDeviceHooks MakeMirrorHooks() {
     h.copyD2H = &MirrorCopyD2H;
     h.sync = &MirrorSync;
     return h;
+}
+
+//The registry-side copy wrappers convert a non-ok status into the
+//named raise (they run on the blocking channel inside tensor natives
+//with the host in hand).
+void RaiseStatus(NativeHost* host, const TensorDeviceStatus& st) {
+    if (st.category == DEVICE_OK)
+        return;
+    if (st.category == DEVICE_BAD_INDEX)
+        Raise(host, NEXC_OutOfBounds,
+            "device index " + std::to_string(st.cell)
+            + " is out of bounds");
+    Raise(host, NEXC_Base,
+        st.detail ? std::string("tensor: ") + st.detail
+                  : std::string("tensor: device operation failed"));
 }
 
 //The per-element affine source address of flat ordinal `flat` (element
@@ -185,7 +217,9 @@ void CopyHostToDevice(NativeHost* host, void* deviceDst,
     if (!g_backend.device)
         Raise(host, NEXC_Base,
               "tensor: no device backend active (backend=cpu)");
-    g_backend.hooks.copyH2D(deviceDst, hostSrc, bytes);
+    TensorDeviceStatus st = g_backend.hooks.copyH2D(deviceDst, hostSrc,
+        bytes);
+    RaiseStatus(host, st);
 }
 
 void CopyDeviceToHost(NativeHost* host, void* hostDst,
@@ -193,7 +227,9 @@ void CopyDeviceToHost(NativeHost* host, void* hostDst,
     if (!g_backend.device)
         Raise(host, NEXC_Base,
               "tensor: no device backend active (backend=cpu)");
-    g_backend.hooks.copyD2H(hostDst, deviceSrc, bytes);
+    TensorDeviceStatus st = g_backend.hooks.copyD2H(hostDst, deviceSrc,
+        bytes);
+    RaiseStatus(host, st);
 }
 
 int32_t TransferToDevice(NativeHost* host, uint8_t* ret,

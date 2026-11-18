@@ -8,6 +8,45 @@ All notable changes to NLang are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.14.4]
+
+The device status contract (ABI v14): every device hook returns a
+vendor-neutral status record, and the virtual machine converts a
+failed status into the language exception at the call site — the
+category-to-family mapping lives in one place. Execution faults are
+sticky: the backend parks a failure it cannot report through its
+caller, and every observation point drains the register as data
+before its own work, so a fault can no longer be lost.
+
+### Added
+
+- **The device status contract (ABI 13 → 14)** — `alloc`, `zero`,
+  `free`, `copyH2D`, `copyD2H` and `sync` return a
+  `TensorDeviceStatus` (ok / out-of-memory / bad-index /
+  divide-by-zero / fault, the offending cell, the vendor's static
+  detail text). No vendor error code enters the shared header; the
+  mirror backend implements the same contract over host memory (the
+  neutrality touchstone), and a host allocation failure surfaces as
+  an out-of-memory status too.
+- **Sticky device-fault register** — a failure the backend cannot
+  hand to its caller (a GC release inside the sweep invariants, an
+  execution fault surfacing at a sync whose slot has no error
+  parameter) parks in the register; every observation point drains
+  it as data first. The deferred-fault attribution note in §18.7 is
+  now a contract: the fault cannot be lost.
+
+### Fixed
+
+- **The device out-of-memory gap** — an allocation failure on the
+  device (and a zero-byte allocation's legitimate NULL, which the
+  null check used to misread as out-of-memory) now raises the mapped
+  exception at the allocation instead of silently minting a null
+  payload.
+- **The lost-copy-fault window** — a transfer failure detected at
+  the next observation point used to be swallowed when the program
+  only printed afterwards; under the status contract every
+  observation point reports the drained failure by name.
+
 ## [0.14.3]
 
 The device-path completion: `gather`, integer `clamp` and the whole

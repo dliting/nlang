@@ -59,8 +59,14 @@ void VmExecutor::SweepPhase() {
 //inherits a stale device mark (every alloc re-asserts host on take
 //anyway).
 void VmExecutor::FreeDeadArrayRecord(int32_t heapIdx) {
-    if (m_arrResidency[heapIdx] == 1 && m_tensorHooksActive)
+    if (m_arrResidency[heapIdx] == 1 && m_tensorHooksActive) {
+        //v14: free is the one hook whose failure does NOT raise — the
+        //sweep runs inside the GC invariants; the status parks in the
+        //backend sticky register (free cannot carry it out through
+        //its void-shaped legacy look — the v14 signature returns it
+        //and the backend parks it internally).
         m_tensorHooks.free(DevicePayloadOf(heapIdx));
+    }
     m_arrResidency[heapIdx] = 0;
     FreeOwnedArrayStructElements(heapIdx);
 }

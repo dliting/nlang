@@ -18,6 +18,7 @@
 
 #include <cstdint>
 #include <cstring>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -35,28 +36,101 @@ namespace tensor_cuda {
 
 //--- the hooks (ride the kernels TU's pool/transfer entry points) -----
 
-void* HookAlloc(size_t bytes) {
-    return PoolAlloc(bytes);
+//The sticky device-fault register: the pool, the transfer and the
+//sync paths record a failure here when their caller cannot carry one
+//out (the GC release path's free, an execution fault surfacing at a
+//sync whose slot has no error parameter). The next status-returning
+//observation point drains it first (the CUDA sticky semantics —
+//cudaGetLastError's contract — mirrored at the hook boundary).
+TensorDeviceStatus g_stickyStatus = {DEVICE_OK, 0, nullptr};
+std::mutex g_stickyMutex;
+
+TensorDeviceStatus ParkSticky(TensorDeviceStatus st) {
+    std::lock_guard<std::mutex> guard(g_stickyMutex);
+    if (g_stickyStatus.category == DEVICE_OK)
+        g_stickyStatus = st;
+    return st;
 }
 
-void HookZero(void* ptr, size_t bytes) {
+TensorDeviceStatus DrainSticky() {
+    std::lock_guard<std::mutex> guard(g_stickyMutex);
+    TensorDeviceStatus st = g_stickyStatus;
+    g_stickyStatus = {DEVICE_OK, 0, nullptr};
+    return st;
+}
+
+//The pool/transfer primitives' cudaError → status fold (the vendor
+//text rides cudaGetErrorString's static buffer).
+TensorDeviceStatus StatusOf(cudaError_t err) {
+    if (err == cudaSuccess) {
+        TensorDeviceStatus drained = DrainSticky();
+        if (drained.category != DEVICE_OK)
+            return drained;
+        return {DEVICE_OK, 0, nullptr};
+    }
+    return {DEVICE_FAULT, 0, cudaGetErrorString(err)};
+}
+
+TensorDeviceStatus HookAlloc(void** out, size_t bytes) {
+    TensorDeviceStatus sticky = DrainSticky();
+    if (sticky.category != DEVICE_OK)
+        return sticky;
+    //A zero-byte allocation is legitimate (an empty device array's
+    //payload): the pointer is never dereferenced, so the null the
+    //CUDA runtime returns for cudaMalloc(0) is handed through as ok.
+    if (bytes == 0) {
+        *out = nullptr;
+        return {DEVICE_OK, 0, nullptr};
+    }
+    void* ptr = PoolAlloc(bytes);
+    if (ptr == nullptr)
+        return {DEVICE_OUT_OF_MEMORY, 0,
+                "cuda: device allocation failed"};
+    *out = ptr;
+    return {DEVICE_OK, 0, nullptr};
+}
+
+TensorDeviceStatus HookZero(void* ptr, size_t bytes) {
+    TensorDeviceStatus sticky = DrainSticky();
+    if (sticky.category != DEVICE_OK)
+        return sticky;
     PoolZero(ptr, bytes);
+    return StatusOf(cudaGetLastError());
 }
 
-void HookFree(void* ptr) {
+TensorDeviceStatus HookFree(void* ptr) {
+    //The GC release path: a failure parks sticky (free's caller cannot
+    //throw inside the sweep invariants).
     PoolFree(ptr);
+    cudaError_t err = cudaGetLastError();
+    if (err != cudaSuccess)
+        ParkSticky({DEVICE_FAULT, 0, cudaGetErrorString(err)});
+    return {DEVICE_OK, 0, nullptr};
 }
 
-void HookCopyH2D(void* dst, const void* src, size_t bytes) {
-    CopyBytes(dst, src, bytes, true);
+TensorDeviceStatus HookCopyH2D(void* dst, const void* src,
+                               size_t bytes) {
+    TensorDeviceStatus sticky = DrainSticky();
+    if (sticky.category != DEVICE_OK)
+        return sticky;
+    return StatusOf(CopyBytes(dst, src, bytes, true));
 }
 
-void HookCopyD2H(void* dst, const void* src, size_t bytes) {
-    CopyBytes(dst, src, bytes, false);
+TensorDeviceStatus HookCopyD2H(void* dst, const void* src,
+                               size_t bytes) {
+    TensorDeviceStatus sticky = DrainSticky();
+    if (sticky.category != DEVICE_OK)
+        return sticky;
+    return StatusOf(CopyBytes(dst, src, bytes, false));
 }
 
-void HookSync() {
-    //The launchers sync per op — the hook's sync rides CopyBytes' sync.
+TensorDeviceStatus HookSync() {
+    TensorDeviceStatus sticky = DrainSticky();
+    if (sticky.category != DEVICE_OK)
+        return sticky;
+    //The stream sync: the authoritative observation point for the
+    //async group's execution faults.
+    return StatusOf(SyncStream());
 }
 
 TensorDeviceHooks MakeHooks() {

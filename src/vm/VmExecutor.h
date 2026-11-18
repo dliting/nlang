@@ -2324,6 +2324,12 @@ private:
     uint16_t CurrentFuncIdx() const;
 
     //ndb: OnThrow checkpoint fired from every NLangThrow raise site
+    //v14 (ABI): the device status → language exception conversion —
+    //the single mapping table (the category semantics are fixed in the
+    //TensorDeviceStatus doc comment in NativeHost.h). The GC release
+    //path does NOT call this (it cannot throw inside the sweep
+    //invariants; its status parks in the backend's sticky register).
+    void RaiseDeviceStatus(const TensorDeviceStatus& st);
     //(built-in RaiseNlangException, OP_Throw, OP_Rethrow) before the
     //throw, so the full NLang stack is still alive. pc/line use the
     //frame's current statement anchor — a raise has no OP_DebugInfo of
