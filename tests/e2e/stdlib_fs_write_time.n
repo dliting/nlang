@@ -1,0 +1,132 @@
+// stdlib_fs_write_time — the fs byte write/read pair and the file mtime the
+// static-file ETag needs: writeBytes truncates, readBytes returns the same
+// bytes, modifiedTimeMs reports a positive epoch time the wall clock is not
+// behind. A missing path raises IOException naming that path.
+import io;
+import fs;
+import system;
+
+int main() {
+    int bad = 0;
+    fs.makeDirs("../temp/fs/stdlib_fs_write_time");
+
+    // Leg A: byte-exact round trip. The expected bytes come from an int[]
+    // seed table rather than a string literal, because the string escape set
+    // has no \xNN form, so 0x80 and above cannot be spelled in source.
+    string roundPath = fs.join("../temp/fs/stdlib_fs_write_time", "round.bin");
+    int[] seeds = [0x00, 0x01, 0x7f, 0x80, 0xfe, 0xff, 0x41];
+    byte[] want = byte[seeds.length()];
+    for (int i = 0; i < seeds.length(); i = i + 1) {
+        want[i] = seeds[i] as byte;
+    }
+    fs.writeBytes(roundPath, want);
+    byte[] got = fs.readBytes(roundPath);
+    if (got.length() != seeds.length()) {
+        io.print("round trip length " + got.length().toString()
+            + ", want " + seeds.length().toString());
+        bad = bad + 1;
+    }
+    for (int i = 0; i < seeds.length(); i = i + 1) {
+        // & 0xFF is the unsigned read: a native-sourced byte[] cell holds
+        // 0..255 and reads back in the signed byte domain.
+        if ((got[i] & 0xFF) != seeds[i]) {
+            io.print("byte " + i.toString() + " is " + (got[i] & 0xFF).toString()
+                + ", want " + seeds[i].toString());
+            bad = bad + 1;
+        }
+    }
+
+    // Leg B: a shorter second write replaces the content — writeBytes
+    // truncates instead of appending, so the tail of the first write is gone.
+    byte[] short0 = [0x41, 0x42];
+    fs.writeBytes(roundPath, short0);
+    byte[] again = fs.readBytes(roundPath);
+    if (again.length() != 2) {
+        io.print("overwrite length " + again.length().toString() + ", want 2");
+        bad = bad + 1;
+    }
+    if ((again[0] & 0xFF) != 0x41 || (again[1] & 0xFF) != 0x42) {
+        io.print("overwrite content is not the second write");
+        bad = bad + 1;
+    }
+
+    // Leg C: the mtime contract, limited to what a corpus can assert about a
+    // real file. The stamp must be a positive epoch time; the wall clock
+    // sampled after it must not be behind it, since a stamp ahead of the write
+    // makes a client answer "not modified" for content it has never seen; and
+    // the stamp must be within a day of that wall clock, since this run wrote
+    // the file microseconds ago. The day of slack is more than any real
+    // timestamp granularity (NTFS stores 15.6 ms ticks, FAT whole seconds), so
+    // the leg holds on every filesystem, while still catching a conversion that
+    // is off by a unit or an epoch — off by a factor of a thousand is decades,
+    // off by the wrong epoch is centuries. Nothing here depends on how fast the
+    // machine is; the exact arithmetic, and how two writes of one file compare
+    // in order, are pinned with the clock samples injected in
+    // tests/test_native_fs/test_file_time_epoch.cpp.
+    const long ONE_DAY_MS = 86400000;
+    string timePath = fs.join("../temp/fs/stdlib_fs_write_time", "mtime.bin");
+    fs.writeBytes(timePath, want);
+    long m = fs.modifiedTimeMs(timePath);
+    if (m <= 0) {
+        io.print("mtime of a fresh file is " + m.toString());
+        bad = bad + 1;
+    }
+    long wall = system.wallMs();
+    if (wall < m) {
+        io.print("wall clock " + wall.toString() + " is behind mtime "
+            + m.toString());
+        bad = bad + 1;
+    }
+    if (wall - m > ONE_DAY_MS) {
+        io.print("mtime " + m.toString() + " is " + (wall - m).toString()
+            + " ms behind the wall clock " + wall.toString()
+            + ", want within one day for a file just written");
+        bad = bad + 1;
+    }
+
+    // Leg D: a missing path and an unwritable parent both raise IOException
+    // with the path they could not use.
+    string absentPath = fs.join("../temp/fs/stdlib_fs_write_time", "absent.bin");
+    int statBad = 0;
+    string statMsg = "";
+    try {
+        long missing = fs.modifiedTimeMs(absentPath);
+        if (missing != -1) { statBad = 1; }  //unreachable
+    } catch (IOException ex) {
+        statMsg = ex.message;
+    }
+    if (statMsg != "fs.modifiedTimeMs: cannot stat \"" + absentPath + "\".") {
+        io.print("modifiedTimeMs on a missing path raised [" + statMsg + "]");
+        bad = bad + 1;
+    }
+    if (statBad != 0) { bad = bad + 1; }
+
+    string noDirPath = fs.join("../temp/fs/stdlib_fs_write_time", "no_such_dir/child.bin");
+    int writeBad = 0;
+    string writeMsg = "";
+    try {
+        fs.writeBytes(noDirPath, want);
+        writeBad = 1;
+    } catch (IOException ex) {
+        writeMsg = ex.message;
+    }
+    // indexOf == 0 is the prefix test: the message names the path, so only the
+    // head of it is fixed.
+    if (writeMsg.indexOf("fs.writeBytes: cannot open") != 0) {
+        io.print("writeBytes into a missing directory raised [" + writeMsg + "]");
+        bad = bad + 1;
+    }
+    if (writeBad != 0) { bad = bad + 1; }
+
+    // Leg E: an empty array writes an empty file.
+    string emptyPath = fs.join("../temp/fs/stdlib_fs_write_time", "empty.bin");
+    fs.writeBytes(emptyPath, byte[0]);
+    if (fs.size(emptyPath) != 0) {
+        io.print("empty write left " + fs.size(emptyPath).toString()
+            + " bytes");
+        bad = bad + 1;
+    }
+
+    io.print("ok");
+    return bad;
+}

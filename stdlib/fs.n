@@ -30,10 +30,20 @@ native void remove(string path);
 // A rooted right segment replaces the left (std::filesystem).
 native string join(string a, string b);
 
-// Whole file as one byte per int cell (values 0 to 255).
-// A null path raises NullPointerException; failures raise IOException.
-native int[] readBytes(string path);
+// Whole file as raw bytes. A null path raises NullPointerException;
+// failures raise IOException.
+native byte[] readBytes(string path);
 
 // Whole file decoded as little-endian float32 values.
 // A byte count that is not a multiple of four raises Exception.
 native float[] readFloats(string path);
+
+// Write bytes over the whole file (truncating). The parent directory must
+// already exist: a missing directory or an unwritable path raises
+// IOException naming the path. A null path or data raises NullPointerException.
+native void writeBytes(string path, byte[] data);
+
+// Last-modified time of a file, in milliseconds since the Unix epoch.
+// A missing path raises IOException; the value feeds HTTP Last-Modified
+// and ETag comparison, so it shares the clock domain of http.HttpDate.
+native long modifiedTimeMs(string path);

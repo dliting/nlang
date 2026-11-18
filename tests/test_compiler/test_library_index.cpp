@@ -30,7 +30,7 @@ static int g_failures = 0;
 //Pin for the stdlib free-function surface (per-package breakdown in
 //TestLoadsStdLib); the printer turns any future drift into a
 //per-package diff instead of a bare FAIL line.
-constexpr std::size_t kStdlibSymbolPin = 337;
+constexpr std::size_t kStdlibSymbolPin = 339;
 
 static void PrintIndexShape(const langservice::SymbolIndex &index)
 {
@@ -57,10 +57,11 @@ static void TestLoadsStdLib()
     NullLogger logger;
     BuildEnvironment env(params, logger);
 
-    // 337 functions: io 22 (13 natives + 5 typed-reader wrappers + the
+    // 339 functions: io 22 (13 natives + 5 typed-reader wrappers + the
     // 4 base64 codecs; the v11 clock/park natives and the byte helpers
     // moved from net), math 26 (the v0.13.12 CSPRNG byte surface
-    // randomBytes), fs 10 (the binary read pair readBytes/readFloats),
+    // randomBytes), fs 12 (the binary read pair readBytes/readFloats,
+    // plus the v0.13.12 writeBytes and modifiedTimeMs),
     // thread 7 (the K3 materialized package plus
     // the P2-2 failure probes), tensor 200 (the v0.12.7 surface:
     // broadcasting elementwise with scalar arms, the view family

@@ -49,8 +49,10 @@ Verdict: all 2 top-level declarations public; nothing to hide.
 | native function | join | public |
 | native function | readBytes | public |
 | native function | readFloats | public |
+| native function | writeBytes | public |
+| native function | modifiedTimeMs | public |
 
-Verdict: all 10 top-level declarations public; nothing to hide.
+Verdict: all 12 top-level declarations public; nothing to hide.
 
 ## gzip.n
 
@@ -498,4 +500,4 @@ Verdict: all 10 top-level declarations public; nothing to hide.
 
 Verdict: all 6 top-level declarations public; nothing to hide.
 
-Total: 388 top-level declarations across 14 modules; verdict: the stdlib is a fully public curated face, matching D5.6's expectation (no hidden members, no cross-module denial risk introduced by the access gate).
+Total: 390 top-level declarations across 14 modules; verdict: the stdlib is a fully public curated face, matching D5.6's expectation (no hidden members, no cross-module denial risk introduced by the access gate).

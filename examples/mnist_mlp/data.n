@@ -16,7 +16,11 @@ struct Dataset {
 Dataset loadDataset(string imageFile, string labelFile, int count,
                     int pixels) {
     float[] flatImages = fs.readFloats(imageFile);
-    int[] labels = fs.readBytes(labelFile);
+    byte[] rawLabels = fs.readBytes(labelFile);
+    int[] labels = int[rawLabels.length()];
+    for (int i = 0; i < rawLabels.length(); i = i + 1) {
+        labels[i] = rawLabels[i] & 0xFF;   // MNIST labels are unsigned bytes
+    }
     assert(flatImages.length() == count * pixels);
     assert(labels.length() == count);
 

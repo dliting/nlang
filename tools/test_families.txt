@@ -45,5 +45,11 @@ family stdlib_math src src/native/math/math_native.cpp
 family stdlib_math unit library_index|langservice|library_source|stdlib_tests|ncu_package
 family stdlib_math e2e ^stdlib_math_
 
+family stdlib_fs src stdlib/fs.n
+family stdlib_fs src src/native/fs/fs_native.cpp
+family stdlib_fs src src/native/fs/FileTimeEpoch.h
+family stdlib_fs unit library_index|langservice|library_source|stdlib_tests|ncu_package|native_fs
+family stdlib_fs e2e ^(stdlib_fs_|fs_read_bytes)
+
 ignore docs/**
 ignore temp/**

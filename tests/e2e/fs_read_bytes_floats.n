@@ -1,5 +1,5 @@
 // fs_read_bytes_floats — the fs binary read pair: readBytes returns every
-// file byte as an int[] cell, readFloats decodes the whole file as
+// file byte in a byte[] cell, readFloats decodes the whole file as
 // little-endian float32. Open failures raise IOException; a byte count
 // that is not a multiple of four raises the base Exception.
 import io;
@@ -10,13 +10,13 @@ int main() {
 
     // readBytes: byte-exact on known ASCII content written by io.
     io.writeFile("../temp/fs/fs_read_pair/bytes.txt", "AB\nz");
-    int[] b = fs.readBytes("../temp/fs/fs_read_pair/bytes.txt");
+    byte[] b = fs.readBytes("../temp/fs/fs_read_pair/bytes.txt");
     if (b.length() != 4) return 1;
     if (b[0] != 65 || b[1] != 66 || b[2] != 10 || b[3] != 122) return 2;
 
     // readBytes: an empty file is an empty array.
     io.writeFile("../temp/fs/fs_read_pair/empty.bin", "");
-    int[] e = fs.readBytes("../temp/fs/fs_read_pair/empty.bin");
+    byte[] e = fs.readBytes("../temp/fs/fs_read_pair/empty.bin");
     if (e.length() != 0) return 3;
 
     // readFloats: values, signs and order survive the round trip through
@@ -34,7 +34,7 @@ int main() {
 
     // An open failure raises IOException with the path in the message.
     try {
-        int[] mb = fs.readBytes("../temp/fs/fs_read_pair/no_such_file.bin");
+        byte[] mb = fs.readBytes("../temp/fs/fs_read_pair/no_such_file.bin");
         if (mb.length() != -1) return 9;  //unreachable
     } catch (IOException ex) {
         if (ex.message == "") return 10;

@@ -1077,6 +1077,8 @@ stdlib_fs_join 0
 stdlib_fs_remove_nonempty_throws 1
 stdlib_fs_remove_nonempty_caught 0
 stdlib_fs_size_missing_caught 0
+# --- byte write/read pair and file mtime (static-file ETag, upload save) ---
+stdlib_fs_write_time 0
 switch_multi_case 40
 switch_multi_case_enum 0
 switch_multi_three 0

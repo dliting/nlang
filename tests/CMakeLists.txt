@@ -3115,6 +3115,22 @@ add_test(NAME native_tensor_avx2 COMMAND test_native_tensor)
 set_tests_properties(native_tensor_avx2 PROPERTIES
     ENVIRONMENT "NLANG_TENSOR_TIER=avx2")
 
+# fs native unit tests: the bridge from a <filesystem> timestamp to Unix epoch
+# milliseconds (src/native/fs/FileTimeEpoch.h) that fs.modifiedTimeMs answers
+# with. Both clock samples are injected, so the millisecond arithmetic is
+# pinned to one right answer on any machine — the property an e2e corpus
+# cannot pin, because a real file's timestamp granularity is not its own to
+# control.
+add_executable(test_native_fs
+    test_native_fs/test_file_time_epoch.cpp
+)
+target_include_directories(test_native_fs PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
+    ${PROJECT_SOURCE_DIR}/src/native/fs
+)
+add_test(NAME native_fs_tests COMMAND test_native_fs)
+set_tests_properties(native_fs_tests PROPERTIES TIMEOUT 60)
+
 #--- e2e runner unit tests (pytest) ------------------------------------------
 #The runner's environment-gating logic (env_gates.txt parse + the pure
 #skip decision): pure python, probes injected, no subprocesses.
