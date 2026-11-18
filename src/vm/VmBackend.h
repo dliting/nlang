@@ -1082,6 +1082,12 @@ private:
     };
     ForeachSlots AllocForeachLocals(SnForeachStmt& fe, uint8_t elemKind,
                                     bool isArray, bool bRefLoop);
+    //The index-based expansion for Array/List/Dict sources (Access
+    //classifies the iterable and dispatches; the string arm has its
+    //own expansion).
+    void EmitForeachIndexed(SnForeachStmt& fe, bool isArray, bool isDict,
+                            SnField* pElemType, const ArgBoxPlan& elemBox,
+                            BytecodeEmitter& emitter);
     //Dict arm: inline keys() prelude replacing iterSlot with List<K>.
     void EmitForeachDictKeysPrelude(uint16_t iterSlot,
                                     BytecodeEmitter& emitter);
@@ -1090,9 +1096,12 @@ private:
                            uint16_t nSlot, BytecodeEmitter& emitter);
     //Loop start + LoopContext push + i<n condition; returns loopStart
     //for the back-jump. Registers the miss-jump as this loop's break
-    //target.
+    //target. probeLength re-probes n from iterSlot at the top of every
+    //iteration (container loops — the bound tracks body mutations,
+    //Task 12; arrays pass false, their length is record-fixed).
     size_t EmitForeachLoopHead(uint16_t iSlot, uint16_t nSlot,
-                               BytecodeEmitter& emitter);
+                               BytecodeEmitter& emitter,
+                               bool probeLength, uint16_t iterSlot);
     //Body-prelude: element i into the user slot (LoadElement +
     //struct deep copy vs get() + unbox under the boundary plan; the
     //reference form binds the pair instead — Task 7 D6).

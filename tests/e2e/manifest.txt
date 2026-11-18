@@ -2496,3 +2496,5 @@ interface_array_gc_survives 0
 cross_mod_interface_rtk_gc 0
 # consumer tier: interface-typed values cross the module boundary
 cross_mod_interface_return 7
+refbind_foreach_list_remove 0
+refbind_foreach_list_grow 0

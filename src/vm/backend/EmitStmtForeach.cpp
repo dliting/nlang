@@ -116,11 +116,11 @@ static ForeachIterableKind ClassifyForeachIterable(
 //— scalar/string cells and struct records. Dict/string sources were
 //rejected at the resolver; class/array elements degrade to value form
 //(spec 3.1).
-static bool ForeachRefForm(SnForeachStmt& fe,
-        const ForeachIterableKind& iter, uint8_t elemKind) {
+static bool ForeachRefForm(SnForeachStmt& fe, bool bRefForbidden,
+        uint8_t elemKind) {
     const bool bRefMarked = fe.VarType()
         && fe.VarType()->ContainFlags(NF_Ref);
-    NLANG_ASSERT(!(bRefMarked && (iter.isDict || iter.isString))
+    NLANG_ASSERT(!(bRefMarked && bRefForbidden)
         && "reference-form Dict/string foreach must be rejected at the resolver");
     return bRefMarked
         && (elemKind == RTK_Struct || elemKind == RTK_String
@@ -143,34 +143,48 @@ void VmBackend::Access(SnForeachStmt& stmt) {
             EmitStringForeach(fe, emitter);
             return;
         }
-        //Phase C: Array + List. Phase D: Dict (the Keys() prelude
-        //materializes a List<K> into iterSlot, then the rest mirrors
-        //the List path).
         NLANG_ASSERT((iter.isArray || iter.isList || iter.isDict)
             && "foreach iterable must be Array, List<T>, Dict<K,V>, or string");
+        EmitForeachIndexed(fe, iter.isArray, iter.isDict, iter.elemType,
+            iter.elemBox, emitter);
+        return;
+}
+
+//The index-based expansion for Array/List/Dict sources (the string arm
+//has its own expansion; Access classifies and dispatches). Task 12:
+//arrays probe their length once — an owned record's length never
+//changes. Containers (List, and Dict-after-Keys) re-probe EVERY
+//iteration inside the loop head (spec §5 removal-during-iteration): a
+//removal inside the body shortens the walk instead of reading past
+//the shrunk store (the cached probe was an IndexOutOfBoundsException),
+//and an append extends it to the fresh tail.
+void VmBackend::EmitForeachIndexed(SnForeachStmt& fe, bool isArray,
+        bool isDict, SnField* pElemType, const ArgBoxPlan& elemBox,
+        BytecodeEmitter& emitter) {
         //0.7.3 B: an array-typed element (List<int[]> / Dict<K[],V> key
         //iteration) IS the interned token, and RuntimeTypeKind maps the
         //token to RTK_Array through the IsArrayType() override — so one
         //channel tags the loop-var slot, and the GC traces the handle.
-        uint8_t elemKind = RuntimeTypeKind(iter.elemType);
-        const bool bRefLoop = ForeachRefForm(fe, iter, elemKind);
+        uint8_t elemKind = RuntimeTypeKind(pElemType);
+        const bool bRefLoop = ForeachRefForm(fe, isDict, elemKind);
         ForeachSlots slots = AllocForeachLocals(fe, elemKind,
-            iter.isArray, bRefLoop);
+            isArray, bRefLoop);
         //Evaluate the iterable into iterSlot.
         EmitExpression(*fe.Iterable(), emitter, slots.iterSlot);
-        if (iter.isDict)
+        if (isDict)
             EmitForeachDictKeysPrelude(slots.iterSlot, emitter);
-        EmitForeachLength(iter.isArray, slots.iterSlot, slots.nSlot,
-            emitter);
+        if (isArray)
+            EmitForeachLength(true, slots.iterSlot, slots.nSlot,
+                emitter);
         //i = 0
         emitter.Emit(OpCode::OP_ConstInt32);
         emitter.EmitInt32(0);
         emitter.Emit(OpCode::OP_Assign);
         emitter.EmitUint16(slots.iSlot);
         size_t loopStart = EmitForeachLoopHead(slots.iSlot, slots.nSlot,
-            emitter);
-        EmitForeachLoadElement(iter.isArray, iter.elemType, elemKind,
-            iter.elemBox, bRefLoop, slots, emitter);
+            emitter, !isArray, slots.iterSlot);
+        EmitForeachLoadElement(isArray, pElemType, elemKind,
+            elemBox, bRefLoop, slots, emitter);
         EmitStatement(*fe.Body(), emitter);
         EmitForeachLoopTail(loopStart, slots.iSlot, emitter);
         return;
@@ -263,10 +277,16 @@ void VmBackend::EmitForeachLength(bool isArray, uint16_t iterSlot,
 //not. tempSlot = i; tempSlot2 = n; OP_Cmp <i32> Less writes 1/0 into
 //tempSlot. The miss-jump placeholder doubles as this loop's break
 //target. Returns the loop-start offset for the back-jump.
+//probeLength (container loops): re-probe n from the iterable at the
+//top of EVERY iteration — the back-jump lands on the probe, so the
+//bound tracks the container the body mutates (Task 12; arrays pass
+//false, their length is record-fixed).
 size_t VmBackend::EmitForeachLoopHead(uint16_t iSlot, uint16_t nSlot,
-        BytecodeEmitter& emitter) {
+        BytecodeEmitter& emitter, bool probeLength, uint16_t iterSlot) {
     size_t loopStart = emitter.CurrentOffset();
     PushLoopContext();
+    if (probeLength)
+        EmitForeachLength(false, iterSlot, nSlot, emitter);
     emitter.Emit(OpCode::OP_VarLocal);
     emitter.EmitUint16(iSlot);
     emitter.Emit(OpCode::OP_Assign);
