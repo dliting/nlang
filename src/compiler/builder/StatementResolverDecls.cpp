@@ -88,6 +88,31 @@ void StatementResolveAccessor::CheckFunctionModifierContract(SnFunction &sn)
 //struct out param would need deep-copy writeback into the caller
 //— unsupported in v1. Checked at declaration for clearer errors
 //than at every call site.
+
+//Per-formal gates of a native declaration: out and & parameters both
+//need a callee frame the host ABI does not give them (each argument is
+//one value cell). The & wall is the v0.13.9 phase 3 ruling — & returns
+//stay legal (the builtin containers return T&); the param descriptor's
+//NF_Ref cache is stamped later in ResolveFunctionFormals, so the gate
+//reads the type node.
+static void RejectNativeParamShapes(BuildEnvironment &env, SnFunction &sn,
+	std::vector<SnFormalParam*> &formals)
+{
+	for (auto *param : formals) {
+		if (param->ContainFlags(NF_Out)) {
+			env.Log(CLL_Error, param->Location(),
+				"native function \"%s\" cannot have out parameters.",
+				sn.Name().c_str());
+		}
+		if (param->Type() && param->Type()->ContainFlags(NF_Ref)) {
+			env.Log(CLL_Error, param->Location(),
+				"native function \"%s\" cannot have reference "
+				"parameters; the host receives values.",
+				sn.Name().c_str());
+		}
+	}
+}
+
 void StatementResolveAccessor::CheckFunctionNativeFormals(SnFunction &sn,
 	std::vector<SnFormalParam*> &formals)
 {
@@ -109,13 +134,7 @@ void StatementResolveAccessor::CheckFunctionNativeFormals(SnFunction &sn,
 				"per function.",
 				sn.Name().c_str());
 		}
-		for (auto *param : formals) {
-			if (param->ContainFlags(NF_Out)) {
-				m_Env.Log(CLL_Error, param->Location(),
-					"native function \"%s\" cannot have out parameters.",
-					sn.Name().c_str());
-			}
-		}
+		RejectNativeParamShapes(m_Env, sn, formals);
 	}
 	for (auto *param : formals) {
 		if (!param->ContainFlags(NF_Out))
@@ -128,6 +147,7 @@ void StatementResolveAccessor::CheckFunctionNativeFormals(SnFunction &sn,
 		}
 	}
 }
+
 
 //Phase 9c: resolve formal param defaults in this function's scope.
 //Earlier formals are in sn's local scope (as params) and become
