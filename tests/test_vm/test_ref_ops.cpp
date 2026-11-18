@@ -57,7 +57,9 @@ static int g_pass = 0, g_fail = 0;
 
 //Byref slot encoding (design D2): low half = base heap-record handle,
 //high half = cell offset within that record. RTK_Byref is the declared
-//kind of a slot holding such a pair.
+//kind of a slot holding such a pair; RTK_Promoted (Task 11) names the
+//promoted-storage variant whose upper half is stale (low half = box
+//handle only).
 
 static std::filesystem::path scratchDir()
 {
@@ -264,14 +266,16 @@ static int32_t FindArrayByElemCount(VmExecutor& exec, int32_t elemCount)
 }
 
 //Task 3's Task-4-preview: the promoted-local slot surgery. The Task-4
-//emitter will declare an &-bound scalar local's slot as RTK_Byref with
-//band class ESC_HeapIndex; the test declares the same on a real-compiled
-//int local before the tail turns that slot into a byref pair.
+//emitter declares an &-bound scalar local's slot as RTK_Promoted with
+//band class ESC_HeapIndex (Task 11 split the kinds — the promoted slot's
+//low half is the box handle, its upper half stale); the test declares
+//the same on a real-compiled int local before the tail turns that slot
+//into a byref pair.
 static void PromoteLocalSurgery(CompiledModule& mod)
 {
     CompiledFunction& fn = EntryFunction(mod);
     LocalDescriptor& x = LocalByName(fn, "x");
-    x.typeKind = RTK_Byref;
+    x.typeKind = RTK_Promoted;
     SetBandClass(fn, x.offset, ESC_HeapIndex);
 }
 
@@ -279,12 +283,18 @@ static void PromoteLocalSurgery(CompiledModule& mod)
 
 //GC classification: a byref slot's base handle is a heap-domain record
 //(struct/boxed/array — design D3), so the band-mask class is the single
-//ESC_HeapIndex domain, never Dual.
+//ESC_HeapIndex domain, never Dual. Task 11: the cell-addressed and
+//promoted kinds route to the same class (the low half is a heap handle
+//in both).
 static void testEvalSlotClassByref()
 {
     TEST(evalSlotClassByrefIsHeapIndex);
     CHECK(VmBackend::EvalSlotClassOfKind(RTK_Byref) == ESC_HeapIndex,
           "RTK_Byref classifies as ESC_HeapIndex");
+    CHECK(VmBackend::EvalSlotClassOfKind(RTK_ByrefCell) == ESC_HeapIndex,
+          "RTK_ByrefCell classifies as ESC_HeapIndex");
+    CHECK(VmBackend::EvalSlotClassOfKind(RTK_Promoted) == ESC_HeapIndex,
+          "RTK_Promoted classifies as ESC_HeapIndex");
     PASS();
 }
 
@@ -548,7 +558,7 @@ static void testArrayElementBindWriteThrough()
 //The GC pin (design D3/spec §3.2): a byref slot's base record must
 //survive mid-loop collections with the slot as its only anchor. The
 //surgery declares the promoted-slot shape the Task-4 emitter will
-//produce (descriptor RTK_Byref + band class ESC_HeapIndex); the tail
+//produce (descriptor RTK_Promoted + band class ESC_HeapIndex); the tail
 //boxes a value, pairs it into the slot via RefOfPromoted, churns past
 //the collection thresholds on a backedge-safepoint loop, then loads
 //through the pair. The alloc pin keeps the churn honest — the survival

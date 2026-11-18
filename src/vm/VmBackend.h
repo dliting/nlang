@@ -299,6 +299,12 @@ public:
     bool IsTypeArgRefFormal(SnField* pField);
 
 private:
+    //Task 11: the locals-table kind for one & binding's slot — the
+    //cell-addressed family (RTK_ByrefCell) when the declared element
+    //is scalar/string/enum, the aggregate family (RTK_Byref) otherwise
+    //(T& formals included: the element kind is only known per
+    //instantiation). Shared by the param and local declarator arms.
+    static uint8_t ByrefSlotKindOfType(SnField* evalType);
     void GenerateFunction(SnFunction& func, size_t funcIdx);
     //GenerateFunction's native arm (split for the 50-line function
     //budget): signature fill via FillNativeFunctionRecord, then the
@@ -752,6 +758,11 @@ private:
     //Allocate the `this` + formal slots, then collect foldable defaults.
     void AllocParamsAndDefaults(SnFunction& func, FuncContext& ctx,
                                 CompiledFunction& compiledFunc);
+    //AllocParamsAndDefaults' Option B arm (VmBackendSignatures.cpp):
+    //extract each formal's constant-foldable default, ExprDesc-encode
+    //the near-constant shapes, stamp RTK_Unfoldable on the rest.
+    void CollectParamDefaults(SnFunction& func,
+                              CompiledFunction& compiledFunc);
     //Reserve return slot, temp pool, callParamBase and evalArea; returns
     //the call-slot stats consumed by the finalize-time drift check.
     CallSlotStats ReserveReturnAndCallSlots(SnFunction& func, FuncContext& ctx,

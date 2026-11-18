@@ -184,9 +184,15 @@ VmBackend::ForeachSlots VmBackend::AllocForeachLocals(SnForeachStmt& fe,
     ForeachSlots slots;
     uint16_t counter = m_currFunc->foreachCounter++;
     //Effective reference form: the loop-var slot holds a (record, cell)
-    //pair — a GC-rooted byref slot, not the element value.
+    //pair — a GC-rooted byref slot, not the element value. Task 11: the
+    //cell kind for scalar/string element loops (the pair always names a
+    //payload cell), the aggregate kind for struct element loops (struct
+    //pairs read as plain record handles at offset 0).
+    uint8_t refVarKind = RTK_Byref;
+    if (ScalarPrimIndexOfRtk(elemKind) >= 0 || elemKind == RTK_String)
+        refVarKind = RTK_ByrefCell;
     slots.userVarSlot = AllocLocal(fe.VarName(), kFrameSlotBytes,
-        bRefLoop ? static_cast<uint8_t>(RTK_Byref) : elemKind,
+        bRefLoop ? refVarKind : elemKind,
         false);
     //Array iter is RTK_Array; List and Dict-via-Keys are RTK_Class.
     uint8_t iterKind = isArray

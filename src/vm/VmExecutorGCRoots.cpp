@@ -17,7 +17,10 @@ namespace nlang {
 //Keeping params here preserves their precise declared-kind scan for
 //every mask state (the band starts after them). v0.13.9 phase ③: an
 //&-bound parameter's slot holds the byref pair — the fallthrough heap
-//arm marks the pair's low half, which IS the base record handle.
+//arm marks the pair's low half, which IS the base record handle. Task
+//11: a promoted param routes identically (the low half is its box
+//handle; before the prologue rewrites a raw argument the mark can only
+//over-mark, the RTK_Byref argument).
 void VmExecutor::MarkFrameLocals(const CallFrame& frame,
                                  std::vector<int32_t>& worklist) {
     for (auto& ld : frame.func->locals) {
@@ -26,7 +29,8 @@ void VmExecutor::MarkFrameLocals(const CallFrame& frame,
         if (ld.typeKind != RTK_Struct && ld.typeKind != RTK_Class
             && ld.typeKind != RTK_Array && ld.typeKind != RTK_Func
             && ld.typeKind != RTK_String && ld.typeKind != RTK_TypeParam
-            && ld.typeKind != RTK_Byref)
+            && ld.typeKind != RTK_Byref && ld.typeKind != RTK_ByrefCell
+            && ld.typeKind != RTK_Promoted)
             continue;
         int32_t val;
         std::memcpy(&val, frame.localsBuf.data() + ld.offset, sizeof(val));
@@ -138,7 +142,8 @@ void VmExecutor::MarkStaticSlotRoots(std::vector<int32_t>& worklist) {
         const uint8_t kind = m_currModule->staticSlots[i].type.kind;
         if (kind != RTK_Struct && kind != RTK_Class && kind != RTK_Array
             && kind != RTK_Func && kind != RTK_String
-            && kind != RTK_TypeParam && kind != RTK_Byref)
+            && kind != RTK_TypeParam && kind != RTK_Byref
+            && kind != RTK_ByrefCell && kind != RTK_Promoted)
             continue;
         int32_t val;
         std::memcpy(&val, m_staticSlots.Cell(i), sizeof(val));
@@ -206,9 +211,13 @@ void VmExecutor::MarkContextResultCell(const ExecutionContext* ctx,
         MarkString(val);
     } else if (retKind == RTK_Class || retKind == RTK_Struct
         || retKind == RTK_Array || retKind == RTK_Func
-        || retKind == RTK_Byref) {
+        || retKind == RTK_Byref || retKind == RTK_ByrefCell
+        || retKind == RTK_Promoted) {
         //v0.13.9 phase ③: an &-return cell holds the byref pair — the
         //low half IS the base record handle (Task 6's & return form).
+        //Task 11: the split kinds route identically (SerializedReturn-
+        //Kind never emits them — defensive completeness, same as the
+        //static-slot filter).
         if (val > 0 && static_cast<size_t>(val) < m_slotKinds.size()
             && !m_markBits[val])
             PushMarked(val, worklist);

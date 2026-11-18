@@ -49,6 +49,18 @@ bool VmBackend::IsTypeArgRefFormal(SnField* pField)
         != SnTypeNameExpr::kNoTypeParamOrdinal;
 }
 
+//Task 11: the cell-family test on the resolved TYPE node (IsDerefRef-
+//Descriptor's kind arm without the flag part — the callers already
+//know the binding is &). NK_String sits in the primitive block, so
+//string elements take the cell family too.
+uint8_t VmBackend::ByrefSlotKindOfType(SnField* evalType)
+{
+    const NodeKind elemKind = evalType ? evalType->Kind() : NK_Void;
+    return IsPrimitiveType(elemKind) || elemKind == NK_EnumDecl
+        ? static_cast<uint8_t>(RTK_ByrefCell)
+        : static_cast<uint8_t>(RTK_Byref);
+}
+
 //Task 6: the value-side deref kind byte for a &-returning callee.
 //kNoRefDeref (no normalization) for non-ref callees and for struct/
 //class/array returns — the pair's low half is the record handle every

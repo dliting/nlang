@@ -18,6 +18,7 @@ add_library(nlang_vm
     VmExecutorDebugArray.cpp
     VmExecutorDebugContainers.cpp
     VmExecutorDebugStatics.cpp
+    VmExecutorDebugSlots.cpp
     VmExecutorFreeze.cpp
     VmExecutorOps.cpp
     VmExecutorFrames.cpp

@@ -168,4 +168,25 @@ void VmBackend::FillAbstractFunctionRecord(SnFunction& func,
     FillSignatureOnlyRecord(func, compiledFunc);
 }
 
+//AllocParamsAndDefaults' Option B arm: extract constant-foldable
+//default values for each formal. A default the fold arms miss goes
+//through the v2.3 ExprDesc encoder (formal references, producing-module
+//calls, arithmetic over them); whatever remains outside that subset
+//stamps RTK_Unfoldable so the consumer side can emit a precise
+//"non-constant-foldable default" error rather than silently treating
+//it as "no default". In-module callers ignore compiledFunc.default-
+//Values entirely; they use the AST default expression directly via
+//StatementResolver.
+void VmBackend::CollectParamDefaults(SnFunction& func,
+                                     CompiledFunction& compiledFunc) {
+    for (auto& param : func.Params()) {
+        auto dv = ExtractDefaultValue(param.Value(),
+                                      RuntimeTypeKind(param.EvalDataType()));
+        if (param.Value() && !dv.hasDefault()
+            && !EncodeDefaultExpr(func, param.Value(), dv))
+            dv.tag = RTK_Unfoldable;
+        compiledFunc.defaultValues.push_back(dv);
+    }
+}
+
 } //namespace nlang

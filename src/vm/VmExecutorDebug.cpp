@@ -31,6 +31,11 @@ const char* VmExecutor::DebugKindName(uint8_t kind) {
     case RTK_Array:  return "array";
     case RTK_Boxed:  return "boxed";
     case RTK_Func:   return "func";
+    //Task 11: bare-name fallbacks only — FrameLocals composes the real
+    //names for these slots from the runtime element kind ("int&", "int").
+    case RTK_Byref:   return "ref";
+    case RTK_ByrefCell: return "ref";
+    case RTK_Promoted: return "promoted";
     default:         return "unknown";
     }
 }
@@ -215,7 +220,21 @@ std::vector<DebugLocalValue> VmExecutor::FrameLocals(int contextId,
             continue;
         DebugLocalValue v;
         v.name = ld.name;
-        v.kindName = DebugKindName(ld.typeKind);
+        //Task 11: byref/promoted slots name their ELEMENT kind, resolved
+        //from the runtime record ("int&" / "int"), not the slot kind.
+        if (ld.typeKind == RTK_Byref
+                || ld.typeKind == RTK_ByrefCell) {
+            v.kindName = std::string(DebugKindName(
+                ByrefElementKindOf(frame.localsBuf.data(), ld.offset,
+                    ld.typeKind)))
+                + "&";
+        } else if (ld.typeKind == RTK_Promoted) {
+            v.kindName = DebugKindName(
+                ByrefElementKindOf(frame.localsBuf.data(), ld.offset,
+                    RTK_Promoted));
+        } else {
+            v.kindName = DebugKindName(ld.typeKind);
+        }
         v.display = FormatDebugLocalSlot(ld, frame.localsBuf.data());
         out.push_back(std::move(v));
     }
@@ -246,6 +265,11 @@ std::string VmExecutor::FormatDebugLocalSlot(const LocalDescriptor& ld,
     case RTK_Array:
     case RTK_Func:
         return FormatDebugHeapValue(lo);
+    case RTK_Byref:
+    case RTK_ByrefCell:
+        return FormatDebugByrefSlot(frameLocals, ld.offset, ld.typeKind);
+    case RTK_Promoted:
+        return FormatDebugPromotedSlot(frameLocals, ld.offset);
     default:
         if (ScalarPrimIndexOfRtk(ld.typeKind) >= 0)
             return FormatScalarValue(ld.typeKind, lo, hi);

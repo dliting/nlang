@@ -50,6 +50,31 @@ static constexpr uint8_t RTK_ArrayView = 21;
 //return-kind cell), which is why MarkFrameLocals/MarkFrameBand style
 //consumers route it and record-side consumers never see it.
 static constexpr uint8_t RTK_Byref = 22;
+//v0.13.9 phase ③ Task 11: declared kind of a PROMOTED slot (a scalar or
+//string local/param whose storage became a stable boxed record because a
+//& binding aliases it). Only the slot's low half is meaningful — the box
+//handle; the upper half is stale bytes the prologue's Assign left (every
+//consumer reads the low half). The GC routes it exactly like RTK_Byref
+//(ESC_HeapIndex, over-mark before the prologue rewrites a raw argument),
+//and like RTK_Byref it never appears on fields, elements, container
+//entries, static slots or return kinds. The debug display is the reason
+//the two kinds split: a promoted slot renders its plain value, a byref
+//slot renders the base->cell->value pair (ndb, spec §4). Kind-value
+//extension of the locals-table byte — rides the v2.21 floor, no layout
+//change.
+static constexpr uint8_t RTK_Promoted = 23;
+//v0.13.9 phase ③ Task 11: declared kind of a CELL-addressed byref slot
+//(`int&`/`string&`/enum-`&` bindings — a reference whose declared element
+//type is a scalar, string or enum). The pair always names a payload CELL
+//(box payload, struct/class field cell, array element cell), never a
+//whole record, so the debug display resolves the element kind from the
+//base family's own metadata even at cell 0 — the aggregate family
+//(RTK_Byref) renders an offset-0 pair as the whole record per the D9
+//convention, which is the wrong read for a first-field scalar &. Same
+//GC routing as RTK_Byref (ESC_HeapIndex on the pair's base handle).
+//Kind-value extension of the locals-table byte — rides the v2.21 floor,
+//no layout change.
+static constexpr uint8_t RTK_ByrefCell = 24;
 //Descriptor-only kinds RTK_List / RTK_Dict / RTK_NonSerialized live in
 //TypeDesc.h (they appear inside TypeDesc, never in these legacy bytes).
 static constexpr uint8_t RTK_Null   = 0xFD;  //Option B: null default value (any reference type)

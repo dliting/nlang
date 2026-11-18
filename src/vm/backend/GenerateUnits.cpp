@@ -285,6 +285,8 @@ uint8_t VmBackend::EvalSlotClassOfKind(uint8_t rtk) {
     case RTK_ArrayView:   //v0.12.7: runtime-only view kind — never declared today, mapped for kind-table completeness
     case RTK_Func:
     case RTK_Byref:       //v0.13.9 phase ③: the pair's base handle is always a heap-domain record (single domain — no Dual)
+    case RTK_ByrefCell:   //Task 11: the cell-addressed & family — same low-half base handle
+    case RTK_Promoted:    //Task 11: the promoted slot's low half is its box handle (same single domain)
         return ESC_HeapIndex;
     case RTK_TypeParam:
         return ESC_Dual;

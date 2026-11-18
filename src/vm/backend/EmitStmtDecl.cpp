@@ -56,9 +56,21 @@ uint16_t VmBackend::EmitLocalDeclaratorStorage(SnLocalDeclStmt& decl,
     const bool bPromoted = pDeclNode
         && pDeclNode->ContainFlags(NF_Promoted);
     const bool bRefLocal = decl.Type()->ContainFlags(NF_Ref);
-    uint8_t typeKind = bPromoted || bRefLocal
-        ? RTK_Byref
-        : (local.bArrayType ? RTK_Array : RuntimeTypeKind(evalType));
+    //Task 11: promoted storage and reference bindings take SEPARATE
+    //descriptor kinds — both hold a heap handle in the low half (same
+    //GC class), but the promoted slot's upper half is stale while the
+    //reference slot holds the real (base, cell) pair the debug display
+    //dereferences. The & family split (ByrefSlotKindOfType): a
+    //scalar/string/enum element takes the cell kind so the display
+    //reads a cell-0 pair as first-field storage, not as the whole
+    //record (the D9 offset-0 convention).
+    uint8_t typeKind = local.bArrayType
+        ? static_cast<uint8_t>(RTK_Array)
+        : RuntimeTypeKind(evalType);
+    if (bRefLocal)
+        typeKind = ByrefSlotKindOfType(evalType);
+    else if (bPromoted)
+        typeKind = RTK_Promoted;
     uint16_t offset = AllocLocal(local.name, kFrameSlotBytes, typeKind,
         false);
     if (bPromoted) {

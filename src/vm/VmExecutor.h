@@ -2443,6 +2443,22 @@ private:
     std::string FormatDebugRefShort(int32_t heapIdx) const;
     std::string FormatDebugBoxed(const std::vector<int32_t>& slot) const;
     std::string FormatDebugStringIdx(int32_t idx) const;
+    //v0.13.9 phase 3 Task 11: byref/promoted slot display (locals table
+    //kinds RTK_Byref / RTK_ByrefCell / RTK_Promoted). A byref slot
+    //renders the pair (&#<handle>[<cell>] -> value) — the aggregate kind
+    //treats an offset-0 pair as the whole record (the D9 convention),
+    //the cell kind always resolves the addressed cell's element kind; a
+    //promoted slot renders its box's plain value (the slot's upper half
+    //is stale — only the low handle is read). ByrefElementKindOf
+    //resolves the element kind for the kindName composition in
+    //FrameLocals (kDebugKindUnresolved = unresolved).
+    std::string FormatDebugByrefSlot(const uint8_t* frameLocals,
+        uint16_t offset, uint8_t slotKind) const;
+    std::string FormatDebugPromotedSlot(const uint8_t* frameLocals,
+        uint16_t offset) const;
+    uint8_t ByrefElementKindOf(const uint8_t* frameLocals,
+        uint16_t offset, uint8_t slotKind) const;
+    uint8_t ByrefCellKindOf(size_t handle, size_t cell) const;
     //v0.12.6 Task 9: static-slot display helpers (VmExecutorDebug.cpp) —
     //cell rendering by declared kind + owner init-phase lookup.
     std::string StaticSlotInitPhase(const CompiledStaticSlot& slot,
