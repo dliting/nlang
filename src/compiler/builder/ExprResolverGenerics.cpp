@@ -102,16 +102,23 @@ bool IsGenericClassDecl(SnClassDecl* pClass)
 //The cache is per-build (ModuleRegistry's SyntheticBuiltinRegistry):
 //the key is built from interned type-arg pointers, which only keep
 //identity within one build's syntax tree.
-//Display name e.g. "List<int>"; array-typed arguments are interned
-//tokens with empty Name(), so render them via ToString ("Int32[]").
+//Display name e.g. "func<Int32, Int32&>"; array-typed arguments are
+//interned tokens with empty Name(), so render them via ToString
+//("Int32[]"). The flag vectors arrive normalized by the caller
+//(padded to typeArgs.size()) so the marks spell position-stable.
 static std::string RenderGenericInstName(const std::string& baseName,
-	const std::vector<SnField*>& typeArgs)
+	const std::vector<SnField*>& typeArgs, const std::vector<uint8>& outFlags,
+	const std::vector<uint8>& refFlags)
 {
 	std::string instName = baseName + "<";
 	for (size_t i = 0; i < typeArgs.size(); ++i) {
 		if (i) instName += ", ";
+		if (outFlags[i])
+			instName += "out ";
 		instName += typeArgs[i]->Kind() == NK_ArrayTypeToken
 			? typeArgs[i]->ToString() : typeArgs[i]->Name();
+		if (refFlags[i])
+			instName += "&";
 	}
 	instName += ">";
 	return instName;
@@ -143,7 +150,7 @@ SnClassDecl* GetGenericClassDecl(ModuleRegistry& reg,
 	if (baseName != kBuiltinFuncTypeName || typeArgs.empty())
 		return nullptr;
 
-	const std::string instName = RenderGenericInstName(baseName, typeArgs);
+	const std::string instName = RenderGenericInstName(baseName, typeArgs, normOutFlags, normRefFlags);
 
 	auto* pName = new std::string(instName);
 	auto* pMembers = new PtrList<SnField>();

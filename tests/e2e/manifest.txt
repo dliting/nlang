@@ -2446,6 +2446,7 @@ refbind_getter_alias_set 6
 refbind_getter_alias_remove 8
 refbind_getter_alias_clear 8
 refbind_getter_alias_grow 9
+refbind_getter_alias_shift 0
 refbind_getter_dict_miss 1
 refbind_return_scalar 9
 refbind_return_element 9
@@ -2461,6 +2462,13 @@ refbind_foreach_array_struct 60
 refbind_foreach_list_scalar 112
 refbind_foreach_list_struct 77
 refbind_local_struct_element 8
+# --- v0.13.9 phase 3 Task 13: struct/identity/generic field binds (pair-shape fix) ---
+refbind_field_struct_class 1
+refbind_field_identity 1
+refbind_field_struct_generic 1
+refbind_field_struct_generic_body 1
+refbind_reject_native_formal compile_error cannot have reference parameters
+refbind_func_type_marks compile_error func<Int32, Int32&>
 # --- v0.13.9 phase 3 Task 8: generic keys, T& well-formedness, fork warning ---
 refbind_generic_func_coexist 7
 refbind_generic_func_reject_out compile_error does not match the signature

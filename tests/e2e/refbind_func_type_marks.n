@@ -1,0 +1,9 @@
+//v0.13.9 phase 3: the func-type diagnostic must spell the & marks
+//position-wise — func<int, int&> renders as "func<Int32, Int32&>",
+//distinct from its plain form.
+int plain(int v) { return v + 1; }
+
+int main() {
+    func<int, int&> f = plain;
+    return 0;
+}
