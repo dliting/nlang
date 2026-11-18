@@ -915,15 +915,13 @@ private:
     //IoPollerCreate call return null. Read only at the park's handle
     //creation site — park and probe both run under the GIL, no race.
     bool m_ioPollerCreateFailsForTests = false;
-    //Last interest set registered with the poller (fd → events). The
-    //park-site registration (RegisterIoInterestLocked) unions into it,
-    //the harvest round narrows it (del vanished, mod shrunk), and the
-    //close-side wake drops the fd's row. Hashed — the 10k-connection
-    //benchmark showed the vector form made each round O(fds²). Touched
-    //under the GIL only. Contract (D1): the table may only UNDER-report
-    //the kernel set — a stale row makes the equal-mask shortcut skip a
-    //needed Add and strands the park on its deadline, while a missing
-    //row self-heals through the Mod/Add pair.
+    //Last interest set registered with the poller (fd → events): the
+    //narrowing sweep's candidate list, not an authority a park may trust
+    //(every park re-declares its interest — RegisterIoInterestLocked). The
+    //park-site registration unions into it, the harvest round narrows it (del
+    //vanished, mod shrunk), and the close-side wake drops the fd's row along
+    //with its kernel entry. Hashed — the 10k-connection benchmark showed the
+    //vector form made each round O(fds²). Touched under the GIL only.
     std::unordered_map<int, uint32_t> m_ioPollerRegistered;
     bool m_ioThreadStarted = false;
     bool m_ioThreadShutdown = false;
@@ -955,6 +953,14 @@ public:
     //consumer). Public because the test drives a live scheduler instance.
     int IoPollerRegisteredForTests(int fd);      //0 = not registered
     int IoPollerRegistrationCountForTests();     //set size: "registered nothing" at all
+    //The kernel set itself, as opposed to the table that mirrors it: a row can
+    //outlive the registration it claims, and an entry can outlive the row that
+    //claimed it (wepoll removes an entry only once it dequeues that socket's
+    //close completion) — either skew is only visible from the kernel side.
+    bool IoPollerKernelInterestForTests(int fd, uint32_t events);   //fd still watched by the kernel set
+    //Makes the kernel set forget the fd while the table row stays: the reap of a
+    //closed socket, without waiting for the poller thread to run it.
+    void IoPollerDropKernelInterestForTests(int fd);
     bool IoPollerActiveForTests();               //poller handle exists
     bool IoThreadStartedForTests();
     void BeginShutdownForTests();                //the destructor's flag+notify half

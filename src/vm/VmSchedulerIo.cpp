@@ -30,16 +30,18 @@ VmScheduler::VmScheduler() = default;
 
 //Unions the wanted mask with what this fd already has and makes the kernel
 //match it. Add on first sight, Mod once it exists: an IOCP/wepoll Mod of a
-//missing fd fails, so fall back to Add. Registration is what the poller
-//thread's IoPollerWait observes; the table is the cross-park bookkeeping,
-//and it may only UNDER-report the kernel set: the equal-mask shortcut below
-//turns a stale entry into a skipped Add and strands the park on its
-//deadline, while a missing entry self-heals through the Mod/Add pair.
+//missing fd fails, so fall back to Add. The table row is bookkeeping for the
+//narrowing sweep, never an authority this park may trust: every park
+//re-declares its interest, so a row that over-reports the kernel set — an
+//entry the poller dropped behind the table's back, or one that died with the
+//handle it was keyed by — is re-armed here rather than skipped. Re-declaring
+//costs a wepoll tree lookup plus the writes in sock_set_event: no overlapped
+//operation is posted unless the mask asks for events the pending poll does
+//not already cover (wepoll.c:1713-1728).
 int VmScheduler::RegisterIoInterestLocked(int fd, uint32_t events) {
     if (!m_upIoPoller || fd < 0) { return -1; }
     const auto it = m_ioPollerRegistered.find(fd);
     const uint32_t wanted = (it == m_ioPollerRegistered.end() ? 0 : it->second) | events;
-    if (it != m_ioPollerRegistered.end() && it->second == wanted) { return 0; }
     void* poller = m_upIoPoller.get();
     int rc = IoPollerMod(poller, fd, wanted);
     if (rc != 0) { rc = IoPollerAdd(poller, fd, wanted); }
@@ -123,10 +125,11 @@ void VmScheduler::WakeForIo(int id) {
     //that stores the frames (K7 handshake, same as WakeForMutex).
 }
 
-//v11 R13: the net module's socket-close path (ABI wakeIoWaiters). The
-//waiter ids and the interest entries are dropped in one critical
-//section (the poller re-syncs without them), then each context is
-//woken — WakeForIo self-guards, so the wakes run outside the section.
+//v11 R13: the net module's socket-close path (ABI wakeIoWaiters). The waiter
+//ids, the interest row and the kernel entry are dropped in one critical
+//section (the poller re-syncs without them), then each context is woken —
+//WakeForIo self-guards, so the wakes run outside the section, and the carrier
+//notify follows the loop.
 void VmScheduler::WakeIoWaitersForFd(int fd) {
     std::vector<int> ids;
     {
@@ -139,22 +142,34 @@ void VmScheduler::WakeIoWaitersForFd(int fd) {
                 ++it;
             }
         }
-        //The fd is closing: every entry for it is gone, so its
-        //baseline row must go too. The narrowing sweep alone cannot
-        //guarantee it — the sweep runs only inside a harvest round,
-        //and once the table is empty the poller cv-sleeps again, so
-        //that round may never come; a later socket whose fd value the
-        //OS re-uses would then match the stale row and have its Add
-        //skipped by the equal-mask shortcut, stranding it on the
-        //deadline (final review I1, now pinned by
-        //TestCloseWakesDropsInterest). No kernel del: the registration
-        //dies with the fd, so dropping the row costs nothing and keeps
-        //the table honest ("may only under-report", VmScheduler.h).
+        //The fd is closing, so every interest in it is dead and both halves
+        //must go: the table row and the kernel entry. Dropping only the row
+        //leaves the kernel watching a dead handle — the narrowing sweep cannot
+        //reap what the table no longer lists, and the sweep is not even
+        //guaranteed to run: once the table is empty the poller cv-sleeps
+        //again. wepoll keys its set by the socket *value* and removes an entry
+        //when it dequeues that socket's close completion (wepoll.c:1834-1862),
+        //which the sleeping poller never does. The OS re-uses the lowest free
+        //handle, so the next socket the server opens comes back to this value
+        //at once and its Mod succeeds against the zombie; the reap that
+        //follows deletes the new socket's interest while the table still
+        //reported it registered, and an infinite-deadline park — accept(0) —
+        //is then left with no wake at all (pinned by
+        //TestCloseDropsKernelInterest; the field case was an http accept loop
+        //stuck in accept with the connection already in the listen backlog).
         m_ioPollerRegistered.erase(fd);
+        if (m_upIoPoller) { IoPollerDel(m_upIoPoller.get(), fd); }
         m_ioCv.notify_all();
     }
     for (int id : ids)
         WakeForIo(id);
+    //WakeForIo leaves the carrier notify to its caller (the harvest bulk-notifies
+    //after its own loop, VmSchedulerTimer.cpp's sweep likewise). A close is often
+    //the only wake an infinite-deadline park ever gets, so an omitted notify here
+    //leaves the woken context in the run queue until some unrelated queue event
+    //moves a carrier (pinned by TestCloseWakeDispatchesCarrier).
+    if (!ids.empty())
+        m_runQueueCv.notify_all();
 }
 
 //r1 note 4: ABI v11 submitWork accessor (declaration in VmScheduler.h;
@@ -311,6 +326,21 @@ int VmScheduler::IoPollerRegisteredForTests(int fd) {
 int VmScheduler::IoPollerRegistrationCountForTests() {
     GilEnsureGuard g(*this);
     return static_cast<int>(m_ioPollerRegistered.size());
+}
+
+bool VmScheduler::IoPollerKernelInterestForTests(int fd, uint32_t events) {
+    GilEnsureGuard g(*this);
+    if (!m_upIoPoller) { return false; }
+    //A Mod with the parked mask answers "is it in the set?": the set is keyed by
+    //fd, so the call fails only when the fd is absent, and re-declaring a mask
+    //the set already watches changes nothing. The mask is a parameter because a
+    //fixed one would narrow an interest parked in another direction.
+    return IoPollerMod(m_upIoPoller.get(), fd, events) == 0;
+}
+
+void VmScheduler::IoPollerDropKernelInterestForTests(int fd) {
+    GilEnsureGuard g(*this);
+    if (m_upIoPoller) { IoPollerDel(m_upIoPoller.get(), fd); }
 }
 
 bool VmScheduler::IoPollerActiveForTests() {
