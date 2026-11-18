@@ -2436,3 +2436,8 @@ stabilize_static_store 42
 compile_error_struct_compound compile_error compound assignment is not supported on struct
 stabilize_concurrent_write 42
 stabilize_indep_sweep 42
+# --- v0.13.12: the web middleware chain — both middleware styles in onion
+# order, the base-class default, short-circuiting, next() re-entry, exception
+# mapping and the onError boundary, per-request isolation, the attribute
+# accessors, the response helpers and cookie read/write.
+stdlib_web_middleware_styles 0

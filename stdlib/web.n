@@ -1,0 +1,313 @@
+/* ------------------------------------------------------------------
+ * web.n — the web framework layer (spec docs/dev/web_framework_design.md).
+ * Pure nlang on top of http.n: an onion middleware chain, one context per
+ * request carrying the response helpers a handler needs, and the App facade
+ * that owns the HttpServer and maps failures to responses. Routing, sessions,
+ * static files, SSE and form parsing add their classes to this same file.
+ * ------------------------------------------------------------------ */
+import io;
+import http;
+import url;
+import json;
+import fs;
+import math;
+import system;
+import thread;
+import concurrent;
+
+// One link of the middleware chain (D-3). The base-class default advances the
+// chain, so a subclass that only wraps the rest of the onion writes its two
+// halves around next() and inherits everything else; an override that never
+// calls next() short-circuits and answers itself. A shared instance must keep
+// no per-request state of its own (D-25) — that lives in RequestContext.
+class Middleware {
+    public virtual void process(RequestContext ctx) { ctx.next(); }
+}
+
+// The adapter that lets a plain function act as a middleware (D-3), so App.use
+// has one chain to walk regardless of how a link was written. It is public only
+// because stdlib files declare no private top-level class; it is not user-facing.
+class FuncMiddleware : Middleware {
+    public FuncMiddleware(func<void, RequestContext> fn) { m_fn = fn; }
+
+    public void process(RequestContext ctx) {
+        m_fn(ctx);
+    }
+
+    private func<void, RequestContext> m_fn;
+}
+
+// The per-request state a middleware and a handler work through (spec §6.3):
+// the message pair, the routing view of the target, the attribute store and the
+// chain position. Public because App.handle builds it and other framework
+// classes read it; private members do not cross a class boundary in nlang.
+class RequestContext {
+    public http.HttpRequest req;
+    public http.HttpResponse res;
+    public string method;                    // request method
+    public string path;                      // raw, undecoded path (D-10)
+    public string query;                     // raw, undecoded query string
+
+    private App m_app;                       // the owner, for the stages after the chain
+    private List<Middleware> m_chain;        // the chain as it stood for this request
+    private int m_depth = 0;                 // whose turn it is to run (ruling 13)
+    private List<int> m_used;                // one slot per caller depth: has it advanced?
+    private Dict<string, Object> m_attrs;    // the per-request attribute store
+
+    public RequestContext(App app, List<Middleware> chain) {
+        m_app = app;
+        m_chain = chain;
+        res = http.HttpResponse();
+        m_used = {};
+        m_attrs = {};
+        // Slots are numbered by depth, and the last one is the end of the chain,
+        // where next() returns instead of running anything (ruling 13).
+        int slots = m_chain.length() + 1;
+        for (int i = 0; i < slots; i = i + 1) {
+            m_used.add(0);
+        }
+    }
+
+    public bool has(string key) {
+        return m_attrs.containsKey(key);
+    }
+
+    public Object get(string key, Object def = null) {
+        Object value = this.storedValue(key);
+        if (value == null) { return def; }
+        return value;
+    }
+
+    public string getString(string key, string def = "") {
+        Object value = this.storedValue(key);
+        if (value == null) { return def; }
+        return value.toString();
+    }
+
+    public int getInt(string key, int def = 0) {
+        Object value = this.storedValue(key);
+        if (value == null) { return def; }
+        // A boxed value reads back through its own text, so a handler that stored
+        // a string of digits gets the number and vice versa (ruling 9). The parse
+        // failure of a value that is no number at all is the caller's default.
+        string text = value.toString();
+        try {
+            return text.toInt();
+        } catch (Exception e) {
+            return def;
+        }
+    }
+
+    public bool getBool(string key, bool def = false) {
+        Object value = this.storedValue(key);
+        if (value == null) { return def; }
+        string text = value.toString();
+        if (text.equalsIgnoreCase("true") || text.equalsIgnoreCase("1")) { return true; }
+        if (text.equalsIgnoreCase("false") || text.equalsIgnoreCase("0")) { return false; }
+        return def;
+    }
+
+    public void set(string key, Object value) {
+        m_attrs.set(key, value);
+    }
+
+    public void remove(string key) {
+        m_attrs.remove(key);
+    }
+
+    // Plain text answer (D-4: the error body a client is meant to read).
+    public void text(int status, string body) {
+        this.writeBody(status, "text/plain; charset=utf-8", io.toBytes(body));
+    }
+
+    public void html(int status, string body) {
+        this.writeBody(status, "text/html; charset=utf-8", io.toBytes(body));
+    }
+
+    public void json(int status, json.JsonValue value) {
+        this.writeBody(status, "application/json", io.toBytes(value.serialize()));
+    }
+
+    public void bytes(int status, byte[] body, string contentType) {
+        this.writeBody(status, contentType, body);
+    }
+
+    // A 3xx with the target in Location and no body of its own.
+    public void redirect(string location, int status = 302) {
+        res.statusCode = status;
+        res.reasonPhrase = HttpResponse.reasonPhraseFor(status);
+        res.headers.set("Location", location);
+        res.body = io.toBytes("");
+    }
+
+    // 204: the status itself says there is no body, so any half-written body goes.
+    public void noContent() {
+        res.statusCode = 204;
+        res.reasonPhrase = HttpResponse.reasonPhraseFor(204);
+        res.body = io.toBytes("");
+    }
+
+    // Writes one cookie as its own Set-Cookie line. The attribute order is fixed
+    // (ruling 17): Path, then the optional Max-Age / HttpOnly / Secure, then
+    // SameSite. maxAgeSeconds is tri-state (D-12): 0 leaves Max-Age out, i.e. a
+    // session cookie, a positive number sends it, and a negative one sends
+    // Max-Age: 0, which is how a cookie is dropped on the client side.
+    public void setCookie(string name, string value, string path = "/", int maxAgeSeconds = 0,
+                          bool httpOnly = true, bool secure = false, string sameSite = "Lax") {
+        string line = name + "=" + value + "; Path=" + path;
+        if (maxAgeSeconds > 0) { line = line + "; Max-Age=" + maxAgeSeconds.toString(); }
+        else if (maxAgeSeconds < 0) { line = line + "; Max-Age=0"; }
+        if (httpOnly) { line = line + "; HttpOnly"; }
+        if (secure) { line = line + "; Secure"; }
+        line = line + "; SameSite=" + sameSite;
+        // Accumulate rather than replace: one header can carry only one cookie.
+        res.headers.add("Set-Cookie", line);
+    }
+
+    // Reads one cookie out of the request header (RFC 6265 §5.4): the first pair
+    // of that name wins, a segment without "=" is not a cookie and is skipped,
+    // and the value stays percent-encoded, because nothing said it ever was not.
+    public string cookie(string name) {
+        string header = req.headers.get("Cookie");
+        if (header == "") { return ""; }
+        List<string> segments = header.split(";");
+        int count = segments.length();
+        for (int i = 0; i < count; i = i + 1) {
+            string raw = segments.get(i);
+            string segment = raw.trim();
+            int eq = segment.indexOf("=");
+            if (eq <= 0) { continue; }
+            if (segment.substring(0, eq) == name) { return segment.substring(eq + 1); }
+        }
+        return "";
+    }
+
+    // Advances the onion: runs the next link, and returns when the last one has
+    // answered (D-3/D-4). Re-entering the same depth is a handler bug — a link
+    // that forwarded twice would run its downstream twice with a response that
+    // only makes sense once — so it is a 500 of its own.
+    public void next() {
+        int depth = m_depth;
+        if (depth < 0 || depth >= m_used.length() || m_used.get(depth) != 0) {
+            throw http.HttpException("web: next() called more than once", 500);
+        }
+        m_used.set(depth, 1);
+        if (depth == m_chain.length()) { return; }
+        m_depth = depth + 1;
+        try {
+            // A container element is read into a local before it is called (D-27).
+            Middleware m = m_chain.get(depth);
+            m.process(this);
+        } finally {
+            // The depth comes back to this caller whether the subtree answered or
+            // threw, so an escaping exception unwinds through its own layer.
+            m_depth = depth;
+        }
+    }
+
+    private Object storedValue(string key) {
+        // Dict.get raises on a missing key (D-27), so the accessor face checks
+        // first and a miss is the caller's default rather than an exception.
+        if (!m_attrs.containsKey(key)) { return null; }
+        return m_attrs.get(key);
+    }
+
+    private void writeBody(int status, string contentType, byte[] body) {
+        res.statusCode = status;
+        res.reasonPhrase = HttpResponse.reasonPhraseFor(status);
+        res.headers.set("Content-Type", contentType);
+        res.body = body;
+    }
+}
+
+// The framework facade (spec §6.2): it collects the middleware chain, owns the
+// HttpServer, and turns whatever a chain does or throws into one response.
+// server() hands out the transport object itself, so the frame of the exchange
+// (body caps, timeouts) stays on the http face instead of being mirrored here.
+class App {
+    // The window drain() waits for requests already in flight (D-22), the same
+    // default the http layer uses so the facade does not change the meaning.
+    private static const int DEFAULT_DRAIN_GRACE_MS = 15000;
+
+    private List<Middleware> m_chain;
+    private http.HttpServer m_srv;
+    private func<void, RequestContext, Exception> m_onError;
+
+    public App() {
+        m_chain = {};
+        m_srv = http.HttpServer();
+    }
+
+    // One name, two shapes: a function is wrapped, a Middleware joins as it is.
+    public void use(func<void, RequestContext> fn) {
+        m_chain.add(FuncMiddleware(fn));
+    }
+
+    public void use(Middleware m) {
+        m_chain.add(m);
+    }
+
+    // Overriding how a 500 looks (D-11); the rebuild already happened by the
+    // time the hook runs, so it starts from a plain answer and reshapes it.
+    public void onError(func<void, RequestContext, Exception> h) {
+        m_onError = h;
+    }
+
+    public http.HttpServer server() { return m_srv; }
+
+    // The handler handed to HttpServer. A chain runs inside one context; the
+    // only thing that may leave handle() is a response.
+    public http.HttpResponse handle(http.HttpRequest req) {
+        RequestContext ctx = RequestContext(this, m_chain);
+        ctx.req = req;
+        ctx.method = req.method;
+        // The parser has already turned the request target into a Url and
+        // rejected an invalid one; both halves stay raw here, decoding being the
+        // router's job (D-10).
+        ctx.path = req.url.path;
+        ctx.query = req.url.query;
+        try {
+            ctx.next();
+        } catch (http.HttpException e) {
+            // HttpException derives from IOException, so this clause has to come
+            // first: the generic one below would turn a deliberate 4xx into 500.
+            int status = e.status;
+            if (status <= 0) { status = 500; }      // same clamp as serveOne (D-11)
+            this.rebuildPlain(ctx.res, status, e.message);
+        } catch (Exception e) {
+            this.rebuildPlain(ctx.res, 500, "internal error");
+            // The hook's own failure escapes handle() and the http layer maps it
+            // again (D-11): a broken error handler stays a visible 500 rather
+            // than a half-rendered answer of unknown shape.
+            if (m_onError != null) { m_onError(ctx, e); }
+        }
+        return ctx.res;
+    }
+
+    // Non-blocking: the server accepts on its own thread, main() is free.
+    public void listen(string host, int port) {
+        m_srv.start(host, port, this.handle);
+    }
+
+    // The same server on the calling thread, for a process whose main() must
+    // not return.
+    public void serve(string host, int port) {
+        m_srv.serve(host, port, this.handle);
+    }
+
+    public int drain(int graceMs = DEFAULT_DRAIN_GRACE_MS) { return m_srv.drain(graceMs); }
+
+    public void close() { m_srv.close(); }
+
+    // A chain that failed has already written part of the answer, and that half
+    // is not what the client should get: the header table is replaced wholesale,
+    // so a Content-Type or an X-... a middleware set before it threw cannot ship
+    // alongside an error body it was never meant to describe (D-11).
+    private void rebuildPlain(http.HttpResponse res, int status, string message) {
+        res.headers = http.HttpHeaders();
+        res.statusCode = status;
+        res.reasonPhrase = HttpResponse.reasonPhraseFor(status);
+        res.headers.set("Content-Type", "text/plain; charset=utf-8");
+        res.body = io.toBytes(message);
+    }
+}

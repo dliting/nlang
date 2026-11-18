@@ -61,5 +61,9 @@ family stdlib_http src stdlib/http.n
 family stdlib_http unit library_index|langservice|library_source|stdlib_tests|ncu_package
 family stdlib_http e2e ^(stdlib_http_|stdlib_web_|http_)
 
+family stdlib_web src stdlib/web.n
+family stdlib_web unit library_index|langservice|library_source|stdlib_tests|ncu_package
+family stdlib_web e2e ^stdlib_web_
+
 ignore docs/**
 ignore temp/**
