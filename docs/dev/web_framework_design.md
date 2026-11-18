@@ -1,4 +1,4 @@
-# v0.13.12 WEB框架（stdlib/web.n）概要设计
+# v0.13.12 WEB框架（stdlib/web多模块包）概要设计
 
 ## 一、引言
 
@@ -12,7 +12,7 @@ NLang已经有了HTTP传输与消息层（v0.13.5的`http`包：`HttpServer`每�
 
 ### 2.1 本版做
 
-- `web`包（`stdlib/web.n`，预置包自动收编）：
+- `web`包（点分多模块包：包级模块`stdlib/web.n`加三枚子模块`stdlib/web/static.n`、`stdlib/web/sse.n`、`stdlib/web/form.n`，预置包自动收编，分层见D-28）：
   - `App`门面与注册面：两种中间件注册、路由注册、前缀挂载、`setNotFound`、`onError`、`useSessions`、`serve`/`listen`/`drain`/`close`；
   - `RequestContext`：每请求的`req`/`res`、路径参数、取值面、cookie、会话、响应快捷方法与`next()`；
   - 中间件洋葱链（全局单链，两种风格同链混排）；
@@ -124,7 +124,7 @@ NLang已经有了HTTP传输与消息层（v0.13.5的`http`包：`HttpServer`每�
 
 ### D-1 分层：组件库为核＋`App`薄门面
 
-`web`包内`Router`、`SessionStore`、`StaticFiles`、`Sse`、`Form`各自独立可用；`App`只做注册与分派：中间件链→路由表（挂载条目按D-7的「静态精确表优先、其后注册序」参与同一张表）→整表未命中才轮到notFound/405兜底（D-10）。
+`web`包内`Router`、`SessionStore`、`StaticFiles`、`Sse`、`Form`各自独立可用（各归哪一枚模块见D-28）；`App`只做注册与分派：中间件链→路由表（挂载条目按D-7的「静态精确表优先、其后注册序」参与同一张表）→整表未命中才轮到notFound/405兜底（D-10）。
 理由：每块能单独测试与替换，`App`不随功能膨胀；静态服务或会话不经中间件也能单用。代价：`App`的转发方法略重复。
 
 ### D-2 公开词汇一律用类，不用跨模块别名
@@ -294,13 +294,21 @@ roadmap所列「`TcpStream.read`区分超时与对端EOF」**现况已满足**�
 
 ### D-26 承载边界
 
-零编译器/VM改动；新增native三枚（`math.randomBytes`、`fs.writeBytes`、`fs.modifiedTimeMs`，落在`src/native/math`与`src/native/fs`）＋`fs.readBytes`返回类型变更；`net.isEof()`与`http`的关闭状态机都在源码层，宿主不动；NCU/npkg线格式与版本不动（无新记录种类）；`stdlib/web.n`由预置包源文件glob自动收编（`CMakeLists.txt:236-300`），无需改构建脚本；`web`包import `http`/`url`/`json`/`io`/`fs`/`math`/`system`/`thread`/`concurrent`（`math`是D-13/D-21的`randomBytes`所需，漏import则会话id与boundary在编译期就是未解析符号）——stdlib内跨包import是既有做法（`stdlib/http.n:7-13`即七行逐行import），且标准库不能是多文件包，故框架整体必须是单文件`web.n`。
-理由：单文件约束是既有的（预置包按文件即模块），把这一约束当设计输入而不是抱怨：D-1的组件划分正是为在单文件内保持各块可独立理解。代价：`web.n`体量偏大（预计1200行级），以D-1的类边界与源规模守卫控住。
+零编译器/VM改动；新增native三枚（`math.randomBytes`、`fs.writeBytes`、`fs.modifiedTimeMs`，落在`src/native/math`与`src/native/fs`）＋`fs.readBytes`返回类型变更；`net.isEof()`与`http`的关闭状态机都在源码层，宿主不动；NCU/npkg线格式与版本不动（无新记录种类）；`web`包的模块清单由预置包的源文件glob收编，子模块要求把单层glob改成递归收集并让构建期拷贝保留目录结构（`CMakeLists.txt:267`的`file(GLOB …)`与`nlang_stdlib_package`目标的拷贝命令，见D-28与第八章）；`web`包import `http`/`url`/`json`/`io`/`fs`/`math`/`system`/`thread`/`concurrent`（`math`是D-13/D-21的`randomBytes`所需，漏import则会话id与boundary在编译期就是未解析符号）——stdlib内跨包import是既有做法（`stdlib/http.n:7-13`即七行逐行import），包内文件怎么切分见D-28（2026-11-19改判，本条原先据「标准库不能是多文件包」要求单文件）。
+理由：本版的承载边界只钉「宿主与线格式不动」，包内文件怎么切不在它的约束之内；预置包的收集规则是一处构建脚本而非宿主能力，改它属承载边界内的一次必要改动。代价：`CMakeLists.txt`的预置包收集与拷贝要改成递归形态，随第一枚子模块落地；既有那条「删了stdlib源文件要手工删build树里的陈旧拷贝」的告诫随之覆盖子目录。
 
 ### D-27 本版语言面零变更
 
 无新语法、无新关键字。本版实测的三条可用性缺口登记进roadmap「远期特性」的语言面缺口清单，不用绕行掩盖：带默认值的func形参上下文中函数引用被拒（P2，探针F3实测rc=1）；下标元素不能就地调用（`mws[0](ctx)`报语法错，必须先取进同类型局部变量，P7）；`Dict`缺`getOrDefault`而`get`缺键抛异常（P4）。
 理由：框架侧的单名重载与带默认值读取面只是**可用**，不等于**合理**；缺口该在语言层解决就该在语言层排期（既有裁定：语言面缺口合理时直接补语言）。代价：本版用户的func形参不能带默认值（注册方法的func形参因此一律不带默认值，见6.2），且从容器取出的函数引用必须先落进局部变量才能调用。
+
+### D-28 `web`包的多模块分层
+
+`web`是一个点分多模块包：包级模块`stdlib/web.n`装`App`、`FuncMiddleware`、`Middleware`、`RequestContext`、`Router`与`Session`/`SessionStore`/`MemorySessionStore`；三枚子模块`stdlib/web/static.n`（`StaticFiles`）、`stdlib/web/sse.n`（`Sse`）、`stdlib/web/form.n`（`Form`、`FormOptions`、`FormData`、`FormFile`、`MultipartBody`）只单向import包级模块，包级模块不import任何子模块，子模块之间也互不import。用户引用子模块的类型要再import那一枚子模块或写`import web.*;`（6.1）。
+
+理由：分层边界不按功能目录美学画，由编译器给的一条硬约束推出——包级模块import自己的子模块就是import cycle，编译期硬拒（探针`temp/nest/`：`k.n`与`k/w.n`互import，原文`Error: import cycle detected: k -> k.w -> k`），而任何要用`RequestContext`或`HttpResponse`的组件必然import包级模块，于是**包级模块的公开面所点名的类型只能留在包级模块内**。`App`与`RequestContext`是框架的两个入口，`web.App`/`web.RequestContext`这两个拼写就是D-2的公开词汇（也是已落地的中间件语料与6.2/6.3的签名），它们点名`Middleware`（中间件接ctx、`ctx.next()`推进链）、`Router`（`mount(string, Router)`与各注册方法的转发）、`Session`与`SessionStore`（`ctx.session()`、`useSessions(store)`、`App.handle`尾部回写`Set-Cookie`），因此这几族同层。`StaticFiles.serve(ctx)`、`Sse`逐帧写`HttpResponse`、`Form.parse(ctx)`都只单向点名核心，所以能出去。反向方案是把`App`自己也挪进子模块：那会让入口的限定拼写变成`web.app.App`，用户只`import web;`时拿不到入口，代价由每个用户代码付，而不是由框架的文件行数付。包级模块因此仍在1200行级（管线族＋会话族），由D-1的类边界与源规模守卫控住；三枚子模块各预计200至600行，且都是落地后很少再改的叶子。
+
+代价：公开词汇按模块拼（`web.static.StaticFiles`、`web.form.FormData`），只写`import web;`的用户引用不到子模块——探针里只`import k;`的那份消费者实测报`Module 'k.w' is not imported. Add 'import k.w;' (or 'import k.*;')`，手册必须把这条import形态写清（第八章）。行数收益因此集中在三枚叶子而非均摊到全部14枚公开类。
 
 ## 六、API面
 
@@ -308,7 +316,7 @@ roadmap所列「`TcpStream.read`区分超时与对端EOF」**现况已满足**�
 
 ### 6.1 引入与公开词汇
 
-`import web;`。公开类：`App`、`RequestContext`、`Middleware`、`Router`、`Session`、`SessionStore`、`MemorySessionStore`、`StaticFiles`、`Sse`、`Form`、`FormOptions`、`FormData`、`FormFile`、`MultipartBody`。适配器`FuncMiddleware`与常量表为包内实现细节，不进手册。用户侧签名一律限定名（D-2）。
+`import web;`给出包级模块的公开类：`App`、`RequestContext`、`Middleware`、`Router`、`Session`、`SessionStore`、`MemorySessionStore`。三枚子模块各有自己的限定名，引用它们要再import那一枚子模块或写`import web.*;`：`web.static`有`StaticFiles`，`web.sse`有`Sse`，`web.form`有`Form`、`FormOptions`、`FormData`、`FormFile`、`MultipartBody`；为什么这样分层见D-28。适配器`FuncMiddleware`与常量表为包内实现细节，不进手册。用户侧签名一律限定名（D-2），跨子模块的示例与语料统一写`import web.*;`（6.11）。
 
 ### 6.2 `App`
 
@@ -437,7 +445,7 @@ class MemorySessionStore : SessionStore {
 }
 ```
 
-### 6.7 `StaticFiles`
+### 6.7 `StaticFiles`（模块`web.static`）
 
 ```
 class StaticFiles {
@@ -453,7 +461,7 @@ class StaticFiles {
 
 典型挂法：`app.mount("/static", assets.serve);`——函数引用指向绑定方法，与`App`内部分派同形（绑定方法作函数引用实参已由探针X4实测，见3.2的P2行）。根挂载`app.mount("/", assets.serve)`同样合法，但它是全表最宽的前缀条目，因此要放在所有API路由**之后**登记（D-9/D-10）；ACME一类的`/.well-known`需要`allowDotFiles = true`。
 
-### 6.8 `Sse`
+### 6.8 `Sse`（模块`web.sse`）
 
 ```
 class Sse {
@@ -466,7 +474,7 @@ class Sse {
 }
 ```
 
-### 6.9 表单与上传
+### 6.9 表单与上传（模块`web.form`）
 
 ```
 class Form {
@@ -536,7 +544,7 @@ native byte[] randomBytes(int count);
 import io;
 import system;
 import http;
-import web;
+import web.*;
 
 void auth(web.RequestContext ctx) {
     if (ctx.req.headers.has("X-Key") == false) { ctx.text(401, "missing key"); return; }
@@ -556,8 +564,8 @@ void showItem(web.RequestContext ctx) {
 }
 
 void upload(web.RequestContext ctx) {
-    web.FormData form = web.Form.parse(ctx);
-    web.FormFile f = form.getFile("file");
+    web.form.FormData form = web.form.Form.parse(ctx);
+    web.form.FormFile f = form.getFile("file");
     if (f == null) { ctx.text(400, "no file"); return; }
     f.saveTo("uploads");
     ctx.text(200, "saved " + f.safeName() + " " + f.size().toString());
@@ -577,7 +585,7 @@ int main() {
     app.get("/items/:id", showItem);
     app.post("/login", login);
     app.post("/upload", upload);
-    web.StaticFiles assets = web.StaticFiles("public");
+    web.static.StaticFiles assets = web.static.StaticFiles("public");
     app.mount("/static", assets.serve);
     app.listen("127.0.0.1", 0);     // 端口0=临时端口；起服务后本线程接着往下跑
     string base = "http://127.0.0.1:" + app.server().localPort().toString();
@@ -619,20 +627,22 @@ C++侧单元测试三枚（native）：`math.randomBytes`两次调用不同且�
 
 ## 八、集成点与文档同步
 
-新增文件：`stdlib/web.n`、`examples/web_hello.n`、`examples/web_upload.n`、`docs/user_manual/en/specification/library/27-web.md`与zh同名页、上表14枚e2e。
+新增文件：包级模块`stdlib/web.n`与子模块`stdlib/web/static.n`、`stdlib/web/sse.n`、`stdlib/web/form.n`（D-28）、`examples/web_hello.n`、`examples/web_upload.n`、`docs/user_manual/en/specification/library/27-web.md`与zh同名页、上表14枚e2e。
 
 修改文件：
 - `stdlib/http.n`（三态＋登记表＋`HttpConn.forceClose()`＋`drain`/`isServing`＋`close`改强关＋复位与双启动拒绝）；
 - `stdlib/net.n`（新增`isEof()`读既有粘滞标志，宿主与POSIX侧均无改动）；
 - `stdlib/fs.n`＋`src/native/fs/fs_native.cpp`（`writeBytes`/`modifiedTimeMs`/`readBytes`返回类型）；
 - `stdlib/math.n`＋`src/native/math/math_native.cpp`（`randomBytes`）；
+- `CMakeLists.txt`（预置包收集改递归：`file(GLOB …)`改`GLOB_RECURSIVE`、生成的`.nproj`按相对路径写`<File path="web/static.n"/>`、`nlang_stdlib_package`的拷贝改成保留目录结构的形态——按文件名的`copy_if_different`会把子目录压平；`install(DIRECTORY stdlib/ …)`本就递归）；
+- `tools/test_families.txt`（`stdlib_web`族的`src`规则补一条`stdlib/web/*.n`，否则子模块的改动落到未映射路径、T0按保守口径回退全量Debug单测）；
 - `tests/e2e/manifest.txt`、`examples/mnist_mlp/data.n`与`tests/e2e/fs_read_bytes_floats.n`（随`readBytes`变更）；
 - `tests/test_compiler/test_library_index.cpp`与`tests/test_langservice/test_symbol_index.cpp`（两处`kStdlibSymbolPin`＝336是预置包公开符号总数钉值，`web`包与三枚新native落地后必随实际值刷新）；
 - `docs/dev/stdlib_public_surface.md`（预置包公开面清单）、`README.md`与`README.zh-CN.md`（标准库清单里的包列表）；
 - 手册`library/13-math.md`、`library/16-fs.md`、`library/20-library-exceptions.md`（三枚新native与`readBytes`变更的异常行）、`library/21-network/tcp.md`、`library/23-http.md`，formats三页27/28/29→28/29/30（中英成对），`index.md`与导航/搜索索引覆盖新页；
 - `VERSION`（0.13.11→0.13.12）、`CHANGELOG.md`与`CHANGELOG.zh-CN.md`、`docs/roadmap.md`（本版条目补写multipart与上传面；「远期特性」的语言面缺口清单**逐项**登记九.18的三条缺口——带默认值的func形参拒绝函数引用、下标元素不能就地调用、`Dict`缺`getOrDefault`——各条附本文第九章指针，而不是只给一条指向第九章的总指针）。
 
-手册同步是本版完成定义的一部分（`tools/manual_sync_check.py`基线以来的提交逐个判定，五类用户可见面）：标准库面（`web`新包全部签名、`fs`三处、`math.randomBytes`、`net.isEof`、`http`服务器关闭语义与状态）、诊断文案（415/413/400具名消息、路由冲突文案、双启动文案）、退出码（无变更）、ABI与线格式（无变更）、语言面（无变更，D-27的三条缺口只进roadmap登记）。用户可见的类都有`.n`源码（`stdlib/web.n`）满足要求。
+手册同步是本版完成定义的一部分（`tools/manual_sync_check.py`基线以来的提交逐个判定，五类用户可见面）：标准库面（`web`新包全部签名、`fs`三处、`math.randomBytes`、`net.isEof`、`http`服务器关闭语义与状态）、诊断文案（415/413/400具名消息、路由冲突文案、双启动文案）、退出码（无变更）、ABI与线格式（无变更）、语言面（无变更，D-27的三条缺口只进roadmap登记）。用户可见的类都有`.n`源码（`stdlib/web.n`与三枚子模块）满足要求；手册`27-web.md`按模块分列公开面（`web`、`web.static`、`web.sse`、`web.form`），并写明引用子模块的类型需`import web.static;`一类或`import web.*;`——只`import web;`时点号子模块不在名册里（D-28）。
 
 ## 九、后续版本备忘
 
@@ -675,3 +685,4 @@ C++侧单元测试三枚（native）：`math.randomBytes`两次调用不同且�
 - 2026-11-17 第七轮复审落实（1项参考级，十三项旧修正经逐项回源全部成立、无漏改亦无新损伤，另八项候选经回源撤销，逐项对照表见`temp/web_review_report_r7.md`）：**Go条件校验的函数归属**（F7-1）——第六轮改写静态服务那一行时，把「条件校验」安给了`writeNotModified`，而该函数在304时只做RFC 7232 §4.1的响应头清理（`temp/ref/src/go_fs_source.go:640-641`：响应已带ETag才删`Last-Modified`），真正比对`If-None-Match`的是`checkIfNoneMatch`（:557弱比较，只比响应里已设的ETag）经`checkPreconditions`（:648-678）调度；正文与本轮修订记录两处措辞据此改正并补上锚点。该行要立的事实不变：全文没有写ETag的语句（`Set("Etag")`零命中）、`serveContent`只调`setLastModified`（:278），故「Go默认不生成ETag、ETag归调用方自设」与本框架自定弱格式`W/"<size>-<mtimeMs>"`的裁决（D-14）都不受影响。
 - 2026-11-17 引用补全自审（不开新复审轮：第七轮已判「可以进入实施计划」，本轮只把该轮撤销项6登记的「§5.2.2引文不可逐字核」补成可核）：**取得RFC 6265纯文本本地副本`temp/rfc6265.txt`**（curl自rfc-editor.org），据此更正D-12的`Max-Age`措辞——§5.2.2对`delta-seconds ≤ 0`是把过期时刻**直接置为「最早可表示日期时间」**（:1091-1092），再依§5.3「过期日期在过去即已过期」（:1318）与「MUST逐出过期cookie」（:1320-1321）无条件立即失效；此前两轮的「过期时刻＝提取时刻」既非该节原话，又恰好是本文要排除的「钳到0再按当前时刻＋0计算」那一档（它把过期时刻摆在提取时刻，是否失效交由收件人的比较符决定），故第五轮与第六轮记录的同处一并加注。`maxAgeSeconds`三态与`Session.destroy()`走负数写线上`Max-Age: 0`的结论不变，且因这段原文依据更足：对合规收件人无需赌实现差异。
 - 2026-11-18 实施改名（实施计划级裁决1，落在优雅关闭那枚e2e语料）：`stdlib_web_drain_close`改名`stdlib_http_drain_close`，第七章该行行名同步。理由：这枚语料只用`http.HttpServer`裸面写，测试名的包前缀必须与行为拥有者一致——按包的影响映射（`tools/test_families.txt`）与手册`23-http.md`的引用都按名字里的包名定位，挂`web`前缀会让改`http.n`时选不到这条腿、也让手册指错拥有者；`web`门面自身的`drain`/`close`转发腿仍归后续的`stdlib_web_*`语料。上文各轮修订记录里的旧名不改，那是当时决定的原文。
+- 2026-11-19 承载边界改判（用户裁定2026-11-19：stdlib包与文件一对一不成立，包可以嵌套导入、按java的方式组织，一个文件太大、上下文太长且不利维护）：作废D-26的「标准库不能是多文件包，故框架整体必须是单文件`web.n`」及其代价条，新增D-28定多模块分层——包级模块`stdlib/web.n`装它自己公开面点名的全部类型（`App`/`Router`/`RequestContext`/`Middleware`/会话族），三枚子模块`stdlib/web/static.n`、`stdlib/web/sse.n`、`stdlib/web/form.n`只单向import包级模块；分层的硬依据取自探针`temp/nest/`（一份`.nproj`同时装`k.n`与`k/w.n`可打包可运行、`import k.*;`并入整棵子树、包级模块反向import子模块被编译期拒为`import cycle detected: k -> k.w -> k`、只`import k;`时`k.w`不在名册里）；6.1公开词汇与6.11示例改模块限定名，第八章补`CMakeLists.txt`递归收集与`tools/test_families.txt`两处构建面。分层结论同时写回docs/roadmap.md的v0.13.12条与远期特性「标准库大文件改多模块包」条。
