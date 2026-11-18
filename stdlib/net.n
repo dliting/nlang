@@ -528,6 +528,12 @@ class TcpStream {
                 int n = _tcpRead(m_handle, payload[got:count], deadline);
                 if (n < 0) { _throwNet(n, "readExactly"); }
                 if (n == 0) {
+                    // The flag follows the observation, not the path that made
+                    // it: this read met the EOF directly, so isEof() must say so
+                    // even though the window never saw a byte (a caller that
+                    // sized its request to the body would otherwise hold a
+                    // truncated body with no EOF to explain it).
+                    m_winEof = true;
                     throw SocketException("net: connection closed after "
                         + got.toString() + " of " + count.toString() + " bytes");
                 }
@@ -555,6 +561,11 @@ class TcpStream {
         if (r < 0) { _throwNet(r, "shutdownWrite"); }
     }
     public bool isClosed() { return _tcpIsClosed(m_handle) == 1; }
+    // True once a peer EOF has been observed on this stream (a read that
+    // returned 0 bytes). Sticky: it stays true after close() and after
+    // further reads. Orthogonal to isClosed(), which only reports the local
+    // side. An EOF that was never read stays false until some read runs.
+    public bool isEof() { return m_winEof; }
     public string peerAddress() {
         //the native boundary reports failure as the empty string
         //(address text is never empty; string has no null value)

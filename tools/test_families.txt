@@ -51,5 +51,9 @@ family stdlib_fs src src/native/fs/FileTimeEpoch.h
 family stdlib_fs unit library_index|langservice|library_source|stdlib_tests|ncu_package|native_fs
 family stdlib_fs e2e ^(stdlib_fs_|fs_read_bytes)
 
+family stdlib_net src stdlib/net.n
+family stdlib_net unit library_index|langservice|library_source|stdlib_tests|ncu_package
+family stdlib_net e2e ^(stdlib_net_|net_)
+
 ignore docs/**
 ignore temp/**
