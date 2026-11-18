@@ -82,7 +82,7 @@ TensorDeviceStatus HookAlloc(void** out, size_t bytes) {
         *out = nullptr;
         return {DEVICE_OK, 0, nullptr};
     }
-    void* ptr = PoolAlloc(bytes);
+    void* ptr = PoolAllocOnStream(bytes);
     if (ptr == nullptr)
         return {DEVICE_OUT_OF_MEMORY, 0,
                 "cuda: device allocation failed"};
@@ -101,7 +101,7 @@ TensorDeviceStatus HookZero(void* ptr, size_t bytes) {
 TensorDeviceStatus HookFree(void* ptr) {
     //The GC release path: a failure parks sticky (free's caller cannot
     //throw inside the sweep invariants).
-    PoolFree(ptr);
+    PoolFreeOnStream(ptr);
     cudaError_t err = cudaGetLastError();
     if (err != cudaSuccess)
         ParkSticky({DEVICE_FAULT, 0, cudaGetErrorString(err)});

@@ -69,9 +69,13 @@ cudaError_t SyncStream();
 //spec D3): pool alloc/zero/free + the byte transfers. alloc returns
 //nullptr on failure (the caller raises by name); the rest are void
 //(failures surface at the next sync/transfer through the CHECK).
-void* PoolAlloc(size_t bytes);
+void* PoolAlloc(size_t bytes, cudaStream_t stream);
 void PoolZero(void* ptr, size_t bytes);
-void PoolFree(void* ptr);
+void PoolFree(void* ptr, cudaStream_t stream);
+//The compute-stream wrappers (the backend TU's hooks; the stream
+//is the kernels TU's compute stream).
+void* PoolAllocOnStream(size_t bytes);
+void PoolFreeOnStream(void* ptr);
 
 //--- kernel launches (each returns cudaSuccess, or the error code the
 //CHECK-style wrapper raises; errorOut carries the offending cell index

@@ -8,6 +8,35 @@ All notable changes to NLang are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.14.5]
+
+The stream-ordered memory and the compute/transfer overlap: the
+hand-written device pool retires for CUDA's stream-ordered
+allocator (`cudaMallocAsync`/`cudaFreeAsync`), and bulk transfers
+run on a staging stream that overlaps the compute stream's
+already-enqueued kernels. The zero-block pathologies of the
+hand-written pool (the `cudaMalloc(0)` NULL misread as
+out-of-memory) retire with it.
+
+### Added
+
+- **Stream-ordered device memory** — `PoolAlloc`/`PoolFree` are
+  `cudaMallocAsync`/`cudaFreeAsync`: the allocation and the release
+  are ordered inside the stream like any kernel, same-stream reuse
+  is safe by the driver's own serialization, and the pool's release
+  threshold keeps memory resident across synchronizations (the
+  NVIDIA guidance for sync-heavy tensor loops). The zero-byte
+  pathologies of the hand-written pool (a zero-byte scratch request
+  reaching `cudaMalloc(0)`) retire — the stream-ordered allocator
+  handles zero natively.
+- **Compute/transfer overlap** — bulk transfers (whole-array
+  staging, `toHost`/`toDevice` blocks above 64 KiB) run on a
+  staging stream that overlaps the compute stream's
+  already-enqueued kernels, with an event handshake keeping the two
+  streams ordered (the compute stream waits for the staging copy
+  before consuming the data). Element-level transfers and the
+  observation-point contract are unchanged.
+
 ## [0.14.4]
 
 The device status contract (ABI v14): every device hook returns a

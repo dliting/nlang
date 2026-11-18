@@ -108,6 +108,8 @@ __host__ __device__ bool IsDense(const DevView& v) {
 
 //The single stream + the cell-error flags ([0] = kind, [1] = cell).
 cudaStream_t g_stream = nullptr;
+cudaStream_t g_stagingStream = nullptr;
+cudaEvent_t g_stagingDone = nullptr;
 int32_t* g_error = nullptr;
 bool g_ready = false;
 
@@ -130,22 +132,57 @@ bool CudaLazyInit(std::string* error) {
         *error = "cudaStreamCreate failed";
         return false;
     }
-    if (cudaMalloc((void**)&g_error, 2 * sizeof(int32_t)) != cudaSuccess) {
+    if (cudaMallocAsync((void**)&g_error, 2 * sizeof(int32_t),
+        g_stream) != cudaSuccess) {
         *error = "device error-flag allocation failed";
         return false;
     }
     const uint32_t none[2] = {kErrNone, 0};
     cudaMemcpy(g_error, none, 2 * sizeof(int32_t), cudaMemcpyHostToDevice);
+    //The staging stream (bulk transfers overlap the compute stream's
+    //already-enqueued kernels) and its handshake event.
+    if (cudaStreamCreate(&g_stagingStream) != cudaSuccess) {
+        *error = "cudaStreamCreate failed (staging)";
+        return false;
+    }
+    if (cudaEventCreate(&g_stagingDone) != cudaSuccess) {
+        *error = "cudaEventCreate failed (staging handshake)";
+        return false;
+    }
     g_ready = true;
     return true;
 }
 
+//The bulk-transfer threshold: blocks at or above it route through the
+//staging stream (the copy overlaps the compute stream's enqueued
+//kernels); element-level transfers stay on the compute stream (the
+//observation-point contract — they read the just-written cells).
+constexpr size_t kStagingOverlapBytes = 64 * 1024;
+
 cudaError_t CopyBytes(void* dst, const void* src, size_t bytes,
                       bool toDevice) {
+    if (bytes < kStagingOverlapBytes) {
+        cudaMemcpyAsync(dst, src, bytes,
+            toDevice ? cudaMemcpyHostToDevice : cudaMemcpyDeviceToHost,
+            g_stream);
+        return cudaStreamSynchronize(g_stream);
+    }
+    //The bulk path: the staging stream waits for the compute stream's
+    //prior work (the event recorded on the compute stream after the
+    //last enqueued kernel — an event record is itself stream-ordered),
+    //runs the copy concurrently, then hands the result back: the
+    //compute stream waits on the staging event before any consumer
+    //kernel of the subsequent enqueue runs. The hook stays blocking —
+    //the staging stream syncs before the status returns (the
+    //observable-point contract).
+    cudaEventRecord(g_stagingDone, g_stream);
+    cudaStreamWaitEvent(g_stagingStream, g_stagingDone, 0);
     cudaMemcpyAsync(dst, src, bytes,
         toDevice ? cudaMemcpyHostToDevice : cudaMemcpyDeviceToHost,
-        g_stream);
-    return cudaStreamSynchronize(g_stream);
+        g_stagingStream);
+    cudaEventRecord(g_stagingDone, g_stagingStream);
+    cudaStreamWaitEvent(g_stream, g_stagingDone, 0);
+    return cudaStreamSynchronize(g_stagingStream);
 }
 
 //The full-stream observation point (the sync hook's body): the
@@ -154,52 +191,53 @@ cudaError_t SyncStream() {
     return cudaStreamSynchronize(g_stream);
 }
 
-//--- the device-record hooks (the pool + the byte transfers) ------------
+//--- the device-record hooks (stream-ordered memory + the transfers) ----
+
+//The stream-ordered allocation: cudaMallocAsync/cudaFreeAsync order
+//the allocation and the release inside the stream — same-stream reuse
+//is safe by the driver's own serialization (the hand-written pool's
+//first-fit free-list retired; NVIDIA's guidance replaces it), and the
+//release threshold keeps the pool resident across sync-heavy loops.
+//An allocation failure (out of memory) returns synchronously — the
+//caller reads the null.
 
 namespace {
 
-class DevicePool {
-public:
-    void* Alloc(size_t bytes) {
-        for (auto& b : blocks_) {
-            if (b.free && b.bytes >= bytes) {
-                b.free = false;
-                return b.ptr;
-            }
-        }
-        void* ptr = nullptr;
-        if (cudaMalloc(&ptr, bytes) != cudaSuccess)
-            return nullptr;
-        blocks_.push_back(Block{ptr, bytes, false});
-        return ptr;
-    }
+cudaMemPool_t g_memPool = nullptr;
 
-    void Free(void* ptr) {
-        for (auto& b : blocks_) {
-            if (b.ptr == ptr) {
-                b.free = true;
-                return;
-            }
-        }
-    }
-
-private:
-    struct Block {
-        void* ptr;
-        size_t bytes;
-        bool free;
-    };
-    std::vector<Block> blocks_;
-};
-
-DevicePool g_pool;
+void InitMemPoolOnce() {
+    if (g_memPool != nullptr)
+        return;
+    if (cudaDeviceGetDefaultMemPool(&g_memPool, 0) != cudaSuccess)
+        return;
+    //The default release threshold is zero: every synchronization
+    //releases unused pool memory back to the OS, which would re-pay
+    //the allocation in sync-heavy loops. UINT64_MAX makes the
+    //allocation cost independent of size (NVIDIA's guidance for
+    //tensor workloads).
+    unsigned long long threshold = UINT64_MAX;
+    cudaMemPoolSetAttribute(g_memPool,
+        cudaMemPoolAttrReleaseThreshold, &threshold);
+}
 
 } // namespace
 
-void* PoolAlloc(size_t bytes) {
+void* PoolAlloc(size_t bytes, cudaStream_t stream) {
     if (!CudaLazyInit(nullptr))
         return nullptr;
-    return g_pool.Alloc(bytes);
+    InitMemPoolOnce();
+    void* ptr = nullptr;
+    if (cudaMallocAsync(&ptr, bytes, stream) != cudaSuccess)
+        return nullptr;
+    return ptr;
+}
+
+void* PoolAllocOnStream(size_t bytes) {
+    return PoolAlloc(bytes, g_stream);
+}
+
+void PoolFreeOnStream(void* ptr) {
+    PoolFree(ptr, g_stream);
 }
 
 void PoolZero(void* ptr, size_t bytes) {
@@ -208,8 +246,10 @@ void PoolZero(void* ptr, size_t bytes) {
     cudaMemsetAsync(ptr, 0, bytes, g_stream);
 }
 
-void PoolFree(void* ptr) {
-    g_pool.Free(ptr);
+void PoolFree(void* ptr, cudaStream_t stream) {
+    if (ptr == nullptr)
+        return;
+    cudaFreeAsync(ptr, stream);
 }
 
 //--- elementwise ---------------------------------------------------------
@@ -660,12 +700,12 @@ __global__ void SumStridedKernelInt(DevView v, int64_t count,
 static cudaError_t ReadPartials(void* dPartial, void* dst, size_t bytes) {
     const cudaError_t launchErr = cudaGetLastError();
     if (launchErr != cudaSuccess) {
-        PoolFree(dPartial);
+        PoolFree(dPartial, g_stream);
         return launchErr;
     }
     const cudaError_t copyErr = cudaMemcpy(dst, dPartial, bytes,
         cudaMemcpyDeviceToHost);
-    PoolFree(dPartial);
+    PoolFree(dPartial, g_stream);
     return copyErr;
 }
 
@@ -697,7 +737,7 @@ cudaError_t LaunchSumAll(const LaunchView& src, double* out,
         //static_cast<T>(acc) exactly). The int32/int64 cells ride their
         //own partial kernel (reading them as doubles would corrupt).
         int64_t* dPartial = static_cast<int64_t*>(
-            PoolAlloc(blocks * sizeof(int64_t)));
+            PoolAlloc(blocks * sizeof(int64_t), g_stream));
         if (dPartial == nullptr)
             return cudaErrorMemoryAllocation;
         if (dense) {
@@ -732,7 +772,7 @@ cudaError_t LaunchSumAll(const LaunchView& src, double* out,
         return cudaSuccess;
     }
     double* dPartial = static_cast<double*>(
-        PoolAlloc(blocks * sizeof(double)));
+        PoolAlloc(blocks * sizeof(double), g_stream));
     if (dPartial == nullptr)
         return cudaErrorMemoryAllocation;
     //The float kinds branch by cell width: an f32 array read as
@@ -1050,7 +1090,7 @@ cudaError_t LaunchDot(const LaunchView& a, const LaunchView& b,
     //kernel mis-read every other kind's cells.
     if (a.elemKind == 1) {
         float* dPartial = static_cast<float*>(
-            PoolAlloc(blocks * sizeof(float)));
+            PoolAlloc(blocks * sizeof(float), g_stream));
         if (dPartial == nullptr)
             return cudaErrorMemoryAllocation;
         if (dense) {
@@ -1077,7 +1117,7 @@ cudaError_t LaunchDot(const LaunchView& a, const LaunchView& b,
     }
     if (a.elemKind == 0 || a.elemKind == 15) {
         int64_t* dPartial = static_cast<int64_t*>(
-            PoolAlloc(blocks * sizeof(int64_t)));
+            PoolAlloc(blocks * sizeof(int64_t), g_stream));
         if (dPartial == nullptr)
             return cudaErrorMemoryAllocation;
         if (dense) {
@@ -1111,7 +1151,7 @@ cudaError_t LaunchDot(const LaunchView& a, const LaunchView& b,
         return cudaSuccess;
     }
     double* dPartial = static_cast<double*>(
-        PoolAlloc(blocks * sizeof(double)));
+        PoolAlloc(blocks * sizeof(double), g_stream));
     if (dPartial == nullptr)
         return cudaErrorMemoryAllocation;
     if (dense) {
@@ -1396,7 +1436,7 @@ cudaError_t LaunchExtreme(bool isMax, const LaunchView& src,
     const bool dense = IsDense(v);
     if (src.elemKind == 1) {
         float* dPartial = static_cast<float*>(
-            PoolAlloc(blocks * sizeof(float)));
+            PoolAlloc(blocks * sizeof(float), g_stream));
         if (dPartial == nullptr)
             return cudaErrorMemoryAllocation;
         if (dense) {
@@ -1422,7 +1462,7 @@ cudaError_t LaunchExtreme(bool isMax, const LaunchView& src,
     }
     if (src.elemKind == 0) {
         int32_t* dPartial = static_cast<int32_t*>(
-            PoolAlloc(blocks * sizeof(int32_t)));
+            PoolAlloc(blocks * sizeof(int32_t), g_stream));
         if (dPartial == nullptr)
             return cudaErrorMemoryAllocation;
         if (dense) {
@@ -1449,7 +1489,7 @@ cudaError_t LaunchExtreme(bool isMax, const LaunchView& src,
     }
     if (src.elemKind == 15) {
         int64_t* dPartial = static_cast<int64_t*>(
-            PoolAlloc(blocks * sizeof(int64_t)));
+            PoolAlloc(blocks * sizeof(int64_t), g_stream));
         if (dPartial == nullptr)
             return cudaErrorMemoryAllocation;
         if (dense) {
@@ -1474,7 +1514,7 @@ cudaError_t LaunchExtreme(bool isMax, const LaunchView& src,
         return cudaSuccess;
     }
     double* dPartial = static_cast<double*>(
-        PoolAlloc(blocks * sizeof(double)));
+        PoolAlloc(blocks * sizeof(double), g_stream));
     if (dPartial == nullptr)
         return cudaErrorMemoryAllocation;
     if (dense) {
@@ -1808,7 +1848,7 @@ cudaError_t LaunchGather(const LaunchView& src, int axis,
     //int32 to int64 and H2D via the pool scratch.
     const int64_t count = indices.elemCount;
     int64_t* dIdx = static_cast<int64_t*>(
-        PoolAlloc(count * sizeof(int64_t)));
+        PoolAlloc(count * sizeof(int64_t), g_stream));
     if (dIdx == nullptr)
         return cudaErrorMemoryAllocation;
     std::vector<int64_t> wide(count);
@@ -1833,7 +1873,7 @@ cudaError_t LaunchGather(const LaunchView& src, int axis,
     else
         GatherKernel<int64_t><<<(int)blocks, kThreads, 0, g_stream>>>(
             ds, dIdx, axis, dd);
-    PoolFree(dIdx);
+    PoolFree(dIdx, g_stream);
     return cudaGetLastError();
 }
 
@@ -1988,7 +2028,7 @@ cudaError_t LaunchOneHot(const LaunchView& labels, int32_t n,
     if (count == 0)
         return cudaSuccess;
     int32_t* dLabels = static_cast<int32_t*>(
-        PoolAlloc(count * sizeof(int32_t)));
+        PoolAlloc(count * sizeof(int32_t), g_stream));
     if (dLabels == nullptr)
         return cudaErrorMemoryAllocation;
     cudaMemcpyAsync(dLabels, (const int32_t*)labels.data,
@@ -2000,7 +2040,7 @@ cudaError_t LaunchOneHot(const LaunchView& labels, int32_t n,
     OneHotKernel<<<(int)blocks, kThreads, 0, g_stream>>>(
         dLabels, count, n, (float*)dst.data, g_error);
     cudaError_t err = cudaStreamSynchronize(g_stream);
-    PoolFree(dLabels);
+    PoolFree(dLabels, g_stream);
     if (err != cudaSuccess)
         return err;
     int32_t flags[2] = {kErrNone, 0};
@@ -2050,7 +2090,7 @@ cudaError_t LaunchUniform(const LaunchView& dst, double low,
     if (count == 0)
         return cudaSuccess;
     uint32_t* dState = static_cast<uint32_t*>(
-        PoolAlloc(624 * sizeof(uint32_t)));
+        PoolAlloc(624 * sizeof(uint32_t), g_stream));
     if (dState == nullptr)
         return cudaErrorMemoryAllocation;
     cudaMemcpyAsync(dState, mt624, 624 * sizeof(uint32_t),
@@ -2066,7 +2106,7 @@ cudaError_t LaunchUniform(const LaunchView& dst, double low,
             dState, position);
     }
     const cudaError_t err = cudaGetLastError();
-    PoolFree(dState);
+    PoolFree(dState, g_stream);
     return err;
 }
 
@@ -2115,7 +2155,7 @@ cudaError_t LaunchScatter(const LaunchView& a, const LaunchView& indices,
     const int64_t count = indices.elemCount;
     const int64_t along = a.dims[0];
     int64_t* dIdx = static_cast<int64_t*>(
-        PoolAlloc(count * sizeof(int64_t)));
+        PoolAlloc(count * sizeof(int64_t), g_stream));
     if (dIdx == nullptr)
         return cudaErrorMemoryAllocation;
     //The indices view is int32 — read on the host and widen.
@@ -2133,9 +2173,9 @@ cudaError_t LaunchScatter(const LaunchView& a, const LaunchView& indices,
     const int cellBytes = a.elemKind == 17 || a.elemKind == 15 ? 8 : 4;
     void* dVals = nullptr;
     if (!valuesScalar) {
-        dVals = PoolAlloc(static_cast<size_t>(count) * cellBytes);
+        dVals = PoolAlloc(static_cast<size_t>(count) * cellBytes, g_stream);
         if (dVals == nullptr) {
-            PoolFree(dIdx);
+            PoolFree(dIdx, g_stream);
             return cudaErrorMemoryAllocation;
         }
         cudaMemcpyAsync(dVals,
@@ -2180,8 +2220,8 @@ cudaError_t LaunchScatter(const LaunchView& a, const LaunchView& indices,
             ToDevView(valuesDev), sv, isv, valuesScalar, along, g_error);
     cudaError_t err = cudaStreamSynchronize(g_stream);
     if (dVals != nullptr)
-        PoolFree(dVals);
-    PoolFree(dIdx);
+        PoolFree(dVals, g_stream);
+    PoolFree(dIdx, g_stream);
     if (err != cudaSuccess)
         return err;
     int32_t flags[2] = {kErrNone, 0};

@@ -545,13 +545,22 @@ interactive and I/O edges of a program, not for the inner loop.
 Device work is asynchronous: the tensor operations enqueue
 kernels on the device and return without waiting for them to
 finish, so a chain of device operations pipelines instead of
-paying a wait per operation. The results are guaranteed complete
-at every point where the program can observe them — reading or
-writing an element, printing or serializing, `tensor.toHost` and
-`tensor.toDevice`, and the scalar reductions (`tensor.sum`,
-`tensor.dot`, `tensor.max`, `tensor.min`, `tensor.mean`) — and
-each of these waits for the device work enqueued so far. A
-program cannot observe a half-finished device array.
+paying a wait per operation. Bulk transfers (a whole-array
+staging or a `toHost`/`toDevice` block) run on a second stream
+and overlap the compute stream's already-enqueued kernels, with
+an event handshake keeping the two streams ordered. The results
+are guaranteed complete at every point where the program can
+observe them — reading or writing an element, printing or
+serializing, `tensor.toHost` and `tensor.toDevice`, and the
+scalar reductions (`tensor.sum`, `tensor.dot`, `tensor.max`,
+`tensor.min`, `tensor.mean`) — and each of these waits for the
+device work enqueued so far. A program cannot observe a
+half-finished device array. Device memory is stream-ordered
+(`cudaMallocAsync`/`cudaFreeAsync` under the hood): an
+allocation or a release is ordered inside the stream like any
+kernel, same-stream reuse is safe by the driver's own
+serialization, and the memory stays resident across
+synchronizations.
 
 The device errors the language raises — an integer division by
 zero, a negative `gather` index, an out-of-range `oneHot` label —
