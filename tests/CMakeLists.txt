@@ -643,6 +643,40 @@ target_compile_definitions(test_ref_ops
 
 add_test(NAME ref_ops_tests COMMAND test_ref_ops)
 
+# v0.13.9 phase 3 Task 12 (D14): interface runtime-kind classification
+# pins. Two tiers: the storage tier (interface slots hold class handles —
+# RTK_Class in locals/fields) and the identity tier (RTK_Interface in
+# TypeDesc channels and arrayTypes rows, indexed by the interfaces table).
+# Byte pins over real-compiled modules; the survival runs are the
+# interface_*_gc_survives e2e family.
+add_executable(test_interface_rtk_gc
+    test_vm/test_interface_rtk_gc.cpp
+)
+
+target_include_directories(test_interface_rtk_gc
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        #VmBackend.h (the RuntimeTypeKind/EvalSlotClassOfKind pins)
+        #privately includes compiler-side headers — same as test_ref_ops.
+        ${PROJECT_SOURCE_DIR}/src/compiler
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_interface_rtk_gc
+    PRIVATE
+        nlang_vm
+        nlang_compiler
+        nlang_runtime
+        nlang_langservice
+)
+nlang_stdlib_test(test_interface_rtk_gc)
+target_compile_definitions(test_interface_rtk_gc
+    PRIVATE
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+)
+
+add_test(NAME interface_rtk_gc_tests COMMAND test_interface_rtk_gc)
+
 # v0.13.9 phase ③ Task 4: scalar/string local promotion — a &-bound local
 # or value formal gets its storage compiled into one stable boxed record
 # (activation-lifetime GC root). Real-compiled modules, no surgery: the

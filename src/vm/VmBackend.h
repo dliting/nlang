@@ -1574,6 +1574,12 @@ private:
     //static method indices into the function table). Defined in
     //backend/RegisterInterfaces.cpp.
     void RegisterInterfaces(SnNamespace& root);
+    //v0.13.9 Task 12 (D14): the table's row phase — own rows in
+    //declaration order, then foreign placeholders; runs FIRST in
+    //RegisterUnitTables so the early identity-tier consumers
+    //(fieldTypeDescs, the array-type pre-pass) can slot interface
+    //leaves through InterfaceSlotFor.
+    void RegisterInterfaceRows(SnNamespace& root);
     //RegisterInterfaces worker: contentless placeholder rows for foreign
     //interfaces (v0.12.6 Task 8 — unit-local indices for kind-1 gates
     //against imported interfaces; nlink's merge prefers the provider's

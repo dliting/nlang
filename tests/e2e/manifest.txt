@@ -2487,3 +2487,12 @@ const_ref_generic_write_reject compile_error cannot assign to const local
 # --- v0.13.9 phase 3 Task 10: cross-module reference signatures ---
 ref_sig_crossmod 7
 ref_sig_func_key 7
+
+# --- v0.13.9 phase 3 Task 12 (D14): interface runtime-kind GC pins ---
+interface_local_gc_survives 0
+interface_field_gc_survives 0
+interface_constant_gc_survives 0
+interface_array_gc_survives 0
+cross_mod_interface_rtk_gc 0
+# consumer tier: interface-typed values cross the module boundary
+cross_mod_interface_return 7

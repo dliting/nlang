@@ -43,6 +43,11 @@ static constexpr uint8_t PTDF_Const = 0x04;
 //what ncc writes always loads. Every nesting level adds at least one
 //byte, so the depth cap alone bounds a well-formed prefix's size.
 static constexpr size_t kMaxTypeDescDepth = 8;
+//v0.13.9 Task 12 (D14): sentinel interface count for
+//ValidateTypeDescIndices — a host-built module without an interfaces
+//table skips the RTK_Interface bounds check (no table to bound against).
+static constexpr size_t kNoInterfaceCount =
+	static_cast<size_t>(-1);
 static constexpr size_t kMaxTypeDescBytes = 4096;
 
 //Per-function formal descriptor count bound (reader-side input check;
@@ -109,20 +114,27 @@ void AppendTypeDescBytes(std::vector<uint8_t>& out, const TypeDesc& td);
 //over-deep nesting, or trailing bytes.
 TypeDesc ParseTypeDescBytes(const uint8_t* pData, size_t size);
 
-//Assert that every RTK_Struct / RTK_Class index lands inside the module's
-//tables. Function records are parsed before the tables are, so this runs
-//as a post-load pass. Throws std::runtime_error on violation.
+//Assert that every RTK_Struct / RTK_Class / RTK_Interface index lands
+//inside the module's tables. Function records are parsed before the
+//tables are, so this runs as a post-load pass. Throws std::runtime_error
+//on violation. interfaceCount defaults to kNoInterfaceCount (skip the
+//interface bounds check — host-built modules may have no table).
 void ValidateTypeDescIndices(const TypeDesc& td, size_t structCount,
-	size_t classCount);
+	size_t classCount,
+	size_t interfaceCount = kNoInterfaceCount);
 
-//Rewrite struct/class table indices from producer numbering to consumer
-//numbering (import merge). The merge maps are total over each kind's
-//producer indices (every producer index gets a dedup-or-push entry), so
-//a miss is an upstream construction bug — .at() makes it loud instead
-//of silently keeping a stale index that can alias a wrong type.
+//Rewrite struct/class/interface table indices from producer numbering to
+//consumer numbering (import merge). The merge maps are total over each
+//kind's producer indices (every producer index gets a dedup-or-push
+//entry), so a miss is an upstream construction bug — .at() makes it loud
+//instead of silently keeping a stale index that can alias a wrong type.
+//The interface map may be empty (no interface-typed leaves in the unit) —
+//RTK_Interface leaves are remapped only when one is provided.
 void RemapTypeDesc(TypeDesc& td,
 	const std::unordered_map<uint32_t, uint32_t>& structMap,
-	const std::unordered_map<uint32_t, uint32_t>& classMap);
+	const std::unordered_map<uint32_t, uint32_t>& classMap,
+	const std::unordered_map<uint32_t, uint32_t>& interfaceMap
+		= {});
 
 //Leaf-slot resolution for the named struct/class arms of BuildTypeDesc
 //(phase 6 per-unit codegen): each callback slots one leaf into the
@@ -134,6 +146,9 @@ struct TypeLeafSlots
 {
 	std::function<uint32_t(SnField&)> structSlotOf;
 	std::function<uint32_t(SnField&)> classSlotOf;
+	//v0.13.9 Task 12 (D14): the interfaces-table row for an interface
+	//leaf (the identity tier — same SlotFor doctrine as struct/class).
+	std::function<uint32_t(SnField&)> interfaceSlotOf;
 	//v0.13.1 D7: a placeholder leaf's declared parameter position (the
 	//registry-interned ordinal). Optional — a null callback yields the
 	//0xFF no-ordinal default (host tests build partial resolvers).
@@ -142,10 +157,10 @@ struct TypeLeafSlots
 
 //Build the descriptor for one resolved type (a declaration field or an
 //interned array token; never a raw syntactic expression). Kinds without
-//a wire form (interfaces) or nested past kMaxTypeDescDepth degrade to
-//RTK_NonSerialized; func signatures serialize as RTK_Func; struct/class
-//leaves resolve through slots. Defined in TypeDesc.cpp — vm-internal,
-//may include compiler headers.
+//a wire form or nested past kMaxTypeDescDepth degrade to
+//RTK_NonSerialized; func signatures serialize as RTK_Func; struct,
+//class and interface leaves resolve through slots. Defined in
+//TypeDesc.cpp — vm-internal, may include compiler headers.
 TypeDesc BuildTypeDesc(SnField* pType, const TypeLeafSlots& slots,
 	size_t depth = 0);
 

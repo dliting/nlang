@@ -109,8 +109,8 @@ inline SnFieldExpr *NamedTypeExprFromKey(const std::string &key,
 //the root, where the stub builder placed the imported struct/class
 //stubs; the List/Dict/func base names go through the built-in generic
 //instantiation path; builtin scalar kinds arrive pre-bound via the
-//NodeKind ctor). NonSerialized (interface types, defensive misses)
-//degrades to the int32 placeholder. Free function since 0.9.10 (moved
+//NodeKind ctor). Defensive misses (unknown kinds, out-of-range row
+//indices) degrade to the int32 placeholder. Free function since 0.9.10 (moved
 //verbatim out of CompiledModuleNodeBuilder for the source-size cap);
 //the stub builder and both stub-member helpers share it.
 //v0.13.1 D7: typeParamNames is the owning template row's declared
@@ -151,6 +151,18 @@ inline SnFieldExpr *SynthTypeExprFromDesc(const TypeDesc &td,
 			if (td.typeIdx < cm.classes.size())
 				return NamedTypeExprFromKey(
 					cm.classes[td.typeIdx].name, loc);
+			break;
+		//v0.13.9 Task 12 (D14 consumer tier): the identity kind's
+		//reading side — the producer writes RTK_Interface + the
+		//interfaces-table row (Tier 2), and the consumer rebuilds the
+		//named interface leaf exactly as the struct/class arms do, so
+		//interface-typed returns, formals, constants and fields stop
+		//degrading to the int32 placeholder at the module boundary
+		//(the pre-D14 NonSerialized degrade).
+		case RTK_Interface:
+			if (td.typeIdx < cm.interfaces.size())
+				return NamedTypeExprFromKey(
+					cm.interfaces[td.typeIdx].name, loc);
 			break;
 		case RTK_Array:
 			if (!td.elems.empty())

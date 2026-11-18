@@ -28,6 +28,9 @@ const char* VmExecutor::DebugKindName(uint8_t kind) {
     case RTK_String: return "string";
     case RTK_Struct: return "struct";
     case RTK_Class:  return "class";
+    //v0.13.9 Task 12 (D14): identity tier's interface leaf — the row
+    //names the interface (FrameStatics composes from the table).
+    case RTK_Interface: return "interface";
     case RTK_Array:  return "array";
     case RTK_Boxed:  return "boxed";
     case RTK_Func:   return "func";

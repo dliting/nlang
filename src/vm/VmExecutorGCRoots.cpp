@@ -143,7 +143,11 @@ void VmExecutor::MarkStaticSlotRoots(std::vector<int32_t>& worklist) {
         if (kind != RTK_Struct && kind != RTK_Class && kind != RTK_Array
             && kind != RTK_Func && kind != RTK_String
             && kind != RTK_TypeParam && kind != RTK_Byref
-            && kind != RTK_ByrefCell && kind != RTK_Promoted)
+            && kind != RTK_ByrefCell && kind != RTK_Promoted
+            //v0.13.9 Task 12 (D14): a runtime interface constant's
+            //slot names the interface (identity tier) while holding a
+            //class-instance handle — the plain heap arm below.
+            && kind != RTK_Interface)
             continue;
         int32_t val;
         std::memcpy(&val, m_staticSlots.Cell(i), sizeof(val));

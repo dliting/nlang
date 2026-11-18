@@ -1,0 +1,9 @@
+// v0.13.9 Task 12 (D14 consumer tier): the returned interface value is
+// stored in a local, dispatched through the interface reference, and its
+// result returned. Expected exit code: 7.
+import lib;
+
+int main() {
+    I x = lib.make();
+    return x.f();
+}

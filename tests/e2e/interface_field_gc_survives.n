@@ -1,0 +1,30 @@
+// v0.13.9 phase 3 Task 12 (D14) GC pin: an interface-typed field of a
+// reachable instance must root its referent through mid-loop collections.
+// Before the fix the field kind byte degraded to RTK_Int32 and
+// DeclaredFieldAcceptsRuntime rejected the class record, so the sweep
+// freed the field's instance (earlier probes survived only via stale
+// staging temps). Expected exit code: 0.
+interface Inc {
+    void set(int v);
+    int get();
+}
+class A implements Inc {
+    public int v = 0;
+    public void set(int v) { this.v = v; }
+    public int get() { return this.v; }
+}
+class Holder {
+    public Inc item;
+}
+int main() {
+    Holder h = Holder();
+    h.item = A();
+    int c = 0;
+    while (c < 3000) {
+        Inc g = A();
+        g.set(c);
+        c = c + 1;
+    }
+    h.item.set(41);
+    return h.item.get() - 41;
+}

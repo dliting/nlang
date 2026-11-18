@@ -134,13 +134,19 @@ void VmBackend::AppendInterfaceStaticIndices(SnInterfaceDecl& sn,
     }
 }
 
-void VmBackend::RegisterInterfaces(SnNamespace& root) {
+//v0.13.9 Task 12 (D14): the interface table's ROWS must exist before
+//the early identity-tier consumers run (struct/class fieldTypeDescs,
+//the array-type pre-pass — BuildTypeDesc/RegisterArrayType slot
+//interface leaves through InterfaceSlotFor, and the throw-on-miss
+//doctrine makes a late table a hard error). Rows are pure layout:
+//name, access, declaration order — no dependencies on other tables,
+//so this phase runs FIRST in RegisterUnitTables. The enrichment
+//(statics, constants, signatures) stays after RegisterFunctions in
+//RegisterInterfaces below.
+void VmBackend::RegisterInterfaceRows(SnNamespace& root) {
     m_compiledModule.interfaces.clear();
     m_ifaceIndexByDecl.clear();
     ForEachDeclNode(root, [&](SnField& node) {
-        //Per-unit: foreign units' interfaces belong to their own images;
-        //imported stubs contribute nothing (the consumer rebuilds them
-        //from the peer unit's table).
         if (node.Kind() != NK_InterfaceDecl || node.IsImported()
             || !IsOwnUnit(node))
             return;
@@ -153,6 +159,29 @@ void VmBackend::RegisterInterfaces(SnNamespace& root) {
         ci.access = static_cast<uint8_t>(sn.AccessType());
         m_ifaceIndexByDecl[&sn] = static_cast<uint16_t>(
             m_compiledModule.interfaces.size());
+        m_compiledModule.interfaces.push_back(std::move(ci));
+    });
+    RegisterForeignInterfacePlaceholders(root);
+}
+
+void VmBackend::RegisterInterfaces(SnNamespace& root) {
+    //Rows already laid out by RegisterInterfaceRows — enrich each own
+    //interface's row in place (the table layout contract is phase A's).
+    ForEachDeclNode(root, [&](SnField& node) {
+        //Per-unit: foreign units' interfaces belong to their own images;
+        //imported stubs contribute nothing (the consumer rebuilds them
+        //from the peer unit's table).
+        if (node.Kind() != NK_InterfaceDecl || node.IsImported()
+            || !IsOwnUnit(node))
+            return;
+        auto& sn = static_cast<SnInterfaceDecl&>(node);
+        auto it = m_ifaceIndexByDecl.find(&sn);
+        //Phase A ran over the same tree — a miss is unreachable.
+        if (it == m_ifaceIndexByDecl.end())
+            throw std::runtime_error(
+                "NLang backend: interface row missing from phase A: "
+                + KeyOf(sn));
+        auto& ci = m_compiledModule.interfaces[it->second];
         AppendInterfaceStaticIndices(sn, ci);
         //0.9.10 D3 + v0.12.6 Task 7 (D11): constants export their
         //declared type plus the value (the worker splits the fold).
@@ -166,9 +195,7 @@ void VmBackend::RegisterInterfaces(SnNamespace& root) {
             ci.isTemplate = true;
             ci.typeParamNames = sn.TypeParamNames();
         }
-        m_compiledModule.interfaces.push_back(std::move(ci));
     });
-    RegisterForeignInterfacePlaceholders(root);
 }
 
 //v0.12.6 Task 8: foreign interfaces (imported stubs, inline-library

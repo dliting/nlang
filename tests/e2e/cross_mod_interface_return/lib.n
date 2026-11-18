@@ -1,0 +1,12 @@
+// v0.13.9 Task 12 (D14 consumer tier): an interface-typed return crosses
+// the module boundary — the producer's TypeDesc carries RTK_Interface and
+// the consumer's stub machinery must rebuild the interface type node (the
+// pre-D14 NonSerialized degrade made every interface-typed return read as
+// int on the consumer).
+interface I {
+    int f();
+}
+class C implements I {
+    public int f() { return 7; }
+}
+public I make() { return C(); }

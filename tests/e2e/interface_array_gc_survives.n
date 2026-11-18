@@ -1,0 +1,29 @@
+// v0.13.9 phase 3 Task 12 (D14) GC pin: elements of an interface-element
+// array must root their instances through mid-loop collections. Before
+// the fix the arrayTypes row degraded to the RTK_Int32 element kind,
+// MarkArrayElements skipped every element cell, and the sweep freed both
+// instances mid-churn (the post-loop element call dispatched on a
+// cleared record). Expected exit code: 0.
+interface Inc {
+    void set(int v);
+    int get();
+}
+class A implements Inc {
+    public int v = 0;
+    public void set(int v) { this.v = v; }
+    public int get() { return this.v; }
+}
+int main() {
+    Inc[] arr = Inc[2];
+    arr[0] = A();
+    arr[1] = A();
+    int c = 0;
+    while (c < 3000) {
+        Inc g = A();
+        g.set(c);
+        c = c + 1;
+    }
+    arr[0].set(41);
+    arr[1].set(1);
+    return arr[0].get() - arr[1].get() - 40;
+}

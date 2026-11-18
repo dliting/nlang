@@ -143,31 +143,31 @@ CompiledModule ModuleLoader::LoadFromBytes(const std::string& filePath,
         for (const auto& func : mod.functions) {
             for (const auto& ptd : func.paramTypeDescs)
                 ValidateTypeDescIndices(ptd.type, mod.structs.size(),
-                    mod.classes.size());
+                    mod.classes.size(), mod.interfaces.size());
             ValidateTypeDescIndices(func.returnTypeDesc, mod.structs.size(),
-                mod.classes.size());
+                mod.classes.size(), mod.interfaces.size());
         }
         for (const auto& st : mod.structs)
             for (const auto& td : st.fieldTypeDescs)
                 ValidateTypeDescIndices(td, mod.structs.size(),
-                    mod.classes.size());
+                    mod.classes.size(), mod.interfaces.size());
         for (const auto& cc : mod.classes)
             for (const auto& td : cc.fieldTypeDescs)
                 ValidateTypeDescIndices(td, mod.structs.size(),
-                    mod.classes.size());
+                    mod.classes.size(), mod.interfaces.size());
         //0.9.10 D3: interface constant declared types carry descriptors
         //like any other exported type. 0.9.12 (v2.7): so do the
         //instance-method signatures (formals and return).
         for (const auto& iface : mod.interfaces) {
             for (const auto& constant : iface.constants)
                 ValidateTypeDescIndices(constant.type, mod.structs.size(),
-                    mod.classes.size());
+                    mod.classes.size(), mod.interfaces.size());
             for (const auto& sig : iface.instanceMethods) {
                 for (const auto& ptd : sig.paramTypeDescs)
                     ValidateTypeDescIndices(ptd.type, mod.structs.size(),
-                        mod.classes.size());
+                        mod.classes.size(), mod.interfaces.size());
                 ValidateTypeDescIndices(sig.returnType, mod.structs.size(),
-                    mod.classes.size());
+                    mod.classes.size(), mod.interfaces.size());
             }
         }
     }

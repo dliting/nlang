@@ -268,17 +268,18 @@ static void MergeUnitTables(const std::vector<CompiledModule>& units,
 
 static void MergeArrayTypes(const CompiledModule& u, CompiledModule& merged,
                             NcuOperandMaps& m) {
-    //elemTypeIdx 可能是占位槽下标（元素类型来自他单元），须先经
-    //struct/class 映射再按（元素 kind，元素下标）去重。
+    //elemTypeIdx 可能是占位槽下标：先经所属表映射，再按行键去重。
     for (uint32_t i = 0; i < u.arrayTypes.size(); ++i) {
         CompiledArrayType at = u.arrayTypes[i];
+        //Row-identity remap: the element's named table picks the map;
+        //interface rows (Task 12 D14 identity tier) dedup after it.
         if (at.elemTypeIdx != 0xFFFF) {
-            if (at.elemKind == RTK_Struct)
+            const auto* rowMap = at.elemKind == RTK_Struct ? &m.structs
+                : at.elemKind == RTK_Class ? &m.classes
+                : at.elemKind == RTK_Interface ? &m.interfaces : nullptr;
+            if (rowMap)
                 at.elemTypeIdx = static_cast<uint16_t>(
-                    Lookup(m.structs, at.elemTypeIdx));
-            else if (at.elemKind == RTK_Class)
-                at.elemTypeIdx = static_cast<uint16_t>(
-                    Lookup(m.classes, at.elemTypeIdx));
+                    Lookup(*rowMap, at.elemTypeIdx));
         }
         int existing = merged.FindArray(at.elemKind, at.elemTypeIdx, at.rank);
         if (existing >= 0) {
@@ -319,14 +320,14 @@ static void RemapClassMetadata(CompiledModule& merged,
             cc.staticInitFuncIdx = static_cast<uint16_t>(
                 Lookup(m.functions, cc.staticInitFuncIdx));
         for (auto& td : cc.fieldTypeDescs)
-            RemapTypeDesc(td, m.structs, m.classes);
+            RemapTypeDesc(td, m.structs, m.classes, m.interfaces);
         //v2.13 (v0.12.6): declared static fields — slotIdx addresses the
         //merged storage table, the type descriptor the merged type tables.
         for (auto& sf : cc.staticFields) {
             if (sf.slotIdx != 0xFFFF)
                 sf.slotIdx = static_cast<uint16_t>(
                     Lookup(m.slots, sf.slotIdx));
-            RemapTypeDesc(sf.type, m.structs, m.classes);
+            RemapTypeDesc(sf.type, m.structs, m.classes, m.interfaces);
         }
     }
 }
@@ -337,7 +338,7 @@ static void RemapStaticSlotMetadata(CompiledModule& merged,
                                     const NcuOperandMaps& m,
                                     const std::vector<uint32_t>& pushed) {
     for (uint32_t idx : pushed)
-        RemapTypeDesc(merged.staticSlots[idx].type, m.structs, m.classes);
+        RemapTypeDesc(merged.staticSlots[idx].type, m.structs, m.classes, m.interfaces);
 }
 
 //默认值的字符串通道持有生产者侧下标（CompiledModule.h 的
@@ -371,7 +372,7 @@ static void RemapStructMetadata(CompiledModule& merged,
         for (auto& i : cs.constructorIndices)
             if (i != 0xFFFF) i = static_cast<uint16_t>(Lookup(m.functions, i));
         for (auto& td : cs.fieldTypeDescs)
-            RemapTypeDesc(td, m.structs, m.classes);
+            RemapTypeDesc(td, m.structs, m.classes, m.interfaces);
         //v2.6: field defaults carry producer-pool string indices.
         const std::string context = "struct '" + cs.name + "'";
         for (auto& dv : cs.fieldDefaults)
@@ -405,8 +406,8 @@ static void FinalizeFunction(CompiledFunction& f, const NcuOperandMaps& m) {
             tb.exceptionClassIdx = static_cast<uint16_t>(
                 Lookup(m.classes, tb.exceptionClassIdx));
     for (auto& ptd : f.paramTypeDescs)
-        RemapTypeDesc(ptd.type, m.structs, m.classes);
-    RemapTypeDesc(f.returnTypeDesc, m.structs, m.classes);
+        RemapTypeDesc(ptd.type, m.structs, m.classes, m.interfaces);
+    RemapTypeDesc(f.returnTypeDesc, m.structs, m.classes, m.interfaces);
     const std::string context = "function '" + f.name + "'";
     for (auto& dv : f.defaultValues)
         RemapDefaultValueStrings(dv, m, context);
@@ -428,7 +429,7 @@ static void RemapInterfaceMetadata(CompiledInterface& iface,
         iface.staticInitFuncIdx = static_cast<uint16_t>(
             Lookup(m.functions, iface.staticInitFuncIdx));
     for (auto& constant : iface.constants) {
-        RemapTypeDesc(constant.type, m.structs, m.classes);
+        RemapTypeDesc(constant.type, m.structs, m.classes, m.interfaces);
         //v0.12.6 Task 7 (D11): a runtime constant's slot addresses the
         //merged storage table (the class staticFields shape); folded
         //constants keep their 0xFFFF marker untouched.
@@ -439,8 +440,8 @@ static void RemapInterfaceMetadata(CompiledInterface& iface,
     }
     for (auto& sig : iface.instanceMethods) {
         for (auto& ptd : sig.paramTypeDescs)
-            RemapTypeDesc(ptd.type, m.structs, m.classes);
-        RemapTypeDesc(sig.returnType, m.structs, m.classes);
+            RemapTypeDesc(ptd.type, m.structs, m.classes, m.interfaces);
+        RemapTypeDesc(sig.returnType, m.structs, m.classes, m.interfaces);
         for (auto& dv : sig.defaultValues)
             RemapDefaultValueStrings(dv, m, context);
     }

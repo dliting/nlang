@@ -244,6 +244,12 @@ TypeLeafSlots VmBackend::LeafSlotResolvers() {
     slots.classSlotOf = [this](SnField& typeNode) {
         return ClassSlotFor(static_cast<SnClassDecl&>(typeNode));
     };
+    //v0.13.9 Task 12 (D14): the identity tier's interface row — same
+    //helpers as every other table reference (InterfaceSlotFor throws on
+    //an unregistered own interface, the ClassSlotFor doctrine).
+    slots.interfaceSlotOf = [this](SnField& typeNode) {
+        return InterfaceSlotFor(static_cast<SnInterfaceDecl&>(typeNode));
+    };
     //v0.13.1 D7: the placeholder leaf's declared position — the same
     //registry interning the descriptor spellings use (TypeArgSpelling),
     //so the wire ordinal matches every other ordinal surface.

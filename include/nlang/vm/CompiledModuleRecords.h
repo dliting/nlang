@@ -75,6 +75,20 @@ static constexpr uint8_t RTK_Promoted = 23;
 //Kind-value extension of the locals-table byte — rides the v2.21 floor,
 //no layout change.
 static constexpr uint8_t RTK_ByrefCell = 24;
+//v0.13.9 phase ③ Task 12: the IDENTITY-tier kind of an interface type —
+//TypeDesc channels (static-slot/param/return descriptors, field
+//descriptors) and arrayTypes element rows. It names WHICH interface the
+//declaration carries: the type-index/elem-index cell holds the
+//interfaces-table row, so cast rows and linker merges keep interface
+//identity (a shared sentinel row would let `I[] as J[]` pass; the old
+//scalar degrade also collided with int[] rows). The STORAGE tier is a
+//different question with a different answer: a slot or field typed by an
+//interface HOLDS a class handle, and RuntimeTypeKind files it RTK_Class —
+//RTK_Interface never appears in locals-table bytes, fieldTypeKinds,
+//signature leaves or return kinds. GC routing: a value under this kind
+//is a heap reference exactly like RTK_Class (MarkStaticSlotRoots's
+//reference arm; ArrayElemKindAccepts accepts runtime RTK_Class records).
+static constexpr uint8_t RTK_Interface = 25;
 //Descriptor-only kinds RTK_List / RTK_Dict / RTK_NonSerialized live in
 //TypeDesc.h (they appear inside TypeDesc, never in these legacy bytes).
 static constexpr uint8_t RTK_Null   = 0xFD;  //Option B: null default value (any reference type)
