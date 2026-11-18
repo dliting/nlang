@@ -73,6 +73,12 @@ invoked directly with the caller's staged argument cells.
 - **No `out` parameters** — writeback needs a callee frame and natives
   have none. Compile error; the VM enforces the same for hand-crafted
   modules.
+- **No `&` formals** — the host receives arguments by value (one value
+  cell per argument, §28.4); the aliasing writes of a reference formal
+  cannot cross into the host. The same wall as `out`
+  (`native function "f" cannot have reference parameters; the host receives values.`).
+  A `&` return is not restricted — the builtin
+  containers' `get` is `native T&`.
 - Keys of free natives are **fully qualified** (`<package>.<name>`):
   same-named natives in different packages are unrelated, and one package
   plus name is a single table entry. The host registration is responsible

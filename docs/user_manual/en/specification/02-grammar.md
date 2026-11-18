@@ -67,18 +67,22 @@ declaring a generic free function.
 ```ebnf
 Type            = ( NameExpr | QualifiedType
                   | IdentifierExpr "<" TypeArgs ">"
-                  | "func" "<" TypeArgs ">" )
+                  | "func" "<" FuncTypeArgs ">" )
                   { "[]" | "[,,]" } ;
 TypeArgs        = TypeList | "void" | "void" "," TypeList ;
 TypeList        = TypeArg { "," TypeArg } ;
 TypeArg         = [ "out" ] Type ;
+FuncTypeArgs    = FuncTypeList | "void" | "void" "," FuncTypeList ;
+FuncTypeList    = FuncTypeArg { "," FuncTypeArg } ;
+FuncTypeArg     = [ "out" ] Type | Type "&" ;
+TypeRef         = Type [ "&" ] ;
 TypeName        = NameExpr | QualifiedType ;
 NameExpr        = IdentifierExpr ;
 QualifiedType   = NameExpr "." <identifier> { "." <identifier> } ;
 NameList        = ImplementsName { "," ImplementsName } ;
 ImplementsName  = TypeName | <identifier> "<" TypeList ">" ;
 HeadType        = ( IdentifierExpr [ "<" TypeArgs ">" ]
-                  | "func" "<" TypeArgs ">" | MemberExpr )
+                  | "func" "<" FuncTypeArgs ">" | MemberExpr )
                   { "[]" | "[,,]" } ;
 ```
 
@@ -88,6 +92,14 @@ arguments; chapter 4 defines which generic types accept which forms.
 `HeadType` is the type spelling usable in a local declaration; it
 differs from `Type` only in admitting a `MemberExpr` base (a
 qualified name reached through a member expression).
+
+`FuncTypeArgs` is the `func`-type twin of `TypeArgs`: its arguments
+admit the `&` marker (§4.7.9) — `func<int, int&>` — and `out` and
+`&` do not combine (`out int&` is a syntax error). Plain generic
+arguments keep `TypeArg`, which admits no `&`: `List<int&>` is a
+syntax error (§4.12.5). `TypeRef` is the `&`-bearing form of `Type`
+used where a declaration names a type: formal parameters, method
+return types, `foreach` heads and local declarations (§4.7.9).
 
 ## 2.4 Declarations
 
@@ -106,7 +118,7 @@ ImplementsOpt   = [ "implements" NameList ] ;
 ClassMemberList = ClassMember { ClassMember } ;
 ClassMember     = [ AccessType ]
                   ( [ NodeFlags ] MethodDecl | FieldDecl ) ;
-MethodDecl      = [ Type | "void" ] <identifier>
+MethodDecl      = [ TypeRef | "void" ] <identifier>
                   "(" [ FormalParamList ] ")" FunctionBodyOrSemi ;
 FieldDecl       = Type <identifier> [ "=" Expression ] ";" ;
 
@@ -133,13 +145,13 @@ EnumMemberList  = EnumMember { "," EnumMember } ;
 EnumMember      = <identifier> [ "=" Expression ] ;
 EnumMethodSection = [ ";" [ EnumMethodList ] ] ;
 EnumMethodList  = EnumMethod { EnumMethod } ;
-EnumMethod      = [ AccessType ] ( Type | "void" ) <identifier>
+EnumMethod      = [ AccessType ] ( TypeRef | "void" ) <identifier>
                   "(" [ FormalParamList ] ")" FunctionBodyOrSemi ;
 
 FormalParamList = FormalParam { "," FormalParam } ;
 FormalParam     = [ NodeFlags ]
                   ( "out" Type <identifier>
-                  | Type <identifier> [ "=" Expression ] ) ;
+                  | TypeRef <identifier> [ "=" Expression ] ) ;
 FunctionBodyOrSemi = Paragraph | ";" ;
 ```
 
@@ -161,9 +173,12 @@ Statement       = ";" | ReturnStmt | InvokeStmt | LocalDeclStmt
 StatementList   = { Statement } ;
 Paragraph       = "{" StatementList "}" ;
 
-LocalDeclStmt   = [ "const" ] HeadType LocalDeclList ";"
+LocalDeclStmt   = HeadType [ "&" ] LocalDeclList ";"
+                | "const" HeadType LocalDeclList ";"
+                | DeclLocalConst
                 | "static" HeadType LocalDeclList ";"
                 | "static" "const" HeadType LocalDeclList ";" ;
+DeclLocalConst  = "const" HeadType "&" LocalDeclList ";" ;
 LocalDeclList   = LocalDecl { "," LocalDecl } ;
 LocalDecl       = <identifier>
                   [ "=" Expression | "=" BracedInitExpr
@@ -192,7 +207,7 @@ InitFor         = ε | Type LocalDeclList | InvokeExpr
                 | IdentifierExpr "=" Expression ;
 FiniFor         = ε | InvokeExpr | IdentifierExpr "=" Expression
                 | IdentifierExpr CompoundOp Expression ;
-ForeachStmt     = "foreach" "(" Type <identifier> "in"
+ForeachStmt     = "foreach" "(" TypeRef <identifier> "in"
                   ( Expression | BracedInitExpr ) ")" Statement ;
 
 SwitchStmt      = "switch" "(" Expression ")"
@@ -233,7 +248,7 @@ Expression      = ParenthesesExpr | MemberExpr | LiteralExpr
                 | Expression "as" TypeName [ "[]" | "[,,]" ]
                 | Expression "as" AsGenericTarget
                 | QualifiedGenericReceiver "(" [ ConcreteParamList ] ")"
-                | "func" "<" TypeList ">" "(" [ ConcreteParamList ] ")" ;
+                | "func" "<" FuncTypeList ">" "(" [ ConcreteParamList ] ")" ;
 BinaryOp        = "+" | "-" | "*" | "/" | "%"
                 | "<" | "<=" | ">" | ">=" | "<<" | ">>"
                 | "==" | "!=" | "&" | "^" | "|" | "&&" | "||" ;

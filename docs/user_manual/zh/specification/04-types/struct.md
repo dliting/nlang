@@ -128,3 +128,38 @@ int main() {
     return area;
 }
 ```
+
+## 4.7.9 引用（`T&`）
+
+值类型——标量、枚举、字符串与结构体记录——默认保持值语义：赋值即拷贝，每个名字拥有自己的存储。`&`记号让一个具体的名字改为**别名既有存储**而非拷贝：
+
+```nlang
+int q = 10;
+int& r = q;    // r指名q的存储——不做拷贝
+r = 20;        // 写入q的存储：现在q == 20
+```
+
+**`r = q`永不重新绑定。**对引用的赋值写的是它已经指名的存储。引用在声明处绑定一次，整个生存期都指向那里——要指向别处，另声明一个引用。对照：
+
+```nlang
+int a = 1;
+int b = 2;
+int& r = a;
+r = b;         // 把b的值写进a的存储：a == 2，r仍指名a
+int& s = r;    // 编译错误："cannot bind a reference to reference"
+```
+
+引用出现在四个位置：
+
+- **局部绑定**——`int& r = q;`（上面的例子）。
+- **形参**——`void bump(int& v)`：通过`v`的写入落到调用方的实参（§7.2）。
+- **返回**——`Point& corner()`：调用结果指名别处拥有的存储；返回局部变量的引用以"cannot return a reference to local …; its storage ends with the call."失败。
+- **循环变量**——`foreach (int& n in nums)`：每一轮指名当前元素的存储（§6.8）。
+
+**可绑定族**：标量、字符串、结构体的存储——局部变量、形参、结构体字段、数组元素，以及经该族值到达的容器元素。身份类型（class、数组、接口、`func`）本身就是引用，其上的`&`是等价记号。绑定要求**精确类型**——转换会建立新存储、破坏别名指向，因此`cannot bind int to long&; a reference binding requires the exact type.`同样拒绝枚举到整数、数值拓宽等形态。
+
+**记录稳定化**是让绑定安全的模型：结构体局部的存储是一条稳定记录。赋值`b = a`原位改写该记录的单元；新记录只在建立场景出现——不带拷贝的声明、数组元素创建、初始化器物化。绑定所指名的记录永不移动，因此绑定不会悬空。
+
+**只读引用**（`const T&`，§7.2）绑定const存储与常量而不允许经绑定写入；表达式结果物化为一个由绑定保活的临时值。可写`&`指向const存储被拒绝："cannot bind a reference to const storage …; a reference may write through its target."
+
+同样在编译期拒绝的形态：指向切片的引用（"a reference cannot bind a slice; slices are views, not element storage."）、指向枚举成员的引用（"cannot bind a reference to enum member"）、指向方法调用结果的引用，以及`Dict`或`string`源上的`&`循环变量。

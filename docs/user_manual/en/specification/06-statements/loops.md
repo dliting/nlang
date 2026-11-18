@@ -133,6 +133,13 @@ Array-typed declarations also work as `for` initializers
 (`for (int[] x = arr; ...)`) — the initializer takes effect and the body can
 reference the variable.
 
+**Reference-form loop variables**: `foreach (int& n in nums)` declares the
+loop variable as a reference to the element storage instead of a copy —
+writes through `n` land in the container (`n = 10` inside the body
+overwrites that element). The `&` form is available for scalar, string and
+struct elements over arrays and lists; `Dict` and `string` iterables reject
+it at compile time. See [References](../04-types/struct.md).
+
 `break` and `continue` work identically to `for`. The loop variable is
 **function-scoped** (loop variables have no block scope, consistent with
 the `for` form above):
@@ -160,17 +167,22 @@ foreach (string name in ages) {
 // total == 55
 ```
 
-**Mutation is undefined behavior**. The element count is taken once at loop entry (a single
-`iterable.length()` call).
-Structural modifications inside the body (`List.add`/`removeAt`,
-`Dict.set`/`remove`) may cause: out-of-bounds access, skipped/duplicated
-elements, or stale `keys()` snapshots. Element assignment (`arr[i] = x`)
-inside an Array foreach body is fine (no structural change).
+**Mutation inside the body is defined per iterable kind**. An array takes
+its element count once at loop entry — an owned record's length never
+changes — and element assignment (`arr[i] = x`) inside the body is fine
+(no structural change). A `List` re-probes its length at the top of every
+iteration: `removeAt` inside the body shortens the walk to the shrunk
+store instead of running past it, and `add` extends the walk so each
+appended element is visited exactly once. A `Dict` foreach walks the
+`keys()` snapshot taken at loop entry, so `set`/`remove` on the dict do
+not reshape the walk.
 
 **Struct elements are copied into the loop variable** (value semantics):
 `foreach (Point p in arr) { p.x = 99; }` does not modify `arr`'s elements —
 `p` is a fresh deep copy per iteration (consistent with C#, where foreach
-over value-type elements also yields copies). See [Struct](../04-types/struct.md).
+over value-type elements also yields copies). The reference form
+`foreach (Point& p in arr)` binds the element storage instead of copying —
+writes through `p` modify `arr`'s elements. See [Struct](../04-types/struct.md).
 
 **Null iterable** throws null pointer exception (NPE) on the first
 `length()` call — consistent with all other class-typed calls. See

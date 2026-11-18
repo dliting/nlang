@@ -211,3 +211,70 @@ int main() {
     return area;
 }
 ```
+
+## 4.7.9 References (`T&`)
+
+Value types — scalars, enums, strings and struct records — keep value
+semantics by default: assignment copies, and each name owns its own
+storage. The `&` mark opts a specific name into **aliasing existing
+storage** instead of copying it:
+
+```nlang
+int q = 10;
+int& r = q;    // r names q's storage — no copy is made
+r = 20;        // writes q's storage: q == 20 now
+```
+
+**`r = q` never rebinds.** An assignment to a reference writes the
+storage it already names. A reference is bound once, at its declaration,
+and keeps pointing there for its whole lifetime — to aim elsewhere,
+declare a new reference. The contrast:
+
+```nlang
+int a = 1;
+int b = 2;
+int& r = a;
+r = b;         // writes b's VALUE into a's storage: a == 2, r still names a
+int& s = r;    // compile error: "cannot bind a reference to reference"
+```
+
+References appear in four positions:
+
+- **Local bindings** — `int& r = q;` (the examples above).
+- **Formals** — `void bump(int& v)`: writes through `v` land in the
+  caller's argument (§7.2).
+- **Returns** — `Point& corner()`: the call result names storage owned
+  elsewhere; returning a reference to a local fails with
+  "cannot return a reference to local …; its storage ends with the
+  call."
+- **Loop variables** — `foreach (int& n in nums)`: each pass names the
+  current element storage (§6.8).
+
+**The bindable family**: scalar, string and struct storage — locals,
+formals, struct fields, array elements and container elements reached
+through a value of that family. Identity types (class, array,
+interface, `func`) are references already; `&` on them is an equivalent
+notation. The binding requires the **exact** type — a conversion would
+build new storage and break the aliasing, so
+`cannot bind int to long&; a reference binding requires the exact
+type.` also rejects enum-to-integer and widening shapes.
+
+**Record stabilization** is the model that makes bindings safe: a
+struct local's storage is one stable record. Assignment `b = a` writes
+that record's cells in place; a fresh record is only established at
+creation scenes — a declaration without a copy, array element
+creation, initializer materialization. The record a binding names
+never moves, so the binding never dangles.
+
+**Read-only references** (`const T&`, §7.2) bind const storage and
+constants without allowing writes through the binding; an expression
+result materializes into a temporary that the binding keeps alive. A
+writable `&` to const storage is rejected:
+"cannot bind a reference to const storage …; a reference may write
+through its target."
+
+Also rejected at compile time: a reference to a slice ("a reference
+cannot bind a slice; slices are views, not element storage"), a
+reference to an enum member ("cannot bind a reference to enum member"),
+a reference to a method call result, and a `&` loop variable over a
+`Dict` or `string` source.

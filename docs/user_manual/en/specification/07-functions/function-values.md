@@ -4,16 +4,30 @@ A function type is written `func<R, P1, ..., Pn>`: the first type
 argument is the return type — `void` when the function returns no
 value — and the remaining arguments are the parameter types in
 order (§2.3). A parameter type argument may carry the `out`
-prefix. A function with no parameters is written `func<R>`.
+prefix, and parameter and return types may carry the `&` marker
+(`func<int&, int&>` — a reference parameter and a reference
+return, §4.7.9). A function with no parameters is written
+`func<R>`.
 
 `void` appears as a type argument only in the return slot of
 `func<...>`; any other type argument written `void` — such as
 `List<void>` — is a compile-time error.
 
 Two function types are the same type when their return types,
-parameter types and `out` markers match position by position.
-There is no variance: neither the return type nor a parameter type
-may differ, even by an implicit conversion (§4.4).
+parameter types and `out` and `&` markers match position by
+position. There is no variance: neither the return type nor a
+parameter type may differ, even by an implicit conversion (§4.4).
+A `func` type with `&` and its unmarked form are different types:
+binding an unmarked function to a marked expectation (or the other
+way round) is a compile error
+(`function "plain" does not match the signature of "func<Int32, Int32&>"`).
+The diagnostic spells the markers position by position.
+
+A function value with `&` markers references and calls as usual:
+at the call, a `&` argument position follows the same bindable-
+storage rules as a direct call (§7.2), and writes through the
+function value land in the caller; a `&` return passes the
+callee's reference through to the binding side.
 
 A value of a function type denotes a function: a free function, a
 static method, or a method bound to an instance (§5.9). The
@@ -75,6 +89,8 @@ func<void>                 // void f()
 func<int, int>             // int f(int)
 func<void, out int>        // void f(out int)
 func<int, int, out int>    // int f(int, out int)
+func<int, int&>            // int f(int&)
+func<int&, int&>           // int& f(int&)
 ```
 
 ### Function references
@@ -156,9 +172,9 @@ comparisons with non-`func` operands are compile errors.
   formatting render `"func <name>"` (static handles — including bound
   non-virtual method references) or `"method <name>"` (virtual-dispatch
   handles).
-- **Known inconsistency**: `List<func<...>>.contains` / `indexOf` compare
-  elements by **identity** (each reference is a distinct heap record),
-  not by `==` content equality.
+- `List<func<...>>`'s `contains` / `indexOf` compare elements by
+  `==` equality — two independent references to the same function
+  count as a match (§12.1).
 
 ### Restrictions
 
