@@ -1013,7 +1013,7 @@ static void test_link_interface_signature_remap() {
     ParamTypeDesc structParam;
     structParam.type.kind = RTK_Struct;
     structParam.type.typeIdx = 0;                    //lib-local struct 0
-    structParam.flags = PTDF_Out;
+    structParam.flags = PTDF_Ref;
     sig.paramTypeDescs = {clsParam, structParam};
     sig.returnType.kind = RTK_Class;
     sig.returnType.typeIdx = 0;                      //lib-local class 0
@@ -1057,8 +1057,8 @@ static void test_link_interface_signature_remap() {
           "class-typed formal remapped to the merged class table");
     CHECK(m.paramTypeDescs[1].type.kind == RTK_Struct
        && m.paramTypeDescs[1].type.typeIdx == 0
-       && m.paramTypeDescs[1].flags == PTDF_Out,
-          "struct-typed formal remapped and its out flag preserved");
+       && m.paramTypeDescs[1].flags == PTDF_Ref,
+          "struct-typed formal remapped and its ref flag preserved");
     CHECK(m.returnType.kind == RTK_Class && m.returnType.typeIdx == 1,
           "class-typed return remapped to the merged class table");
     CHECK(m.defaultValues.size() == 2

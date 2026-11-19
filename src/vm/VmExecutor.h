@@ -643,17 +643,14 @@ private:
     //when no clause takes it — the caller unwinds one frame.
     bool TryEnterCatchHandler(CallFrame& frame, int32_t excHeapIdx);
     //Push/pop. PushCalleeFrame stages params from the caller's
-    //callParamBase cells and inherits the caller's result cell; the out
-    //variants arm the return writeback (bit i = user param i; source
-    //frame slot = i + outShift — bound-method delegates shift by 1).
+    //callParamBase cells and inherits the caller's result cell.
     //0.13.1a: descIdx/receiverHeapIdx fill the generic record's frame
     //descriptor cell (PushFrameCore's three-source rule). Returns the
     //new top frame's locals pointer.
     uint8_t* PushCalleeFrame(const CompiledFunction& callee,
-        uint16_t callParamBase, uint32_t outMask, uint8_t outShift,
-        uint16_t descIdx, int32_t receiverHeapIdx);
+        uint16_t callParamBase, uint16_t descIdx, int32_t receiverHeapIdx);
     uint8_t* PushBoundCalleeFrame(const CompiledFunction& callee,
-        int32_t thisIdx, uint16_t callParamBase, uint32_t outMask);
+        int32_t thisIdx, uint16_t callParamBase);
     //Root/toString/host windows. deferSafepoint: callers that stage raw
     //caller-owned handle cells into the frame right after the push must
     //defer the entry safepoint until staging completes — a collection at
@@ -662,14 +659,13 @@ private:
     //callers run CheckGCSafepoint() themselves once staging is done.
     uint8_t* PushRootFrame(const CompiledFunction& func,
         uint8_t* externalResult, bool deferSafepoint = false);
-    void PopFrameWithWriteback();           //out writeback, then pop
     //Shared push core (boundThisIdx > 0 = bound staging), and the unwind
     //bookkeeping both exception paths in RunFrames share. descIdx/
     //receiverHeapIdx fill the generic frame's descriptor cell (0.13.1a
     //three-source rule: receiver head, caller forward, table row).
     uint8_t* PushFrameCore(const CompiledFunction& callee,
-        uint16_t callParamBase, uint32_t outMask, uint8_t outShift,
-        int32_t boundThisIdx, uint16_t descIdx, int32_t receiverHeapIdx);
+        uint16_t callParamBase, int32_t boundThisIdx, uint16_t descIdx,
+        int32_t receiverHeapIdx);
     //0.13.1a: PushFrameCore's descriptor-cell resolution — the
     //three-source rule (receiver head, caller forward, table row);
     //null for non-generic records. Must run BEFORE the push (the
@@ -788,7 +784,6 @@ private:
     bool OpCallStatic(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
     void OpMakeFunc(BytecodeReader& reader, uint8_t* pResult);
     bool OpCallDelegate(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
-    bool OpCallDelegateOut(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
     void OpMakeBoundFunc(BytecodeReader& reader, uint8_t* pResult);
     void OpMakeVFunc(BytecodeReader& reader, uint8_t* pResult);
     void OpFuncEquality(BytecodeReader& reader, uint8_t* locals, OpCode op);
@@ -796,9 +791,7 @@ private:
     //OpFuncEquality operand protocol (null sentinel = plain index).
     void OpStructEquality(BytecodeReader& reader, uint8_t* locals, OpCode op);
     void OpFunc_to_str(uint8_t* pResult);
-    bool OpCallStaticOut(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
     bool OpCallMethodDirect(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
-    bool OpCallMethodDirectOut(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
     bool OpCallMethod(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
     //Virtual-dispatch target resolution: validate the receiver, read its
     //class header, walk the hierarchy by name. Every rejection happens
@@ -2043,18 +2036,15 @@ private:
     [[noreturn]] void RaiseAbstractMethodError(
         const std::string& methodName) const;
 
-    //Phase 13 Step 2: shared engine for OP_CallDelegate /
-    //OP_CallDelegateOut. Reads the handle's form, resolves the target
-    //(static funcIdx or by-name on the runtime class), builds the callee
-    //frame (free functions copy args from callParamBase verbatim; bound
-    //handles place the captured receiver at frame slot 0 and shift the
-    //args by one), executes, and for outMask != 0 copies each marked
-    //user-parameter slot back to the caller (reversing the shift for
-    //bound handles). Frame-machine contract: returns true when a callee
-    //frame was pushed.
+    //Phase 13 Step 2: shared engine for OP_CallDelegate. Reads the
+    //handle's form, resolves the target (static funcIdx or by-name on
+    //the runtime class), builds the callee frame (free functions copy
+    //args from callParamBase verbatim; bound handles place the captured
+    //receiver at frame slot 0 and shift the args by one) and executes.
+    //Frame-machine contract: returns true when a callee frame was
+    //pushed.
     bool ExecuteDelegateCall(const std::vector<int32_t>& handle,
-        uint16_t callParamBase, uint8_t* locals, uint8_t* pResult,
-        uint32_t outMask);
+        uint16_t callParamBase, uint8_t* locals, uint8_t* pResult);
 
     //Delegate-target resolution half of ExecuteDelegateCall: virtual
     //handles resolve by name on the receiver's runtime class (override
@@ -2062,18 +2052,14 @@ private:
     int ResolveDelegateTarget(const std::vector<int32_t>& handle);
 
     //Free-function delegate ABI (identical to OP_CallStatic, natives
-    //included); the out write-back copies slots unshifted.
+    //included).
     bool CallDelegateFree(const CompiledFunction& callee,
-        uint16_t callParamBase, uint8_t* locals, uint8_t* pResult,
-        uint32_t outMask);
+        uint16_t callParamBase, uint8_t* locals, uint8_t* pResult);
 
     //Bound-method delegate ABI: the captured receiver rides at callee
-    //slot 0, caller args shift right by one; the out write-back reads
-    //frame slot i+1 and stages back to callParamBase+i, reversing the
-    //shift.
+    //slot 0, caller args shift right by one.
     bool CallDelegateBound(const CompiledFunction& callee, int32_t thisIdx,
-        uint16_t callParamBase, uint8_t* locals, uint8_t* pResult,
-        uint32_t outMask);
+        uint16_t callParamBase, uint8_t* locals, uint8_t* pResult);
 
     //Phase 9f: shared native-table dispatch for OP_CallStatic and the method
     //call paths (a native method receives `this` at args[0], mirroring the

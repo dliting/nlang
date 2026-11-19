@@ -185,9 +185,12 @@ inline constexpr uint16_t NCU_FORMAT_MAJOR = 2;
 //lacks the bytes and misparses each record tail; refuse older.
 //v2.21 (0.13.9 phase 3 Task 10): &/const marks ride the formal
 //descriptor flags and per-element flag bytes follow every RTK_Func
-//element; a v2.20 module misparses the func arm — refuse older.
+//element — refuse older.
+//v2.22 (0.13.9 phase 4 Task 5): the out wire forms (OP_*Out opcodes,
+//outMask channel, PTDF_Out bit) are gone; a v2.21 module can carry
+//them — refuse older.
 //Minor bump: every .ncu recompiles with the current ncc.
-inline constexpr uint16_t NCU_FORMAT_MINOR = 21;
+inline constexpr uint16_t NCU_FORMAT_MINOR = 22;
 
 //--- Slot-width ABI (0.7.5) ----------------------------------------------
 //The frame and the heap use two different stride contracts; both live

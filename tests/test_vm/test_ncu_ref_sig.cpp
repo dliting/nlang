@@ -167,10 +167,51 @@ static void test_loader_rejects_v2_20()
     PASS();
 }
 
+//v0.13.9 phase 4 Task 5 retires the OP_*Out opcodes and the PTDF_Out
+//flag bit — a v2.21 module can carry both, so the floor moves to
+//v2.22 and refuses the previous format BY NUMBER (the v2.20 pin above
+//exercises the mechanism with a constant-relative patch; this one
+//names the transition itself, so it is RED until the bump lands).
+static void test_loader_rejects_v2_21()
+{
+    TEST(loader_rejects_v2_21);
+    BuildOutcome b = buildSource("refver22",
+        "int main() { return 0; }\n");
+    CHECK(b.ok, "build should succeed: " + b.diagnostics);
+    const auto modPath = scratchDir() / "refver22.ncu";
+
+    std::vector<char> bytes;
+    {
+        std::ifstream in(modPath, std::ios::binary);
+        bytes.assign(std::istreambuf_iterator<char>(in), {});
+    }
+    CHECK(bytes.size() >= 12, "module file should have a full header");
+    bytes[10] = static_cast<char>(21);
+    const auto oldPath = scratchDir() / "refver_v221.ncu";
+    {
+        std::ofstream out(oldPath, std::ios::binary);
+        out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    }
+    bool threw = false;
+    std::string what;
+    try {
+        ModuleLoader::Load(oldPath.string());
+    } catch (const std::exception& e) {
+        threw = true;
+        what = e.what();
+    }
+    CHECK(threw, "loader must refuse a v2.21 module (floor is v2.22)");
+    CHECK(what.find("Module version 2.21 is outdated")
+              != std::string::npos,
+        "rejection should name the outdated version, got: " + what);
+    PASS();
+}
+
 void run_ncu_ref_sig_tests()
 {
     test_ref_formal_flags_roundtrip();
     test_func_sig_elem_flags_roundtrip();
     test_func_key_cross_unit_bind();
     test_loader_rejects_v2_20();
+    test_loader_rejects_v2_21();
 }

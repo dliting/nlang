@@ -247,8 +247,6 @@ inline SnFieldExpr *SynthTypeExprFromDesc(const TypeDesc &td,
 						const uint8_t quals = elemQualifier(i);
 						if (quals & PTDF_Ref)
 							pArg->AddFlags(NF_Ref);
-						if (quals & PTDF_Out)
-							pArg->AddFlags(NF_Out);
 						pArgs->push_back(pArg);
 					}
 				return new SnGenericTypeExpr(

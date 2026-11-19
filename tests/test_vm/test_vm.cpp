@@ -537,14 +537,14 @@ void test_module_v27_surface_roundtrip() {
     pctor.returnTypeKind = RTK_Void;
     mod.functions.push_back(std::move(pctor));
 
-    //4: free function — out formal + a no-default slot (free functions
+    //4: free function — & formal + a no-default slot (free functions
     //carry one default entry per formal, unlike methods).
     CompiledFunction helper;
     helper.name = "surface.helper";
     helper.paramCount = 1;
     helper.returnTypeKind = RTK_Int32;
     helper.returnTypeDesc = IntDesc();
-    helper.paramTypeDescs.push_back({ IntDesc(), PTDF_Out });
+    helper.paramTypeDescs.push_back({ IntDesc(), PTDF_Ref });
     helper.defaultValues.push_back(NoDefault());
     mod.functions.push_back(std::move(helper));
 
@@ -624,7 +624,7 @@ void test_module_v27_surface_roundtrip() {
     CompiledInterfaceMethod go;
     go.name = "go";
     go.paramCount = 1;
-    go.paramTypeDescs.push_back({ StrDesc(), PTDF_Out });
+    go.paramTypeDescs.push_back({ StrDesc(), PTDF_Ref });
     go.returnType.kind = RTK_Void;   //the kind byte — a descriptor is never zero bytes
     go.defaultValues.push_back(StringDefault(0));
     iface.instanceMethods.push_back(go);

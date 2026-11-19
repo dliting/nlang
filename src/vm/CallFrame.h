@@ -36,13 +36,6 @@ struct CallFrame {
     uint16_t opPc = 0;          //in-flight instruction offset (tryBlocks range test)
     uint16_t currentLine = 0;   //updated by OP_DebugInfo; 0 = unknown
     uint16_t currentPc = 0;     //ndb: pc of the current statement anchor
-    //Out-param writeback armed by the four out call ABIs: bit i marks
-    //USER parameter i; on normal return, frame slot (i + outShift)
-    //copies back to the caller's callParamBase + i (bound-method
-    //delegates shift by one for the receiver). Zero mask = plain call.
-    uint32_t outMask = 0;
-    uint16_t callParamBase = 0;
-    uint8_t outShift = 0;
     //0.13.1a: the frame's instantiation context — the descriptor every
     //T operation in this body reads. Filled at push for generic
     //records: instance shapes from the receiver's head descriptor,

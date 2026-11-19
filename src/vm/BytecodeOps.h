@@ -130,13 +130,6 @@ enum class OpCode : uint8_t {
     OP_Rethrow,         // no operands — rethrow current catch's exception
     OP_PopHandler,      // no operands — pop one entry from handlerExcStack at catch exit
 
-    // === Phase 9e: out-parameter calls ===
-    OP_CallStaticOut,         // uint16 funcIdx, uint16 callParamBase, uint16 descIdx, uint32 outMask —
-                            // like OP_CallStatic; after the callee returns, bit i of outMask
-                            // copies callee frame slot i back to caller staging slot i
-    OP_CallMethodDirectOut, // uint16 funcIdx, uint16 callParamBase, uint32 outMask —
-                            // same for non-virtual method calls (this = slot 0)
-
     // === Phase 13: first-class function values (func<...>) ===
     OP_MakeFunc,        // uint16 funcIdx — allocate a static function handle
                         // {funcIdx, this=0, form=0}, write heap idx to pResult
@@ -159,9 +152,6 @@ enum class OpCode : uint8_t {
     OP_MakeVFunc,       // uint16 nameIdx (string-constant index) — receiver at the
                         // pResult slot → {nameIdx, this, form=1}; dispatch
                         // resolves the method by name on the runtime class
-    OP_CallDelegateOut, // uint16 calleeLocal, uint16 callParamBase, uint32
-                        // outMask — OP_CallDelegate + out write-back; bound
-                        // handles reverse the this-shift when copying back
 
     // === 0.7.5 char/string bridge ===
     OP_StrByteAt,       // uint16 dst, uint16 str, uint16 idx — read the idx-th

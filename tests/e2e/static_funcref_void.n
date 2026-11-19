@@ -1,5 +1,5 @@
-//0.9.14: a void static method with an out parameter rides the free
-//delegate ABI (OP_CallDelegateOut write-back).
+//0.9.14: a void static method with a reference formal rides the free
+//delegate ABI.
 class B {
     public static void bump(int& r) { r = r + 20; }
 }

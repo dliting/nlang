@@ -117,13 +117,6 @@ static constexpr OpCode kStrideFiveWords[] = {
     //dst, typeIdx, elemsBase, count, descIdx.
     OpCode::OP_MakeArrayView,
     OpCode::OP_AllocArrayN, OpCode::OP_AssembleArrayN};
-static constexpr OpCode kStrideOutMaskWords[] = {
-    OpCode::OP_CallMethodDirectOut,
-    OpCode::OP_CallDelegateOut};
-static constexpr OpCode kStrideOutMaskDescWords[] = {
-    //0.13.1a: OP_CallStaticOut carries the descriptor operand —
-    //funcIdx, callParamBase, descIdx, outMask.
-    OpCode::OP_CallStaticOut};
 static constexpr OpCode kStrideCmpHead[] = {
     OpCode::OP_Cmp};
 static constexpr OpCode kStrideConst32[] = {
@@ -157,8 +150,6 @@ static constexpr StrideExtentGroup kStrideGroups[] = {
     StrideGroup(kStrideThreeWords, 1 + 2 + 2 + 2),
     StrideGroup(kStrideFourWords, 1 + 2 + 2 + 2 + 2),
     StrideGroup(kStrideFiveWords, 1 + 2 + 2 + 2 + 2 + 2),
-    StrideGroup(kStrideOutMaskWords, 1 + 2 + 2 + 4),
-    StrideGroup(kStrideOutMaskDescWords, 1 + 2 + 2 + 2 + 4),
     StrideGroup(kStrideCmpHead, 1 + 1 + 1 + 2 + 2),
     StrideGroup(kStrideConst32, 1 + 4),
     StrideGroup(kStrideConst64, 1 + 8)};

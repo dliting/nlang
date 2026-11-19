@@ -28,11 +28,9 @@ static constexpr uint8_t RTK_Dict          = 9;
 static constexpr uint8_t RTK_NonSerialized = 0xFB;
 
 //Formal-parameter descriptor flags (AST-side marks the stub rebuild
-//re-stamps so the consumer's call-site checks bind): PTDF_Out — the
-//callee formal was declared `out T` (NF_Out); PTDF_Ref — `T&`
+//re-stamps so the consumer's call-site checks bind): PTDF_Ref — `T&`
 //(NF_Ref on the formal and its type node); PTDF_Const — `const T&`
 //(NF_Const on the formal, Task 9's read-only reference form).
-static constexpr uint8_t PTDF_Out   = 0x01;
 static constexpr uint8_t PTDF_Ref   = 0x02;
 static constexpr uint8_t PTDF_Const = 0x04;
 
@@ -66,8 +64,8 @@ static constexpr size_t kMaxParamDescCount = 256;
 //                           descriptors (params in declaration order,
 //                           return last; the return is RTK_Void for a
 //                           void signature), each followed by its u8
-//                           qualifier flags (PTDF_Ref / PTDF_Out — the
-//                           & and out marks inside a signature, v2.21).
+//                           qualifier flags (PTDF_Ref — the & marks
+//                           inside a signature, v2.21).
 //  RTK_TypeParam          : u8 typeParamOrdinal (the declared parameter
 //                           position; the consumer stub names the leaf
 //                           from the owning row's typeParamNames)
@@ -91,9 +89,8 @@ struct TypeDesc
 	std::vector<TypeDesc> elems;
 	//RTK_Func arm only: the qualifier flags of each element (params in
 	//declaration order, return last — parallel to elems). PTDF_Ref for a
-	//`T&` position, PTDF_Out for an `out T` position; a signature without
-	//qualifiers keeps the vector empty (wire readers then read all-zero
-	//flag bytes, v2.21).
+	//`T&` position; a signature without qualifiers keeps the vector
+	//empty (wire readers then read all-zero flag bytes, v2.21).
 	std::vector<uint8_t> elemFlags;
 };
 
