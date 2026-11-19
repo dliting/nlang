@@ -820,9 +820,13 @@ add_test(NAME nd_resolve_tests COMMAND test_nd_resolve)
 #entries. --stress selects ONLY the soak — the two entries are a
 #partition, not a superset. The soak needs its own ceiling: the 180 s
 #family timeout cannot hold the ASan measurement, same shape as the
-#mnist_mlp_run ruling.
+#mnist_mlp_run ruling. The 900 s cap once hosted the ASan band, but
+#phase 3's resolver work moved it: 2026-11-19 direct measurement on an
+#idle machine — Debug 187.5 s, ASan 908 s (4.84x compile-heavy factor),
+#the cap clipped it by seconds. 1260 s hosts the measured ASan band
+#with the same ~39% oscillation slack the regex_redos_run cap carries.
 add_test(NAME nd_resolve_stress_tests COMMAND test_nd_resolve --stress)
-set_tests_properties(nd_resolve_stress_tests PROPERTIES TIMEOUT 900)
+set_tests_properties(nd_resolve_stress_tests PROPERTIES TIMEOUT 1260)
 
 # Stride-table integrity: every opcode resolves to an extent in
 # [1, 9] (the rewrite regression — inline-braced constexpr rows
