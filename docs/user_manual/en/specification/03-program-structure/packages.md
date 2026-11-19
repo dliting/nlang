@@ -288,7 +288,7 @@ members to its built-in implementations.
 
 *Informative:* NLang libraries are carried by `.n` source files:
 the standard library ships one `.n` for every package — the prelude
-`lang.n` and `containers.n` plus the thirteen standard packages — and a
+`lang.n` and `containers.n` plus the fourteen standard packages — and a
 third-party library is just a directory of `.n` files (optionally
 alongside native dynamic libraries). A function implemented outside NLang is declared with
 the `native` keyword (`native void print(string s);`) — such a

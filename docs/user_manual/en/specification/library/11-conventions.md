@@ -2,11 +2,11 @@
 
 ## 11.1 Scope and Package Surface
 
-The standard library is thirteen packages — `math`, `io`, `fs`,
+The standard library is fourteen packages — `math`, `io`, `fs`,
 `thread`, `concurrent`, `tensor`, `net`, `system`, `url`, `http`,
-`gzip`, `regex` and `json`, each a set of free functions called by
-their fully qualified names — plus the `string` methods, dispatched
-on the receiver.
+`gzip`, `regex`, `json` and `web`, each a set of functions and types
+called by their fully qualified names — plus the `string` methods,
+dispatched on the receiver.
 The prelude packages sit beside them: `lang` (`stdlib/lang.n`)
 declares the `Exception` family, the hierarchy root `Object`, the
 declaration-holder class `String` and the generic array face `Array<T>`; `containers`
