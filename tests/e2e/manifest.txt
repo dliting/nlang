@@ -2456,3 +2456,13 @@ stdlib_web_qualified_names 0
 # registration-time conflict matrix, and paramInt answering an out-of-range
 # path parameter with the caller's default.
 stdlib_web_routes_matrix 0
+# --- v0.13.12: sessions — the cookie round-trip with its tri-state attributes, a
+# returning session that wrote getting no cookie of its own, the id rotating under a
+# login while the old record dies with it, destroy() dropping both record and cookie, a
+# sweep judged against an instant the test supplies, and the two refusals around a
+# store (none configured, and configured after the first request).
+stdlib_web_session_basic 0
+# --- v0.13.12: sessions under contention — eight workers each counting a session of
+# their own, eight workers writing one shared session until last-write-wins leaves a
+# value somebody actually wrote, and one middleware instance counting every request.
+stdlib_web_session_conc 0

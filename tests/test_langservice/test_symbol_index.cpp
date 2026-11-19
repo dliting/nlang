@@ -26,7 +26,7 @@ static int g_failures = 0;
 //TestLoadsRealStdLib). A surface change updates the constant AND the
 //breakdown comment; the printer turns any future drift into a
 //per-package diff instead of bare FAIL lines.
-constexpr std::size_t kStdlibSymbolPin = 339;
+constexpr std::size_t kStdlibSymbolPin = 340;
 
 static void PrintIndexShape(const SymbolIndex &index)
 {
@@ -44,7 +44,7 @@ static void PrintIndexShape(const SymbolIndex &index)
 static void TestLoadsRealStdLib() {
     SymbolIndex index;
     index.LoadLibraryDir(STDLIB_DIR);
-    // 339 functions: io 22 (13 natives + 5 typed-reader wrappers + 4
+    // 340 functions: io 22 (13 natives + 5 typed-reader wrappers + 4
     // Base64 codecs; the v11 park native and the byte helpers moved
     // from net, the monotonic clock moved to system in v0.13.4),
     // math 26 (the v0.13.12 CSPRNG byte surface randomBytes),
@@ -72,6 +72,9 @@ static void TestLoadsRealStdLib() {
     // quoteMeta escaping helper; the Regex/Match classes and the engine
     // classes are not free functions), json 1 (the parse entry point;
     // the JsonValue class family and the parser classes are not free
+    // functions), web 1 (hexEncode, the byte-to-hex helper behind the
+    // session id, with web/form.n's multipart boundary to come; the App,
+    // Router, Session and MemorySessionStore class members are not free
     // functions).
     if (index.size() != kStdlibSymbolPin)
         PrintIndexShape(index);
@@ -128,9 +131,10 @@ static void TestCompletion() {
     CHECK(fsSyms.size() == 12);
 
     //Packages() lists free-function surfaces: the net module's free
-    //functions (ping, the internal natives) put net back in the list.
+    //functions (ping, the internal natives) put net back in the list,
+    //and web.n's hexEncode puts web in it.
     const auto namespaces = index.Packages();
-    CHECK(namespaces.size() == 12);
+    CHECK(namespaces.size() == 13);
     CHECK(namespaces[0] == "fs");
     CHECK(namespaces[1] == "gzip");
     CHECK(namespaces[2] == "http");
@@ -143,6 +147,7 @@ static void TestCompletion() {
     CHECK(namespaces[9] == "tensor");
     CHECK(namespaces[10] == "thread");
     CHECK(namespaces[11] == "url");
+    CHECK(namespaces[12] == "web");
 
     //The materialized thread package indexes like any stdlib package.
     const SymbolInfo* spawn = index.Resolve("thread", "spawn");

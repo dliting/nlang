@@ -56,15 +56,31 @@ class RequestContext {
     private List<Middleware> m_chain;        // the chain as it stood for this request
     private int m_depth = 0;                 // whose turn it is to run (ruling 13)
     private List<int> m_used;                // one slot per caller depth: has it advanced?
-    private Dict<string, Object> m_attrs;    // the per-request attribute store
+    private ValueBag m_attrs;                // the per-request attribute store
+    // The name of the cookie the session id travels in (D-12). One name rather than a
+    // free per-app choice, so an app's own cookies and the framework's never collide;
+    // the prefixed form below is the same name under the prefix browsers reserve for a
+    // cookie only its own origin can set and read.
+    private static const string SESSION_COOKIE_NAME = "nlang_session";
+    private static const string SESSION_HOST_PREFIX = "__Host-";
+    private static const int DROP_COOKIE_AGE = -1;   // the tri-state that sends Max-Age: 0
+    private Session m_session;               // the session of this request, made on demand
+    private SessionStore m_store;            // handed over by App before the chain runs
+    // The two cookie-policy choices App was given (D-12), carried down by bindSessions
+    // so App keeps them to itself.
+    private string m_cookieName = "";        // the default name, set in the constructor
+    private bool m_secureCookies = false;
+    private string m_presented = "";         // the id the request itself carried
+    private string m_startId = "";           // the session's own id when this request began
 
     public RequestContext(App app, List<Middleware> chain) {
         m_app = app;
         m_chain = chain;
         res = http.HttpResponse();
         m_used = {};
-        m_attrs = {};
+        m_attrs = ValueBag();
         params = {};
+        m_cookieName = SESSION_COOKIE_NAME;
         // Slots are numbered by depth, and the last one is the end of the chain,
         // where next() returns instead of running anything (ruling 13).
         int slots = m_chain.length() + 1;
@@ -73,43 +89,26 @@ class RequestContext {
         }
     }
 
+    // The attribute face is the same bag a session's data is built on (ruling 14), so
+    // these are forwarders: the reading rules and the dirty flag live in ValueBag once.
     public bool has(string key) {
-        return m_attrs.containsKey(key);
+        return m_attrs.has(key);
     }
 
     public Object get(string key, Object def = null) {
-        Object value = this.storedValue(key);
-        if (value == null) { return def; }
-        return value;
+        return m_attrs.get(key, def);
     }
 
     public string getString(string key, string def = "") {
-        Object value = this.storedValue(key);
-        if (value == null) { return def; }
-        return value.toString();
+        return m_attrs.getString(key, def);
     }
 
     public int getInt(string key, int def = 0) {
-        Object value = this.storedValue(key);
-        if (value == null) { return def; }
-        // A boxed value reads back through its own text, so a handler that stored
-        // a string of digits gets the number and vice versa (ruling 9). The parse
-        // failure of a value that is no number at all is the caller's default.
-        string text = value.toString();
-        try {
-            return text.toInt();
-        } catch (Exception e) {
-            return def;
-        }
+        return m_attrs.getInt(key, def);
     }
 
     public bool getBool(string key, bool def = false) {
-        Object value = this.storedValue(key);
-        if (value == null) { return def; }
-        string text = value.toString();
-        if (text.equalsIgnoreCase("true") || text.equalsIgnoreCase("1")) { return true; }
-        if (text.equalsIgnoreCase("false") || text.equalsIgnoreCase("0")) { return false; }
-        return def;
+        return m_attrs.getBool(key, def);
     }
 
     public void set(string key, Object value) {
@@ -118,6 +117,75 @@ class RequestContext {
 
     public void remove(string key) {
         m_attrs.remove(key);
+    }
+
+    // The session of this request (D-12), read from the store the first time it is
+    // asked for rather than on every request: an app that answers a webhook without
+    // ever touching a session pays no lookup. One session per request, cached here, so
+    // two handlers in one chain share the same object and a write is not lost between
+    // them. Without a store configured it is the app's own mistake, and it says so.
+    public Session session() {
+        if (m_session != null) { return m_session; }
+        if (m_store == null) {
+            throw Exception("web.App.useSessions: no session store configured.");
+        }
+        m_presented = this.cookie(m_cookieName);
+        Session found = m_store.load(m_presented);
+        if (found != null) {
+            m_session = found;
+        } else {
+            // No usable id: either none was sent, or the one that came is expired or
+            // forged. isExpired tells a handler that the id its client still holds is
+            // dead (ruling 25), which is what a login page needs to know. The id itself
+            // comes from rotate(), which is the one place a session id is made.
+            Session fresh = Session();
+            fresh.rotate();
+            fresh.isNew = true;
+            fresh.isExpired = m_presented != "";
+            m_session = fresh;
+        }
+        m_startId = m_session.id;
+        return m_session;
+    }
+
+    // Gives this request the store its session has to come from, together with the two
+    // cookie-policy choices App was handed (D-12). App calls it before the chain, so a
+    // handler that reaches for a session already has somewhere to look and a cookie name
+    // to look under.
+    public void bindSessions(SessionStore store, bool secureCookies, bool hostPrefix) {
+        m_store = store;
+        m_secureCookies = secureCookies;
+        if (hostPrefix) { m_cookieName = SESSION_HOST_PREFIX + SESSION_COOKIE_NAME; }
+    }
+
+    // The write-back of D-12, run after the chain and after the error stage, so a
+    // session written by a handler that then threw is still saved and still gets its
+    // cookie. Each of the three things it does answers a different question, which is
+    // why they are separate tests rather than one "something changed" flag (ruling 24).
+    public void finishSessions() {
+        if (m_session == null) { return; }      // never asked, so nothing to write
+        Session sess = m_session;
+        // An id the client still holds must stop working, whether it was the one this
+        // request rotated away from or the one a destroy() ended.
+        if (m_presented != "" && sess.id != m_presented) {
+            m_store.destroy(m_presented);
+        }
+        if (sess.expiresAtMs < 0) {
+            m_store.destroy(sess.id);           // destroy() on a session of its own
+        } else if (sess.isDirty() || sess.id != m_startId) {
+            m_store.save(sess);                 // new data, or a new id to file it under
+        }
+        // HttpOnly stays on for both lines: it is the session cookie's own rule, not a
+        // choice the app gets (D-12); Secure is the app's choice, handed down above.
+        if (sess.expiresAtMs < 0) {
+            // Gone on the server, so the cookie has to go with it (D-12).
+            this.setCookie(m_cookieName, sess.id, "/", DROP_COOKIE_AGE, true, m_secureCookies);
+        } else if ((sess.isNew && sess.isDirty()) || sess.id != m_startId) {
+            // A brand new session only announces itself once it holds something: an
+            // id handed out for a request that wrote nothing would be a cookie for
+            // nothing, and the next request would get another one.
+            this.setCookie(m_cookieName, sess.id, "/", 0, true, m_secureCookies);
+        }
     }
 
     // A captured path segment, percent-decoded on the way out (D-10). A malformed
@@ -240,13 +308,6 @@ class RequestContext {
             // threw, so an escaping exception unwinds through its own layer.
             m_depth = depth;
         }
-    }
-
-    private Object storedValue(string key) {
-        // Dict.get raises on a missing key (D-27), so the accessor face checks
-        // first and a miss is the caller's default rather than an exception.
-        if (!m_attrs.containsKey(key)) { return null; }
-        return m_attrs.get(key);
     }
 
     private void writeBody(int status, string contentType, byte[] body) {
@@ -709,6 +770,343 @@ class Router {
     }
 }
 
+// The one spelling of bytes as lower-case hex in web.n (ruling 36): the session id here,
+// and the multipart boundary and the saveTo() file name of web/form.n later, all get
+// their digits through it. The random bytes come from the caller, so each use says how
+// many it wants (D-13). It is package-visible only because a stdlib file has no
+// file-scope privacy; it is framework-internal and not in the manual (ruling 19).
+string hexEncode(byte[] raw) {
+    const string digits = "0123456789abcdef";
+    string acc = "";
+    int i = 0;
+    while (i < raw.length()) {
+        int v = raw[i] & 0xFF;                 // byte is signed, so the top bit comes off
+        acc = acc + digits.substring(v / 16, v / 16 + 1)
+            + digits.substring(v % 16, v % 16 + 1);
+        i = i + 1;
+    }
+    return acc;
+}
+
+// The key-value bag the request attribute face and a session's data are both built on
+// (ruling 14): the reading of a boxed value and the answer to "was this written?" then
+// have one spelling in the whole tree. Public, and framework-internal like hexEncode.
+class ValueBag {
+    private Dict<string, Object> m_data;
+    private bool m_dirty;
+
+    public ValueBag() {
+        m_data = {};
+    }
+
+    public bool has(string key) {
+        return m_data.containsKey(key);
+    }
+
+    public Object get(string key, Object def = null) {
+        Object value = this.storedValue(key);
+        if (value == null) { return def; }
+        return value;
+    }
+
+    public string getString(string key, string def = "") {
+        Object value = this.storedValue(key);
+        if (value == null) { return def; }
+        return value.toString();
+    }
+
+    public int getInt(string key, int def = 0) {
+        Object value = this.storedValue(key);
+        if (value == null) { return def; }
+        // A boxed value reads back through its own text, so a handler that stored a
+        // string of digits gets the number and vice versa (ruling 9). A value that is
+        // no number at all is the caller's default, not an error (ruling 10).
+        string text = value.toString();
+        try {
+            return text.toInt();
+        } catch (Exception e) {
+            return def;
+        }
+    }
+
+    public bool getBool(string key, bool def = false) {
+        Object value = this.storedValue(key);
+        if (value == null) { return def; }
+        string text = value.toString();
+        if (text.equalsIgnoreCase("true") || text.equalsIgnoreCase("1")) { return true; }
+        if (text.equalsIgnoreCase("false") || text.equalsIgnoreCase("0")) { return false; }
+        return def;
+    }
+
+    public void set(string key, Object value) {
+        m_data.set(key, value);
+        m_dirty = true;
+    }
+
+    public void remove(string key) {
+        m_data.remove(key);
+        m_dirty = true;
+    }
+
+    // Emptying the table is a write as well, which is what makes destroy() a change the
+    // store has to hear about.
+    public void clear() {
+        m_data.clear();
+        m_dirty = true;
+    }
+
+    public bool isDirty() {
+        return m_dirty;
+    }
+
+    // The snapshot a store keeps (ruling 14's last paragraph): the container itself has
+    // no lock, so the store copies inside its own, and the object the app holds never
+    // shares a table with the record the next request is handed. A copy is not dirty —
+    // reading a record back is not writing to it.
+    public ValueBag copy() {
+        ValueBag dup = ValueBag();
+        dup.m_data = m_data.copy();
+        return dup;
+    }
+
+    private Object storedValue(string key) {
+        // Dict.get raises on a missing key (D-27), so the accessor face checks first and
+        // a miss is the caller's default rather than an exception.
+        if (!m_data.containsKey(key)) { return null; }
+        return m_data.get(key);
+    }
+}
+
+// One session's server-side state (spec §6.6, D-12): the id the client holds, the data
+// the app keeps behind it, and the two flags that say where this request stands. The
+// fields are public because RequestContext and a store read them across a class
+// boundary; the data itself stays behind the forwarding face below.
+class Session {
+    // 16 bytes = 128 bits, which is what makes a guessed id worthless (D-13).
+    private static const int DEFAULT_ID_BYTES = 16;
+
+    public string id;
+    public bool isNew;
+    public bool isExpired;
+    public long expiresAtMs;                 // monoMs domain (D-12), and -1 once destroyed
+    private ValueBag m_bag;
+
+    // The empty record a store implementation may build: no id, nothing stored, and no
+    // expiry instant until the first save(). Public because a custom store is another
+    // class and has to be able to make one.
+    public Session() {
+        m_bag = ValueBag();
+    }
+
+    public bool has(string key) { return m_bag.has(key); }
+
+    public Object get(string key, Object def = null) { return m_bag.get(key, def); }
+
+    public string getString(string key, string def = "") { return m_bag.getString(key, def); }
+
+    public int getInt(string key, int def = 0) { return m_bag.getInt(key, def); }
+
+    public void set(string key, Object value) { m_bag.set(key, value); }
+
+    public void remove(string key) { m_bag.remove(key); }
+
+    public bool isDirty() { return m_bag.isDirty(); }
+
+    // Forgets this session at once: the data goes, the server's record goes with it (the
+    // write-back below reads the sentinel and calls destroy on the store), and the cookie
+    // in the client is dropped with Max-Age: 0 (D-12). expiresAtMs = -1 is the destroyed
+    // sentinel that tells the write-back this happened (ruling 14).
+    public void destroy() {
+        m_bag.clear();
+        expiresAtMs = -1;
+        isExpired = true;
+    }
+
+    // A new id over the same data, which is what a login owes session fixation (D-12):
+    // DEFAULT_ID_BYTES bytes off the OS CSPRNG (D-13), the one place in the package a
+    // session id is made, so a request that never had one comes by it the same way. The
+    // data did not change, so nothing is marked dirty: the id change drives its own
+    // write-back and cookie (ruling 24), kept separate from the data rule on purpose.
+    public void rotate() {
+        id = hexEncode(math.randomBytes(DEFAULT_ID_BYTES));
+    }
+
+    // The snapshot a store keeps. It has to be a method of this class: a private member
+    // of another class is out of a store's reach in nlang, so no outside code could read
+    // the data table or fill a fresh record's one.
+    //
+    // The two flags do not travel. They answer how *this request* came by its session —
+    // minted one, or found one nobody recognised — and a snapshot is by definition the
+    // record an earlier request left, which the store hands back only while it is alive.
+    // Carried along, isNew would make every returning session look new to the next
+    // request, and isExpired would keep a live session reporting itself expired for the
+    // rest of its life, because the store writes back whatever it is handed.
+    public Session copy() {
+        Session dup = Session();
+        dup.id = id;
+        dup.expiresAtMs = expiresAtMs;
+        dup.m_bag = m_bag.copy();
+        return dup;
+    }
+}
+
+// What a session store owes (spec §6.6): three members with no bodies, so a user's own
+// store — a database, a cache — implements them and the framework only ever talks to a
+// store through this type. One store serves every request of one app, so an
+// implementation has to be safe to call from several threads at once (D-25).
+class SessionStore {
+    // The record of this id, or null when there is none or it has expired.
+    public virtual Session load(string id);
+
+    // Stores the record under its own id, refreshing the expiry instant in it.
+    public virtual void save(Session s);
+
+    public virtual void destroy(string id);
+}
+
+// The store an app gets by asking for sessions (D-12): a locked table in this process's
+// memory, expiry sliding forward on every write, and a sweep that rides the store's own
+// calls rather than a background thread. It keeps snapshots, so a handler that still
+// holds its session cannot reach into what the next request is handed.
+class MemorySessionStore : SessionStore {
+    // Half an hour without a write (ruling 23): a session the app keeps saving to stays
+    // alive, and an id nobody writes to any more does not stay valid for a working day.
+    private static const int DEFAULT_SESSION_TTL_MS = 1800000;
+    // At most one sweep a minute (ruling 23): walking the table is cheap next to the
+    // request that triggers it, and the gate keeps even that off the hot path.
+    private static const int DEFAULT_SESSION_SWEEP_MS = 60000;
+
+    private Dict<string, Session> m_records;
+    private Mutex m_lock;
+    private int m_idleTtlMs;
+    private int m_sweepIntervalMs;
+    private long m_lastSweepMonoMs;
+
+    // The three arities of one store (ruling 23 pins the two defaults). A constructor
+    // default is evaluated at the call site, where the object does not exist yet, so it
+    // cannot read the class's own constants; the overloads are the same face, spelled in
+    // the one way the language allows. The values stay in the constants above.
+    public MemorySessionStore() {
+        this.init(DEFAULT_SESSION_TTL_MS, DEFAULT_SESSION_SWEEP_MS);
+    }
+
+    public MemorySessionStore(int idleTtlMs) {
+        this.init(idleTtlMs, DEFAULT_SESSION_SWEEP_MS);
+    }
+
+    public MemorySessionStore(int idleTtlMs, int sweepIntervalMs) {
+        this.init(idleTtlMs, sweepIntervalMs);
+    }
+
+    private void init(int idleTtlMs, int sweepIntervalMs) {
+        m_records = {};
+        m_lock = Mutex();
+        m_idleTtlMs = idleTtlMs;
+        m_sweepIntervalMs = sweepIntervalMs;
+        m_lastSweepMonoMs = system.monoMs();
+    }
+
+    public Session load(string id) {
+        if (id == "") { return null; }           // no cookie is not a lookup
+        m_lock.lock();
+        try {
+            long nowMs = system.monoMs();
+            this.sweepAlongLocked(nowMs);
+            if (!m_records.containsKey(id)) { return null; }
+            Session rec = m_records.get(id);
+            if (this.isExpiredAt(rec.expiresAtMs, nowMs)) {
+                m_records.remove(id);            // an expired record is not worth keeping
+                return null;
+            }
+            return rec.copy();
+        } finally {
+            m_lock.unlock();
+        }
+    }
+
+    public void save(Session s) {
+        long nowMs = system.monoMs();
+        m_lock.lock();
+        try {
+            // A destroyed session has no record left to refresh; the write-back destroys
+            // it as well, so this only keeps a stray save() from resurrecting one.
+            if (s.expiresAtMs < 0) {
+                m_records.remove(s.id);
+                return;
+            }
+            // Expiry slides forward with the write (D-12), and the instant goes into the
+            // caller's own session, so a handler can read when its session will expire.
+            s.expiresAtMs = nowMs + m_idleTtlMs;
+            m_records.set(s.id, s.copy());
+            this.sweepAlongLocked(nowMs);
+        } finally {
+            m_lock.unlock();
+        }
+    }
+
+    public void destroy(string id) {
+        m_lock.lock();
+        try {
+            m_records.remove(id);
+        } finally {
+            m_lock.unlock();
+        }
+    }
+
+    // Removes every record that expired by nowMs and answers how many went. The instant
+    // is a parameter instead of the clock so the boundary can be pinned to the
+    // millisecond, which is what makes a sweep testable without waiting (D-12).
+    public int sweepExpired(long nowMs) {
+        int removed = 0;
+        m_lock.lock();
+        try {
+            removed = this.sweepAtLocked(nowMs);
+        } finally {
+            m_lock.unlock();
+        }
+        return removed;
+    }
+
+    // The one expiry judgement, shared by load, save and both sweeps, because a second
+    // spelling of it is where they would start to disagree: the deadline instant itself
+    // is still valid, so only a now strictly past it is expired (D-12). A negative
+    // instant is the destroyed sentinel, which is never a live record.
+    private bool isExpiredAt(long expiresAtMs, long nowMs) {
+        return expiresAtMs < 0 || nowMs > expiresAtMs;
+    }
+
+    // The lazy sweep of D-12: it runs inside an ordinary store call, gated by the minimum
+    // interval, and no background thread exists. Nothing asserts when it fires — that
+    // depends on time actually passing — and what it removes is sweepExpired's business.
+    private void sweepAlongLocked(long nowMs) {
+        if (m_sweepIntervalMs <= 0) { return; }
+        if (nowMs - m_lastSweepMonoMs < m_sweepIntervalMs) { return; }
+        m_lastSweepMonoMs = nowMs;
+        this.sweepAtLocked(nowMs);
+    }
+
+    // keys() hands back a fresh list, so the walk runs over a snapshot of the ids while the
+    // removals go to the table itself, and every id in the snapshot is still in the table
+    // (the lock is held throughout, and this walk only ever drops ids it has already
+    // visited). Mutex is not reentrant, so the public members come through these helpers
+    // rather than each other.
+    private int sweepAtLocked(long nowMs) {
+        List<string> ids = m_records.keys();
+        int removed = 0;
+        int i = 0;
+        while (i < ids.length()) {
+            string id = ids.get(i);
+            Session rec = m_records.get(id);
+            if (this.isExpiredAt(rec.expiresAtMs, nowMs)) {
+                m_records.remove(id);
+                removed = removed + 1;
+            }
+            i = i + 1;
+        }
+        return removed;
+    }
+}
+
 // The framework facade (spec §6.2): it collects the middleware chain, owns the
 // HttpServer, and turns whatever a chain does or throws into one response.
 // server() hands out the transport object itself, so the frame of the exchange
@@ -726,6 +1124,15 @@ class App {
     // request would copy the chain for nothing.
     private Middleware m_routeLink;
     private func<void, RequestContext> m_notFound;
+    private SessionStore m_store;            // null until useSessions() (D-12)
+    // The session cookie policy, chosen once at registration and handed to each request
+    // (D-12): whether the cookie is only ever sent over TLS, and whether its name carries
+    // the prefix that keeps another origin's cookie from being read as this one's.
+    private bool m_secureCookies = false;
+    private bool m_hostPrefix = false;
+    // Set on the first request. What the app looks like while it is serving is a
+    // question with one answer, so the faces that shape it close then (D-25).
+    private bool m_started = false;
 
     public App() {
         m_chain = {};
@@ -751,6 +1158,27 @@ class App {
     // time the hook runs, so it starts from a plain answer and reshapes it.
     public void onError(func<void, RequestContext, Exception> h) {
         m_onError = h;
+    }
+
+    // Turns sessions on (D-12). Opt-in rather than always there: an app that answers a
+    // webhook has no session, and a handler that reaches for one on such an app gets a
+    // message naming the call it is missing instead of an empty session that quietly
+    // forgets every write. The store has to be handed over before the first request,
+    // because a request that started without one would be looking at a store that
+    // appeared under it (D-25). The two cookie-policy switches are D-12's: Secure, which
+    // only the app can know it needs, and the __Host- prefix, which refuses to be read
+    // unless Secure is there to back it, so it is refused here rather than silently
+    // dropped by the browser later.
+    public void useSessions(SessionStore store, bool secureCookies = false, bool hostPrefix = false) {
+        if (m_started) {
+            throw Exception("web.App.useSessions: sessions must be configured before the first request.");
+        }
+        if (hostPrefix && !secureCookies) {
+            throw Exception("web.App.useSessions: the __Host- cookie prefix requires the Secure attribute.");
+        }
+        m_store = store;
+        m_secureCookies = secureCookies;
+        m_hostPrefix = hostPrefix;
     }
 
     // The registration face (spec §6.2): every method here forwards to the route
@@ -790,6 +1218,7 @@ class App {
         // and keeps a handler's throw inside this try (D-11). The copy is so the
         // per-request context gets a chain that ends, without the registered chain
         // growing a link every request.
+        m_started = true;
         List<Middleware> chain = m_chain.copy();
         chain.add(m_routeLink);
         RequestContext ctx = RequestContext(this, chain);
@@ -800,6 +1229,12 @@ class App {
         // router's job (D-10).
         ctx.path = req.url.path;
         ctx.query = req.url.query;
+        // The store is bound before the chain so a handler can reach for a session,
+        // and the write-back runs after the error stage below: a session written by a
+        // handler that then threw is still saved, and its cookie still reaches the
+        // client through the rebuilt headers (D-12). A store that fails here is a
+        // server-side failure like a broken error hook is, and escapes the same way.
+        ctx.bindSessions(m_store, m_secureCookies, m_hostPrefix);
         try {
             ctx.next();
         } catch (http.HttpException e) {
@@ -815,6 +1250,7 @@ class App {
             // than a half-rendered answer of unknown shape.
             if (m_onError != null) { m_onError(ctx, e); }
         }
+        ctx.finishSessions();
         return ctx.res;
     }
 

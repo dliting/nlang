@@ -30,7 +30,7 @@ static int g_failures = 0;
 //Pin for the stdlib free-function surface (per-package breakdown in
 //TestLoadsStdLib); the printer turns any future drift into a
 //per-package diff instead of a bare FAIL line.
-constexpr std::size_t kStdlibSymbolPin = 339;
+constexpr std::size_t kStdlibSymbolPin = 340;
 
 static void PrintIndexShape(const langservice::SymbolIndex &index)
 {
@@ -57,7 +57,7 @@ static void TestLoadsStdLib()
     NullLogger logger;
     BuildEnvironment env(params, logger);
 
-    // 339 functions: io 22 (13 natives + 5 typed-reader wrappers + the
+    // 340 functions: io 22 (13 natives + 5 typed-reader wrappers + the
     // 4 base64 codecs; the v11 clock/park natives and the byte helpers
     // moved from net), math 26 (the v0.13.12 CSPRNG byte surface
     // randomBytes), fs 12 (the binary read pair readBytes/readFloats,
@@ -84,6 +84,9 @@ static void TestLoadsStdLib()
     // escaping helper; the Regex/Match classes and the engine classes
     // are not free functions), json 1 (the parse entry point; the
     // JsonValue class family and the parser classes are not free
+    // functions), web 1 (hexEncode, the byte-to-hex helper behind the
+    // session id, with web/form.n's multipart boundary to come; the App,
+    // Router, Session and MemorySessionStore class members are not free
     // functions).
     // The index counts declaration lines; each symbol's package comes
     // from the file's path (the stem), not from any in-file head.
