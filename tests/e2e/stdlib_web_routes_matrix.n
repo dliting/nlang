@@ -1,0 +1,735 @@
+// stdlib_web_routes_matrix — the routing contract of the web package: the exact
+// table consulted before the registration-order scan (D-7), a param segment
+// capturing one segment with its percent decoding, the trailing '*' eating the
+// rest of the path, the segment count as part of the shape, HEAD reusing the GET
+// entry while an explicitly registered head wins (D-8), the 405 carrying its
+// Allow list, a mount owning everything under its prefix and never handing the
+// request back (D-10), the registration-time refusals of a duplicate, a same-level
+// shadow and a dead entry along with every illegal pattern shape (D-9), and the
+// paramInt / hasParam readers over one captured segment. Every leg that listens
+// runs its own server on an ephemeral port and ends by draining and closing it
+// (D-22).
+import io;
+import url;
+import http;
+import web;
+
+// What the handlers ran into. A route handler is a free function, and a HEAD
+// response carries no body, so a counter is the only way to tell which handler a
+// HEAD request reached; every leg clears them first, so no leg reads another
+// leg's residue.
+class Counters {
+    public static int plainH;    // times the GET /h entry ran
+    public static int h2Get;     // times the GET /h2 entry ran
+    public static int h2Head;    // times the HEAD /h2 entry ran
+
+    public static void clear() {
+        Counters.plainH = 0;
+        Counters.h2Get = 0;
+        Counters.h2Head = 0;
+    }
+}
+
+// Handlers. The body each one answers with is the evidence its leg reads, so the
+// bodies differ wherever a leg has to tell two entries apart.
+void hList(RequestContext ctx) {
+    ctx.text(200, "list");
+}
+
+void hId(RequestContext ctx) {
+    ctx.text(200, "id=" + ctx.param("id"));
+}
+
+void hRest(RequestContext ctx) {
+    ctx.text(200, "rest=" + ctx.param("*"));
+}
+
+void hXId(RequestContext ctx) {
+    ctx.text(200, "x=" + ctx.param("id"));
+}
+
+void hOnly(RequestContext ctx) {
+    ctx.text(200, "only");
+}
+
+void hPlain(RequestContext ctx) {
+    ctx.text(200, "plain");
+}
+
+void hCountedH(RequestContext ctx) {
+    Counters.plainH = Counters.plainH + 1;
+    ctx.text(200, "hello");
+}
+
+void hGetH2(RequestContext ctx) {
+    Counters.h2Get = Counters.h2Get + 1;
+    ctx.text(200, "g2");
+}
+
+void hHeadH2(RequestContext ctx) {
+    Counters.h2Head = Counters.h2Head + 1;
+    ctx.text(200, "h2");
+}
+
+void hUsers(RequestContext ctx) {
+    ctx.text(200, "users");
+}
+
+// The subtree's own root entry: it echoes the path it was handed, which is how
+// the leg sees what the prefix strip left behind.
+void hApiRoot(RequestContext ctx) {
+    ctx.text(200, "path=" + ctx.path);
+}
+
+void hCustomNotFound(RequestContext ctx) {
+    ctx.text(404, "custom-404");
+}
+
+// The reader face on one captured segment: the value as an int with a fallback, a
+// name nothing was ever captured for, and the two presence answers.
+void hNumber(RequestContext ctx) {
+    string body = "v=" + ctx.paramInt("v", -1).toString();
+    body = body + " missing=" + ctx.paramInt("missing").toString();
+    if (ctx.hasParam("v")) {
+        body = body + " has=1";
+    } else {
+        body = body + " has=0";
+    }
+    if (ctx.hasParam("nope")) {
+        body = body + " hasNope=1";
+    } else {
+        body = body + " hasNope=0";
+    }
+    ctx.text(200, body);
+}
+
+// A request carrying its own method, which the free client functions cannot ask
+// for: the legs that need HEAD and PUT build one here.
+http.HttpResponse ask(string method, string urlText) {
+    http.HttpRequest req = http.HttpRequest();
+    req.url = Url.parse(urlText);
+    req.method = method;
+    return http.request(req);
+}
+
+// One request against one expectation, spelled once so a leg reads as a list of
+// expectations. The failure line quotes method, path, status and body, which is
+// what tells a wrong entry apart from a wrong capture.
+int wantBody(string base, string method, string path, int status, string body, string what) {
+    http.HttpResponse res = ask(method, base + path);
+    if (res.statusCode != status || res.bodyText() != body) {
+        io.print(what + ": " + method + " " + path + " answered " + res.statusCode.toString()
+            + " with body " + res.bodyText() + ", want " + status.toString() + " with body " + body);
+        return 1;
+    }
+    return 0;
+}
+
+// A registration the router must refuse. The message has to name the offending
+// pattern and, for a conflict, the entry registered first (D-9); comparing the
+// prefix and the two names instead of the whole sentence keeps the matrix from
+// being welded to wording that can be tuned later.
+int refused(string what, bool threw, string message, string firstName, string secondName) {
+    if (!threw) {
+        io.print(what + " must be refused at registration time");
+        return 1;
+    }
+    if (!message.startsWith("web.Router: ") || !message.contains(firstName)) {
+        io.print(what + " refusal says " + message + ", want it to name " + firstName);
+        return 1;
+    }
+    if (secondName != "" && !message.contains(secondName)) {
+        io.print(what + " refusal says " + message + ", want it to name " + secondName + " too");
+        return 1;
+    }
+    return 0;
+}
+
+// A registration the router must accept.
+int accepted(string what, bool threw, string message) {
+    if (threw) {
+        io.print(what + " must be accepted, got " + message);
+        return 1;
+    }
+    return 0;
+}
+
+// Teardown for every leg that listens: drain the server, which has nothing of
+// ours in flight (a parked keep-alive connection is force-closed, not counted),
+// then close it.
+int closeServer(web.App app) {
+    if (app.drain(5000) != 0) {
+        io.print("the server drained with a residual connection");
+        return 1;
+    }
+    app.close();
+    return 0;
+}
+
+int main() {
+    int bad = 0;
+    if (legExactFirst() != 0) { bad = bad + 1; }
+    if (legStarAndRank() != 0) { bad = bad + 1; }
+    if (legMethodFace() != 0) { bad = bad + 1; }
+    if (legAllowList() != 0) { bad = bad + 1; }
+    if (legMountHandOff() != 0) { bad = bad + 1; }
+    if (legRefusals() != 0) { bad = bad + 1; }
+    if (legParamNumbers() != 0) { bad = bad + 1; }
+    if (bad == 0) { io.print("ok"); }
+    return bad;
+}
+
+// Leg A: a literal path keeps its own entry whatever the registration order,
+// because the exact table is consulted before the scan (D-7), and a param segment
+// captures exactly one segment, decoded when the handler reads it.
+int legExactFirst() {
+    int bad = 0;
+    web.App app = web.App();
+    app.get("/api/list", hList);
+    app.get("/api/:id", hId);
+    app.listen("127.0.0.1", 0);
+    string base = "http://127.0.0.1:" + app.server().localPort().toString();
+    bad = bad + wantBody(base, "GET", "/api/list", 200, "list",
+        "leg A the literal path must keep its own entry");
+    bad = bad + wantBody(base, "GET", "/api/7a", 200, "id=7a",
+        "leg A one segment must be captured under its name");
+    bad = bad + wantBody(base, "GET", "/api/a%20b", 200, "id=a b",
+        "leg A the captured value must arrive percent-decoded");
+    // A malformed escape is the request's mistake, not the handler's: the segment
+    // reaches the handler as it came off the wire instead of becoming a 500.
+    bad = bad + wantBody(base, "GET", "/api/%zz", 200, "id=%zz",
+        "leg A a malformed escape must reach the handler undecoded");
+    bad = bad + closeServer(app);
+
+    // The same two entries registered the other way round. Only the exact table,
+    // not the registration order, can keep /api/list on its own handler here, so
+    // this is the half of D-7 that a scan-only implementation would pass by.
+    web.App rev = web.App();
+    rev.get("/api/:id", hId);
+    rev.get("/api/list", hList);
+    rev.listen("127.0.0.1", 0);
+    string revBase = "http://127.0.0.1:" + rev.server().localPort().toString();
+    bad = bad + wantBody(revBase, "GET", "/api/list", 200, "list",
+        "leg A the param entry registered first must not steal the literal path");
+    bad = bad + wantBody(revBase, "GET", "/api/9", 200, "id=9",
+        "leg A the param entry must still serve every other path");
+    bad = bad + closeServer(rev);
+    return bad;
+}
+
+// Leg B: the trailing '*' eats the remaining segments and nothing else, and the
+// segment count is part of the shape, so a param entry is bound to one segment.
+int legStarAndRank() {
+    int bad = 0;
+    web.App app = web.App();
+    app.get("/files/*", hRest);
+    app.get("/x/:id", hXId);
+    app.listen("127.0.0.1", 0);
+    string base = "http://127.0.0.1:" + app.server().localPort().toString();
+    bad = bad + wantBody(base, "GET", "/files/a/b/c", 200, "rest=a/b/c",
+        "leg B the star must eat the remaining segments and keep the slashes");
+    bad = bad + wantBody(base, "GET", "/files/a", 200, "rest=a",
+        "leg B the star must also eat a single segment");
+    bad = bad + wantBody(base, "GET", "/x", 404, "not found: /x",
+        "leg B a path one segment short must not match");
+    bad = bad + wantBody(base, "GET", "/x/1/2", 404, "not found: /x/1/2",
+        "leg B a path one segment too long must not match");
+    bad = bad + closeServer(app);
+    return bad;
+}
+
+// Leg C: an entry answers only the verbs it registered, a HEAD request rides the
+// GET entry unless a head entry was registered too, and a whole-table miss goes to
+// the registered not-found handler.
+int legMethodFace() {
+    Counters.clear();
+    int bad = 0;
+    web.App app = web.App();
+    app.post("/only", hOnly);
+    app.get("/h", hCountedH);
+    app.get("/h2", hGetH2);
+    app.head("/h2", hHeadH2);
+    app.setNotFound(hCustomNotFound);
+    app.listen("127.0.0.1", 0);
+    string base = "http://127.0.0.1:" + app.server().localPort().toString();
+
+    http.HttpResponse wrong = ask("GET", base + "/only");
+    if (wrong.statusCode != 405) {
+        io.print("leg C GET /only answered " + wrong.statusCode.toString() + ", want 405");
+        bad = bad + 1;
+    }
+    string allow = wrong.headers.get("Allow");
+    if (!allow.contains("POST") || allow.contains("GET")) {
+        io.print("leg C GET /only offered Allow " + allow + ", want POST and no GET");
+        bad = bad + 1;
+    }
+    if (wrong.bodyText() != "method not allowed: GET") {
+        io.print("leg C GET /only body is " + wrong.bodyText() + ", want method not allowed: GET");
+        bad = bad + 1;
+    }
+
+    // The GET handler answers, and the transport drops its bytes: the length of
+    // the body that would have been sent stays on the wire.
+    http.HttpResponse head = ask("HEAD", base + "/h");
+    if (head.statusCode != 200 || head.bodyText() != ""
+            || head.headers.get("Content-Length") != "5") {
+        io.print("leg C HEAD /h answered " + head.statusCode.toString() + " body "
+            + head.bodyText() + " Content-Length " + head.headers.get("Content-Length")
+            + ", want 200 with no bytes and the GET body length");
+        bad = bad + 1;
+    }
+    if (Counters.plainH != 1) {
+        io.print("leg C HEAD /h ran the GET handler " + Counters.plainH.toString()
+            + " times, want the one entry the GET request would have run");
+        bad = bad + 1;
+    }
+
+    http.HttpResponse head2 = ask("HEAD", base + "/h2");
+    if (head2.statusCode != 200 || Counters.h2Head != 1 || Counters.h2Get != 0) {
+        io.print("leg C HEAD /h2 ran head " + Counters.h2Head.toString() + " get "
+            + Counters.h2Get.toString() + ", want the explicit head entry alone");
+        bad = bad + 1;
+    }
+
+    bad = bad + wantBody(base, "GET", "/nowhere", 404, "custom-404",
+        "leg C a whole-table miss must go to the registered not-found handler");
+    bad = bad + closeServer(app);
+
+    // With no not-found handler registered, the miss answers the plain text naming
+    // the path that was asked for.
+    web.App plain = web.App();
+    plain.get("/there", hPlain);
+    plain.listen("127.0.0.1", 0);
+    string plainBase = "http://127.0.0.1:" + plain.server().localPort().toString();
+    bad = bad + wantBody(plainBase, "GET", "/nothing/here", 404, "not found: /nothing/here",
+        "leg C the default 404 must name the request path");
+    bad = bad + closeServer(plain);
+    return bad;
+}
+
+// Leg D: the Allow list is every verb the same path answers, deduplicated in
+// registration order with HEAD written next to the GET it rides (D-8), and the
+// body names the verb that was asked for.
+int legAllowList() {
+    int bad = 0;
+    web.App app = web.App();
+    app.get("/m", hPlain);
+    app.del("/m", hPlain);
+    app.listen("127.0.0.1", 0);
+    string base = "http://127.0.0.1:" + app.server().localPort().toString();
+    http.HttpResponse res = ask("PUT", base + "/m");
+    if (res.statusCode != 405) {
+        io.print("leg D PUT /m answered " + res.statusCode.toString() + ", want 405");
+        bad = bad + 1;
+    }
+    if (res.headers.get("Allow") != "GET, HEAD, DELETE") {
+        io.print("leg D PUT /m offered Allow " + res.headers.get("Allow")
+            + ", want GET, HEAD, DELETE");
+        bad = bad + 1;
+    }
+    if (res.bodyText() != "method not allowed: PUT") {
+        io.print("leg D PUT /m body is " + res.bodyText() + ", want method not allowed: PUT");
+        bad = bad + 1;
+    }
+    bad = bad + closeServer(app);
+    return bad;
+}
+
+// Leg E: a mount owns everything under its prefix. The subtree answers the hits,
+// writes its own 404 and 405 for the misses, and never hands the request back, so
+// the top-level not-found handler never sees anything that fell under the prefix.
+int legMountHandOff() {
+    int bad = 0;
+    web.Router api = web.Router();
+    api.get("/users", hUsers);
+    api.get("/", hApiRoot);
+    web.App app = web.App();
+    app.mount("/api", api);
+    app.setNotFound(hCustomNotFound);
+
+    // A later entry whose every candidate path lies under the mount prefix is dead
+    // from the day it is registered, and saying so here is the whole point (D-9).
+    bool threw = false;
+    string why = "";
+    try {
+        app.get("/api/users", hPlain);
+    } catch (Exception ex) {
+        threw = true;
+        why = ex.message;
+    }
+    bad = bad + refused("GET /api users registered after the /api mount", threw, why,
+        "/api/users", "/api");
+
+    app.listen("127.0.0.1", 0);
+    string base = "http://127.0.0.1:" + app.server().localPort().toString();
+    bad = bad + wantBody(base, "GET", "/api/users", 200, "users",
+        "leg E the subtree must serve the hit it was handed");
+    bad = bad + wantBody(base, "GET", "/api/nope", 404, "not found: /api/nope",
+        "leg E the subtree must write its own 404 rather than fall back to setNotFound");
+    bad = bad + wantBody(base, "GET", "/api", 200, "path=/",
+        "leg E a request equal to the prefix must leave the subtree the root path");
+
+    http.HttpResponse wrong = ask("POST", base + "/api/users");
+    if (wrong.statusCode != 405 || wrong.headers.get("Allow") != "GET, HEAD") {
+        io.print("leg E POST /api/users answered " + wrong.statusCode.toString()
+            + " with Allow " + wrong.headers.get("Allow")
+            + ", want 405 carrying the subtree's own verb list");
+        bad = bad + 1;
+    }
+    if (wrong.bodyText() != "method not allowed: POST") {
+        io.print("leg E POST /api/users body is " + wrong.bodyText()
+            + ", want method not allowed: POST");
+        bad = bad + 1;
+    }
+    bad = bad + closeServer(app);
+    return bad;
+}
+
+// Leg F: what registration refuses, and where it stays quiet. Each case is its own
+// function so one wrong call cannot hide behind another case's app.
+int fDuplicateVerb() {
+    web.App app = web.App();
+    app.get("/dup", hPlain);
+    bool threw = false;
+    string why = "";
+    try {
+        app.get("/dup", hPlain);
+    } catch (Exception ex) {
+        threw = true;
+        why = ex.message;
+    }
+    return refused("a second GET /dup", threw, why, "/dup", "");
+}
+
+int fTwoParamNames() {
+    web.App app = web.App();
+    app.get("/x/:a", hPlain);
+    bool threw = false;
+    string why = "";
+    try {
+        app.get("/x/:b", hPlain);
+    } catch (Exception ex) {
+        threw = true;
+        why = ex.message;
+    }
+    return refused("GET /x/:b after GET /x/:a", threw, why, "/x/:b", "/x/:a");
+}
+
+int fParamThenStar() {
+    web.App app = web.App();
+    app.get("/x/:a", hPlain);
+    bool threw = false;
+    string why = "";
+    try {
+        app.get("/x/*", hRest);
+    } catch (Exception ex) {
+        threw = true;
+        why = ex.message;
+    }
+    return refused("GET /x/* after GET /x/:a", threw, why, "/x/*", "/x/:a");
+}
+
+int fTwoStars() {
+    web.App app = web.App();
+    app.get("/y/*", hRest);
+    bool threw = false;
+    string why = "";
+    try {
+        app.get("/y/*", hRest);
+    } catch (Exception ex) {
+        threw = true;
+        why = ex.message;
+    }
+    return refused("a second GET /y/* at the same level", threw, why, "/y/*", "");
+}
+
+// The mount claims the subtree below its prefix, not the prefix itself: the
+// request for the prefix is still reachable through the exact table, so the entry
+// sitting exactly on the boundary stays legal and answers its own path.
+int fMountThenBoundaryStatic() {
+    web.Router api = web.Router();
+    api.get("/users", hUsers);
+    web.App app = web.App();
+    app.mount("/api", api);
+    bool threw = false;
+    string why = "";
+    try {
+        app.get("/api", hPlain);
+    } catch (Exception ex) {
+        threw = true;
+        why = ex.message;
+    }
+    int bad = accepted("GET /api registered after the /api mount", threw, why);
+    if (bad != 0) {
+        return bad;
+    }
+    app.listen("127.0.0.1", 0);
+    string base = "http://127.0.0.1:" + app.server().localPort().toString();
+    bad = bad + wantBody(base, "GET", "/api", 200, "plain",
+        "leg F the entry on the mount boundary must still answer its own path");
+    bad = bad + wantBody(base, "GET", "/api/users", 200, "users",
+        "leg F the subtree must still answer below the boundary");
+    return bad + closeServer(app);
+}
+
+int fMountThenParam() {
+    web.Router api = web.Router();
+    api.get("/users", hUsers);
+    web.App app = web.App();
+    app.mount("/api", api);
+    bool threw = false;
+    string why = "";
+    try {
+        app.get("/api/:id", hId);
+    } catch (Exception ex) {
+        threw = true;
+        why = ex.message;
+    }
+    return refused("GET /api/:id after the /api mount", threw, why, "/api/:id", "/api");
+}
+
+int fMountThenDeeperMount() {
+    web.Router api = web.Router();
+    api.get("/users", hUsers);
+    web.Router v2 = web.Router();
+    v2.get("/users", hUsers);
+    web.App app = web.App();
+    app.mount("/api", api);
+    bool threw = false;
+    string why = "";
+    try {
+        app.mount("/api/v2", v2);
+    } catch (Exception ex) {
+        threw = true;
+        why = ex.message;
+    }
+    return refused("the /api/v2 mount after the /api mount", threw, why, "/api/v2", "/api");
+}
+
+int fAnyThenMount() {
+    web.App app = web.App();
+    app.any("/*", hRest);
+    web.Router api = web.Router();
+    api.get("/users", hUsers);
+    bool threw = false;
+    string why = "";
+    try {
+        app.mount("/api", api);
+    } catch (Exception ex) {
+        threw = true;
+        why = ex.message;
+    }
+    return refused("the /api mount after any /*", threw, why, "/api", "/*");
+}
+
+// The catch-all entry is the one blocker a fully static entry may register behind:
+// the exact table keeps that path reachable, which is what D-9's exemption says,
+// and the pin here is that the entry really does win over the catch-all.
+int fAnyThenStatic() {
+    web.App app = web.App();
+    app.any("/*", hRest);
+    bool threw = false;
+    string why = "";
+    try {
+        app.get("/api", hPlain);
+    } catch (Exception ex) {
+        threw = true;
+        why = ex.message;
+    }
+    int bad = accepted("GET /api registered after any /*", threw, why);
+    if (bad != 0) {
+        return bad;
+    }
+    app.listen("127.0.0.1", 0);
+    string base = "http://127.0.0.1:" + app.server().localPort().toString();
+    bad = bad + wantBody(base, "GET", "/api", 200, "plain",
+        "leg F the static entry must answer its own path despite the earlier catch-all");
+    bad = bad + wantBody(base, "GET", "/api/deep", 200, "rest=api/deep",
+        "leg F the catch-all must still answer every deeper path");
+    return bad + closeServer(app);
+}
+
+// The root mount is the widest entry there is, so it swallows every later
+// param entry; D-10 puts it last for exactly this reason.
+int fRootMountThenParam() {
+    web.App app = web.App();
+    app.mount("/", hPlain);
+    bool threw = false;
+    string why = "";
+    try {
+        app.get("/p/:q", hPlain);
+    } catch (Exception ex) {
+        threw = true;
+        why = ex.message;
+    }
+    return refused("GET /p/:q after the root mount", threw, why, "/p/:q", "/");
+}
+
+int fRootMountThenStatic() {
+    web.App app = web.App();
+    app.mount("/", hPlain);
+    bool threw = false;
+    string why = "";
+    try {
+        app.get("/plain", hPlain);
+    } catch (Exception ex) {
+        threw = true;
+        why = ex.message;
+    }
+    return refused("GET /plain after the root mount", threw, why, "/plain", "/");
+}
+
+int fEmptyPattern() {
+    web.App app = web.App();
+    bool threw = false;
+    string why = "";
+    try {
+        app.get("", hPlain);
+    } catch (Exception ex) {
+        threw = true;
+        why = ex.message;
+    }
+    return refused("an empty pattern", threw, why, "invalid pattern", "");
+}
+
+int fPatternWithoutSlash() {
+    web.App app = web.App();
+    bool threw = false;
+    string why = "";
+    try {
+        app.get("api", hPlain);
+    } catch (Exception ex) {
+        threw = true;
+        why = ex.message;
+    }
+    return refused("a pattern that does not start with a slash", threw, why, "api", "");
+}
+
+int fPatternTrailingSlash() {
+    web.App app = web.App();
+    bool threw = false;
+    string why = "";
+    try {
+        app.get("/tail/", hPlain);
+    } catch (Exception ex) {
+        threw = true;
+        why = ex.message;
+    }
+    return refused("a pattern ending in a slash", threw, why, "/tail/", "");
+}
+
+int fRepeatedSegmentName() {
+    web.App app = web.App();
+    bool threw = false;
+    string why = "";
+    try {
+        app.get("/:id/:id", hPlain);
+    } catch (Exception ex) {
+        threw = true;
+        why = ex.message;
+    }
+    return refused("a pattern that names one segment twice", threw, why, "/:id/:id", "");
+}
+
+int fStarNotLast() {
+    web.App app = web.App();
+    bool threw = false;
+    string why = "";
+    try {
+        app.get("/z/*/tail", hPlain);
+    } catch (Exception ex) {
+        threw = true;
+        why = ex.message;
+    }
+    return refused("a star that is not the last segment", threw, why, "/z/*/tail", "");
+}
+
+int fMountPrefixWithoutSlash() {
+    web.App app = web.App();
+    web.Router api = web.Router();
+    bool threw = false;
+    string why = "";
+    try {
+        app.mount("api", api);
+    } catch (Exception ex) {
+        threw = true;
+        why = ex.message;
+    }
+    return refused("a mount prefix that does not start with a slash", threw, why, "api", "");
+}
+
+int fMountPrefixTrailingSlash() {
+    web.App app = web.App();
+    web.Router api = web.Router();
+    bool threw = false;
+    string why = "";
+    try {
+        app.mount("/api/", api);
+    } catch (Exception ex) {
+        threw = true;
+        why = ex.message;
+    }
+    return refused("a mount prefix ending in a slash", threw, why, "/api/", "");
+}
+
+// A prefix with a param or star segment in it has no well-defined strip depth, and
+// D-9 reads a mount prefix as a static prefix, so the shape is refused outright.
+int fMountPrefixParam() {
+    web.App app = web.App();
+    web.Router api = web.Router();
+    bool threw = false;
+    string why = "";
+    try {
+        app.mount("/api/:v", api);
+    } catch (Exception ex) {
+        threw = true;
+        why = ex.message;
+    }
+    return refused("a mount prefix with a param segment", threw, why, "/api/:v", "");
+}
+
+int legRefusals() {
+    int bad = 0;
+    bad = bad + fDuplicateVerb();
+    bad = bad + fTwoParamNames();
+    bad = bad + fParamThenStar();
+    bad = bad + fTwoStars();
+    bad = bad + fMountThenBoundaryStatic();
+    bad = bad + fMountThenParam();
+    bad = bad + fMountThenDeeperMount();
+    bad = bad + fAnyThenMount();
+    bad = bad + fAnyThenStatic();
+    bad = bad + fRootMountThenParam();
+    bad = bad + fRootMountThenStatic();
+    bad = bad + fEmptyPattern();
+    bad = bad + fPatternWithoutSlash();
+    bad = bad + fPatternTrailingSlash();
+    bad = bad + fRepeatedSegmentName();
+    bad = bad + fStarNotLast();
+    bad = bad + fMountPrefixWithoutSlash();
+    bad = bad + fMountPrefixTrailingSlash();
+    bad = bad + fMountPrefixParam();
+    return bad;
+}
+
+// Leg G: the numeric reader answers its fallback for anything it cannot parse,
+// including a capture that is merely empty, and presence reports what was
+// captured rather than what parsed.
+int legParamNumbers() {
+    int bad = 0;
+    web.App app = web.App();
+    app.get("/n/:v", hNumber);
+    app.listen("127.0.0.1", 0);
+    string base = "http://127.0.0.1:" + app.server().localPort().toString();
+    string tail = " missing=0 has=1 hasNope=0";
+    bad = bad + wantBody(base, "GET", "/n/42", 200, "v=42" + tail,
+        "leg G a captured number must read as an int");
+    bad = bad + wantBody(base, "GET", "/n/+42", 200, "v=42" + tail,
+        "leg G a signed number must read as the same int");
+    bad = bad + wantBody(base, "GET", "/n/4x", 200, "v=-1" + tail,
+        "leg G an unparseable value must answer the fallback instead of raising");
+    bad = bad + wantBody(base, "GET", "/n/", 200, "v=-1" + tail,
+        "leg G an empty capture must answer the fallback");
+    bad = bad + closeServer(app);
+    return bad;
+}

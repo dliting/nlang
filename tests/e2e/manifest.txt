@@ -2449,3 +2449,10 @@ stdlib_web_middleware_styles 0
 # library-subtree face of that wildcard needs Task 8's multi-module layout,
 # so it is pinned here only by the libraryWildcardUnionsSubtree unit leg.
 stdlib_web_qualified_names 0
+# --- v0.13.12: the route table — the exact table beating an earlier parameter
+# row, path captures decoded on the way out, the trailing '*' eating the rest,
+# the method face with HEAD riding GET and an explicit head winning, the 405
+# Allow list, a mount handing its subtree over without falling back, the
+# registration-time conflict matrix, and paramInt answering an out-of-range
+# path parameter with the caller's default.
+stdlib_web_routes_matrix 0

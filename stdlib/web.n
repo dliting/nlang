@@ -47,6 +47,10 @@ class RequestContext {
     public string method;                    // request method
     public string path;                      // raw, undecoded path (D-10)
     public string query;                     // raw, undecoded query string
+    // What the matched pattern captured, one entry per named segment, still the raw
+    // bytes off the wire (D-10). Public because Router fills it from another class;
+    // a handler reads it through the param face below.
+    public Dict<string, string> params;
 
     private App m_app;                       // the owner, for the stages after the chain
     private List<Middleware> m_chain;        // the chain as it stood for this request
@@ -60,6 +64,7 @@ class RequestContext {
         res = http.HttpResponse();
         m_used = {};
         m_attrs = {};
+        params = {};
         // Slots are numbered by depth, and the last one is the end of the chain,
         // where next() returns instead of running anything (ruling 13).
         int slots = m_chain.length() + 1;
@@ -113,6 +118,38 @@ class RequestContext {
 
     public void remove(string key) {
         m_attrs.remove(key);
+    }
+
+    // A captured path segment, percent-decoded on the way out (D-10). A malformed
+    // escape is the request's mistake and not the handler's, so the decode sits in a
+    // try: /i/%zz reaches its handler as it came off the wire instead of turning into
+    // a 500. A name nothing was captured for is the empty string, never an exception
+    // (Dict.get raises on a missing key, D-27).
+    public string param(string name) {
+        if (!params.containsKey(name)) { return ""; }
+        string raw = params.get(name);
+        try {
+            return url.percentDecode(raw);
+        } catch (Exception e) {
+            return raw;
+        }
+    }
+
+    // The same segment read as a number. A name that was never captured and a value
+    // that is no number both answer the caller's default, which is the shape getInt
+    // above already has (裁决10): an out-of-range path parameter is a request the
+    // handler judges for itself, not an error the framework raises.
+    public int paramInt(string name, int def = 0) {
+        if (!params.containsKey(name)) { return def; }
+        try {
+            return params.get(name).toInt();
+        } catch (Exception e) {
+            return def;
+        }
+    }
+
+    public bool hasParam(string name) {
+        return params.containsKey(name);
     }
 
     // Plain text answer (D-4: the error body a client is meant to read).
@@ -220,6 +257,458 @@ class RequestContext {
     }
 }
 
+// One row of the route table (D-7). Its fields are public because Router reads a row
+// back out of a List, and nlang keeps a class's members to itself; what a user touches
+// is Router's methods, never these fields.
+class Route {
+    public List<string> methods;                 // the verbs this row answers
+    public List<string> segments;                // the pattern, split into segments
+    public func<void, RequestContext> handler;   // the handler, or a subtree's serve
+    public bool isMount;                         // the prefix hands over its subtree
+    public string sourceText;                    // the pattern as registered, for messages
+}
+
+// The route table (spec §6.5, decisions D-7 to D-10). A pattern is '/'-separated
+// segments of three kinds: a literal, ':name' capturing exactly one segment, and a
+// trailing '*' eating everything below it.
+//
+// Matching consults a hash table of the fully literal patterns before it walks the
+// registration order, which is what keeps a literal path on its own handler however
+// many parameter patterns were registered ahead of it (D-7). A mount row hands off:
+// once its prefix matches, the subtree owns the answer and this table never sees the
+// request again, whatever the subtree then does with it (D-10).
+class Router {
+    private List<Route> m_routes;
+    private Dict<string, int> m_exact;           // "GET /api/list" -> the row (D-7)
+
+    public Router() {
+        m_routes = {};
+        m_exact = {};
+    }
+
+    // The one registration entry point: the verb shorthands, any and mount are naming
+    // sugar over it, so the rules below live in exactly one place.
+    public void on(string method, string pattern, func<void, RequestContext> h) {
+        List<string> methods = {};
+        methods.add(method.toUpper());
+        this.register(methods, pattern, h, false);
+    }
+
+    public void get(string pattern, func<void, RequestContext> h) { this.on("GET", pattern, h); }
+    public void post(string pattern, func<void, RequestContext> h) { this.on("POST", pattern, h); }
+    public void put(string pattern, func<void, RequestContext> h) { this.on("PUT", pattern, h); }
+    public void patch(string pattern, func<void, RequestContext> h) { this.on("PATCH", pattern, h); }
+    public void head(string pattern, func<void, RequestContext> h) { this.on("HEAD", pattern, h); }
+
+    // del, not delete: the keyword is taken, as it already is in stdlib/http.n.
+    public void del(string pattern, func<void, RequestContext> h) { this.on("DELETE", pattern, h); }
+
+    // One row answering every verb, for the entry that takes whatever arrives.
+    public void any(string pattern, func<void, RequestContext> h) {
+        this.register(this.everyMethod(), pattern, h, false);
+    }
+
+    // A prefix and everything under it (D-10).
+    public void mount(string prefix, func<void, RequestContext> h) {
+        this.register(this.everyMethod(), prefix, h, true);
+    }
+
+    // The Router form is sugar over serve, and that is what makes the two mount shapes
+    // one rule: handing the table the subtree's serve is handing it a function, so the
+    // subtree answers its own misses and there is no second kind of hand-off.
+    public void mount(string prefix, Router subtree) {
+        func<void, RequestContext> serveSubtree = subtree.serve;
+        this.mount(prefix, serveSubtree);
+    }
+
+    // Runs the row that answers this request and reports whether there was one. A miss
+    // leaves res alone (spec §6.5): what a miss looks like is the caller's business, and
+    // its two callers speak for different tables — serve answers for one subtree, the
+    // last link of App's chain for the whole app.
+    public bool dispatch(RequestContext ctx) {
+        List<string> parts = this.splitPath(ctx.path);
+        string method = ctx.method.toUpper();
+        if (this.runMatch(ctx, parts, method)) { return true; }
+        // D-8: a HEAD request that found no row of its own rides the GET row. Asking
+        // twice, the strict way first, is also how an explicitly registered head keeps
+        // priority over a GET row without the registration order carrying that meaning.
+        if (method == "HEAD") { return this.runMatch(ctx, parts, "GET"); }
+        return false;
+    }
+
+    // The subtree's own answer for a request it does not serve (D-10): the verb list
+    // when the path is registered under other verbs, otherwise this subtree's 404.
+    public void serve(RequestContext ctx) {
+        if (this.dispatch(ctx)) { return; }
+        string allow = this.allowFor(ctx.path);
+        if (allow != "") {
+            ctx.res.headers.set("Allow", allow);
+            ctx.text(405, "method not allowed: " + ctx.method);
+            return;
+        }
+        // The client asked for a path, so the answer names the path it asked for, not
+        // the prefix-stripped one this subtree happens to be holding.
+        ctx.text(404, "not found: " + ctx.req.url.path);
+    }
+
+    // Every verb the same path answers, deduplicated in registration order, with HEAD
+    // written beside the GET it rides (D-8). A mount row stays out of the list: it
+    // answers all seven verbs, so including it would turn every 405 into the whole verb
+    // set, and a subtree reports its own misses with its own allowFor anyway.
+    public string allowFor(string path) {
+        List<string> parts = this.splitPath(path);
+        List<string> verbs = {};
+        int i = 0;
+        while (i < m_routes.length()) {
+            Route entry = m_routes.get(i);
+            if (!entry.isMount && this.shapeMatches(entry, parts)) {
+                int j = 0;
+                while (j < entry.methods.length()) {
+                    this.addVerb(verbs, entry.methods.get(j));
+                    j = j + 1;
+                }
+            }
+            i = i + 1;
+        }
+        string joined = "";
+        int k = 0;
+        while (k < verbs.length()) {
+            if (k > 0) { joined = joined + ", "; }
+            joined = joined + verbs.get(k);
+            k = k + 1;
+        }
+        return joined;
+    }
+
+    private void addVerb(List<string> verbs, string method) {
+        if (verbs.contains(method)) { return; }
+        verbs.add(method);
+        // HEAD rides GET at dispatch time, so it belongs beside GET in the list.
+        if (method == "GET") { this.addVerb(verbs, "HEAD"); }
+    }
+
+    // The verb half of a match. A mount answers every verb because the subtree, not
+    // this table, settles the method question below its prefix (D-10).
+    private bool answers(Route entry, string method) {
+        if (entry.isMount) { return true; }
+        return entry.methods.contains(method);
+    }
+
+    // The scan of D-7: the literal rows are hashed, so one is found before the walk
+    // that an earlier parameter row would otherwise win.
+    private bool runMatch(RequestContext ctx, List<string> parts, string method) {
+        int hit = this.exactHit(method, ctx.path);
+        if (hit >= 0) {
+            Route top = m_routes.get(hit);
+            return this.runEntry(top, ctx, parts);
+        }
+        int i = 0;
+        while (i < m_routes.length()) {
+            Route entry = m_routes.get(i);
+            if (this.answers(entry, method) && this.shapeMatches(entry, parts)) {
+                return this.runEntry(entry, ctx, parts);
+            }
+            i = i + 1;
+        }
+        return false;
+    }
+
+    private int exactHit(string method, string path) {
+        string key = method + " " + path;
+        if (!m_exact.containsKey(key)) { return -1; }
+        return m_exact.get(key);
+    }
+
+    // The structure half of a match: the segment count and what each segment is. A
+    // mount and a trailing '*' take everything below them; everything else wants the
+    // exact count, which is what binds a parameter row to one segment (D-7).
+    private bool shapeMatches(Route entry, List<string> parts) {
+        List<string> segments = entry.segments;
+        int n = segments.length();
+        if (entry.isMount) {
+            if (parts.length() < n) { return false; }
+        } else if (n > 0 && segments.get(n - 1) == "*") {
+            if (parts.length() < n - 1) { return false; }
+        } else if (parts.length() != n) {
+            return false;
+        }
+        int i = 0;
+        while (i < n) {
+            string seg = segments.get(i);
+            if (seg == "*") { return true; }          // it has eaten the rest already
+            if (this.isWildcardSegment(seg)) { i = i + 1; continue; }
+            if (seg != parts.get(i)) { return false; }
+            i = i + 1;
+        }
+        return true;
+    }
+
+    // The hand-off: the captures go to the context as raw bytes, a mount first strips
+    // the prefix it matched so the subtree reads the path from its own root, and the
+    // handler gets the request. Nothing here looks back (D-10).
+    private bool runEntry(Route entry, RequestContext ctx, List<string> parts) {
+        this.capture(entry, ctx, parts);
+        int depth = entry.segments.length();
+        // A request equal to the prefix leaves the subtree the root, and a root mount
+        // has no prefix to strip, so it leaves the request path alone.
+        if (entry.isMount && depth > 0) { ctx.path = "/" + this.joinFrom(parts, depth); }
+        entry.handler(ctx);
+        return true;
+    }
+
+    // ':name' captures the one segment under the name it lost its colon to, and the '*'
+    // keeps the name it has in the pattern, with the remaining segments joined the way
+    // they arrived.
+    private void capture(Route entry, RequestContext ctx, List<string> parts) {
+        List<string> segments = entry.segments;
+        int n = segments.length();
+        int i = 0;
+        while (i < n) {
+            string seg = segments.get(i);
+            if (seg == "*") {
+                ctx.params.set("*", this.joinFrom(parts, i));
+                return;
+            }
+            if (seg.startsWith(":")) { ctx.params.set(seg.substring(1), parts.get(i)); }
+            i = i + 1;
+        }
+    }
+
+    // A request path is split the way a pattern is, with no normalizing of its own: a
+    // trailing slash stays a segment, so /x/ and /x are different paths (D-10), and the
+    // empty piece the leading slash produces is dropped.
+    private List<string> splitPath(string path) {
+        List<string> segs = {};
+        if (path == "/") { return segs; }            // the root has no segments
+        List<string> raw = path.split("/");
+        int i = 0;
+        if (raw.length() > 0 && raw.get(0) == "") { i = 1; }
+        while (i < raw.length()) {
+            segs.add(raw.get(i));
+            i = i + 1;
+        }
+        return segs;
+    }
+
+    // The segments from one index on, joined with single slashes between them and none
+    // at either end: both the '*' capture and the stripped path are made of that.
+    private string joinFrom(List<string> parts, int from) {
+        string joined = "";
+        int i = from;
+        while (i < parts.length()) {
+            if (i > from) { joined = joined + "/"; }
+            joined = joined + parts.get(i);
+            i = i + 1;
+        }
+        return joined;
+    }
+
+    // Registration is where a mistake gets caught (D-9): the shape of the pattern, then
+    // the same verbs on the same path twice, then a row this one would never reach. All
+    // three run before the row joins the table, so a refused registration leaves the
+    // table exactly as it was.
+    private void register(List<string> methods, string pattern,
+                          func<void, RequestContext> h, bool isMount) {
+        List<string> segments = this.parsePattern(pattern, isMount);
+        Route entry = Route();
+        entry.methods = methods;
+        entry.segments = segments;
+        entry.handler = h;
+        entry.isMount = isMount;
+        entry.sourceText = pattern;
+
+        // The exact table has one row per verb of a fully literal pattern, which is
+        // both what D-7 matches on and what says a literal path was registered twice.
+        int i = 0;
+        while (i < methods.length()) {
+            string key = methods.get(i) + " " + pattern;
+            if (m_exact.containsKey(key)) {
+                int first = m_exact.get(key);
+                Route earlier = m_routes.get(first);
+                this.rejectConflict(pattern, earlier.sourceText);
+            }
+            i = i + 1;
+        }
+        // Two rows that share no verb answer different requests, so the rules below only
+        // ever compare rows that could answer the same one.
+        int j = 0;
+        while (j < m_routes.length()) {
+            Route earlier = m_routes.get(j);
+            if (this.sharesVerb(earlier, methods) && this.swallows(earlier, entry)) {
+                this.rejectConflict(pattern, earlier.sourceText);
+            }
+            j = j + 1;
+        }
+        m_routes.add(entry);
+        if (isMount) { return; }
+        // Only a literal path joins the exact table: it is what makes a literal path
+        // beat every earlier parameter row, and a mount is a subtree, not a path.
+        if (this.isLiteral(segments)) {
+            int k = 0;
+            while (k < methods.length()) {
+                m_exact.set(methods.get(k) + " " + pattern, m_routes.length() - 1);
+                k = k + 1;
+            }
+        }
+    }
+
+    private bool sharesVerb(Route earlier, List<string> methods) {
+        int i = 0;
+        while (i < earlier.methods.length()) {
+            if (methods.contains(earlier.methods.get(i))) { return true; }
+            i = i + 1;
+        }
+        return false;
+    }
+
+    // D-9's structural rules, which are one argument spelled two ways: this row would
+    // never run, because an earlier row already answers everything it could.
+    //
+    // A row that owns a subtree — a mount, or a pattern ending in '*' — owns every path
+    // that starts with its literal run, so a later row inside that ground is dead. The
+    // exception is a fully literal path, which the exact table keeps reachable whatever
+    // was registered first. A mount narrows that exception to its own boundary, because
+    // everything strictly below the prefix belongs to the subtree and not to this table
+    // (D-10); a mount can never use the exception at all, since only a literal path has
+    // a row in that table.
+    //
+    // Between rows that own no subtree the question is positional, and the first segment
+    // at which the two patterns differ decides it: a literal on the earlier side answers
+    // one path and leaves the rest to this row, while a wildcard on the earlier side
+    // already answers this position, so only a fully literal row keeps its own way out.
+    private bool swallows(Route earlier, Route candidate) {
+        List<string> head = earlier.segments;
+        List<string> tail = candidate.segments;
+        bool literalRow = this.isLiteral(tail) && !candidate.isMount;
+        if (this.ownsSubtree(earlier)) {
+            if (!this.covered(this.literalRun(tail), this.literalRun(head))) { return false; }
+            if (literalRow && !earlier.isMount) { return false; }
+            return !(literalRow && tail.length() == head.length());
+        }
+        int shared = 0;
+        while (shared < head.length() && shared < tail.length()) {
+            string a = head.get(shared);
+            string b = tail.get(shared);
+            if (a != b) { return this.isWildcardSegment(a) && !literalRow; }
+            shared = shared + 1;
+        }
+        // The two patterns agree as far as the shorter one goes.
+        if (head.length() > tail.length()) {
+            // The earlier row is the longer one, and it answers this row's only path
+            // whenever the cut falls on one of its wildcards.
+            return this.isWildcardSegment(head.get(tail.length())) && !literalRow;
+        }
+        // Identical patterns are dead weight; an earlier pattern cut short leaves this
+        // row the deeper paths, which are the ones it was registered for.
+        return head.length() == tail.length();
+    }
+
+    // Whether a row claims a whole ground of paths at once: a mount owns its prefix and
+    // everything under it, and a trailing '*' owns everything below its literal run.
+    private bool ownsSubtree(Route entry) {
+        if (entry.isMount) { return true; }
+        int n = entry.segments.length();
+        return n > 0 && entry.segments.get(n - 1) == "*";
+    }
+
+    // The literal segments at the front of a pattern, which is the ground a subtree
+    // owner claims and the part two patterns can be compared on safely.
+    private List<string> literalRun(List<string> segments) {
+        List<string> run = {};
+        int i = 0;
+        while (i < segments.length()) {
+            string seg = segments.get(i);
+            if (this.isWildcardSegment(seg)) { return run; }
+            run.add(seg);
+            i = i + 1;
+        }
+        return run;
+    }
+
+    private bool isLiteral(List<string> segments) {
+        return this.literalRun(segments).length() == segments.length();
+    }
+
+    // A segment standing for more than one literal path.
+    private bool isWildcardSegment(string seg) {
+        return seg.startsWith(":") || seg == "*";
+    }
+
+    // Whether path begins with ground, segment for segment.
+    private bool covered(List<string> path, List<string> ground) {
+        int i = 0;
+        while (i < ground.length()) {
+            if (i >= path.length()) { return false; }
+            if (path.get(i) != ground.get(i)) { return false; }
+            i = i + 1;
+        }
+        return true;
+    }
+
+    // The shapes that cannot mean anything: no pattern at all, a missing or an extra
+    // slash, a '*' anywhere but last, a ':' segment with no name, one segment name used
+    // twice, and a mount prefix that is anything but a run of literal segments. These
+    // have no earlier row to name, so they answer with the reason instead.
+    private List<string> parsePattern(string pattern, bool isMount) {
+        if (pattern.length() == 0) { this.rejectPattern(pattern, "it is empty"); }
+        if (!pattern.startsWith("/")) { this.rejectPattern(pattern, "it must start with '/'"); }
+        if (pattern != "/" && pattern.endsWith("/")) {
+            this.rejectPattern(pattern, "a trailing '/' is not a segment");
+        }
+        if (pattern == "/") { return {}; }           // the root: no segments at all
+        List<string> segments = this.splitPath(pattern);
+        List<string> names = {};
+        int n = segments.length();
+        int i = 0;
+        while (i < n) {
+            string seg = segments.get(i);
+            if (seg == "*") {
+                if (isMount) { this.rejectPattern(pattern, "a mount prefix must be literal"); }
+                if (i != n - 1) { this.rejectPattern(pattern, "'*' must be the last segment"); }
+            } else if (seg.startsWith(":")) {
+                if (isMount) { this.rejectPattern(pattern, "a mount prefix must be literal"); }
+                string name = seg.substring(1);
+                if (name.length() == 0) { this.rejectPattern(pattern, "a ':' segment needs a name"); }
+                if (names.contains(name)) {
+                    this.rejectPattern(pattern, "the segment name '" + name + "' is used twice");
+                }
+                names.add(name);
+            } else if (seg.length() == 0) {
+                this.rejectPattern(pattern, "an empty segment is not a segment");
+            }
+            i = i + 1;
+        }
+        return segments;
+    }
+
+    // The verbs an any row and a mount answer. HEAD is in the set because a HEAD request
+    // has to find a row to answer it, and OPTIONS because a preflight is one of the verbs
+    // an entry has to be able to answer (D-8).
+    private List<string> everyMethod() {
+        List<string> methods = {};
+        methods.add("GET");
+        methods.add("HEAD");
+        methods.add("POST");
+        methods.add("PUT");
+        methods.add("PATCH");
+        methods.add("DELETE");
+        methods.add("OPTIONS");
+        return methods;
+    }
+
+    // The three registration-time refusals of D-9 share one sentence so their wording
+    // cannot drift apart: the pattern that was refused, the one already in the table,
+    // and the reason the table wins, which is that it was there first.
+    private void rejectConflict(string pattern, string firstPattern) {
+        throw Exception("web.Router: " + pattern + " conflicts with " + firstPattern
+            + " (registered first)");
+    }
+
+    private void rejectPattern(string pattern, string reason) {
+        throw Exception("web.Router: invalid pattern \"" + pattern + "\": " + reason);
+    }
+}
+
 // The framework facade (spec §6.2): it collects the middleware chain, owns the
 // HttpServer, and turns whatever a chain does or throws into one response.
 // server() hands out the transport object itself, so the frame of the exchange
@@ -232,10 +721,21 @@ class App {
     private List<Middleware> m_chain;
     private http.HttpServer m_srv;
     private func<void, RequestContext, Exception> m_onError;
+    private Router m_router;
+    // The route table as the last link of the chain, made once: rebuilding it per
+    // request would copy the chain for nothing.
+    private Middleware m_routeLink;
+    private func<void, RequestContext> m_notFound;
 
     public App() {
         m_chain = {};
         m_srv = http.HttpServer();
+        m_router = Router();
+        // The typed local is not decoration: an instance-creation call gives its
+        // arguments no expected function type (spec P2), so the method reference goes
+        // into a variable first and the wrapper takes the variable.
+        func<void, RequestContext> tailFn = this.routeTail;
+        m_routeLink = FuncMiddleware(tailFn);
     }
 
     // One name, two shapes: a function is wrapped, a Middleware joins as it is.
@@ -253,12 +753,46 @@ class App {
         m_onError = h;
     }
 
+    // The registration face (spec §6.2): every method here forwards to the route
+    // table, so the app and a standalone Router are registered the same way and a
+    // mount accepts either. What a registration refuses is Router's rule, told here
+    // in its own name because this is the object the user holds.
+    public void on(string method, string pattern, func<void, RequestContext> h) {
+        m_router.on(method, pattern, h);
+    }
+
+    public void get(string pattern, func<void, RequestContext> h) { m_router.get(pattern, h); }
+    public void post(string pattern, func<void, RequestContext> h) { m_router.post(pattern, h); }
+    public void put(string pattern, func<void, RequestContext> h) { m_router.put(pattern, h); }
+    public void patch(string pattern, func<void, RequestContext> h) { m_router.patch(pattern, h); }
+    public void head(string pattern, func<void, RequestContext> h) { m_router.head(pattern, h); }
+
+    // del, not delete: the keyword is taken, as it already is in stdlib/http.n.
+    public void del(string pattern, func<void, RequestContext> h) { m_router.del(pattern, h); }
+
+    public void any(string pattern, func<void, RequestContext> h) { m_router.any(pattern, h); }
+
+    public void mount(string prefix, func<void, RequestContext> h) { m_router.mount(prefix, h); }
+    public void mount(string prefix, Router subtree) { m_router.mount(prefix, subtree); }
+
+    // The app's own answer for a path no row serves. A path the table knows under
+    // another verb is a method mistake and not an unknown path, so the table's 405
+    // answers that one and the hook never sees it.
+    public void setNotFound(func<void, RequestContext> h) { m_notFound = h; }
+
     public http.HttpServer server() { return m_srv; }
 
     // The handler handed to HttpServer. A chain runs inside one context; the
     // only thing that may leave handle() is a response.
     public http.HttpResponse handle(http.HttpRequest req) {
-        RequestContext ctx = RequestContext(this, m_chain);
+        // The route table rides the chain as its last link, which is what makes a
+        // middleware that answers without calling next() never reach the table (D-4)
+        // and keeps a handler's throw inside this try (D-11). The copy is so the
+        // per-request context gets a chain that ends, without the registered chain
+        // growing a link every request.
+        List<Middleware> chain = m_chain.copy();
+        chain.add(m_routeLink);
+        RequestContext ctx = RequestContext(this, chain);
         ctx.req = req;
         ctx.method = req.method;
         // The parser has already turned the request target into a Url and
@@ -298,6 +832,23 @@ class App {
     public int drain(int graceMs = DEFAULT_DRAIN_GRACE_MS) { return m_srv.drain(graceMs); }
 
     public void close() { m_srv.close(); }
+
+    // The chain's last link (D-4): the route table gets the request only after every
+    // middleware has let it through, which is what makes a short-circuit answer never
+    // reach a handler. What a miss looks like is decided here, for the whole table:
+    // the verb list when the path is registered under other verbs, otherwise the
+    // hook, otherwise a plain 404 (D-8, D-9).
+    private void routeTail(RequestContext ctx) {
+        if (m_router.dispatch(ctx)) { return; }
+        string allow = m_router.allowFor(ctx.path);
+        if (allow != "") {
+            ctx.res.headers.set("Allow", allow);
+            ctx.text(405, "method not allowed: " + ctx.method);
+            return;
+        }
+        if (m_notFound != null) { m_notFound(ctx); return; }
+        ctx.text(404, "not found: " + ctx.req.url.path);
+    }
 
     // A chain that failed has already written part of the answer, and that half
     // is not what the client should get: the header table is replaced wholesale,
