@@ -341,6 +341,7 @@ class Route {
 class Router {
     private List<Route> m_routes;
     private Dict<string, int> m_exact;           // "GET /api/list" -> the row (D-7)
+    private bool m_served = false;               // D-25: a request has read this table, registration closes
 
     public Router() {
         m_routes = {};
@@ -387,6 +388,15 @@ class Router {
     // its two callers speak for different tables — serve answers for one subtree, the
     // last link of App's chain for the whole app.
     public bool dispatch(RequestContext ctx) {
+        // Read-only from here on (D-25): this is the one place a request walks the row list,
+        // so it is also the place that closes registration — allowFor reads those rows too, to
+        // build a 405 verb list, but answering a question about the table is not serving it.
+        // Before the walk, because a request that found no row is still being answered from
+        // this table — the 405/404 it gets are computed from these very rows, by serve for one
+        // subtree and by App.routeTail for the app's own table, and both callers only got here
+        // through dispatch. The write is idempotent, so concurrent requests only ever store
+        // the same value.
+        m_served = true;
         List<string> parts = this.splitPath(ctx.path);
         string method = ctx.method.toUpper();
         if (this.runMatch(ctx, parts, method)) { return true; }
@@ -567,9 +577,16 @@ class Router {
     // Registration is where a mistake gets caught (D-9): the shape of the pattern, then
     // the same verbs on the same path twice, then a row this one would never reach. All
     // three run before the row joins the table, so a refused registration leaves the
-    // table exactly as it was.
+    // table exactly as it was — and so does the read-only rule (D-25).
     private void register(List<string> methods, string pattern,
                           func<void, RequestContext> h, bool isMount) {
+        // D-25: the table a request has already answered from stops growing. Checked before
+        // the pattern is even parsed, so the refusal does not depend on the row being
+        // well-formed and leaves the table exactly as it was — the same guarantee the three
+        // registration-time conflicts above already give.
+        if (m_served) {
+            throw Exception("web.Router: routes must be registered before the first request.");
+        }
         List<string> segments = this.parsePattern(pattern, isMount);
         Route entry = Route();
         entry.methods = methods;
@@ -1145,12 +1162,28 @@ class App {
         m_routeLink = FuncMiddleware(tailFn);
     }
 
+    // Both use overloads refuse through one helper: the chain starts being walked the
+    // moment a request starts being handled, so appending to it afterwards is the same
+    // mistake in two spellings (D-25). What the guard is for is growth, so the exemption
+    // follows the read point rather than the name: onError and setNotFound each replace one
+    // slot that is read at its single point of use, and a late write only means the requests
+    // before it were answered in the other shape. useSessions keeps its own guard because it
+    // hands over three fields one request binds together, and because its message names its
+    // own call.
+    private void refuseLateUse() {
+        if (m_started) {
+            throw Exception("web.App.use: middlewares must be registered before the first request.");
+        }
+    }
+
     // One name, two shapes: a function is wrapped, a Middleware joins as it is.
     public void use(func<void, RequestContext> fn) {
+        this.refuseLateUse();
         m_chain.add(FuncMiddleware(fn));
     }
 
     public void use(Middleware m) {
+        this.refuseLateUse();
         m_chain.add(m);
     }
 
@@ -1163,9 +1196,11 @@ class App {
     // Turns sessions on (D-12). Opt-in rather than always there: an app that answers a
     // webhook has no session, and a handler that reaches for one on such an app gets a
     // message naming the call it is missing instead of an empty session that quietly
-    // forgets every write. The store has to be handed over before the first request,
-    // because a request that started without one would be looking at a store that
-    // appeared under it (D-25). The two cookie-policy switches are D-12's: Secure, which
+    // forgets every write. The store has to be handed over before the first request, because
+    // the store and the two cookie switches below are one capability and handle() reads all
+    // three of them together to bind a context: handed over while requests are still being
+    // served, one request could bind this call's store with another call's policy (D-25).
+    // The two cookie-policy switches are D-12's: Secure, which
     // only the app can know it needs, and the __Host- prefix, which refuses to be read
     // unless Secure is there to back it, so it is refused here rather than silently
     // dropped by the browser later.
@@ -1183,8 +1218,10 @@ class App {
 
     // The registration face (spec §6.2): every method here forwards to the route
     // table, so the app and a standalone Router are registered the same way and a
-    // mount accepts either. What a registration refuses is Router's rule, told here
-    // in its own name because this is the object the user holds.
+    // mount accepts either. A refusal is about Router's table, so its message keeps
+    // Router's name even when the call arrives through App: one rule keeps one name
+    // whichever hand of the API it comes in through, and that name says which table
+    // the registration has to move out of.
     public void on(string method, string pattern, func<void, RequestContext> h) {
         m_router.on(method, pattern, h);
     }

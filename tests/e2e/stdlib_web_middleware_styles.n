@@ -6,9 +6,11 @@
 // http.HttpException keeping its own status and message through a rebuilt
 // response versus any other exception getting 500 + "internal error" with
 // onError firing only there (D-11), a fresh attribute store per request (D-6),
-// the attribute accessor face, every response helper, and the Set-Cookie wire
-// form with the cookie() lookup (D-12). Every leg runs its own server on an
-// ephemeral port and ends by draining and closing it (D-22).
+// the attribute accessor face, every response helper, the Set-Cookie wire form
+// with the cookie() lookup (D-12), and the middleware registration face going
+// read-only once the first request has arrived, single-slot configuration
+// excepted (D-25). Every leg runs its own server on an ephemeral port and ends
+// by draining and closing it (D-22).
 import io;
 import url;
 import http;
@@ -73,6 +75,18 @@ class NoOverride : web.Middleware { }
 // and no entry sees a return trip.
 void guard(RequestContext ctx) {
     ctx.text(401, "missing key");
+}
+
+// Short-circuits one path and forwards the rest, so a single app shows both halves of
+// the read-point rule: the blocked request leaves the route table unread, and a row
+// registered after it is still served, while a request that does reach the table
+// closes it (D-25).
+void blockFirst(RequestContext ctx) {
+    if (ctx.path == "/first") {
+        ctx.text(401, "missing key");
+    } else {
+        ctx.next();
+    }
 }
 
 // Counts itself and marks the return trip with a header, so leg C's "no X-Post"
@@ -246,6 +260,7 @@ int main() {
     if (legResponseHelpers() != 0) { bad = bad + 1; }
     if (legCookies() != 0) { bad = bad + 1; }
     if (legFacadeForwards() != 0) { bad = bad + 1; }
+    if (legLateRegistration() != 0) { bad = bad + 1; }
     if (bad == 0) { io.print("ok"); }
     return bad;
 }
@@ -674,5 +689,94 @@ int legFacadeForwards() {
         io.print("leg L the facade server is still serving after close()");
         bad = bad + 1;
     }
+    return bad;
+}
+
+// Leg M: the middleware face closes with the first request whatever that request did,
+// while the route table closes only if the request reached it. The guard sits at the
+// read point, not on a clock: the chain starts being walked when handling starts, the
+// table only when the chain's last link runs (D-25).
+int legLateRegistration() {
+    Trace.clear();
+    int bad = 0;
+    web.App app = web.App();
+    app.use(blockFirst);
+    app.get("/boom", throwSecret);     // gives the late onError hook something to catch
+    app.listen("127.0.0.1", 0);
+    string base = "http://127.0.0.1:" + app.server().localPort().toString();
+    http.HttpResponse res = http.get(base + "/first");
+    if (res.statusCode != 401 || res.bodyText() != "missing key") {
+        io.print("leg M the blocked path did not short-circuit: " + res.statusCode.toString()
+            + " body=" + res.bodyText());
+        bad = bad + 1;
+    }
+
+    // The route table was never consulted, so the row added now is served.
+    app.get("/open", countedDownstream);
+    res = http.get(base + "/open");
+    if (res.statusCode != 200 || res.bodyText() != "done" || Trace.downstream != 1) {
+        io.print("leg M the late route was not served: " + res.statusCode.toString()
+            + " body=" + res.bodyText() + " downstream=" + Trace.downstream.toString());
+        bad = bad + 1;
+    }
+
+    // Both use spellings refuse: the chain is already being walked.
+    bool threwFunc = false;
+    string whyFunc = "";
+    try {
+        app.use(markA);
+    } catch (Exception ex) { threwFunc = true; whyFunc = ex.message; }
+    if (!threwFunc) {
+        whyFunc = "no exception";
+    }
+    if (!threwFunc || !whyFunc.startsWith("web.App.use: ")) {
+        io.print("leg M a late use(func) must be refused under web.App.use, got " + whyFunc);
+        bad = bad + 1;
+    }
+    bool threwInstance = false;
+    string whyInstance = "";
+    try {
+        app.use(Terminal());
+    } catch (Exception ex) { threwInstance = true; whyInstance = ex.message; }
+    if (!threwInstance) {
+        whyInstance = "no exception";
+    }
+    if (!threwInstance || !whyInstance.startsWith("web.App.use: ")) {
+        io.print("leg M a late use(Middleware) must be refused under web.App.use, got "
+            + whyInstance);
+        bad = bad + 1;
+    }
+
+    // Single-slot configuration stays open: replacing one hook appends nothing that a
+    // request in flight could have already read past (D-25's exemption).
+    bool threwConfig = false;
+    string whyConfig = "";
+    try {
+        app.onError(countErrors);
+        app.setNotFound(countedDownstream);
+    } catch (Exception ex) { threwConfig = true; whyConfig = ex.message; }
+    if (threwConfig) {
+        io.print("leg M late configuration must be accepted, got " + whyConfig);
+        bad = bad + 1;
+    }
+
+    // Accepted means effective: each slot is read at its own point of use, so the hooks
+    // registered after the first request answer the requests that come after them. A
+    // snapshot-at-start implementation would accept the write and keep answering with the
+    // old shape, and both requests below would look like an app nobody configured.
+    res = http.get(base + "/gone");
+    if (res.statusCode != 200 || res.bodyText() != "done" || Trace.downstream != 2) {
+        io.print("leg M the late not-found hook did not answer: " + res.statusCode.toString()
+            + " body=" + res.bodyText() + " downstream=" + Trace.downstream.toString());
+        bad = bad + 1;
+    }
+    res = http.get(base + "/boom");
+    if (res.statusCode != 500 || Trace.onErrorCalls != 1 || res.headers.get("X-OnError") != "1") {
+        io.print("leg M the late onError hook did not run: " + res.statusCode.toString()
+            + " onErrorCalls=" + Trace.onErrorCalls.toString()
+            + " X-OnError=" + res.headers.get("X-OnError"));
+        bad = bad + 1;
+    }
+    bad = bad + closeServer(app);
     return bad;
 }

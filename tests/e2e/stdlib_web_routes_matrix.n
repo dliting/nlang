@@ -5,8 +5,9 @@
 // entry while an explicitly registered head wins (D-8), the 405 carrying its
 // Allow list, a mount owning everything under its prefix and never handing the
 // request back (D-10), the registration-time refusals of a duplicate, a same-level
-// shadow and a dead entry along with every illegal pattern shape (D-9), and the
-// paramInt / hasParam readers over one captured segment. Every leg that listens
+// shadow and a dead entry along with every illegal pattern shape (D-9), the
+// paramInt / hasParam readers over one captured segment, and the registration face
+// going read-only once a request has read that table (D-25). Every leg that listens
 // runs its own server on an ephemeral port and ends by draining and closing it
 // (D-22).
 import io;
@@ -175,6 +176,7 @@ int main() {
     if (legMountHandOff() != 0) { bad = bad + 1; }
     if (legRefusals() != 0) { bad = bad + 1; }
     if (legParamNumbers() != 0) { bad = bad + 1; }
+    if (legLateRegistration() != 0) { bad = bad + 1; }
     if (bad == 0) { io.print("ok"); }
     return bad;
 }
@@ -730,6 +732,94 @@ int legParamNumbers() {
         "leg G an unparseable value must answer the fallback instead of raising");
     bad = bad + wantBody(base, "GET", "/n/", 200, "v=-1" + tail,
         "leg G an empty capture must answer the fallback");
+    bad = bad + closeServer(app);
+    return bad;
+}
+
+// Leg H: a table stops growing once a request has read it (D-25), per table — the
+// mounted subtree closes only when a request actually reaches it, a request that found no
+// row has still read the rows it answered from, and a router that never served anybody
+// stays open.
+int legLateRegistration() {
+    int bad = 0;
+    web.App app = web.App();
+    web.Router api = web.Router();
+    web.Router edge = web.Router();      // mounted, but no request in this leg reaches it
+    web.Router miss = web.Router();      // mounted; only a request that finds no row reads it
+    api.get("/users", hUsers);
+    app.mount("/api", api);
+    app.mount("/edge", edge);
+    app.mount("/miss", miss);
+    app.get("/plain", hPlain);
+    app.listen("127.0.0.1", 0);
+    string base = "http://127.0.0.1:" + app.server().localPort().toString();
+    bad = bad + wantBody(base, "GET", "/api/users", 200, "users", "leg H the mount must answer");
+
+    bool threwRoot = false;
+    string whyRoot = "";
+    try {
+        app.get("/late", hPlain);
+    } catch (Exception ex) { threwRoot = true; whyRoot = ex.message; }
+    bad = bad + refused("GET /late after a request read the app table", threwRoot, whyRoot,
+        "routes must be registered before the first request", "");
+
+    bool threwMounted = false;
+    string whyMounted = "";
+    try {
+        api.get("/late", hPlain);
+    } catch (Exception ex) { threwMounted = true; whyMounted = ex.message; }
+    bad = bad + refused("GET /late on the mounted subtree a request reached", threwMounted,
+        whyMounted, "routes must be registered before the first request", "");
+
+    // The guard sits before the pattern is even parsed: a late row is refused for being late,
+    // so a malformed pattern after the first request still gets the read-only message rather
+    // than a shape complaint.
+    bool threwShape = false;
+    string whyShape = "";
+    try {
+        api.get("late", hPlain);
+    } catch (Exception ex) { threwShape = true; whyShape = ex.message; }
+    bad = bad + refused("the malformed late row on the closed subtree", threwShape, whyShape,
+        "routes must be registered before the first request", "");
+
+    // A refusal leaves the table exactly as it was. The refused path was never added, so it
+    // still answers the way it answered before the call.
+    bad = bad + wantBody(base, "GET", "/late", 404, "not found: /late",
+        "leg H a refused app row must not be live");
+
+    // The close is a read point, not a hit counter: the subtree that found no row still walked
+    // its rows to compute that 404, so its own miss closes it.
+    bad = bad + wantBody(base, "GET", "/miss/nothing", 404, "not found: /miss/nothing",
+        "leg H the mounted subtree must answer its own miss");
+    bool threwAfterMiss = false;
+    string whyAfterMiss = "";
+    try {
+        miss.get("/open", hPlain);
+    } catch (Exception ex) { threwAfterMiss = true; whyAfterMiss = ex.message; }
+    bad = bad + refused("GET /open on a subtree that only ever answered a miss", threwAfterMiss,
+        whyAfterMiss, "routes must be registered before the first request", "");
+
+    // The negative half of the per-table rule: the flag belongs to a Router, not to the
+    // process, so an untouched table still accepts rows.
+    web.Router idle = web.Router();
+    bool threwIdle = false;
+    string whyIdle = "";
+    try {
+        idle.get("/open", hPlain);
+    } catch (Exception ex) { threwIdle = true; whyIdle = ex.message; }
+    bad = bad + accepted("GET /open on a router that never served a request", threwIdle, whyIdle);
+
+    // A mounted subtree no request reached: mount only puts a row in the parent table, so
+    // this child table is still open, and the row added now answers through that row.
+    bool threwUnreached = false;
+    string whyUnreached = "";
+    try {
+        edge.get("/open", hPlain);
+    } catch (Exception ex) { threwUnreached = true; whyUnreached = ex.message; }
+    bad = bad + accepted("GET /open on a mounted subtree no request reached", threwUnreached,
+        whyUnreached);
+    bad = bad + wantBody(base, "GET", "/edge/open", 200, "plain",
+        "leg H the row added to an unreached subtree must answer through the mount");
     bad = bad + closeServer(app);
     return bad;
 }
