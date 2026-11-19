@@ -44,7 +44,7 @@ int main() {
     while (system.monoMs() - t0 < 2100) {
         c.write("GET / HTTP/1.1\r\nHost: h\r\n\r\n", ioTimeoutMs);
         string status = "";
-        string date = readDate(c, out status, ioTimeoutMs);
+        string date = readDate(c, status, ioTimeoutMs);
         long sec = system.wallMs() / 1000;
         //Name the actual framing break on stderr: the runner only reports
         //the exit code, and rc=1 hides whether the status line slipped,
@@ -84,8 +84,9 @@ int main() {
 //Drains the whole head through the blank line, so the next request on this
 //connection starts aligned. Returning at the Date line instead would leave
 //the blank line to be read as the next status line. The status line travels
-//back through `out status` so main's failure report can name what slipped.
-string readDate(TcpStream c, out string status, int timeoutMs) {
+//back through the `status` reference formal so main's failure report can
+//name what slipped.
+string readDate(TcpStream c, string& status, int timeoutMs) {
     status = c.readLine(timeoutMs);                      //status line
     if (status.length() < 12) { return ""; }             //framing slipped → check 1 catches it
     if (status.substring(9, 12) != "204") { return ""; }

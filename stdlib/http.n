@@ -206,7 +206,7 @@ class HttpParser {
     public static const int WRITE_SLICE = 65536;
 
     public static HttpRequest parseRequest(byte[] buf, int have,
-        int maxHeaderBytes, int maxHeaders, out int consumed) {
+        int maxHeaderBytes, int maxHeaders, int& consumed) {
         consumed = 0;
         int end = findEndOfHeaders(buf, have);
         int blockLen = have;
@@ -250,7 +250,7 @@ class HttpParser {
         parseInto(req.headers, lines);
         checkHost(req.headers, req.version);
         int fl = 0;
-        req.framingMode = framingOf(req.headers, false, 200, out fl);
+        req.framingMode = framingOf(req.headers, false, 200, fl);
         req.framingLength = fl;
         req.connectionClose = hasCloseToken(req.headers);
         if (req.version == "HTTP/1.0" && !hasKeepAliveToken(req.headers)) {
@@ -261,7 +261,7 @@ class HttpParser {
     }
 
     public static HttpResponse parseResponse(byte[] buf, int have,
-        int maxHeaderBytes, out int consumed) {
+        int maxHeaderBytes, int& consumed) {
         consumed = 0;
         int end = findEndOfHeaders(buf, have);
         int blockLen = have;
@@ -300,7 +300,7 @@ class HttpParser {
         }
         parseInto(res.headers, lines);
         int fl = 0;
-        res.framingMode = framingOf(res.headers, true, res.statusCode, out fl);
+        res.framingMode = framingOf(res.headers, true, res.statusCode, fl);
         res.framingLength = fl;
         res.connectionClose = hasCloseToken(res.headers);
         if (res.version == "HTTP/1.0" && !hasKeepAliveToken(res.headers)) {
@@ -333,7 +333,7 @@ class HttpParser {
     // null + consumed==0 → need more; payload + consumed>0 → progress;
     // payload (possibly empty) + consumed<0 → stream ended (|consumed|
     // bytes consumed, last chunk and trailer included).
-    public static byte[] decodeChunked(byte[] buf, int have, out int consumed) {
+    public static byte[] decodeChunked(byte[] buf, int have, int& consumed) {
         consumed = 0;
         List<byte> payload = {};
         int pos = 0;
@@ -496,7 +496,7 @@ class HttpParser {
     // (RFC 9112 §6.3) is the client's job (readResponse's requestWasHead
     // override), because the parser never sees the request method.
     private static int framingOf(HttpHeaders headers, bool isResponse,
-        int status, out int framingLength) {
+        int status, int& framingLength) {
         int chunked = 0;
         foreach (string v in headers.getAll("Transfer-Encoding")) {
             foreach (string tok in splitTokens(v)) {
@@ -908,7 +908,7 @@ class HttpConn {
     // sites in readRequest, readResponse, and decodeChunk are untouched.
     public bool fill(int timeoutMs) {
         bool ended = false;
-        return this.gather(timeoutMs, out ended);
+        return this.gather(timeoutMs, ended);
     }
 
     // Body bytes may already sit in the window or spill behind a parsed head
@@ -956,7 +956,7 @@ class HttpConn {
     // until a byte arrives. ended reports that nothing more can come, the
     // information fill()'s false return carries today, which is how readRequest
     // tells a peer that closed (return null) from a head that stalled (408).
-    private bool gather(int timeoutMs, out bool ended) {
+    private bool gather(int timeoutMs, bool& ended) {
         ended = false;
         if (m_eof) { ended = true; return false; }
         while (true) {
@@ -1081,7 +1081,7 @@ class HttpConn {
         while (true) {
             int consumed = 0;
             HttpRequest req = HttpParser.parseRequest(m_buf, m_have,
-                maxHeaderBytes, maxHeaders, out consumed);
+                maxHeaderBytes, maxHeaders, consumed);
             if (req != null) {
                 this.discard(consumed);
                 return req;
@@ -1125,7 +1125,7 @@ class HttpConn {
         while (true) {
             int consumed = 0;
             HttpResponse res = HttpParser.parseResponse(m_buf, m_have,
-                maxHeaderBytes, out consumed);
+                maxHeaderBytes, consumed);
             if (res != null) {
                 if (requestWasHead) {
                     res.framingMode = HttpParser.MODE_NONE;
@@ -1148,7 +1148,7 @@ class HttpConn {
         if (m_chunkDone) { return null; }
         while (true) {
             int consumed = 0;
-            byte[] payload = HttpParser.decodeChunked(m_buf, m_have, out consumed);
+            byte[] payload = HttpParser.decodeChunked(m_buf, m_have, consumed);
             if (consumed < 0) {
                 this.discard(-consumed);
                 m_chunkDone = true;
