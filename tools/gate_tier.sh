@@ -24,7 +24,6 @@
 
 set -u
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
-GATE="bash $REPO/tools/gate.sh"
 PY="D:/dev/miniconda3/envs/py313/python.exe"
 LOGS="$REPO/temp/tier/gates"
 WORK="$REPO/temp/tier"
@@ -70,7 +69,7 @@ leg() { # leg <name> <command...>
     echo "LEG $name: $*"
     return 0
   fi
-  "$GATE" "$name" "$LOGS/$name" "$@" > "$LOGS/$name.gate" 2>&1
+  bash "$REPO/tools/gate.sh" "$name" "$LOGS/$name" "$@" > "$LOGS/$name.gate" 2>&1
   echo "leg $name rc=$?"
 }
 
