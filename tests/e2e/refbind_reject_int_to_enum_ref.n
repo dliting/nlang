@@ -1,0 +1,7 @@
+// v0.13.9 phase 3: int cannot bind to Color& (exact-type rule).
+enum Color { Red }
+int main() {
+    int n = 0;
+    Color& c = n;
+    return 0;
+}

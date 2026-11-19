@@ -120,37 +120,38 @@ uint16_t VmBackend::ExprPeakDepth(SnExpression& expr,
 uint16_t VmBackend::InvokeExprPeakDepth(SnExpression& expr,
     const std::unordered_set<SnFunction*>& visited, bool isMethodContext) {
     auto& invoke = static_cast<SnInvokeExpr&>(expr);
-    //0.9.0: a ctor-carrying invoke shares the NewExpr claim shape.
-    //0.9.11 D2: the struct twin joins (same claim layout).
+    //0.9.0/0.9.11: a ctor-carrying invoke (class or struct twin)
+    //shares the NewExpr claim shape.
     if (invoke.CtorClass() || invoke.CtorStruct() || invoke.ArrayDynCtor())
         return CtorInvokePeakDepth(invoke, visited);
     auto* callee = invoke.Callee();
     size_t formalCount = callee ? callee->Params().size() : 0;
     if (!callee) { for (auto& p : invoke.Params()) ++formalCount; }
-    //Method call (slotBase=1) when caller signals method context,
-    //OR when callee is resolved to a method (Parent is class/struct/
-    //interface). The method-context flag is authoritative for
-    //built-in method calls where callee is null.
+    //Method call (slotBase=1) when caller signals method context, OR
+    //when the callee resolves to a method (Parent is class/struct/
+    //interface); the flag is authoritative when callee is null.
     bool isMethod = isMethodContext || (callee && callee->Parent()
         && (callee->Parent()->Kind() == NK_ClassDecl
             || callee->Parent()->Kind() == NK_StructDecl
             || callee->Parent()->Kind() == NK_InterfaceDecl));
-    size_t slotBase = isMethod ? 1 : 0;
-    size_t claimSize = formalCount + slotBase;
+    size_t claimSize = formalCount + (isMethod ? 1 : 0);
     //Phase 13: a delegate invoke materializes its callee handle into
-    //one scratch slot. The claims are sequential (args first, then
-    //callee), so this is over-reservation — the safe direction.
+    //one scratch slot (claims sequential: args first, then callee —
+    //over-reservation, the safe direction).
     if (!callee && VmBackend::IsDelegateInvoke(invoke))
         claimSize += 1;
 
-    //Peak depth of argument sub-expressions.
+    //Peak depth of argument sub-expressions (the &-formal charge is
+    //ArgPeakDepth's — CalleeHasRefFormal, or a delegate key's
+    //refFlags for the pair staging; WalkersExprRef.cpp, Task 8).
+    const bool bHasRefFormal = CalleeHasRefFormal(callee)
+        || DelegateKeyHasRefArg(invoke);
     uint16_t argDepth = 0;
-    for (auto& param : invoke.Params()) {
-        uint16_t d = ExprPeakDepth(param, visited);
-        if (d > argDepth) argDepth = d;
-    }
+    for (auto& param : invoke.Params())
+        argDepth = std::max(argDepth,
+            ArgPeakDepth(param, visited, bHasRefFormal));
 
-    //Peak depth of callee's default expressions (evaluated in caller frame).
+    //Callee default expressions evaluate in the caller frame.
     uint16_t defaultDepth = 0;
     if (callee && visited.find(callee) == visited.end()) {
         auto visitedPlus = visited;
@@ -174,16 +175,19 @@ uint16_t VmBackend::CtorInvokePeakDepth(SnInvokeExpr& invoke,
     const std::unordered_set<SnFunction*>& visited) {
     size_t argCount = 0;
     uint16_t argDepth = 0;
-    for (auto& param : invoke.Params()) {
-        ++argCount;
-        uint16_t ad = ExprPeakDepth(param, visited, false);
-        if (ad > argDepth) argDepth = ad;
-    }
     //0.9.11 T6 (D10): class and struct invokes both carry the
     //resolver-selected ctor in the AST; the registered filter keeps the
     //walker in step with codegen (an unregistered ctor allocates
     //without a claim — over-reserving here is the safe direction).
     SnFunction* pCtorFn = RegisteredCtor(invoke.CtorFunction());
+    //&-formal charge (see InvokeExprPeakDepth) — ctor args share the
+    //EmitBinding binding path.
+    const bool bHasRefFormal = CalleeHasRefFormal(pCtorFn);
+    for (auto& param : invoke.Params()) {
+        ++argCount;
+        argDepth = std::max(argDepth,
+            ArgPeakDepth(param, visited, bHasRefFormal));
+    }
     const size_t totalFormals = pCtorFn
         ? pCtorFn->Params().size() : argCount;
     return static_cast<uint16_t>(1 + totalFormals)
@@ -286,8 +290,7 @@ uint16_t VmBackend::SubscriptExprPeakDepth(SnExpression& expr,
 uint16_t VmBackend::MemberExprPeakDepth(SnExpression& expr,
     const std::unordered_set<SnFunction*>& visited) {
     auto& member = static_cast<SnMemberExpr&>(expr);
-    uint16_t d = ExprPeakDepth(*member.Outer(), visited, false);
-    //If Inner is an InvokeExpr, this is a method call shape — pass
+    uint16_t d = ExprPeakDepth(*member.Outer(), visited, false);    //If Inner is an InvokeExpr, this is a method call shape — pass
     //isMethodContext=true so the walker reserves slot 0 for `this`.
     //Phase 13 Step 2 exception: a delegate member invoke (obj.cb(x))
     //stages USER args only (no this at slot 0) — its callee scratch
@@ -363,13 +366,15 @@ uint16_t VmBackend::NewExprPeakDepth(SnExpression& expr,
     const size_t totalFormals = pCtorFn
         ? pCtorFn->Params().size() : argCount;
     uint16_t claimSize = static_cast<uint16_t>(1 + totalFormals);
+    //&-formal charge (see InvokeExprPeakDepth) — ctor args share the
+    //EmitBinding binding path.
+    const bool bHasRefFormal = CalleeHasRefFormal(pCtorFn);
     uint16_t d = 0;
     for (auto& arg : newExpr.Args()) {
         //Skip the class-name child (Args() view includes it — see the
         //NewExpr codegen handler); mirror codegen exactly.
         if (&arg == newExpr.ClassName()) continue;
-        uint16_t ad = ExprPeakDepth(arg, visited, false);
-        if (ad > d) d = ad;
+        d = std::max(d, ArgPeakDepth(arg, visited, bHasRefFormal));
     }
     return claimSize + CtorDefaultExprDepth(pCtorFn, visited, d);
 }

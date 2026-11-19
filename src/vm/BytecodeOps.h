@@ -130,13 +130,6 @@ enum class OpCode : uint8_t {
     OP_Rethrow,         // no operands — rethrow current catch's exception
     OP_PopHandler,      // no operands — pop one entry from handlerExcStack at catch exit
 
-    // === Phase 9e: out-parameter calls ===
-    OP_CallStaticOut,         // uint16 funcIdx, uint16 callParamBase, uint16 descIdx, uint32 outMask —
-                            // like OP_CallStatic; after the callee returns, bit i of outMask
-                            // copies callee frame slot i back to caller staging slot i
-    OP_CallMethodDirectOut, // uint16 funcIdx, uint16 callParamBase, uint32 outMask —
-                            // same for non-virtual method calls (this = slot 0)
-
     // === Phase 13: first-class function values (func<...>) ===
     OP_MakeFunc,        // uint16 funcIdx — allocate a static function handle
                         // {funcIdx, this=0, form=0}, write heap idx to pResult
@@ -159,9 +152,6 @@ enum class OpCode : uint8_t {
     OP_MakeVFunc,       // uint16 nameIdx (string-constant index) — receiver at the
                         // pResult slot → {nameIdx, this, form=1}; dispatch
                         // resolves the method by name on the runtime class
-    OP_CallDelegateOut, // uint16 calleeLocal, uint16 callParamBase, uint32
-                        // outMask — OP_CallDelegate + out write-back; bound
-                        // handles reverse the this-shift when copying back
 
     // === 0.7.5 char/string bridge ===
     OP_StrByteAt,       // uint16 dst, uint16 str, uint16 idx — read the idx-th
@@ -300,158 +290,64 @@ enum class OpCode : uint8_t {
     //opcode and break every stored image).
     OP_CopyStructInPlace,  // uint16 dst, uint16 src, uint16 structIdx
 
+    // === v0.13.9 phase ③: the byref slot representation ===
+    //A reference value is one uniform 8-byte frame slot holding the pair
+    //(base heap-record handle, cell offset within that record) — design
+    //doc §3.2. The RefOf* family builds the pair for every bindable
+    //location; OP_RefHandle extracts the base handle back into a
+    //struct-valued slot (byrefs are never stored, so consumption always
+    //goes through the handle); OP_LoadRef/OP_StoreRef dereference the
+    //pair. The pair is a raw slot value: moving it between slots is the
+    //existing 8-byte raw copy (OP_VarLocal/OP_Assign), zero allocation.
+    OP_RefOfLocal,      // uint16 dst, uint16 src — src is a struct-record
+                        // slot; dst = (handle, 0)
+    OP_RefOfPromoted,   // uint16 dst, uint16 src — src low half is a boxed
+                        // record handle (an &-bound scalar/string local's
+                        // stable boxing record); dst = (handle, 1)
+    OP_RefOfField,      // uint16 dst, uint16 base, uint16 cellOff — dst =
+                        // (base handle, cellOff); cellOff is in HEAP CELLS
+                        // (int32 units), not bytes — byref dereference walks
+                        // cells directly, field ops address 8-byte rows
+    OP_RefOfField_T,    // uint8 paramOrdinal, uint16 dst, uint16 base,
+                        // uint16 cellOff — the generic-body field bind: the
+                        // frame context's type argument kind picks the pair
+                        // shape — scalar/string pair the field's cell like
+                        // OP_RefOfField, struct/identity deref the cell and
+                        // pair the record it names (offset 0)
+    OP_RefOfElement,    // uint16 dst, uint16 arr, uint16 flatSlot — null
+                        // check + bounds check + view affine like
+                        // OP_LoadElementFlat; dst = (arr handle, payload
+                        // base + flat*elemCells)
+
+    OP_RefOfElementN,   // uint16 dst, arr, idxBase, rank — rank-N
+                        // spelling of RefOfElement; the runtime computes
+                        // the flat address from the staged indices
+    OP_RefHandle,       // uint16 dst, uint16 src — dst low half = the
+                        // byref pair's base handle (struct& consumption)
+    OP_LoadRef,         // uint8 kind, uint16 dst, uint16 src — read the
+                        // cells the src pair addresses into dst (8-byte
+                        // slot fill; scalar width by kind, strings one cell)
+    OP_LoadRef_T,       // uint8 paramOrdinal, uint16 dst, uint16 src —
+                        // the generic-body read through a T& formal pair:
+                        // the frame context's ordinal-th type argument
+                        // kind dispatches — scalar/string deref like
+                        // OP_LoadRef, struct/identity copy the pair raw
+                        // (offset-0 pairs read as record handles, D9)
+    OP_StoreRef,        // uint8 kind, uint16 dstByref, uint16 srcVal —
+                        // write the cells the dstByref pair addresses
+                        // from srcVal
+    OP_StoreRef_T,      // uint8 paramOrdinal, uint16 dstByref,
+                        // uint16 srcVal — the generic-body store through
+                        // a T& formal pair: the frame context's
+                        // ordinal-th type argument kind dispatches —
+                        // scalar/string take the OP_StoreRef cell write,
+                        // struct overwrites the pair's base record in
+                        // place, identity kinds rebind the slot alone
+                        // (T&≡T, design D9)
+
     OP_Count
 };
 
-//Single source of truth for the byte extent of each instruction: the
-//disassembler walk (line/pc map, ndb), the ndisasm printer and the
-//.ncu linker remap all step this one table. Parallel per-consumer
-//stride tables drifted more than once (AllocArrayN linker mispatch,
-//ND element opcodes walking stale group strides — both surfaced as
-//"corrupt image" far from the cause), so the extent lives here, next
-//to the operand shapes documented in the enum. Keep in lockstep with
-//the emitters when adding or reshaping opcodes; an unlisted opcode is
-//an authoring bug and fails loudly instead of corrupting downstream.
-//Extent groups for InstructionStride: opcodes sharing one instruction
-//byte extent; the width expressions mirror the operand shapes
-//documented in the enum (1 opcode byte + operands). Plain arrays plus
-//the StrideGroup helper (auto-carried count) — a constexpr aggregate
-//holding std::initializer_list members silently failed to match its
-//inline-braced rows under MSVC (op=5 walked straight to the miss),
-//so the table stores pointers and counts instead.
-static constexpr OpCode kStrideNoOperands[] = {
-    OpCode::OP_Return, OpCode::OP_Stop, OpCode::OP_ConstZero,
-    OpCode::OP_Array_to_str, OpCode::OP_Func_to_str,
-    OpCode::OP_ParaEnd, OpCode::OP_Rethrow, OpCode::OP_PopHandler};
-static constexpr OpCode kStrideByteTag[] = {
-    OpCode::OP_Prim_to_str, OpCode::OP_Box, OpCode::OP_Unbox,
-    //v0.13.1 D6: the T to-string conversion and the as-T cast — one
-    //ordinal byte each.
-    OpCode::OP_TypeArg_to_str, OpCode::OP_As_TypeParam,
-    //0.13.1a Task 5: the container-boundary normalization pair — one
-    //ordinal byte each.
-    OpCode::OP_Box_TypeArg, OpCode::OP_Unbox_TypeArg};
-static constexpr OpCode kStrideOneWord[] = {
-    OpCode::OP_Jump, OpCode::OP_Case, OpCode::OP_ConstString,
-    OpCode::OP_AssertFail, OpCode::OP_VarLocal, OpCode::OP_Assign,
-    OpCode::OP_Enum_to_str, OpCode::OP_LogicalNot, OpCode::OP_Switch,
-    OpCode::OP_DebugInfo, OpCode::OP_NullCheck,
-    OpCode::OP_Throw, OpCode::OP_MakeFunc, OpCode::OP_MakeBoundFunc,
-    OpCode::OP_MakeVFunc,
-    OpCode::OP_SlotInitDone, OpCode::OP_SlotInitFail};
-static constexpr OpCode kStrideKindWord[] = {
-    //v0.13.1: OP_TypeNameArg is u16 dst + u8 ordinal — word-then-tag
-    //(OP_Neg is tag-then-word); the group encodes only the 4-byte extent.
-    OpCode::OP_Neg, OpCode::OP_BitNot, OpCode::OP_TypeNameArg};
-static constexpr OpCode kStrideKindByte[] = {
-    OpCode::OP_PrimCast};
-static constexpr OpCode kStrideTwoWords[] = {
-    OpCode::OP_JumpIfNot, OpCode::OP_Concat_str, OpCode::OP_Eq_str,
-    OpCode::OP_Ne_str, OpCode::OP_Less_str, OpCode::OP_LessEqual_str,
-    OpCode::OP_Greater_str, OpCode::OP_GreaterEqual_str,
-    OpCode::OP_StrLen, OpCode::OP_CallMethod,
-    OpCode::OP_CallMethodDirect, OpCode::OP_CallIntrinsic,
-    OpCode::OP_CallDelegate, OpCode::OP_Eq_func, OpCode::OP_Ne_func,
-    OpCode::OP_Eq_struct, OpCode::OP_Ne_struct,
-    OpCode::OP_ArrayLength, OpCode::OP_ArrayShape,
-    OpCode::OP_LoadStatic, OpCode::OP_StoreStatic,
-    OpCode::OP_ClassInitDone, OpCode::OP_ClassInitFail,
-    //v0.13.1: OP_CheckCast gained its second u16 (descIdx) — classIdx,
-    //descIdx, the same extent family as the two-word loads.
-    OpCode::OP_SlotInitGate, OpCode::OP_TypeNameCompose, OpCode::OP_CheckCast};
-static constexpr OpCode kStrideKindTwoWords[] = {
-    OpCode::OP_Add, OpCode::OP_Sub, OpCode::OP_Mul, OpCode::OP_Div,
-    OpCode::OP_Mod, OpCode::OP_Shl, OpCode::OP_Shr,
-    OpCode::OP_BitAnd, OpCode::OP_BitOr, OpCode::OP_BitXor};
-static constexpr OpCode kStrideThreeWords[] = {
-    //v0.13.1: OP_New gained its third u16 (descIdx) — dst, classIdx,
-    //descIdx, the same extent family as AllocStruct's three words.
-    //0.13.1a: OP_CallStatic gained the same third u16 — funcIdx,
-    //callParamBase, descIdx (the receiver-less direct call fills a
-    //generic callee's frame descriptor cell from the call site).
-    OpCode::OP_New, OpCode::OP_CallStatic,
-    OpCode::OP_AllocStruct, OpCode::OP_LoadField,
-    OpCode::OP_StoreField, OpCode::OP_CopyStruct,
-    OpCode::OP_LoadElementFlat, OpCode::OP_StrByteAt,
-    OpCode::OP_ClassInitGate, OpCode::OP_CheckArrayRank,
-    OpCode::OP_CopyStructInPlace};
-static constexpr OpCode kStrideFourWords[] = {
-    OpCode::OP_LoadElementN, OpCode::OP_StoreElementN,
-    OpCode::OP_LoadElementDyn, OpCode::OP_StoreElementDyn,
-    //v0.13.1: OP_CheckArrayType gained its descIdx word — dst, src,
-    //arrayTypeIdx, descIdx; OP_AllocArrayDyn gained its element
-    //descriptor word the same way (Array(dims) allocations stamp too).
-    //D6: the T equality pair — dst, ordinal, lhs, rhs (0xFFFF = the
-    //null-literal side).
-    OpCode::OP_CheckArrayType, OpCode::OP_AllocArrayDyn,
-    OpCode::OP_Eq_T, OpCode::OP_Ne_T,
-    OpCode::OP_StrForeachStep};
-static constexpr OpCode kStrideFiveWords[] = {
-    //v0.13.1: the array allocators gained their descIdx word —
-    //AllocArrayN: dst, typeIdx, rank, dimsBase, descIdx; AssembleArrayN:
-    //dst, typeIdx, elemsBase, count, descIdx.
-    OpCode::OP_MakeArrayView,
-    OpCode::OP_AllocArrayN, OpCode::OP_AssembleArrayN};
-static constexpr OpCode kStrideOutMaskWords[] = {
-    OpCode::OP_CallMethodDirectOut,
-    OpCode::OP_CallDelegateOut};
-static constexpr OpCode kStrideOutMaskDescWords[] = {
-    //0.13.1a: OP_CallStaticOut carries the descriptor operand —
-    //funcIdx, callParamBase, descIdx, outMask.
-    OpCode::OP_CallStaticOut};
-static constexpr OpCode kStrideCmpHead[] = {
-    OpCode::OP_Cmp};
-static constexpr OpCode kStrideConst32[] = {
-    OpCode::OP_ConstInt32, OpCode::OP_ConstFloat};
-static constexpr OpCode kStrideConst64[] = {
-    OpCode::OP_ConstInt64, OpCode::OP_ConstDouble};
-
-struct StrideExtentGroup {
-    const OpCode* ops;
-    size_t count;
-    size_t stride;
-};
-
-//Count is carried from the array declaration itself — a group row can
-//never drift from its member list.
-template <size_t N>
-constexpr StrideExtentGroup StrideGroup(const OpCode (&ops)[N],
-                                        size_t stride) {
-    return {ops, N, stride};
-}
-
-//Single source of truth for the byte extent of each instruction: the
-//disassembler walk (line/pc map, ndb), the ndisasm printer and the
-//.ncu linker remap all step this one table. Parallel per-consumer
-//stride tables drifted more than once (AllocArrayN linker mispatch,
-//ND element opcodes walking stale group strides — both surfaced as
-//"corrupt image" far from the cause), so the extent lives here, next
-//to the operand shapes documented in the enum. Keep in lockstep with
-//the emitters when adding or reshaping opcodes; an unlisted opcode is
-//an authoring bug and fails loudly instead of corrupting downstream.
-inline size_t InstructionStride(OpCode op) {
-    static constexpr StrideExtentGroup kStrideGroups[] = {
-        StrideGroup(kStrideNoOperands, 1),
-        StrideGroup(kStrideByteTag, 1 + 1),
-        StrideGroup(kStrideOneWord, 1 + 2),
-        StrideGroup(kStrideKindWord, 1 + 1 + 2),
-        StrideGroup(kStrideKindByte, 1 + 1 + 1),
-        StrideGroup(kStrideTwoWords, 1 + 2 + 2),
-        StrideGroup(kStrideKindTwoWords, 1 + 1 + 2 + 2),
-        StrideGroup(kStrideThreeWords, 1 + 2 + 2 + 2),
-        StrideGroup(kStrideFourWords, 1 + 2 + 2 + 2 + 2),
-        StrideGroup(kStrideFiveWords, 1 + 2 + 2 + 2 + 2 + 2),
-        StrideGroup(kStrideOutMaskWords, 1 + 2 + 2 + 4),
-        StrideGroup(kStrideOutMaskDescWords, 1 + 2 + 2 + 2 + 4),
-        StrideGroup(kStrideCmpHead, 1 + 1 + 1 + 2 + 2),
-        StrideGroup(kStrideConst32, 1 + 4),
-        StrideGroup(kStrideConst64, 1 + 8)};
-    for (const StrideExtentGroup& group : kStrideGroups)
-        for (size_t i = 0; i < group.count; ++i)
-            if (group.ops[i] == op)
-                return group.stride;
-    throw std::runtime_error("unknown opcode in disassembler");
-}
 
 const char* OpCodeName(OpCode op);
 

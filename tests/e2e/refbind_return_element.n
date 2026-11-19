@@ -1,0 +1,13 @@
+// Task 6: a &-return of an array element binds the caller's & local
+// to the element cell — the write through r changes arr[0].
+int& pick(int[] arr) {
+    return arr[0];
+}
+
+int main() {
+    int[] arr = int[2];
+    arr[0] = 5;
+    int& r = pick(arr);
+    r = 9;
+    return arr[0];
+}

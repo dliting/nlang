@@ -146,6 +146,20 @@ void CheckInterfaceConstantMember(BuildEnvironment &env,
 //constants (D3). Rejecting at the declaration replaces the old failure
 //mode where a silently-private member surfaced only at call sites as a
 //misleading "does not exist or is not accessible" error.
+//Task 6: reference returns ride raw (record, cell) pairs on free
+//functions and class methods; the virtual-by-name interface dispatch
+//does not carry the pair form yet — reject at the declaration.
+static void RejectInterfaceRefReturn(BuildEnvironment &env,
+	SnField &field, SnFunction *fn)
+{
+	if (fn && fn->ReturnType() && fn->ReturnType()->ContainFlags(NF_Ref))
+		env.Log(CLL_Error, field.Location(),
+			"The interface method \"%s\" cannot declare a reference "
+			"return: interface dispatch does not carry reference "
+			"pairs.",
+			field.Name().c_str());
+}
+
 static void CheckInterfaceMemberContract(BuildEnvironment &env,
 	SnField &field)
 {
@@ -181,6 +195,7 @@ static void CheckInterfaceMemberContract(BuildEnvironment &env,
 			field.Name().c_str());
 	if (fn)
 		RejectTypeParamParamDefaults(env, *fn);
+	RejectInterfaceRefReturn(env, field, fn);
 	if (field.ContainFlags(NF_Native))
 		env.Log(CLL_Error, field.Location(),
 			"The interface member \"%s\" cannot be native: interfaces"

@@ -1,0 +1,9 @@
+// v0.13.9 phase 3 Task 4 guard: direct reads and writes of a promoted
+// local keep working through the box (promotion is storage-only).
+int main() {
+    int x = 1;
+    int& r = x;
+    x = 7;
+    x = x + 1;
+    return x;
+}

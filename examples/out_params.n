@@ -1,6 +1,6 @@
 // out_params.n — out parameters: multiple results from one call.
 import io;
-void divmod(int a, int b, out int quotient, out int remainder) {
+void divmod(int a, int b, int& quotient, int& remainder) {
     quotient = a / b;
     remainder = a - quotient * b;
 }
@@ -8,7 +8,7 @@ void divmod(int a, int b, out int quotient, out int remainder) {
 int main() {
     int q = 0;
     int r = 0;
-    divmod(17, 5, out q, out r);   // q=3, r=2
+    divmod(17, 5, q, r);   // q=3, r=2
     io.print("17 = 5*" + q + " + " + r);
     if (q == 3)
         if (r == 2)

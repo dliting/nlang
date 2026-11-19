@@ -1,0 +1,17 @@
+//Task 8 probe: identity-type arg — T& is an empty token (write reaches
+//only the formal) and the instantiation point must warn.
+class Dog {
+    public int age;
+}
+class Util<T> {
+    public void set(T& v, T d) { v = d; }
+}
+int main() {
+    Dog d = Dog();
+    d.age = 3;
+    Dog e = Dog();
+    e.age = 90;
+    Util<Dog> u = Util<Dog>();
+    u.set(d, e);
+    return d.age;
+}

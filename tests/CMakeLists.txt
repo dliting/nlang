@@ -611,6 +611,134 @@ target_compile_definitions(test_stabilize_copy
 
 add_test(NAME stabilize_copy_tests COMMAND test_stabilize_copy)
 
+# v0.13.9 phase ③ Task 3: the byref slot representation and its opcode
+# family (OP_RefOf*/OP_RefHandle/OP_LoadRef/OP_StoreRef), real-compiled
+# modules + bytecode-tail surgery; the GC-survival pin exercises the
+# band-mask rooting of a byref slot through allocation churn.
+add_executable(test_ref_ops
+    test_vm/test_ref_ops.cpp
+)
+
+target_include_directories(test_ref_ops
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        #VmBackend.h (the EvalSlotClassOfKind pin) privately includes
+        #compiler-side headers — the same reverse precedent nlang_vm lists.
+        ${PROJECT_SOURCE_DIR}/src/compiler
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_ref_ops
+    PRIVATE
+        nlang_vm
+        nlang_compiler
+        nlang_runtime
+        nlang_langservice
+)
+nlang_stdlib_test(test_ref_ops)
+target_compile_definitions(test_ref_ops
+    PRIVATE
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+)
+
+add_test(NAME ref_ops_tests COMMAND test_ref_ops)
+
+# v0.13.9 phase 3 Task 12 (D14): interface runtime-kind classification
+# pins. Two tiers: the storage tier (interface slots hold class handles —
+# RTK_Class in locals/fields) and the identity tier (RTK_Interface in
+# TypeDesc channels and arrayTypes rows, indexed by the interfaces table).
+# Byte pins over real-compiled modules; the survival runs are the
+# interface_*_gc_survives e2e family.
+add_executable(test_interface_rtk_gc
+    test_vm/test_interface_rtk_gc.cpp
+)
+
+target_include_directories(test_interface_rtk_gc
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        #VmBackend.h (the RuntimeTypeKind/EvalSlotClassOfKind pins)
+        #privately includes compiler-side headers — same as test_ref_ops.
+        ${PROJECT_SOURCE_DIR}/src/compiler
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_interface_rtk_gc
+    PRIVATE
+        nlang_vm
+        nlang_compiler
+        nlang_runtime
+        nlang_langservice
+)
+nlang_stdlib_test(test_interface_rtk_gc)
+target_compile_definitions(test_interface_rtk_gc
+    PRIVATE
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+)
+
+add_test(NAME interface_rtk_gc_tests COMMAND test_interface_rtk_gc)
+
+# v0.13.9 phase ③ Task 4: scalar/string local promotion — a &-bound local
+# or value formal gets its storage compiled into one stable boxed record
+# (activation-lifetime GC root). Real-compiled modules, no surgery: the
+# pins are source-level behavior plus heap-allocation counts.
+add_executable(test_promote_local
+    test_vm/test_promote_local.cpp
+)
+
+target_include_directories(test_promote_local
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        #VmExecutor's build chain pulls compiler-side headers, same as
+        #test_ref_ops above.
+        ${PROJECT_SOURCE_DIR}/src/compiler
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_promote_local
+    PRIVATE
+        nlang_vm
+        nlang_compiler
+        nlang_runtime
+        nlang_langservice
+)
+nlang_stdlib_test(test_promote_local)
+target_compile_definitions(test_promote_local
+    PRIVATE
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+)
+
+add_test(NAME promote_local_tests COMMAND test_promote_local)
+
+# v0.13.9 phase ③ Task 5: & parameters and reference bindings — write-
+# through to the caller's local/field/element, struct & formals without
+# deep copy, rvalue bindings legal with writes lost, exception partial-
+# write visibility, f(x,x) aliasing, argument-side box suppression.
+add_executable(test_ref_params
+    test_vm/test_ref_params.cpp
+)
+
+target_include_directories(test_ref_params
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/compiler
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_ref_params
+    PRIVATE
+        nlang_vm
+        nlang_compiler
+        nlang_runtime
+        nlang_langservice
+)
+nlang_stdlib_test(test_ref_params)
+target_compile_definitions(test_ref_params
+    PRIVATE
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+)
+
+add_test(NAME ref_params_tests COMMAND test_ref_params)
+
 target_include_directories(test_array_view_record
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
@@ -692,14 +820,13 @@ add_test(NAME nd_resolve_tests COMMAND test_nd_resolve)
 #entries. --stress selects ONLY the soak — the two entries are a
 #partition, not a superset. The soak needs its own ceiling: the 180 s
 #family timeout cannot hold the ASan measurement, same shape as the
-#mnist_mlp_run ruling. The 900 s ceiling clipped the ASan leg on
-#2026-11-17 while a direct run of the same binary on the same tree
-#measured 605 s: the ceiling has to host the loaded-machine form of the
-#soak (machine oscillation, the documented ~1.8x downclock band), not the
-#idle measurement. 1200 s hosts the 766 s high end with the same
-#oscillation slack the regex_redos_run ruling used.
+#mnist_mlp_run ruling. The 900 s cap once hosted the ASan band, but
+#phase 3's resolver work moved it: 2026-11-19 direct measurement on an
+#idle machine — Debug 187.5 s, ASan 908 s (4.84x compile-heavy factor),
+#the cap clipped it by seconds. 1260 s hosts the measured ASan band
+#with the same ~39% oscillation slack the regex_redos_run cap carries.
 add_test(NAME nd_resolve_stress_tests COMMAND test_nd_resolve --stress)
-set_tests_properties(nd_resolve_stress_tests PROPERTIES TIMEOUT 1200)
+set_tests_properties(nd_resolve_stress_tests PROPERTIES TIMEOUT 1260)
 
 # Stride-table integrity: every opcode resolves to an extent in
 # [1, 9] (the rewrite regression — inline-braced constexpr rows
@@ -1344,12 +1471,14 @@ add_executable(test_debugger
     test_vm/test_debugger.cpp
     test_vm/test_debugger_common.cpp
     test_vm/test_debugger_format.cpp
+    test_vm/test_ncu_ref_sig.cpp
     test_vm/test_debugger_gc.cpp
     test_vm/test_debugger_hooks.cpp
     test_vm/test_debugger_linepc.cpp
     test_vm/test_debugger_session.cpp
     test_vm/test_debugger_controller.cpp
     test_vm/test_debugger_machine.cpp
+    test_vm/test_debugger_refs.cpp
     test_vm/test_debugger_multicontext.cpp
     test_vm/test_debugger_k7.cpp
     test_vm/test_backtrace.cpp
@@ -1605,6 +1734,68 @@ if(NLANG_BUILD_IDE)
                 $<TARGET_FILE_DIR:test_type_access_prefix>)
     endif()
     nlang_add_qtest(type_access_prefix_tests test_type_access_prefix)
+
+    # The & declarator mark on declarations (v0.13.9 phase 3 Task 1):
+    # local/formal/return/foreach & positions and the func-type & arg at
+    # the parse layer. Same in-process shape as test_type_access_prefix.
+    add_executable(test_ref_declarator
+        test_compiler/test_ref_declarator.cpp
+    )
+    #src/compiler: builder/ModuleRegistry.h reach (same internal-header
+    #shape as test_type_access_prefix).
+    target_include_directories(test_ref_declarator
+        PRIVATE
+            ${PROJECT_SOURCE_DIR}/src/compiler
+    )
+    target_link_libraries(test_ref_declarator
+        PRIVATE
+            nlang_compiler
+            nlang_runtime
+            nlang_vm
+            Qt5::Test
+    )
+    nlang_stdlib_test(test_ref_declarator)
+    target_compile_definitions(test_ref_declarator
+        PRIVATE
+            STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+    )
+    if(WIN32)
+        add_custom_command(TARGET test_ref_declarator POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:Qt5::Core> $<TARGET_FILE:Qt5::Test>
+                $<TARGET_FILE_DIR:test_ref_declarator>)
+    endif()
+    nlang_add_qtest(ref_declarator_tests test_ref_declarator)
+
+    # The reference-binding contract (v0.13.9 phase 3 Task 2): named
+    # diagnostics, bindable positions, identity no-op downgrades and the
+    # IsRefNoOpType hook. Same in-process shape as test_ref_declarator.
+    add_executable(test_ref_binding
+        test_compiler/test_ref_binding.cpp
+    )
+    target_include_directories(test_ref_binding
+        PRIVATE
+            ${PROJECT_SOURCE_DIR}/src/compiler
+    )
+    target_link_libraries(test_ref_binding
+        PRIVATE
+            nlang_compiler
+            nlang_runtime
+            nlang_vm
+            Qt5::Test
+    )
+    nlang_stdlib_test(test_ref_binding)
+    target_compile_definitions(test_ref_binding
+        PRIVATE
+            STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+    )
+    if(WIN32)
+        add_custom_command(TARGET test_ref_binding POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:Qt5::Core> $<TARGET_FILE:Qt5::Test>
+                $<TARGET_FILE_DIR:test_ref_binding>)
+    endif()
+    nlang_add_qtest(ref_binding_tests test_ref_binding)
 
     # Const-aggregate declaration marker tests (v0.12.4 Task 1): the
     # `const class` / `const struct` prefix, marker propagation through

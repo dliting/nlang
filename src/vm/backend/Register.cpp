@@ -195,6 +195,11 @@ void VmBackend::RegisterFunctions(SnNamespace& root) {
 //registration below; the order IS the layout contract.
 void VmBackend::RegisterUnitTables(SnNamespace& root) {
     RegisterBuiltinClasses();
+    //v0.13.9 Task 12 (D14): interface rows first — pure layout with no
+    //table dependencies, so struct/class fieldTypeDescs and the
+    //array-type pre-pass below can name interface rows
+    //(BuildTypeDesc/RegisterArrayType identity tier).
+    RegisterInterfaceRows(root);
     RegisterStructs(root);
     RegisterClasses(root);
     ResolveStructClassRefs();

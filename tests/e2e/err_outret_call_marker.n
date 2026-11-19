@@ -1,0 +1,10 @@
+// v0.13.9 phase 4: the out argument marker at a call site is retired;
+// the argument binds to the reference formal directly.
+int f(int& b) {
+    b = 1;
+    return 0;
+}
+int main() {
+    int y = 0;
+    return f(out y);
+}

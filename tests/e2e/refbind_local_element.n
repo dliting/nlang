@@ -1,0 +1,9 @@
+// v0.13.9 phase 3 Task 5: a local & binding to an array element points
+// at the element cell; stores through r land in a[1].
+int main() {
+    int a[2];
+    a[1] = 1;
+    int& r = a[1];
+    r = 8;
+    return a[1];
+}

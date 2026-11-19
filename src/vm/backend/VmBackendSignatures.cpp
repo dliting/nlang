@@ -86,8 +86,16 @@ void VmBackend::CollectSignatureTypeDescs(SnFunction& func,
                                           CompiledFunction& compiledFunc) {
     for (auto& param : func.Params()) {
         ParamTypeDesc ptd;
-        if (param.ContainFlags(NF_Out))
-            ptd.flags |= PTDF_Out;
+        //v2.21: the & and const marks serialize — a consumer that
+        //rebuilds `int& v` as plain `int` compiles a by-value call
+        //into a pair-reading callee (OP_LoadRef on a raw value). The
+        //marks sit on the formal descriptor (resolution propagates
+        //them from the type node, ResolveFunctionFormals; the
+        //v0.13.9 phase 4 retirement removed the out mark arm).
+        if (param.ContainFlags(NF_Ref))
+            ptd.flags |= PTDF_Ref;
+        if (param.ContainFlags(NF_Const))
+            ptd.flags |= PTDF_Const;
         ptd.type = BuildTypeDesc(param.EvalDataType(), LeafSlotResolvers());
         compiledFunc.paramTypeDescs.push_back(std::move(ptd));
     }
@@ -157,6 +165,27 @@ void VmBackend::FillAbstractFunctionRecord(SnFunction& func,
                                            CompiledFunction& compiledFunc) {
     compiledFunc.isAbstract = true;
     FillSignatureOnlyRecord(func, compiledFunc);
+}
+
+//AllocParamsAndDefaults' Option B arm: extract constant-foldable
+//default values for each formal. A default the fold arms miss goes
+//through the v2.3 ExprDesc encoder (formal references, producing-module
+//calls, arithmetic over them); whatever remains outside that subset
+//stamps RTK_Unfoldable so the consumer side can emit a precise
+//"non-constant-foldable default" error rather than silently treating
+//it as "no default". In-module callers ignore compiledFunc.default-
+//Values entirely; they use the AST default expression directly via
+//StatementResolver.
+void VmBackend::CollectParamDefaults(SnFunction& func,
+                                     CompiledFunction& compiledFunc) {
+    for (auto& param : func.Params()) {
+        auto dv = ExtractDefaultValue(param.Value(),
+                                      RuntimeTypeKind(param.EvalDataType()));
+        if (param.Value() && !dv.hasDefault()
+            && !EncodeDefaultExpr(func, param.Value(), dv))
+            dv.tag = RTK_Unfoldable;
+        compiledFunc.defaultValues.push_back(dv);
+    }
 }
 
 } //namespace nlang

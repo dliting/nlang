@@ -541,10 +541,12 @@ static void testListSetExplicitZeroAlloc()
 }
 
 //Static-slot pin (Task 7): a struct-typed static slot owns ONE record
-//for life — the first whole-value store establishes it, every later
-//store writes that record in place. Fixed base (p + q + one
-//establish); the old deep-copy-per-store path adds one per store.
-//The slot must end up owning a record (handle > 0).
+//for life. The establish is the RUN-INIT type-default record —
+//VmExecutor materializes initializer-less struct statics before any
+//context can observe the cell — so BOTH whole-value stores write that
+//record in place. Fixed base (p + q + the run-init establish); the
+//old deep-copy-per-store path adds one per store. The slot must end
+//up owning a record (handle > 0).
 static void testStaticSlotStableRecord()
 {
     TEST(staticSlotStableRecord);
@@ -575,13 +577,46 @@ static void testStaticSlotStableRecord()
     CHECK(r.exitCode == 42, "program exit");
     const size_t allocs = r.exec->HeapAllocCountForTests();
     if (allocs != 3) {
-        FAIL("two whole-value static stores allocate exactly one record "
-             "(the first store's establish; expected 3 fixed records, "
+        FAIL("two whole-value static stores are allocation-free in "
+             "place (the one establish is the run-init type-default "
+             "record; expected 3 fixed records, "
              "got " + std::to_string(allocs) + ")");
         return;
     }
     CHECK(r.exec->StaticSlotHandleForTests(0) > 0,
           "static slot owns a record");
+    PASS();
+}
+
+//Final-review I1 (record stabilization): a Dict STRUCT KEY is stored
+//by value — the entry owns a deep copy, not an alias of the caller's
+//record. The sugar spelling d[k]=v stages the key raw (PlanBoundaryBox
+//boxes primitives only), so the copy must happen at the intrinsic's
+//new-key arm; otherwise mutating the caller's key afterwards rewrites
+//the stored entry and the value-lookup contract breaks. Both probes
+//run after the mutation: the stored copy must still answer by its
+//original value and must NOT answer by the mutated value.
+static void testDictStructKeyStoredByValue()
+{
+    TEST(dictStructKeyStoredByValue);
+    ExecResult r = runProgram("stabilize_copy_dict_key",
+        "struct P {\n"
+        "    int x;\n"
+        "    int y;\n"
+        "}\n"
+        "int main() {\n"
+        "    Dict<P, int> d = {};\n"
+        "    P k;\n"
+        "    k.x = 1;\n"
+        "    k.y = 2;\n"
+        "    d[k] = 10;\n"
+        "    k.x = 99;\n"
+        "    if (!d.containsKey(P{x:1, y:2})) { return 1; }\n"
+        "    if (d.containsKey(k)) { return 2; }\n"
+        "    return 42;\n"
+        "}\n");
+    REQUIRE(r.built);
+    CHECK(r.exitCode == 42, "program exit");
     PASS();
 }
 
@@ -599,6 +634,7 @@ int main()
     testElementStoreZeroAlloc();
     testListSetExplicitZeroAlloc();
     testStaticSlotStableRecord();
+    testDictStructKeyStoredByValue();
     std::cerr << "stabilize_copy: " << g_pass << " passed, "
               << g_fail << " failed\n";
     return g_fail == 0 ? 0 : 1;

@@ -299,7 +299,11 @@ void VmExecutor::MarkFrameResult(const CallFrame& frame,
     if (retKind == RTK_String) {
         MarkString(val);
     } else if (retKind == RTK_Class || retKind == RTK_Struct
-        || retKind == RTK_Array || retKind == RTK_Func) {
+        || retKind == RTK_Array || retKind == RTK_Func
+        || retKind == RTK_Byref) {
+        //v0.13.9 phase ③: an &-return cell holds the byref pair — the
+        //low half IS the base record handle (MarkContextResultCell's
+        //same split).
         if (val > 0 && static_cast<size_t>(val) < m_slotKinds.size()
             && !m_markBits[val]) {
             PushMarked(val, worklist);

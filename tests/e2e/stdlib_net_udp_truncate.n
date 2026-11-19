@@ -18,7 +18,7 @@ int main() {
     byte[] buf = byte[64];   //half the datagram
     string from;
     int fromPort = 0;
-    int n = rx.recvFrom(buf, out from, out fromPort, 5000);
+    int n = rx.recvFrom(buf, from, fromPort, 5000);
     if (n != 64) { return 1; }                    //truncated, not an error
     byte[] head = byte[64];
     for (int i = 0; i < 64; i = i + 1) { head[i] = buf[i]; }

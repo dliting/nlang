@@ -50,8 +50,8 @@ inline std::vector<std::string> StubFormalNamesOf(const CompiledFunction &cf,
 }
 
 //One stub formal per effective name, typed from the serialized
-//descriptors (v1.12: each formal's true type and out flag come from
-//ParamTypeDesc — PTDF_Out → NF_Out; a missing descriptor degrades to
+//descriptors (v1.12: each formal's true type and reference marks come
+//from ParamTypeDesc; a missing descriptor degrades to
 //the int32 placeholder) and carrying the reconstructed constant-foldable
 //default when the record has one (Option B — the resolver applies it
 //at consumer call sites). Template over the record shape: CompiledFunction
@@ -75,10 +75,19 @@ inline PtrList<SnFormalParam> *BuildStubFormalParamNodes(
 		if (i < rec.paramTypeDescs.size())
 		{
 			const ParamTypeDesc &ptd = rec.paramTypeDescs[i];
-			if (ptd.flags & PTDF_Out)
-				paramFlags |= NF_Out;
 			pParamType = SynthTypeExprFromDesc(ptd.type, cm, loc,
 				typeParamNames);
+			//v2.21: the & and const marks re-stamp on the formal AND its
+			//type node — the post-resolution state of a source-declared
+			//formal (the grammar puts & on the type node, resolution
+			//propagates it onto the descriptor; const sits on the formal).
+			if (ptd.flags & PTDF_Ref)
+			{
+				paramFlags |= NF_Ref;
+				pParamType->AddFlags(NF_Ref);
+			}
+			if (ptd.flags & PTDF_Const)
+				paramFlags |= NF_Const;
 		}
 		else
 		{

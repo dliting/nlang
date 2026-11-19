@@ -48,6 +48,16 @@ void VmBackend::EmitCompoundAssignBareIdentifier(SnCompoundAssignStmt& ca,
     }
     BareIdTarget target = ResolveBareIdentifier(field);
     if (target.kind == BareIdTarget::Local) {
+        //v0.13.9 phase 3 Task 4: promoted/reference locals read-modify-
+        //write through their storage (EmitStmtRef.cpp); aggregate-typed
+        //references keep the in-place slot form below: their pair slot
+        //is handle-compatible with the field ops.
+        if (field->ContainFlags(NF_Promoted)
+            || IsDerefRefDescriptor(field)
+            || IsTypeArgRefFormal(field)) {
+            EmitCompoundRefLocal(ca, field, target, op, emitter);
+            return;
+        }
         //Local variable: compute in-place on the local slot
         EmitExpression(*ca.Right(), emitter, m_currFunc->tempSlot2);
         EmitCompoundOp(op, emitter, target.localOffset,
@@ -261,7 +271,7 @@ void VmBackend::EmitSubscriptGetFromClaim(uint16_t claimBase,
         uint16_t indexSlot, uint16_t oldValSlot, const ArgBoxPlan& valBox,
         BytecodeEmitter& emitter) {
     CopyClaimToCallParams(claimBase, 2, emitter);
-    uint16_t nameIdx = AddStringConstant("get");
+    uint16_t nameIdx = AddStringConstant(kBuiltinGetMethodName);
     emitter.Emit(OpCode::OP_CallMethod);
     emitter.EmitUint16(nameIdx);
     emitter.EmitUint16(m_currFunc->callParamBase);

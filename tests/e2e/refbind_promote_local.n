@@ -1,0 +1,8 @@
+// v0.13.9 phase 3 Task 4: an &-bound local's storage is promoted to a
+// stable boxed record; the binding write-through changes the target.
+int main() {
+    int x = 1;
+    int& r = x;
+    r = 7;
+    return x;
+}

@@ -152,29 +152,28 @@ void VmBackend::AllocParamsAndDefaults(SnFunction& func, FuncContext& ctx,
 
     // Allocate slots for parameters
     for (auto& param : func.Params()) {
-        AllocLocal(param.Name(), kFrameSlotBytes,
-                   RuntimeTypeKind(param.EvalDataType()),
-                   true);
+        //v0.13.9 phase 3 Task 4/5: promoted formals (the raw argument
+        //re-wrapped into the stable box by EmitPromotedParamPrologue)
+        //and & formals (the caller stores the (base record, cell) pair
+        //directly) both hold heap handles in the slot's low half; the
+        //GC roots them via the ESC_HeapIndex class either kind maps to.
+        //Task 11 splits the descriptor kinds: promoted slots render
+        //their plain value (upper half stale), & slots render the
+        //base->cell->value pair, and the cell-addressed & family
+        //(scalar/string/enum elements) takes RTK_ByrefCell so the debug
+        //display reads a cell-0 pair as first-field storage, not as the
+        //whole record. The two marks are mutually exclusive: ref-to-ref
+        //binding is rejected.
+        uint8_t paramKind = RuntimeTypeKind(param.EvalDataType());
+        if (param.ContainFlags(NF_Ref))
+            paramKind = ByrefSlotKindOfType(param.EvalDataType());
+        else if (param.ContainFlags(NF_Promoted))
+            paramKind = RTK_Promoted;
+        AllocLocal(param.Name(), kFrameSlotBytes, paramKind, true);
     }
     compiledFunc.paramCount = static_cast<uint16_t>(
         func.Params().size() + (isInstanceMethod ? 1 : 0));
-
-    //Option B: extract constant-foldable default values for each formal.
-    //A default the fold arms miss goes through the v2.3 ExprDesc encoder
-    //(formal references, producing-module calls, arithmetic over them);
-    //whatever remains outside that subset stamps RTK_Unfoldable so the
-    //consumer side can emit a precise "non-constant-foldable default"
-    //error rather than silently treating it as "no default".
-    //In-module callers ignore compiledFunc.defaultValues entirely; they
-    //use the AST default expression directly via StatementResolver.
-    for (auto& param : func.Params()) {
-        auto dv = ExtractDefaultValue(param.Value(),
-                                      RuntimeTypeKind(param.EvalDataType()));
-        if (param.Value() && !dv.hasDefault()
-            && !EncodeDefaultExpr(func, param.Value(), dv))
-            dv.tag = RTK_Unfoldable;
-        compiledFunc.defaultValues.push_back(dv);
-    }
+    CollectParamDefaults(func, compiledFunc);
 }
 
 //Reserve the frame tail: return-value slot, the 4-slot temp pool, and the
@@ -228,6 +227,9 @@ VmBackend::CallSlotStats VmBackend::ReserveReturnAndCallSlots(
 
 void VmBackend::EmitBodyAndImplicitReturn(SnFunction& func, FuncContext& ctx,
                                           BytecodeEmitter& emitter) {
+    //v0.13.9 phase 3 Task 4: promoted formals re-wrap the raw argument
+    //into their stable boxed record before any body statement runs.
+    EmitPromotedParamPrologue(func, emitter);
     // Generate bytecode for body
     if (func.Body()) {
         for (auto& stmt : func.Body()->Statements()) {

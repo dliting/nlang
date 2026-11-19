@@ -12,7 +12,7 @@ states the loading contract.
 ## 27.1 Scope and Version
 
 **Format version.** This chapter describes format version
-**2.20**, recorded in the header as major `2`, minor `20`
+**2.22**, recorded in the header as major `2`, minor `22`
 (§27.2). A conforming loader accepts exactly this version and
 rejects every other: an older image with a "recompile"
 diagnostic, a newer image with an "upgrade the toolchain"
@@ -29,8 +29,8 @@ loading contract (§27.8).
 
 **What it does not fix.** The encoding of the instructions
 inside a function's bytecode array: the array is an opaque byte
-string here. It is pinned to the same format version — a 2.20
-image carries the instruction set of the 2.20 toolchain — but
+string here. It is pinned to the same format version — a 2.22
+image carries the instruction set of the 2.22 toolchain — but
 the opcode values and instruction forms are not part of this
 specification. The native calling convention is §29.4; the
 archive that packs images is chapter 28.
@@ -191,9 +191,9 @@ formal or the receiver), the declared type's kind code (u8,
 name (u32 length + bytes).
 
 **Parameter descriptors.** One per written formal — a method's
-receiver is not described: a flags byte (bit `0` set marks an
-`out` parameter, §7.2) followed by a length-prefixed type
-descriptor (§27.5).
+receiver is not described: a flags byte (bit `1` set marks a `&`
+formal, bit `2` a `const` formal; the other bits carry no meaning,
+§7.2, §4.7.9) followed by a length-prefixed type descriptor (§27.5).
 
 **Handle mask.** The field before the declared access byte tells
 the garbage collector which frame slots to trace (§9.2). It covers the slots from
@@ -273,7 +273,7 @@ in the method list; the constructor table selects them.
 | name | u16 length + bytes | the qualified key (§3.6) |
 | static method count | u16 | followed by that many u16 function-table indices |
 | constant count | u16 | each entry: a u16-length name, a length-prefixed type descriptor, a default value record (§27.6), and a u16 slot index into the static slot table — `0xFFFF` marks a compile-time-folded constant (the value record carries it), anything else is a runtime-initialized constant (§4.9.3) |
-| signature count | u16 | each entry: a u16-length name, a u16 parameter count, per formal a flags byte and a length-prefixed type descriptor, a length-prefixed return descriptor, and a u16 default count followed by that many default value records |
+| signature count | u16 | each entry: a u16-length name, a u16 parameter count, per formal a flags byte (the parameter-descriptor flag encoding of §27.3) and a length-prefixed type descriptor, a length-prefixed return descriptor, and a u16 default count followed by that many default value records |
 | static-initializer index | u16 | the function-table index of the interface's static initializer; `0xFFFF` = none |
 | generic declaration tail | u8 + u16 + names | the generic-interface template marker, the class-record shape: a u8 template flag (`1` marks the template declaration) followed, for template interfaces, by a u16 type-parameter count and that many length-prefixed type-parameter names (§4.12.11) |
 | interface access | u8 | the declared access of the interface type itself (§4.8.2), the record's trailing field; its members stay implicitly public, so this byte gates the type name alone |
@@ -341,7 +341,7 @@ The descriptor bytes are a kind code followed by a payload:
 | `4` | a class | u16 class-table index |
 | `5` | an array | one nested element descriptor, then a rank byte (§4.10) |
 | `6` | a boxed primitive | none (§4.11) |
-| `7` | a function value | a parameter count byte, then count+1 nested descriptors: the parameters, then the return type (`0xFE` for `void`) (§7.4) |
+| `7` | a function value | a parameter count byte, then count+1 nested descriptors: the parameters, then the return type (`0xFE` for `void`); each descriptor is followed by a u8 qualifier flags byte (bit `1` set marks a `&` argument, §7.2, §7.4) |
 | `8` | `List` | one nested element descriptor (§4.12) |
 | `9` | `Dict` | two nested descriptors: the key type, then the value type (§4.12) |
 | `10`–`19` | `byte` `ubyte` `short` `ushort` `uint` `long` `ulong` `double` `bool` `char` | none |
@@ -451,9 +451,11 @@ rejected image never runs in part. The rejection sites:
 
 - **magic.** Header bytes other than the magic → reject.
 - **truncation.** A stream that ends mid-record → reject.
-- **version.** Below 2.20 → reject with a "recompile with the
-  current compiler" diagnostic; above 2.20 → reject with an
+- **version.** Below 2.22 → reject with a "recompile with the
+  current compiler" diagnostic; above 2.22 → reject with an
   "upgrade the toolchain" diagnostic (§27.1).
+- **access bytes.** A function-record or type-level access byte
+  of `0` or above `3` → reject as a corrupt image (§27.4).
 - **count and length caps.** Counts and lengths are bounded
   before allocation. Capped at 2^24: the unit name, the string
   constant count and each constant length, the array type

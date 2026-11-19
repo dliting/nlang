@@ -1,0 +1,10 @@
+// v0.13.9 phase 4: out on a class method formal is retired.
+class C {
+    public int f(int a, out int b) {
+        b = a;
+        return 0;
+    }
+}
+int main() {
+    return 0;
+}

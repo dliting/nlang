@@ -284,6 +284,45 @@ static bool DisasmTypeArgOps(OpCode op, BytecodeReader &r,
     }
 }
 
+//v0.13.9 phase ③: the byref slot family — dst/src pairs, the
+//cell-offset builders, and the kind-tagged dereference pair.
+static bool DisasmRefOps(OpCode op, BytecodeReader &r,
+    std::ostringstream &out, const std::string &head) {
+    switch (op) {
+        case OpCode::OP_RefOfLocal:
+        case OpCode::OP_RefOfPromoted:
+        case OpCode::OP_RefHandle:
+            DisasmU16xN(2, r, out, head, " dst=%u src=%u");
+            return true;
+        case OpCode::OP_RefOfField:
+            DisasmU16xN(3, r, out, head, " dst=%u base=%u cell=%u");
+            return true;
+        case OpCode::OP_RefOfField_T:
+            //Task 13: the generic-body field bind — ordinal + three slots.
+            DisasmTagU16xN(3, r, out, head,
+                           " ordinal=%d dst=%u base=%u cell=%u");
+            return true;
+        case OpCode::OP_RefOfElement:
+            DisasmU16xN(3, r, out, head, " dst=%u arr=%u flat=%u");
+            return true;
+        case OpCode::OP_RefOfElementN:
+            DisasmU16xN(4, r, out, head,
+                        " dst=%u arr=%u idxBase=%u rank=%u");
+            return true;
+        case OpCode::OP_LoadRef:
+        case OpCode::OP_StoreRef:
+            DisasmTagU16xN(2, r, out, head, " typeTag=%d dst=%u src=%u");
+            return true;
+        case OpCode::OP_LoadRef_T:
+        case OpCode::OP_StoreRef_T:
+            //Task 8: the T& read/store — ordinal byte + two slot operands.
+            DisasmTagU16xN(2, r, out, head, " ordinal=%d dst=%u src=%u");
+            return true;
+        default:
+            return false;
+    }
+}
+
 static bool DisasmObjectOps(OpCode op, BytecodeReader &r,
     std::ostringstream &out, const std::string &head,
     const CompiledModule &module) {
@@ -346,6 +385,7 @@ std::vector<DisasmLine> DisassembleCode(const CompiledFunction& func,
             !DisasmStringOps(op, reader, out, head, module) &&
             !DisasmCallOps(op, reader, out, head, module) &&
             !DisasmObjectOps(op, reader, out, head, module) &&
+            !DisasmRefOps(op, reader, out, head) &&
             !DisasmArrayRecordOps(op, reader, out, head) &&
             !DisasmFuncValueOps(op, reader, out, head, module)) {
             out << offsetBuf << ": unknown_op("

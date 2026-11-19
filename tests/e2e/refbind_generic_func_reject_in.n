@@ -1,0 +1,6 @@
+//Task 8 probe: a plain function must NOT bind to func<int, int&>.
+int plain(int v) { return v + 1; }
+int main() {
+    func<int, int&> h = plain;
+    return 0;
+}

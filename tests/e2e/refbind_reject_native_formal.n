@@ -1,0 +1,10 @@
+// v0.13.9 phase 3 Task 13: a native function's & formal is rejected —
+// the host ABI receives each argument as one value cell (§7.5), the same
+// wall out parameters hit; &-returning natives exist (the builtin
+// containers), but a reference formal's aliasing cannot cross into the
+// host.
+native int natBump(int& v);
+
+int main() {
+    return 0;
+}

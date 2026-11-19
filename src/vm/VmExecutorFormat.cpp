@@ -215,6 +215,9 @@ std::string VmExecutor::FormatArrayElemScalar(int32_t elemVal,
     case RTK_Struct:
         return "<struct>";
     case RTK_Class:
+    //v0.13.9 Task 12 (D14): interface elements hold class-instance
+    //handles — the heap renderer, same as RTK_Class.
+    case RTK_Interface:
     case RTK_Boxed:
     case RTK_Array:
         return FormatHeapValue(elemVal, depth);

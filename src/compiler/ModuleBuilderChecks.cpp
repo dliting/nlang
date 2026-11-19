@@ -193,8 +193,6 @@ std::string FormatSignature(const std::string &name, const SnFunction &f)
 		if (!first)
 			sig += ", ";
 		first = false;
-		if (param.ContainFlags(NF_Out))
-			sig += "out ";
 		sig += (param.Type() && param.Type()->Field())
 			? param.Type()->Field()->ToString() : "?";
 	}

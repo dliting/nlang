@@ -1,6 +1,6 @@
 /*---
     VmExecutorFrames.cpp — 帧机的帧构造/弹出/异常处理器走查
-    （PushFrameCore 族、PopFrameWithWriteback、RecordUnwindAndPopFrame、
+    （PushFrameCore 族、RecordUnwindAndPopFrame、
     TryEnterCatchHandler、FrameResultCell）
     2026-10-18 并发 K1 从 VmExecutorOps.cpp 抽取（文件行数守卫），
     零行为变化。
@@ -74,8 +74,8 @@ const GenericInstDescriptor* VmExecutor::ResolveFrameInstDesc(
 //frame (composition record rows read the caller context). Non-generic records
 //skip the whole rule — one flag test, zero fill.
 uint8_t* VmExecutor::PushFrameCore(const CompiledFunction& callee,
-    uint16_t callParamBase, uint32_t outMask, uint8_t outShift,
-    int32_t boundThisIdx, uint16_t descIdx, int32_t receiverHeapIdx)
+    uint16_t callParamBase, int32_t boundThisIdx, uint16_t descIdx,
+    int32_t receiverHeapIdx)
 {
     if (EvalStack().size() >= RECURSE_LIMIT)
         throw std::runtime_error("NLang VM: recursion limit exceeded");
@@ -103,9 +103,6 @@ uint8_t* VmExecutor::PushFrameCore(const CompiledFunction& callee,
     fr.resultFrameIdx = resFrameIdx;
     fr.resultDstOff = resDstOff;
     fr.func = &callee;
-    fr.outMask = outMask;
-    fr.callParamBase = callParamBase;
-    fr.outShift = outShift;
     fr.instDesc = frameInstDesc;
     //Safepoint at function entry (same position as the recursive engine:
     //the new frame is on EvalStack() with staged/zeroed locals).
@@ -114,19 +111,18 @@ uint8_t* VmExecutor::PushFrameCore(const CompiledFunction& callee,
 }
 
 uint8_t* VmExecutor::PushCalleeFrame(const CompiledFunction& callee,
-    uint16_t callParamBase, uint32_t outMask, uint8_t outShift,
-    uint16_t descIdx, int32_t receiverHeapIdx)
+    uint16_t callParamBase, uint16_t descIdx, int32_t receiverHeapIdx)
 {
-    return PushFrameCore(callee, callParamBase, outMask, outShift, 0,
-                         descIdx, receiverHeapIdx);
+    return PushFrameCore(callee, callParamBase, 0, descIdx,
+                         receiverHeapIdx);
 }
 
 uint8_t* VmExecutor::PushBoundCalleeFrame(const CompiledFunction& callee,
-    int32_t thisIdx, uint16_t callParamBase, uint32_t outMask)
+    int32_t thisIdx, uint16_t callParamBase)
 {
     //Bound shapes always carry a receiver — its head descriptor fills
     //the cell (descIdx stays none; the receiver source wins anyway).
-    return PushFrameCore(callee, callParamBase, outMask, 1, thisIdx,
+    return PushFrameCore(callee, callParamBase, thisIdx,
                          kInstDescNone, thisIdx);
 }
 
@@ -147,30 +143,6 @@ uint8_t* VmExecutor::PushRootFrame(const CompiledFunction& func,
     if (!deferSafepoint)
         CheckGCSafepoint();
     return fr.localsBuf.data();
-}
-
-void VmExecutor::PopFrameWithWriteback()
-{
-    CallFrame& fr = EvalStack().back();
-    if (fr.outMask != 0) {
-        //The new top is the caller that staged this call. outMask is
-        //armed only by call-opcode pushes, so a caller frame always
-        //exists below.
-        CallFrame& caller = EvalStack()[EvalStack().size() - 2];
-        for (uint32_t slot = 0; slot < 32; ++slot) {
-            if (!(fr.outMask & (1u << slot)))
-                continue;
-            uint16_t srcOff = static_cast<uint16_t>(
-                (slot + fr.outShift) * kFrameSlotBytes);
-            if (srcOff + kFrameSlotBytes > fr.localsBuf.size())
-                throw std::runtime_error(
-                    "NLang VM: out parameter slot out of bounds");
-            uint32_t dst = fr.callParamBase + slot * kFrameSlotBytes;
-            std::memcpy(caller.localsBuf.data() + dst,
-                        fr.localsBuf.data() + srcOff, kFrameSlotBytes);
-        }
-    }
-    EvalStack().pop_back();
 }
 
 void VmExecutor::RecordUnwindAndPopFrame()

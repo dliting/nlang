@@ -1,0 +1,42 @@
+// v0.13.9 phase 3 Task 13: a bare T& field bind inside a generic body
+// resolves the pair shape at runtime — T=struct binds the field's
+// record (writes reach it), T=scalar keeps the cell pair (the
+// pre-existing behavior, pinned alongside).
+struct Point {
+    int x;
+    int y;
+}
+class Box<T> {
+    public T item;
+    public Box(T v) { item = v; }
+    public void bindAndWrite(T other) {
+        T& r = item;           // the bare-field bind inside the body
+        r = other;             // store through the T& local
+    }
+}
+int probeUseSite() {
+    Box<Point> b = Box(Point{3, 4});
+    Point& r = b.item;         // use-site bind, concrete struct kind
+    r.x = 9;
+    if (b.item.x == 9) {
+        return 1;
+    }
+    return 2;
+}
+int probeScalar() {
+    Box<int> b = Box(7);
+    int& r = b.item;           // use-site bind, concrete scalar kind
+    r = 41;
+    if (b.item == 41) {
+        return 1;
+    }
+    return 2;
+}
+int main() {
+    if (probeUseSite() != 1) return 10;
+    if (probeScalar() != 1) return 20;
+    Box<Point> b = Box(Point{3, 4});
+    b.bindAndWrite(Point{9, 7});   // in-body bind + store, struct kind
+    if (b.item.x != 9 || b.item.y != 7) return 30;
+    return 1;
+}

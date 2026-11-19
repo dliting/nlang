@@ -1144,6 +1144,38 @@ private slots:
             "expression-position generic free-function invoke must build clean");
     }
 
+    //v0.13.9 phase 3 Task 8: the func instantiation key carries the &
+    //marks — func<int, int&> and func<int, int> coexist as distinct
+    //synthetics in one build (the key collision RED), and a plain
+    //function no longer binds to a &-marked key.
+    void funcKeysDifferByRefMark()
+    {
+        const auto path = writeTempSource("func_ref_key.n",
+            "int twice(int& v) { v = v * 2; return v; }\n"
+            "int plain(int v) { return v + 1; }\n"
+            "int main()\n"
+            "{\n"
+            "    func<int, int&> h = twice;\n"
+            "    func<int, int> g = plain;\n"
+            "    return 0;\n"
+            "}\n");
+        const auto outcome = compileSource("func_ref_key", path);
+        QVERIFY2(outcome.first && outcome.second.empty(),
+            "func<int,int&> and func<int,int> must coexist as distinct keys");
+
+        const auto pathReject = writeTempSource("func_ref_key_reject.n",
+            "int plain(int v) { return v + 1; }\n"
+            "int main()\n"
+            "{\n"
+            "    func<int, int&> h = plain;\n"
+            "    return 0;\n"
+            "}\n");
+        const auto reject = compileSource("func_ref_key_reject", pathReject);
+        QVERIFY2(!reject.first && anyErrorMentions(reject.second,
+                "does not match the signature"),
+            "a plain function must not bind to func<int, int&>");
+    }
+
     //Base-class type arguments (class D<T> : Box<T>, class D : Box<int>)
     //are the construction-shape matrix task's surface — the superclass
     //clause accepts no type arguments in the grammar yet, so nothing

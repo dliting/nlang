@@ -132,7 +132,7 @@ void VmExecutor::DispatchFrames(size_t baseDepth)
             switch (op) {
         case OpCode::OP_Return:
         case OpCode::OP_Stop:
-            PopFrameWithWriteback();
+            EvalStack().pop_back();
             frameDone = true;
             break;
 
@@ -259,11 +259,6 @@ void VmExecutor::DispatchFrames(size_t baseDepth)
                 frameDone = true;
             break;
 
-        case OpCode::OP_CallDelegateOut:
-            if (OpCallDelegateOut(reader, locals, pResult))
-                frameDone = true;
-            break;
-
         case OpCode::OP_MakeBoundFunc:
             OpMakeBoundFunc(reader, pResult);
             break;
@@ -284,17 +279,6 @@ void VmExecutor::DispatchFrames(size_t baseDepth)
 
         case OpCode::OP_Func_to_str:
             OpFunc_to_str(pResult);
-            break;
-
-        //Phase 9e: OP_CallStatic + out-parameter writeback. Bit i of
-        //outMask marks staging slot i as an out param — after the callee
-        //returns, its frame slot i is copied back to the caller's
-        //staging area. The backend then spills it into the user variable
-        //with plain OP_VarLocal + OP_Assign instructions. The writeback
-        //itself now runs in PopFrameWithWriteback (frame machine).
-        case OpCode::OP_CallStaticOut:
-            if (OpCallStaticOut(reader, locals, pResult))
-                frameDone = true;
             break;
 
         case OpCode::OP_ParaEnd:
@@ -366,14 +350,6 @@ void VmExecutor::DispatchFrames(size_t baseDepth)
                 frameDone = true;
             break;
 
-        //Phase 9e: OP_CallMethodDirect + out writeback (slot 0 is `this`).
-        //Virtual dispatch rejects out args at compile time — no
-        //OP_CallMethod variant needed.
-        case OpCode::OP_CallMethodDirectOut:
-            if (OpCallMethodDirectOut(reader, locals, pResult))
-                frameDone = true;
-            break;
-
         case OpCode::OP_CallMethod:
             if (OpCallMethod(reader, locals, pResult))
                 frameDone = true;
@@ -396,6 +372,44 @@ void VmExecutor::DispatchFrames(size_t baseDepth)
 
         case OpCode::OP_CopyStructInPlace:
             OpCopyStructInPlace(reader, locals);
+            break;
+
+        //v0.13.9 phase ③: the byref slot representation — the RefOf*
+        //family builds (base handle, cell offset) pairs, RefHandle
+        //extracts the base handle, LoadRef/StoreRef dereference. All
+        //lock-free, zero allocation (VmExecutorOpsRef.cpp).
+        case OpCode::OP_RefOfLocal:
+            OpRefOfLocal(reader, locals);
+            break;
+        case OpCode::OP_RefOfPromoted:
+            OpRefOfPromoted(reader, locals);
+            break;
+        case OpCode::OP_RefOfField:
+            OpRefOfField(reader, locals);
+            break;
+        case OpCode::OP_RefOfField_T:
+            OpRefOfFieldTypeArg(reader, locals);
+            break;
+        case OpCode::OP_RefOfElement:
+            OpRefOfElement(reader, locals);
+            break;
+        case OpCode::OP_RefOfElementN:
+            OpRefOfElementN(reader, locals);
+            break;
+        case OpCode::OP_RefHandle:
+            OpRefHandle(reader, locals);
+            break;
+        case OpCode::OP_LoadRef:
+            OpLoadRef(reader, locals);
+            break;
+        case OpCode::OP_LoadRef_T:
+            OpLoadRefTypeArg(reader, locals);
+            break;
+        case OpCode::OP_StoreRef:
+            OpStoreRef(reader, locals);
+            break;
+        case OpCode::OP_StoreRef_T:
+            OpStoreRefTypeArg(reader, locals);
             break;
 
         case OpCode::OP_AllocArrayN:
@@ -532,7 +546,7 @@ void VmExecutor::DispatchFrames(size_t baseDepth)
         //Fell off the end of bytecode (no explicit OP_Return). Normal
         //frame exit — same handling as OP_Return.
         if (!frameDone)
-            PopFrameWithWriteback();
+            EvalStack().pop_back();
     }
 }
 

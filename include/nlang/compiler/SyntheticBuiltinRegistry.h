@@ -43,24 +43,26 @@ public:
 	~SyntheticBuiltinRegistry();
 
 	//--- builtin generic instantiations ---------------------------------
-	//Key: (base class name, resolved type-arg SnField pointers, out
-	//flags). Interned type-arg tokens keep pointer identity per element
-	//type within one build, so the pointers are the cache discipline;
-	//the out flags ride a parallel vector because out markers live on
-	//type-arg EXPRESSIONS (NF_Out), not on the canonical fields.
+	//Key: (base class name, resolved type-arg SnField pointers,
+	//reference marks). Interned type-arg tokens keep pointer
+	//identity per element type within one build, so the pointers are the
+	//cache discipline; the reference marks ride a parallel vector
+	//because they live on type-arg EXPRESSIONS (NF_Ref), not on the
+	//canonical fields. v0.13.9 phase 4: the out-flag vector is gone
+	//with the out mechanism.
 	struct GenericInstKey
 	{
 		std::string baseName;
 		std::vector<SnField*> typeArgs;
-		std::vector<uint8> outFlags;
+		std::vector<uint8> refFlags;
 		bool operator<(const GenericInstKey& rhs) const
 		{
 			if (baseName != rhs.baseName)
 				return baseName < rhs.baseName;
 			if (typeArgs.size() != rhs.typeArgs.size())
 				return typeArgs.size() < rhs.typeArgs.size();
-			if (outFlags != rhs.outFlags)
-				return outFlags < rhs.outFlags;
+			if (refFlags != rhs.refFlags)
+				return refFlags < rhs.refFlags;
 			for (size_t i = 0; i < typeArgs.size(); ++i)
 				if (typeArgs[i] != rhs.typeArgs[i])
 					return typeArgs[i] < rhs.typeArgs[i];
@@ -70,8 +72,8 @@ public:
 	//The created instantiation for a key, or null before the first creation.
 	SnClassDecl* FindGeneric(const GenericInstKey& key) const;
 	//Publish a freshly created instantiation (the node itself carries its
-	//type arguments and out flags — GenericTypeArgs/GenericOutFlags —
-	//so context-free readers never need this registry).
+	//type arguments and reference marks — GenericTypeArgs /
+	//GenericRefFlags — so context-free readers never need this registry).
 	void AdoptGeneric(const GenericInstKey& key, SnClassDecl* pDecl);
 
 	//--- non-generic builtin singletons (ByteStream/FileStream) -------

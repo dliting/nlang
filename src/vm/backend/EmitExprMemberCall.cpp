@@ -95,17 +95,11 @@ bool VmBackend::EmitMemberEnumMethodCall(SnMemberExpr& member,
         return false;
     //Evaluate the receiver (enum value) into resultOffset.
     EmitExpression(*member.Outer(), emitter, resultOffset);
-    std::vector<OutSpill> outSpills;
-    //Enum methods reject default and out formals at
-    //declaration (D4) — the binding path emits exactly
-    //the actual arguments.
+    //Enum methods reject default formals at declaration (D4) —
+    //the binding path emits exactly the actual arguments.
     EmitCallArgs(invoke, callee, emitter, /*slotBase=*/1,
                  /*pArgPlans=*/nullptr,
-                 /*thisSlot=*/resultOffset, &outSpills);
-    if (!outSpills.empty())
-        throw std::runtime_error(
-            "NLang backend: out argument on enum method "
-            "call");
+                 /*thisSlot=*/resultOffset);
     //Per-unit: a cross-unit enum method calls through an import
     //placeholder; own ones keep the registration-order index (the own
     //miss throws inside FunctionSlotFor — a body-less enum method
@@ -137,17 +131,10 @@ void VmBackend::EmitMemberInterfaceCall(SnMemberExpr& member,
         //Phase 9c: binding-aware arg emit; slot 0 reserved for `this`.
         //thisSlot=resultOffset so default-param `this.field` reads
         //the receiver from the outer-expression result slot.
-        std::vector<OutSpill> outSpills;
         EmitCallArgs(invoke, invoke.Callee(), emitter, /*slotBase=*/1,
-                     /*pArgPlans=*/nullptr, /*thisSlot=*/resultOffset,
-                     &outSpills);
+                     /*pArgPlans=*/nullptr, /*thisSlot=*/resultOffset);
         //EmitCallArgs now copies `this` to claim[0] and bulk-copies
         //to callParamBase[0] — no separate this-copy needed here.
-        //Phase 9e: interface dispatch is name-based (virtual) —
-        //out args are resolver-rejected; spills here are internal.
-        if (!outSpills.empty())
-            throw std::runtime_error(
-                "NLang backend: out argument on interface call");
         //Always virtual dispatch by name.
         auto* callee = invoke.Callee();
         //Round-12: no callee means the resolver resolved the call
@@ -168,11 +155,13 @@ void VmBackend::EmitMemberInterfaceCall(SnMemberExpr& member,
 }
 
 //Class-receiver invoke arm: func-handle toString, delegate invoke, then
-//the generic-plan + dispatch machinery.
+//the generic-plan + dispatch machinery. bRawRefResult (Task 6) threads
+//to the dispatch tail: a &-returning callee's raw pair passes through.
 void VmBackend::EmitMemberClassMethodCall(SnInvokeExpr& invoke,
                                           SnClassDecl& classDecl,
                                           BytecodeEmitter& emitter,
-                                          uint16_t resultOffset) {
+                                          uint16_t resultOffset,
+                                          bool bRawRefResult) {
     //Phase 13: function-handle toString() — the only built-in
     //method on a func<...> receiver. The receiver is already
     //at resultOffset (loaded by the class-receiver prologue
@@ -190,10 +179,12 @@ void VmBackend::EmitMemberClassMethodCall(SnInvokeExpr& invoke,
     //Phase 13 Step 2: delegate member invoke (obj.cb(x)) — shape note in
     //EmitMemberDelegateInvoke.
     if (IsDelegateInvoke(invoke)) {
-        EmitMemberDelegateInvoke(invoke, classDecl, emitter, resultOffset);
+        EmitMemberDelegateInvoke(invoke, classDecl, emitter, resultOffset,
+            bRawRefResult);
         return;
     }
-    EmitMemberGenericMethodCall(invoke, classDecl, emitter, resultOffset);
+    EmitMemberGenericMethodCall(invoke, classDecl, emitter, resultOffset,
+                                bRawRefResult);
 }
 
 //Phase 13 Step 2: delegate member invoke (obj.cb(x)) —
@@ -208,7 +199,8 @@ void VmBackend::EmitMemberClassMethodCall(SnInvokeExpr& invoke,
 void VmBackend::EmitMemberDelegateInvoke(SnInvokeExpr& invoke,
                                          SnClassDecl& classDecl,
                                          BytecodeEmitter& emitter,
-                                         uint16_t resultOffset) {
+                                         uint16_t resultOffset,
+                                         bool bRawRefResult) {
     int off = FindClassFieldOffset(classDecl, invoke.CalleeName());
     if (off < 0) {
         throw std::runtime_error(
@@ -223,13 +215,16 @@ void VmBackend::EmitMemberDelegateInvoke(SnInvokeExpr& invoke,
     emitter.EmitUint16(calleeSlot);
     emitter.EmitUint16(resultOffset);
     emitter.EmitUint16(static_cast<uint16_t>(off));
-    std::vector<OutSpill> delegateOutSpills;
     EmitCallArgs(invoke, nullptr, emitter, /*slotBase=*/0,
                  /*pArgPlans=*/nullptr,
-                 /*thisSlot=*/UINT16_MAX,
-                 &delegateOutSpills);
+                 /*thisSlot=*/UINT16_MAX);
+    //Task 8: a raw &-return binds the pair itself; a value read
+    //normalizes through the key's return deref tag (same contract as
+    //the bare-form delegate arm).
+    const uint8_t refDerefKind = bRawRefResult ? kNoRefDeref
+        : DelegateReturnDerefKind(DelegateFuncTypeOfField(invoke.Field()));
     EmitDelegateDispatch(emitter, calleeSlot, resultOffset,
-                         delegateOutSpills);
+                         refDerefKind);
     emitter.Emit(OpCode::OP_ParaEnd);
 }
 
@@ -238,7 +233,8 @@ void VmBackend::EmitMemberDelegateInvoke(SnInvokeExpr& invoke,
 void VmBackend::EmitMemberGenericMethodCall(SnInvokeExpr& invoke,
                                             SnClassDecl& classDecl,
                                             BytecodeEmitter& emitter,
-                                            uint16_t resultOffset) {
+                                            uint16_t resultOffset,
+                                            bool bRawRefResult) {
     std::map<uint16_t, ArgBoxPlan> argPlans;
     ArgBoxPlan returnPlan;
     if (classDecl.IsGenericInstantiation()) {
@@ -246,8 +242,6 @@ void VmBackend::EmitMemberGenericMethodCall(SnInvokeExpr& invoke,
                                 returnPlan);
     }
     auto* callee = invoke.Callee();
-    //Phase 9e: out-argument spills collected by EmitCallArgs.
-    std::vector<OutSpill> outSpills;
     //Phase 9c: evaluate args via the shared binding-aware
     //helper. Slot 0 is reserved for `this` (slotBase=1).
     //Boxing plans (for built-in generic class methods like
@@ -259,62 +253,76 @@ void VmBackend::EmitMemberGenericMethodCall(SnInvokeExpr& invoke,
     //to callParamBase[0] before emitting args would be
     //overwritten by any nested call inside the args.
     EmitCallArgs(invoke, callee, emitter, /*slotBase=*/1,
-                 &argPlans, /*thisSlot=*/resultOffset,
-                 &outSpills);
+                 &argPlans, /*thisSlot=*/resultOffset);
     //EmitCallArgs now copies `this` to claim[0] and bulk-copies
     //to callParamBase[0] — no separate this-copy needed here.
     EmitMemberMethodDispatch(invoke, callee, returnPlan,
-                             outSpills, emitter, resultOffset);
+                             emitter, resultOffset,
+                             bRawRefResult);
 }
 
-//Class method dispatch: virtual name-based, direct by function index
-//(with/without out spills), or builtin/intrinsic name-based; then the
-//return unbox, result assign, out spills and ParaEnd.
+//Class method dispatch: virtual name-based, direct by function index,
+//or builtin/intrinsic name-based; then the return normalization, result
+//assign and ParaEnd. bRawRefResult (Task 6): a &-returning callee hands
+//back a raw (record, cell) pair — skip the box normalization so a
+//reference consumer receives the pair untouched.
 void VmBackend::EmitMemberMethodDispatch(const SnInvokeExpr& invoke,
                                          SnFunction* callee,
                                          const ArgBoxPlan& returnPlan,
-                                         const std::vector<OutSpill>& outSpills,
                                          BytecodeEmitter& emitter,
-                                         uint16_t resultOffset) {
+                                         uint16_t resultOffset,
+                                         bool bRawRefResult) {
     bool isVirtual = callee && callee->ContainFlags(NF_Virtual);
     if (isVirtual) {
         //Virtual method dispatch — name-based lookup at runtime
-        //Phase 9e: out args are resolver-rejected on virtual
-        //methods; spills here would be silently lost.
-        if (!outSpills.empty())
-            throw std::runtime_error(
-                "NLang backend: out argument on virtual call");
         uint16_t nameIdx = AddStringConstant(callee->Name());
         emitter.Emit(OpCode::OP_CallMethod);
         emitter.EmitUint16(nameIdx);
         emitter.EmitUint16(m_currFunc->callParamBase);
     } else if (callee) {
         //Non-virtual (final) method — direct call by function index
-        EmitMemberDirectMethodCall(callee, outSpills, emitter);
+        EmitMemberDirectMethodCall(callee, emitter);
     } else {
         //Phase 8e-1: no AST callee — built-in class methods and inherited
         //Object protocol methods (shape note in the helper).
-        EmitMemberBuiltinMethodCall(invoke, outSpills, emitter);
+        EmitMemberBuiltinMethodCall(invoke, emitter);
     }
     //Phase 8e-3/8e-4: unbox Get() return for primitive T/V. 0.13.1a
     //Task 5: when the receiver's type argument is the calling body's
     //own placeholder, the descriptor-dispatched variant lets the
     //executing frame decide (uniform-T-representation invariant).
-    if (returnPlan.needsBox)
-        EmitBoundaryUnbox(returnPlan, emitter);
-    emitter.Emit(OpCode::OP_Assign);
-    emitter.EmitUint16(resultOffset);
-    //Phase 9e: out spills LAST — OP_VarLocal clobbers pResult,
-    //so the return value (and any unbox) must complete first.
-    if (!outSpills.empty())
-        EmitOutSpills(outSpills, emitter);
+    EmitMethodReturnNormalization(callee, returnPlan, bRawRefResult,
+                                  resultOffset, emitter);
     emitter.Emit(OpCode::OP_ParaEnd);
 }
 
+//The dispatch tail's return normalization (split for the 50-line
+//function budget): unbox the container get() payload, or park the raw
+//pair of a &-returning user method and deref it IN PLACE for a value
+//consumer (scalar/string/enum returns only; struct/class returns ride
+//the pair's low-half handle into every deep copy). A reference
+//consumer takes the raw pair untouched. OP_LoadRef derefs any bindable
+//pair — field-cell pairs included, unlike OP_Unbox.
+void VmBackend::EmitMethodReturnNormalization(SnFunction* callee,
+    const ArgBoxPlan& returnPlan, bool bRawRefResult,
+    uint16_t resultOffset, BytecodeEmitter& emitter) {
+    uint8_t derefKind = kNoRefDeref;
+    if (bRawRefResult) {
+        //reference consumer: no normalization
+    } else if (returnPlan.needsBox) {
+        EmitBoundaryUnbox(returnPlan, emitter);
+    } else {
+        derefKind = RefReturnDerefKind(callee);
+    }
+    emitter.Emit(OpCode::OP_Assign);
+    emitter.EmitUint16(resultOffset);
+    if (derefKind != kNoRefDeref)
+        EmitRefDerefInPlace(derefKind, resultOffset, emitter);
+}
+
 //Direct-call arm: non-virtual (final) method, dispatched by function
-//index; OP_CallMethodDirectOut + mask when out arguments are present.
+//index.
 void VmBackend::EmitMemberDirectMethodCall(SnFunction* callee,
-                                           const std::vector<OutSpill>& outSpills,
                                            BytecodeEmitter& emitter) {
     //Per-unit: a cross-unit method calls through an import placeholder;
     //own ones keep the registration-order index. The own-miss throw
@@ -323,17 +331,9 @@ void VmBackend::EmitMemberDirectMethodCall(SnFunction* callee,
     //read would be silent wrong code).
     const uint16_t funcIdx = static_cast<uint16_t>(
         FunctionSlotFor(*callee));
-    if (!outSpills.empty()) {
-        emitter.Emit(OpCode::OP_CallMethodDirectOut);
-        emitter.EmitUint16(funcIdx);
-        emitter.EmitUint16(m_currFunc->callParamBase);
-        emitter.EmitInt32(static_cast<int32_t>(
-            BuildOutMask(outSpills)));
-    } else {
-        emitter.Emit(OpCode::OP_CallMethodDirect);
-        emitter.EmitUint16(funcIdx);
-        emitter.EmitUint16(m_currFunc->callParamBase);
-    }
+    emitter.Emit(OpCode::OP_CallMethodDirect);
+    emitter.EmitUint16(funcIdx);
+    emitter.EmitUint16(m_currFunc->callParamBase);
 }
 
 //Phase 8e-1: no AST callee. Covers two cases:
@@ -344,14 +344,9 @@ void VmBackend::EmitMemberDirectMethodCall(SnFunction* callee,
 //      callee is null. The VM walks superClassIdx to find
 //      Object's intrinsic stub and short-circuits to
 //      ExecuteIntrinsic.
-//Both paths dispatch by name via OP_CallMethod. Phase 9e:
-//out args cannot bind here (no formals) — internal error.
+//Both paths dispatch by name via OP_CallMethod.
 void VmBackend::EmitMemberBuiltinMethodCall(const SnInvokeExpr& invoke,
-                                            const std::vector<OutSpill>& outSpills,
                                             BytecodeEmitter& emitter) {
-    if (!outSpills.empty())
-        throw std::runtime_error(
-            "NLang backend: out argument on builtin call");
     uint16_t nameIdx = AddStringConstant(invoke.CalleeName());
     emitter.Emit(OpCode::OP_CallMethod);
     emitter.EmitUint16(nameIdx);

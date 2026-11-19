@@ -6,6 +6,7 @@
 ---*/
 #pragma once
 #include "BytecodeOps.h"
+#include "BytecodeStrides.h"
 #include <cstdint>
 #include <functional>
 #include <unordered_map>

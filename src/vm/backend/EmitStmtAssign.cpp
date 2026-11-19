@@ -18,7 +18,6 @@
 
 namespace nlang {
 
-    //Assignment statement.
 void VmBackend::Access(SnAssignStmt& stmt) {
     BytecodeEmitter& emitter = *m_pCurrEmitter;
         auto& assign = static_cast<SnAssignStmt&>(stmt);
@@ -43,36 +42,56 @@ void VmBackend::EmitAssignBareIdentifier(SnAssignStmt& assign,
         SnField* field, BytecodeEmitter& emitter) {
     auto target = ResolveBareIdentifier(field);
     if (target.kind == BareIdTarget::Local) {
-        EmitAssignToLocal(assign, target.localOffset,
-            field->EvalDataType(), emitter);
+        //v0.13.9 phase 3: promoted and reference locals take their own
+        //store shapes. Aggregate-typed references keep the plain path
+        //for user stores (the pair slot reads as a handle slot); only
+        //the binding INIT (NF_Generated) establishes the pair — a
+        //value copy would sever the alias.
+        if (field->ContainFlags(NF_Promoted))
+            EmitPromotedAssignBareLocal(assign, field,
+                target.localOffset, emitter);
+        else if (IsDerefRefDescriptor(field)
+            || (field->ContainFlags(NF_Ref)
+                && assign.ContainFlags(NF_Generated)))
+            EmitRefAssignBareLocal(assign, field,
+                target.localOffset, emitter);
+        else if (IsTypeArgRefFormal(field))
+            //Task 8: a T& formal's user store in a generic body — the
+            //kind-aware OP_StoreRef_T (the placeholder descriptor fails
+            //IsDerefRefDescriptor above).
+            EmitRefTypeArgAssignBareLocal(assign, field,
+                target.localOffset, emitter);
+        else
+            EmitAssignToLocal(assign, target.localOffset,
+                field->EvalDataType(), emitter);
     } else if (target.kind == BareIdTarget::StaticSlot) {
-        //v0.12.6 Task 7: a static LOCAL's declaration-site init (the
-        //decomposed NF_Generated assign) runs under the slot's own
-        //once-guard (D2/D10) — the guard owns exactly this store. A
-        //later user store is a plain slot write: the declaration is
-        //lexically upstream, so the machine is Done (and D12's init
-        //bit already covers the re-entrant window).
-        if (field->Kind() == NK_FormalParam
-            && assign.ContainFlags(NF_Generated)) {
-            EmitStaticLocalInitSequence(assign, target.slotIdx, emitter);
-            return;
-        }
-        //v0.12.6: bare static-field store — same stage-then-store shape
-        //as the local write (the destination is written only after the
-        //whole RHS evaluated). The gate runs before the RHS: reaching
-        //the store is itself the first active use (D2); for a static
-        //local the field-bound gate is a no-op (no class owner).
-        EmitStaticFieldGate(field, emitter);
-        EvalAreaClaim claim(*this, 1);
-        uint16_t valueSlot = claim.base();
-        EmitExpression(*assign.Right(), emitter, valueSlot);
-        emitter.Emit(OpCode::OP_StoreStatic);
-        emitter.EmitUint16(target.slotIdx);
-        emitter.EmitUint16(valueSlot);
+        EmitAssignStaticSlot(assign, field, target.slotIdx, emitter);
     } else if (target.kind == BareIdTarget::ThisField) {
         EmitAssignToThisField(assign, target.fieldOff,
             field->EvalDataType(), emitter);
     }
+}
+
+//v0.12.6 Task 7: a static LOCAL's declaration-site init (the
+//decomposed NF_Generated assign) runs under the slot's own once-guard
+//(D2/D10). A later user store is a plain slot write: the declaration
+//is lexically upstream, so the machine is Done (D12's init bit covers
+//the re-entrant window). The gate runs before the RHS — reaching the
+//store is the first active use (D2).
+void VmBackend::EmitAssignStaticSlot(SnAssignStmt& assign, SnField* field,
+        uint16_t slotIdx, BytecodeEmitter& emitter) {
+    if (field->Kind() == NK_FormalParam
+        && assign.ContainFlags(NF_Generated)) {
+        EmitStaticLocalInitSequence(assign, slotIdx, emitter);
+        return;
+    }
+    EmitStaticFieldGate(field, emitter);
+    EvalAreaClaim claim(*this, 1);
+    uint16_t valueSlot = claim.base();
+    EmitExpression(*assign.Right(), emitter, valueSlot);
+    emitter.Emit(OpCode::OP_StoreStatic);
+    emitter.EmitUint16(slotIdx);
+    emitter.EmitUint16(valueSlot);
 }
 
 //Direct local write. Array locals (`Point[] arr = ...`) carry their
@@ -366,16 +385,14 @@ void VmBackend::EmitAssignClassField(SnAssignStmt& assign,
 }
 
 //v0.12.6 D14: struct-aware field store. v0.13.9 phase ②: when the
-//field's declared type is a struct, the field's EXISTING record is
-//updated in place — load its handle, then OP_CopyStructInPlace; the
-//old deep-copy + OP_StoreField publication is gone (struct-typed
-//fields are established from birth by AllocClassOnHeap and their
-//handles never change under stabilization). The receiver handle is
-//already emitted when this tail runs (callers evaluate it before
-//staging the RHS) and no user code runs before the load below, so the
-//field handle cannot go stale. Every other kind stores the 8-byte
-//cell as-is. Same Kind()-after-RuntimeTypeKind shape as
-//EmitAssignToLocal's struct branch.
+//field's declared type is a struct, the field's record is updated in
+//place — load its handle, then OP_CopyStructInPlace. Plain struct
+//fields are established from birth by AllocClassOnHeap; a T field
+//bound to a struct argument is NOT (its null state is part of the
+//erased-field semantics — v0.13.9 phase 3), so the copy may establish
+//a fresh record, and the resulting pair is published back to the heap
+//cell (idempotent for the from-birth family: the handle did not
+//change). Every other kind stores the 8-byte cell as-is.
 void VmBackend::EmitStructAwareStoreField(SnField* fieldType,
         uint16_t objSlot, uint16_t fieldOff, uint16_t valueSlot,
         BytecodeEmitter& emitter) {
@@ -389,6 +406,10 @@ void VmBackend::EmitStructAwareStoreField(SnField* fieldType,
         emitter.EmitUint16(fieldOff);
         EmitStructCopyInPlace(fieldSlot, valueSlot,
             static_cast<SnStructDecl&>(*fieldType), emitter);
+        emitter.Emit(OpCode::OP_StoreField);
+        emitter.EmitUint16(objSlot);
+        emitter.EmitUint16(fieldOff);
+        emitter.EmitUint16(fieldSlot);
         return;
     }
     emitter.Emit(OpCode::OP_StoreField);

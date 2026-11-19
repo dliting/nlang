@@ -1,0 +1,14 @@
+//Task 8: a member delegate slot with a & return — a binding through
+//the call aliases the callee's target (write-through), not a temporary.
+class Box {
+    public func<int&, int&> cb;
+}
+int& pick(int& v) { return v; }
+int main() {
+    Box b = Box();
+    b.cb = pick;
+    int x = 5;
+    int& r = b.cb(x);
+    r = r + 100;
+    return x;
+}

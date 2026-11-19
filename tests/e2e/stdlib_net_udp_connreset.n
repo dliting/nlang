@@ -24,7 +24,7 @@ int main() {
     byte[] buf = byte[16];
     string from;
     int fromPort = 0;
-    int n = sock.recvFrom(buf, out from, out fromPort, 5000);
+    int n = sock.recvFrom(buf, from, fromPort, 5000);
     byte[] msg = byte[n];
     for (int i = 0; i < n; i = i + 1) { msg[i] = buf[i]; }
     if (n != 5 || io.fromBytes(msg) != "reply") { return 1; }

@@ -1,0 +1,37 @@
+// v0.13.9 phase 3 fix: the & mark on a formal descriptor is stamped at
+// parse, so a callee declared AFTER its caller still promotes the
+// caller's local — class members and free functions resolve in
+// declaration order, and the call-site judgment must not depend on the
+// callee's declaration having resolved first.
+class Fwd {
+    public static int callerStatic() {
+        int fl = 0;
+        int r = laterStatic(fl);   // callee sits below in the class body
+        return r * 10 + fl;        // 62 when fl's writeback is visible
+    }
+    public static int laterStatic(int& v) {
+        v = v + 2;
+        return v + 4;
+    }
+    public int callerMember() {
+        int fl = 3;
+        int r = this.laterMember(fl);
+        return r * 10 + fl;        // 55
+    }
+    public int laterMember(int& v) {
+        v = v + 2;
+        return v;
+    }
+}
+int freeCaller() {
+    int z = 1;
+    return freeLater(z) * 10 + z;  // free function declared below: 66
+}
+int freeLater(int& v) {
+    v = v + 5;
+    return v;
+}
+int main() {
+    Fwd f = Fwd();
+    return Fwd.callerStatic() + f.callerMember() + freeCaller();  // 183
+}

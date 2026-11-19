@@ -1,0 +1,14 @@
+// v0.13.9 phase 3: a value-form loop var passed to a & formal promotes
+// the same way as the declarator spelling — the callee's writes land
+// in the caller's per-iteration copy.
+void bump(int& r) { r = r + 1; }
+int main() {
+    List<int> xs = {};
+    xs.add(10); xs.add(20);
+    int sum = 0;
+    foreach (int v in xs) {
+        bump(v);
+        sum = sum + v;
+    }
+    return sum;   // 11 + 21
+}

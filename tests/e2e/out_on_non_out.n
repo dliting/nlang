@@ -1,4 +1,5 @@
-// `out` on a plain (non-out) parameter is rejected.
+// v0.13.9 phase 4: the out argument marker is retired — pass the
+// argument bare to the reference formal.
 int foo(int x) {
     return x;
 }

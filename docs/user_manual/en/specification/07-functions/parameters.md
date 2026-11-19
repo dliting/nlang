@@ -98,6 +98,30 @@ Constructor calls take arguments positionally only — `Point(x = 1, y = 2)`
 is a compile error (`named arguments are not supported in constructor
 calls`); see [Overload Resolution](overloads.md) "Constructor overloads".
 
+### Reference parameters
+
+A formal declared `T& p` names the caller's argument storage
+(§4.7.9): no copy is made, and writes through `p` land in the
+argument. At the call site the argument must be bindable storage of
+the exact type — a local, a formal, a field or an element; literals
+and computed results are rejected by the binding rules (§4.7.9). A
+`const T& p` formal accepts the same arguments read-only, and
+additionally binds const storage and expression results, which
+materialize into a temporary kept alive by the formal.
+
+Which formals can modify the caller's variable:
+
+| Formal kind | Caller's variable after the call |
+|-------------|----------------------------------|
+| `T p` (value) | unchanged — the formal worked on a copy |
+| `T& p` (reference) | carries every write made through `p` |
+| `const T& p` | unchanged — writes through `p` are compile errors |
+| `out T p` | receives the formal's final value (write-back below) |
+
+A reference formal passes through virtual and interface dispatch
+like any other formal — the reference is data in the ordinary
+parameter slot, and the dispatch itself is unaware of it.
+
 ### `out` parameters
 
 *Informative:* an `out` parameter is a writeback slot: the caller's

@@ -1,0 +1,7 @@
+// v0.13.9 phase 3: a reference declaration must bind an initializer —
+// a reference has no storage of its own.
+struct Point { int x; }
+int main() {
+    Point& r;
+    return 0;
+}

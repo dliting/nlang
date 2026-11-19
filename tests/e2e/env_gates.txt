@@ -16,6 +16,7 @@ stdlib_net_ping_stress icmp
 #the reserved TLD with NXDOMAIN. A fake-ip DNS hijack hands out an address
 #for `.invalid`, and the case then connects or pings instead of reporting
 #"host not found" — so stdlib_net_resolve_text joins the dns group here
-#(this line's addition; master's registry listed only the ping case).
+#(the dev-side registry added this line; the master-side registry listed
+#only the ping case until the two lines were merged).
 stdlib_net_ping_error_text dns
 stdlib_net_resolve_text dns

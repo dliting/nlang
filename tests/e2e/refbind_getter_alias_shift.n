@@ -1,0 +1,14 @@
+// Pin: a List element binding follows the ELEMENT through a shift,
+// not the position. removeAt of an earlier element moves the bound
+// element down one position; the binding reads the element's value
+// and a write through it lands on the element's new position.
+int main() {
+    List<int> nums = {};
+    nums.add(10); nums.add(20); nums.add(30); nums.add(40);
+    int& n = nums[2];      // names the 30 element
+    nums.removeAt(0);      // the 30 element shifts to position 1
+    if (n != 30) return 1; // the binding reads the element, not a position
+    n = 99;                // the write lands on the element's new position
+    if (nums[1] != 99) return 2;
+    return 0;
+}

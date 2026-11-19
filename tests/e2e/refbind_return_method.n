@@ -1,0 +1,17 @@
+// Task 6: a class method with a &-returning signature passes the
+// field-cell pair through the member-call boundary.
+class Box {
+    public int f;
+    public int& getF() {
+        return f;
+    }
+}
+
+int main() {
+    Box b = Box();
+    b.f = 5;
+    int& r = b.getF();
+    r = 9;
+    if (b.f == 9) return 9;
+    return 4;
+}

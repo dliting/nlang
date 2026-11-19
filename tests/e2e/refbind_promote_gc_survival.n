@@ -1,0 +1,21 @@
+// v0.13.9 phase 3 Task 4: the promoted local's box is a GC root for the
+// whole activation; 3000 discarded strings cross the collection
+// thresholds mid-loop and the box must survive every one of them.
+int main() {
+    int x = 7;
+    int& r = x;
+    string s = "";
+    int i = 0;
+    while (i < 3000) {
+        s = s + "x";
+        i = i + 1;
+    }
+    r = 9;
+    if (x != 9) {
+        return 0;
+    }
+    if (s.length() != 3000) {
+        return 1;
+    }
+    return 9;
+}

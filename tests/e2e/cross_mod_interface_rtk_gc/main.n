@@ -1,0 +1,22 @@
+//Warm the lazy constant first (its init allocation happens at first
+//access, before the churn), then churn past several collections — a
+//fresh instance through the factory each pass — and verify every
+//interface-typed root in THIS module's frame survived: the constant's
+//handle, the interface-element array row, and the dispatching local.
+//Expected exit code: 0.
+import lib;
+
+int main() {
+    int warm = Counter.START.get();
+    int c = 0;
+    while (c < 3000) {
+        Counter g = lib.makeCounter();
+        g.set(c);
+        c = c + 1;
+    }
+    Counter.START.set(41);
+    Counter[] arr = Counter[2];
+    arr[0] = lib.makeCounter();
+    arr[0].set(5);
+    return Counter.START.get() - 41 + arr[0].get() - 5 + warm - 3;
+}

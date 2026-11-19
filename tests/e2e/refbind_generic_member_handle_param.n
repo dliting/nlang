@@ -1,0 +1,13 @@
+//Task 8: a member delegate slot with a & argument position — the call
+//stages the pair and writes through to the caller's local.
+class Box {
+    public func<int, int&> cb;
+}
+int twice(int& v) { v = v * 2; return v; }
+int main() {
+    Box b = Box();
+    b.cb = twice;
+    int x = 21;
+    int a = b.cb(x);
+    return x * 1000 + a;
+}

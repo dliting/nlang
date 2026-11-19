@@ -3,6 +3,9 @@
 #include "nlang/vm/CompiledModule.h"
 #include "nlang/vm/TypeDesc.h"
 #include "BytecodeEmitter.h"
+//Kind-immediate opcode encodings incl. BoxTypeTagOfKind (the promoted-
+//storage emitters key their box tags through it; v0.13.9 phase 3).
+#include "backend/EmitPrimOps.h"
 //Intrinsic binding table + package/name projections (compile-time
 //declaration metadata; moved compiler-side with the concurrency import
 //redesign so pure-compiler link targets resolve).
@@ -43,6 +46,7 @@ class SnCastExpr;
 class SnAsExpr;
 class SnSubscriptExpr;
 class SnMemberExpr;
+class SnIdentifierExpr;
 class SnAssignStmt;
 class SnCompoundAssignStmt;
 
@@ -272,7 +276,35 @@ public:
     void Access(SnStatement&);       //fallback: unhandled statement kind
     void Access(SyntaxNode&);        //fallback: non-emissible node (internal error)
 
+    //K2 slice 5: root class for one RTK kind byte (the serialized form
+    //the locals table and the return kind arrive in). Public: the class
+    //taxonomy is a VM-wide contract — the band mask the emitter packs,
+    //the GC root scan's mask consumer and the white-box classification
+    //tests all read it; the emit helpers are the only writers.
+    static uint8_t EvalSlotClassOfKind(uint8_t rtk);
+
+    //v0.13.9 phase 3 Task 4: true when a bare-identifier descriptor is a
+    //reference to scalar/enum/string storage — the OP_LoadRef/
+    //OP_StoreRef dereference ops apply to its pair slot. Aggregate-
+    //typed references (struct/class/array) never take the dereference
+    //arms: their pair slot reads as an ordinary handle slot to the
+    //field ops and CopyStructInPlace. Public: consumed from TU-level
+    //helpers (the out-spill shape selector) as well as member arms.
+    static bool IsDerefRefDescriptor(SnField* pField);
+
+    //Task 8: true when a bare-identifier descriptor is a T& formal of a
+    //generic body — NF_Ref with a type-parameter placeholder declared
+    //type. The OP_LoadRef_T/OP_StoreRef_T descriptor-dispatched ops
+    //apply: the pair's kind resolves at runtime from the frame context.
+    bool IsTypeArgRefFormal(SnField* pField);
+
 private:
+    //Task 11: the locals-table kind for one & binding's slot — the
+    //cell-addressed family (RTK_ByrefCell) when the declared element
+    //is scalar/string/enum, the aggregate family (RTK_Byref) otherwise
+    //(T& formals included: the element kind is only known per
+    //instantiation). Shared by the param and local declarator arms.
+    static uint8_t ByrefSlotKindOfType(SnField* evalType);
     void GenerateFunction(SnFunction& func, size_t funcIdx);
     //GenerateFunction's native arm (split for the 50-line function
     //budget): signature fill via FillNativeFunctionRecord, then the
@@ -322,6 +354,12 @@ private:
     //access (the declaration is lexically upstream of all uses).
     void RegisterStaticLocalDeclarators(SnLocalDeclStmt& decl,
         SnField* evalType);
+    //One non-static declarator's storage (split for the 50-line
+    //function budget): slot allocation plus the kind-specific creation
+    //opcodes; returns the slot offset.
+    uint16_t EmitLocalDeclaratorStorage(SnLocalDeclStmt& decl,
+        const SnLocalDeclStmt::LocalDecl& local, SnField* evalType,
+        BytecodeEmitter& emitter);
     void EmitStaticLocalInitSequence(SnAssignStmt& assign, uint16_t slotIdx,
         BytecodeEmitter& emitter);
 
@@ -330,11 +368,142 @@ private:
     //EmitCall.cpp). Consumed by every emission path.
     static void EmitPResultRefresh(BytecodeEmitter& emitter, uint16_t slot);
 
+    //v0.13.9 phase 3 Task 4 — promoted reference storage (definitions in
+    //EmitStmtRef.cpp). A promoted local/param's frame slot holds the
+    //pair (boxed-record handle, ...) instead of a bare value; reads and
+    //writes ride the payload cells at BYTE offset kHeapCellBytes inside
+    //the box (the box tag lives in cell 0). All helpers take the
+    //emission context as parameters (nested emission overwrites
+    //m_pCurrEmitter/m_resultOffset). The box's type tag comes from the
+    //existing BoxTypeTagOfKind (EmitPrimOps.h).
+    //Prologue for a promoted value formal: wraps the raw argument (still
+    //in the frame slot) into a fresh boxed record and rewrites the slot
+    //to the pair. Emitted before the body in EmitBodyAndImplicitReturn.
+    void EmitPromotedParamPrologue(SnFunction& func,
+        BytecodeEmitter& emitter);
+    //Wrap the raw value already in the slot into a fresh box
+    //(VarLocal; Box; Assign) - shared tail of the promoted-formal
+    //prologue and the promoted foreach iteration store.
+    void EmitPromotedValueWrap(uint16_t slot, NodeKind typeKind,
+        BytecodeEmitter& emitter);
+    //The decomposed `r = init` binding store (assign carries
+    //NF_Generated): point the reference slot at its target storage.
+    void EmitRefBindInit(SnAssignStmt& assign, uint16_t offset,
+        BytecodeEmitter& emitter);
+    //v0.13.9 phase 3 Task 5: build the (base record, cell) byref pair
+    //for one bindable expression — the &-formal argument arm and the
+    //&-binding initializer arm share it (spec §3.9, one MakeRef
+    //judgment). Arms: identifier (pair copy / RefOfPromoted /
+    //RefOfLocal), member chain (the field-shape throat of Task 13),
+    //subscript (RefOfElement / RefOfElementN), rvalue (fresh temporary
+    //record; writes lost). Definitions in EmitExprRef.cpp.
+    void EmitMakeRef(uint16_t dstOffset, SnExpression& expr,
+        BytecodeEmitter& emitter);
+    void EmitMakeRefOfIdentifier(uint16_t dstOffset,
+        SnIdentifierExpr& idExpr, BytecodeEmitter& emitter);
+    //Compile-time cell offset of one field within its owner record
+    //(the field ops' byte offsets mapped to heap cells).
+    int RefFieldCellOffset(SyntaxNode& ownerDecl, SnField& field);
+    //Task 13: the pair-shape ruling for binding one field — ONE throat
+    //both field-bind sites route through (the ThisField arm and the
+    //member-chain final hop), so the struct/identity deref can never
+    //drift between sites again. pType is the final hop's USE-SITE type
+    //node; cellOff is in heap cells (the pair convention).
+    enum class FieldRefShape { Cell, Record, Handle, Descriptor };
+    FieldRefShape ShapeOfFieldBind(const SyntaxNode* pType);
+    void EmitFieldRefBind(const SyntaxNode* pType, uint16_t dstOffset,
+        uint16_t baseSlot, int cellOff, uint16_t scratchSlot,
+        BytecodeEmitter& emitter);
+    //Collect a member chain final-hop-first; returns the root expression.
+    SnExpression* CollectMemberChain(SnMemberExpr& member,
+        std::vector<SnField*>& chain);
+    void EmitMakeRefOfMemberChain(uint16_t dstOffset,
+        SnMemberExpr& member, BytecodeEmitter& emitter);
+    //Task 6: member-call shape in a & context — &-returning class
+    //methods pass the raw pair through; builtin container get shares
+    //the subscript core; everything else is the rvalue contract.
+    void EmitMakeRefOfMemberCall(uint16_t dstOffset,
+        SnMemberExpr& member, BytecodeEmitter& emitter);
+    //Task 6: &-returning invoke — the raw (record, cell) pair stages
+    //straight into the destination.
+    void EmitMakeRefOfInvoke(uint16_t dstOffset,
+        SnInvokeExpr& invoke, BytecodeEmitter& emitter);
+    void EmitMakeRefOfSubscript(uint16_t dstOffset,
+        SnSubscriptExpr& sub, BytecodeEmitter& emitter);
+    //Task 6: the container & read core shared by subscript sugar and
+    //the explicit .get(i) spelling — get() staging plus pair-build
+    //(primitive elements name the boxed payload cell, struct/class
+    //elements name the element record).
+    void EmitMakeRefOfContainerGet(uint16_t dstOffset,
+        SnExpression& receiver, SnExpression& index,
+        BytecodeEmitter& emitter);
+    void EmitMakeRefOfRvalue(uint16_t dstOffset,
+        SnExpression& expr, BytecodeEmitter& emitter);
+    //Task 6: the value-side deref kind byte for a &-returning callee —
+    //kNoRefDeref when no normalization is needed (non-ref callees;
+    //struct/class/array returns: the pair's low half IS the record
+    //handle every value consumer reads). Scalar/string/enum returns
+    //name the payload tag OP_LoadRef derefs, valid on any bindable
+    //pair — not just the promoted-box pairs OP_Unbox accepts.
+    //Task 8: the sentinel is 0xFF (BoxTypeTagOfKind's "not a boxable
+    //kind" convention) — RTK_Int32 is 0, so a 0 sentinel silently
+    //dropped the int/enum &-return normalization.
+    static constexpr uint8_t kNoRefDeref = 0xFF;
+    uint8_t RefReturnDerefKind(SnFunction* pCallee);
+    //In-place dereference of a pair already parked in a frame slot:
+    //OP_LoadRef with dst==src (safe — the executor captures the pair
+    //before copying the payload cells).
+    void EmitRefDerefInPlace(uint8_t derefKind, uint16_t slot,
+        BytecodeEmitter& emitter);
+    //Write-through store to a promoted local's payload.
+    void EmitPromotedAssignBareLocal(SnAssignStmt& assign,
+        SnField* pLeftField, uint16_t offset, BytecodeEmitter& emitter);
+    //Write-through store through a reference slot (bound or rvalue
+    //temporary): the tagged StoreRef, not a slot assign.
+    void EmitRefAssignBareLocal(SnAssignStmt& assign, SnField* pLeftField,
+        uint16_t offset, BytecodeEmitter& emitter);
+    //Task 8: user store through a T& formal in a generic body — the
+    //kind-aware OP_StoreRef_T (the body is template-shared, so the
+    //store's kind resolves from the frame's instantiation descriptor).
+    void EmitRefTypeArgAssignBareLocal(SnAssignStmt& assign,
+        SnField* pLeftField, uint16_t offset, BytecodeEmitter& emitter);
+    struct BareIdTarget;   //fwd decl — defined below; EmitRefLocalRead uses it early
+    //Activation-time box for one promoted declarator (the type-default
+    //payload; the decomposed init assign overwrites it).
+    void EmitPromotedDeclStorage(uint16_t offset, SnField* evalType,
+        BytecodeEmitter& emitter);
+    //Identifier read arm for promoted/reference locals: emits the
+    //payload or dereference read and returns true; false leaves the
+    //caller on the plain 8-byte copy (aggregate-typed references).
+    bool EmitRefLocalRead(SnField* field, const BareIdTarget& target,
+        uint16_t resultOffset, BytecodeEmitter& emitter);
+    //Compound read-modify-write through promoted/reference local
+    //storage (old value + RHS in an exclusive EvalAreaClaim(2)).
+    void EmitCompoundRefLocal(SnCompoundAssignStmt& ca, SnField* field,
+        const BareIdTarget& target, int op, BytecodeEmitter& emitter);
+
     //Shared shape predicates, consumed by both the emission members and
     //the frame-size walkers (Walkers*.cpp) so the dispatch
     //decision cannot drift between codegen and walkers.
     static bool IsContainerSubscript(SnExpression& baseExpr);
     static bool IsDelegateInvoke(const SnInvokeExpr& invoke);
+
+    //Task 8: the func<...> key behind a delegate slot (the local/field's
+    //declared type) — null when the slot is not a func-typed value. The
+    //key's GenericRefFlags carry the & marks: [0] the return slot,
+    //[i+1] the argument positions.
+    static SnClassDecl* DelegateFuncTypeOfField(const SnField* pSlot);
+    //Any & mark on the key's ARGUMENT positions — gates the walker's
+    //MakeRef charge and the argument-side pair staging.
+    static bool DelegateKeyHasRefArg(const SnInvokeExpr& invoke);
+    //The key's RETURN & mark (refFlags[0]) — gates the &-context
+    //staging of a delegate invoke (raw pair, MakeRef contract).
+    static bool DelegateKeyHasRefReturn(const SnInvokeExpr& invoke);
+    //Value-side return normalization tag for a delegate key: refFlags[0]
+    //set with a scalar/string/enum return slot names the OP_LoadRef tag;
+    //struct/identity & returns and plain keys return 0 (raw pass-through
+    //per the offset-0-pair convention).
+    static uint8_t DelegateReturnDerefKind(const SnClassDecl* pFuncType);
 
     //Flattened member-field offset helpers (definitions live in
     //FieldOffsets.cpp), shared by the member-read, assign-store,
@@ -372,10 +541,9 @@ private:
     //take the emission context (emitter + resultOffset) as parameters:
     //m_pCurrEmitter/m_resultOffset are overwritten by nested emission
     //and must never be read inside a helper.
-    //Forward-declared here; defined below with the Phase 9c/9e call
+    //Forward-declared here; defined below with the Phase 9c call
     //machinery (the helpers only pass them by reference).
     struct ArgBoxPlan;
-    struct OutSpill;
 
     //Access(SnMemberExpr&) dispatch phases, in evaluation order; each
     //bool phase returns true when it emitted the expression.
@@ -422,7 +590,8 @@ private:
     bool EmitMemberTypedReceiverDispatch(SnMemberExpr& member,
                                          SnField* outerType,
                                          BytecodeEmitter& emitter,
-                                         uint16_t resultOffset);
+                                         uint16_t resultOffset,
+                                         bool bRawRefResult = false);
     bool EmitMemberSubscriptElementRead(SnMemberExpr& member,
                                         SnFieldExpr* inner,
                                         BytecodeEmitter& emitter,
@@ -517,15 +686,18 @@ private:
     void EmitMemberClassMethodCall(SnInvokeExpr& invoke,
                                    SnClassDecl& classDecl,
                                    BytecodeEmitter& emitter,
-                                   uint16_t resultOffset);
+                                   uint16_t resultOffset,
+                                   bool bRawRefResult = false);
     void EmitMemberDelegateInvoke(SnInvokeExpr& invoke,
                                   SnClassDecl& classDecl,
                                   BytecodeEmitter& emitter,
-                                  uint16_t resultOffset);
+                                  uint16_t resultOffset,
+                                  bool bRawRefResult);
     void EmitMemberGenericMethodCall(SnInvokeExpr& invoke,
                                      SnClassDecl& classDecl,
                                      BytecodeEmitter& emitter,
-                                     uint16_t resultOffset);
+                                     uint16_t resultOffset,
+                                     bool bRawRefResult = false);
     //Phase 8e-4 boundary plan for generic method calls, derived
     //from the declared template signatures (phase-2 D6; the dynamic
     //variant is 0.13.1a Task 5).
@@ -534,18 +706,22 @@ private:
                                  std::map<uint16_t, ArgBoxPlan>& argPlans,
                                  ArgBoxPlan& returnPlan);
     //Class method dispatch tail: virtual / direct / builtin + unbox,
-    //assign, out spills, ParaEnd.
+    //assign, ParaEnd.
     void EmitMemberMethodDispatch(const SnInvokeExpr& invoke,
                                   SnFunction* callee,
                                   const ArgBoxPlan& returnPlan,
-                                  const std::vector<OutSpill>& outSpills,
                                   BytecodeEmitter& emitter,
-                                  uint16_t resultOffset);
+                                  uint16_t resultOffset,
+                                  bool bRawRefResult = false);
     void EmitMemberDirectMethodCall(SnFunction* callee,
-                                    const std::vector<OutSpill>& outSpills,
                                     BytecodeEmitter& emitter);
+    //Dispatch tail's return normalization (split for the 50-line
+    //function budget): container unbox, or the &-return park + in-place
+    //deref (see EmitExprMemberCall.cpp).
+    void EmitMethodReturnNormalization(SnFunction* callee,
+        const ArgBoxPlan& returnPlan, bool bRawRefResult,
+        uint16_t resultOffset, BytecodeEmitter& emitter);
     void EmitMemberBuiltinMethodCall(const SnInvokeExpr& invoke,
-                                     const std::vector<OutSpill>& outSpills,
                                      BytecodeEmitter& emitter);
     //String receiver builtin methods (intrinsic-dispatched).
     void EmitMemberStringHashCode(SnMemberExpr& member,
@@ -596,6 +772,11 @@ private:
     //Allocate the `this` + formal slots, then collect foldable defaults.
     void AllocParamsAndDefaults(SnFunction& func, FuncContext& ctx,
                                 CompiledFunction& compiledFunc);
+    //AllocParamsAndDefaults' Option B arm (VmBackendSignatures.cpp):
+    //extract each formal's constant-foldable default, ExprDesc-encode
+    //the near-constant shapes, stamp RTK_Unfoldable on the rest.
+    void CollectParamDefaults(SnFunction& func,
+                              CompiledFunction& compiledFunc);
     //Reserve return slot, temp pool, callParamBase and evalArea; returns
     //the call-slot stats consumed by the finalize-time drift check.
     CallSlotStats ReserveReturnAndCallSlots(SnFunction& func, FuncContext& ctx,
@@ -616,9 +797,6 @@ private:
     //CompiledFunction::evalAreaHandleMask).
     void BuildEvalAreaHandleMask(CompiledFunction& cf,
                                  const FuncContext& ctx);
-    //K2 slice 5: root class for one RTK kind byte (the serialized form
-    //the locals table and the return kind arrive in).
-    static uint8_t EvalSlotClassOfKind(uint8_t rtk);
 
     //Recursive frame-depth walkers behind ComputeCallSlotStats.
     //visited guards recursion through callee default expressions.
@@ -658,6 +836,20 @@ private:
     //NK_NewExpr: {this, formals...} claim + arg/default depth.
     static uint16_t NewExprPeakDepth(SnExpression& expr,
         const std::unordered_set<SnFunction*>& visited);
+    //v0.13.9 phase 3 Task 5: an argument bound to a & formal emits
+    //through the MakeRef family (EmitBinding's ref arm → EmitExprRef.cpp)
+    //whose nested claims ride above the call's own arg claim band.
+    //MakeRefPeakDepth mirrors those claim shapes; the invoke-family arg
+    //loops charge it when CalleeHasRefFormal gates the callee (per-arg
+    //max — over-reserving is the safe direction).
+    static bool CalleeHasRefFormal(SnFunction* pCallee);
+    static uint16_t MakeRefPeakDepth(SnExpression& expr,
+        const std::unordered_set<SnFunction*>& visited);
+    //Per-argument depth for the three invoke-family arg loops (plain
+    //depth widened by the MakeRef mirror under the CalleeHasRefFormal
+    //gate).
+    static uint16_t ArgPeakDepth(SnExpression& arg,
+        const std::unordered_set<SnFunction*>& visited, bool bHasRefFormal);
     //Shared tail of the three ctor-call depth arms (NewExpr /
     //ctor-invoke / super()): max(argDepth, parent-ctor default-
     //expression depth) under the visited-set recursion guard.
@@ -807,6 +999,10 @@ private:
                                      const std::string& fieldName);
     void EmitAssignBareIdentifier(SnAssignStmt& assign, SnField* field,
                                   BytecodeEmitter& emitter);
+    //Static-slot arm of the bare-identifier assign: declaration-site
+    //init under the slot's once-guard, or the plain gated slot write.
+    void EmitAssignStaticSlot(SnAssignStmt& assign, SnField* field,
+                              uint16_t slotIdx, BytecodeEmitter& emitter);
     void EmitAssignToLocal(SnAssignStmt& assign, uint16_t offset,
                            SnField* varType, BytecodeEmitter& emitter);
     void EmitAssignToThisField(SnAssignStmt& assign, int fieldOff,
@@ -898,8 +1094,24 @@ private:
         uint16_t iSlot = 0;
         uint16_t nSlot = 0;
     };
+    struct StringForeachSlots {
+        uint16_t userVarSlot = 0;
+        uint16_t iterSlot = 0;
+        uint16_t offSlot = 0;
+        uint16_t condSlot = 0;
+    };
     ForeachSlots AllocForeachLocals(SnForeachStmt& fe, uint8_t elemKind,
-                                    bool isArray);
+                                    bool isArray, bool bRefLoop);
+    StringForeachSlots AllocStringForeachLocals(SnForeachStmt& fe);
+    void EmitForeachArrayLoadElement(SnField* pElemType,
+        uint8_t elemKind, bool bPromotedVar, const ForeachSlots& slots,
+        BytecodeEmitter& emitter);
+    //The index-based expansion for Array/List/Dict sources (Access
+    //classifies the iterable and dispatches; the string arm has its
+    //own expansion).
+    void EmitForeachIndexed(SnForeachStmt& fe, bool isArray, bool isDict,
+                            SnField* pElemType, const ArgBoxPlan& elemBox,
+                            BytecodeEmitter& emitter);
     //Dict arm: inline keys() prelude replacing iterSlot with List<K>.
     void EmitForeachDictKeysPrelude(uint16_t iterSlot,
                                     BytecodeEmitter& emitter);
@@ -908,13 +1120,26 @@ private:
                            uint16_t nSlot, BytecodeEmitter& emitter);
     //Loop start + LoopContext push + i<n condition; returns loopStart
     //for the back-jump. Registers the miss-jump as this loop's break
-    //target.
+    //target. probeLength re-probes n from iterSlot at the top of every
+    //iteration (container loops — the bound tracks body mutations,
+    //Task 12; arrays pass false, their length is record-fixed).
     size_t EmitForeachLoopHead(uint16_t iSlot, uint16_t nSlot,
-                               BytecodeEmitter& emitter);
+                               BytecodeEmitter& emitter,
+                               bool probeLength, uint16_t iterSlot);
     //Body-prelude: element i into the user slot (LoadElement +
-    //struct deep copy vs get() + unbox under the boundary plan).
+    //struct deep copy vs get() + unbox under the boundary plan; the
+    //reference form binds the pair instead — Task 7 D6).
     void EmitForeachLoadElement(bool isArray, SnField* pElemType,
                                 uint8_t elemKind, const ArgBoxPlan& elemBox,
+                                bool bRefLoop, bool bPromotedVar,
+                                const ForeachSlots& slots,
+                                BytecodeEmitter& emitter);
+    //Array & bind: OP_RefOfElement twin of LoadElementFlat (Task 7 D6).
+    void EmitForeachArrayRefBind(const ForeachSlots& slots,
+                                 BytecodeEmitter& emitter);
+    //List & bind tail: park the raw handle, build the pair in place
+    //(RefOfPromoted for boxed payloads, RefOfLocal for struct records).
+    void EmitForeachListRefPair(const ArgBoxPlan& elemBox,
                                 const ForeachSlots& slots,
                                 BytecodeEmitter& emitter);
     //Loop tail: i+=1 continue target, back-jump, break/continue
@@ -985,23 +1210,6 @@ private:
         const std::vector<size_t>& catchEndJumpPatches,
         BytecodeEmitter& emitter);
 
-    //Phase 9e: an out-argument writeback. After the *Out call opcode
-    //copies callee frame slot `slotIdx` back into callParamBase, this
-    //records the caller local to spill it into.
-    struct OutSpill { uint16_t slotIdx; uint16_t localOffset; };
-
-    //Phase 9e: emit the post-call spill code for out arguments:
-    //per spill, `OP_VarLocal callParamBase+slotIdx*kFrameSlotBytes;
-    //OP_Assign localOffset`.
-    void EmitOutSpills(const std::vector<OutSpill>& spills,
-                       BytecodeEmitter& emitter);
-
-    //Phase 9e: build the outMask operand from spills (bit i set = staging
-    //slot i is out). Caps at 32 slots — kMaxFuncParams is 64, but out
-    //params beyond slot 31 are rejected here as unsupported rather than
-    //silently dropped.
-    static uint32_t BuildOutMask(const std::vector<OutSpill>& spills);
-
     //Phase 9c: emit each formal's actual-or-default expression into the
     //callParamBase area, applying binding decisions from the resolver.
     //pCallee is the resolved function (may be null for unresolved invokes —
@@ -1012,14 +1220,10 @@ private:
     //begins — 0 for free functions, 1 for method calls (slot 0 is `this`).
     //pArgPlans (optional): if non-null, applied after each arg's emit —
     //used by built-in generic class methods to box primitive-typed args.
-    //pOutSpills (optional): if non-null, filled with one entry per out
-    //argument (Phase 9e) so the caller can emit the *Out call opcode and
-    //the post-call spills.
     void EmitCallArgs(const SnInvokeExpr& invoke, SnFunction* pCallee,
                       BytecodeEmitter& emitter, size_t slotBase = 0,
                       const std::map<uint16_t, ArgBoxPlan>* pArgPlans = nullptr,
-                      uint16_t thisSlot = UINT16_MAX,
-                      std::vector<OutSpill>* pOutSpills = nullptr);
+                      uint16_t thisSlot = UINT16_MAX);
 
     //Phase 9c: emit a single binding (positional/named caller expr or
     //default expression) at callParamBase[slotIdx]. Handles default's
@@ -1065,6 +1269,13 @@ private:
     //EmitStructDeepCopy (dst/src byte offsets + struct table index).
     void EmitStructCopyInPlace(uint16_t dst, uint16_t src,
                                SnStructDecl& structDecl,
+                               BytecodeEmitter& emitter);
+    //Struct deep-copy arm of EmitBinding (source-size split): a
+    //struct-typed formal receives its own heap subtree unless the slot's
+    //arg plan says suppressStagingCopy (List.set/Dict.set value).
+    void EmitStructBindingCopy(SnField* pFormalType, uint16_t paramOffset,
+                               uint16_t slotIdx,
+                               const std::map<uint16_t, ArgBoxPlan>* pArgPlans,
                                BytecodeEmitter& emitter);
     //v0.12.6 D14: struct-aware field store — when the field's declared
     //type is a struct, deep-copy the staged value in place before the
@@ -1113,11 +1324,10 @@ private:
                                BytecodeEmitter& emitter);
 
     //EmitCallArgs arm: unresolved invoke (pCallee == null) — positional
-    //emit plus Phase 13 Step 2 out-argument spill recording.
+    //emit with the delegate &-position staging.
     void EmitUnresolvedInvokeArgs(const SnInvokeExpr& invoke,
                                   BytecodeEmitter& emitter, size_t slotBase,
                                   uint16_t claimBase,
-                                  std::vector<OutSpill>* pOutSpills,
                                   const std::function<void(uint16_t)>& applyBox);
 
     //EmitCallArgs arm: legacy positional emit (no resolver bindings).
@@ -1133,7 +1343,6 @@ private:
                                SnFunction* pCallee, BytecodeEmitter& emitter,
                                size_t slotBase, uint16_t claimBase,
                                uint16_t thisSlot,
-                               std::vector<OutSpill>* pOutSpills,
                                const std::function<void(uint16_t)>& applyBox,
                                const std::map<uint16_t, ArgBoxPlan>* pArgPlans
                                    = nullptr);
@@ -1286,13 +1495,11 @@ private:
         uint16_t slotCount, const CtorAlloc& alloc, uint16_t ctorIdx,
         BytecodeEmitter& emitter);
 
-    //One iteration of the resolved-binding loop: emit + optional boxing
-    //+ out-spill target record.
+    //One iteration of the resolved-binding loop: emit + optional boxing.
     void EmitOneFormalBinding(const FormalBinding* pBindings,
                               size_t bindingIdx, size_t slotBase,
                               BytecodeEmitter& emitter, uint16_t thisSlot,
                               uint16_t claimBase,
-                              std::vector<OutSpill>* pOutSpills,
                               const std::function<void(uint16_t)>& applyBox,
                               const std::map<uint16_t, ArgBoxPlan>* pArgPlans
                                   = nullptr);
@@ -1362,6 +1569,12 @@ private:
     //static method indices into the function table). Defined in
     //backend/RegisterInterfaces.cpp.
     void RegisterInterfaces(SnNamespace& root);
+    //v0.13.9 Task 12 (D14): the table's row phase — own rows in
+    //declaration order, then foreign placeholders; runs FIRST in
+    //RegisterUnitTables so the early identity-tier consumers
+    //(fieldTypeDescs, the array-type pre-pass) can slot interface
+    //leaves through InterfaceSlotFor.
+    void RegisterInterfaceRows(SnNamespace& root);
     //RegisterInterfaces worker: contentless placeholder rows for foreign
     //interfaces (v0.12.6 Task 8 — unit-local indices for kind-1 gates
     //against imported interfaces; nlink's merge prefers the provider's
@@ -1520,26 +1733,31 @@ private:
                            BytecodeEmitter& emitter, uint16_t resultOffset);
 
     //SnInvokeExpr arms: delegate invoke (callee handle + dispatch) and
-    //the free-function OP_CallStatic/OP_CallStaticOut tail.
+    //the free-function OP_CallStatic tail.
     void EmitDelegateInvoke(const SnInvokeExpr& invoke,
                             BytecodeEmitter& emitter, uint16_t resultOffset,
-                            const std::vector<OutSpill>& outSpills);
+                            bool bRawRefResult);
     void EmitDelegateDispatch(BytecodeEmitter& emitter, uint16_t calleeSlot,
                               uint16_t resultOffset,
-                              const std::vector<OutSpill>& outSpills);
+                              uint8_t refDerefKind);
     void EmitFreeFunctionCall(int funcIndex, BytecodeEmitter& emitter,
                               uint16_t resultOffset,
-                              const std::vector<OutSpill>& outSpills,
-                              uint16_t descIdx);
+                              uint16_t descIdx,
+                              uint8_t refDerefKind = kNoRefDeref);
     //0.13.1a: a receiverless callee's descriptor operand —
     //kInstDescForwardCaller for a same-generic-row callee, kInstDescNone
     //otherwise (see EmitExprCore.cpp for the rule).
     uint16_t StaticCallDescIdxFor(const SnFunction& callee) const;
     //The staged-invoke dispatch tail: delegate handle or the
-    //Round-11-guarded free-function call.
+    //Round-11-guarded free-function call. bRawRefResult (Task 6)
+    //suppresses the value-side deref for &-returning callees.
     void EmitInvokeDispatch(SnInvokeExpr& invoke, SnFunction* callee,
                             BytecodeEmitter& emitter, uint16_t resultOffset,
-                            const std::vector<OutSpill>& outSpills);
+                            bool bRawRefResult = false);
+    //Task 6: shared bare-invoke staging for value reads and the
+    //&-return pass-through (static gate + args + dispatch).
+    void EmitBareInvokeShape(SnInvokeExpr& invoke, uint16_t resultOffset,
+                             bool bRawRefResult);
 
     //SnCastExpr arms: boxing, the to-string special cases (enum detection,
     //func/class/array), and the numeric/primitive-string conversions.
@@ -1591,6 +1809,14 @@ private:
     void EmitContainerSubscriptGet(SnSubscriptExpr& sub,
                                    BytecodeEmitter& emitter,
                                    uint16_t resultOffset);
+    //Task 6: the get() classification and staging shared by the value
+    //read and the & read (receiver + index expressions cover both the
+    //subscript sugar and the explicit .get(i) spelling).
+    void ClassifyContainerGet(SnExpression& receiver, ArgBoxPlan& keyBox,
+                              ArgBoxPlan& valBox);
+    void StageContainerGetCall(SnExpression& receiver, SnExpression& index,
+                               const ArgBoxPlan& keyBox, uint16_t claimBase,
+                               BytecodeEmitter& emitter);
     void EmitContainerGetCall(SnSubscriptExpr& sub, const ArgBoxPlan& keyBox,
                               const ArgBoxPlan& valBox,
                               BytecodeEmitter& emitter, uint16_t resultOffset);
@@ -2055,6 +2281,10 @@ private:
         //check reads the annotation from it. Static-init contexts leave
         //the default (their synthesized functions are void).
         SnField* pDeclaredReturnType = nullptr;
+        //Task 6: whether the declared return carries the & mark. Kept
+        //beside pDeclaredReturnType because that points at the INNER
+        //type node (ReturnType()->Field()) — the mark rides the wrapper.
+        bool bDeclaredReturnRef = false;
     };
     FuncContext* m_currFunc = nullptr;
 

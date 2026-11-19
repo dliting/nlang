@@ -1,0 +1,8 @@
+// v0.13.9 phase 3: an enum and its underlying integer are mutually
+// exclusive for reference bindings.
+enum Color { Red }
+int main() {
+    Color c = Color.Red;
+    int& v = c;
+    return 0;
+}

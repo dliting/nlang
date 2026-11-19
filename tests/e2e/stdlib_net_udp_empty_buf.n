@@ -18,12 +18,12 @@ int main() {
     string from;
     int fromPort = 0;
     bool argumentError = false;
-    try { rx.recvFrom(empty, out from, out fromPort, 1000); }
+    try { rx.recvFrom(empty, from, fromPort, 1000); }
     catch (SocketException e) { argumentError = true; }
     if (!argumentError) { return 1; }
 
     byte[] buf = byte[16];            //the datagram must survive
-    int n = rx.recvFrom(buf, out from, out fromPort, 1000);
+    int n = rx.recvFrom(buf, from, fromPort, 1000);
     byte[] msg = byte[n];
     for (int i = 0; i < n; i = i + 1) { msg[i] = buf[i]; }
     if (n != 4 || io.fromBytes(msg) != "keep") { return 2; }

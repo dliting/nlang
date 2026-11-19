@@ -151,11 +151,21 @@ bool VmExecutor::ArrayElemArgMatchesTarget(int32_t heapIdx,
     if (!arg.nested.empty())
         //An instantiation element: only the stamp can prove it.
         return stamp && stamp->Spelling() == CanonicalArgSpelling(arg);
-    if (row.elemKind != arg.resolvedKind)
+    if (row.elemKind != arg.resolvedKind
+        //v0.13.9 Task 12 (D14): interface args file under RTK_Class on
+        //the spelling side (storage tier — InterfaceArgOf), while the
+        //row keeps the interface's identity (RTK_Interface). Bridge the
+        //tiers here; the name test below does the actual matching.
+        && !(row.elemKind == RTK_Interface
+             && arg.resolvedKind == RTK_Class))
         return false;
     if (row.elemKind == RTK_Struct)
         return row.elemTypeIdx < m_currModule->structs.size()
             && m_currModule->structs[row.elemTypeIdx].name == arg.spelling;
+    if (row.elemKind == RTK_Interface)
+        return row.elemTypeIdx < m_currModule->interfaces.size()
+            && m_currModule->interfaces[row.elemTypeIdx].name
+                == arg.spelling;
     if (row.elemKind == RTK_Class)
         //A stamped record's element IS an instantiation — a leaf class
         //argument never matches it (and a stampless template-row
@@ -189,6 +199,10 @@ std::string VmExecutor::ArrayElemSpellingOf(int32_t heapIdx) {
     if (row.elemKind == RTK_Class
         && row.elemTypeIdx < m_currModule->classes.size())
         return m_currModule->classes[row.elemTypeIdx].name;
+    //v0.13.9 Task 12 (D14): name the interface row (cast diagnostics).
+    if (row.elemKind == RTK_Interface
+        && row.elemTypeIdx < m_currModule->interfaces.size())
+        return m_currModule->interfaces[row.elemTypeIdx].name;
     if (row.elemKind == RTK_Array)
         return "array";
     return "?";

@@ -1,5 +1,5 @@
-// Struct out parameters are rejected at declaration — writeback is a
-// 4-byte frame copy and cannot deep-copy a struct.
+// v0.13.9 phase 4: the out spelling retires; a struct binds through
+// a reference formal directly (refbind_param_struct).
 struct P {
     int x;
 }

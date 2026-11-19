@@ -26,7 +26,9 @@ typedef uint64 NodeBits;
 //uint64 so the packed layout kind(8)+access(2)+flags(26)=36 still leaves
 //headroom. AST flags are never serialized, so widening has no on-disk
 //format impact.
-#define NODE_FLAG_BITS		28
+//v0.13.9: 26 -> 29. NF_TensorOp/NF_Ref/NF_Promoted need bits 26..28 (the
+//same single-bit-per-flag growth; the budget was again exactly full).
+#define NODE_FLAG_BITS		29
 
 const size_t	NODE_KIND_LIMIT = 1 << NODE_KIND_BITS;
 

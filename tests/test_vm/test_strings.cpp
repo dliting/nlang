@@ -275,37 +275,42 @@ void test_intern_sweep_purifies_table()
 //store itself has to grow — one per allocation block past the initial
 //threshold, measured 194 for 10^5 appends — instead of one per safepoint
 //(~10^5, each still marking the whole resident store). The collection count
-//is the deterministic shape of that difference. Wall time observed the same
-//regime but also observed the machine (the ASan leg runs the chain about 5x
-//slower), which is not what this pin is about.
+//is allocation arithmetic: identical on Debug, Release and ASan, immune to
+//machine speed. Wall time observed the same regime but also observed the
+//machine — the ASan leg runs the chain about 5x slower — and the wall-clock
+//form this replaces flaked the ASan gate: its 15s bound grazed the real
+//ASan duration (~13-16s) and sweep-time machine state tipped it over.
+//Calibrated on the measured 194 (one collection per store-growth block):
+//just over 2x headroom for a smaller allocation quantum or an extra store
+//resident. The other regime was measured with the same pin, not estimated:
+//disabling the backoff gave one collection per append (20000 at a
+//20k-append chain, and the 10^5 chain did not finish inside 400 s), so this
+//ceiling stays more than two orders of magnitude below the failing regime.
+constexpr size_t kDeepChainMaxCollections = 500;
 void test_deep_chain_append_bounded_collections()
 {
     TEST(deep_chain_append_bounded_collections);
+    const int chainAppends = 100000;
+    const int chainChars = chainAppends * 2;
     CompiledModule mod;
     CHECK(loadSource("deep_chain_collections",
         "int main() {\n"
         "    string s = \"\";\n"
         "    int i = 0;\n"
-        "    while (i < 100000) {\n"
+        "    while (i < " + std::to_string(chainAppends) + ") {\n"
         "        s = s + \"ab\";\n"
         "        i = i + 1;\n"
         "    }\n"
-        "    if (s.length() != 200000) return 1;\n"
-        "    if (s.substring(199998, 200000) != \"ab\") return 2;\n"
+        "    if (s.length() != " + std::to_string(chainChars) + ") return 1;\n"
+        "    if (s.substring(" + std::to_string(chainChars - 2) + ", "
+            + std::to_string(chainChars) + ") != \"ab\") return 2;\n"
         "    return 0;\n"
         "}\n", mod), "build failed");
     VmExecutor exec;
-    //Calibrated on the measured 194 (one collection per store-growth block):
-    //5x headroom for a smaller allocation quantum or an extra store resident.
-    //The other regime was measured with the same pin, not estimated: disabling
-    //the backoff gave one collection per append (20000 at a 20k-append chain,
-    //and the 10^5 chain did not finish inside 400 s), so the ceiling separates
-    //the two regimes by two orders of magnitude.
-    constexpr size_t kDeepChainMaxCollections = 1024;
-    CHECK(exec.Execute(mod) == 0, "chain must read back correct");
     //Read back the count instead of a stopwatch: the same regime holds on
     //every tree and machine, so the pin cannot turn red on a downclocked leg
     //nor green on a faster one.
+    CHECK(exec.Execute(mod) == 0, "chain must read back correct");
     CHECK(exec.GcCollectionCount() <= kDeepChainMaxCollections,
         "10^5 default-threshold chain appends must stay in the backed-off "
         "collection regime, got " + std::to_string(exec.GcCollectionCount())

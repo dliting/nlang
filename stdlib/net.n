@@ -157,8 +157,9 @@ class IcmpSocket {
         _throwNet(lastErr, "icmp sendTo");
         return 0;                        //unreachable (the throw above)
     }
-    // Receives one ICMP message; the source address comes back via out.
-    public int recvFrom(byte[] buf, out string peerAddress, int timeoutMs = 0) {
+    // Receives one ICMP message; the source address comes back via the
+    // reference formal.
+    public int recvFrom(byte[] buf, string& peerAddress, int timeoutMs = 0) {
         long deadline = 0;
         if (timeoutMs > 0) { deadline = _nowMs() + timeoutMs; }
         int n = _icmpRecvFrom(m_handle, buf, deadline);
@@ -685,8 +686,8 @@ class UdpSocket {
         return 0;                        //unreachable (the throw above)
     }
     // Receives one datagram; the source address/port come back via
-    // out parameters. Parks until data arrives or the deadline passes.
-    public int recvFrom(byte[] buf, out string peerAddress, out int peerPort,
+    // reference formals. Parks until data arrives or the deadline passes.
+    public int recvFrom(byte[] buf, string& peerAddress, int& peerPort,
                         int timeoutMs = 0) {
         long deadline = 0;
         if (timeoutMs > 0) { deadline = _nowMs() + timeoutMs; }

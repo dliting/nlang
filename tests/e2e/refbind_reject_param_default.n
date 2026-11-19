@@ -1,0 +1,7 @@
+// v0.13.9 phase 3: a reference parameter has no storage to default to.
+void f(int& v = 5) {
+}
+int main() {
+    f(1);
+    return 0;
+}

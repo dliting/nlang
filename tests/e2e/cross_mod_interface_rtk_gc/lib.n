@@ -1,0 +1,17 @@
+// v0.13.9 Task 12 (D14): the interface-value surfaces a consumer's GC
+// roots depend on — an interface-typed constant (lazy static init), an
+// interface-element array, and a factory returning the interface type so
+// every interface-typed value arrives already typed (the consumer-side
+// class-to-interface conversion is a separate wire feature).
+interface Counter {
+    void set(int v);
+    int get();
+    public static const Counter START = makeStart();
+}
+class Cell implements Counter {
+    int v = 0;
+    public void set(int x) { v = x; }
+    public int get() { return v; }
+}
+public Counter makeCounter() { return Cell(); }
+Counter makeStart() { Cell c = Cell(); c.set(3); return c; }

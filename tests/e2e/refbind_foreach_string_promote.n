@@ -1,0 +1,12 @@
+// v0.13.9 phase 3: the string-arm loop var (char) promoted by a body
+// & binding — the second allocator site; the code point lands in the
+// copy's storage and writes through the reference reach the variable.
+int main() {
+    int sum = 0;
+    foreach (char c in "ab") {
+        char& r = c;
+        r = 'z';
+        sum = sum + (c as int);
+    }
+    return sum;   // 'z' + 'z' = 122 + 122
+}

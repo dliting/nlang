@@ -1,0 +1,9 @@
+// v0.13.9 phase 3: a reference cannot bind to another reference (a
+// binding aliases storage, not a binding slot).
+struct Point { int x; }
+int main() {
+    Point p;
+    Point& a = p;
+    Point& b = a;
+    return 0;
+}

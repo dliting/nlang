@@ -1,0 +1,21 @@
+// v0.13.9 phase 3 Task 13: a T-typed field instantiated with a struct
+// binds the field's record — the write-through reaches it and reads
+// keep returning the record's members, not a severed scratch record.
+struct Point {
+    int x;
+    int y;
+}
+class Box<T> {
+    public T value;
+    public Box(T v) { this.value = v; }
+}
+int main() {
+    Box<Point> b = Box(Point{3, 4});
+    Point& r = b.value;
+    if (r.x != 3) return 3;    // the binding reads the stored value
+    r.x = 9;
+    if (b.value.x != 9) return 4;
+    b.value = Point{7, 8};     // whole-field store updates the record
+    if (r.x != 7) return 5;    // the binding tracks the record
+    return 1;
+}

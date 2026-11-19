@@ -1,0 +1,11 @@
+// v0.13.9 phase 3: a scalar & loop variable binds each array cell in
+// place, so stores through the variable write through to the array.
+int main() {
+    int[] nums = int[2];
+    nums[0] = 5;
+    nums[1] = 6;
+    foreach (int& v in nums) {
+        v = v + 1;
+    }
+    return nums[0] * 10 + nums[1];
+}

@@ -50,22 +50,28 @@ TopGenericModHeader = ( AccessType [ NodeFlags ] | NodeFlags )
 ```ebnf
 Type            = ( NameExpr | QualifiedType
                   | IdentifierExpr "<" TypeArgs ">"
-                  | "func" "<" TypeArgs ">" )
+                  | "func" "<" FuncTypeArgs ">" )
                   { "[]" | "[,,]" } ;
 TypeArgs        = TypeList | "void" | "void" "," TypeList ;
 TypeList        = TypeArg { "," TypeArg } ;
 TypeArg         = [ "out" ] Type ;
+FuncTypeArgs    = FuncTypeList | "void" | "void" "," FuncTypeList ;
+FuncTypeList    = FuncTypeArg { "," FuncTypeArg } ;
+FuncTypeArg     = [ "out" ] Type | Type "&" ;
+TypeRef         = Type [ "&" ] ;
 TypeName        = NameExpr | QualifiedType ;
 NameExpr        = IdentifierExpr ;
 QualifiedType   = NameExpr "." <identifier> { "." <identifier> } ;
 NameList        = ImplementsName { "," ImplementsName } ;
 ImplementsName  = TypeName | <identifier> "<" TypeList ">" ;
 HeadType        = ( IdentifierExpr [ "<" TypeArgs ">" ]
-                  | "func" "<" TypeArgs ">" | MemberExpr )
+                  | "func" "<" FuncTypeArgs ">" | MemberExpr )
                   { "[]" | "[,,]" } ;
 ```
 
 `TypeArgs`允许`void`作为第一个类型实参（泛型类型的无结果形式），也允许`void`后接其余实参；哪些泛型类型接受哪些形式由第4章定义。`HeadType`是局部声明中可用的类型拼写形式；它与`Type`的唯一区别是允许以`MemberExpr`为基础（经由成员表达式到达的限定名）。
+
+`FuncTypeArgs`是`TypeArgs`的函数类型孪生：它的实参允许`&`标记（§4.7.9）——`func<int, int&>`——且`out`与`&`不组合（`out int&`是语法错误）。普通泛型实参保持`TypeArg`，不接受`&`：`List<int&>`是语法错误（§4.12.5）。`TypeRef`是`Type`带`&`的形式，用于声明处命名类型的位：形参、方法返回类型、`foreach`头与局部声明（§4.7.9）。
 
 ## 2.4 声明
 
@@ -84,7 +90,7 @@ ImplementsOpt   = [ "implements" NameList ] ;
 ClassMemberList = ClassMember { ClassMember } ;
 ClassMember     = [ AccessType ]
                   ( [ NodeFlags ] MethodDecl | FieldDecl ) ;
-MethodDecl      = [ Type | "void" ] <identifier>
+MethodDecl      = [ TypeRef | "void" ] <identifier>
                   "(" [ FormalParamList ] ")" FunctionBodyOrSemi ;
 FieldDecl       = Type <identifier> [ "=" Expression ] ";" ;
 
@@ -111,13 +117,13 @@ EnumMemberList  = EnumMember { "," EnumMember } ;
 EnumMember      = <identifier> [ "=" Expression ] ;
 EnumMethodSection = [ ";" [ EnumMethodList ] ] ;
 EnumMethodList  = EnumMethod { EnumMethod } ;
-EnumMethod      = [ AccessType ] ( Type | "void" ) <identifier>
+EnumMethod      = [ AccessType ] ( TypeRef | "void" ) <identifier>
                   "(" [ FormalParamList ] ")" FunctionBodyOrSemi ;
 
 FormalParamList = FormalParam { "," FormalParam } ;
 FormalParam     = [ NodeFlags ]
                   ( "out" Type <identifier>
-                  | Type <identifier> [ "=" Expression ] ) ;
+                  | TypeRef <identifier> [ "=" Expression ] ) ;
 FunctionBodyOrSemi = Paragraph | ";" ;
 ```
 
@@ -135,9 +141,12 @@ Statement       = ";" | ReturnStmt | InvokeStmt | LocalDeclStmt
 StatementList   = { Statement } ;
 Paragraph       = "{" StatementList "}" ;
 
-LocalDeclStmt   = [ "const" ] HeadType LocalDeclList ";"
+LocalDeclStmt   = HeadType [ "&" ] LocalDeclList ";"
+                | "const" HeadType LocalDeclList ";"
+                | DeclLocalConst
                 | "static" HeadType LocalDeclList ";"
                 | "static" "const" HeadType LocalDeclList ";" ;
+DeclLocalConst  = "const" HeadType "&" LocalDeclList ";" ;
 LocalDeclList   = LocalDecl { "," LocalDecl } ;
 LocalDecl       = <identifier>
                   [ "=" Expression | "=" BracedInitExpr
@@ -166,7 +175,7 @@ InitFor         = ε | Type LocalDeclList | InvokeExpr
                 | IdentifierExpr "=" Expression ;
 FiniFor         = ε | InvokeExpr | IdentifierExpr "=" Expression
                 | IdentifierExpr CompoundOp Expression ;
-ForeachStmt     = "foreach" "(" Type <identifier> "in"
+ForeachStmt     = "foreach" "(" TypeRef <identifier> "in"
                   ( Expression | BracedInitExpr ) ")" Statement ;
 
 SwitchStmt      = "switch" "(" Expression ")"
@@ -202,7 +211,7 @@ Expression      = ParenthesesExpr | MemberExpr | LiteralExpr
                 | Expression "as" TypeName [ "[]" | "[,,]" ]
                 | Expression "as" AsGenericTarget
                 | QualifiedGenericReceiver "(" [ ConcreteParamList ] ")"
-                | "func" "<" TypeList ">" "(" [ ConcreteParamList ] ")" ;
+                | "func" "<" FuncTypeList ">" "(" [ ConcreteParamList ] ")" ;
 BinaryOp        = "+" | "-" | "*" | "/" | "%"
                 | "<" | "<=" | ">" | ">=" | "<<" | ">>"
                 | "==" | "!=" | "&" | "^" | "|" | "&&" | "||" ;

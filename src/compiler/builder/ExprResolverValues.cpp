@@ -22,6 +22,28 @@
 namespace nlang
 {
 
+//v0.13.9 phase 3: the & no-op classification (see ExprResolver.h).
+//Identity reference types carry reference semantics already — objects,
+//interfaces, and arrays (the interned token covers both bracket and
+//Array<E> spellings; container instantiations are class decls). Every
+//other type binds a reference with real aliasing semantics.
+bool IsRefNoOpType(const SnField *pTypeField)
+{
+	if (!pTypeField)
+		return false;
+	const NodeKind kind = pTypeField->Kind();
+	return kind == NK_ClassDecl || kind == NK_InterfaceDecl
+		|| kind == NK_ArrayTypeToken;
+}
+
+//v0.13.9 phase 3: the shared type-argument bypass assert (see
+//ExprResolver.h).
+void AssertNoRefTypeArgs(const std::vector<SnField *> &typeArgs)
+{
+	for (auto *pArg : typeArgs)
+		NLANG_ASSERT(!pArg || !pArg->ContainFlags(NF_Ref));
+}
+
 void ExprResolveAccessor::Access(SnLiteralExpr &sn)
 {
 	NLANG_ASSERT(sn.IsResolved());
@@ -136,52 +158,21 @@ void ExprResolveAccessor::Access(SnNamedArgExpr &sn)
 	sn.AddFlags(NF_Resolved);
 }
 
-//Phase 9e: SnOutArgExpr resolver. Grammar restricts the inner to a plain
-//identifier; here we additionally require it to bind to a caller-frame
-//slot — a local variable or a formal parameter of the calling function
-//(both register as NK_FormalParam-kind fields). Class fields (implicit
-//this.x), enum members and globals are rejected: the writeback copies
-//the callee's out slot to a frame offset only.
+//v0.13.9 phase 4: the out argument marker is retired. The resolver
+//shrank to the single migration diagnostic — the inner-identifier
+//shape gates (plain local, non-const, non-static) are subsumed: the
+//marker itself is the error, and reference formals bind every legal
+//lvalue shape directly (spec §3.9). The node stays unresolved so the
+//surrounding invoke degrades through its own failure path.
 void ExprResolveAccessor::Access(SnOutArgExpr &sn)
 {
 	NLANG_ASSERT(!sn.IsResolved());
 	auto *pInner = sn.Inner();
 	NLANG_ASSERT(pInner);
-	if (pInner->Kind() != NK_IdentifierExpr)
-	{
-		m_Env.Log(CLL_Error, sn.Location(),
-			"out argument must be a plain local variable.");
-		return;
-	}
-	pInner->Accept(*m_pVisitor);
-	if (!pInner->IsResolved())
-		return;
-	auto *pField = static_cast<SnIdentifierExpr*>(pInner)->Field();
-	if (!pField || pField->Kind() != NK_FormalParam)
-	{
-		m_Env.Log(CLL_Error, sn.Location(),
-			"out argument \"%s\" must be a local variable or parameter "
-			"of the calling function.",
-			pInner->ToString().c_str());
-		return;
-	}
-	//v0.12.6 D3: const locals and static locals bind as frame-slot
-	//formals, but neither may take the writeback — a const local by
-	//its one-assignment contract, a static local because its storage
-	//is a module slot the frame writeback cannot address (and whose
-	//initializer discipline the once-guard owns).
-	if (pField->ContainFlags(NF_Const) || pField->ContainFlags(NF_Static))
-	{
-		m_Env.Log(CLL_Error, sn.Location(),
-			"out argument \"%s\" is %s and cannot be passed as an out "
-			"argument.",
-			pInner->ToString().c_str(),
-			pField->ContainFlags(NF_Const) ? "a constant"
-			                               : "a static local variable");
-		return;
-	}
-	sn.EvalDataType(pInner->EvalDataType());
-	sn.AddFlags(NF_Resolved);
+	m_Env.Log(CLL_Error, sn.Location(),
+		"the out argument marker is retired; pass \"%s\" to a "
+		"reference formal instead.",
+		pInner->ToString().c_str());
 }
 
 void ExprResolveAccessor::Access(SnCastExpr &sn)

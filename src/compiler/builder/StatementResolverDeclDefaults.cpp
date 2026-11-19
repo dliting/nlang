@@ -201,4 +201,43 @@ bool StatementResolveAccessor::RejectTypeParamDefault(SnFunction &fn,
 	return true;
 }
 
+//v0.13.9 phase 3 split (source-size guard): the default-value contract
+//for one formal — resolution, the forward-ref check, the ctor `this`
+//check and type compat (the walkers above are this contract's arms).
+void StatementResolveAccessor::ResolveFormalDefault(SnFunction &sn,
+	std::vector<SnFormalParam *> &formals, size_t i)
+{
+	auto *param = formals[i];
+	//0.13.1a Task 5: a type-parameter-typed formal rejects a
+	//default value outright — the remaining checks presume a
+	//concrete formal type and cannot say anything useful here.
+	if (sn.IsGenericDeclaration() && RejectTypeParamDefault(sn, *param))
+		return;
+	if (!param->Value()->IsResolved())
+		m_ExprResolver.Resolve(*param->Value(), sn, sn, ERF_None);
+
+	//Phase 9c round 5: default[i] may only reference formals[0..i-1].
+	if (param->Value()->IsResolved())
+		CheckDefaultForwardRefs(formals, i);
+
+	//P3 review: a ctor default cannot touch `this` — imported stubs
+	//skip like CheckDefaultTypeCompat (the producer unit already
+	//validated its own defaults).
+	if (param->Value()->IsResolved() && !sn.IsImported())
+		CheckCtorDefaultThisRefs(sn, *param);
+
+	//Verify default's type is compatible with the formal's
+	//declared type. Literals may already be IsResolved() from
+	//parse time, so the check runs regardless of the resolve
+	//above. Imported stubs are skipped: the stub formal's type
+	//is a placeholder (int32) since CompiledFunction doesn't
+	//carry per-formal type info; only the default expression
+	//preserves the original type. R5-4 already skips call-site
+	//type checks for imported callees; this declaration-time
+	//check would falsely reject valid cross-module defaults
+	//like string/null.
+	if (param->Value()->IsResolved() && !sn.IsImported())
+		CheckDefaultTypeCompat(param);
+}
+
 } //namespace nlang

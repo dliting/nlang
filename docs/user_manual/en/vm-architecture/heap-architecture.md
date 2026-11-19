@@ -51,16 +51,25 @@ a container element, a static slot) owns one record for its entire life
 `OP_CopyStructInPlace` — the record's field cells are overwritten while
 the heap slot and its handle never move; only establishing a new
 position allocates a new record. The write is cell-granularity, like
-every other storage operation: there is no record-level lock anywhere
-in the executor.
+every other storage operation — one cell is a 4-byte machine word:
+there is no record-level lock anywhere in the executor. A cell's
+storage corresponds to a *memory location* in the C/C++ standards:
+reads and writes of a single cell are atomic, concurrent access to
+different cells needs no coordination, and unsynchronized concurrent
+access to the same cell is a data race (§10.1). A wide field (`long`,
+`ulong`, `double`) occupies two cells that are stored independently,
+so without coordination even a single wide-field read can see its two
+halves from different writes; atomicity beyond one cell — a wide
+field, or a whole record — is the user's duty to coordinate (§10.2).
 
 **Cross-carrier observability**: without coordination, a concurrent
 reader of a shared struct may observe a mix of old and new field values
 — a whole-record store (assignment or declaration initialization)
-writes the record field by field, and whole-record reads (`==`
-comparison, by-value parameter passing, `foreach` copies) read field by
-field the same way. Per-field values are always type-correct (memory is
-never corrupted); when a record is shared across carriers, coordinate
+writes the record cell by cell, and whole-record reads (`==`
+comparison, by-value parameter passing, `foreach` copies) read cell by
+cell the same way, and the two halves of a wide field can mix just the
+same. Every observed value stays type-correct (memory is never
+corrupted); when a record is shared across carriers, coordinate
 shared mutable state and cross-field invariants with a `Mutex` (§10.2).
 
 ### Implicit `Object` Base Class

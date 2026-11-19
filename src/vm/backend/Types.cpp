@@ -29,6 +29,14 @@ uint8_t VmBackend::RuntimeTypeKind(SnField* pType) {
     auto k = pType->Kind();
     if (k == NK_EnumDecl) return RTK_Int32;
     if (k == NK_StructDecl) return RTK_Struct;
+    //v0.13.9 Task 12 (D14): an interface-typed storage location holds a
+    //class-instance handle — file it as RTK_Class so every kind-keyed
+    //consumer (local descriptors' band mask, DeclaredFieldAcceptsRuntime,
+    //signature leaves) routes the slot to the heap-index GC class instead
+    //of the scalar degrade (enum -> RTK_Int32 is the same representation
+    //truth). Which interface it names is the identity tier's job
+    //(BuildTypeDesc -> RTK_Interface), never this one.
+    if (k == NK_InterfaceDecl) return RTK_Class;
     if (k == NK_ClassDecl) {
         //Phase 13: synthetic func<...> declarations are function-handle
         //values (RTK_Func), not classes. Every kind-keyed consumer (local

@@ -25,6 +25,20 @@ void DisasmU16xN(int n, BytecodeReader &r, std::ostringstream &out,
     out << head << buf << "\n";
 }
 
+//Print a leading int8 tag (kind byte or type-parameter ordinal) plus `n`
+//uint16 operands — the shape of the kind-tagged and T-tagged ref family.
+//Same read-before-format discipline as DisasmU16xN.
+void DisasmTagU16xN(int n, BytecodeReader &r, std::ostringstream &out,
+    const std::string &head, const char *fmt) {
+    const int tag = r.ReadByte();
+    uint16_t v[4] = {0, 0, 0, 0};
+    for (int i = 0; i < n; ++i)
+        v[i] = r.ReadUint16();
+    char buf[96];
+    snprintf(buf, sizeof(buf), fmt, tag, v[0], v[1], v[2], v[3]);
+    out << head << buf << "\n";
+}
+
 void EmitU8Tag(BytecodeReader &r, std::ostringstream &out,
     const std::string &head) {
     char buf[48];

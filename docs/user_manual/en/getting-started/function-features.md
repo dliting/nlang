@@ -7,7 +7,7 @@ This page tours functions and modules through runnable snippets; each section's 
 ```nlang
 import io;
 
-void divmod(int a, int b, out int q, out int r) {
+void divmod(int a, int b, int& q, int& r) {
     q = a / b;
     r = a - q * b;
 }
@@ -19,7 +19,7 @@ int add(int a, int b = 10) {
 int main() {
     int q = 0;
     int r = 0;
-    divmod(17, 5, out q, out r);    // q=3, r=2
+    divmod(17, 5, q, r);            // q=3, r=2
     io.print("17 = 5*" + q + " + " + r);
     if (add(q) == 13 && r == 2)     // b defaults to 10
         return 13;
@@ -27,8 +27,8 @@ int main() {
 }
 ```
 
-Output `17 = 5*3 + 2`, exit code 13. `out` parameters let one call bring
-back several results; parameters can carry default values (named
+Output `17 = 5*3 + 2`, exit code 13. Reference parameters let one call
+bring back several results; parameters can carry default values (named
 arguments are supported too); functions can be overloaded, recurse, and
 return `void`.
 

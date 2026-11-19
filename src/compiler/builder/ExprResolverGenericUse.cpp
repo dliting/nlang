@@ -14,19 +14,41 @@
 #include "ModuleBuilderChecks.h"
 #include "BindingTable.h"   //IsBuiltinHandleDeclName (D11)
 #include <nlang/runtime/BuiltinGenericNames.h>
+#include <memory>
 #include <vector>
 #include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
 
+//v0.13.9 phase 3: the func instantiation's & marks, same discipline as
+//the out flags (expression-level NF_Ref, node-stored).
+const std::vector<uint8>& GetGenericRefFlags(SnClassDecl* pClass)
+{
+	static const std::vector<uint8> s_empty;
+	return pClass ? pClass->GenericRefFlags() : s_empty;
+}
+
+//Type arguments of a generic instantiation (List<T> → {T}, Dict<K,V> →
+//{K,V}; empty otherwise). Every creation — synthetic AND declared — sets
+//GenericTypeArgs on the node itself; the historical process-global side
+//table (whose fallback branch no creation could ever miss) is gone with the
+//per-build registry.
+std::vector<SnField*> GetGenericTypeArgs(SnClassDecl* pClass)
+{
+	if (pClass && pClass->IsGenericInstantiation())
+		return pClass->GenericTypeArgs();
+	return {};
+}
+
 //Type-argument collection of Access(SnGenericTypeExpr&): resolves each
 //argument in the caller's scope and gathers the canonical fields plus
-//the parallel out flags. False = a diagnostic is logged (unresolvable
-//argument, argument without a field, or the reject gate above).
+//the parallel reference marks. False = a diagnostic is
+//logged (unresolvable argument, argument without a field, or the
+//reject gate above).
 bool ExprResolveAccessor::TryResolveGenericTypeArgs(
 	SnGenericTypeExpr &genType, const std::string &baseName,
-	std::vector<SnField*> &typeArgs, std::vector<uint8> &outFlags)
+	std::vector<SnField*> &typeArgs, std::vector<uint8> &refFlags)
 {
 	for (auto *pTA : genType.TypeArgs())
 	{
@@ -61,7 +83,9 @@ bool ExprResolveAccessor::TryResolveGenericTypeArgs(
 		//(same intern channel as declarations), so the key, the display
 		//name and every consumer read array-ness off the token itself.
 		typeArgs.push_back(pField);
-		outFlags.push_back(pTA->ContainFlags(NF_Out) ? 1 : 0);
+		//v0.13.9 phase 3: the & mark rides the argument expression the
+		//same way — func<int, int&> must key apart from func<int, int>.
+		refFlags.push_back(pTA->ContainFlags(NF_Ref) ? 1 : 0);
 	}
 	return true;
 }
@@ -279,11 +303,11 @@ bool ExprResolveAccessor::TryResolveDeclaredGenericInterfaceInstance(
 		return false;
 	}
 	std::vector<SnField*> typeArgs;
-	std::vector<uint8> outFlags;
+	std::vector<uint8> refFlags;
 	//No multi-slot gate here: an interface carries no value storage —
 	//its T-typed members are signature positions only, so every
 	//argument kind is a legal substitution.
-	if (!TryResolveGenericTypeArgs(genType, baseName, typeArgs, outFlags))
+	if (!TryResolveGenericTypeArgs(genType, baseName, typeArgs, refFlags))
 		return false;
 	auto *pInstance = GetDeclaredGenericInterfaceDecl(tmpl, typeArgs);
 	if (!pInstance)
@@ -321,8 +345,8 @@ bool ExprResolveAccessor::TryResolveDeclaredGenericInstance(
 		return false;
 	}
 	std::vector<SnField*> typeArgs;
-	std::vector<uint8> outFlags;
-	if (!TryResolveGenericTypeArgs(genType, baseName, typeArgs, outFlags))
+	std::vector<uint8> refFlags;
+	if (!TryResolveGenericTypeArgs(genType, baseName, typeArgs, refFlags))
 		return false;
 	if (RejectMultiSlotTypeArgs(m_Env, *pClassTemplate, typeArgs, baseName,
 			genType.Location()))
@@ -331,6 +355,12 @@ bool ExprResolveAccessor::TryResolveDeclaredGenericInstance(
 		typeArgs);
 	if (!pInstance)
 		return false;
+	//D9 fork warning: a template member writing through a T& formal is
+	//only visible to the caller when T binds a by-slot-copy type; for
+	//identity types the write reaches the local formal alone. One
+	//warning per spelling site (this resolver pass runs once per site).
+	WarnIdentityRefFormals(m_Env, *pClassTemplate, typeArgs,
+		genType.Location());
 	ResolveFieldExprAs(genType, pInstance);
 	return true;
 }
@@ -354,14 +384,13 @@ void ExprResolveAccessor::Access(SnGenericTypeExpr &genType)
 	}
 
 	std::vector<SnField*> typeArgs;
-	std::vector<uint8> outFlags;
-	if (!TryResolveGenericTypeArgs(genType, baseName, typeArgs, outFlags))
+	std::vector<uint8> refFlags;
+	if (!TryResolveGenericTypeArgs(genType, baseName, typeArgs, refFlags))
 		return;
 
 	auto *pSynClass =
 		GetGenericClassDecl(m_Env.Registry(), baseName,
-			typeArgs, outFlags,
-			pBase->Location());
+			typeArgs, refFlags, pBase->Location());
 	if (!pSynClass)
 	{
 		m_Env.Log(CLL_Error, genType.Location(),
@@ -371,6 +400,37 @@ void ExprResolveAccessor::Access(SnGenericTypeExpr &genType)
 	}
 
 	ResolveFieldExprAs(genType, pSynClass);
+}
+
+//0.13.1a Task 4 (D4): the call-site value type of a generic free
+//function — the template row's return type expression substituted with
+//the invoke's inferred arguments, per the established convention (the
+//value slot reads the return type expr's resolved Field, exactly what
+//SnFunction::EvalDataType yields). The substituted copy is transient:
+//the substitution binds its leaves, and the resolved field it yields is
+//tree/registry-owned, so the invoke's slot outlives the copy.
+//No Access() re-entry here: the copy's static type is the base
+//SnFieldExpr, so an Access call static-dispatches to the defaulted
+//accessor and asserts regardless of the dynamic kind (the Task 4
+//Debug-only crash). Every SubstituteTypeExpr arm already owns the
+//copy's resolution — a resolved source leaf resolves the copy via
+//ResolveFieldExprAs/token interning/an explicit Access on the precise
+//SnGenericTypeExpr static type, and an unresolved source leaf stays
+//unresolved on purpose (the template row's own diagnostic already
+//fired; re-resolving the name at the call site would consult the
+//wrong scope).
+void ExprResolveAccessor::SubstituteInvokeReturnType(
+	SnInvokeExpr& invoke, SnFunction& func)
+{
+	if (!func.HasReturn() || !func.ReturnType())
+		return;
+	std::unique_ptr<SnFieldExpr> pRetCopy(
+		SubstituteTypeExpr(*func.ReturnType(),
+			invoke.InferredTypeArgs()));
+	if (!pRetCopy)
+		return;
+	if (pRetCopy->IsResolved())
+		invoke.EvalDataType(pRetCopy->Field());
 }
 
 } //namespace nlang

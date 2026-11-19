@@ -157,6 +157,8 @@ add_library(nlang_compiler
     builder/StatementResolverAssign.cpp
     builder/StatementResolverCompound.cpp
     builder/StatementResolverFlow.cpp
+    builder/StatementResolverRef.cpp
+    builder/RefBindJudgment.cpp
     builder/StatementResolverSwitchTry.cpp
     builder/StatementResolverSuper.cpp
     builder/StatementResolverStoreGates.cpp

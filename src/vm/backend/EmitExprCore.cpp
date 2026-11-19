@@ -153,10 +153,12 @@ void VmBackend::Access(SnLiteralExpr& expr) {
 //Delegate invoke arm: materialize the bound callee handle into a scratch
 //evalArea slot (the field form must not disturb callParamBase), then
 //dispatch through EmitDelegateDispatch.
+//Task 8: a raw &-return binds the pair itself (binding targets, nested
+//ref-calls); a value read normalizes through the key's return deref tag.
 void VmBackend::EmitDelegateInvoke(const SnInvokeExpr& invoke,
                                    BytecodeEmitter& emitter,
                                    uint16_t resultOffset,
-                                   const std::vector<OutSpill>& outSpills) {
+                                   bool bRawRefResult) {
     auto target = ResolveBareIdentifier(invoke.Field());
     EvalAreaClaim calleeClaim(*this, 1);
     uint16_t calleeSlot = calleeClaim.base();
@@ -183,67 +185,46 @@ void VmBackend::EmitDelegateInvoke(const SnInvokeExpr& invoke,
             "NLang backend: delegate callee has no codegen "
             "binding: " + invoke.CalleeName());
     }
-    EmitDelegateDispatch(emitter, calleeSlot, resultOffset, outSpills);
+    const uint8_t refDerefKind = bRawRefResult ? kNoRefDeref
+        : DelegateReturnDerefKind(DelegateFuncTypeOfField(invoke.Field()));
+    EmitDelegateDispatch(emitter, calleeSlot, resultOffset,
+        refDerefKind);
     emitter.Emit(OpCode::OP_ParaEnd);
 }
 
-//Phase 13 Step 2: out-carrying delegate calls dispatch with
-//OP_CallDelegateOut; the executor reverses the bound-handle
-//this-shift when copying the marked user-parameter slots back
-//to callParamBase. Result first — the spills below clobber
-//pResult (same ordering discipline as OP_CallStaticOut).
+//Delegate dispatch: OP_CallDelegate. A ref-returning key parks a raw
+//pair — deref in place for a value consumer.
 void VmBackend::EmitDelegateDispatch(BytecodeEmitter& emitter,
                                      uint16_t calleeSlot,
                                      uint16_t resultOffset,
-                                     const std::vector<OutSpill>& outSpills) {
-    if (!outSpills.empty()) {
-        emitter.Emit(OpCode::OP_CallDelegateOut);
-        emitter.EmitUint16(calleeSlot);
-        emitter.EmitUint16(m_currFunc->callParamBase);
-        emitter.EmitInt32(static_cast<int32_t>(
-            BuildOutMask(outSpills)));
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(resultOffset);
-        EmitOutSpills(outSpills, emitter);
-    } else {
-        emitter.Emit(OpCode::OP_CallDelegate);
-        emitter.EmitUint16(calleeSlot);
-        emitter.EmitUint16(m_currFunc->callParamBase);
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(resultOffset);
-    }
+                                     uint8_t refDerefKind) {
+    emitter.Emit(OpCode::OP_CallDelegate);
+    emitter.EmitUint16(calleeSlot);
+    emitter.EmitUint16(m_currFunc->callParamBase);
+    emitter.Emit(OpCode::OP_Assign);
+    emitter.EmitUint16(resultOffset);
+    if (refDerefKind != kNoRefDeref)
+        EmitRefDerefInPlace(refDerefKind, resultOffset, emitter);
 }
 
-//Free-function (receiverless) call: OP_CallStatic, or OP_CallStaticOut
-//+ spills when the call carries out arguments. The 0.13.1a descriptor
-//operand rides both forms — StaticCallDescIdxFor decides none vs
-//caller-forward.
+//Free-function (receiverless) call: OP_CallStatic. The 0.13.1a
+//descriptor operand rides the form — StaticCallDescIdxFor decides
+//none vs caller-forward.
 void VmBackend::EmitFreeFunctionCall(int funcIndex, BytecodeEmitter& emitter,
                                      uint16_t resultOffset,
-                                     const std::vector<OutSpill>& outSpills,
-                                     uint16_t descIdx) {
-    if (!outSpills.empty()) {
-        emitter.Emit(OpCode::OP_CallStaticOut);
-        emitter.EmitUint16(static_cast<uint16_t>(funcIndex));
-        emitter.EmitUint16(m_currFunc->callParamBase);
-        emitter.EmitUint16(descIdx);
-        emitter.EmitInt32(static_cast<int32_t>(
-            BuildOutMask(outSpills)));
-        //Result first: the spills below clobber pResult via
-        //OP_VarLocal, so the call's return value must be stored
-        //before any writeback.
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(resultOffset);
-        EmitOutSpills(outSpills, emitter);
-    } else {
-        emitter.Emit(OpCode::OP_CallStatic);
-        emitter.EmitUint16(static_cast<uint16_t>(funcIndex));
-        emitter.EmitUint16(m_currFunc->callParamBase);
-        emitter.EmitUint16(descIdx);
-        // Result is in pResult, store to resultOffset
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(resultOffset);
-    }
+                                     uint16_t descIdx,
+                                     uint8_t refDerefKind) {
+    emitter.Emit(OpCode::OP_CallStatic);
+    emitter.EmitUint16(static_cast<uint16_t>(funcIndex));
+    emitter.EmitUint16(m_currFunc->callParamBase);
+    emitter.EmitUint16(descIdx);
+    //Result is in pResult, store to resultOffset. A &-returning
+    //callee parks a raw pair: deref the payload cell in place
+    //(Task 6, value semantics at the read site).
+    emitter.Emit(OpCode::OP_Assign);
+    emitter.EmitUint16(resultOffset);
+    if (refDerefKind != kNoRefDeref)
+        EmitRefDerefInPlace(refDerefKind, resultOffset, emitter);
 }
 
 //0.13.1a: the descriptor operand of a receiverless call. A callee that
@@ -293,32 +274,40 @@ void VmBackend::Access(SnInvokeExpr& expr) {
             return;
         }
 
-        auto* callee = invoke.Callee();
+        EmitBareInvokeShape(invoke, resultOffset,
+                            /*bRawRefResult=*/false);
+}
 
-        //v0.12.6 D2: a bare static-method call (the in-class spelling)
-        //is a first active use too — gate the callee's declaring class
-        //before any argument evaluation. Free functions carry no owner
-        //class and the gate is a no-op.
-        EmitStaticFieldGate(callee, emitter);
-
-        //Phase 9c: binding-aware argument emission. Handles positional,
-        //named, and default-param bindings via EmitCallArgs.
-        //Phase 9e: out arguments are collected here and written back
-        //right after the call via the *Out opcode + spills.
-        std::vector<OutSpill> outSpills;
-        EmitCallArgs(invoke, callee, emitter, /*slotBase=*/0,
-                     /*pArgPlans=*/nullptr, /*thisSlot=*/UINT16_MAX,
-                     &outSpills);
-
-        EmitInvokeDispatch(invoke, callee, emitter, resultOffset, outSpills);
+//Shared bare-invoke staging (value reads and the MakeRef &-return
+//pass-through both land here): the static-field gate, binding-aware
+//argument emission, then dispatch. bRawRefResult suppresses the
+//value-side return normalization so a &-returning callee's raw
+//(record, cell) pair reaches the caller untouched (Task 6).
+void VmBackend::EmitBareInvokeShape(SnInvokeExpr& invoke,
+                                    uint16_t resultOffset,
+                                    bool bRawRefResult) {
+    BytecodeEmitter& emitter = *m_pCurrEmitter;
+    //v0.12.6 D2: a bare static-method call (the in-class spelling)
+    //is a first active use too — gate the callee's declaring class
+    //before any argument evaluation. Free functions carry no owner
+    //class and the gate is a no-op.
+    auto* callee = invoke.Callee();
+    EmitStaticFieldGate(callee, emitter);
+    //Phase 9c: binding-aware argument emission. Handles positional,
+    //named, and default-param bindings via EmitCallArgs.
+    EmitCallArgs(invoke, callee, emitter, /*slotBase=*/0,
+                 /*pArgPlans=*/nullptr, /*thisSlot=*/UINT16_MAX);
+    EmitInvokeDispatch(invoke, callee, emitter, resultOffset,
+                       bRawRefResult);
 }
 
 //Staged-invoke dispatch tail (split out of Access for the 50-line
-//function budget).
+//function budget). bRawRefResult (Task 6): suppress the value-side
+//deref so a &-returning callee's raw pair reaches the caller.
 void VmBackend::EmitInvokeDispatch(SnInvokeExpr& invoke, SnFunction* callee,
                                    BytecodeEmitter& emitter,
                                    uint16_t resultOffset,
-                                   const std::vector<OutSpill>& outSpills) {
+                                   bool bRawRefResult) {
     //Phase 13: delegate invoke — the resolver bound the callee name to
     //a func-typed value (local/param, or an implicit this-field)
     //instead of a function declaration (Callee() null, Field() set).
@@ -326,7 +315,8 @@ void VmBackend::EmitInvokeDispatch(SnInvokeExpr& invoke, SnFunction* callee,
     //above; materialize the handle into a scratch evalArea slot (the
     //field form must not disturb callParamBase) and dispatch.
     if (IsDelegateInvoke(invoke)) {
-        EmitDelegateInvoke(invoke, emitter, resultOffset, outSpills);
+        EmitDelegateInvoke(invoke, emitter, resultOffset,
+            bRawRefResult);
         return;
     }
 
@@ -358,15 +348,15 @@ void VmBackend::EmitInvokeDispatch(SnInvokeExpr& invoke, SnFunction* callee,
         : StaticCallDescIdxFor(*callee);
     EmitFreeFunctionCall(
         static_cast<int>(FunctionSlotFor(*callee)),
-        emitter, resultOffset, outSpills, descIdx);
+        emitter, resultOffset, descIdx,
+        bRawRefResult ? kNoRefDeref : RefReturnDerefKind(callee));
     emitter.Emit(OpCode::OP_ParaEnd);
 }
 
-    //Phase 9e: out arguments are consumed by the binding path in
-    //EmitCallArgs (the wrapper never emits itself). Reaching this point
-    //means the wrapper flowed into a non-binding emit site (ctor call,
-    //super(...), or a legacy path) — all rejected by the resolver, so
-    //this is an internal error, not a fallback.
+    //v0.13.9 phase 4: the resolver logs the retirement diagnostic and
+    //leaves the node unresolved, and codegen never runs on an errored
+    //module — this arm is the internal-error tripwire if that invariant
+    //breaks (the wrapper has no legal emission of its own).
 void VmBackend::Access(SnOutArgExpr& expr) {
         throw std::runtime_error(
             "NLang backend: out argument in unsupported call form");

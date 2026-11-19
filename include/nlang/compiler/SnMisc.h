@@ -404,12 +404,14 @@ public:
 	void SetGenericInstantiation() { m_bIsGenericInst = true; }
 	const std::vector<SnField*>& GenericTypeArgs() const { return m_genericTypeArgs; }
 	void SetGenericTypeArgs(std::vector<SnField*> args) { m_genericTypeArgs = std::move(args); }
-	//Phase 13: func<...> instantiation out markers, parallel to
-	//m_genericTypeArgs. On the node — not a side table — so
-	//context-free predicates (IsUnboundFuncRef) read a func's signature
-	//with no registry handle.
-	const std::vector<uint8_t>& GenericOutFlags() const { return m_genericOutFlags; }
-	void SetGenericOutFlags(std::vector<uint8_t> flags) { m_genericOutFlags = std::move(flags); }
+	//v0.13.9 phase 3: parallel reference marks of the type arguments
+	//(NF_Ref read off each argument expression). Only func<...>
+	//instantiations carry non-empty marks today; declared templates
+	//keep their &-ness on the cloned member signatures instead. On the
+	//node — not a side table — so context-free predicates
+	//(IsUnboundFuncRef) read a func's signature with no registry handle.
+	const std::vector<uint8_t>& GenericRefFlags() const { return m_genericRefFlags; }
+	void SetGenericRefFlags(std::vector<uint8_t> flags) { m_genericRefFlags = std::move(flags); }
 	//Base name without <...> suffix. For generic instantiations only;
 	//Equals Name() for ordinary classes. Used by VmBackend to look up the
 	//shared backing CompiledClass (e.g. "List" for List<int>).
@@ -461,7 +463,7 @@ private:
 	bool m_bIsGenericInst = false;
 	bool m_bIsTypeParamPlaceholder = false;
 	std::vector<SnField*> m_genericTypeArgs;
-	std::vector<uint8_t> m_genericOutFlags;  //func<...> out markers
+	std::vector<uint8_t> m_genericRefFlags;  //func<...> & marks
 	std::string m_baseName;  //e.g. "List" (without <T>) for generic instances
 	std::vector<std::string> m_typeParamNames;  //declaration-side template parameters
 };

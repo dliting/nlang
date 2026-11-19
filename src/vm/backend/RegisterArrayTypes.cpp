@@ -19,11 +19,23 @@ namespace nlang {
 uint16_t VmBackend::RegisterArrayType(SnField* pElemType, uint8_t rank) {
     uint8_t elemKind = RuntimeTypeKind(pElemType);
     uint16_t elemTypeIdx = 0xFFFF;
+    //v0.13.9 Task 12 (D14): an interface element names the interface
+    //itself — the identity tier overrides the storage tier here (the
+    //row key must distinguish Inc[] from int[] and any class's array,
+    //and two units' Inc[] must merge as one row). Checked BEFORE the
+    //storage-tier kind arms: RuntimeTypeKind files interfaces as
+    //RTK_Class, and the NK_ClassDecl gate below would leave a
+    //(RTK_Class, 0xFFFF) sentinel row that wrong-merges.
+    if (pElemType && pElemType->Kind() == NK_InterfaceDecl) {
+        elemKind = RTK_Interface;
+        elemTypeIdx = InterfaceSlotFor(
+            static_cast<SnInterfaceDecl&>(*pElemType));
+    }
     //Per-unit: named element types slot through the placeholder-aware
     //helpers — a cross-unit element lands as an import slot for nlink
     //to resolve. Kind-gated so the casts are safe; generic
     //instantiations are ownerless and resolve to the built-in entry.
-    if (elemKind == RTK_Struct && pElemType
+    else if (elemKind == RTK_Struct && pElemType
         && pElemType->Kind() == NK_StructDecl) {
         elemTypeIdx = static_cast<uint16_t>(
             StructSlotFor(static_cast<SnStructDecl&>(*pElemType)));

@@ -1,0 +1,22 @@
+// v0.13.9 phase 3 Task 12: enum bindings in the same declared kind —
+// both the local & binding and the & formal write through to the
+// enum variable's cell (enums ride the scalar carrier; cross-kind
+// rebinds are the reject family). Expected exit code: 0.
+enum Color {
+    Red = 1,
+    Green = 2,
+    Blue = 4
+}
+
+void paint(Color& c) {
+    c = Color.Blue;
+}
+
+int main() {
+    Color v = Color.Red;
+    Color& r = v;
+    r = Color.Green;
+    if ((r as int) == 2)
+        paint(v);
+    return (v as int) - 4 + (r as int) - 4;
+}

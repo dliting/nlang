@@ -1,0 +1,12 @@
+import lib;
+int main() {
+    lib.Box b = lib.Box();
+    func<int, int> gp = b.p;
+    int y = 20;
+    if (gp(y) != 21) { return 1; }
+    func<int, int&> g = b.f;
+    int z = 30;
+    if (g(z) != 31) { return 2; }
+    if (z != 31) { return 3; }
+    return 7;
+}

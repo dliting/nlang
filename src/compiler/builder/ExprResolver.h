@@ -117,6 +117,23 @@ bool IsPlainLvalueShape(const SnExpression& expr);
 //Definition lives in ExprResolverTypes.cpp.
 int ArrayTypeDepth(const SnFieldExpr* pType);
 
+//v0.13.9 phase 3: true when & on the type is a no-op mark — identity
+//reference types (class, interface, interned array token; container and
+//Array<E> instantiations are class decls). Slot-copy types (scalars,
+//enum, struct, string) bind references with real aliasing semantics
+//(spec 3.1). Shared by the reference-binding contract (declaration
+//side) and the generic fork warning hook (instantiation points judge
+//T& members against the bound type argument with this predicate).
+//Definition in ExprResolverValues.cpp.
+bool IsRefNoOpType(const SnField *pTypeField);
+
+//v0.13.9 phase 3: & cannot appear in a container/generic type argument
+//(the grammar rejects the spelling; only the func-type arms own it), so
+//a marked argument reaching a creation path is a bypass — the check
+//asserts instead of diagnosing. Shared by the synthetic-builtin and
+//user-generic instantiation shells. Definition in ExprResolverValues.cpp.
+void AssertNoRefTypeArgs(const std::vector<SnField *> &typeArgs);
+
 //Per-argument reject gate of the generic type-argument loop: void and
 //out are func-only features (void only in the return slot, out only on
 //parameter slots), and a jagged argument has no VM layout (spec §5.5).
@@ -211,7 +228,15 @@ std::vector<SnField*> GetGenericTypeArgs(SnClassDecl* pClass);
 //Phase 13: out-flag read of a func instantiation (parallel to
 //GetGenericTypeArgs; default-empty on miss).
 //Definition in ExprResolverGenerics.cpp.
-const std::vector<uint8>& GetGenericOutFlags(SnClassDecl* pClass);
+//v0.13.9 phase 3: &-mark read of a func instantiation (same parallel
+//discipline; default-empty on miss).
+//Definition in ExprResolverGenerics.cpp.
+const std::vector<uint8>& GetGenericRefFlags(SnClassDecl* pClass);
+//D9 fork warning: declared-template instantiation point check — a T&
+//formal whose argument binds an identity type warns (writes reach only
+//the local formal). Definition in RefBindJudgment.cpp.
+void WarnIdentityRefFormals(BuildEnvironment &env, const SnClassDecl &tmpl,
+	const std::vector<SnField*> &typeArgs, const ISourceLocation *pLoc);
 
 //Reference-only use below; definition in ScriptLocation.h.
 class ScriptLocation;
@@ -235,8 +260,8 @@ std::vector<std::string> OuterIdentifierChain(
 bool IsGenericClassDecl(SnClassDecl* pClass);
 SnClassDecl* GetGenericClassDecl(ModuleRegistry& reg,
 	const std::string& baseName,
-	const std::vector<SnField*>& typeArgs, const std::vector<uint8>& outFlags,
-	const ISourceLocation* pLoc);
+	const std::vector<SnField*>& typeArgs,
+	const std::vector<uint8>& refFlags, const ISourceLocation* pLoc);
 //Location pass-through for on-demand created decls (built-in classes,
 //generic instantiations): the caller's location when one exists, the
 //fallback otherwise. Polymorphic locations must flow through
@@ -861,15 +886,14 @@ private:
 	bool ResolveInvokeWithFunc(SnInvokeExpr &invoke, SnFunction &func,
 		FindFuncResult match, std::vector<FormalBinding> &bindings);
 
+	//Phase 13: the func-ref argument binder of ResolveInvokeWithFunc
+	//(source-size split) — binds unbound identifier/member function
+	//references against the chosen overload's formal func types. Logs
+	//and returns false on the first failure.
+	bool BindArgFuncRefs(std::vector<FormalBinding> &bindings);
+
 	//Phase 9e: out arguments on virtual (or by-name dispatched) methods are
 	//rejected — the writeback mask is baked into the call instruction
-	//against the static callee's parameter layout; a runtime override
-	//resolved by name-based dispatch could disagree with it. Shared by the
-	//bare and the module-qualified call paths (a qualified call must not
-	//bypass the restriction). Logs the error; returns true when rejected.
-	bool OutArgOnDispatchedCalleeRejected(const SnInvokeExpr &invoke,
-		const SnFunction &callee,
-		const std::vector<FormalBinding> &bindings) const;
 
 	/*
 	The failure branch of Access(SnInvokeExpr) — not-found, imported-stub
@@ -954,7 +978,7 @@ private:
 	upcasts pass raw bits soundly.
 	*/
 	bool CheckDelegateArgument(SnExpression &arg, SnField *pFormal,
-		bool bWantOut, size_t i);
+		size_t i);
 	bool AdmitsDelegateArgType(SnField *pArgType, SnField *pFormal) const;
 
 	/*
@@ -1556,7 +1580,7 @@ private:
 	*/
 	bool TryResolveGenericTypeArgs(SnGenericTypeExpr &genType,
 		const std::string &baseName, std::vector<SnField*> &typeArgs,
-		std::vector<uint8> &outFlags);
+		std::vector<uint8> &refFlags);
 	//Access(SnGenericTypeExpr&)'s declared-template arm (scope probe,
 	//arity check, instantiation create-and-bind).
 	bool TryResolveDeclaredGenericInstance(SnGenericTypeExpr &genType,

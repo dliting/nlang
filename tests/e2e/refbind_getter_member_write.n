@@ -1,0 +1,17 @@
+// Mechanism pin: a member write on a container element
+// (pts[0].x = 9) keeps its behavior across the &-return work.
+struct Point {
+    int x;
+    int y;
+}
+
+int main() {
+    List<Point> pts = {};
+    Point p0;
+    p0.x = 1;
+    p0.y = 2;
+    pts.add(p0);
+    pts[0].x = 9;
+    if (pts[0].x == 9) return 9;
+    return 4;
+}

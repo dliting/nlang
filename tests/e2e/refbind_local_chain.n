@@ -1,0 +1,15 @@
+// v0.13.9 phase 3 Task 5: a local & binding to a chained member path
+// names the inner record and cell; stores land in o.b.c.
+struct Inner {
+    int c;
+}
+struct Outer {
+    Inner b;
+}
+int main() {
+    Outer o;
+    o.b.c = 1;
+    int& r = o.b.c;
+    r = 9;
+    return o.b.c;
+}

@@ -27,10 +27,12 @@ static constexpr uint8_t RTK_List          = 8;
 static constexpr uint8_t RTK_Dict          = 9;
 static constexpr uint8_t RTK_NonSerialized = 0xFB;
 
-//Formal-parameter descriptor flag: the callee formal was declared `out T`
-//(NF_Out on the AST side). Stub reconstruction re-stamps NF_Out so the
-//consumer's call-site out-marker checks bind.
-static constexpr uint8_t PTDF_Out = 0x01;
+//Formal-parameter descriptor flags (AST-side marks the stub rebuild
+//re-stamps so the consumer's call-site checks bind): PTDF_Ref — `T&`
+//(NF_Ref on the formal and its type node); PTDF_Const — `const T&`
+//(NF_Const on the formal, Task 9's read-only reference form).
+static constexpr uint8_t PTDF_Ref   = 0x02;
+static constexpr uint8_t PTDF_Const = 0x04;
 
 //Defensive bounds shared by the writer and the reader. Generic nesting
 //(List<List<...>>) is open-ended in the language, so BOTH sides enforce
@@ -39,6 +41,11 @@ static constexpr uint8_t PTDF_Out = 0x01;
 //what ncc writes always loads. Every nesting level adds at least one
 //byte, so the depth cap alone bounds a well-formed prefix's size.
 static constexpr size_t kMaxTypeDescDepth = 8;
+//v0.13.9 Task 12 (D14): sentinel interface count for
+//ValidateTypeDescIndices — a host-built module without an interfaces
+//table skips the RTK_Interface bounds check (no table to bound against).
+static constexpr size_t kNoInterfaceCount =
+	static_cast<size_t>(-1);
 static constexpr size_t kMaxTypeDescBytes = 4096;
 
 //Per-function formal descriptor count bound (reader-side input check;
@@ -56,11 +63,9 @@ static constexpr size_t kMaxParamDescCount = 256;
 //  RTK_Func               : u8 paramCount, then paramCount+1 nested
 //                           descriptors (params in declaration order,
 //                           return last; the return is RTK_Void for a
-//                           void signature). Out markers inside a
-//                           signature (func<int, out int>) do not
-//                           serialize — such a signature rebuilds as
-//                           the unmarked func<int, int>, which rejects
-//                           marked references conservatively.
+//                           void signature), each followed by its u8
+//                           qualifier flags (PTDF_Ref — the & marks
+//                           inside a signature, v2.21).
 //  RTK_TypeParam          : u8 typeParamOrdinal (the declared parameter
 //                           position; the consumer stub names the leaf
 //                           from the owning row's typeParamNames)
@@ -82,6 +87,11 @@ struct TypeDesc
 	//(0xFF = none — the defensive default for a label without a slot).
 	uint8_t typeParamOrdinal = 0xFF;
 	std::vector<TypeDesc> elems;
+	//RTK_Func arm only: the qualifier flags of each element (params in
+	//declaration order, return last — parallel to elems). PTDF_Ref for a
+	//`T&` position; a signature without qualifiers keeps the vector
+	//empty (wire readers then read all-zero flag bytes, v2.21).
+	std::vector<uint8_t> elemFlags;
 };
 
 //Per-formal descriptor: the parameter's type plus its serialized flags.
@@ -101,20 +111,27 @@ void AppendTypeDescBytes(std::vector<uint8_t>& out, const TypeDesc& td);
 //over-deep nesting, or trailing bytes.
 TypeDesc ParseTypeDescBytes(const uint8_t* pData, size_t size);
 
-//Assert that every RTK_Struct / RTK_Class index lands inside the module's
-//tables. Function records are parsed before the tables are, so this runs
-//as a post-load pass. Throws std::runtime_error on violation.
+//Assert that every RTK_Struct / RTK_Class / RTK_Interface index lands
+//inside the module's tables. Function records are parsed before the
+//tables are, so this runs as a post-load pass. Throws std::runtime_error
+//on violation. interfaceCount defaults to kNoInterfaceCount (skip the
+//interface bounds check — host-built modules may have no table).
 void ValidateTypeDescIndices(const TypeDesc& td, size_t structCount,
-	size_t classCount);
+	size_t classCount,
+	size_t interfaceCount = kNoInterfaceCount);
 
-//Rewrite struct/class table indices from producer numbering to consumer
-//numbering (import merge). The merge maps are total over each kind's
-//producer indices (every producer index gets a dedup-or-push entry), so
-//a miss is an upstream construction bug — .at() makes it loud instead
-//of silently keeping a stale index that can alias a wrong type.
+//Rewrite struct/class/interface table indices from producer numbering to
+//consumer numbering (import merge). The merge maps are total over each
+//kind's producer indices (every producer index gets a dedup-or-push
+//entry), so a miss is an upstream construction bug — .at() makes it loud
+//instead of silently keeping a stale index that can alias a wrong type.
+//The interface map may be empty (no interface-typed leaves in the unit) —
+//RTK_Interface leaves are remapped only when one is provided.
 void RemapTypeDesc(TypeDesc& td,
 	const std::unordered_map<uint32_t, uint32_t>& structMap,
-	const std::unordered_map<uint32_t, uint32_t>& classMap);
+	const std::unordered_map<uint32_t, uint32_t>& classMap,
+	const std::unordered_map<uint32_t, uint32_t>& interfaceMap
+		= {});
 
 //Leaf-slot resolution for the named struct/class arms of BuildTypeDesc
 //(phase 6 per-unit codegen): each callback slots one leaf into the
@@ -126,6 +143,9 @@ struct TypeLeafSlots
 {
 	std::function<uint32_t(SnField&)> structSlotOf;
 	std::function<uint32_t(SnField&)> classSlotOf;
+	//v0.13.9 Task 12 (D14): the interfaces-table row for an interface
+	//leaf (the identity tier — same SlotFor doctrine as struct/class).
+	std::function<uint32_t(SnField&)> interfaceSlotOf;
 	//v0.13.1 D7: a placeholder leaf's declared parameter position (the
 	//registry-interned ordinal). Optional — a null callback yields the
 	//0xFF no-ordinal default (host tests build partial resolvers).
@@ -134,10 +154,10 @@ struct TypeLeafSlots
 
 //Build the descriptor for one resolved type (a declaration field or an
 //interned array token; never a raw syntactic expression). Kinds without
-//a wire form (interfaces) or nested past kMaxTypeDescDepth degrade to
-//RTK_NonSerialized; func signatures serialize as RTK_Func; struct/class
-//leaves resolve through slots. Defined in TypeDesc.cpp — vm-internal,
-//may include compiler headers.
+//a wire form or nested past kMaxTypeDescDepth degrade to
+//RTK_NonSerialized; func signatures serialize as RTK_Func; struct,
+//class and interface leaves resolve through slots. Defined in
+//TypeDesc.cpp — vm-internal, may include compiler headers.
 TypeDesc BuildTypeDesc(SnField* pType, const TypeLeafSlots& slots,
 	size_t depth = 0);
 

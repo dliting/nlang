@@ -1,6 +1,6 @@
-//An out argument whose array-ness differs from the formal must be
-//rejected: the callee's writeback would clobber the array local's
-//slot with a raw int (or vice versa).
+// v0.13.9 phase 4: the declaration throat fires before any argument
+// shape judgment (the array-argument subject moved to the reference
+// family, refbind_reject_ref_array).
 void Fill(out int x) {
     x = 5;
 }

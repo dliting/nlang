@@ -134,6 +134,11 @@ inline bool ArrayElemKindAccepts(uint8_t elemKind, uint8_t runtimeKind)
                 && (runtimeKind == RTK_Class || runtimeKind == RTK_Boxed
                     || runtimeKind == RTK_Array
                     || runtimeKind == RTK_ArrayView))
+        //v0.13.9 Task 12 (D14): an RTK_Interface row's elements hold
+        //class-instance handles — same acceptance as RTK_Class minus
+        //the boxed/array Object forms (an interface reference is
+        //always an instance).
+        || (elemKind == RTK_Interface && runtimeKind == RTK_Class)
         || (elemKind == RTK_Struct && runtimeKind == RTK_Struct)
         || (elemKind == RTK_Func && runtimeKind == RTK_Func)
         || (elemKind == RTK_Array

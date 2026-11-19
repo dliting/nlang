@@ -1,10 +1,10 @@
 //Phase 13 Step 2: out in a LATER parameter slot — locks the TypeArg
-//element nonterminal (`func<void, int, out int>` = void f(int, out int)).
-void pair(int a, out int b) { b = a * 3; }
+//element nonterminal (`func<void, int, int&>` = void f(int, int)).
+void pair(int a, int& b) { b = a * 3; }
 
 int main() {
-    func<void, int, out int> f = pair;
+    func<void, int, int&> f = pair;
     int r = 0;
-    f(6, out r);
+    f(6, r);
     return r;
 }

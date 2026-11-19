@@ -303,7 +303,8 @@ void VmExecutor::SweepStrings() {
     //form collects on every growth allocation once the free list
     //empties — quadratic for monotonically growing chains). The backoff
     //runs unconditionally — stress clamps only the initial thresholds
-    //(pre-K6 stress semantics; the deep-chain e2e pins the timing).
+    //(pre-K6 stress semantics; the deep-chain unit test pins the sweep
+    //count, a build-independent arithmetic observable).
     m_strGcThreshold = std::max(m_strGcThreshold,
         std::max(m_stringObjs.size(), 2 * liveCount));
 }

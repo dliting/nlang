@@ -8,6 +8,7 @@
 //silently failed to match under MSVC (OP_ConstInt32 walked to the miss
 //on every module).
 #include "BytecodeOps.h"
+#include "BytecodeStrides.h"
 #include <iostream>
 #include <iterator>
 
@@ -61,8 +62,6 @@ static void test_known_extents()
         "opcode + int32 immediate is 5 bytes");
     CHECK(InstructionStride(OpCode::OP_ConstDouble) == 9,
         "opcode + 8-byte immediate is 9 bytes");
-    CHECK(InstructionStride(OpCode::OP_CallDelegateOut) == 9,
-        "opcode + 2x uint16 + uint32 outMask is 9 bytes");
     CHECK(InstructionStride(OpCode::OP_MakeArrayView) == 11,
         "opcode + 5x uint16 operands is 11 bytes (widest stride)");
     //v0.13.1 D5: the element-descriptor reshapes - the allocators grew
@@ -103,8 +102,6 @@ static void test_groups_disjoint()
         {kStrideThreeWords, std::size(kStrideThreeWords), "ThreeWords"},
         {kStrideFourWords, std::size(kStrideFourWords), "FourWords"},
         {kStrideFiveWords, std::size(kStrideFiveWords), "FiveWords"},
-        {kStrideOutMaskWords, std::size(kStrideOutMaskWords),
-         "OutMaskWords"},
         {kStrideCmpHead, std::size(kStrideCmpHead), "CmpHead"},
         {kStrideConst32, std::size(kStrideConst32), "Const32"},
         {kStrideConst64, std::size(kStrideConst64), "Const64"},

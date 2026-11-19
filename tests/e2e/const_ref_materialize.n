@@ -1,0 +1,17 @@
+//Task 9: a const reference binds rvalues by materializing them into
+//stable storage — the read sees the bound value for every value kind.
+struct Pt {
+    int x; int y;
+    public Pt(int x, int y) { this.x = x; this.y = y; }
+}
+int main() {
+    const int& r = 42;
+    if (r != 42) return 1;
+    const double& d = 1.5;
+    if (d != 1.5) return 2;
+    const string& s = "ab";
+    if (s != "ab") return 3;
+    const Pt& q = Pt(5, 6);
+    if (q.x != 5 || q.y != 6) return 4;
+    return r + q.x;
+}

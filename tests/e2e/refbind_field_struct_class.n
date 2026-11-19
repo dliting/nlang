@@ -1,0 +1,27 @@
+// v0.13.9 phase 3 Task 13: a struct-typed field of a class binds the
+// field's own record — reads and writes through the binding reach the
+// field, the owner record stays intact (classIdx, neighbor fields),
+// and a virtual call after the writes still dispatches.
+struct Point {
+    int x;
+    int y;
+}
+class Holder {
+    public Point value;
+    public virtual int probe() { return 1; }
+}
+int main() {
+    Holder h = Holder();
+    h.value = Point{3, 4};
+    Point& r = h.value;
+    int before = h.value.x;    // 3: the read path was never broken
+    r.x = 9;                   // write-through reaches the field record
+    r.y = 7;                   // a second write, different member
+    int xBack = h.value.x;     // 9
+    int yBack = h.value.y;     // 7 (4 if the record was severed)
+    int pv = h.probe();        // 1: the classIdx cell survived
+    if (before == 3 && xBack == 9 && yBack == 7 && pv == 1) {
+        return 1;
+    }
+    return 2;
+}

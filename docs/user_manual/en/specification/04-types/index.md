@@ -24,7 +24,9 @@ array types, generic class instantiations and function types:
 a variable of a reference type holds a reference to one object,
 and assignment copies the reference, so source and target then
 denote the same object. Every reference type accepts `null`, the
-reference to no object (§4.8).
+reference to no object (§4.8). The `&` marker introduces no third
+category: it lets one concrete name of a value type alias existing
+storage instead of copying (§4.7.9).
 
 `string` is a primitive with immutable value semantics: its value
 is a handle to the text's bytes, and assignment copies the handle,

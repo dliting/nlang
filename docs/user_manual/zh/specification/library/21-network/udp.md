@@ -8,7 +8,7 @@
 |---|---|---|
 | `UdpSocket.bind(host = "0.0.0.0", port = 0)` | 静态→`UdpSocket` | 绑定本地端点；端口`0`由系统分配，经`localPort()`读回 |
 | `sendTo(data, host, port, count = -1, timeoutMs = 0)` | →`int` | 发送一个数据报——`data`的全部或前`count`个字节——到`host:port`；解析`host`期间以及发送缓冲区满时停泊，由`timeoutMs`约束（§21.1） |
-| `recvFrom(buf, out peerAddress, out peerPort, timeoutMs = 0)` | →`int` | 取走下一个数据报，经`out`参数报告它的发送者；返回实收字节数；停泊直到有数据报到来或截止时刻到来。零长度的`buf`是参数错误（`SocketException`）——`0`保留给真正的空数据报 |
+| `recvFrom(buf, peerAddress, peerPort, timeoutMs = 0)` | →`int` | 取走下一个数据报，经`peerAddress`与`peerPort`引用形参（§4.7.9）报告它的发送者；返回实收字节数；停泊直到有数据报到来或截止时刻到来。零长度的`buf`是参数错误（`SocketException`）——`0`保留给真正的空数据报 |
 | `connect(host, port)` | — | 把套接字关联到一个对端；此后`send`/`recv`不需要地址，且只有该对端的数据报会到达 |
 | `send(data, count = -1, timeoutMs = 0)` | →`int` | 向关联的对端发送一个数据报；套接字未连接时抛`SocketException`；发送缓冲区满时停泊，由`timeoutMs`约束（§21.1） |
 | `recv(buf, timeoutMs = 0)` | →`int` | 从关联的对端取走下一个数据报并返回它的字节数——`0`是空数据报而非流结束：UDP没有可结束的流 |
@@ -25,7 +25,7 @@
 
 收到的数据报拷贝进`buf`，比`buf.length`长时截断——多余的字节被丢弃，这是套接字接口的标准行为。按协议允许的最大数据报来定接收缓冲区的大小，并把返回值当实收长度用：只转换或转发那么多字节。
 
-`recvFrom`运行时请求早已在队列里，所以这次交换不需要第二个线程；真正的服务器停在`recvFrom`上，从`out`参数取发送者并应答：
+`recvFrom`运行时请求早已在队列里，所以这次交换不需要第二个线程；真正的服务器停在`recvFrom`上，从引用参数取发送者并应答：
 
 ```nlang
 import io;
@@ -38,7 +38,7 @@ int main() {
     byte[] buf = byte[64];
     string from;
     int port = 0;
-    int n = srv.recvFrom(buf, out from, out port, 5000);
+    int n = srv.recvFrom(buf, from, port, 5000);
     cli.close();
     srv.close();
     if (n == 5 && from == "127.0.0.1") { return 7; }
@@ -46,4 +46,4 @@ int main() {
 }
 ```
 
-随包发布的`examples/net_udp_echo.n`展示服务器形态：停泊，从`out`参数读发送者的地址与端口，把收到的字节原样发回那个端点。
+随包发布的`examples/net_udp_echo.n`展示服务器形态：停泊，从引用参数读发送者的地址与端口，把收到的字节原样发回那个端点。

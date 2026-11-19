@@ -1,0 +1,13 @@
+// v0.13.9 phase 3 Task 5: local & bindings to rvalues are legal — the
+// temporary record absorbs the writes and they are lost.
+struct Point {
+    int x;
+    int y;
+}
+int main() {
+    Point& r = Point();
+    r.x = 9;
+    int& n = 1 + 2;
+    n = 7;
+    return 3;
+}

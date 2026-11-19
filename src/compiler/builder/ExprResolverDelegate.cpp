@@ -3,6 +3,7 @@
     从 ExprResolver.cpp 抽取（2026-09-26 可维护性重构，零行为变化）。
 ---*/
 #include "ExprResolver.h"
+#include "RefBindJudgment.h"
 #include "SnExtraTypes.h"
 #include "SnMisc.h"
 #include "SnArrayTypeToken.h"
@@ -49,41 +50,33 @@ bool ExprResolveAccessor::AdmitsDelegateArgType(SnField *pArgType,
 	return nDist == 0 || (bRefUpcast && nDist > 0);
 }
 
-//Per-argument gate of BindDelegateInvoke: out-marker agreement with the
-//func slot, pending function-reference rebinding against the slot type,
-//and the conversion-free admission for value arguments. False = the
-//argument failed (its diagnostic is logged); the caller accumulates the
-//verdict and keeps scanning, so every bad argument is reported.
+//Per-argument gate of BindDelegateInvoke: pending function-reference
+//rebinding against the slot type, and the conversion-free admission for
+//value arguments. False = the argument failed (its diagnostic is
+//logged); the caller accumulates the verdict and keeps scanning, so
+//every bad argument is reported. v0.13.9 phase 4: the out-marker
+//agreement arm is gone — the marker itself retires at Access(SnOutArgExpr).
 bool ExprResolveAccessor::CheckDelegateArgument(SnExpression &arg,
-	SnField *pFormal, bool bWantOut, size_t i)
+	SnField *pFormal, size_t i)
 {
-	bool bIsOut = arg.Kind() == NK_OutArgExpr;
-	SnExpression *pValue = bIsOut
-		? static_cast<SnOutArgExpr&>(arg).Inner() : &arg;
+	if (arg.Kind() == NK_OutArgExpr)
+		return false;	//already logged by the retirement diagnostic
 	bool bOK = true;
-	if (bIsOut != bWantOut)
-	{
-		m_Env.Log(CLL_Error, arg.Location(),
-			"argument %zu of the delegate call %s the out marker.",
-			i + 1, bWantOut ? "requires" : "does not accept");
-		bOK = false;
-	}
 	//Pending bare function references bind against the func's own
 	//parameter slot type; Step 2 adds the receiver-bound member form.
-	if (IsUnboundFuncRef(*pValue))
+	if (IsUnboundFuncRef(arg))
 	{
 		if (!BindFuncRefToExpected(m_Env,
-			static_cast<SnIdentifierExpr&>(*pValue), pFormal))
+			static_cast<SnIdentifierExpr&>(arg), pFormal))
 			bOK = false;
 	}
-	else if (IsUnboundMemberFuncRef(*pValue))
+	else if (IsUnboundMemberFuncRef(arg))
 	{
 		if (!BindMemberFuncRefToExpected(m_Env,
-			static_cast<SnMemberExpr&>(*pValue), pFormal))
+			static_cast<SnMemberExpr&>(arg), pFormal))
 			bOK = false;
 	}
-	else if (!bIsOut && !AdmitsDelegateArgType(pValue->EvalDataType(),
-		pFormal))
+	else if (!AdmitsDelegateArgType(arg.EvalDataType(), pFormal))
 	{
 		m_Env.Log(CLL_Error, arg.Location(),
 			"argument %zu of the delegate call is incompatible "
@@ -93,47 +86,65 @@ bool ExprResolveAccessor::CheckDelegateArgument(SnExpression &arg,
 	return bOK;
 }
 
+//Task 8: a & mark on the key's argument position — the same MakeRef
+//judgment as a direct call's & formal (spec §3.9): storage gates plus
+//exact type, then the promotion mark so the caller's scalar local
+//compiles to the pair's stable record. Out positions stay on the out
+//path (the marks are disjoint by construction; out wins defensively,
+//matching the emit order). True = rejected (diagnostic logged).
+static bool RejectDelegateRefMark(BuildEnvironment &env,
+	SnExpression &arg, SnField *pFormal)
+{
+	//Task 9: a const-marked key position binds read-only (const storage
+	//aliases), matching the direct-call &-argument judgment.
+	//v0.13.9 phase 4: out arguments never reach here — the retirement
+	//diagnostic fires at Access(SnOutArgExpr) first.
+	return RejectRefBindTarget(env, arg, pFormal, arg.Location(),
+		pFormal->ContainFlags(NF_Const));
+}
+
 void ExprResolveAccessor::BindDelegateInvoke(SnInvokeExpr &invoke,
 	SnField *pDelegateField)
 {
-	auto *pFuncDecl = static_cast<SnClassDecl*>(
-		pDelegateField->EvalDataType());
+	auto *pFuncDecl = static_cast<SnClassDecl*>(pDelegateField->EvalDataType());
 	const auto typeArgs = GetGenericTypeArgs(pFuncDecl);
-	const auto &outFlags = GetGenericOutFlags(pFuncDecl);
-	//The func signature has no parameter names — by-name dispatch is
-	//impossible.
+	const auto &refFlags = GetGenericRefFlags(pFuncDecl);
+	//The func signature has no parameter names — no by-name dispatch.
 	if (HasNamedArgument(invoke))
 	{
 		m_Env.Log(CLL_Error, invoke.Location(),
 			"named arguments are not supported in delegate calls.");
 		return;
 	}
-	size_t paramCount = typeArgs.size() - 1;
-	if (ArgCountOf(invoke) != paramCount)
+	if (ArgCountOf(invoke) != typeArgs.size() - 1)
 	{
 		m_Env.Log(CLL_Error, invoke.Location(),
 			"delegate call expects %zu argument(s), got %zu.",
-			paramCount, ArgCountOf(invoke));
+			typeArgs.size() - 1, ArgCountOf(invoke));
 		return;
 	}
 	bool bOK = true;
 	size_t i = 0;
 	for (auto &arg : invoke.Params())
 	{
-		if (!CheckDelegateArgument(arg, typeArgs[i + 1],
-			outFlags[i + 1] != 0, i))
+		if (!CheckDelegateArgument(arg, typeArgs[i + 1], i))
 			bOK = false;
+		else if (i + 1 < refFlags.size() && refFlags[i + 1] != 0)
+		{
+			if (RejectDelegateRefMark(m_Env, arg, typeArgs[i + 1]))
+				bOK = false;
+			else
+				MarkPromotedBindTarget(arg);
+		}
 		++i;
 	}
 	if (!bOK)
 		return;
 	//Field() carries the delegate value — codegen detects the delegate
 	//shape structurally (a resolved invoke whose Field() is not an
-	//SnFunction), so no dedicated flag exists. EvalDataType follows the
-	//func's return slot — nullptr for void, the established void-invoke
-	//convention. Set directly (like the generic-method path) rather than
-	//through ResolveFieldExprAs, whose PostResolveCheck expects a type
-	//field here.
+	//SnFunction). EvalDataType follows the func's return slot — nullptr
+	//for void, set directly (ResolveFieldExprAs's PostResolveCheck
+	//expects a type field here).
 	invoke.m_pField = pDelegateField;
 	if (typeArgs[0]->Kind() != NK_Void)
 		invoke.EvalDataType(typeArgs[0]);
@@ -148,13 +159,13 @@ void ExprResolveAccessor::BindDelegateInvoke(SnInvokeExpr &invoke,
 //unbound or a caller-side error occurs (positional after named, etc.).
 //Does NOT log — caller reports a generic "not compatible" error when
 //no candidate matches.
-//Pass-1+2 unwrap of one actual: named (`name = expr`), out (`out ident`)
-//or positional. False = this candidate is unbindable — an unresolved out
-//inner (Access(SnOutArgExpr) already logged why) or a positional actual
-//after a named one. rbSeenNamed threads the positional-after-named rule
-//across actuals.
+//Pass-1+2 unwrap of one actual: named (`name = expr`) or positional.
+//False = this candidate is unbindable — an out actual (its retirement
+//diagnostic already fired at Access(SnOutArgExpr); no candidate can
+//bind it) or a positional actual after a named one. rbSeenNamed threads
+//the positional-after-named rule across actuals.
 static bool UnwrapInvokeActual(SnExpression &actual, SnExpression *&rpExpr,
-	std::string &rsName, bool &rbIsNamed, bool &rbIsOut, bool &rbSeenNamed)
+	std::string &rsName, bool &rbIsNamed, bool &rbSeenNamed)
 {
 	if (actual.Kind() == NK_NamedArgExpr)
 	{
@@ -166,14 +177,9 @@ static bool UnwrapInvokeActual(SnExpression &actual, SnExpression *&rpExpr,
 	}
 	else if (actual.Kind() == NK_OutArgExpr)
 	{
-		//Phase 9e: out argument. Unwrap to the inner identifier; the
-		//binding must land on an NF_Out formal (checked below). Named
-		//+out (`foo(b = out y)`) has no grammar form.
-		auto &outArg = static_cast<const SnOutArgExpr&>(actual);
-		rpExpr = outArg.Inner();
-		if (!rpExpr->IsResolved())
-			return false;
-		rbIsOut = true;
+		//v0.13.9 phase 4: the out marker is retired; no candidate
+		//binds it (the diagnostic already fired at resolution).
+		return false;
 	}
 	else
 	{
@@ -191,11 +197,9 @@ static bool UnwrapInvokeActual(SnExpression &actual, SnExpression *&rpExpr,
 }
 
 //Positional routing of one actual: consumes the next formal slot in
-//declaration order (riNextFormal advances) and enforces the Phase 9e
-//out-marker agreement — an out formal requires `out ident` at the call
-//site, and `out` is invalid for a normal formal; both directions reject
-//the candidate (generic incompatibility from FindFuncByInvoke).
-static bool BindPositionalActual(SnExpression *pExpr, bool bIsOut,
+//declaration order (riNextFormal advances). v0.13.9 phase 4: the out-
+//marker agreement arm is gone with the marker itself.
+static bool BindPositionalActual(SnExpression *pExpr,
 	const SnFunction::ParamList &formals,
 	std::vector<FormalBinding> &outBindings, size_t &riNextFormal)
 {
@@ -204,11 +208,8 @@ static bool BindPositionalActual(SnExpression *pExpr, bool bIsOut,
 	size_t idx = riNextFormal++;
 	if (outBindings[idx].pCallerExpr != nullptr)
 		return false;  //should never happen (positional goes in order)
-	if (outBindings[idx].pFormal->ContainFlags(NF_Out) != bIsOut)
-		return false;
 	outBindings[idx].kind = FormalBinding::B_Positional;
 	outBindings[idx].pCallerExpr = pExpr;
-	outBindings[idx].bIsOut = bIsOut;
 	return true;
 }
 
@@ -291,13 +292,12 @@ bool ExprResolveAccessor::TryBindArgs(const std::vector<SnExpression*> &actuals,
 		SnExpression *pExpr;
 		std::string sName;
 		bool bIsNamed = false;
-		bool bIsOut = false;
-		if (!UnwrapInvokeActual(*pActual, pExpr, sName, bIsNamed, bIsOut,
+		if (!UnwrapInvokeActual(*pActual, pExpr, sName, bIsNamed,
 				bSeenNamed))
 			return false;
 		if (!bIsNamed)
 		{
-			if (!BindPositionalActual(pExpr, bIsOut, formals,
+			if (!BindPositionalActual(pExpr, formals,
 					outBindings, iNextFormal))
 				return false;
 		}

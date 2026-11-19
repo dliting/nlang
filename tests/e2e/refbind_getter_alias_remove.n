@@ -1,0 +1,13 @@
+// Container ops x alias: after removeAt the alias points at the
+// orphaned record — writes are safe and stay invisible; a fresh add
+// occupies the slot with the new value only.
+int main() {
+    List<int> nums = {};
+    nums.add(5);
+    int& n = nums[0];
+    nums.removeAt(0);
+    n = 42;
+    nums.add(6);
+    if (nums[0] == 6) return 8;
+    return 4;
+}

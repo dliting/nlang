@@ -1,0 +1,8 @@
+// v0.13.9 phase 3: const storage cannot bind a reference (write-through
+// would bypass the const contract).
+struct Point { int x; Point(int x_) { x = x_; } }
+int main() {
+    const Point p = Point(1);
+    Point& r = p;
+    return 0;
+}

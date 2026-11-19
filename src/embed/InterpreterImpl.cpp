@@ -404,9 +404,10 @@ int Interpreter::Impl::ResolveCallTarget(const char* funcName,
     const CompiledFunction& f =
         module.functions[static_cast<size_t>(candidates.front())];
     for (const ParamTypeDesc& p : f.paramTypeDescs)
-        if (p.flags & PTDF_Out)
+        if (p.flags & PTDF_Ref)
             throw BadValue(std::string(funcName)
-                + " has out-parameters; the Value model cannot carry them");
+                + " has reference parameters; the Value model"
+                " cannot carry them");
     return candidates.front();
 }
 

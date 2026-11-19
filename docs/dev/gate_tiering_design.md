@@ -34,7 +34,7 @@ Release构建与Release e2e维持「仅发布时点」裁定不变，不因分�
 
 ## 环境门控（活成功前提的环境依赖）
 
-部分条目的活成功前提依赖机器能力（环回ICMP回声、保留TLD的NXDOMAIN诚实性），而环境软件可静默吊销之（VPN过滤驱动吞ICMP、DNS劫持应答保留域名——2026-11-16实证：OrayBoxVpnEnt隧道激活后OS级`ping 127.0.0.1`全丢，同一批二进制晨绿午红）。这类条目由带外OS先知（oracle）门控：`tests/e2e/env_gates.txt`登记「条目→能力键」，运行器每轮先知一次，能力缺失即打印SKIP行并计入skipped（不算失败，也绝不静默绿）。纯契约断言永不门控——门控只承认「机器根本做不了」，不承认「做得慢、想跳过」。先知只在入口采一次，而门控条目排在长串之后，采样的新鲜度由「能力缺失是分钟级以上的状态」这一前提担保；本轮实测中翻转窗宽约两分钟，落在同一前提之内，若日后复现「采到在场、跑到已缺席」再改为逐条目复检。分片对拍另有其害：`tools/e2e_shard.py`的`parse_runner_output`只认PASS行与Failures清单，SKIP两边都进不了判决集合，于是串行腿与分片腿之间若跨过翻转窗，同一条目会显示成「串行PASS、分片不算」的假差分——A/B对拍撞上时先核两跑时刻的OS ping，别按回归处置。单测侧本线无需先知：`test_net_platform.cpp`的ICMP用例已是纯契约式（钉住文档化的出口集合，不要求有应答），严证归e2e的门控条目。
+部分条目的活成功前提依赖机器能力（环回ICMP回声、保留TLD的NXDOMAIN诚实性），而环境软件可静默吊销之（VPN过滤驱动吞ICMP、DNS劫持应答保留域名——2026-11-16实证：OrayBoxVpnEnt隧道激活后OS级`ping 127.0.0.1`全丢，同一批二进制晨绿午红）。这类条目由带外OS先知（oracle）门控：`tests/e2e/env_gates.txt`登记「条目→能力键」，运行器每轮先知一次，能力缺失即打印SKIP行并计入skipped（不算失败，也绝不静默绿）。纯契约断言永不门控——门控只承认「机器根本做不了」，不承认「做得慢、想跳过」。先知只在入口采一次，而门控条目排在长串之后，采样的新鲜度由「能力缺失是分钟级以上的状态」这一前提担保；本轮实测中翻转窗宽约两分钟，落在同一前提之内，若日后复现「采到在场、跑到已缺席」再改为逐条目复检。分片对拍另有其害：`tools/e2e_shard.py`的`parse_runner_output`只认PASS行与Failures清单，SKIP两边都进不了判决集合，于是串行腿与分片腿之间若跨过翻转窗，同一条目会显示成「串行PASS、分片不算」的假差分——A/B对拍撞上时先核两跑时刻的OS ping，别按回归处置。单测侧同型（`test_net_platform.cpp`的活回声以OS ping出口码门控：OS自己不应答即打印可见SKIP，能力在场时仍钉「环回必须应答」）。
 
 先知逻辑自身的pytest语料挂在ctest条目`e2e_runner_env_gate`上，而该条目与既有的`nlang_docs_pytest`共用configure期解释器探针（`NLANG_DOCS_PYTHON`探`import pytest`），因此它只在配置期解释器能导入pytest的树里注册：本机`build-ide`缓存了py313路径故注册，`build-dev`与`build-asan`缓存裸`python`（无pytest）故不注册——这两棵树在配置时打印跳过说明而不是静默丢条目，这条差异在两个条目上早已存在，不是本设施新引入的。改动`tests/CMakeLists.txt`后必须重新configure，条目才出现在`tests/CTestTestfile.cmake`里；核对注册的口径是三树各自的`tests/CTestTestfile.cmake`而非顶层文件。
 

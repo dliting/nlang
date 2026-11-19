@@ -59,10 +59,12 @@ int main() {
     Cell<int[]> ca = Cell(arr);
     if (ca.eqA(arr)) acc = acc + 8192;
     if (ca.neA([1, 2])) acc = acc + 16384;
-    // The unset T field reads as null for every reference kind; the
-    // mirrored null-first spelling rides the same dispatch.
-    if (ci.isNullB() && cs.isNullB() && cp.isNullB() && ct.isNullB()
-        && cc.isNullB() && ca.isNullB()) acc = acc + 131072;
+    // The unset T field reads as null for every REFERENCE kind (the
+    // null-first spelling rides the same dispatch since phase 3 of
+    // the reference semantics work). Scalar kinds are never null in
+    // either spelling — an unset int field reads as the value 0.
+    if (cs.isNullB() && cp.isNullB() && ct.isNullB()
+        && ca.isNullB()) acc = acc + 131072;
     // Scalar instantiations (int, enum) never read as null — the
     // scalar-never-null rule above — so the unset-field null test spans
     // the reference kinds only: string, struct, class, array.
@@ -81,6 +83,12 @@ int main() {
     Cell<double> cd = Cell(1.0);
     if (cd.eqA(1.0)) acc = acc + 8388608;
     if (cd.neA(2.0)) acc = acc + 16777216;
-    if (acc != 33456127) return 89;
+    // The null-first spelling must ride the same dispatch as the
+    // null-last one: an ASSIGNED scalar is never null either way
+    // (store 0, then null == b must read false — not 0 == 0).
+    Cell<int> cw = Cell(7);
+    cw.b = 0;
+    if (!cw.isNullB()) acc = acc + 65536;
+    if (acc != 33521663) return 89;
     return 0;
 }

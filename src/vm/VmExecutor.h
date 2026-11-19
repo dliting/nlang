@@ -429,6 +429,23 @@ public:
     //OpStoreStatic) reach it as members.
     int32_t CopyStructInPlace(int32_t dstHeapIdx, int32_t srcHeapIdx,
                               uint16_t structIdx);
+    //Task 6: container set() element stabilization for one old/new pair
+    //(List and Dict replace arms share it). Struct elements deep-copy in
+    //place (the phase ② arm); boxed scalar/string elements — whose
+    //record identity aliases taken before the set hold (RefOfPromoted
+    //pairs) — copy their payload cells into the existing box. Other
+    //kinds (class refs are identities) keep the bare store: false =
+    //not stabilized, the caller stores the fresh handle.
+    bool StabilizeContainerElement(int32_t oldHeapIdx, int32_t freshHeapIdx);
+    //Task 6: value-carrier isolation for freshly populated containers
+    //(List_Copy/Dict_Copy/Dict_Keys). A boxed scalar/string element is
+    //the value's invisible storage and a struct element is a value
+    //record — a copy owns fresh carriers, so a later in-place store
+    //(StabilizeContainerElement) through the copy cannot write through
+    //to the source container (the v0.12.4 D5 copy-on-read seal rides
+    //List_Copy/Dict_Copy). Class refs stay shared: reference
+    //semantics.
+    int32_t CloneValueCarrier(int32_t heapIdx);
     //Builds a production-shaped stack-local host (the native-call path
     //wires one per call). Public for the white-box defense tests only:
     //VmNativeHost itself is private to src/vm, so the method is
@@ -626,17 +643,14 @@ private:
     //when no clause takes it — the caller unwinds one frame.
     bool TryEnterCatchHandler(CallFrame& frame, int32_t excHeapIdx);
     //Push/pop. PushCalleeFrame stages params from the caller's
-    //callParamBase cells and inherits the caller's result cell; the out
-    //variants arm the return writeback (bit i = user param i; source
-    //frame slot = i + outShift — bound-method delegates shift by 1).
+    //callParamBase cells and inherits the caller's result cell.
     //0.13.1a: descIdx/receiverHeapIdx fill the generic record's frame
     //descriptor cell (PushFrameCore's three-source rule). Returns the
     //new top frame's locals pointer.
     uint8_t* PushCalleeFrame(const CompiledFunction& callee,
-        uint16_t callParamBase, uint32_t outMask, uint8_t outShift,
-        uint16_t descIdx, int32_t receiverHeapIdx);
+        uint16_t callParamBase, uint16_t descIdx, int32_t receiverHeapIdx);
     uint8_t* PushBoundCalleeFrame(const CompiledFunction& callee,
-        int32_t thisIdx, uint16_t callParamBase, uint32_t outMask);
+        int32_t thisIdx, uint16_t callParamBase);
     //Root/toString/host windows. deferSafepoint: callers that stage raw
     //caller-owned handle cells into the frame right after the push must
     //defer the entry safepoint until staging completes — a collection at
@@ -645,14 +659,13 @@ private:
     //callers run CheckGCSafepoint() themselves once staging is done.
     uint8_t* PushRootFrame(const CompiledFunction& func,
         uint8_t* externalResult, bool deferSafepoint = false);
-    void PopFrameWithWriteback();           //out writeback, then pop
     //Shared push core (boundThisIdx > 0 = bound staging), and the unwind
     //bookkeeping both exception paths in RunFrames share. descIdx/
     //receiverHeapIdx fill the generic frame's descriptor cell (0.13.1a
     //three-source rule: receiver head, caller forward, table row).
     uint8_t* PushFrameCore(const CompiledFunction& callee,
-        uint16_t callParamBase, uint32_t outMask, uint8_t outShift,
-        int32_t boundThisIdx, uint16_t descIdx, int32_t receiverHeapIdx);
+        uint16_t callParamBase, int32_t boundThisIdx, uint16_t descIdx,
+        int32_t receiverHeapIdx);
     //0.13.1a: PushFrameCore's descriptor-cell resolution — the
     //three-source rule (receiver head, caller forward, table row);
     //null for non-generic records. Must run BEFORE the push (the
@@ -771,7 +784,6 @@ private:
     bool OpCallStatic(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
     void OpMakeFunc(BytecodeReader& reader, uint8_t* pResult);
     bool OpCallDelegate(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
-    bool OpCallDelegateOut(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
     void OpMakeBoundFunc(BytecodeReader& reader, uint8_t* pResult);
     void OpMakeVFunc(BytecodeReader& reader, uint8_t* pResult);
     void OpFuncEquality(BytecodeReader& reader, uint8_t* locals, OpCode op);
@@ -779,9 +791,7 @@ private:
     //OpFuncEquality operand protocol (null sentinel = plain index).
     void OpStructEquality(BytecodeReader& reader, uint8_t* locals, OpCode op);
     void OpFunc_to_str(uint8_t* pResult);
-    bool OpCallStaticOut(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
     bool OpCallMethodDirect(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
-    bool OpCallMethodDirectOut(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
     bool OpCallMethod(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
     //Virtual-dispatch target resolution: validate the receiver, read its
     //class header, walk the hierarchy by name. Every rejection happens
@@ -793,6 +803,53 @@ private:
     void OpAllocStruct(BytecodeReader& reader, uint8_t* locals);
     void OpLoadField(BytecodeReader& reader, uint8_t* locals);
     void OpStoreField(BytecodeReader& reader, uint8_t* locals);
+    //v0.13.9 phase ③: the byref slot representation. The RefOf* family
+    //builds the (base heap-record handle, cell offset) pair — struct
+    //locals at offset 0, promoted scalar/string locals at their boxing
+    //record's payload cell, record fields at the field's own cell,
+    //array elements through the flat-address walk (views peel to the
+    //owner). OpRefHandle extracts the base handle back into a
+    //struct-valued slot (byrefs are never stored, so consumption goes
+    //through the handle); OpLoadRef/OpStoreRef dereference the pair.
+    //Every op is lock-free (cell-granularity value races only, the
+    //phase ② ruling) and allocates nothing.
+    void OpRefOfLocal(BytecodeReader& reader, uint8_t* locals);
+    void OpRefOfPromoted(BytecodeReader& reader, uint8_t* locals);
+    void OpRefOfField(BytecodeReader& reader, uint8_t* locals);
+    //Task 13: the generic-body field bind — the frame context's type
+    //argument kind picks the pair shape (cell pair for scalar/string,
+    //offset-0 record pair for struct/identity).
+    void OpRefOfFieldTypeArg(BytecodeReader& reader, uint8_t* locals);
+    void OpRefOfElement(BytecodeReader& reader, uint8_t* locals);
+    void OpRefOfElementN(BytecodeReader& reader, uint8_t* locals);
+    //Shared bind tail of both element binds: peel views to the owner,
+    //decode the flat address, validate the cell window, store the pair
+    //(struct cells deref to the element record — offset-0 pair = record
+    //handle convention). Throws on corrupt records.
+    void StoreElementBindPair(uint16_t dst, std::vector<int32_t>& slot,
+        uint8_t kind, int32_t ownerHandle, int64_t flat, uint8_t* locals);
+    void BindStructElementCell(uint16_t dst,
+        const std::vector<int32_t>& payload, int64_t cell, uint8_t* locals);
+    void OpRefHandle(BytecodeReader& reader, uint8_t* locals);
+    void OpLoadRef(BytecodeReader& reader, uint8_t* locals);
+    //The OP_LoadRef body over an explicit kind byte — shared with the
+    //descriptor-dispatched T& read below.
+    void LoadRefCells(uint8_t kind, uint16_t dst, uint16_t src,
+        uint8_t* locals);
+    void OpStoreRef(BytecodeReader& reader, uint8_t* locals);
+    //The OP_StoreRef body over an explicit kind byte — shared with the
+    //descriptor-dispatched T& store below.
+    void StoreRefCells(uint8_t kind, uint16_t dstByref, uint16_t srcVal,
+        uint8_t* locals);
+    //Task 8: the generic-body store through a T& formal pair — the kind
+    //rides the frame context's ordinal-th type argument (scalar/string
+    //→ cell write, struct → in-place record overwrite, identity → slot
+    //rebind per D9).
+    void OpStoreRefTypeArg(BytecodeReader& reader, uint8_t* locals);
+    //Task 8: the generic-body read through a T& formal pair — scalar/
+    //string deref like OP_LoadRef, struct/identity copy the pair raw
+    //(offset-0 pairs read as record handles, D9).
+    void OpLoadRefTypeArg(BytecodeReader& reader, uint8_t* locals);
     //0.12.6: static slot cell copies against the module's VmStaticSlots
     //table (lock-free like the field family — benign value races, K8).
     void OpLoadStatic(BytecodeReader& reader, uint8_t* locals);
@@ -906,6 +963,14 @@ private:
     //across a heap-growing call.
     std::vector<int32_t>& ElementPayloadRecord(
         std::vector<int32_t>& slot, uint8_t kind, size_t& payloadBaseOut);
+    //v0.13.9 phase ③: read a byref pair from a frame slot and validate
+    //the dereference window [cell, cell+cells) against the base record.
+    //Returns the base handle, writes the validated cell through cellOut;
+    //a corrupt pair (stale handle or out-of-range window) is an
+    //uncatchable invariant — the emitter only produces pairs the RefOf*
+    //family validated at build time.
+    int32_t ByrefTarget(uint16_t slotOff, uint8_t* locals, size_t cells,
+                        const char* opName, size_t& cellOut);
     //Affine address of the flat-eth element (row-major over the record's
     //own dims) of a VIEW record, in owner payload space. Callers bound
     //flat by the record's elemCount first.
@@ -1971,18 +2036,15 @@ private:
     [[noreturn]] void RaiseAbstractMethodError(
         const std::string& methodName) const;
 
-    //Phase 13 Step 2: shared engine for OP_CallDelegate /
-    //OP_CallDelegateOut. Reads the handle's form, resolves the target
-    //(static funcIdx or by-name on the runtime class), builds the callee
-    //frame (free functions copy args from callParamBase verbatim; bound
-    //handles place the captured receiver at frame slot 0 and shift the
-    //args by one), executes, and for outMask != 0 copies each marked
-    //user-parameter slot back to the caller (reversing the shift for
-    //bound handles). Frame-machine contract: returns true when a callee
-    //frame was pushed.
+    //Phase 13 Step 2: shared engine for OP_CallDelegate. Reads the
+    //handle's form, resolves the target (static funcIdx or by-name on
+    //the runtime class), builds the callee frame (free functions copy
+    //args from callParamBase verbatim; bound handles place the captured
+    //receiver at frame slot 0 and shift the args by one) and executes.
+    //Frame-machine contract: returns true when a callee frame was
+    //pushed.
     bool ExecuteDelegateCall(const std::vector<int32_t>& handle,
-        uint16_t callParamBase, uint8_t* locals, uint8_t* pResult,
-        uint32_t outMask);
+        uint16_t callParamBase, uint8_t* locals, uint8_t* pResult);
 
     //Delegate-target resolution half of ExecuteDelegateCall: virtual
     //handles resolve by name on the receiver's runtime class (override
@@ -1990,18 +2052,14 @@ private:
     int ResolveDelegateTarget(const std::vector<int32_t>& handle);
 
     //Free-function delegate ABI (identical to OP_CallStatic, natives
-    //included); the out write-back copies slots unshifted.
+    //included).
     bool CallDelegateFree(const CompiledFunction& callee,
-        uint16_t callParamBase, uint8_t* locals, uint8_t* pResult,
-        uint32_t outMask);
+        uint16_t callParamBase, uint8_t* locals, uint8_t* pResult);
 
     //Bound-method delegate ABI: the captured receiver rides at callee
-    //slot 0, caller args shift right by one; the out write-back reads
-    //frame slot i+1 and stages back to callParamBase+i, reversing the
-    //shift.
+    //slot 0, caller args shift right by one.
     bool CallDelegateBound(const CompiledFunction& callee, int32_t thisIdx,
-        uint16_t callParamBase, uint8_t* locals, uint8_t* pResult,
-        uint32_t outMask);
+        uint16_t callParamBase, uint8_t* locals, uint8_t* pResult);
 
     //Phase 9f: shared native-table dispatch for OP_CallStatic and the method
     //call paths (a native method receives `this` at args[0], mirroring the
@@ -2381,6 +2439,22 @@ private:
     std::string FormatDebugRefShort(int32_t heapIdx) const;
     std::string FormatDebugBoxed(const std::vector<int32_t>& slot) const;
     std::string FormatDebugStringIdx(int32_t idx) const;
+    //v0.13.9 phase 3 Task 11: byref/promoted slot display (locals table
+    //kinds RTK_Byref / RTK_ByrefCell / RTK_Promoted). A byref slot
+    //renders the pair (&#<handle>[<cell>] -> value) — the aggregate kind
+    //treats an offset-0 pair as the whole record (the D9 convention),
+    //the cell kind always resolves the addressed cell's element kind; a
+    //promoted slot renders its box's plain value (the slot's upper half
+    //is stale — only the low handle is read). ByrefElementKindOf
+    //resolves the element kind for the kindName composition in
+    //FrameLocals (kDebugKindUnresolved = unresolved).
+    std::string FormatDebugByrefSlot(const uint8_t* frameLocals,
+        uint16_t offset, uint8_t slotKind) const;
+    std::string FormatDebugPromotedSlot(const uint8_t* frameLocals,
+        uint16_t offset) const;
+    uint8_t ByrefElementKindOf(const uint8_t* frameLocals,
+        uint16_t offset, uint8_t slotKind) const;
+    uint8_t ByrefCellKindOf(size_t handle, size_t cell) const;
     //v0.12.6 Task 9: static-slot display helpers (VmExecutorDebug.cpp) —
     //cell rendering by declared kind + owner init-phase lookup.
     std::string StaticSlotInitPhase(const CompiledStaticSlot& slot,

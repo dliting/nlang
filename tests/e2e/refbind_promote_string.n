@@ -1,0 +1,11 @@
+// v0.13.9 phase 3 Task 4: string promotion re-binds WHICH string the
+// target names; the box payload carries the string-store handle.
+int main() {
+    string name = "a";
+    string& s = name;
+    s = "other";
+    if (name == "other") {
+        return 1;
+    }
+    return 0;
+}

@@ -35,10 +35,6 @@
 
 set -u
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
-# An array, not a string: a quoted "$GATE" string would be looked up as one
-# command name ("bash <path>/gate.sh"), which no shell can find, and every leg
-# would then die with 127 before gate.sh ever saw it.
-GATE=(bash "$REPO/tools/gate.sh")
 PY="D:/dev/miniconda3/envs/py313/python.exe"
 WORK="${NLANG_GATE_TIER_WORK:-$REPO/temp/tier}"
 # Absolutized here: mkdocs resolves --site-dir against the config file's own
@@ -95,9 +91,8 @@ leg() { # leg <name> <command...>
     echo "LEG $name: $*"
     return 0
   fi
-  local rc=0
-  "${GATE[@]}" "$name" "$LOGS/$name" "$@" > "$LOGS/$name.gate" 2>&1 || rc=$?
-  echo "leg $name rc=$rc"
+  bash "$REPO/tools/gate.sh" "$name" "$LOGS/$name" "$@" > "$LOGS/$name.gate" 2>&1
+  echo "leg $name rc=$?"
 }
 
 ctest_leg() { # ctest_leg <name> <tree>
@@ -129,6 +124,12 @@ derive_asan_subset() {
   [ -n "$selector" ] || { echo "T1-asan-subset selector missing" >&2; return 1; }
   grep -E "$selector" "$REPO/tests/e2e/manifest.txt" \
       > "$WORK/asan_subset_derived.txt"
+  if [ ! -s "$WORK/asan_subset_derived.txt" ]; then
+    #A selector matching zero manifest rows is a mapping/table
+    #inconsistency; running the leg would be vacuously green.
+    echo "T1-asan-subset selector '$selector' matched no manifest rows" >&2
+    return 2
+  fi
 }
 
 docs_legs() {
@@ -195,6 +196,12 @@ t0() {
   if [ -n "$e2e_regex" ]; then
     grep -E "$e2e_regex" "$REPO/tests/e2e/manifest.txt" \
         > "$WORK/t0_subset.txt"
+    if [ ! -s "$WORK/t0_subset.txt" ]; then
+      #A nonempty selector matching zero manifest rows is a mapping/
+      #table inconsistency; running the leg would be vacuously green.
+      echo "T0: e2e selector '$e2e_regex' matched no manifest rows"
+      return 2
+    fi
     e2e_leg T0-e2e "$MASTER_TREE" Debug "$WORK/t0_subset.txt" 120
   fi
   [ ${#LEG_NAMES[@]} -gt 0 ] || { echo "T0: nothing to run"; return 0; }

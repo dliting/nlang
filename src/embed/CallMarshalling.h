@@ -58,10 +58,14 @@ inline const TypeDesc* DeclaredParamType(const CompiledFunction& f, size_t i) {
 
 //Reference-kinded declarations: the four heap-slot kinds plus the
 //descriptor-only container kinds (RTK_List/RTK_Dict never appear in the
-//legacy fieldTypeKinds/returnTypeKind bytes).
+//legacy fieldTypeKinds/returnTypeKind bytes). RTK_Interface joins with
+//v0.13.9 Task 12 (D14): an interface-typed declaration holds a class
+//handle (it used to degrade to RTK_NonSerialized, which skipped every
+//root routing set here).
 inline bool IsReferenceKind(uint16_t k) {
     return k == RTK_Class || k == RTK_Struct || k == RTK_Array
-        || k == RTK_Func || k == RTK_List || k == RTK_Dict;
+        || k == RTK_Func || k == RTK_List || k == RTK_Dict
+        || k == RTK_Interface;
 }
 
 //One host Value → one 8-byte frame cell (declaration-driven).

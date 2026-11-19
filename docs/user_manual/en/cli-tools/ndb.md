@@ -71,6 +71,14 @@ Program exited with code 0.
 spelling rules are in [Packages](../specification/03-program-structure/packages.md) in the
 specification.)
 
+A `&` formal's display gives the reference pair and the
+dereferenced value — `v = &#3[0] -> 40`: `#3` is the designated
+record's handle, `[0]` the cell offset, and the arrow carries the
+named value (§4.7.9). Caller storage bound by a `&` formal (a
+promoted slot) displays its plain value. The `--machine` line
+protocol additionally carries the kind name (e.g. `int&`) on each
+local row.
+
 When the program finishes, ndb prints `Program exited with code N.` and
 exits with that same code; `q` or stdin EOF kills the program and exits
 ndb itself with 0.

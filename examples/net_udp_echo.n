@@ -10,7 +10,7 @@ class UdpServer {
         byte[] buf = byte[64];
         string from;
         int port = 0;
-        int n = s.recvFrom(buf, out from, out port, 5000);
+        int n = s.recvFrom(buf, from, port, 5000);
         s.sendTo(buf, from, port, n);       //reply with only the n bytes received
     }
 }
@@ -25,7 +25,7 @@ int main() {
     byte[] buf = byte[64];
     string from;
     int port = 0;
-    int n = cli.recvFrom(buf, out from, out port, 5000);
+    int n = cli.recvFrom(buf, from, port, 5000);
     byte[] msg = byte[n];                   //copy to the received length before converting to a string
     for (int i = 0; i < n; i = i + 1) { msg[i] = buf[i]; }
     io.print("reply from " + from + ":" + port.toString()

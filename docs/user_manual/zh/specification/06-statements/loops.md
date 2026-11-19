@@ -100,6 +100,8 @@ foreach (char c in s) {
 
 **循环变量类型**：声明类型必须与元素类型**精确**匹配——元素的基础类型与数组维度必须完全一致。变量可以是数组类型：`grid : List<int[]>`时`foreach (int[] row in grid)`把每个元素绑定为数组。任一维度的不匹配都是编译错误：`grid`是数组时`foreach (int r in grid)`（元素是数组、变量不是）和`nums : List<int>`时`foreach (float x in nums)`（数值拓宽）都以"the foreach variable type does not match the element type"失败。数组类型声明也可作为`for`初始化器（`for (int[] x = arr; ...)`）——初始化生效且语句体可引用该变量。
 
+**引用形态循环变量**：`foreach (int& n in nums)`把循环变量声明为元素存储的引用而非拷贝——通过`n`的写入直接落到容器（语句体内`n = 10`改写的就是该元素）。`&`形态适用于数组与List的标量、string、struct元素；`Dict`与`string`迭代源在编译期拒绝该形态。见[结构体](../04-types/struct.md)中的引用一节。
+
 `break`和`continue`与`for`完全相同。循环变量是**函数作用域**（循环变量无块作用域，与上文`for`形式一致）：
 
 ```nlang
@@ -125,8 +127,8 @@ foreach (string name in ages) {
 // total == 55
 ```
 
-**变更是未定义行为**。元素计数在循环入口一次取定（调用一次`iterable.length()`）。语句体内的结构修改（`List.add`/`removeAt`、`Dict.set`/`remove`）可能导致：越界访问、跳过/重复元素、或过期的`keys()`快照。对Array foreach语句体内的元素赋值（`arr[i] = x`）没问题（无结构变更）。
+**语句体内的修改按迭代源种类有定义**。数组在循环入口一次取定元素计数——自有记录的长度永不改变——语句体内的元素赋值（`arr[i] = x`）没问题（无结构变更）。`List`在每轮循环头部重新探测长度：语句体内`removeAt`使遍历随缩短的存储收尾而不是越过边界，`add`则延长遍历，追加的每个元素恰好被访问一次。`Dict`的foreach走循环入口取定的`keys()`快照，语句体内对字典的`set`/`remove`不会改变遍历形状。
 
-**struct元素被拷贝进循环变量**（值语义）：`foreach (Point p in arr) { p.x = 99; }`不修改`arr`的元素——`p`每轮都是新深拷贝（与C#一致，对值类型元素做foreach也产生拷贝）。见[结构体](../04-types/struct.md)。
+**struct元素被拷贝进循环变量**（值语义）：`foreach (Point p in arr) { p.x = 99; }`不修改`arr`的元素——`p`每轮都是新深拷贝（与C#一致，对值类型元素做foreach也产生拷贝）。引用形态`foreach (Point& p in arr)`绑定元素存储而非拷贝——通过`p`的写入修改`arr`的元素。见[结构体](../04-types/struct.md)。
 
 **null迭代源**在第一次`length()`调用时抛空指针异常（NPE，null pointer exception）——与所有其他class类型调用一致。见[异常](../08-exceptions/index.md)。

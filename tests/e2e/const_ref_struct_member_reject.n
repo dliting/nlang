@@ -1,0 +1,11 @@
+//Task 9: a member store on a const struct local is a compile-time
+//rejection — the struct is const storage, its fields included.
+struct Pt {
+    int x;
+    public Pt(int x) { this.x = x; }
+}
+int main() {
+    const Pt p = Pt(1);
+    p.x = 2;
+    return p.x;
+}

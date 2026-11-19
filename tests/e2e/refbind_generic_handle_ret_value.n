@@ -1,0 +1,11 @@
+//Task 8: a value read through a &-return delegate key normalizes at
+//the call boundary — the slot derefs the pair, value semantics at the
+//read site (a snapshots 5; later writes to x do not reach it).
+int& pick(int& v) { return v; }
+int main() {
+    func<int&, int&> h = pick;
+    int x = 5;
+    int a = h(x);
+    x = x + 3;
+    return a * 100 + x;
+}

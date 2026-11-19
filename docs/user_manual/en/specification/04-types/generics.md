@@ -66,6 +66,22 @@ A type parameter may be an array element type in a type position —
 parameter is rejected: the element kind is not known until the
 instantiation (§4.10.2).
 
+A type parameter's formals may carry the `&` and `const` markers: a
+`T&` formal takes its semantics from the argument kind of each
+instantiation (§4.7.9). Bound to a by-slot-copy kind — scalars,
+`string`, enums, structs — it is a true alias: writes through the
+formal land in the caller. Bound to an identity kind — class,
+interface, array — the `&` is an equivalent notation (§4.7.9):
+assigning the formal as a whole rewrites the local formal alone,
+while member access through it still acts on the caller's object.
+The instantiation point therefore warns per non-`const` `T&` formal
+that binds an identity kind
+(`the T& formal of "set" binds an identity type; writes through it reach only the local formal.`).
+A
+`const T&` formal is read-only (§7.2): no write can fork, and the
+identity binding carries no warning either. `T&` formals of generic
+free functions follow the same rules (§4.12.10).
+
 The equality operators are legal on type-parameter operands: `==`
 and `!=` apply to `T` and `T`, `T` and `null` (both directions), and
 the method body reads the instantiation information carried by the
@@ -192,6 +208,9 @@ exceeds the limit of 16 nested instantiations.`
 A type argument may be a scalar primitive, `string`, an enumeration,
 a class type, an interface type, a struct type, an array type, or
 another generic instantiation. A `void` type argument is a compile-time error
+(§7.4). A type argument carries no `&` marker — `List<int&>` is a
+syntax error: references cannot be stored as elements (§4.7.9); the
+`&` spelling appears only in the type arguments of function types
 (§7.4).
 
 A user-declared generic class rejects function type arguments: a

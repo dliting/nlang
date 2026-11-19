@@ -49,13 +49,17 @@ EXEMPT = {"AccessTypeEmpty", "AccessTypeNonEmpty", "NodeFlagsNonEmpty",
 #  LocalDeclList.
 #  TypeArgs -- bison inlines the "<...>" bracket forms (including the
 #  KT_Void variants) into Type, HeadType and the func-type rules.
+#  FuncTypeArgs -- the func-type twin of TypeArgs: the spec factors the
+#  void forms of func type arguments; bison spells the three arms
+#  inline over FuncTypeList (v0.13.9 phase 3).
 #  TypeKeyword -- bison inlines the KT_ type-keyword alternatives
 #  into IdentifierExpr.
 #  NodeFlags -- the spec's one-or-more flag list; bison spells the
 #  non-empty list NodeFlagsNonEmpty (the empty layer was removed in
 #  v0.9.1) and writes optionality as [ NodeFlags ].
 SPEC_ONLY = {"BinaryOp", "UnaryOp", "CompoundOp", "FieldDecl", "MethodDecl",
-             "ConstDecl", "LocalDecl", "TypeArgs", "TypeKeyword", "NodeFlags"}
+             "ConstDecl", "LocalDecl", "TypeArgs", "FuncTypeArgs",
+             "TypeKeyword", "NodeFlags"}
 
 
 def _nonterminals():
