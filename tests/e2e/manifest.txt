@@ -2506,6 +2506,9 @@ cross_mod_interface_rtk_gc 0
 cross_mod_interface_return 7
 refbind_foreach_list_remove 0
 refbind_foreach_list_grow 0
+refbind_foreach_promote_local 9
+refbind_foreach_promote_call 32
+refbind_foreach_string_promote 244
 refbind_local_whole_struct 0
 refbind_enum_write 0
 refbind_param_string 0

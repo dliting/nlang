@@ -110,16 +110,30 @@ void VmBackend::EmitPromotedDeclStorage(uint16_t offset, SnField* evalType,
     emitter.EmitUint16(offset);
 }
 
+//Wrap the raw value already sitting in `slot` into a fresh stable box
+//and rewrite the slot to the box handle:
+//  VarLocal(slot); Box(tag); Assign(slot)
+//GC safety: Box's allocation may collect — the raw value in the slot
+//rides its kind's heap arm (over-mark only) and, for promoted formals,
+//the caller's Dual-valued staging slot keeps a string handle rooted
+//through the wrap. The stale upper half the Assign leaves is read by
+//nobody: the field ops, RefOfPromoted and the GC band consume the low
+//half only. Shared by the promoted-formal prologue and the promoted
+//foreach iteration store (the element lands in the slot, then wraps).
+void VmBackend::EmitPromotedValueWrap(uint16_t slot, NodeKind typeKind,
+    BytecodeEmitter& emitter)
+{
+    emitter.Emit(OpCode::OP_VarLocal);
+    emitter.EmitUint16(slot);
+    emitter.Emit(OpCode::OP_Box);
+    emitter.EmitByte(BoxTypeTagOfKind(typeKind));
+    emitter.Emit(OpCode::OP_Assign);
+    emitter.EmitUint16(slot);
+}
+
 //Promoted-formal prologue (see the header comment): the raw argument
 //still sits in the frame slot when the body starts; wrap it into the
 //stable box and rewrite the slot to the box handle.
-//  VarLocal(slot); Box(tag); Assign(slot)
-//GC safety: Box's allocation may collect — the raw value in the slot
-//rides the RTK_Byref heap arm (over-mark only) and, for strings, the
-//caller's Dual-valued staging slot keeps the handle rooted through the
-//prologue. The stale upper half the Assign leaves is read by nobody:
-//the field ops, RefOfPromoted and the GC band consume the low half
-//only.
 void VmBackend::EmitPromotedParamPrologue(SnFunction& func,
     BytecodeEmitter& emitter)
 {
@@ -128,13 +142,8 @@ void VmBackend::EmitPromotedParamPrologue(SnFunction& func,
             continue;
         auto target = ResolveBareIdentifier(&param);
         NLANG_ASSERT(target.kind == BareIdTarget::Local);
-        emitter.Emit(OpCode::OP_VarLocal);
-        emitter.EmitUint16(target.localOffset);
-        emitter.Emit(OpCode::OP_Box);
-        emitter.EmitByte(BoxTypeTagOfKind(
-            param.EvalDataType()->Kind()));
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(target.localOffset);
+        EmitPromotedValueWrap(target.localOffset,
+            param.EvalDataType()->Kind(), emitter);
     }
 }
 

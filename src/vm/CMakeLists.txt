@@ -120,6 +120,7 @@ add_library(nlang_vm
     backend/EmitStmtStore.cpp
     backend/EmitStmtFlow.cpp
     backend/EmitStmtForeach.cpp
+    backend/EmitStmtForeachString.cpp
     backend/EmitStmtSwitch.cpp
     backend/EmitStmtTry.cpp
     CrashReporter.cpp

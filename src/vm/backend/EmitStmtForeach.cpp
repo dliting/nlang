@@ -167,6 +167,11 @@ void VmBackend::EmitForeachIndexed(SnForeachStmt& fe, bool isArray,
         //channel tags the loop-var slot, and the GC traces the handle.
         uint8_t elemKind = RuntimeTypeKind(pElemType);
         const bool bRefLoop = ForeachRefForm(fe, isDict, elemKind);
+        //Body-level & binding of a value-form loop var promotes it
+        //(MarkPromotedBindTarget flags the statement); the slot then
+        //holds a box handle and every iteration store wraps the raw
+        //element value (EmitPromotedValueWrap).
+        const bool bPromotedVar = fe.ContainFlags(NF_Promoted);
         ForeachSlots slots = AllocForeachLocals(fe, elemKind,
             isArray, bRefLoop);
         //Evaluate the iterable into iterSlot.
@@ -184,7 +189,7 @@ void VmBackend::EmitForeachIndexed(SnForeachStmt& fe, bool isArray,
         size_t loopStart = EmitForeachLoopHead(slots.iSlot, slots.nSlot,
             emitter, !isArray, slots.iterSlot);
         EmitForeachLoadElement(isArray, pElemType, elemKind,
-            elemBox, bRefLoop, slots, emitter);
+            elemBox, bRefLoop, bPromotedVar, slots, emitter);
         EmitStatement(*fe.Body(), emitter);
         EmitForeachLoopTail(loopStart, slots.iSlot, emitter);
         return;
@@ -205,8 +210,15 @@ VmBackend::ForeachSlots VmBackend::AllocForeachLocals(SnForeachStmt& fe,
     uint8_t refVarKind = RTK_Byref;
     if (ScalarPrimIndexOfRtk(elemKind) >= 0 || elemKind == RTK_String)
         refVarKind = RTK_ByrefCell;
+    //A promoted loop var (body-level & binding) takes the promoted
+    //slot kind — the box handle rides the ESC_HeapIndex GC band and
+    //the debug display renders the payload; mutually exclusive with
+    //the & form (reference targets never promote).
+    const uint8_t userVarKind = bRefLoop ? refVarKind
+        : (fe.ContainFlags(NF_Promoted)
+            ? static_cast<uint8_t>(RTK_Promoted) : elemKind);
     slots.userVarSlot = AllocLocal(fe.VarName(), kFrameSlotBytes,
-        bRefLoop ? refVarKind : elemKind,
+        userVarKind,
         false);
     //Array iter is RTK_Array; List and Dict-via-Keys are RTK_Class.
     uint8_t iterKind = isArray
@@ -316,28 +328,14 @@ size_t VmBackend::EmitForeachLoopHead(uint16_t iSlot, uint16_t nSlot,
 //callParamBase[0] = this, OP_CallMethod, then unbox primitive T.
 void VmBackend::EmitForeachLoadElement(bool isArray, SnField* pElemType,
         uint8_t elemKind, const ArgBoxPlan& elemBox, bool bRefLoop,
-        const ForeachSlots& slots,
+        bool bPromotedVar, const ForeachSlots& slots,
         BytecodeEmitter& emitter) {
     if (isArray) {
-        if (bRefLoop) {
+        if (bRefLoop)
             EmitForeachArrayRefBind(slots, emitter);
-            return;
-        }
-        //Stage-2: OP_LoadElementFlat <dst> <arr> <flatIdx> — the payload
-        //is contiguous row-major, so the linear index walks rank-1 and
-        //rank-N arrays identically.
-        emitter.Emit(OpCode::OP_LoadElementFlat);
-        emitter.EmitUint16(slots.userVarSlot);
-        emitter.EmitUint16(slots.iterSlot);
-        emitter.EmitUint16(slots.iSlot);
-        //Struct element types need deep-copy on read (value semantics).
-        //Per-unit: a cross-unit element struct slots as an import
-        //placeholder (the old silent-0 fallback could not).
-        if (elemKind == RTK_Struct && pElemType
-            && pElemType->Kind() == NK_StructDecl) {
-            EmitStructDeepCopy(slots.userVarSlot, slots.userVarSlot,
-                static_cast<SnStructDecl&>(*pElemType), emitter);
-        }
+        else
+            EmitForeachArrayLoadElement(pElemType, elemKind,
+                bPromotedVar, slots, emitter);
         return;
     }
     uint16_t paramOffset = m_currFunc->callParamBase + 1 * kFrameSlotBytes;
@@ -360,6 +358,39 @@ void VmBackend::EmitForeachLoadElement(bool isArray, SnField* pElemType,
     if (bRefLoop)
         EmitForeachListRefPair(elemBox, slots, emitter);
     emitter.Emit(OpCode::OP_ParaEnd);
+    //Promoted loop var: after the parameter-staging fence, wrap the
+    //raw element value into the stable box (Box may collect; the raw
+    //value rides the slot's heap band until the Assign lands).
+    if (bPromotedVar)
+        EmitPromotedValueWrap(slots.userVarSlot, pElemType->Kind(),
+            emitter);
+}
+
+//Array value-form element load: OP_LoadElementFlat, the struct
+//deep-copy on read, and the promoted-loop-var box wrap.
+void VmBackend::EmitForeachArrayLoadElement(SnField* pElemType,
+        uint8_t elemKind, bool bPromotedVar, const ForeachSlots& slots,
+        BytecodeEmitter& emitter) {
+    //Stage-2: OP_LoadElementFlat <dst> <arr> <flatIdx> — the payload
+    //is contiguous row-major, so the linear index walks rank-1 and
+    //rank-N arrays identically.
+    emitter.Emit(OpCode::OP_LoadElementFlat);
+    emitter.EmitUint16(slots.userVarSlot);
+    emitter.EmitUint16(slots.iterSlot);
+    emitter.EmitUint16(slots.iSlot);
+    //Struct element types need deep-copy on read (value semantics).
+    //Per-unit: a cross-unit element struct slots as an import
+    //placeholder (the old silent-0 fallback could not).
+    if (elemKind == RTK_Struct && pElemType
+        && pElemType->Kind() == NK_StructDecl) {
+        EmitStructDeepCopy(slots.userVarSlot, slots.userVarSlot,
+            static_cast<SnStructDecl&>(*pElemType), emitter);
+    }
+    //Promoted loop var: the raw element value just landed in the
+    //slot — wrap it into the stable box before any body read.
+    if (bPromotedVar)
+        EmitPromotedValueWrap(slots.userVarSlot,
+            pElemType->Kind(), emitter);
 }
 
 //Array & bind (Task 7 D6): the & twin of LoadElementFlat — bind the
@@ -406,62 +437,6 @@ void VmBackend::EmitForeachLoopTail(size_t loopStart, uint16_t iSlot,
         emitter.PatchUint16(pos, static_cast<uint16_t>(loopEnd));
     for (size_t pos : ctx.continueJumps)
         emitter.PatchUint16(pos, static_cast<uint16_t>(continueTarget));
-    m_loopStack.pop_back();
-}
-
-//0.7.5 string arm: code-point iteration. Hidden locals mirror the
-//index-based expansion in kind role (string handle / byte offset /
-//continue flag — the counter-and-length pair collapses into the
-//offset, since OP_StrForeachStep detects end-of-string itself).
-//The loop head IS the step (decode + advance + continue flag in one
-//op): continue jumps to the head (the step is the increment), break
-//to the loop end via the miss-jump. No NullCheck — StrVal(0) reads
-//as "" and the first step clears the flag; no EvalAreaClaim — the
-//step touches only these locals (the walker's 2-slot foreach
-//reservation stays a harmless over-estimate).
-void VmBackend::EmitStringForeach(SnForeachStmt& fe,
-                                  BytecodeEmitter& emitter) {
-    uint16_t counter = m_currFunc->foreachCounter++;
-    uint16_t userVarSlot = AllocLocal(fe.VarName(), kFrameSlotBytes,
-                                      RTK_Char, false);
-    uint16_t iterSlot = AllocLocal(
-        "__foreach_iter_" + std::to_string(counter),
-        kFrameSlotBytes, RTK_String, false);
-    uint16_t offSlot = AllocLocal(
-        "__foreach_off_" + std::to_string(counter),
-        kFrameSlotBytes, RTK_Int32, false);
-    uint16_t condSlot = AllocLocal(
-        "__foreach_cond_" + std::to_string(counter),
-        kFrameSlotBytes, RTK_Int32, false);
-    //Evaluate the source once; the byte offset starts at 0.
-    EmitExpression(*fe.Iterable(), emitter, iterSlot);
-    emitter.Emit(OpCode::OP_ConstInt32);
-    emitter.EmitInt32(0);
-    emitter.Emit(OpCode::OP_Assign);
-    emitter.EmitUint16(offSlot);
-    //Loop head = the step. Miss-jump doubles as the break target.
-    size_t loopStart = emitter.CurrentOffset();
-    PushLoopContext();
-    emitter.Emit(OpCode::OP_StrForeachStep);
-    emitter.EmitUint16(iterSlot);
-    emitter.EmitUint16(offSlot);
-    emitter.EmitUint16(condSlot);
-    emitter.EmitUint16(userVarSlot);
-    emitter.Emit(OpCode::OP_JumpIfNot);
-    size_t jumpToEnd = emitter.CurrentOffset();
-    emitter.EmitUint16(0);  //placeholder, patched below
-    emitter.EmitUint16(condSlot);
-    m_loopStack.back().breakJumps.push_back(jumpToEnd);
-    EmitStatement(*fe.Body(), emitter);
-    emitter.Emit(OpCode::OP_Jump);
-    emitter.EmitUint16(static_cast<uint16_t>(loopStart));
-    //continue target = the head (the step advances the offset).
-    size_t loopEnd = emitter.CurrentOffset();
-    auto& ctx = m_loopStack.back();
-    for (size_t pos : ctx.breakJumps)
-        emitter.PatchUint16(pos, static_cast<uint16_t>(loopEnd));
-    for (size_t pos : ctx.continueJumps)
-        emitter.PatchUint16(pos, static_cast<uint16_t>(loopStart));
     m_loopStack.pop_back();
 }
 

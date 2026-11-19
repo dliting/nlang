@@ -1,0 +1,14 @@
+// v0.13.9 phase 3: a value-form loop var promoted by a body-level &
+// binding keeps its per-iteration copy semantics — the reference
+// aliases the copy's storage, writes through it reach the loop var.
+int main() {
+    List<int> xs = {};
+    xs.add(1); xs.add(2); xs.add(3);
+    int sum = 0;
+    foreach (int v in xs) {
+        int& r = v;
+        r = r + 1;
+        sum = sum + v;
+    }
+    return sum;   // 2 + 3 + 4
+}

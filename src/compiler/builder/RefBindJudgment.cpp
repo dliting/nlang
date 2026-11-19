@@ -273,6 +273,22 @@ void MarkPromotedBindTarget(SnExpression &expr)
 	if (!IsPrimitiveType(kind) && kind != NK_EnumDecl)
 		return;
 	pField->AddFlags(NF_Promoted);
+	//A promoted foreach loop variable must also flag its statement:
+	//local declarators and formals read the flag off the descriptor,
+	//but the loop var's slot is allocated from the statement node
+	//(AllocForeachLocals reads AST-level flags — the same channel the
+	//& form's VarType flag rides). Walk to the nearest ancestor foreach
+	//whose loop variable IS this local; a shadowing nested loop never
+	//appears on this chain, so only the owning statement is flagged.
+	for (SyntaxNode *pAnc = expr.Parent(); pAnc; pAnc = pAnc->Parent()) {
+		if (pAnc->Kind() != NK_ForeachStmt)
+			continue;
+		auto &fe = static_cast<SnForeachStmt&>(*pAnc);
+		if (fe.VarName() == pField->Name()) {
+			fe.AddFlags(NF_Promoted);
+			break;
+		}
+	}
 }
 
 //The call-site consumption (ExprResolverInvoke.cpp): every argument

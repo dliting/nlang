@@ -381,6 +381,11 @@ private:
     //to the pair. Emitted before the body in EmitBodyAndImplicitReturn.
     void EmitPromotedParamPrologue(SnFunction& func,
         BytecodeEmitter& emitter);
+    //Wrap the raw value already in the slot into a fresh box
+    //(VarLocal; Box; Assign) - shared tail of the promoted-formal
+    //prologue and the promoted foreach iteration store.
+    void EmitPromotedValueWrap(uint16_t slot, NodeKind typeKind,
+        BytecodeEmitter& emitter);
     //The decomposed `r = init` binding store (assign carries
     //NF_Generated): point the reference slot at its target storage.
     void EmitRefBindInit(SnAssignStmt& assign, uint16_t offset,
@@ -1093,8 +1098,18 @@ private:
         uint16_t iSlot = 0;
         uint16_t nSlot = 0;
     };
+    struct StringForeachSlots {
+        uint16_t userVarSlot = 0;
+        uint16_t iterSlot = 0;
+        uint16_t offSlot = 0;
+        uint16_t condSlot = 0;
+    };
     ForeachSlots AllocForeachLocals(SnForeachStmt& fe, uint8_t elemKind,
                                     bool isArray, bool bRefLoop);
+    StringForeachSlots AllocStringForeachLocals(SnForeachStmt& fe);
+    void EmitForeachArrayLoadElement(SnField* pElemType,
+        uint8_t elemKind, bool bPromotedVar, const ForeachSlots& slots,
+        BytecodeEmitter& emitter);
     //The index-based expansion for Array/List/Dict sources (Access
     //classifies the iterable and dispatches; the string arm has its
     //own expansion).
@@ -1120,7 +1135,8 @@ private:
     //reference form binds the pair instead — Task 7 D6).
     void EmitForeachLoadElement(bool isArray, SnField* pElemType,
                                 uint8_t elemKind, const ArgBoxPlan& elemBox,
-                                bool bRefLoop, const ForeachSlots& slots,
+                                bool bRefLoop, bool bPromotedVar,
+                                const ForeachSlots& slots,
                                 BytecodeEmitter& emitter);
     //Array & bind: OP_RefOfElement twin of LoadElementFlat (Task 7 D6).
     void EmitForeachArrayRefBind(const ForeachSlots& slots,
