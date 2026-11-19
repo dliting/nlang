@@ -24,7 +24,7 @@ that formal exactly, so `f(1)` against `f(int)` and
 
 A constructor call resolves among the constructors of the type by
 the same distance rule; its arguments are matched positionally, so
-named and `out` arguments are not accepted (§7.2).
+named arguments are not accepted (§7.2).
 
 Overloads of an imported function resolve at the call site against
 the imported signatures, exactly as within a unit; the linker

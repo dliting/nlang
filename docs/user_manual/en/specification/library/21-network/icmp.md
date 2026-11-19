@@ -50,7 +50,7 @@ int main() {
 |---|---|---|
 | `IcmpSocket.bind(host = "0.0.0.0")` | static → `IcmpSocket` | Opens an ICMP socket bound to `host` |
 | `sendTo(icmpMessage, host)` | → `int` | Sends one complete ICMP message — type, code and checksum included — to `host`; on a Windows raw socket a zero checksum field is computed for you |
-| `recvFrom(buf, out peerAddress, timeoutMs = 0)` | → `int` | Takes the next ICMP message and reports its source address through the `out` parameter; returns the received byte count; parks until one arrives or the deadline passes |
+| `recvFrom(buf, peerAddress&, timeoutMs = 0)` | → `int` | Takes the next ICMP message and reports its source address through the reference parameter; returns the received byte count; parks until one arrives or the deadline passes |
 | `close()` | — | Closes the socket; idempotent |
 
 `IcmpSocket` speaks raw ICMP: the caller assembles the message

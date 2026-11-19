@@ -149,7 +149,7 @@ formal in `args[0]`. A method or constructor receives the
 receiver in `args[0]` and its formals after it (§7.5).
 Default arguments are filled at the call site before
 dispatch, so `argc` always equals the declared count (§7.5).
-Native functions have no `out` parameters (§7.5).
+Native functions have no reference parameters (§7.5).
 
 **Value cell.** Every argument, the receiver and the return
 value travel in one eight-byte cell:

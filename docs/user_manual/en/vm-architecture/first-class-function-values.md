@@ -25,8 +25,7 @@ dispatch path with a garbage frame.
 
 ### Dispatch layout (the `this == 0` branch)
 
-`ExecuteDelegateCall` (shared by OP_CallDelegate / OP_CallDelegateOut)
-branches on `slot[1]`:
+`ExecuteDelegateCall` branches on `slot[1]`:
 
 - **Free function** — args are copied verbatim from `callParamBase`
   (the OP_CallStatic application binary interface (ABI)). Native targets read the caller's cells directly.
@@ -39,11 +38,6 @@ branches on `slot[1]`:
   `superClassIdx` chain), then executed with the bound-method layout.
   Native or intrinsic methods landing here throw at dispatch time
   (the resolver already rejects the compilable shapes).
-
-Out-argument writeback (`OP_CallDelegateOut`) reverses the shift:
-outMask bit *i* marks USER parameter *i* in `func`-signature order; the
-write-back reads frame slot `i+1` for bound handles (slot `i` for free
-functions) and stores to `callParamBase + i`.
 
 ### Receiver-first emission
 

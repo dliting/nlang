@@ -89,8 +89,6 @@
 | OP_CallMethodDirect    | funcIdx, callParamBase      | 调用非虚方法             |
 | OP_CallMethod          | methodNameIdx, callParamBase| 按方法名虚分派               |
 | OP_CallIntrinsic       | intrinsicId, callParamBase  | 按ID调用内建函数       |
-| OP_CallStaticOut       | funcIdx, callParamBase, descIdx, outMask (uint32) | 另有out写回 |
-| OP_CallMethodDirectOut | funcIdx, callParamBase, outMask (uint32) | 另有out写回 |
 | OP_ParaEnd             | —                           | 参数列表结束             |
 
 静态调用族上的uint16 `descIdx`操作数指向模块的泛型实例化描述符表（`.ncu`模板表，规格§26.4）中的一行：对泛型函数或泛型类成员的调用携带该描述符，被调帧的`T`读取与kind分派都以其真类型实参为键。`0xFFFF`标记非泛型调用点；`0xFFFE`继承调用方自己的描述符槽（泛型体转发到另一个泛型）。
@@ -103,7 +101,6 @@
 | OP_MakeBoundFunc    | funcIdx (uint16)                     | 从pResult读取接收者 → {funcIdx, this, static} |
 | OP_MakeVFunc        | nameIdx (uint16, 字符串常量表)       | 从pResult读取接收者 → {nameIdx, this, virtual} |
 | OP_CallDelegate     | calleeLocal, callParamBase           | 经句柄调用                      |
-| OP_CallDelegateOut  | calleeLocal, callParamBase, outMask (uint32) | 另有out写回           |
 | OP_Eq_func          | lhs, rhs                             | 句柄内容相等（带null守卫）    |
 | OP_Ne_func          | lhs, rhs                             | 句柄内容不等                    |
 | OP_Eq_struct        | lhs, rhs                             | 结构体按字段值相等              |

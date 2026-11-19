@@ -12,7 +12,7 @@ states the loading contract.
 ## 26.1 Scope and Version
 
 **Format version.** This chapter describes format version
-**2.21**, recorded in the header as major `2`, minor `21`
+**2.22**, recorded in the header as major `2`, minor `22`
 (§26.2). A conforming loader accepts exactly this version and
 rejects every other: an older image with a "recompile"
 diagnostic, a newer image with an "upgrade the toolchain"
@@ -29,8 +29,8 @@ loading contract (§26.8).
 
 **What it does not fix.** The encoding of the instructions
 inside a function's bytecode array: the array is an opaque byte
-string here. It is pinned to the same format version — a 2.21
-image carries the instruction set of the 2.21 toolchain — but
+string here. It is pinned to the same format version — a 2.22
+image carries the instruction set of the 2.22 toolchain — but
 the opcode values and instruction forms are not part of this
 specification. The native calling convention is §28.4; the
 archive that packs images is chapter 27.
@@ -57,7 +57,7 @@ IEEE 754 binary32 and binary64 encodings (§4.2).
 |---|---|---|
 | magic | 8 bytes | `NLANGCU` followed by a zero byte |
 | version major | u16 | `2` |
-| version minor | u16 | `19` |
+| version minor | u16 | `22` |
 | module path | u16 length + bytes | the package path of the unit (§3.9.1) |
 | name | u32 length + bytes | the unit name: the same string as the module path in every image the current toolchain writes |
 | entry key | u16 length + bytes | the qualified key (§3.6) of the entry function (§9.3); empty for a library image (§3.9.1) |
@@ -177,8 +177,8 @@ formal or the receiver), the declared type's kind code (u8,
 name (u32 length + bytes).
 
 **Parameter descriptors.** One per written formal — a method's
-receiver is not described: a flags byte (bit `0` set marks an
-`out` parameter, bit `1` a `&` formal, bit `2` a `const` formal,
+receiver is not described: a flags byte (bit `1` set marks a
+`&` formal, bit `2` a `const` formal,
 §7.2, §4.7.9) followed by a length-prefixed type
 descriptor (§26.5).
 
@@ -436,8 +436,8 @@ rejected image never runs in part. The rejection sites:
 
 - **magic.** Header bytes other than the magic → reject.
 - **truncation.** A stream that ends mid-record → reject.
-- **version.** Below 2.21 → reject with a "recompile with the
-  current compiler" diagnostic; above 2.21 → reject with an
+- **version.** Below 2.22 → reject with a "recompile with the
+  current compiler" diagnostic; above 2.22 → reject with an
   "upgrade the toolchain" diagnostic (§26.1).
 - **access bytes.** A function-record or type-level access byte
   of `0` or above `3` → reject as a corrupt image (§26.4).

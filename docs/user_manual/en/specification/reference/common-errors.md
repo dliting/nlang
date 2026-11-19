@@ -132,11 +132,9 @@ Error: a local declaration cannot be the unbraced body of a control-flow stateme
 ```
 
 A control-flow statement's unbraced (bare) body cannot be a declaration
-— use a braced body. When calling a function with an `out` parameter,
-the call site must carry the `out` marker, otherwise you get `The
-function invoke "foo(y)" is not compatible with the declaration.`. See
+— use a braced body. See
 [Statements](../06-statements/index.md) "Unbraced body" and
-[Out Parameters](../07-functions/parameters.md).
+[Parameters and Arguments](../07-functions/parameters.md).
 
 ### First direct-init argument parsed as a type at top level
 

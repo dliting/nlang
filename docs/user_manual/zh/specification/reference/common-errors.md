@@ -95,7 +95,7 @@ int main() {
 Error: a local declaration cannot be the unbraced body of a control-flow statement; use braces
 ```
 
-控制流语句的裸体（无花括号）不能是声明——请改用花括号体。调用带`out`形参的函数时，调用点须带`out`标记，否则报`The function invoke "foo(y)" is not compatible with the declaration.`。详见[语句](../06-statements/index.md)「无大括号的裸语句体」与[out参数](../07-functions/parameters.md)。
+控制流语句的裸体（无花括号）不能是声明——请改用花括号体。详见[语句](../06-statements/index.md)「无大括号的裸语句体」与[参数与实参](../07-functions/parameters.md)。
 
 ### 顶层直接初始化的首实参被当作类型解析
 

@@ -54,10 +54,10 @@ Type            = ( NameExpr | QualifiedType
                   { "[]" | "[,,]" } ;
 TypeArgs        = TypeList | "void" | "void" "," TypeList ;
 TypeList        = TypeArg { "," TypeArg } ;
-TypeArg         = [ "out" ] Type ;
+TypeArg         = Type ;
 FuncTypeArgs    = FuncTypeList | "void" | "void" "," FuncTypeList ;
 FuncTypeList    = FuncTypeArg { "," FuncTypeArg } ;
-FuncTypeArg     = [ "out" ] Type | Type "&" ;
+FuncTypeArg     = Type | Type "&" ;
 TypeRef         = Type [ "&" ] ;
 TypeName        = NameExpr | QualifiedType ;
 NameExpr        = IdentifierExpr ;
@@ -71,7 +71,7 @@ HeadType        = ( IdentifierExpr [ "<" TypeArgs ">" ]
 
 `TypeArgs`允许`void`作为第一个类型实参（泛型类型的无结果形式），也允许`void`后接其余实参；哪些泛型类型接受哪些形式由第4章定义。`HeadType`是局部声明中可用的类型拼写形式；它与`Type`的唯一区别是允许以`MemberExpr`为基础（经由成员表达式到达的限定名）。
 
-`FuncTypeArgs`是`TypeArgs`的函数类型孪生：它的实参允许`&`标记（§4.7.9）——`func<int, int&>`——且`out`与`&`不组合（`out int&`是语法错误）。普通泛型实参保持`TypeArg`，不接受`&`：`List<int&>`是语法错误（§4.12.5）。`TypeRef`是`Type`带`&`的形式，用于声明处命名类型的位：形参、方法返回类型、`foreach`头与局部声明（§4.7.9）。
+`FuncTypeArgs`是`TypeArgs`的函数类型孪生：它的实参允许`&`标记（§4.7.9）——`func<int, int&>`。普通泛型实参保持`TypeArg`，不接受`&`：`List<int&>`是语法错误（§4.12.5）。`TypeRef`是`Type`带`&`的形式，用于声明处命名类型的位：形参、方法返回类型、`foreach`头与局部声明（§4.7.9）。
 
 ## 2.4 声明
 
@@ -122,12 +122,11 @@ EnumMethod      = [ AccessType ] ( TypeRef | "void" ) <identifier>
 
 FormalParamList = FormalParam { "," FormalParam } ;
 FormalParam     = [ NodeFlags ]
-                  ( "out" Type <identifier>
-                  | TypeRef <identifier> [ "=" Expression ] ) ;
+                  TypeRef <identifier> [ "=" Expression ] ;
 FunctionBodyOrSemi = Paragraph | ";" ;
 ```
 
-`class`体要求至少一个成员；`interface`体可以为空。顶层类型声明可带访问修饰符，与顶层函数一致（§7.1）。不带返回类型的方法声明命名一个构造器（§4.8.6）。`out`参数不接受默认值。
+`class`体要求至少一个成员；`interface`体可以为空。顶层类型声明可带访问修饰符，与顶层函数一致（§7.1）。不带返回类型的方法声明命名一个构造器（§4.8.6）。
 
 ## 2.5 语句
 
@@ -248,7 +247,6 @@ InitEntry       = Expression [ ":" ( Expression | BracedInitExpr ) ]
 
 ConcreteParamList = ConcreteParam { "," ConcreteParam } ;
 ConcreteParam   = <identifier> "=" ( Expression | BracedInitExpr )
-                | "out" <identifier>
                 | Expression | BracedInitExpr ;
 ```
 
