@@ -901,12 +901,12 @@ out_param_var 42
 # out must target a plain local (grammar-level restriction)
 out_not_local compile_error
 # out param requires the `out` marker at every call site
-out_marker_missing compile_error
-out_on_non_out compile_error
+out_marker_missing compile_error out parameters are retired
+out_on_non_out compile_error the out argument marker is retired
 # struct out params are rejected at declaration
-out_struct_type compile_error
+out_struct_type compile_error out parameters are retired
 # out args are rejected on virtual dispatch
-out_virtual compile_error
+out_virtual compile_error out parameters are retired
 # out params cannot have defaults
 out_default compile_error
 # --- Void function support ---
@@ -950,7 +950,7 @@ native_body_reject compile_error
 native_crossmod 77
 native_crossmod_default 0
 unresolved_import_call compile_error
-native_out_reject compile_error
+native_out_reject compile_error out parameters are retired
 native_method 77
 native_tostring_throws 1
 native_default 0
@@ -978,7 +978,7 @@ compile_error_equals_arity compile_error
 compile_error_nodecl_method compile_error
 compile_error_generic_method_arity compile_error
 compile_error_ctor_arity compile_error
-compile_error_outarg_builtin compile_error
+compile_error_outarg_builtin compile_error the out argument marker is retired
 # Phase 11 stdlib (math/io/fs namespaces + string methods).
 stdlib_sqrt_canary 0
 stdlib_reserved_names 2
@@ -1116,7 +1116,7 @@ enum_method_void 0 101
 enum_semicolon_tail 0
 enum_method_abstract compile_error
 enum_method_default_param compile_error
-enum_method_out_param compile_error
+enum_method_out_param compile_error out parameters are retired
 enum_method_tostring_reserved compile_error
 enum_method_on_int compile_error
 switch_dup_label_enum_method compile_error
@@ -1190,7 +1190,7 @@ func_defaults_reject compile_error
 func_object_box_reject compile_error
 func_named_arg_reject compile_error
 func_switch_discriminant compile_error
-func_out_in_list_reject compile_error
+func_out_in_list_reject compile_error the out type marker is retired
 err_new_removed compile_error Error: syntax error
 func_new_void_syntax compile_error
 func_void_in_list_reject compile_error
@@ -1226,8 +1226,8 @@ io_func_chain_member_error compile_error is not a member of package
 func_bound_native_reject compile_error cannot reference the native method
 func_bound_iface_native_reject compile_error cannot reference the native method
 func_bound_defaults_reject compile_error default parameters cannot be referenced
-func_out_return_reject compile_error
-func_bound_virtual_out_reject compile_error not supported on virtual method references
+func_out_return_reject compile_error the out type marker is retired
+func_bound_virtual_out_reject compile_error the out type marker is retired
 func_compare_operand_reject compile_error only be compared with a function value or null
 func_bare_method_reject compile_error without a receiver
 array_length_elem_get 0
@@ -1368,7 +1368,7 @@ compound_str_array_append 7
 container_prim_to_arrayelem_store_reject compile_error only the null literal converts
 arg_array_to_int_reject compile_error not compatible with the declaration
 arg_int_to_arrayparam_reject compile_error not compatible with the declaration
-out_array_mismatch_reject compile_error not compatible with the declaration
+out_array_mismatch_reject compile_error out parameters are retired
 initlist_objarr_boxing 7
 initlist_arrayval_elem 0
 assign_null_to_array 5
@@ -1579,7 +1579,7 @@ ovsig_param_count_mismatch compile_error claims the virtual dispatch slot
 ovsig_midchain_mismatch compile_error claims the virtual dispatch slot
 ovsig_override_plus_overload compile_error claims the virtual dispatch slot
 ovsig_static_shadow compile_error claims the virtual dispatch slot
-ovsig_out_mismatch compile_error claims the virtual dispatch slot
+ovsig_out_mismatch compile_error out parameters are retired
 ovsig_iface_param_mismatch compile_error with a different signature
 ovsig_iface_return_mismatch compile_error with a different signature
 ovsig_iface_missing compile_error does not implement the method
@@ -2150,7 +2150,7 @@ static_const_iface_array 7
 static_const_iface_enum 2
 static_const_iface_list 2
 cross_mod_static_iface_const 5
-err_static_const_out compile_error cannot be passed as an out argument
+err_static_const_out compile_error out parameters are retired
 err_static_local_sized compile_error sized array
 err_iface_mutable_static compile_error must be static const
 array_generic_face 0
@@ -2515,3 +2515,11 @@ refbind_enum_write 0
 refbind_param_string 0
 refbind_virtual_dispatch 0
 refbind_iface_dispatch 0
+# --- v0.13.9 phase 4: out retirement migration diagnostics ---
+err_outret_decl_free compile_error out parameters are retired
+err_outret_decl_class compile_error out parameters are retired
+err_outret_decl_iface compile_error out parameters are retired
+err_outret_call_marker compile_error the out argument marker is retired
+err_outret_func_mark compile_error the out type marker is retired
+err_outret_anchored compile_error
+err_outret_keyword compile_error

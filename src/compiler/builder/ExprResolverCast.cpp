@@ -35,11 +35,6 @@ void ExprResolveAccessor::FixupParamTypesWithBindings(SnInvokeExpr &invoke,
 	{
 		if (b.kind == FormalBinding::B_Default)
 			continue;
-		//Phase 9e: out bindings already required exact type match in
-		//ComputeBindingDistance — wrapping a cast would break the
-		//variable-slot identity the writeback relies on.
-		if (b.bIsOut)
-			continue;
 		NLANG_ASSERT(b.pCallerExpr && b.pFormal);
 		auto *pSrc = b.pCallerExpr->EvalDataType();
 		auto *pTgt = b.pFormal->EvalDataType();

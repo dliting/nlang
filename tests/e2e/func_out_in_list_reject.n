@@ -1,5 +1,5 @@
-//Phase 13 Step 1: out type arguments are func-only; both the type
-//position and the constructor form of List<out int> are rejected.
+// v0.13.9 phase 4: the out mark in a generic type argument
+// position is retired everywhere.
 int main() {
     List<out int> l(2);
     return 0;

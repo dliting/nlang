@@ -434,20 +434,13 @@ void VmBackend::EmitOneFormalBinding(const FormalBinding* pBindings,
     //unannotated array argument (defaults carry no caller expression;
     //their scalar-only contract needs no check).
     auto& binding = pBindings[bindingIdx];
-    if (!binding.bIsOut && binding.pCallerExpr) {
+    if (binding.pCallerExpr) {
         EmitArrayRankBoundary(binding.pFormal->EvalDataType(),
             binding.pCallerExpr,
             static_cast<uint16_t>(claimBase
                 + slotIdx * kFrameSlotBytes), emitter);
     }
     applyBox(slotIdx);
-    //Phase 9e: out binding — record the caller local for the
-    //post-call spill.
-    if (pBindings[bindingIdx].bIsOut) {
-        auto& idExpr = static_cast<SnIdentifierExpr&>(
-            *pBindings[bindingIdx].pCallerExpr);
-        RecordOutSpill(idExpr.Field(), slotIdx, pOutSpills);
-    }
 }
 
 void VmBackend::EmitCallArgs(const SnInvokeExpr& invoke, SnFunction* pCallee,

@@ -172,11 +172,6 @@ int ExprResolveAccessor::ComputeBindingDistance(
 		//Trial scoring stays pure (TryBindArgs' no-logging contract):
 		//rejecting a non-matching overload is expected among same-name
 		//array overloads; the final verdict's notes name the conversion.
-		//Phase 9e: out bindings require the exact same type — the callee
-		//writes its slot straight back into the caller's variable; any
-		//implicit cast (int→float etc.) would be discarded by writeback.
-		if (b.bIsOut && n != 0)
-			return -1;
 		nDistance += n;
 	}
 	return nDistance;

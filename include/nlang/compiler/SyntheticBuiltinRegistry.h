@@ -43,17 +43,17 @@ public:
 	~SyntheticBuiltinRegistry();
 
 	//--- builtin generic instantiations ---------------------------------
-	//Key: (base class name, resolved type-arg SnField pointers, out
-	//flags, reference marks). Interned type-arg tokens keep pointer
+	//Key: (base class name, resolved type-arg SnField pointers,
+	//reference marks). Interned type-arg tokens keep pointer
 	//identity per element type within one build, so the pointers are the
-	//cache discipline; the out flags and reference marks ride parallel
-	//vectors because both live on type-arg EXPRESSIONS (NF_Out / NF_Ref),
-	//not on the canonical fields.
+	//cache discipline; the reference marks ride a parallel vector
+	//because they live on type-arg EXPRESSIONS (NF_Ref), not on the
+	//canonical fields. v0.13.9 phase 4: the out-flag vector is gone
+	//with the out mechanism.
 	struct GenericInstKey
 	{
 		std::string baseName;
 		std::vector<SnField*> typeArgs;
-		std::vector<uint8> outFlags;
 		std::vector<uint8> refFlags;
 		bool operator<(const GenericInstKey& rhs) const
 		{
@@ -61,8 +61,6 @@ public:
 				return baseName < rhs.baseName;
 			if (typeArgs.size() != rhs.typeArgs.size())
 				return typeArgs.size() < rhs.typeArgs.size();
-			if (outFlags != rhs.outFlags)
-				return outFlags < rhs.outFlags;
 			if (refFlags != rhs.refFlags)
 				return refFlags < rhs.refFlags;
 			for (size_t i = 0; i < typeArgs.size(); ++i)

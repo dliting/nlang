@@ -48,13 +48,9 @@ void StatementResolveAccessor::RejectIllegalEnumMethod(SnFunction &method)
 			m_Env.Log(CLL_Error, param.Location(),
 				"enum method \"%s\" cannot have default parameter "
 				"values.", method.Name().c_str());
-		//D4: out parameters need the writeback path of
-		//OP_CallMethodDirect's bound form; same Callee-null
-		//limitation as above.
-		if (param.ContainFlags(NF_Out))
-			m_Env.Log(CLL_Error, param.Location(),
-				"enum method \"%s\" cannot have out parameters.",
-				method.Name().c_str());
+		//v0.13.9 phase 4: the out spelling retires through the single
+		//declaration throat in ResolveFunctionFormals (enum methods
+		//resolve their formals there too); no enum-specific arm here.
 	}
 }
 

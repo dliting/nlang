@@ -107,14 +107,11 @@ bool IsGenericClassDecl(SnClassDecl* pClass)
 //("Int32[]"). The flag vectors arrive normalized by the caller
 //(padded to typeArgs.size()) so the marks spell position-stable.
 static std::string RenderGenericInstName(const std::string& baseName,
-	const std::vector<SnField*>& typeArgs, const std::vector<uint8>& outFlags,
-	const std::vector<uint8>& refFlags)
+	const std::vector<SnField*>& typeArgs, const std::vector<uint8>& refFlags)
 {
 	std::string instName = baseName + "<";
 	for (size_t i = 0; i < typeArgs.size(); ++i) {
 		if (i) instName += ", ";
-		if (outFlags[i])
-			instName += "out ";
 		instName += typeArgs[i]->Kind() == NK_ArrayTypeToken
 			? typeArgs[i]->ToString() : typeArgs[i]->Name();
 		if (refFlags[i])
@@ -126,18 +123,15 @@ static std::string RenderGenericInstName(const std::string& baseName,
 
 SnClassDecl* GetGenericClassDecl(ModuleRegistry& reg,
 	const std::string& baseName,
-	const std::vector<SnField*>& typeArgs, const std::vector<uint8>& outFlags,
+	const std::vector<SnField*>& typeArgs,
 	const std::vector<uint8>& refFlags, const ISourceLocation* pLoc)
 {
-	std::vector<uint8> normOutFlags(outFlags);
-	normOutFlags.resize(typeArgs.size(), 0);
-	//v0.13.9 phase 3: the & marks share the out flags' normalization —
-	//short caller vectors pad to per-argument zeros so the key stays
-	//position-stable.
+	//v0.13.9 phase 3: short caller vectors pad to per-argument zeros
+	//so the key stays position-stable.
 	std::vector<uint8> normRefFlags(refFlags);
 	normRefFlags.resize(typeArgs.size(), 0);
 	SyntheticBuiltinRegistry::GenericInstKey key{baseName, typeArgs,
-		normOutFlags, normRefFlags};
+		normRefFlags};
 	auto& synthetics = reg.SyntheticBuiltins();
 	if (SnClassDecl* pCached = synthetics.FindGeneric(key))
 		return pCached;
@@ -150,7 +144,7 @@ SnClassDecl* GetGenericClassDecl(ModuleRegistry& reg,
 	if (baseName != kBuiltinFuncTypeName || typeArgs.empty())
 		return nullptr;
 
-	const std::string instName = RenderGenericInstName(baseName, typeArgs, normOutFlags, normRefFlags);
+	const std::string instName = RenderGenericInstName(baseName, typeArgs, normRefFlags);
 
 	auto* pName = new std::string(instName);
 	auto* pMembers = new PtrList<SnField>();
@@ -164,7 +158,6 @@ SnClassDecl* GetGenericClassDecl(ModuleRegistry& reg,
 	if (baseName != kBuiltinFuncTypeName)
 		AssertNoRefTypeArgs(typeArgs);
 	pClass->SetGenericTypeArgs(typeArgs);
-	pClass->SetGenericOutFlags(normOutFlags);
 	pClass->SetGenericRefFlags(normRefFlags);
 	pClass->SetBaseName(baseName);
 	synthetics.AdoptGeneric(key, pClass);

@@ -920,9 +920,10 @@ FormalParam:	NodeFlagsNonEmpty TypeRef TT_Identifier '=' Expression {
 					TypeRef TT_Identifier {
 						$$ = new SnFormalParam(NF_NONE, $1, $2, nullptr, @1);
 					} |
-					/* Phase 9e: out parameter. No default-value form — an out
-					 * parameter is callee-assigned, a default is meaningless.
-					 * v0.9.1: modifier-led or bare, mirroring the arms above. */
+					/* Phase 9e: out parameter. v0.13.9 phase 4: diagnostic
+					 * anchor only — ResolveFunctionFormals reports the
+					 * retirement for every NF_Out formal. No default-value
+					 * form exists, so `out T x = d` stays a syntax error. */
 					NodeFlagsNonEmpty KT_Out Type TT_Identifier {
 						$$ = new SnFormalParam($1, $3, $4, nullptr, @2);
 						$$->AddFlags(NF_Out);
@@ -2669,9 +2670,9 @@ HeadType:	IdentifierExpr {
 			} ;
 
 //A single type argument inside `<...>`: a plain type, or an
-//out-marked type (only legal as a func parameter slot, checked at
-//instantiation). The out marker lives as an NF_Out node flag on
-//the type node so it survives into GenericInstKey comparisons.
+//out-marked type. v0.13.9 phase 4: the out arms are diagnostic
+//anchors only — RejectInvalidTypeArg reports the retirement on every
+//NF_Out node; nothing keys or compares the flag anymore.
 TypeArg:	Type {
 						$$ = $1;
 					} |

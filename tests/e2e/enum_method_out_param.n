@@ -1,3 +1,5 @@
+// v0.13.9 phase 4: out on an enum method hits the single declaration
+// retirement throat (the enum-specific check is gone).
 enum Scale {
     One, Two;
 

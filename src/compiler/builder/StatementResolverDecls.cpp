@@ -79,32 +79,16 @@ void StatementResolveAccessor::CheckFunctionModifierContract(SnFunction &sn)
 	}
 }
 
-//Phase 9f: native declarations are body-less by contract — the
-//implementation lives in the host's registered table. A body would
-//be silently ignored by GenerateFunction's native branch, so reject
-//here. Out params are rejected too: writeback needs a callee frame
-//and natives have none (the VM throws the same message at runtime).
-//Phase 9e: out parameters must also be 4-byte scalar/class slots. A
-//struct out param would need deep-copy writeback into the caller
-//— unsupported in v1. Checked at declaration for clearer errors
-//than at every call site.
-
-//Per-formal gates of a native declaration: out and & parameters both
-//need a callee frame the host ABI does not give them (each argument is
-//one value cell). The & wall is the v0.13.9 phase 3 ruling — & returns
-//stay legal (the builtin containers return T&); the param descriptor's
-//NF_Ref cache is stamped later in ResolveFunctionFormals, so the gate
-//reads the type node.
+//Per-formal gates of a native declaration: & parameters need a callee
+//frame the host ABI does not give them (each argument is one value
+//cell). The & wall is the v0.13.9 phase 3 ruling — & returns stay
+//legal (the builtin containers return T&). The descriptor flag is
+//stamped at parse (SnFormalParam mirrors its type node).
 static void RejectNativeParamShapes(BuildEnvironment &env, SnFunction &sn,
 	std::vector<SnFormalParam*> &formals)
 {
 	for (auto *param : formals) {
-		if (param->ContainFlags(NF_Out)) {
-			env.Log(CLL_Error, param->Location(),
-				"native function \"%s\" cannot have out parameters.",
-				sn.Name().c_str());
-		}
-		if (param->Type() && param->Type()->ContainFlags(NF_Ref)) {
+		if (param->ContainFlags(NF_Ref)) {
 			env.Log(CLL_Error, param->Location(),
 				"native function \"%s\" cannot have reference "
 				"parameters; the host receives values.",
@@ -136,16 +120,6 @@ void StatementResolveAccessor::CheckFunctionNativeFormals(SnFunction &sn,
 		}
 		RejectNativeParamShapes(m_Env, sn, formals);
 	}
-	for (auto *param : formals) {
-		if (!param->ContainFlags(NF_Out))
-			continue;
-		auto *pT = param->EvalDataType();
-		if (pT && pT->Kind() == NK_StructDecl) {
-			m_Env.Log(CLL_Error, param->Location(),
-				"out parameter \"%s\" cannot be a struct.",
-				param->Name().c_str());
-		}
-	}
 }
 
 
@@ -159,6 +133,19 @@ void StatementResolveAccessor::ResolveFunctionFormals(SnFunction &sn,
 {
 	for (size_t i = 0; i < formals.size(); ++i) {
 		auto *param = formals[i];
+		//v0.13.9 phase 4: the out spelling is retired — one named
+		//migration diagnostic at the single declaration throat, for
+		//every context (free, class, interface, enum, native, virtual).
+		//The old context-specific checks (native/struct/enum) are
+		//subsumed: the marker itself is the error now.
+		if (param->ContainFlags(NF_Out))
+		{
+			m_Env.Log(CLL_Error, param->Location(),
+				"out parameters are retired; declare \"%s\" as a "
+				"reference formal instead.",
+				param->Name().c_str());
+			continue;
+		}
 		//v0.13.9 phase 3 fix: the & mark rides the descriptor from
 		//construction (SnFormalParam mirrors its type node), so the gate
 		//below — and any call-site judgment over a forward-declared

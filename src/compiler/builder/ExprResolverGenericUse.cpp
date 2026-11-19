@@ -21,16 +21,6 @@
 namespace nlang
 {
 
-//Phase 13: the func instantiation's parameter out markers. Stored ON the
-//node since the per-build registry migration (context-free predicates
-//like IsUnboundFuncRef read a synthetic func's signature with no
-//registry handle); default-empty for non-func classes.
-const std::vector<uint8>& GetGenericOutFlags(SnClassDecl* pClass)
-{
-	static const std::vector<uint8> s_empty;
-	return pClass ? pClass->GenericOutFlags() : s_empty;
-}
-
 //v0.13.9 phase 3: the func instantiation's & marks, same discipline as
 //the out flags (expression-level NF_Ref, node-stored).
 const std::vector<uint8>& GetGenericRefFlags(SnClassDecl* pClass)
@@ -53,13 +43,12 @@ std::vector<SnField*> GetGenericTypeArgs(SnClassDecl* pClass)
 
 //Type-argument collection of Access(SnGenericTypeExpr&): resolves each
 //argument in the caller's scope and gathers the canonical fields plus
-//the parallel out flags and reference marks. False = a diagnostic is
+//the parallel reference marks. False = a diagnostic is
 //logged (unresolvable argument, argument without a field, or the
 //reject gate above).
 bool ExprResolveAccessor::TryResolveGenericTypeArgs(
 	SnGenericTypeExpr &genType, const std::string &baseName,
-	std::vector<SnField*> &typeArgs, std::vector<uint8> &outFlags,
-	std::vector<uint8> &refFlags)
+	std::vector<SnField*> &typeArgs, std::vector<uint8> &refFlags)
 {
 	for (auto *pTA : genType.TypeArgs())
 	{
@@ -94,7 +83,6 @@ bool ExprResolveAccessor::TryResolveGenericTypeArgs(
 		//(same intern channel as declarations), so the key, the display
 		//name and every consumer read array-ness off the token itself.
 		typeArgs.push_back(pField);
-		outFlags.push_back(pTA->ContainFlags(NF_Out) ? 1 : 0);
 		//v0.13.9 phase 3: the & mark rides the argument expression the
 		//same way — func<int, int&> must key apart from func<int, int>.
 		refFlags.push_back(pTA->ContainFlags(NF_Ref) ? 1 : 0);
@@ -315,13 +303,11 @@ bool ExprResolveAccessor::TryResolveDeclaredGenericInterfaceInstance(
 		return false;
 	}
 	std::vector<SnField*> typeArgs;
-	std::vector<uint8> outFlags;
 	std::vector<uint8> refFlags;
 	//No multi-slot gate here: an interface carries no value storage —
 	//its T-typed members are signature positions only, so every
 	//argument kind is a legal substitution.
-	if (!TryResolveGenericTypeArgs(genType, baseName, typeArgs, outFlags,
-			refFlags))
+	if (!TryResolveGenericTypeArgs(genType, baseName, typeArgs, refFlags))
 		return false;
 	auto *pInstance = GetDeclaredGenericInterfaceDecl(tmpl, typeArgs);
 	if (!pInstance)
@@ -359,10 +345,8 @@ bool ExprResolveAccessor::TryResolveDeclaredGenericInstance(
 		return false;
 	}
 	std::vector<SnField*> typeArgs;
-	std::vector<uint8> outFlags;
 	std::vector<uint8> refFlags;
-	if (!TryResolveGenericTypeArgs(genType, baseName, typeArgs, outFlags,
-			refFlags))
+	if (!TryResolveGenericTypeArgs(genType, baseName, typeArgs, refFlags))
 		return false;
 	if (RejectMultiSlotTypeArgs(m_Env, *pClassTemplate, typeArgs, baseName,
 			genType.Location()))
@@ -400,16 +384,13 @@ void ExprResolveAccessor::Access(SnGenericTypeExpr &genType)
 	}
 
 	std::vector<SnField*> typeArgs;
-	std::vector<uint8> outFlags;
 	std::vector<uint8> refFlags;
-	if (!TryResolveGenericTypeArgs(genType, baseName, typeArgs, outFlags,
-			refFlags))
+	if (!TryResolveGenericTypeArgs(genType, baseName, typeArgs, refFlags))
 		return;
 
 	auto *pSynClass =
 		GetGenericClassDecl(m_Env.Registry(), baseName,
-			typeArgs, outFlags, refFlags,
-			pBase->Location());
+			typeArgs, refFlags, pBase->Location());
 	if (!pSynClass)
 	{
 		m_Env.Log(CLL_Error, genType.Location(),

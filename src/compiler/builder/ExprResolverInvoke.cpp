@@ -192,22 +192,15 @@ bool ExprResolveAccessor::ResolveInvokeArguments(SnInvokeExpr &snInvoke,
 	return true;
 }
 
-//Chosen-callee admission gates of Access(SnInvokeExpr&) — the Phase 9e
-//out-argument veto on virtual (by-name dispatched) methods and the
-//Phase 12 bare-method reject. False = rejected with its diagnostic; the
-//deferred-argument sweep has run and the call stays unresolved.
+//Chosen-callee admission gates of Access(SnInvokeExpr&) — the Phase 12
+//bare-method reject and friends. False = rejected with its diagnostic;
+//the deferred-argument sweep has run and the call stays unresolved.
+//v0.13.9 phase 4: the out-argument veto on virtual methods is gone —
+//out actuals fail at their own retirement diagnostic first.
 bool ExprResolveAccessor::AdmitChosenCallee(SnInvokeExpr &snInvoke,
 	SnFunction *pCallee, const std::vector<FormalBinding> &bindings,
 	const std::vector<SnExpression*> &deferredBraceArgs)
 {
-	//Phase 9e: out arguments on virtual (by-name dispatched) methods are
-	//rejected before anything binds — see OutArgOnDispatchedCalleeRejected.
-	if (pCallee
-		&& OutArgOnDispatchedCalleeRejected(snInvoke, *pCallee, bindings))
-	{
-		AcceptDeferredBraceArgs(*m_pVisitor, deferredBraceArgs);
-		return false;
-	}
 	if (RejectBareMethodCall(snInvoke, pCallee))
 	{
 		AcceptDeferredBraceArgs(*m_pVisitor, deferredBraceArgs);
@@ -463,35 +456,6 @@ bool ExprResolveAccessor::ResolveDeferredBraceArgs(
 	return true;
 }
 
-//Phase 9e: out arguments on virtual methods are rejected — the
-//writeback mask is baked into the call instruction against the
-//static callee's parameter layout; a runtime override resolved by
-//name-based dispatch could disagree with it. Interface methods are
-//always dispatched by name (never NF_Virtual-flagged), so they are
-//covered via the parent decl kind. Shared by the bare and the
-//module-qualified call paths.
-bool ExprResolveAccessor::OutArgOnDispatchedCalleeRejected(
-	const SnInvokeExpr &invoke, const SnFunction &callee,
-	const std::vector<FormalBinding> &bindings) const
-{
-	bool bDispatchedByName = callee.ContainFlags(NF_Virtual)
-		|| (callee.Parent()
-			&& callee.Parent()->Kind() == NK_InterfaceDecl);
-	if (!bDispatchedByName)
-		return false;
-	for (auto &b : bindings)
-	{
-		if (b.bIsOut)
-		{
-			m_Env.Log(CLL_Error, invoke.Location(),
-				"out arguments are not supported on virtual method "
-				"\"%s\".",
-				callee.Name().c_str());
-			return true;
-		}
-	}
-	return false;
-}
 
 //The failure diagnostics of the invoke paths live in
 //ExprResolverInvokeDiag.cpp (LogInvokeFailure and its MaybeLog* sweeps).

@@ -23,8 +23,8 @@ namespace nlang
 //Phase 13: exact-signature comparison between a function declaration and
 //a func<...> instantiation (no variance). Return slot: a nullptr return
 //type matches a void type argument. Parameter slots: declared type field
-//pointer identity plus out-flag agreement — the same discipline that
-//keeps func<void,int> and func<void,out int> distinct in GenericInstKey.
+//pointer identity — the same discipline that keeps distinct spellings
+//distinct in GenericInstKey.
 //v0.13.9 phase 3: the & marks join the agreement (return-slot NF_Ref
 //against refFlags[0], per-parameter against refFlags[i+1]) — no silent
 //binding across a & spelling. Array-ness needs no separate comparison:
@@ -32,7 +32,6 @@ namespace nlang
 bool FuncRefMatchesDecl(const SnFunction &func, SnClassDecl *pFuncDecl)
 {
 	const auto &typeArgs = GetGenericTypeArgs(pFuncDecl);
-	const auto &outFlags = GetGenericOutFlags(pFuncDecl);
 	const auto &refFlags = GetGenericRefFlags(pFuncDecl);
 	auto *pRet = func.ReturnType();
 	if (pRet)
@@ -53,8 +52,6 @@ bool FuncRefMatchesDecl(const SnFunction &func, SnClassDecl *pFuncDecl)
 	for (auto &param : params)
 	{
 		if (param.EvalDataType() != typeArgs[i + 1])
-			return false;
-		if (param.ContainFlags(NF_Out) != (outFlags[i + 1] != 0))
 			return false;
 		if (param.ContainFlags(NF_Ref) != (refFlags[i + 1] != 0))
 			return false;
@@ -268,28 +265,20 @@ static bool RejectMemberFuncRefForm(BuildEnvironment &env,
 	return false;
 }
 
-//By-name dispatch cannot bake late-bound marks: the out mask and the &
-//marks are compiled from the func type, but the handle resolves its
-//target at runtime — an override's layout may disagree (the virtual-
-//direct-call rationale). Unlike out, the RETURN slot can carry a &
-//mark (func<int&>), so the ref scan starts at 0. True = rejected.
+//By-name dispatch cannot bake late-bound marks: the & marks are
+//compiled from the func type, but the handle resolves its target at
+//runtime — an override's layout may disagree (the virtual-direct-call
+//rationale). The RETURN slot can carry a & mark (func<int&>), so the
+//ref scan starts at 0. v0.13.9 phase 4: the out half is gone with the
+//out mechanism. True = rejected.
 static bool RejectByNameLateBoundMarks(BuildEnvironment &env,
 	const ISourceLocation *pLoc, SnField *pExpected)
 {
 	auto *pFunc = static_cast<SnClassDecl *>(pExpected);
-	const auto &outFlags = GetGenericOutFlags(pFunc);
 	const auto &refFlags = GetGenericRefFlags(pFunc);
-	const size_t marks = std::max(outFlags.size(), refFlags.size());
-	for (size_t k = 0; k < marks; ++k)
+	for (size_t k = 0; k < refFlags.size(); ++k)
 	{
-		if (k > 0 && k < outFlags.size() && outFlags[k] != 0)
-		{
-			env.Log(CLL_Error, pLoc,
-				"out parameters are not supported on virtual method "
-				"references: dispatch resolves the target at runtime.");
-			return true;
-		}
-		if (k < refFlags.size() && refFlags[k] != 0)
+		if (refFlags[k] != 0)
 		{
 			env.Log(CLL_Error, pLoc,
 				"reference parameters and reference returns are not "

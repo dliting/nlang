@@ -221,8 +221,6 @@ bool ExprResolveAccessor::BindQualifiedInvoke(SnMemberExpr &snMember,
 	SnInvokeExpr &invoke, SnFunction &callee, FindFuncResult res,
 	std::vector<FormalBinding> &bindings)
 {
-	if (OutArgOnDispatchedCalleeRejected(invoke, callee, bindings))
-		return false;
 	if (!ResolveInvokeWithFunc(invoke, callee, res, bindings))
 		return false;
 	snMember.m_pField = &callee;

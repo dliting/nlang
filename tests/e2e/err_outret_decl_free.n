@@ -1,0 +1,9 @@
+// v0.13.9 phase 4: the out parameter spelling is retired — the named
+// migration diagnostic points at the reference declaration form.
+int f(int a, out int b) {
+    b = a;
+    return 0;
+}
+int main() {
+    return 0;
+}

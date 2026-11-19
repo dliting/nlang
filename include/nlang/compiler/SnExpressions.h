@@ -370,8 +370,6 @@ struct FormalBinding
 	Kind            kind;
 	SnExpression   *pCallerExpr;  //non-null for B_Positional / B_Named
 	SnFormalParam  *pFormal;      //always non-null
-	bool            bIsOut = false; //Phase 9e: caller wrote `out ident`
-	                                //and the formal is an out parameter
 };
 
 //The syntax node of a function call.
@@ -1229,11 +1227,10 @@ private:
 };
 
 //Phase 9e: out argument expression `out ident` at call sites.
-//Wraps the inner identifier; ExprResolver validates the inner refers to a
-//local/formal slot and requires the matched formal to be an out parameter.
-//TryBindArgs unwraps the node into FormalBinding (pCallerExpr = Inner())
-//with bIsOut set, so codegen emits the inner read into the staging slot
-//and records a writeback pair for OP_CallStaticOut/OP_CallMethodDirectOut.
+//Wraps the inner identifier of the retired `out ident` argument spelling.
+//v0.13.9 phase 4: the grammar arm stays as a diagnostic anchor only —
+//resolution logs the migration diagnostic and leaves the node
+//unresolved; no binding or codegen path consumes it anymore.
 class NLANG_COMPILER_API SnOutArgExpr : public SnCompoundPlainExpr
 {
 	typedef SnCompoundPlainExpr Super_;

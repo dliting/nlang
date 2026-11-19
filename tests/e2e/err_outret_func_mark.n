@@ -1,0 +1,6 @@
+// v0.13.9 phase 4: the out mark inside a func type is retired — the
+// reference mark spells it.
+int main() {
+    func<void, out int> f = null;
+    return 0;
+}

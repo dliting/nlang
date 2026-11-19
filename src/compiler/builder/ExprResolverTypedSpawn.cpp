@@ -140,7 +140,7 @@ ExprResolveAccessor::SpawnTFromBareRef(SnExpression &arg, SnField *&rpT)
 		pTarget->ReturnType() && pTarget->ReturnType()->ContainFlags(NF_Ref)
 			? uint8_t{1} : uint8_t{0}};
 	auto *pFuncDecl = GetGenericClassDecl(m_Env.Registry(), kBuiltinFuncTypeName,
-		funcArgs, {}, funcRefFlags, &fallback);
+		funcArgs, funcRefFlags, &fallback);
 	if (!pFuncDecl || !BindFuncRefToExpected(m_Env,
 			static_cast<SnIdentifierExpr &>(arg), pFuncDecl))
 		return SpawnArgOutcome::Diagnosed;   //diagnosed by the bind gate

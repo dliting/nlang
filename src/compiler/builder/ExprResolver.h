@@ -228,7 +228,6 @@ std::vector<SnField*> GetGenericTypeArgs(SnClassDecl* pClass);
 //Phase 13: out-flag read of a func instantiation (parallel to
 //GetGenericTypeArgs; default-empty on miss).
 //Definition in ExprResolverGenerics.cpp.
-const std::vector<uint8>& GetGenericOutFlags(SnClassDecl* pClass);
 //v0.13.9 phase 3: &-mark read of a func instantiation (same parallel
 //discipline; default-empty on miss).
 //Definition in ExprResolverGenerics.cpp.
@@ -260,7 +259,7 @@ std::vector<std::string> OuterIdentifierChain(
 bool IsGenericClassDecl(SnClassDecl* pClass);
 SnClassDecl* GetGenericClassDecl(ModuleRegistry& reg,
 	const std::string& baseName,
-	const std::vector<SnField*>& typeArgs, const std::vector<uint8>& outFlags,
+	const std::vector<SnField*>& typeArgs,
 	const std::vector<uint8>& refFlags, const ISourceLocation* pLoc);
 //Location pass-through for on-demand created decls (built-in classes,
 //generic instantiations): the caller's location when one exists, the
@@ -883,13 +882,6 @@ private:
 
 	//Phase 9e: out arguments on virtual (or by-name dispatched) methods are
 	//rejected — the writeback mask is baked into the call instruction
-	//against the static callee's parameter layout; a runtime override
-	//resolved by name-based dispatch could disagree with it. Shared by the
-	//bare and the module-qualified call paths (a qualified call must not
-	//bypass the restriction). Logs the error; returns true when rejected.
-	bool OutArgOnDispatchedCalleeRejected(const SnInvokeExpr &invoke,
-		const SnFunction &callee,
-		const std::vector<FormalBinding> &bindings) const;
 
 	/*
 	The failure branch of Access(SnInvokeExpr) — not-found, imported-stub
@@ -974,7 +966,7 @@ private:
 	upcasts pass raw bits soundly.
 	*/
 	bool CheckDelegateArgument(SnExpression &arg, SnField *pFormal,
-		bool bWantOut, size_t i);
+		size_t i);
 	bool AdmitsDelegateArgType(SnField *pArgType, SnField *pFormal) const;
 
 	/*
@@ -1570,7 +1562,7 @@ private:
 	*/
 	bool TryResolveGenericTypeArgs(SnGenericTypeExpr &genType,
 		const std::string &baseName, std::vector<SnField*> &typeArgs,
-		std::vector<uint8> &outFlags, std::vector<uint8> &refFlags);
+		std::vector<uint8> &refFlags);
 	//Access(SnGenericTypeExpr&)'s declared-template arm (scope probe,
 	//arity check, instantiation create-and-bind).
 	bool TryResolveDeclaredGenericInstance(SnGenericTypeExpr &genType,
