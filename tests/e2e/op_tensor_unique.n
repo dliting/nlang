@@ -1,0 +1,42 @@
+// unique/uniqueCounts (v0.14.7): the sorted unique values (any rank,
+// flattened row-major; one trailing NaN under the modern-numpy rule)
+// and the counts aligned with unique's output. Exit 0 when every
+// check holds.
+import tensor;
+
+int main() {
+    //Rank-1 dedupe: duplicates collapse, output sorted.
+    int[] a = int[8];
+    a[0] = 5; a[1] = -1; a[2] = 5; a[3] = 0; a[4] = -1; a[5] = 5;
+    a[6] = 3; a[7] = 0;
+    int[] u = tensor.unique(a);
+    if (u.length() != 4) return 1;
+    if (u[0] != -1 || u[1] != 0 || u[2] != 3 || u[3] != 5) return 2;
+    //Counts alignment: cell for cell with unique, sum == length.
+    int[] c = tensor.uniqueCounts(a);
+    if (c.length() != 4) return 3;
+    if (c[0] != 2 || c[1] != 2 || c[2] != 1 || c[3] != 3) return 4;
+    int total = 0;
+    for (int i = 0; i < c.length(); i = i + 1)
+        total = total + c[i];
+    if (total != a.length()) return 5;
+    //Rank-2 flatten (row-major): unique over the flattened cells.
+    int[,] m = [[1, 2], [2, 1]];
+    int[] um = tensor.unique(m);
+    if (um.length() != 2 || um[0] != 1 || um[1] != 2) return 6;
+    //Float NaN: one trailing NaN (the modern-numpy rule).
+    float[] nanv = tensor.div(tensor.full(2, 0.0f), tensor.full(2, 0.0f));
+    float[] mix = tensor.concat(tensor.full(2, 1.0f), nanv, 0);
+    float[] fu = tensor.unique(mix);
+    if (fu.length() != 2) return 7;
+    if (fu[0] != 1.0f) return 8;
+    if (fu[1] == fu[1]) return 9;  //the last cell is the NaN
+    //Empty in, empty out (well-defined — the dedupe divides nothing
+    //by the length).
+    int[] e = int[0];
+    int[] ue = tensor.unique(e);
+    if (ue.length() != 0) return 10;
+    int[] ce = tensor.uniqueCounts(e);
+    if (ce.length() != 0) return 11;
+    return 0;
+}

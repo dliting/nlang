@@ -1,0 +1,13 @@
+// Zero-size source: uncaught Exception, exit 1 by design (the scatter
+// family's empty convention — scatterAdd keeps scatter's shape).
+import tensor;
+
+int main() {
+    int[] empty = int[0];
+    int[] idx = int[1];
+    idx[0] = 0;
+    int[] vals = int[1];
+    vals[0] = 1;
+    int[] boom = tensor.scatterAdd(empty, 0, idx, vals);
+    return 0;
+}

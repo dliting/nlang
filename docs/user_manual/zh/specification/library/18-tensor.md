@@ -150,6 +150,8 @@ int main() {
 - `gather(a, axis, indices)`对每个非轴位置取一个元素：`indices`为每个输出元素持有一个条目（其长度等于`axis`以外各维之积），`indices[i]`按行主序命名第i个非轴位置的轴下标，结果去掉轴维。对秩2的logit批次，`gather(logits, 1, labels)`逐行读出`logits[i, labels[i]]`——损失项的标签收集拼写。秩1源退化为普通花式索引：去掉唯一的轴后没有可走的位置，`gather(v, 0, indices)`返回`v[indices[i]]`，长度与`indices`一致。视图是普通操作数——寻址沿记录的步长进行。
 - `argmax(a, axis)`与`argmin(a, axis)`返回轴上胜者的int下标数组，覆盖其余各维——每个非轴位置一个下标；并列时保留扫描顺序的第一个。
 - `sort(a, axis)`与`argsort(a, axis)`把每条轴线独立按升序整理，返回同形状的新数组（`sort`）或将它排好序的int32排列（`argsort`）。排序是稳定的——相等元素保持原有相对顺序；浮点遵循numpy的NaN规则：NaN单元排到线尾。秩1拼写经`gather`可往返：`gather(a, 0, argsort(a, 0))`即排好序的数组；更高秩的排列逐线以元素索引读出。
+- `takeAlongAxis(a, axis, indices)`按配对的轴线读出：`out[line, k] = a[line, indices[line, k]]`。indices与源同形状（`argsort`的输出直接可用——`takeAlongAxis(a, axis, argsort(a, axis))`在任何秩都即排好序的数组），每个下标都做界检：越界抛出`IndexOutOfBoundsException`，消息点名下标与范围（下标不回绕）。
+- `unique(a)`按行主序展平（任意秩）并返回排序后的去重值为秩1数组；`uniqueCounts(a)`返回对齐的计数——两者逐格一致，且`sum(uniqueCounts(a)) == a.length()`。一段NaN去重为线尾的单个NaN；空数组产出空结果。
 - `eq(a, b)`对同元素种类的两个数组逐元素比较（适用§18.3.1的广播规则），返回int的0/1数组；浮点遵循IEEE的`==`——NaN与任何值都不相等。
 - `oneHot(labels, n)`把秩1的int标签数组映射为float的`[len, n]`数组，每行的标签处置1——分类器训练步的目标拼写。
 
@@ -173,6 +175,8 @@ int main() {
 
 - `where(mask, x, y)`逐元素选择：掩码格非零取`x`，为零取`y`——relu习语即`where(f > 0.0f, f, 0.0f)`。掩码必须是`int`或`long`数组（比较算子的输出）；`x`与`y`是共享一种元素种类的数组或标量，三者一起广播（§18.3.1）。结果的元素种类即`x`/`y`的种类。
 - `scatter(a, axis, indices, values)`是`gather`的写孪生：逐位置写入`out[position][indices[i]] = values[i]`，每个下标一个值，返回新数组（`a`不变——值语义，与所有张量函数一致）。`values`可为数组（长度与下标个数一致）或标量（广播到每个被写的格）。越界下标——负数或越过末端，任一界——抛出`IndexOutOfBoundsException`；下标不回绕。
+- `scatterAdd(a, axis, indices, values)`是累加孪生：逐位置加上`out[position][indices[i]] += values[i]`，重复下标累加——每次贡献都落账，反向传播的拼写正需要它（embedding的backward对每个token出现加一次，绝非last-write）。值语义与`scatter`一致；越界抛出同一个异常。
+- `scatterAddInto(a, indices, values)`是秩1数组的原地累加——梯度缓冲的拼写；加法落在`a`自身的格上，其余与`scatterAdd`一致。设备后端下标相撞时，浮点累加顺序在ULP级不确定（atomic的契约；PyTorch记载同样行为）——小整数的和保持精确。
 
 语言的花式索引赋值降低到同一条写路径的原地形态：在秩1数值数组上，`a[indices] = values`（values为数组或标量）原地变异`a`自身的格，所以掩码习语`a[a > 0] = 0`把选中的格清零。赋值对越界下标抛出同一个`IndexOutOfBoundsException`。
 
@@ -194,7 +198,7 @@ int main() {
 
 ## 18.6 错误行为
 
-每次张量失败都是`Exception`家族的一个可捕获值（§8.3）。`null`数组实参抛出`NullPointerException`。负的创建长度、或越过§4.10创建上限的元素数，在创建位点抛出`IndexOutOfBoundsException`；负的`reshape`维度（单个推断的`-1`除外）抛出同一个类。`arange`在生成之前检查其元素数，数列会超出上限时抛出`Exception`。零的`arange`步长、或无法朝`stop`推进的步长，抛出`Exception`。双操作数核函数中的广播不匹配、`reshape`的形状其长度与目标秩不符、其乘积与元素数不符或其`-1`推断不整除、`transpose`的重排漏掉或重复某个轴、`broadcastTo`的目标形状源形状无法填满、`sum`、`sort`或`argsort`的轴在数组的秩之外、`slice`的列表长度与秩不符、`concat`的操作数在秩或非`axis`维上不一致，以及对空数组调用`max`、`min`、`mean`、`sort`或`argsort`，都抛出`Exception`；形状与长度不匹配的消息会点名两侧，轴类消息会点名轴与秩。`gather`的某个下标越过轴范围、`oneHot`的某个标签越过类别范围，或`scatter`（含花式索引赋值）经越界下标写入，抛出`IndexOutOfBoundsException`，消息点名下标与范围；`gather`的下标个数与非轴位置个数不符，抛出`Exception`。`gather`的采集轴是零维时抛出`Exception`；零尺寸的源数组只要采集轴非零维，就采集出空结果（其非轴位置个数为零）。`uniform`的`low`大于`high`抛出`Exception`。
+每次张量失败都是`Exception`家族的一个可捕获值（§8.3）。`null`数组实参抛出`NullPointerException`。负的创建长度、或越过§4.10创建上限的元素数，在创建位点抛出`IndexOutOfBoundsException`；负的`reshape`维度（单个推断的`-1`除外）抛出同一个类。`arange`在生成之前检查其元素数，数列会超出上限时抛出`Exception`。零的`arange`步长、或无法朝`stop`推进的步长，抛出`Exception`。双操作数核函数中的广播不匹配、`reshape`的形状其长度与目标秩不符、其乘积与元素数不符或其`-1`推断不整除、`transpose`的重排漏掉或重复某个轴、`broadcastTo`的目标形状源形状无法填满、`sum`、`sort`、`argsort`、`takeAlongAxis`或`scatterAdd`的轴在数组的秩之外、`slice`的列表长度与秩不符、`concat`的操作数在秩或非`axis`维上不一致，以及对零尺寸源调用`max`、`min`、`mean`、`sort`、`argsort`、`takeAlongAxis`或`scatterAdd`，都抛出`Exception`；形状与长度不匹配的消息会点名两侧，轴类消息会点名轴与秩。`gather`或`takeAlongAxis`的某个下标越过轴范围、`oneHot`的某个标签越过类别范围，或`scatter`、`scatterAdd`、`scatterAddInto`（含花式索引赋值）经越界下标写入，抛出`IndexOutOfBoundsException`，消息点名下标与范围；`gather`的下标个数与非轴位置个数不符，抛出`Exception`。`gather`的采集轴是零维时抛出`Exception`；零尺寸的源数组只要采集轴非零维，就采集出空结果（其非轴位置个数为零）。`uniform`的`low`大于`high`抛出`Exception`。
 
 *资料性：*诊断消息的写法形如`matmul`的`tensor.matmul: shape mismatch (2x3 vs 2x2)`、逐元素核函数的`tensor: shape mismatch (2x3 vs 2x2)`。
 

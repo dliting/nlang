@@ -390,6 +390,27 @@ native Array<long> argsort(Array<long> a, int axis);
 native Array<int> argsort(Array<float> a, int axis);
 native Array<int> argsort(Array<double> a, int axis);
 
+// Take values by matching 1-D slices along the axis — the argsort
+// consumer: takeAlongAxis(a, axis, argsort(a, axis)) is the sorted
+// array. The indices share the source's shape (int cells,
+// bounds-checked); the output has the indices' shape.
+native Array<int> takeAlongAxis(Array<int> a, int axis, Array<int> indices);
+native Array<long> takeAlongAxis(Array<long> a, int axis, Array<int> indices);
+native Array<float> takeAlongAxis(Array<float> a, int axis, Array<int> indices);
+native Array<double> takeAlongAxis(Array<double> a, int axis, Array<int> indices);
+
+// unique(a): the sorted unique values of the flattened array (any
+// rank; one trailing NaN under the modern-numpy rule). uniqueCounts(a):
+// the counts aligned with unique's output (sum == a.length()).
+native Array<int> unique(Array<int> a);
+native Array<long> unique(Array<long> a);
+native Array<float> unique(Array<float> a);
+native Array<double> unique(Array<double> a);
+native Array<int> uniqueCounts(Array<int> a);
+native Array<int> uniqueCounts(Array<long> a);
+native Array<int> uniqueCounts(Array<float> a);
+native Array<int> uniqueCounts(Array<double> a);
+
 // Scatter: the write twin of gather — per position i,
 // out[position(i)][indices[i]] = values[i]; value semantics (returns a
 // new array, `a` unchanged). Out-of-range indices raise
@@ -413,6 +434,22 @@ native void scatterIntoS(Array<int> a, Array<int> indices, int value);
 native void scatterIntoS(Array<long> a, Array<int> indices, long value);
 native void scatterIntoS(Array<float> a, Array<int> indices, float value);
 native void scatterIntoS(Array<double> a, Array<int> indices, double value);
+
+// scatterAdd: the accumulate twin of scatter — per position i,
+// out[position(i)][indices[i]] += values[i]; duplicate indices
+// ACCUMULATE (never last-write — the gradient spelling; the device
+// atomics' float order is nondeterministic at the ULP level).
+// Value semantics (returns a new array, `a` unchanged).
+native Array<float> scatterAdd(Array<float> a, int axis, Array<int> indices, Array<float> values);
+native Array<double> scatterAdd(Array<double> a, int axis, Array<int> indices, Array<double> values);
+native Array<int> scatterAdd(Array<int> a, int axis, Array<int> indices, Array<int> values);
+native Array<long> scatterAdd(Array<long> a, int axis, Array<int> indices, Array<long> values);
+// The in-place accumulation (the gradient-buffer spelling; writes
+// land in `a`'s own payload).
+native void scatterAddInto(Array<int> a, Array<int> indices, Array<int> values);
+native void scatterAddInto(Array<long> a, Array<int> indices, Array<long> values);
+native void scatterAddInto(Array<float> a, Array<int> indices, Array<float> values);
+native void scatterAddInto(Array<double> a, Array<int> indices, Array<double> values);
 
 // The scalar overload at the base spelling.
 Array<float> scatter(Array<float> a, int axis, Array<int> indices,

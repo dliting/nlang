@@ -11,8 +11,26 @@ files include it.
 #include <cstdint>
 #include <cstring>
 #include <string>
+#include <type_traits>
 
 namespace tensor {
+
+//The ascending comparison with the NaN rule (the sort family's and
+//unique's shared host-side rule): a NaN never sorts before anything
+//and never equals a value — numpy's rule. The device side keeps its
+//own __device__ twin (SortLessDev); nvcc cannot share host templates.
+template <typename T>
+inline bool NanLess(T a, T b) {
+    if constexpr (std::is_same_v<T, float> || std::is_same_v<T, double>) {
+        const bool aNan = a != a;
+        const bool bNan = b != b;
+        if (aNan)
+            return false;   //a NaN never sorts before anything
+        if (bNan)
+            return true;    //anything sorts before a NaN
+    }
+    return a < b;
+}
 
 //The view's data pointer aliases the record's raw cells; each element
 //type reads/writes its own carrier width. elemCellBytes is asserted by
@@ -404,11 +422,51 @@ void SortCpuI32(const NativeArrayView& a, int32_t axis, bool withIndices,
                 NativeArrayView& dst);
 void SortCpuI64(const NativeArrayView& a, int32_t axis, bool withIndices,
                 NativeArrayView& dst);
+//--- v0.14.7: the argsort consumer (tensor_take_along.cpp) ---
+void TensorTakeAlong(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                     int argc);
+//The exported takeAlong CPU walk wrappers (the CPU table's slots call
+//them).
+void TakeAlongCpuF32(const NativeArrayView& a, int32_t axis,
+                     const int32_t* indices, NativeArrayView& dst);
+void TakeAlongCpuF64(const NativeArrayView& a, int32_t axis,
+                     const int32_t* indices, NativeArrayView& dst);
+void TakeAlongCpuI32(const NativeArrayView& a, int32_t axis,
+                     const int32_t* indices, NativeArrayView& dst);
+void TakeAlongCpuI64(const NativeArrayView& a, int32_t axis,
+                     const int32_t* indices, NativeArrayView& dst);
+//--- v0.14.7: the dedup pair (tensor_unique.cpp) ---
+void TensorUnique(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                  int argc);
+void TensorUniqueCounts(NativeHost* host, uint8_t* ret,
+                        const uint8_t* args, int argc);
+//--- v0.14.7: the accumulate twins (tensor_scatter.cpp) ---
+void TensorScatterAdd(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                      int argc);
+void TensorScatterAddInto(NativeHost* host, uint8_t* ret,
+                          const uint8_t* args, int argc);
 //The exported CPU walk wrappers (the CPU table's slots call them).
 void ScatterCpuF32(NativeHost* host, const NativeArrayView& a,
                    int32_t axis, const NativeArrayView& indices,
                    const NativeArrayView& values, NativeArrayView& dst,
                    bool valuesScalar, double sv, int32_t* errorOut);
+//--- v0.14.7: the accumulate twins (tensor_scatter.cpp) ---
+void ScatterAddCpuF32(NativeHost* host, const NativeArrayView& a,
+                      int32_t axis, const NativeArrayView& indices,
+                      const NativeArrayView& values, NativeArrayView& dst,
+                      bool valuesScalar, double sv, int32_t* errorOut);
+void ScatterAddCpuF64(NativeHost* host, const NativeArrayView& a,
+                      int32_t axis, const NativeArrayView& indices,
+                      const NativeArrayView& values, NativeArrayView& dst,
+                      bool valuesScalar, double sv, int32_t* errorOut);
+void ScatterAddCpuI32(NativeHost* host, const NativeArrayView& a,
+                      int32_t axis, const NativeArrayView& indices,
+                      const NativeArrayView& values, NativeArrayView& dst,
+                      bool valuesScalar, int64_t isv, int32_t* errorOut);
+void ScatterAddCpuI64(NativeHost* host, const NativeArrayView& a,
+                      int32_t axis, const NativeArrayView& indices,
+                      const NativeArrayView& values, NativeArrayView& dst,
+                      bool valuesScalar, int64_t isv, int32_t* errorOut);
 void ScatterCpuF64(NativeHost* host, const NativeArrayView& a,
                    int32_t axis, const NativeArrayView& indices,
                    const NativeArrayView& values, NativeArrayView& dst,

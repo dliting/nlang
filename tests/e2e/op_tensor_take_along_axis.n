@@ -1,0 +1,35 @@
+// takeAlongAxis (v0.14.7): per matched axis line, out[line, k] =
+// a[line, indices[line, k]] — the argsort consumer. The exact values
+// pin the ordering and the odometer addressing; the argsort identity
+// (takeAlongAxis(a, axis, argsort(a, axis)) is sort(a, axis)) is
+// self-checking. Exit 0 when every check holds.
+import tensor;
+
+int main() {
+    //Rank-1: the argsort round-trip is the sorted array.
+    int[] a = int[6];
+    a[0] = 3; a[1] = -1; a[2] = 3; a[3] = 0; a[4] = -1; a[5] = 5;
+    int[] s = tensor.sort(a, 0);
+    int[] ord = tensor.argsort(a, 0);
+    int[] rt = tensor.takeAlongAxis(a, 0, ord);
+    for (int i = 0; i < 6; i = i + 1)
+        if (rt[i] != s[i]) return 1;
+    //Rank-3 middle axis: the identity reconstructs the sorted lines.
+    int[,,] cube = [[[3, 1], [2, 0]], [[7, 5], [6, 4]]];
+    int[,,] dsc = tensor.sort(cube, 1);
+    int[,,] ord3 = tensor.argsort(cube, 1);
+    int[,,] rt3 = tensor.takeAlongAxis(cube, 1, ord3);
+    for (int i = 0; i < 2; i = i + 1)
+        for (int j = 0; j < 2; j = j + 1)
+            for (int k = 0; k < 2; k = k + 1)
+                if (rt3[i, j, k] != dsc[i, j, k]) return 2;
+    //A non-permutation take: the all-zero indices read every line's
+    //axis-first cell — out[i, j, k] = cube[i, 0, k].
+    int[,,] zero = [[[0, 0], [0, 0]], [[0, 0], [0, 0]]];
+    int[,,] picked = tensor.takeAlongAxis(cube, 1, zero);
+    if (picked[0, 0, 0] != 3 || picked[0, 0, 1] != 1
+        || picked[0, 1, 0] != 3 || picked[0, 1, 1] != 1) return 3;
+    if (picked[1, 0, 0] != 7 || picked[1, 0, 1] != 5
+        || picked[1, 1, 0] != 7 || picked[1, 1, 1] != 5) return 4;
+    return 0;
+}

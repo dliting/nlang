@@ -119,6 +119,13 @@ cudaError_t LaunchScatter(const LaunchView& a, const LaunchView& indices,
                           const LaunchView& values, const LaunchView& dst,
                           bool valuesScalar, double sv, int64_t isv,
                           int32_t* errorOut);
+//scatterAdd (the accumulate twin): SYNC — per position,
+//dst.flat[index] += v with atomicAdd (duplicate indices SUM);
+//clear-launch-sync-read drains the per-cell out-of-range flag.
+cudaError_t LaunchScatterAdd(const LaunchView& a, const LaunchView& indices,
+                             const LaunchView& values, const LaunchView& dst,
+                             bool valuesScalar, double sv, int64_t isv,
+                             int32_t* errorOut);
 cudaError_t LaunchMatmul(const LaunchView& a, const LaunchView& b,
                          const LaunchView& dst, int elemKindCode);
 //sort/argsort (stable ascending per axis line, NaN to the end): ASYNC
@@ -128,6 +135,13 @@ cudaError_t LaunchMatmul(const LaunchView& a, const LaunchView& b,
 //the dispatcher routes them to the host walk.
 cudaError_t LaunchSort(bool withIndices, const LaunchView& src,
                        int axis, const LaunchView& dst);
+//takeAlongAxis (the argsort consumer): ASYNC — the index bounds ride
+//the dispatcher's host-side validation over the dense int32 mirror;
+//the kernel is a pure strided copy (the mirror lands H2D via the
+//pool scratch).
+cudaError_t LaunchTakeAlong(const LaunchView& src, int axis,
+                            const int32_t* indices,
+                            const LaunchView& dst);
 //gather (take-per-position, all kinds, all axes): ASYNC — the index
 //bounds ride the dispatcher's host-side validation over the staged
 //indices; the kernel is a pure strided copy.

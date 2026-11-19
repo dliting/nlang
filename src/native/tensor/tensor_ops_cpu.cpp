@@ -984,6 +984,30 @@ TensorOps MakeCpuTable() {
         (void)host;
         SortCpuI64(a, axis, true, dst);
     };
+    t.takeAlongF32 = [](NativeHost* host, NativeArrayView& a,
+                        int32_t axis, const int32_t* indices,
+                        NativeArrayView& dst) {
+        (void)host;
+        TakeAlongCpuF32(a, axis, indices, dst);
+    };
+    t.takeAlongF64 = [](NativeHost* host, NativeArrayView& a,
+                        int32_t axis, const int32_t* indices,
+                        NativeArrayView& dst) {
+        (void)host;
+        TakeAlongCpuF64(a, axis, indices, dst);
+    };
+    t.takeAlongI32 = [](NativeHost* host, NativeArrayView& a,
+                        int32_t axis, const int32_t* indices,
+                        NativeArrayView& dst) {
+        (void)host;
+        TakeAlongCpuI32(a, axis, indices, dst);
+    };
+    t.takeAlongI64 = [](NativeHost* host, NativeArrayView& a,
+                        int32_t axis, const int32_t* indices,
+                        NativeArrayView& dst) {
+        (void)host;
+        TakeAlongCpuI64(a, axis, indices, dst);
+    };
     t.scatterF32 = [](NativeHost* host, NativeArrayView& a,
                       int32_t axis, NativeArrayView& indices,
                       NativeArrayView& values, NativeArrayView& dst,
@@ -1015,6 +1039,40 @@ TensorOps MakeCpuTable() {
         (void)errorOut;
         ScatterCpuI64(host, a, axis, indices, values, dst, valuesScalar,
             isv, errorOut);
+    };
+    t.scatterAddF32 = [](NativeHost* host, NativeArrayView& a,
+                         int32_t axis, NativeArrayView& indices,
+                         NativeArrayView& values, NativeArrayView& dst,
+                         bool valuesScalar, double sv, int32_t* errorOut) {
+        (void)errorOut;
+        ScatterAddCpuF32(host, a, axis, indices, values, dst,
+            valuesScalar, sv, errorOut);
+    };
+    t.scatterAddF64 = [](NativeHost* host, NativeArrayView& a,
+                         int32_t axis, NativeArrayView& indices,
+                         NativeArrayView& values, NativeArrayView& dst,
+                         bool valuesScalar, double sv, int32_t* errorOut) {
+        (void)errorOut;
+        ScatterAddCpuF64(host, a, axis, indices, values, dst,
+            valuesScalar, sv, errorOut);
+    };
+    t.scatterAddI32 = [](NativeHost* host, NativeArrayView& a,
+                         int32_t axis, NativeArrayView& indices,
+                         NativeArrayView& values, NativeArrayView& dst,
+                         bool valuesScalar, int64_t isv,
+                         int32_t* errorOut) {
+        (void)errorOut;
+        ScatterAddCpuI32(host, a, axis, indices, values, dst,
+            valuesScalar, isv, errorOut);
+    };
+    t.scatterAddI64 = [](NativeHost* host, NativeArrayView& a,
+                         int32_t axis, NativeArrayView& indices,
+                         NativeArrayView& values, NativeArrayView& dst,
+                         bool valuesScalar, int64_t isv,
+                         int32_t* errorOut) {
+        (void)errorOut;
+        ScatterAddCpuI64(host, a, axis, indices, values, dst,
+            valuesScalar, isv, errorOut);
     };
     t.whereI64 = [](NativeHost* host, NativeArrayView& mask,
                     NativeArrayView& x, NativeArrayView& y,

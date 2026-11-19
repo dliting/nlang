@@ -1,0 +1,11 @@
+// Zero-size source: uncaught Exception, exit 1 by design (the per-line
+// families' empty convention — nothing to take from). Both legs raise
+// the same way: the guard precedes the residency dispatch.
+import tensor;
+
+int main() {
+    int[] empty = int[0];
+    int[] idx = int[0];
+    int[] boom = tensor.takeAlongAxis(empty, 0, idx);
+    return 0;
+}

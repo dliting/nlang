@@ -8,6 +8,18 @@
 
 ## [未发布]
 
+## [0.14.7]
+
+索引与散布补全：argsort的消费者升为一级原语，去重对落地，散布族补上梯度拼写所需的累加语义。
+
+### 新增
+
+- **`tensor.takeAlongAxis(a, axis, indices)`**——按配对的轴线读出`out[line, k] = a[line, indices[line, k]]`；indices与源同形状，`argsort`的输出直接可用（任何秩都即排好序的数组）。每个下标都做界检——gather纪律的点名异常，不回绕（numpy的`take_along_axis`去掉广播余量）。
+- **`tensor.unique(a)` / `tensor.uniqueCounts(a)`**——展平数组（任意秩）的排序去重值与对齐计数；一段NaN去重为线尾单个NaN（现代numpy），空数组产出空结果。
+- **`tensor.scatterAdd(a, axis, indices, values)` / `tensor.scatterAddInto(a, indices, values)`**——scatter的累加孪生：重复下标求和（每次贡献都落账——梯度拼写），设备走atomic、宿主走串行加。into形态在秩1数组上原地累加。越界下标抛出scatter纪律的点名异常（非cupy的静默回绕）。
+
+门禁：Debug单测134/135、ASan单测134/135（net_platform为已知环境失败）、cpu e2e全量1997过+2个已知net-ping环境失败、CUDA双跑201/201。mnist护栏：acc 0.895。
+
 ## [0.14.6]
 
 张量表面的稳定排序对：`sort`与`argsort`按轴线排序，语义与numpy一致——升序、稳定、NaN排末尾——补齐argmax家族（每线一个胜者）与完整排序之间的空档。

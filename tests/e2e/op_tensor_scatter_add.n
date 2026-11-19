@@ -1,0 +1,37 @@
+// scatterAdd/scatterAddInto (v0.14.7): per position, out[...] +=
+// value — duplicate indices ACCUMULATE (never last-write; the PyTorch
+// scatter_add_ spelling). The values are small integers so the device
+// leg's atomic accumulation order cannot perturb the exact sums.
+// Exit 0 when every check holds.
+import tensor;
+
+int main() {
+    //Rank-1 value semantics: duplicates accumulate, source unchanged.
+    int[] acc = int[4];
+    acc[0] = 10; acc[1] = 20; acc[2] = 30; acc[3] = 40;
+    int[] idx = int[5];
+    idx[0] = 0; idx[1] = 2; idx[2] = 0; idx[3] = 2; idx[4] = 0;
+    int[] vals = int[5];
+    vals[0] = 1; vals[1] = 2; vals[2] = 3; vals[3] = 4; vals[4] = 5;
+    int[] res = tensor.scatterAdd(acc, 0, idx, vals);
+    //Position adds: 0 += 1+3+5 = 19; 2 += 2+4 = 36.
+    if (res[0] != 19 || res[1] != 20 || res[2] != 36 || res[3] != 40)
+        return 1;
+    if (acc[0] != 10) return 2;  //value semantics — source unchanged
+    //Rank-2 axis form: each position names one cell of its line (the
+    //positions are distinct, so the adds land on distinct cells).
+    int[,] grid = [[1, 2], [3, 4]];
+    int[] gidx = int[2];
+    gidx[0] = 1; gidx[1] = 0;
+    int[] gvals = int[2];
+    gvals[0] = 5; gvals[1] = 6;
+    int[,] gout = tensor.scatterAdd(grid, 1, gidx, gvals);
+    //Row 0: grid[0, 1] += 5; row 1: grid[1, 0] += 6.
+    if (gout[0, 0] != 1 || gout[0, 1] != 7) return 3;
+    if (gout[1, 0] != 9 || gout[1, 1] != 4) return 4;
+    //The into form: in-place rank-1 accumulation.
+    tensor.scatterAddInto(acc, idx, vals);
+    if (acc[0] != 19 || acc[1] != 20 || acc[2] != 36 || acc[3] != 40)
+        return 5;
+    return 0;
+}

@@ -1837,6 +1837,69 @@ __global__ void GatherKernel(DevView src, const int64_t* indices,
         ((const T*)src.data)[addr + index * src.strides[axis]];
 }
 
+//takeAlongAxis (the argsort consumer): out[line, k] =
+//src[line, indices[line, k]] — per matched axis line. The indices
+//arrive as the dispatcher's DENSE int32 mirror (bounds already
+//checked host-side), H2D via the pool scratch. ASYNC (no cell
+//errors — the pure strided copy).
+template <typename T>
+__global__ void TakeAlongKernel(DevView src, int32_t axis,
+                                const int32_t* indices, DevView dst) {
+    const int64_t cell = blockIdx.x * (int64_t)blockDim.x + threadIdx.x;
+    if (cell >= dst.elemCount)
+        return;
+    //The output is a dense fresh mint, so the cell ordinal IS the
+    //row-major position — decompose it over the dims: every non-axis
+    //coord rides both strides, the axis coord comes from the mirror.
+    int64_t srcAddr = src.offset;
+    int64_t dstAddr = dst.offset;
+    int64_t rem = cell;
+    for (int32_t d = dst.rank - 1; d >= 0; --d) {
+        const int64_t dim = dst.dims[d];
+        const int64_t coord = dim > 0 ? rem % dim : 0;
+        rem /= (dim > 0 ? dim : 1);
+        dstAddr += coord * dst.strides[d];
+        if (d != axis)
+            srcAddr += coord * src.strides[d];
+    }
+    srcAddr += static_cast<int64_t>(indices[cell]) * src.strides[axis];
+    ((T*)dst.data)[dstAddr] = ((const T*)src.data)[srcAddr];
+}
+
+cudaError_t LaunchTakeAlong(const LaunchView& src, int axis,
+                            const int32_t* indices,
+                            const LaunchView& dst) {
+    //Async (no cell errors — the bounds rode the host validation).
+    //Empty index set: the out has no cells — no launch, no scratch (a
+    //zero-byte PoolAlloc would misread cudaMalloc(0)'s NULL as OOM).
+    if (dst.elemCount == 0)
+        return cudaSuccess;
+    const int64_t count = dst.elemCount;
+    int32_t* dIdx = static_cast<int32_t*>(
+        PoolAlloc(count * sizeof(int32_t), g_stream));
+    if (dIdx == nullptr)
+        return cudaErrorMemoryAllocation;
+    cudaMemcpyAsync(dIdx, indices, count * sizeof(int32_t),
+        cudaMemcpyHostToDevice, g_stream);
+    const DevView ds = ToDevView(src);
+    const DevView dd = ToDevView(dst);
+    const int64_t blocks = (count + kThreads - 1) / kThreads;
+    if (src.elemKind == 1)
+        TakeAlongKernel<float><<<(int)blocks, kThreads, 0, g_stream>>>(
+            ds, axis, dIdx, dd);
+    else if (src.elemKind == 17)
+        TakeAlongKernel<double><<<(int)blocks, kThreads, 0, g_stream>>>(
+            ds, axis, dIdx, dd);
+    else if (src.elemKind == 0)
+        TakeAlongKernel<int32_t><<<(int)blocks, kThreads, 0, g_stream>>>(
+            ds, axis, dIdx, dd);
+    else
+        TakeAlongKernel<int64_t><<<(int)blocks, kThreads, 0, g_stream>>>(
+            ds, axis, dIdx, dd);
+    PoolFree(dIdx, g_stream);
+    return cudaGetLastError();
+}
+
 cudaError_t LaunchGather(const LaunchView& src, int axis,
                          const LaunchView& indices,
                          const LaunchView& dst) {
@@ -2248,6 +2311,47 @@ __global__ void ScatterKernel(DevView src, const int64_t* indices,
     ((T*)dst.data)[dst.offset + index] = v;
 }
 
+//scatterAdd's accumulate twin: per position, dst.flat[index] += v —
+//duplicate indices SUM by the atomics' contract (the gradient
+//spelling; PyTorch's scatter_add_ semantics). SYNC-GROUP like
+//scatter: the error flags drain at this op. Float accumulation ORDER
+//under contention is nondeterministic (ULP-level) — PyTorch documents
+//the same.
+template <typename T>
+__global__ void ScatterAddKernel(DevView src, const int64_t* indices,
+                                 int64_t indexCount, DevView dst,
+                                 DevView values, double value,
+                                 int64_t iValue, bool valuesScalar,
+                                 int64_t along, int32_t* errorOut) {
+    const int64_t i = blockIdx.x * (int64_t)blockDim.x + threadIdx.x;
+    if (i >= indexCount)
+        return;
+    const int64_t index = indices[i];
+    if (index < 0 || index >= along) {
+        if (errorOut[0] == kErrNone) {
+            errorOut[0] = kErrOOB;
+            errorOut[1] = static_cast<int32_t>(i);
+        }
+        return;
+    }
+    //Rank-1 flat addressing (the dispatcher gates rank-1; the copy
+    //phase already filled the rest of the payload). The accumulate:
+    //atomicAdd has native overloads for float/double/int32; int64
+    //goes through the unsigned long long overload — the addition is
+    //two's-complement bit-identical, so the signed sum is exact.
+    const T v = valuesScalar
+        ? (std::is_integral_v<T> ? static_cast<T>(iValue)
+                                 : static_cast<T>(value))
+        : ((const T*)values.data)[values.offset + i];
+    T* cell = ((T*)dst.data) + dst.offset + index;
+    if constexpr (std::is_same_v<T, int64_t>) {
+        atomicAdd(reinterpret_cast<unsigned long long*>(cell),
+            static_cast<unsigned long long>(v));
+    } else {
+        atomicAdd(cell, v);
+    }
+}
+
 cudaError_t LaunchScatter(const LaunchView& a, const LaunchView& indices,
                           const LaunchView& values, const LaunchView& dst,
                           bool valuesScalar, double sv, int64_t isv,
@@ -2318,6 +2422,93 @@ cudaError_t LaunchScatter(const LaunchView& a, const LaunchView& indices,
             ToDevView(valuesDev), sv, isv, valuesScalar, along, g_error);
     else
         ScatterKernel<int64_t><<<(int)blocks, kThreads, 0, g_stream>>>(
+            ToDevView(a), dIdx, count, ToDevView(dst),
+            ToDevView(valuesDev), sv, isv, valuesScalar, along, g_error);
+    cudaError_t err = cudaStreamSynchronize(g_stream);
+    if (dVals != nullptr)
+        PoolFree(dVals, g_stream);
+    PoolFree(dIdx, g_stream);
+    if (err != cudaSuccess)
+        return err;
+    int32_t flags[2] = {kErrNone, 0};
+    cudaMemcpy(flags, g_error, 2 * sizeof(int32_t), cudaMemcpyDeviceToHost);
+    if (flags[0] != kErrNone)
+        *errorOut = flags[1];
+    return cudaSuccess;
+}
+
+cudaError_t LaunchScatterAdd(const LaunchView& a, const LaunchView& indices,
+                             const LaunchView& values, const LaunchView& dst,
+                             bool valuesScalar, double sv, int64_t isv,
+                             int32_t* errorOut) {
+    //SYNC-GROUP (the scatter shape): scatterAdd writes the per-cell
+    //out-of-range flag — clear-launch-sync-read drains at this op.
+    const int64_t count = indices.elemCount;
+    const int64_t along = a.dims[0];
+    int64_t* dIdx = static_cast<int64_t*>(
+        PoolAlloc(count * sizeof(int64_t), g_stream));
+    if (dIdx == nullptr)
+        return cudaErrorMemoryAllocation;
+    //The indices view is int32 — read on the host and widen.
+    std::vector<int64_t> wide(count);
+    const int32_t* cells = static_cast<const int32_t*>(indices.data);
+    const int64_t addr0 = indices.offset;
+    for (int64_t i = 0; i < count; ++i)
+        wide[i] = cells[addr0 + i];
+    cudaMemcpyAsync(dIdx, wide.data(), count * sizeof(int64_t),
+        cudaMemcpyHostToDevice, g_stream);
+    //The values arm: the dispatcher stages a non-scalar values view to
+    //HOST (the metadata pattern) — H2D it here so the kernel reads a
+    //device pointer; a scalar arm carries the value in the parameter
+    //and the view stays empty.
+    const int cellBytes = a.elemKind == 17 || a.elemKind == 15 ? 8 : 4;
+    void* dVals = nullptr;
+    if (!valuesScalar) {
+        dVals = PoolAlloc(static_cast<size_t>(count) * cellBytes, g_stream);
+        if (dVals == nullptr) {
+            PoolFree(dIdx, g_stream);
+            return cudaErrorMemoryAllocation;
+        }
+        cudaMemcpyAsync(dVals,
+            static_cast<const uint8_t*>(values.data)
+                + static_cast<size_t>(values.offset) * cellBytes,
+            static_cast<size_t>(count) * cellBytes,
+            cudaMemcpyHostToDevice, g_stream);
+    }
+    //The copy phase: a dense rank-1 span copy (the value-semantics
+    //form fills the rest of the payload; the into form's dispatcher
+    //passes dst = a — the self-copy is the scatterInto precedent's
+    //harmless no-op).
+    cudaMemcpyAsync(
+        static_cast<uint8_t*>(dst.data)
+            + static_cast<size_t>(dst.offset) * cellBytes,
+        static_cast<const uint8_t*>(a.data)
+            + static_cast<size_t>(a.offset) * cellBytes,
+        static_cast<size_t>(a.elemCount) * cellBytes,
+        cudaMemcpyDeviceToDevice, g_stream);
+    const uint32_t none[2] = {kErrNone, 0};
+    cudaMemcpy(g_error, none, 2 * sizeof(int32_t), cudaMemcpyHostToDevice);
+    const int64_t blocks = (count + kThreads - 1) / kThreads;
+    //The kernel's values operand: the H2D scratch (array arm) or an
+    //empty view (the scalar arm never reads it).
+    LaunchView valuesDev = values;
+    if (!valuesScalar)
+        valuesDev.data = dVals;
+    valuesDev.offset = 0;
+    if (a.elemKind == 1)
+        ScatterAddKernel<float><<<(int)blocks, kThreads, 0, g_stream>>>(
+            ToDevView(a), dIdx, count, ToDevView(dst),
+            ToDevView(valuesDev), sv, isv, valuesScalar, along, g_error);
+    else if (a.elemKind == 17)
+        ScatterAddKernel<double><<<(int)blocks, kThreads, 0, g_stream>>>(
+            ToDevView(a), dIdx, count, ToDevView(dst),
+            ToDevView(valuesDev), sv, isv, valuesScalar, along, g_error);
+    else if (a.elemKind == 0)
+        ScatterAddKernel<int32_t><<<(int)blocks, kThreads, 0, g_stream>>>(
+            ToDevView(a), dIdx, count, ToDevView(dst),
+            ToDevView(valuesDev), sv, isv, valuesScalar, along, g_error);
+    else
+        ScatterAddKernel<int64_t><<<(int)blocks, kThreads, 0, g_stream>>>(
             ToDevView(a), dIdx, count, ToDevView(dst),
             ToDevView(valuesDev), sv, isv, valuesScalar, along, g_error);
     cudaError_t err = cudaStreamSynchronize(g_stream);

@@ -25,7 +25,7 @@ static int g_failures = 0;
 //TestLoadsRealStdLib). A surface change updates the constant AND the
 //breakdown comment; the printer turns any future drift into a
 //per-package diff instead of bare FAIL lines.
-constexpr std::size_t kStdlibSymbolPin = 444;
+constexpr std::size_t kStdlibSymbolPin = 464;
 
 static void PrintIndexShape(const SymbolIndex &index)
 {

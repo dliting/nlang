@@ -8,6 +8,37 @@ All notable changes to NLang are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.14.7]
+
+The indexing and scatter completion: the argsort consumer becomes a
+first-class op, the dedup pair lands, and the scatter family gains
+the accumulate semantics the gradient spellings need.
+
+### Added
+
+- **`tensor.takeAlongAxis(a, axis, indices)`** — per matched axis
+  line, `out[line, k] = a[line, indices[line, k]]`; the indices
+  share the source's shape and `argsort`'s output feeds it directly
+  (the sorted array at every rank). Every index is bounds-checked —
+  the gather discipline's named raise, no wrap (numpy's
+  `take_along_axis` without the broadcast allowance).
+- **`tensor.unique(a)` / `tensor.uniqueCounts(a)`** — the sorted
+  unique values of the flattened array (any rank) and the aligned
+  counts; a NaN run dedupes to one trailing NaN (modern numpy),
+  an empty array yields the empty result.
+- **`tensor.scatterAdd(a, axis, indices, values)` /
+  `tensor.scatterAddInto(a, indices, values)`** — the accumulate
+  twin of scatter: duplicate indices SUM (every contribution lands —
+  the gradient spelling), by atomics on the device and serial adds
+  on the walk. The into form accumulates in place on a rank-1
+  array. Out-of-range indices raise the scatter discipline's named
+  exception (not cupy's silent wrap).
+
+Gate: Debug unit 134/135, ASan unit 134/135 (net_platform = known
+environment failure), full cpu e2e 1997 passed + 2 known net-ping
+environment failures, CUDA double-run 201/201. mnist guardrail:
+acc 0.895.
+
 ## [0.14.6]
 
 The stable sort pair for the tensor surface: `sort` and `argsort`

@@ -1,0 +1,15 @@
+// Out-of-range takeAlongAxis index: uncaught Exception, exit 1 by
+// design (the gather discipline — the index and the range are named;
+// NOT the silent wrap cupy chose). Both legs raise the same way: the
+// bounds ride the host-side check over the staged indices.
+import tensor;
+
+int main() {
+    float[] a = tensor.full(3, 1.0f);
+    int[] idx = int[3];
+    idx[0] = 0;
+    idx[1] = 5;
+    idx[2] = 1;
+    float[] boom = tensor.takeAlongAxis(a, 0, idx);
+    return 0;
+}

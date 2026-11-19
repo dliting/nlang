@@ -237,3 +237,13 @@ op_tensor_reduce_axis_mid
 op_tensor_sort
 op_tensor_sort
 op_tensor_sort_empty_throw
+op_tensor_take_along_axis
+op_tensor_take_along_axis
+op_tensor_take_along_throw
+op_tensor_take_along_empty
+op_tensor_unique
+op_tensor_unique
+op_tensor_scatter_add
+op_tensor_scatter_add
+op_tensor_scatter_add_throw
+op_tensor_scatter_add_empty

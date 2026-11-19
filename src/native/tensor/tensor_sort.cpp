@@ -46,19 +46,12 @@ struct SortEntry {
 
 //The ascending comparison with the NaN rule: a NaN cell sorts to the
 //end of the line (numpy's rule); two NaN cells keep their relative
-//order (the stable sort's contract).
+//order (the stable sort's contract). The value rule is the shared
+//host-side NanLess (TensorKernels.h — unique's dedupe reads it too).
 template <typename T>
 bool SortLess(const SortEntry<T>& a, const SortEntry<T>& b)
 {
-    if constexpr (std::is_same_v<T, float> || std::is_same_v<T, double>) {
-        const bool aNan = std::isnan(a.value);
-        const bool bNan = std::isnan(b.value);
-        if (aNan)
-            return false;   //a NaN never sorts before anything
-        if (bNan)
-            return true;    //anything sorts before a NaN
-    }
-    return a.value < b.value;
+    return NanLess(a.value, b.value);
 }
 
 //The line reader: the elements of one axis line (the non-axis base

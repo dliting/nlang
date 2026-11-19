@@ -300,6 +300,17 @@ TensorOps MakeCudaTable() {
     t.argsortI32 = t.argsortF32;
     t.argsortI64 = t.argsortF32;
 
+    t.takeAlongF32 = [](NativeHost* host, NativeArrayView& a,
+                        int32_t axis, const int32_t* indices,
+                        NativeArrayView& dst) {
+        RequireCuda(host);
+        CUDA_CHECK(LaunchTakeAlong(ToLaunch(a), axis, indices,
+            ToLaunch(dst)), "tensor (cuda takeAlongAxis)");
+    };
+    t.takeAlongF64 = t.takeAlongF32;
+    t.takeAlongI32 = t.takeAlongF32;
+    t.takeAlongI64 = t.takeAlongF32;
+
     t.unaryF32 = [](NativeHost* host, UnaryKernelOp op,
                     NativeArrayView& src, NativeArrayView& dst) {
         RequireCuda(host);
@@ -531,6 +542,53 @@ TensorOps MakeCudaTable() {
         }
     };
     t.scatterI64 = t.scatterI32;
+
+    t.scatterAddF32 = [](NativeHost* host, NativeArrayView& a,
+                         int32_t axis, NativeArrayView& indices,
+                         NativeArrayView& values, NativeArrayView& dst,
+                         bool valuesScalar, double sv,
+                         int32_t* errorOut) {
+        (void)axis;
+        (void)errorOut;
+        RequireCuda(host);
+        int32_t errCell = -1;
+        CUDA_CHECK(LaunchScatterAdd(ToLaunch(a), ToLaunch(indices),
+            ToLaunch(values), ToLaunch(dst), valuesScalar, sv, 0,
+            &errCell), "tensor (cuda scatterAdd)");
+        if (errCell >= 0) {
+            //The dispatcher stages the indices to host; the message
+            //mirrors the CPU walk's per-index raise.
+            const int32_t bad = static_cast<const int32_t*>(
+                indices.data)[indices.offset + errCell];
+            nlang::native::Raise(host, NEXC_OutOfBounds,
+                "tensor.scatterAdd: index " + std::to_string(bad)
+                + " out of bounds for axis 0 with size "
+                + std::to_string(a.dims[0]));
+        }
+    };
+    t.scatterAddF64 = t.scatterAddF32;
+    t.scatterAddI32 = [](NativeHost* host, NativeArrayView& a,
+                         int32_t axis, NativeArrayView& indices,
+                         NativeArrayView& values, NativeArrayView& dst,
+                         bool valuesScalar, int64_t isv,
+                         int32_t* errorOut) {
+        (void)axis;
+        (void)errorOut;
+        RequireCuda(host);
+        int32_t errCell = -1;
+        CUDA_CHECK(LaunchScatterAdd(ToLaunch(a), ToLaunch(indices),
+            ToLaunch(values), ToLaunch(dst), valuesScalar, 0.0, isv,
+            &errCell), "tensor (cuda scatterAdd)");
+        if (errCell >= 0) {
+            const int32_t bad = static_cast<const int32_t*>(
+                indices.data)[indices.offset + errCell];
+            nlang::native::Raise(host, NEXC_OutOfBounds,
+                "tensor.scatterAdd: index " + std::to_string(bad)
+                + " out of bounds for axis 0 with size "
+                + std::to_string(a.dims[0]));
+        }
+    };
+    t.scatterAddI64 = t.scatterAddI32;
 
     t.oneHotI32 = [](NativeHost* host, NativeArrayView& labels,
                      int32_t n, NativeArrayView& dst) {

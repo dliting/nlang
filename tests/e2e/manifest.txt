@@ -2319,3 +2319,13 @@ op_tensor_reduce_axis_mid 0
 op_tensor_sort 0
 op_tensor_sort 0
 op_tensor_sort_empty_throw 1
+op_tensor_take_along_axis 0
+op_tensor_take_along_axis 0
+op_tensor_take_along_throw 1
+op_tensor_take_along_empty 1
+op_tensor_unique 0
+op_tensor_unique 0
+op_tensor_scatter_add 0
+op_tensor_scatter_add 0
+op_tensor_scatter_add_throw 1
+op_tensor_scatter_add_empty 1

@@ -247,6 +247,23 @@ struct TensorOps {
                        int32_t axis, NativeArrayView& dst);
     void (*argsortI64)(NativeHost* host, NativeArrayView& a,
                        int32_t axis, NativeArrayView& dst);
+    //takeAlongAxis: out[line, k] = src[line, indices[line, k]] per
+    //matched axis line (the argsort consumer). The indices arrive as
+    //the dispatcher's DENSE int32 mirror — bounds already checked —
+    //so both tables read the pointer directly. ASYNC-GROUP (the pure
+    //strided copy; no cell errors).
+    void (*takeAlongF32)(NativeHost* host, NativeArrayView& src,
+                         int32_t axis, const int32_t* indices,
+                         NativeArrayView& dst);
+    void (*takeAlongF64)(NativeHost* host, NativeArrayView& src,
+                         int32_t axis, const int32_t* indices,
+                         NativeArrayView& dst);
+    void (*takeAlongI32)(NativeHost* host, NativeArrayView& src,
+                         int32_t axis, const int32_t* indices,
+                         NativeArrayView& dst);
+    void (*takeAlongI64)(NativeHost* host, NativeArrayView& src,
+                         int32_t axis, const int32_t* indices,
+                         NativeArrayView& dst);
     //scatter: the write twin of gather — per position i,
     //dst[position(i)][indices[i]] = values[i] (or the scalar,
     //broadcast). SYNC-GROUP: the device kernel writes the cell error
@@ -268,6 +285,32 @@ struct TensorOps {
                        NativeArrayView& indices, NativeArrayView& values,
                        NativeArrayView& dst, bool valuesScalar,
                        int64_t isv, int32_t* errorOut);
+    //scatterAdd: the accumulate twin of scatter — per position i,
+    //dst[position(i)][indices[i]] += values[i]; duplicate indices SUM
+    //(the atomics' contract on the device, serial adds on the walk —
+    //the gradient spelling). SYNC-GROUP like scatter (cell error
+    //flags); the value-semantics form's copy phase fills the rest of
+    //the payload first.
+    void (*scatterAddF32)(NativeHost* host, NativeArrayView& a,
+                          int32_t axis, NativeArrayView& indices,
+                          NativeArrayView& values, NativeArrayView& dst,
+                          bool valuesScalar, double sv,
+                          int32_t* errorOut);
+    void (*scatterAddF64)(NativeHost* host, NativeArrayView& a,
+                          int32_t axis, NativeArrayView& indices,
+                          NativeArrayView& values, NativeArrayView& dst,
+                          bool valuesScalar, double sv,
+                          int32_t* errorOut);
+    void (*scatterAddI32)(NativeHost* host, NativeArrayView& a,
+                          int32_t axis, NativeArrayView& indices,
+                          NativeArrayView& values, NativeArrayView& dst,
+                          bool valuesScalar, int64_t isv,
+                          int32_t* errorOut);
+    void (*scatterAddI64)(NativeHost* host, NativeArrayView& a,
+                          int32_t axis, NativeArrayView& indices,
+                          NativeArrayView& values, NativeArrayView& dst,
+                          bool valuesScalar, int64_t isv,
+                          int32_t* errorOut);
     //oneHot: int32 labels → float32 [len, n] rows.
     void (*oneHotI32)(NativeHost* host, NativeArrayView& labels,
                       int32_t n, NativeArrayView& dst);

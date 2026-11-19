@@ -346,6 +346,19 @@ match the truth.
   spelling round-trips through `gather`: `gather(a, 0,
   argsort(a, 0))` is the sorted array; a higher-rank permutation
   is read per line with element indexing.
+- `takeAlongAxis(a, axis, indices)` reads per matched axis
+  line: `out[line, k] = a[line, indices[line, k]]`. The
+  indices share the source's shape (`argsort`'s output feeds
+  it directly — `takeAlongAxis(a, axis, argsort(a, axis))`
+  is the sorted array at every rank), and every index is
+  bounds-checked: out of range raises
+  `IndexOutOfBoundsException` naming the index and the range
+  (indices do not wrap).
+- `unique(a)` flattens row-major (any rank) and returns the
+  sorted unique values as a rank-1 array; `uniqueCounts(a)`
+  returns the aligned counts — the two agree cell for cell,
+  and `sum(uniqueCounts(a)) == a.length()`. A NaN run dedupes
+  to one trailing NaN; an empty array yields the empty result.
 - `eq(a, b)` compares two arrays of the same element kind
   elementwise (the broadcasting rule of §18.3.1 applies) and
   returns the int 0/1 array; floats follow IEEE `==` — NaN
@@ -399,6 +412,20 @@ int main() {
   (broadcast to every written cell). An out-of-range index —
   negative or past the end, either bound — raises
   `IndexOutOfBoundsException`; indices do not wrap.
+- `scatterAdd(a, axis, indices, values)` is the accumulate
+  twin: per position it adds
+  `out[position][indices[i]] += values[i]`, and duplicate
+  indices ACCUMULATE — every contribution lands, which the
+  gradient spellings need (an embedding's backward pass adds
+  one contribution per token occurrence, never last-write).
+  Value semantics like `scatter`; the same out-of-range raise.
+- `scatterAddInto(a, indices, values)` is the in-place
+  accumulation on a rank-1 array — the gradient-buffer
+  spelling; the adds land in `a`'s own cells, everything else
+  matches `scatterAdd`. Under a device backend the float
+  accumulation order is nondeterministic at the ULP level when
+  indices collide (the atomics' contract; PyTorch documents
+  the same) — sums of small integers stay exact.
 
 The language's fancy-index assignment lowers onto the same
 write path in place: on a rank-1 numeric array,
@@ -440,17 +467,20 @@ length misses the target rank, whose product misses the
 element count, or whose `-1` inference divides unevenly, a
 `transpose` permutation that misses or repeats an axis, a
 `broadcastTo` target a source shape cannot fill, a `sum`,
-`sort` or `argsort` axis outside the array's rank, a `slice`
+`sort`, `argsort`, `takeAlongAxis` or `scatterAdd` axis
+outside the array's rank, a `slice`
 list whose length misses
 the rank, a `concat` whose operands disagree on rank or on the
-non-axis dimensions, and `max`, `min`, `mean`, `sort` or
-`argsort` on an empty array all raise `Exception`; the shape
+non-axis dimensions, and `max`, `min`, `mean`, `sort`,
+`argsort`, `takeAlongAxis` or `scatterAdd` on a zero-size
+source all raise `Exception`; the shape
 and length mismatch
 messages name both sides, and the axis messages name the axis
-and the rank. A `gather` index outside the axis range, a
-`oneHot` label outside the class range, or a `scatter` (and a
-fancy-index assignment) writing through an out-of-range index
-raises `IndexOutOfBoundsException` naming the index and the
+and the rank. A `gather` or `takeAlongAxis` index outside the
+axis range, a `oneHot` label outside the class range, or a
+`scatter`, `scatterAdd` or `scatterAddInto` (and a fancy-index
+assignment) writing through an out-of-range index raises
+`IndexOutOfBoundsException` naming the index and the
 range; a `gather` index count that misses the non-axis position count
 raises `Exception`. A `gather` whose gather axis is a zero
 dimension raises `Exception`; a zero-size source whose gather
