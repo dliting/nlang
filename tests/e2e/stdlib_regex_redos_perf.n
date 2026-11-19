@@ -1,0 +1,71 @@
+// v0.13.7 regex: the timed half of the D9 linear-bound acceptance (R9) --
+// shapes that destroy a backtracking engine must still answer inside a
+// wall-clock budget on fixed-length input. This is a performance fixture, so
+// its ctest entries exist only in a tree configured with -DNLANG_PERF_TESTS=ON
+// and the release sweep runs them in the Release configuration. That is also
+// the configuration the caps are calibrated for: the same program is a
+// different speed in every tree, measured 2026-11-20 on one machine for this
+// very input -- Release 9.1 s, Debug 221.4 s, address-sanitizer tree 391.1 s.
+// A Release-calibrated cap is therefore far below what the routine gate trees
+// would spend, which is why this fixture is not registered there: asserting a
+// wall there would measure the compiler's optimisation level, not the engine.
+//
+// Calibration on the Release binaries (2026-11-20): the four shapes took
+// 1016/723/1203/826 ms and the 64k needle scan 3096 ms, so the caps below sit
+// about 6.5x above the worst reading. That multiplier absorbs the 1.5-1.8x
+// machine-wide slowdowns recorded on 2026-11-13 and 2026-11-14 (whose idle-
+// machine baseline was 171.9 s Debug / 302.7 s asan for this workload) and
+// still fails an engine that regresses by an order of magnitude, which is what
+// these shapes do the moment they backtrack. The matching untimed correctness
+// entry is stdlib_regex_redos.n.
+import io;
+import system;
+import regex;
+
+string nTimes(string unit, int n) {
+    string r = "";
+    for (int i = 0; i < n; i = i + 1) { r = r + unit; }
+    return r;
+}
+
+int main() {
+    int bad = 0;
+    int n = 16000;
+    // Release-tree calibration, ~6.5x the measured worst case (1203 ms per
+    // shape, 3096 ms for the scan); see the file header.
+    const int perCaseCapMs = 8000;
+    const int needleCapMs = 20000;
+    string hay = nTimes("a", n) + "c";
+    long t0 = system.monoMs();
+    if (Regex("(a|a)*b").isMatch(hay)) { bad = bad + 1; }
+    long d1 = system.monoMs() - t0;
+    t0 = system.monoMs();
+    if (Regex("(a*)*b").isMatch(hay)) { bad = bad + 1; }
+    long d2 = system.monoMs() - t0;
+    t0 = system.monoMs();
+    if (Regex("((a|aa)+)+b").isMatch(hay)) { bad = bad + 1; }
+    long d3 = system.monoMs() - t0;
+    t0 = system.monoMs();
+    if (Regex("a*a*a*a*b").isMatch(hay)) { bad = bad + 1; }
+    long d4 = system.monoMs() - t0;
+    io.print("redos ms: " + d1.toString() + " " + d2.toString() + " "
+        + d3.toString() + " " + d4.toString() + "\n");
+    if (d1 > perCaseCapMs) { bad = bad + 1; }
+    if (d2 > perCaseCapMs) { bad = bad + 1; }
+    if (d3 > perCaseCapMs) { bad = bad + 1; }
+    if (d4 > perCaseCapMs) { bad = bad + 1; }
+    // unanchored scan over 64k of text: a miss must finish inside the same
+    // wall and a hit keeps byte offsets
+    string longHay = nTimes("x", 32000) + nTimes("y", 32000);
+    t0 = system.monoMs();
+    if (Regex("needle").isMatch(longHay)) { bad = bad + 1; }
+    long d5 = system.monoMs() - t0;
+    io.print("needle miss ms: " + d5.toString() + "\n");
+    if (d5 > needleCapMs) { bad = bad + 1; }
+    string hitHay = nTimes("x", 32000) + "needle";
+    Match mh = Regex("needle").match(hitHay);
+    if (mh == null) { return bad + 1; }
+    if (mh.start != 32000 || mh.end != 32006) { bad = bad + 1; }
+    io.print("perf caps bad=" + bad.toString() + "\n");
+    return bad;
+}

@@ -2827,13 +2827,32 @@ set_tests_properties(proj_import_visibility_compile proj_import_visibility_run
 #to 300 s by user ruling on 2026-11-12.
 set_tests_properties(mnist_mlp_run PROPERTIES TIMEOUT 300)
 
-#regex_redos pins the D9 linear bound (v0.13.7). Its own ceiling: the run
-#is timing-sensitive and the e2e runner's shared 30 s per-test cap cannot
-#host it; 300 s mirrors the mnist_mlp_run ruling (five 20 s caps worst
-#case total 100 s plus harness slack, inside the ceiling). The ASan tree
-#runs ~1.76x the Debug time (2026-11-14: Debug 171.9 s, ASan 302.7 s,
-#direct run on an idle machine) and clipped the 300 s cap, so 420 s hosts
-#the measured ASan band with oscillation slack.
+#regex_redos pins the D9 linear bound (v0.13.7), in two halves so each one is
+#judged where it is meaningful:
+#  regex_redos_{compile,run} — the correctness half, in every tree and config
+#    (Debug, ASan, IDE). No wall-clock assertion inside the program: the same
+#    wall-capped fixture in three trees is a bet on machine load, and the ASan
+#    tree measures ~1.76x the Debug time on this workload (2026-11-14 idle
+#    machine: Debug 171.9 s, ASan 302.7 s), so caps set from Debug readings
+#    left ASan no headroom (2026-11-20: 47584 ms against the 45000 ms cap).
+#    The 300 s ceiling stays as the harness backstop — an engine that went
+#    exponential again on these shapes sits past it, while the inputs are a
+#    quarter of the perf half's so the routine legs pay for correctness only.
+#  regex_redos_perf_{compile,run} — the timed half, registered only when
+#    NLANG_PERF_TESTS=ON, i.e. on the tree the release sweep builds. The
+#    bounded-time claim belongs there: it is about a wall-clock budget, and the
+#    routine legs (Debug, ASan, IDE) would each pay minutes for it while their
+#    own speed is not what the claim measures. The ctest CONFIGS test property
+#    looked like the cheaper way to say "Release only", but it does not filter
+#    for this generator — measured 2026-11-20, `ctest -C Debug` ran the
+#    CONFIGS-Release entry and took 221.42 s — so the entries are simply absent
+#    unless asked for, and the run command names the configuration:
+#      cmake -S . -B <tree> -DNLANG_PERF_TESTS=ON …
+#      ctest --test-dir <tree> -C Release -R "^regex_redos_perf"
+#    Its caps are calibrated on the Release readings (see the fixture header:
+#    1203 ms worst shape, 3096 ms scan, caps ~6.5x above), so the whole entry is
+#    bounded by ~52 s of asserted work; the 180 s ceiling is the harness
+#    backstop for an engine that ignores the caps entirely.
 add_test(NAME regex_redos_compile
     COMMAND ncc build
         ${PROJECT_SOURCE_DIR}/tests/e2e/stdlib_regex_redos.n
@@ -2841,7 +2860,17 @@ add_test(NAME regex_redos_compile
 add_test(NAME regex_redos_run
     COMMAND nvm ${CMAKE_BINARY_DIR}/e2e_out/regex_redos.ncu)
 set_tests_properties(regex_redos_run PROPERTIES
-    DEPENDS regex_redos_compile TIMEOUT 420)
+    DEPENDS regex_redos_compile TIMEOUT 300)
+if(NLANG_PERF_TESTS)
+    add_test(NAME regex_redos_perf_compile
+        COMMAND ncc build
+            ${PROJECT_SOURCE_DIR}/tests/e2e/stdlib_regex_redos_perf.n
+            -o ${CMAKE_BINARY_DIR}/e2e_out/regex_redos_perf.ncu)
+    add_test(NAME regex_redos_perf_run
+        COMMAND nvm ${CMAKE_BINARY_DIR}/e2e_out/regex_redos_perf.ncu)
+    set_tests_properties(regex_redos_perf_run PROPERTIES
+        DEPENDS regex_redos_perf_compile TIMEOUT 180)
+endif()
 
 #--- Docs-pipeline unit tests (pytest) ---------------------------------------
 #The nlang-docs subproject's pytest suite pins the linkcheck and offline-
