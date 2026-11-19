@@ -216,18 +216,6 @@ void VmBackend::EmitStructBindingCopy(SnField* pFormalType,
     emitter.EmitUint16(paramOffset);
 }
 
-uint32_t VmBackend::BuildOutMask(const std::vector<OutSpill>& spills)
-{
-    uint32_t mask = 0;
-    for (const auto& s : spills) {
-        if (s.slotIdx >= 32)
-            throw std::runtime_error(
-                "NLang backend: out parameter slot >= 32 is unsupported");
-        mask |= 1u << s.slotIdx;
-    }
-    return mask;
-}
-
 //One container-boundary normalization at a slot: refresh it (the box
 //must read the staged value, not a stale accumulator left behind by
 //expression emission), emit the dynamic-or-static box opcode, store
@@ -287,21 +275,12 @@ void VmBackend::StageReceiverInClaim(size_t slotBase, uint16_t thisSlot,
     }
 }
 
-//Unresolved-invoke arm of EmitCallArgs (pCallee == null): legacy
-//positional emit, plus out-argument spill recording.
+//Unresolved-invoke arm of EmitCallArgs (pCallee == null): positional
+//emit with the delegate &-position staging.
 void VmBackend::EmitUnresolvedInvokeArgs(const SnInvokeExpr& invoke,
         BytecodeEmitter& emitter, size_t slotBase, uint16_t claimBase,
-        std::vector<OutSpill>* pOutSpills,
         const std::function<void(uint16_t)>& applyBox) {
-    //Unresolved invoke — fall back to legacy positional emit.
-    //Phase 13 Step 2: out arguments in this path are delegate calls
-    //binding to a func signature (the resolver already checked the
-    //out markers). 0.9.14 D-new-9: the out argument's inner
-    //identifier is emitted into the slot like any other argument —
-    //the documented inout contract seeds the callee with the
-    //caller's current value, matching the direct-call binding path
-    //(EmitBinding stages the caller expression). The spill below
-    //still records the write-back target for the post-call refresh.
+    //Unresolved invoke — fall back to positional emit.
     //Task 8: the delegate key's & marks (refFlags[i+1], judgment and
     //promotion marking ran at the resolver) — a &-position argument
     //stages its pair, the same MakeRef contract as a direct call's
@@ -316,17 +295,7 @@ void VmBackend::EmitUnresolvedInvokeArgs(const SnInvokeExpr& invoke,
     uint16_t paramIdx = static_cast<uint16_t>(slotBase);
     for (auto& param : invoke.Params()) {
         uint16_t paramOffset = claimBase + paramIdx * kFrameSlotBytes;
-        if (param.Kind() == NK_OutArgExpr) {
-            auto& outArg = static_cast<SnOutArgExpr&>(param);
-            if (!outArg.Inner()
-                || outArg.Inner()->Kind() != NK_IdentifierExpr)
-                throw std::runtime_error(
-                    "NLang backend: out argument is not a local variable");
-            EmitExpression(*outArg.Inner(), emitter, paramOffset);
-            if (pOutSpills)
-                RecordOutSpill(static_cast<SnIdentifierExpr&>(
-                    *outArg.Inner()).Field(), paramIdx, pOutSpills);
-        } else if (static_cast<size_t>(paramIdx) + 1 < refFlags.size()
+        if (static_cast<size_t>(paramIdx) + 1 < refFlags.size()
             && refFlags[paramIdx + 1] != 0) {
             //& position: stage the pair (MakeRef contract, spec §3.9).
             EmitMakeRef(paramOffset, param, emitter);
@@ -378,7 +347,6 @@ VmBackend::DefaultEmitGuard::~DefaultEmitGuard() {
 bool VmBackend::EmitFormalBindingArgs(const SnInvokeExpr& invoke,
         SnFunction* pCallee, BytecodeEmitter& emitter, size_t slotBase,
         uint16_t claimBase, uint16_t thisSlot,
-        std::vector<OutSpill>* pOutSpills,
         const std::function<void(uint16_t)>& applyBox,
         const std::map<uint16_t, ArgBoxPlan>* pArgPlans) {
     const auto& bindings = invoke.Bindings();
@@ -399,32 +367,17 @@ bool VmBackend::EmitFormalBindingArgs(const SnInvokeExpr& invoke,
 
     for (size_t i = 0; i < bindings.size(); ++i) {
         EmitOneFormalBinding(bindings.data(), i, slotBase, emitter,
-                             thisSlot, claimBase, pOutSpills, applyBox,
+                             thisSlot, claimBase, applyBox,
                              pArgPlans);
     }
     return false;
 }
 
 //One iteration of the resolved-binding loop: emit the binding, apply the
-//optional boxing plan, and record out-argument spill targets (Phase 9e).
-//Shared out-argument tail (both argument paths): the resolver
-//guarantees the out target is a plain identifier on a caller-frame
-//slot, so the spill target is a plain frame offset.
-void VmBackend::RecordOutSpill(SnField* pTargetField, uint16_t slotIdx,
-    std::vector<OutSpill>* pOutSpills) {
-    auto target = ResolveBareIdentifier(pTargetField);
-    if (target.kind != BareIdTarget::Local)
-        throw std::runtime_error(
-            "NLang backend: out argument is not a local variable");
-    if (pOutSpills)
-        pOutSpills->push_back({slotIdx, target.localOffset,
-            OutSpillRefKindOf(pTargetField)});
-}
-
+//optional boxing plan.
 void VmBackend::EmitOneFormalBinding(const FormalBinding* pBindings,
         size_t bindingIdx, size_t slotBase, BytecodeEmitter& emitter,
         uint16_t thisSlot, uint16_t claimBase,
-        std::vector<OutSpill>* pOutSpills,
         const std::function<void(uint16_t)>& applyBox,
         const std::map<uint16_t, ArgBoxPlan>* pArgPlans) {
     uint16_t slotIdx = static_cast<uint16_t>(bindingIdx + slotBase);
@@ -446,8 +399,7 @@ void VmBackend::EmitOneFormalBinding(const FormalBinding* pBindings,
 void VmBackend::EmitCallArgs(const SnInvokeExpr& invoke, SnFunction* pCallee,
                               BytecodeEmitter& emitter, size_t slotBase,
                               const std::map<uint16_t, ArgBoxPlan>* pArgPlans,
-                              uint16_t thisSlot,
-                              std::vector<OutSpill>* pOutSpills) {
+                              uint16_t thisSlot) {
     //Determine total claim size (slotBase + arg count).
     const auto& bindings = invoke.Bindings();
     size_t argCount;
@@ -475,12 +427,12 @@ void VmBackend::EmitCallArgs(const SnInvokeExpr& invoke, SnFunction* pCallee,
     //Emit each binding into the claimed evalArea slice.
     if (!pCallee) {
         EmitUnresolvedInvokeArgs(invoke, emitter, slotBase, claimBase,
-                                 pOutSpills, applyBox);
+                                 applyBox);
     } else if (bindings.empty()) {
         EmitLegacyPositionalArgs(invoke, emitter, slotBase, claimBase,
                                  applyBox);
     } else if (EmitFormalBindingArgs(invoke, pCallee, emitter, slotBase,
-                                     claimBase, thisSlot, pOutSpills,
+                                     claimBase, thisSlot,
                                      applyBox, pArgPlans)) {
         return;
     }

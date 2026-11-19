@@ -86,13 +86,12 @@ void VmBackend::CollectSignatureTypeDescs(SnFunction& func,
                                           CompiledFunction& compiledFunc) {
     for (auto& param : func.Params()) {
         ParamTypeDesc ptd;
-        if (param.ContainFlags(NF_Out))
-            ptd.flags |= PTDF_Out;
-        //v2.21: the & and const marks serialize with the out flag — a
-        //consumer that rebuilds `int& v` as plain `int` compiles a
-        //by-value call into a pair-reading callee (OP_LoadRef on a raw
-        //value). The marks sit on the formal descriptor (resolution
-        //propagates them from the type node, ResolveFunctionFormals).
+        //v2.21: the & and const marks serialize — a consumer that
+        //rebuilds `int& v` as plain `int` compiles a by-value call
+        //into a pair-reading callee (OP_LoadRef on a raw value). The
+        //marks sit on the formal descriptor (resolution propagates
+        //them from the type node, ResolveFunctionFormals; the
+        //v0.13.9 phase 4 retirement removed the out mark arm).
         if (param.ContainFlags(NF_Ref))
             ptd.flags |= PTDF_Ref;
         if (param.ContainFlags(NF_Const))

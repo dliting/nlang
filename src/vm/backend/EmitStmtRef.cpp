@@ -312,45 +312,4 @@ void VmBackend::EmitCompoundRefLocal(SnCompoundAssignStmt& ca,
     }
 }
 
-//Out-spill shape selector (v0.13.9 phase 3 Task 4): a promoted target
-//spills into its box payload, a dereference reference spills through
-//its pair with the value tag, anything else keeps the plain 8-byte
-//assign.
-uint8_t VmBackend::OutSpillRefKindOf(SnField* pField)
-{
-    if (pField->ContainFlags(NF_Promoted))
-        return RTK_Byref;
-    if (IsDerefRefDescriptor(pField))
-        return BoxTypeTagOfKind(pField->EvalDataType()->Kind());
-    return 0;
-}
-
-void VmBackend::EmitOutSpills(const std::vector<OutSpill>& spills,
-                              BytecodeEmitter& emitter)
-{
-    for (const auto& s : spills) {
-        const uint16_t callSlot = static_cast<uint16_t>(
-            m_currFunc->callParamBase + s.slotIdx * kFrameSlotBytes);
-        if (s.refKind == RTK_Byref) {
-            //Promoted target: spill into the box payload cells (byte
-            //offset = cell 1).
-            emitter.Emit(OpCode::OP_StoreField);
-            emitter.EmitUint16(s.localOffset);
-            emitter.EmitUint16(kHeapCellBytes);
-            emitter.EmitUint16(callSlot);
-        } else if (s.refKind != 0) {
-            //Through-reference target: the tagged StoreRef.
-            emitter.Emit(OpCode::OP_StoreRef);
-            emitter.EmitByte(s.refKind);
-            emitter.EmitUint16(s.localOffset);
-            emitter.EmitUint16(callSlot);
-        } else {
-            emitter.Emit(OpCode::OP_VarLocal);
-            emitter.EmitUint16(callSlot);
-            emitter.Emit(OpCode::OP_Assign);
-            emitter.EmitUint16(s.localOffset);
-        }
-    }
-}
-
 } //namespace nlang

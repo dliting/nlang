@@ -372,20 +372,17 @@ TypeDesc BuildTypeDesc(SnField* pType, const TypeLeafSlots& slots,
 					return td;
 				}
 				td.kind = RTK_Func;
-				//v2.21: the qualifier marks ride the instantiation's
-				//parallel flag vectors (out and &, indexed by argument
-				//position—0 = return). The wire element order is
-				//params first, return last, so the vectors are read position-
-				//flipped to stay parallel to elems.
-				const auto &outFlags = pClass->GenericOutFlags();
+				//v2.21: the reference mark rides the instantiation's
+				//flag vector (&, indexed by argument position—0 =
+				//return). The wire element order is params first,
+				//return last, so the vector is read position-flipped
+				//to stay parallel to elems.
 				const auto &refFlags = pClass->GenericRefFlags();
-				const auto qualifierOf = [&outFlags, &refFlags](size_t argIdx)
+				const auto qualifierOf = [&refFlags](size_t argIdx)
 				{
 					uint8_t bits = 0;
-						if (argIdx < outFlags.size() && outFlags[argIdx])
-							bits |= PTDF_Out;
-						if (argIdx < refFlags.size() && refFlags[argIdx])
-							bits |= PTDF_Ref;
+					if (argIdx < refFlags.size() && refFlags[argIdx])
+						bits |= PTDF_Ref;
 					return bits;
 				};
 				for (size_t i = 1; i < args.size(); ++i)

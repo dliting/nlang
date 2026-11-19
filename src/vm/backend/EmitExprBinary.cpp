@@ -439,12 +439,9 @@ void VmBackend::Access(SnBinaryExpr& expr) {
             throw std::runtime_error(
                 "NLang backend: tensor array arithmetic reached codegen "
                 "unbound");
-        std::vector<OutSpill> outSpills;
         EmitCallArgs(*pPlan, pCallee, emitter, /*slotBase=*/0,
-                     /*pArgPlans=*/nullptr, /*thisSlot=*/UINT16_MAX,
-                     &outSpills);
-        EmitInvokeDispatch(*pPlan, pCallee, emitter, resultOffset,
-                           outSpills);
+                     /*pArgPlans=*/nullptr, /*thisSlot=*/UINT16_MAX);
+        EmitInvokeDispatch(*pPlan, pCallee, emitter, resultOffset);
         return;
     }
         auto& bin = static_cast<SnBinaryExpr&>(expr);

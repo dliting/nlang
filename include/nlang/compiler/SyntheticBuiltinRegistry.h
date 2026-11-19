@@ -72,9 +72,8 @@ public:
 	//The created instantiation for a key, or null before the first creation.
 	SnClassDecl* FindGeneric(const GenericInstKey& key) const;
 	//Publish a freshly created instantiation (the node itself carries its
-	//type arguments, out flags and reference marks — GenericTypeArgs /
-	//GenericOutFlags / GenericRefFlags — so context-free readers never
-	//need this registry).
+	//type arguments and reference marks — GenericTypeArgs /
+	//GenericRefFlags — so context-free readers never need this registry).
 	void AdoptGeneric(const GenericInstKey& key, SnClassDecl* pDecl);
 
 	//--- non-generic builtin singletons (ByteStream/FileStream) -------

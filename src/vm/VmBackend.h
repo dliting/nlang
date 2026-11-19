@@ -467,7 +467,7 @@ private:
     //store's kind resolves from the frame's instantiation descriptor).
     void EmitRefTypeArgAssignBareLocal(SnAssignStmt& assign,
         SnField* pLeftField, uint16_t offset, BytecodeEmitter& emitter);
-    struct BareIdTarget;   //same forward-declaration pattern as OutSpill
+    struct BareIdTarget;   //fwd decl — defined below; EmitRefLocalRead uses it early
     //Activation-time box for one promoted declarator (the type-default
     //payload; the decomposed init assign overwrites it).
     void EmitPromotedDeclStorage(uint16_t offset, SnField* evalType,
@@ -541,10 +541,9 @@ private:
     //take the emission context (emitter + resultOffset) as parameters:
     //m_pCurrEmitter/m_resultOffset are overwritten by nested emission
     //and must never be read inside a helper.
-    //Forward-declared here; defined below with the Phase 9c/9e call
+    //Forward-declared here; defined below with the Phase 9c call
     //machinery (the helpers only pass them by reference).
     struct ArgBoxPlan;
-    struct OutSpill;
 
     //Access(SnMemberExpr&) dispatch phases, in evaluation order; each
     //bool phase returns true when it emitted the expression.
@@ -707,16 +706,14 @@ private:
                                  std::map<uint16_t, ArgBoxPlan>& argPlans,
                                  ArgBoxPlan& returnPlan);
     //Class method dispatch tail: virtual / direct / builtin + unbox,
-    //assign, out spills, ParaEnd.
+    //assign, ParaEnd.
     void EmitMemberMethodDispatch(const SnInvokeExpr& invoke,
                                   SnFunction* callee,
                                   const ArgBoxPlan& returnPlan,
-                                  const std::vector<OutSpill>& outSpills,
                                   BytecodeEmitter& emitter,
                                   uint16_t resultOffset,
                                   bool bRawRefResult = false);
     void EmitMemberDirectMethodCall(SnFunction* callee,
-                                    const std::vector<OutSpill>& outSpills,
                                     BytecodeEmitter& emitter);
     //Dispatch tail's return normalization (split for the 50-line
     //function budget): container unbox, or the &-return park + in-place
@@ -725,7 +722,6 @@ private:
         const ArgBoxPlan& returnPlan, bool bRawRefResult,
         uint16_t resultOffset, BytecodeEmitter& emitter);
     void EmitMemberBuiltinMethodCall(const SnInvokeExpr& invoke,
-                                     const std::vector<OutSpill>& outSpills,
                                      BytecodeEmitter& emitter);
     //String receiver builtin methods (intrinsic-dispatched).
     void EmitMemberStringHashCode(SnMemberExpr& member,
@@ -1214,33 +1210,6 @@ private:
         const std::vector<size_t>& catchEndJumpPatches,
         BytecodeEmitter& emitter);
 
-    //Phase 9e: an out-argument writeback. After the *Out call opcode
-    //copies callee frame slot `slotIdx` back into callParamBase, this
-    //records the caller local to spill it into. refKind (v0.13.9 phase 3
-    //Task 4) selects the spill shape: 0 = plain 8-byte assign, RTK_Byref
-    //= a promoted local's payload StoreField, any scalar/string tag = a
-    //through-reference StoreRef.
-    struct OutSpill {
-        uint16_t slotIdx;
-        uint16_t localOffset;
-        uint8_t refKind = 0;
-    };
-
-    //Phase 9e: emit the post-call spill code for out arguments:
-    //per spill, `OP_VarLocal callParamBase+slotIdx*kFrameSlotBytes;
-    //OP_Assign localOffset`.
-    void EmitOutSpills(const std::vector<OutSpill>& spills,
-                       BytecodeEmitter& emitter);
-    //v0.13.9 phase 3 Task 4: the out-spill shape selector (see the
-    //OutSpill refKind comment). Static: pure over the descriptor.
-    static uint8_t OutSpillRefKindOf(SnField* pField);
-
-    //Phase 9e: build the outMask operand from spills (bit i set = staging
-    //slot i is out). Caps at 32 slots — kMaxFuncParams is 64, but out
-    //params beyond slot 31 are rejected here as unsupported rather than
-    //silently dropped.
-    static uint32_t BuildOutMask(const std::vector<OutSpill>& spills);
-
     //Phase 9c: emit each formal's actual-or-default expression into the
     //callParamBase area, applying binding decisions from the resolver.
     //pCallee is the resolved function (may be null for unresolved invokes —
@@ -1251,14 +1220,10 @@ private:
     //begins — 0 for free functions, 1 for method calls (slot 0 is `this`).
     //pArgPlans (optional): if non-null, applied after each arg's emit —
     //used by built-in generic class methods to box primitive-typed args.
-    //pOutSpills (optional): if non-null, filled with one entry per out
-    //argument (Phase 9e) so the caller can emit the *Out call opcode and
-    //the post-call spills.
     void EmitCallArgs(const SnInvokeExpr& invoke, SnFunction* pCallee,
                       BytecodeEmitter& emitter, size_t slotBase = 0,
                       const std::map<uint16_t, ArgBoxPlan>* pArgPlans = nullptr,
-                      uint16_t thisSlot = UINT16_MAX,
-                      std::vector<OutSpill>* pOutSpills = nullptr);
+                      uint16_t thisSlot = UINT16_MAX);
 
     //Phase 9c: emit a single binding (positional/named caller expr or
     //default expression) at callParamBase[slotIdx]. Handles default's
@@ -1359,11 +1324,10 @@ private:
                                BytecodeEmitter& emitter);
 
     //EmitCallArgs arm: unresolved invoke (pCallee == null) — positional
-    //emit plus Phase 13 Step 2 out-argument spill recording.
+    //emit with the delegate &-position staging.
     void EmitUnresolvedInvokeArgs(const SnInvokeExpr& invoke,
                                   BytecodeEmitter& emitter, size_t slotBase,
                                   uint16_t claimBase,
-                                  std::vector<OutSpill>* pOutSpills,
                                   const std::function<void(uint16_t)>& applyBox);
 
     //EmitCallArgs arm: legacy positional emit (no resolver bindings).
@@ -1379,7 +1343,6 @@ private:
                                SnFunction* pCallee, BytecodeEmitter& emitter,
                                size_t slotBase, uint16_t claimBase,
                                uint16_t thisSlot,
-                               std::vector<OutSpill>* pOutSpills,
                                const std::function<void(uint16_t)>& applyBox,
                                const std::map<uint16_t, ArgBoxPlan>* pArgPlans
                                    = nullptr);
@@ -1532,20 +1495,14 @@ private:
         uint16_t slotCount, const CtorAlloc& alloc, uint16_t ctorIdx,
         BytecodeEmitter& emitter);
 
-    //One iteration of the resolved-binding loop: emit + optional boxing
-    //+ out-spill target record.
+    //One iteration of the resolved-binding loop: emit + optional boxing.
     void EmitOneFormalBinding(const FormalBinding* pBindings,
                               size_t bindingIdx, size_t slotBase,
                               BytecodeEmitter& emitter, uint16_t thisSlot,
                               uint16_t claimBase,
-                              std::vector<OutSpill>* pOutSpills,
                               const std::function<void(uint16_t)>& applyBox,
                               const std::map<uint16_t, ArgBoxPlan>* pArgPlans
                                   = nullptr);
-    //Shared out-argument tail (both argument paths): resolve the caller
-    //local behind the out target and record the post-call spill.
-    void RecordOutSpill(SnField* pTargetField, uint16_t slotIdx,
-                        std::vector<OutSpill>* pOutSpills);
 
     //Phase 9a: emit a compound-assign arithmetic op (locals[dst] op= locals[src]).
     //op is the underlying binary operator (Add/Sub/Mul/Div/Mod).
@@ -1776,18 +1733,15 @@ private:
                            BytecodeEmitter& emitter, uint16_t resultOffset);
 
     //SnInvokeExpr arms: delegate invoke (callee handle + dispatch) and
-    //the free-function OP_CallStatic/OP_CallStaticOut tail.
+    //the free-function OP_CallStatic tail.
     void EmitDelegateInvoke(const SnInvokeExpr& invoke,
                             BytecodeEmitter& emitter, uint16_t resultOffset,
-                            const std::vector<OutSpill>& outSpills,
                             bool bRawRefResult);
     void EmitDelegateDispatch(BytecodeEmitter& emitter, uint16_t calleeSlot,
                               uint16_t resultOffset,
-                              const std::vector<OutSpill>& outSpills,
                               uint8_t refDerefKind);
     void EmitFreeFunctionCall(int funcIndex, BytecodeEmitter& emitter,
                               uint16_t resultOffset,
-                              const std::vector<OutSpill>& outSpills,
                               uint16_t descIdx,
                               uint8_t refDerefKind = kNoRefDeref);
     //0.13.1a: a receiverless callee's descriptor operand —
@@ -1799,7 +1753,6 @@ private:
     //suppresses the value-side deref for &-returning callees.
     void EmitInvokeDispatch(SnInvokeExpr& invoke, SnFunction* callee,
                             BytecodeEmitter& emitter, uint16_t resultOffset,
-                            const std::vector<OutSpill>& outSpills,
                             bool bRawRefResult = false);
     //Task 6: shared bare-invoke staging for value reads and the
     //&-return pass-through (static gate + args + dispatch).

@@ -158,7 +158,6 @@ void VmBackend::Access(SnLiteralExpr& expr) {
 void VmBackend::EmitDelegateInvoke(const SnInvokeExpr& invoke,
                                    BytecodeEmitter& emitter,
                                    uint16_t resultOffset,
-                                   const std::vector<OutSpill>& outSpills,
                                    bool bRawRefResult) {
     auto target = ResolveBareIdentifier(invoke.Field());
     EvalAreaClaim calleeClaim(*this, 1);
@@ -188,85 +187,44 @@ void VmBackend::EmitDelegateInvoke(const SnInvokeExpr& invoke,
     }
     const uint8_t refDerefKind = bRawRefResult ? kNoRefDeref
         : DelegateReturnDerefKind(DelegateFuncTypeOfField(invoke.Field()));
-    EmitDelegateDispatch(emitter, calleeSlot, resultOffset, outSpills,
+    EmitDelegateDispatch(emitter, calleeSlot, resultOffset,
         refDerefKind);
     emitter.Emit(OpCode::OP_ParaEnd);
 }
 
-//Phase 13 Step 2: out-carrying delegate calls dispatch with
-//OP_CallDelegateOut; the executor reverses the bound-handle
-//this-shift when copying the marked user-parameter slots back
-//to callParamBase. Result first — the spills below clobber
-//pResult (same ordering discipline as OP_CallStaticOut).
+//Delegate dispatch: OP_CallDelegate. A ref-returning key parks a raw
+//pair — deref in place for a value consumer.
 void VmBackend::EmitDelegateDispatch(BytecodeEmitter& emitter,
                                      uint16_t calleeSlot,
                                      uint16_t resultOffset,
-                                     const std::vector<OutSpill>& outSpills,
                                      uint8_t refDerefKind) {
-    if (!outSpills.empty()) {
-        emitter.Emit(OpCode::OP_CallDelegateOut);
-        emitter.EmitUint16(calleeSlot);
-        emitter.EmitUint16(m_currFunc->callParamBase);
-        emitter.EmitInt32(static_cast<int32_t>(
-            BuildOutMask(outSpills)));
-        //Result first: the spills below clobber pResult via OP_VarLocal
-        //(same ordering discipline as OP_CallStaticOut). A ref-returning
-        //key parks a raw pair — deref in place before the spills.
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(resultOffset);
-        if (refDerefKind != kNoRefDeref)
-            EmitRefDerefInPlace(refDerefKind, resultOffset, emitter);
-        EmitOutSpills(outSpills, emitter);
-    } else {
-        emitter.Emit(OpCode::OP_CallDelegate);
-        emitter.EmitUint16(calleeSlot);
-        emitter.EmitUint16(m_currFunc->callParamBase);
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(resultOffset);
-        if (refDerefKind != kNoRefDeref)
-            EmitRefDerefInPlace(refDerefKind, resultOffset, emitter);
-    }
+    emitter.Emit(OpCode::OP_CallDelegate);
+    emitter.EmitUint16(calleeSlot);
+    emitter.EmitUint16(m_currFunc->callParamBase);
+    emitter.Emit(OpCode::OP_Assign);
+    emitter.EmitUint16(resultOffset);
+    if (refDerefKind != kNoRefDeref)
+        EmitRefDerefInPlace(refDerefKind, resultOffset, emitter);
 }
 
-//Free-function (receiverless) call: OP_CallStatic, or OP_CallStaticOut
-//+ spills when the call carries out arguments. The 0.13.1a descriptor
-//operand rides both forms — StaticCallDescIdxFor decides none vs
-//caller-forward.
+//Free-function (receiverless) call: OP_CallStatic. The 0.13.1a
+//descriptor operand rides the form — StaticCallDescIdxFor decides
+//none vs caller-forward.
 void VmBackend::EmitFreeFunctionCall(int funcIndex, BytecodeEmitter& emitter,
                                      uint16_t resultOffset,
-                                     const std::vector<OutSpill>& outSpills,
                                      uint16_t descIdx,
                                      uint8_t refDerefKind) {
-    if (!outSpills.empty()) {
-        emitter.Emit(OpCode::OP_CallStaticOut);
-        emitter.EmitUint16(static_cast<uint16_t>(funcIndex));
-        emitter.EmitUint16(m_currFunc->callParamBase);
-        emitter.EmitUint16(descIdx);
-        emitter.EmitInt32(static_cast<int32_t>(
-            BuildOutMask(outSpills)));
-        //Result first: the spills below clobber pResult via
-        //OP_VarLocal, so the call's return value must be stored
-        //before any writeback. A &-returning callee parks a raw
-        //(record, cell) pair — deref it in place afterwards
-        //(Task 6, value semantics at the read site).
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(resultOffset);
-        if (refDerefKind != kNoRefDeref)
-            EmitRefDerefInPlace(refDerefKind, resultOffset, emitter);
-        EmitOutSpills(outSpills, emitter);
-    } else {
-        emitter.Emit(OpCode::OP_CallStatic);
-        emitter.EmitUint16(static_cast<uint16_t>(funcIndex));
-        emitter.EmitUint16(m_currFunc->callParamBase);
-        emitter.EmitUint16(descIdx);
-        //Result is in pResult, store to resultOffset. A &-returning
-        //callee parks a raw pair: deref the payload cell in place
-        //(Task 6, value semantics at the read site).
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(resultOffset);
-        if (refDerefKind != kNoRefDeref)
-            EmitRefDerefInPlace(refDerefKind, resultOffset, emitter);
-    }
+    emitter.Emit(OpCode::OP_CallStatic);
+    emitter.EmitUint16(static_cast<uint16_t>(funcIndex));
+    emitter.EmitUint16(m_currFunc->callParamBase);
+    emitter.EmitUint16(descIdx);
+    //Result is in pResult, store to resultOffset. A &-returning
+    //callee parks a raw pair: deref the payload cell in place
+    //(Task 6, value semantics at the read site).
+    emitter.Emit(OpCode::OP_Assign);
+    emitter.EmitUint16(resultOffset);
+    if (refDerefKind != kNoRefDeref)
+        EmitRefDerefInPlace(refDerefKind, resultOffset, emitter);
 }
 
 //0.13.1a: the descriptor operand of a receiverless call. A callee that
@@ -337,13 +295,9 @@ void VmBackend::EmitBareInvokeShape(SnInvokeExpr& invoke,
     EmitStaticFieldGate(callee, emitter);
     //Phase 9c: binding-aware argument emission. Handles positional,
     //named, and default-param bindings via EmitCallArgs.
-    //Phase 9e: out arguments are collected here and written back
-    //right after the call via the *Out opcode + spills.
-    std::vector<OutSpill> outSpills;
     EmitCallArgs(invoke, callee, emitter, /*slotBase=*/0,
-                 /*pArgPlans=*/nullptr, /*thisSlot=*/UINT16_MAX,
-                 &outSpills);
-    EmitInvokeDispatch(invoke, callee, emitter, resultOffset, outSpills,
+                 /*pArgPlans=*/nullptr, /*thisSlot=*/UINT16_MAX);
+    EmitInvokeDispatch(invoke, callee, emitter, resultOffset,
                        bRawRefResult);
 }
 
@@ -353,7 +307,6 @@ void VmBackend::EmitBareInvokeShape(SnInvokeExpr& invoke,
 void VmBackend::EmitInvokeDispatch(SnInvokeExpr& invoke, SnFunction* callee,
                                    BytecodeEmitter& emitter,
                                    uint16_t resultOffset,
-                                   const std::vector<OutSpill>& outSpills,
                                    bool bRawRefResult) {
     //Phase 13: delegate invoke — the resolver bound the callee name to
     //a func-typed value (local/param, or an implicit this-field)
@@ -362,7 +315,7 @@ void VmBackend::EmitInvokeDispatch(SnInvokeExpr& invoke, SnFunction* callee,
     //above; materialize the handle into a scratch evalArea slot (the
     //field form must not disturb callParamBase) and dispatch.
     if (IsDelegateInvoke(invoke)) {
-        EmitDelegateInvoke(invoke, emitter, resultOffset, outSpills,
+        EmitDelegateInvoke(invoke, emitter, resultOffset,
             bRawRefResult);
         return;
     }
@@ -395,16 +348,15 @@ void VmBackend::EmitInvokeDispatch(SnInvokeExpr& invoke, SnFunction* callee,
         : StaticCallDescIdxFor(*callee);
     EmitFreeFunctionCall(
         static_cast<int>(FunctionSlotFor(*callee)),
-        emitter, resultOffset, outSpills, descIdx,
+        emitter, resultOffset, descIdx,
         bRawRefResult ? kNoRefDeref : RefReturnDerefKind(callee));
     emitter.Emit(OpCode::OP_ParaEnd);
 }
 
-    //Phase 9e: out arguments are consumed by the binding path in
-    //EmitCallArgs (the wrapper never emits itself). Reaching this point
-    //means the wrapper flowed into a non-binding emit site (ctor call,
-    //super(...), or a legacy path) — all rejected by the resolver, so
-    //this is an internal error, not a fallback.
+    //v0.13.9 phase 4: the resolver logs the retirement diagnostic and
+    //leaves the node unresolved, and codegen never runs on an errored
+    //module — this arm is the internal-error tripwire if that invariant
+    //breaks (the wrapper has no legal emission of its own).
 void VmBackend::Access(SnOutArgExpr& expr) {
         throw std::runtime_error(
             "NLang backend: out argument in unsupported call form");

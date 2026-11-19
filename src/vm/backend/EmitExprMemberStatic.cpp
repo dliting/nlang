@@ -46,15 +46,11 @@ bool VmBackend::EmitMemberStaticCall(SnMemberExpr& member,
     //First active use gates the callee's declaring class (D2/D4) —
     //before the arguments stage.
     EmitStaticFieldGate(callee, emitter);
-    std::vector<OutSpill> outSpills;
     EmitCallArgs(invoke, callee, emitter, /*slotBase=*/0,
-                 /*pArgPlans=*/nullptr, /*thisSlot=*/UINT16_MAX,
-                 &outSpills);
-    EmitMemberDirectMethodCall(callee, outSpills, emitter);
+                 /*pArgPlans=*/nullptr, /*thisSlot=*/UINT16_MAX);
+    EmitMemberDirectMethodCall(callee, emitter);
     emitter.Emit(OpCode::OP_Assign);
     emitter.EmitUint16(resultOffset);
-    if (!outSpills.empty())
-        EmitOutSpills(outSpills, emitter);
     emitter.Emit(OpCode::OP_ParaEnd);
     return true;
 }
@@ -73,10 +69,8 @@ void VmBackend::EmitInferredTemplateRowStaticCall(SnInvokeExpr& invoke,
     auto& generics = m_pRegistry->DeclaredGenerics();
     SnField* pOwnerMember = generics.RecordOwnerOfMember(&callee);
     EmitStaticFieldGate(pOwnerMember, emitter);
-    std::vector<OutSpill> outSpills;
     EmitCallArgs(invoke, &callee, emitter, /*slotBase=*/0,
-                 /*pArgPlans=*/nullptr, /*thisSlot=*/UINT16_MAX,
-                 &outSpills);
+                 /*pArgPlans=*/nullptr, /*thisSlot=*/UINT16_MAX);
     auto* pInst = generics.InstantiationOfClone(&callee);
     uint16_t descIdx = pInst ? DescriptorIndexFor(*pInst) : kInstDescNone;
     if (!pInst)
@@ -90,7 +84,7 @@ void VmBackend::EmitInferredTemplateRowStaticCall(SnInvokeExpr& invoke,
             descIdx = DescriptorIndexFor(*pIfaceInst);
     }
     EmitFreeFunctionCall(static_cast<int>(FunctionSlotFor(callee)), emitter,
-                         resultOffset, outSpills, descIdx);
+                         resultOffset, descIdx);
     emitter.Emit(OpCode::OP_ParaEnd);
 }
 

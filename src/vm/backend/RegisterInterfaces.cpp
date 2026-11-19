@@ -19,9 +19,9 @@ namespace nlang {
 //RegisterInterfaces worker: one interface's instance-method signature
 //records in declaration order. Interface instance members are abstract
 //(no function record), so the signature is built straight from the AST:
-//formal types (out flags included), return type, and defaults through
-//the same channels a function record uses (fold arms, then the v2.3
-//ExprDesc encoder, then the RTK_Unfoldable stamp). The consumer
+//formal types (with their & / const marks), return type, and defaults
+//through the same channels a function record uses (fold arms, then the
+//v2.3 ExprDesc encoder, then the RTK_Unfoldable stamp). The consumer
 //rebuilds a bodyless stub from these and resolves calls on imported
 //interface-typed receivers.
 void VmBackend::AppendInterfaceSignatures(SnInterfaceDecl& sn,
@@ -36,11 +36,9 @@ void VmBackend::AppendInterfaceSignatures(SnInterfaceDecl& sn,
         sig.name = func.Name();
         for (auto& param : func.Params()) {
             ParamTypeDesc ptd;
-            if (param.ContainFlags(NF_Out))
-                ptd.flags |= PTDF_Out;
-            //v2.21: the & and const marks ride with the out flag (the
-            //function-record fill in VmBackendSignatures explains the
-            //consumer crash the missing bits caused).
+            //v2.21: the & and const marks ride (the function-record
+            //fill in VmBackendSignatures explains the consumer crash
+            //the missing bits caused).
             if (param.ContainFlags(NF_Ref))
                 ptd.flags |= PTDF_Ref;
             if (param.ContainFlags(NF_Const))
