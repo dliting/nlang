@@ -18,6 +18,7 @@ error; and the bitwise-and statement readings survive untouched.
 #include "builder/ModuleRegistry.h"
 #include <nlang/compiler/SyntaxNode.h>
 #include <nlang/compiler/SyntaxNodeConsts.h>
+#include <nlang/compiler/TranslationUnit.h>
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnData.h>
 #include <filesystem>
@@ -64,14 +65,27 @@ std::string writeTempSource(const QString& name, const char* body)
     return file.string();
 }
 
-//Depth-first count of nodes carrying NF_Ref. The AST dies with the
+//Depth-first count of nodes carrying NF_Ref, scoped to the user's own
+//source file. Every build compiles the prelude/builtins alongside the
+//snippet, and the container getters legitimately carry T& marks there
+//since phase 3 — an unscoped tree count would mix that steady noise
+//into the assertions. The scope key is the translation unit: parser
+//locations propagate m_pTransUnit, so a node belongs to the snippet
+//exactly when its TU parsed the scratch file. The AST dies with the
 //builder, so only the count crosses the boundary — never node pointers.
-int countRefMarked(const SyntaxNode& node)
+int countRefMarked(const SyntaxNode& node,
+    const std::filesystem::path& userSource)
 {
-    int count = node.ContainFlags(NF_Ref) ? 1 : 0;
+    int count = 0;
+    if (node.ContainFlags(NF_Ref) && node.Location()
+        && node.Location()->TransUnit()
+        && std::filesystem::path(node.Location()->TransUnit()->FilePath())
+            == userSource)
+        count = 1;
     const auto& children = node.Children();
     for (auto it = children.cbegin(); it != children.cend(); ++it)
-        count += countRefMarked(static_cast<const SyntaxNode&>(*it));
+        count += countRefMarked(static_cast<const SyntaxNode&>(*it),
+            userSource);
     return count;
 }
 
@@ -93,8 +107,9 @@ int buildAndCountRefMarks(const std::string& tag, const char* body,
 {
     const auto dir = nlang::test::ScratchDir("nlang_ref_tests");
     BuildParams params;
-    params.m_SourceFiles.push_back(writeTempSource(QString::fromStdString(tag),
-        body));
+    const auto userSource =
+        writeTempSource(QString::fromStdString(tag), body);
+    params.m_SourceFiles.push_back(userSource);
     params.m_sOutputModule = tag;
     params.m_sOutputDir = dir.string();
     params.m_sTempDir = dir.string();
@@ -107,7 +122,7 @@ int buildAndCountRefMarks(const std::string& tag, const char* body,
     try
     {
         builder.BuildArtifacts();
-        count = countRefMarked(builder.TreeRootView());
+        count = countRefMarked(builder.TreeRootView(), userSource);
     }
     catch (const std::exception&) { }
     errorsText = logger.errorsText();
