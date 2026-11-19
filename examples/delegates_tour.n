@@ -1,5 +1,5 @@
 // delegates_tour.n — the Phase 13 function values: free-function and
-// bound-method references, virtual dispatch, out delegates, and
+// bound-method references, virtual dispatch, delegates, and
 // handles living in containers and fields.
 
 import io;
@@ -7,7 +7,7 @@ using BinOp = func<int, int>;    // type alias over a func type
 
 int bar(int x) { return x + 1; } // free function
 
-void partsOut(int v, out int doubled) { doubled = v + 1; }
+void partsOut(int v, int& doubled) { doubled = v + 1; }
 
 class Counter {
     int n;
@@ -28,9 +28,9 @@ void apply(BinOp f) {           // func-typed parameter
 }
 
 // out delegate: the func type carries the out-ness in its signature
-void split(int value, func<void, int, out int> f) {
+void split(int value, func<void, int, int&> f) {
     int whole = 0;
-    f(value, out whole);
+    f(value, whole);
     io.print(whole);
 }
 

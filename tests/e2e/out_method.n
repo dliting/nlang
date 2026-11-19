@@ -1,5 +1,5 @@
 class Calc {
-    public int divide(int a, int b, out int rem) {
+    public int divide(int a, int b, int& rem) {
         rem = a % b;
         return a / b;
     }
@@ -8,6 +8,6 @@ class Calc {
 int main() {
     Calc c = Calc();
     int r = 0;
-    int q = c.divide(17, 5, out r);
+    int q = c.divide(17, 5, r);
     return q + r;  // 3 + 2 = 5
 }

@@ -1,4 +1,4 @@
-int minmax(int a, int b, out int mn, out int mx) {
+int minmax(int a, int b, int& mn, int& mx) {
     if (a < b) {
         mn = a;
         mx = b;
@@ -12,6 +12,6 @@ int minmax(int a, int b, out int mn, out int mx) {
 int main() {
     int lo = 0;
     int hi = 0;
-    minmax(7, 3, out lo, out hi);
+    minmax(7, 3, lo, hi);
     return lo * 10 + hi;  // 3 * 10 + 7 = 37
 }

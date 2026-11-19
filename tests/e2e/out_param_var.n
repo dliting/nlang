@@ -1,4 +1,4 @@
-int wrap(int v, out int o) {
+int wrap(int v, int& o) {
     o = v * 2;
     return 0;
 }
@@ -6,7 +6,7 @@ int wrap(int v, out int o) {
 int caller(int x) {
     // The out target may be the caller's own formal parameter —
     // formals are caller-frame slots too.
-    int r = wrap(x, out x);
+    int r = wrap(x, x);
     return x + r;
 }
 

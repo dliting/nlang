@@ -28,7 +28,7 @@ int boom() {
     throw Exception("embedded-boom");
 }
 
-int withOut(int a, out int b) {
+int withOut(int a, int& b) {
     b = a * 2;
     return a;
 }

@@ -2,15 +2,15 @@
 //— the out mask is compiled from the func type and the static target is
 //statically known.
 class Calc {
-    public static int mix(int a, int b, out int sum) {
+    public static int mix(int a, int b, int& sum) {
         sum = a + b;
         return a * b;
     }
 }
 
 int main() {
-    func<int, int, int, out int> f = Calc.mix;
+    func<int, int, int, int&> f = Calc.mix;
     int r = 0;
-    int p = f(7, 2, out r);
+    int p = f(7, 2, r);
     return p + r;
 }

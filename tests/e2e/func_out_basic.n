@@ -3,11 +3,11 @@
 //slot through OP_CallDelegateOut. 0.9.14 D-new-9: the callee also
 //sees the caller's current value as the parameter's initial value
 //(the documented inout contract, same as a direct call).
-void grab(out int r) { r = r + 7; }
+void grab(int& r) { r = r + 7; }
 
 int main() {
-    func<void, out int> f = grab;
+    func<void, int&> f = grab;
     int box = 3;
-    f(out box);
+    f(box);
     return box;  // 3 + 7 = 10
 }
