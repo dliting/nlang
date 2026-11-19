@@ -229,6 +229,7 @@ bool HasNamedArgument(SnInvokeExpr& invoke);
 size_t ArgCountOf(SnInvokeExpr& invoke);
 bool HasOutArgument(SnInvokeExpr& invoke);
 std::string JoinDots(const std::vector<std::string>& segs);
+std::vector<std::string> SplitDots(const std::string& dotted);
 std::vector<std::string> OuterIdentifierChain(
 	const SnMemberExpr& snMember);
 bool IsGenericClassDecl(SnClassDecl* pClass);
@@ -1605,12 +1606,20 @@ private:
 	*/
 	bool TryResolveModuleCallTarget(SnMemberExpr &snMember,
 		SnInvokeExpr *&rpInvoke, std::string &rModulePath);
-	//The extended-module arm's claim walk (definition beside
-	//TryResolveModuleCallTarget for the source-size cap): true = the
-	//chain addresses an unimported child package; false = a known
-	//prefix's next segment is a type, the normal member path's
-	//qualified type access.
-	bool ClaimsExtendedModulePath(const std::string &modulePath);
+	//D-29 rule 1 (ruling 45): where the module path of a dotted name ends
+	//— the longest prefix that is a known module (registered unit or
+	//library module the symbol index knows), scanning every prefix length
+	//instead of stopping at the first. Definitions beside
+	//TryResolveModuleCallTarget for the source-size cap; shared by the
+	//module-qualified call, the module type reference, the qualified member
+	//value and the declaration position (ExprResolverTypes.cpp).
+	bool LongestKnownModulePrefix(const std::vector<std::string> &segs,
+		std::string &rPrefix, size_t &rTailStart) const;
+	//D-29 rule 3 (ruling 45): fold a chain that overshoots a known library
+	//module onto that module, so an "is not imported" diagnostic only ever
+	//suggests an import that exists; see the definition.
+	std::string BlameModulePath(
+		const std::vector<std::string> &segs) const;
 	bool RejectUnimportedModuleCall(SnMemberExpr &snMember,
 		const std::string &modulePath);
 	bool TryResolveModuleQualifiedArgs(SnMemberExpr &snMember,
@@ -1724,12 +1733,15 @@ private:
 		const std::string &modulePath, const std::string &typeName);
 	void FinishConsumedMember(SnMemberExpr &snMember);
 
-	//Phase 5: package-qualified VALUE access (`alib.Color.Green`, the
-	//enum-constant chain). The de-shelled tree has no namespace node for
-	//the generic receiver route to anchor on, so the chain resolves
+	//D-29 rule 1 (ruling 45), Phase 5: package-qualified VALUE access
+	//(`alib.Color.Green`, `json.JsonValue.MAX_DEPTH`) — the module path is the
+	//longest known prefix and the tail must be exactly `Type.member`, with
+	//every member kind resolved alike. The de-shelled tree has no namespace
+	//node for the generic receiver route to anchor on, so the chain resolves
 	//through the registry (FindModuleType). Calls keep
 	//TryResolveModuleQualified; a chain whose tip is not a plain
-	//identifier declines and keeps the generic path.
+	//identifier, and a member the type does not declare, decline and keep the
+	//generic path.
 	bool TryResolveQualifiedTypeValue(SnMemberExpr &snMember);
 
 	//v2.2: module-qualified free-function VALUE reference (`lib.seven`):

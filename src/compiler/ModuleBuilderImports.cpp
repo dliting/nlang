@@ -1,8 +1,10 @@
 /*-----------------------------------------------------------------------------
 	ModuleBuilderImports.cpp
-	The .ncu import pipeline of ModuleBuilder: per-TU gates, external
-	module loading and stub registration. Split from ModuleBuilder.cpp
-	(2026-09-27 maintainability refactor, zero behavior change).
+	The library-source arm of the import pipeline of ModuleBuilder: library
+	.n discovery (including a wildcard import's package subtree), prelude
+	resolution and the per-TU import gates. Split from ModuleBuilder.cpp
+	(2026-09-27 maintainability refactor, zero behavior change); the
+	external .ncu/.npkg arm split out to ModuleBuilderExternalImports.cpp.
 -----------------------------------------------------------------------------*/
 
 #include "ModuleBuilder.h"
@@ -12,6 +14,7 @@
 #include "builder/ModuleRegistry.h"
 #include "builder/CompiledModuleNodeBuilder.hpp"
 #include "ModuleLoader.h"
+#include "ModuleBuilderImports.h"
 #include "nlang/vm/NcuPackage.h"
 #include "ScriptParser.h"
 #include <algorithm>
@@ -25,12 +28,7 @@ static const char *BAR_STR =
 
 namespace nlang
 {
-namespace
-{
-//Effective library search directories: explicit/configured import dirs
-//first, then the stdlib dir, so the standard library is discoverable even
-//when a direct BuildParams caller did not list it (the tool layer normally
-//prepends it through BuildLibrarySearchPath).
+//Definition of the seam declaration in ModuleBuilderImports.h.
 std::vector<std::string> EffectiveLibraryDirs(const BuildParams &params)
 {
 	std::vector<std::string> dirs;
@@ -41,7 +39,6 @@ std::vector<std::string> EffectiveLibraryDirs(const BuildParams &params)
 		dirs.push_back(params.m_sStdLibDir);
 	return dirs;
 }
-} //namespace
 
 bool ModuleBuilder::LoadImports()
 {
@@ -265,14 +262,99 @@ bool ModuleBuilder::HandleLibraryImport(const std::string &dottedName)
 	return ImportLibraryMatch(matches.front());
 }
 
+//Module path of a file found under a wildcard's package directory:
+//<pkg dir>/static/assets.n is the unit `<dottedName>.static.assets`, the
+//inverse of FindLibrarySourceMatches' mapping (dots to directory
+//separators). Empty when the path relative to the package dir cannot be
+//computed.
+static std::string LibraryUnitModulePath(const std::string &dottedName,
+	const std::filesystem::path &file, const std::filesystem::path &pkgDir)
+{
+	std::error_code fsError;
+	const std::filesystem::path rel =
+		std::filesystem::relative(file, pkgDir, fsError);
+	if (fsError || rel.empty())
+		return { };
+	std::string name = dottedName;
+	for (const auto &part : rel.parent_path())
+	{
+		const std::string seg = part.string();
+		if (!seg.empty() && seg != ".")
+			name += "." + seg;
+	}
+	return name + "." + file.stem().string();
+}
+
+//Discovery half of D-29 rule 2's wildcard union (ruling 45): `import a.b.*;`
+//inlines <root>/a/b.n — the package itself — plus every unit under
+//<root>/a/b/ in each effective library dir. Which candidates exist is decided
+//by the files on disk, never by BuildEnvironment::IsLibraryPackage: that index
+//loads only the standard library directory while third-party packages arrive
+//through -I dirs, and a union whose size depended on the search dir would be
+//unpredictable. The walk mirrors the index's own unit rules
+//(SymbolIndex::LoadLibraryDir) — a dot directory holds no units, and neither
+//does a file whose stem carries a dot — so discovery and the index cannot
+//disagree about what a package contains. Files are sorted before being
+//handed over: directory order is filesystem-dependent, and both the
+//fixed-point iteration and the duplicate-package diagnosis must not inherit
+//it. True when a TU was added (drives the iteration).
+bool ModuleBuilder::DiscoverLibrarySubtree(const std::string &dottedName)
+{
+	bool changed = HandleLibraryImport(dottedName);   //the package file itself
+
+	std::string rel = dottedName;
+	std::replace(rel.begin(), rel.end(), '.', '/');
+	const auto walkOptions =
+		std::filesystem::directory_options::skip_permission_denied;
+	for (const auto &dir : EffectiveLibraryDirs(m_upEnv->Params()))
+	{
+		const std::filesystem::path pkgDir =
+			std::filesystem::path(dir) / rel;
+		std::error_code fsError;
+		if (!std::filesystem::is_directory(pkgDir, fsError))
+			continue;
+
+		std::vector<std::filesystem::path> units;
+		for (std::filesystem::recursive_directory_iterator it(pkgDir,
+				walkOptions), end; it != end; ++it)
+		{
+			const std::filesystem::directory_entry &entry = *it;
+			if (entry.is_directory())
+			{
+				if (entry.path().filename().string().rfind(".", 0) == 0)
+					it.disable_recursion_pending();
+				continue;
+			}
+			if (!entry.is_regular_file()
+				|| entry.path().extension() != ".n")
+				continue;
+			if (entry.path().stem().string().find('.') != std::string::npos)
+				continue;   //a dotted stem stands for a directory: not a unit
+			units.push_back(entry.path());
+		}
+		std::sort(units.begin(), units.end());
+		for (const auto &unit : units)
+		{
+			const std::string modulePath =
+				LibraryUnitModulePath(dottedName, unit, pkgDir);
+			if (modulePath.empty())
+				continue;
+			if (HandleLibraryImport(modulePath))
+				changed = true;
+		}
+	}
+	return changed;
+}
+
 //Discover every import-reachable library <pkg>.n source. Iterate the
 //imports of all known TUs to a fixed point so a library can depend on a
 //library: each pass may add library TUs whose imports are scanned on the
-//next pass. Non-wildcard imports are candidates (a dotted name maps to
+//next pass. A non-wildcard import is one candidate (a dotted name maps to
 //<root>/a/b/c.n under the matched root; a bare stem is the same rule at
-//one segment), whether or not the signature index already knows the
-//package, so the standard library is inlined exactly like a third-party
-//source library.
+//one segment) and a wildcard is the package plus its subtree
+//(DiscoverLibrarySubtree), whether or not the signature index already
+//knows the package, so the standard library is inlined exactly like a
+//third-party source library.
 void ModuleBuilder::DiscoverLibraryUnits()
 {
 	if (m_upEnv->ContainFlags(MBF_ShowBuildingSteps))
@@ -299,9 +381,21 @@ void ModuleBuilder::DiscoverLibraryUnits()
 			const TranslationUnit *pUnit = *it;
 			for (const ImportSpec &spec : pUnit->Imports())
 			{
-				if (spec.wildcard)
+				if (!spec.wildcard)
+				{
+					if (HandleLibraryImport(spec.DottedName()))
+						changed = true;
 					continue;
-				if (HandleLibraryImport(spec.DottedName()))
+				}
+				//D-29 rule 2 (ruling 45): a library wildcard opens the package
+				//AND its subtree, so discovery has to walk the subtree — the
+				//units inside it import only their own dependencies, never
+				//their siblings. A project package's wildcard finds nothing
+				//here (its sources are project files, compiled in already, and
+				//ImportLibraryMatch refuses to inline a project source a second
+				//time), so the union needs no project-versus-library special
+				//case.
+				if (DiscoverLibrarySubtree(spec.DottedName()))
 					changed = true;
 			}
 		}
@@ -309,139 +403,4 @@ void ModuleBuilder::DiscoverLibraryUnits()
 	}
 }
 
-//Load one external .ncu candidate end to end: locate, parse, create
-//stubs, register owners, keep detached stubs alive, then take ownership
-//of the compiled module.
-//Package form (`.npkg`): extract the embedded compile unit. Importable
-//packages currently expose exactly ONE member — the entry-recorded one
-//for program packages, the only member for library packages. A
-//multi-member package without an entry record (a project-mode library
-//distribution) is REFUSED rather than silently reduced to its
-//alphabetically-first member: the consumer would compile against half
-//a surface and miss the invisible members until run time. Per-member
-//stub creation needs import-gate semantics for dotted external paths
-//(external imports are single-segment today); deferred design
-//decision, phase6_loader_design.md section 9.
-static CompiledModule LoadModuleArtifact(const std::string &path)
-{
-	//Package form: extract the embedded compile unit (the entry member,
-	//or the single member of a library package) and parse from memory.
-	if (std::filesystem::path(path).extension() == NPKG_EXTENSION)
-	{
-		NcuPackageReader pkg;
-		std::string pkgError;
-		if (!pkg.Open(path, &pkgError))
-			throw std::runtime_error(pkgError);
-		std::string memberPath;
-		if (const NcuEntryRecord *entry = pkg.EntryRecord())
-			memberPath = entry->modulePath;
-		else if (pkg.MemberPaths().size() == 1)
-			memberPath = pkg.MemberPaths().front();
-		else
-			throw std::runtime_error(
-				"package '" + path + "' carries "
-				+ std::to_string(pkg.MemberPaths().size())
-				+ " members and no entry record; importable packages "
-				"currently expose exactly one module");
-		std::string memberBytes;
-		if (!pkg.ExtractMember(memberPath, &memberBytes, &pkgError))
-			throw std::runtime_error(pkgError);
-		return ModuleLoader::LoadFromBytes(path, memberBytes);
-	}
-	return ModuleLoader::Load(path);
-}
-
-bool ModuleBuilder::LoadExternalModule(const std::string &name)
-{
-	std::string path = FindModuleFile(name);
-	if (path.empty())
-	{
-		const std::string notFound = ModuleNotFoundText(name);
-		m_upEnv->Log(CLL_Error, "%s", notFound.c_str());
-		return false;
-	}
-
-	CompiledModule cm;
-	try
-	{
-		cm = LoadModuleArtifact(path);
-	}
-	catch (const std::exception &e)
-	{
-		m_upEnv->Log(CLL_Error, "Failed to load module '%s': %s",
-			name.c_str(), e.what());
-		return false;
-	}
-
-	CompiledModuleNodeBuilder builder(TheAST(), name, &m_upEnv->Registry());
-	try
-	{
-		builder.BuildFromCompiledModule(cm);
-	}
-	catch (const std::exception &e)
-	{
-		m_upEnv->Log(CLL_Error, "%s", e.what());
-		return false;
-	}
-
-	RegisterExternalStubs(builder, name);
-
-	if (m_upEnv->ContainFlags(MBF_ShowBuildingSteps))
-		m_upEnv->Log(CLL_Info, "Loaded module '%s' from %s",
-			name.c_str(), path.c_str());
-
-	m_loadedImports.push_back(std::move(cm));
-	return true;
-}
-
-void ModuleBuilder::RegisterExternalStubs(
-	CompiledModuleNodeBuilder &builder, const std::string &name)
-{
-	//Import visibility (C1): the module joins the registry as an
-	//EXTERNAL entry owning every free-function stub it contributed,
-	//tagged at the same point the stubs join the root — before
-	//MergeTransUnits tags the TU members. Class methods are not free
-	//functions (they stay inside their class stub), so this table is
-	//the whole qualified-call surface for v1.
-	ModuleRegistry &reg = m_upEnv->Registry();
-	uint32_t extIdx = reg.AddExternalModule(name);
-	std::vector<SnFunction*> stubs;
-	stubs.reserve(builder.ImportedFunctions().size());
-	for (SnFunction* stub : builder.ImportedFunctions())
-	{
-		stubs.push_back(stub);
-		reg.TagOwner(*stub, extIdx);
-	}
-	reg.SetExternalStubs(extIdx, std::move(stubs));
-
-	//Type stubs (struct/class) are root members, never detached — tag
-	//them with the same external index so FindModuleType's owner-
-	//filtered root scan binds "<pkg>.<Type>" for qualified type
-	//references synthesized from serialized signatures.
-	for (SnField* typeStub : builder.ImportedTypes())
-		reg.TagOwner(*typeStub, extIdx);
-
-	//Detached stubs (names already in root) joined the tables above
-	//but not the root — keep them alive for the duration of the build.
-	for (auto &upStub : builder.TakeDetachedStubs())
-		m_upDetachedImportStubs.push_back(std::move(upStub));
-}
-
-std::string ModuleBuilder::FindModuleFile(const std::string &name) const
-{
-	for (const auto &dir : EffectiveLibraryDirs(m_upEnv->Params()))
-	{
-			std::string path = dir + "/" + name + NCU_EXTENSION;
-		std::ifstream test(path, std::ios::binary);
-		if (test.good())
-			return path;
-		//Package form: <name>.npkg carries the compiled unit embedded.
-		path = dir + "/" + name + NPKG_EXTENSION;
-		test.clear();
-		test.open(path, std::ios::binary);
-		if (test.good())
-			return path;
-	}
-	return std::string();
-}
 } //namespace nlang

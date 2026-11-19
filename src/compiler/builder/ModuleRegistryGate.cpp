@@ -32,11 +32,14 @@ bool ContainsValue(const std::vector<std::string>& list,
 void ModuleRegistry::ApplyWildcardImport(const std::string& name,
 	ImportGate& gate, std::vector<std::string>& outErrors) const
 {
-	//Recursive prefix over PROJECT module paths (D5): external names
-	//are single-segment, so a wildcard never reaches one (§3.3). The
-	//importing TU's own path counts toward the match surface.
+	//Recursive prefix over the compiled-in module paths (D5): project
+	//modules and inlined library units alike — D-29 rule 2 (ruling 45) makes
+	//a library package's wildcard the package itself plus its whole subtree
+	//(`web` and `web.static`), which is what a dotted library layout needs.
+	//External .ncu names are single-segment, so a wildcard never reaches one
+	//(§3.3). The importing TU's own path counts toward the match surface.
 	const std::string prefix = name + '.';
-	const bool exactExists = IsProjectModule(name);
+	const bool exactExists = IsCompiledInModule(name);
 	bool prefixMatched = false;
 	for (const ModuleEntry& entry : m_modules)
 	{
@@ -47,11 +50,15 @@ void ModuleRegistry::ApplyWildcardImport(const std::string& name,
 		}
 	}
 	//D10: an empty union (no exact module and no prefix match) is
-	//almost certainly a typo, not a silent no-op.
+	//almost certainly a typo, not a silent no-op. The advice names both
+	//places a module path comes from, sharing the wording the unimported
+	//module path diagnostic already uses (D-29 rule 3: a remedy must itself
+	//be applicable — the library search path is now a wildcard source too).
 	if (!exactExists && !prefixMatched)
 	{
-		outErrors.push_back("No project modules matched import '"
-			+ name + ".*'. Check the project Sources list.");
+		outErrors.push_back("No modules matched import '"
+			+ name + ".*'. Check the project Sources list or -I import "
+			"path.");
 		return;
 	}
 	if (exactExists && !ContainsValue(gate.exact, name))
@@ -109,15 +116,12 @@ void ModuleRegistry::ApplyImportSpec(const ImportSpec& spec,
 	const LibraryNamespacePredicate& isLibraryNamespace) const
 {
 	const std::string name = spec.DottedName();
-	//A wildcard on a library package is rejected BEFORE the library
-	//branch — packages are not module trees, and a silently eaten '*'
-	//would teach the wrong model.
-	if (spec.wildcard && isLibraryNamespace(name))
-	{
-		outErrors.push_back("Wildcard import cannot target library "
-			"package '" + name + "'. Use 'import " + name + ";'.");
-		return;
-	}
+	//A wildcard means the same thing for a library package as for a project
+	//package (D-29 rule 2, ruling 45): the name itself plus its subtree. The
+	//library units arrive through the discovery layer before the gate is
+	//built, so the union below sees them as compiled-in modules; a library
+	//name that is neither compiled in nor matched gets the empty-union advice
+	//above rather than a special refusal.
 	if (spec.wildcard)
 	{
 		ApplyWildcardImport(name, gate, outErrors);

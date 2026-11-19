@@ -2441,3 +2441,11 @@ stabilize_indep_sweep 42
 # mapping and the onError boundary, per-request isolation, the attribute
 # accessors, the response helpers and cookie read/write.
 stdlib_web_middleware_styles 0
+# --- v0.13.12: name resolution per ruling 45 / spec D-29 — a qualified name
+# resolves by its longest known module path at any depth and for every member
+# kind (a qualified library class static constant, a method call on a
+# qualified library enum member, and the bare and qualified spellings of one
+# static agreeing), and `import http.*;` opens a flat library package. The
+# library-subtree face of that wildcard needs Task 8's multi-module layout,
+# so it is pinned here only by the libraryWildcardUnionsSubtree unit leg.
+stdlib_web_qualified_names 0

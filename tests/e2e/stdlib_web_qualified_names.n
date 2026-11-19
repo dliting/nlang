@@ -1,0 +1,30 @@
+// Ruling 45 / spec D-29 acceptance face: a qualified name is resolved by
+// its longest known module path at any depth, every member kind alike, and
+// `import <library>.*;` opens a library package. A qualified static
+// constant, a method chained off a qualified library enum member, and the
+// bare spelling made visible by that wildcard all have to work; bare and
+// qualified spellings of one class static have to denote the same member.
+// Only the flat library packages http and json are in play here (both are
+// already in the preset package), so this corpus does not wait for the
+// multi-module layout of Task 8 — the library-subtree face of the wildcard
+// is pinned there and meanwhile by the libraryWildcardUnionsSubtree unit leg.
+import http.*;
+import json;
+
+int main() {
+    // 1. Qualified access to a static constant of a library class.
+    if (http.HttpParser.MODE_LENGTH == 0) { return 1; }
+
+    // 2. A method call on a qualified enum member of a library package
+    //    (the spelling 04-types/enum.md §4.6.4 shows in both languages).
+    if (json.JsonKind.Object.toString() != "Object") { return 2; }
+
+    // 3. The bare class spelling, admitted by the library wildcard import.
+    string bare = HttpResponse.reasonPhraseFor(404);
+    if (bare != "Not Found") { return 3; }
+
+    // 4. The qualified spelling reaches the same static, not a sibling.
+    string qual = http.HttpResponse.reasonPhraseFor(404);
+    if (qual != bare) { return 4; }
+    return 0;
+}

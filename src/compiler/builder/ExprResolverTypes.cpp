@@ -76,7 +76,14 @@ void ExprResolveAccessor::Access(SnQualifiedTypeExpr &qtype)
 		return;
 	}
 
-	const std::string nsPath = qtype.NamespacePath();
+	//D-29 rules 1 and 3 (ruling 45): the module path of a qualified type ends
+	//at the longest known module prefix, and a chain overshooting a known
+	//library module is blamed on that module — `web.static.StaticFiles
+	//v;` with `import web;` has to hear about `web.static`, not about a module
+	//named `web.static.StaticFiles` that no import can name. The type name is
+	//the last segment, so the path is everything before it.
+	std::vector<std::string> moduleSegs(segs.begin(), segs.end() - 1);
+	const std::string nsPath = BlameModulePath(moduleSegs);
 	auto &reg = m_Env.Registry();
 	const uint32_t curModule = reg.OwnerOfContext(qtype);
 	//Single-point import-gate policy (ModuleRegistry::ImportGateAllows):

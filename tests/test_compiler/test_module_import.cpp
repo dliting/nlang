@@ -233,6 +233,7 @@ struct GateProjectOptions
     const char* szMainBody;
     bool withTwinLib = false;        //also build libsrc/lib2.n
     bool withRootUtils = false;      //also register root utils.n
+    const char* szRootUtilsBody = nullptr;  //explicit utils.n body
     bool helperImportsLib = false;   //helper.n imports the external lib
     const char* szHelperBody = nullptr;   //explicit helper.n body
     const char* szExtraBody = nullptr;    //explicit extra.n body
@@ -241,6 +242,10 @@ struct GateProjectOptions
     const char* szCoreHelperBody = nullptr; //explicit core/helper.n body
     bool withRichLib = false;        //also build libsrc/rlib.n (type surface lib)
     bool withAccessLib = false;      //also build libsrc/xlib.n (0.13.8 Task 4 access-surface lib)
+    //D-29: library packages need a package with a real subtree, which no
+    //shipped package has yet — mirror the test stdlib dir and add package k
+    //(k.n) with module k/inner.n on top of it.
+    bool withLibraryTree = false;
 };
 
 GateResult buildGateProject(const GateProjectOptions& opts)
@@ -251,6 +256,14 @@ GateResult buildGateProject(const GateProjectOptions& opts)
     const fs::path libSrc = root / "libsrc";
     const fs::path out = root / "out";
     const fs::path proj = root / "proj";
+    const fs::path libTree = root / "libtree";
+    //A mirrored library tree replaces the test stdlib dir everywhere, so
+    //the gate under test differs from every other gate test only by the
+    //extra subtree package written below.
+    const bool useLibraryTree = opts.withLibraryTree
+        && !std::string(STDLIB_DIR).empty();
+    const std::string stdlibDir =
+        useLibraryTree ? libTree.string() : STDLIB_DIR;
     std::error_code fsError;
     //ModuleManager is process-global and refuses a second Create of the
     //same module name, so the external libs are built once per process
@@ -269,6 +282,29 @@ GateResult buildGateProject(const GateProjectOptions& opts)
     fs::create_directories(proj / "utils" / "sub", fsError);
     fs::create_directories(proj / "utils2", fsError);
     fs::create_directories(proj / "core", fsError);
+    if (useLibraryTree)
+    {
+        //One mirror per process (the scratch root is wiped on the first
+        //call only): copy the library sources and its package artifacts,
+        //after which the k.n / k/inner.n writes below add the subtree.
+        fs::create_directories(libTree / "k", fsError);
+        if (!fs::exists(libTree / "io.n"))
+        {
+            std::error_code walkError;
+            fs::recursive_directory_iterator it(
+                STDLIB_DIR, fs::directory_options::skip_permission_denied,
+                walkError);
+            for (; !walkError && it != fs::recursive_directory_iterator();
+                 it.increment(walkError))
+            {
+                if (!it->is_regular_file(walkError))
+                    continue;
+                fs::copy_file(it->path(),
+                    libTree / fs::relative(it->path(), STDLIB_DIR, walkError),
+                    fs::copy_options::overwrite_existing, walkError);
+            }
+        }
+    }
     auto writeFile = [](const fs::path& file, const char* szBody)
     {
         std::ofstream stream(file, std::ios::binary);
@@ -297,8 +333,8 @@ GateResult buildGateProject(const GateProjectOptions& opts)
         writeFile(proj / "extra.n", opts.szExtraBody
             ? opts.szExtraBody : "int extra() { return 9; }\n") &&
         (!opts.withRootUtils ||
-            writeFile(proj / "utils.n",
-                "int rootUtil() { return 6; }\n")) &&
+            writeFile(proj / "utils.n", opts.szRootUtilsBody
+                ? opts.szRootUtilsBody : "int rootUtil() { return 6; }\n")) &&
         (!opts.withUtils2MyClass ||
             writeFile(proj / "utils2" / "MyClass.n",
                 "int m() { return 8; }\n")) &&
@@ -334,6 +370,11 @@ GateResult buildGateProject(const GateProjectOptions& opts)
                 "private class Vault { int f() { return 4; } }\n"
                 "public class OpenBox { int f() { return 5; } }\n"
                 "public int helper() { return 9; }\n")) &&
+        (!useLibraryTree ||
+            (writeFile(libTree / "k.n",
+                "int top() { return 1; }\n") &&
+             writeFile(libTree / "k" / "inner.n",
+                "int deepTwo() { return 2; }\n"))) &&
         writeFile(proj / "main.n", opts.szMainBody);
     if (!written)
     {
@@ -367,7 +408,7 @@ GateResult buildGateProject(const GateProjectOptions& opts)
         libParams.m_sOutputModule = libNames[i];
         libParams.m_sOutputDir = out.string();
         libParams.m_sTempDir = out.string();
-        libParams.m_sStdLibDir = STDLIB_DIR;
+        libParams.m_sStdLibDir = stdlibDir;
         MemLogger libLogger;
         ModuleBuilder libBuilder(libParams, libLogger);
         bool libOk = false;
@@ -411,7 +452,7 @@ GateResult buildGateProject(const GateProjectOptions& opts)
         "gate_test_" + std::to_string(++gateRunCount);
     res.params->m_sOutputDir = out.string();
     res.params->m_sTempDir = out.string();
-    res.params->m_sStdLibDir = STDLIB_DIR;
+    res.params->m_sStdLibDir = stdlibDir;
     res.logger = std::make_unique<MemLogger>();
     res.builder = std::make_unique<ModuleBuilder>(*res.params, *res.logger);
     try { res.ok = res.builder->BuildArtifacts(); }
@@ -483,7 +524,8 @@ GateRunResult runGateProject(const GateProjectOptions& opts)
     try
     {
         NcuLoader::Options loaderOpts;
-        loaderOpts.searchDirs = {res.params->m_sOutputDir, STDLIB_DIR};
+        loaderOpts.searchDirs = {res.params->m_sOutputDir,
+            res.params->m_sStdLibDir};
         NcuLoader::Result loaded =
             NcuLoader::LoadClosure(pkg.string(), loaderOpts);
         CompiledModule mod = NcuLinker::Link(std::move(loaded.units),
@@ -647,22 +689,33 @@ private slots:
         QVERIFY(reg.IsModuleImported(0, "utils.sub.deep"));
     }
 
-    //D10: a wildcard on a library package is rejected — packages
-    //are not module trees (the '*' would be silently eaten).
-    void builtinWildcardRejected()
+    //D-29 rule 2 (replaces D10's builtinWildcardRejected): a wildcard on a
+    //library package is legal — the package joins the gate like any other
+    //module path does. Both halves are pinned: the build succeeds, and the
+    //removed sentence is no longer produced.
+    void libraryWildcardUnionsFlatPackage()
     {
         auto res = buildGateProject({
             "import io.*;\n"
             "int main() { return 0; }\n"});
-        QVERIFY2(!res.ok, "library package wildcard must fail the build");
-        QVERIFY2(containsError(res.errors,
+        QVERIFY2(res.builder != nullptr,
+            ("gate scaffold failed before the gate stage; errors: "
+             + joinErrors(res.errors)).c_str());
+        QVERIFY2(res.ok, ("flat library package wildcard must build; errors: "
+            + joinErrors(res.errors)).c_str());
+        const ModuleRegistry& reg = res.builder->Registry();
+        QVERIFY(reg.IsModuleImported(0, "io"));
+        QVERIFY2(!containsError(res.errors,
             "Wildcard import cannot target library package 'io'."),
-            "library package wildcard must get the dedicated diagnostic");
+            "the removed diagnostic must not be produced any more");
     }
 
-    //D10: a wildcard matching no project TU module path is almost
-    //certainly a typo — external .ncu names are single-segment (§3.3)
-    //and never count as matches.
+    //D10 (wording per D-29 rule 3, ruling 45): a wildcard matching no
+    //compiled-in module path is almost certainly a typo — external .ncu
+    //names are single-segment (§3.3) and never count as matches, and the
+    //advice now names both sources a module path can come from (project
+    //Sources list, library search path), the same tail the unimported
+    //module path diagnostic uses.
     void wildcardZeroMatchRejected()
     {
         auto res = buildGateProject({
@@ -670,14 +723,16 @@ private slots:
             "int main() { return 0; }\n"});
         QVERIFY2(!res.ok, "zero-match wildcard must fail the build");
         QVERIFY2(containsError(res.errors,
-            "No project modules matched import 'nosuch.*'."),
+            "No modules matched import 'nosuch.*'. Check the project "
+            "Sources list or -I import path."),
             "zero-match wildcard must get the dedicated diagnostic");
     }
 
     //D11 regression: a wildcard never reaches an external .ncu name.
     //'lib' exists only as an external module, so the D11 union surface
-    //(exact project module OR 'lib.'-prefixed project module) is empty
-    //and the import fails loud instead of building with a closed gate.
+    //(exact compiled-in module OR 'lib.'-prefixed compiled-in module) is
+    //empty and the import fails loud instead of building with a closed
+    //gate.
     void wildcardNeverMatchesExternalRejected()
     {
         auto res = buildGateProject({
@@ -688,7 +743,8 @@ private slots:
         QVERIFY2(!res.ok,
             "wildcard on an external-only name must fail the build");
         QVERIFY2(containsError(res.errors,
-            "No project modules matched import 'lib.*'."),
+            "No modules matched import 'lib.*'. Check the project "
+            "Sources list or -I import path."),
             "external-only wildcard must get the zero-match diagnostic");
     }
 
@@ -711,6 +767,241 @@ private slots:
         QVERIFY(reg.IsModuleImported(0, "utils"));
         QVERIFY(reg.IsModuleImported(0, "utils.helper"));
         QVERIFY(reg.IsModuleImported(0, "utils.sub.deep"));
+    }
+
+    //=== D-29: qualified names and library-package wildcards ===
+    //One rule replaces three project/library splits: dispatch the longest
+    //known module path first and the type second, at any depth, with every
+    //member kind treated alike. Legs whose correctness is only visible once
+    //the machine actually runs go through runGateProject (compile + link +
+    //execute), because the C1 bug compiled cleanly and only crashed later.
+
+    //Rule 2 on a library package that owns a real subtree: `import k.*;`
+    //opens the package itself AND every module under it — the shape the
+    //multi-module web package (Task 8) is built on.
+    void libraryWildcardUnionsSubtree()
+    {
+        GateProjectOptions opts;
+        opts.withLibraryTree = true;
+        opts.szMainBody =
+            "import k.*;\n"
+            "int main() { return 0; }\n";
+        auto res = buildGateProject(opts);
+        QVERIFY2(res.builder != nullptr,
+            ("gate scaffold failed before the gate stage; errors: "
+             + joinErrors(res.errors)).c_str());
+        QVERIFY2(res.ok, ("subtree library wildcard must build; errors: "
+            + joinErrors(res.errors)).c_str());
+        const ModuleRegistry& reg = res.builder->Registry();
+        QVERIFY(reg.IsModuleImported(0, "k"));
+        QVERIFY(reg.IsModuleImported(0, "k.inner"));
+    }
+
+    //Rule 1, static method of a library class: the qualified spelling must
+    //resolve and run, not merely parse.
+    void qualifiedLibraryStaticCallRuns()
+    {
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import http;\n"
+            "int main()\n"
+            "{\n"
+            "    string p = http.HttpResponse.reasonPhraseFor(404);\n"
+            "    if (p == \"Not Found\") { return 3; }\n"
+            "    return 1;\n"
+            "}\n";
+        auto run = runGateProject(opts);
+        QVERIFY2(run.ok, runFailureText(run,
+            "qualified library static call must build and execute").c_str());
+        QVERIFY2(run.runtimeError.empty(),
+            runFailureText(run, "execution must be clean").c_str());
+        QVERIFY2(run.exitValue == 3,
+            runFailureText(run, "reasonPhraseFor(404) must answer").c_str());
+    }
+
+    //Rule 1, static constant of a library class: the bare spelling
+    //HttpParser.MODE_LENGTH already works, so the qualified one must match
+    //it instead of being refused (D-29 rule 3's remedy must itself work).
+    void qualifiedLibraryStaticConstRuns()
+    {
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import http;\n"
+            "int main()\n"
+            "{\n"
+            "    if (http.HttpParser.MODE_LENGTH != 0) { return 5; }\n"
+            "    return 4;\n"
+            "}\n";
+        auto run = runGateProject(opts);
+        QVERIFY2(run.ok, runFailureText(run,
+            "qualified library static const must build and execute").c_str());
+        QVERIFY2(run.runtimeError.empty(),
+            runFailureText(run, "execution must be clean").c_str());
+        QVERIFY2(run.exitValue == 5,
+            runFailureText(run, "MODE_LENGTH must be the constant 1").c_str());
+    }
+
+    //Rule 1, a method call on a qualified enum member constant: the user
+    //manual (04-types/enum.md §4.6.3/§4.6.4) promises a member constant's
+    //toString(), and a project module already takes it while a library
+    //package refused the chain one link past the member value.
+    void qualifiedLibraryEnumMemberChainRuns()
+    {
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import json;\n"
+            "int main()\n"
+            "{\n"
+            "    if (json.JsonKind.Object.toString() == \"Object\")\n"
+            "        { return 6; }\n"
+            "    return 7;\n"
+            "}\n";
+        auto run = runGateProject(opts);
+        QVERIFY2(run.ok, runFailureText(run,
+            "qualified enum member chain must build and execute").c_str());
+        QVERIFY2(run.runtimeError.empty(),
+            runFailureText(run, "execution must be clean").c_str());
+        QVERIFY2(run.exitValue == 6, runFailureText(run,
+            "an enum member's toString() returns the member name").c_str());
+    }
+
+    //Rule 3: a member the class does not have is a missing member, never an
+    //unimported module. MAX_DEPTH lives on JsonText (stdlib/json.n:38), so
+    //json.JsonValue.MAX_DEPTH must not be reported as 'json.JsonValue' being
+    //missing — the advice the compiler gives was itself refused by the
+    //compiler (probe temp/dlib/l7.n).
+    void qualifiedMissingMemberNamesTheMember()
+    {
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import json;\n"
+            "int main()\n"
+            "{\n"
+            "    int d = json.JsonValue.MAX_DEPTH;\n"
+            "    return d;\n"
+            "}\n";
+        auto res = buildGateProject(opts);
+        QVERIFY2(res.builder != nullptr,
+            ("gate scaffold failed before the gate stage; errors: "
+             + joinErrors(res.errors)).c_str());
+        QVERIFY2(!res.ok, "a member no class in the path has must fail");
+        QVERIFY2(!containsError(res.errors, "is not imported"),
+            ("a type member must not be diagnosed as an unimported module; "
+             "errors: " + joinErrors(res.errors)).c_str());
+        QVERIFY2(containsError(res.errors, "MAX_DEPTH"),
+            ("the diagnostic must name the missing member; errors: "
+             + joinErrors(res.errors)).c_str());
+    }
+
+    //Rule 1 binds admission as well as lookup: the qualified spelling must
+    //admit exactly what the bare spelling admits. READALL_WINDOW is a private
+    //class static const (stdlib/http.n:722), so both spellings must land on
+    //the member lookup's own wording; a route that binds the member without
+    //the access admission would accept the qualified form alone and widen the
+    //language surface silently (measured with the pre-fix and post-fix ncc on
+    //the same corpus, probe temp/t19_acc_src/).
+    void qualifiedLibraryPrivateStaticStaysDenied()
+    {
+        GateProjectOptions qualifiedOpts;
+        qualifiedOpts.szMainBody =
+            "import http;\n"
+            "int main()\n"
+            "{\n"
+            "    int w = http.HttpBodyReader.READALL_WINDOW;\n"
+            "    return w;\n"
+            "}\n";
+        auto qualifiedRes = buildGateProject(qualifiedOpts);
+        QVERIFY2(qualifiedRes.builder != nullptr,
+            ("gate scaffold failed before the gate stage; errors: "
+             + joinErrors(qualifiedRes.errors)).c_str());
+        QVERIFY2(!qualifiedRes.ok,
+            ("a private class static must not become reachable through the "
+             "qualified spelling; errors: "
+             + joinErrors(qualifiedRes.errors)).c_str());
+        QVERIFY2(!containsError(qualifiedRes.errors, "is not imported"),
+            ("an access denial is not an unimported module; errors: "
+             + joinErrors(qualifiedRes.errors)).c_str());
+        QVERIFY2(containsError(qualifiedRes.errors, "READALL_WINDOW"),
+            ("the diagnostic must name the member; errors: "
+             + joinErrors(qualifiedRes.errors)).c_str());
+
+        //The bare spelling is the control leg: the two spellings must not
+        //diverge in either direction.
+        GateProjectOptions bareOpts;
+        bareOpts.szMainBody =
+            "import http;\n"
+            "int main()\n"
+            "{\n"
+            "    int w = HttpBodyReader.READALL_WINDOW;\n"
+            "    return w;\n"
+            "}\n";
+        auto bareRes = buildGateProject(bareOpts);
+        QVERIFY2(bareRes.builder != nullptr,
+            ("gate scaffold failed before the gate stage; errors: "
+             + joinErrors(bareRes.errors)).c_str());
+        QVERIFY2(!bareRes.ok,
+            ("the bare spelling must keep rejecting the private class static; "
+             "errors: " + joinErrors(bareRes.errors)).c_str());
+        QVERIFY2(containsError(bareRes.errors, "READALL_WINDOW"),
+            ("the diagnostic must name the member; errors: "
+             + joinErrors(bareRes.errors)).c_str());
+    }
+
+    //Rule 1 at depth 2 in a project: the longest known module path
+    //(utils.helper) wins over the shallower same-named shape, and a static
+    //member resolves through it. The root utils.n (withRootUtils) is what
+    //makes this the interesting shape — the same-named root module is
+    //already in the gate, and today that is exactly where the member chain
+    //breaks (probe temp/dmod_b/main_b.n, whose layout this mirrors).
+    void qualifiedProjectDepth2StaticRuns()
+    {
+        GateProjectOptions opts;
+        //The probe layout reproduced one for one: a root module named
+        //utils that declares a class, plus the depth-2 module utils.helper.
+        opts.withRootUtils = true;
+        opts.szRootUtilsBody = "class Root { public int r() { return 1; } }\n";
+        opts.szHelperBody =
+            "class Widget { public static int answer() { return 42; } }\n";
+        opts.szMainBody =
+            "import utils.*;\n"
+            "int main()\n"
+            "{\n"
+            "    int v = utils.helper.Widget.answer();\n"
+            "    return v;\n"
+            "}\n";
+        auto run = runGateProject(opts);
+        QVERIFY2(run.ok, runFailureText(run,
+            "depth-2 qualified static call must build and execute").c_str());
+        QVERIFY2(run.runtimeError.empty(),
+            runFailureText(run, "execution must be clean").c_str());
+        QVERIFY2(run.exitValue == 42, runFailureText(run,
+            "the static member's value must arrive").c_str());
+    }
+
+    //Declaring face of the same depth-2 shape (probe temp/dmod_b/main_c.n,
+    //which already compiles today). It stays as the pin that rewriting the
+    //member-access dispatch must not break the qualified type reference
+    //behind it.
+    void qualifiedProjectDepth2TypeDeclares()
+    {
+        GateProjectOptions opts;
+        opts.withRootUtils = true;
+        opts.szRootUtilsBody = "class Root { public int r() { return 1; } }\n";
+        opts.szHelperBody = "class Widget { public int v = 7; }\n";
+        opts.szMainBody =
+            "import utils.*;\n"
+            "int main()\n"
+            "{\n"
+            "    utils.helper.Widget w = utils.helper.Widget();\n"
+            "    return w.v;\n"
+            "}\n";
+        auto run = runGateProject(opts);
+        QVERIFY2(run.ok, runFailureText(run,
+            "depth-2 qualified type declaration must build and execute").c_str());
+        QVERIFY2(run.runtimeError.empty(),
+            runFailureText(run, "execution must be clean").c_str());
+        QVERIFY2(run.exitValue == 7, runFailureText(run,
+            "the field initializer value must arrive").c_str());
     }
 
     //D7: files of the TU's own directory are implicitly imported.
@@ -2514,6 +2805,54 @@ private slots:
         QVERIFY2(containsError(res.errors,
             "does not exist or is not accessible"),
             joinErrors(res.errors).c_str());
+    }
+
+    //D-29 rule 1 binds admission on every qualified route, and the module
+    //function VALUE form reached ModuleFunctions without the access gate the
+    //call form has had since 0.13.8 item 5: the same spelling compiled and
+    //ran, returning the private body's value (measured pre-fix on both
+    //import arms — the external .ncu stub and the inlined library source;
+    //probe temp/t19_fnval_ext/, temp/t19_fnval_src/), while the bare spelling
+    //of the same name refused to bind. The qualified spelling may reference
+    //only what the bare spelling may reference.
+    void foreignQualifiedPrivateFuncValueRejected()
+    {
+        GateProjectOptions opts;
+        opts.withAccessLib = true;
+        opts.szMainBody =
+            "import xlib;\n"
+            "int main()\n"
+            "{\n"
+            "    func<int> g = xlib.hiddenHelper;\n"
+            "    return g();\n"
+            "}\n";
+        auto res = buildGateProject(opts);
+        QVERIFY2(res.builder != nullptr,
+            ("gate scaffold failed before the gate stage; errors: "
+             + joinErrors(res.errors)).c_str());
+        QVERIFY2(!res.ok,
+            ("a qualified foreign private function value must fail the "
+             "build; errors: " + joinErrors(res.errors)).c_str());
+        QVERIFY2(containsError(res.errors, "hiddenHelper"),
+            joinErrors(res.errors).c_str());
+        //Control leg: the public function value keeps working (the gate must
+        //not close the whole value route).
+        GateProjectOptions openOpts;
+        openOpts.withAccessLib = true;
+        openOpts.szMainBody =
+            "import xlib;\n"
+            "int main()\n"
+            "{\n"
+            "    func<int> g = xlib.openHelper;\n"
+            "    return g();\n"
+            "}\n";
+        auto openRes = buildGateProject(openOpts);
+        QVERIFY2(openRes.builder != nullptr,
+            ("gate scaffold failed before the gate stage; errors: "
+             + joinErrors(openRes.errors)).c_str());
+        QVERIFY2(openRes.ok,
+            ("the public function value must still build; errors: "
+             + joinErrors(openRes.errors)).c_str());
     }
 
     //Case 3 (qualified arm): protected follows the same rule.

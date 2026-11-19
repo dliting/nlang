@@ -76,6 +76,7 @@ add_library(nlang_compiler
     BuildEnvironment.cpp
     ModuleBuilder.cpp
     ModuleBuilderImports.cpp
+    ModuleBuilderExternalImports.cpp
     ModuleBuilderImportCycles.cpp
     ModuleBuilderChecks.cpp
     ModuleBuilderMethodContracts.cpp
@@ -102,6 +103,7 @@ add_library(nlang_compiler
     Utils.cpp
     builder/ExprResolver.cpp
     builder/ExprResolverStdLib.cpp
+    builder/ExprResolverQualified.cpp
     builder/ExprResolverPackageAdmission.cpp
     builder/ExprResolverMember.cpp
     builder/ExprResolverMemberBuiltins.cpp
