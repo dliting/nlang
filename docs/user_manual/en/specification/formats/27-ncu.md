@@ -57,7 +57,7 @@ IEEE 754 binary32 and binary64 encodings (§4.2).
 |---|---|---|
 | magic | 8 bytes | `NLANGCU` followed by a zero byte |
 | version major | u16 | `2` |
-| version minor | u16 | `20` |
+| version minor | u16 | `22` |
 | module path | u16 length + bytes | the package path of the unit (§3.9.1) |
 | name | u32 length + bytes | the unit name: the same string as the module path in every image the current toolchain writes |
 | entry key | u16 length + bytes | the qualified key (§3.6) of the entry function (§9.3); empty for a library image (§3.9.1) |

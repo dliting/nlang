@@ -332,20 +332,16 @@ void test_breakpoint_edits_during_freeze_stay_consistent()
 void test_second_freezer_queues_and_keeps_its_hit()
 {
     TEST(second_freezer_queues_and_keeps_its_hit);
-    //The worker's delay loop, and the hold that has to outlast it. The
-    //frozen window cannot watch the peer's progress while its carrier
-    //keeps holding it (ContextInfo reports frameCount 0 and line 0 for a
-    //carrier-held context, and the stop is only delivered once the
-    //window closes), so nothing observable says "the worker's checkpoint
-    //has decided the hit": this hold is a sufficient wait, not an
-    //assertion. Its margin is measured, and a withdrawal that came too
-    //early is a loud failure (two windows instead of three): the loop
-    //costs ~80ms in the Debug layer on an idle box, and the slowest
-    //sampled leg — the same box shared with 16 competing CPU hogs — runs
-    //it ~2.5x later, which still leaves the hold above it by more than
-    //an order of magnitude.
+    //The worker's delay loop. The frozen window cannot watch the peer's
+    //progress while its carrier holds it (ContextInfo reports frameCount 0
+    //and line 0 for a carrier-held context, and the stop is delivered only
+    //once the window closes), so the callback watches the controller's
+    //pending-stop queue instead of betting that a fixed sleep outlasts this
+    //loop. The loop still has to outlast main's path to its own breakpoint,
+    //or the worker freezes first and the window order flips: measured ~80 ms
+    //per loop in the Debug layer on an idle box, ~2.5x that with 16 competing
+    //CPU hogs, against the milliseconds main needs to reach line 18.
     constexpr int kWorkerDelayIterations = 30000;
-    constexpr int kQueueDecideHoldMs = 6000;
     BuildOutcome b = buildSource("k7_double_freeze",
         "import thread;\n"                          //1
         "class Pair {\n"                            //2
@@ -377,15 +373,27 @@ void test_second_freezer_queues_and_keeps_its_hit()
     const int bp2 = controller.AddBreakpoint("k7_double_freeze.n", 10);
     REQUIRE(bp2 != 0);
     bool bStopped = false;
+    bool queuedDuringWindow = false;
     fe.onStopped = [&](DebugSessionController& c) {
         const StopInfo& s = fe.stops.back();
         if (s.reason != StopInfo::Reason::Breakpoint)
             return;
         if (s.contextId == 0) {
-            //Withdraw bp2 only after the worker's checkpoint has decided
-            //the hit and queued it; an undecided hit would be silenced.
-            std::this_thread::sleep_for(
-                std::chrono::milliseconds(kQueueDecideHoldMs));
+            //Hold the window until the worker's checkpoint has DECIDED
+            //and queued its hit — observed via the controller's queue,
+            //not assumed after a fixed sleep (a sleep bets the delay
+            //loop finishes inside it and misfires under load). The
+            //guard turns a never-queued regression (the pre-K7
+            //checkpoint stalls on the lock) into a failure, not a hang.
+            auto deadline = std::chrono::steady_clock::now()
+                + std::chrono::milliseconds(10000);
+            while (!c.HasPendingStop(1)
+                   && std::chrono::steady_clock::now() < deadline)
+                std::this_thread::sleep_for(
+                    std::chrono::milliseconds(5));
+            queuedDuringWindow = c.HasPendingStop(1);
+            //Withdraw bp2 only after the decision: an undecided hit
+            //would be silenced, a decided one cannot be.
             c.DeleteBreakpoint(bp2);
         } else if (s.contextId == 1) {
             bStopped = true;
@@ -419,6 +427,9 @@ void test_second_freezer_queues_and_keeps_its_hit()
         "the frozen run completes without the deadlock guard (got: "
         + thrown + ")");
     CHECK(rc == 0, "program result");
+    CHECK(queuedDuringWindow,
+        "the worker's hit is decided and queued while main's window is "
+        "open (the checkpoint runs under another context's freeze)");
     CHECK(fe.stops.size() == 3,
         "initial + both breakpoint windows (got "
         + std::to_string(fe.stops.size()) + ")");

@@ -35,8 +35,7 @@ int main() {
 *资料性：*
 
 - `native`声明**不得有函数体**——编译错误。实现归宿主所有。
-- **不支持out参数**——写回需要被调方栈帧，而native函数没有。编译错误；VM对手工构造的模块执行同样检查。
-- **不支持`&`形参**——宿主按值接收实参（每个实参一个值单元，§28.4），引用形参的别名写穿无法跨入宿主；与out同一堵墙（`native function "f" cannot have reference parameters; the host receives values.`）。`&`返回不受此限——内建容器的`get`就是`native T&`。
+- **不支持`&`形参**——宿主按值接收实参（每个实参一个值单元，§29.4），引用形参的别名写穿无法跨入宿主（`native function "f" cannot have reference parameters; the host receives values.`）。`&`返回不受此限——内建容器的`get`就是`native T&`。
 - 自由函数的键是**全限定**的（`<package>.<name>`）：不同包里的同名native函数互不相干，同一包加名字只算一个表条目。宿主注册方负责匹配声明的签名；不匹配（如对int native函数声明`native string`）会产出垃圾输出，而不是类型错误。
 - **多段包名（含`.`）里不允许声明native函数**——宿主动态链接库（DLL，dynamic-link library）按第一个点之前的包名段命名，多段包名无法命名一个DLL；编译错误。
 - 跨模块：导入含native函数的`.ncu`的模块经同一张表调用它们（native标志在模块合并后保留）。

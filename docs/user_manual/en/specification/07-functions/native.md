@@ -15,7 +15,7 @@ the package; for a free native of a single-segment package the
 loader searches for `nlang_<package>.dll` on the host search path.
 A unit whose package name has more than one segment may not
 declare native functions: a compile-time error. A native function
-has no `out` parameters (§7.2).
+has no reference parameters (§7.2).
 
 If the host cannot find the implementation, the call raises a
 host-level run-time error (§7.1). The host is responsible for
@@ -70,12 +70,9 @@ invoked directly with the caller's staged argument cells.
 
 - A `native` declaration **must not have a body** — compile error.
   The host owns the implementation.
-- **No `out` parameters** — writeback needs a callee frame and natives
-  have none. Compile error; the VM enforces the same for hand-crafted
-  modules.
 - **No `&` formals** — the host receives arguments by value (one value
-  cell per argument, §28.4); the aliasing writes of a reference formal
-  cannot cross into the host. The same wall as `out`
+  cell per argument, §29.4); the aliasing writes of a reference formal
+  cannot cross into the host
   (`native function "f" cannot have reference parameters; the host receives values.`).
   A `&` return is not restricted — the builtin
   containers' `get` is `native T&`.

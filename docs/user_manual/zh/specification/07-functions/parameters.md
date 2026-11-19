@@ -8,8 +8,6 @@
 
 调用可以按形参名字绑定实参：`f(name = expr)`。按位置的实参排在所有命名实参之前；命名实参可以按任意顺序出现，按名字而非位置绑定。每个形参至多绑定一次。不是所选候选者（§7.3）的形参的名字是编译期错误。命名实参从左到右求值（§5.1）。构造器调用只接受按位置的实参（§7.3）。
 
-声明为`out T p`（§2.4）的形参是一个inout槽：实参的当前值初始化该形参，被调方返回时，形参的最终值写回实参。写回在调用返回后按参数顺序发生，且调用的返回值先于写回存储：当结果变量与某个`out`实参是同一个变量时，写回是最终的存储。实参必须是局部变量或参数：字段、元素、下标或任意表达式都是编译期错误。下列每一项都是编译期错误：带默认值的`out`形参（§2.4）；结构体类型的`out`形参；带超过32个`out`实参的调用；在构造器或`super()`调用、内建容器方法、虚分派或接口分派的调用、枚举方法或原生函数（§7.5）上使用`out`实参。`out`是保留关键字（第1章）。
-
 ### 默认值
 
 *资料性：*默认值可以出现在任意位置（不限于末尾）。默认表达式可以引用更前面的形参。
@@ -60,35 +58,7 @@ foo(b = 7, a = 5);      // 命名，倒序
 | `T p`（值） | 不变——形参操作的是副本 |
 | `T& p`（引用） | 带着通过`p`的每一次写入 |
 | `const T& p` | 不变——通过`p`的写入是编译错误 |
-| `out T p` | 收到形参的最终值（见下方写回规则） |
 
 引用形参经虚分派与接口分派传递时与普通形参无异——引用是普通参数槽里的数据，分派机制本身对它无感知。
 
-### `out`参数
-
-*资料性：*声明为`out`的形参是写回槽：调用方的局部变量被拷贝初始化到被调方的帧槽中，调用返回后，被调方的值被拷贝回调用方的变量。
-
-```nlang
-int divide(int a, int b, out int rem) {
-    rem = a % b;
-    return a / b;
-}
-int r = 0;
-int q = divide(17, 5, out r);  // q=3, r=2
-```
-
-- out参数是**inout**：被调方看到的参数局部初值是调用方当前的值。
-- 写回发生在调用返回后。
-- 调用的返回值在out写回**之前**存入结果变量，所以`int x = f(out x)`在返回值赋值时读到旧`x`，随后用被调方的输出覆盖`x`。
-
-编译期限制及其诊断文案：
-
-- out实参必须是**局部变量**（不能是字段、数组元素、或任意表达式）。
-- out参数可以是任意标量或class类型；**struct是唯一例外**（`out parameter "rem" cannot be a struct`）——struct有变长值语义，与固定槽写回机制不兼容。
-- out参数不能带默认值。
-- native函数不能有out参数（`native function "f" cannot have out parameters`）；enum方法同样（`enum method "m" cannot have out parameters`）。
-- 内建（标准库）方法调用不接受out实参（`out arguments are not supported by built-in methods`）。
-- 虚/接口分派调用上不能用`out`——写回掩码按静态绑定的被调方布局烧录（`out arguments are not supported on virtual method "m".`）。
-- 构造调用或`super()`上不能用`out`（`out arguments are not supported in constructor calls.`）。
-- 每次调用最多32个out参数。
-- `out`是保留关键字。
+`out`仍是保留字（第1章），但引用形参是唯一的输出参数形态：声明里写`out T p`是编译期错误，诊断指向`T&`写法（`out parameters are retired; declare "p" as a reference formal instead.`）。

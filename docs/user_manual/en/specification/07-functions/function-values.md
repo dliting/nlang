@@ -3,8 +3,7 @@
 A function type is written `func<R, P1, ..., Pn>`: the first type
 argument is the return type — `void` when the function returns no
 value — and the remaining arguments are the parameter types in
-order (§2.3). A parameter type argument may carry the `out`
-prefix, and parameter and return types may carry the `&` marker
+order (§2.3). Parameter and return types may carry the `&` marker
 (`func<int&, int&>` — a reference parameter and a reference
 return, §4.7.9). A function with no parameters is written
 `func<R>`.
@@ -14,7 +13,7 @@ return, §4.7.9). A function with no parameters is written
 `List<void>` — is a compile-time error.
 
 Two function types are the same type when their return types,
-parameter types and `out` and `&` markers match position by
+parameter types and `&` markers match position by
 position. There is no variance: neither the return type nor a
 parameter type may differ, even by an implicit conversion (§4.4).
 A `func` type with `&` and its unmarked form are different types:
@@ -48,9 +47,7 @@ denoted signature must match the expected function type exactly:
 no variance, no conversion of the parameters or the result. A
 function whose parameters carry defaults cannot be referenced:
 defaults are filled only at a direct call (§7.2). Enum methods and
-native instance methods cannot be referenced, and a virtual or
-interface method with an `out` parameter cannot be referenced
-(§7.2).
+native instance methods cannot be referenced.
 
 A bound reference captures its receiver when the value is formed;
 state changes made through the reference persist in the receiver
@@ -61,8 +58,7 @@ A function value is called with `v(a1, ..., an)` (§5.6); a
 function-typed field is called as `obj.cb(a1, ..., an)`. A
 function-typed local shadows the function of the same name (§3.7).
 Named arguments are not accepted on a call through a function
-value (§7.2); `out` arguments write back after the call returns
-(§7.2). Calling a null function value is a catchable run-time
+value (§7.2). Calling a null function value is a catchable run-time
 error (§5.6); forming a bound reference on a null receiver raises a
 catchable run-time error at the formation site.
 
@@ -80,15 +76,12 @@ methods (chapter 14).
 
 *Informative:* the `func` keyword introduces the function type; the
 first type argument is always the return type, the rest are the
-parameter types in declaration order, each optionally prefixed with
-`out`.
+parameter types in declaration order.
 
 ```nlang
 func<int>                  // int f()
 func<void>                 // void f()
 func<int, int>             // int f(int)
-func<void, out int>        // void f(out int)
-func<int, int, out int>    // int f(int, out int)
 func<int, int&>            // int f(int&)
 func<int&, int&>           // int& f(int&)
 ```
@@ -153,10 +146,9 @@ with no expected function type is a compile error naming the reference.
   **shadows** any same-named function.
 - **Member field** — `obj.cb(x)` where `cb` is a `func`-typed field.
 
-Arguments are staged per the `func` type's signature; `out` parameters
-write back to the caller's locals after the call, and the receiver of a
-bound method is handled automatically by the call. Named arguments on
-delegate invocations are rejected.
+Arguments are staged per the `func` type's signature, and the receiver
+of a bound method is handled automatically by the call. Named arguments
+on delegate invocations are rejected.
 
 ### Equality, null, toString
 
@@ -197,11 +189,9 @@ comparisons with non-`func` operands are compile errors.
   an interface member (native calls have no callee frame for the
   receiver). Native static methods are referenceable through the type
   name.
-- **Virtual/interface references whose `func` type has `out` parameters**
-  — runtime dispatch could disagree with the compiled out mask.
-- **`out` in the return position** (`func<out int, ...>`) — rejected
-  with the compile error "out is only allowed on func<...>
-  parameters.".
+- **The `out` type marker anywhere in a type argument** (`func<out int,
+  ...>`, `List<out int>`) — rejected with the compile error "the out
+  type marker is retired; use the reference mark instead.".
 - **`func<...>(...)`** — constructing from a name is not supported;
   bind a reference instead.
 - **`Dict<func<...>, V>`** — `func` as a Dict key (see the identity note
@@ -209,8 +199,7 @@ comparisons with non-`func` operands are compile errors.
 - **Boxing into `Object`** (`Object o = f`; see
   [Object and Boxing](../04-types/object.md)) — via the generic
   incompatible-type diagnostic.
-- **`void` or `out` type arguments outside `func`** (`List<void>`,
-  `List<out int>`).
+- **`void` type arguments outside `func`** (`List<void>`).
 - Function values as `switch` discriminants (no case family matches).
 - Function values cannot cross the serialization methods — `writeStruct`
   / `writeObject` on a struct/class holding a `func` field is a run-time

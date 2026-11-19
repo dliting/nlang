@@ -85,7 +85,7 @@ class Counter {
 ```
 
 - A value-returning function cannot use bare `return;` (compile error)
-- Void functions combine with `out` parameters for side-effect-only
+- Void functions combine with reference parameters for side-effect-only
   calls (§7.2)
 - Cross-module: an imported `void` function likewise carries no
   result; the same no-result rules apply there
@@ -99,7 +99,7 @@ sanity ceiling of 64 formals prevents unreasonably large frames.
 
 ### Where to look
 
-- **Formal parameters, default values, named arguments, `out`
+- **Formal parameters, default values, named arguments, reference
   arguments** — [Parameters and Arguments](parameters.md).
 - **Which overload a call selects** — [Overload
   Resolution](overloads.md).

@@ -105,8 +105,6 @@ creation (sizes from expressions) reads them from evaluation slots.
 | OP_CallMethodDirect    | funcIdx, callParamBase      | Call non-virtual method  |
 | OP_CallMethod          | methodNameIdx, callParamBase| Virtual dispatch by name |
 | OP_CallIntrinsic       | intrinsicId, callParamBase  | Invoke intrinsic by ID   |
-| OP_CallStaticOut       | funcIdx, callParamBase, descIdx, outMask (uint32) | + out writeback |
-| OP_CallMethodDirectOut | funcIdx, callParamBase, outMask (uint32) | + out writeback |
 | OP_ParaEnd             | —                           | End of parameter list    |
 
 The uint16 `descIdx` operand on the static-call family names a row in
@@ -126,7 +124,6 @@ generic).
 | OP_MakeBoundFunc    | funcIdx (uint16)                     | Reads receiver from pResult → {funcIdx, this, static} |
 | OP_MakeVFunc        | nameIdx (uint16, string constant table) | Reads receiver from pResult → {nameIdx, this, virtual} |
 | OP_CallDelegate     | calleeLocal, callParamBase           | Invoke through a handle         |
-| OP_CallDelegateOut  | calleeLocal, callParamBase, outMask (uint32) | + out writeback         |
 | OP_Eq_func          | lhs, rhs                             | Handle content equality (null-guarded) |
 | OP_Ne_func          | lhs, rhs                             | Handle content inequality       |
 | OP_Eq_struct        | lhs, rhs                             | Struct field-value equality     |

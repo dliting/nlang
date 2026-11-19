@@ -71,10 +71,10 @@ Type            = ( NameExpr | QualifiedType
                   { "[]" | "[,,]" } ;
 TypeArgs        = TypeList | "void" | "void" "," TypeList ;
 TypeList        = TypeArg { "," TypeArg } ;
-TypeArg         = [ "out" ] Type ;
+TypeArg         = Type ;
 FuncTypeArgs    = FuncTypeList | "void" | "void" "," FuncTypeList ;
 FuncTypeList    = FuncTypeArg { "," FuncTypeArg } ;
-FuncTypeArg     = [ "out" ] Type | Type "&" ;
+FuncTypeArg     = Type | Type "&" ;
 TypeRef         = Type [ "&" ] ;
 TypeName        = NameExpr | QualifiedType ;
 NameExpr        = IdentifierExpr ;
@@ -94,8 +94,7 @@ differs from `Type` only in admitting a `MemberExpr` base (a
 qualified name reached through a member expression).
 
 `FuncTypeArgs` is the `func`-type twin of `TypeArgs`: its arguments
-admit the `&` marker (§4.7.9) — `func<int, int&>` — and `out` and
-`&` do not combine (`out int&` is a syntax error). Plain generic
+admit the `&` marker (§4.7.9) — `func<int, int&>`. Plain generic
 arguments keep `TypeArg`, which admits no `&`: `List<int&>` is a
 syntax error (§4.12.5). `TypeRef` is the `&`-bearing form of `Type`
 used where a declaration names a type: formal parameters, method
@@ -150,16 +149,14 @@ EnumMethod      = [ AccessType ] ( TypeRef | "void" ) <identifier>
 
 FormalParamList = FormalParam { "," FormalParam } ;
 FormalParam     = [ NodeFlags ]
-                  ( "out" Type <identifier>
-                  | TypeRef <identifier> [ "=" Expression ] ) ;
+                  TypeRef <identifier> [ "=" Expression ] ;
 FunctionBodyOrSemi = Paragraph | ";" ;
 ```
 
 A `class` body requires at least one member; an `interface` body may
 be empty. Each top-level type declaration may carry an access
 modifier, like a top-level function (§7.1). A method declaration
-with no return type names a constructor (§4.8.6). An `out` parameter
-takes no default value.
+with no return type names a constructor (§4.8.6).
 
 ## 2.5 Statements
 
@@ -285,7 +282,6 @@ InitEntry       = Expression [ ":" ( Expression | BracedInitExpr ) ]
 
 ConcreteParamList = ConcreteParam { "," ConcreteParam } ;
 ConcreteParam   = <identifier> "=" ( Expression | BracedInitExpr )
-                | "out" <identifier>
                 | Expression | BracedInitExpr ;
 ```
 
