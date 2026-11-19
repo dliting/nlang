@@ -159,15 +159,13 @@ void StatementResolveAccessor::ResolveFunctionFormals(SnFunction &sn,
 {
 	for (size_t i = 0; i < formals.size(); ++i) {
 		auto *param = formals[i];
-		//v0.13.9 phase 3: propagate the & mark onto the param descriptor
-		//(same convention as MarkLocalDeclFlags) so the binding gates
-		//see a reference formal without re-reading its type node.
-		if (param->Type() && param->Type()->ContainFlags(NF_Ref))
-			param->AddFlags(NF_Ref);
+		//v0.13.9 phase 3 fix: the & mark rides the descriptor from
+		//construction (SnFormalParam mirrors its type node), so the gate
+		//below — and any call-site judgment over a forward-declared
+		//callee — reads it without ordering dependence.
 		//v0.13.9 phase 3: a reference parameter binds caller storage; a
 		//default value has nothing to bind (spec 3.9).
-		if (param->Value() && param->Type()
-			&& param->Type()->ContainFlags(NF_Ref))
+		if (param->Value() && param->ContainFlags(NF_Ref))
 		{
 			m_Env.Log(CLL_Error, param->Location(),
 				"a reference parameter cannot have a default value.");

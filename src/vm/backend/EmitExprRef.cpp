@@ -57,7 +57,8 @@ void VmBackend::EmitMakeRefOfIdentifier(uint16_t dstOffset,
         if (IsPrimitiveType(pType->Kind()) || pType->Kind() == NK_EnumDecl)
             throw std::runtime_error(
                 "NLang backend: scalar reference argument on an "
-                "un-promoted local (promotion marking missed)");
+                "un-promoted local (promotion marking missed): " +
+                idExpr.Name() + " in " + m_currFunc->func->name);
         emitter.Emit(OpCode::OP_RefOfLocal);
         emitter.EmitUint16(dstOffset);
         emitter.EmitUint16(target.localOffset);

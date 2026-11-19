@@ -2426,6 +2426,7 @@ refbind_promote_direct_guard 8
 refbind_promote_zero_init_guard 0
 # --- v0.13.9 phase 3 Task 5: & parameters and reference bindings ---
 refbind_param_local 11
+refbind_forward_callee 183
 refbind_param_field 42
 refbind_param_element 2
 refbind_param_struct 12
