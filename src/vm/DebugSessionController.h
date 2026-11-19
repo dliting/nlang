@@ -131,6 +131,21 @@ public:
     };
     std::vector<BreakpointRow> BreakpointRows() const;
 
+    //K7: true while the context's stop is decided but not yet resumed —
+    //it holds the freeze token (its window is active) or waits in the
+    //freeze queue. Front ends can surface pending stops; callers that
+    //must observe a hit's decision (not assume it after a delay) poll
+    //this. Valid any time, not just inside a window.
+    bool HasPendingStop(int contextId) const {
+        std::lock_guard<std::mutex> lk(m_stateMutex);
+        if (m_frozenContextId == contextId)
+            return true;
+        for (int queued : m_freezeQueue)
+            if (queued == contextId)
+                return true;
+        return false;
+    }
+
     //Display filter shared by the front ends: synthesized locals
     //(statement lowering, foreach expansion, finally trampolines) stay
     //internal; __this shows as this.

@@ -351,16 +351,27 @@ void test_second_freezer_queues_and_keeps_its_hit()
     const int bp2 = controller.AddBreakpoint("k7_double_freeze.n", 10);
     REQUIRE(bp2 != 0);
     bool bStopped = false;
+    bool queuedDuringWindow = false;
     fe.onStopped = [&](DebugSessionController& c) {
         const StopInfo& s = fe.stops.back();
         if (s.reason != StopInfo::Reason::Breakpoint)
             return;
         if (s.contextId == 0) {
-            //Hold the window past the worker's delay loop (~100ms) so
-            //its checkpoint has decided and queued the hit, then
-            //withdraw bp2 — an undecided hit would be silenced.
-            std::this_thread::sleep_for(
-                std::chrono::milliseconds(1500));
+            //Hold the window until the worker's checkpoint has DECIDED
+            //and queued its hit — observed via the controller's queue,
+            //not assumed after a fixed sleep (a sleep bets the delay
+            //loop finishes inside it and misfires under load). The
+            //guard turns a never-queued regression (the pre-K7
+            //checkpoint stalls on the lock) into a failure, not a hang.
+            auto deadline = std::chrono::steady_clock::now()
+                + std::chrono::milliseconds(10000);
+            while (!c.HasPendingStop(1)
+                   && std::chrono::steady_clock::now() < deadline)
+                std::this_thread::sleep_for(
+                    std::chrono::milliseconds(5));
+            queuedDuringWindow = c.HasPendingStop(1);
+            //Withdraw bp2 only after the decision: an undecided hit
+            //would be silenced, a decided one cannot be.
             c.DeleteBreakpoint(bp2);
         } else if (s.contextId == 1) {
             bStopped = true;
@@ -386,6 +397,9 @@ void test_second_freezer_queues_and_keeps_its_hit()
         "the frozen run completes without the deadlock guard (got: "
         + thrown + ")");
     CHECK(rc == 0, "program result");
+    CHECK(queuedDuringWindow,
+        "the worker's hit is decided and queued while main's window is "
+        "open (the checkpoint runs under another context's freeze)");
     CHECK(fe.stops.size() == 3,
         "initial + both breakpoint windows (got "
         + std::to_string(fe.stops.size()) + ")");
