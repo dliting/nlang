@@ -96,6 +96,7 @@ NLang已经有了HTTP传输与消息层（v0.13.5的`http`包：`HttpServer`每�
 | P6 容器字段改动语义 | 普通`class`在方法内直改`Dict`/`List`字段，跨调用持久（实测计数2）；`const class`同样写法实测计数0——成员读被改写成浅拷贝（探针C1） | 会话store、登记表、`FormData`的部件清单一律用普通`class`；为「防御式」给它们加`const`会静默丢改动而不是编译失败（3.1事实行） |
 | P7 容器元素不可就地调用 | 从容器取出的函数引用不能直接调用：`mws[0](ctx)`、`(mws[0])(ctx)`、`mws[0].invoke(ctx)`、`mws[i](ctx)`一律报语法错（探针W1/W2/W4/W6/X6b/P09）；先赋给同类型的局部变量再调用成立（探针W5实测exit 0） | 洋葱链的内部推进必须「取元素进局部」，属实现细节、不改公开面；缺口本身登记进D-27与九.18，不用绕行掩盖 |
 | P8 `void`与`func`的容器拼写 | `func<void, RequestContext>`一类作类型实参可编译可运行：`List<func<void, Ctx>>`局部与字段、`Dict<string, func<void, Ctx>>`、返回值装进容器皆实测通过（探针X6a/X8/X9/X14/V5/N03）；同一形状在类型实参拼写缺陷修复前报`corrupt descriptor spelling: unresolved link key '?'`，现编译器已修 | 中间件链与路由表可以直接用容器持函数引用，不必为此专门造类；框架不依赖尚不成立的拼写形状 |
+| P9 构造器默认值取不到命名常量 | 构造器形参的默认值**不能**指名任何类型的静态常量，四种拼写实测全部编译失败（探针`temp/t7_ctor_default/`实测2026-11-19：`cd_bare.n`本类裸名`K`、`cd_qualified.n`本类限定拼写`CfgQual.K`、`cd_pub_static.n`public静态裸名、`cd_otherclass.n`**另一个类**的`Knob.K`），四者报同一句`default value for parameter "seed" of constructor "CfgBare" cannot reference 'this' (explicitly or through a bare field); constructor defaults evaluate at the call site, where no valid 'this' exists.`（类名随各自的构造器），闸门在`src/compiler/builder/StatementResolverDeclDefaults.cpp:40-115`——`ReferencesThis`把绑定到`NK_ClassField`/`NK_StructField`的标识符一律算作`this`引用，不分裸拼写与限定拼写，故`Knob.K`那一格诊断与所述代码不符；也没有退路：模块作用域的成员只有函数与类型声明（`include/nlang/compiler/SyntaxNodeConsts.h:162-166`的`IsUnitMemberKind`），文件作用域写`const int GLOB = 5;`走脚本语句那条路、被报`top-level statements cannot be combined with an explicit main() function`（探针`cd_toplevel.n`），stdlib里也没有一处模块级常量（只有`const class`）。对照腿成立：同一个裸常量作**普通方法**的默认值编译运行都通过（探针`cd_method.n`），故`drain(int graceMs = DEFAULT_DRAIN_GRACE_MS)`（D-22）合法而store的构造器不合法 | 命名常量只能住在类型成员里，而构造器默认值恰好拒收类型成员，于是`MemorySessionStore`的三档形制以**三枚互相转发的构造器**交付、形参不带默认值、取值仍来自类内的`DEFAULT_*`常量（6.6），调用面与6.6那条带默认值的签名无异；缺口本身登记进九.18，与P2那两处同属「默认值与预期类型的作用域没接上」这一族 |
 
 探针脚本在`temp/web_probe/`（含被否决的两版骨架，留作演进证据）。曾出现「游离函数不能与`main()`并存」的连带诊断，经P3探针证伪：那是未解析形参类型的级联报错，不得据以设计。
 
@@ -195,7 +196,7 @@ HEAD请求复用GET路由（http层已实现HEAD只发头，`stdlib/http.n:1432`
 
 ### D-12 会话：`Session`＋`SessionStore`虚基类＋内存store＋cookie基线
 
-会话数据在服务端，cookie只放id；id=16字节CSPRNG→32位hex；cookie名`nlang_session`，默认`HttpOnly`＋`Path=/`＋`SameSite=Lax`，`Secure`与`__Host-`前缀可配；`maxAgeSeconds`→`Max-Age`的映射全框架统一三态——0不发该属性（会话级cookie）、正数发`Max-Age: n`、负数发`Max-Age: 0`（立即过期）：0落在「不发」一侧与`StaticFiles.maxAgeSeconds`的「0＝不发`Cache-Control`」同调（同一个数在同一框架内扛两种含义必漂），默认值因此给会话级这个最不意外的结果；删除走负数并把线上字节直接写成`Max-Age: 0`，不依赖收件人对负数的处置（`Max-Age ≤ 0`的判定本就是立即过期：调研注§3.2引MDN如此；RFC 6265 §5.2.2对`delta-seconds ≤ 0`是把过期时刻**直接置为「最早可表示日期时间」**（`temp/rfc6265.txt:1091-1092`），按§5.3「过期日期在过去即已过期」的定义（:1318）它必然已在过去、并被「MUST逐出过期cookie」清掉（:1320-1321），而不是钳到0再按「当前时刻＋0」算成「过期时刻＝提取时刻」把临界判定留给收件人的比较符；线上字节写死0仍免去这份实现差异），`Session.destroy()`正是用负数删掉本次cookie；会话cookie本身不带`Max-Age`，过期判定在服务端——客户端时钟不该决定会话寿命，而绝对上限与到期滚动刷新要同`expiresAtMs`一起裁决，故不在此单发一个`Max-Age`（九.17）；`ctx.session()`首次取用即建，**有写入才发`Set-Cookie`**；权限跃迁（登录）必须`rotate()`换新id；过期判定按空闲TTL（绝对上限与到期滚动刷新递延，见九.17），比较基准是`system.monoMs`；清扫由store的`int sweepExpired(long nowMs)`承载：store不自起后台清扫线程，而是按`sweepIntervalMs`在`load`/`save`时顺带触发（惰性清扫），测试也可直接调它（确定性可测）。`Set-Cookie`由`App.handle`在链条跑完、返回响应之前写回`res`：`writeResponse`要等处理器返回之后才被调用（`stdlib/http.n:1469`）、响应头要到`writeHead`才序列化（`:1252`），所以连流式（SSE）处理器里新建的会话也来得及带上cookie。
+会话数据在服务端，cookie只放id；id=16字节CSPRNG→32位hex；cookie名`nlang_session`，默认`HttpOnly`＋`Path=/`＋`SameSite=Lax`，`Secure`与`__Host-`前缀可配；`maxAgeSeconds`→`Max-Age`的映射全框架统一三态——0不发该属性（会话级cookie）、正数发`Max-Age: n`、负数发`Max-Age: 0`（立即过期）：0落在「不发」一侧与`StaticFiles.maxAgeSeconds`的「0＝不发`Cache-Control`」同调（同一个数在同一框架内扛两种含义必漂），默认值因此给会话级这个最不意外的结果；删除走负数并把线上字节直接写成`Max-Age: 0`，不依赖收件人对负数的处置（`Max-Age ≤ 0`的判定本就是立即过期：调研注§3.2引MDN如此；RFC 6265 §5.2.2对`delta-seconds ≤ 0`是把过期时刻**直接置为「最早可表示日期时间」**（`temp/rfc6265.txt:1091-1092`），按§5.3「过期日期在过去即已过期」的定义（:1318）它必然已在过去、并被「MUST逐出过期cookie」清掉（:1320-1321），而不是钳到0再按「当前时刻＋0」算成「过期时刻＝提取时刻」把临界判定留给收件人的比较符；线上字节写死0仍免去这份实现差异），`Session.destroy()`正是用负数删掉本次cookie；会话cookie本身不带`Max-Age`，过期判定在服务端——客户端时钟不该决定会话寿命，而绝对上限与到期滚动刷新要同`expiresAtMs`一起裁决，故不在此单发一个`Max-Age`（九.17）；`ctx.session()`首次取用即建，**有写入才发`Set-Cookie`**；权限跃迁（登录）必须`rotate()`换新id；过期判定按空闲TTL（每次`save`向前滑动，只读不回写的请求不延长会话寿命；绝对上限与到期滚动刷新递延，见九.17），比较基准是`system.monoMs`；清扫由store的`int sweepExpired(long nowMs)`承载：store不自起后台清扫线程，而是按`sweepIntervalMs`在`load`/`save`时顺带触发（惰性清扫），测试也可直接调它（确定性可测）。`Set-Cookie`由`App.handle`在链条跑完、返回响应之前写回`res`：`writeResponse`要等处理器返回之后才被调用（`stdlib/http.n:1469`）、响应头要到`writeHead`才序列化（`:1252`），所以连流式（SSE）处理器里新建的会话也来得及带上cookie。
 理由：express-session的三条教训（id熵、MemoryStore泄漏、未初始化会话白写）各自对症；虚基类而非「传个Map进来」是为把「换Redis」留在用户侧而不改框架；清扫入口带`nowMs`参数是为了不过拟合真实时间（既有裁定：断言不得依赖时间）；不起后台清扫线程是为了少一个生命周期——清扫点与读写同在store的锁内，`main()`返回时也不会留下一条正睡在间隔里的线程要交代。代价：单进程内存态，手册照express的姿态明写；且长期无读写的store里，过期记录要等下一次`load`/`save`才被清掉（惰性清扫的固有代价，长驻服务不受影响）；`maxAgeSeconds`的三态是读手册才知道的约定（默认0删不掉cookie），手册要把三态与「`destroy()`用负数」一并写全。
 
 ### D-13 熵源：新增`math.randomBytes`
@@ -299,7 +300,7 @@ roadmap所列「`TcpStream.read`区分超时与对端EOF」**现况已满足**�
 
 ### D-27 本版语言层面：无新语法，另有两处名称解析缺陷当版改正
 
-无新语法、无新关键字。本版实测的四条可用性缺口登记进roadmap「远期特性」的语言层面缺口清单，不用绕行掩盖：带默认值的func形参上下文中函数引用被拒（P2，探针F3实测rc=1）；实例构造调用的实参位置不给函数引用预期类型（`FuncMiddleware(handler)`一类`Type(args)`写法，自由函数引用与绑定方法引用一起被拒，同一枚引用在普通调用实参、字段赋值与带类型的局部声明三处都能绑定，P2，探针`temp/t6_probe3.n`实测2026-11-19；与第一条同属期望类型的传播缺口）；下标元素不能就地调用（`mws[0](ctx)`报语法错，必须先取进同类型局部变量，P7）；`Dict`缺`getOrDefault`而`get`缺键抛异常（P4）。
+无新语法、无新关键字。本版实测的五条可用性缺口登记进roadmap「远期特性」的语言层面缺口清单，不用绕行掩盖：带默认值的func形参上下文中函数引用被拒（P2，探针F3实测rc=1）；实例构造调用的实参位置不给函数引用预期类型（`FuncMiddleware(handler)`一类`Type(args)`写法，自由函数引用与绑定方法引用一起被拒，同一枚引用在普通调用实参、字段赋值与带类型的局部声明三处都能绑定，P2，探针`temp/t6_probe3.n`实测2026-11-19；与第一条同属期望类型的传播缺口）；下标元素不能就地调用（`mws[0](ctx)`报语法错，必须先取进同类型局部变量，P7）；`Dict`缺`getOrDefault`而`get`缺键抛异常（P4）；构造器形参的默认值取不到任何命名常量（本类或别类的静态常量、裸拼写或限定拼写一律被拒，而模块作用域又没有常量声明可退，P9，探针`temp/t7_ctor_default/`实测2026-11-19；与前两条同属声明处作用域没接到默认值/实参那一格）。
 理由：框架侧的单名重载与带默认值读取面只是**可用**，不等于**合理**；缺口该在语言层面解决就该在语言层面排期（既有裁定：语言层面缺口合理时直接补语言）。代价：本版用户的func形参不能带默认值（注册方法的func形参因此一律不带默认值，见6.2），从容器取出的函数引用必须先落进同类型局部变量才能调用，要交给实例构造调用的函数引用也要先落进带类型的局部变量（`App`构造`m_routeLink`即此形制）。另有两处名称解析缺口（限定名的类静态成员、库包通配导入）不在上面这份递延清单里，本版按D-29改正编译器（用户裁定2026-11-19：现有VM或编译器不合理处先改正，而不是迁就现有实现，不需要向下兼容）。
 
 ### D-28 `web`包的多模块分层
@@ -347,13 +348,13 @@ roadmap所列「`TcpStream.read`区分超时与对端EOF」**现况已满足**�
 
 ### 6.1 引入与公开词汇
 
-`import web;`给出包级模块的公开类：`App`、`RequestContext`、`Middleware`、`Router`、`Session`、`SessionStore`、`MemorySessionStore`。三枚子模块各有自己的限定名，引用它们要再import那一枚子模块或写`import web.*;`：`web.static`有`StaticFiles`，`web.sse`有`Sse`，`web.form`有`Form`、`FormOptions`、`FormData`、`FormFile`、`MultipartBody`；为什么这样分层见D-28。适配器`FuncMiddleware`与常量表为包内实现细节，不进手册。用户侧签名一律限定名（D-2），跨子模块的示例与语料统一写`import web.*;`（6.11）。静态成员既可经裸类名也可经模块限定名访问（`Form.parse(ctx)`与`web.form.Form.parse(ctx)`同样合法，D-29）。
+`import web;`给出包级模块的公开类：`App`、`RequestContext`、`Middleware`、`Router`、`Session`、`SessionStore`、`MemorySessionStore`。三枚子模块各有自己的限定名，引用它们要再import那一枚子模块或写`import web.*;`：`web.static`有`StaticFiles`，`web.sse`有`Sse`，`web.form`有`Form`、`FormOptions`、`FormData`、`FormFile`、`MultipartBody`；为什么这样分层见D-28。适配器`FuncMiddleware`、自由函数`hexEncode`与常量表为包内实现细节，不进手册：stdlib源文件没有文件级私有可见性，随机字节的十六进制写法（D-13、裁决36）需要一个跨文件共用的自由函数，它随包公开纯属语言现状，不是给用户的接口。用户侧签名一律限定名（D-2），跨子模块的示例与语料统一写`import web.*;`（6.11）。静态成员既可经裸类名也可经模块限定名访问（`Form.parse(ctx)`与`web.form.Form.parse(ctx)`同样合法，D-29）。
 
 ### 6.2 `App`
 
 ```
 class App {
-    public App();                                        // 默认内存会话store + 文本404
+    public App();                                        // 不带会话store（要会话调useSessions，D-12）+ 纯文本404
     public void use(func<void, RequestContext> fn);       // 函数风格中间件（D-3）
     public void use(Middleware m);                        // 子类风格中间件（D-3）
     public void on(string method, string pattern, func<void, RequestContext> h);
@@ -368,7 +369,7 @@ class App {
     public void mount(string prefix, Router r);           // 子路由分组（D-10）
     public void setNotFound(func<void, RequestContext> h);
     public void onError(func<void, RequestContext, Exception> h);     // 覆写500呈现（D-11）
-    public void useSessions(SessionStore store);
+    public void useSessions(SessionStore store, bool secureCookies = false, bool hostPrefix = false);   // cookie策略（D-12）
     public http.HttpServer server();                      // 调http层参数（maxBodyBytes等）
     public http.HttpResponse handle(http.HttpRequest req);  // 交给HttpServer的处理器
     public void listen(string host, int port);            // HttpServer.start + handle
@@ -455,6 +456,7 @@ class Session {
     public bool isNew;
     public bool isExpired;
     public long expiresAtMs;                  // monoMs域（D-12）
+    public Session();                         // 新建一条空记录（id空、两标志假、数据表空）
     public bool has(string key);
     public Object get(string key, Object def = null);
     public string getString(string key, string def = "");
@@ -463,6 +465,8 @@ class Session {
     public void remove(string key);
     public void destroy();                    // 清服务端记录 + 让本次cookie立即过期（发Max-Age: 0，D-12）
     public void rotate();                     // 换id，登录成功后必调（D-12）
+    public bool isDirty();                    // 本次请求写过没有：决定落不落盘、发不发cookie（D-12「有写入才发」）
+    public Session copy();                    // id与数据随行；isNew/isExpired不随行（它们说的是本次请求怎么拿到会话，不是记录内容）
 }
 class SessionStore {
     public virtual Session load(string id);   // 无记录或已过期→null
@@ -475,6 +479,10 @@ class MemorySessionStore : SessionStore {
     public int sweepExpired(long nowMs);      // 按传入monoMs清扫，返清除数（确定性可测）
 }
 ```
+
+自定义store只靠`Session`的三枚面完成工作：公开的`Session()`构造器新建记录、`copy()`交付快照、`isDirty()`判断这次请求有没有写。`MemorySessionStore`存的是快照而不是app手里那枚活的`Session`（每请求的会话对象因此是本请求私有的，D-25那句「单个会话不加锁」才名副其实），自定义store照同一形制写就不会并发改到同一个容器。`copy()`不带`isNew`与`isExpired`：这两枚标志说的是本次请求怎么拿到会话，写进记录就是让store记住一次请求的来历，一条活的会话会因为一次伪造的访问而此后自称过期。空闲TTL在每次`save`时向前滑动，只读不回写的请求不延长会话寿命。
+
+三档形制是同一张脸的三种拼写：构造器形参的默认值取不到命名常量（P9），实现因此按重载交付、不给形参默认值，取值仍是类内的`DEFAULT_SESSION_TTL_MS`＝1800000与`DEFAULT_SESSION_SWEEP_MS`＝60000（裁决23）。调用面`MemorySessionStore()`、`MemorySessionStore(idleTtlMs)`、`MemorySessionStore(idleTtlMs, sweepIntervalMs)`与上面那条带默认值的签名完全一致，语言层面那条缺口补齐后合回单条形制。
 
 ### 6.7 `StaticFiles`（模块`web.static`）
 
@@ -674,7 +682,7 @@ C++侧单元测试三枚（native）：`math.randomBytes`两次调用不同且�
 - `src/compiler/builder/ExprResolverStdLib.cpp`、`src/compiler/builder/ModuleRegistryGate.cpp`与`src/compiler/ModuleBuilderImports.cpp`（D-29：限定名解析统一到最长模块路径优先、`import p.*;`覆盖库包子树、诊断只对模块路径说未导入）＋`tests/test_compiler/test_module_import.cpp`（改写`builtinWildcardRejected`那枚通配拒绝断言，补限定成员与库包子树的钉值）＋`tests/e2e/`新语料与`tests/e2e/manifest.txt`；
 - `docs/user_manual/{en,zh}/specification/03-program-structure/index.md`（§3.3的库包通配适用范围与§3.6的限定名成员访问，中英成对）与`docs/user_manual/{en,zh}/specification/04-types/class.md`§4.8.8（静态成员的两种访问拼写，中英成对）；
 - `docs/dev/name_resolution_design.md`（§5的V2/V3加带日期修订：V3「库包禁通配」随D-29规则2撤销，V2的限定名准入按D-29规则1扩到类型成员）；
-- `VERSION`（0.13.11→0.13.12）、`CHANGELOG.md`与`CHANGELOG.zh-CN.md`、`docs/roadmap.md`（本版条目补写multipart与上传面；「远期特性」的语言层面缺口清单**逐项**登记九.18的四条缺口——带默认值的func形参拒绝函数引用、实例构造调用的实参位置拒绝函数引用、下标元素不能就地调用、`Dict`缺`getOrDefault`——各条附本文第九章指针，而不是只给一条指向第九章的总指针）。
+- `VERSION`（0.13.11→0.13.12）、`CHANGELOG.md`与`CHANGELOG.zh-CN.md`、`docs/roadmap.md`（本版条目补写multipart与上传面；「远期特性」的语言层面缺口清单**逐项**登记九.18的五条缺口——带默认值的func形参拒绝函数引用、实例构造调用的实参位置拒绝函数引用、下标元素不能就地调用、`Dict`缺`getOrDefault`、构造器默认值拒绝命名常量——各条附本文第九章指针，而不是只给一条指向第九章的总指针）。
 
 手册同步是本版完成定义的一部分（`tools/manual_sync_check.py`基线以来的提交逐个判定，五类用户可见面）：标准库面（`web`新包全部签名、`fs`三处、`math.randomBytes`、`net.isEof`、`http`服务器关闭语义与状态）、诊断文案（415/413/400具名消息、路由冲突文案、双启动文案，另D-29移除`Wildcard import cannot target library package`并把误报的`Module '…' is not imported`收窄到真正的模块路径）、退出码（无变更）、ABI与线格式（无变更）、语言层面（D-29的两处名称解析修复：库包通配导入与经限定名的类静态成员访问；D-27的四条缺口只进roadmap登记）。用户可见的类都有`.n`源码（`stdlib/web.n`与三枚子模块）满足要求；手册`27-web.md`按模块分列公开面（`web`、`web.static`、`web.sse`、`web.form`），并写明引用子模块的类型需`import web.static;`一类或`import web.*;`——只`import web;`时点号子模块不在名册里（D-28）。
 
@@ -699,7 +707,7 @@ C++侧单元测试三枚（native）：`math.randomBytes`两次调用不同且�
 15. **闭包落地后的写法收敛**：roadmap已记「v0.13.10闭包落地后再替换」。届时`Middleware`子类风格保留（配置与状态场景），函数风格可由闭包表达；注册方法名已经收敛成单名重载（`use`与`mount`各两候选，用户裁定2026-11-17），闭包落地只是让写法更省事，不再欠这项收尾。
 16. **下载响应头的`filename*`**：上传解析不认`filename*`（RFC 7578 §4.2 NOTE「The encoding method described in [RFC5987] … MUST NOT be used」、MDN「the request header does not have the filename* parameter」），但**响应侧**的文件下载头正是它的用武之地：RFC 6266 §4.3要求`filename`与`filename*`同时在场时收件人优先取后者。届时要做`contentDisposition(filename, kind)`一类的生成器，并处理`UTF-8''…`的charset与`lang`段、未知charset、RFC 8187的扩展参数写法，以及`filename`回退值的清洗（RFC 6266 §4.3点名控制字符、首尾空白、`.`/`..`、`~`、`|`与设备名）。清洗规则可与`FormFile.safeName()`同源。参考：RFC 5987/6266/8187、MDN`Content-Disposition`。
 17. **会话并发与过期策略**：并发语义现状是last-write-wins（D-25）。将来若要「同会话请求串行」，落点是store的per-id信号量＋等待上限，并须重新裁决死锁与长任务（SSE会话）的关系；过期策略现状只有空闲TTL（D-12），绝对上限与到期滚动刷新（express-session的`cookie.maxAge`配`rolling`）应当一并设计，否则`expiresAtMs`会被两套时限拉扯。参考：Rails`ActiveRecord::SessionStore`教训、express-session文档对并发请求与`rolling`的说明。
-18. **本版登记的语言层面缺口**（进roadmap「远期特性」语言层面清单，不记入手册已知限制）：带默认值的func形参上下文中函数引用被拒（P2，探针F3；修法是把期望函数的解析延后到实参形态已知，或在期望类型解析里带上形参的声明类型）；实例构造调用的实参位置同样不给函数引用预期类型（`FuncMiddleware(handler)`一类`Type(args)`写法，自由函数引用与绑定方法引用都被拒，同一枚引用在普通调用实参、字段赋值与带类型的局部声明三处都能绑定，缺口只在构造调用那一格，探针`temp/t6_probe3.n`实测2026-11-19；与第一条同属期望类型的传播缺口，一条修法覆盖两者）；容器元素不能就地调用（`mws[0](ctx)`一类一律语法错，必须先落进同类型局部变量，P7，探针W1/W2/W4/W6/X6b；影响所有「把函数引用装进容器」的写法，不止本框架）；`Dict`缺`getOrDefault`而`get`缺键抛异常（P4，配套`Set.contains`风格一致性核）。同日实测的另两处名称解析缺口不入本条：限定名的类静态成员与库包通配导入按D-29当版改正编译器，既不递延也不记入手册已知限制。
+18. **本版登记的语言层面缺口**（进roadmap「远期特性」语言层面清单，不记入手册已知限制）：带默认值的func形参上下文中函数引用被拒（P2，探针F3；修法是把期望函数的解析延后到实参形态已知，或在期望类型解析里带上形参的声明类型）；实例构造调用的实参位置同样不给函数引用预期类型（`FuncMiddleware(handler)`一类`Type(args)`写法，自由函数引用与绑定方法引用都被拒，同一枚引用在普通调用实参、字段赋值与带类型的局部声明三处都能绑定，缺口只在构造调用那一格，探针`temp/t6_probe3.n`实测2026-11-19；与第一条同属期望类型的传播缺口，一条修法覆盖两者）；容器元素不能就地调用（`mws[0](ctx)`一类一律语法错，必须先落进同类型局部变量，P7，探针W1/W2/W4/W6/X6b；影响所有「把函数引用装进容器」的写法，不止本框架）；`Dict`缺`getOrDefault`而`get`缺键抛异常（P4，配套`Set.contains`风格一致性核）；构造器形参的默认值取不到命名常量（本类静态常量的裸拼写与限定拼写、public静态、以及另一个类的静态常量四种拼写一起被拒，同一句`cannot reference 'this' …`落在`Knob.K`这类根本不含`this`的写法上还与代码不符，而模块作用域只有函数与类型声明、没有常量声明可退，P9，探针`temp/t7_ctor_default/`实测2026-11-19；修法是默认值按声明所属类型的作用域求值、只拒真正需要`this`的实例成员访问，附带把那句诊断按实际拼写分开措辞；与第一条的func形参默认值同属「默认值求值没接上声明处作用域」一族）。同日实测的另两处名称解析缺口不入本条：限定名的类静态成员与库包通配导入按D-29当版改正编译器，既不递延也不记入手册已知限制。
 19. **`http`面的动词整理**：`HttpClient.open(req)`的`open`会被读成「打开连接」，实际义为「发起流式交换」（连接由池透明借还，缓冲版叫`request()`），若清理该面可考虑改名`stream(req)`；同批一并处理两个`drain`的分工（`HttpBodyReader.drain(int)`吃残余正文、`HttpServer.drain(graceMs)`排空在途请求，现以类名限定语区分）。两者都只动命名不动语义，代价是手册§23.4/§23.5/§23.6与全部在树示例跟改，与本版功能正交，故递延。
 20. **部件头的三类历史解码**：`Content-Transfer-Encoding`（quoted-printable与base64；RFC 7578 §4.7已请发送方不要再发、「no deployed implementations that send such bodies have been discovered」，唯Go`NextPart`特判解码而`NextRawPart`不解）、RFC 2047 encoded-word的字段名与值（§5.1自述「this practice doesn't seem to have been followed widely」，Werkzeug/busboy/Rack都不解）、RFC 2231的续行与扩展参数（`name*0*=…`，Go按「invalid parameter value」拒）。本版一律不透明直通。主要候选来源是邮件网关转发的表单；真要做时解码层加在D-19读完部件头之后，并必须先定下唯一口径，避免「同一个body经不同API拿到不同字节」。
 21. **文本部件的charset梯度**：RFC 7578 §5.1.2给的梯度是部件`Content-Type: text/plain; charset=…`＞`_charset_`字段（§4.6）＞文档编码＞UTF-8，服务的是HTML form遗留场景；本版按WHATWG fetch固定UTF-8。将来落地要一并裁决`charset=`值不在白名单内的处置（Werkzeug的白名单是`ascii`/`us-ascii`/`utf-8`/`iso-8859-1`并自注不再扩充）、`_charset_`字段的全局生效范围，以及`FormData.get()`与`FormFile.text()`两条解码路径同源。
@@ -722,3 +730,4 @@ C++侧单元测试三枚（native）：`math.randomBytes`两次调用不同且�
 - 2026-11-19 承载边界改判（用户裁定2026-11-19：stdlib包与文件一对一不成立，包可以嵌套导入、按java的方式组织，一个文件太大、上下文太长且不利维护）：作废D-26的「标准库不能是多文件包，故框架整体必须是单文件`web.n`」及其代价条，新增D-28定多模块分层——包级模块`stdlib/web.n`装它自己公开面点名的全部类型（`App`/`Router`/`RequestContext`/`Middleware`/会话族），三枚子模块`stdlib/web/static.n`、`stdlib/web/sse.n`、`stdlib/web/form.n`只单向import包级模块；分层的硬依据取自探针`temp/nest/`（一份`.nproj`同时装`k.n`与`k/w.n`可打包可运行、`import k.*;`并入整棵子树、包级模块反向import子模块被编译期拒为`import cycle detected: k -> k.w -> k`、只`import k;`时`k.w`不在名册里）；6.1公开词汇与6.11示例改模块限定名，第八章补`CMakeLists.txt`递归收集与`tools/test_families.txt`两处构建面。分层结论同时写回docs/roadmap.md的v0.13.12条与远期特性「标准库大文件改多模块包」条。
 - 2026-11-19 名称解析修复（用户裁定2026-11-19：现有vm或编译器不合理的先改正，而不是迁就现有实现，不需要向下兼容）：新增D-29定三条规则——限定名按最长模块路径优先、其次类型分派并覆盖任意深度与全部成员种类，`import p.*;`对库包同样并入`p`及其子模块，诊断只对确实是模块路径的名字说「is not imported」。判定依据是实测矩阵（`temp/dlib/`、`temp/dmod_b/`、`temp/dmod_c/`）：`http.HttpResponse.reasonPhraseFor(404)`与`json.JsonValue.MAX_DEPTH`报`Module '…' is not imported`，而照该建议补import分别得到`not found`与`Wildcard import cannot target library package`，同形状的`p.K.s()`（项目模块）、`json.JsonKind.Object`（枚举成员）与裸类名`HttpResponse.reasonPhraseFor(404)`都能编译。据此作废实施计划裁决40「那是语言层面改动，本版不做」的结论与其在裁决44②的引用，手册`03-program-structure/index.md`§3.3「库包是单个单元」那句前提一并改写；D-27因此从「本版语言层面零变更」改为「无新语法，两处名称解析缺陷当版改正」，§九.18的三条递延语言层面缺口不变。同日补测两处：手册`04-types/enum.md`§4.6.4的`lib.Color.Blue.rank()`与`lib.Color.Red.toString()`在项目模块编译运行通过（探针`temp/d29p/p2/`退出码0），库包形态的`json.JsonKind.Object.toString()`却报`Module 'json.JsonKind.Object' is not imported`（探针`temp/d29p/`），据此规则1把「在成员常量上调方法」写入覆盖面；`docs/dev/name_resolution_design.md`§5的V3「库包禁通配」按其自陈理由在D-28之后失效，随规则2撤销、V2按规则1扩展，该文档另加带日期修订记录。
 - 2026-11-19 实施期语言层面补登记（路由表编码时实测，探针`temp/t6_probe3.n`）：P2那句`function reference "…" requires an expected function type`还在**实例构造调用的实参位置**复现——`FuncMiddleware(this.routeTail)`这类`Type(args)`写法，自由函数引用与绑定方法引用一起被拒，而同一枚引用在普通调用实参、字段赋值与带类型的局部声明三处都能绑定，因此缺口是期望类型没有穿过构造调用那一格，与九.18第一条（带默认值的func形参）同属一条传播链。P2行的两处与九.18据实补写，第八章的roadmap清单由三条改为四条；框架侧不绕行编译器的办法只有一条一行式改写（先把方法引用落进`func<void, RequestContext>`局部变量，再交给构造调用），`App`构造`m_routeLink`即用此形制，故本版不受阻挡，缺口本身进roadmap远期特性。
+- 2026-11-19 实施期语言层面补登记（会话store编码时实测，探针`temp/t7_ctor_default/`）：**构造器形参的默认值取不到任何命名常量**——本类静态常量的裸拼写`K`与限定拼写`CfgQual.K`、public静态常量、以及另一个类的`Knob.K`四种拼写一起编译失败，都报同一句`cannot reference 'this' (explicitly or through a bare field)`，而`Knob.K`与所述代码不符：闸门`src/compiler/builder/StatementResolverDeclDefaults.cpp:40-115`把绑定到`NK_ClassField`/`NK_StructField`的标识符一律算作`this`引用。同一个裸常量作普通方法的默认值编译运行都通过（探针`cd_method.n`），故D-22的`drain(int graceMs = DEFAULT_DRAIN_GRACE_MS)`成立而`MemorySessionStore`的构造器不成立。退路也不存在：模块作用域的成员只有函数与类型声明（`include/nlang/compiler/SyntaxNodeConsts.h:162-166`），文件作用域的`const int`被当脚本语句拒（探针`cd_toplevel.n`），stdlib里只有`const class`而无一处模块级常量。据此3.2新增P9行、九.18由四条改为五条、第八章的roadmap清单同步补一条，6.6写明三枚构造器是同一张脸的三种拼写；框架侧的改法是三枚互相转发的构造器加一枚`private init`，调用面不变，故本版不受阻挡，缺口本身进roadmap远期特性。
