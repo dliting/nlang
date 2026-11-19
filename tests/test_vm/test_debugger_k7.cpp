@@ -91,7 +91,7 @@ void test_freeze_releases_inflight_segment()
         "    public void run() {\n"               //7
         "        go = 1;\n"                       //8
         "        int i = 0;\n"                    //9
-        "        while (i < 2000000) {\n"         //10
+        "        while (i < 200000) {\n"          //10
         "            i = i + 1;\n"                //11
         "        }\n"                             //12
         "        io.write(\"b1\");\n"             //13
@@ -131,8 +131,10 @@ void test_freeze_releases_inflight_segment()
         //segment's output write lands and the following receive parks —
         //both observable before the window closes. The deadline is
         //generous (the pre-K7 regression stalls the write FOREVER, not
-        //merely slowly): the ASan leg's 2M-iteration segment alone
-        //runs ~2s, so a tight bound would misfire there.
+        //merely slowly). The in-flight loop is sized 200k so its Debug
+        //build runs in well under a second even under parallel ctest
+        //load — the 2M form needed 10s+ under -j4 and flaked against
+        //exactly this bound.
         auto deadline = std::chrono::steady_clock::now()
             + std::chrono::milliseconds(10000);
         while (!io.contains("b1")

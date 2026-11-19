@@ -13,10 +13,12 @@
 #include "VmExecutor.h"
 #include "NcuLoader.h"
 #include "NcuLinker.h"
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <thread>
 
 #ifndef STDLIB_DIR
 #define STDLIB_DIR ""
@@ -49,7 +51,7 @@ struct BuildOutcome
     std::string diagnostics;
 };
 
-static BuildOutcome buildSource(const std::string& tag,
+static BuildOutcome buildSourceOnce(const std::string& tag,
     const std::string& source)
 {
     const auto dir = scratchDir();
@@ -85,6 +87,27 @@ static BuildOutcome buildSource(const std::string& tag,
     for (auto it = logger.cbegin(); it != logger.cend(); ++it)
         outcome.diagnostics += (*it)->Message() + "\n";
     return outcome;
+}
+
+//The stress loop rewrites the same scratch source ~1000 times; under
+//the real-time scanner's write-handle window the freshly-written file
+//can be briefly unreadable (one spurious "Cannot open source file" per
+//~1000 builds under ASan disk pressure was observed in the gates).
+//Retry the write+build pair on exactly that signature — a semantic
+//rejection never matches, so a genuine regression cannot be retried
+//away.
+static BuildOutcome buildSource(const std::string& tag,
+    const std::string& source)
+{
+    static const char* kOpenFailure = "Cannot open source file";
+    for (int attempt = 0;; ++attempt) {
+        BuildOutcome outcome = buildSourceOnce(tag, source);
+        if (outcome.ok || attempt == 2
+            || outcome.diagnostics.find(kOpenFailure)
+                == std::string::npos)
+            return outcome;
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
 }
 
 static bool DiagHas(const BuildOutcome& o, const char* text)
