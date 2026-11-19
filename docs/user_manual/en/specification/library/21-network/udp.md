@@ -36,7 +36,7 @@ the received length: convert or forward only that many bytes.
 
 The request is already queued when `recvFrom` runs, so this exchange
 needs no second thread; a real server parks in `recvFrom` and
-answers each sender from the `out` parameters:
+answers each sender from the reference parameters:
 
 ```nlang
 import io;
@@ -49,7 +49,7 @@ int main() {
     byte[] buf = byte[64];
     string from;
     int port = 0;
-    int n = srv.recvFrom(buf, out from, out port, 5000);
+    int n = srv.recvFrom(buf, from, port, 5000);
     cli.close();
     srv.close();
     if (n == 5 && from == "127.0.0.1") { return 7; }
@@ -58,5 +58,5 @@ int main() {
 ```
 
 The shipped `examples/net_udp_echo.n` shows the server shape: park,
-read the sender's address and port from the `out` parameters, and
+read the sender's address and port from the reference parameters, and
 echo the received bytes back to exactly that endpoint.

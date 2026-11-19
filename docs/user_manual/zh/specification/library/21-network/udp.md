@@ -25,7 +25,7 @@
 
 收到的数据报拷贝进`buf`，比`buf.length`长时截断——多余的字节被丢弃，这是套接字接口的标准行为。按协议允许的最大数据报来定接收缓冲区的大小，并把返回值当实收长度用：只转换或转发那么多字节。
 
-`recvFrom`运行时请求早已在队列里，所以这次交换不需要第二个线程；真正的服务器停在`recvFrom`上，从`out`参数取发送者并应答：
+`recvFrom`运行时请求早已在队列里，所以这次交换不需要第二个线程；真正的服务器停在`recvFrom`上，从引用参数取发送者并应答：
 
 ```nlang
 import io;
@@ -38,7 +38,7 @@ int main() {
     byte[] buf = byte[64];
     string from;
     int port = 0;
-    int n = srv.recvFrom(buf, out from, out port, 5000);
+    int n = srv.recvFrom(buf, from, port, 5000);
     cli.close();
     srv.close();
     if (n == 5 && from == "127.0.0.1") { return 7; }
@@ -46,4 +46,4 @@ int main() {
 }
 ```
 
-随包发布的`examples/net_udp_echo.n`展示服务器形态：停泊，从`out`参数读发送者的地址与端口，把收到的字节原样发回那个端点。
+随包发布的`examples/net_udp_echo.n`展示服务器形态：停泊，从引用参数读发送者的地址与端口，把收到的字节原样发回那个端点。
