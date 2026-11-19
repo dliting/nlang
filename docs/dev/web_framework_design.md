@@ -297,10 +297,10 @@ roadmap所列「`TcpStream.read`区分超时与对端EOF」**现况已满足**�
 零编译器/VM改动；新增native三枚（`math.randomBytes`、`fs.writeBytes`、`fs.modifiedTimeMs`，落在`src/native/math`与`src/native/fs`）＋`fs.readBytes`返回类型变更；`net.isEof()`与`http`的关闭状态机都在源码层，宿主不动；NCU/npkg线格式与版本不动（无新记录种类）；`web`包的模块清单由预置包的源文件glob收编，子模块要求把单层glob改成递归收集并让构建期拷贝保留目录结构（`CMakeLists.txt:267`的`file(GLOB …)`与`nlang_stdlib_package`目标的拷贝命令，见D-28与第八章）；`web`包import `http`/`url`/`json`/`io`/`fs`/`math`/`system`/`thread`/`concurrent`（`math`是D-13/D-21的`randomBytes`所需，漏import则会话id与boundary在编译期就是未解析符号）——stdlib内跨包import是既有做法（`stdlib/http.n:7-13`即七行逐行import），包内文件怎么切分见D-28（2026-11-19改判，本条原先据「标准库不能是多文件包」要求单文件）。
 理由：本版的承载边界只钉「宿主与线格式不动」，包内文件怎么切不在它的约束之内；预置包的收集规则是一处构建脚本而非宿主能力，改它属承载边界内的一次必要改动。代价：`CMakeLists.txt`的预置包收集与拷贝要改成递归形态，随第一枚子模块落地；既有那条「删了stdlib源文件要手工删build树里的陈旧拷贝」的告诫随之覆盖子目录。
 
-### D-27 本版语言面零变更
+### D-27 本版语言面：无新语法，另有两处名称解析缺陷当版改正
 
 无新语法、无新关键字。本版实测的三条可用性缺口登记进roadmap「远期特性」的语言面缺口清单，不用绕行掩盖：带默认值的func形参上下文中函数引用被拒（P2，探针F3实测rc=1）；下标元素不能就地调用（`mws[0](ctx)`报语法错，必须先取进同类型局部变量，P7）；`Dict`缺`getOrDefault`而`get`缺键抛异常（P4）。
-理由：框架侧的单名重载与带默认值读取面只是**可用**，不等于**合理**；缺口该在语言层解决就该在语言层排期（既有裁定：语言面缺口合理时直接补语言）。代价：本版用户的func形参不能带默认值（注册方法的func形参因此一律不带默认值，见6.2），且从容器取出的函数引用必须先落进局部变量才能调用。
+理由：框架侧的单名重载与带默认值读取面只是**可用**，不等于**合理**；缺口该在语言层解决就该在语言层排期（既有裁定：语言面缺口合理时直接补语言）。代价：本版用户的func形参不能带默认值（注册方法的func形参因此一律不带默认值，见6.2），且从容器取出的函数引用必须先落进局部变量才能调用。另有两处名称解析缺口（限定名的类静态成员、库包通配导入）不在上面这份递延清单里，本版按D-29改正编译器（用户裁定2026-11-19：现有VM或编译器不合理处先改正，而不是迁就现有实现，不需要向下兼容）。
 
 ### D-28 `web`包的多模块分层
 
@@ -310,13 +310,42 @@ roadmap所列「`TcpStream.read`区分超时与对端EOF」**现况已满足**�
 
 代价：公开词汇按模块拼（`web.static.StaticFiles`、`web.form.FormData`），只写`import web;`的用户引用不到子模块——探针里只`import k;`的那份消费者实测报`Module 'k.w' is not imported. Add 'import k.w;' (or 'import k.*;')`，手册必须把这条import形态写清（第八章）。行数收益因此集中在三枚叶子而非均摊到全部14枚公开类。
 
+### D-29 限定名与库包通配导入的解析修复
+
+`web`改成点分多模块包（D-28）之后，用户要写`import web.*;`与`web.form.Form.parse(ctx)`两型拼写，而这两型今天就编译不过，同形状的其它拼写却都能编译。实测矩阵（探针在`temp/dlib/`、`temp/dmod_b/`、`temp/dmod_c/`，编译器取`build-dev`的`ncc`，因而按stdlib预置包语义解析库包；引文一律省略`文件(行, 列):`前缀）：
+
+| 拼写 | 实测 |
+| --- | --- |
+| `import http;`之后`http.HttpResponse res = http.HttpResponse()` | 通过 |
+| `import http;`之后裸类名静态方法`HttpResponse.reasonPhraseFor(404)` | 通过 |
+| `import json;`之后限定名枚举成员`json.JsonKind.Object` | 通过 |
+| `import http;`之后限定名静态方法`http.HttpResponse.reasonPhraseFor(404)` | `Error: Module 'http.HttpResponse' is not imported. Add 'import http.HttpResponse;' (or 'import http.*;') at the top of this file.`＋`Error: Incompatible type "http.HttpResponse.reasonPhraseFor(404)".` |
+| `import json;`之后限定名静态常量`json.JsonValue.MAX_DEPTH` | 同一形制，落点换成`json.JsonValue` |
+| 照该建议改`import http.HttpResponse;` | `Error: Module 'http.HttpResponse' not found. Check the project Sources list or -I import path.` |
+| 照该建议改`import http.*;` | `Error: Wildcard import cannot target library package 'http'. Use 'import http;'.` |
+| 项目模块`import p;`之后`p.K.s()`与`p.K.TAG` | 通过（探针退出码14） |
+| 项目模块`import m2.*;`之后`m2.side.Widget.answer()` | `Error: The function "answer" does not exist or is not accessible.` |
+| 项目模块`import m2.side;`之后同一拼写 | `Error: Module 'm2.side.Widget' is not imported. Add 'import m2.side.Widget;' (or 'import m2.side.*;') at the top of this file.` |
+
+三条补救建议没有一条可用：补精确import得到「not found」（类不是模块），补通配import被编译器自己拒绝，照抄限定拼写则原地报错。项目模块与库包之间、一级与二级之间、枚举成员与类静态成员之间的这些落差都不是设计，而是解析器三处认领臂各按自己的谓词抢下这条限定链（`src/compiler/builder/ExprResolverStdLib.cpp`）：库包认领臂只看链首是不是库包名（`:90`），子包否决扫描在第一个已知前缀就返回（`:108-126`，于是`m2.side.Widget`在`m2`那一层被误认领，`m2.side`那一层的类型判定再没人看），限定值与限定类型引用两处的闸门同样只认「首段是库包」（`:307-310`、`:396-399`），而限定值那条还只认枚举成员（`:319-320`）。同一文件对限定类型引用的注释（`:377-385`）写明限定拼写「与裸类名共用同一条桩记录与同一套诊断」，且该路径要在绑定类型之后交给通用类型接收路径「在类型作用域内解析成员或静态调用」——统一限定访问是既定设计，现状是实现没跟上。
+
+本版把规则统一成三条：
+
+1. **限定名按最长模块路径优先、其次类型分派。**`a.b.c.m`若`a.b.c`是本构建已知的模块（项目模块、按搜索路径内联进构建的库源文件、或库索引里的库模块），`m`按模块成员解析（自由函数或再深的子模块）；否则取某个已知前缀`a.b`，若`c`是该模块内容许本单元访问的类型，`c.m`就在该类型作用域内解析——静态方法、静态常量与枚举成员同等，库包与项目包同等、任意嵌套深度同等。同名类型优先于同名子模块的既有优先级不变（编译器内称m12优先级规则，落在`ExprResolverStdLib.cpp:101-107`的注释与其上的decline单测）。
+2. **`import p.*;`一律并入`p`及其全部子模块，库包与项目包同等。**扁平库包的通配因此与精确import等价，`import http.*;`不再是硬错误；`import web.*;`一次打开`web`、`web.static`、`web.sse`与`web.form`。
+3. **诊断只对确实是模块路径的名字说「is not imported」。**指向类型的成员缺失按成员不存在表述，指向不存在模块路径的沿用既有`… not found. Check the project Sources list or -I import path.`形制；给用户的每条补救建议本身必须可用。
+
+理由：这不是加语法，而是修一处无法向用户解释的分裂——同一段代码在项目模块里编译通过、放进库包就不通过；枚举成员经限定名取得而类静态成员取不到；编译器给出的补救建议还被编译器自己拒绝。现行绕行写法（静态成员一律裸类名，实施计划裁决40）会把缺陷固化成手册里一条「限定名只到类」的特例：用户照`web.App()`的直觉写`web.form.Form.parse(ctx)`必撞错，而D-28选定的多模块词汇在库包通配导入被拒的情况下只能逐枚精确import。按既定裁定（语言面缺口合理时直接补语言而非绕行、不向下兼容、现状不是设计依据）与用户裁定「现有vm或编译器不合理的先改正，而不是迁就现有实现，不需要向下兼容」（2026-11-19），本版改正编译器。
+
+代价：解析侧三处认领臂换成一条共享谓词（模块路径存在性＝登记表∪库索引，类型否决＝扫描全部前缀而不是停在第一个已知前缀）；`Wildcard import cannot target library package`这条诊断随规则2移除，钉它的单测`tests/test_compiler/test_module_import.cpp:659`改写成「通配并入库子树」的断言；库源发现层要为通配枚举库目录子树（`src/compiler/ModuleBuilderImports.cpp:302`今天遇通配直接跳过）；手册两处中英成对更新——`docs/user_manual/{en,zh}/specification/03-program-structure/index.md`§3.3那句「`p`命名库包即编译期错误，因为库包是单个单元」的前提已被嵌套库包推翻（D-28），§3.6的限定名段补一句经模块路径限定类型之后的成员访问。语法、关键字、字节码、ABI与退出码都不变：修复只让此前必然编译失败的拼写成立，既有程序的语义与诊断不改写，裁决40的裸类名写法继续有效、只是不再必需。
+
 ## 六、API面
 
 以下为签名级草案，语义与错误姿态见第五章；参数默认值以`DEFAULT_*`常量为名进实现（magic number必须常量化）。
 
 ### 6.1 引入与公开词汇
 
-`import web;`给出包级模块的公开类：`App`、`RequestContext`、`Middleware`、`Router`、`Session`、`SessionStore`、`MemorySessionStore`。三枚子模块各有自己的限定名，引用它们要再import那一枚子模块或写`import web.*;`：`web.static`有`StaticFiles`，`web.sse`有`Sse`，`web.form`有`Form`、`FormOptions`、`FormData`、`FormFile`、`MultipartBody`；为什么这样分层见D-28。适配器`FuncMiddleware`与常量表为包内实现细节，不进手册。用户侧签名一律限定名（D-2），跨子模块的示例与语料统一写`import web.*;`（6.11）。
+`import web;`给出包级模块的公开类：`App`、`RequestContext`、`Middleware`、`Router`、`Session`、`SessionStore`、`MemorySessionStore`。三枚子模块各有自己的限定名，引用它们要再import那一枚子模块或写`import web.*;`：`web.static`有`StaticFiles`，`web.sse`有`Sse`，`web.form`有`Form`、`FormOptions`、`FormData`、`FormFile`、`MultipartBody`；为什么这样分层见D-28。适配器`FuncMiddleware`与常量表为包内实现细节，不进手册。用户侧签名一律限定名（D-2），跨子模块的示例与语料统一写`import web.*;`（6.11）。静态成员既可经裸类名也可经模块限定名访问（`Form.parse(ctx)`与`web.form.Form.parse(ctx)`同样合法，D-29）。
 
 ### 6.2 `App`
 
@@ -640,9 +669,11 @@ C++侧单元测试三枚（native）：`math.randomBytes`两次调用不同且�
 - `tests/test_compiler/test_library_index.cpp`与`tests/test_langservice/test_symbol_index.cpp`（两处`kStdlibSymbolPin`＝336是预置包公开符号总数钉值，`web`包与三枚新native落地后必随实际值刷新）；
 - `docs/dev/stdlib_public_surface.md`（预置包公开面清单）、`README.md`与`README.zh-CN.md`（标准库清单里的包列表）；
 - 手册`library/13-math.md`、`library/16-fs.md`、`library/20-library-exceptions.md`（三枚新native与`readBytes`变更的异常行）、`library/21-network/tcp.md`、`library/23-http.md`，formats三页27/28/29→28/29/30（中英成对），`index.md`与导航/搜索索引覆盖新页；
+- `src/compiler/builder/ExprResolverStdLib.cpp`、`src/compiler/builder/ModuleRegistryGate.cpp`与`src/compiler/ModuleBuilderImports.cpp`（D-29：限定名解析统一到最长模块路径优先、`import p.*;`覆盖库包子树、诊断只对模块路径说未导入）＋`tests/test_compiler/test_module_import.cpp`（改写`builtinWildcardRejected`那枚通配拒绝断言，补限定成员与库包子树的钉值）＋`tests/e2e/`新语料与`tests/e2e/manifest.txt`；
+- `docs/user_manual/{en,zh}/specification/03-program-structure/index.md`（§3.3的库包通配适用范围与§3.6的限定名成员访问，中英成对）与`docs/user_manual/{en,zh}/specification/04-types/class.md`§4.8.8（静态成员的两种访问拼写，中英成对）；
 - `VERSION`（0.13.11→0.13.12）、`CHANGELOG.md`与`CHANGELOG.zh-CN.md`、`docs/roadmap.md`（本版条目补写multipart与上传面；「远期特性」的语言面缺口清单**逐项**登记九.18的三条缺口——带默认值的func形参拒绝函数引用、下标元素不能就地调用、`Dict`缺`getOrDefault`——各条附本文第九章指针，而不是只给一条指向第九章的总指针）。
 
-手册同步是本版完成定义的一部分（`tools/manual_sync_check.py`基线以来的提交逐个判定，五类用户可见面）：标准库面（`web`新包全部签名、`fs`三处、`math.randomBytes`、`net.isEof`、`http`服务器关闭语义与状态）、诊断文案（415/413/400具名消息、路由冲突文案、双启动文案）、退出码（无变更）、ABI与线格式（无变更）、语言面（无变更，D-27的三条缺口只进roadmap登记）。用户可见的类都有`.n`源码（`stdlib/web.n`与三枚子模块）满足要求；手册`27-web.md`按模块分列公开面（`web`、`web.static`、`web.sse`、`web.form`），并写明引用子模块的类型需`import web.static;`一类或`import web.*;`——只`import web;`时点号子模块不在名册里（D-28）。
+手册同步是本版完成定义的一部分（`tools/manual_sync_check.py`基线以来的提交逐个判定，五类用户可见面）：标准库面（`web`新包全部签名、`fs`三处、`math.randomBytes`、`net.isEof`、`http`服务器关闭语义与状态）、诊断文案（415/413/400具名消息、路由冲突文案、双启动文案，另D-29移除`Wildcard import cannot target library package`并把误报的`Module '…' is not imported`收窄到真正的模块路径）、退出码（无变更）、ABI与线格式（无变更）、语言面（D-29的两处名称解析修复：库包通配导入与经限定名的类静态成员访问；D-27的三条缺口只进roadmap登记）。用户可见的类都有`.n`源码（`stdlib/web.n`与三枚子模块）满足要求；手册`27-web.md`按模块分列公开面（`web`、`web.static`、`web.sse`、`web.form`），并写明引用子模块的类型需`import web.static;`一类或`import web.*;`——只`import web;`时点号子模块不在名册里（D-28）。
 
 ## 九、后续版本备忘
 
@@ -665,7 +696,7 @@ C++侧单元测试三枚（native）：`math.randomBytes`两次调用不同且�
 15. **闭包落地后的写法收敛**：roadmap已记「v0.13.10闭包落地后再替换」。届时`Middleware`子类风格保留（配置与状态场景），函数风格可由闭包表达；注册方法名已经收敛成单名重载（`use`与`mount`各两候选，用户裁定2026-11-17），闭包落地只是让写法更省事，不再欠这项收尾。
 16. **下载响应头的`filename*`**：上传解析不认`filename*`（RFC 7578 §4.2 NOTE「The encoding method described in [RFC5987] … MUST NOT be used」、MDN「the request header does not have the filename* parameter」），但**响应侧**的文件下载头正是它的用武之地：RFC 6266 §4.3要求`filename`与`filename*`同时在场时收件人优先取后者。届时要做`contentDisposition(filename, kind)`一类的生成器，并处理`UTF-8''…`的charset与`lang`段、未知charset、RFC 8187的扩展参数写法，以及`filename`回退值的清洗（RFC 6266 §4.3点名控制字符、首尾空白、`.`/`..`、`~`、`|`与设备名）。清洗规则可与`FormFile.safeName()`同源。参考：RFC 5987/6266/8187、MDN`Content-Disposition`。
 17. **会话并发与过期策略**：并发语义现状是last-write-wins（D-25）。将来若要「同会话请求串行」，落点是store的per-id信号量＋等待上限，并须重新裁决死锁与长任务（SSE会话）的关系；过期策略现状只有空闲TTL（D-12），绝对上限与到期滚动刷新（express-session的`cookie.maxAge`配`rolling`）应当一并设计，否则`expiresAtMs`会被两套时限拉扯。参考：Rails`ActiveRecord::SessionStore`教训、express-session文档对并发请求与`rolling`的说明。
-18. **本版登记的语言面缺口**（进roadmap「远期特性」语言面清单，不记入手册已知限制）：带默认值的func形参上下文中函数引用被拒（P2，探针F3；修法是把期望函数的解析延后到实参形态已知，或在期望类型解析里带上形参的声明类型）；容器元素不能就地调用（`mws[0](ctx)`一类一律语法错，必须先落进同类型局部变量，P7，探针W1/W2/W4/W6/X6b；影响所有「把函数引用装进容器」的写法，不止本框架）；`Dict`缺`getOrDefault`而`get`缺键抛异常（P4，配套`Set.contains`风格一致性核）。
+18. **本版登记的语言面缺口**（进roadmap「远期特性」语言面清单，不记入手册已知限制）：带默认值的func形参上下文中函数引用被拒（P2，探针F3；修法是把期望函数的解析延后到实参形态已知，或在期望类型解析里带上形参的声明类型）；容器元素不能就地调用（`mws[0](ctx)`一类一律语法错，必须先落进同类型局部变量，P7，探针W1/W2/W4/W6/X6b；影响所有「把函数引用装进容器」的写法，不止本框架）；`Dict`缺`getOrDefault`而`get`缺键抛异常（P4，配套`Set.contains`风格一致性核）。同日实测的另两处名称解析缺口不入本条：限定名的类静态成员与库包通配导入按D-29当版改正编译器，既不递延也不记入手册已知限制。
 19. **`http`面的动词整理**：`HttpClient.open(req)`的`open`会被读成「打开连接」，实际义为「发起流式交换」（连接由池透明借还，缓冲版叫`request()`），若清理该面可考虑改名`stream(req)`；同批一并处理两个`drain`的分工（`HttpBodyReader.drain(int)`吃残余正文、`HttpServer.drain(graceMs)`排空在途请求，现以类名限定语区分）。两者都只动命名不动语义，代价是手册§23.4/§23.5/§23.6与全部在树示例跟改，与本版功能正交，故递延。
 20. **部件头的三类历史解码**：`Content-Transfer-Encoding`（quoted-printable与base64；RFC 7578 §4.7已请发送方不要再发、「no deployed implementations that send such bodies have been discovered」，唯Go`NextPart`特判解码而`NextRawPart`不解）、RFC 2047 encoded-word的字段名与值（§5.1自述「this practice doesn't seem to have been followed widely」，Werkzeug/busboy/Rack都不解）、RFC 2231的续行与扩展参数（`name*0*=…`，Go按「invalid parameter value」拒）。本版一律不透明直通。主要候选来源是邮件网关转发的表单；真要做时解码层加在D-19读完部件头之后，并必须先定下唯一口径，避免「同一个body经不同API拿到不同字节」。
 21. **文本部件的charset梯度**：RFC 7578 §5.1.2给的梯度是部件`Content-Type: text/plain; charset=…`＞`_charset_`字段（§4.6）＞文档编码＞UTF-8，服务的是HTML form遗留场景；本版按WHATWG fetch固定UTF-8。将来落地要一并裁决`charset=`值不在白名单内的处置（Werkzeug的白名单是`ascii`/`us-ascii`/`utf-8`/`iso-8859-1`并自注不再扩充）、`_charset_`字段的全局生效范围，以及`FormData.get()`与`FormFile.text()`两条解码路径同源。
@@ -686,3 +717,4 @@ C++侧单元测试三枚（native）：`math.randomBytes`两次调用不同且�
 - 2026-11-17 引用补全自审（不开新复审轮：第七轮已判「可以进入实施计划」，本轮只把该轮撤销项6登记的「§5.2.2引文不可逐字核」补成可核）：**取得RFC 6265纯文本本地副本`temp/rfc6265.txt`**（curl自rfc-editor.org），据此更正D-12的`Max-Age`措辞——§5.2.2对`delta-seconds ≤ 0`是把过期时刻**直接置为「最早可表示日期时间」**（:1091-1092），再依§5.3「过期日期在过去即已过期」（:1318）与「MUST逐出过期cookie」（:1320-1321）无条件立即失效；此前两轮的「过期时刻＝提取时刻」既非该节原话，又恰好是本文要排除的「钳到0再按当前时刻＋0计算」那一档（它把过期时刻摆在提取时刻，是否失效交由收件人的比较符决定），故第五轮与第六轮记录的同处一并加注。`maxAgeSeconds`三态与`Session.destroy()`走负数写线上`Max-Age: 0`的结论不变，且因这段原文依据更足：对合规收件人无需赌实现差异。
 - 2026-11-18 实施改名（实施计划级裁决1，落在优雅关闭那枚e2e语料）：`stdlib_web_drain_close`改名`stdlib_http_drain_close`，第七章该行行名同步。理由：这枚语料只用`http.HttpServer`裸面写，测试名的包前缀必须与行为拥有者一致——按包的影响映射（`tools/test_families.txt`）与手册`23-http.md`的引用都按名字里的包名定位，挂`web`前缀会让改`http.n`时选不到这条腿、也让手册指错拥有者；`web`门面自身的`drain`/`close`转发腿仍归后续的`stdlib_web_*`语料。上文各轮修订记录里的旧名不改，那是当时决定的原文。
 - 2026-11-19 承载边界改判（用户裁定2026-11-19：stdlib包与文件一对一不成立，包可以嵌套导入、按java的方式组织，一个文件太大、上下文太长且不利维护）：作废D-26的「标准库不能是多文件包，故框架整体必须是单文件`web.n`」及其代价条，新增D-28定多模块分层——包级模块`stdlib/web.n`装它自己公开面点名的全部类型（`App`/`Router`/`RequestContext`/`Middleware`/会话族），三枚子模块`stdlib/web/static.n`、`stdlib/web/sse.n`、`stdlib/web/form.n`只单向import包级模块；分层的硬依据取自探针`temp/nest/`（一份`.nproj`同时装`k.n`与`k/w.n`可打包可运行、`import k.*;`并入整棵子树、包级模块反向import子模块被编译期拒为`import cycle detected: k -> k.w -> k`、只`import k;`时`k.w`不在名册里）；6.1公开词汇与6.11示例改模块限定名，第八章补`CMakeLists.txt`递归收集与`tools/test_families.txt`两处构建面。分层结论同时写回docs/roadmap.md的v0.13.12条与远期特性「标准库大文件改多模块包」条。
+- 2026-11-19 名称解析修复（用户裁定2026-11-19：现有vm或编译器不合理的先改正，而不是迁就现有实现，不需要向下兼容）：新增D-29定三条规则——限定名按最长模块路径优先、其次类型分派并覆盖任意深度与全部成员种类，`import p.*;`对库包同样并入`p`及其子模块，诊断只对确实是模块路径的名字说「is not imported」。判定依据是实测矩阵（`temp/dlib/`、`temp/dmod_b/`、`temp/dmod_c/`）：`http.HttpResponse.reasonPhraseFor(404)`与`json.JsonValue.MAX_DEPTH`报`Module '…' is not imported`，而照该建议补import分别得到`not found`与`Wildcard import cannot target library package`，同形状的`p.K.s()`（项目模块）、`json.JsonKind.Object`（枚举成员）与裸类名`HttpResponse.reasonPhraseFor(404)`都能编译。据此作废实施计划裁决40「那是语言面改动，本版不做」的结论与其在裁决44②的引用，手册`03-program-structure/index.md`§3.3「库包是单个单元」那句前提一并改写；D-27因此从「本版语言面零变更」改为「无新语法，两处名称解析缺陷当版改正」，§九.18的三条递延语言面缺口不变。
