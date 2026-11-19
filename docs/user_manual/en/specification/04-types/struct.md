@@ -246,7 +246,9 @@ References appear in four positions:
 - **Returns** — `Point& corner()`: the call result names storage owned
   elsewhere; returning a reference to a local fails with
   "cannot return a reference to local …; its storage ends with the
-  call."
+  call." Reference returns are implemented for free functions and
+  class methods; an interface or enum method that declares one is a
+  compile-time error.
 - **Loop variables** — `foreach (int& n in nums)`: each pass names the
   current element storage (§6.8).
 

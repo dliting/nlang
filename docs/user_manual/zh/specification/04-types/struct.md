@@ -153,7 +153,7 @@ int& s = r;    // 编译错误："cannot bind a reference to reference"
 
 - **局部绑定**——`int& r = q;`（上面的例子）。
 - **形参**——`void bump(int& v)`：通过`v`的写入落到调用方的实参（§7.2）。
-- **返回**——`Point& corner()`：调用结果指名别处拥有的存储；返回局部变量的引用以"cannot return a reference to local …; its storage ends with the call."失败。
+- **返回**——`Point& corner()`：调用结果指名别处拥有的存储；返回局部变量的引用以"cannot return a reference to local …; its storage ends with the call."失败。引用返回实现于游离函数和类方法；接口或枚举方法声明引用返回是编译期错误。
 - **循环变量**——`foreach (int& n in nums)`：每一轮指名当前元素的存储（§6.8）。
 
 **可绑定族**：标量、字符串、结构体的存储——局部变量、形参、结构体字段、数组元素，以及经该族值到达的容器元素。身份类型（class、数组、接口、`func`）本身就是引用，其上的`&`是等价记号。绑定要求**精确类型**——转换会建立新存储、破坏别名指向，因此`cannot bind int to long&; a reference binding requires the exact type.`同样拒绝枚举到整数、数值拓宽等形态。

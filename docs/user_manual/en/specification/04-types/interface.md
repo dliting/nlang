@@ -45,8 +45,11 @@ An interface instance member is a public abstract signature: the
 access modifier defaults to `public`, and spelling `public` is
 redundant but legal; `private`, `protected`, `const`, `native` and
 `virtual` are compile-time errors on an instance member, and a
-bodied instance member is a compile-time error. The implementing
-class's matching method may carry any access level (§4.9.1).
+bodied instance member is a compile-time error. A reference return
+(`int& pick()`) is a compile-time error on an interface instance
+method — reference returns are implemented for free functions and
+class methods (§4.7.9). The implementing class's matching method
+may carry any access level (§4.9.1).
 
 *Informative:* the diagnostics name the offending member, for
 instance `The interface member "m" must be public.` and
