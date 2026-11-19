@@ -1261,26 +1261,26 @@ private slots:
         QVERIFY2(run.exitValue == 4, "(2-3)+5 must come back through f");
     }
 
-    //T3: a void-returning qualified call in statement form (here with an
-    //out parameter, the only way a void function can have an effect).
+    //T3: a void-returning qualified call in statement form (here with a
+    //reference formal, the only way a void function can have an effect).
     void qualifiedVoidCallExecuted()
     {
         GateProjectOptions opts;
         opts.szHelperBody =
-            "void set42(out int v) { v = 42; }\n";
+            "void set42(int& v) { v = 42; }\n";
         opts.szMainBody =
             "import utils.helper;\n"
             "int main()\n"
             "{\n"
             "    int v = 0;\n"
-            "    utils.helper.set42(out v);\n"
+            "    utils.helper.set42(v);\n"
             "    return v;\n"
             "}\n";
         auto run = runGateProject(opts);
         QVERIFY2(run.ok, runFailureText(run,
             "qualified void call must build and execute").c_str());
         QVERIFY2(run.runtimeError.empty(), "execution must be clean");
-        QVERIFY2(run.exitValue == 42, "the out write must be visible");
+        QVERIFY2(run.exitValue == 42, "the reference write must be visible");
     }
 
     //T4 (review I1, m12 flagship): a FUNCTION named like the module

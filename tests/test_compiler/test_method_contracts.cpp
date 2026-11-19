@@ -688,8 +688,10 @@ private slots:
     }
 
     //Review-driven: an out param is a signature mismatch for the
-    //protocol's in-param slot (same identity predicate as the rest
-    //of the check family).
+    //protocol's in-param slot. v0.13.9 phase 4: the out spelling
+    //retires at the declaration throat before the contract check
+    //runs, so the slot-mismatch arm is unreachable for out formals —
+    //the rejection stands with the retirement diagnostic.
     void TestEqualsOutParamRejected() {
         auto out = compileOne(
             "class P {\n"
@@ -699,7 +701,7 @@ private slots:
             "int main() { return 0; }\n");
         QVERIFY(!out.ok);
         QCOMPARE(countErrorsContaining(out,
-            "claims the virtual dispatch slot of \"Object.equals"), 1);
+            "out parameters are retired"), 1);
     }
 
     void TestGetHashCodeWrongReturnRejected() {
