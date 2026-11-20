@@ -132,14 +132,17 @@ void test_freeze_releases_inflight_segment()
         //both observable before the window closes. The deadline is
         //generous (the pre-K7 regression stalls the write FOREVER, not
         //merely slowly): the ASan leg's 2M-iteration segment alone
-        //runs ~2s, so a tight bound would misfire there.
+        //takes well over 10s on the 2026-11-20 tree (measured: the
+        //10s cap misfired there), so the cap is calibrated to the
+        //slowest routine tree. Healthy runs exit at the first
+        //observation; only the regression path ever waits it out.
         auto deadline = std::chrono::steady_clock::now()
-            + std::chrono::milliseconds(10000);
+            + std::chrono::milliseconds(60000);
         while (!io.contains("b1")
                && std::chrono::steady_clock::now() < deadline)
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
         sawB1 = io.contains("b1");
-        deadline += std::chrono::milliseconds(10000);
+        deadline += std::chrono::milliseconds(60000);
         do {
             workerState = c.View().ContextInfo(1).stateName;
             if (workerState == "parked-chan-recv")
