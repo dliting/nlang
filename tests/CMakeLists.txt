@@ -1623,9 +1623,28 @@ if(NLANG_BUILD_IDE)
     function(nlang_add_qtest name target)
         #Optional third argument: the per-entry ceiling in seconds
         #(default is the house 3-minute rule).
-        set(ceiling 180)
+        set(default_ceiling 180)
+        set(ceiling ${default_ceiling})
+        set(ceiling_given FALSE)
         if(ARGC GREATER 2)
             set(ceiling ${ARGV2})
+            set(ceiling_given TRUE)
+        endif()
+        #The house rule is a Debug-tree measurement. The address sanitizer
+        #multiplies these families' wall time by 2.7x-8.7x (measured on the
+        #2026-11-20 merge batch: module_import_tests 25.6 s Debug against
+        #183.3 s instrumented, generic_decl_tests 10.8 s against 94.5 s), so
+        #a Debug-sized ceiling leaves an instrumented tree no headroom and
+        #flakes without pointing at a regression. That leg judges memory
+        #errors and timing regressions are judged in the Debug tree, so its
+        #ceiling only has to bound a hung child; 600 s is 3.3x the heaviest
+        #instrumented family measured today, past the oscillation slack the
+        #nd_resolve_stress and mnist_mlp_run ceilings carry. A ceiling
+        #written out per family is a measurement of that family, so it
+        #stands as given. (The sanitizer test is the same predicate
+        #_nlang_sweep_asan_runtime uses to recognise an instrumented tree.)
+        if(NOT ceiling_given AND CMAKE_CXX_FLAGS MATCHES "fsanitize=address")
+            set(ceiling 600)
         endif()
         math(EXPR wrapper_ceiling "${ceiling} - 10")
         #Run through tools/qtest_progress.py: it mirrors the -o result
