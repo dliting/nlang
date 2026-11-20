@@ -227,18 +227,15 @@ private:
 	bool RejectCompoundSubscriptTarget(SnExpression &left,
 		const ISourceLocation *pLoc);
 	//v0.13.7: array-involved compound assignment is rejected by name —
-	//array arithmetic lowers AS a tensor call on the plain binary form,
-	//and the compound emitter's kind dispatch has no array arm (the
-	//operand row would masquerade as its element carrier). The expanded
-	//form `a = a + b` takes the lowering. The string target keeps its
-	//pre-existing `s += arr` toString-coercion surface. True = rejected.
+	//array arithmetic lowers AS a tensor call on the plain binary form
+	//(the expanded `a = a + b` takes the lowering); the string target
+	//keeps its `s += arr` toString-coercion surface. True = rejected.
 	bool RejectArrayCompoundAssign(SnCompoundAssignStmt &sn,
 		const SnField *pTargetType, const SnField *pSourceType);
 	//v0.13.9 phase ②: struct-involved compound assignment is rejected
-	//by name — structs have no arithmetic operators (the expanded
-	//binary form is already rejected at the cast ladder), so an
-	//in-place compound arm has no coherent semantics; without the gate
-	//the emitter would run int-typed ops on the record's handle cells.
+	//by name — structs have no arithmetic operators, so an in-place
+	//compound arm has no coherent semantics; without the gate the
+	//emitter would run int-typed ops on the record's handle cells.
 	//True = rejected.
 	bool RejectStructCompoundAssign(SnCompoundAssignStmt &sn,
 		const SnField *pTargetType, const SnField *pSourceType);
@@ -318,10 +315,9 @@ private:
 	void PropagateAssignTargetHint(SnAssignStmt &sn);
 	bool TryBindSubscriptStoreFuncRef(SnSubscriptAssignStmt &sn);
 	//v0.14.2: the fancy-index assignment lowering (the array-valued
-	//index form). True = the statement is consumed (the tensor body
-	//bound; the plain store paths skip). Defined in
-	//StatementResolverTensorAssign.cpp together with the operand
-	//prologue it shares the statement with.
+	//index form). True = consumed (the tensor body bound; the plain
+	//store paths skip). Defined in StatementResolverTensorAssign.cpp
+	//with the shared operand prologue.
 	bool TryTensorScatterInto(SnSubscriptAssignStmt &sn);
 	bool ResolveSubscriptAssignOperands(SnSubscriptAssignStmt &sn);
 	bool RejectStringBase(SnExpression &base, const ISourceLocation *pLoc);
@@ -455,11 +451,7 @@ private:
 			: m_breakable(breakable), m_pLoop(nullptr)
 		{ m_breakable += 1; }
 		~FlowDepthGuard()
-		{
-			m_breakable -= 1;
-			if (m_pLoop)
-				*m_pLoop -= 1;
-		}
+		{ m_breakable -= 1; if (m_pLoop) *m_pLoop -= 1; }
 		FlowDepthGuard(const FlowDepthGuard&) = delete;
 		FlowDepthGuard& operator=(const FlowDepthGuard&) = delete;
 	private:

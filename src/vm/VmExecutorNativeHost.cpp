@@ -410,17 +410,15 @@ void VmExecutor::CheckNativeStringResult(const CompiledFunction& callee,
 void VmExecutor::CallNativeDispatch(const CompiledFunction& callee,
     uint16_t callParamBase, uint8_t* locals, uint8_t* pResult)
 {
-    //Extension point ⑤: the host dispatch hook answers first — host
-    //registrations win over same-named DLL natives and never trigger a
-    //DLL load attempt (that is why this precedes EnsureNativeAvailable).
-    //K2 slice 4 (§2.5): host code is unauditable, so the hook always
-    //runs through the blocking protocol (staged cells + GIL release);
-    //a declined call merely wastes the (state-neutral) dance.
+    //Extension point ⑤ first: the host hook answers before
+    //EnsureNativeAvailable (host registrations win over same-named DLL
+    //natives). Host code is unauditable, so the hook always runs
+    //through the blocking protocol (staged cells + GIL release); a
+    //declined call merely wastes the (state-neutral) dance. K7: the
+    //guard supplies the thread's current holder once the dispatch
+    //window is gone.
     if (m_pHostFunctions) {
         const CompiledFunction* cal = &callee;
-        //K7: the blocking protocol hands the GIL over through the
-        //thread's current holder — the guard supplies that holder
-        //once the dispatch window is gone.
         GilEnsureGuard g(*this);
         if (RunBlockingNative(callee, callParamBase, locals, pResult,
                 [this, cal](const uint8_t* args, uint32_t argc,
@@ -434,8 +432,7 @@ void VmExecutor::CallNativeDispatch(const CompiledFunction& callee,
     if (it == m_natives.end())
         throw std::runtime_error(
             "NLang VM: native function not registered: " + callee.name);
-    //The tensor native layer's device-array argument gate (v0.14.x):
-    //device-resident arguments ride the residency-checked slots.
+    //The tensor native layer's device-array argument gate (v0.14.x).
     CheckDeviceArrayArgs(callee, callParamBase, locals);
     VmNativeHost host;
     InitNativeHost(host);
