@@ -2519,6 +2519,7 @@ refbind_iface_dispatch 0
 err_outret_decl_free compile_error out parameters are retired
 err_outret_decl_class compile_error out parameters are retired
 err_outret_decl_iface compile_error out parameters are retired
+err_outret_decl_generic compile_error out parameters are retired
 err_outret_call_marker compile_error the out argument marker is retired
 err_outret_func_mark compile_error the out type marker is retired
 err_outret_anchored compile_error

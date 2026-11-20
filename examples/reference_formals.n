@@ -1,4 +1,4 @@
-// out_params.n — out parameters: multiple results from one call.
+// reference_formals.n — reference formals: multiple results from one call.
 import io;
 void divmod(int a, int b, int& quotient, int& remainder) {
     quotient = a / b;
