@@ -336,8 +336,8 @@ constructors; there is no `super.method(...)` form.
 
 A subclass method that shares an ancestor virtual method's name
 must match its signature exactly: the same parameter types and
-count, the same return type, and the same `out` modifiers. A
-mismatch is a compile-time error. Once a name is bound to a virtual
+count, and the same return type. A mismatch is a compile-time
+error. Once a name is bound to a virtual
 contract — an inherited virtual method or an implemented interface
 method (§4.9.1) — the name must not be overloaded in the class or
 any subclass: the same-name methods must map one-to-one onto the

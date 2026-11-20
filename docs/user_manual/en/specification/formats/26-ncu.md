@@ -326,7 +326,7 @@ The descriptor bytes are a kind code followed by a payload:
 | `4` | a class | u16 class-table index |
 | `5` | an array | one nested element descriptor, then a rank byte (§4.10) |
 | `6` | a boxed primitive | none (§4.11) |
-| `7` | a function value | a parameter count byte, then count+1 nested descriptors: the parameters, then the return type (`0xFE` for `void`); each descriptor is followed by a u8 qualifier flags byte (bit `0` `out`, bit `1` `&`, §7.2, §7.4) |
+| `7` | a function value | a parameter count byte, then count+1 nested descriptors: the parameters, then the return type (`0xFE` for `void`); each descriptor is followed by a u8 qualifier flags byte (bit `1` `&`, §7.2, §7.4) |
 | `8` | `List` | one nested element descriptor (§4.12) |
 | `9` | `Dict` | two nested descriptors: the key type, then the value type (§4.12) |
 | `10`–`19` | `byte` `ubyte` `short` `ushort` `uint` `long` `ulong` `double` `bool` `char` | none |
