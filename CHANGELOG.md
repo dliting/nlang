@@ -1,3 +1,65 @@
+## [0.13.9] - 2026-11-20
+
+Value-type references complete the four-phase program of
+`docs/dev/value_type_reference_design.md`: struct records become
+stable in-place storage, `&` becomes the explicit reference notation
+for locals, formals, returns and foreach variables, and the `out`
+parameter mechanism retires in favor of reference formals. Phase 1
+(deep value comparison, generic struct type arguments) shipped with
+0.13.0; this release delivers phases 2-4. Not backward compatible by
+design.
+
+### Changed
+
+- **Struct records are stable (phase 2).** Assigning a struct or
+  storing into a field/element updates the destination record's cells
+  in place instead of rebinding the slot to a fresh copy; List/Dict/Set
+  element writes land in the stored record; a static slot holds one
+  record for its lifetime; record access works at cell granularity
+  (the whole-record lock is gone) and wide rows carry their hi cells
+  through in-place copies. Writes through a reference and writes to a
+  container element are the same storage — there is no copy-out/
+  copy-in window left to observe.
+- **The `&` reference notation (phase 3).** `&` marks locals, formals,
+  returns and foreach variables as references; container getters
+  expose stored records by reference; on class and other
+  identity-reference types `&` reads as an equivalent mark. Value
+  semantics remain the default for scalars, enums, structs and
+  strings.
+- **Reference formals replace `out` parameters (phase 4).** Every
+  stdlib signature that used `out` now declares `&` (`net`'s
+  `recvFrom(buf, string& peerAddress, int& peerPort, …)` and the ICMP
+  variant, the http parser's consumed counter); the shipped example is
+  renamed `reference_formals.n`. Each retired spelling gets a named
+  migration diagnostic that points at the `&` form: `out parameters
+  are retired; declare "x" as a reference formal instead.`, `the out
+  argument marker is retired; pass "x" to a reference formal
+  instead.`, `the out type marker is retired; use the reference mark
+  instead.` `out` remains a reserved word.
+- **Migration behavior differences** (design §3.10): when an exception
+  interrupts a call, partial writes through a reference formal stay
+  visible — the `out` write-back never fired after an unwind; when the
+  same variable is both a reference argument and receives the call's
+  result, the return value wins — the `out` write-back used to
+  overwrite it after the call returned; reference formals accept
+  fields and array elements as arguments, where `out` accepted only
+  local variables (a capability gain, not a break).
+- **Debugger front ends can surface pending stops.**
+  `DebugSessionController::HasPendingStop(contextId)` is true while a
+  context's stop is decided but not yet resumed (it holds the freeze
+  token or waits in the freeze queue) — pending-stop indicators no
+  longer need to bet on timing.
+
+### Removed
+
+- **The `out` wire format.** The module format rises to NCU v2.22:
+  `OP_CallStaticOut`, `OP_CallMethodDirectOut` and `OP_CallDelegateOut`
+  are gone together with the out-mask write-back channel and the
+  `PTDF_Out` bit — bit 0 of the function-value qualifier byte and of
+  the parameter-descriptor flags byte are freed (bit 1 marks `&`, bit
+  2 marks `const`). Modules compiled by earlier compilers are rejected
+  with the outdated-version diagnostic and must be recompiled.
+
 ## [0.13.8] - 2026-11-15
 
 Terminology pass over the generic machinery, per

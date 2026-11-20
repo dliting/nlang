@@ -1,3 +1,19 @@
+## [0.13.9] - 2026-11-20
+
+值类型引用完成`docs/dev/value_type_reference_design.md`的四期方案：struct记录成为稳定的原位存储，`&`成为局部、形参、返回与foreach四处的显式引用记号，out参数机制退役、由引用形参全面取代。第①期（深值比较、泛型struct实参）已随0.13.0交付；本版交付②③④期。按设计不做向下兼容。
+
+### 变更
+
+- **struct记录稳定化（②期）。**struct赋值与字段/元素存储改为原位更新目标记录的cell，不再把槽位重绑到新拷贝；List/Dict/Set的元素写入落在所存记录上；静态槽位终身持有同一份记录；记录访问按cell粒度进行（整记录锁已删除），宽行的hi cell随原位拷贝一并带上。经引用的写入与对容器元素的写入是同一份存储——不再存在可观察的拷出/拷入窗口。
+- **`&`引用记号（③期）。**`&`把局部、形参、返回与foreach变量标为引用；容器getter按引用暴露所存记录；class等身份引用类型上`&`读作等价记号。标量、enum、struct与string仍默认值语义。
+- **引用形参全面取代out参数（④期）。**stdlib原out签名全部改写为`&`（net的`recvFrom(buf, string& peerAddress, int& peerPort, …)`与ICMP变体、http解析器的consumed计数）；随包示例改名`reference_formals.n`。每种退役拼写都有指向`&`写法的具名迁移诊断：`out parameters are retired; declare "x" as a reference formal instead.`、`the out argument marker is retired; pass "x" to a reference formal instead.`、`the out type marker is retired; use the reference mark instead.`。`out`仍是保留字。
+- **迁移行为差异**（设计§3.10）：调用被异常中断时，经引用形参的部分写入保持可见——out的写回在异常路径上从不发生；同一变量既作引用实参又接收调用结果时，返回值获胜——out写回过去会在调用返回后覆盖它；引用形参接受字段与数组元素作实参，out只接受局部变量（能力增益，非破坏）。
+- **调试器前端可展示挂起停止。**`DebugSessionController::HasPendingStop(contextId)`在该上下文的停止已决定但尚未恢复期间（持有冻结令牌或在冻结队列中等待）为真——挂起停止指示不再需要赌时序。
+
+### 移除
+
+- **out的线格式。**模块格式升到NCU v2.22：`OP_CallStaticOut`、`OP_CallMethodDirectOut`与`OP_CallDelegateOut`连同outMask写回通道与`PTDF_Out`位一并移除——函数值限定符字节与参数描述符旗标字节的bit 0释放（bit 1标`&`，bit 2标`const`）。更早编译器产出的模块按过期版本诊断拒绝，需重新编译。
+
 ## [0.13.8] - 2026-11-15
 
 泛型机制术语统一（依据`docs/dev/generic_term_reference.md`）：运行时拼出实例化规范名称的那份记录统一称为*拼接记录*（代码中为`composition`），取代此前的"配方"措辞；"铸造/mint"措辞按语义并入创建／实例化词族。
