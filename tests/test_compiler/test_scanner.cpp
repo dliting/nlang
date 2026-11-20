@@ -311,6 +311,34 @@ static void TestReceiverSpellingProbe() {
         CHECK(assign[3].type == '<');   //x = a '<' — the comparison opener
 }
 
+// --- 0.13.10 Task 1: the => arrow token (lambda cover grammar) ---
+//"=>" scans as OT_Arrow; maximal munch keeps "==" intact (same leading
+//character, second-character dispatch) and ">=" untouched (disjoint
+//first character). "=>=" splits as OT_Arrow + '=' — the plain equals
+//rides the default single-character rule (no OT_Assign token exists;
+//the grammar uses the literal).
+static void TestArrowToken() {
+    std::printf("arrow token\n");
+    auto arrow = ScanAll("=>\n");
+    CHECK(arrow.size() == 1);
+    if (arrow.size() == 1)
+        CHECK(arrow[0].type == OT_Arrow);
+    auto eq = ScanAll("==\n");
+    CHECK(eq.size() == 1);
+    if (eq.size() == 1)
+        CHECK(eq[0].type == OT_EQ);
+    auto ge = ScanAll(">=\n");
+    CHECK(ge.size() == 1);
+    if (ge.size() == 1)
+        CHECK(ge[0].type == OT_GE);
+    auto munch = ScanAll("=>=\n");
+    CHECK(munch.size() == 2);
+    if (munch.size() == 2) {
+        CHECK(munch[0].type == OT_Arrow);
+        CHECK(munch[1].type == '=');
+    }
+}
+
 int main() {
     TestColumnsWithoutComment();
     TestColumnsAfterSingleLineComment();
@@ -320,6 +348,7 @@ int main() {
     TestUtf8ContentCheck();
     TestOpenFileEncodings();
     TestReceiverSpellingProbe();
+    TestArrowToken();
     if (g_failures > 0) {
         std::printf("%d failure(s)\n", g_failures);
         return 1;

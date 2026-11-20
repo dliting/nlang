@@ -458,6 +458,7 @@ static bool CollectQualifiedSegments(
 %token OT_GE
 %token OT_NE
 %token OT_EQ
+%token OT_Arrow
 %token OT_AND
 %token OT_OR
 %token OT_MODS
