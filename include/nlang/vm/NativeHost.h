@@ -42,7 +42,7 @@ extern "C" {
 // Version 6: the array-payload side — getArrayView (a pinned view of a
 // heap array record's cells: dims/strides/elemKind + the raw payload
 // pointer, valid for the duration of the call; the GC is non-moving and
-// the argument record is rooted for the call) and newArray (mint a
+// the argument record is rooted for the call) and newArray (create a
 // scalar-element array). The exception selector gained the
 // NullPointer/OutOfBounds/DivideByZero families so native code raises
 // the same catchable classes the language runtime does. Version 7:
@@ -53,13 +53,13 @@ extern "C" {
 // the header (kMaxArrayRank moved to runtime/Config.h) and rose 8 -> 64,
 // so stridesInline widened to match (the view is stack-allocated; dims
 // still points into the record and grows nothing). Version 9: newArrayShaped
-// (mint an ND array from explicit dims) joined the table so matrix-family
-// kernels can mint [rows, cols] and beyond; newArray stays rank-1.
+// (create an ND array from explicit dims) joined the table so matrix-family
+// kernels can create [rows, cols] and beyond; newArray stays rank-1.
 // Version 10: the array-view side — NativeArrayView gained `offset`
 // (element units, matching strides; owning arrays report 0), getArrayView
 // accepts view records (filling from the record's strides/offset instead
 // of recomputing row-major ones; owning records keep the computed shape),
-// and newArrayView mints a view over an existing array handle with the
+// and newArrayView creates a view over an existing array handle with the
 // same validation the language's view creation applies. Version 11: the
 // IO-parking and work-pool side — nowMs (monotonic clock, same domain as
 // the park deadlines), parkForIo (register interest, unwind, re-enter on
@@ -194,12 +194,12 @@ enum NativeExceptionKind {
     NEXC_DivideByZero = 4 // DivByZeroException (integer kernel division)
 };
 
-// Scalar element kinds a native may mint arrays of or inspect through a
+// Scalar element kinds a native may create arrays of or inspect through a
 // NativeArrayView. Values MIRROR the runtime RTK_* scalar codes in
 // PrimitiveTypes.h (single source; keep in tie by this comment — same
 // discipline as kMaxNativeStagedParams mirroring the compiler constant).
 // The identity mapping lets the host map NEK -> RTK with no table.
-// ABI v11 added the byte pair: io.toBytes mints byte arrays through
+// ABI v11 added the byte pair: io.toBytes creates byte arrays through
 // newArray, and the narrow-cell convention (one int32 cell per element,
 // low byte = value) is reported through NativeArrayView like any other
 // kind.
@@ -252,9 +252,16 @@ struct NativeHost {
 
     // Read a string argument by heap handle. The returned pointer is
     // valid only until the next host callback; copy it immediately.
+    // Handle 0 is the live empty string (ruling D26): getString(0)
+    // returns a valid pointer to "", never NULL.
     const char* (*getString)(NativeHost* self, int32_t handle);
 
-    // Create a heap string from UTF-8; returns its handle.
+    // Create a heap string from UTF-8; returns its handle. Never
+    // returns 0 — empty content (and a null pointer) creates a fresh
+    // non-interned empty object (handle >= 1). A declared-string
+    // native must produce its result through this call: writing 0
+    // into the result cell is a contract violation the host reports
+    // as "returned null string" (ruling D27).
     int32_t (*newString)(NativeHost* self, const char* utf8);
 
     // Create a List<string> in one call; returns its heap handle. Used by
@@ -303,14 +310,14 @@ struct NativeHost {
     int (*getArrayView)(NativeHost* self, int32_t handle,
                         NativeArrayView* out);
 
-    // Mint a new array of a scalar element kind with `length` elements,
+    // Create a new array of a scalar element kind with `length` elements,
     // zero-initialized; returns its heap handle. A negative length raises
     // the OutOfBounds family (language-side `T[-n]` alignment), a length
     // beyond the allocation guard raises the same family. The handle is
     // rooted until the native writes it into its return cell.
     int32_t (*newArray)(NativeHost* self, uint8_t elemKind, int32_t length);
 
-    // Mint a new ND array of a scalar element kind with the given rank and
+    // Create a new ND array of a scalar element kind with the given rank and
     // dims, zero-initialized; returns its heap handle. A rank outside
     // [1, kMaxArrayRank] raises by name; negative dims and the allocation
     // cap raise in the shared sized-creation choke point (OutOfBounds
@@ -319,7 +326,7 @@ struct NativeHost {
     int32_t (*newArrayShaped)(NativeHost* self, uint8_t elemKind,
                               int32_t rank, const int32_t* dims);
 
-    // Mint a view over the array (or view) behind targetHandle: the given
+    // Create a view over the array (or view) behind targetHandle: the given
     // rank/dims/strides/offset (offset in ELEMENT units) with the same
     // validation the language's view creation applies — null or non-array
     // targets, rank out of range, element-type mismatch, bad dims and
@@ -484,132 +491,10 @@ typedef int (*NativeModuleInitFn)(void* registry, RegisterNativeFn reg,
 #endif
 
 // ---------------------------------------------------------------------------
-// C++ convenience wrappers (header-only). These keep native function bodies
-// terse while never exposing VM internals.
+// C++ convenience wrappers (header-only) live in NativeHostHelpers.h —
+// split from this header at the source-size guard so the C ABI stays the
+// single stable surface. Included here so existing consumers keep the
+// wrappers transitively.
 // ---------------------------------------------------------------------------
-#ifdef __cplusplus
 
-#include <cstring>
-#include <string>
-
-#include <nlang/runtime/Config.h>
-
-//The core struct stays C-compatible (plain [64]); this pins the coupling.
-static_assert(nlang::kMaxArrayRank == 64,
-    "NativeArrayView.stridesInline must track kMaxArrayRank "
-    "(bump NLANG_HOST_ABI_VERSION when it changes)");
-
-namespace nlang {
-namespace native {
-
-inline int32_t ArgInt(const uint8_t* args, int slot) {
-    int32_t value = 0;
-    //4-byte kinds live in the low half of the 8-byte cell.
-    std::memcpy(&value, args + slot * NLANG_VALUE_SIZE, sizeof(value));
-    return value;
-}
-
-inline float ArgFloat(const uint8_t* args, int slot) {
-    int32_t bits = ArgInt(args, slot);
-    float value = 0.0f;
-    std::memcpy(&value, &bits, sizeof(float));
-    return value;
-}
-
-inline double ArgDouble(const uint8_t* args, int slot) {
-    double value = 0.0;
-    //The 8-byte kinds fill the whole cell.
-    std::memcpy(&value, args + slot * NLANG_VALUE_SIZE, sizeof(value));
-    return value;
-}
-
-inline int64_t ArgLong(const uint8_t* args, int slot) {
-    int64_t value = 0;
-    std::memcpy(&value, args + slot * NLANG_VALUE_SIZE, sizeof(value));
-    return value;
-}
-
-// v7: array argument as a pinned payload view. Raises (never returns)
-// when the handle is null or not an array record — the same behavior the
-// language gives null/non-array receivers. Out-param form: the view's
-// strides point into itself, so the struct cannot travel by value.
-inline void ArgArray(NativeHost* host, const uint8_t* args, int slot,
-                     NativeArrayView* out) {
-    out->rank = 0;
-    out->dims = nullptr;
-    out->strides = nullptr;
-    out->elemCount = 0;
-    out->elemKind = 0;
-    out->elemCellBytes = 0;
-    out->reserved[0] = 0;
-    out->reserved[1] = 0;
-    out->offset = 0;
-    out->data = nullptr;
-    host->getArrayView(host, ArgInt(args, slot), out);
-}
-
-// v6: mint a zero-initialized array; returns its heap handle.
-inline int32_t NewArray(NativeHost* host, uint8_t elemKind, int32_t length) {
-    return host->newArray(host, elemKind, length);
-}
-
-// v9: mint a zero-initialized ND array from explicit dims.
-inline int32_t NewArrayShaped(NativeHost* host, uint8_t elemKind,
-                              int32_t rank, const int32_t* dims) {
-    return host->newArrayShaped(host, elemKind, rank, dims);
-}
-
-// v10: mint a view over an existing array handle (validation and units
-// as the newArrayView slot documents).
-inline int32_t NewArrayView(NativeHost* host, int32_t targetHandle,
-                            int32_t rank, const int32_t* dims,
-                            const int32_t* strides, int64_t offset) {
-    return host->newArrayView(host, targetHandle, rank, dims, strides,
-                              offset);
-}
-
-inline std::string ArgString(NativeHost* host, const uint8_t* args,
-                             int slot) {
-    int32_t handle = ArgInt(args, slot);
-    const char* text = host->getString(host, handle);
-    return text ? std::string(text) : std::string();
-}
-
-inline void ReturnInt(uint8_t* ret, int32_t value) {
-    //Low-half write: no kind-correct consumer reads the upper half of
-    //the return cell.
-    std::memcpy(ret, &value, sizeof(value));
-}
-
-inline void ReturnFloat(uint8_t* ret, float value) {
-    int32_t bits = 0;
-    std::memcpy(&bits, &value, sizeof(float));
-    std::memcpy(ret, &bits, sizeof(bits));
-}
-
-inline void ReturnDouble(uint8_t* ret, double value) {
-    std::memcpy(ret, &value, sizeof(value));
-}
-
-inline void ReturnLong(uint8_t* ret, int64_t value) {
-    std::memcpy(ret, &value, sizeof(value));
-}
-
-inline void ReturnString(NativeHost* host, uint8_t* ret,
-                         const std::string& value) {
-    int32_t handle = host->newString(host, value.c_str());
-    ReturnInt(ret, handle);
-}
-
-// Raise and return a dummy value so a function body can write
-// `return Raise(...)` after the noreturn call (defensive for compilers
-// that do not treat the callback as noreturn).
-inline void Raise(NativeHost* host, int exceptionKind,
-                  const std::string& message) {
-    host->raiseException(host, exceptionKind, message.c_str());
-}
-
-} // namespace native
-} // namespace nlang
-
-#endif // __cplusplus
+#include <nlang/vm/NativeHostHelpers.h>

@@ -13,7 +13,7 @@ namespace nlang
 //first-class type: one instance per element type per translation unit
 //(BuildEnvironment interning), so pointer equality IS type equality
 //(hash-consing). Construction is closed — only
-//BuildEnvironment::InternArrayTypeToken mints tokens; an un-interned
+//BuildEnvironment::InternArrayTypeToken creates tokens; an un-interned
 //instance would silently break the pointer-identity contract.
 class NLANG_COMPILER_API SnArrayTypeToken : public SnField
 {

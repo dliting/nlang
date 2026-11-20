@@ -2,10 +2,11 @@
 
 ## 11.1 Scope and Package Surface
 
-The standard library is seven packages — `math`, `io`, `fs`,
-`thread`, `concurrent`, `tensor` and `net`, each a set of
-package-qualified free functions — plus the `string` methods,
-dispatched on the receiver.
+The standard library is twelve packages — `math`, `io`, `fs`,
+`thread`, `concurrent`, `tensor`, `net`, `system`, `url`, `http`,
+`gzip` and `regex`, each a set of free functions called by their
+fully qualified names — plus the `string` methods, dispatched on
+the receiver.
 The prelude packages sit beside them: `lang` (`stdlib/lang.n`)
 declares the `Exception` family, the hierarchy root `Object`, the
 declaration-holder class `String` and the generic array face `Array<T>`; `containers`
@@ -32,24 +33,29 @@ itself only holds the array method declarations and cannot be
 extended.
 
 The method surfaces are defined across the specification: the
-`string` methods in chapter 16, the `List` and `Dict` methods in
+`string` methods in chapter 17, the `List` and `Dict` methods in
 chapter 12, the default rendering of every value in §11.2, the
 concurrency handle classes and the package classes of `thread` and
-`concurrent` in chapter 10 and chapter 17, the stream handle
+`concurrent` in chapter 10 and chapter 18, the stream handle
 classes in chapter 14, and the exception classes in §8.3.
 
 A package is identified by its file's path — `stdlib/io.n` is the
 package `io` — and one build may contain only one package of each
 name: a duplicate is a compile error naming both sources, and a
-project directory named `io` is an ordinary directory. Calls use
-the qualified name only (`math.sin(x)`); bare names are not in
-scope. A package name used as a value (`int x = math;`) fails to
-resolve — packages are not values. In terms of duties, `io` carries
-content input/output (IO), `math` numeric computation, `fs` the
-filesystem's names and metadata, `tensor` the numeric array kernels
-(chapter 18), `net` the network sockets (chapter 20), `thread` the
-virtual-thread spawn and suspension primitives, and `concurrent`
-the coordination classes (§3.9.4).
+project directory named `io` is an ordinary directory. Calling a
+package function starts with importing the package: after
+`import math;` both the qualified `math.sin(x)` and the bare
+`sin(x)` are callable (§3.9.4). A package name used as a value
+(`int x = math;`) fails to resolve — packages are not values. In
+terms of duties, `io` carries content input/output (IO), `math`
+numeric computation, `fs` the filesystem's names and metadata,
+`tensor` the numeric array kernels (chapter 19), `net` the network
+sockets (chapter 21), `url` the URL codec (chapter 22), `http` the
+HTTP/1.1 server and client (chapter 23), `gzip` whole-buffer gzip
+compression (chapter 24), `regex` regular-expression search,
+split and replacement (chapter 25), `system` the process and the clock
+(chapter 15), `thread` the virtual-thread spawn and suspension
+primitives, and `concurrent` the coordination classes (§3.9.4).
 
 The signatures — parameter kinds, arity and return type — live in
 the `stdlib/*.n` declarations shipped with the toolchain and reach
@@ -103,7 +109,7 @@ run-time error at the `toString` site (§8.1).
 
 ## 11.3 string Methods
 
-The `string` method surface is defined in chapter 16.
+The `string` method surface is defined in chapter 17.
 
 ## 11.4 Library Conventions
 
@@ -118,10 +124,13 @@ The standard library follows one surface convention.
   (`contains`, `startsWith`, `containsKey`); package functions
   may carry an `is` or `has` prefix (`fs.isFile`, `io.hasInput`).
 - Failures are reported by raising the built-in exception classes
-  of §8.3, plus the three package-declared classes — `concurrent`'s
-  `ChannelClosedException` and `net`'s `SocketException` and
-  `TimeoutException` (§8.3). Chapter 19 maps each library operation
-  to the class it raises.
+  of §8.3, plus the eight package-declared classes — `concurrent`'s
+  `ChannelClosedException`, `net`'s `SocketException` and
+  `TimeoutException`, `url`'s `UrlException`, `http`'s
+  `HttpException`, `gzip`'s `GzipException`, `regex`'s
+  `RegexException`, and `system`'s `DateTimeException` (§8.3).
+  Chapter 20 maps each library
+  operation to the class it raises.
 - Text output renders values through `toString` (§5.3, §11.2);
   the argument surface of the console functions is chapter 14.
 - Arguments of a library call are checked against the declared

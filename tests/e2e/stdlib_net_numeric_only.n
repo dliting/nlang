@@ -42,7 +42,7 @@ int main() {
     if (v.send(d) != 4) { return 9; }
     string peer = "";
     int peerPort = 0;
-    if (u.recvFrom(buf, out peer, out peerPort, 3000) != 4) { return 10; }
+    if (u.recvFrom(buf, peer, peerPort, 3000) != 4) { return 10; }
     if (u.sendTo(d, "localhost", v.localPort()) != 4) { return 11; }
     if (v.recv(buf, 3000) != 4) { return 12; }
     u.close(); v.close();

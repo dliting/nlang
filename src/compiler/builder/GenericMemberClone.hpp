@@ -1,6 +1,6 @@
 /*---
 GenericMemberClone.hpp — one generic template member's signature
-deep-copy, shared by the class and interface mint TUs.
+deep-copy, shared by the class and interface creation TUs.
 
 The copy is the metadata surface only: return type and formal
 parameters with their constant defaults (bodies and native bindings

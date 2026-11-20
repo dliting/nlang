@@ -1,0 +1,9 @@
+// string is a value type: a null literal cannot be returned from a
+// string-typed function.
+string f() {
+    return null;
+}
+
+int main() {
+    return f().length();
+}

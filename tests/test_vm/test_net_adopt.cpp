@@ -7,10 +7,12 @@
     second resetting the first's writeSent and splitting or
     duplicating the stream) and accepted a foreign waiter as its
     own (I2: a fresh write reset the parked writer's progress). The
-    e2e writer test (stdlib_net_tcp_concurrent_writer.n) cannot pin
-    these on Windows loopback — the auto-tuned send buffer absorbs
-    successive writes unpredictably, so the parked state the bugs
-    need is not deterministic there; this unit test is the
+    e2e stream-integrity test (stdlib_net_tcp_stream_integrity.n)
+    pins the end-to-end byte count; the parked state its old
+    second-writer branch needed is not deterministic on Windows
+    loopback — the auto-tuned send buffer absorbs successive writes
+    unpredictably — so the claim semantics are pinned here, where
+    the state machine is reachable directly. This unit test is the
     deterministic proof.
 ---*/
 #include "net/net_state.h"
@@ -39,7 +41,7 @@ static void TestAdoptRejectsForeignWaiter() {
     int32_t h = 0;
     {
         std::lock_guard<std::mutex> g(st.m_mutex);
-        h = st.m_slots.Mint(/*fd*/5, kNetKindTcpStream);
+        h = st.m_slots.Create(/*fd*/5, kNetKindTcpStream);
         st.m_slots.SetWaiter(h, NetDir::Read, /*ctxA*/1);
         st.m_slots.SetWaiter(h, NetDir::Write, /*ctxA*/1);
         st.m_slots.SetWaiter(h, NetDir::Accept, /*ctxA*/1);
@@ -63,7 +65,7 @@ static void TestAdoptAdoptsOwnClaim() {
     int32_t h = 0;
     {
         std::lock_guard<std::mutex> g(st.m_mutex);
-        h = st.m_slots.Mint(/*fd*/7, kNetKindTcpStream);
+        h = st.m_slots.Create(/*fd*/7, kNetKindTcpStream);
         st.m_slots.SetWaiter(h, NetDir::Write, /*self*/3);
     }
     int fd = -1;
@@ -85,7 +87,7 @@ static void TestAdoptFreshCallClaims() {
     int32_t h = 0;
     {
         std::lock_guard<std::mutex> g(st.m_mutex);
-        h = st.m_slots.Mint(/*fd*/9, kNetKindTcpStream);
+        h = st.m_slots.Create(/*fd*/9, kNetKindTcpStream);
     }
     int fd = -1;
     bool claimed = false;
@@ -115,7 +117,7 @@ static void TestAdoptGoneDrainsWaiter() {
     int32_t h = 0;
     {
         std::lock_guard<std::mutex> g(st.m_mutex);
-        h = st.m_slots.Mint(/*fd*/11, kNetKindTcpStream);
+        h = st.m_slots.Create(/*fd*/11, kNetKindTcpStream);
         st.m_slots.SetWaiter(h, NetDir::Write, /*ctxA*/1);
         st.m_slots.MarkClosed(h);
         CHECK(st.m_slots.OpenCount() == 1);   //fd kept while parked
@@ -140,7 +142,7 @@ static void TestAdoptReportsFreshVersusAdopted() {
     int32_t h = 0;
     {
         std::lock_guard<std::mutex> g(st.m_mutex);
-        h = st.m_slots.Mint(/*fd*/13, kNetKindTcpStream);
+        h = st.m_slots.Create(/*fd*/13, kNetKindTcpStream);
     }
     int fd = -1;
     bool claimed = false;

@@ -58,13 +58,29 @@ type may carry an initializer like any field (§4.8.3). Likewise a
 formal whose type is a bare type parameter cannot carry a default
 value (§7.2). A type-parameter field that is never assigned reads
 as the default value of the type argument it was instantiated with:
-`0` for an integer argument, `null` for a `string` or class
-argument.
+`0` for an integer argument, `""` for a `string` argument, `null`
+for a class argument.
 
 A type parameter may be an array element type in a type position —
 `T[]` is a legal field type — but array creation over a type
 parameter is rejected: the element kind is not known until the
 instantiation (§4.10.2).
+
+A type parameter's formals may carry the `&` and `const` markers: a
+`T&` formal takes its semantics from the argument kind of each
+instantiation (§4.7.9). Bound to a by-slot-copy kind — scalars,
+`string`, enums, structs — it is a true alias: writes through the
+formal land in the caller. Bound to an identity kind — class,
+interface, array — the `&` is an equivalent notation (§4.7.9):
+assigning the formal as a whole rewrites the local formal alone,
+while member access through it still acts on the caller's object.
+The instantiation point therefore warns per non-`const` `T&` formal
+that binds an identity kind
+(`the T& formal of "set" binds an identity type; writes through it reach only the local formal.`).
+A
+`const T&` formal is read-only (§7.2): no write can fork, and the
+identity binding carries no warning either. `T&` formals of generic
+free functions follow the same rules (§4.12.10).
 
 The equality operators are legal on type-parameter operands: `==`
 and `!=` apply to `T` and `T`, `T` and `null` (both directions), and
@@ -183,7 +199,7 @@ fresh instantiation of the class being declared is rejected:
 `class A<T> { public A<A<T>> next; }` reports the
 instantiation-depth error.
 
-*Informative:* the compiler mints at most 16 nested instantiations;
+*Informative:* instantiations nest at most 16 levels deep;
 exceeding the limit reports `The generic instantiation depth
 exceeds the limit of 16 nested instantiations.`
 
@@ -192,23 +208,20 @@ exceeds the limit of 16 nested instantiations.`
 A type argument may be a scalar primitive, `string`, an enumeration,
 a class type, an interface type, a struct type, an array type, or
 another generic instantiation. A `void` type argument is a compile-time error
+(§7.4). A type argument carries no `&` marker — `List<int&>` is a
+syntax error: references cannot be stored as elements (§4.7.9); the
+`&` spelling appears only in the type arguments of function types
 (§7.4).
 
 A user-declared generic class rejects function type arguments: a
 function value is a multi-slot record (target, receiver, form). A
-struct type argument is admitted — every boundary (constructor
-formals, local binds, field stores, `foreach`) deep-copies the
-record through the substituted type, so the field's value slot holds
-one private copy. The built-in containers accept struct type
+struct type argument is admitted — constructor formals, local binds,
+and `foreach` loop variables each establish a fresh record copied
+from the source, while field stores and field-to-field moves update
+records in place per §4.7.4, so the field's value slot holds one
+private copy. The built-in containers accept struct type
 arguments alike (a struct key in a `Dict` compares by field value,
 §12.2).
-
-One corner of the struct argument: inside a generic class's own
-method bodies, a `T`-to-`T` move between two `T`-typed fields
-(`item = other.item;`) transfers the record handle without a copy,
-so the two fields then share one record — a write through one shows
-through the other. Only the in-body field move aliases; every
-boundary deep-copies (§4.7.4).
 
 An array type argument — `List<int[]>` — stores the array values as
 raw references; the primitive-boxing rule does not apply to them.
@@ -318,8 +331,8 @@ dispatch at the consumer's call sites work exactly as in the
 declaring unit (§4.12.10).
 
 *Informative:* a unit also carries a template table — one row per
-instantiation the unit registers (canonical spelling and
-construction recipe). Linking merges the rows of all units; objects
+instantiation the unit registers (canonical name and
+composition record). Linking merges the rows of all units; objects
 constructed across units carry their instantiation information as
 usual (§4.12.9), and equality, casting and `typeName` behave
 identically across units.
@@ -329,7 +342,7 @@ compiled row; per-object state lives in the instances. A bound
 method reference to a template member works: `func<int> f = b.get;`
 (§7.4). Instantiations are not transparent at runtime: every object
 constructed from an instantiation carries a piece of *instantiation
-information* — the template name and the kind and canonical spelling
+information* — the template name and the kind and canonical name
 of each argument — read by equality dispatch, casts and `typeName`
 (§4.12.2, §4.12.9).
 
@@ -337,9 +350,16 @@ of each argument — read by equality dispatch, casts and `typeName`
 
 `typeName` takes a type expression and returns its canonical
 spelling as a string. Spellings of concrete types fold at compile
-time — `typeName(int)` is `"int"`, `typeName(Box<int>)` is
-`"Box<int>"`, `typeName(int[,])` is `"int[,]"` (rank in brackets),
-`typeName(List<List<int>>)` is `"List<List<int>>"`. Forms containing
+time — `typeName(int)` is `"int"`, `typeName(int[,])` is
+`"int[,]"` (rank in brackets), and the built-in containers keep
+their bare names: `typeName(List<List<int>>)` is
+`"List<List<int>>"`. A user unit's generic template spells with
+its owning package path prefixed (§3.9.3): in a unit compiled
+from `demo.n`, `typeName(Box<int>)` is `"demo.Box<int>"`, and the
+same-named template imported from package `alib` spells
+`"alib.Box<int>"` — two packages declaring a same-named template
+produce two distinct spellings, across `typeName`, casts and
+equality alike. Forms containing
 a type parameter resolve at runtime through the receiver's
 instantiation information:
 
@@ -349,9 +369,9 @@ class Box<T> {
     public Box(T v) { this.value = v; }
 }
 class Hold<T> {
-    public string showArg() { return typeName(T); }        // "int" / "Box<int>"
-    public string showInner() { return typeName(Box<T>); } // "Box<int>"
-    public string showArray() { return typeName(T[]); }    // "int[]" / "Box<int>[]"
+    public string showArg() { return typeName(T); }        // "int" / "demo.Box<int>"
+    public string showInner() { return typeName(Box<T>); } // "demo.Box<int>"
+    public string showArray() { return typeName(T[]); }    // "int[]" / "demo.Box<int>[]"
 }
 ```
 
@@ -368,8 +388,8 @@ Constructing an instantiation whose arguments involve the type
 parameter inside a method body — `List<T> items = {};` — shares one
 construction path with concrete instantiations: the object's
 instantiation information is composed at the construction point from
-the recipe (`T` taken from the receiver's argument, arrays wrap the
-element recipe, nesting recurses), and the object's equality,
+the record (`T` taken from the receiver's argument, arrays wrap the
+element composition record, nesting recurses), and the object's equality,
 casting and `typeName` behavior then matches an instance written
 with the concrete type.
 
@@ -422,7 +442,7 @@ class Holder<T> {
 }
 ```
 
-The key is the canonical spelling `typeName(T)` produces, so
+The key is the canonical name `typeName(T)` produces, so
 `Holder<int>` and `Holder<Box<int>>` each take their own slot.
 
 ## 4.12.10 Generic free functions

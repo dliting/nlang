@@ -1,0 +1,4 @@
+refbind_return_method_value.n(line 12, char 7): Error: Cannot resolve the field: f.
+refbind_return_method_value.n(line 13, char 15): Error: The function "getF" does not exist or is not accessible.
+refbind_return_method_value.n(line 15, char 21): Error: Cannot resolve the field: f.
+Compilation failed.

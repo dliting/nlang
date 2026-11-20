@@ -7,6 +7,7 @@
     每个用例断言诊断的**出现次数**（而非仅存在性）：e2e 只做子串存在性
     断言，抓不住双报回归。
 ---*/
+#include "test_support/test_scratch.h"
 #include <QtTest/QtTest>
 #include <nlang/runtime/Runtime.h>
 #include <nlang/compiler/ModuleBuilder.h>
@@ -56,8 +57,7 @@ struct CompileOutcome
 CompileOutcome compileOne(const char* szBody)
 {
     static uint32_t runCount = 0;
-    const auto dir = std::filesystem::temp_directory_path()
-        / "nlang_statement_diag_tests";
+    const auto dir = nlang::test::ScratchDir("nlang_statement_diag_tests");
     std::error_code fsError;
     std::filesystem::create_directories(dir, fsError);
     const auto file = dir / "main.n";

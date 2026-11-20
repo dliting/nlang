@@ -1,0 +1,56 @@
+// v0.13.7 regex: bracket classes. '&' and '~' stay plain literals inside
+// a class -- the Go baseline has no class set operators (spec D3 probe).
+import io;
+import regex;
+
+int main() {
+    int bad = 0;
+    Regex r1 = Regex("[abc]+");
+    Match m1 = r1.match("xxbbaccbay");
+    if (m1 == null || m1.text != "bbaccba") { bad = bad + 1; }
+    if (r1.isMatch("xyz")) { bad = bad + 1; }
+    Regex neg = Regex("[^0-9]+");
+    if (!neg.isMatch("ab")) { bad = bad + 1; }
+    if (neg.match("a1b") == null) { bad = bad + 1; }
+    if (Regex("[^0-9]").isMatch("7")) { bad = bad + 1; }
+    Regex ident = Regex("[a-zA-Z_][a-zA-Z0-9_]*");
+    Match mi = ident.match("var x1;");
+    if (mi == null || mi.text != "var") { bad = bad + 1; }
+    // ] first, - first/last, ^ not-first: all plain members (Go doc.go)
+    if (!Regex("[]a]").isMatch("]")) { bad = bad + 1; }
+    if (Regex("[]a]").isMatch("b")) { bad = bad + 1; }
+    if (!Regex("[a-]").isMatch("-")) { bad = bad + 1; }
+    if (Regex("[^-]").isMatch("-")) { bad = bad + 1; }
+    if (!Regex("[^-]").isMatch("a")) { bad = bad + 1; }
+    // metacharacters inside a class are literals
+    if (!Regex("[.$*]+").isMatch("...")) { bad = bad + 1; }
+    if (Regex("[.$*]").isMatch("ab")) { bad = bad + 1; }
+    // class set operators do NOT exist: [a&&b] is the member set {a,&,b};
+    // greedy + takes the whole run at the leftmost start (Go round14 probe:
+    // offsets [1 4], text "&a&")
+    Regex amp = Regex("[a&&b]+");
+    Match ma = amp.match("x&a&y");
+    if (ma == null || ma.text != "&a&") { bad = bad + 1; }
+    if (!Regex("[a~]+").isMatch("a~a")) { bad = bad + 1; }
+    // escapes inside a class
+    if (!Regex("[\\d_]+").isMatch("_7a")) { bad = bad + 1; }   // \d inside class
+    if (!Regex("[\\]]").isMatch("]")) { bad = bad + 1; }
+    // POSIX ASCII classes
+    if (!Regex("[[:alpha:]]+").isMatch("abc")) { bad = bad + 1; }
+    if (Regex("[[:alpha:]]").isMatch("1")) { bad = bad + 1; }
+    if (!Regex("[^[:digit:]]").isMatch("a")) { bad = bad + 1; }
+    // non-ASCII ranges work (class tables are codepoint ranges)
+    Regex cjk = Regex("[一-鿿]");
+    if (!cjk.isMatch("中")) { bad = bad + 1; }
+    if (cjk.isMatch("a")) { bad = bad + 1; }
+    // diagnostics
+    try { Regex u = Regex("[abc"); bad = bad + 1; }
+    catch (RegexException e) {
+        if (e.message.indexOf("missing closing ]") < 0) { bad = bad + 1; }
+    }
+    try { Regex u = Regex("[z-a]"); bad = bad + 1; }
+    catch (RegexException e) {
+        if (e.message.indexOf("invalid character class range") < 0) { bad = bad + 1; }
+    }
+    return bad;
+}

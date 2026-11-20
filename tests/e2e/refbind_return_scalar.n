@@ -1,0 +1,12 @@
+// Task 6: a scalar &-return passes the (record, cell) pair through
+// the call boundary — the write through b lands in the caller's a.
+int& id(int& v) {
+    return v;
+}
+
+int main() {
+    int a = 5;
+    int& b = id(a);
+    b = 9;
+    return a;
+}

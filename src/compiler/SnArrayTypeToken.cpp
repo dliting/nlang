@@ -48,7 +48,7 @@ ImmutableNodeList *SnArrayTypeToken::ChildrenPtr() const
 }
 
 //v0.12.7: Array<E> is the generic spelling of the single array type
-//(spec §4.1) — the prelude template mints the instantiation, and its
+//(spec §4.1) — the prelude template creates the instantiation, and its
 //one type argument IS the element type. Same bare-BaseName policy as
 //the List/Dict erasure keys (TypeDesc.cpp). Declared in
 //SnExpressions.h beside its consumer (SnExpression::IsArrayValued).

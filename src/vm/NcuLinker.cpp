@@ -1,9 +1,8 @@
 /*---
     NcuLinker.cpp — nlink 链接器主体：对等合并→占位槽解析→统一重映射。
-    内核同源于已删除的 backend/Import.cpp Phase A/B（编译期合并路径，
-    d2 整链移除），但语义改为「N 个对等映像合并」（原为「并入既有
-    目标」，设计 §5）。Pass B（占位槽解析）在 NcuLinkerSlots.cpp
-    （2026-10-02 尺寸守卫触发的拆分）。
+    内核同源于已删除的 backend/Import.cpp Phase A/B（编译期合并路径），
+    语义为「N 个对等映像合并」（设计 §5）。Pass B（占位槽解析）在
+    NcuLinkerSlots.cpp（2026-10-02 尺寸守卫触发的拆分）。
 ---*/
 #include "NcuLinker.h"
 #include "NcuLinkerRemap.h"
@@ -65,6 +64,10 @@ static void ValidateClosure(const std::vector<CompiledModule>& units) {
             || u.enumMethodAccess.size() != u.enumNames.size())
             throw std::runtime_error("nlink: unit '" + u.modulePath
                 + "': enum method tables and enumNames diverge (corrupt image)");
+        //v2.20: the type-level access table joins the parallel chain.
+        if (u.enumAccess.size() != u.enumNames.size())
+            throw std::runtime_error("nlink: unit '" + u.modulePath
+                + "': enumAccess and enumNames diverge (corrupt image)");
         auto checkTable = [&](const char* kind, size_t imports,
                               size_t table) {
             if (imports > table)
@@ -100,18 +103,15 @@ static void MergeStrings(const CompiledModule& u, CompiledModule& merged,
 }
 
 //v2.15 (v0.13.1): descriptor rows merge by full entry (spelling +
-//recipe bytes). A static entry's identity is its spelling (the intern
-//contract); recipe entries share an empty spelling, so the bytes join
-//the key — two units compiling the same template emit byte-identical
-//recipes and fold, and any divergence keeps both rows (the intern pool
-//still folds the composed descriptors at runtime).
+//composition bytes): a static entry's identity is its spelling (the
+//intern contract); composition entries fold only on identical bytes.
 static void MergeDescriptors(
     const CompiledModule& u, CompiledModule& merged, NcuOperandMaps& m,
     std::map<std::pair<std::string, std::vector<uint8_t>>, uint32_t>&
         interned) {
     for (uint32_t i = 0; i < u.descriptorTable.size(); ++i) {
         const auto key = std::make_pair(u.descriptorTable[i].spelling,
-                                        u.descriptorTable[i].recipe);
+                                        u.descriptorTable[i].composition);
         auto it = interned.find(key);
         if (it != interned.end()) {
             m.descriptors[i] = it->second;
@@ -190,14 +190,15 @@ static void MergeEnums(const CompiledModule& u, CompiledModule& merged,
         //owns their function-index remap, recorded through p.enums).
         merged.enumMethodIndices.push_back(u.enumMethodIndices[i]);
         merged.enumMethodAccess.push_back(u.enumMethodAccess[i]);
+        //v2.20: the type-level access byte rides the same push.
+        merged.enumAccess.push_back(u.enumAccess[i]);
         p.enums.push_back(m.enums[i]);
     }
 }
 
 //v2.13 (v0.12.6): static slots are STORAGE, not symbols — no name dedup.
 //Each unit's own entries append in unit order (import tail entries get
-//their mapping from slot resolution, not here); the provider unit owns
-//the metadata remap of what it pushed.
+//their mapping from slot resolution, not here); the provider owns the remap.
 static void MergeStaticSlots(const CompiledModule& u, CompiledModule& merged,
                              NcuOperandMaps& m, UnitPushes& p) {
     const size_t ownCount = u.staticSlots.size() - u.staticSlotImports.size();
@@ -238,8 +239,8 @@ static void MergeFunctions(const CompiledModule& u, CompiledModule& merged,
 }
 
 //0.9.10 v2.4 + v0.12.6 Task 8: the interface merge with placeholder-row
-//preference lives in NcuLinkerInterfaces.cpp (size-guard split; Pass C
-//consumes its pushes through UnitPushes, NcuLinkerInterfaces.h).
+//preference lives in NcuLinkerInterfaces.cpp (Pass C consumes its pushes
+//through UnitPushes, NcuLinkerInterfaces.h).
 
 static void MergeUnitTables(const std::vector<CompiledModule>& units,
                             CompiledModule& merged,
@@ -250,6 +251,7 @@ static void MergeUnitTables(const std::vector<CompiledModule>& units,
         internedDescriptors;
     BuiltinStubIndex builtinStubs;
     for (size_t ui = 0; ui < units.size(); ++ui) {
+        merged.mergedUnitPackagePaths.push_back(units[ui].modulePath);
         MergeStrings(units[ui], merged, maps[ui], internedStrings);
         MergeDescriptors(units[ui], merged, maps[ui], internedDescriptors);
         MergeClasses(units[ui], merged, maps[ui], pushes[ui]);
@@ -266,17 +268,18 @@ static void MergeUnitTables(const std::vector<CompiledModule>& units,
 
 static void MergeArrayTypes(const CompiledModule& u, CompiledModule& merged,
                             NcuOperandMaps& m) {
-    //elemTypeIdx 可能是占位槽下标（元素类型来自他单元），须先经
-    //struct/class 映射再按（元素 kind，元素下标）去重。
+    //elemTypeIdx 可能是占位槽下标：先经所属表映射，再按行键去重。
     for (uint32_t i = 0; i < u.arrayTypes.size(); ++i) {
         CompiledArrayType at = u.arrayTypes[i];
+        //Row-identity remap: the element's named table picks the map;
+        //interface rows (Task 12 D14 identity tier) dedup after it.
         if (at.elemTypeIdx != 0xFFFF) {
-            if (at.elemKind == RTK_Struct)
+            const auto* rowMap = at.elemKind == RTK_Struct ? &m.structs
+                : at.elemKind == RTK_Class ? &m.classes
+                : at.elemKind == RTK_Interface ? &m.interfaces : nullptr;
+            if (rowMap)
                 at.elemTypeIdx = static_cast<uint16_t>(
-                    Lookup(m.structs, at.elemTypeIdx));
-            else if (at.elemKind == RTK_Class)
-                at.elemTypeIdx = static_cast<uint16_t>(
-                    Lookup(m.classes, at.elemTypeIdx));
+                    Lookup(*rowMap, at.elemTypeIdx));
         }
         int existing = merged.FindArray(at.elemKind, at.elemTypeIdx, at.rank);
         if (existing >= 0) {
@@ -317,14 +320,14 @@ static void RemapClassMetadata(CompiledModule& merged,
             cc.staticInitFuncIdx = static_cast<uint16_t>(
                 Lookup(m.functions, cc.staticInitFuncIdx));
         for (auto& td : cc.fieldTypeDescs)
-            RemapTypeDesc(td, m.structs, m.classes);
+            RemapTypeDesc(td, m.structs, m.classes, m.interfaces);
         //v2.13 (v0.12.6): declared static fields — slotIdx addresses the
         //merged storage table, the type descriptor the merged type tables.
         for (auto& sf : cc.staticFields) {
             if (sf.slotIdx != 0xFFFF)
                 sf.slotIdx = static_cast<uint16_t>(
                     Lookup(m.slots, sf.slotIdx));
-            RemapTypeDesc(sf.type, m.structs, m.classes);
+            RemapTypeDesc(sf.type, m.structs, m.classes, m.interfaces);
         }
     }
 }
@@ -335,7 +338,7 @@ static void RemapStaticSlotMetadata(CompiledModule& merged,
                                     const NcuOperandMaps& m,
                                     const std::vector<uint32_t>& pushed) {
     for (uint32_t idx : pushed)
-        RemapTypeDesc(merged.staticSlots[idx].type, m.structs, m.classes);
+        RemapTypeDesc(merged.staticSlots[idx].type, m.structs, m.classes, m.interfaces);
 }
 
 //默认值的字符串通道持有生产者侧下标（CompiledModule.h 的
@@ -369,7 +372,7 @@ static void RemapStructMetadata(CompiledModule& merged,
         for (auto& i : cs.constructorIndices)
             if (i != 0xFFFF) i = static_cast<uint16_t>(Lookup(m.functions, i));
         for (auto& td : cs.fieldTypeDescs)
-            RemapTypeDesc(td, m.structs, m.classes);
+            RemapTypeDesc(td, m.structs, m.classes, m.interfaces);
         //v2.6: field defaults carry producer-pool string indices.
         const std::string context = "struct '" + cs.name + "'";
         for (auto& dv : cs.fieldDefaults)
@@ -377,9 +380,8 @@ static void RemapStructMetadata(CompiledModule& merged,
     }
 }
 
-//v2.9 (0.10.14): enum method indices are producer function-table
-//indices — remap them in the same pass shape as the class/struct
-//metadata blocks. The access bytes carry no indices.
+//v2.9 (0.10.14): enum method indices are producer function-table indices,
+//remapped in the class/struct pass shape. The access bytes carry no indices.
 static void RemapEnumMethodIndices(CompiledModule& merged,
                                    const NcuOperandMaps& m,
                                    const std::vector<uint32_t>& pushed) {
@@ -404,32 +406,30 @@ static void FinalizeFunction(CompiledFunction& f, const NcuOperandMaps& m) {
             tb.exceptionClassIdx = static_cast<uint16_t>(
                 Lookup(m.classes, tb.exceptionClassIdx));
     for (auto& ptd : f.paramTypeDescs)
-        RemapTypeDesc(ptd.type, m.structs, m.classes);
-    RemapTypeDesc(f.returnTypeDesc, m.structs, m.classes);
+        RemapTypeDesc(ptd.type, m.structs, m.classes, m.interfaces);
+    RemapTypeDesc(f.returnTypeDesc, m.structs, m.classes, m.interfaces);
     const std::string context = "function '" + f.name + "'";
     for (auto& dv : f.defaultValues)
         RemapDefaultValueStrings(dv, m, context);
 }
 
 //0.9.10 v2.4: interface static indices are function-table indices —
-//remap them like the class method block. D3 constants carry unit-local
-//type descriptors and pooled string defaults, so they remap through the
-//same maps as function records. 0.9.12 (v2.7): instance-method
-//signatures ride the same channels (formal/return descriptors and
-//pooled default strings); the signatures carry no function or type
-//indices beyond the descriptors, so nothing else remaps here.
+//remapped like the class method block; D3 constants carry unit-local type
+//descriptors and pooled string defaults, remapped through the same maps as
+//function records. 0.9.12 (v2.7): instance-method signatures ride the same
+//channels and carry no indices beyond the descriptors.
 static void RemapInterfaceMetadata(CompiledInterface& iface,
                                    const NcuOperandMaps& m) {
     const std::string context = "interface '" + iface.name + "'";
     for (auto& i : iface.staticMethodIndices)
         i = static_cast<uint16_t>(Lookup(m.functions, i));
     //v2.13 (v0.12.6): reserved interface initializer record — remap
-    //alongside the static methods when minted.
+    //alongside the static methods when created.
     if (iface.staticInitFuncIdx != 0xFFFF)
         iface.staticInitFuncIdx = static_cast<uint16_t>(
             Lookup(m.functions, iface.staticInitFuncIdx));
     for (auto& constant : iface.constants) {
-        RemapTypeDesc(constant.type, m.structs, m.classes);
+        RemapTypeDesc(constant.type, m.structs, m.classes, m.interfaces);
         //v0.12.6 Task 7 (D11): a runtime constant's slot addresses the
         //merged storage table (the class staticFields shape); folded
         //constants keep their 0xFFFF marker untouched.
@@ -440,8 +440,8 @@ static void RemapInterfaceMetadata(CompiledInterface& iface,
     }
     for (auto& sig : iface.instanceMethods) {
         for (auto& ptd : sig.paramTypeDescs)
-            RemapTypeDesc(ptd.type, m.structs, m.classes);
-        RemapTypeDesc(sig.returnType, m.structs, m.classes);
+            RemapTypeDesc(ptd.type, m.structs, m.classes, m.interfaces);
+        RemapTypeDesc(sig.returnType, m.structs, m.classes, m.interfaces);
         for (auto& dv : sig.defaultValues)
             RemapDefaultValueStrings(dv, m, context);
     }

@@ -1,0 +1,111 @@
+// A request head whose terminator straddles the 8192-byte receive window
+// boundary (D5): the parser must get all four terminator bytes without
+// waiting for a round that brings nothing, and must not mistake the boundary
+// for an oversized head. Both header-limit tiers are pinned here as well: a
+// head between the window capacity and maxHeaderBytes is served normally, and
+// a head that passes maxHeaderBytes with no blank line yet is answered 431.
+import io;
+import net;
+import http;
+
+HttpResponse okHandler(HttpRequest req) {
+    HttpResponse res = HttpResponse();
+    res.body = io.toBytes("ok");
+    return res;
+}
+
+int main() {
+    HttpServer srv = HttpServer();
+    srv.headerTimeoutMs = 2000;
+    srv.maxHeaderBytes = 65536;
+    // The client helpers below read until the connection closes, so the
+    // keep-alive budget is what bounds each check: 500 ms, the same value
+    // stdlib_http_timeout.n uses, instead of the 30 s default.
+    srv.keepAliveTimeoutMs = 500;
+    srv.start("127.0.0.1", 0, okHandler);
+    int port = srv.localPort();
+
+    // One window minus one byte (head 8191): the terminator sits wholly
+    // inside the first window.
+    int pad = 8191 - fixedBase();
+    string big = "GET /x HTTP/1.1\r\nHost: h\r\nX: " + spaces(pad) + "\r\n\r\n";
+    if (statusOf(sendRaw(port, big)) != 200) { return 1; }
+
+    // Exactly one window (pad + 1, head 8192): the terminator ends on the
+    // window's last byte — a boundary a window-local scan still passes.
+    big = "GET /x HTTP/1.1\r\nHost: h\r\nX: " + spaces(pad + 1) + "\r\n\r\n";
+    if (statusOf(sendRaw(port, big)) != 200) { return 2; }
+
+    // One byte over (pad + 2, head 8193): the first three terminator bytes
+    // sit at the window's tail and only the last byte arrives in the next
+    // read — the straddle a scan that restarts at each window boundary misses.
+    big = "GET /x HTTP/1.1\r\nHost: h\r\nX: " + spaces(pad + 2) + "\r\n\r\n";
+    if (statusOf(sendRaw(port, big)) != 200) { return 3; }
+
+    // Four bytes over (pad + 4, head 8195): only the FIRST terminator byte
+    // falls inside this window, the other three arrive next — the shape the
+    // Review Focus names explicitly.
+    big = "GET /x HTTP/1.1\r\nHost: h\r\nX: " + spaces(pad + 4) + "\r\n\r\n";
+    if (statusOf(sendRaw(port, big)) != 200) { return 4; }
+
+    // A head between the window capacity and maxHeaderBytes is an ordinary
+    // request: 12 KiB is over the 8192-byte window and far under the 65536
+    // default, so the assembly must keep taking full windows and serve it.
+    big = "GET /x HTTP/1.1\r\nHost: h\r\nX: " + spaces(12 * 1024 - fixedBase()) + "\r\n\r\n";
+    if (statusOf(sendRaw(port, big)) != 200) { return 5; }
+
+    // The tier that pins the moved check: maxHeaderBytes above the window
+    // capacity, so the old "buffered more than the limit" test can never fire
+    // (the buffer is capped at 8192) and only the assembly's running total can
+    // answer 431. Under the cap the same head is fine, hence the 200 above.
+    srv.maxHeaderBytes = 12 * 1024;
+    big = "GET /x HTTP/1.1\r\nHost: h\r\nX: " + spaces(12 * 1024 - fixedBase() + 200) + "\r\n\r\n";
+    if (statusOf(sendRaw(port, big)) != 431) { return 6; }
+
+    // The other tier, cap below the window: still 431, judged by the same
+    // running total (spec §五's one shared measure for both configurations).
+    srv.maxHeaderBytes = 128;
+    big = "GET /x HTTP/1.1\r\nHost: h\r\nX: " + spaces(200) + "\r\n\r\n";
+    if (statusOf(sendRaw(port, big)) != 431) { return 7; }
+
+    srv.close();
+    io.print("ok");
+    return 0;
+}
+
+int fixedBase() {
+    return ("GET /x HTTP/1.1\r\nHost: h\r\nX: \r\n\r\n").length();
+}
+
+string spaces(int n) {
+    byte[] b = byte[n];
+    byte[] seed = io.toBytes("a");
+    for (int i = 0; i < n; i = i + 1) { b[i] = seed[0]; }
+    return io.fromBytes(b);
+}
+
+// Sends the raw request bytes and returns the response head.
+string sendRaw(int port, string req) {
+    TcpStream s = TcpStream.connect("127.0.0.1", port, 5000);
+    s.write(req);
+    string acc = "";
+    while (true) {
+        string ln = s.readLine(5000);
+        if (s.isClosed() || ln == "") { break; }
+        acc = acc + ln + "\r\n";
+    }
+    s.close();
+    return acc;
+}
+
+int statusOf(string head) {
+    if (!head.startsWith("HTTP/1.1 ")) { return -1; }
+    string code = head.substring(9, 12);
+    int v = 0;
+    for (int i = 0; i < 3; i = i + 1) {
+        int c = code[i];
+        if (c < 48 || c > 57) { return -1; }
+        v = v * 10 + (c - 48);
+    }
+    return v;
+}

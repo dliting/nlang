@@ -172,7 +172,7 @@ int VmScheduler::PopAffinity() {
 
 //K7 契约翻转：内部自守卫（守卫持有的 unique_lock 供 cv 谓词等待——
 //等待期间锁被释放、属主标记保持，见 GilEnsureGuard::Lock()）；一切
-//return 位点由守卫析构解锁——**调用方拿到返回值时不持锁**（分派后
+//return 位置由守卫析构解锁——**调用方拿到返回值时不持锁**（分派后
 //载体无锁进入执行段）。死锁检测的抛出路径同样经守卫析构释放。
 int VmScheduler::PopNextRunnable() {
     GilEnsureGuard gilGuard(*this);
@@ -191,7 +191,7 @@ int VmScheduler::PopNextRunnable() {
         //K4 调试焦点门（D2，见头文件注释）：焦点 Runnable 时它是唯一
         //可分派者。排队中→本次出队取焦点（越过队首非焦点项）；被别的
         //载体持有→无物可分派，等焦点状态迁移（持有者的停泊/终结/重新
-        //入队位点都 notify_all）。
+        //入队位置都 notify_all）。
         if (m_debugFocusContext >= 0) {
             const ExecutionContext* focus = Find(m_debugFocusContext);
             if (focus && focus->state == ContextState::Runnable) {
@@ -290,7 +290,7 @@ void VmScheduler::ParkContextFrames(int id,
     //steal's EvalStack().clear()).
     frames.clear();
     //K7 握手（见 ExecutionContext::framesParked）：状态迁移发生在
-    //park 位点（ParkForJoin 等，GIL 下），ParkSignal 展开期间唤醒可
+    //park 位置（ParkForJoin 等，GIL 下），ParkSignal 展开期间唤醒可
     //已发生——此处 Runnable 涵盖配额抢占与「展开途中被唤醒」两形，
     //在帧已落位的本临界区内入队；停泊中则置握手标记，交由唤醒路径
     //入队。唤醒路径永不入队未完成停泊者，出队者恒见帧已就位。
@@ -305,7 +305,7 @@ void VmScheduler::ParkContextFrames(int id,
 
 //P2-4 nested-pump primitives (see the header).
 int64_t VmScheduler::AcquirePumpToken() {
-    //Static-local atomic: one mint sequence per process, 0 reserved for
+    //Static-local atomic: one creation sequence per process, 0 reserved for
     //"unbound" so ExecutionContext::pinnedToken needs no initialization
     //pass.
     static std::atomic<int64_t> nextToken{0x1000};
@@ -356,7 +356,7 @@ void VmScheduler::ParkContextFramesSlice(int id,
 }
 
 //K4：分派落账（须持 GIL）。辅助载体计数沿旧位（出队即记）；唤醒亲
-//和的 lastCarrier 戳在此盖（焦点窃取与常规出队共用本位点）。
+//和的 lastCarrier 戳在此盖（焦点窃取与常规出队共用本位置）。
 void VmScheduler::DispatchedToCarrier(int id) {
     t_carrier->currentContextId = id;
     if (ExecutionContext* ctx = FindMutable(id))
@@ -447,19 +447,17 @@ void VmScheduler::MarkFailed(int id, int32_t failExcHeapIdx) {
 //K2 slice 3：析构——置关停、唤醒、join。唯一让定时器线程退出的路径；
 //每 run 的关停标志（m_stopRequested）不影响它（常驻执行器，避免每轮
 //运行反复创建销毁线程的开销）。定时器关注点的其余实现见
-//VmSchedulerTimer.cpp（K5 task 6 拆分）。
+//VmSchedulerTimer.cpp（K5 task 6 拆分）；v0.13.0 net 轮询线程的关停
+//（flag/notify/join/句柄关闭）见 VmSchedulerIo.cpp 的 ShutdownIoPollerThread。
 VmScheduler::~VmScheduler() {
     {
         GilEnsureGuard g(*this);
         m_timerShutdown = true;
-        m_ioThreadShutdown = true;   //v0.13.0 net: same lazy-thread protocol
     }
     m_timerCv.notify_all();
-    m_ioCv.notify_all();
     if (m_timerThread.joinable())
         m_timerThread.join();
-    if (m_ioThread.joinable())
-        m_ioThread.join();
+    ShutdownIoPollerThread();
 }
 
 //K2 slice 4（§2.5）：阻塞原生停泊。载体仍持有该上下文（它就是调用

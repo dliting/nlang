@@ -1,0 +1,48 @@
+//v0.13.9 record stabilization final-review I1: Dict STRUCT KEYS are
+//stored by value in both spellings. The sugar d[k]=v stages the key
+//raw at the intrinsic, the explicit d.set(k, v) stages a key copy —
+//both entries must end up independent of the caller's record, and
+//the deep-compared lookup must answer by the stored value.
+struct P {
+    int x;
+    int y;
+}
+int main() {
+    //Sugar spelling: mutating the caller's key must not rewrite the
+    //stored entry.
+    Dict<P, int> d = {};
+    P k;
+    k.x = 1;
+    k.y = 2;
+    d[k] = 10;
+    k.x = 99;
+    if (!d.containsKey(P{x:1, y:2})) {
+        return 1;
+    }
+    if (d.containsKey(k)) {
+        return 2;
+    }
+    //Explicit spelling: same independence for the staged copy.
+    Dict<P, int> e = {};
+    P m;
+    m.x = 3;
+    m.y = 4;
+    e.set(m, 20);
+    m.y = 44;
+    if (!e.containsKey(P{x:3, y:4})) {
+        return 3;
+    }
+    if (e.containsKey(m)) {
+        return 4;
+    }
+    //Replace arm on an equal-valued distinct record: the value
+    //updates in place, the stored key stays the original copy.
+    P probe;
+    probe.x = 1;
+    probe.y = 2;
+    d[probe] = 11;
+    if (d.get(probe) != 11) {
+        return 5;
+    }
+    return 42;
+}

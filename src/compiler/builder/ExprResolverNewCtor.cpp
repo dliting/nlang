@@ -90,15 +90,17 @@ bool ExprResolveAccessor::FindCtorParamRange(SnField *pTypeDecl,
 //was filtered out for access alone, so the caller can tell "no
 //constructor" from "no *accessible* constructor" and name the right
 //diagnostic.
-static std::vector<SnFunction*> CollectCtorCandidates(SnField *pTypeDecl,
+static std::vector<SnFunction*> CollectCtorCandidates(
+	const ModuleRegistry &reg, SnField *pTypeDecl,
 	const SnField &accessor, bool &rbInaccessible)
 {
 	std::vector<SnFunction*> candidates;
-	auto admit = [&candidates, &accessor, &rbInaccessible](SnFunction &ctor)
+	auto admit = [&candidates, &reg, &accessor, &rbInaccessible](
+		SnFunction &ctor)
 	{
 		if (!ctor.HasImplementation())
 			return;
-		if (!ctor.AllowAccess(accessor))
+		if (!AccessAdmitted(reg, ctor, accessor))
 		{
 			rbInaccessible = true;
 			return;
@@ -115,7 +117,7 @@ static std::vector<SnFunction*> CollectCtorCandidates(SnField *pTypeDecl,
 	//Phase-2 D5: declared generic instances fall through — their ctor
 	//members are real AST members matched by the loop below (erasure
 	//naming makes the instance's Name() the ctor member's name). Only
-	//synthetic minted singletons (func) stay candidate-free — they carry
+	//synthetic creationed singletons (func) stay candidate-free — they carry
 	//the builtin marker and arity-gate in FindCtorParamRange.
 	if (pClassDecl->IsBuiltinClass())
 		return candidates;
@@ -145,58 +147,15 @@ static std::vector<SnFunction*> CollectCtorCandidates(SnField *pTypeDecl,
 //error. Null = the call is not bound: either a diagnostic was logged,
 //or the type has no constructor and no arguments were supplied (the
 //legal bare-allocation shape).
-SnFunction *ExprResolveAccessor::SelectCtorForArgs(SnField *pTypeDecl,
-	const std::vector<SnExpression*> &actuals, const ISourceLocation *pLoc)
+//The legacy arity texts for the no-AST-candidate shapes (0.9.11 T6):
+//builtin/generic classes keep the intrinsic arity check via
+//FindCtorParamRange — a call outside its arity window names the expected
+//count(s) and stays unbound; a type with no constructor at all rejects
+//only when arguments were supplied (the legal bare-allocation shape).
+void ExprResolveAccessor::LogLegacyCtorArity(SnField *pTypeDecl,
+	const std::vector<SnExpression*> &actuals, const ISourceLocation *pLoc,
+	const char *kindWord)
 {
-	const char *kindWord = pTypeDecl->Kind() == NK_StructDecl
-		? "struct" : "class";
-
-	//One pass over the actuals: a named/out reject is logged once and
-	//skips matching (a single error instead of the old cascade behind
-	//the match diagnostics).
-	bool bRejected = false;
-	for (auto *pActual : actuals)
-	{
-		if (RejectNonPositionalCtorArg(*pActual))
-			bRejected = true;
-	}
-	if (bRejected)
-		return nullptr;
-
-	bool bAnyInaccessible = false;
-	auto candidates = CollectCtorCandidates(pTypeDecl, *m_pAccessor,
-		bAnyInaccessible);
-	if (candidates.empty() && bAnyInaccessible)
-	{
-		//0.9.12 D-new-5: every candidate exists but none is reachable
-		//from the caller — an accessibility failure, not a missing or
-		//mismatched constructor.
-		m_Env.Log(CLL_Error, pLoc,
-			"constructor of %s \"%s\" is not accessible",
-			kindWord, pTypeDecl->Name().c_str());
-		return nullptr;
-	}
-	if (!candidates.empty())
-	{
-		bool bAmbiguous = false;
-		auto *pCtor = MatchCtorAgainst(actuals, candidates, bAmbiguous);
-		if (pCtor)
-			return pCtor;
-		if (bAmbiguous)
-			m_Env.Log(CLL_Error, pLoc,
-				"ambiguous constructor call to %s \"%s\": multiple "
-				"constructors match the argument list",
-				kindWord, pTypeDecl->Name().c_str());
-		else
-			m_Env.Log(CLL_Error, pLoc,
-				"no constructor of %s \"%s\" matches the argument list",
-				kindWord, pTypeDecl->Name().c_str());
-		return nullptr;
-	}
-
-	//No AST candidates: the intrinsic-arity shapes (builtin/generic
-	//classes) keep the legacy arity texts; a type with no constructor
-	//at all rejects only when arguments were supplied.
 	size_t requiredArity = 0;
 	size_t totalArity = 0;
 	const size_t argCount = actuals.size();
@@ -219,7 +178,7 @@ SnFunction *ExprResolveAccessor::SelectCtorForArgs(SnField *pTypeDecl,
 					argCount);
 			}
 		}
-		return nullptr;
+		return;
 	}
 	if (argCount != 0)
 	{
@@ -228,6 +187,72 @@ SnFunction *ExprResolveAccessor::SelectCtorForArgs(SnField *pTypeDecl,
 			kindWord, pTypeDecl->Name().c_str(),
 			pTypeDecl->Name().c_str());
 	}
+}
+
+//The overload match plus the two named mismatch outcomes. See the
+//declaration in ExprResolver.h for the sharing story (ctor calls and
+//the super(...) parent-ctor path).
+SnFunction *ExprResolveAccessor::MatchCtorOrLogMismatch(
+	const std::vector<SnExpression*> &actuals,
+	const std::vector<SnFunction*> &candidates,
+	const ISourceLocation *pLoc, const char *kindWord,
+	const std::string &typeName)
+{
+	bool bAmbiguous = false;
+	auto *pCtor = MatchCtorAgainst(actuals, candidates, bAmbiguous);
+	if (pCtor)
+		return pCtor;
+	if (bAmbiguous)
+		m_Env.Log(CLL_Error, pLoc,
+			"ambiguous constructor call to %s \"%s\": multiple "
+			"constructors match the argument list",
+			kindWord, typeName.c_str());
+	else
+		m_Env.Log(CLL_Error, pLoc,
+			"no constructor of %s \"%s\" matches the argument list",
+			kindWord, typeName.c_str());
+	return nullptr;
+}
+
+SnFunction *ExprResolveAccessor::SelectCtorForArgs(SnField *pTypeDecl,
+	const std::vector<SnExpression*> &actuals, const ISourceLocation *pLoc)
+{
+	const char *kindWord = pTypeDecl->Kind() == NK_StructDecl
+		? "struct" : "class";
+
+	//One pass over the actuals: a named/out reject is logged once and
+	//skips matching (a single error instead of the old cascade behind
+	//the match diagnostics).
+	bool bRejected = false;
+	for (auto *pActual : actuals)
+	{
+		if (RejectNonPositionalCtorArg(*pActual))
+			bRejected = true;
+	}
+	if (bRejected)
+		return nullptr;
+
+	bool bAnyInaccessible = false;
+	auto candidates = CollectCtorCandidates(m_Env.Registry(), pTypeDecl,
+		*m_pAccessor, bAnyInaccessible);
+	if (candidates.empty() && bAnyInaccessible)
+	{
+		//0.9.12 D-new-5: every candidate exists but none is reachable
+		//from the caller — an accessibility failure, not a missing or
+		//mismatched constructor.
+		m_Env.Log(CLL_Error, pLoc,
+			"constructor of %s \"%s\" is not accessible",
+			kindWord, pTypeDecl->Name().c_str());
+		return nullptr;
+	}
+	if (!candidates.empty())
+		return MatchCtorOrLogMismatch(actuals, candidates, pLoc,
+			kindWord, pTypeDecl->Name());
+
+	//No AST candidates: the intrinsic-arity shapes (builtin/generic
+	//classes) keep the legacy arity texts; a type with no constructor
+	//at all rejects only when arguments were supplied.
+	LogLegacyCtorArity(pTypeDecl, actuals, pLoc, kindWord);
 	return nullptr;
 }
 

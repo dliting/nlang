@@ -1,5 +1,5 @@
-// Out arguments on virtual methods are rejected: the writeback mask
-// is baked against the static callee, a runtime override could disagree.
+// v0.13.9 phase 4: the declaration throat fires for virtual methods
+// too; reference formals on virtual methods follow the phase 3 rules.
 class A {
     virtual int foo(int x, out int y) {
         y = x;

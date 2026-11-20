@@ -35,7 +35,7 @@ thread_local int VmExecutor::t_blockingNativeDepth = 0;
 thread_local uint64_t VmExecutor::t_currentNativeRootOwner = 0;
 
 void VmExecutor::RemoveNativeRoots(uint64_t owner) {
-    //K8: registry mutations share the root-registry mutex — minting
+    //K8: registry mutations share the root-registry mutex — creating
     //callbacks push from outside any lock (blocking natives run with
     //the lock handed away).
     std::lock_guard<std::mutex> g(m_rootRegistryMutex);
@@ -149,7 +149,7 @@ bool VmExecutor::RunBlockingNative(const CompiledFunction& callee,
     StageNativeRoots(stagedRet, stagedArgs, paramCount, rootOwner);
     const size_t stolenDepth = EvalStack().size();
     ParkFramesForBlockingNative(ctx);
-    //Callback-minted handles attribute to this arm (nested arms restore).
+    //Callback-created handles attribute to this arm (nested arms restore).
     const uint64_t savedRootOwner = t_currentNativeRootOwner;
     t_currentNativeRootOwner = rootOwner;
     owner->Release();
@@ -209,11 +209,11 @@ void VmExecutor::FinishBlockingNative(GilHolder& owner, uint64_t rootOwner,
     RestoreStolenFrames(ctx, stolenDepth);
 }
 
-//K2 slice 4: mint rooting — see NativeCallRoot. Only roots inside a
+//K2 slice 4: creation rooting — see NativeCallRoot. Only roots inside a
 //blocking section on this thread; callbacks on foreign threads stay
 //unrooted (the ABI contract keeps callback results on the calling
 //thread for the duration of the call).
-void VmExecutor::RootMintedNativeHandle(int32_t handle)
+void VmExecutor::RootCreatedNativeHandle(int32_t handle)
 {
     if (t_blockingNativeDepth > 0 && handle != 0) {
         std::lock_guard<std::mutex> g(m_rootRegistryMutex);

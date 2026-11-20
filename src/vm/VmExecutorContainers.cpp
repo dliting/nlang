@@ -161,6 +161,9 @@ bool VmExecutor::BoxedValuesEqual(int32_t a, int32_t b) const
         || recA[kBoxedValueSlot + 1] == recB[kBoxedValueSlot + 1];
 }
 
+//Struct equality walk — cell-granularity, no record-level lock (see the
+//m_slotKinds block in VmExecutor.h). The self-recursion on struct-typed
+//fields stays on this same function.
 bool VmExecutor::StructValuesEqual(int32_t a, int32_t b) const
 {
     //Identity fast path; 0 is the null sentinel and equals only itself.
@@ -215,7 +218,7 @@ bool VmExecutor::FuncRecordValuesEqual(int32_t a, int32_t b) const
         || static_cast<size_t>(b) >= m_structHeap.size())
         return false;
     //The record is {target, receiver, form} in cells 0..2 (OpMakeFunc
-    //and the bound/virtual mints); OpFuncEquality compares exactly
+    //and the bound/virtual creates); OpFuncEquality compares exactly
     //these three cells.
     const auto& recA = m_structHeap[static_cast<size_t>(a)];
     const auto& recB = m_structHeap[static_cast<size_t>(b)];

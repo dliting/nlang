@@ -67,18 +67,22 @@ declaring a generic free function.
 ```ebnf
 Type            = ( NameExpr | QualifiedType
                   | IdentifierExpr "<" TypeArgs ">"
-                  | "func" "<" TypeArgs ">" )
+                  | "func" "<" FuncTypeArgs ">" )
                   { "[]" | "[,,]" } ;
 TypeArgs        = TypeList | "void" | "void" "," TypeList ;
 TypeList        = TypeArg { "," TypeArg } ;
-TypeArg         = [ "out" ] Type ;
+TypeArg         = Type ;
+FuncTypeArgs    = FuncTypeList | "void" | "void" "," FuncTypeList ;
+FuncTypeList    = FuncTypeArg { "," FuncTypeArg } ;
+FuncTypeArg     = Type | Type "&" ;
+TypeRef         = Type [ "&" ] ;
 TypeName        = NameExpr | QualifiedType ;
 NameExpr        = IdentifierExpr ;
 QualifiedType   = NameExpr "." <identifier> { "." <identifier> } ;
 NameList        = ImplementsName { "," ImplementsName } ;
 ImplementsName  = TypeName | <identifier> "<" TypeList ">" ;
 HeadType        = ( IdentifierExpr [ "<" TypeArgs ">" ]
-                  | "func" "<" TypeArgs ">" | MemberExpr )
+                  | "func" "<" FuncTypeArgs ">" | MemberExpr )
                   { "[]" | "[,,]" } ;
 ```
 
@@ -89,6 +93,13 @@ arguments; chapter 4 defines which generic types accept which forms.
 differs from `Type` only in admitting a `MemberExpr` base (a
 qualified name reached through a member expression).
 
+`FuncTypeArgs` is the `func`-type twin of `TypeArgs`: its arguments
+admit the `&` marker (§4.7.9) — `func<int, int&>`. Plain generic
+arguments keep `TypeArg`, which admits no `&`: `List<int&>` is a
+syntax error (§4.12.5). `TypeRef` is the `&`-bearing form of `Type`
+used where a declaration names a type: formal parameters, method
+return types, `foreach` heads and local declarations (§4.7.9).
+
 ## 2.4 Declarations
 
 ```ebnf
@@ -97,8 +108,8 @@ AccessType      = "private" | "protected" | "public" ;
 NodeFlag        = "const" | "static" | "virtual" | "native" ;
 NodeFlags       = NodeFlag { NodeFlag } ;
 
-ClassDecl       = "class" <identifier> TypeParamsOpt ClassInheritOpt
-                  ImplementsOpt "{" ClassMemberList "}" ;
+ClassDecl       = [ AccessType ] "class" <identifier> TypeParamsOpt
+                  ClassInheritOpt ImplementsOpt "{" ClassMemberList "}" ;
 TypeParamsOpt   = [ TypeParams ] ;
 TypeParams      = "<" <identifier> { "," <identifier> } ">" ;
 ClassInheritOpt = [ ":" TypeName ] ;
@@ -106,18 +117,19 @@ ImplementsOpt   = [ "implements" NameList ] ;
 ClassMemberList = ClassMember { ClassMember } ;
 ClassMember     = [ AccessType ]
                   ( [ NodeFlags ] MethodDecl | FieldDecl ) ;
-MethodDecl      = [ Type | "void" ] <identifier>
+MethodDecl      = [ TypeRef | "void" ] <identifier>
                   "(" [ FormalParamList ] ")" FunctionBodyOrSemi ;
 FieldDecl       = Type <identifier> [ "=" Expression ] ";" ;
 
-StructDecl      = "struct" <identifier> "{" StructMemberList "}" ;
+StructDecl      = [ AccessType ] "struct" <identifier>
+                  "{" StructMemberList "}" ;
 StructMemberList = StructMember { StructMember } ;
 StructMember    = StructField | StructCtor ;
 StructField     = [ AccessType ] Type <identifier> [ "=" Expression ] ";" ;
 StructCtor      = [ AccessType ] [ NodeFlags ] <identifier>
                   "(" [ FormalParamList ] ")" FunctionBodyOrSemi ;
 
-InterfaceDecl   = "interface" <identifier> TypeParamsOpt
+InterfaceDecl   = [ AccessType ] "interface" <identifier> TypeParamsOpt
                   "{" [ InterfaceMemberList ] "}" ;
 InterfaceMemberList = InterfaceMember { InterfaceMember } ;
 InterfaceMember = [ AccessType ] [ NodeFlags ]
@@ -126,24 +138,25 @@ InterfaceMember = [ AccessType ] [ NodeFlags ]
                   | ConstDecl ) ;
 ConstDecl       = Type <identifier> [ "=" Expression ] ";" ;
 
-EnumDecl        = "enum" <identifier> "{" EnumMemberList EnumMethodSection "}" ;
+EnumDecl        = [ AccessType ] "enum" <identifier> "{" EnumMemberList
+                  EnumMethodSection "}" ;
 EnumMemberList  = EnumMember { "," EnumMember } ;
 EnumMember      = <identifier> [ "=" Expression ] ;
 EnumMethodSection = [ ";" [ EnumMethodList ] ] ;
 EnumMethodList  = EnumMethod { EnumMethod } ;
-EnumMethod      = [ AccessType ] ( Type | "void" ) <identifier>
+EnumMethod      = [ AccessType ] ( TypeRef | "void" ) <identifier>
                   "(" [ FormalParamList ] ")" FunctionBodyOrSemi ;
 
 FormalParamList = FormalParam { "," FormalParam } ;
 FormalParam     = [ NodeFlags ]
-                  ( "out" Type <identifier>
-                  | Type <identifier> [ "=" Expression ] ) ;
+                  TypeRef <identifier> [ "=" Expression ] ;
 FunctionBodyOrSemi = Paragraph | ";" ;
 ```
 
 A `class` body requires at least one member; an `interface` body may
-be empty. A method declaration with no return type names a
-constructor (§4.8.6). An `out` parameter takes no default value.
+be empty. Each top-level type declaration may carry an access
+modifier, like a top-level function (§7.1). A method declaration
+with no return type names a constructor (§4.8.6).
 
 ## 2.5 Statements
 
@@ -157,9 +170,12 @@ Statement       = ";" | ReturnStmt | InvokeStmt | LocalDeclStmt
 StatementList   = { Statement } ;
 Paragraph       = "{" StatementList "}" ;
 
-LocalDeclStmt   = [ "const" ] HeadType LocalDeclList ";"
+LocalDeclStmt   = HeadType [ "&" ] LocalDeclList ";"
+                | "const" HeadType LocalDeclList ";"
+                | DeclLocalConst
                 | "static" HeadType LocalDeclList ";"
                 | "static" "const" HeadType LocalDeclList ";" ;
+DeclLocalConst  = "const" HeadType "&" LocalDeclList ";" ;
 LocalDeclList   = LocalDecl { "," LocalDecl } ;
 LocalDecl       = <identifier>
                   [ "=" Expression | "=" BracedInitExpr
@@ -188,7 +204,7 @@ InitFor         = ε | Type LocalDeclList | InvokeExpr
                 | IdentifierExpr "=" Expression ;
 FiniFor         = ε | InvokeExpr | IdentifierExpr "=" Expression
                 | IdentifierExpr CompoundOp Expression ;
-ForeachStmt     = "foreach" "(" Type <identifier> "in"
+ForeachStmt     = "foreach" "(" TypeRef <identifier> "in"
                   ( Expression | BracedInitExpr ) ")" Statement ;
 
 SwitchStmt      = "switch" "(" Expression ")"
@@ -229,11 +245,11 @@ Expression      = ParenthesesExpr | MemberExpr | LiteralExpr
                 | Expression "as" TypeName [ "[]" | "[,,]" ]
                 | Expression "as" AsGenericTarget
                 | QualifiedGenericReceiver "(" [ ConcreteParamList ] ")"
-                | "func" "<" TypeList ">" "(" [ ConcreteParamList ] ")" ;
+                | "func" "<" FuncTypeList ">" "(" [ ConcreteParamList ] ")" ;
 BinaryOp        = "+" | "-" | "*" | "/" | "%"
                 | "<" | "<=" | ">" | ">=" | "<<" | ">>"
-                | "==" | "!=" | "&&" | "||" ;
-UnaryOp         = "-" | "+" | "!" ;
+                | "==" | "!=" | "&" | "^" | "|" | "&&" | "||" ;
+UnaryOp         = "-" | "+" | "!" | "~" ;
 AsGenericTarget = IdentifierExpr "<" TypeList ">" [ "[]" | "[,,]" ] ;
 QualifiedGenericReceiver = IdentifierExpr "<" TypeList ">" ;
 
@@ -266,7 +282,6 @@ InitEntry       = Expression [ ":" ( Expression | BracedInitExpr ) ]
 
 ConcreteParamList = ConcreteParam { "," ConcreteParam } ;
 ConcreteParam   = <identifier> "=" ( Expression | BracedInitExpr )
-                | "out" <identifier>
                 | Expression | BracedInitExpr ;
 ```
 
@@ -303,12 +318,15 @@ lowest; within a group the listed associativity applies.
 |---|---|---|
 | call, subscript, member | `( )` `[ ]` `.` | left; the call `( )` non-associative |
 | cast | `as` | left |
-| unary | `!` `-` `+` | right |
+| unary | `!` `-` `+` `~` | right |
 | multiplicative | `*` `/` `%` | left |
 | additive | `+` `-` | left |
 | shift | `<<` `>>` | left |
 | relational | `<` `<=` `>` `>=` | left |
 | equality | `==` `!=` | left |
+| bitwise AND | `&` | left |
+| bitwise XOR | `^` | left |
+| bitwise OR | `\|` | left |
 | logical AND | `&&` | left |
 | logical OR | `\|\|` | left |
 

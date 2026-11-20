@@ -116,6 +116,11 @@ void WriteInterfaceRecords(std::ostream& fs, const CompiledModule& mod)
                      sizeof(pNameLen));
             fs.write(paramName.c_str(), pNameLen);
         }
+        //v2.20 (0.13.8 item 5): the interface's declared access, the
+        //record's trailing byte (members are implicitly public by the
+        //declaration contract; this gates the type name itself).
+        fs.write(reinterpret_cast<const char*>(&ci.access),
+                 sizeof(ci.access));
     }
 }
 

@@ -65,7 +65,7 @@ public:
     static bool IsRef(const Value& v);       // m_ref 非空
     static bool IsBuilder(const Value& v);   // m_ref->isBuilder
     static int32_t HeapIdxOf(const Value& v);
-    //一个宿主 Value → 堆句柄：标量/字符串装箱（String＝mint 柄入箱）、
+    //一个宿主 Value → 堆句柄：标量/字符串装箱（String＝创建柄入箱）、
     //参考值句柄直传、嵌套 builder 递归物化（无元素声明可校）
     static int32_t ToHeapHandle(VmExecutor& exec, const Value& v);
     //堆句柄 → 宿主 Value：装箱记录按 tag 解、class/struct/array/func

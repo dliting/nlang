@@ -58,6 +58,12 @@ void VmBackend::EmitCompoundOp(int opInt,
     //carrier row's width, so a byte carrier keeps its 8-bit bound.
     case SnBinaryExpr::OP_Shl: opc = OpCode::OP_Shl; break;
     case SnBinaryExpr::OP_Shr: opc = OpCode::OP_Shr; break;
+    //v0.13.7: bitwise compound assignment rides the binary form's
+    //executors (kind-immediate family); no range check — bit ops are
+    //total on the integer rows.
+    case SnBinaryExpr::OP_BitAnd: opc = OpCode::OP_BitAnd; break;
+    case SnBinaryExpr::OP_BitOr: opc = OpCode::OP_BitOr; break;
+    case SnBinaryExpr::OP_BitXor: opc = OpCode::OP_BitXor; break;
     default: return;  //not an arithmetic op
     }
     //0.7.5: kind-immediate family — compound assigns carry the LHS
@@ -90,6 +96,19 @@ void VmBackend::CopyClaimToCallParams(uint16_t claimBase, uint16_t slotCount,
 void VmBackend::EmitStructDeepCopy(uint16_t dst, uint16_t src,
         SnStructDecl& structDecl, BytecodeEmitter& emitter) {
     emitter.Emit(OpCode::OP_CopyStruct);
+    emitter.EmitUint16(dst);
+    emitter.EmitUint16(src);
+    emitter.EmitUint16(static_cast<uint16_t>(StructSlotFor(structDecl)));
+}
+
+//Record stabilization twin (v0.13.9 phase ②): copy the heap subtree
+//src → dst IN PLACE — dst's existing record is overwritten (zero
+//allocation, stable record identity); a null dst establishes one fresh
+//record. Cell-granularity — no record-level lock; concurrent
+//shared-record coordination is the user's duty (spec §10.1).
+void VmBackend::EmitStructCopyInPlace(uint16_t dst, uint16_t src,
+        SnStructDecl& structDecl, BytecodeEmitter& emitter) {
+    emitter.Emit(OpCode::OP_CopyStructInPlace);
     emitter.EmitUint16(dst);
     emitter.EmitUint16(src);
     emitter.EmitUint16(static_cast<uint16_t>(StructSlotFor(structDecl)));
@@ -131,7 +150,8 @@ void VmBackend::EmitDefaultBinding(const FormalBinding* pBindings,
 void VmBackend::EmitBinding(const FormalBinding* pBindings, size_t bindingIdx,
                               uint16_t slotIdx, size_t slotBase,
                               BytecodeEmitter& emitter, uint16_t thisSlot,
-                              uint16_t claimBase)
+                              uint16_t claimBase,
+                              const std::map<uint16_t, ArgBoxPlan>* pArgPlans)
 {
     const auto& b = pBindings[bindingIdx];
     //claimBase is the evalArea claim slice base, provided by the two
@@ -147,48 +167,53 @@ void VmBackend::EmitBinding(const FormalBinding* pBindings, size_t bindingIdx,
                            paramOffset, emitter, thisSlot);
     } else {
         NLANG_ASSERT(b.pCallerExpr);
+        //v0.13.9 phase 3 Task 5: a & formal binds the caller's storage
+        //— one MakeRef pair into the claim slot; the raw bulk copy to
+        //callParamBase moves it unchanged. Skips the rank boundary, the
+        //box plans and the struct deep copy below: the callee aliases
+        //the caller's record, it never receives a copy.
+        if (b.pFormal->ContainFlags(NF_Ref)) {
+            EmitMakeRef(paramOffset, *b.pCallerExpr, emitter);
+            return;
+        }
         EmitExpression(*b.pCallerExpr, emitter, paramOffset);
     }
 
-    //Struct deep-copy: if the formal is a struct type, copy the heap
-    //subtree so the callee gets its own. Array-typed formals carry their
-    //interned array token in EvalDataType (0.7.3 B), which
-    //RuntimeTypeKind files as RTK_Array — so arrays pass by reference
-    //regardless of element kind, with no separate IsArrayType guard
-    //(Phase 9d-3 dispatch invariant, now derived from the token).
-    if (pFormalType && RuntimeTypeKind(pFormalType) == RTK_Struct
-        && pFormalType->Kind() == NK_StructDecl) {
-        EmitStructDeepCopy(m_currFunc->tempSlot, paramOffset,
-            static_cast<SnStructDecl&>(*pFormalType), emitter);
-        emitter.Emit(OpCode::OP_VarLocal);
-        emitter.EmitUint16(m_currFunc->tempSlot);
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(paramOffset);
-    }
+    EmitStructBindingCopy(pFormalType, paramOffset, slotIdx, pArgPlans,
+                          emitter);
 }
 
-void VmBackend::EmitOutSpills(const std::vector<OutSpill>& spills,
-                              BytecodeEmitter& emitter)
+//Struct deep-copy arm of EmitBinding: if the formal is a struct type,
+//copy the heap subtree so the callee gets its own. Array-typed formals
+//carry their interned array token in EvalDataType (0.7.3 B), which
+//RuntimeTypeKind files as RTK_Array — so arrays pass by reference
+//regardless of element kind, with no separate IsArrayType guard
+//(Phase 9d-3 dispatch invariant, now derived from the token).
+//Record stabilization (v0.13.9 phase ②): a slot whose arg plan
+//says suppressStagingCopy (List.set/Dict.set value) skips the
+//staging copy — the intrinsic writes the value's cells into the
+//element's EXISTING record in place.
+void VmBackend::EmitStructBindingCopy(SnField* pFormalType,
+    uint16_t paramOffset, uint16_t slotIdx,
+    const std::map<uint16_t, ArgBoxPlan>* pArgPlans,
+    BytecodeEmitter& emitter)
 {
-    for (const auto& s : spills) {
-        emitter.Emit(OpCode::OP_VarLocal);
-        emitter.EmitUint16(m_currFunc->callParamBase
-                           + s.slotIdx * kFrameSlotBytes);
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(s.localOffset);
+    bool suppressStagingCopy = false;
+    if (pArgPlans) {
+        auto it = pArgPlans->find(slotIdx);
+        if (it != pArgPlans->end())
+            suppressStagingCopy = it->second.suppressStagingCopy;
     }
-}
-
-uint32_t VmBackend::BuildOutMask(const std::vector<OutSpill>& spills)
-{
-    uint32_t mask = 0;
-    for (const auto& s : spills) {
-        if (s.slotIdx >= 32)
-            throw std::runtime_error(
-                "NLang backend: out parameter slot >= 32 is unsupported");
-        mask |= 1u << s.slotIdx;
-    }
-    return mask;
+    if (suppressStagingCopy || !pFormalType
+        || RuntimeTypeKind(pFormalType) != RTK_Struct
+        || pFormalType->Kind() != NK_StructDecl)
+        return;
+    EmitStructDeepCopy(m_currFunc->tempSlot, paramOffset,
+        static_cast<SnStructDecl&>(*pFormalType), emitter);
+    emitter.Emit(OpCode::OP_VarLocal);
+    emitter.EmitUint16(m_currFunc->tempSlot);
+    emitter.Emit(OpCode::OP_Assign);
+    emitter.EmitUint16(paramOffset);
 }
 
 //One container-boundary normalization at a slot: refresh it (the box
@@ -250,39 +275,30 @@ void VmBackend::StageReceiverInClaim(size_t slotBase, uint16_t thisSlot,
     }
 }
 
-//Unresolved-invoke arm of EmitCallArgs (pCallee == null): legacy
-//positional emit, plus out-argument spill recording.
+//Unresolved-invoke arm of EmitCallArgs (pCallee == null): positional
+//emit with the delegate &-position staging.
 void VmBackend::EmitUnresolvedInvokeArgs(const SnInvokeExpr& invoke,
         BytecodeEmitter& emitter, size_t slotBase, uint16_t claimBase,
-        std::vector<OutSpill>* pOutSpills,
         const std::function<void(uint16_t)>& applyBox) {
-    //Unresolved invoke — fall back to legacy positional emit.
-    //Phase 13 Step 2: out arguments in this path are delegate calls
-    //binding to a func signature (the resolver already checked the
-    //out markers). 0.9.14 D-new-9: the out argument's inner
-    //identifier is emitted into the slot like any other argument —
-    //the documented inout contract seeds the callee with the
-    //caller's current value, matching the direct-call binding path
-    //(EmitBinding stages the caller expression). The spill below
-    //still records the write-back target for the post-call refresh.
+    //Unresolved invoke — fall back to positional emit.
+    //Task 8: the delegate key's & marks (refFlags[i+1], judgment and
+    //promotion marking ran at the resolver) — a &-position argument
+    //stages its pair, the same MakeRef contract as a direct call's
+    //& formal (spec §3.9). Non-delegate unresolved invokes read an
+    //empty flag vector and keep the plain value path. No resolution
+    //gate on Field(): codegen runs only post-resolution, and a local
+    //descriptor never carries NF_Resolved (only the bound invoke does).
+    auto* pFuncType = invoke.Field()
+        ? DelegateFuncTypeOfField(invoke.Field()) : nullptr;
+    const auto& refFlags = pFuncType ? pFuncType->GenericRefFlags()
+        : std::vector<uint8_t>{};
     uint16_t paramIdx = static_cast<uint16_t>(slotBase);
     for (auto& param : invoke.Params()) {
         uint16_t paramOffset = claimBase + paramIdx * kFrameSlotBytes;
-        if (param.Kind() == NK_OutArgExpr) {
-            auto& outArg = static_cast<SnOutArgExpr&>(param);
-            if (!outArg.Inner()
-                || outArg.Inner()->Kind() != NK_IdentifierExpr)
-                throw std::runtime_error(
-                    "NLang backend: out argument is not a local variable");
-            EmitExpression(*outArg.Inner(), emitter, paramOffset);
-            if (pOutSpills) {
-                auto target = ResolveBareIdentifier(
-                    static_cast<SnIdentifierExpr&>(*outArg.Inner()).Field());
-                if (target.kind != BareIdTarget::Local)
-                    throw std::runtime_error(
-                        "NLang backend: out argument is not a local variable");
-                pOutSpills->push_back({paramIdx, target.localOffset});
-            }
+        if (static_cast<size_t>(paramIdx) + 1 < refFlags.size()
+            && refFlags[paramIdx + 1] != 0) {
+            //& position: stage the pair (MakeRef contract, spec §3.9).
+            EmitMakeRef(paramOffset, param, emitter);
         } else {
             EmitExpression(param, emitter, paramOffset);
             applyBox(paramIdx);
@@ -331,8 +347,8 @@ VmBackend::DefaultEmitGuard::~DefaultEmitGuard() {
 bool VmBackend::EmitFormalBindingArgs(const SnInvokeExpr& invoke,
         SnFunction* pCallee, BytecodeEmitter& emitter, size_t slotBase,
         uint16_t claimBase, uint16_t thisSlot,
-        std::vector<OutSpill>* pOutSpills,
-        const std::function<void(uint16_t)>& applyBox) {
+        const std::function<void(uint16_t)>& applyBox,
+        const std::map<uint16_t, ArgBoxPlan>* pArgPlans) {
     const auto& bindings = invoke.Bindings();
     if (bindings.size() + slotBase > kMaxFuncParams) {
         NLANG_ASSERT(false && "function parameters exceed kMaxFuncParams sanity ceiling");
@@ -351,53 +367,39 @@ bool VmBackend::EmitFormalBindingArgs(const SnInvokeExpr& invoke,
 
     for (size_t i = 0; i < bindings.size(); ++i) {
         EmitOneFormalBinding(bindings.data(), i, slotBase, emitter,
-                             thisSlot, claimBase, pOutSpills, applyBox);
+                             thisSlot, claimBase, applyBox,
+                             pArgPlans);
     }
     return false;
 }
 
 //One iteration of the resolved-binding loop: emit the binding, apply the
-//optional boxing plan, and record out-argument spill targets (Phase 9e).
+//optional boxing plan.
 void VmBackend::EmitOneFormalBinding(const FormalBinding* pBindings,
         size_t bindingIdx, size_t slotBase, BytecodeEmitter& emitter,
         uint16_t thisSlot, uint16_t claimBase,
-        std::vector<OutSpill>* pOutSpills,
-        const std::function<void(uint16_t)>& applyBox) {
+        const std::function<void(uint16_t)>& applyBox,
+        const std::map<uint16_t, ArgBoxPlan>* pArgPlans) {
     uint16_t slotIdx = static_cast<uint16_t>(bindingIdx + slotBase);
     EmitBinding(pBindings, bindingIdx, slotIdx, slotBase, emitter,
-                thisSlot, claimBase);
+                thisSlot, claimBase, pArgPlans);
     //v0.12.7: boundary rank check — an annotated formal receiving an
     //unannotated array argument (defaults carry no caller expression;
     //their scalar-only contract needs no check).
     auto& binding = pBindings[bindingIdx];
-    if (!binding.bIsOut && binding.pCallerExpr) {
+    if (binding.pCallerExpr) {
         EmitArrayRankBoundary(binding.pFormal->EvalDataType(),
             binding.pCallerExpr,
             static_cast<uint16_t>(claimBase
                 + slotIdx * kFrameSlotBytes), emitter);
     }
     applyBox(slotIdx);
-    //Phase 9e: out binding — record the caller local for the
-    //post-call spill. The resolver guarantees pCallerExpr is a
-    //plain identifier bound to a caller-frame slot (local var or
-    //formal param), so the spill target is a plain frame offset.
-    if (pBindings[bindingIdx].bIsOut) {
-        auto& idExpr = static_cast<SnIdentifierExpr&>(
-            *pBindings[bindingIdx].pCallerExpr);
-        auto target = ResolveBareIdentifier(idExpr.Field());
-        if (target.kind != BareIdTarget::Local)
-            throw std::runtime_error(
-                "NLang backend: out argument is not a local variable");
-        if (pOutSpills)
-            pOutSpills->push_back({slotIdx, target.localOffset});
-    }
 }
 
 void VmBackend::EmitCallArgs(const SnInvokeExpr& invoke, SnFunction* pCallee,
                               BytecodeEmitter& emitter, size_t slotBase,
                               const std::map<uint16_t, ArgBoxPlan>* pArgPlans,
-                              uint16_t thisSlot,
-                              std::vector<OutSpill>* pOutSpills) {
+                              uint16_t thisSlot) {
     //Determine total claim size (slotBase + arg count).
     const auto& bindings = invoke.Bindings();
     size_t argCount;
@@ -425,13 +427,13 @@ void VmBackend::EmitCallArgs(const SnInvokeExpr& invoke, SnFunction* pCallee,
     //Emit each binding into the claimed evalArea slice.
     if (!pCallee) {
         EmitUnresolvedInvokeArgs(invoke, emitter, slotBase, claimBase,
-                                 pOutSpills, applyBox);
+                                 applyBox);
     } else if (bindings.empty()) {
         EmitLegacyPositionalArgs(invoke, emitter, slotBase, claimBase,
                                  applyBox);
     } else if (EmitFormalBindingArgs(invoke, pCallee, emitter, slotBase,
-                                     claimBase, thisSlot, pOutSpills,
-                                     applyBox)) {
+                                     claimBase, thisSlot,
+                                     applyBox, pArgPlans)) {
         return;
     }
 

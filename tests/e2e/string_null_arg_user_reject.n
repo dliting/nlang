@@ -1,0 +1,9 @@
+// string is a value type: a null literal cannot be passed to a
+// string-typed user-function formal.
+int probe(string s) {
+    return s.length();
+}
+
+int main() {
+    return probe(null);
+}

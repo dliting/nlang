@@ -28,9 +28,17 @@ const char* VmExecutor::DebugKindName(uint8_t kind) {
     case RTK_String: return "string";
     case RTK_Struct: return "struct";
     case RTK_Class:  return "class";
+    //v0.13.9 Task 12 (D14): identity tier's interface leaf — the row
+    //names the interface (FrameStatics composes from the table).
+    case RTK_Interface: return "interface";
     case RTK_Array:  return "array";
     case RTK_Boxed:  return "boxed";
     case RTK_Func:   return "func";
+    //Task 11: bare-name fallbacks only — FrameLocals composes the real
+    //names for these slots from the runtime element kind ("int&", "int").
+    case RTK_Byref:   return "ref";
+    case RTK_ByrefCell: return "ref";
+    case RTK_Promoted: return "promoted";
     default:         return "unknown";
     }
 }
@@ -175,11 +183,11 @@ DebugFrameInfo VmExecutor::FrameInfo(int contextId, size_t depth) const {
     const auto& frame = (*frames)[frames->size() - 1 - depth];
     if (frame.func) {
         //D13: the table key IS the display name — free functions show as
-        //"<package>.<name>" since phase 5, methods keep bare names.
+        //"<package>.<name>" since phase 5, methods keep unqualified names.
         info.funcName = frame.func->name;
         info.sourceFile = frame.func->sourceFile;
         //funcIdx for the ndb `x` command (disassembly needs the
-        //CompiledFunction; bare names can collide across classes).
+        //CompiledFunction; unqualified names can collide across classes).
         if (m_currModule)
             info.funcIdx = static_cast<uint16_t>(
                 frame.func - m_currModule->functions.data());
@@ -215,7 +223,21 @@ std::vector<DebugLocalValue> VmExecutor::FrameLocals(int contextId,
             continue;
         DebugLocalValue v;
         v.name = ld.name;
-        v.kindName = DebugKindName(ld.typeKind);
+        //Task 11: byref/promoted slots name their ELEMENT kind, resolved
+        //from the runtime record ("int&" / "int"), not the slot kind.
+        if (ld.typeKind == RTK_Byref
+                || ld.typeKind == RTK_ByrefCell) {
+            v.kindName = std::string(DebugKindName(
+                ByrefElementKindOf(frame.localsBuf.data(), ld.offset,
+                    ld.typeKind)))
+                + "&";
+        } else if (ld.typeKind == RTK_Promoted) {
+            v.kindName = DebugKindName(
+                ByrefElementKindOf(frame.localsBuf.data(), ld.offset,
+                    RTK_Promoted));
+        } else {
+            v.kindName = DebugKindName(ld.typeKind);
+        }
         v.display = FormatDebugLocalSlot(ld, frame.localsBuf.data());
         out.push_back(std::move(v));
     }
@@ -246,6 +268,11 @@ std::string VmExecutor::FormatDebugLocalSlot(const LocalDescriptor& ld,
     case RTK_Array:
     case RTK_Func:
         return FormatDebugHeapValue(lo);
+    case RTK_Byref:
+    case RTK_ByrefCell:
+        return FormatDebugByrefSlot(frameLocals, ld.offset, ld.typeKind);
+    case RTK_Promoted:
+        return FormatDebugPromotedSlot(frameLocals, ld.offset);
     default:
         if (ScalarPrimIndexOfRtk(ld.typeKind) >= 0)
             return FormatScalarValue(ld.typeKind, lo, hi);
@@ -253,9 +280,10 @@ std::string VmExecutor::FormatDebugLocalSlot(const LocalDescriptor& ld,
     }
 }
 
-//String locals hold a string-object handle (0 = null). StrValCopy is the
-//non-mutating accessor — const formatters must not flatten in place —
-//and reads null/invalid handles as "", rendered as "".
+//String locals hold a string-object handle (0 = the empty string,
+//ruling D26). StrValCopy is the non-mutating accessor — const
+//formatters must not flatten in place — and reads invalid handles as
+//"", rendered as "".
 std::string VmExecutor::FormatDebugStringIdx(int32_t idx) const {
     return QuoteString(StrValCopy(idx));
 }

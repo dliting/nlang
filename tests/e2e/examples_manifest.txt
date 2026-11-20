@@ -38,3 +38,8 @@ net_http_mini 0 ok
 net_udp_echo 0 ok
 net_ping 0 ok
 net_conc_bench 0 ok
+url_tour 0 ok
+http_hello 0 ok
+http_conc_bench 0 done
+http_sse 0 stopped
+regex_tour 0 ok

@@ -26,23 +26,6 @@ candidate (§7.3) is a compile-time error. Named arguments are
 evaluated left to right (§5.1). A constructor call takes
 positional arguments only (§7.3).
 
-A formal declared `out T p` (§2.4) is an inout slot: the
-argument's current value initializes the formal, and when the
-callee returns, the formal's final value is written back to the
-argument. The write-backs happen in parameter order after the call
-returns, and the call's return value is stored before them: when
-the result variable and an `out` argument are the same variable,
-the write-back is the final store. The argument must be a local
-variable or parameter: a field, an element, a subscript or an
-arbitrary expression is a compile-time error. Each of the
-following is a compile-time error: an `out` formal with a default
-value (§2.4); an `out` formal of struct type; a call with more
-than 32 `out` arguments; an `out` argument on a constructor or
-`super()` call, on a built-in container method, on a call that
-dispatches virtually or through an interface, on an enum method,
-or on a native function (§7.5). `out` is a reserved keyword
-(chapter 1).
-
 ### Default values
 
 *Informative:* defaults can appear at any position, not only at the
@@ -69,7 +52,7 @@ construction call site, where the object under construction does not
 exist yet (§4.8.6, §4.7.5).
 
 A default expression that crosses a `.ncu` boundary travels as a
-small expression tree over a foldable subset (§21.6); a default
+small expression tree over a foldable subset (§26.6); a default
 outside that subset is reported as an error by the consumer that
 must materialize it. Sources compiled together in one project use
 defaults directly.
@@ -98,48 +81,31 @@ Constructor calls take arguments positionally only — `Point(x = 1, y = 2)`
 is a compile error (`named arguments are not supported in constructor
 calls`); see [Overload Resolution](overloads.md) "Constructor overloads".
 
-### `out` parameters
+### Reference parameters
 
-*Informative:* an `out` parameter is a writeback slot: the caller's
-local variable is copy-initialized into the callee's frame slot, and
-after the call returns, the callee's value is copied back to the
-caller's variable.
+A formal declared `T& p` names the caller's argument storage
+(§4.7.9): no copy is made, and writes through `p` land in the
+argument. At the call site the argument must be bindable storage of
+the exact type — a local, a formal, a field or an element; literals
+and computed results are rejected by the binding rules (§4.7.9). A
+`const T& p` formal accepts the same arguments read-only, and
+additionally binds const storage and expression results, which
+materialize into a temporary kept alive by the formal.
 
-```nlang
-int divide(int a, int b, out int rem) {
-    rem = a % b;
-    return a / b;
-}
-int r = 0;
-int q = divide(17, 5, out r);  // q=3, r=2
-```
+Which formals can modify the caller's variable:
 
-- Out parameters are **inout**: the callee sees the caller's current value
-  as the initial value of the parameter local.
-- The writeback occurs after the call returns.
-- The call's return value is stored to the result variable
-  **before** out writebacks, so `int x = f(out x)` reads the old `x`
-  for the return assignment and then overwrites `x` with the callee's
-  output.
+| Formal kind | Caller's variable after the call |
+|-------------|----------------------------------|
+| `T p` (value) | unchanged — the formal worked on a copy |
+| `T& p` (reference) | carries every write made through `p` |
+| `const T& p` | unchanged — writes through `p` are compile errors |
 
-The compile-time restrictions and their diagnostics:
+A reference formal passes through virtual and interface dispatch
+like any other formal — the reference is data in the ordinary
+parameter slot, and the dispatch itself is unaware of it.
 
-- Out arguments must be **local variables** (not fields, array elements,
-  or arbitrary expressions).
-- An out parameter may be any scalar or class type; a **struct is the one
-  exclusion** (`out parameter "rem" cannot be a struct`) — structs have
-  variable-size value semantics incompatible with the fixed-slot
-  writeback mechanism.
-- An out parameter cannot carry a default value.
-- No `out` parameters on native functions (`native function "f" cannot
-  have out parameters`) or enum methods (`enum method "m" cannot have
-  out parameters`).
-- No `out` arguments on built-in (standard-library) method calls
-  (`out arguments are not supported by built-in methods`).
-- No `out` on virtual/interface dispatch calls — the writeback mask is
-  baked against the statically bound callee's layout (`out arguments are
-  not supported on virtual method "m".`).
-- No `out` on constructor calls or `super()` (`out arguments are not
-  supported in constructor calls.`).
-- At most 32 out parameters per call.
-- `out` is a reserved keyword.
+`out` remains a reserved word (chapter 1), but the reference formal
+is the only output-parameter form: a declaration spelling `out T p`
+is a compile-time error pointing at the `T&` spelling (`out
+parameters are retired; declare "p" as a reference formal
+instead.`).

@@ -1,0 +1,52 @@
+//v0.13.9 record stabilization final-review M10: uncoordinated
+//concurrent access to a shared struct record and a shared Dict.
+//Atomicity contract (spec §3.11 ruling 1): the VM does not guarantee
+//whole-record atomicity — torn reads yield type-correct values only.
+//This pin asserts ONLY what is unconditional: the program completes
+//without crashing or corrupting VM state (exit-code assertion;
+//deterministic-test ruling — no value or timing bets). Coordination
+//duty belongs to the user (Mutex/AtomicInt, manual §10.2).
+import thread;
+
+struct Pair {
+    int a;
+    int b;
+}
+
+class Shared {
+    public static Pair p;
+    public static Dict<int, Pair> d;
+}
+
+class Rig {
+    public void churn() {
+        for (int i = 0; i < 20000; i = i + 1) {
+            Pair v = Pair{a: i, b: i};
+            Shared.p = v;
+            Shared.d.set(0, v);
+            Pair r = Shared.d.get(0);
+            int s = r.a + r.b + Shared.p.a + Shared.p.b;
+            if (s == -1) {
+                //Unreachable (every field value is a non-negative i,
+                //so the sum cannot be -1): keeps the torn-value reads
+                //live in the hot loop instead of dead code.
+                Shared.p.a = s;
+            }
+            if (i % 4096 == 0) {
+                thread.yield();
+            }
+        }
+    }
+}
+
+int main() {
+    if (Shared.d == null) {
+        Shared.d = {};
+    }
+    Rig rig = Rig();
+    Thread a = thread.spawn(rig.churn);
+    Thread b = thread.spawn(rig.churn);
+    thread.join(a);
+    thread.join(b);
+    return 42;
+}

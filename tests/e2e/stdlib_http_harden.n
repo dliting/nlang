@@ -1,0 +1,71 @@
+// Hardening over the wire: malformed requests get 400 and the server
+// stays alive; header-size/count limits get 431; bare-LF request lines
+// get 400 (not a hang); unknown version gets 505. Review Focus 2.
+import io;
+import net;
+import http;
+
+HttpResponse okHandler(HttpRequest req) {
+    HttpResponse res = HttpResponse();
+    res.body = io.toBytes("ok");
+    return res;
+}
+
+int main() {
+    HttpServer srv = HttpServer();
+    srv.maxHeaderBytes = 200;
+    srv.maxHeaders = 5;
+    srv.start("127.0.0.1", 0, okHandler);
+    int port = srv.localPort();
+
+    if (statusOf(sendRaw(port, "GET / HTTP/1.1\r\nHost : x\r\n\r\n")) != 400) { return 1; }
+    if (statusOf(sendRaw(port, "GET / HTTP/1.1\nHost: x\n\n")) != 400) { return 2; }
+    if (statusOf(sendRaw(port, "GET / HTTP/1.1\r\nHost: x\r\nA: a\u0001\r\n\r\n")) != 400) { return 3; }
+    if (statusOf(sendRaw(port, "GET / HTTP/2.0\r\nHost: x\r\n\r\n")) != 505) { return 4; }
+    if (statusOf(sendRaw(port, "GET / HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\nContent-Length: 0\r\n\r\n")) != 400) { return 5; }
+    // 250-byte header block > maxHeaderBytes 200 → 431.
+    if (statusOf(sendRaw(port, "GET / HTTP/1.1\r\nHost: x\r\nA: " + pad(200) + "\r\n\r\n")) != 431) { return 6; }
+    // 6 header fields > maxHeaders 5 → 431.
+    if (statusOf(sendRaw(port, "GET / HTTP/1.1\r\nHost: x\r\nA: 1\r\nB: 2\r\nC: 3\r\nD: 4\r\nE: 5\r\n\r\n")) != 431) { return 7; }
+    // Malformed request target (unterminated IPv6 literal) → 400.
+    if (statusOf(sendRaw(port, "GET http://[bad HTTP/1.1\r\nHost: x\r\n\r\n")) != 400) { return 8; }
+    // Server still healthy afterwards.
+    if (statusOf(sendRaw(port, "GET / HTTP/1.1\r\nHost: x\r\n\r\n")) != 200) { return 9; }
+
+    srv.close();
+    io.print("ok");
+    return 0;
+}
+
+// Sends the raw request bytes and returns the response head (status line
+// + headers), stopping at the blank line or the connection close.
+string sendRaw(int port, string req) {
+    TcpStream s = TcpStream.connect("127.0.0.1", port, 5000);
+    s.write(req);
+    string acc = "";
+    while (true) {
+        string ln = s.readLine(5000);
+        if (s.isClosed() || ln == "") { break; }
+        acc = acc + ln + "\r\n";
+    }
+    s.close();
+    return acc;
+}
+
+int statusOf(string head) {
+    if (!head.startsWith("HTTP/1.1 ")) { return -1; }
+    string code = head.substring(9, 12);
+    int v = 0;
+    for (int i = 0; i < 3; i = i + 1) {
+        int c = code[i];
+        if (c < 48 || c > 57) { return -1; }
+        v = v * 10 + (c - 48);
+    }
+    return v;
+}
+
+string pad(int n) {
+    byte[] b = byte[n];
+    for (int i = 0; i < n; i = i + 1) { b[i] = 97; }
+    return io.fromBytes(b);
+}

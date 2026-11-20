@@ -9,10 +9,14 @@
     (design r1 note ① — libuv, Go's netpoller and Project Loom all
     draw the same line). The poller handle is opaque; fds are plain OS
     fds (on Windows, socket handles — wepoll only knows sockets).
+    Threading contract: IoPollerAdd/Del/Mod run with the GIL held (the
+    park site and the harvest round), IoPollerWait runs only on the
+    poller thread with the GIL released.
 ---*/
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 namespace nlang {
@@ -37,6 +41,16 @@ struct IoPollerEvent {
 //once flag, plan ruling R4).
 void* IoPollerCreate();
 void IoPollerClose(void* poller);
+
+//RAII wrapper. The handle is created at the first park (under the GIL) and
+//closed only after the poller thread has been joined — the poller thread
+//uses the raw pointer it captured before releasing the GIL, so closing the
+//handle while it is still inside IoPollerWait is use-after-free.
+struct IoPollerCloser {
+    void operator()(void* p) const { if (p) IoPollerClose(p); }
+};
+using IoPollerHandle = std::unique_ptr<void, IoPollerCloser>;
+
 int IoPollerAdd(void* poller, int fd, uint32_t events);
 int IoPollerMod(void* poller, int fd, uint32_t events);
 int IoPollerDel(void* poller, int fd);

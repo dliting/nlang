@@ -40,7 +40,7 @@ bool VmExecutor::IntrinsicChannelCtorAlloc(int32_t thisIdx, int32_t capacity)
         RaiseNlangException(m_exceptionClassIdx,
             "channel capacity must be 0 (unbounded) or at least 1");
     //K8: the capacity write joins the allocation inside the allocator's
-    //Sync section — the minted handle is not yet visible, but a
+    //Sync section — the created handle is not yet visible, but a
     //concurrent growth reallocates the store vector, so the slot write
     //shares the structure section.
     const int32_t handle = AllocChannelHandle(capacity);

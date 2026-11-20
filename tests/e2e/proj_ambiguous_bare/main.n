@@ -1,5 +1,5 @@
 // v0.12.7 name-resolution V4: two explicitly imported modules both
-// provide the same-shape bare name — an equal-distance tie is a use-site
+// provide the same-shape unqualified name — an equal-distance tie is a use-site
 // ambiguity error naming BOTH providers and the qualified escape,
 // never a silent pick.
 import alpha.dup;

@@ -399,7 +399,7 @@ public:
 	/*
 	Remove one already-indexed child from the name map, the inverse of
 	index_field: a name changing owner while the node stays attached
-	(face classes take over the builtin mirrors' bare names this way).
+	(face classes take over the builtin mirrors' unqualified names this way).
 	*/
 	void unindex_field(FieldType *pField)
 	{

@@ -25,6 +25,7 @@ int32_t VmExecutor::TakeHeapSlot() {
         if (m_heapShards.Empty(shard))   //double-check under the lock
             GrowHeapShardBlockLocked(shard);
     }
+    ++m_heapAllocCountForTests;
     return m_heapShards.Pop(shard);
 }
 
@@ -73,7 +74,7 @@ int32_t VmExecutor::AllocStructOnHeap(uint16_t structIdx) {
     //explicit construction). RTK_Void entries keep the zero fill; brace
     //initializers and constructor stores overwrite these afterwards.
     //Field i sits at cell 2i of the uniform 2-cell stride. The loop runs
-    //after every nested allocation: MintNewString only grows the string
+    //after every nested allocation: CreateNewString only grows the string
     //table, so no reference taken here can dangle across it.
     for (uint16_t i = 0; i < cs.fieldCount
          && i < cs.fieldDefaults.size(); ++i) {
@@ -88,14 +89,14 @@ int32_t VmExecutor::AllocStructOnHeap(uint16_t structIdx) {
 
 //v0.13.1: intern the module's static descriptor rows so OP_New's
 //descIdx operand resolves to a pointer. Static rows rebuild their
-//argument trees from the canonical spelling (leaf link keys resolve
-//against the linked module's tables); recipe rows (runtime composition)
+//argument trees from the canonical name (leaf link keys resolve
+//against the linked module's tables); composition record rows (runtime composition)
 //stay null until that path lands.
 void VmExecutor::InitDescriptorTable(const CompiledModule& module) {
     m_descCache.clear();
     m_descCache.reserve(module.descriptorTable.size());
     for (const auto& entry : module.descriptorTable) {
-        m_descCache.push_back(entry.recipe.empty()
+        m_descCache.push_back(entry.composition.empty()
             ? InternDescriptorFromSpelling(entry.spelling, module)
             : nullptr);
     }
@@ -127,7 +128,7 @@ int32_t VmExecutor::AllocClassOnHeap(uint16_t classIdx,
     return heapIdx;
 }
 
-//The single length gate (language creation and native minting): every
+//The single length gate (language creation and native creation): every
 //dimension must be non-negative and within kMaxArrayElems, and the
 //product (elemCount) must stay within it too — int64 accumulation so
 //the product itself cannot overflow the check.
@@ -163,7 +164,7 @@ int32_t VmExecutor::AllocArrayOnHeap(uint16_t arrayTypeIdx, uint8_t rank,
     int32_t totalSlots =
         static_cast<int32_t>(ArrayHeaderCells(rank)) + size * cells;
     //The one array allocation path shared by language creation and
-    //native minting: raise the collector-pending flag here, so a loop
+    //native creation: raise the collector-pending flag here, so a loop
     //that only allocates through natives still reaches collection.
     NoteGcPressure();
     const int32_t heapIdx = TakeHeapSlot();
@@ -382,7 +383,12 @@ int32_t VmExecutor::MaterializeViewRecord(int32_t viewHeapIdx) {
     return heapIdx;
 }
 
-int32_t VmExecutor::DeepCopyStruct(int32_t srcHeapIdx, uint16_t structIdx) {
+//Deep-copy walk — the read + allocate + publish establish path.
+//Cell-granularity, no record-level lock (see the m_slotKinds block in
+//VmExecutor.h). The self-recursion on struct-typed fields stays on this
+//same function.
+int32_t VmExecutor::DeepCopyStruct(int32_t srcHeapIdx,
+        uint16_t structIdx) {
     if (srcHeapIdx < 0 || static_cast<size_t>(srcHeapIdx) >= m_structHeap.size())
         throw std::runtime_error("NLang VM: invalid struct heap index in CopyStruct");
     if (structIdx >= m_currModule->structs.size())
@@ -409,6 +415,49 @@ int32_t VmExecutor::DeepCopyStruct(int32_t srcHeapIdx, uint16_t structIdx) {
     //raising the pending flag — GC would never trigger on this path.
     NoteGcPressure();
     return newHeapIdx;
+}
+
+//Record stabilization (v0.13.9 phase ②): the in-place write primitive.
+//dst handle ≤ 0 → establish: delegate to DeepCopyStruct (its body is
+//exactly allocate-fresh-from-src + deep copy) and return the new
+//handle. dst == src → identity. Otherwise overwrite dst's existing
+//cells in place — zero allocation on that path. Cell-granularity — no
+//record-level lock (see the m_slotKinds block in VmExecutor.h).
+//Established records are NOT re-marked: hasInitializer-style marking
+//belongs to the store sites, not the copy primitive.
+int32_t VmExecutor::CopyStructInPlace(int32_t dstHeapIdx,
+        int32_t srcHeapIdx, uint16_t structIdx) {
+    if (dstHeapIdx == srcHeapIdx)
+        return dstHeapIdx;
+    if (dstHeapIdx <= 0)
+        return DeepCopyStruct(srcHeapIdx, structIdx);
+    CopyStructCellsInPlace(dstHeapIdx, srcHeapIdx, structIdx);
+    return dstHeapIdx;
+}
+
+//The unguarded cell walk: struct-typed fields recurse into the EXISTING
+//dst sub-records (both trees stay alive — no release, no allocation);
+//every other field copies its FULL 2-cell row — a wide scalar (long,
+//ulong, double) carries its value across both cells, and dropping the
+//hi cell truncates it silently (the StructValuesEqual hi-cell rule, its
+//copy-side dual). Strings carry immutable handles; class/array/func
+//fields copy the reference. dst and src trees are type-level disjoint,
+//so reading srcCells while writing dstCells cannot alias.
+void VmExecutor::CopyStructCellsInPlace(int32_t dstHeapIdx,
+        int32_t srcHeapIdx, uint16_t structIdx) {
+    const auto& cs = m_currModule->structs[structIdx];
+    const auto& srcCells = m_structHeap[static_cast<size_t>(srcHeapIdx)];
+    auto& dstCells = m_structHeap[static_cast<size_t>(dstHeapIdx)];
+    for (uint16_t i = 0; i < cs.fieldCount; ++i) {
+        if (cs.fieldTypeKinds[i] == RTK_Struct
+            && cs.fieldStructIndices[i] != 0xFFFF) {
+            CopyStructCellsInPlace(dstCells[i * 2], srcCells[i * 2],
+                cs.fieldStructIndices[i]);
+        } else {
+            dstCells[i * 2] = srcCells[i * 2];
+            dstCells[i * 2 + 1] = srcCells[i * 2 + 1];
+        }
+    }
 }
 
 } // namespace nlang

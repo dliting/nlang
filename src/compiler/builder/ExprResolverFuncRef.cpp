@@ -23,22 +23,25 @@ namespace nlang
 //Phase 13: exact-signature comparison between a function declaration and
 //a func<...> instantiation (no variance). Return slot: a nullptr return
 //type matches a void type argument. Parameter slots: declared type field
-//pointer identity plus out-flag agreement — the same discipline that
-//keeps func<void,int> and func<void,out int> distinct in GenericInstKey.
-//0.7.3 B: array-ness needs no separate comparison — an array-typed
-//return/param carries the interned token, and pointer identity against
-//the type argument (itself a token for func<int[]>) rules the pairing.
+//pointer identity — the same discipline that keeps distinct spellings
+//distinct in GenericInstKey.
+//v0.13.9 phase 3: the & marks join the agreement (return-slot NF_Ref
+//against refFlags[0], per-parameter against refFlags[i+1]) — no silent
+//binding across a & spelling. Array-ness needs no separate comparison:
+//the interned token's pointer identity rules the pairing (0.7.3 B).
 bool FuncRefMatchesDecl(const SnFunction &func, SnClassDecl *pFuncDecl)
 {
 	const auto &typeArgs = GetGenericTypeArgs(pFuncDecl);
-	const auto &outFlags = GetGenericOutFlags(pFuncDecl);
+	const auto &refFlags = GetGenericRefFlags(pFuncDecl);
 	auto *pRet = func.ReturnType();
 	if (pRet)
 	{
 		if (!pRet->IsResolved() || pRet->Field() != typeArgs[0])
 			return false;
+		if (pRet->ContainFlags(NF_Ref) != (refFlags[0] != 0))
+			return false;
 	}
-	else if (typeArgs[0]->Kind() != NK_Void)
+	else if (typeArgs[0]->Kind() != NK_Void || refFlags[0] != 0)
 	{
 		return false;
 	}
@@ -50,7 +53,7 @@ bool FuncRefMatchesDecl(const SnFunction &func, SnClassDecl *pFuncDecl)
 	{
 		if (param.EvalDataType() != typeArgs[i + 1])
 			return false;
-		if (param.ContainFlags(NF_Out) != (outFlags[i + 1] != 0))
+		if (param.ContainFlags(NF_Ref) != (refFlags[i + 1] != 0))
 			return false;
 		++i;
 	}
@@ -145,8 +148,7 @@ bool BindFuncRefToExpected(BuildEnvironment &env, SnIdentifierExpr &idExpr,
 	}
 	//Bound state is structural: EvalDataType becomes the func declaration
 	//(codegen detects Field()->Kind() == NK_Function in a value position
-	//and emits OP_MakeFunc). No dedicated node flag exists — the 24 flag
-	//bits are fully allocated.
+	//and emits OP_MakeFunc); all 24 node flag bits are allocated.
 	idExpr.EvalDataType(pFuncDecl);
 	return true;
 }
@@ -263,14 +265,38 @@ static bool RejectMemberFuncRefForm(BuildEnvironment &env,
 	return false;
 }
 
+//By-name dispatch cannot bake late-bound marks: the & marks are
+//compiled from the func type, but the handle resolves its target at
+//runtime — an override's layout may disagree (the virtual-direct-call
+//rationale). The RETURN slot can carry a & mark (func<int&>), so the
+//ref scan starts at 0. v0.13.9 phase 4: the out half is gone with the
+//out mechanism. True = rejected.
+static bool RejectByNameLateBoundMarks(BuildEnvironment &env,
+	const ISourceLocation *pLoc, SnField *pExpected)
+{
+	auto *pFunc = static_cast<SnClassDecl *>(pExpected);
+	const auto &refFlags = GetGenericRefFlags(pFunc);
+	for (size_t k = 0; k < refFlags.size(); ++k)
+	{
+		if (refFlags[k] != 0)
+		{
+			env.Log(CLL_Error, pLoc,
+				"reference parameters and reference returns are not "
+				"supported on virtual method references: dispatch "
+				"resolves the target at runtime.");
+			return true;
+		}
+	}
+	return false;
+}
+
 //Signature gates of BindMemberFuncRefToExpected: native methods (and,
 //for by-name bindings, any native override in the dispatch domain) have
 //no callee frame for the receiver, by-name dispatch cannot bake an out
 //mask, and default parameters are filled only on the direct-call path.
-//Receiverless targets skip the receiver-frame and out-mask arms — a
-//native free function or native static method is referenceable exactly
-//like a bare-name one (no receiver slot exists to misplace). True =
-//rejected with the named diagnostic.
+//Receiverless targets skip the receiver-frame and mark arms — a native
+//free function or static method is referenceable exactly like an
+//unqualified-name one. True = rejected with the named diagnostic.
 static bool RejectMemberFuncRefSignature(BuildEnvironment &env,
 	SnMemberExpr &snMember, SnIdentifierExpr &inner, SnFunction *pMethod,
 	SnField *pExpected, bool bDispatchesByName)
@@ -286,25 +312,13 @@ static bool RejectMemberFuncRefSignature(BuildEnvironment &env,
 				inner.Name().c_str());
 			return true;
 		}
-		//The out mask is compiled from the func type, but a by-name
-		//handle resolves the target at runtime — an overriding method's
-		//layout may disagree. Same rationale as the virtual-direct-call
-		//reject.
-		const auto &outFlags =
-			GetGenericOutFlags(static_cast<SnClassDecl*>(pExpected));
-		for (size_t k = 1; bDispatchesByName && k < outFlags.size(); ++k)
-		{
-			if (outFlags[k] != 0)
-			{
-				env.Log(CLL_Error, snMember.Location(),
-					"out parameters are not supported on virtual method "
-					"references: dispatch resolves the target at runtime.");
-				return true;
-			}
-		}
+		if (bDispatchesByName
+			&& RejectByNameLateBoundMarks(env, snMember.Location(),
+				pExpected))
+			return true;
 	}
 	//Default parameters are filled only on the direct-call path (mirrors
-	//the free-function reject of the bare-name channel).
+	//the free-function reject of the unqualified-name channel).
 	for (auto &param : pMethod->Params())
 	{
 		if (param.Value())
@@ -353,7 +367,7 @@ bool BindMemberFuncRefToExpected(BuildEnvironment &env,
 			inner.Name().c_str(), pFuncDecl->Name().c_str());
 		return false;
 	}
-	//Bound state is structural (same as the bare-name form): the member
+	//Bound state is structural (same as the unqualified-name form): the member
 	//carries the func declaration while Field() stays the SnFunction;
 	//codegen emits receiver + OP_MakeBoundFunc/OP_MakeVFunc for a method
 	//form, or a bare OP_MakeFunc for a module form. The inner identifier
@@ -372,7 +386,7 @@ bool BindMemberFuncRefToExpected(BuildEnvironment &env,
 //the strict IsUnboundFuncRef below. This loose form survives only for
 //the end-of-build sweep (ModuleBuilder::SweepPendingFuncRefs): a ref a
 //func-accepting consumer already handled via MakeFunc (e.g. io.print of
-//a func-returning function's bare name) must not be re-flagged there.
+//a func-returning function's unqualified name) must not be re-flagged there.
 bool IsPendingFuncRef(SyntaxNode &expr)
 {
 	if (expr.Kind() != NK_IdentifierExpr)
@@ -382,7 +396,7 @@ bool IsPendingFuncRef(SyntaxNode &expr)
 		&& !IsFuncTypeDecl(idExpr.EvalDataType());
 }
 
-//Phase 13 (review round-1 F1): strict bind-site predicate. A bare name
+//Phase 13 (review round-1 F1): strict bind-site predicate. An unqualified name
 //is bound only when its OWN signature satisfies the func type it
 //carries. Without this, `func<int,int> f = pick;` (where pick RETURNS
 //func<int,int> but takes no parameters) was misread as an already-bound

@@ -4,6 +4,7 @@
 import io;
 import thread;
 import net;
+import system;
 
 class BenchClient {
     public int port = 0;
@@ -58,7 +59,7 @@ int main() {
     BenchAccept acc = BenchAccept(); acc.listener = listener;
     Thread acceptor = thread.spawn(acc.run);
 
-    long t0 = io.nowMs();             //计时窗=并发建立+全部请求(ab/wrk口径)
+    long t0 = system.monoMs();             //计时窗=并发建立+全部请求(ab/wrk口径)
     BenchClient[] cs = BenchClient[10000];
     Thread[] ts = Thread[10000];
     for (int i = 0; i < 10000; i = i + 1) {
@@ -69,7 +70,7 @@ int main() {
     }
     int ok = 0;
     for (int i = 0; i < 10000; i = i + 1) { thread.join(ts[i]); ok = ok + cs[i].ok; }
-    long dt = io.nowMs() - t0;
+    long dt = system.monoMs() - t0;
     listener.close();
     thread.join(acceptor);
     io.print("10000 connections, " + ok.toString() + " echoed, "

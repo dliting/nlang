@@ -311,7 +311,7 @@ int32_t VmExecutor::NativeNewArrayResident(NativeHost* self,
         static_cast<uint8_t>(rank));
     const int32_t handle = e->AllocDeviceArrayOnHeap(arrayTypeIdx,
         static_cast<uint8_t>(rank), dims);
-    e->RootMintedNativeHandle(handle);
+    e->RootCreatedNativeHandle(handle);
     return handle;
 }
 

@@ -2,6 +2,7 @@
 <Project name="proj_generic_cross_unit">
   <Sources>
     <File path="boxlib.n"/>
+    <File path="sub/pipe2.n"/>
     <File path="main.n"/>
   </Sources>
 </Project>

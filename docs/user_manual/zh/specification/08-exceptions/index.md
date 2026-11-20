@@ -19,9 +19,9 @@ Caused by: Exception: disk full
 
 派生任务里未被观察的失败在运行结束时以同一格式报告（§10.9）。
 
-语言、标准库与VM对其所报告的错误抛出§8.3的内建异常，且这些异常可捕获：经由`null`引用的访问（§4.8、§5.6、§5.7）、除以零或取余零以及越界的移位计数（§5.2）、越界的下标（§5.7）、失败的断言（§6.5）、失败的`as`向下转型（§5.5），以及第19章的库错误。
+语言、标准库与VM对其所报告的错误抛出§8.3的内建异常，且这些异常可捕获：经由`null`引用的访问（§4.8、§5.6、§5.7）、除以零或取余零以及越界的移位计数（§5.2）、越界的下标（§5.7）、失败的断言（§6.5）、失败的`as`向下转型（§5.5），以及第20章的库错误。
 
-*宿主级*执行期错误（§7.1）不是异常：没有`catch`子句处理它，程序结束。定义宿主级失败的各节指明其发生位点——调用深度界（§7.1）、缺失的原生函数（§7.5）、§5.5的拆箱与`null`向下转型失败、超出成员表的枚举`toString()`（§4.6）、§11.2的`toString`嵌套界、§14.6的流失败，以及第10章的并发失败。
+*宿主级*执行期错误（§7.1）不是异常：没有`catch`子句处理它，程序结束。定义宿主级失败的各节指明其发生位置——调用深度界（§7.1）、缺失的原生函数（§7.5）、交出null或失效字符串句柄的原生函数（§7.5）、§5.5的拆箱与`null`向下转型失败、超出成员表的枚举`toString()`（§4.6）、§11.2的`toString`嵌套界、§14.6的流失败，以及第10章的并发失败。
 
 ```nlang
 throw Exception("error message");   // 抛出一个新异常
@@ -94,22 +94,22 @@ try {
 
 | 类 | 由谁抛出 |
 | --- | --- |
-| `Exception` | 对用户`throw`抛出`Exception`自身；对不存在的键做`Dict`读取（§4.12）；没有专属类的VM位点：越界的移位计数（§5.2）、Unicode标量值之外的`char`转换（§5.5）、以负容量构造的`Channel`（§10.4） |
+| `Exception` | 对用户`throw`抛出`Exception`自身；对不存在的键做`Dict`读取（§4.12）；没有专属类的VM位置：越界的移位计数（§5.2）、Unicode标量值之外的`char`转换（§5.5）、以负容量构造的`Channel`（§10.4） |
 | `NullPointerException` | 经由`null`的类、接口或函数引用的成员访问、方法调用或调用（§4.8、§5.6、§5.7） |
 | `DivByZeroException` | 任意数值宽度上的除以零或取余零（§5.2） |
-| `IndexOutOfBoundsException` | 越界的数组或`List`下标（§5.7）；带长度的数组创建中长度为负或元素数超过上限（§4.10）；越界的`string`的`substring`或`charAt`（§16.2） |
+| `IndexOutOfBoundsException` | 越界的数组或`List`下标（§5.7）；带长度的数组创建中长度为负或元素数超过上限（§4.10）；越界的`string`的`substring`或`charAt`（§17.2） |
 | `AssertionException` | 失败的`assert`（§6.5） |
 | `InvalidCastException` | 失败的`as`向下转型（§5.5） |
-| `IOException` | 失败的`io`或`fs`操作（第14章、第15章） |
+| `IOException` | 失败的`io`或`fs`操作（第14章、第16章） |
 | `InitializationException` | 静态初始化器经初始化协议失败时抛出，被抛对象作为其cause包裹（§4.8.8）；在初始化尚未完成时读取带初始化器的静态成员，类、接口或静态局部皆然（§4.8.8、§6.1） |
 
-`concurrent`包（§3.9.4）声明了再一个直接子类`ChannelClosedException`，由对已关闭通道的操作抛出（§10.4）；它经`import concurrent;`像任何包类一样进入作用域，`catch`对它的处理与其他子类无异。`net`包（§3.9.4）声明了`IOException`的两个子类`SocketException`与`TimeoutException`，由第20章的套接字操作抛出；它们经`import net;`像任何包类一样进入作用域，`catch`对它们的处理与其他子类无异。
+`concurrent`包（§3.9.4）声明了再一个直接子类`ChannelClosedException`，由对已关闭通道的操作抛出（§10.4）；它经`import concurrent;`像任何包类一样进入作用域，`catch`对它的处理与其他子类无异。`net`包（§3.9.4）声明了`IOException`的两个子类`SocketException`与`TimeoutException`，由第21章的套接字操作抛出；它们经`import net;`像任何包类一样进入作用域，`catch`对它们的处理与其他子类无异。`url`包（§3.9.4）声明了`IOException`的子类`UrlException`，由第22章的操作抛出；`system`包声明了`Exception`的直接子类`DateTimeException`，由`DateTime.parse`（§15.2）抛出；它们经各自的`import`像任何包类一样进入作用域，`catch`对它们的处理与其他子类无异。`http`包（§3.9.4）声明了`IOException`的子类`HttpException`，由第23章的操作抛出；`gzip`包（§3.9.4）声明了`IOException`的子类`GzipException`，由第24章的操作抛出；`regex`包（§3.9.4）声明了`IOException`的子类`RegexException`，由第25章的模式编译与组访问操作抛出；三者经各自的`import`像任何包类一样进入作用域，`catch`对它们的处理与其他子类无异。
 
-每个内建异常类都是const类（§4.8.12），且每个构造器都有相同的形状：`XxxException(string message, Exception cause = null)`——第二个实参可选，用于包装原因异常。
+每个内建异常类都是const类（§4.8.12），且每个构造器都有相同的形状：`XxxException(string message, Exception cause = null)`——第二个实参可选，用于包装原因异常。`HttpException`是库异常类中唯一携带超过继承的三个字段的：其`status`字段指明此次失败用以作答的HTTP状态，无状态可指时为`0`，其构造器把该状态放在消息与原因异常之间（§23.8）。
 
 每个异常实例携带三个只读字段，从`Exception`继承；各类都是const类，因此构造器之外的写入是编译期错误（§4.8.12）：
 
-- `message`（`string`）——由创建该实例的构造器调用设置，或由抛出VM异常的位点设置。某节固定了文本时（§6.5），该文本是规范性的；否则消息以实现选定的措辞描述错误。用户代码可以读取该字段。
+- `message`（`string`）——由创建该实例的构造器调用设置，或由抛出VM异常的位置设置。某节固定了文本时（§6.5），该文本是规范性的；否则消息以实现选定的措辞描述错误。用户代码可以读取该字段。
 - `cause`（`Exception`）——被包装的原因异常，经构造器的第二个实参传入；未包装任何异常时为`null`。每个环节只在构造时指向前一个，因此原因链永不成环；也不存在事后改写该字段的途径。
 - `backtrace`（`List<string>`，§4.12）——对VM抛出的异常，是抛出时拍摄的调用栈快照：每帧一个条目，最内层在前，每个条目形如`funcName (file:line)`。自由函数以模块限定名命名；方法以裸方法名命名。`file`是模块编译时记录的源码路径；行号未知的帧渲染为`?`；没有记录源码路径的模块渲染其模块名并带`.n`后缀。用户代码创建的异常以空backtrace开始。读取该字段返回一个副本（§4.8.12）：对副本做`add`或下标写入永远不会触及异常本身，且两次读取得到不同的副本。
 

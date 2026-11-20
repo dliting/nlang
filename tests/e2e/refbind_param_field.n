@@ -1,0 +1,14 @@
+// v0.13.9 phase 3 Task 5: a & formal binds a field cell; the write
+// lands in b.f.
+struct Box {
+    int f;
+}
+void bump(int& v) {
+    v = v + 1;
+}
+int main() {
+    Box b;
+    b.f = 41;
+    bump(b.f);
+    return b.f;
+}

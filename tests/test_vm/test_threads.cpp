@@ -9,6 +9,7 @@
     确定性规约（计划钉死）：断言只用顺序/终值/happens-before，不做墙钟
     断言；交替顺序仅经测试专用配额旋钮强制。
 ---*/
+#include "test_support/test_scratch.h"
 #include "nlang/compiler/ModuleBuilder.h"
 #include "nlang/compiler/BuildEnvironment.h"
 #include "nlang/compiler/Logger.h"
@@ -53,8 +54,7 @@ static int g_pass = 0, g_fail = 0;
 
 static std::filesystem::path scratchDir()
 {
-    static const auto dir = std::filesystem::temp_directory_path()
-        / "nlang_test_threads";
+    static const auto dir = nlang::test::ScratchDir("nlang_test_threads");
     std::filesystem::create_directories(dir);
     return dir;
 }
@@ -251,78 +251,12 @@ void test_frame_recursion_boundary_exact()
     PASS();
 }
 
-//out 写回四 ABI：自由函数（OP_CallStaticOut）。
-void test_frame_out_writeback_func()
-{
-    TEST(frame_out_writeback_func);
-    const int rc = runSource("frame_out_func",
-        "void grab(out int r) { r = 7; }\n"
-        "int main() {\n"
-        "    int box = 0;\n"
-        "    grab(out box);\n"
-        "    return box;\n"
-        "}\n");
-    CHECK(rc == 7, "free-function out param writes back to the caller slot");
-    PASS();
-}
-
-//out 写回四 ABI：直接方法调用（OP_CallMethodDirectOut，this 占 slot 0）。
-void test_frame_out_writeback_method_direct()
-{
-    TEST(frame_out_writeback_method_direct);
-    const int rc = runSource("frame_out_mdirect",
-        "class Box {\n"
-        "    public int v;\n"
-        "    public void fill(out int r) { r = v + 5; }\n"
-        "}\n"
-        "int main() {\n"
-        "    Box b = Box();\n"
-        "    b.v = 40;\n"
-        "    int r = 0;\n"
-        "    b.fill(out r);\n"
-        "    return r;\n"
-        "}\n");
-    CHECK(rc == 45, "direct-method out param writes back past `this` slot");
-    PASS();
-}
-
-//out 写回四 ABI：自由委托（CallDelegateFree，OP_CallDelegateOut）。
-void test_frame_out_writeback_delegate_free()
-{
-    TEST(frame_out_writeback_delegate_free);
-    const int rc = runSource("frame_out_deleg_free",
-        "void grab(out int r) { r = 7; }\n"
-        "int main() {\n"
-        "    func<void, out int> f = grab;\n"
-        "    int box = 0;\n"
-        "    f(out box);\n"
-        "    return box;\n"
-        "}\n");
-    CHECK(rc == 7, "free-delegate out param writes back");
-    PASS();
-}
-
-//out 写回四 ABI：绑定方法委托（CallDelegateBound——接收者占 slot 0，
-//用户参数右移一格，写回须逆向移位）。
-void test_frame_out_writeback_delegate_bound()
-{
-    TEST(frame_out_writeback_delegate_bound);
-    const int rc = runSource("frame_out_deleg_bound",
-        "class Box {\n"
-        "    public int v;\n"
-        "    public void fill(out int r) { r = v + 5; }\n"
-        "}\n"
-        "int main() {\n"
-        "    Box b = Box();\n"
-        "    b.v = 40;\n"
-        "    func<void, out int> f = b.fill;\n"
-        "    int r = 0;\n"
-        "    f(out r);\n"
-        "    return r;\n"
-        "}\n");
-    CHECK(rc == 45, "bound-delegate out write-back reverses the this shift");
-    PASS();
-}
+//v0.13.9 phase 4: the four frame_out_writeback_* tests (free function,
+//direct method, free delegate, bound delegate — the OP_*Out writeback
+//ABI matrix) were deleted here. The out spelling retired at the
+//resolver (phase 4 Task 3), so their fixtures no longer compile; the
+//reference-formal writeback path they would migrate to is covered by
+//the refbind family. The runtime opcode handlers retire in Task 5.
 
 //跨帧异常：深层抛出、中层捕获，执行继续且后续调用帧正常。
 void test_frame_throw_across_frames_catch_continues()
@@ -502,7 +436,7 @@ void test_scheduler_quota_skips_nested_windows()
     PASS();
 }
 
-// --- Slice 5 语言面注册（thread 命名空间 + 三内建类）---
+// --- Slice 5 语言层注册（thread 命名空间 + 三内建类）---
 
 //期望构建失败：捕获 buildLinkedModule 的诊断抛出并检查消息子串。
 static bool buildFailsWith(const std::string& tag, const std::string& source,
@@ -803,21 +737,21 @@ void test_typed_spawn_requires_import()
     PASS();
 }
 
-//包真实化准入（自由函数裸名）：无 import 的裸 spawn(work) 调用在
+//包真实化准入（自由函数非限定名）：无 import 的非限定 spawn(work) 调用在
 //"does not exist" 主诊断外还带包 note。v0.12.7 V1 统一后，显式 import
-//同时授予裸用与限定用——自由函数与类形态的 note 同为"add import"，
+//同时授予非限定使用与限定使用——自由函数与类形态的 note 同为"add import"，
 //旧的"即便补 import 也须限定"文案随统一可见性模型废止。
-void test_spawn_bare_names_qualified_spelling()
+void test_spawn_unqualified_names_qualified_spelling()
 {
-    TEST(spawn_bare_names_qualified_spelling);
-    CHECK(buildFailsWith("thread_spawn_bare",
+    TEST(spawn_unqualified_names_qualified_spelling);
+    CHECK(buildFailsWith("thread_spawn_unqualified",
         "int work() { return 1; }\n"
         "int main() {\n"
         "    spawn(work);\n"
         "    return 0;\n"
         "}\n",
         "is provided by package 'thread'; add 'import thread';"),
-        "bare spawn without import names the missing import");
+        "unqualified spawn without import names the missing import");
     PASS();
 }
 
@@ -1263,7 +1197,7 @@ void test_sleep_wakes_by_deadline()
     PASS();
 }
 
-//Slice 7：负时长是对语言面的误用——基础异常拒绝（同 spawn 目标拒绝
+//Slice 7：负时长是对语言层的误用——基础异常拒绝（同 spawn 目标拒绝
 //形态），消息点名约束。
 void test_sleep_rejects_negative_duration()
 {
@@ -1496,7 +1430,7 @@ void test_mutex_trylock_reports_held_state()
     PASS();
 }
 
-//Slice 8：未持有 unlock 是对语言面的误用——基础异常，消息点名。
+//Slice 8：未持有 unlock 是对语言层的误用——基础异常，消息点名。
 void test_mutex_unlock_without_hold_rejected()
 {
     TEST(mutex_unlock_without_hold_rejected);
@@ -2230,7 +2164,7 @@ void test_channel_close_drains_then_closed_throws()
 }
 
 //K3 Task 3：已关闭通道再发送抛可捕获的 ChannelClosedException，消息
-//点名（K1 的不可捕获基础异常升级为语言面异常——用户代码可恢复）。
+//点名（K1 的不可捕获基础异常升级为语言层异常——用户代码可恢复）。
 void test_channel_send_after_close_catchable()
 {
     TEST(channel_send_after_close_catchable);
@@ -3776,7 +3710,7 @@ static void test_debug_focus_exclusive_dispatch()
           "the mirror follows the focus dispatch");
     //焦点停泊（模拟步进落到空通道 recv/竞争锁）：门无状态放开
     sched.ParkForMutex(2);
-    //K7：补完停泊握手——生产中停泊载体在 ParkSignal 捕获位点搬帧并
+    //K7：补完停泊握手——生产中停泊载体在 ParkSignal 捕获位置搬帧并
     //置 framesParked，唤醒路径只入队已完成停泊者；白盒模拟同形补一
     //步空搬，WakeForMutex 才会入队本上下文。
     sched.ParkContextFrames(2, {});
@@ -4084,9 +4018,9 @@ static void test_aux_carrier_error_confluence()
 // --- K2 Task 4（声明式阻塞原生协议，ABI v5）---
 
 //进程内注册的慢原生（阻塞通道）：函数体真实睡眠——只有协议（暂存实参/
-//结果、窃帧停泊、GIL 释放）使它们可被安全调用。nbEchoSlow 刻意先铸造
+//结果、窃帧停泊、GIL 释放）使它们可被安全调用。nbEchoSlow 刻意先创建
 //结果再睡：句柄在暂存结果格里暴露于整个阻塞窗口，正是地址形态根必须
-//存活的形状；铸造本身又经值形态根（RootMintedNativeHandle）覆盖。
+//存活的形状；创建本身又经值形态根（RootCreatedNativeHandle）覆盖。
 static void NbWait(NativeHost*, uint8_t*, const uint8_t* args, int)
 {
     std::this_thread::sleep_for(
@@ -4224,6 +4158,287 @@ static void test_executing_bit_off_while_native_blocked()
     PASS();
 }
 
+// v0.13.4 ruling D27 companion (review round 2, I-1): CreateHostString must
+// root its created handle the way NativeNewString does. The embed host
+// bridge creates string results while its carrier is parked inside
+// RunBlockingNative (the host-hook arm always runs through the blocking
+// protocol), so between the creation and the memcpy into the staged result
+// cell the object is reachable from no root and another carrier's
+// rendezvous can sweep it. The native below reproduces that window in the
+// DLL-native shape: create via CreateHostString, sleep while the churn carrier
+// storms collections under stress thresholds, then write the raw handle
+// into ret. Unrooted, the sweep reclaims the object and the declared-
+// string result check fails with "invalid string handle". Post-fix, the
+// value-form root CreateHostString registers is the ONLY protection across
+// the sleep window — the staged ret cell covers the handle only after
+// the native writes it — so the test detects both a missing root push
+// and a mark face that ignores value-form entries.
+static VmExecutor* s_createHostExec = nullptr;
+static void NbCreateHostSlow(NativeHost*, uint8_t* ret,
+                           const uint8_t* args, int)
+{
+    const int32_t handle =
+        s_createHostExec->CreateHostString("hostbridge-survivor");
+    std::this_thread::sleep_for(std::chrono::milliseconds(
+        native::ArgInt(args, 0)));
+    std::memcpy(ret, &handle, sizeof(handle));
+}
+static void test_create_host_string_survives_gc()
+{
+    TEST(create_host_string_survives_gc);
+    CompiledModule mod = buildLinkedModule("create_host_gc",
+        "import thread;\n"
+        "import io;\n"
+        "native string nbCreateHostSlow(int ms);\n"
+        "void churn() {\n"
+        "    int i = 0;\n"
+        "    while (i < 200000) { string g = \"c\" + i; i = i + 1; }\n"
+        "}\n"
+        "int main() {\n"
+        "    Thread t = thread.spawn(churn);\n"
+        "    string s = nbCreateHostSlow(150);\n"
+        "    io.write(s);\n"
+        "    thread.join(t);\n"
+        "    return 0;\n"
+        "}\n");
+    VmExecutor exec;
+    exec.SetCarrierThreadCount(3);
+    exec.SetGcStressThresholds(8);
+    CaptureIo io;
+    exec.SetHostIo(&io);
+    s_createHostExec = &exec;
+    exec.RegisterNativeBlocking("create_host_gc.nbCreateHostSlow",
+                                &NbCreateHostSlow);
+    int rc = -99;
+    std::string err;
+    try {
+        rc = exec.Execute(mod);
+    } catch (const std::exception& e) {
+        err = e.what();
+    }
+    s_createHostExec = nullptr;
+    CHECK(rc == 0, "run completes (unrooted handle -> host-level error: "
+                   + err + ")");
+    CHECK(io.m_out.find("hostbridge-survivor") != std::string::npos,
+          "the created host string survived the blocking window (got: "
+          + io.m_out + ")");
+    PASS();
+}
+
+// 0.13.6 net/http fix (rawprobe crash "_lastErrorText returned invalid
+// string handle"): a blocking-native carrier creates OUTSIDE the GC
+// rendezvous denominator, so the collection's documented quiescence
+// premise ("no bytecode and no store allocation can run") does not
+// cover its creations. The creation-root gap seam (SetCreationRootGapMsForTests)
+// holds the window between slot handout and RootCreatedNativeHandle
+// open for the whole stress-window collection storm, making the race
+// deterministic: unserialized, the sweep marks the fresh handle dead
+// while it is still unrooted, and the declared-string result check
+// aborts with "returned invalid string handle" — the exact production
+// signature. The fix serializes creation-vs-collection on a leaf gate, so
+// the collection waits for the root instead of sweeping past it.
+static void NbCreateSeam(NativeHost* host, uint8_t* ret,
+                       const uint8_t*, int)
+{
+    const int32_t handle = host->newString(host, "seam-survivor");
+    std::memcpy(ret, &handle, sizeof(handle));
+}
+static void test_creation_root_gap_survives_gc()
+{
+    TEST(creation_root_gap_survives_gc);
+    CompiledModule mod = buildLinkedModule("create_seam_gc",
+        "import thread;\n"
+        "import io;\n"
+        "native string nbCreateSeam();\n"
+        "void churn() {\n"
+        "    int i = 0;\n"
+        "    while (i < 200000) { string g = \"c\" + i; i = i + 1; }\n"
+        "}\n"
+        "int main() {\n"
+        "    Thread t = thread.spawn(churn);\n"
+        "    string s = nbCreateSeam();\n"
+        "    io.write(s);\n"
+        "    thread.join(t);\n"
+        "    return 0;\n"
+        "}\n");
+    VmExecutor exec;
+    exec.SetCarrierThreadCount(3);
+    exec.SetGcStressThresholds(8);
+    exec.SetCreationRootGapMsForTests(300);
+    CaptureIo io;
+    exec.SetHostIo(&io);
+    exec.RegisterNativeBlocking("create_seam_gc.nbCreateSeam", &NbCreateSeam);
+    int rc = -99;
+    std::string err;
+    try {
+        rc = exec.Execute(mod);
+    } catch (const std::exception& e) {
+        err = e.what();
+    }
+    exec.SetCreationRootGapMsForTests(0);   //do not leak the seam into later tests
+    CHECK(rc == 0, "run completes (sweep killed the unrooted handle: "
+                   + err + ")");
+    CHECK(io.m_out.find("seam-survivor") != std::string::npos,
+          "the created string survived the creation-to-root gap (got: "
+          + io.m_out + ")");
+    CHECK(exec.GcCollectionCount() > 5,
+        "collections actually ran against the gap window (got "
+        + std::to_string(exec.GcCollectionCount()) + ")");
+    PASS();
+}
+
+// 0.13.6 review C1 pin (lock order): the creation callbacks that create with
+// the GIL taken (newArray family, raiseException) acquire GIL-then-gate.
+// The elected safepoint collector must take the GIL before the exclusive
+// gate too — a collector that held the gate first would block on the
+// GIL in the frame-root scan while a GIL-holding creator blocks on the
+// gate (ABBA), stranding every rendezvous waiter: the whole run hangs,
+// exactly in the net/http interleavings the creation fix targeted. The
+// collect-gate gap seam parks the collector inside the exclusive gate
+// while the churner storms collections; the seam native creates arrays
+// (GilEnsureGuard sites) in a loop so the meeting is deterministic.
+// Before the order fix this test hangs (external timeout observes it);
+// with GIL-before-gate the collector already holds the GIL when it
+// takes the gate, so the creator merely waits at the gate and passes.
+static void NbArraySeam(NativeHost* host, uint8_t* ret,
+                        const uint8_t*, int)
+{
+    //Spread the GIL-then-gate attempts across the era of armed gate
+    //pauses: each arm briefly holds the GIL, so one attempt landing
+    //while a collector holds the gate pre-fix deadlocks deterministically.
+    int32_t handle = 0;
+    for (int i = 0; i < 2000; ++i)
+        handle = host->newArray(host, NEK_Int32, 8);
+    (void)handle;   //rooted for the call only; not what the pin asserts
+    const int32_t survivor = host->newString(host, "arrayseam-survivor");
+    std::memcpy(ret, &survivor, sizeof(survivor));
+}
+static void test_gate_gap_array_create_no_deadlock()
+{
+    TEST(gate_gap_array_create_no_deadlock);
+    CompiledModule mod = buildLinkedModule("gate_gap_gc",
+        "import thread;\n"
+        "import io;\n"
+        "native string nbArraySeam();\n"
+        "void churn() {\n"
+        "    int i = 0;\n"
+        "    while (i < 200000) { string g = \"c\" + i; i = i + 1; }\n"
+        "}\n"
+        "int main() {\n"
+        "    Thread t = thread.spawn(churn);\n"
+        "    string s = nbArraySeam();\n"
+        "    io.write(s);\n"
+        "    thread.join(t);\n"
+        "    return 0;\n"
+        "}\n");
+    VmExecutor exec;
+    exec.SetCarrierThreadCount(3);
+    exec.SetGcStressThresholds(8);
+    exec.SetCollectGateGapMsForTests(60, 20);
+    CaptureIo io;
+    exec.SetHostIo(&io);
+    exec.RegisterNativeBlocking("gate_gap_gc.nbArraySeam", &NbArraySeam);
+    int rc = -99;
+    std::string err;
+    try {
+        rc = exec.Execute(mod);
+    } catch (const std::exception& e) {
+        err = e.what();
+    }
+    CHECK(rc == 0, "run completes (gate/GIL inversion hangs the run: "
+                   + err + ")");
+    CHECK(io.m_out.find("arrayseam-survivor") != std::string::npos,
+          "the created string survived the gate-gap storm (got: "
+          + io.m_out + ")");
+    CHECK(exec.GcCollectionCount() > 5,
+        "elected collections actually ran across the gate gap (got "
+        + std::to_string(exec.GcCollectionCount()) + ")");
+    PASS();
+}
+
+// 0.13.6 review I1 pin (same create race, raise family): RaiseNlangException
+// creates the Exception instance, its message, and the backtrace List on a
+// parked callback thread (io raises, getArrayView validation, host
+// bridge RaiseHostException) — outside the rendezvous denominator and,
+// unlike NativeRaiseException, neither gated nor rooted before the fix.
+// The creation-root gap seam opens a real window (GIL dropped for the test
+// pause: the probe run showed 1144 collections landing inside it). The pin is
+// the structural readout the seam records — whether a value-form
+// creation-root entry for the raised instance exists in the native-call
+// root registry during the window — because survival checking cannot
+// detect this hazard: forensics showed the unrooted exception objects
+// surviving every in-window collection (a resident Thread-object slot aliases the
+// instance and a resident static-slot handle aliases the message by
+// value, so MarkPhase over-marks both, and whether any collection fires
+// inside the window at all is hostage to the threshold backoff). The
+// script must NOT carry the expected message as a literal — the literal
+// interns as an immortal constant and the native creation dedups into it,
+// making the message unsweepable. The behavioral checks (rc, message
+// content, collection count) stay as supporting assertions: they pin the
+// run contract, not the rooting.
+static void NbRaiseSeam(NativeHost* host, uint8_t* ret,
+                        const uint8_t*, int)
+{
+    NativeArrayView view{};
+    host->getArrayView(host, 0, &view);   //null handle raises: never returns
+    const int32_t survivor = host->newString(host, "unreachable");
+    std::memcpy(ret, &survivor, sizeof(survivor));
+}
+static void test_raise_gap_survives_gc()
+{
+    TEST(raise_gap_survives_gc);
+    CompiledModule mod = buildLinkedModule("raise_gap_gc",
+        "import thread;\n"
+        "import io;\n"
+        "native void nbRaiseSeam();\n"
+        "void churn() {\n"
+        "    int i = 0;\n"
+        "    while (i < 200000) { string g = \"c\" + i; i = i + 1; }\n"
+        "}\n"
+        "int main() {\n"
+        "    Thread t = thread.spawn(churn);\n"
+        "    int ok = 0;\n"
+        "    int i = 0;\n"
+        "    while (i < 3) {\n"
+        "        try {\n"
+        "            nbRaiseSeam();\n"
+        "        } catch (Exception e) {\n"
+        "            string m = e.message;\n"
+        "            io.write(m + \"|\\n\");\n"
+        "            ok = ok + 1;\n"
+        "        }\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "    thread.join(t);\n"
+        "    return ok;\n"
+        "}\n");
+    VmExecutor exec;
+    exec.SetCarrierThreadCount(3);
+    exec.SetGcStressThresholds(8);
+    exec.SetCreationRootGapMsForTests(250);
+    CaptureIo io;
+    exec.SetHostIo(&io);
+    exec.RegisterNativeBlocking("raise_gap_gc.nbRaiseSeam", &NbRaiseSeam);
+    int rc = -99;
+    std::string err;
+    try {
+        rc = exec.Execute(mod);
+    } catch (const std::exception& e) {
+        err = e.what();
+    }
+    exec.SetCreationRootGapMsForTests(0);   //do not leak the seam into later tests
+    CHECK(rc == 3, "the raised message survived every gap window intact "
+                   "(got rc=" + std::to_string(rc) + " " + err + ")");
+    CHECK(exec.GcCollectionCount() > 5,
+        "collections actually ran against the raise window (got "
+        + std::to_string(exec.GcCollectionCount()) + ")");
+    CHECK(exec.LastRaiseCreatedRootedForTests(),
+        "every armed raise window found its value-form creation-root entry "
+        "for the raised instance (RootCreatedNativeHandle contract; "
+        "v0.13.6 review I1)");
+    PASS();
+}
+
 // --- K6 Task 5（D7：收集计数器——压力下收集确实发生）---
 static void test_gc_collection_count_under_stress()
 {
@@ -4300,7 +4515,7 @@ static void test_executing_bit_intact_after_stop_path()
 //位是每线程单份），run 结束后归 0。嵌套窗形态仿 test_scheduler_quota_
 //skips_nested_windows 的强转嵌套窗；探针走 RegisterNative 非阻塞路径
 //（CallNative 原地直呼，无窗口转换）。NativeFn 签名与返回值写法以
-//include/nlang/vm/NativeHost.h＋test_native_host.cpp 的 HsMint 形态为
+//include/nlang/vm/NativeHost.h＋test_native_host.cpp 的 HsCreate 形态为
 //准（返回 void，经 native::ReturnInt 写结果格）。
 static VmExecutor* s_windowProbeExec = nullptr;
 static void WindowProbe(NativeHost*, uint8_t* ret,
@@ -4531,7 +4746,7 @@ static void test_blocking_native_releases_gil()
 }
 
 //协议判别器 2（暂存根存活 GC 风暴，回归针）：churner 在阻塞窗口内以压
-//低阈值反复触发回收；nbEchoSlow 先把铸造好的句柄写进暂存结果格再睡，
+//低阈值反复触发回收；nbEchoSlow 先把创建好的句柄写进暂存结果格再睡，
 //整个风暴期间该句柄只有原生调用根保护。根缺失 ⇒ 句柄被清扫 ⇒ 输出非
 //echo:payload（或崩溃）——测试变红。
 static void test_blocking_native_staged_roots_survive_gc_storm()
@@ -4640,7 +4855,7 @@ static bool runGcBandMode(const std::string& tag, const std::string& source,
 //造风暴。tag 刻意返回超过短串驻留上限（40 字节）的长串，保证停泊值
 //可清扫——短串不朽会让错标不可见。四条活根各跨一次安全点：acc（命名
 //StrHandle 槽）全程存活；tag("x") 的长串结果停泊在外层二元 claim 槽
-//（默认 Dual 类——嵌套发射的中间值也会路过该槽，故二元位点不能按外
+//（默认 Dual 类——嵌套发射的中间值也会路过该槽，故二元位置不能按外
 //层操作数类型精化）、跨 tag("y") 调用入口安全点存活；churn2 的
 //Box(i+1) 实参停泊在调用实参 claim 槽（默认 Dual 类），跨 drain 调用
 //入口安全点存活，且 drain 内部再分配一个 Box 并从自由表复用槽位——
@@ -5293,6 +5508,10 @@ int main()
         runGuarded(test_native_root_owner_removal);
         runGuarded(test_zombie_carrier_generation_guard);
         runGuarded(test_executing_bit_off_while_native_blocked);
+        runGuarded(test_create_host_string_survives_gc);
+        runGuarded(test_creation_root_gap_survives_gc);
+        runGuarded(test_raise_gap_survives_gc);
+        runGuarded(test_gate_gap_array_create_no_deadlock);
         runGuarded(test_gc_collection_count_under_stress);
         runGuarded(test_executing_bit_intact_after_stop_path);
         runGuarded(test_nested_window_single_membership);
@@ -5313,10 +5532,6 @@ int main()
         test_frame_recursion_limit_message();
         test_frame_deep_recursion_succeeds();
         test_frame_recursion_boundary_exact();
-        test_frame_out_writeback_func();
-        test_frame_out_writeback_method_direct();
-        test_frame_out_writeback_delegate_free();
-        test_frame_out_writeback_delegate_bound();
         test_frame_throw_across_frames_catch_continues();
         test_scheduler_quota_skips_single_context();
         test_scheduler_default_quota_single_context();
@@ -5335,7 +5550,7 @@ int main()
         test_thread_package_name_duplicate();
         test_thread_requires_import();
         test_typed_spawn_requires_import();
-        test_spawn_bare_names_qualified_spelling();
+        test_spawn_unqualified_names_qualified_spelling();
         test_thread_ns_user_name_shadows();
         test_thread_ns_cross_module();
         runGuarded(test_spawn_join_runs_worker);

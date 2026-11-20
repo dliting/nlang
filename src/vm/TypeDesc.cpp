@@ -16,7 +16,8 @@ and ParseOne in lockstep with the struct comment in TypeDesc.h.
 namespace nlang {
 
 //RTK_Func body: u8 paramCount, then the params and the return as
-//nested descriptors (mirror of ParseFuncElems).
+//nested descriptors, each followed by its u8 qualifier flags
+//(mirror of ParseFuncElems).
 void AppendTypeDescBytes(std::vector<uint8_t>& out, const TypeDesc& td);
 
 void AppendFuncElems(std::vector<uint8_t>& out, const TypeDesc& td)
@@ -26,8 +27,14 @@ void AppendFuncElems(std::vector<uint8_t>& out, const TypeDesc& td)
 			"type descriptor arity violation: func without its "
 			"return descriptor");
 	out.push_back(static_cast<uint8_t>(td.elems.size() - 1));
-	for (const auto &elem : td.elems)
-		AppendTypeDescBytes(out, elem);
+	for (size_t i = 0; i < td.elems.size(); ++i)
+	{
+		AppendTypeDescBytes(out, td.elems[i]);
+		//v2.21: the qualifier flags ride after each element — a
+		//descriptor-only construction without the parallel vector
+		//serializes unmarked positions (all-zero bytes).
+		out.push_back(i < td.elemFlags.size() ? td.elemFlags[i] : 0);
+	}
 }
 
 void AppendTypeDescBytes(std::vector<uint8_t>& out, const TypeDesc& td)
@@ -39,7 +46,10 @@ void AppendTypeDescBytes(std::vector<uint8_t>& out, const TypeDesc& td)
 		//the consumer stub names it from the owning row's typeParamNames.
 		out.push_back(td.typeParamOrdinal);
 	}
-	else if (td.kind == RTK_Struct || td.kind == RTK_Class)
+	//v0.13.9 Task 12 (D14): RTK_Interface carries the same u16 row
+	//index as struct/class (into the interfaces table — identity tier).
+	else if (td.kind == RTK_Struct || td.kind == RTK_Class
+		|| td.kind == RTK_Interface)
 	{
 		out.push_back(static_cast<uint8_t>(td.typeIdx & 0xFF));
 		out.push_back(static_cast<uint8_t>(td.typeIdx >> 8));
@@ -52,7 +62,7 @@ void AppendTypeDescBytes(std::vector<uint8_t>& out, const TypeDesc& td)
 				"its nested descriptor");
 		AppendTypeDescBytes(out, td.elems[0]);
 		//v2.11: the rank rides after the element descriptor, so the
-		//consumer's stub rebuild mints T[,] instead of degrading to T[].
+		//consumer's stub rebuild creates T[,] instead of degrading to T[].
 		out.push_back(td.rank);
 	}
 	else if (td.kind == RTK_List)
@@ -82,7 +92,8 @@ TypeDesc ParseOne(const uint8_t* pData, size_t size, size_t& pos,
 	size_t depth);
 
 //RTK_Func body: u8 paramCount, then the params and the return as
-//nested descriptors (mirror of AppendTypeDescBytes).
+//nested descriptors, each followed by its u8 qualifier flags (mirror
+//of AppendFuncElems — v2.21 layout).
 void ParseFuncElems(TypeDesc& td, const uint8_t* pData, size_t size,
 	size_t& pos, size_t depth)
 {
@@ -90,9 +101,14 @@ void ParseFuncElems(TypeDesc& td, const uint8_t* pData, size_t size,
 		throw std::runtime_error(
 			"Invalid module: truncated type descriptor");
 	const uint8_t paramCount = pData[pos++];
-	for (uint8_t param = 0; param < paramCount; ++param)
+	for (uint8_t elem = 0; elem < paramCount + 1; ++elem)
+	{
 		td.elems.push_back(ParseOne(pData, size, pos, depth + 1));
-	td.elems.push_back(ParseOne(pData, size, pos, depth + 1));
+		if (pos >= size)
+			throw std::runtime_error(
+				"Invalid module: truncated type descriptor");
+		td.elemFlags.push_back(pData[pos++]);
+	}
 }
 
 //RTK_Array body: the element descriptor, then the v2.11 rank byte
@@ -136,6 +152,17 @@ static uint8_t ParseTypeParamOrdinal(const uint8_t* pData, size_t size,
 	return pData[pos++];
 }
 
+//String/boxed/typeparam leaf body: kind-only for string/boxed, and the
+//ordinal byte for a type parameter (the kind guard keeps the read off
+//the kind-only leaves).
+static void ParseTypeParamLeaf(TypeDesc& td, const uint8_t* pData,
+	size_t size, size_t& pos)
+{
+	if (td.kind == RTK_TypeParam)
+		td.typeParamOrdinal =
+			ParseTypeParamOrdinal(pData, size, pos);
+}
+
 //RTK_Dict body: the key and value descriptors, in wire order.
 void ParseDictBody(TypeDesc& td, const uint8_t* pData, size_t size,
 	size_t& pos, size_t depth)
@@ -155,8 +182,11 @@ TypeDesc ParseOne(const uint8_t* pData, size_t size, size_t& pos,
 	td.kind = pData[pos++];
 	switch (td.kind)
 	{
+		//Row-index leaves: struct/class/interface table rows (the
+		//interface row is the v0.13.9 Task 12 D14 identity tier).
 		case RTK_Struct:
 		case RTK_Class:
+		case RTK_Interface:
 			td.typeIdx = ParseTypeIndex(pData, size, pos);
 			break;
 		case RTK_Array:
@@ -173,11 +203,8 @@ TypeDesc ParseOne(const uint8_t* pData, size_t size, size_t& pos,
 			break;
 		case RTK_String:
 		case RTK_Boxed:
-		case RTK_TypeParam:   //dictionary-model leaf; ordinal on TypeParam
-			//The kind guard keeps the read off the kind-only leaves.
-			if (td.kind == RTK_TypeParam)
-				td.typeParamOrdinal =
-					ParseTypeParamOrdinal(pData, size, pos);
+		case RTK_TypeParam:
+			ParseTypeParamLeaf(td, pData, size, pos);
 			break;
 		//Void leaf: legal only as an RTK_Func return slot — a top-level
 		//one degrades to the int32 placeholder on the consumer side.
@@ -208,7 +235,7 @@ TypeDesc ParseTypeDescBytes(const uint8_t* pData, size_t size)
 }
 
 void ValidateTypeDescIndices(const TypeDesc& td, size_t structCount,
-	size_t classCount)
+	size_t classCount, size_t interfaceCount)
 {
 	if (td.kind == RTK_Struct)
 	{
@@ -222,13 +249,24 @@ void ValidateTypeDescIndices(const TypeDesc& td, size_t structCount,
 			throw std::runtime_error(
 				"Invalid module: type descriptor class index out of range");
 	}
+	//v0.13.9 Task 12 (D14): the identity tier's row names the interfaces
+	//table — validate against it (defaulted for host-built modules with
+	//no interfaces table).
+	else if (td.kind == RTK_Interface && interfaceCount != kNoInterfaceCount)
+	{
+		if (td.typeIdx >= interfaceCount)
+			throw std::runtime_error(
+				"Invalid module: type descriptor interface index out of range");
+	}
 	for (const auto& elem : td.elems)
-		ValidateTypeDescIndices(elem, structCount, classCount);
+		ValidateTypeDescIndices(elem, structCount, classCount,
+			interfaceCount);
 }
 
 void RemapTypeDesc(TypeDesc& td,
 	const std::unordered_map<uint32_t, uint32_t>& structMap,
-	const std::unordered_map<uint32_t, uint32_t>& classMap)
+	const std::unordered_map<uint32_t, uint32_t>& classMap,
+	const std::unordered_map<uint32_t, uint32_t>& interfaceMap)
 {
 	//The merge maps are total over each kind's producer indices (see the
 	//note in TypeDesc.h) — a miss is an upstream construction bug, so
@@ -237,8 +275,14 @@ void RemapTypeDesc(TypeDesc& td,
 		td.typeIdx = static_cast<uint16_t>(structMap.at(td.typeIdx));
 	else if (td.kind == RTK_Class)
 		td.typeIdx = static_cast<uint16_t>(classMap.at(td.typeIdx));
+	//v0.13.9 Task 12 (D14): the identity tier remaps through the
+	//interfaces merge map when the caller provides one; an RTK_Interface
+	//leaf with no map is a caller bug only when the unit declared one —
+	//units without interface tables pass the empty default.
+	else if (td.kind == RTK_Interface && !interfaceMap.empty())
+		td.typeIdx = static_cast<uint16_t>(interfaceMap.at(td.typeIdx));
 	for (auto& elem : td.elems)
-		RemapTypeDesc(elem, structMap, classMap);
+		RemapTypeDesc(elem, structMap, classMap, interfaceMap);
 }
 
 TypeDesc BuildTypeDesc(SnField* pType, const TypeLeafSlots& slots,
@@ -291,8 +335,15 @@ TypeDesc BuildTypeDesc(SnField* pType, const TypeLeafSlots& slots,
 			return td;
 		}
 		case NK_InterfaceDecl:
-			//CompiledModule has no interfaces table — degrade.
-			td.kind = RTK_NonSerialized;
+			//v0.13.9 Task 12 (D14): the identity tier — name the
+			//interface itself (RTK_Interface + interfaces-table row) so
+			//static-slot roots, cast-row keys and linker merges keep
+			//interface identity. The pre-fix degrade to
+			//RTK_NonSerialized fell out of every GC root routing set
+			//and the constant's instance was swept mid-churn.
+			td.kind = RTK_Interface;
+			td.typeIdx = static_cast<uint16_t>(
+				slots.interfaceSlotOf(*pType));
 			return td;
 		case NK_ClassDecl:
 		{
@@ -321,15 +372,32 @@ TypeDesc BuildTypeDesc(SnField* pType, const TypeLeafSlots& slots,
 					return td;
 				}
 				td.kind = RTK_Func;
+				//v2.21: the reference mark rides the instantiation's
+				//flag vector (&, indexed by argument position—0 =
+				//return). The wire element order is params first,
+				//return last, so the vector is read position-flipped
+				//to stay parallel to elems.
+				const auto &refFlags = pClass->GenericRefFlags();
+				const auto qualifierOf = [&refFlags](size_t argIdx)
+				{
+					uint8_t bits = 0;
+					if (argIdx < refFlags.size() && refFlags[argIdx])
+						bits |= PTDF_Ref;
+					return bits;
+				};
 				for (size_t i = 1; i < args.size(); ++i)
+				{
 					td.elems.push_back(
 						BuildTypeDesc(args[i], slots, depth + 1));
+					td.elemFlags.push_back(qualifierOf(i));
+				}
 				//Void is expressible only as the func return slot —
 				//the grammar has no other void leaf position.
 				td.elems.push_back(
 					args[0]->Kind() == NK_Void
 						? TypeDesc{RTK_Void}
 						: BuildTypeDesc(args[0], slots, depth + 1));
+				td.elemFlags.push_back(qualifierOf(0));
 				return td;
 			}
 			if (pClass->IsTypeParamPlaceholder())

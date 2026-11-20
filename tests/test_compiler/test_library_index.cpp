@@ -31,6 +31,7 @@ static int g_failures = 0;
 //TestLoadsStdLib); the printer turns any future drift into a
 //per-package diff instead of a bare FAIL line.
 constexpr std::size_t kStdlibSymbolPin = 464;
+constexpr std::size_t kStdlibSymbolPin = 335;
 
 static void PrintIndexShape(const langservice::SymbolIndex &index)
 {
@@ -75,7 +76,14 @@ static void TestLoadsStdLib()
     // _throwNet/_ping/resolveList, the _tcp* natives incl. the option
     // setters and the internal _toBytes/_fromBytes, the 20 _udp*
     // natives and the 5 _icmp* natives; class methods are not free
-    // functions).
+    // functions), system 2 (the wall and monotonic clocks), url 4 (the
+    // percent and form codecs; the Url class members are not free
+    // functions), gzip 4 (the compress/decompress wrappers and the two
+    // native codec declarations), http 6 (the buffered convenience calls
+    // get/post/put/del/request plus the lazy defaultClient; the Http*
+    // class members are not free functions), regex 1 (the quoteMeta
+    // escaping helper; the Regex/Match classes and the engine classes
+    // are not free functions).
     // The index counts declaration lines; each symbol's package comes
     // from the file's path (the stem), not from any in-file head.
     if (env.LibraryIndex().size() != kStdlibSymbolPin)

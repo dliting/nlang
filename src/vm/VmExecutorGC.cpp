@@ -7,6 +7,7 @@
 ---*/
 #include "VmExecutor.h"
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <exception>
@@ -27,10 +28,12 @@ namespace nlang {
 //(K6 excluded that shape by holding the GIL across every window).
 //GIL-holding callers (spawn tail inside an intrinsic's store guard,
 //guarded function entries) hand the lock off for the WHOLE sequence:
-//the rendezvous contract parks on the cv holding no global lock, and
-//K8's collection itself takes none — its epilogue touches only leaf
-//arms (the quiescence gate, the root-registry iterations) plus one
-//scheduler-domain guard (the registry scan).
+//the rendezvous contract parks on the cv holding no global lock; the
+//elected collector reacquires the GIL only after the rendezvous
+//completes (CollectAndComplete's GIL-before-gate order), and the
+//epilogue touches no domain lock — only leaf arms (the quiescence
+//gate, the root-registry iterations) plus one scheduler-domain guard
+//(the registry scan).
 void VmExecutor::CheckGCSafepoint() {
     if (m_spScheduler->CarrierRunGenerationStale())
         throw ShutdownSignal();   //zombie carrier from a torn-down run
@@ -45,7 +48,7 @@ void VmExecutor::CheckGCSafepoint() {
             stop.WaitForCompletion();
             stop.BeginExecuting();   //Rule A — never under the global lock
         } else {
-            CollectAndReenter(stop);   //K8: lock-free (quiescence-gated)
+            CollectAndReenter(stop);   //K8: quiescence-gated collection
         }
         return;
     }
@@ -68,8 +71,9 @@ void VmExecutor::CheckGCSafepoint() {
 //caller's executing bit was flipped off by its arrival, so bytecode
 //continuing afterwards must re-enter the denominator (BeginExecuting
 //cannot block here — the stop completed — and no global lock is held:
-//the safepoint's handoff released the GIL, the collection's own arms
-//released theirs). If the collection throws, the re-entry still runs
+//the safepoint's handoff released the GIL, and the epilogue released
+//its own GIL and native-creator-gate holds on return). If the
+//collection throws, the re-entry still runs
 //BEFORE the unwind continues: a window teardown that parks would call
 //EndExecuting on an already-off bit (protocol tripwire), and skipping
 //it leaves this thread outside the denominator mid-bytecode. The
@@ -85,12 +89,21 @@ void VmExecutor::CollectAndReenter(GcWorldStop& stop) {
     stop.BeginExecuting();   //Rule A — never under the global lock
 }
 
-//K8 site 2 (Task 5): the last arriver's epilogue — LOCK-FREE
-//collection. The quiescence gate comes first: AssertAllArrived pins
-//the constructive fact that every snapshot member is parked (no
-//window can re-open mid-collection — Rule A waits out the epoch — so
-//no bytecode and no store allocation can run; the mark and sweep
-//arms touch the stores without any domain lock). The scheduler
+//K8 site 2 (Task 5): the last arriver's epilogue. The quiescence gate
+//comes first: AssertAllArrived pins the constructive fact that every
+//snapshot member is parked (no window can re-open mid-collection —
+//Rule A waits out the epoch — so no bytecode and no store allocation
+//can run; the mark and sweep arms touch the stores without any domain
+//lock). The collector then takes the GIL and the exclusive
+//native-creator gate, in that order: creation callbacks wait for the GIL
+//before the gate, so a collector taking the gate first would hold it
+//while the mark scans waited for a GIL a parked-at-the-gate creator
+//holds — an ABBA deadlock (v0.13.6 review C1). The collector's GIL
+//acquisition cannot cycle: parked members hold no GIL (the
+//handoff released it), and a creation callback that does hold it never
+//waits on this stop while holding it (safepoint polls hand the GIL
+//off before waiting). Holding the GIL across the collection makes
+//the mark scans' own GilEnsureGuards nest as no-ops. The scheduler
 //registry scan keeps the scheduler domain (timer-thread state flips
 //— MarkSchedulerRoots), and the two root registries iterate under
 //their leaf mutex (their mutators — blocking-native arms, host
@@ -113,6 +126,34 @@ void VmExecutor::CollectAndComplete() {
     CompletionFirstGuard completeFirst{m_spScheduler->GcStop()};
     if (m_gcThrowOnceForTests.exchange(false, std::memory_order_relaxed))
         throw std::runtime_error("injected collection failure");
+    //C1 lock order (see VmExecutor.h): GIL before native-creator gate.
+    //The mark scans retake the GIL internally; taking the gate first
+    //would leave the collector gate-while-waiting-GIL against creators
+    //that are GIL-while-waiting-gate (the gate-gap seam turned that
+    //into a hang). This acquisition cannot cycle: the safepoint's
+    //handoff released the GIL for every parked rendezvous member,
+    //and a GIL holder outside the denominator (a creation callback)
+    //hands the GIL off before any safepoint wait, so it never waits
+    //on this collection while holding it.
+    GilEnsureGuard collectorGil(*this);
+    //Native-creator gate (see VmExecutor.h): out-of-denominator creators
+    //— blocking-native callbacks, host bridge — allocate across their
+    //own creation+root spans, invisible to the quiescence gate above.
+    //Holding the gate exclusively here keeps a collection and such a
+    //creation mutually exclusive: the creator's root lands before the sweep
+    //or the sweep waits for it. Creators share the gate among
+    //themselves — only the collection relation needs exclusion.
+    std::unique_lock<std::shared_mutex> creationGate(m_nativeAllocGate);
+    //C1 seam (test-only): sleep inside the exclusive gate so a
+    //GIL-holding creation callback deterministically blocks here — the
+    //lock-order window the pin exercises. Unarmed in production.
+    const int gateGapMs =
+        m_collectGateGapTimesForTests.load(std::memory_order_relaxed) > 0
+            ? m_collectGateGapMsForTests.load(std::memory_order_relaxed) : 0;
+    if (gateGapMs > 0) {
+        m_collectGateGapTimesForTests.fetch_sub(1, std::memory_order_relaxed);
+        std::this_thread::sleep_for(std::chrono::milliseconds(gateGapMs));
+    }
     CollectGarbage();
     m_gcPressure.store(false, std::memory_order_release);
 }
@@ -162,7 +203,7 @@ void VmExecutor::MarkPhase() {
     std::vector<int32_t> worklist;
     ScanFrameRootSurfaces(worklist);
     //K2 slice 4 (§2.5): staged blocking-native cells (argument copies,
-    //return slot) and callback-minted handles — roots for as long as
+    //return slot) and callback-created handles — roots for as long as
     //their carrier's GIL is away.
     MarkNativeCallRoots(worklist);
     MarkHostRoots(worklist);
@@ -258,7 +299,11 @@ void VmExecutor::MarkFrameResult(const CallFrame& frame,
     if (retKind == RTK_String) {
         MarkString(val);
     } else if (retKind == RTK_Class || retKind == RTK_Struct
-        || retKind == RTK_Array || retKind == RTK_Func) {
+        || retKind == RTK_Array || retKind == RTK_Func
+        || retKind == RTK_Byref) {
+        //v0.13.9 phase ③: an &-return cell holds the byref pair — the
+        //low half IS the base record handle (MarkContextResultCell's
+        //same split).
         if (val > 0 && static_cast<size_t>(val) < m_slotKinds.size()
             && !m_markBits[val]) {
             PushMarked(val, worklist);
@@ -298,174 +343,6 @@ void VmExecutor::MarkArrayViewTarget(int32_t idx,
         && m_slotKinds[static_cast<size_t>(targetIdx)] == RTK_Array
         && !m_markBits[static_cast<size_t>(targetIdx)]) {
         PushMarked(targetIdx, worklist);
-    }
-}
-
-//String objectization: a boxed string's payload (slot[1]) is a
-//string handle. Other boxed tags carry raw bits (no children).
-void VmExecutor::MarkBoxedPayload(int32_t idx) {
-    if (m_structHeap[idx][0] == RTK_String)
-        MarkString(m_structHeap[idx][1]);
-}
-
-namespace {
-//Single source for the class/struct field arms' declared-vs-runtime
-//double condition (was two hand-expanded four-way conditions — same
-//shape as IsChildBearingHeapKind/ArrayElemKindAccepts). Object-declared
-//fields also hold boxed primitive records (runtime RTK_Boxed) and,
-//since arrays are Object values (§4.11.1), array records owned or view
-//(final-review C1: without these arms the sweep frees a reachable
-//array and the field keeps a dangling handle). An array-declared slot
-//may hold a VIEW record at runtime (the unannotated Array<T> boundary
-//admits any rank) — the worklist's array/view arms walk them.
-inline bool DeclaredFieldAcceptsRuntime(uint8_t declaredKind,
-                                        uint8_t runtimeKind) {
-    return (declaredKind == RTK_Class
-                && (runtimeKind == RTK_Class || runtimeKind == RTK_Boxed
-                    || runtimeKind == RTK_Array
-                    || runtimeKind == RTK_ArrayView))
-        || (declaredKind == RTK_Struct && runtimeKind == RTK_Struct)
-        || (declaredKind == RTK_Func && runtimeKind == RTK_Func)
-        || (declaredKind == RTK_Array
-                && (runtimeKind == RTK_Array
-                    || runtimeKind == RTK_ArrayView));
-}
-} // namespace
-
-void VmExecutor::MarkClassFields(int32_t idx,
-                                 std::vector<int32_t>& worklist) {
-    int32_t classIdx = m_structHeap[idx][0];
-    //0.9.12 T1: declared field kinds come from the layout view.
-    const auto& fields = m_classLayout.Fields(static_cast<size_t>(classIdx));
-    for (size_t i = 0; i < fields.size(); ++i) {
-        int32_t refIdx = m_structHeap[idx][i * 2 + 1];
-        //String fields carry a string-store handle, not a heap
-        //index — route before the heap-index guard (a valid handle
-        //may lie beyond the struct heap's size). No runtime slot-
-        //kind double condition: the string store has no slotKinds.
-        if (fields[i].kind == RTK_String) {
-            MarkString(refIdx);
-            continue;
-        }
-        //A T field's representation depends on the instantiation (store
-        //handle, heap index or inline scalar) — test both domains, the
-        //same conservative routing the param scan and the frame band
-        //apply to RTK_TypeParam slots.
-        if (fields[i].kind == RTK_TypeParam) {
-            TestRootValue(refIdx, worklist);
-            continue;
-        }
-        if (refIdx <= 0 || static_cast<size_t>(refIdx) >= m_slotKinds.size())
-            continue;
-        const uint8_t refKind = m_slotKinds[static_cast<size_t>(refIdx)];
-        //Array redesign B: field kinds come from the declared type,
-        //so RTK_Array fields are routed explicitly (same declared-
-        //plus-runtime double condition as the reference kinds).
-        //The old unconditional runtime-kind fallback is safe to drop:
-        //jagged declaration forms that could smuggle an array record
-        //into a non-array field slot are rejected at resolve time.
-        //Pre-fix v1.9 modules also misfile array fields as
-        //RTK_Int32 here; the v1.10 loader floor (same release)
-        //refuses them, closing the GC under-trace window.
-        //Object-declared fields also hold boxed primitive records —
-        //push those too; the worklist's boxed arm marks a wrapped
-        //string payload. Without this arm the sweep frees the
-        //box while the field still points at it.
-        if (DeclaredFieldAcceptsRuntime(fields[i].kind, refKind)) {
-            if (!m_markBits[refIdx])
-                PushMarked(refIdx, worklist);
-        }
-    }
-}
-
-void VmExecutor::MarkStructFields(int32_t idx,
-                                  std::vector<int32_t>& worklist) {
-    uint16_t structIdx = m_slotStructIdx[idx];
-    auto& cs = m_currModule->structs[structIdx];
-    for (uint16_t i = 0; i < cs.fieldCount; ++i) {
-        int32_t refIdx = m_structHeap[idx][i * 2];
-        //String fields carry a string-store handle, not a heap
-        //index — same pre-guard routing as the class field arm.
-        if (cs.fieldTypeKinds[i] == RTK_String) {
-            MarkString(refIdx);
-            continue;
-        }
-        if (refIdx <= 0 || static_cast<size_t>(refIdx) >= m_slotKinds.size())
-            continue;
-        const uint8_t refKind = m_slotKinds[static_cast<size_t>(refIdx)];
-        //Explicit RTK_Array route (declared kind now authoritative) —
-        //see the RTK_Class branch above for why the old runtime-kind
-        //fallback is gone, including the v1.10 module-floor coupling.
-        //Acceptance is the class arm's shared predicate.
-        if (DeclaredFieldAcceptsRuntime(cs.fieldTypeKinds[i], refKind)) {
-            if (!m_markBits[refIdx])
-                PushMarked(refIdx, worklist);
-        }
-    }
-}
-
-namespace {
-//Single source for the array-element trace acceptance (was four
-//hand-expanded else-if arms): declared elemKind must match the record's
-//runtime slot kind. Object[] elements carry boxed primitive records
-//(declared RTK_Class, runtime RTK_Boxed) and array records owned or
-//view (arrays are Object values, §4.11.1 — final-review C1) — same
-//acceptance as the field arms. The RTK_Array row (an array whose
-//elements are themselves array records, array redesign B spec §5.3#1)
-//is currently unreachable from compilable source (jagged declarations
-//rejected; List<int[]> elements live in the container store) —
-//defensive base for future/external .nmod paths, kept symmetric with
-//the field predicate (a view element rides the view arm). String
-//elements never reach this test (they carry store handles, routed
-//before it).
-inline bool ArrayElemKindAccepts(uint8_t elemKind, uint8_t runtimeKind)
-{
-    return (elemKind == RTK_Class
-                && (runtimeKind == RTK_Class || runtimeKind == RTK_Boxed
-                    || runtimeKind == RTK_Array
-                    || runtimeKind == RTK_ArrayView))
-        || (elemKind == RTK_Struct && runtimeKind == RTK_Struct)
-        || (elemKind == RTK_Func && runtimeKind == RTK_Func)
-        || (elemKind == RTK_Array
-                && (runtimeKind == RTK_Array
-                    || runtimeKind == RTK_ArrayView));
-}
-} // namespace
-
-void VmExecutor::MarkArrayElements(int32_t idx,
-                                   std::vector<int32_t>& worklist) {
-    //v0.14.x device line: a device-resident array's payload lives
-    //outside the record (the payload area is the 2-cell device-pointer
-    //descriptor) and numeric elements carry no references — the payload
-    //trace below would read past the 2-cell record. Skip entirely.
-    if (m_arrResidency[idx] == 1)
-        return;
-    uint16_t arrayTypeIdx = m_slotStructIdx[idx];
-    auto& at = m_currModule->arrayTypes[arrayTypeIdx];
-    //Stage-2 header: [3]=elemCount; the payload base derives from
-    //the record's own rank cell.
-    const size_t payloadBase = ArrayPayloadBase(m_structHeap[idx]);
-    int32_t length = m_structHeap[idx][3];
-    //0.7.5: stride from the registry — reference-bearing kinds are all
-    //1-cell (the acceptance test below unchanged); 2-cell scalars hold
-    //no references, the honest offset just keeps the reads
-    //element-aligned.
-    const int cells = ArrayElemCells(at.elemKind);
-    for (int32_t i = 0; i < length; ++i) {
-        int32_t elemRef =
-            m_structHeap[idx][payloadBase + i * cells];
-        //String elements are raw string handles (hole-1 uses 0 =
-        //null) — same pre-guard routing as the field arms.
-        if (at.elemKind == RTK_String) {
-            MarkString(elemRef);
-            continue;
-        }
-        if (elemRef <= 0 || static_cast<size_t>(elemRef) >= m_slotKinds.size())
-            continue;
-        if (ArrayElemKindAccepts(at.elemKind, m_slotKinds[elemRef])
-                && !m_markBits[elemRef]) {
-            PushMarked(elemRef, worklist);
-        }
     }
 }
 

@@ -194,10 +194,10 @@ void TestReturnString() {
     uint8_t ret[NLANG_VALUE_SIZE] = {};
     native::ReturnString(&m.table, ret, std::string("world"));
     CHECK(m.createdStrings.size() == 1 && m.createdStrings[0] == "world",
-          "ReturnString mints text");
+          "ReturnString creates text");
     int32_t handle = 0;
     std::memcpy(&handle, ret, sizeof(handle));
-    CHECK(handle == 1001, "ReturnString writes minted handle");
+    CHECK(handle == 1001, "ReturnString writes created handle");
 }
 
 void TestListCallback() {

@@ -28,8 +28,15 @@ EBNF_DEF = re.compile(r"^([A-Za-z_][A-Za-z_0-9]*)\s*=", re.M)
 #  TypeParamRests -- the spec's TypeParams writes the comma list
 #  inline ("<" <identifier> { "," <identifier> } ">"); bison factors
 #  the zero-or-more tail into its own nonterminal.
+#  ClassDeclCore / StructDeclCore / InterfaceDeclCore / EnumDeclCore --
+#  the spec writes each top-level type declaration as one rule
+#  (ClassDecl etc.); the Core suffix only factors the no-prefix body
+#  off the access-prefix wrapper, so the wrapper's action can set the
+#  access byte on the already-constructed node.
 EXEMPT = {"AccessTypeEmpty", "AccessTypeNonEmpty", "NodeFlagsNonEmpty",
-          "TypeParamRests"}
+          "TypeParamRests",
+          "ClassDeclCore", "StructDeclCore", "InterfaceDeclCore",
+          "EnumDeclCore"}
 # EBNF-only groupings: the spec factors these symbols out of parser
 # rules that inline the alternatives at their use sites; each entry
 # names where the parser spells it:
@@ -42,13 +49,17 @@ EXEMPT = {"AccessTypeEmpty", "AccessTypeNonEmpty", "NodeFlagsNonEmpty",
 #  LocalDeclList.
 #  TypeArgs -- bison inlines the "<...>" bracket forms (including the
 #  KT_Void variants) into Type, HeadType and the func-type rules.
+#  FuncTypeArgs -- the func-type twin of TypeArgs: the spec factors the
+#  void forms of func type arguments; bison spells the three arms
+#  inline over FuncTypeList (v0.13.9 phase 3).
 #  TypeKeyword -- bison inlines the KT_ type-keyword alternatives
 #  into IdentifierExpr.
 #  NodeFlags -- the spec's one-or-more flag list; bison spells the
 #  non-empty list NodeFlagsNonEmpty (the empty layer was removed in
 #  v0.9.1) and writes optionality as [ NodeFlags ].
 SPEC_ONLY = {"BinaryOp", "UnaryOp", "CompoundOp", "FieldDecl", "MethodDecl",
-             "ConstDecl", "LocalDecl", "TypeArgs", "TypeKeyword", "NodeFlags"}
+             "ConstDecl", "LocalDecl", "TypeArgs", "FuncTypeArgs",
+             "TypeKeyword", "NodeFlags"}
 
 
 def _nonterminals():

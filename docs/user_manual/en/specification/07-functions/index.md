@@ -17,14 +17,20 @@ formal parameters, and a body. A method declaration with no return
 type names a constructor (§4.8.6).
 
 A top-level function is *bare* when it carries no access modifier
-and no flags (§2.2). The distinction is grammatical only: at top
-level the access modifiers and the `static` and `virtual` flags
-are accepted and have no effect — they govern class members
-(§4.8). Within its own unit every top-level function is
-visible bare. Across units, bare visibility follows §3.6, and the
-qualified name reaches the function through the import gate
-(§3.6, §3.9); neither path consults the modifiers. Only
-`native` carries meaning at top level (§7.5).
+and no flags (§2.2). The declared access — `private`, `protected`
+or `public` — governs reachability from other units and is
+enforced at compile time: `private` confines the function to its
+own unit, `protected` admits the units of the same package
+(§3.9), and `public` admits every unit the import gate opens
+(§3.6, §3.9). A bare function defaults to `public`. A resolution
+that lands on a foreign function its access denies reports the
+standard not-found diagnostic — the gate treats a denied function
+exactly like a missing one (§3.6). Within its own unit every
+top-level function is visible and callable by unqualified name,
+whatever its access. The `static` and `virtual` flags remain
+class-member-only: they are accepted at top level with no effect
+(§4.8). Only `native` carries additional meaning at top level
+(§7.5).
 
 A body written `;` declares a function without a body: a native
 function (§7.5) at top level, or an interface member with no
@@ -79,7 +85,7 @@ class Counter {
 ```
 
 - A value-returning function cannot use bare `return;` (compile error)
-- Void functions combine with `out` parameters for side-effect-only
+- Void functions combine with reference parameters for side-effect-only
   calls (§7.2)
 - Cross-module: an imported `void` function likewise carries no
   result; the same no-result rules apply there
@@ -93,7 +99,7 @@ sanity ceiling of 64 formals prevents unreasonably large frames.
 
 ### Where to look
 
-- **Formal parameters, default values, named arguments, `out`
+- **Formal parameters, default values, named arguments, reference
   arguments** — [Parameters and Arguments](parameters.md).
 - **Which overload a call selects** — [Overload
   Resolution](overloads.md).

@@ -57,9 +57,10 @@ void ExprResolveAccessor::CheckClassInitListForm(SnInitListExpr &sn,
 //the arity diagnostic (0.9.10 D2.4: a same-name static is not the
 //constructor), and whether any exist but are inaccessible
 //(0.9.12 D-new-5).
-static void FindCtorCandidates(SnClassDecl &classDecl,
-    const SnField &accessor, SnFunction *&rpNoArgCtor,
-    SnFunction *&rpFirstCtor, bool &rbAnyInaccessible)
+static void FindCtorCandidates(const ModuleRegistry &reg,
+    SnClassDecl &classDecl, const SnField &accessor,
+    SnFunction *&rpNoArgCtor, SnFunction *&rpFirstCtor,
+    bool &rbAnyInaccessible)
 {
     for (auto& field : classDecl.Members())
     {
@@ -68,7 +69,7 @@ static void FindCtorCandidates(SnClassDecl &classDecl,
             && !field.ContainFlags(NF_Static))
         {
             auto &ctor = static_cast<SnFunction&>(field);
-            if (!ctor.AllowAccess(accessor))
+            if (!AccessAdmitted(reg, ctor, accessor))
             {
                 rbAnyInaccessible = true;
                 continue;
@@ -87,8 +88,8 @@ void ExprResolveAccessor::CheckClassCtorForInitList(SnInitListExpr &sn,
     SnFunction *pNoArgCtor = nullptr;
     SnFunction *pFirstCtor = nullptr;
     bool bAnyInaccessible = false;
-    FindCtorCandidates(*pClassDecl, *m_pAccessor, pNoArgCtor, pFirstCtor,
-        bAnyInaccessible);
+    FindCtorCandidates(m_Env.Registry(), *pClassDecl, *m_pAccessor,
+        pNoArgCtor, pFirstCtor, bAnyInaccessible);
     if (pNoArgCtor)
     {
         sn.CtorFunction(pNoArgCtor);
@@ -112,7 +113,7 @@ void ExprResolveAccessor::CheckClassCtorForInitList(SnInitListExpr &sn,
     }
     else if (pClassDecl->IsGenericInstantiation())
     {
-        //Declared-template instances mint no implicit ctor: a
+        //Declared-template instances create no implicit ctor: a
         //constructor-less template (Future) is not constructible from
         //{} — the same verdict as new Future<...>().
         m_Env.Log(CLL_Error, sn.Location(),

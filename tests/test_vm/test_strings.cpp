@@ -4,6 +4,7 @@
 // LiveStringObjectCount after it. The --gc-stress e2e shapes pin trace
 // correctness end to end; these pin store-level behavior (bounded live
 // population, immortal constants, handle-0 semantics).
+#include "test_support/test_scratch.h"
 
 #include "nlang/compiler/ModuleBuilder.h"
 #include "nlang/compiler/BuildEnvironment.h"
@@ -13,7 +14,6 @@
 #include "nlang/vm/CompiledModule.h"
 #include "VmExecutor.h"
 #include "ModuleLoader.h"
-#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -34,8 +34,7 @@ static int g_pass = 0, g_fail = 0;
 
 static std::filesystem::path scratchDir()
 {
-    static const auto dir = std::filesystem::temp_directory_path()
-        / "nlang_test_strings";
+    static const auto dir = nlang::test::ScratchDir("nlang_test_strings");
     std::filesystem::create_directories(dir);
     return dir;
 }
@@ -182,29 +181,38 @@ void test_cons_chain_flatten_and_reclaim()
     PASS();
 }
 
-//Handle 0 (uninitialized) reads as "" — the old pool[0] fallback shape.
+//The string domain has no null: handle 0 IS the immortal empty string
+//(0.13.4 representation ruling D26), so every zero-initialized slot —
+//local, static, and any future allocator — reads as "" with no
+//producer-side fill pass. Go's zero-value string is the model.
 void test_uninitialized_string_reads_empty()
 {
     TEST(uninitialized_string_reads_empty);
     CompiledModule mod;
     CHECK(loadSource("uninit_str",
+        "class Cfg {\n"
+        "    public static string tag;\n"
+        "}\n"
         "int main() {\n"
         "    string s;\n"
         "    if (s != \"\") return 1;\n"
         "    if (s.length() != 0) return 2;\n"
+        "    if (Cfg.tag != \"\") return 3;\n"
+        "    Cfg.tag = \"x\";\n"
+        "    if (Cfg.tag != \"x\") return 4;\n"
         "    return 0;\n"
         "}\n", mod), "build failed");
     VmExecutor exec;
-    CHECK(exec.Execute(mod) == 0, "null string must read as empty");
+    CHECK(exec.Execute(mod) == 0, "zero handle must read as the empty string");
     PASS();
 }
 
-//Intern reuse: many content-aware mints of the same short string share one
-//live object. The array keeps every mint rooted simultaneously, so the
+//Intern reuse: many content-aware creations of the same short string share one
+//live object. The array keeps every creation rooted simultaneously, so the
 //live population is the load-bearing discriminator: without interning it
-//grows by one per iteration (60 live mints, far past the bound), with
-//interning it stays at the constant+residue level. substring mints go
-//through MintNewString directly (a `+` product would be a cons node,
+//grows by one per iteration (60 live creations, far past the bound), with
+//interning it stays at the constant+residue level. substring creates go
+//through CreateNewString directly (a `+` product would be a cons node,
 //which never interns by design).
 void test_intern_reuse_short_strings()
 {
@@ -216,7 +224,7 @@ void test_intern_reuse_short_strings()
         "    string[] kept = string[60];\n"
         "    int i = 0;\n"
         "    while (i < 60) {\n"
-        "        kept[i] = base.substring(0, 5);   //same content, minted\n"
+        "        kept[i] = base.substring(0, 5);   //same content, created\n"
         "        i = i + 1;\n"
         "    }\n"
         "    if (kept[0] != \"hello\") return 1;\n"
@@ -227,12 +235,12 @@ void test_intern_reuse_short_strings()
     exec.SetGcStressThresholds(8);
     CHECK(exec.Execute(mod) == 0, "interned equivalents must be equal");
     CHECK(exec.LiveStringObjectCount() < mod.stringConstants.size() + 10,
-        "same-content short mints must share one live object");
+        "same-content short creates must share one live object");
     PASS();
 }
 
 //Sweep purification: a dropped interned string dies with its table entry;
-//re-minting the content afterwards mints a fresh object (count rose
+//re-creating the content afterwards creates a fresh object (count rose
 //again), and no stale-handle resurrect occurs. With the table entry left
 //stale (purification missing) the freed slot is typically reused by an
 //unrelated string under stress, and the liveness-only revalidation would
@@ -245,16 +253,16 @@ void test_intern_sweep_purifies_table()
         "int main() {\n"
         "    int i = 0;\n"
         "    while (i < 300) {\n"
-        "        string t = \"tag-\" + i;   //short runtime mints\n"
+        "        string t = \"tag-\" + i;   //short runtime creations\n"
         "        i = i + 1;\n"
         "    }\n"
-        "    string after = \"tag-\" + 7;  //fresh mint, table was purified\n"
+        "    string after = \"tag-\" + 7;  //fresh create, table was purified\n"
         "    if (after != \"tag-7\") return 1;\n"
         "    return 0;\n"
         "}\n", mod), "build failed");
     VmExecutor exec;
     exec.SetGcStressThresholds(8);
-    CHECK(exec.Execute(mod) == 0, "re-minted content must read correct");
+    CHECK(exec.Execute(mod) == 0, "re-created content must read correct");
     PASS();
 }
 
@@ -262,37 +270,41 @@ void test_intern_sweep_purifies_table()
 //to mark the whole live chain on every safepoint once the store crossed
 //the fixed trigger (the store never shrinks, so the size trigger is
 //level-triggered). The sweep-end threshold backoff (2x surviving
-//population) makes triggers advance geometrically with live data — this
-//shape ran minutes-level before the backoff and must stay in the
-//sub-second range now; the bound is measured seconds x 10 headroom.
-void test_deep_chain_append_bounded_time()
+//population) makes triggers advance geometrically with live data. The
+//pin asserts the collection COUNT, not wall time: the count is
+//allocation arithmetic — identical on Debug, Release and ASan, immune
+//to machine speed. The backoff shape collects 194 times for this
+//workload; the regression shape collects at every safepoint past the
+//crossing (measured ~2x10^4 for a 2x10^4 chain, ~10^5 at this scale).
+//The wall-clock form this replaces flaked the ASan gate: its 15s bound
+//grazed the real ASan duration (~13-16s) and sweep-time machine state
+//tipped it over.
+static const size_t kDeepChainSweepBudget = 500;
+void test_deep_chain_append_bounded_sweeps()
 {
-    TEST(deep_chain_append_bounded_time);
+    TEST(deep_chain_append_bounded_sweeps);
+    const int chainAppends = 100000;
+    const int chainChars = chainAppends * 2;
     CompiledModule mod;
-    CHECK(loadSource("deep_chain_time",
+    CHECK(loadSource("deep_chain_sweeps",
         "int main() {\n"
         "    string s = \"\";\n"
         "    int i = 0;\n"
-        "    while (i < 100000) {\n"
+        "    while (i < " + std::to_string(chainAppends) + ") {\n"
         "        s = s + \"ab\";\n"
         "        i = i + 1;\n"
         "    }\n"
-        "    if (s.length() != 200000) return 1;\n"
-        "    if (s.substring(199998, 200000) != \"ab\") return 2;\n"
+        "    if (s.length() != " + std::to_string(chainChars) + ") return 1;\n"
+        "    if (s.substring(" + std::to_string(chainChars - 2) + ", "
+            + std::to_string(chainChars) + ") != \"ab\") return 2;\n"
         "    return 0;\n"
         "}\n", mod), "build failed");
     VmExecutor exec;
-    const auto start = std::chrono::steady_clock::now();
     CHECK(exec.Execute(mod) == 0, "chain must read back correct");
-    const auto elapsed = std::chrono::steady_clock::now() - start;
-    //The pin discriminates quadratic marking (minutes-level even on the
-    //Debug+ASan gate leg) from the linear shape (~9s there, measured).
-    //The bound is 3x the Debug+ASan measurement — the release-era ~1s
-    //figure does not calibrate the gate leg, which runs the same chain
-    //unoptimized.
-    CHECK(elapsed < std::chrono::seconds(45),
-        "10^5 default-threshold chain appends must stay well under 45s "
-        "(quadratic marking measures in the minutes)");
+    CHECK(exec.GcCollectionCount() <= kDeepChainSweepBudget,
+        "10^5 default-threshold chain appends must stay within "
+            + std::to_string(kDeepChainSweepBudget) + " collections "
+            "(level-triggered thresholds collect at every safepoint)");
     PASS();
 }
 
@@ -389,7 +401,7 @@ int main()
 {
     Runtime::StaticInit();   //in-process host requirement (IdString tables)
     TypeCastInfo::StaticInit();   //cast table (0.7.5: no longer inside Runtime::StaticInit)
-    test_deep_chain_append_bounded_time();
+    test_deep_chain_append_bounded_sweeps();
     test_intern_reuse_short_strings();
     test_intern_sweep_purifies_table();
     test_bounded_concat_live_count();

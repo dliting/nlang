@@ -1,5 +1,5 @@
 //e2e str_intern_eq: equality semantics unchanged by interning — interned
-//(constant or reused runtime mint) vs cons vs plain content all agree.
+//(constant or reused runtime create) vs cons vs plain content all agree.
 int main() {
     string a = "hel";
     string b = a + "lo";        //cons, not interned

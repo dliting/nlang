@@ -50,22 +50,28 @@ TopGenericModHeader = ( AccessType [ NodeFlags ] | NodeFlags )
 ```ebnf
 Type            = ( NameExpr | QualifiedType
                   | IdentifierExpr "<" TypeArgs ">"
-                  | "func" "<" TypeArgs ">" )
+                  | "func" "<" FuncTypeArgs ">" )
                   { "[]" | "[,,]" } ;
 TypeArgs        = TypeList | "void" | "void" "," TypeList ;
 TypeList        = TypeArg { "," TypeArg } ;
-TypeArg         = [ "out" ] Type ;
+TypeArg         = Type ;
+FuncTypeArgs    = FuncTypeList | "void" | "void" "," FuncTypeList ;
+FuncTypeList    = FuncTypeArg { "," FuncTypeArg } ;
+FuncTypeArg     = Type | Type "&" ;
+TypeRef         = Type [ "&" ] ;
 TypeName        = NameExpr | QualifiedType ;
 NameExpr        = IdentifierExpr ;
 QualifiedType   = NameExpr "." <identifier> { "." <identifier> } ;
 NameList        = ImplementsName { "," ImplementsName } ;
 ImplementsName  = TypeName | <identifier> "<" TypeList ">" ;
 HeadType        = ( IdentifierExpr [ "<" TypeArgs ">" ]
-                  | "func" "<" TypeArgs ">" | MemberExpr )
+                  | "func" "<" FuncTypeArgs ">" | MemberExpr )
                   { "[]" | "[,,]" } ;
 ```
 
 `TypeArgs`允许`void`作为第一个类型实参（泛型类型的无结果形式），也允许`void`后接其余实参；哪些泛型类型接受哪些形式由第4章定义。`HeadType`是局部声明中可用的类型拼写形式；它与`Type`的唯一区别是允许以`MemberExpr`为基础（经由成员表达式到达的限定名）。
+
+`FuncTypeArgs`是`TypeArgs`的函数类型孪生：它的实参允许`&`标记（§4.7.9）——`func<int, int&>`。普通泛型实参保持`TypeArg`，不接受`&`：`List<int&>`是语法错误（§4.12.5）。`TypeRef`是`Type`带`&`的形式，用于声明处命名类型的位：形参、方法返回类型、`foreach`头与局部声明（§4.7.9）。
 
 ## 2.4 声明
 
@@ -75,8 +81,8 @@ AccessType      = "private" | "protected" | "public" ;
 NodeFlag        = "const" | "static" | "virtual" | "native" ;
 NodeFlags       = NodeFlag { NodeFlag } ;
 
-ClassDecl       = "class" <identifier> TypeParamsOpt ClassInheritOpt
-                  ImplementsOpt "{" ClassMemberList "}" ;
+ClassDecl       = [ AccessType ] "class" <identifier> TypeParamsOpt
+                  ClassInheritOpt ImplementsOpt "{" ClassMemberList "}" ;
 TypeParamsOpt   = [ TypeParams ] ;
 TypeParams      = "<" <identifier> { "," <identifier> } ">" ;
 ClassInheritOpt = [ ":" TypeName ] ;
@@ -84,18 +90,19 @@ ImplementsOpt   = [ "implements" NameList ] ;
 ClassMemberList = ClassMember { ClassMember } ;
 ClassMember     = [ AccessType ]
                   ( [ NodeFlags ] MethodDecl | FieldDecl ) ;
-MethodDecl      = [ Type | "void" ] <identifier>
+MethodDecl      = [ TypeRef | "void" ] <identifier>
                   "(" [ FormalParamList ] ")" FunctionBodyOrSemi ;
 FieldDecl       = Type <identifier> [ "=" Expression ] ";" ;
 
-StructDecl      = "struct" <identifier> "{" StructMemberList "}" ;
+StructDecl      = [ AccessType ] "struct" <identifier>
+                  "{" StructMemberList "}" ;
 StructMemberList = StructMember { StructMember } ;
 StructMember    = StructField | StructCtor ;
 StructField     = [ AccessType ] Type <identifier> [ "=" Expression ] ";" ;
 StructCtor      = [ AccessType ] [ NodeFlags ] <identifier>
                   "(" [ FormalParamList ] ")" FunctionBodyOrSemi ;
 
-InterfaceDecl   = "interface" <identifier> TypeParamsOpt
+InterfaceDecl   = [ AccessType ] "interface" <identifier> TypeParamsOpt
                   "{" [ InterfaceMemberList ] "}" ;
 InterfaceMemberList = InterfaceMember { InterfaceMember } ;
 InterfaceMember = [ AccessType ] [ NodeFlags ]
@@ -104,22 +111,22 @@ InterfaceMember = [ AccessType ] [ NodeFlags ]
                   | ConstDecl ) ;
 ConstDecl       = Type <identifier> [ "=" Expression ] ";" ;
 
-EnumDecl        = "enum" <identifier> "{" EnumMemberList EnumMethodSection "}" ;
+EnumDecl        = [ AccessType ] "enum" <identifier> "{" EnumMemberList
+                  EnumMethodSection "}" ;
 EnumMemberList  = EnumMember { "," EnumMember } ;
 EnumMember      = <identifier> [ "=" Expression ] ;
 EnumMethodSection = [ ";" [ EnumMethodList ] ] ;
 EnumMethodList  = EnumMethod { EnumMethod } ;
-EnumMethod      = [ AccessType ] ( Type | "void" ) <identifier>
+EnumMethod      = [ AccessType ] ( TypeRef | "void" ) <identifier>
                   "(" [ FormalParamList ] ")" FunctionBodyOrSemi ;
 
 FormalParamList = FormalParam { "," FormalParam } ;
 FormalParam     = [ NodeFlags ]
-                  ( "out" Type <identifier>
-                  | Type <identifier> [ "=" Expression ] ) ;
+                  TypeRef <identifier> [ "=" Expression ] ;
 FunctionBodyOrSemi = Paragraph | ";" ;
 ```
 
-`class`体要求至少一个成员；`interface`体可以为空。不带返回类型的方法声明命名一个构造器（§4.8.6）。`out`参数不接受默认值。
+`class`体要求至少一个成员；`interface`体可以为空。顶层类型声明可带访问修饰符，与顶层函数一致（§7.1）。不带返回类型的方法声明命名一个构造器（§4.8.6）。
 
 ## 2.5 语句
 
@@ -133,9 +140,12 @@ Statement       = ";" | ReturnStmt | InvokeStmt | LocalDeclStmt
 StatementList   = { Statement } ;
 Paragraph       = "{" StatementList "}" ;
 
-LocalDeclStmt   = [ "const" ] HeadType LocalDeclList ";"
+LocalDeclStmt   = HeadType [ "&" ] LocalDeclList ";"
+                | "const" HeadType LocalDeclList ";"
+                | DeclLocalConst
                 | "static" HeadType LocalDeclList ";"
                 | "static" "const" HeadType LocalDeclList ";" ;
+DeclLocalConst  = "const" HeadType "&" LocalDeclList ";" ;
 LocalDeclList   = LocalDecl { "," LocalDecl } ;
 LocalDecl       = <identifier>
                   [ "=" Expression | "=" BracedInitExpr
@@ -164,7 +174,7 @@ InitFor         = ε | Type LocalDeclList | InvokeExpr
                 | IdentifierExpr "=" Expression ;
 FiniFor         = ε | InvokeExpr | IdentifierExpr "=" Expression
                 | IdentifierExpr CompoundOp Expression ;
-ForeachStmt     = "foreach" "(" Type <identifier> "in"
+ForeachStmt     = "foreach" "(" TypeRef <identifier> "in"
                   ( Expression | BracedInitExpr ) ")" Statement ;
 
 SwitchStmt      = "switch" "(" Expression ")"
@@ -200,11 +210,11 @@ Expression      = ParenthesesExpr | MemberExpr | LiteralExpr
                 | Expression "as" TypeName [ "[]" | "[,,]" ]
                 | Expression "as" AsGenericTarget
                 | QualifiedGenericReceiver "(" [ ConcreteParamList ] ")"
-                | "func" "<" TypeList ">" "(" [ ConcreteParamList ] ")" ;
+                | "func" "<" FuncTypeList ">" "(" [ ConcreteParamList ] ")" ;
 BinaryOp        = "+" | "-" | "*" | "/" | "%"
                 | "<" | "<=" | ">" | ">=" | "<<" | ">>"
-                | "==" | "!=" | "&&" | "||" ;
-UnaryOp         = "-" | "+" | "!" ;
+                | "==" | "!=" | "&" | "^" | "|" | "&&" | "||" ;
+UnaryOp         = "-" | "+" | "!" | "~" ;
 AsGenericTarget = IdentifierExpr "<" TypeList ">" [ "[]" | "[,,]" ] ;
 QualifiedGenericReceiver = IdentifierExpr "<" TypeList ">" ;
 
@@ -237,7 +247,6 @@ InitEntry       = Expression [ ":" ( Expression | BracedInitExpr ) ]
 
 ConcreteParamList = ConcreteParam { "," ConcreteParam } ;
 ConcreteParam   = <identifier> "=" ( Expression | BracedInitExpr )
-                | "out" <identifier>
                 | Expression | BracedInitExpr ;
 ```
 
@@ -251,12 +260,15 @@ ConcreteParam   = <identifier> "=" ( Expression | BracedInitExpr )
 |---|---|---|
 | 调用、下标、成员 | `( )` `[ ]` `.` | 左结合；调用`( )`不可结合 |
 | 转换 | `as` | 左结合 |
-| 一元 | `!` `-` `+` | 右结合 |
+| 一元 | `!` `-` `+` `~` | 右结合 |
 | 乘性 | `*` `/` `%` | 左结合 |
 | 加性 | `+` `-` | 左结合 |
 | 移位 | `<<` `>>` | 左结合 |
 | 关系 | `<` `<=` `>` `>=` | 左结合 |
 | 相等 | `==` `!=` | 左结合 |
+| 位与 | `&` | 左结合 |
+| 位异或 | `^` | 左结合 |
+| 位或 | `\|` | 左结合 |
 | 逻辑与 | `&&` | 左结合 |
 | 逻辑或 | `\|\|` | 左结合 |
 

@@ -82,15 +82,15 @@ static void EmitNew(BytecodeReader &r, std::ostringstream &out,
     out << head << " " << dst << " class=" << classIdx;
     if (classIdx < module.classes.size())
         out << " " << module.classes[classIdx].name;
-    //v0.13.1: the instantiation descriptor row (0xFFFF = none; recipe
+    //v0.13.1: the instantiation descriptor row (0xFFFF = none; composition
     //rows compose at run time, so the spelling prints as a row tag).
     if (descIdx != 0xFFFF
         && descIdx < module.descriptorTable.size()) {
         const auto& row = module.descriptorTable[descIdx];
-        if (row.recipe.empty())
+        if (row.composition.empty())
             out << " desc=" << row.spelling;
         else
-            out << " desc=recipe#" << descIdx;
+            out << " desc=composition#" << descIdx;
     } else
         out << " desc=none";
     out << "\n";
@@ -192,6 +192,9 @@ static bool DisasmArithOps(OpCode op, BytecodeReader &r,
         case OpCode::OP_Mod:
         case OpCode::OP_Shl:
         case OpCode::OP_Shr:
+        case OpCode::OP_BitAnd:
+        case OpCode::OP_BitOr:
+        case OpCode::OP_BitXor:
             DisasmPrimBinOp(r, out, head);
             return true;
         //kind, cmpOp, lhs, rhs (comparison)
@@ -200,6 +203,7 @@ static bool DisasmArithOps(OpCode op, BytecodeReader &r,
             return true;
         //kind, dst (unary)
         case OpCode::OP_Neg:
+        case OpCode::OP_BitNot:
             DisasmPrimNeg(r, out, head);
             return true;
         case OpCode::OP_LogicalNot:
@@ -251,7 +255,7 @@ static bool DisasmStringOps(OpCode op, BytecodeReader &r,
 
 //v0.13.1: the runtime type-argument opcodes — typeName arms (dst is a
 //frame offset; the ordinal is the declared type-parameter position, the
-//recipe index a descriptor-table row) and the D6 kind-dispatched T
+//composition index a descriptor-table row) and the D6 kind-dispatched T
 //operations (0xFFFF marks the null-literal side of an equality).
 static bool DisasmTypeArgOps(OpCode op, BytecodeReader &r,
     std::ostringstream &out, const std::string &head) {
@@ -264,7 +268,7 @@ static bool DisasmTypeArgOps(OpCode op, BytecodeReader &r,
             return true;
         }
         case OpCode::OP_TypeNameCompose:
-            DisasmU16xN(2, r, out, head, " dst=%u recipe=%u");
+            DisasmU16xN(2, r, out, head, " dst=%u composition=%u");
             return true;
         case OpCode::OP_Eq_T:
         case OpCode::OP_Ne_T:
@@ -274,6 +278,45 @@ static bool DisasmTypeArgOps(OpCode op, BytecodeReader &r,
         case OpCode::OP_TypeArg_to_str:
         case OpCode::OP_As_TypeParam:
             EmitU8Tag(r, out, head);
+            return true;
+        default:
+            return false;
+    }
+}
+
+//v0.13.9 phase ③: the byref slot family — dst/src pairs, the
+//cell-offset builders, and the kind-tagged dereference pair.
+static bool DisasmRefOps(OpCode op, BytecodeReader &r,
+    std::ostringstream &out, const std::string &head) {
+    switch (op) {
+        case OpCode::OP_RefOfLocal:
+        case OpCode::OP_RefOfPromoted:
+        case OpCode::OP_RefHandle:
+            DisasmU16xN(2, r, out, head, " dst=%u src=%u");
+            return true;
+        case OpCode::OP_RefOfField:
+            DisasmU16xN(3, r, out, head, " dst=%u base=%u cell=%u");
+            return true;
+        case OpCode::OP_RefOfField_T:
+            //Task 13: the generic-body field bind — ordinal + three slots.
+            DisasmTagU16xN(3, r, out, head,
+                           " ordinal=%d dst=%u base=%u cell=%u");
+            return true;
+        case OpCode::OP_RefOfElement:
+            DisasmU16xN(3, r, out, head, " dst=%u arr=%u flat=%u");
+            return true;
+        case OpCode::OP_RefOfElementN:
+            DisasmU16xN(4, r, out, head,
+                        " dst=%u arr=%u idxBase=%u rank=%u");
+            return true;
+        case OpCode::OP_LoadRef:
+        case OpCode::OP_StoreRef:
+            DisasmTagU16xN(2, r, out, head, " typeTag=%d dst=%u src=%u");
+            return true;
+        case OpCode::OP_LoadRef_T:
+        case OpCode::OP_StoreRef_T:
+            //Task 8: the T& read/store — ordinal byte + two slot operands.
+            DisasmTagU16xN(2, r, out, head, " ordinal=%d dst=%u src=%u");
             return true;
         default:
             return false;
@@ -294,6 +337,9 @@ static bool DisasmObjectOps(OpCode op, BytecodeReader &r,
             DisasmU16xN(3, r, out, head, " obj=%u off=%u %u");
             return true;
         case OpCode::OP_CopyStruct:
+            DisasmU16xN(3, r, out, head, " %u %u struct=%u");
+            return true;
+        case OpCode::OP_CopyStructInPlace:
             DisasmU16xN(3, r, out, head, " %u %u struct=%u");
             return true;
         case OpCode::OP_New:
@@ -339,6 +385,7 @@ std::vector<DisasmLine> DisassembleCode(const CompiledFunction& func,
             !DisasmStringOps(op, reader, out, head, module) &&
             !DisasmCallOps(op, reader, out, head, module) &&
             !DisasmObjectOps(op, reader, out, head, module) &&
+            !DisasmRefOps(op, reader, out, head) &&
             !DisasmArrayRecordOps(op, reader, out, head) &&
             !DisasmFuncValueOps(op, reader, out, head, module)) {
             out << offsetBuf << ": unknown_op("

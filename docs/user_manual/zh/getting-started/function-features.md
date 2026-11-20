@@ -7,7 +7,7 @@
 ```nlang
 import io;
 
-void divmod(int a, int b, out int q, out int r) {
+void divmod(int a, int b, int& q, int& r) {
     q = a / b;
     r = a - q * b;
 }
@@ -19,7 +19,7 @@ int add(int a, int b = 10) {
 int main() {
     int q = 0;
     int r = 0;
-    divmod(17, 5, out q, out r);    // q=3, r=2
+    divmod(17, 5, q, r);            // q=3, r=2
     io.print("17 = 5*" + q + " + " + r);
     if (add(q) == 13 && r == 2)     // b缺省为10
         return 13;
@@ -27,7 +27,7 @@ int main() {
 }
 ```
 
-输出`17 = 5*3 + 2`，退出码13。`out`参数让一次调用带回多个结果；参数可带默认值（还支持具名实参）；函数可重载，支持递归与`void`返回。
+输出`17 = 5*3 + 2`，退出码13。引用参数让一次调用带回多个结果；参数可带默认值（还支持具名实参）；函数可重载，支持递归与`void`返回。
 
 详见[规范/函数](../specification/07-functions/index.md)。
 
@@ -78,7 +78,7 @@ import io;
 import utils.helper;
 
 int main() {
-    io.print(twice(21));            // 同目录helper.n：裸调用，免import
+    io.print(twice(21));            // 同目录helper.n：非限定调用，免import
     io.print(utils.helper.answer());// 子目录：import后用模块路径限定
     if (utils.helper.answer() == 42)
         return 42;

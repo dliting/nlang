@@ -6,7 +6,7 @@
 // Coverage (Phase 4a):
 //   * happy path  - ordinary bodies, same-library bare calls, recursion;
 //   * visibility  - an unimported library call is rejected;
-//   * no bare names - import never injects the callee name unqualified;
+//   * no unqualified names - import never injects the callee name unqualified;
 //   * no sibling auto-visibility - a library TU does not see other files
 //     in its directory unless it imports them (the D7 rule is project-only);
 //   * owner isolation - a project function and a library function sharing
@@ -19,6 +19,7 @@
 // before execution. The library is really compiled by ModuleBuilder and
 // really executed by VmExecutor (no VM internals mocked); it resolves
 // through the same library-index + inline path as the standard library.
+#include "test_support/test_scratch.h"
 
 #include "nlang/compiler/ModuleBuilder.h"
 #include "nlang/compiler/CastInfo.h"
@@ -59,7 +60,7 @@ using Files = std::vector<std::pair<std::string, std::string>>;
 
 // A fresh, isolated scenario directory under the temp tree.
 fs::path scenarioDir(const char* name) {
-    auto d = fs::temp_directory_path() / "nlang_test_source_lib" / name;
+    auto d = nlang::test::ScratchDir("nlang_test_source_lib") / name;
     fs::remove_all(d);
     fs::create_directories(d);
     return d;
@@ -264,11 +265,11 @@ void TestUnimportedRejected() {
 // A library file in the consumer's directory shares the directory's bare
 // pool (D7): once `import alib;` pulls the file into the build, the bare
 // f() resolves alongside the qualified form. (The pre-shell pin — "import
-// injects no bare names" — held only while the shell kept the members out
+// injects no unqualified names" — held only while the shell kept the members out
 // of every directory pool; a library NOT in the build stays
 // bare-unreachable, which TestUnimportedRejected pins from the other
 // side. Task 6's dotted imports restore a cross-directory variant.)
-void TestNoBareNames() {
+void TestNoUnqualifiedNames() {
     const auto dir = scenarioDir("bare");
     const char* lib = "int f() { return 1; }\n";
     const char* prog = "import alib;\nint main() {\n  return f();\n}\n";
@@ -643,7 +644,7 @@ static void TestQualifiedLibraryTypeWithoutArgsWorks() {
           "alib.Vec (no args) compiles and runs beside a builtin generic");
 }
 
-//Phase 4b-2 audit I3 (reproduced in temp/rb3): with bare-name keys, a
+//Phase 4b-2 audit I3 (reproduced in temp/rb3): with unqualified-name keys, a
 //library Point and a root Point collided and the later one silently got
 //the first one's field layout. The shell syntax is gone now, so the pair
 //cannot coexist at all: both declarations land on the merged root under
@@ -745,7 +746,7 @@ static void TestDuplicateTypeInOnePackageRejected() {
 //must be rewritten to the table key the VM sees.
 static void TestStreamLiteralResolvesAtCompileTime() {
     //(3a) unique hit: S lives in alib; the constant pool carries the
-    //table key alib.S, never the bare name.
+    //table key alib.S, never the unqualified name.
     auto dir = scenarioDir("stream_literal_one");
     writeFiles(dir, {
         { "alib.n", "struct S { int a; }\n" },
@@ -764,10 +765,10 @@ static void TestStreamLiteralResolvesAtCompileTime() {
     for (const auto& s : mod.stringConstants)
         if (s == "alib.S") keyed = true;
     CHECK(keyed, "the literal that reaches the VM is the qualified table key");
-    bool bare = false;
+    bool unqualified = false;
     for (const auto& s : mod.stringConstants)
-        if (s == "S") bare = true;
-    CHECK(!bare, "no bare-name type literal survives");
+        if (s == "S") unqualified = true;
+    CHECK(!unqualified, "no unqualified-name type literal survives");
     //(3b) two visible same-named types => ambiguity diagnostic, not a
     //silent first-wins (Step 9's hits>1 branch). Same body as (3a); the
     //only difference is the extra import, so the pair is a real control.
@@ -890,7 +891,7 @@ static void TestTwoMainsRejected() {
 //conflict now (spec 5.5 name-equality; the shell was the only thing that
 //kept those two declarations apart). Only the key shape is pinned here -
 //the runtime use of a user Object is blocked by the compiler-side
-//bare-name short-circuits, which no task touches, so fields only.
+//unqualified-name short-circuits, which no task touches, so fields only.
 static void TestBuiltinAndUserTypeNameCoexist() {
     auto dir = scenarioDir("object_key");
     writeFiles(dir, {
@@ -955,7 +956,7 @@ static void TestBuiltinAndUserTypeNameCoexist() {
 //(5b) Design §8 runtime half: a packaged class named `Object` dispatches
 //its own methods and its toString override (receiver dispatch goes
 //through the receiver's own compiled class, keyed alib.Object — the
-//bare-name short-circuits only ever name the ownerless builtin). The
+//unqualified-name short-circuits only ever name the ownerless builtin). The
 //builtin root's own rendering is pinned by the object_ref e2e case.
 static void TestUserObjectDispatch() {
     auto dir = scenarioDir("object_dispatch");
@@ -990,7 +991,7 @@ static void TestUserObjectDispatch() {
 //methods never dispatch by name — direct calls go through table
 //indices — so a bare "standing" cannot disambiguate two same-named
 //methods of different enums in one unit. The qualified key resolves
-//cross-unit enum-method imports by construction, not by bare-name luck.
+//cross-unit enum-method imports by construction, not by unqualified-name luck.
 //(v0.12.2: the method name avoids prelude face names — Array.rank and
 //friends ride every image as bare records by design, so a bare "rank"
 //would exist regardless of the enum keying.)
@@ -1033,11 +1034,11 @@ void TestEnumMethodQualifiedKeys() {
               "Color.standing keyed by its enclosure path");
         CHECK(mod.FindFunction("alib.Shape.standing") >= 0,
               "Shape.standing keyed by its enclosure path");
-        bool bareRemains = false;
+        bool unqualifiedRemains = false;
         for (const auto& fn : mod.functions)
-            if (fn.name == "standing") bareRemains = true;
-        CHECK(!bareRemains,
-              "no bare 'standing' function record remains");
+            if (fn.name == "standing") unqualifiedRemains = true;
+        CHECK(!unqualifiedRemains,
+              "no unqualified 'standing' function record remains");
     } catch (const std::exception& e) {
         std::fprintf(stderr, "internal error: %s\n", e.what());
         CHECK(false, "loading the enum-key scenario module");
@@ -1052,7 +1053,7 @@ int main() {
     std::fprintf(stderr, "=== Source Library Integration Tests ===\n");
     TestHappyPath();
     TestUnimportedRejected();
-    TestNoBareNames();
+    TestNoUnqualifiedNames();
     TestNoSiblingAutoVisibility();
     TestOwnerIsolation();
     TestLibraryDefinedTypes();

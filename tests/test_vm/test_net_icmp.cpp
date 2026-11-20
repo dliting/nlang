@@ -2,14 +2,15 @@
 test_net_icmp.cpp - the ping helper's bounded-slice contract (external
 review I3).
 
-Pins the two pure verdicts behind the ping loop: the helper timeout is
+Pins the three pure verdicts behind the ping loop: the helper timeout is
 always bounded by the echo slice (one job never holds a pool worker
 longer than one slice, so teardown and the priority-0 DNS queue are
-never hostage to a black-hole host), and a slice timeout re-arms the
-job while the script deadline still allows (retransmission). The loop
-itself drives these through the pool; the verdicts are pure and unit-
-testable on their own (I5/I6 precedent). Console-style suite (same
-shape as test_net_platform).
+never hostage to a black-hole host), a slice timeout re-arms the job
+while the script deadline still allows (retransmission), and the queue
+lane follows the deadline (D6: a bounded wait gets the priority lane,
+the unbounded wait the ordinary one). The loop itself drives these
+through the pool; the verdicts are pure and unit-testable on their own
+(I5/I6 precedent). Console-style suite (same shape as test_net_platform).
 ---*/
 #include "net/net_icmp.h"
 #include "net/net_state.h"
@@ -55,10 +56,21 @@ static void TestResubmitVerdict()
     CHECK(!IcmpShouldResubmit(kNetErrPlatform, 0, now));        //unreachable
 }
 
+//D6: a ping with no deadline waits forever, so it has no latency of its own to
+//protect and belongs in the ordinary lane; a deadline-bound ping keeps the
+//high-priority lane it needs to answer inside its own budget.
+static void TestJobPriority()
+{
+    CHECK(IcmpJobPriority(0) == 0);      //the only "no deadline" net.n sends
+    CHECK(IcmpJobPriority(1) == 1);      //absolute deadline already passed
+    CHECK(IcmpJobPriority(5000) == 1);   //a deadline, however small
+}
+
 int main()
 {
     TestEchoTimeoutSlice();
     TestResubmitVerdict();
+    TestJobPriority();
     if (g_failures > 0) {
         std::printf("%d failure(s)\n", g_failures);
         return 1;

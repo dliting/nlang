@@ -1,7 +1,7 @@
 // generic_qualified_static.n — 0.13.1a: explicit instantiation spelling.
 //Expression-position `Pair<int, string>.sig()` and the constructor-call
 //sibling `Hold<int>(5)` share one grammar production; the spelled type
-//arguments mint the instantiation directly (no call-site inference).
+//arguments create the instantiation directly (no call-site inference).
 class Pair<K, V> {
     public static string sig() {
         return typeName(K) + "," + typeName(V);

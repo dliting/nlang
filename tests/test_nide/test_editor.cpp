@@ -687,7 +687,7 @@ private slots:
         editor.setSymbolIndex(&index);
         editor.resize(400, 300);
         editor.show();
-        QTest::qWaitForWindowExposed(&editor);
+        QVERIFY(QTest::qWaitForWindowExposed(&editor));
 
         // "io" + '.' opens the package completion popup.
         editor.setPlainText("io");
@@ -728,7 +728,7 @@ private slots:
         editor.setSymbolIndex(&index);
         editor.resize(400, 300);
         editor.show();
-        QTest::qWaitForWindowExposed(&editor);
+        QVERIFY(QTest::qWaitForWindowExposed(&editor));
 
         auto openPopup = [&editor] {
             editor.setPlainText("io");

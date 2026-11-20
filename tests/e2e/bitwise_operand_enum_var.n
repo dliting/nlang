@@ -1,0 +1,4 @@
+// enum-typed variable: PrimKindIsInteger has no enum row, gate rejects
+// (literals like E.A evaluate as int32 and pass -- see bitwise_ops.n).
+enum E { A = 1 }
+int main() { E e = E.A; int r = e & 1; return r; }

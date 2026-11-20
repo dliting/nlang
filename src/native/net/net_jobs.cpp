@@ -28,7 +28,7 @@ namespace nlang {
 
 //--- job table -------------------------------------------------------------
 
-int32_t NetJobTable::Mint(int kind, int owner) {
+int32_t NetJobTable::Create(int kind, int owner) {
     int32_t index = 0;
     if (!m_freeList.empty()) {
         index = m_freeList.back();
@@ -188,7 +188,7 @@ void NetFinishIcmp(NetExecState* st, int32_t jobId, int rttMs, int err,
 
 //--- resolve natives ---------------------------------------------------------
 
-//_tcpResolveStart(host, port): mints the job and either fills it on
+//_tcpResolveStart(host, port): creates the job and either fills it on
 //the spot (numeric literal — no pool round trip for a lookup that
 //cannot block, ack written directly so the wait path stays identical)
 //or submits it to the pool (priority 0). Returns the jobId.
@@ -199,7 +199,7 @@ void NetTcpResolveStart(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     int32_t jobId = 0;
     {
         std::lock_guard<std::mutex> g(st->m_mutex);
-        jobId = st->m_jobs.Mint(kNetJobResolve);
+        jobId = st->m_jobs.Create(kNetJobResolve);
     }
     if (NetIsNumericAddress(host)) {
         std::vector<NetEndpoint> endpoints;
@@ -271,8 +271,10 @@ void NetTcpResolveWait(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     }
 }
 
-//_tcpResolveEndpoint(jobId, index): the i-th address text; null
-//outside the filled result.
+//_tcpResolveEndpoint(jobId, index): the i-th address text; the empty
+//string (string has no null value — 0.13.4) outside the filled result
+//(callers loop over the count from _tcpResolveWait, so this arm is
+//defensive only).
 void NetTcpResolveEndpoint(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     NetExecState* st = NetState(h);
     std::lock_guard<std::mutex> g(st->m_mutex);
@@ -280,7 +282,7 @@ void NetTcpResolveEndpoint(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     const int index = ArgInt(a, 1);
     if (!rec || !rec->done || index < 0
         || index >= static_cast<int>(rec->endpoints.size())) {
-        ReturnInt(ret, 0);   //null string
+        ReturnString(h, ret, std::string());
         return;
     }
     ReturnString(h, ret, rec->endpoints[index]);

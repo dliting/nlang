@@ -51,8 +51,10 @@ void VmBackend::EmitInitListClassForm(SnInitListExpr& initList,
             EmitArrayRankBoundary(
                 pFillDecl ? pFillDecl->EvalDataType() : nullptr,
                 entry.pValue, valueSlot, emitter);
-            //v0.12.6 D14: a struct value filling a field is deep-copied —
-            //the brace fill is a field assignment (manual 4.7.4/4.7.5).
+            //v0.12.6 D14; v0.13.9 phase ②: a struct value filling a
+            //field is written into the field's established record in
+            //place — the brace fill is a field assignment (manual
+            //4.7.4/4.7.5).
             EmitStructAwareStoreField(pFillDecl,
                 resultOffset, static_cast<uint16_t>(off), valueSlot,
                 emitter);
@@ -134,7 +136,8 @@ void VmBackend::EmitInitListStructEntries(SnInitListExpr& initList,
         EmitExpression(*entry.pValue, emitter, valueSlot);
         //v0.12.7: boundary rank check on the staged value.
         EmitArrayRankBoundary(fieldType, entry.pValue, valueSlot, emitter);
-        //v0.12.6 D14: a struct value filling a field is deep-copied —
+        //v0.12.6 D14; v0.13.9 phase ②: a struct value filling a field
+        //is written into the field's established record in place —
         //the brace fill is a field assignment (manual 4.7.4/4.7.5).
         EmitStructAwareStoreField(fieldType, resultOffset,
             static_cast<uint16_t>(off), valueSlot, emitter);

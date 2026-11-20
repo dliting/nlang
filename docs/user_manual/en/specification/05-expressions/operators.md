@@ -48,7 +48,7 @@ orders convert by the argument's kind and fold into the result
 
 When one or both operands of `+`, `-`, `*`, `/` is a numeric
 array (int, long, float, double elements), the operator lowers
-to the [tensor](../library/18-tensor.md) package's kernels —
+to the [tensor](../library/19-tensor.md) package's kernels —
 `a + b` is `tensor.add(a, b)` with right-aligned broadcasting;
 `2 * x`, `x - 1` and `1 - x` ride the scalar arms (`1 - x`
 lowers to the reversed arm `tensor.rsubScalar`, since `-` has
@@ -61,7 +61,7 @@ Compound assignment on arrays (`a += b`) is rejected — use
 the plain assignment with the operator form. `string + ...
 ` keeps its concatenation reading, and array identity
 comparison (`==`/`!=`) is unchanged. See
-[Tensor](../library/18-tensor.md) §18.5.1.
+[Tensor](../library/19-tensor.md) §19.5.1.
 
 ### Shift
 
@@ -110,6 +110,36 @@ Inside a generic argument list a `>>` still closes the nested type
 (`List<List<int>>`); only at expression depth does it act as the shift
 operator, so the two never conflict.
 
+### Bitwise
+
+```nlang
+a & b    a ^ b    a | b    ~a
+```
+
+The binary bitwise operators `&` (and), `^` (exclusive or) and `|` (or)
+require integer operands; enum member literals take part as their int32
+underlying type while enum-typed variables are rejected (exactly how
+`<<` treats them), and char, bool and float operands are compile errors
+— convert with an explicit `as` to take part. The result type follows
+the arithmetic family's symmetric promotion rules: `int & long` is long,
+`byte & byte` is an `int`. Unlike shift, the bitwise operators carry no
+"count" semantics — both operands promote on equal footing:
+`-1 & 1099511627776` is legal, is long and keeps bit 40 (integer
+literals have no type suffix; one beyond the int range automatically
+takes the long carrier). The unary `~` (bitwise complement) applies the
+same unary promotion to its operand: `byte`, `ubyte`, `short` and
+`ushort` promote to `int`, while `int`, `uint`, `long` and `ulong` keep
+themselves; `~5` is `-6`, in two's complement. Bitwise operations have
+neither a runtime range check nor overflow.
+
+Precedence: `~` sits with the other unary operators; `&`, `^` and `|`
+bind looser than the equality comparisons and tighter than the logical
+operators `&&` and `||` — `5 & 3 == 1` reads as `5 & (3 == 1)`, the C
+family convention. The compound forms `&=`, `|=` and `^=` follow the
+compound-assignment family's rules as a whole: store back into the left
+value's declared type with an implicit narrowing, like `+=` and `<<=`;
+see [Compound Assignment](../06-statements/index.md).
+
 ### Comparison
 
 ```nlang
@@ -121,12 +151,9 @@ Comparison results are always **`bool`** (`true` / `false`).
 **Comparison operands are typed**:
 
 - **Mixing string with non-string is a compile error** (`"a" < 5`,
-  `5 == "a"`). The only exception is the null literal: `s == null` /
-  `c == null` compares against the null sentinel — identity for
-  class/reference operands; for string operands, the null side reads as
-  the empty string (handle 0 is the reserved null sentinel; a genuine
-  empty string has its own object and is bitwise different from null).
-  Hence `"" == null` compares equal; any non-empty string does not.
+  `5 == "a"`), the null literal included — `s == null` is a compile
+  error (null is not a string value, §4.3). `c == null` compares a
+  class/reference operand against the null sentinel by identity.
 - **Numeric pairs** get the same symmetric promotion as arithmetic:
   `-2 < -1.5` promotes to double and is true; `1 == 1.0` is true. See
   [Primitive Types](../04-types/primitives.md).

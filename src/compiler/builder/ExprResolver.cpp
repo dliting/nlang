@@ -113,7 +113,7 @@ bool IsPlainLvalueShape(const SnExpression& expr) {
 //type's token, and container element flows (List<T[]>.get, li[0],
 //func<R[],...> invokes) read the instantiation's type-args slots —
 //which carry tokens natively because generic type arguments resolve
-//through the same Access(SnArrayTypeExpr&) intern channel. Minting
+//through the same Access(SnArrayTypeExpr&) intern channel. Creating
 //over any of those would wrap a token in a token (the double-wrap bug
 //the gc-arm tests catch). Still called at every NF_Resolved success
 //site — a new value shape that is array-valued without passing a
@@ -131,7 +131,7 @@ void ExprResolveAccessor::BindArrayTypeToken(SnExpression& expr) {
 	if (!isCreation)
 		return;
 	//The creation resolve tail stored the element field in
-	//EvalDataType — mint the token over it. The never-wrap check stays:
+	//EvalDataType — create the token over it. The never-wrap check stays:
 	//an element field that is already a token must not be wrapped again.
 	auto* pElem = expr.EvalDataType();
 	if (pElem && pElem->Kind() != NK_ArrayTypeToken)

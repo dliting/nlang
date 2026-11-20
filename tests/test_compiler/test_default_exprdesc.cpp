@@ -21,6 +21,7 @@ Three layers against the serialized default-value expression grammar:
 The e2e suite (cross_mod_default_expr) pins the consumer rebuild path
 end to end; this suite pins the wire contract itself.
 ---*/
+#include "test_support/test_scratch.h"
 #include <nlang/runtime/Runtime.h>
 #include <nlang/compiler/ModuleBuilder.h>
 #include <nlang/compiler/BuildEnvironment.h>
@@ -83,8 +84,7 @@ static CompiledModule compileAndLoad(const char* szBody,
     std::unique_ptr<CompileOutcome>& outOutcome)
 {
     static uint32_t runCount = 0;
-    const auto dir = std::filesystem::temp_directory_path()
-        / "nlang_default_exprdesc_tests";
+    const auto dir = nlang::test::ScratchDir("nlang_default_exprdesc_tests");
     std::error_code fsError;
     std::filesystem::create_directories(dir, fsError);
     const auto file = dir / "main.n";
@@ -165,8 +165,9 @@ struct RawDecoder
     static const char* opName(uint8_t op)
     {
         static const char* kNames[] =
-            { "add", "sub", "mul", "div", "mod", "shl", "shr" };
-        return op <= EDB_Shr ? kNames[op] : "?op";
+            { "add", "sub", "mul", "div", "mod", "shl", "shr",
+              "band", "bor", "bxor" };
+        return op <= EDB_BitXor ? kNames[op] : "?op";
     }
 
     std::string expr()
@@ -213,6 +214,8 @@ struct RawDecoder
             }
             case ED_Neg:
                 return "(neg " + expr() + ")";
+            case ED_BitNot:
+                return "(bnot " + expr() + ")";
             case ED_Binary:
             {
                 uint8_t op = 0;
@@ -286,6 +289,10 @@ static void test_wire_shapes_compound()
         "int remainder(int a, int b = a % 3) { return b; }\n"
         "int shifted(int a, int b = a << 2) { return b; }\n"
         "int dropped(int a, int b = a >> 1) { return b; }\n"
+        "int anded(int a, int b = a & 3) { return b; }\n"
+        "int ored(int a, int b = a | 8) { return b; }\n"
+        "int xored(int a, int b = a ^ 5) { return b; }\n"
+        "int bnoted(int a, int b = ~a) { return b; }\n"
         "int negate(int a, int b = -a) { return b; }\n"
         "float scaled(int a, float b = a * 1.5f) { return b; }\n"
         "double precise(int a, double b = a * 2.5) { return b; }\n"
@@ -300,11 +307,11 @@ static void test_wire_shapes_compound()
         "clean compile expected: " + joinErrors(*out));
 
     //The qualified-key rule itself: a project function is findable under
-    //"<modulePath>.<name>" and NOT under its bare name.
+    //"<modulePath>.<name>" and NOT under its unqualified name.
     CHECK(mod.FindFunction(mod.modulePath + ".addIdent") >= 0,
         "project functions are keyed <modulePath>.<name>");
     CHECK(mod.FindFunction("addIdent") < 0,
-        "the bare name is not a table key");
+        "the unqualified name is not a table key");
 
     struct Expectation { const char* func; const char* shape; };
     const Expectation kExpects[] = {
@@ -316,6 +323,10 @@ static void test_wire_shapes_compound()
         {"remainder", "(mod (formal 0) (int 3))"},
         {"shifted", "(shl (formal 0) (int 2))"},
         {"dropped", "(shr (formal 0) (int 1))"},
+        {"anded", "(band (formal 0) (int 3))"},
+        {"ored", "(bor (formal 0) (int 8))"},
+        {"xored", "(bxor (formal 0) (int 5))"},
+        {"bnoted", "(bnot (formal 0))"},
         {"negate", "(neg (formal 0))"},
         {"scaled", "(mul (formal 0) (float))"},
         {"precise", "(mul (formal 0) (double))"},
@@ -433,7 +444,7 @@ static CompiledModule readerFixtureModule()
 }
 
 //SynthDefaultExpr must throw the named malformed-module errors, never
-//read out of bounds or mint a tree from a corrupt stream.
+//read out of bounds or create a tree from a corrupt stream.
 static void test_reader_rejects_malformed()
 {
     TEST(reader_rejects_malformed);
@@ -452,7 +463,7 @@ static void test_reader_rejects_malformed()
         {"truncated binary", {ED_Binary, EDB_Add, ED_FormalRef, 0},
             "truncated stream"},
         {"unknown tag", {0x7A}, "unknown node tag"},
-        {"bad binary operator", {ED_Binary, 0x07}, "bad binary operator"},
+        {"bad binary operator", {ED_Binary, 0x0A}, "bad binary operator"},
         //A complete node followed by junk.
         {"trailing bytes",
             {ED_FormalRef, 0, RTK_Int32, 0, 0, 0, 0}, "trailing bytes"},
@@ -502,10 +513,10 @@ static void test_reader_rejects_malformed()
     //so only a corrupt image can carry one).
     {
         CompiledModule unqualified = readerFixtureModule();
-        CompiledFunction bare;
-        bare.name = "helper";
-        bare.paramCount = 1;
-        unqualified.functions.push_back(std::move(bare));
+        CompiledFunction unqualifiedNamed;
+        unqualifiedNamed.name = "helper";
+        unqualifiedNamed.paramCount = 1;
+        unqualified.functions.push_back(std::move(unqualifiedNamed));
         DefaultValueDesc dv;
         dv.tag = RTK_Expr;
         dv.exprBytes = {ED_Call, 6, 0, 'h', 'e', 'l', 'p', 'e', 'r',
@@ -524,7 +535,7 @@ static void test_reader_rejects_malformed()
             + (threw ? message : "no throw"));
     }
 
-    //The valid call arm mints the module-qualified member-invoke shape.
+    //The valid call arm creates the module-qualified member-invoke shape.
     {
         DefaultValueDesc dv;
         dv.tag = RTK_Expr;
@@ -618,11 +629,11 @@ static void test_remap_strings()
     pushU32(deep, 0);
     CHECK(!ExprDescRemapStrings(deep, identity),
         "depth above kMaxExprDescDepth is rejected");
-    std::vector<uint8_t> badOp{ED_Binary, 0x09};
+    std::vector<uint8_t> badOp{ED_Binary, 0x0A};
     pushU32(badOp, 0);
     pushU32(badOp, 0);
     CHECK(!ExprDescRemapStrings(badOp, identity),
-        "binary operator above EDB_Shr is rejected");
+        "binary operator above EDB_BitXor is rejected");
     std::vector<uint8_t> trailing{RTK_Null, RTK_Null};
     CHECK(!ExprDescRemapStrings(trailing, identity),
         "trailing bytes after the root node are rejected");

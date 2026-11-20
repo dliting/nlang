@@ -1,6 +1,6 @@
 /*---
     ResolveBareIdentifier.cpp — bare identifier target classification.
-    The single source for what a bare name addresses (local / static
+    The single source for what an unqualified name addresses (local / static
     slot / static local slot / implicit this-field), consumed by the
     identifier read, plain assignment and compound assignment emitters.
     Split out of VmBackend.cpp (2026-11-02 source-size guard).
@@ -63,7 +63,7 @@ VmBackend::BareIdTarget VmBackend::ResolveBareIdentifier(SnField* field) {
 }
 
 //v0.12.6 Task 8: own fields answer from the registration map; an
-//imported stub field (NF_Imported owner, rider valid) instead mints
+//imported stub field (NF_Imported owner, rider valid) instead creates
 //the placeholder import record on first use — StaticSlotSymbolSlot
 //dedupes, so every use site in this unit shares one tail slot. The
 //rider's absence on an imported field (a folded constant) never

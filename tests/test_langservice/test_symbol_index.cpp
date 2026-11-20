@@ -1,6 +1,7 @@
 /*--- test_symbol_index.cpp - SymbolIndex / FindStdLibDir unit tests -----*
  * Loads the real stdlib/*.n tree (no mocks) and pins the indexed shape.
  */
+#include "test_support/test_scratch.h"
 #include "nlang/langservice/SymbolIndex.h"
 
 #include <algorithm>
@@ -26,6 +27,7 @@ static int g_failures = 0;
 //breakdown comment; the printer turns any future drift into a
 //per-package diff instead of bare FAIL lines.
 constexpr std::size_t kStdlibSymbolPin = 464;
+constexpr std::size_t kStdlibSymbolPin = 335;
 
 static void PrintIndexShape(const SymbolIndex &index)
 {
@@ -45,6 +47,9 @@ static void TestLoadsRealStdLib() {
     index.LoadLibraryDir(STDLIB_DIR);
     // 324 functions: io 19 (14 natives + 5 typed-reader wrappers; the
     // v11 clock/park natives and the byte helpers moved from net),
+    // 286 functions: io 22 (13 natives + 5 typed-reader wrappers + 4
+    // Base64 codecs; the v11 park native and the byte helpers moved
+    // from net, the monotonic clock moved to system in v0.13.4),
     // math 25, fs 10 (the binary read pair readBytes/readFloats),
     // thread 7 (the K3 materialized package plus the P2-2 failure
     // probes), tensor 209 (the v0.12.7 surface: broadcasting
@@ -58,10 +63,17 @@ static void TestLoadsRealStdLib() {
     // toDevice/toHost overloads for the four numeric kinds and
     // backend()),
     // net 54 (the script ping plus the internal _nowMs/_lastErrorText/
-    // _throwNet/_ping/resolveList, the _tcp* natives incl. the option
-    // setters and the internal _toBytes/_fromBytes, the 20 _udp*
-    // natives and the 5 _icmp* natives; class methods are not free
-    // functions).
+    // _lastErrorCode/_throwNet/_ping/resolveList, the _tcp* natives
+    // incl. the option setters and the internal _toBytes/_fromBytes,
+    // the 20 _udp* natives and the 5 _icmp* natives; class methods
+    // are not free functions), system 2 (the wall and monotonic clocks),
+    // url 4 (the percent and form codecs; the Url class members are not
+    // free functions), gzip 4 (the compress/decompress wrappers and the
+    // two native codec declarations), http 6 (the buffered convenience
+    // calls get/post/put/del/request plus the lazy defaultClient; the
+    // Http* class members are not free functions), regex 1 (the
+    // quoteMeta escaping helper; the Regex/Match classes and the engine
+    // classes are not free functions).
     if (index.size() != kStdlibSymbolPin)
         PrintIndexShape(index);
     CHECK(index.size() == kStdlibSymbolPin);
@@ -119,13 +131,18 @@ static void TestCompletion() {
     //Packages() lists free-function surfaces: the net module's free
     //functions (ping, the internal natives) put net back in the list.
     const auto namespaces = index.Packages();
-    CHECK(namespaces.size() == 6);
+    CHECK(namespaces.size() == 11);
     CHECK(namespaces[0] == "fs");
-    CHECK(namespaces[1] == "io");
-    CHECK(namespaces[2] == "math");
-    CHECK(namespaces[3] == "net");
-    CHECK(namespaces[4] == "tensor");
-    CHECK(namespaces[5] == "thread");
+    CHECK(namespaces[1] == "gzip");
+    CHECK(namespaces[2] == "http");
+    CHECK(namespaces[3] == "io");
+    CHECK(namespaces[4] == "math");
+    CHECK(namespaces[5] == "net");
+    CHECK(namespaces[6] == "regex");
+    CHECK(namespaces[7] == "system");
+    CHECK(namespaces[8] == "tensor");
+    CHECK(namespaces[9] == "thread");
+    CHECK(namespaces[10] == "url");
 
     //The materialized thread package indexes like any stdlib package.
     const SymbolInfo* spawn = index.Resolve("thread", "spawn");
@@ -146,7 +163,7 @@ static void TestNlangFunctionIsNotNative() {
     // A function declared without 'native' must index as native=false.
     // The file is bare source now (no wrapper): the package comes from
     // the file stem "mylib".
-    fs::path tmp = fs::temp_directory_path() / "nlang_ls_nonnative";
+    fs::path tmp = nlang::test::ScratchDir("nlang_ls_nonnative");
     fs::remove_all(tmp);
     fs::create_directories(tmp);
     std::ofstream(tmp / "mylib.n")
@@ -172,9 +189,9 @@ static void TestPackageComesFromFilePath() {
     // shell syntax): the package is the file's path stem. A legacy file
     // that still wraps declarations in a `namespace fake` block indexes
     // nothing from inside the braces (a braced top-level block is a
-    // scope the scanner skips) and the head name must not mint a second
+    // scope the scanner skips) and the head name must not create a second
     // package; top-level declarations index under the stem.
-    fs::path tmp = fs::temp_directory_path() / "nlang_ls_pkgstem";
+    fs::path tmp = nlang::test::ScratchDir("nlang_ls_pkgstem");
     fs::remove_all(tmp);
     fs::create_directories(tmp);
     std::ofstream(tmp / "mylib.n")
@@ -200,7 +217,7 @@ static void TestClassOnlyPackageHasPackage() {
     // package file that declares only classes extracts no
     // function-shaped symbols, but its root name is still a reserved
     // package name — stdlib/concurrent.n is exactly this shape.
-    fs::path tmp = fs::temp_directory_path() / "nlang_ls_classonly";
+    fs::path tmp = nlang::test::ScratchDir("nlang_ls_classonly");
     fs::remove_all(tmp);
     fs::create_directories(tmp);
     std::ofstream(tmp / "concurrent.n")
@@ -219,7 +236,7 @@ static void TestClassBodyMethodsSkipped() {
     // A class body at file top level is a scope the scanner must skip:
     // a method is not a package function. Project sources flow through
     // this scanner for go-to-definition, and user files carry classes.
-    fs::path tmp = fs::temp_directory_path() / "nlang_ls_classbody";
+    fs::path tmp = nlang::test::ScratchDir("nlang_ls_classbody");
     fs::remove_all(tmp);
     fs::create_directories(tmp);
     std::ofstream(tmp / "shapes.n")
@@ -243,7 +260,7 @@ static void TestClassBodyMethodsSkipped() {
 static void TestFindStdLibDir() {
     // Build <tmp>/a/b with <tmp>/a/stdlib; starting from b, the walk up must
     // find it.
-    fs::path root = fs::temp_directory_path() / "nlang_ls_locate";
+    fs::path root = nlang::test::ScratchDir("nlang_ls_locate");
     fs::remove_all(root);
     fs::path start = root / "a" / "b";
     fs::create_directories(start / ".." / "stdlib");
@@ -253,7 +270,7 @@ static void TestFindStdLibDir() {
     fs::remove_all(root);
 
     // No stdlib anywhere -> empty.
-    fs::path none = fs::temp_directory_path() / "nlang_ls_none";
+    fs::path none = nlang::test::ScratchDir("nlang_ls_none");
     fs::remove_all(none);
     fs::create_directories(none);
     CHECK(FindStdLibDir(none.string()).empty());
@@ -332,7 +349,7 @@ static void TestBlockCommentBraces() {
     // matter at the top level: a '{' in comment text must not swallow
     // the next declaration, and a spanning comment's braces must not
     // leak onto the lines after it.
-    fs::path tmp = fs::temp_directory_path() / "nlang_ls_blockcmt";
+    fs::path tmp = nlang::test::ScratchDir("nlang_ls_blockcmt");
     fs::remove_all(tmp);
     fs::create_directories(tmp);
     std::ofstream(tmp / "place.n")
@@ -361,7 +378,7 @@ static void TestLoadLibraryDirOnce() {
     //resets the guard), keyed by DirKey: folded . / .. segments, one
     //separator form, ASCII lower case on Windows — two spellings of
     //the same dir must not double the symbols.
-    fs::path tmp = fs::temp_directory_path() / "nlang_ls_dironce";
+    fs::path tmp = nlang::test::ScratchDir("nlang_ls_dironce");
     fs::remove_all(tmp);
     fs::create_directories(tmp);
     std::ofstream(tmp / "once.n") << "int one() {\n    return 1;\n}\n";
@@ -393,8 +410,8 @@ static void TestResolveFirstInsertWins() {
     // order (import paths before the project's own dir), so a package
     // declared in both layers must resolve to the copy the compiler
     // builds: the earlier-indexed one.
-    fs::path dirA = fs::temp_directory_path() / "nlang_ls_first_a";
-    fs::path dirB = fs::temp_directory_path() / "nlang_ls_first_b";
+    fs::path dirA = nlang::test::ScratchDir("nlang_ls_first_a");
+    fs::path dirB = nlang::test::ScratchDir("nlang_ls_first_b");
     fs::remove_all(dirA);
     fs::remove_all(dirB);
     fs::create_directories(dirA);
@@ -426,7 +443,7 @@ static void TestResolveDottedPackage() {
     // not the package. (No in-tree caller feeds a dotted package yet;
     // the compiler's LoadLibrarySource forwards the raw matched root
     // today.)
-    fs::path tmp = fs::temp_directory_path() / "nlang_ls_dotted";
+    fs::path tmp = nlang::test::ScratchDir("nlang_ls_dotted");
     fs::remove_all(tmp);
     fs::create_directories(tmp / "gfx");
     std::ofstream(tmp / "gfx" / "color.n")
@@ -444,7 +461,7 @@ static void TestNestedPackagesFromLibraryDir() {
     // A library tree holds nested package paths: "vendor/graphics.n" is
     // package "vendor.graphics" (the compiler's path-to-package rule).
     // The walk must descend — a flat walk never sees the file at all.
-    fs::path tmp = fs::temp_directory_path() / "nlang_ls_nested";
+    fs::path tmp = nlang::test::ScratchDir("nlang_ls_nested");
     fs::remove_all(tmp);
     fs::create_directories(tmp / "vendor" / "deep");
     fs::create_directories(tmp / ".hidden");
@@ -485,8 +502,8 @@ static void TestPackageFilePath() {
     index.Clear();
     CHECK(index.PackageFilePath("io").empty());
 
-    fs::path dirA = fs::temp_directory_path() / "nlang_ls_pkgfile_a";
-    fs::path dirB = fs::temp_directory_path() / "nlang_ls_pkgfile_b";
+    fs::path dirA = nlang::test::ScratchDir("nlang_ls_pkgfile_a");
+    fs::path dirB = nlang::test::ScratchDir("nlang_ls_pkgfile_b");
     fs::remove_all(dirA);
     fs::remove_all(dirB);
     fs::create_directories(dirA);

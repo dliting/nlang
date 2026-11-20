@@ -1,0 +1,1 @@
+private class Vault { int f() { return 4; } }

@@ -1,0 +1,7 @@
+// v0.13.9 phase 3: the sized-array declarator continuation is not a
+// reference binding form.
+struct Point { int x; }
+int main() {
+    Point& r[3];
+    return 0;
+}

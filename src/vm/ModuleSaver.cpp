@@ -15,16 +15,15 @@ CompiledModule.h.
 
 namespace nlang {
 
-//v1.12: one length-prefixed type descriptor (u16 len + wire bytes).
-//len==0 means "no descriptor" — the reader keeps the NonSerialized
-//default. Shared by the param / return / per-field sites below and (via
-//ModuleSaverRecords.h) by the interface record TU.
+//v1.12: one length-prefixed type descriptor (u16 len + wire bytes);
+//len==0 = "no descriptor" — the reader keeps the NonSerialized default.
+//Shared by the param/return/per-field sites below and the interface TU.
 void WriteLenPrefixedTypeDesc(std::ostream& fs, const TypeDesc& td)
 {
     std::vector<uint8_t> bytes;
     AppendTypeDescBytes(bytes, td);
-    //The depth cap bounds a descriptor well under 64 KiB (worst case a
-    //full binary Dict tree at depth 8: 511 nodes × 3 bytes), so the u16
+    //The depth cap bounds a descriptor well under 64 KiB (worst case: a
+    //full binary Dict tree at depth 8, 511 nodes × 3 bytes) — the u16
     //length prefix cannot truncate.
     uint16_t len = static_cast<uint16_t>(bytes.size());
     fs.write(reinterpret_cast<const char*>(&len), sizeof(len));
@@ -34,9 +33,8 @@ void WriteLenPrefixedTypeDesc(std::ostream& fs, const TypeDesc& td)
 
 //Option B v1.3 fixed default-value record: tag + both 4-byte channels +
 //the 8-byte channels (v1.13) + the always-present u16 expr length with
-//its v2.3 payload. Shared by the formal-default block and the 0.9.10
-//interface-constant block so the two records cannot drift (the second
-//site lives in the interface record TU, see ModuleSaverRecords.h).
+//its v2.3 payload. Shared by the formal-default and 0.9.10 interface-
+//constant blocks so the records cannot drift (ModuleSaverRecords.h).
 void WriteDefaultValueDesc(std::ostream& fs, const DefaultValueDesc& dv)
 {
     fs.write(reinterpret_cast<const char*>(&dv.tag), sizeof(dv.tag));
@@ -60,16 +58,17 @@ void WriteDefaultValueDesc(std::ostream& fs, const DefaultValueDesc& dv)
 bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
                          const std::string& entryKey) {
     if (!fs.good()) return false;
-    //The four enum tables (names/keys + v2.9 method indices/access)
-    //stay parallel by construction (RegisterEnums + RegisterEnumMethods,
-    //Import's merge push, EnumSymbolSlot, ModuleLoader). The writer is
-    //the single chokepoint to refuse a diverging module: the reader
-    //consumes exactly enumCount keys and enumCount method rows, so a
-    //mismatch would desync every later section into a misleading
-    //"bad import count" failure.
+    //The five enum tables (names/keys + v2.9 method indices/access +
+    //v2.20 type access) stay parallel by construction (RegisterEnums +
+    //RegisterEnumMethods, Import's merge push, EnumSymbolSlot,
+    //ModuleLoader). The writer is the single chokepoint to refuse a
+    //diverging module: the reader consumes exactly enumCount keys, enumCount
+    //method rows and enumCount access bytes, so a mismatch would desync
+    //every later section into a misleading "bad import count" failure.
     if (mod.enumKeys.size() != mod.enumNames.size()
         || mod.enumMethodIndices.size() != mod.enumNames.size()
-        || mod.enumMethodAccess.size() != mod.enumNames.size())
+        || mod.enumMethodAccess.size() != mod.enumNames.size()
+        || mod.enumAccess.size() != mod.enumNames.size())
         return false;
 
     // Magic
@@ -118,9 +117,9 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
 
     // v2.15 (v0.13.1): the generic-instantiation descriptor table — one
     // row per registered descriptor (see DescriptorEntry). Per entry:
-    // u16 spellingLen + bytes, u16 recipeLen + bytes (empty recipe =
+    // u16 spellingLen + bytes, u16 compositionLen + bytes (empty composition =
     // static spelling row). The u16 caps match the intern spelling's
-    // practical bound (canonical spellings stay well under 64 KiB).
+    // practical bound (canonical names stay well under 64 KiB).
     uint32_t descCount =
         static_cast<uint32_t>(mod.descriptorTable.size());
     fs.write(reinterpret_cast<const char*>(&descCount), sizeof(descCount));
@@ -130,13 +129,13 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
         fs.write(reinterpret_cast<const char*>(&spellingLen),
                  sizeof(spellingLen));
         fs.write(desc.spelling.c_str(), spellingLen);
-        uint16_t recipeLen =
-            static_cast<uint16_t>(desc.recipe.size());
-        fs.write(reinterpret_cast<const char*>(&recipeLen),
-                 sizeof(recipeLen));
-        if (recipeLen > 0)
-            fs.write(reinterpret_cast<const char*>(desc.recipe.data()),
-                     recipeLen);
+        uint16_t compositionLen =
+            static_cast<uint16_t>(desc.composition.size());
+        fs.write(reinterpret_cast<const char*>(&compositionLen),
+                 sizeof(compositionLen));
+        if (compositionLen > 0)
+            fs.write(reinterpret_cast<const char*>(desc.composition.data()),
+                     compositionLen);
     }
 
     // Functions
@@ -284,9 +283,9 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
         if (func.returnTypeKind != RTK_Void)
             WriteLenPrefixedTypeDesc(fs, func.returnTypeDesc);
 
-        //K2 slice 5: eval-area handle mask, the record's trailing field
-        //(uint32 byte count + packed 2-bit classes; see EvalSlotClass).
-        //Always emitted — bandless records carry a zero count.
+        //K2 slice 5: eval-area handle mask (uint32 byte count + packed
+        //2-bit classes; see EvalSlotClass). Always emitted — bandless
+        //records carry a zero count.
         uint32_t maskBytes = static_cast<uint32_t>(
             func.evalAreaHandleMask.size());
         fs.write(reinterpret_cast<const char*>(&maskBytes),
@@ -294,6 +293,11 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
         if (maskBytes > 0)
             fs.write(reinterpret_cast<const char*>(
                 func.evalAreaHandleMask.data()), maskBytes);
+
+        //v2.20 (0.13.8 item 5): the declared access byte, the record's
+        //trailing field — a free function's only access carrier on the wire.
+        fs.write(reinterpret_cast<const char*>(&func.access),
+                 sizeof(func.access));
     }
 
     // Struct descriptors
@@ -345,7 +349,7 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
         }
 
         //v2.6: ctor indices in declaration order; the cross-module
-        //ownerOrdinal indexes this list (overloads share the bare name).
+        //ownerOrdinal indexes this list (overloads share the unqualified name).
         uint16_t ctorCount = static_cast<uint16_t>(
             st.constructorIndices.size());
         fs.write(reinterpret_cast<const char*>(&ctorCount), sizeof(ctorCount));
@@ -367,6 +371,11 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
         //stub rebuilds each struct ctor with its visibility.
         for (auto a : st.constructorAccess)
             fs.write(reinterpret_cast<const char*>(&a), sizeof(a));
+
+        //v2.20 (0.13.8 item 5): the struct's declared access, the
+        //record's trailing byte.
+        fs.write(reinterpret_cast<const char*>(&st.access),
+                 sizeof(st.access));
     }
 
     // Class descriptors (wire layout in ModuleSaverRecordsClasses.cpp —
@@ -435,7 +444,7 @@ bool WriteCompiledModule(std::ostream& fs, const CompiledModule& mod,
     //0.9.10 v2.4 static flag byte (linkage identity: a static and an
     //instance member of the same name and arity are distinct slots), and
     //the 0.9.11 v2.6 ownerKind byte + ownerOrdinal u16 (owner table kind
-    //and constructor ordinal — overloads share the bare name).
+    //and constructor ordinal — overloads share the unqualified name).
     auto writeImports = [&fs](const std::vector<CompiledModule::SymbolImport>&
                                   imports, bool withOwnerKey)
     {

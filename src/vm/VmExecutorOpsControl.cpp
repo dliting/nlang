@@ -21,7 +21,7 @@ void VmExecutor::OpAssertFail(BytecodeReader& reader) {
     uint16_t msgIdx = reader.ReadUint16();
     std::string msg = "assertion failed";
     //K8: lock-free — the constant cache is read-only after run setup,
-    //and StrVal's reference is stable across concurrent mints (chunked
+    //and StrVal's reference is stable across concurrent creations (chunked
     //storage, flatten self-locks). The raise runs with no domain held.
     if (msgIdx < m_constStrCache.size()) {
         const std::string& s = StrVal(m_constStrCache[msgIdx]);
@@ -201,7 +201,7 @@ void VmExecutor::RequestPark(ParkSignal::Reason reason) {
 //backtrace step (VmExecutor.cpp), placed here with the exception-
 //formatting family. Caller contract: the Container domain lock is held
 //by BuildNlangException's DomainGuard for the whole build.
-int32_t VmExecutor::MintBacktraceList() {
+int32_t VmExecutor::CreateBacktraceList() {
     //Allocate a List<string> and push one entry per active call frame,
     //innermost-first.
     int32_t listHeapIdx = -1;
@@ -217,7 +217,7 @@ int32_t VmExecutor::MintBacktraceList() {
         for (auto it = EvalStack().rbegin(); it != EvalStack().rend(); ++it) {
             //v0.8.5: real per-frame source file (same helper/format as
             //FormatBacktrace — the two surfaces must not drift). The
-            //mint/box/store tail is the existing code, unchanged.
+            //create/box/store tail is the existing code, unchanged.
             const std::string frame = FormatBacktraceFrame(
                 it->func ? it->func->name : std::string("<unknown>"),
                 it->func ? it->func->sourceFile : std::string(),
@@ -225,7 +225,7 @@ int32_t VmExecutor::MintBacktraceList() {
             //Box the string so the List element is a real RTK_Boxed
             //record — the old raw pool index made e.backtrace.get(i)
             //raise "unbox on null/invalid reference".
-            int32_t frameHandle = MintNewString(frame);
+            int32_t frameHandle = CreateNewString(frame);
             int32_t boxed = AllocBoxedValue(RTK_String, frameHandle);
             m_listStore[static_cast<size_t>(handle) - 1].elements.push_back(boxed);
         }
@@ -325,7 +325,7 @@ int32_t VmExecutor::BuildNlangException(int16_t classIdx,
     //Do NOT hold a reference to m_structHeap[heapIdx] across the List
     //allocation below — AllocClassOnHeap may push_back to m_structHeap and
     //invalidate the reference (vector resize).
-    int32_t msgHandle = MintNewString(msg);
+    int32_t msgHandle = CreateNewString(msg);
     m_structHeap[static_cast<size_t>(heapIdx)][1] = msgHandle;
 
     //cell[5] = cause (v0.12.4 D7): VM-raised exceptions wrap nothing,
@@ -334,7 +334,7 @@ int32_t VmExecutor::BuildNlangException(int16_t classIdx,
 
     //cell[3] = backtrace (field 1 under the uniform 2-cell stride):
     //one boxed frame string per active call entry, innermost-first.
-    int32_t listHeapIdx = MintBacktraceList();
+    int32_t listHeapIdx = CreateBacktraceList();
     //Now write listHeapIdx to cell[3] of the Exception. Safe because no
     //further allocations happen before the throw.
     if (listHeapIdx > 0)

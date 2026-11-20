@@ -18,6 +18,12 @@ void EmitPlain(std::ostringstream &out, const std::string &head);
 void DisasmU16xN(int n, BytecodeReader &r, std::ostringstream &out,
     const std::string &head, const char *fmt);
 
+//Read a leading int8 tag then n uint16 operands (n = 1..4) and print
+//them through fmt (consuming 1 + n values) — the kind-tagged and
+//T-tagged instruction shapes.
+void DisasmTagU16xN(int n, BytecodeReader &r, std::ostringstream &out,
+    const std::string &head, const char *fmt);
+
 //Read the uint8 type tag and emit it as " typeTag=<signed>".
 void EmitU8Tag(BytecodeReader &r, std::ostringstream &out,
     const std::string &head);

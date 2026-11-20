@@ -1,0 +1,44 @@
+// Comparison server on Go's standard net/http: the idiomatic Go server, one
+// goroutine per connection, HTTP/1.1 framing done by the standard library.
+// Same three fixed-size bodies as the other probes, held in preallocated
+// slices, so the measured path is request handling plus the socket.
+package main
+
+import (
+	"bytes"
+	"log"
+	"net/http"
+	"strconv"
+	"time"
+)
+
+const addr = "127.0.0.1:__PORT__"
+
+var bodies = map[string][]byte{
+	"/b0":    {},
+	"/b1024": bytes.Repeat([]byte{'a'}, 1024),
+	"/b8192": bytes.Repeat([]byte{'a'}, 8192),
+}
+
+func handler(w http.ResponseWriter, r *http.Request) {
+	body, found := bodies[r.URL.Path]
+	if !found {
+		w.Header().Set("Content-Length", "0")
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	// Content-Length stated explicitly, as in the other probes, so the
+	// generated headers line up row by row.
+	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+	w.Write(body)
+}
+
+func main() {
+	srv := &http.Server{
+		Addr:    addr,
+		Handler: http.HandlerFunc(handler),
+		// Matched to the other probes' idle-connection lifetime.
+		IdleTimeout: 30 * time.Second,
+	}
+	log.Fatal(srv.ListenAndServe())
+}

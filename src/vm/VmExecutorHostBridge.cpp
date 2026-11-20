@@ -144,8 +144,27 @@ void VmExecutor::FillOneDefault(const CompiledFunction& callee,
 //--- 宿主值桥 -------------------------------------------------------------
 //（每个方法 3-12 行，包装既有机制；实现时逐一对照私有机制名）
 
-int32_t VmExecutor::MintHostString(const std::string& content) {
-    return MintNewString(content);
+int32_t VmExecutor::CreateHostString(const std::string& content) {
+    //Ruling D27 companion: the host bridge is an external boundary, so
+    //its string-producing API mirrors NativeNewString and never creates
+    //0 — interning "" would return the internal slot 0, and a host
+    //function's empty-string result would then read as "no string
+    //produced" at the native-boundary check. Empty content gets a
+    //fresh non-interned empty object (equality holds by content).
+    //Native-creator gate: the host thread is outside the rendezvous
+    //denominator, so creation and root push must be one span against a
+    //collection (contract in VmExecutor.h).
+    NativeCreationGate creationGate(*this);
+    const int32_t handle = content.empty()
+        ? AllocStringObj()         //fresh Flat "" (non-interned)
+        : CreateNewString(content);
+    //Root across a blocking section (same discipline as NativeNewString):
+    //the host-hook arm parks this carrier in RunBlockingNative, so from
+    //the creation until the handle reaches the staged result cell another
+    //carrier's rendezvous could sweep it. No-op outside a blocking
+    //section (host-thread argument marshalling).
+    RootCreatedNativeHandle(handle);
+    return handle;
 }
 
 //Extension point ⑤'s raise door: a host C++ failure becomes a catchable

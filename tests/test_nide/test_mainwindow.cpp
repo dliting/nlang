@@ -26,6 +26,7 @@
 #include <QDateTime>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QFocusEvent>
 #include <QIcon>
 #include <QImage>
 #include <QInputDialog>
@@ -1153,11 +1154,12 @@ private slots:
         const QList<QListWidget*> popups =
             src->findChildren<QListWidget*>();
         QVERIFY2(!popups.isEmpty(), "completion popup must open after io.");
-        // io has 19 functions: print/write/eprint, the input face
+        // io has 22 functions: print/write/eprint, the input face
         // (hasInput/readLine/readToken/readChar), readFile/writeFile/
-        // appendFile, the five typed readers, and the time/byte face
-        // (nowMs/parkForIo/toBytes/fromBytes).
-        QCOMPARE(popups.constFirst()->count(), 19);
+        // appendFile, the five typed readers, the park/byte face
+        // (parkForIo/toBytes/fromBytes), and the Base64 codecs
+        // (base64Encode/base64Decode/base64UrlEncode/base64UrlDecode).
+        QCOMPARE(popups.constFirst()->count(), 22);
 
         // Picking an entry inserts the function name.
         QListWidgetItem* first = popups.constFirst()->item(0);
@@ -1180,7 +1182,8 @@ private slots:
         CodeEditor* src = currentCode(window);
         QVERIFY(src != nullptr);
         window.show();
-        QTest::qWaitForWindowExposed(&window);
+        QVERIFY2(QTest::qWaitForWindowExposed(&window),
+                 "the main window must be on screen before its widgets are driven");
 
         // Open the package completion popup ("io" + '.').
         auto openPopup = [src] {
@@ -1201,19 +1204,30 @@ private slots:
         };
 
         // A click elsewhere in the editor repositions the cursor and
-        // must close the popup like a menu.
-        src->setFocus();
+        // must close the popup like a menu. QTest delivers the click to
+        // the widget directly, so no focus is needed for this round.
         openPopup();
-        QVERIFY(!visiblePopups().isEmpty());
+        QVERIFY2(!visiblePopups().isEmpty(),
+                 "the completion popup must open for 'io.'");
         QTest::mouseClick(src->viewport(), Qt::LeftButton);
         QVERIFY2(visiblePopups().isEmpty(),
                  "a click in the editor must close the completion popup");
 
-        // Focus moving to another panel/window must close it too.
-        src->setFocus();
+        // Focus leaving the editor must close it too (focusOutEvent).
+        // The focus change is delivered as the event Qt delivers it when
+        // the user moves to another panel, rather than by asking the
+        // window system for focus: only the foreground process has a
+        // focus chain at all, and a test process run in parallel with
+        // others is not guaranteed to be it. Measured in a red run —
+        // show() plus setFocus() left the editor with hasFocus false for
+        // the whole test, so clearFocus() fired no focus-out event and
+        // the assertion below proved nothing but the widget's own state.
         openPopup();
-        QVERIFY(!visiblePopups().isEmpty());
-        src->clearFocus();
+        QVERIFY2(!visiblePopups().isEmpty(),
+                 "the completion popup must open for 'io.'");
+        QFocusEvent focusOut(QEvent::FocusOut, Qt::OtherFocusReason);
+        QApplication::sendEvent(src, &focusOut);
+        QTest::qWait(100);
         QVERIFY2(visiblePopups().isEmpty(),
                  "losing focus must close the completion popup");
     }

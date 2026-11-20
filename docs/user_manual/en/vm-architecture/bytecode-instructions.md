@@ -40,6 +40,10 @@ the compiler picks the kind.
 | OP_Neg      | kind, dst             | locals[dst] = -locals[dst] |
 | OP_Shl      | kind, dst, src        | locals[dst] <<= count; the count must lie in [0, bit width) or the VM raises a named error |
 | OP_Shr      | kind, dst, src        | Same, arithmetic on signed rows and logical on unsigned rows |
+| OP_BitAnd   | kind, dst, src        | locals[dst] &= locals[src] |
+| OP_BitOr    | kind, dst, src        | locals[dst] |= locals[src] |
+| OP_BitXor   | kind, dst, src        | locals[dst] ^= locals[src] |
+| OP_BitNot   | kind, dst             | locals[dst] = ~locals[dst] |
 
 `kind` is the scalar RTK immediate selecting the row of the
 registry-instantiated operation table (int32, float, byte, ulong, ...).
@@ -69,8 +73,9 @@ String and Function Values below).
 | Opcode            | Operands                        | Description              |
 |-------------------|---------------------------------|--------------------------|
 | OP_AllocStruct    | dst, structIdx, fieldCount      | Allocate struct on heap  |
-| OP_CopyStruct     | dst, src, structIdx             | Deep-copy struct         |
-| OP_New            | dst, classIdx                   | Allocate class on heap   |
+| OP_CopyStruct     | dst, src, structIdx             | Deep-copy struct (establishes a new record) |
+| OP_CopyStructInPlace | dst, src, structIdx          | Write src's value in place into the record dst already owns; dst ≤ 0 establishes one fresh record and yields its handle, dst == src is a no-op |
+| OP_New            | dst, classIdx, descIdx          | Allocate class on heap; descIdx names the instantiation descriptor for a generic class (0xFFFF = none) |
 | OP_LoadField      | dst, obj, fieldOff              | Read field from heap     |
 | OP_StoreField     | obj, fieldOff, src              | Write field to heap      |
 | OP_NullCheck      | obj                             | Throw if null            |
@@ -79,12 +84,13 @@ String and Function Values below).
 
 | Opcode              | Operands                             | Description              |
 |---------------------|--------------------------------------|--------------------------|
-| OP_AllocArrayN      | dst, arrayTypeIdx, rank, dimsBase    | Allocate array; read the element count of each of the rank dimensions from consecutive slots at dimsBase |
+| OP_AllocArrayN      | dst, arrayTypeIdx, rank, dimsBase, descIdx | Allocate array; read the element count of each of the rank dimensions from consecutive slots at dimsBase; descIdx keys the element-descriptor checks for a generic element row (0xFFFF = none) |
+| OP_AssembleArrayN   | dst, arrayTypeIdx, elemsBase, count, descIdx | Assemble an array literal: copy count elements from consecutive slots at elemsBase into the new record (descIdx as above) |
 | OP_LoadElementN     | dst, arr, idxBase, rank              | Read element by rank coordinates at idxBase |
 | OP_StoreElementN    | arr, idxBase, src, rank              | Write element by rank coordinates at idxBase |
 | OP_LoadElementFlat  | dst, arr, flatIdx                    | Read element by row-major flat index (foreach iteration) |
 | OP_ArrayLength      | dst, arr                             | Total element count → int32 |
-| OP_ArrayShape       | dst, arr                             | Mint a 1-D int array holding the element count of each dimension |
+| OP_ArrayShape       | dst, arr                             | Create a 1-D int array holding the element count of each dimension |
 
 A 1-D array is the `rank=1` special case and shares this instruction
 set with multi-dimensional arrays; initializer lowering emits
@@ -95,13 +101,20 @@ creation (sizes from expressions) reads them from evaluation slots.
 
 | Opcode                 | Operands                    | Description              |
 |------------------------|-----------------------------|--------------------------|
-| OP_CallFunc            | funcIdx, callParamBase      | Call function            |
+| OP_CallStatic          | funcIdx, callParamBase, descIdx | Receiver-less direct call (free functions, static members); descIdx fills a generic callee's frame descriptor cell |
 | OP_CallMethodDirect    | funcIdx, callParamBase      | Call non-virtual method  |
 | OP_CallMethod          | methodNameIdx, callParamBase| Virtual dispatch by name |
 | OP_CallIntrinsic       | intrinsicId, callParamBase  | Invoke intrinsic by ID   |
-| OP_CallFuncOut         | funcIdx, callParamBase, outMask (uint32) | + out writeback |
-| OP_CallMethodDirectOut | funcIdx, callParamBase, outMask (uint32) | + out writeback |
 | OP_ParaEnd             | —                           | End of parameter list    |
+
+The uint16 `descIdx` operand on the static-call family names a row in
+the module's generic-instantiation descriptor table (the `.ncu`
+template table, §26.4 of the specification): a call into a generic
+function or a generic class member carries the descriptor so the
+callee's `T` reads and kind dispatches key on the actual type
+arguments. `0xFFFF` marks a non-generic call site; `0xFFFE` inherits
+the caller's own descriptor cell (a generic body forwarding to another
+generic).
 
 ### Function Values
 
@@ -111,7 +124,6 @@ creation (sizes from expressions) reads them from evaluation slots.
 | OP_MakeBoundFunc    | funcIdx (uint16)                     | Reads receiver from pResult → {funcIdx, this, static} |
 | OP_MakeVFunc        | nameIdx (uint16, string constant table) | Reads receiver from pResult → {nameIdx, this, virtual} |
 | OP_CallDelegate     | calleeLocal, callParamBase           | Invoke through a handle         |
-| OP_CallDelegateOut  | calleeLocal, callParamBase, outMask (uint32) | + out writeback         |
 | OP_Eq_func          | lhs, rhs                             | Handle content equality (null-guarded) |
 | OP_Ne_func          | lhs, rhs                             | Handle content inequality       |
 | OP_Eq_struct        | lhs, rhs                             | Struct field-value equality     |
@@ -120,6 +132,37 @@ creation (sizes from expressions) reads them from evaluation slots.
 
 See [First-Class Function Values](first-class-function-values.md#first-class-function-values)
 for the handle layout and dispatch semantics.
+
+### Generic Type Parameters
+
+A generic body reads its actual type arguments at runtime through the
+instantiation descriptor its call site passed (the `descIdx` operand
+of the call and allocation families above). The opcodes below key on
+the receiver's descriptor; `paramOrdinal` indexes the declaration's
+type-parameter list.
+
+| Opcode              | Operands                    | Description              |
+|---------------------|-----------------------------|--------------------------|
+| OP_TypeNameArg      | dst, paramOrdinal (uint8)   | Read the receiver's instantiation descriptor, take the ordinal-th type argument's canonical name, create a string (`typeName(T)`) |
+| OP_TypeNameCompose  | dst, compositionIdx         | Compose a nested spelling from a composition record against the receiver's instantiation and intern it (`typeName(List<T>)`) |
+| OP_Eq_T             | dst, paramOrdinal, lhs, rhs | Compare two T-typed slots under the ordinal-th type argument's kind (scalar cell, string content, struct field value, class/array identity, function-record content); lhs/rhs `0xFFFF` marks the null-literal side |
+| OP_Ne_T             | dst, paramOrdinal, lhs, rhs | Negated verdict of OP_Eq_T |
+| OP_TypeArg_to_str   | paramOrdinal                | Render the T-typed value in pResult through the kind's own formatting |
+| OP_As_TypeParam     | paramOrdinal                | `x as T`: decide the cast by the receiver's type argument kind; a mismatch raises InvalidCastException, null passes through |
+| OP_Box_TypeArg      | paramOrdinal                | Normalize the T-typed accumulator into the erased-container element form (scalar kinds box under the descriptor's tag, reference kinds pass through) |
+| OP_Unbox_TypeArg    | paramOrdinal                | Inverse boundary: erased-container element into the T-typed frame form (scalar kinds unbox under the descriptor's tag, reference kinds pass through) |
+
+The Box/Unbox pair upholds the uniform-T-representation invariant: in
+a generic frame a T-typed value is a raw cell iff T's kind is scalar,
+while the erased containers (`List<T>`, `Dict<K,V>`, channels) store
+every element as a heap handle. They are emitted where the static
+boxing plan cannot resolve the tag — the receiver's type argument is
+the calling generic body's own placeholder, so the executing frame's
+descriptor decides.
+
+The descriptor wire format lives in [The `.ncu` Unit Image](../specification/formats/26-ncu.md);
+how the compiler creates and binds per-instantiation bodies is
+[Library Mechanism](library-mechanism.md)'s subject.
 
 ### String
 
@@ -142,7 +185,7 @@ for the handle layout and dispatch semantics.
 |--------------|------------------------|----------------------------------------------|
 | OP_Box       | typeKind (uint8)       | Box primitive (in pResult) as Object ref; always allocates an RTK_Boxed heap slot. Null literals are never boxed — the compiler skips the wrap so null stays the 0 sentinel. |
 | OP_Unbox     | typeKind (uint8)       | Unwrap boxed primitive from pResult (heap idx). Verify RTK_Boxed tag matches; throw on null/invalid, non-boxed target or tag mismatch. |
-| OP_CheckCast | classIdx (uint16)     | Verify pResult (heap idx) is classIdx or subclass (walk runtime super chain). Throw on mismatch. Push ref back unchanged. |
+| OP_CheckCast | classIdx (uint16), descIdx (uint16) | Verify pResult (heap idx) is classIdx or subclass (walk runtime super chain); when descIdx names an instantiation descriptor row the check also compares the instantiation spelling. Throw on mismatch. Push ref back unchanged. |
 
 OP_Box/OP_Unbox use the `pResult` register convention — read input from
 pResult, write output back to pResult. The implicit-cast emit path
@@ -155,18 +198,18 @@ OP_Unbox/OP_CheckCast depending on the resolved cast kind.
 | Opcode           | Operands              | Description              |
 |------------------|-----------------------|--------------------------|
 | OP_PrimCast      | srcKind, dstKind      | Convert pResult in place between any two scalar rows the resolver admits (int↔float, widenings, constant-fit narrowings) |
-| OP_Prim_to_str   | kind                  | Format the scalar in pResult via its row's ValueToString, mint a string object, write the handle back (bool renders true/false, char encodes its code point) |
+| OP_Prim_to_str   | kind                  | Format the scalar in pResult via its row's ValueToString, create a string object, write the handle back (bool renders true/false, char encodes its code point) |
 | OP_Enum_to_str   | enumDefIdx (uint16)   | int32 enum value → string (name lookup) |
 | OP_Array_to_str  | —                     | Format the array in pResult as "[e1, e2, ...]" |
 
 The string-coercion opcodes follow the same pResult convention as the
-numeric casts: read source from `pResult`, mint the formatted string as
+numeric casts: read source from `pResult`, create the formatted string as
 a string object, write the new handle (int32) back to `pResult`; the
 emit path then stores it with `OP_Assign dst`.
 
 `OP_Enum_to_str` takes a uint16 `enumDefIdx` immediate operand. It reads the
 int32 enum value from `pResult`, looks up `m_compiledModule.enumNames[enumDefIdx][value]`,
-mints the name as a string object, and writes the handle back. Throws
+creates the name as a string object, and writes the handle back. Throws
 if the value is out of range.
 
 Emit sites:

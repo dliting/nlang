@@ -1,0 +1,8 @@
+int bump(int& v) { v = v + 1; return v; }
+int plain(int v) { return v + 1; }
+class Box {
+    public func<int, int&> f;
+    public func<int, int> p;
+    public Box() { f = bump; p = plain; }
+    public int use() { int t = 9; int r = f(t); return r * 100 + t; }
+}

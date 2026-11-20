@@ -1,0 +1,14 @@
+// v0.13.9 phase 3 Task 4: a target declared in a loop body re-runs its
+// box allocation per iteration; the binding tracks the fresh storage.
+int main() {
+    int acc = 0;
+    int i = 0;
+    while (i < 3) {
+        int t = i;
+        int& r = t;
+        r = r + 10;
+        acc = acc + t;
+        i = i + 1;
+    }
+    return acc;
+}

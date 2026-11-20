@@ -1,0 +1,6 @@
+// v0.13.9 phase 3 grammar: arrays of references have no representation —
+// the & mark cannot sit inside an array type spelling.
+int main() {
+    int&[] xs;
+    return 0;
+}

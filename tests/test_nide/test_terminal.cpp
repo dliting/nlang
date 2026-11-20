@@ -307,7 +307,7 @@ void TestTerminal::TestHiddenPageFeedKeepsOutput() {
     tabs.addTab(terminal, "terminal");   //never the current page yet
     tabs.resize(320, 140);   //the real page is well below the placeholder
     tabs.show();
-    QTest::qWaitForWindowExposed(&tabs);
+    QVERIFY(QTest::qWaitForWindowExposed(&tabs));
     terminal->feedUtf8("one\n");   //fed while hidden
     terminal->feedUtf8("two\n");
     terminal->feedUtf8("three\n");
@@ -348,7 +348,7 @@ void TestTerminal::TestHiddenPageNestedHostKeepsOutput() {
     tabs.addTab(page, "terminal");   //never the current page yet
     tabs.resize(320, 140);
     tabs.show();
-    QTest::qWaitForWindowExposed(&tabs);
+    QVERIFY(QTest::qWaitForWindowExposed(&tabs));
     terminal->feedUtf8("one\n");   //fed while hidden, two levels deep
     terminal->feedUtf8("two\n");
     terminal->feedUtf8("three\n");
@@ -369,7 +369,7 @@ void TestTerminal::TestColumnsRowsFromSize() {
     //before), and the relayout rides on resizeEvent — so expose the
     //window first; after that, resize delivers the event synchronously.
     widget.show();
-    QTest::qWaitForWindowExposed(&widget);
+    QVERIFY(QTest::qWaitForWindowExposed(&widget));
     widget.resize(400, 300);
     const int smallColumns = widget.columns();
     QVERIFY(smallColumns >= 20);   //kMinColumns floor
@@ -479,7 +479,7 @@ static int DarkInkAroundCentre(const QImage& shot,
 void TestTerminal::TestWideCharPaintsBothCells() {
     TerminalWidget widget;
     widget.show();
-    QTest::qWaitForWindowExposed(&widget);
+    QVERIFY(QTest::qWaitForWindowExposed(&widget));
     widget.feedBytes("\xE4\xB8\xAD");   // 中: one glyph spanning two cells
     const QImage shot = widget.grab().toImage();
     //The glyph's ink must reach the SECOND cell (a single-cell clip
@@ -491,7 +491,7 @@ void TestTerminal::TestWideCharPaintsBothCells() {
 void TestTerminal::TestWideCharPaintsAtOffset() {
     TerminalWidget widget;
     widget.show();
-    QTest::qWaitForWindowExposed(&widget);
+    QVERIFY(QTest::qWaitForWindowExposed(&widget));
     widget.feedBytes("a\xE4\xB8\xAD");   //a then 中 (columns 1-2)
     const QImage shot = widget.grab().toImage();
     //The wide glyph occupies columns 1-2: ink must sit in column 1. (A
@@ -505,7 +505,7 @@ void TestTerminal::TestWideCharPendingLinePaints() {
     TerminalWidget widget;
     widget.setMode(TerminalWidget::Mode::Line);
     widget.show();
-    QTest::qWaitForWindowExposed(&widget);
+    QVERIFY(QTest::qWaitForWindowExposed(&widget));
     widget.pasteText(QStringLiteral("中"));   //into the pending edit line
     QCOMPARE(widget.pendingLine(), QStringLiteral("中"));
     const QImage shot = widget.grab().toImage();
@@ -519,7 +519,7 @@ void TestTerminal::TestWideCharCursorBlockSpansCell() {
     TerminalWidget widget;
     widget.setMode(TerminalWidget::Mode::Character);   //block cursor mode
     widget.show();
-    QTest::qWaitForWindowExposed(&widget);
+    QVERIFY(QTest::qWaitForWindowExposed(&widget));
     widget.feedBytes("\xE4\xB8\xAD");   // 中: columns 0-1
     widget.feedBytes("\x1b[1;1H");      // cursor back onto the wide cell
     //The block must cover the cell's full span: a one-cell rect (the
@@ -532,7 +532,7 @@ void TestTerminal::TestLineModePromptPainted() {
     TerminalWidget widget;
     widget.setMode(TerminalWidget::Mode::Line);
     widget.show();
-    QTest::qWaitForWindowExposed(&widget);
+    QVERIFY(QTest::qWaitForWindowExposed(&widget));
     //The '>' prompt heads the input line even before anything is typed.
     const QImage shot = widget.grab().toImage();
     QVERIFY2(InkAroundCentre(shot, widget, 0, 0) > 3,
@@ -560,7 +560,7 @@ void TestTerminal::TestLineModePromptEcho() {
 void TestTerminal::TestLightThemeBackgroundAndText() {
     TerminalWidget widget;
     widget.show();
-    QTest::qWaitForWindowExposed(&widget);
+    QVERIFY(QTest::qWaitForWindowExposed(&widget));
     widget.feedBytes("Hi");
     const QImage shot = widget.grab().toImage();
     //A corner well clear of any glyph (the text "Hi" sits at the top-left,
@@ -949,7 +949,7 @@ void TestTerminal::TestCtrlWheelZoomSignal() {
 void TestTerminal::TestSetTerminalFontPtRelayouts() {
     TerminalWidget widget;
     widget.show();
-    QTest::qWaitForWindowExposed(&widget);
+    QVERIFY(QTest::qWaitForWindowExposed(&widget));
     widget.resize(400, 300);
     const int narrowCell = widget.cellWidth();
     const int narrowColumns = widget.columns();

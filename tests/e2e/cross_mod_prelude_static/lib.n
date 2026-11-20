@@ -1,0 +1,7 @@
+//v0.13.4: the producer TU reads string.EMPTY — a static const on the
+//prelude String face — and hands the value across the module boundary.
+//Pins the cross-unit static-slot archive against prelude statics (the
+//preludeStaticFieldsAreStringEmptyOnly premise amendment).
+string emptyFromLib() {
+    return string.EMPTY;
+}

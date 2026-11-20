@@ -1,5 +1,6 @@
 #include "ModuleLoader.h"
 #include "ModuleLoaderRecords.h"
+#include <nlang/runtime/NodeConsts.h>
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
@@ -98,7 +99,7 @@ CompiledModule ModuleLoader::LoadFromBytes(const std::string& filePath,
 
     // v2.15 (v0.13.1): the generic-instantiation descriptor table,
     // mirroring the saver's section (u32 count; per entry u16
-    // spellingLen + bytes, u16 recipeLen + bytes).
+    // spellingLen + bytes, u16 compositionLen + bytes).
     uint32_t descCount = 0;
     fs.read(reinterpret_cast<char*>(&descCount), sizeof(descCount));
     if (!fs.good() || descCount > (1u << 24))
@@ -112,16 +113,16 @@ CompiledModule ModuleLoader::LoadFromBytes(const std::string& filePath,
                 "Invalid module: truncated descriptor spelling");
         mod.descriptorTable[i].spelling.resize(spellingLen);
         fs.read(mod.descriptorTable[i].spelling.data(), spellingLen);
-        uint16_t recipeLen = 0;
-        fs.read(reinterpret_cast<char*>(&recipeLen), sizeof(recipeLen));
+        uint16_t compositionLen = 0;
+        fs.read(reinterpret_cast<char*>(&compositionLen), sizeof(compositionLen));
         if (!fs.good())
             throw std::runtime_error(
-                "Invalid module: truncated descriptor recipe");
-        mod.descriptorTable[i].recipe.resize(recipeLen);
-        if (recipeLen > 0)
+                "Invalid module: truncated composition record");
+        mod.descriptorTable[i].composition.resize(compositionLen);
+        if (compositionLen > 0)
             fs.read(reinterpret_cast<char*>(
-                        mod.descriptorTable[i].recipe.data()),
-                    recipeLen);
+                        mod.descriptorTable[i].composition.data()),
+                    compositionLen);
     }
 
     //Composite record tables parse in this stream order; the per-field
@@ -142,31 +143,31 @@ CompiledModule ModuleLoader::LoadFromBytes(const std::string& filePath,
         for (const auto& func : mod.functions) {
             for (const auto& ptd : func.paramTypeDescs)
                 ValidateTypeDescIndices(ptd.type, mod.structs.size(),
-                    mod.classes.size());
+                    mod.classes.size(), mod.interfaces.size());
             ValidateTypeDescIndices(func.returnTypeDesc, mod.structs.size(),
-                mod.classes.size());
+                mod.classes.size(), mod.interfaces.size());
         }
         for (const auto& st : mod.structs)
             for (const auto& td : st.fieldTypeDescs)
                 ValidateTypeDescIndices(td, mod.structs.size(),
-                    mod.classes.size());
+                    mod.classes.size(), mod.interfaces.size());
         for (const auto& cc : mod.classes)
             for (const auto& td : cc.fieldTypeDescs)
                 ValidateTypeDescIndices(td, mod.structs.size(),
-                    mod.classes.size());
+                    mod.classes.size(), mod.interfaces.size());
         //0.9.10 D3: interface constant declared types carry descriptors
         //like any other exported type. 0.9.12 (v2.7): so do the
         //instance-method signatures (formals and return).
         for (const auto& iface : mod.interfaces) {
             for (const auto& constant : iface.constants)
                 ValidateTypeDescIndices(constant.type, mod.structs.size(),
-                    mod.classes.size());
+                    mod.classes.size(), mod.interfaces.size());
             for (const auto& sig : iface.instanceMethods) {
                 for (const auto& ptd : sig.paramTypeDescs)
                     ValidateTypeDescIndices(ptd.type, mod.structs.size(),
-                        mod.classes.size());
+                        mod.classes.size(), mod.interfaces.size());
                 ValidateTypeDescIndices(sig.returnType, mod.structs.size(),
-                    mod.classes.size());
+                    mod.classes.size(), mod.interfaces.size());
             }
         }
     }
@@ -244,6 +245,18 @@ CompiledModule ModuleLoader::LoadFromBytes(const std::string& filePath,
                     &mod.enumMethodAccess[i][j]),
                     sizeof(mod.enumMethodAccess[i][j]));
             }
+        }
+        //v2.20 (0.13.8 item 5): per-enum declared access bytes, parallel
+        //to enumNames (the writer emits exactly enumCount bytes; the
+        //prologue guard keeps the tables parallel by construction). A
+        //FA_Default or above-FA_Public byte is a corrupt image — the
+        //consumer stub rebuilds visibility from it.
+        mod.enumAccess.resize(enumCount);
+        for (auto& acc : mod.enumAccess) {
+            fs.read(reinterpret_cast<char*>(&acc), sizeof(acc));
+            if (!fs.good() || acc == FA_Default || acc > FA_Public)
+                throw std::runtime_error(
+                    "Invalid module: bad enum access byte");
         }
         if (!fs.good())
             throw std::runtime_error("Invalid module: truncated enum keys");
@@ -391,7 +404,7 @@ CompiledModule ModuleLoader::LoadFromBytes(const std::string& filePath,
 
     //Import slots are table TAILS (own entries 0..n-1, imports n..n+m),
     //so an import count above its table's size is a corrupt or hostile
-    //image: every ownCount consumer (stub minting, linker slot walks)
+    //image: every ownCount consumer (stub creation, linker slot walks)
     //computes size - imports.size() and would underflow into out-of-
     //bounds walks. The per-count read bound above only caps the vector
     //allocation — this cross-check is the structural one, in the single

@@ -6,6 +6,7 @@
 #include "VmBackend.h"
 #include "builder/ModuleRegistry.h"
 #include "builder/ThreadNamespace.h"
+#include <nlang/compiler/BuildEnvironment.h>
 #include <nlang/compiler/SnArrayTypeToken.h>
 #include <nlang/compiler/SnData.h>
 
@@ -52,6 +53,7 @@ void VmBackend::GenerateFunction(SnFunction& func, size_t funcIdx) {
     //interned token).
     auto* pRetType = func.ReturnType();
     ctx.pDeclaredReturnType = pRetType ? pRetType->Field() : nullptr;
+    ctx.bDeclaredReturnRef = pRetType && pRetType->ContainFlags(NF_Ref);
     m_currFunc = &ctx;
     //The emitter pointer only ever points at this function's stack
     //emitter (set by EmitStatement/EmitExpression). Null it here so
@@ -69,11 +71,34 @@ void VmBackend::GenerateFunction(SnFunction& func, size_t funcIdx) {
     compiledFunc.bytecode = emitter.TakeBytes();
     compiledFunc.localsSize = ctx.nextOffset;
 
+    //Size check before the drift tripwire: user-facing limit (logged)
+    //outranks internal invariant (throws) when both fire.
+    CheckFunctionBytecodeSize(func, compiledFunc.bytecode);
     CheckEvalAreaWalkerDrift(func, ctx, stats);
     BuildEvalAreaHandleMask(compiledFunc, ctx);
 
     m_currFunc = nullptr;
     m_compiledModule.functions[funcIdx] = std::move(compiledFunc);
+}
+
+//Finalize-time limit check: the executor reads a jump operand as an
+//absolute in-function uint16 pc (VmExecutor::OpJump: ReadUint16 then
+//Seek), and the debug line table carries the same u16 pc — so a function
+//whose code reaches kMaxFunctionBytecodeBytes has branch targets that
+//silently wrap to low addresses (the differential-fixture silent-exit
+//family: a 65 KiB main skipped its tail with no error anywhere). Reject
+//the build with a named diagnostic instead of emitting corrupt bytecode;
+//the artifact stays unwritten because BuildUnitImages gates on HasError.
+void VmBackend::CheckFunctionBytecodeSize(
+    const SnFunction& func, const std::vector<uint8_t>& bytecode) {
+    if (bytecode.size() < kMaxFunctionBytecodeBytes)
+        return;
+    m_pEnv->Log(CLL_Error, func.Location(),
+        "function '%s' compiled to %u bytes of bytecode, over the %u-byte "
+        "limit for jump offsets in one function (split it into smaller "
+        "functions)",
+        func.Name().c_str(), static_cast<unsigned>(bytecode.size()),
+        static_cast<unsigned>(kMaxFunctionBytecodeBytes - 1));
 }
 
 //GenerateFunction's native arm. A FuncContext lets FillNativeFunctionRecord
@@ -95,7 +120,7 @@ void VmBackend::EmitNativeFunctionRecord(SnFunction& func,
 //GenerateFunction's abstract arm (0.13.1c): the same FuncContext dance —
 //AllocLocal needs a live context — but no intrinsic stamp (abstract has
 //no intrinsic channel; the resolve-time contracts reject anything else
-//body-less, and the grammar exempts native spellings from minting).
+//body-less, and the grammar exempts native spellings from creating).
 void VmBackend::EmitAbstractFunctionRecord(SnFunction& func,
                                            CompiledFunction& compiledFunc) {
     FuncContext ctx;
@@ -204,7 +229,7 @@ VmBackend::UnitBuildResult VmBackend::GenerateUnits(
     //sees its own candidates). Either refusal logs and fails the build.
     if (RejectAmbiguousUnitEntries(root) || RejectMultiSegmentNatives(root))
         return {};
-    //Whole-tree, once: which prelude bare names a foreign declaration
+    //Whole-tree, once: which prelude unqualified names a foreign declaration
     //claims (spec §6.8) — the registration walks below consult the set.
     //Merged-tree ordering: this must precede ShadowRegisterUnits — the
     //shadow replays the registration sequence to archive producer
@@ -224,7 +249,7 @@ VmBackend::UnitBuildResult VmBackend::GenerateUnits(
         BeginUnit(unitIdx, m_pRegistry->ModulePathOf(unitIdx));
         RegisterUnitTables(root);
         //0.9.10 D5 / 0.10.14: the interface and enum-method tables index
-        //the function records RegisterUnitTables minted and precede
+        //the function records RegisterUnitTables created and precede
         //bytecode generation (body emission can append placeholder
         //records whose indices must stay out of the own region).
         GenerateAllBytecode(root);
@@ -245,7 +270,7 @@ VmBackend::UnitBuildResult VmBackend::GenerateUnits(
 
 //K2 slice 5: root class for one RTK kind byte. The kinds mirror
 //MarkFrameLocals' routing exactly — string slots carry store handles,
-//the four reference kinds carry heap indices, everything else is scalar.
+//the reference kinds carry heap indices, everything else is scalar.
 //A T slot's representation depends on the instantiation (store handle,
 //heap index or inline scalar), unknowable at compile time, so it takes
 //the conservative both-domain class: over-marking is safe in a non-
@@ -259,6 +284,9 @@ uint8_t VmBackend::EvalSlotClassOfKind(uint8_t rtk) {
     case RTK_Array:
     case RTK_ArrayView:   //v0.12.7: runtime-only view kind — never declared today, mapped for kind-table completeness
     case RTK_Func:
+    case RTK_Byref:       //v0.13.9 phase ③: the pair's base handle is always a heap-domain record (single domain — no Dual)
+    case RTK_ByrefCell:   //Task 11: the cell-addressed & family — same low-half base handle
+    case RTK_Promoted:    //Task 11: the promoted slot's low half is its box handle (same single domain)
         return ESC_HeapIndex;
     case RTK_TypeParam:
         return ESC_Dual;

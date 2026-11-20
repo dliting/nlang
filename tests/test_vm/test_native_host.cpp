@@ -1,7 +1,8 @@
 // NativeHost callback integration tests. Real .n sources are compiled and
 // run; the natives they call are registered in-process and exercise every
-// NativeHost callback (string mint/read, List<string> creation, output,
+// NativeHost callback (string creation/read, List<string> creation, output,
 // input, exceptions and the PRNG). No VM internals are mocked.
+#include "test_support/test_scratch.h"
 
 #include "nlang/compiler/ModuleBuilder.h"
 #include "nlang/compiler/CastInfo.h"
@@ -12,6 +13,7 @@
 #include "nlang/vm/CompiledModule.h"
 #include "nlang/langservice/SymbolIndex.h"
 #include "VmExecutor.h"
+#include "IHostFunctions.h"
 #include "IHostIo.h"
 #include "NcuLoader.h"
 #include "NcuLinker.h"
@@ -57,15 +59,15 @@ namespace {
 namespace fs = std::filesystem;
 
 fs::path scratchDir() {
-    static const auto dir = fs::temp_directory_path() / "nlang_test_native_host";
+    static const auto dir = nlang::test::ScratchDir("nlang_test_native_host");
     fs::create_directories(dir);
     return dir;
 }
 
 //--- Test natives (registered in-process) ----------------------------------
 
-void HsMint(NativeHost* host, uint8_t* ret, const uint8_t*, int) {
-    native::ReturnInt(ret, host->newString(host, "minted"));
+void HsCreate(NativeHost* host, uint8_t* ret, const uint8_t*, int) {
+    native::ReturnInt(ret, host->newString(host, "created"));
 }
 void HsEcho(NativeHost* host, uint8_t* ret, const uint8_t* args, int) {
     native::ReturnString(host, ret, native::ArgString(host, args, 0));
@@ -95,8 +97,8 @@ void HsReadLine(NativeHost* host, uint8_t* ret, const uint8_t*, int) {
 void RegisterHs(VmExecutor& e, const std::string& pkg) {
     //The package prefix is the TU the `native` declarations were compiled
     //from (runSource writes <tag>.n), because a free function's VM key is
-    //now "<package>.<name>" (phase 5). Methods keep bare names - none here.
-    e.RegisterNative(pkg + ".hsMint", &HsMint);
+    //now "<package>.<name>" (phase 5). Methods keep unqualified names - none here.
+    e.RegisterNative(pkg + ".hsCreate", &HsCreate);
     e.RegisterNative(pkg + ".hsEcho", &HsEcho);
     e.RegisterNative(pkg + ".hsList", &HsList);
     e.RegisterNative(pkg + ".hsRaiseIo", &HsRaiseIo);
@@ -107,8 +109,11 @@ void RegisterHs(VmExecutor& e, const std::string& pkg) {
 }
 
 // Compile + run; `configure` registers natives / installs host IO.
+// `pError` (optional) receives the exception text when the run ends in a
+// host-level failure instead of a normal exit.
 int runSource(const std::string& tag, const std::string& source,
-              std::function<void(VmExecutor&)> configure) {
+              std::function<void(VmExecutor&)> configure,
+              std::string* pError = nullptr) {
     const fs::path dir = scratchDir();
     {
         std::ofstream out(dir / (tag + ".n"), std::ios::binary);
@@ -147,13 +152,14 @@ int runSource(const std::string& tag, const std::string& source,
         configure(exec);
         return exec.Execute(mod);
     } catch (const std::exception& e) {
-        std::fprintf(stderr, "load/link failed: %s\n", e.what());
+        if (pError) *pError = e.what();
+        else std::fprintf(stderr, "load/link failed: %s\n", e.what());
         return -1;
     }
 }
 
 const std::string kDecls =
-    "native string hsMint();\n"
+    "native string hsCreate();\n"
     "native string hsEcho(string s);\n"
     "native List<string> hsList();\n"
     "native void hsRaiseIo();\n"
@@ -162,10 +168,10 @@ const std::string kDecls =
     "native int hsSeededRandom(int seed);\n"
     "native string hsReadLine();\n";
 
-void TestMintEchoListRandomRaise() {
+void TestCreateEchoListRandomRaise() {
     const std::string source = kDecls +
         "int main() {\n"
-        "  if (hsMint() != \"minted\") return 1;\n"
+        "  if (hsCreate() != \"created\") return 1;\n"
         "  if (hsEcho(\"echo-me\") != \"echo-me\") return 2;\n"
         "  List<string> l = hsList();\n"
         "  if (l.length() != 2) return 3;\n"
@@ -190,7 +196,7 @@ void TestMintEchoListRandomRaise() {
         "}\n";
     int rc = runSource("host_core", source,
                        [](VmExecutor& e) { RegisterHs(e, "host_core"); });
-    CHECK(rc == 0, "mint/echo/list/random/raise callbacks (rc)");
+    CHECK(rc == 0, "create/echo/list/random/raise callbacks (rc)");
 }
 
 void TestReadLine() {
@@ -227,6 +233,131 @@ void TestWriteOutput() {
     });
     CHECK(rc == 0, "writeOutput program runs");
     CHECK(io.text == "write-check\n", "writeOutput routes through host IO");
+}
+
+//0.13.4 (ruling D27): the native boundary keeps 0 = null (the ABI's
+//existing null-handle convention) — a declared-string native that hands
+//back 0 violated the contract and raises on every dispatch arm: direct,
+//blocking, and the host-function hook. Internally handle 0 IS the empty
+//string (ruling D26); the boundary is where the two domains meet, and
+//the Go reference pattern (docs/ref/null_vs_go_string.md) is the model:
+//check for null, express absence as an error, never a silent "".
+void HsNullString(NativeHost*, uint8_t* ret, const uint8_t*, int) {
+    native::ReturnInt(ret, 0);
+}
+
+struct NullStringHook : IHostFunctions {
+    bool Call(const CompiledFunction& callee, const uint8_t*, uint32_t,
+              uint8_t* resultCell) override {
+        if (callee.name.find("hsNullString") == std::string::npos)
+            return false;   //not ours: fall back to the native table
+        const int32_t nullHandle = 0;
+        std::memcpy(resultCell, &nullHandle, sizeof(nullHandle));
+        return true;
+    }
+};
+
+void TestNullStringHandleRejected() {
+    const std::string decl = "native string hsNullString();\n";
+    const std::string body =
+        "int main() { string s = hsNullString();\n"
+        "  if (s == \"\") return 1;\n"
+        "  return 2;\n"
+        "}\n";
+
+    std::string errDirect;
+    const int rcDirect = runSource("ns_direct", decl + body,
+                                   [](VmExecutor& e) {
+                                       e.RegisterNative(
+                                           "ns_direct.hsNullString",
+                                           &HsNullString);
+                                   }, &errDirect);
+    CHECK(rcDirect == -1 &&
+          errDirect.find("null string") != std::string::npos,
+          "direct native returning handle 0 raises at the boundary");
+
+    std::string errBlocking;
+    const int rcBlocking = runSource("ns_blocking", decl + body,
+                                     [](VmExecutor& e) {
+                                         e.RegisterNativeBlocking(
+                                             "ns_blocking.hsNullString",
+                                             &HsNullString);
+                                     }, &errBlocking);
+    CHECK(rcBlocking == -1 &&
+          errBlocking.find("null string") != std::string::npos,
+          "blocking native returning handle 0 raises at the boundary");
+
+    NullStringHook hook;
+    std::string errHook;
+    const int rcHook = runSource("ns_hook", decl + body,
+                                 [&hook](VmExecutor& e) {
+                                     e.SetHostFunctions(&hook);
+                                 }, &errHook);
+    CHECK(rcHook == -1 && errHook.find("null string") != std::string::npos,
+          "host-hook native returning handle 0 raises at the boundary");
+}
+
+//Ruling D27 companion: newString never hands out 0, so a native CAN
+//legally return the empty string (net's "no peer address yet" shape) —
+//the fresh non-interned "" reads as "" and compares equal to the
+//literal. Without the non-zero create the boundary check would reject
+//these legitimate empty results.
+void HsEmptyString(NativeHost* host, uint8_t* ret, const uint8_t*, int) {
+    native::ReturnInt(ret, host->newString(host, ""));
+}
+
+void TestNativeEmptyStringRoundTrips() {
+    const std::string source =
+        "native string hsEmptyString();\n"
+        "int main() { string s = hsEmptyString();\n"
+        "  if (s != \"\") return 1;\n"
+        "  if (s.length() != 0) return 2;\n"
+        "  return 0;\n"
+        "}\n";
+    std::string err;
+    const int rc = runSource("ns_empty", source, [](VmExecutor& e) {
+        e.RegisterNative("ns_empty.hsEmptyString", &HsEmptyString);
+    }, &err);
+    CHECK(rc == 0, "native newString(\"\") returns a usable empty string");
+
+    //The blocking arm stages the result cell through the blocking
+    //protocol — the fresh empty handle must survive the staging memcpy
+    //and the boundary check there too.
+    std::string errBlk;
+    const int rcBlk = runSource("ns_empty_blk", source, [](VmExecutor& e) {
+        e.RegisterNativeBlocking("ns_empty_blk.hsEmptyString",
+                                 &HsEmptyString);
+    }, &errBlk);
+    CHECK(rcBlk == 0,
+          "blocking native newString(\"\") round-trips too");
+}
+
+//Ruling D26 at the argument side of the boundary: a native receiving the
+//empty string reads a valid C string, never NULL (the Go pattern:
+//C.CString("") also never returns nil).
+void HsEmptyArgCheck(NativeHost* host, uint8_t* ret,
+                     const uint8_t* args, int) {
+    //Raw getString view (not the ArgString std::string wrapper): the
+    //contract under test is the C pointer itself — non-NULL, empty body.
+    const char* s = host->getString(host, native::ArgInt(args, 0));
+    native::ReturnInt(ret, (s && s[0] == '\0') ? 0 : 1);
+}
+
+void TestNativeEmptyStringArgIsNotNull() {
+    const std::string source =
+        "native int hsEmptyArgCheck(string s);\n"
+        "int main() {\n"
+        "  if (hsEmptyArgCheck(\"\") != 0) return 1;\n"
+        "  string e = \"\";\n"
+        "  if (hsEmptyArgCheck(e) != 0) return 2;\n"
+        "  return 0;\n"
+        "}\n";
+    std::string err;
+    const int rc = runSource("ns_arg_empty", source, [](VmExecutor& e) {
+        e.RegisterNative("ns_arg_empty.hsEmptyArgCheck", &HsEmptyArgCheck);
+    }, &err);
+    CHECK(rc == 0,
+          "native getString on the empty string yields \"\", not NULL");
 }
 
 void TestInputReadersOverStdin() {
@@ -436,12 +567,12 @@ void TestGenericUnaryAndThisDefaults() {
 //v12 ABI (D8): a native instance method reads its receiver's runtime
 //instantiation through the three type-argument callbacks — count, the
 //per-argument kind (the RTK code) and the per-argument name (the
-//canonical spelling). One composed answer pins all three at once:
+//canonical name). One composed answer pins all three at once:
 //"<count>|<kind>:<name>|..." with the out-of-range sentinels (kind
 //0xFF, name null) probed right past the end. A non-template receiver
 //answers count 0 and the same sentinels. The receiver arrives as the
 //method's slot-0 argument (the __this handle), which CallNative fills
-//for bare-named non-static callees (D8: method keys never carry a
+//for unqualified non-static callees (D8: method keys never carry a
 //package prefix).
 void HsTargs(NativeHost* host, uint8_t* ret, const uint8_t*, int) {
     const uint32_t count = host->typeArgCount(host);
@@ -494,9 +625,12 @@ int main() {
     Runtime::StaticInit();
     TypeCastInfo::StaticInit();   //cast table (0.7.5: no longer inside Runtime::StaticInit)
     std::fprintf(stderr, "=== NativeHost Callback Integration Tests ===\n");
-    TestMintEchoListRandomRaise();
+    TestCreateEchoListRandomRaise();
     TestReadLine();
     TestWriteOutput();
+    TestNullStringHandleRejected();
+    TestNativeEmptyStringRoundTrips();
+    TestNativeEmptyStringArgIsNotNull();
     TestInputReadersOverStdin();
     TestReadCharScalars();
     TestInputPromptSilentOnRedirectedStdout();

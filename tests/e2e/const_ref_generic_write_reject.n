@@ -1,0 +1,12 @@
+//Task 9: a whole-value write through a generic const T& formal is a
+//compile-time rejection — the const gate fires before kind dispatch.
+class U<T> {
+    public U() { }
+    public int set(const T& v) {
+        v = 1;
+        return 0;
+    }
+}
+int main() {
+    return 0;
+}

@@ -1,0 +1,23 @@
+//The io output trio (print / write / eprint) is the documented exception to the
+//package-argument rule (§14.1): it accepts every value §4.4 converts implicitly
+//to string, because printing is a text rendering (§5.3). That set includes a
+//class value, rendered by its toString, and an enumeration variable, rendered by
+//its member name — the same type as an accepted enumeration member constant, so
+//the two must not split.
+import io;
+
+class Tag {
+    public int v;
+}
+
+enum Mode { FAST, SLOW }
+
+int main() {
+    Tag t = Tag();
+    Mode m = Mode.SLOW;
+    io.print(t);
+    io.print("|");
+    io.print(m);
+    io.print("|");
+    return 0;
+}

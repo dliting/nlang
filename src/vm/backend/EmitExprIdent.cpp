@@ -79,6 +79,12 @@ void VmBackend::EmitIdentifierFieldRead(BytecodeEmitter& emitter,
         return;
     auto target = ResolveBareIdentifier(field);
     if (target.kind == BareIdTarget::Local) {
+        //v0.13.9 phase 3 Task 4: promoted and reference locals take
+        //their own read shapes (EmitStmtRef.cpp); aggregate-typed
+        //references keep the plain 8-byte copy — the pair reads as a
+        //handle slot to the field ops downstream.
+        if (EmitRefLocalRead(field, target, resultOffset, emitter))
+            return;
         emitter.Emit(OpCode::OP_VarLocal);
         emitter.EmitUint16(target.localOffset);
         emitter.Emit(OpCode::OP_Assign);

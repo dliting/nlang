@@ -1,15 +1,18 @@
 /*---
 VmExecutorNativeHost.cpp — VmExecutor's implementation of the public
 NativeHost ABI: the function-table callbacks, the native call bridge
-(registration, CallNative dispatch and the K2 blocking-native protocol),
-lazy native-module loading and the one-shot List<string> construction.
+(registration, CallNative dispatch and the K2 blocking-native protocol)
+and the destructor/module-state teardown.
 
 Native code (standard-library DLLs and third-party modules) accesses the VM
 only through these callbacks; the mutable state (PRNG, string/list stores)
 stays here, in the executor.
 
 K6 Task 2 (2026-10-22): the blocking-native arm (RunBlockingNative and
-its park/restore/mint helpers) moved to VmExecutorBlockingNative.cpp.
+its park/restore/create helpers) moved to VmExecutorBlockingNative.cpp.
+
+2026-11-12 source-size split: lazy native-module loading and the one-shot
+List<string> construction moved to VmExecutorNativeLoader.cpp.
 ---*/
 #include "VmExecutor.h"
 #include "InputLineSource.h"
@@ -18,6 +21,7 @@ its park/restore/mint helpers) moved to VmExecutorBlockingNative.cpp.
 #include "VmExecutorSer.h"
 #include "NativeLibraryLoader.h"
 
+#include <chrono>
 #include <cstdio>
 #include <algorithm>
 #include <cstring>
@@ -124,7 +128,7 @@ void VmExecutor::InitNativeHost(VmNativeHost& host) {
 
 //--- NativeHost callbacks ---------------------------------------------------
 //K8: every callback locks at its own touch face — store access rides
-//the domain locks inside the VM helpers (mint, list build, exception
+//the domain locks inside the VM helpers (creation, list build, exception
 //build), while host-boundary resources (console conversation, RNG,
 //root registries) take their dedicated leaf mutexes. The two
 //scheduler-facing callbacks keep the store lock (see below).
@@ -139,12 +143,33 @@ const char* VmExecutor::NativeGetString(NativeHost* self, int32_t handle) {
 
 int32_t VmExecutor::NativeNewString(NativeHost* self, const char* utf8) {
     VmExecutor* e = Wrap(self)->executor;
-    //K8: lock-free — minting self-locks; rooting rides the registry
+    //Native-creator gate: creation and root push are one indivisible span
+    //against a collection led by another carrier (contract in
+    //VmExecutor.h) — this thread may sit outside the rendezvous
+    //denominator (blocking-native arm), and between the slot handout
+    //and the root push the object is reachable from no root. Shared
+    //lock: concurrent creators coexist, only the collector is exclusive.
+    NativeCreationGate creationGate(*e);
+    //K8: lock-free — creating self-locks; rooting rides the registry
     //mutex inside.
-    const int32_t handle = e->MintNewString(utf8 ? utf8 : "");
+    //Ruling D27: the native boundary keeps 0 = null (the ABI's existing
+    //null-handle convention), so the host's string-producing API never
+    //hands out 0. Interning "" returns the internal slot 0 (ruling D26),
+    //so empty content gets a fresh non-interned empty object instead —
+    //equality still holds (a non-interned "" compares by content).
+    int32_t handle = 0;
+    if (utf8 && *utf8)
+        handle = e->CreateNewString(utf8);
+    else
+        handle = e->AllocStringObj();   //fresh Flat "" (non-interned)
+    //White-box seam (SetCreationRootGapMsForTests): hold the creation-to-root
+    //window open so a test can drive a real collection through it.
+    const int gapMs = e->m_creationRootGapMs.load(std::memory_order_relaxed);
+    if (gapMs > 0)
+        std::this_thread::sleep_for(std::chrono::milliseconds(gapMs));
     //Root across the blocking section: the native may hold this handle
     //for a while before writing it into ret, while other carriers GC.
-    e->RootMintedNativeHandle(handle);
+    e->RootCreatedNativeHandle(handle);
     return handle;
 }
 
@@ -152,12 +177,14 @@ int32_t VmExecutor::NativeNewListString(NativeHost* self,
                                         const char* const* items,
                                         int count) {
     VmExecutor* e = Wrap(self)->executor;
+    //Native-creator gate (creation+root indivisible; contract in VmExecutor.h).
+    NativeCreationGate creationGate(*e);
     //K8: lock-free — the list build holds the Container domain
     //internally; rooting rides the registry mutex.
     const int32_t listHeapIdx = e->BuildListString(items, count);
     //The list keeps its elements (MarkListElements); rooting the list
-    //covers the whole minted graph.
-    e->RootMintedNativeHandle(listHeapIdx);
+    //covers the whole created graph.
+    e->RootCreatedNativeHandle(listHeapIdx);
     return listHeapIdx;
 }
 
@@ -294,9 +321,14 @@ int32_t VmExecutor::ExceptionRethrowTarget(const std::string& exceptionClass,
     //K8: lock-free entry — the probe reads heap slots (benign under
     //the sharing model), the rebuild self-locks (Container), and the
     //rooting rides the registry mutex.
+    //Native-creator gate (contract in VmExecutor.h): probe/rebuild and
+    //the root push must be atomic against a collection — an existing
+    //object can pass the liveness probe and still be swept before the
+    //root lands.
+    NativeCreationGate creationGate(*this);
     //Probe the recorded index: kind intact, same class, same message
     //content — a slot recycled by another instance fails one of the
-    //three and falls through to the remint. cell[0] = classIdx,
+    //three and falls through to the re-creation. cell[0] = classIdx,
     //cell[1] = message handle (the BuildNlangException layout).
     if (maybeLiveHeapIdx > 0
             && static_cast<size_t>(maybeLiveHeapIdx) < m_slotKinds.size()
@@ -308,7 +340,7 @@ int32_t VmExecutor::ExceptionRethrowTarget(const std::string& exceptionClass,
         const bool sameMessage = slot[1] > 0
             && StrValCopy(slot[1]) == message;
         if (sameClass && sameMessage) {
-            RootMintedNativeHandle(maybeLiveHeapIdx);
+            RootCreatedNativeHandle(maybeLiveHeapIdx);
             return maybeLiveHeapIdx;
         }
     }
@@ -317,7 +349,7 @@ int32_t VmExecutor::ExceptionRethrowTarget(const std::string& exceptionClass,
         classIdx = m_exceptionClassIdx;   //defensive: unknown name → base
     const int32_t heapIdx = BuildNlangException(
         static_cast<int16_t>(classIdx), message);
-    RootMintedNativeHandle(heapIdx);
+    RootCreatedNativeHandle(heapIdx);
     return heapIdx;
 }
 
@@ -346,11 +378,6 @@ void VmExecutor::RegisterNativeBlocking(const std::string& name,
 void VmExecutor::CallNative(const CompiledFunction& callee,
     uint16_t callParamBase, uint8_t* locals, uint8_t* pResult)
 {
-    //Extension point ⑤ first, then the DLL-native dispatch: the host
-    //hook answers before EnsureNativeAvailable (see
-    //DispatchHostFunction in VmExecutorBlockingNative.cpp).
-    if (DispatchHostFunction(callee, callParamBase, locals, pResult))
-        return;
     EnsureNativeAvailable(callee.name);
     auto it = m_natives.find(callee.name);
     if (it == m_natives.end())
@@ -392,65 +419,6 @@ void VmExecutor::FillNativeReceiver(VmNativeHost& host,
     if (callee.isInstanceMethod && callee.paramCount > 0)
         std::memcpy(&host.receiverHeapIdx, locals + callParamBase,
                     sizeof(host.receiverHeapIdx));
-}
-
-//--- List<string> construction ---------------------------------------------
-
-int32_t VmExecutor::BuildListString(const char* const* items, int count) {
-    DomainGuard containerGuard(m_domainLocks, DomainId::Container);
-    if (m_listClassIdx < 0)
-        throw std::runtime_error("NLang VM: List class not registered");
-    int32_t listHeapIdx = AllocClassOnHeap(
-        static_cast<uint16_t>(m_listClassIdx));
-    int32_t listHandle = AllocListHandle();
-    m_structHeap[static_cast<size_t>(listHeapIdx)]
-        [kListHandleFieldOffset] = listHandle;
-    auto& dst = m_listStore[listHandle - 1].elements;
-    if (count > 0)
-        dst.reserve(static_cast<size_t>(count));
-    for (int i = 0; i < count; ++i) {
-        const char* text = (items && items[i]) ? items[i] : "";
-        dst.push_back(AllocBoxedValue(RTK_String, MintNewString(text)));
-    }
-    return listHeapIdx;
-}
-
-//--- Native module loading --------------------------------------------------
-
-NativeLibraryLoader& VmExecutor::EnsureNativeLoader() {
-    if (!m_upNativeLoader) {
-        m_upNativeLoader = std::make_unique<NativeLibraryLoader>();
-        //Default: native modules ship beside the executable.
-        m_upNativeLoader->AddSearchDir(NativeLibraryLoader::ExecutableDir());
-    }
-    return *m_upNativeLoader;
-}
-
-void VmExecutor::AddNativeSearchDir(std::string dir) {
-    EnsureNativeLoader().AddSearchDir(std::move(dir));
-}
-
-void VmExecutor::EnsureNativeAvailable(const std::string& name) {
-    if (m_natives.find(name) != m_natives.end())
-        return;
-    //A qualified "ns.name" is satisfied by a loadable module; a bare name
-    //is a host-registered native and is not resolved through a DLL.
-    size_t dot = name.find('.');
-    if (dot == std::string::npos)
-        return;
-    std::string ns = name.substr(0, dot);
-    NativeLibraryLoader& loader = EnsureNativeLoader();
-    //The module init runs once per executor (each executor owns its
-    //loader) with THIS executor's host — the device hooks land per
-    //executor (the plan's L5 ruling).
-    VmNativeHost initHost;
-    InitNativeHost(initHost);
-    loader.EnsureLoaded(ns,
-        [this](const std::string& modNs, const std::string& fnName,
-               NativeFn fn, bool blocking) {
-            m_natives[modNs + "." + fnName] = NativeEntry{fn, blocking};
-        },
-        &initHost.c);
 }
 
 //v11 R8: the destructor is defined here (moved from VmExecutor.cpp,

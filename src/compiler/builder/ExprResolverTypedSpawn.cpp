@@ -133,8 +133,14 @@ ExprResolveAccessor::SpawnTFromBareRef(SnExpression &arg, SnField *&rpT)
 	if (!rpT)
 		return SpawnArgOutcome::Declined;
 	std::vector<SnField *> funcArgs{rpT};
+	//v0.13.9 phase 3: the & mark of the target's return type rides the
+	//inferred key (spawn has no parameters, so slot 0 is the only mark);
+	//a void target has no return type to carry the mark.
+	std::vector<uint8> funcRefFlags{
+		pTarget->ReturnType() && pTarget->ReturnType()->ContainFlags(NF_Ref)
+			? uint8_t{1} : uint8_t{0}};
 	auto *pFuncDecl = GetGenericClassDecl(m_Env.Registry(), kBuiltinFuncTypeName,
-		funcArgs, {}, &fallback);
+		funcArgs, funcRefFlags, &fallback);
 	if (!pFuncDecl || !BindFuncRefToExpected(m_Env,
 			static_cast<SnIdentifierExpr &>(arg), pFuncDecl))
 		return SpawnArgOutcome::Diagnosed;   //diagnosed by the bind gate

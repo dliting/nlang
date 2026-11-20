@@ -1,0 +1,19 @@
+//Task 9: a const reference may bind const storage (the read-only form
+//of the binding judgment) — and plain non-const storage as well; only
+//the non-const & form keeps the const-storage rejection.
+struct Pt {
+    int x;
+    public Pt(int x) { this.x = x; }
+}
+int main() {
+    const int cx = 7;
+    const int& r = cx;
+    if (r != 7) return 1;
+    const Pt p = Pt(3);
+    const Pt& q = p;
+    if (q.x != 3) return 2;
+    int x = 5;
+    const int& rr = x;
+    if (rr != 5) return 3;
+    return r + q.x + rr;
+}

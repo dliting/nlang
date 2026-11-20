@@ -34,14 +34,15 @@ the handle, and immutability makes the sharing unobservable
 an `Object` position is boxed there — wrapped in a heap object
 (§4.11) — and unboxing reads the value back out (§5.5).
 
-Two operations move values differently:
+Two operations stand outside the copy-and-share rules above:
 
-- an `out` argument aliases the caller's variable for the
-  duration of the call and writes the final value back on return
-  (§7.2);
 - binding a method to a function value captures a reference to
   the receiver object, which keeps that object reachable for as
-  long as the function value lives (§7.4, §9.2).
+  long as the function value lives (§7.4, §9.2);
+- a `&` binding moves no value — the `&` on a local, a formal, a
+  return or a `foreach` variable aliases existing storage, and
+  reads and writes through it land in the designated cell
+  (§4.7.9).
 
 ## 9.4 Unspecified Behavior
 

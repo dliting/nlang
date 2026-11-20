@@ -1,7 +1,7 @@
 /*---
     EmitExprSubscript.cpp — all subscript expression emission: the plain
     array element read (OP_LoadElement family), the v0.12.7 slice
-    view mint (OP_MakeArrayView), the List/Dict container-get() sugar,
+    view creation (OP_MakeArrayView), the List/Dict container-get() sugar,
     and the Access(SnSubscriptExpr) dispatch. The array paths split
     from EmitExprCast.cpp when it reached the source-size budget; the
     container arms joined them in 2026-11-09 so the whole subscript
@@ -29,7 +29,7 @@ bool VmBackend::SubscriptNeedsDynOps(const SnExpression& arrExpr) {
 }
 
 //v0.12.7 Task 11: any slice item in the index list re-routes the read
-//from an element load to a view mint (the resolver has already typed
+//from an element load to a view creation (the resolver has already typed
 //the result as an array token of the kept axes).
 bool VmBackend::HasSliceAxis(const SnSubscriptExpr& sub) {
     for (auto *pIndex : sub.Indices())
@@ -131,7 +131,7 @@ void VmBackend::EmitViewAxisParams(SnSubscriptExpr& sub, size_t d,
 //step) and the mask words; the mask is a compile-time constant
 //(syntactic part presence) so it stages as consts. The view's own type
 //row: the resolver typed the result as a token of (element, kept
-//axes) — register it exactly as minted.
+//axes) — register it exactly as created.
 void VmBackend::EmitArrayViewRead(SnSubscriptExpr& sub,
                                   BytecodeEmitter& emitter,
                                   uint16_t resultOffset) {
@@ -169,27 +169,69 @@ void VmBackend::EmitArrayViewRead(SnSubscriptExpr& sub,
     emitter.EmitUint16(paramsBase);
 }
 
+//Shared get() classification: the receiver's generic instantiation
+//decides key/value boxing (Dict keys box when primitive; List's index
+//is int; struct/class elements never box). Array-typed slots are
+//interned tokens — raw handles, no box/unbox (BoxingTagFor default).
+void VmBackend::ClassifyContainerGet(SnExpression& receiver,
+                                     ArgBoxPlan& keyBox,
+                                     ArgBoxPlan& valBox) {
+    auto* pGenClass = static_cast<SnClassDecl*>(
+        receiver.EvalDataType());
+    const auto& baseName = pGenClass->BaseName();
+    const auto& typeArgs = pGenClass->GenericTypeArgs();
+    bool isList = (baseName == kBuiltinListTypeName && !typeArgs.empty());
+    bool isDict = (baseName == kBuiltinDictTypeName && typeArgs.size() > 1);
+    keyBox = isDict
+        ? PlanBoundaryBox(typeArgs[0], pGenClass)
+        : ArgBoxPlan{};
+    SnField* pElem = isList ? typeArgs[0]
+        : (typeArgs.size() > 1 ? typeArgs[1] : nullptr);
+    valBox = PlanBoundaryBox(pElem, pGenClass);
+}
+
 //Subscript arm: List<T>/Dict<K,V> get() sugar — classify the generic
 //instantiation (element/key/value boxing tags), then emit the call.
 void VmBackend::EmitContainerSubscriptGet(SnSubscriptExpr& sub,
                                           BytecodeEmitter& emitter,
                                           uint16_t resultOffset) {
-    auto* pGenClass = static_cast<SnClassDecl*>(
-        sub.Array()->EvalDataType());
-    const auto& baseName = pGenClass->BaseName();
-    const auto& typeArgs = pGenClass->GenericTypeArgs();
-    bool isList = (baseName == kBuiltinListTypeName && !typeArgs.empty());
-    bool isDict = (baseName == kBuiltinDictTypeName && typeArgs.size() > 1);
-    //Array-typed slots are interned tokens — raw
-    //handles, no box/unbox (BoxingTagFor default).
-    //Dict keys box when primitive; List's index is int.
-    auto keyBox = isDict
-        ? PlanBoundaryBox(typeArgs[0], pGenClass)
-        : ArgBoxPlan{};
-    SnField* pElem = isList ? typeArgs[0]
-        : (typeArgs.size() > 1 ? typeArgs[1] : nullptr);
-    auto valBox = PlanBoundaryBox(pElem, pGenClass);
+    ArgBoxPlan keyBox;
+    ArgBoxPlan valBox;
+    ClassifyContainerGet(*sub.Array(), keyBox, valBox);
     EmitContainerGetCall(sub, keyBox, valBox, emitter, resultOffset);
+}
+
+//Shared get() staging (subscript sugar and the explicit .get(i)
+//spelling both land here): receiver → claim[0] (round-4: NOT via
+//resultOffset — a self-referential read `i = li[i]` would overwrite
+//the index's source slot with the List handle before the index is
+//emitted), key → claim[1] (boxed per keyBox), the bulk copy to
+//callParamBase (raw moves preserve tagged representations), then
+//OP_CallMethod. The get() result is left in the accumulator; the
+//caller's tail decides unbox (value read) or pair-build (reference).
+void VmBackend::StageContainerGetCall(SnExpression& receiver,
+                                      SnExpression& index,
+                                      const ArgBoxPlan& keyBox,
+                                      uint16_t claimBase,
+                                      BytecodeEmitter& emitter) {
+    EmitExpression(receiver, emitter, claimBase);
+    emitter.Emit(OpCode::OP_NullCheck);
+    emitter.EmitUint16(claimBase);
+    uint16_t keyOffset = claimBase + kFrameSlotBytes;
+    EmitExpression(index, emitter, keyOffset);
+    if (keyBox.needsBox)
+        EmitBoundaryBox(keyBox, emitter, keyOffset);
+    for (uint16_t i = 0; i < 2; ++i) {
+        emitter.Emit(OpCode::OP_VarLocal);
+        emitter.EmitUint16(claimBase + i * kFrameSlotBytes);
+        emitter.Emit(OpCode::OP_Assign);
+        emitter.EmitUint16(
+            m_currFunc->callParamBase + i * kFrameSlotBytes);
+    }
+    uint16_t nameIdx = AddStringConstant(kBuiltinGetMethodName);
+    emitter.Emit(OpCode::OP_CallMethod);
+    emitter.EmitUint16(nameIdx);
+    emitter.EmitUint16(m_currFunc->callParamBase);
 }
 
 //Subscript arm: the get() call itself — emits through EvalAreaClaim so
@@ -202,34 +244,8 @@ void VmBackend::EmitContainerGetCall(SnSubscriptExpr& sub,
                                      BytecodeEmitter& emitter,
                                      uint16_t resultOffset) {
     EvalAreaClaim claim(*this, 2);
-    uint16_t claimBase = claim.base();
-    //Receiver → claim[0] directly (round-4: NOT via
-    //resultOffset — a self-referential read `i = li[i]`
-    //would overwrite the index's source slot with the
-    //List handle before the index is emitted). Same
-    //shape as the array path below; resultOffset is
-    //written only by the final get() store.
-    EmitExpression(*sub.Array(), emitter, claimBase);
-    emitter.Emit(OpCode::OP_NullCheck);
-    emitter.EmitUint16(claimBase);
-    //arg0 = index (box primitive Dict keys).
-    uint16_t keyOffset = claimBase + kFrameSlotBytes;
-    EmitExpression(*sub.Index(), emitter, keyOffset);
-    if (keyBox.needsBox)
-        EmitBoundaryBox(keyBox, emitter, keyOffset);
-    //Bulk-copy claim → callParamBase (raw 4-byte moves
-    //preserve tagged representations).
-    for (uint16_t i = 0; i < 2; ++i) {
-        emitter.Emit(OpCode::OP_VarLocal);
-        emitter.EmitUint16(claimBase + i * kFrameSlotBytes);
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(
-            m_currFunc->callParamBase + i * kFrameSlotBytes);
-    }
-    uint16_t nameIdx = AddStringConstant("get");
-    emitter.Emit(OpCode::OP_CallMethod);
-    emitter.EmitUint16(nameIdx);
-    emitter.EmitUint16(m_currFunc->callParamBase);
+    StageContainerGetCall(*sub.Array(), *sub.Index(), keyBox,
+        claim.base(), emitter);
     if (valBox.needsBox)
         EmitBoundaryUnbox(valBox, emitter);
     emitter.Emit(OpCode::OP_Assign);
@@ -238,7 +254,7 @@ void VmBackend::EmitContainerGetCall(SnSubscriptExpr& sub,
 }
 
 //Subscript dispatch: type-base sized-array creation, string byte read,
-//container get() sugar, slice view mint, then the plain element read.
+//container get() sugar, slice view creation, then the plain element read.
 void VmBackend::Access(SnSubscriptExpr& expr) {
     BytecodeEmitter& emitter = *m_pCurrEmitter;
     uint16_t resultOffset = m_resultOffset;
@@ -266,7 +282,7 @@ void VmBackend::Access(SnSubscriptExpr& expr) {
             EmitContainerSubscriptGet(sub, emitter, resultOffset);
             return;
         }
-        //v0.12.7 Task 11: a slice axis mints a view instead of loading
+        //v0.12.7 Task 11: a slice axis creates a view instead of loading
         //an element (the resolver typed the result as the view token).
         if (HasSliceAxis(sub)) {
             EmitArrayViewRead(sub, emitter, resultOffset);

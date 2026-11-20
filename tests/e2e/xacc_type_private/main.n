@@ -1,0 +1,6 @@
+import lib;
+int main() {
+    Vault v;
+    lib.Vault w = lib.Vault();
+    return 0;
+}

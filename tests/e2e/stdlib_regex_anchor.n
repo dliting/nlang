@@ -1,0 +1,41 @@
+// v0.13.7 regex: anchors and the (?m) line-boundary flag. $ matches at the
+// end of text or just before a final newline -- the majority reading
+// (Perl/PCRE/Ruby/Python/Java/Rust); Go/JS strict end-of-text is a
+// registered differential (spec D3). \z stays the strict end.
+import io;
+import regex;
+
+int main() {
+    int bad = 0;
+    Regex st = Regex("^abc");
+    if (!st.isMatch("abc")) { bad = bad + 1; }
+    if (st.isMatch("xabc")) { bad = bad + 1; }
+    Regex en = Regex("abc$");
+    if (!en.isMatch("zabc")) { bad = bad + 1; }
+    if (en.isMatch("abcz")) { bad = bad + 1; }
+    // $ matches before a final newline (majority reading, spec D3; the
+    // Go/JS strict end-of-text reading is the registered differential)
+    if (!en.isMatch("abc\n")) { bad = bad + 1; }
+    if (!Regex("abc\\z").isMatch("abc")) { bad = bad + 1; }
+    if (Regex("abc\\z").isMatch("abc\n")) { bad = bad + 1; }
+    if (!Regex("\\Aabc").isMatch("abc")) { bad = bad + 1; }
+    if (Regex("\\Aabc").isMatch("zabc")) { bad = bad + 1; }
+    // word boundary on the ASCII word set (Go parity)
+    if (!Regex("\\bcat\\b").isMatch("the cat sat")) { bad = bad + 1; }
+    if (Regex("\\bcat\\b").isMatch("concat")) { bad = bad + 1; }
+    if (!Regex("\\Bcat").isMatch("concat")) { bad = bad + 1; }
+    if (Regex("\\Bcat").isMatch("the cat")) { bad = bad + 1; }
+    // non-ASCII letters are NOT word characters (D4 ASCII-only)
+    if (Regex("\\b中").isMatch("中x")) { bad = bad + 1; }
+    // (?m): ^ $ become per-line
+    Regex ml = Regex("^bar$");
+    if (ml.isMatch("foo\nbar\nbaz")) { bad = bad + 1; }
+    Regex mm = Regex("(?m)^bar$");
+    if (!mm.isMatch("foo\nbar\nbaz")) { bad = bad + 1; }
+    // \A \z are not affected by (?m)
+    if (Regex("(?m)\\Abar").isMatch("foo\nbar")) { bad = bad + 1; }
+    if (!Regex("(?m)\\Afoo").isMatch("foo\nbar")) { bad = bad + 1; }
+    // empty-start/end anchors with repetition must not loop forever
+    if (!Regex("^a*$").isMatch("aaa")) { bad = bad + 1; }
+    return bad;
+}

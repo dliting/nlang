@@ -88,7 +88,12 @@ void ExprResolveAccessor::Access(SnQualifiedTypeExpr &qtype)
 		return;
 	}
 
-	SnField *pType = reg.FindModuleType(nsPath, qtype.TypeName());
+	//0.13.8 item 5 (Task 4): the foreign non-public admission folds into
+	//not-found — the arm below already logs the exact not-a-member
+	//wording for both shapes.
+	bool bDenied = false;
+	SnField *pType = FindAdmittedModuleType(reg, nsPath, qtype.TypeName(),
+		curModule, bDenied);
 	if (pType == nullptr)
 	{
 		m_Env.Log(CLL_Error, qtype.Location(),
@@ -179,7 +184,7 @@ namespace
 
 //0.9.10 D3.4: the only legal reference to an interface constant is the
 //qualified member form `I.NAME`, where the receiver names the interface
-//that owns the field. Bare names would make the constant look like a
+//that owns the field. Unqualified names would make the constant look like a
 //function-local value and are rejected before the implicit-this gate
 //can misreport the reference.
 bool IsQualifiedInterfaceConstantAccess(const SnIdentifierExpr &idExpr,
@@ -242,7 +247,7 @@ bool ExprResolveAccessor::RejectBareInterfaceConstant(
 bool ExprResolveAccessor::RejectImplicitThisInStatic(SnIdentifierExpr &idExpr,
 	SnField *pField)
 {
-	//v0.12.6: a static field carries no implicit this — the bare name
+	//v0.12.6: a static field carries no implicit this — the unqualified name
 	//inside a static method is the class-qualified access in disguise.
 	if (!pField || pField->Kind() != NK_ClassField
 		|| pField->ContainFlags(NF_Static))

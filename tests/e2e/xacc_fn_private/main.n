@@ -1,0 +1,4 @@
+import lib;
+int main() {
+    return hiddenHelper() + lib.hiddenHelper();
+}

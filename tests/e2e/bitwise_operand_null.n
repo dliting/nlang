@@ -1,0 +1,1 @@
+int main() { int r = null & 3; return r; }

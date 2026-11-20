@@ -25,6 +25,7 @@
 #include <fstream>
 #include <map>
 #include <mutex>
+#include <shared_mutex>
 #include <memory>
 #include <random>
 #include <stdexcept>
@@ -137,13 +138,19 @@ public:
                            uint32_t argc, uint8_t* resultCell);
 
     //Host value bridge (extension point ② surface): the minimal
-    //minting/allocation/typed-access primitives the embedding adapter
+    //creating/allocation/typed-access primitives the embedding adapter
     //needs. Thin public wrappers over existing internal machinery —
     //no new semantics.
     //K7: single-embedding-thread constraint — these wrappers do not
     //self-guard the stores they touch; a second embedding thread
     //would need each of them guarded first.
-    int32_t MintHostString(const std::string& content);
+    //The GC creation gate is applied per call, so it does not span
+    //consecutive calls: an embedder building one multi-call span
+    //(AllocHostList then HostListPushBack*, AllocHostDict then
+    //HostDictUpsert*) must hold the GIL across the whole span or
+    //root the interim handles itself; the gate alone covers each
+    //single call, not the gap between calls.
+    int32_t CreateHostString(const std::string& content);
     int32_t BoxHostScalar(uint8_t typeTag, int64_t bits);
     int32_t AllocHostList();
     int32_t AllocHostDict();
@@ -161,10 +168,10 @@ public:
     //positions: addr(idx) = offset + sum(idx[d]*strides[d]) addresses the
     //target's underlying owned record, whatever handle the caller holds.
     //A view target folds in one step (depth one); coverage validates
-    //against the owner. Public because the native host ABI's view-minting
-    //face (newArrayView) and the white-box view-record tests mint views
+    //against the owner. Public because the native host ABI's view-creating
+    //face (newArrayView) and the white-box view-record tests create views
     //from outside the executor's opcode paths — the same reach
-    //MintHostString gives the string face. Validation failures raise the
+    //CreateHostString gives the string face. Validation failures raise the
     //creation family (catchable OutOfBounds); a null target handle the
     //NPE family; an out-of-range handle a host-level runtime_error.
     int32_t AllocViewOnHeap(uint16_t arrayTypeIdx, uint8_t rank,
@@ -215,7 +222,7 @@ public:
     //may have been collected between the escape into host code and a
     //later rethrow (host memory is not scanned). Probe: the recorded
     //index still holds the same class and message → same instance;
-    //otherwise mint a fresh instance from the saved fields. The remint
+    //otherwise create a fresh instance from the saved fields. The re-creation
     //is observationally equivalent (same class, same message; the fresh
     //backtrace reflects the rethrow site, and any pre-death script
     //mutation of the original was lost by the collection either way).
@@ -297,6 +304,39 @@ public:
         m_gcCollectInFailureCatchForTests.store(true,
                                                 std::memory_order_relaxed);
     }
+    //White-box seam for the creator-vs-collection race: pause inside
+    //NativeNewString after the slot leaves the arena and before
+    //RootCreatedNativeHandle registers it, and inside RaiseNlangException
+    //after the exception object graph (instance, message, backtrace) is
+    //created and before it reaches a durable root (v0.13.6 review I1), so
+    //a test can run real collections against the unrooted creation windows.
+    //Production never arms this knob.
+    void SetCreationRootGapMsForTests(int ms) {
+        m_creationRootGapMs.store(ms, std::memory_order_relaxed);
+    }
+    //I1 pin readout: true when the armed RaiseNlangException window found
+    //this blocking arm's value-form creation-root entry for the just-created
+    //exception instance in the native-call root registry (the
+    //RootCreatedNativeHandle contract — the instance is then visible to any
+    //collection running in the window). False while the knob is unarmed or
+    //when the raise path skipped the creation-root.
+    bool LastRaiseCreatedRootedForTests() const {
+        return m_lastRaiseCreatedRootedForTests;
+    }
+    //White-box seam for the collector-side lock-order pin (v0.13.6
+    //review C1): pause INSIDE the exclusive native-creator gate for the
+    //next `times` elected collections, so a GIL-holding creation callback
+    //meets a gate-holding collection deterministically. If the
+    //collector took the gate before the GIL, the pair deadlocks the
+    //rendezvous (the creator holds the GIL waiting for the gate while
+    //the collector holds the gate waiting for the GIL); under the
+    //global GIL-before-gate order the collector holds both and the
+    //creator merely waits at the gate until the collection finishes.
+    //Production never arms this knob.
+    void SetCollectGateGapMsForTests(int ms, int times) {
+        m_collectGateGapMsForTests.store(ms, std::memory_order_relaxed);
+        m_collectGateGapTimesForTests.store(times, std::memory_order_relaxed);
+    }
     //K6 D11 white-box hooks (test_native_root_owner_removal): drive the
     //native-root ownership set through the same push/remove paths the
     //blocking arm uses. Production code never calls these.
@@ -317,7 +357,14 @@ public:
     //White-box GC drive: the safepoint entry, exposed so tests can force
     //full collections outside a run (the debugger tests reach collection
     //through real execution; white-box heap tests have no frames).
-    void CollectGarbageForTests() { CollectGarbage(); }
+    //Mirrors the elected collector's locks (GIL first, then the
+    //exclusive native-creator gate), so a test-driven collection cannot
+    //sweep under a concurrent creator either.
+    void CollectGarbageForTests() {
+        GilEnsureGuard gil(*this);
+        std::unique_lock<std::shared_mutex> creationGate(m_nativeAllocGate);
+        CollectGarbage();
+    }
     //0.11.4 B white-box probes: corrupt a live array record so tests can
     //drive the native callbacks against a malformed record (the defensive
     //checks are otherwise unreachable — records are VM-built). The tests
@@ -353,6 +400,53 @@ public:
     size_t HeapSlotCountForTests() const {
         return m_instDescByHeap.size();
     }
+    //Test probe: the record's struct-table index (0xFFFF when the slot
+    //carries no struct).
+    uint16_t HeapStructIdxForTests(int32_t handle) const {
+        return m_slotStructIdx[static_cast<size_t>(handle)];
+    }
+    //Record stabilization pin (v0.13.9 phase ②): the raw handle a
+    //static slot's cell currently holds (low half of the uniform cell;
+    //0 = no record yet).
+    int32_t StaticSlotHandleForTests(uint16_t slotIdx) const {
+        int32_t handle;
+        std::memcpy(&handle, m_staticSlots.Cell(slotIdx), sizeof(handle));
+        return handle;
+    }
+    //Test probe: exact record-allocation count. HeapSlotCountForTests
+    //grows in shard-block quanta and can absorb small counts in block
+    //slack — allocation pins read this counter instead.
+    size_t HeapAllocCountForTests() const {
+        return m_heapAllocCountForTests;
+    }
+    //Record stabilization (v0.13.9 phase ②): the in-place write
+    //primitive. dst handle ≤ 0 establishes one fresh record (delegating
+    //to DeepCopyStruct); dst == src is a no-op; otherwise dst's cells
+    //are overwritten in place with zero allocation. Cell-granularity —
+    //no record-level lock (see the m_slotKinds block). Returns the dst
+    //handle — the existing record or the newly established one — so
+    //callers can store the handle back. Public for the white-box
+    //stabilization tests; the runtime write arms (intrinsics,
+    //OpStoreStatic) reach it as members.
+    int32_t CopyStructInPlace(int32_t dstHeapIdx, int32_t srcHeapIdx,
+                              uint16_t structIdx);
+    //Task 6: container set() element stabilization for one old/new pair
+    //(List and Dict replace arms share it). Struct elements deep-copy in
+    //place (the phase ② arm); boxed scalar/string elements — whose
+    //record identity aliases taken before the set hold (RefOfPromoted
+    //pairs) — copy their payload cells into the existing box. Other
+    //kinds (class refs are identities) keep the bare store: false =
+    //not stabilized, the caller stores the fresh handle.
+    bool StabilizeContainerElement(int32_t oldHeapIdx, int32_t freshHeapIdx);
+    //Task 6: value-carrier isolation for freshly populated containers
+    //(List_Copy/Dict_Copy/Dict_Keys). A boxed scalar/string element is
+    //the value's invisible storage and a struct element is a value
+    //record — a copy owns fresh carriers, so a later in-place store
+    //(StabilizeContainerElement) through the copy cannot write through
+    //to the source container (the v0.12.4 D5 copy-on-read seal rides
+    //List_Copy/Dict_Copy). Class refs stay shared: reference
+    //semantics.
+    int32_t CloneValueCarrier(int32_t heapIdx);
     //Builds a production-shaped stack-local host (the native-call path
     //wires one per call). Public for the white-box defense tests only:
     //VmNativeHost itself is private to src/vm, so the method is
@@ -458,7 +552,7 @@ public:
     //the declared parameter count. A namespace function's args start at
     //slot 0; methods pass the receiver in slot 0. Native code is stateless;
     //lookup is by the CompiledFunction name (a qualified "ns.name" for
-    //library functions, a bare name for host-registered natives).
+    //library functions, an unqualified name for host-registered natives).
     using NativeFn = ::NativeFn;
     void RegisterNative(const std::string& name, NativeFn fn);
     //K2 slice 4 (§2.5): declare a native that may take unbounded time.
@@ -503,26 +597,26 @@ private:
     void InitStringStore(const CompiledModule& module);
     void InitStructHeap();
     //v0.13.1: intern the module's static descriptor rows so OP_New's
-    //descIdx operand resolves to a pointer (recipe rows stay null).
+    //descIdx operand resolves to a pointer (composition record rows stay null).
     void InitDescriptorTable(const CompiledModule& module);
     //v0.13.1 D3, 0.13.1a: compose this execution's descriptor from a
-    //recipe row (ARG_CONTEXT reads the executing frame's context cell).
+    //composition record row (ARG_CONTEXT reads the executing frame's context cell).
     //See the encoding in CompiledModule.h DescriptorEntry.
     GenericInstDescriptor* ComposeInstDescriptor(
-        const std::vector<uint8_t>& recipe);
-    //One whole recipe row's spelling, no interning — typeName renders
+        const std::vector<uint8_t>& composition);
+    //One whole composition record row's spelling, no interning — typeName renders
     //the string; self-describing by leading tag (0 = instantiation
     //form, else a single argument encoding).
-    std::string ComposeRecipeRowSpelling(
-        const std::vector<uint8_t>& recipe);
-    //One recipe range's canonical spelling: TEMPLATE_HEAD + argument
-    //encodings until end. [pos, end) spans a complete recipe stream
+    std::string ComposeRecordRowSpelling(
+        const std::vector<uint8_t>& composition);
+    //One composition range's canonical name: TEMPLATE_HEAD + argument
+    //encodings until end. [pos, end) spans a complete composition stream
     //(nested streams carry their own length prefix on the tag-4 operand).
-    std::string ComposeRecipeSpelling(const std::vector<uint8_t>& recipe,
+    std::string ComposeRecordSpelling(const std::vector<uint8_t>& composition,
         size_t& pos, size_t end);
-    //One argument encoding's canonical spelling (the tag-4 arm recurses
-    //into ComposeRecipeSpelling).
-    std::string ComposeArgSpelling(const std::vector<uint8_t>& recipe,
+    //One argument encoding's canonical name (the tag-4 arm recurses
+    //into ComposeRecordSpelling).
+    std::string ComposeArgSpelling(const std::vector<uint8_t>& composition,
         size_t& pos);
     //K1 Slice 6: cache builtin class indexes (Exception family + Thread)
     //from the freshly linked module — extracted from ResetPerRunState
@@ -550,17 +644,14 @@ private:
     //when no clause takes it — the caller unwinds one frame.
     bool TryEnterCatchHandler(CallFrame& frame, int32_t excHeapIdx);
     //Push/pop. PushCalleeFrame stages params from the caller's
-    //callParamBase cells and inherits the caller's result cell; the out
-    //variants arm the return writeback (bit i = user param i; source
-    //frame slot = i + outShift — bound-method delegates shift by 1).
+    //callParamBase cells and inherits the caller's result cell.
     //0.13.1a: descIdx/receiverHeapIdx fill the generic record's frame
     //descriptor cell (PushFrameCore's three-source rule). Returns the
     //new top frame's locals pointer.
     uint8_t* PushCalleeFrame(const CompiledFunction& callee,
-        uint16_t callParamBase, uint32_t outMask, uint8_t outShift,
-        uint16_t descIdx, int32_t receiverHeapIdx);
+        uint16_t callParamBase, uint16_t descIdx, int32_t receiverHeapIdx);
     uint8_t* PushBoundCalleeFrame(const CompiledFunction& callee,
-        int32_t thisIdx, uint16_t callParamBase, uint32_t outMask);
+        int32_t thisIdx, uint16_t callParamBase);
     //Root/toString/host windows. deferSafepoint: callers that stage raw
     //caller-owned handle cells into the frame right after the push must
     //defer the entry safepoint until staging completes — a collection at
@@ -569,14 +660,13 @@ private:
     //callers run CheckGCSafepoint() themselves once staging is done.
     uint8_t* PushRootFrame(const CompiledFunction& func,
         uint8_t* externalResult, bool deferSafepoint = false);
-    void PopFrameWithWriteback();           //out writeback, then pop
     //Shared push core (boundThisIdx > 0 = bound staging), and the unwind
     //bookkeeping both exception paths in RunFrames share. descIdx/
     //receiverHeapIdx fill the generic frame's descriptor cell (0.13.1a
     //three-source rule: receiver head, caller forward, table row).
     uint8_t* PushFrameCore(const CompiledFunction& callee,
-        uint16_t callParamBase, uint32_t outMask, uint8_t outShift,
-        int32_t boundThisIdx, uint16_t descIdx, int32_t receiverHeapIdx);
+        uint16_t callParamBase, int32_t boundThisIdx, uint16_t descIdx,
+        int32_t receiverHeapIdx);
     //0.13.1a: PushFrameCore's descriptor-cell resolution — the
     //three-source rule (receiver head, caller forward, table row);
     //null for non-generic records. Must run BEFORE the push (the
@@ -639,9 +729,9 @@ private:
     void OpEnum_to_str(BytecodeReader& reader, uint8_t* pResult);
     void OpArray_to_str(uint8_t* pResult);
     //v0.12.7 Task 5: shared array toString — null/stale/kind validation,
-    //FormatArray, mint. OP_Array_to_str and the Array.toString intrinsic
+    //FormatArray, create. OP_Array_to_str and the Array.toString intrinsic
     //format through this one path.
-    int32_t MintArrayString(int32_t heapIdx);
+    int32_t CreateArrayString(int32_t heapIdx);
     void OpConcat_str(BytecodeReader& reader, uint8_t* locals);
     void OpEq_str(BytecodeReader& reader, uint8_t* locals);
     void OpNe_str(BytecodeReader& reader, uint8_t* locals);
@@ -674,6 +764,10 @@ private:
     //carrier row) is negative or reaches the row's bit width.
     void CheckShiftCount(int row, const uint8_t* p);
     void OpNeg(BytecodeReader& reader, uint8_t* locals);
+    //0.13.7 bitwise family: one handler for the four opcodes (the
+    //family is one case arm in DispatchFrames); same kind-immediate
+    //encodings as the shift and neg handlers, integer rows only.
+    void OpBitOp(BytecodeReader& reader, uint8_t* locals, OpCode op);
     void OpCmp(BytecodeReader& reader, uint8_t* locals);
     void OpPrimCast(BytecodeReader& reader, uint8_t* pResult);
     void OpPrimToStr(BytecodeReader& reader, uint8_t* pResult);
@@ -691,7 +785,6 @@ private:
     bool OpCallStatic(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
     void OpMakeFunc(BytecodeReader& reader, uint8_t* pResult);
     bool OpCallDelegate(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
-    bool OpCallDelegateOut(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
     void OpMakeBoundFunc(BytecodeReader& reader, uint8_t* pResult);
     void OpMakeVFunc(BytecodeReader& reader, uint8_t* pResult);
     void OpFuncEquality(BytecodeReader& reader, uint8_t* locals, OpCode op);
@@ -699,9 +792,7 @@ private:
     //OpFuncEquality operand protocol (null sentinel = plain index).
     void OpStructEquality(BytecodeReader& reader, uint8_t* locals, OpCode op);
     void OpFunc_to_str(uint8_t* pResult);
-    bool OpCallStaticOut(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
     bool OpCallMethodDirect(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
-    bool OpCallMethodDirectOut(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
     bool OpCallMethod(BytecodeReader& reader, uint8_t* locals, uint8_t* pResult);
     //Virtual-dispatch target resolution: validate the receiver, read its
     //class header, walk the hierarchy by name. Every rejection happens
@@ -713,6 +804,53 @@ private:
     void OpAllocStruct(BytecodeReader& reader, uint8_t* locals);
     void OpLoadField(BytecodeReader& reader, uint8_t* locals);
     void OpStoreField(BytecodeReader& reader, uint8_t* locals);
+    //v0.13.9 phase ③: the byref slot representation. The RefOf* family
+    //builds the (base heap-record handle, cell offset) pair — struct
+    //locals at offset 0, promoted scalar/string locals at their boxing
+    //record's payload cell, record fields at the field's own cell,
+    //array elements through the flat-address walk (views peel to the
+    //owner). OpRefHandle extracts the base handle back into a
+    //struct-valued slot (byrefs are never stored, so consumption goes
+    //through the handle); OpLoadRef/OpStoreRef dereference the pair.
+    //Every op is lock-free (cell-granularity value races only, the
+    //phase ② ruling) and allocates nothing.
+    void OpRefOfLocal(BytecodeReader& reader, uint8_t* locals);
+    void OpRefOfPromoted(BytecodeReader& reader, uint8_t* locals);
+    void OpRefOfField(BytecodeReader& reader, uint8_t* locals);
+    //Task 13: the generic-body field bind — the frame context's type
+    //argument kind picks the pair shape (cell pair for scalar/string,
+    //offset-0 record pair for struct/identity).
+    void OpRefOfFieldTypeArg(BytecodeReader& reader, uint8_t* locals);
+    void OpRefOfElement(BytecodeReader& reader, uint8_t* locals);
+    void OpRefOfElementN(BytecodeReader& reader, uint8_t* locals);
+    //Shared bind tail of both element binds: peel views to the owner,
+    //decode the flat address, validate the cell window, store the pair
+    //(struct cells deref to the element record — offset-0 pair = record
+    //handle convention). Throws on corrupt records.
+    void StoreElementBindPair(uint16_t dst, std::vector<int32_t>& slot,
+        uint8_t kind, int32_t ownerHandle, int64_t flat, uint8_t* locals);
+    void BindStructElementCell(uint16_t dst,
+        const std::vector<int32_t>& payload, int64_t cell, uint8_t* locals);
+    void OpRefHandle(BytecodeReader& reader, uint8_t* locals);
+    void OpLoadRef(BytecodeReader& reader, uint8_t* locals);
+    //The OP_LoadRef body over an explicit kind byte — shared with the
+    //descriptor-dispatched T& read below.
+    void LoadRefCells(uint8_t kind, uint16_t dst, uint16_t src,
+        uint8_t* locals);
+    void OpStoreRef(BytecodeReader& reader, uint8_t* locals);
+    //The OP_StoreRef body over an explicit kind byte — shared with the
+    //descriptor-dispatched T& store below.
+    void StoreRefCells(uint8_t kind, uint16_t dstByref, uint16_t srcVal,
+        uint8_t* locals);
+    //Task 8: the generic-body store through a T& formal pair — the kind
+    //rides the frame context's ordinal-th type argument (scalar/string
+    //→ cell write, struct → in-place record overwrite, identity → slot
+    //rebind per D9).
+    void OpStoreRefTypeArg(BytecodeReader& reader, uint8_t* locals);
+    //Task 8: the generic-body read through a T& formal pair — scalar/
+    //string deref like OP_LoadRef, struct/identity copy the pair raw
+    //(offset-0 pairs read as record handles, D9).
+    void OpLoadRefTypeArg(BytecodeReader& reader, uint8_t* locals);
     //0.12.6: static slot cell copies against the module's VmStaticSlots
     //table (lock-free like the field family — benign value races, K8).
     void OpLoadStatic(BytecodeReader& reader, uint8_t* locals);
@@ -737,14 +875,18 @@ private:
                               uint32_t selfId, uint16_t gatePc);
     void WakeClassInitWaiters(VmStaticSlots::StaticOwnerState* owner);
     void OpNew(BytecodeReader& reader, uint8_t* locals);
-    //v0.13.1: typeName arms — descriptor argument read and recipe
+    //v0.13.1: typeName arms — descriptor argument read and composition
     //composition (implementations beside OpNew).
     void OpTypeNameArg(BytecodeReader& reader, uint8_t* locals);
     void OpTypeNameCompose(BytecodeReader& reader, uint8_t* locals);
     void OpNullCheck(BytecodeReader& reader, uint8_t* locals);
     void OpCopyStruct(BytecodeReader& reader, uint8_t* locals);
+    //Record stabilization: same operand layout as OP_CopyStruct, but the
+    //dst slot's existing record is overwritten in place (establish on a
+    //null dst handle). Implementation beside OpCopyStruct.
+    void OpCopyStructInPlace(BytecodeReader& reader, uint8_t* locals);
     void OpAllocArrayN(BytecodeReader& reader, uint8_t* locals);
-    //v0.12.7 Task 11: mint the slice-subscript view (OP_MakeArrayView)
+    //v0.12.7 Task 11: create the slice-subscript view (OP_MakeArrayView)
     //— normalize staged endpoints/steps, fold scalar axes into the
     //offset, allocate the depth-one view. Contract at the implementation.
     void OpMakeArrayView(BytecodeReader& reader, uint8_t* locals);
@@ -833,6 +975,14 @@ private:
     //across a heap-growing call.
     std::vector<int32_t>& ElementPayloadRecord(
         std::vector<int32_t>& slot, uint8_t kind, size_t& payloadBaseOut);
+    //v0.13.9 phase ③: read a byref pair from a frame slot and validate
+    //the dereference window [cell, cell+cells) against the base record.
+    //Returns the base handle, writes the validated cell through cellOut;
+    //a corrupt pair (stale handle or out-of-range window) is an
+    //uncatchable invariant — the emitter only produces pairs the RefOf*
+    //family validated at build time.
+    int32_t ByrefTarget(uint16_t slotOff, uint8_t* locals, size_t cells,
+                        const char* opName, size_t& cellOut);
     //Affine address of the flat-eth element (row-major over the record's
     //own dims) of a VIEW record, in owner payload space. Callers bound
     //flat by the record's elemCount first.
@@ -864,7 +1014,7 @@ private:
     void OpCheckCast(BytecodeReader& reader, uint8_t* locals,
                      uint8_t* pResult);
     //v0.13.1: a cast's descriptor row → target descriptor (static rows
-    //pre-interned; recipe rows compose against the executing frame's
+    //pre-interned; composition record rows compose against the executing frame's
     //context cell — 0.13.1a unified the compose source onto the frame).
     GenericInstDescriptor* CastTargetDescriptor(uint16_t descIdx);
     //v0.13.1 D5: stamp an array allocation's element instantiation
@@ -894,7 +1044,7 @@ private:
     //frames carry the call-site's).
     const TypeArgDesc& ContextTypeArgOf(uint8_t ordinal);
     //0.13.1a D1: the executing frame's instantiation context — the
-    //cell every T operation and recipe composition reads. Null for
+    //cell every T operation and composition-record read. Null for
     //non-generic frames and erased-row degradation.
     const GenericInstDescriptor* ContextInstDescOf() const {
         return EvalStack().back().instDesc;
@@ -945,9 +1095,21 @@ private:
     void OpRethrow();
     void OpPopHandler();
 
-    //Deep-copy a struct from srcHeapIdx to a new heap slot.
-    //Returns the new heap index.
+    //Deep-copy a struct from srcHeapIdx to a new heap slot (the read
+    //walk + allocate + publish establish path). Cell-granularity — no
+    //record-level lock (see the m_slotKinds block). Returns the new
+    //heap index.
     int32_t DeepCopyStruct(int32_t srcHeapIdx, uint16_t structIdx);
+
+    //Record stabilization (v0.13.9 phase ②): overwrite dst's existing
+    //cells in place from src, following DeepCopyStruct's member rule
+    //(struct-typed fields recurse into the EXISTING dst sub-records;
+    //everything else copies the cell as-is). Zero allocation — callers
+    //must guarantee dst's record already exists. dst and src trees are
+    //type-level disjoint (a record cannot be its own subtree), so no
+    //snapshot copy is needed.
+    void CopyStructCellsInPlace(int32_t dstHeapIdx, int32_t srcHeapIdx,
+                                uint16_t structIdx);
 
     //Serialize all fields of a struct to a byte sink.
     //Recursive over nested struct, class and array fields (class via
@@ -1043,7 +1205,7 @@ private:
     //Final-review C4: boxed values in Object-typed positions — tag 4 in
     //the class-ref tag space. Payload: the wrapped kind byte, then a
     //string (length-prefixed) or a scalar at the registry width. Boxes
-    //are immutable values: no back-reference, each read mints fresh.
+    //are immutable values: no back-reference, each read creates fresh.
     template<typename Writer>
     void WriteBoxedRecord(int32_t heapIdx, Writer&& write);
     template<typename Reader>
@@ -1056,7 +1218,7 @@ private:
 
     //General arrayTypes-row lookup by (elemKind, elemTypeIdx, rank) —
     //the scalar finder is the elemTypeIdx==0xFFFF case. Throws when the
-    //program never declared the shape (no row to mint with).
+    //program never declared the shape (no row to create with).
     uint16_t FindArrayTypeDef(uint8_t elemRtk, uint16_t elemTypeIdx,
                               uint8_t rank) const;
 
@@ -1111,7 +1273,7 @@ private:
     std::string FormatArray(int32_t heapIdx, int depth);
     std::string FormatList(int32_t handle, int depth);
     std::string FormatDict(int32_t handle, int depth);
-    //Bare-name class-row scans over the prelude root: builtins' face
+    //Unqualified-name class-row scans over the prelude root: builtins' face
     //classes are keyed bare in every image, a user package's same-name
     //row is package-qualified and must not shadow them. -1 when absent
     //(callers report an invalid class index). ObjectRootClassIdx backs
@@ -1147,7 +1309,7 @@ private:
     //Allocate an array on the heap.
     //Returns the heap index.
     //The single array-allocation choke point (language opcodes and
-    //native minting). Grows m_structHeap via emplace_back, so EVERY
+    //native creation). Grows m_structHeap via emplace_back, so EVERY
     //reference or pointer into m_structHeap held by the caller is
     //invalidated: read what is needed into locals first, call, then
     //re-index. OpArrayShape once read the source record's dims through
@@ -1277,7 +1439,7 @@ private:
     void AuditWaiterDestinationRanges(
         const std::vector<std::pair<const uint8_t*, const uint8_t*>>&
             frameRanges);
-    //K2 slice 4: blocking-native local roots (staged cells and minted
+    //K2 slice 4: blocking-native local roots (staged cells and created
     //handles) — same dual-domain value test as the frame band.
     void MarkNativeCallRoots(std::vector<int32_t>& worklist);
     //Extension point ③: host-registered roots (host-held reference
@@ -1673,7 +1835,7 @@ private:
     //OP_CallStatic — args start at callParamBase slot 0 (no `this`); the
     //sync-primitive methods ride the receiver-dispatched shape (slot 0
     //= this). K8: the family splits at the dispatch — thread.* arms keep
-    //the scheduler domain lock (scheduler state + heap minting), while
+    //the scheduler domain lock (scheduler state + heap creating), while
     //the Mutex/Channel arms take the Sync domain over the side tables
     //(ExecuteIntrinsicSync) and must never hold the scheduler lock
     //across their park/wake calls.
@@ -1696,7 +1858,7 @@ private:
     //K1 Slice 6 spawn/join bodies (IntrinsicsThread.cpp), extracted from
     //ExecuteIntrinsicThread for the file/function size guards. spawn
     //resolves the func<void> handle, registers the context, builds its
-    //root frame (receiver at slot 0 for bound handles) and mints the
+    //root frame (receiver at slot 0 for bound handles) and creates the
     //Thread object; join parks or rethrows per the target's state.
     bool IntrinsicSpawn(uint16_t callParamBase, uint8_t* locals,
                         uint8_t* pResult);
@@ -1826,7 +1988,7 @@ private:
                               uint8_t* pResult);
     bool IntrinsicChannelClose(uint16_t callParamBase, uint8_t* locals);
     //Same side-table discipline as the Mutex helpers above; the channel
-    //allocator takes the initial capacity (the minted handle is not yet
+    //allocator takes the initial capacity (the created handle is not yet
     //visible, but the slot write shares the growth section).
     int32_t AllocChannelHandle(int32_t capacity);
     ChannelSlot* SyncChannelSlotAt(int32_t handle);
@@ -1865,17 +2027,17 @@ private:
     void CollectClosedSenders(ChannelSlot& slot,
                               std::vector<int>& closedSenders);
     //K1 Slice 6 spawn helpers: validate + resolve the delegate target
-    //(no native/intrinsic bodies, zero-argument contract) and mint the
+    //(no native/intrinsic bodies, zero-argument contract) and create the
     //Thread object for a registered context (__handle = context id).
     const CompiledFunction& ResolveSpawnTarget(
         const std::vector<int32_t>& handle, int32_t& receiverIdx);
-    int32_t MintThreadObject(int ctxId);
+    int32_t CreateThreadObject(int ctxId);
     //K3: Future<T> — same receiver shape as the Thread face (slot 1 =
     //context id, no side table) plus the isDone membership probe. get()
     //shares the resolved context: Finished copies the result cell, Failed
     //rethrows the target's exception, otherwise the caller parks on the
     //join mechanism with a result destination for wake-time delivery.
-    int32_t MintFutureObject(int ctxId);
+    int32_t CreateFutureObject(int ctxId);
     const ExecutionContext& ResolveFutureContext(uint16_t callParamBase,
                                                  uint8_t* locals);
     bool IntrinsicFutureIsDone(uint16_t callParamBase, uint8_t* locals,
@@ -1946,18 +2108,15 @@ private:
     [[noreturn]] void RaiseAbstractMethodError(
         const std::string& methodName) const;
 
-    //Phase 13 Step 2: shared engine for OP_CallDelegate /
-    //OP_CallDelegateOut. Reads the handle's form, resolves the target
-    //(static funcIdx or by-name on the runtime class), builds the callee
-    //frame (free functions copy args from callParamBase verbatim; bound
-    //handles place the captured receiver at frame slot 0 and shift the
-    //args by one), executes, and for outMask != 0 copies each marked
-    //user-parameter slot back to the caller (reversing the shift for
-    //bound handles). Frame-machine contract: returns true when a callee
-    //frame was pushed.
+    //Phase 13 Step 2: shared engine for OP_CallDelegate. Reads the
+    //handle's form, resolves the target (static funcIdx or by-name on
+    //the runtime class), builds the callee frame (free functions copy
+    //args from callParamBase verbatim; bound handles place the captured
+    //receiver at frame slot 0 and shift the args by one) and executes.
+    //Frame-machine contract: returns true when a callee frame was
+    //pushed.
     bool ExecuteDelegateCall(const std::vector<int32_t>& handle,
-        uint16_t callParamBase, uint8_t* locals, uint8_t* pResult,
-        uint32_t outMask);
+        uint16_t callParamBase, uint8_t* locals, uint8_t* pResult);
 
     //Delegate-target resolution half of ExecuteDelegateCall: virtual
     //handles resolve by name on the receiver's runtime class (override
@@ -1965,18 +2124,14 @@ private:
     int ResolveDelegateTarget(const std::vector<int32_t>& handle);
 
     //Free-function delegate ABI (identical to OP_CallStatic, natives
-    //included); the out write-back copies slots unshifted.
+    //included).
     bool CallDelegateFree(const CompiledFunction& callee,
-        uint16_t callParamBase, uint8_t* locals, uint8_t* pResult,
-        uint32_t outMask);
+        uint16_t callParamBase, uint8_t* locals, uint8_t* pResult);
 
     //Bound-method delegate ABI: the captured receiver rides at callee
-    //slot 0, caller args shift right by one; the out write-back reads
-    //frame slot i+1 and stages back to callParamBase+i, reversing the
-    //shift.
+    //slot 0, caller args shift right by one.
     bool CallDelegateBound(const CompiledFunction& callee, int32_t thisIdx,
-        uint16_t callParamBase, uint8_t* locals, uint8_t* pResult,
-        uint32_t outMask);
+        uint16_t callParamBase, uint8_t* locals, uint8_t* pResult);
 
     //Phase 9f: shared native-table dispatch for OP_CallStatic and the method
     //call paths (a native method receives `this` at args[0], mirroring the
@@ -1995,6 +2150,20 @@ private:
     //VmExecutorDeviceArray.cpp).
     void CheckDeviceArrayArgs(const CompiledFunction& callee,
         uint16_t callParamBase, uint8_t* locals);
+
+    //The three dispatch arms (host hook, blocking DLL, direct DLL),
+    //split out of CallNative so the single ruling-D27 boundary check
+    //covers every arm from one call site.
+    void CallNativeDispatch(const CompiledFunction& callee,
+        uint16_t callParamBase, uint8_t* locals, uint8_t* pResult);
+
+    //Ruling D27: the native ABI's string-result domain is handle-or-null
+    //— 0 means the native produced no string (the ABI's existing
+    //null-handle convention), a non-live handle is a producer bug. Both
+    //raise a host-level error, so an nlang program never observes a
+    //null string (internally handle 0 IS the empty string — ruling D26).
+    void CheckNativeStringResult(const CompiledFunction& callee,
+                                 const uint8_t* pResult);
 
     //K2 slice 4 (§2.5): the blocking-native arm. `invoke` runs the
     //native (or the host hook) against the staged cells and returns
@@ -2017,15 +2186,15 @@ private:
     //next to the GIL reacquire).
     void ParkFramesForBlockingNative(ExecutionContext* ctx);
     void RestoreStolenFrames(ExecutionContext* ctx, size_t stolenDepth);
-    //Root a handle minted by a NativeHost callback — no-op outside a
+    //Root a handle created by a NativeHost callback — no-op outside a
     //blocking section (see t_blockingNativeDepth). Called under the GIL.
-    void RootMintedNativeHandle(int32_t handle);
+    void RootCreatedNativeHandle(int32_t handle);
     //K8: stage a blocking arm's ret/args cells into the root registry
     //(under the root-registry mutex).
     void StageNativeRoots(const uint8_t* ret, const uint8_t* args,
                           uint32_t argCount, uint64_t owner);
     //K6 D11: erase exactly one arm's root entries (staged cells + its
-    //callbacks' minted values) — replaces the old watermark truncation.
+    //callbacks' created values) — replaces the old watermark truncation.
     void RemoveNativeRoots(uint64_t owner);
     //K6: the reacquire tail of RunBlockingNative (split for the source-
     //size guard): root teardown by owner identity, the run-generation
@@ -2062,16 +2231,16 @@ private:
     static uint32_t NativeNextRandom(NativeHost* self);
     static void NativeSeedRandom(NativeHost* self, int32_t seed);
     //v6 array side (contract in NativeHost.h): pinned payload view and
-    //zero-initialized minting for scalar-element arrays.
+    //zero-initialized creating for scalar-element arrays.
     static int NativeGetArrayView(NativeHost* self, int32_t handle,
         NativeArrayView* out);
     static int32_t NativeNewArray(NativeHost* self, uint8_t elemKind,
         int32_t length);
-    //v9 ND side of minting (contract in NativeHost.h): shaped mint for the
+    //v9 ND side of creating (contract in NativeHost.h): shaped creation for the
     //matrix-family kernels.
     static int32_t NativeNewArrayShaped(NativeHost* self, uint8_t elemKind,
         int32_t rank, const int32_t* dims);
-    //v10 view side of minting (contract in NativeHost.h): a view over an
+    //v10 view side of creating (contract in NativeHost.h): a view over an
     //existing handle, validated exactly like the language's creation.
     static int32_t NativeNewArrayView(NativeHost* self, int32_t targetHandle,
         int32_t rank, const int32_t* dims, const int32_t* strides,
@@ -2114,7 +2283,7 @@ private:
     //v10 helpers of the two callbacks above (definitions in
     //VmExecutorNativeCallbacks.cpp): the arm fills from a view record's
     //own strides/offset, the resolver peels depth-one to the owning
-    //record's type row for the minted rank.
+    //record's type row for the created rank.
     static void FillViewRecordArrayView(VmExecutor* e, int32_t handle,
                                         NativeArrayView* out);
     static uint16_t ResolveViewOwnerType(VmExecutor* e, int32_t targetHandle,
@@ -2162,8 +2331,8 @@ private:
     //structs recurse; strings by content; scalars width-aware, the
     //BoxedValuesEqual cell discipline); reference-shaped fields
     //(class/array/interface/func) compare by handle, exactly what the
-    //copy path stores. Read-only: no allocation, no GC, benign under
-    //the sharing model (the OpFuncEquality precedent).
+    //copy path stores. Cell-granularity — no record-level lock (see the
+    //m_slotKinds block).
     bool StructValuesEqual(int32_t a, int32_t b) const;
 
     //v0.13.0 D4: content equality for two RTK_Func records — the
@@ -2200,10 +2369,13 @@ private:
     //8-byte cell per staticSlots record, rebuilt with the layout view.
     VmStaticSlots m_staticSlots;
     //String objectization: runtime strings are GC-managed immutable objects.
-    //An RTK_String slot holds a 1-based handle into m_stringObjs (0 = null /
-    //uninitialized, reads as "" — same fallback shape the old pool-index-0
-    //path had). Compile-time constants are eagerly materialized as immortal
-    //Flat objects at Execute() start (JVM constant-pool semantics).
+    //An RTK_String slot holds a handle into m_stringObjs; the string domain
+    //has no null (0.13.4 ruling D26) — handle 0 is the immortal, interned
+    //empty string, so the zero bit pattern is the string default value
+    //(Go's zero-value string). Reference-kind slots keep 0 = null: strings
+    //enter them only boxed, via OP_Box. Compile-time constants are eagerly
+    //materialized as immortal Flat objects at Execute() start (JVM
+    //constant-pool semantics).
     struct StrObj {
         enum class Form : uint8_t { Flat, Cons };
         Form form = Form::Flat;
@@ -2219,7 +2391,6 @@ private:
     std::vector<bool> m_strMarkBits;
     ShardFreeList m_strShards;
     std::vector<int32_t> m_constStrCache;  //constant idx -> immortal handle
-    int32_t m_emptyStrHandle = 0;          //dedicated immortal ""
     //Name → host function table for native calls. The flag carries the
     //K2 slice 4 blocking declaration (registration channel); non-blocking
     //natives run with the GIL held as before.
@@ -2237,7 +2408,7 @@ private:
     //(JNI local-ref shape). Address entries cover the staged arg/ret
     //cells on the carrier's C++ stack (the native writes them after
     //entry, so only address rooting sees the final values); value
-    //entries cover handles minted by NativeHost callbacks mid-call
+    //entries cover handles created by NativeHost callbacks mid-call
     //(newString et al.) before the native copies them into ret. All
     //mutations happen under the GIL; each blocking arm removes
     //exactly its own entries on every exit path after reacquiring
@@ -2246,7 +2417,7 @@ private:
     struct NativeCallRoot {
         const uint8_t* cells = nullptr;  //address form base (null = value)
         uint32_t cellCount = 0;          //address form: 8-byte cell count
-        int32_t value = 0;               //value form: minted handle
+        int32_t value = 0;               //value form: created handle
         uint64_t owner = 0;              //K6 D11: the blocking arm that
                                          //pushed this (0 = never valid)
     };
@@ -2256,12 +2427,12 @@ private:
     //both root registries (native call roots and host roots) — pushes,
     //staging and removal only; the collector reads at rendezvous.
     mutable std::mutex m_rootRegistryMutex;
-    //Depth of blocking-native sections entered on this thread. Minting
+    //Depth of blocking-native sections entered on this thread. Creating
     //callbacks root their handles only while this is non-zero (a
     //non-blocking native holds the GIL across the whole call, so no GC
-    //can intervene between mint and the native writing the handle).
+    //can intervene between creation and the native writing the handle).
     static thread_local int t_blockingNativeDepth;
-    //K6 D11: the innermost blocking arm on this thread — callback-minted
+    //K6 D11: the innermost blocking arm on this thread — callback-created
     //value roots attribute to it (nested arms save/restore around their
     //invoke). 0 outside any blocking section.
     static thread_local uint64_t t_currentNativeRootOwner;
@@ -2367,6 +2538,22 @@ private:
     std::string FormatDebugRefShort(int32_t heapIdx) const;
     std::string FormatDebugBoxed(const std::vector<int32_t>& slot) const;
     std::string FormatDebugStringIdx(int32_t idx) const;
+    //v0.13.9 phase 3 Task 11: byref/promoted slot display (locals table
+    //kinds RTK_Byref / RTK_ByrefCell / RTK_Promoted). A byref slot
+    //renders the pair (&#<handle>[<cell>] -> value) — the aggregate kind
+    //treats an offset-0 pair as the whole record (the D9 convention),
+    //the cell kind always resolves the addressed cell's element kind; a
+    //promoted slot renders its box's plain value (the slot's upper half
+    //is stale — only the low handle is read). ByrefElementKindOf
+    //resolves the element kind for the kindName composition in
+    //FrameLocals (kDebugKindUnresolved = unresolved).
+    std::string FormatDebugByrefSlot(const uint8_t* frameLocals,
+        uint16_t offset, uint8_t slotKind) const;
+    std::string FormatDebugPromotedSlot(const uint8_t* frameLocals,
+        uint16_t offset) const;
+    uint8_t ByrefElementKindOf(const uint8_t* frameLocals,
+        uint16_t offset, uint8_t slotKind) const;
+    uint8_t ByrefCellKindOf(size_t handle, size_t cell) const;
     //v0.12.6 Task 9: static-slot display helpers (VmExecutorDebug.cpp) —
     //cell rendering by declared kind + owner init-phase lookup.
     std::string StaticSlotInitPhase(const CompiledStaticSlot& slot,
@@ -2379,15 +2566,17 @@ private:
     //buffers moved at their call sites) arrive with zero copies; lvalue
     //callers pay one copy at the call boundary and the body then moves
     //into the slot — never worse than the old const& form.
-    int32_t MintNewString(std::string content);              //runtime mint, interns <=kShortStringMaxBytes
-    int32_t MintConstantString(const std::string& content);  //immortal flat (intern path + immortal bit)
+    int32_t CreateNewString(std::string content);              //runtime create, interns <=kShortStringMaxBytes
+    int32_t CreateConstantString(const std::string& content);  //immortal flat (intern path + immortal bit)
     bool IsInternedString(int32_t handle) const;             //live + in the short-string table
     bool StringsEqual(int32_t hA, int32_t hB);               //single source for OP_Eq_str / OP_Ne_str
     int32_t AllocConsString(int32_t left, int32_t right);    //O(1) zero-copy node
     int32_t AllocStringObj();                                //raw slot, sets m_gcPressure
     bool IsLiveStringHandle(int32_t handle) const;
-    //Requires an Execute()-initialized store (m_emptyStrHandle); all
-    //callers are mid-execution today.
+    //Requires an Execute()-initialized store; all callers are
+    //mid-execution today. A non-live handle fails fast (ruling D26:
+    //handle 0 is the live empty string, so only a producer bug or a GC
+    //defect reaches the throw).
     const std::string& StrVal(int32_t handle);               //execution path (flattens in place)
     //Shared cons-subtree walk behind both accessors (iterative; deep
     //left-leaning chains stay stack-safe).
@@ -2428,6 +2617,14 @@ private:
     //GC infrastructure.
     ChunkedArray<uint8_t>  m_slotKinds;      //parallel to m_structHeap: RTK_Class/RTK_Struct/0=free
     ChunkedArray<uint16_t> m_slotStructIdx;  //parallel to m_structHeap: struct CompiledStruct index (class uses slot[0])
+    //v0.13.9 phase ② ruling revision: whole-record struct reads and
+    //writes are CELL-granularity, same as single-field access — no
+    //record-level lock. Concurrent torn observation of a shared struct
+    //is the user's coordination duty (Mutex/AtomicInt, spec §10.1),
+    //matching the mainstream precedent (C# struct copy, Go value copy).
+    //GC-safe by construction: NoteGcPressure is a pending-flag store,
+    //not a safepoint — the GcWorldStop rendezvous happens only at
+    //dispatch boundaries, never mid-copy-walk.
     //v0.13.1 (D1): per-object instantiation descriptor, parallel to
     //m_structHeap — construction (OP_New) writes the interned
     //GenericInstDescriptor*; every other slot kind and every free slot
@@ -2453,12 +2650,77 @@ private:
     bool m_tensorHooksActive = false;
     //v0.13.1: descriptor-table rows resolved at run start (index
     //parallel to CompiledModule::descriptorTable). Static rows intern
-    //from their canonical spelling; recipe rows (runtime composition)
+    //from their canonical name; composition record rows (runtime composition)
     //stay null until that path lands.
     std::vector<GenericInstDescriptor*> m_descCache;
     std::vector<bool>     m_markBits;       //parallel to m_structHeap: GC mark bit
     ShardFreeList m_heapShards;   //K8: per-carrier free heap slot shards
     DomainLockSet m_domainLocks;  //K8: Growth (later: Container/Sync/Stream/StrMaint)
+    //Native-creator gate: keeps out-of-denominator creating and the
+    //collection from interleaving. A carrier parked inside a blocking
+    //native (and a host thread through the bridge) created VM objects
+    //OUTSIDE the GC rendezvous — the collection's quiescence premise
+    //("no bytecode and no store allocation can run") never covered
+    //those creations, and a fresh slot could slip between the collector's
+    //root-registry snapshot and the creating thread's root push, getting
+    //swept dead before it was reachable (v0.13.6 net crash:
+    //lastErrorText's creation swept mid-call). The elected collector takes
+    //this gate EXCLUSIVELY across CollectGarbage; every creation callback
+    //takes it SHARED across create + fill + root push, so a collection
+    //either sees the root or waits for it, while creation-vs-creation stays as
+    //concurrent as the lock-free allocator and m_rootRegistryMutex
+    //already allow. The gate never sits on the hot bytecode path: only
+    //out-of-denominator creation callbacks and the collection itself touch
+    //it, so steady-state multithreaded execution pays nothing (a plain
+    //mutex here would additionally serialize creators against each
+    //other — a global lock wider than the race it closes).
+    //Lock order: GIL before gate before domain/registry locks. The
+    //collector holds the GIL across the whole collection (it retakes
+    //it inside the mark scans); with the gate taken first, that gave
+    //collector-gate/creator-GIL vs creator-gate/collector-GIL — an
+    //ABBA deadlock (v0.13.6 review C1). Create callbacks that need the
+    //GIL take GilEnsureGuard before the gate; GIL-free creation sites must
+    //raise nothing inside their gate span, because raising takes the
+    //GIL and would invert the order behind the gate.
+    //Reentry: a gated creation span that raises (the array/view error
+    //paths) reaches this gate a second time through RaiseNlangException,
+    //which creates and roots the exception graph through the gate
+    //itself. Shared ownership is not recursive — a waiting writer
+    //blocks new shared owners — so those spans hold the gate through
+    //NativeCreationGate below, which counts per-thread depth instead of
+    //locking twice.
+    //Durability contract: a created handle is only durable once rooted;
+    //a span that creates several objects (the exception graph: instance,
+    //message, backtrace) keeps the gate held across the group, or an
+    //earlier unrooted handle could be swept between two creation calls
+    //(v0.13.6 review I2).
+    std::shared_mutex m_nativeAllocGate;
+    //Shared-gate holder with per-thread reentry depth: creation callbacks
+    //take it at their entry; a raise inside a gated span relocks the
+    //same gate through the raiser's own creation and root push, and the
+    //depth counter keeps the outer hold alive until the last scope
+    //exits. Keyed by gate address so two executors driven from one
+    //thread cannot cross counters.
+    class NativeCreationGate {
+    public:
+        explicit NativeCreationGate(VmExecutor& exec)
+            : m_gate(exec.m_nativeAllocGate) {
+            if (++ThreadDepth()[&m_gate] == 1)
+                m_gate.lock_shared();
+        }
+        NativeCreationGate(const NativeCreationGate&) = delete;
+        NativeCreationGate& operator=(const NativeCreationGate&) = delete;
+        ~NativeCreationGate() {
+            if (--ThreadDepth()[&m_gate] == 0)
+                m_gate.unlock_shared();
+        }
+    private:
+        static std::map<std::shared_mutex*, int>& ThreadDepth() {
+            static thread_local std::map<std::shared_mutex*, int> depth;
+            return depth;
+        }
+        std::shared_mutex& m_gate;
+    };
     //K8: slots appended per growth event. DEFAULT_SHARD_BLOCK in
     //production (mimalloc-style batch refill); 1 under gc-stress so the
     //store stays exactly as large as its population.
@@ -2473,8 +2735,13 @@ private:
     std::atomic<int> m_gcRendezvousParks{0};  //K7: parked arrivals (per run)
     std::atomic<bool> m_gcThrowOnceForTests{false};  //K8: injected failure
     std::atomic<bool> m_gcCollectInFailureCatchForTests{false};
+    std::atomic<int>  m_creationRootGapMs{0};  //white-box creation/root pause
+    std::atomic<int>  m_collectGateGapMsForTests{0};   //C1 seam: gate pause
+    std::atomic<int>  m_collectGateGapTimesForTests{0}; //C1 seam: remaining
+    bool m_lastRaiseCreatedRootedForTests = false;  //I1 pin: window registry hit
     size_t m_gcCollections = 0;    //K6 D7: per-run collection count
     bool   m_conservativeBandForTests = false;  //K2 slice 5 A/B knob
+    size_t m_heapAllocCountForTests = 0;  //exact TakeHeapSlot count (pins)
 
     //String-store GC plumbing (collection activates in Task 2).
     static const size_t kStrGcThresholdDefault = 1024;
@@ -2541,9 +2808,9 @@ private:
     //call had thrown). 0 = none; consumed at entry. Armed by the carrier
     //only (top-level resume, nestDepth 0). K7: lives on the carrier slot
     //as ResumeThrowExcIdxRef().
-    //K1 Slice 6: cached "Thread" class index (spawn mints instances).
+    //K1 Slice 6: cached "Thread" class index (spawn creates instances).
     int16_t m_threadClassIdx = -1;
-    //K3: cached "Future" class index (typed spawn mints instances).
+    //K3: cached "Future" class index (typed spawn creates instances).
     int16_t m_futureClassIdx = -1;
 
     //Phase 9d: cached class indices for the built-in Exception hierarchy.
@@ -2584,11 +2851,11 @@ private:
     //raiseException callback roots the fresh object before throwing it
     //across the blocking-native GIL gap.
     int32_t BuildNlangException(int16_t classIdx, const std::string& msg);
-    //v0.12.4 backtrace half of BuildNlangException: mint the List<string>
+    //v0.12.4 backtrace half of BuildNlangException: create the List<string>
     //cell[3] value with one boxed entry per active call frame,
     //innermost-first. Returns the list's heap idx (-1 when the List
     //class is not registered).
-    int32_t MintBacktraceList();
+    int32_t CreateBacktraceList();
 
     //v0.8.5: the message an NLangThrow carries for a thrown exception
     //object. cell[1] holds the message string handle (the ctor intrinsic

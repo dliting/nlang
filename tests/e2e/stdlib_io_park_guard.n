@@ -1,16 +1,17 @@
 import io;
+import system;
 
 // Final review M14: a park with no descriptor and no deadline has no
 // possible wake — the call must answer ready immediately instead of
 // hanging. The timed half pins the opposite contract: fd < 0 with a
 // deadline still waits for it.
 int main() {
-    long t0 = io.nowMs();
+    long t0 = system.monoMs();
     io.parkForIo(-1, 1, 0);
-    if (io.nowMs() - t0 >= 1000) { return 1; }
-    long t1 = io.nowMs();
+    if (system.monoMs() - t0 >= 1000) { return 1; }
+    long t1 = system.monoMs();
     io.parkForIo(-1, 1, t1 + 50);
-    if (io.nowMs() - t1 < 40) { return 2; }
+    if (system.monoMs() - t1 < 40) { return 2; }
     io.print("ok");
     return 0;
 }

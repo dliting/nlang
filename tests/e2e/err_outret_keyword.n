@@ -1,0 +1,5 @@
+// v0.13.9 phase 4: "out" stays a keyword — it cannot name a variable.
+int main() {
+    int out = 1;
+    return out;
+}

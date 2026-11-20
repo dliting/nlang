@@ -6,7 +6,9 @@
 ---*/
 #include "net/net_platform.h"
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <iostream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -96,11 +98,31 @@ static void TestUdpRoundTrip() {
     NetClose(b);
 }
 
+//OS-level loopback ICMP oracle: ambient software (VPN filter drivers,
+//security suites) can swallow ICMP echo machine-wide — including
+//loopback — while TCP/UDP keep working. The live echo below asserts a
+//NLang property only when the OS itself gets answers (locale-
+//independent ping exit code; 2 attempts so one lost echo is noise).
+static bool OsLoopbackIcmpAlive() {
+#ifdef _WIN32
+    return std::system("ping -n 2 -w 800 127.0.0.1 > NUL") == 0;
+#else
+    return std::system("ping -c 2 -W 1 127.0.0.1 > /dev/null 2>&1") == 0;
+#endif
+}
+
 static void TestResolveAndIcmp() {
     std::vector<NetEndpoint> eps;
     CHECK(NetResolve("localhost", 80, eps));
     CHECK(!eps.empty());
-    //Unprivileged echo (IcmpSendEcho2 / DGRAM ICMP): loopback answers.
+    //Unprivileged echo (IcmpSendEcho2 / DGRAM ICMP): loopback answers —
+    //gated on the OS oracle so an intercepted machine reports a visible
+    //skip instead of a code failure it cannot attribute.
+    if (!OsLoopbackIcmpAlive()) {
+        std::cerr << "SKIP live loopback echo: OS ping fails "
+                     "(ambient ICMP interception)\n";
+        return;
+    }
     const uint8_t payload[4] = { 'p', 'i', 'n', 'g' };
     const int rtt = NetIcmpEcho("127.0.0.1", payload, 4, 3000);
     CHECK(rtt >= 0);   //-1 timeout, -2 error — loopback must answer

@@ -208,15 +208,30 @@ public:
 	//`namespace <path>`, so the chain cannot express a path-derived
 	//package for project units. Call contract: valid only for top-level
 	//members merged into root and for library members; class methods
-	//keep their bare-name rule on the caller's side.
+	//keep their unqualified-name rule on the caller's side.
 	std::string PackageOf(const SnField& member) const;
-	//PackageOf, dotted with the member's name; the bare name when the
+	//PackageOf, dotted with the member's name; the unqualified name when the
 	//member has no package.
 	std::string QualifiedName(const SnField& member) const;
 
 	//Nearest ancestor (Parent() chain) carrying an owner tag — the
 	//"current TU" for a resolver context (spec F18); NO_OWNER at root.
 	uint32_t OwnerOfContext(const SyntaxNode& context) const;
+
+	//0.13.8 item 5 (Task 4): the registry-aware foreign-namespace access
+	//verdict — true when member is owned by a FOREIGN module (NO_OWNER —
+	//builtin decls — is explicitly admitted), sits at namespace level BY
+	//KIND, and carries a non-public declared access. The kind test is the
+	//Parent() shape, not IsField(): namespaces carry NF_Field
+	//(RnMisc.h s_DefaultFlags), so the legacy-flags proxy never
+	//identifies the root level. Protected's package rule (spec D5.2:
+	//this module + same-package sibling modules) registers here — with
+	//package == module today a foreign accessor always denies; dotted
+	//multi-module packages will compare packages instead. An ownerless
+	//accessor context follows the registry's NO_OWNER-never-passes
+	//doctrine.
+	bool ForeignNamespaceAccessDenied(const SnField& member,
+		uint32_t accessorModule) const;
 
 	//Declared-generic placeholder/instantiation state for this build
 	//(both the resolver and the VM backend reach it through here).
@@ -225,7 +240,7 @@ public:
 		return *m_upDeclaredGenerics;
 	}
 
-	//Synthetic builtin declarations minted on demand for this build
+	//Synthetic builtin declarations created on demand for this build
 	//(builtin generic instantiations, ByteStream/FileStream
 	//singletons, static-face qualifiers). Same per-build scope and
 	//the same ownership duty as DeclaredGenerics.

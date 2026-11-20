@@ -1,0 +1,58 @@
+// v0.13.7 regex: matches() -- non-overlapping left-to-right enumeration,
+// the Go-probed empty-match adjacency rule (D10), limit semantics.
+import io;
+import regex;
+
+int main() {
+    int bad = 0;
+    List<Match> res = Regex("a").matches("banana");
+    if (res.length() != 3) { bad = bad + 1; }
+    if (res.length() == 3) {
+        if (res[0].start != 1 || res[1].start != 3 || res[2].start != 5) { bad = bad + 1; }
+        if (res[0].text != "a") { bad = bad + 1; }
+    }
+    // non-overlapping leftmost-first runs
+    List<Match> ws = Regex("\\w+").matches("hello world");
+    if (ws.length() != 2) { bad = bad + 1; }
+    if (ws.length() == 2) {
+        if (ws[0].text != "hello" || ws[1].text != "world") { bad = bad + 1; }
+    }
+    // Go-probed pair (D10): "a*" on "ab" yields ["a", ""] -- the empty match
+    // at byte 1 is skipped, the one at the string end is kept
+    List<Match> es = Regex("a*").matches("ab");
+    if (es.length() != 2) { bad = bad + 1; }
+    if (es.length() == 2) {
+        if (es[0].text != "a") { bad = bad + 1; }
+        if (es[1].text != "" || es[1].start != 2) { bad = bad + 1; }
+    }
+    // an all-empty pattern yields one match per boundary: x* on "abc" -> 4
+    List<Match> xs = Regex("x*").matches("abc");
+    if (xs.length() != 4) { bad = bad + 1; }
+    // capture groups ride along per match
+    List<Match> gs = Regex("(\\w)=(\\d)").matches("a=1 b=2");
+    if (gs.length() != 2) { bad = bad + 1; }
+    if (gs.length() == 2) {
+        if (gs[0].group(1) != "a" || gs[1].group(2) != "2") { bad = bad + 1; }
+    }
+    // limit caps the count (Go rule); 0 yields the empty list; default -1
+    List<Match> lim = Regex("a").matches("banana", 2);
+    if (lim.length() != 2) { bad = bad + 1; }
+    List<Match> zero = Regex("a").matches("banana", 0);
+    if (zero.length() != 0) { bad = bad + 1; }
+    // no match -> empty list, never null
+    List<Match> none = Regex("z").matches("abc");
+    if (none.length() != 0) { bad = bad + 1; }
+    // empty input, empty pattern: one empty match at offset 0 (Go parity)
+    List<Match> ei = Regex("").matches("");
+    if (ei.length() != 1) { bad = bad + 1; }
+    if (ei.length() == 1 && (ei[0].start != 0 || ei[0].end != 0)) { bad = bad + 1; }
+    // empty-pattern advance steps by code point, not by byte: "a中" is 4
+    // bytes / 3 code points; Go round14 probe yields exactly three empty
+    // matches at byte offsets 0, 1 and 4 (a byte-wise +1 would invent 2, 3)
+    List<Match> zh = Regex("").matches("a中");
+    if (zh.length() != 3) { bad = bad + 1; }
+    if (zh.length() == 3) {
+        if (zh[0].start != 0 || zh[1].start != 1 || zh[2].start != 4) { bad = bad + 1; }
+    }
+    return bad;
+}

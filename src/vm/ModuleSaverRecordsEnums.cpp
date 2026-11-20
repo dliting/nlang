@@ -53,6 +53,13 @@ void WriteEnumRecords(std::ostream& fs, const CompiledModule& mod)
                      sizeof(access));
         }
     }
+
+    //v2.20 (0.13.8 item 5): the per-enum declared access bytes (the
+    //enum TYPE's visibility), a flat loop parallel to enumNames after
+    //the method tables.
+    for (uint8_t acc : mod.enumAccess) {
+        fs.write(reinterpret_cast<const char*>(&acc), sizeof(acc));
+    }
 }
 
 } // namespace nlang

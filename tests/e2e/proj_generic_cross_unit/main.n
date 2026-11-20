@@ -1,5 +1,6 @@
 import io;
 import boxlib;
+import sub.pipe2;
 
 int main()
 {
@@ -20,6 +21,39 @@ int main()
     catch (InvalidCastException e) { }
     Box<int> back = o as Box<int>;
     if (back.get() != 3) { return 7; }
+
+    //D8.4 same-name family: pipe2 declares Pipe<T> AGAIN — qualified
+    //descriptor spellings are the runtime identity. tagPipe() folds
+    //INSIDE each package (bare name, own rows), so the two tags must
+    //differ exactly by package head.
+    string bt = boxlib.tagPipe();
+    string pt = sub.pipe2.tagPipe();
+    if (bt != "boxlib.Pipe<int>" || pt != "sub.pipe2.Pipe<int>" || bt == pt)
+    {
+        return 12;
+    }
+    //Object-typed cross-package cast: the matching package's spelling
+    //accepts its own instance, the sibling throws.
+    Object bp = boxlib.makePipe();
+    Object pp = sub.pipe2.makePipe();
+    if (boxlib.castBack(bp) != 3) { return 13; }
+    if (sub.pipe2.castBack(pp) != 4) { return 14; }
+    try { boxlib.castBack(pp); return 15; }
+    catch (InvalidCastException e) { }
+    try { sub.pipe2.castBack(bp); return 16; }
+    catch (InvalidCastException e) { }
+    //Static-field compensation pattern (manual: generic classes cannot
+    //hold static fields — state keyed by canonical spelling in a
+    //non-generic helper). One shared counter; each instantiation bumps
+    //its own qualified key. A conflation would merge the two packages'
+    //keys into one cell with count 2.
+    boxlib.makePipeStr();
+    sub.pipe2.makePipeStr();
+    if (boxlib.countAt("boxlib.Pipe<int>") != 1) { return 17; }
+    if (boxlib.countAt("sub.pipe2.Pipe<int>") != 1) { return 18; }
+    if (boxlib.countAt("boxlib.Pipe<string>") != 1) { return 19; }
+    if (boxlib.countAt("sub.pipe2.Pipe<string>") != 1) { return 20; }
     io.print(r);
+    io.print("pkg-identity-ok");
     return 0;
 }

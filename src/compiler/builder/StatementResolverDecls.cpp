@@ -79,15 +79,24 @@ void StatementResolveAccessor::CheckFunctionModifierContract(SnFunction &sn)
 	}
 }
 
-//Phase 9f: native declarations are body-less by contract — the
-//implementation lives in the host's registered table. A body would
-//be silently ignored by GenerateFunction's native branch, so reject
-//here. Out params are rejected too: writeback needs a callee frame
-//and natives have none (the VM throws the same message at runtime).
-//Phase 9e: out parameters must also be 4-byte scalar/class slots. A
-//struct out param would need deep-copy writeback into the caller
-//— unsupported in v1. Checked at declaration for clearer errors
-//than at every call site.
+//Per-formal gates of a native declaration: & parameters need a callee
+//frame the host ABI does not give them (each argument is one value
+//cell). The & wall is the v0.13.9 phase 3 ruling — & returns stay
+//legal (the builtin containers return T&). The descriptor flag is
+//stamped at parse (SnFormalParam mirrors its type node).
+static void RejectNativeParamShapes(BuildEnvironment &env, SnFunction &sn,
+	std::vector<SnFormalParam*> &formals)
+{
+	for (auto *param : formals) {
+		if (param->ContainFlags(NF_Ref)) {
+			env.Log(CLL_Error, param->Location(),
+				"native function \"%s\" cannot have reference "
+				"parameters; the host receives values.",
+				sn.Name().c_str());
+		}
+	}
+}
+
 void StatementResolveAccessor::CheckFunctionNativeFormals(SnFunction &sn,
 	std::vector<SnFormalParam*> &formals)
 {
@@ -109,25 +118,10 @@ void StatementResolveAccessor::CheckFunctionNativeFormals(SnFunction &sn,
 				"per function.",
 				sn.Name().c_str());
 		}
-		for (auto *param : formals) {
-			if (param->ContainFlags(NF_Out)) {
-				m_Env.Log(CLL_Error, param->Location(),
-					"native function \"%s\" cannot have out parameters.",
-					sn.Name().c_str());
-			}
-		}
-	}
-	for (auto *param : formals) {
-		if (!param->ContainFlags(NF_Out))
-			continue;
-		auto *pT = param->EvalDataType();
-		if (pT && pT->Kind() == NK_StructDecl) {
-			m_Env.Log(CLL_Error, param->Location(),
-				"out parameter \"%s\" cannot be a struct.",
-				param->Name().c_str());
-		}
+		RejectNativeParamShapes(m_Env, sn, formals);
 	}
 }
+
 
 //Phase 9c: resolve formal param defaults in this function's scope.
 //Earlier formals are in sn's local scope (as params) and become
@@ -139,38 +133,34 @@ void StatementResolveAccessor::ResolveFunctionFormals(SnFunction &sn,
 {
 	for (size_t i = 0; i < formals.size(); ++i) {
 		auto *param = formals[i];
+		//v0.13.9 phase 4: the out spelling is retired — one named
+		//migration diagnostic at the single declaration throat, for
+		//every context (free, class, interface, enum, native, virtual).
+		//The old context-specific checks (native/struct/enum) are
+		//subsumed: the marker itself is the error now.
+		if (param->ContainFlags(NF_Out))
+		{
+			m_Env.Log(CLL_Error, param->Location(),
+				"out parameters are retired; declare \"%s\" as a "
+				"reference formal instead.",
+				param->Name().c_str());
+			continue;
+		}
+		//v0.13.9 phase 3 fix: the & mark rides the descriptor from
+		//construction (SnFormalParam mirrors its type node), so the gate
+		//below — and any call-site judgment over a forward-declared
+		//callee — reads it without ordering dependence.
+		//v0.13.9 phase 3: a reference parameter binds caller storage; a
+		//default value has nothing to bind (spec 3.9).
+		if (param->Value() && param->ContainFlags(NF_Ref))
+		{
+			m_Env.Log(CLL_Error, param->Location(),
+				"a reference parameter cannot have a default value.");
+			continue;
+		}
 		if (!param->Value())
 			continue;
-		//0.13.1a Task 5: a type-parameter-typed formal rejects a
-		//default value outright — the remaining checks presume a
-		//concrete formal type and cannot say anything useful here.
-		if (sn.IsGenericDeclaration() && RejectTypeParamDefault(sn, *param))
-			continue;
-		if (!param->Value()->IsResolved())
-			m_ExprResolver.Resolve(*param->Value(), sn, sn, ERF_None);
-
-		//Phase 9c round 5: default[i] may only reference formals[0..i-1].
-		if (param->Value()->IsResolved())
-			CheckDefaultForwardRefs(formals, i);
-
-		//P3 review: a ctor default cannot touch `this` — imported stubs
-		//skip like CheckDefaultTypeCompat (the producer unit already
-		//validated its own defaults).
-		if (param->Value()->IsResolved() && !sn.IsImported())
-			CheckCtorDefaultThisRefs(sn, *param);
-
-		//Verify default's type is compatible with the formal's
-		//declared type. Literals may already be IsResolved() from
-		//parse time, so the check runs regardless of the resolve
-		//above. Imported stubs are skipped: the stub formal's type
-		//is a placeholder (int32) since CompiledFunction doesn't
-		//carry per-formal type info; only the default expression
-		//preserves the original type. R5-4 already skips call-site
-		//type checks for imported callees; this declaration-time
-		//check would falsely reject valid cross-module defaults
-		//like string/null.
-		if (param->Value()->IsResolved() && !sn.IsImported())
-			CheckDefaultTypeCompat(param);
+		ResolveFormalDefault(sn, formals, i);
 	}
 }
 
@@ -225,7 +215,38 @@ SnAssignStmt *StatementResolveAccessor::BuildLocalInitAssign(
 	//never carry it.
 	if (sn.NodeFlags() & NF_Static)
 		pAssign->AddFlags(NF_Generated);
+	//v0.13.9 phase 3 Task 4: a & declarator's decomposed init is the
+	//binding itself — the flag discriminates it from later write-through
+	//stores through the same reference (the emit-side binding arm keys
+	//on it exactly like the static once-guard above).
+	if (sn.Type() && sn.Type()->ContainFlags(NF_Ref))
+		pAssign->AddFlags(NF_Generated);
 	return pAssign;
+}
+
+//v0.13.9 phase 3 split (source-size guard): resolve one init
+//declarator's decomposition — build, insert, resolve, then judge the
+//&-binding against the RESOLVED initializer. The judgment runs after
+//decomposition so the init expression resolves exactly once, and the
+//local registers before this resolves, so a self-binding (`Point& a
+//= a;`) resolves and the reference-target gate catches it.
+void StatementResolveAccessor::ResolveInitDeclarator(SnLocalDeclStmt &sn,
+	SnLocalDeclStmt::LocalDecl &decl, SnParagraph &paragraph,
+	NodeIterator iInsert, SnField *pTypeField)
+{
+	auto *pAssign = BuildLocalInitAssign(sn, decl);
+	paragraph.InsertChild(iInsert, pAssign);
+	pAssign->Accept(*m_pVisitor);
+	decl.pInitExpr = nullptr;
+	if (sn.Type()->ContainFlags(NF_Ref) && pAssign->Right())
+	{
+		//Task 9: a const T& declaration binds read-only — const storage
+		//aliases in that mode (the statement's const bit rides the stmt
+		//from construction, before the descriptor's own NF_Const lands).
+		if (!RejectRefBindTarget(*pAssign->Right(), pTypeField,
+				sn.Location(), sn.IsConst()))
+			MarkPromotedBindTarget(*pAssign->Right());
+	}
 }
 
 //0.9.0: BuildCtorInitAssign — the `T name(args);` synthesis — lives in
@@ -255,6 +276,9 @@ SnLocalVar *StatementResolveAccessor::CreateDeclaratorLocal(
 	SnField *pDeclField = (pSizedArrayField && decl.pArraySize)
 		? pSizedArrayField : pTypeField;
 	auto *pLocal = new SnLocalVar(decl.name, pDeclField, loc);
+	//v0.13.9 phase 3 Task 4: hand the descriptor back through the decl
+	//so codegen can read its NF_Promoted flag.
+	decl.pNode = pLocal;
 	//0.9.0/0.10.7: bare [...] inference and member receivers key on
 	//the array flag — a head-array statement flags every
 	//declarator, a size payload flags only its own.
@@ -277,6 +301,13 @@ static void MarkLocalDeclFlags(const SnLocalDeclStmt &sn, SnField &local)
 		local.AddFlags(NF_Const);
 	if (sn.NodeFlags() & NF_Static)
 		local.AddFlags(NF_Static);
+	//v0.13.9 phase 3: the & mark rides the type expression node, so a
+	//reference local's descriptor would look like a plain value slot to
+	//the storage gates (int& r2 = r would pass as int-to-int). Copy the
+	//mark onto the descriptor — the same propagation NF_Const/NF_Static
+	//already do.
+	if (sn.Type() && sn.Type()->ContainFlags(NF_Ref))
+		local.AddFlags(NF_Ref);
 }
 
 void StatementResolveAccessor::RegisterLocalDeclarators(SnLocalDeclStmt &sn,
@@ -316,12 +347,8 @@ void StatementResolveAccessor::RegisterLocalDeclarators(SnLocalDeclStmt &sn,
 			SynthesizeSizedArrayDeclarator(sn, decl, paragraph,
 				iInsert, pSizedElemField);
 		else if (decl.pInitExpr)
-		{
-			auto *pAssign = BuildLocalInitAssign(sn, decl);
-			paragraph.InsertChild(iInsert, pAssign);
-			pAssign->Accept(*m_pVisitor);
-			decl.pInitExpr = nullptr;
-		}
+			ResolveInitDeclarator(sn, decl, paragraph, iInsert,
+				pTypeField);
 		MarkLocalDeclFlags(sn, *pLocal);
 	}
 }
@@ -406,8 +433,7 @@ void StatementResolveAccessor::Access(SnLocalDeclStmt &sn)
 		sn.Type()->Location(), "used as a type"))
 		return;
 
-	//Array redesign B: jagged declarations (T[][]) have no VM
-	//layout and used to degrade silently — reject here.
+	//Array redesign B: jagged declarations (T[][]) have no VM layout.
 	if (ArrayTypeDepth(sn.Type()) >= 2)
 		m_Env.Log(CLL_Error, sn.Location(),
 			"jagged arrays (T[][]) are not supported");
@@ -420,6 +446,12 @@ void StatementResolveAccessor::Access(SnLocalDeclStmt &sn)
 	if (!pParagraph)
 		return;
 	if (RejectUnbracedControlFlowDecl(sn, pParagraph))
+		return;
+
+	//v0.13.9 phase 3: a &-marked type routes through the reference
+	//contract — declarator shapes here, the init judgment rides the
+	//decomposition in RegisterLocalDeclarators.
+	if (sn.Type()->ContainFlags(NF_Ref) && RejectRefDeclaratorShapes(sn))
 		return;
 
 	auto *pTypeField = sn.Type()->Field();

@@ -3,14 +3,14 @@
 //variable still receives the value.
 class Box {
     public int v;
-    public void fill(out int r) { r = v + 5; }
+    public void fill(int& r) { r = v + 5; }
 }
 
 int main() {
     Box b = Box();
     b.v = 40;
-    func<void, out int> f = b.fill;
+    func<void, int&> f = b.fill;
     int r = 0;
-    f(out r);
+    f(r);
     return r;
 }

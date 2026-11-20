@@ -1,0 +1,11 @@
+// v0.13.9 phase 3: a &-typed return of a local keeps the record alive
+// (GC) but writes are silently lost — rejected at compile time.
+struct Point { int x; }
+Point& make() {
+    Point p;
+    return p;
+}
+int main() {
+    Point q = make();
+    return 0;
+}

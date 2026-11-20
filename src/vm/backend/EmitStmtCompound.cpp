@@ -48,6 +48,16 @@ void VmBackend::EmitCompoundAssignBareIdentifier(SnCompoundAssignStmt& ca,
     }
     BareIdTarget target = ResolveBareIdentifier(field);
     if (target.kind == BareIdTarget::Local) {
+        //v0.13.9 phase 3 Task 4: promoted/reference locals read-modify-
+        //write through their storage (EmitStmtRef.cpp); aggregate-typed
+        //references keep the in-place slot form below: their pair slot
+        //is handle-compatible with the field ops.
+        if (field->ContainFlags(NF_Promoted)
+            || IsDerefRefDescriptor(field)
+            || IsTypeArgRefFormal(field)) {
+            EmitCompoundRefLocal(ca, field, target, op, emitter);
+            return;
+        }
         //Local variable: compute in-place on the local slot
         EmitExpression(*ca.Right(), emitter, m_currFunc->tempSlot2);
         EmitCompoundOp(op, emitter, target.localOffset,
@@ -261,7 +271,7 @@ void VmBackend::EmitSubscriptGetFromClaim(uint16_t claimBase,
         uint16_t indexSlot, uint16_t oldValSlot, const ArgBoxPlan& valBox,
         BytecodeEmitter& emitter) {
     CopyClaimToCallParams(claimBase, 2, emitter);
-    uint16_t nameIdx = AddStringConstant("get");
+    uint16_t nameIdx = AddStringConstant(kBuiltinGetMethodName);
     emitter.Emit(OpCode::OP_CallMethod);
     emitter.EmitUint16(nameIdx);
     emitter.EmitUint16(m_currFunc->callParamBase);
@@ -312,13 +322,11 @@ void VmBackend::EmitCompoundSubscriptArray(SnCompoundAssignStmt& ca,
     emitter.EmitUint16(static_cast<uint16_t>(sub.Indices().size()));
     EmitExpression(*ca.Right(), emitter, rhsSlot);
     EmitCompoundOp(op, emitter, oldValSlot, rhsSlot, elemType);
-    //Struct deep-copy of the computed value before the store
-    //(value-semantics boundary, mirrors EmitArrayElementStore).
-    if (RuntimeTypeKind(elemType) == RTK_Struct
-        && elemType->Kind() == NK_StructDecl) {
-        EmitStructDeepCopy(oldValSlot, oldValSlot,
-            static_cast<SnStructDecl&>(*elemType), emitter);
-    }
+    //Struct operands never reach this emitter: the resolver's
+    //RejectStructCompoundAssign gate (v0.13.9 phase ② Task 8) rejects
+    //compound operators on struct values by name — the old dead
+    //deep-copy arm here implied an in-place semantics no operator
+    //exists to define.
     emitter.Emit(SubscriptNeedsDynOps(*sub.Array())
         ? OpCode::OP_StoreElementDyn : OpCode::OP_StoreElementN);
     emitter.EmitUint16(claimBase);

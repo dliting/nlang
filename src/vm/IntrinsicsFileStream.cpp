@@ -215,7 +215,7 @@ bool VmExecutor::ExecuteIntrinsicFileStream(uint16_t intrinsicId,
             st->fs->read(&s[0], len);
             if (st->fs->gcount() < len)
                 throw std::runtime_error("NLang VM: ReadString bytes past end of stream");
-            int32_t strHandle = MintNewString(std::move(s));
+            int32_t strHandle = CreateNewString(std::move(s));
             std::memcpy(pResult, &strHandle, sizeof(strHandle));
             break;
         }
@@ -258,6 +258,10 @@ bool VmExecutor::ExecuteIntrinsicFileStream(uint16_t intrinsicId,
                 || static_cast<size_t>(structHeapIdx) >= m_structHeap.size())
                 throw std::runtime_error("NLang VM: WriteStruct on null struct");
             uint16_t structIdx = m_slotStructIdx[static_cast<size_t>(structHeapIdx)];
+            //Whole-record read walk — cell-granularity, no record-level
+            //lock (VmExecutor.h m_slotKinds block). The ReadStruct arm
+            //stays the same: deserialize writes only freshly-allocated
+            //records, unpublished until the intrinsic returns.
             SerializeStructFields(structHeapIdx, structIdx,
                 [&](const uint8_t* p, size_t n) {
                     st->fs->write(reinterpret_cast<const char*>(p),
@@ -364,7 +368,7 @@ bool VmExecutor::ExecuteIntrinsicFileStream(uint16_t intrinsicId,
                 sizeof(typeNameIdx));
             const std::string& declaredName = StrVal(typeNameIdx);
             //Write/read same-source: the literal carries the table key
-            //(resolver D10 rewrite); no bare-name fallback here.
+            //(resolver D10 rewrite); no unqualified-name fallback here.
             int declaredIdx = m_currModule->FindClass(declaredName);
             if (declaredIdx < 0)
                 throw std::runtime_error(

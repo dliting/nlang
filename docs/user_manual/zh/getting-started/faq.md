@@ -35,9 +35,9 @@ UTF-8.`），UTF-16保存的文件得到专门提示（改用UTF-8重新保存�
 
 nide帮助菜单的「NLang入门」「语言规格」「VM架构」「命令行工具」都在集成开发环境（IDE，integrated development environment）内嵌的帮助窗口中打开（内容即安装目录`docs\site\`下的文档站），左侧是导航目录。搜索框在窗口左上角（站点标题旁），支持全文检索。
 
-### `v--1`报`syntax error`？
+### 为什么`v--1`不是自减？
 
-词法层把`--`与`++`识别为单个词法单元（为文法尚未使用的自增/自减运算符预留），`v--1`被读成`v`、`--`、`1`，不构成合法语句，于是报`syntax error`（`Invalid statement.`）。两个运算符之间加空格（`v - -1`）或给单目操作数加括号（`v - (-1)`）即可。普通的`v+1`、`v+-1`没有问题——`+-`不是词法单元。
+nlang没有自增、自减运算符，`++`与`--`也不是单个词法单元——词法层逐字符切分，所以`v--1`被读成`v - (-1)`，即减去`-1`；`v+-1`被读成`v + (-1)`。`v++;`单独成句报`syntax error`（`Invalid statement.`），因为第二个`+`没有操作数。自增请写`v = v + 1;`。
 
 详见[规范/表达式](../specification/05-expressions/index.md)。
 
@@ -51,7 +51,7 @@ nide帮助菜单的「NLang入门」「语言规格」「VM架构」「命令行
 
 ### 跨模块引用报`Module '...' is not imported`？
 
-`import`只开放**限定名**——`import lib;`之后只能写`lib.f()`，裸名`f()`不解析。各引用形式的可见性规则见[规范/声明](../specification/03-program-structure/declarations.md)的「import声明」。完整错误消息见[常见错误消息](../specification/reference/common-errors.md)。
+`import`只开放**限定名**——`import lib;`之后只能写`lib.f()`，非限定名`f()`不解析。各引用形式的可见性规则见[规范/声明](../specification/03-program-structure/declarations.md)的「import声明」。完整错误消息见[常见错误消息](../specification/reference/common-errors.md)。
 
 ### 数组值赋给其他类型报`Incompatible type`？
 
@@ -59,7 +59,7 @@ nide帮助菜单的「NLang入门」「语言规格」「VM架构」「命令行
 
 ### 变量不初始化会怎样？
 
-合法且无警告——每个类型有确定的默认值：数值是0、`bool`是false、`char`是码点0、enum是底层整数值0（自动递增的enum即首个成员）、struct是全字段零初始化，string与其余引用类型（class、interface、数组、容器、`func`）是null。引用默认值可直接`== null`判断；不判空就使用会在运行期抛`null reference error`。完整默认值表见[规范/声明](../specification/03-program-structure/declarations.md)的「默认值」。
+合法且无警告——每个类型有确定的默认值：数值是0、`bool`是false、`char`是码点0、enum是底层整数值0（自动递增的enum即首个成员）、struct是全字段零初始化，string是空字符串`""`，其余引用类型（class、interface、数组、容器、`func`）是null。引用默认值可直接`== null`判断；不判空就使用会在运行期抛`null reference error`。完整默认值表见[规范/声明](../specification/03-program-structure/declarations.md)的「默认值」。
 
 ### `Point(2, 3)`为什么报「没有构造器」？
 

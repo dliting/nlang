@@ -1,6 +1,8 @@
 /*---
     CallMarshalling.h — call() 与宿主函数直派（⑤）共享的单元编组。
-    声明 kind 驱动：string 形收取 String（铸柄，值语义）/Null（柄 0）；
+    声明 kind 驱动：string 形收取 String（铸柄，值语义）/Null（柄 0＝
+    空串，裁定 D26）；string 单元一律产出 String（柄 0 拷出 ""，宿主
+    永不见 null 字符串）；
     标量行经 EncodeScalarCell 严格校验（kind/值域）；参考形参（含
     List/Dict 描述符 kind）走 RefFactory——堆句柄透传或 builder 物化
     （每次跨越新对象，元素按声明 TypeDesc 校验）。形参 kind 的裁决链：
@@ -56,17 +58,22 @@ inline const TypeDesc* DeclaredParamType(const CompiledFunction& f, size_t i) {
 
 //Reference-kinded declarations: the four heap-slot kinds plus the
 //descriptor-only container kinds (RTK_List/RTK_Dict never appear in the
-//legacy fieldTypeKinds/returnTypeKind bytes).
+//legacy fieldTypeKinds/returnTypeKind bytes). RTK_Interface joins with
+//v0.13.9 Task 12 (D14): an interface-typed declaration holds a class
+//handle (it used to degrade to RTK_NonSerialized, which skipped every
+//root routing set here).
 inline bool IsReferenceKind(uint16_t k) {
     return k == RTK_Class || k == RTK_Struct || k == RTK_Array
-        || k == RTK_Func || k == RTK_List || k == RTK_Dict;
+        || k == RTK_Func || k == RTK_List || k == RTK_Dict
+        || k == RTK_Interface;
 }
 
 //One host Value → one 8-byte frame cell (declaration-driven).
 //declaredType (when present) supplies container element kinds for builder
 //materialization and refines the reference-kind check.
-//Null into a string formal writes nothing — callers hand in a zeroed cell
-//so the null handle 0 reads back as a null reference.
+//Null into a string formal writes nothing — the zeroed cell reads back
+//as the empty string (ruling D26: handle 0 is the live empty string, so
+//the host's "absent" degrades to "" rather than to a null string).
 //Reference-formal arm of ValueIntoCell: builder materialization, null,
 //or rooted-handle passthrough — with the kind-consistency check at the
 //marshalling boundary (not left to a misleading downstream slot guard).
@@ -115,7 +122,7 @@ inline void ValueIntoCell(VmExecutor& executor, const Value& v,
                           const TypeDesc* declaredType = nullptr) {
     if (declaredKind == RTK_String) {
         if (v.kind() == Value::Kind::String) {
-            const int32_t handle = executor.MintHostString(v.asString());
+            const int32_t handle = executor.CreateHostString(v.asString());
             std::memcpy(cell, &handle, sizeof(handle));
         } else if (v.kind() != Value::Kind::Null) {
             throw BadValue("string formal needs a String or Null host value");
@@ -133,17 +140,18 @@ inline void ValueIntoCell(VmExecutor& executor, const Value& v,
     EncodeScalarCell(v, declaredKind, cell);
 }
 
-//One frame cell → host Value (string copies out — value semantics; a
-//null handle 0 becomes Kind::Null; scalars decode by row; reference
-//kinds become rooted proxies — registration mutates the root table,
-//hence a non-const executor).
+//One frame cell → host Value (string copies out — value semantics, and
+//handle 0 copies out as "" per ruling D26; a null reference handle 0
+//becomes Kind::Null; scalars decode by row; reference kinds become
+//rooted proxies — registration mutates the root table, hence a
+//non-const executor).
 inline Value ValueFromCell(VmExecutor& executor, uint16_t declaredKind,
                            const uint8_t cell[8]) {
     if (declaredKind == RTK_String) {
         int32_t handle = 0;
         std::memcpy(&handle, cell, sizeof(handle));
-        if (handle == 0)
-            return Value();   //null reference
+        //Ruling D26: a string cell always holds a live string — handle 0
+        //is the empty string — so the host never sees a null string.
         return Value(executor.StrValCopy(handle));
     }
     if (IsReferenceKind(declaredKind)) {

@@ -173,7 +173,7 @@ catchable run-time error on both reads and writes, raised as an
 `IndexOutOfBoundsException` (chapter 8).
 
 *Informative:* the creation cap of §4.10.2 covers every creation
-path — `T[n]` and the tensor package's native minting alike; 100M
+path — `T[n]` and the tensor package's native creation alike; 100M
 elements is 800 MB at the widest element.
 
 ## 4.10.7 Multi-dimensional arrays
@@ -337,7 +337,7 @@ compile-time error): the view is a value, and stores go through
 its own subscripts, one element at a time.
 
 An axis can map several view positions onto one source position —
-through a broadcast view (`broadcastTo`, §18.2) or by slicing an
+through a broadcast view (`broadcastTo`, §19.2) or by slicing an
 already-broadcast axis. Reads repeat the source element; while such
 an axis spans more than one position, stores are rejected — two
 logical cells naming one source cell would silently corrupt one of

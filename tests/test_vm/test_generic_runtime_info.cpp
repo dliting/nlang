@@ -1,7 +1,7 @@
 // v0.13.1 Task 4: object-side instantiation descriptors (D1). The
 // executor carries one GenericInstDescriptor* per heap slot (a parallel
 // array like m_slotKinds); OP_New's descIdx operand resolves through the
-// module's descriptor table (interned from the canonical spelling at run
+// module's descriptor table (interned from the canonical name at run
 // start) and AllocClassOnHeap writes the pointer. Real programs compile
 // and execute in-process (the test_array_view_record harness pattern,
 // including its static-init contract).
@@ -134,9 +134,10 @@ static void testBoxIntRidesConstruction()
         if (hits.size() == 1) {
             const GenericInstDescriptor* desc =
                 r.exec->InstDescriptorOf(hits[0]);
-            CHECK(desc->Spelling() == "Box<int>",
-                  "spelling is the canonical Box<int>");
-            CHECK(desc->TemplateName() == "Box", "template name is bare");
+            CHECK(desc->Spelling() == "gri_box_int.Box<int>",
+                  "spelling is the module-path-qualified link identity");
+            CHECK(desc->TemplateName() == "gri_box_int.Box",
+                  "template name is the qualified link identity");
             CHECK(desc->TypeArgs().size() == 1, "one type argument");
         }
     }
@@ -194,13 +195,14 @@ static void testProbeBoundsAreNull()
 }
 
 //A template-body construction composes its descriptor at run time from
-//the receiver's own arguments (D3 recipes): Hold<int> driving Box(x)
-//inside its ctor yields "Box<int>" alongside the static "Hold<int>".
-static void testRecipeComposesFromReceiver()
+//the receiver's own arguments (D3 compositions): Hold<int> driving Box(x)
+//inside its ctor yields the qualified "gri_composition.Box<int>" alongside
+//the static "gri_composition.Hold<int>".
+static void testCompositionComposesFromReceiver()
 {
-    TEST(recipeComposesFromReceiver);
+    TEST(compositionComposesFromReceiver);
     {
-        ExecResult r = runProgram("gri_recipe",
+        ExecResult r = runProgram("gri_composition",
             "class Box<T> {\n"
             "    public T value;\n"
             "    public Box(T v) { value = v; }\n"
@@ -221,8 +223,8 @@ static void testRecipeComposesFromReceiver()
         for (int32_t idx : hits) {
             const std::string& spelling =
                 r.exec->InstDescriptorOf(idx)->Spelling();
-            sawHold = sawHold || spelling == "Hold<int>";
-            sawBox = sawBox || spelling == "Box<int>";
+            sawHold = sawHold || spelling == "gri_composition.Hold<int>";
+            sawBox = sawBox || spelling == "gri_composition.Box<int>";
         }
         CHECK(sawHold, "receiver Hold<int> rides the static row");
         CHECK(sawBox, "inner Box composed as Box<int> at run time");
@@ -230,13 +232,13 @@ static void testRecipeComposesFromReceiver()
     PASS();
 }
 
-//Nested composition: a recipe argument that is itself a recipe-driven
+//Nested composition: a composition argument that is itself a composition-driven
 //construction (Box<Box<T>> staged through a typed local).
-static void testNestedRecipeComposes()
+static void testNestedCompositionComposes()
 {
-    TEST(nestedRecipeComposes);
+    TEST(nestedCompositionComposes);
     {
-        ExecResult r = runProgram("gri_recipe_nested",
+        ExecResult r = runProgram("gri_composition_nested",
             "class Box<T> {\n"
             "    public T value;\n"
             "    public Box(T v) { value = v; }\n"
@@ -260,9 +262,11 @@ static void testNestedRecipeComposes()
         bool sawNested = false;
         for (int32_t idx : hits)
             if (r.exec->InstDescriptorOf(idx)->Spelling()
-                    == "Box<Box<int>>")
+                    == "gri_composition_nested.Box<"
+                       "gri_composition_nested.Box<int>>")
                 sawNested = true;
-        CHECK(sawNested, "nested recipe composed as Box<Box<int>>");
+        CHECK(sawNested, "nested composition composed with the qualified "
+              "link identity");
     }
     PASS();
 }
@@ -298,9 +302,11 @@ static void testStaticBodyComposesFromForwardedContext()
               "descriptors");
         bool sawBox = false;
         for (int32_t idx : hits)
-            if (r.exec->InstDescriptorOf(idx)->Spelling() == "Box<int>")
+            if (r.exec->InstDescriptorOf(idx)->Spelling()
+                    == "gri_static_ctor_fwd.Box<int>")
                 sawBox = true;
-        CHECK(sawBox, "the static-body construction composed as Box<int>");
+        CHECK(sawBox, "the static-body construction composed with the "
+              "qualified link identity");
     }
     PASS();
 }
@@ -380,7 +386,8 @@ static void testRecycledSlotsCarryNoDescriptor()
         for (int32_t idx : hits) {
             if (r.exec->HeapSlotKindForTests(idx) != RTK_Class)
                 foreignKind = true;
-            if (r.exec->InstDescriptorOf(idx)->Spelling() == "Box<int>")
+            if (r.exec->InstDescriptorOf(idx)->Spelling()
+                    == "gri_recycled_slots.Box<int>")
                 sawDeadBox = true;
         }
         CHECK(!foreignKind,
@@ -466,11 +473,11 @@ static void testNullDescCellRaisesNamedError()
 }
 
 //Task 6 Review-Focus-1 pin: the static→free chain fills the callee's
-//frame context cell from a recipe composed against the CALLER's cell.
+//frame context cell from a composition composed against the CALLER's cell.
 //Under per-allocation collections (threshold 4) the interned descriptor
 //pointers live in host memory and must survive every safepoint; the
 //verdicts (exit-code protocol) plus the post-run heap invariants —
-//descriptors only on class slots, both recipe-composed constructions
+//descriptors only on class slots, both composition-composed constructions
 //still carrying theirs — prove the fill order beats the safepoint.
 static void testGenericFrameSlotUnderGcStress()
 {
@@ -517,12 +524,13 @@ static void testGenericFrameSlotUnderGcStress()
                 foreignKind = true;
             const std::string spelling =
                 r.exec->InstDescriptorOf(idx)->Spelling();
-            sawInt = sawInt || spelling == "Hold<int>";
-            sawString = sawString || spelling == "Hold<string>";
+            sawInt = sawInt || spelling == "gri_gc_stress_chain.Hold<int>";
+            sawString = sawString
+                || spelling == "gri_gc_stress_chain.Hold<string>";
         }
         CHECK(!foreignKind,
               "descriptor slots stayed kind-restricted under stress");
-        CHECK(sawInt && sawString, "both recipe-composed constructions "
+        CHECK(sawInt && sawString, "both composition-composed constructions "
               "kept their descriptors across the collections");
     }
     PASS();
@@ -541,8 +549,8 @@ int main()
         testBoxIntRidesConstruction();
         testPlainObjectCarriesNone();
         testProbeBoundsAreNull();
-        testRecipeComposesFromReceiver();
-        testNestedRecipeComposes();
+        testCompositionComposesFromReceiver();
+        testNestedCompositionComposes();
         testStaticBodyComposesFromForwardedContext();
         testStaticFrameCarriesForwardedContext();
         testRecycledSlotsCarryNoDescriptor();

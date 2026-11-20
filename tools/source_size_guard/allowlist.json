@@ -12,6 +12,10 @@
     "reason": "one grammar category's syntax-node class declarations (the misc family: class/interface/namespace nodes); the macro-generated Visit surface ties the family to one header"
   },
   {
+    "path": "include/nlang/vm/CompiledModule.h",
+    "reason": "wire-format contract file: the record structs, the version constants and the full version history must stay together, and every format bump appends a history entry — file length tracks the format history by design"
+  },
+  {
     "path": "src/compiler/builder/ExprResolver.h",
     "reason": "resolver class pair plus the shared helper-declaration surface of the resolver TU family; C++ has no partial class, splitting would fragment the pair"
   },
@@ -71,6 +75,10 @@
     "path": "src/vm/IntrinsicsString.cpp",
     "function": "VmExecutor::ExecuteIntrinsicString",
     "reason": "per-intrinsic switch; each arm is a short handler"
+  },
+  {
+    "path": "src/vm/IntrinsicsString.cpp",
+    "reason": "one per-intrinsic switch family kept in one TU (the switch itself is allowlisted above); file length tracks the String face's growth, arms stay short handlers"
   },
   {
     "path": "src/vm/ModuleLoader.cpp",
@@ -214,6 +222,24 @@
   },
   {
     "path": "include/nlang/vm/NativeHost.h",
-    "reason": "the native ABI header: the NativeHost hook table plus the device/tensor hook structs are one public ABI; the hook count tracks the native surface, so every native addition grows this header by design"
+    "reason": "the native ABI header: the NativeHost hook table plus the device/tensor hook structs are one public ABI; the hook count tracks the native surface, so every native addition grows this header by design",
+    "path": "src/compiler/builder/CompiledModuleStubSupport.hpp",
+    "function": "SynthTypeExprFromDesc",
+    "reason": "per-kind dispatcher over the serialized TypeDesc kinds; each arm synthesizes one kind's parser-canonical shape and mirrors the producer's encode switch — the arm pairing is the invariant, splitting it severs the correspondence"
+  },
+  {
+    "path": "src/compiler/builder/CompiledModuleDefaultSupport.hpp",
+    "function": "SynthExprDescLiteral",
+    "reason": "per-tag literal dispatcher over the writer's EncodeLiteralDesc tag set; each arm is a short cursor read plus node create"
+  },
+  {
+    "path": "src/compiler/builder/CompiledModuleDefaultSupport.hpp",
+    "function": "SynthExprDescNode",
+    "reason": "per-tag default-expression dispatcher; each arm is a short handler (same shape as the per-intrinsic switches)"
+  },
+  {
+    "path": "src/compiler/builder/ClassFieldInitializerInjection.cpp",
+    "function": "CloneConstantInitializer",
+    "reason": "per-fold-kind dispatcher; each arm rebuilds one constant family through the grammar's own literal shape"
   }
 ]

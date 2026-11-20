@@ -1,6 +1,6 @@
 /*---
     DescriptorSpelling.cpp — 描述符表行生产：实例化静态行
-    （DescriptorIndexFor）与typeName配方行（RecipeIndexFor）。实参分类
+    （DescriptorIndexFor）与typeName拼接记录行（CompositionIndexFor）。实参分类
     与规范拼写在编译器侧共享词汇（builder/TypeArgSpelling.*）；
     本文件只负责编码与表去重。
 ---*/
@@ -21,7 +21,7 @@ namespace nlang
 
 namespace
 {
-//Append one u16 in the recipe's little-endian wire order.
+//Append one u16 in the composition record's little-endian wire order.
 void AppendU16(std::vector<uint8_t>& out, uint16_t v)
 {
 	out.push_back(static_cast<uint8_t>(v & 0xFF));
@@ -39,9 +39,10 @@ void AppendLenPrefixed(std::vector<uint8_t>& out, uint8_t tag,
 //One argument's encoding (see DescriptorEntry): a placeholder spells
 //ARG_THIS with its declared-parameter ordinal; an array wraps its
 //element's encoding with the rank; a nested instantiation embeds a
-//length-prefixed child recipe (its spelling field is the bare template
-//name); a concrete leaf spells ARG_CONST with the complete leaf form.
-void AppendArgRecipe(std::vector<uint8_t>& out, const TypeArgDesc& arg)
+//length-prefixed child composition record (its spelling field is the
+//template's descriptor spelling — 0.13.8 item 8); a concrete leaf spells
+//ARG_CONST with the complete leaf form.
+void AppendArgComposition(std::vector<uint8_t>& out, const TypeArgDesc& arg)
 {
 	if (IsTypeParamArg(arg))
 	{
@@ -53,19 +54,20 @@ void AppendArgRecipe(std::vector<uint8_t>& out, const TypeArgDesc& arg)
 	{
 		out.push_back(3);
 		out.push_back(arg.rank);
-		AppendArgRecipe(out, arg.nested[0]);
+		AppendArgComposition(out, arg.nested[0]);
 		return;
 	}
 	if (!arg.nested.empty())
 	{
-		//Child recipe: TEMPLATE_HEAD with the nested template's bare
-		//name (the argument's spelling field), then its arguments.
+		//Child composition: TEMPLATE_HEAD with the nested template's
+		//descriptor spelling (the argument's spelling field), then its
+		//arguments.
 		std::vector<uint8_t> child;
 		child.push_back(0);
 		AppendU16(child, static_cast<uint16_t>(arg.spelling.size()));
 		child.insert(child.end(), arg.spelling.begin(), arg.spelling.end());
 		for (const auto& nestedArg : arg.nested)
-			AppendArgRecipe(child, nestedArg);
+			AppendArgComposition(child, nestedArg);
 		out.push_back(4);
 		AppendU16(out, static_cast<uint16_t>(child.size()));
 		out.insert(out.end(), child.begin(), child.end());
@@ -77,7 +79,7 @@ void AppendArgRecipe(std::vector<uint8_t>& out, const TypeArgDesc& arg)
 
 //0.13.1c Task 8: the shared row core. Two row families, one per argument
 //shape, deduped by their exact bytes:
-//- recipe row (empty spelling) when an argument carries a type parameter
+//- composition record row (empty spelling) when an argument carries a type parameter
 //  — composes against the executing frame's descriptor cell at runtime
 //  (instance, static and free frames alike carry one);
 //- interned static row keyed by the complete spelling otherwise.
@@ -87,16 +89,16 @@ uint16_t VmBackend::DescriptorRowIndexFor(const std::string& rowName,
 	auto& table = m_compiledModule.descriptorTable;
 	if (HasTypeParamArg(args))
 	{
-		std::vector<uint8_t> recipe;
-		recipe.push_back(0);
-		AppendU16(recipe, static_cast<uint16_t>(rowName.size()));
-		recipe.insert(recipe.end(), rowName.begin(), rowName.end());
+		std::vector<uint8_t> composition;
+		composition.push_back(0);
+		AppendU16(composition, static_cast<uint16_t>(rowName.size()));
+		composition.insert(composition.end(), rowName.begin(), rowName.end());
 		for (const auto& arg : args)
-			AppendArgRecipe(recipe, arg);
+			AppendArgComposition(composition, arg);
 		for (size_t i = 0; i < table.size(); ++i)
-			if (table[i].recipe == recipe)
+			if (table[i].composition == composition)
 				return static_cast<uint16_t>(i);
-		table.push_back({"", std::move(recipe)});
+		table.push_back({"", std::move(composition)});
 		return static_cast<uint16_t>(table.size() - 1);
 	}
 	//Static row: key the row by spelling WITHOUT interning. The intern
@@ -112,30 +114,36 @@ uint16_t VmBackend::DescriptorRowIndexFor(const std::string& rowName,
 	return static_cast<uint16_t>(table.size() - 1);
 }
 
+//0.13.8 item 8: the row name is the DESCRIPTOR spelling — the
+//package-qualified link identity (DescriptorSpellingOf), not the bare
+//erasure name LinkKeyOf keeps for row keys. This is where top-level
+//descriptor rows become package-distinct.
 uint16_t VmBackend::DescriptorIndexFor(SnClassDecl& inst)
 {
 	if (!inst.IsGenericInstantiation())
 		return kNoInstDescriptor;
 	const std::vector<TypeArgDesc> args = BuildTypeArgsOf(*m_pRegistry, inst);
-	return DescriptorRowIndexFor(inst.BaseName(), args);
+	return DescriptorRowIndexFor(DescriptorSpellingOf(*m_pRegistry, inst),
+		args);
 }
 
 //0.13.1c Task 8: the interface twin — a static call through a generic
-//INTERFACE instantiation rides the interface's row (the minted shell
-//carries the same BaseName/GenericTypeArgs identity the class mint
-//does).
+//INTERFACE instantiation rides the interface's row (the created shell
+//carries the same descriptor spelling/GenericTypeArgs identity the class
+//creation does).
 uint16_t VmBackend::DescriptorIndexFor(SnInterfaceDecl& inst)
 {
 	if (!inst.IsGenericInstantiation())
 		return kNoInstDescriptor;
 	const std::vector<TypeArgDesc> args = BuildTypeArgsOf(*m_pRegistry, inst);
-	return DescriptorRowIndexFor(inst.BaseName(), args);
+	return DescriptorRowIndexFor(DescriptorSpellingOf(*m_pRegistry, inst),
+		args);
 }
 
 //0.13.1a Task 4 (D4): a generic FREE-function call site's descriptor row
 //— the inferred type arguments under the function's name, through the
 //same two-family row core as DescriptorIndexFor (0.13.1c Task 8: the
-//recipe/comment rationale lives there).
+//composition-record/comment rationale lives there).
 uint16_t VmBackend::FreeCallDescriptorIndexFor(const std::string& funcName,
     const std::vector<SnField*>& typeArgs)
 {
@@ -159,23 +167,23 @@ uint16_t VmBackend::ElemDescriptorIndexFor(SnField* pElemType)
 	return kNoInstDescriptor;
 }
 
-//v0.13.1: recipe row for a typeName operand that contains a type
+//v0.13.1: composition record row for a typeName operand that contains a type
 //parameter anywhere (the resolver folds concrete operands to a string
 //instead — see Access(SnTypeNameExpr)). The row is one argument
 //encoding: bare ARG_THIS, ARG_ARRAY (T[]), or an instantiation
 //embedding one. Rows stay self-describing by leading tag — an argument
 //encoding never starts with 0, so these never alias the instantiation
 //rows and byte-identical rows still merge.
-uint16_t VmBackend::RecipeIndexFor(const SnField& operand)
+uint16_t VmBackend::CompositionIndexFor(const SnField& operand)
 {
 	const TypeArgDesc arg = BuildTypeArgOf(*m_pRegistry, operand);
-	std::vector<uint8_t> recipe;
-	AppendArgRecipe(recipe, arg);
+	std::vector<uint8_t> composition;
+	AppendArgComposition(composition, arg);
 	auto& table = m_compiledModule.descriptorTable;
 	for (size_t i = 0; i < table.size(); ++i)
-		if (table[i].recipe == recipe)
+		if (table[i].composition == composition)
 			return static_cast<uint16_t>(i);
-	table.push_back({"", std::move(recipe)});
+	table.push_back({"", std::move(composition)});
 	return static_cast<uint16_t>(table.size() - 1);
 }
 

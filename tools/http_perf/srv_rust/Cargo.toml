@@ -1,0 +1,18 @@
+[package]
+name = "srv_rust"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# The mainstream Rust server stack: axum is the most widely used Rust web
+# framework, and it sits on hyper for HTTP/1.1 framing and tokio for the
+# reactor -- the same combination its benchmark entries use. Rust's standard
+# library has no HTTP server of its own, so unlike the other probes this column
+# necessarily measures a crate ecosystem rather than the standard library.
+[dependencies]
+axum = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+[profile.release]
+# Plain `cargo build --release` defaults: no LTO, no codegen-units change, so
+# the number is what a crate user gets without extra tuning flags.

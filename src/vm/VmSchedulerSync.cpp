@@ -79,7 +79,7 @@ void VmScheduler::ParkForChanRecv(int id) {
 //通道唤醒（Slice 9）：回 Runnable；已完成停泊者入队尾（K7 握手，见
 //ExecutionContext::framesParked）。值已由执行器在调用本方法之前写入
 //停泊帧的结果槽（停泊的调用不会重执行——pc 推进不变量）。K8：close
-//的预建异常在同一临界区内置位（恢复路径或中止位点消费）。
+//的预建异常在同一临界区内置位（恢复路径或中止位置消费）。
 void VmScheduler::WakeForChanRecv(int id, int32_t rethrowExcHeapIdx) {
     GilEnsureGuard g(*this);
     ExecutionContext* ctx = FindMutable(id);

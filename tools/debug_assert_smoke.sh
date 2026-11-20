@@ -9,7 +9,7 @@
 #   1. build ncc/nvm and the native modules in Debug (assertions on),
 #   2. pack the whole standard library with Debug ncc — the stdlib
 #      sources are the richest single compile in the tree (every
-#      generic template mint, including the fixed-key self-references
+#      generic template create, including the fixed-key self-references
 #      that hosted the original bug),
 #   3. compile and run a minimal program end to end,
 #   4. compile and run the loopback TCP echo case through the Debug

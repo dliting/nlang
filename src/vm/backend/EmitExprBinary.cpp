@@ -18,8 +18,16 @@
 
 namespace nlang {
 
-//Unary arm: evaluate operand to resultOffset, then negate in-place
-//(kind immediate keys on the operand's EvalDataType); LogicalNot
+//True when an EvalDataType() result is the type-parameter placeholder
+//declaration of a generic (the dispatch key for the Eq_T/Ne_T family).
+static bool IsTypeParamType(SnField* pType)
+{
+    return pType && pType->Kind() == NK_ClassDecl
+        && static_cast<SnClassDecl*>(pType)->IsTypeParamPlaceholder();
+}
+
+//Unary arm: evaluate operand to resultOffset, then negate or bit-complement
+//in-place (kind immediate keys on the operand's EvalDataType); LogicalNot
 //normalizes to {0,1}.
 void VmBackend::EmitUnaryOp(SnBinaryExpr& bin, BytecodeEmitter& emitter,
                             uint16_t resultOffset) {
@@ -28,6 +36,12 @@ void VmBackend::EmitUnaryOp(SnBinaryExpr& bin, BytecodeEmitter& emitter,
     if (op == SnBinaryExpr::OP_Neg) {
         auto* evalType = bin.Left()->EvalDataType();
         EmitNeg(emitter, BinNumericKindOf(
+            evalType ? evalType->Kind() : NK_Int32), resultOffset);
+    } else if (op == SnBinaryExpr::OP_BitNot) {
+        //Resolver promotes the operand to its integer carrier before
+        //emission, so the kind immediate keys on it like OP_Neg does.
+        auto* evalType = bin.Left()->EvalDataType();
+        EmitBitNot(emitter, BinNumericKindOf(
             evalType ? evalType->Kind() : NK_Int32), resultOffset);
     } else {
         emitter.Emit(OpCode::OP_LogicalNot);
@@ -135,8 +149,7 @@ void VmBackend::EmitShortCircuitOp(SnBinaryExpr& bin,
 //wraps tempSlot4 → tempSlot at nesting depth 5, silently clobbering
 //the outer parked left operand (`1+(2+(3+(4+(5+6))))` evaluated to
 //25). Claim slots stack per nesting level, so right-nesting depth
-//is unbounded, and claims never collide with resultOffset (claims
-//start at the evalArea cursor; resultOffset always sits below it).
+//is unbounded, and claims never collide with resultOffset.
 void VmBackend::EmitBinaryOp(SnBinaryExpr& bin, BytecodeEmitter& emitter,
                              uint16_t resultOffset) {
     auto& binChildren = bin.Children();
@@ -146,25 +159,33 @@ void VmBackend::EmitBinaryOp(SnBinaryExpr& bin, BytecodeEmitter& emitter,
     auto& rightChild = static_cast<SnExpression&>(*binIt);
     //K2 slice 5: this claim stays Dual on purpose. Nested emissions use
     //this slot as their resultOffset, so it transitively parks every
-    //intermediate of the subtree — e.g. the LEFT operand of a nested
-    //binary (`x + ((s1 + tag(s2)) == s3)` parks the string s1 here
-    //across tag's entry safepoint, while the outer right type is int).
-    //A type-driven class keyed on the outer operand is unsound; only a
-    //subtree-widest analysis could refine this site.
+    //intermediate of the subtree — e.g. the string LEFT operand of
+    //`x + ((s1 + tag(s2)) == s3)` parks here across tag's entry
+    //safepoint. A type-driven class keyed on the outer operand is
+    //unsound; only a subtree-widest analysis could refine this site.
     EvalAreaClaim rightClaim(*this, 1);
     uint16_t rightSlot = rightClaim.base();
     EmitExpression(leftChild, emitter, resultOffset);
     EmitExpression(rightChild, emitter, rightSlot);
 
     auto* evalType = leftChild.EvalDataType();
+    //v0.13.9 phase 3: the equality family rekeys on the TYPE-PARAMETER
+    //operand when the other side is the null literal, so `null == b`
+    //rides the same Eq_T/Ne_T dispatch as `b == null` (left-keying
+    //alone sent it to cmp<int>, where an assigned zero scalar read
+    //equal to the null literal).
+    if ((bin.Op() == SnBinaryExpr::OP_Equal
+            || bin.Op() == SnBinaryExpr::OP_NotEqual)
+        && leftChild.ContainFlags(NF_NullLiteral)
+        && IsTypeParamType(rightChild.EvalDataType()))
+        evalType = rightChild.EvalDataType();
     //0.7.5: the numeric family keys on the LEFT operand's kind
     //(enum≡int32 normalized; string/func keep their dedicated opcodes).
     NodeKind numKind = BinNumericKindOf(
         evalType ? evalType->Kind() : NK_Int32);
     bool isString = numKind == NK_String;
-    //Phase 13: func operands compare by handle content, not by heap
-    //index (no interning) — keyed on the LEFT operand like the other
-    //flags; mixed non-null operands are resolver-rejected.
+    //Phase 13: func operands compare by handle content, not heap
+    //index (no interning) — keyed LEFT like the other flags.
     bool isFunc = evalType && evalType->Kind() == NK_ClassDecl
         && static_cast<SnClassDecl*>(evalType)->IsFuncType();
     //v0.13.0 D2: struct operands compare by field value (OP_Eq_struct).
@@ -174,8 +195,7 @@ void VmBackend::EmitBinaryOp(SnBinaryExpr& bin, BytecodeEmitter& emitter,
     //v0.13.1 D6: a type-parameter operand dispatches on the receiver's
     //instantiation kind at runtime (OP_Eq_T/OP_Ne_T). The resolver gate
     //admits only ==/!= and string concat for these operands.
-    bool isTypeParam = evalType && evalType->Kind() == NK_ClassDecl
-        && static_cast<SnClassDecl*>(evalType)->IsTypeParamPlaceholder();
+    bool isTypeParam = IsTypeParamType(evalType);
 
     EmitBinaryOpCode(bin, numKind, isString, isFunc, isStruct, isTypeParam,
                      emitter, resultOffset, rightSlot);
@@ -209,8 +229,9 @@ void VmBackend::EmitBinaryOpCode(SnBinaryExpr& bin, NodeKind numKind,
         EmitBinaryEqualityOp(bin, numKind, isString, isFunc, isStruct,
                              isTypeParam, emitter, resultOffset, rightSlot);
         break;
-    //0.9.9 shifts: resolver guarantees integer carrier rows and casts
-    //both operands to it, so the kind-immediate family applies as-is.
+    //0.9.9 shifts / 0.13.7 bitwise family: resolver guarantees integer
+    //carrier rows and casts both operands to it, so the kind-immediate
+    //family applies as-is.
     case SnBinaryExpr::OP_Shl:
         EmitBinOp(emitter, OpCode::OP_Shl, numKind,
                   resultOffset, rightSlot);
@@ -219,10 +240,27 @@ void VmBackend::EmitBinaryOpCode(SnBinaryExpr& bin, NodeKind numKind,
         EmitBinOp(emitter, OpCode::OP_Shr, numKind,
                   resultOffset, rightSlot);
         break;
+    case SnBinaryExpr::OP_BitAnd:
+    case SnBinaryExpr::OP_BitOr:
+    case SnBinaryExpr::OP_BitXor:
+        EmitBitwiseOp(bin, numKind, emitter,
+                      resultOffset, rightSlot);
+        break;
     default:
         throw std::runtime_error(
             "NLang backend: unsupported binary operator");
     }
+}
+
+//Bitwise arm bodies: the resolver has already cast both operands to a
+//shared integer carrier row; the opcode follows the node's operator.
+void VmBackend::EmitBitwiseOp(SnBinaryExpr& bin, NodeKind numKind,
+                              BytecodeEmitter& emitter,
+                              uint16_t resultOffset, uint16_t rightSlot) {
+    auto opc = bin.Op() == SnBinaryExpr::OP_BitAnd ? OpCode::OP_BitAnd
+           : bin.Op() == SnBinaryExpr::OP_BitOr ? OpCode::OP_BitOr
+                                                : OpCode::OP_BitXor;
+    EmitBinOp(emitter, opc, numKind, resultOffset, rightSlot);
 }
 
 //Arithmetic arm bodies: Add string-folds to OP_Concat_str, the rest go
@@ -316,8 +354,16 @@ void VmBackend::EmitTypeParamEqualityOp(SnBinaryExpr& bin,
                                         uint16_t rightSlot) {
     auto childIt = bin.Children().begin();
     auto& leftChild = static_cast<SnExpression&>(*childIt);
-    const uint8_t ordinal =
-        TypeParamOrdinalOfType(*leftChild.EvalDataType());
+    //The ordinal comes from the type-parameter operand, which may sit
+    //on either side (`b == null` / `null == b` — the null-first spelling
+    //was rekeyed onto this arm in v0.13.9 phase 3).
+    SnField* pType = leftChild.EvalDataType();
+    ++childIt;
+    auto& rightChild = static_cast<SnExpression&>(*childIt);
+    SnField* pOther = rightChild.EvalDataType();
+    if (!IsTypeParamType(pType))
+        std::swap(pType, pOther);
+    const uint8_t ordinal = TypeParamOrdinalOfType(*pType);
     NLANG_ASSERT(ordinal != SnTypeNameExpr::kNoTypeParamOrdinal);
     constexpr uint16_t kNoSlot = 0xFFFF;
     const uint16_t lhsSlot = bin.Left()->ContainFlags(NF_NullLiteral)
@@ -393,18 +439,16 @@ void VmBackend::Access(SnBinaryExpr& expr) {
             throw std::runtime_error(
                 "NLang backend: tensor array arithmetic reached codegen "
                 "unbound");
-        std::vector<OutSpill> outSpills;
         EmitCallArgs(*pPlan, pCallee, emitter, /*slotBase=*/0,
-                     /*pArgPlans=*/nullptr, /*thisSlot=*/UINT16_MAX,
-                     &outSpills);
-        EmitInvokeDispatch(*pPlan, pCallee, emitter, resultOffset,
-                           outSpills);
+                     /*pArgPlans=*/nullptr, /*thisSlot=*/UINT16_MAX);
+        EmitInvokeDispatch(*pPlan, pCallee, emitter, resultOffset);
         return;
     }
         auto& bin = static_cast<SnBinaryExpr&>(expr);
         auto op = bin.Op();
 
-        if (op == SnBinaryExpr::OP_Neg || op == SnBinaryExpr::OP_LogicalNot) {
+        if (op == SnBinaryExpr::OP_Neg || op == SnBinaryExpr::OP_LogicalNot
+            || op == SnBinaryExpr::OP_BitNot) {
             EmitUnaryOp(bin, emitter, resultOffset);
             return;
         }

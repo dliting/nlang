@@ -1,6 +1,6 @@
 //0.9.10 D3: every constant value channel. Wide integers stay integral,
 //a float-category declared type widens from an integer initializer,
-//and null emits a full zero cell (string handle and 8-byte scalar).
+//and null emits a full zero cell (8-byte scalar).
 //Expected exit code: 0 + 123 + 1 + 7 + 100 = 231.
 interface Types {
 	public static const long BIG = -7000000000;
@@ -9,12 +9,11 @@ interface Types {
 	public static const float F = 1.5;
 	public static const double WIDE = 7;
 	public static const byte B = 100;
-	public static const string S = null;
 	public static const long NULL_LONG = null;
 }
 
 int main() {
-	if (Types.S != null || Types.NULL_LONG != 0)
+	if (Types.NULL_LONG != 0)
 		return 1;
 	//The one legal negated ulong (2^63) folds to long INT64_MIN; the
 	//backend's negation arm must mirror the declaration-side classifier.

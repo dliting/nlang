@@ -1,0 +1,9 @@
+// v0.13.9 phase 3: Dict key iteration materializes a keys copy — a
+// reference loop would alias the copy and write-through would be lost.
+int main() {
+    Dict<string, int> d = {};
+    d["a"] = 1;
+    foreach (string& k in d) {
+    }
+    return 0;
+}

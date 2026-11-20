@@ -237,13 +237,15 @@ static bool SplitQualifiedName(std::vector<std::string> &rSegs,
 	return true;
 }
 
-//Phase 5: package-qualified VALUE access — the `alib.Color.Green`
-//enum-constant chain, resolved through the registry (see the header
-//declaration for the route contract). True = consumed (resolved or
-//diagnosed); false = declined, the generic path keeps the expression.
-bool ExprResolveAccessor::TryResolveQualifiedTypeValue(SnMemberExpr &snMember)
+//Shared prologue of the qualified VALUE routes (the enum-constant
+//chain, the free-function value and the module type reference): the
+//dotted chain with the tip pushed back, then the m12 priority probe —
+//the leftmost local/field/type wins, as for calls. False = declined,
+//the generic path keeps the expression.
+bool ExprResolveAccessor::RouteQualifiedValueChain(
+	SnMemberExpr &snMember, std::vector<std::string> &segs)
 {
-	std::vector<std::string> segs = OuterIdentifierChain(snMember);
+	segs = OuterIdentifierChain(snMember);
 	if (segs.empty()
 		|| !snMember.Inner()
 		|| snMember.Inner()->Kind() != NK_IdentifierExpr)
@@ -254,6 +256,39 @@ bool ExprResolveAccessor::TryResolveQualifiedTypeValue(SnMemberExpr &snMember)
 	//m12 priority: the leftmost local/field/type wins (as for calls).
 	if (ProbeNonFunctionField(segs.front())
 		|| IsBuiltinClassName(segs.front()))
+		return false;
+	return true;
+}
+
+//The type admission of the qualified VALUE routes (0.13.8 item 5,
+//Task 4): the foreign non-public arm folds into not-found — the
+//not-a-member wording covers both shapes and the member consumes on
+//the miss. Null = reported and consumed; non-null = the admitted type.
+SnField *ExprResolveAccessor::FindAdmittedModuleTypeOrReport(
+	SnMemberExpr &snMember, const std::string &modulePath,
+	const std::string &typeName)
+{
+	auto &reg = m_Env.Registry();
+	bool bDenied = false;
+	SnField *pType = FindAdmittedModuleType(reg, modulePath, typeName,
+		reg.OwnerOfContext(snMember), bDenied);
+	if (pType != nullptr)
+		return pType;
+	m_Env.Log(CLL_Error, snMember.Location(),
+		"Type '%s' is not a member of package '%s'.",
+		typeName.c_str(), modulePath.c_str());
+	FinishConsumedMember(snMember);
+	return nullptr;
+}
+
+//Phase 5: package-qualified VALUE access — the `alib.Color.Green`
+//enum-constant chain, resolved through the registry (see the header
+//declaration for the route contract). True = consumed (resolved or
+//diagnosed); false = declined, the generic path keeps the expression.
+bool ExprResolveAccessor::TryResolveQualifiedTypeValue(SnMemberExpr &snMember)
+{
+	std::vector<std::string> segs;
+	if (!RouteQualifiedValueChain(snMember, segs))
 		return false;
 
 	std::string modulePath, typeName, memberName;
@@ -268,15 +303,10 @@ bool ExprResolveAccessor::TryResolveQualifiedTypeValue(SnMemberExpr &snMember)
 	if (RejectUnimportedModuleCall(snMember, modulePath))   //import gate, call wording
 		return true;
 
-	SnField *pType = reg.FindModuleType(modulePath, typeName);
+	SnField *pType = FindAdmittedModuleTypeOrReport(
+		snMember, modulePath, typeName);
 	if (pType == nullptr)
-	{
-		m_Env.Log(CLL_Error, snMember.Location(),
-			"Type '%s' is not a member of package '%s'.",
-			typeName.c_str(), modulePath.c_str());
-		FinishConsumedMember(snMember);
 		return true;
-	}
 	if (pType->Kind() != NK_EnumDecl)
 		return false;   //value members of other type kinds: the generic path
 
@@ -303,26 +333,13 @@ bool ExprResolveAccessor::TryResolveQualifiedTypeValue(SnMemberExpr &snMember)
 //chain.
 bool ExprResolveAccessor::TryResolveModuleFuncValue(SnMemberExpr &snMember)
 {
-	std::vector<std::string> segs = OuterIdentifierChain(snMember);
-	if (segs.empty() || !snMember.Inner()
-		|| snMember.Inner()->Kind() != NK_IdentifierExpr)
-		return false;
-	segs.push_back(
-		static_cast<SnIdentifierExpr *>(snMember.Inner())->Name());
-
-	//m12 priority: the leftmost local/field/type wins (as for calls).
-	if (ProbeNonFunctionField(segs.front())
-		|| IsBuiltinClassName(segs.front()))
+	std::vector<std::string> segs;
+	if (!RouteQualifiedValueChain(snMember, segs))
 		return false;
 
 	const std::string funcName = segs.back();
-	std::string modulePath;
-	for (size_t i = 0; i + 1 < segs.size(); ++i)
-	{
-		if (!modulePath.empty())
-			modulePath += ".";
-		modulePath += segs[i];
-	}
+	segs.pop_back();
+	std::string modulePath = JoinDots(segs);
 
 	//Candidates BEFORE the import gate: a chain whose middle segment is a
 	//function, not a module (io.print.nope), finds no functions here and
@@ -339,7 +356,7 @@ bool ExprResolveAccessor::TryResolveModuleFuncValue(SnMemberExpr &snMember)
 	//Bind tip + member exactly like FinishResolvedMember does — the
 	//pending state carries the function's return type until an expected
 	//func type binds the reference (TryBindStatementFuncRef, invoke
-	//argument matching). Overloads resolve like the bare-name form: the
+	//argument matching). Overloads resolve like the unqualified-name form: the
 	//first declaration under the name.
 	auto *pFunc = candidates.front();
 	ResolveFieldExprAs(static_cast<SnFieldExpr &>(*snMember.Inner()), pFunc);
@@ -359,27 +376,13 @@ bool ExprResolveAccessor::TryResolveModuleFuncValue(SnMemberExpr &snMember)
 //generic path keeps it.
 bool ExprResolveAccessor::TryResolveModuleTypeRef(SnMemberExpr &snMember)
 {
-	std::vector<std::string> segs = OuterIdentifierChain(snMember);
-	if (segs.empty()
-		|| !snMember.Inner()
-		|| snMember.Inner()->Kind() != NK_IdentifierExpr)
-		return false;
-	segs.push_back(
-		static_cast<SnIdentifierExpr *>(snMember.Inner())->Name());
-
-	//m12 priority: the leftmost local/field/type wins (as for calls).
-	if (ProbeNonFunctionField(segs.front())
-		|| IsBuiltinClassName(segs.front()))
+	std::vector<std::string> segs;
+	if (!RouteQualifiedValueChain(snMember, segs))
 		return false;
 
 	std::string typeName = segs.back();
-	std::string modulePath;
-	for (size_t i = 0; i + 1 < segs.size(); ++i)
-	{
-		if (!modulePath.empty())
-			modulePath += ".";
-		modulePath += segs[i];
-	}
+	segs.pop_back();
+	std::string modulePath = JoinDots(segs);
 
 	auto &reg = m_Env.Registry();
 	if (!reg.IsKnownModule(modulePath)
@@ -389,15 +392,10 @@ bool ExprResolveAccessor::TryResolveModuleTypeRef(SnMemberExpr &snMember)
 	if (RejectUnimportedModuleCall(snMember, modulePath))   //import gate, call wording
 		return true;
 
-	SnField *pType = reg.FindModuleType(modulePath, typeName);
+	SnField *pType = FindAdmittedModuleTypeOrReport(
+		snMember, modulePath, typeName);
 	if (pType == nullptr)
-	{
-		m_Env.Log(CLL_Error, snMember.Location(),
-			"Type '%s' is not a member of package '%s'.",
-			typeName.c_str(), modulePath.c_str());
-		FinishConsumedMember(snMember);
 		return true;
-	}
 
 	//Bind tip + member exactly like FinishResolvedMember does — the
 	//member becomes a type expression and SwitchContextToReceiver lands
@@ -455,7 +453,7 @@ void ExprResolveAccessor::MaybeLogModuleHint(const std::string &name)
 		"requires an import and qualification)", name.c_str());
 }
 
-//D10 (concurrency import redesign), v0.12.7 V1 revision: a bare-name
+//D10 (concurrency import redesign), v0.12.7 V1 revision: an unqualified-name
 //miss where a stamped package declares the name — name the package and
 //the fix (the binding table is the package->symbol map for these
 //classes). An explicit import now admits bare use for functions and

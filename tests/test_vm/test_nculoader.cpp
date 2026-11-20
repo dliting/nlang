@@ -4,6 +4,7 @@
 // path, and the one-shot diagnostics contract (design §4 steps 1-2, §6).
 // No codegen and no linking here: nlink has its own suite
 // (test_nculinker.cpp); these tests pin where the units come from.
+#include "test_support/test_scratch.h"
 #include "NcuLoader.h"
 #include "ModuleLoader.h"
 #include "nlang/vm/CompiledModule.h"
@@ -31,7 +32,7 @@ namespace fs = std::filesystem;
 
 // A fresh, isolated scenario directory under the temp tree.
 fs::path scenarioDir(const char* name) {
-    auto d = fs::temp_directory_path() / "nlang_test_nculoader" / name;
+    auto d = nlang::test::ScratchDir("nlang_test_nculoader") / name;
     fs::remove_all(d);
     fs::create_directories(d);
     return d;
@@ -451,7 +452,7 @@ void TestMinorAboveFloorRejected() {
     CompiledModule old = MakeUnit("old");
     AddFunc(old, "old.f", 0);
     WriteUnit(dir, old);
-    PatchMinorVersion(dir / "old.ncu", 20);  //one above the v2.19 current
+    PatchMinorVersion(dir / "old.ncu", 23);  //one above the v2.22 current
 
     const FailResult fr = MustFail((dir / "main.ncu").string(),
                                    { dir.string() });
@@ -466,16 +467,21 @@ void TestMinorAboveFloorRejected() {
 // --- format-minor constant (spec §7 "NCU_FORMAT_MINOR constant check").
 
 void TestEnumMethodTablesRoundTrip() {
-    CHECK(NCU_FORMAT_MINOR == 19, "format minor is 19 (v2.19)");
+    CHECK(NCU_FORMAT_MINOR == 22, "format minor is 22 (v2.22)");
     CompiledModule cm = MakeUnit("enumtbl");
     cm.enumNames.push_back({"Red", "Green"});
     cm.enumKeys.push_back("enumtbl.Color");
     cm.enumMethodIndices.push_back({3, 7});
-    cm.enumMethodAccess.push_back({0, 1});   //FA_Public, FA_Private
+    cm.enumMethodAccess.push_back({0, 1});   //arbitrary bytes; round-trip only
     cm.enumNames.push_back({});              //method-less enum
     cm.enumKeys.push_back("enumtbl.Empty");
     cm.enumMethodIndices.push_back({});
     cm.enumMethodAccess.push_back({});
+    //v2.20: the type-level access table joins the writer's parallel guard
+    //(a forge missing it is refused — the guard caught this test before
+    //the fix).
+    cm.enumAccess.push_back(FA_Public);
+    cm.enumAccess.push_back(FA_Public);
     const auto dir = scenarioDir("enum_method_tables");
     WriteUnit(dir, cm);
 
@@ -528,23 +534,23 @@ void TestConstAggregateMarkerRoundTrip() {
 }
 
 // --- v2.15 (v0.13.1): the module descriptor table — one row per generic
-// --- instantiation descriptor the unit registers (canonical spelling +
-// --- recipe bytes; empty recipe = static spelling, non-empty = runtime
-// --- composition recipe, see Task 5's encoding). Sits between the
+// --- instantiation descriptor the unit registers (canonical name +
+// --- composition record bytes; empty composition = static spelling, non-empty = runtime
+// --- composition record, see Task 5's encoding). Sits between the
 // --- string-constant and function sections; a v2.14 image has no section
 // --- and misparses at the first record, so the floor refuses it.
 
 void TestDescriptorTableRoundTrip() {
-    CHECK(NCU_FORMAT_MINOR == 19, "format minor is 19 (v2.19)");
+    CHECK(NCU_FORMAT_MINOR == 22, "format minor is 22 (v2.22)");
     const auto dir = scenarioDir("descriptor_table");
     CompiledModule cm = MakeUnit("descmod");
     AddFunc(cm, "descmod.main", 0);
     cm.descriptorTable.push_back({"Box<int>", {}});      //static spelling
     cm.descriptorTable.push_back({"Box<int[]>", {}});    //array argument
-    DescriptorEntry withRecipe;
-    withRecipe.spelling = "Box<Box<int>>";
-    withRecipe.recipe = {0x01, 0x00, 0x02, 'B', 'x', 0x02, 0x00};
-    cm.descriptorTable.push_back(std::move(withRecipe));
+    DescriptorEntry withComposition;
+    withComposition.spelling = "Box<Box<int>>";
+    withComposition.composition = {0x01, 0x00, 0x02, 'B', 'x', 0x02, 0x00};
+    cm.descriptorTable.push_back(std::move(withComposition));
     WriteUnit(dir, cm);
 
     std::string entryKey;
@@ -553,22 +559,109 @@ void TestDescriptorTableRoundTrip() {
     CHECK(loaded.descriptorTable.size() == 3, "three descriptor rows");
     CHECK(loaded.descriptorTable[0].spelling == "Box<int>",
           "static row spelling round-trips");
-    CHECK(loaded.descriptorTable[0].recipe.empty(),
-          "static row carries no recipe");
+    CHECK(loaded.descriptorTable[0].composition.empty(),
+          "static row carries no composition");
     CHECK(loaded.descriptorTable[1].spelling == "Box<int[]>",
           "array-argument spelling round-trips");
     CHECK(loaded.descriptorTable[2].spelling == "Box<Box<int>>",
-          "recipe row spelling round-trips");
-    CHECK(loaded.descriptorTable[2].recipe.size() == 7,
-          "recipe byte count round-trips");
-    CHECK(loaded.descriptorTable[2].recipe[3] == 'B',
-          "recipe payload survives verbatim");
+          "composition record row spelling round-trips");
+    CHECK(loaded.descriptorTable[2].composition.size() == 7,
+          "composition byte count round-trips");
+    CHECK(loaded.descriptorTable[2].composition[3] == 'B',
+          "composition payload survives verbatim");
 
     //Version floor: a v2.14 image predates the section and is refused.
     PatchMinorVersion(dir / "descmod.ncu", 14);
     const FailResult fr = MustFail((dir / "descmod.ncu").string(), {});
     CHECK(fr.failed, "v2.14 image is refused");
     CHECK(Contains(fr.msg, "outdated"), "floor diagnostic present");
+}
+
+// --- v2.20 (0.13.8 item 5): declaration access bytes ride the wire — a
+// --- free function's and each top-level type's declared access, plus the
+// --- per-enum access table. They round-trip verbatim; a FA_Default or
+// --- out-of-range byte refuses the image (the consumer stub rebuilds
+// --- visibility from these bytes, so a wild value would mis-gate
+// --- members instead of failing loudly).
+
+void TestAccessBytesRoundTrip() {
+    CHECK(NCU_FORMAT_MINOR == 22, "format minor is 22 (v2.22)");
+    CompiledModule cm = MakeUnit("accmod");
+    AddFunc(cm, "accmod.hide", 0);
+    cm.functions[0].access = FA_Private;
+    CompiledClass cc;
+    cc.name = "accmod.Base";
+    cc.access = FA_Protected;
+    cm.classes.push_back(std::move(cc));
+    CompiledStruct st;
+    st.name = "accmod.Impl";
+    st.access = FA_Private;
+    cm.structs.push_back(std::move(st));
+    CompiledInterface iface;
+    iface.name = "accmod.Handler";
+    iface.access = FA_Protected;
+    cm.interfaces.push_back(std::move(iface));
+    cm.enumNames.push_back({"Off", "On"});
+    cm.enumKeys.push_back("accmod.Mode");
+    cm.enumMethodIndices.push_back({});
+    cm.enumMethodAccess.push_back({});
+    cm.enumAccess.push_back(FA_Private);
+    const auto dir = scenarioDir("access_bytes");
+    WriteUnit(dir, cm);
+
+    std::string entryKey;
+    CompiledModule loaded = ModuleLoader::Load(
+        (dir / "accmod.ncu").string(), &entryKey);
+    CHECK(loaded.functions[0].access == FA_Private,
+          "free-function access byte round-trips");
+    CHECK(loaded.classes[0].access == FA_Protected,
+          "class type access byte round-trips");
+    CHECK(loaded.structs[0].access == FA_Private,
+          "struct type access byte round-trips");
+    CHECK(loaded.interfaces[0].access == FA_Protected,
+          "interface type access byte round-trips");
+    CHECK(loaded.enumAccess.size() == 1
+          && loaded.enumAccess[0] == FA_Private,
+          "enum access row round-trips");
+}
+
+void TestAccessByteOutOfRangeRejected() {
+    //FA_Default never reaches the wire (OnAddedToParent resolves it at
+    //registration) and anything above FA_Public is not an access level —
+    //both are corrupt-image refusals, not silent public.
+    for (uint8_t bad : {static_cast<uint8_t>(FA_Default),
+                        static_cast<uint8_t>(FA_Public + 1)}) {
+        const auto dir = scenarioDir("access_bad");
+        CompiledModule cm = MakeUnit("badacc");
+        AddFunc(cm, "badacc.f", 0);
+        cm.functions[0].access = bad;
+        WriteUnit(dir, cm);
+        FailResult fr;
+        try {
+            ModuleLoader::Load((dir / "badacc.ncu").string());
+        } catch (const std::exception& e) {
+            fr.failed = true;
+            fr.msg = e.what();
+        }
+        CHECK(fr.failed, "wild function access byte refuses the image");
+        CHECK(Contains(fr.msg, "Invalid module"),
+              "corrupt-image diagnostic present");
+    }
+}
+
+void TestEnumAccessParallelGuard() {
+    const auto dir = scenarioDir("enum_access_guard");
+    CompiledModule cm = MakeUnit("guardmod");
+    cm.enumNames.push_back({"Only"});
+    cm.enumKeys.push_back("guardmod.E");
+    cm.enumMethodIndices.push_back({});
+    cm.enumMethodAccess.push_back({});
+    //enumAccess left empty: the writer is the single chokepoint that
+    //refuses a diverging module (the reader consumes exactly enumCount
+    //access rows, so a short table would desync every later section).
+    std::ofstream out(dir / "guardmod.ncu", std::ios::binary);
+    CHECK(!WriteCompiledModule(out, cm, ""),
+          "saver refuses enumAccess/enumNames divergence");
 }
 
 // --- shape 10: a unit file found for module X whose header names Y is
@@ -858,6 +951,9 @@ int main() {
     TestMinorAboveFloorRejected();
     TestEnumMethodTablesRoundTrip();
     TestConstAggregateMarkerRoundTrip();
+    TestAccessBytesRoundTrip();
+    TestAccessByteOutOfRangeRejected();
+    TestEnumAccessParallelGuard();
     TestStaticSlotRoundTripAndVersionFloor();
     TestDescriptorTableRoundTrip();
     TestMislabeledUnitRejected();

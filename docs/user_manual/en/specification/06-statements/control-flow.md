@@ -13,7 +13,7 @@ The first body runs when the condition is `true`; otherwise the `else` body
 runs (if present). The condition must be `bool` (see
 [Statements](index.md) "Condition typing"). Another `if` may follow `else` to
 form chained tests — the `else` body is simply another `if` statement; there
-is no `else if` keyword.
+is no standalone `else if` keyword.
 
 The body is a compound statement: variables declared inside it are visible only
 within that body (block scope).

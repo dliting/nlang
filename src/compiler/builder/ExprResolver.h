@@ -1,5 +1,6 @@
 #pragma once
 #include "SnExpressions.h"
+#include "ModuleRegistry.h"
 #include "SyntaxNodeVisitor.h"
 #include "BuiltinNames.h"
 #include "SnArrayTypeToken.h"
@@ -36,6 +37,40 @@ enum ExprResolveFlag : uint8
 };
 
 typedef uint8 ExprResolveFlagSet;
+
+//0.13.8 item 5 (Task 4): the single cross-module access admission — the
+//registry-aware foreign-namespace gate composed with the geometric
+//AllowAccess rules. The accessor's module derives INSIDE
+//(OwnerOfContext): every rewire site keeps passing exactly the accessor
+//it always checked (they differ per site by design).
+inline bool AccessAdmitted(const ModuleRegistry &reg,
+	const SnField &member, const SnField &accessor)
+{
+	if (reg.ForeignNamespaceAccessDenied(member,
+		reg.OwnerOfContext(accessor)))
+		return false;
+	return member.AllowAccess(accessor);
+}
+
+//FindModuleType wrapped with the foreign non-public admission: a denial
+//reads as not-found (rbDenied distinguishes the two, so a site whose
+//not-found fallback would re-advertise the private type under a
+//misleading name — the qualified ctor-invoke path — can consume with
+//the not-a-member wording instead).
+inline SnField *FindAdmittedModuleType(const ModuleRegistry &reg,
+	const std::string &modulePath, const std::string &typeName,
+	uint32_t accessorModule, bool &rbDenied)
+{
+	rbDenied = false;
+	SnField *pType = reg.FindModuleType(modulePath, typeName);
+	if (pType != nullptr && reg.ForeignNamespaceAccessDenied(*pType,
+		accessorModule))
+	{
+		rbDenied = true;
+		return nullptr;
+	}
+	return pType;
+}
 
 //0.9.10 D2.4: call-form namespaces. A member call through a type name
 //only reaches static members; a member call through a value only reaches
@@ -82,6 +117,23 @@ bool IsPlainLvalueShape(const SnExpression& expr);
 //Definition lives in ExprResolverTypes.cpp.
 int ArrayTypeDepth(const SnFieldExpr* pType);
 
+//v0.13.9 phase 3: true when & on the type is a no-op mark — identity
+//reference types (class, interface, interned array token; container and
+//Array<E> instantiations are class decls). Slot-copy types (scalars,
+//enum, struct, string) bind references with real aliasing semantics
+//(spec 3.1). Shared by the reference-binding contract (declaration
+//side) and the generic fork warning hook (instantiation points judge
+//T& members against the bound type argument with this predicate).
+//Definition in ExprResolverValues.cpp.
+bool IsRefNoOpType(const SnField *pTypeField);
+
+//v0.13.9 phase 3: & cannot appear in a container/generic type argument
+//(the grammar rejects the spelling; only the func-type arms own it), so
+//a marked argument reaching a creation path is a bypass — the check
+//asserts instead of diagnosing. Shared by the synthetic-builtin and
+//user-generic instantiation shells. Definition in ExprResolverValues.cpp.
+void AssertNoRefTypeArgs(const std::vector<SnField *> &typeArgs);
+
 //Per-argument reject gate of the generic type-argument loop: void and
 //out are func-only features (void only in the return slot, out only on
 //parameter slots), and a jagged argument has no VM layout (spec §5.5).
@@ -117,7 +169,7 @@ named rejects for enum receivers, native methods (including native
 overrides found by a subclass scan for by-name bindings) and out-carrying
 signatures on by-name bindings. On success the member and its inner
 identifier carry the func declaration — codegen detects the bound state
-structurally, like the bare-name form.
+structurally, like the unqualified-name form.
 \return false after logging a named diagnostic — the caller should stop
 resolving the statement.
 */
@@ -170,13 +222,21 @@ inline bool IsReceiverlessFuncRefTarget(const SnField &func)
 //Phase 13 (review round-1 F7): type arguments of a generic instantiation
 //(List<T> → {T}, Dict<K,V> → {K,V}; empty otherwise). Shared with
 //StatementResolver's Dict subscript-store bind site. Pure node reads
-//(the node carries its type args and out flags); the MINT functions
+//(the node carries its type args and out flags); the CREATE functions
 //below take the per-build registry.
 std::vector<SnField*> GetGenericTypeArgs(SnClassDecl* pClass);
 //Phase 13: out-flag read of a func instantiation (parallel to
 //GetGenericTypeArgs; default-empty on miss).
 //Definition in ExprResolverGenerics.cpp.
-const std::vector<uint8>& GetGenericOutFlags(SnClassDecl* pClass);
+//v0.13.9 phase 3: &-mark read of a func instantiation (same parallel
+//discipline; default-empty on miss).
+//Definition in ExprResolverGenerics.cpp.
+const std::vector<uint8>& GetGenericRefFlags(SnClassDecl* pClass);
+//D9 fork warning: declared-template instantiation point check — a T&
+//formal whose argument binds an identity type warns (writes reach only
+//the local formal). Definition in RefBindJudgment.cpp.
+void WarnIdentityRefFormals(BuildEnvironment &env, const SnClassDecl &tmpl,
+	const std::vector<SnField*> &typeArgs, const ISourceLocation *pLoc);
 
 //Reference-only use below; definition in ScriptLocation.h.
 class ScriptLocation;
@@ -199,9 +259,9 @@ std::vector<std::string> OuterIdentifierChain(
 bool IsGenericClassDecl(SnClassDecl* pClass);
 SnClassDecl* GetGenericClassDecl(ModuleRegistry& reg,
 	const std::string& baseName,
-	const std::vector<SnField*>& typeArgs, const std::vector<uint8>& outFlags,
-	const ISourceLocation* pLoc);
-//Location pass-through for on-demand minted decls (built-in classes,
+	const std::vector<SnField*>& typeArgs,
+	const std::vector<uint8>& refFlags, const ISourceLocation* pLoc);
+//Location pass-through for on-demand created decls (built-in classes,
 //generic instantiations): the caller's location when one exists, the
 //fallback otherwise. Polymorphic locations must flow through
 //ISourceLocation — punning to ScriptLocation reads past the end of the
@@ -226,9 +286,9 @@ SnInitListExpr *UntypedInitListOf(SnExpression &expr);
 bool IsInitListTargetShape(SnField *pType);
 //The stamped type row for an array init-list target: the interned
 //rank-1 token over the ELEMENT row — the token spelling stamps as-is,
-//every other array-typed shape mints. Definition beside the upstream
+//every other array-typed shape creates. Definition beside the upstream
 //peel that produces its input shapes, ExprResolverInitListTarget.cpp.
-SnField *MintInitListTypeRow(SnField *pTargetField,
+SnField *CreateInitListTypeRow(SnField *pTargetField,
     BuildEnvironment &env);
 //0.10.10: the slot types init-list entries bind against — the array
 //element type / the List value slot / the Dict key+value slots. Both
@@ -246,7 +306,7 @@ bool IsBarePoolScope(const SyntaxNode &scope);
 //binding that must not hijack a type position. Definition in
 //ExprResolverMemberFields.cpp.
 bool IsTypeOrNamespaceBinding(const SnField *pField);
-//2026-09-26 second split: builtin-class minting and the func signature
+//2026-09-26 second split: builtin-class creation and the func signature
 //match are consumed from the Values/New and Cast TUs respectively.
 SnClassDecl* GetBuiltinClassDecl(ModuleRegistry& reg,
 	const std::string& name, const ISourceLocation* pLoc);
@@ -263,7 +323,7 @@ class SnEnumDecl;
 
 //The maximum number of concurrently-nested generic instantiations (a
 //template family where each member names the next template chains one
-//mint per link). C++-template-depth magnitude: deep enough for real
+//creation per link). C++-template-depth magnitude: deep enough for real
 //container layering, low enough that a runaway self-referential chain
 //(A<A<T>> inside A<T>) dies with a diagnostic instead of a stack
 //overflow.
@@ -286,7 +346,7 @@ public:
 	void Access(SnArrayTypeExpr &);
 
 	//Phase 8e-3: resolve `List<T>` (and future built-in generics).
-	//Mints or fetches a cached synthetic SnClassDecl per (base, typeArgs)
+	//Creates or fetches a cached synthetic SnClassDecl per (base, typeArgs)
 	//tuple to preserve pointer identity for CalcTypeDistance.
 	void Access(SnGenericTypeExpr &);
 
@@ -424,7 +484,7 @@ private:
 	//0.7.3 B: token binder at the binding tails. The array-valued
 	//property is derived from the interned SnArrayTypeToken carried in
 	//EvalDataType; declaration-channel shapes already carry the token,
-	//the arms mint it for fresh allocations and container element
+	//the arms create it for fresh allocations and container element
 	//shapes. An accessor member (not a free function) because writing
 	//EvalDataType needs the SnExpression friendship.
 	void BindArrayTypeToken(SnExpression &expr);
@@ -467,7 +527,7 @@ private:
 	//module path sharing the name (silent when none does).
 	void MaybeLogModuleHint(const std::string &name);
 
-	//D10 (concurrency import redesign): a bare-name miss where a stamped
+	//D10 (concurrency import redesign): an unqualified-name miss where a stamped
 	//package declares the name — note the package and the import fix.
 	//True = note logged (the caller suppresses the generic visibility /
 	//module-path guesses: a package hit is the specific answer).
@@ -478,7 +538,7 @@ private:
 	//flag. Null at namespace/module scope.
 	SnFunction *EnclosingFunction() const;
 
-	//0.9.10: a bare name that binds to a class field is the implicit
+	//0.9.10: an unqualified name that binds to a class field is the implicit
 	//this.field form — rejected inside a static method. True = rejected
 	//with its diagnostic.
 	bool RejectImplicitThisInStatic(SnIdentifierExpr &idExpr, SnField *pField);
@@ -523,6 +583,10 @@ private:
 	bool RejectArrayReceiverMethodCall(SnMemberExpr &snMember,
 		SnExpression *pOuterExpr, SyntaxNode *pSavedContext);
 	bool TryResolveStringBuiltinMethod(SnMemberExpr &snMember,
+		SnFieldExpr *pInnerExpr, SyntaxNode *pSavedContext);
+	//0.13.4 field-side sibling: `string.EMPTY` — bind a prelude String
+	//face static const through the keyword-type qualifier.
+	bool TryResolveStringBuiltinConstant(SnMemberExpr &snMember,
 		SnFieldExpr *pInnerExpr, SyntaxNode *pSavedContext);
 	//v0.12.2 face bridges (String here, Array in Task 3): per-argument
 	//kind policy from the DECLARED formals, and the resolve tail binding
@@ -618,6 +682,23 @@ private:
 	SnField *FindTypeNameInAncestor(const std::string &sName,
 		SyntaxNode &parent, const SnField &accessor,
 		bool bIncludeNamespaces = true);
+
+	/*
+	0.13.8 D8.4: bare type resolution at one bare-pool scope. The same
+	top-level type name may be declared by several units (the
+	DuplicateFieldChecker exempts cross-pool same-name), so the single-
+	candidate FindField answer is the first-registered child regardless
+	of origin. Selection order: the accessor's own unit wins outright;
+	otherwise the function-side admission model (ownerless /
+	ShareBarePool / IsExactImportedBy) filters — one admitted candidate
+	answers, several diagnose the ambiguity naming every owner. A single
+	never-admitted foreign candidate stays visible (types are global).
+	True = rpOut holds the answer; false = no answer at this scope
+	(rbAmbiguous marks the diagnosed ambiguity so the ancestor walk must
+	not fall back to the first-registered child).
+	*/
+	bool FindTypeInPoolScope(const std::string &sName, SyntaxNode &scope,
+		const SnField &accessor, SnField *&rpOut, bool &rbAmbiguous);
 
 	/*
 	0.9.x: the shadow guard of Access(SnNameExpr&) — exchange a value
@@ -793,15 +874,14 @@ private:
 	bool ResolveInvokeWithFunc(SnInvokeExpr &invoke, SnFunction &func,
 		FindFuncResult match, std::vector<FormalBinding> &bindings);
 
+	//Phase 13: the func-ref argument binder of ResolveInvokeWithFunc
+	//(source-size split) — binds unbound identifier/member function
+	//references against the chosen overload's formal func types. Logs
+	//and returns false on the first failure.
+	bool BindArgFuncRefs(std::vector<FormalBinding> &bindings);
+
 	//Phase 9e: out arguments on virtual (or by-name dispatched) methods are
 	//rejected — the writeback mask is baked into the call instruction
-	//against the static callee's parameter layout; a runtime override
-	//resolved by name-based dispatch could disagree with it. Shared by the
-	//bare and the module-qualified call paths (a qualified call must not
-	//bypass the restriction). Logs the error; returns true when rejected.
-	bool OutArgOnDispatchedCalleeRejected(const SnInvokeExpr &invoke,
-		const SnFunction &callee,
-		const std::vector<FormalBinding> &bindings) const;
 
 	/*
 	The failure branch of Access(SnInvokeExpr) — not-found, imported-stub
@@ -848,7 +928,8 @@ private:
 	//(Same/Auto/Box). Mirrors ComputeBindingDistance +
 	//FixupParamTypesWithBindings so the per-argument verdict matches the
 	//final compile result (string->float passes the distance but has no
-	//cast; class->string has a cast but fails the distance).
+	//implicit cast; Object->string has a cast — an unboxing — but no
+	//distance, so spec 5.5 keeps it explicit).
 	bool CanImplicitlyBind(const SnField &argType,
 		const SnField &formalType) const;
 	void LogArgumentTypeMismatch(SnExpression &arg, const SnField &argType,
@@ -885,7 +966,7 @@ private:
 	upcasts pass raw bits soundly.
 	*/
 	bool CheckDelegateArgument(SnExpression &arg, SnField *pFormal,
-		bool bWantOut, size_t i);
+		size_t i);
 	bool AdmitsDelegateArgType(SnField *pArgType, SnField *pFormal) const;
 
 	/*
@@ -1002,6 +1083,7 @@ private:
 
 	bool RejectIncompatibleCast(SnExpression &srcExpr, TypeCastInfo &castInfo);
 	bool RejectArrayTokenCast(SnExpression &srcExpr, TypeCastInfo &castInfo);
+	bool RejectNullLiteralCast(SnExpression &srcExpr, TypeCastInfo &castInfo);
 	ConstantFitGateResult ConstantFitGate(SnExpression &srcExpr,
 		TypeCastInfo &castInfo);
 	bool SkipNullIdentityWrap(SnExpression &srcExpr, TypeCastInfo &castInfo);
@@ -1016,8 +1098,7 @@ private:
 	Resolve-prefixed helpers return true when resolution may continue.
 	*/
 	bool CheckCompareOperands(SnBinaryExpr &sn, SnBinaryExpr::Operator op);
-	bool RejectStringNonStringMix(SnBinaryExpr &sn, NodeKind lk, NodeKind rk,
-		bool lNull, bool rNull);
+	bool RejectStringNonStringMix(SnBinaryExpr &sn, NodeKind lk, NodeKind rk);
 	bool RejectFuncHandleMisuse(SnBinaryExpr &sn, SnBinaryExpr::Operator op,
 		SnField *L, SnField *R, bool lNull, bool rNull);
 	bool RejectArrayIdentityMisuse(SnBinaryExpr &sn, SnBinaryExpr::Operator op,
@@ -1043,6 +1124,9 @@ private:
 	bool PromoteCompareOperands(SnBinaryExpr &sn, NodeKind lk, NodeKind rk,
 		bool lNull, bool rNull);
 	bool CheckLogicalBoolOperands(SnBinaryExpr &sn);
+	//Compare/logical family admission: operand gates plus the bool
+	//result row, the Access branch body split at the source-size guard.
+	bool ResolveCompareOrLogical(SnBinaryExpr &sn, SnBinaryExpr::Operator op);
 	bool ResolveArithmeticBinary(SnBinaryExpr &sn, SnBinaryExpr::Operator op);
 	//v0.13.7 array-operator lowering (ExprResolverArrayOps.cpp): phase 1
 	//classifies at resolution time (true = consumed — lowering shape or
@@ -1082,6 +1166,14 @@ private:
 		const char* opName);
 	SnField *SelectArithmeticResultType(SnBinaryExpr &sn,
 		SnBinaryExpr::Operator op);
+	//v0.13.7: bitwise family `&`/`^`/`|`/`~` — integer-only gate (same
+	//policy as shift), then the arithmetic family's symmetric promotion
+	//decides the carrier row; `~` uses the unary-promotion left-row rule
+	//(see ExprResolverBitwise.cpp for the full rationale). ResolveBitwise
+	//is the family entry Access() calls; it routes binary vs unary.
+	bool ResolveBitwise(SnBinaryExpr &sn, SnBinaryExpr::Operator op);
+	bool ResolveBitwiseBinary(SnBinaryExpr &sn, SnBinaryExpr::Operator op);
+	bool ResolveBitNot(SnBinaryExpr &sn);
 
 	/*
 	2026-09-27 decomposition of the allocation resolution family
@@ -1100,6 +1192,27 @@ private:
 	//and structs answer false: their ctors are AST candidates.
 	bool FindCtorParamRange(SnField *pTypeDecl,
 		size_t &requiredArity, size_t &totalArity);
+	//The legacy arity texts for the no-AST-candidate shapes (0.9.11 T6):
+	//builtin/generic classes keep the intrinsic arity check via
+	//FindCtorParamRange; a type with no constructor at all rejects only
+	//when arguments were supplied (the legal bare-allocation shape).
+	//Shared by SelectCtorForArgs. Defined in ExprResolverNewCtor.cpp.
+	void LogLegacyCtorArity(SnField *pTypeDecl,
+		const std::vector<SnExpression*> &actuals,
+		const ISourceLocation *pLoc, const char *kindWord);
+	//The overload match plus the two named mismatch outcomes (ambiguous /
+	//no match), spelled with the caller's kind word ("struct"/"class")
+	//and type name. Shared by SelectCtorForArgs and — via the
+	//StatementResolveAccessor's m_ExprResolver — the super(...) parent-ctor
+	//path (SelectSuperCtor), whose texts are byte-identical with
+	//kindWord="class". Returns the selected ctor (the caller consumes the
+	//binding); null after logging on a mismatch. Defined in
+	//ExprResolverNewCtor.cpp.
+	SnFunction *MatchCtorOrLogMismatch(
+		const std::vector<SnExpression*> &actuals,
+		const std::vector<SnFunction*> &candidates,
+		const ISourceLocation *pLoc, const char *kindWord,
+		const std::string &typeName);
 	//0.9.11 T6 (D10): selects the constructor a call binds to. Collects
 	//the same-name candidate set (class Members() / struct Ctors()),
 	//runs MatchCtorAgainst, and reports the catalog diagnostics on
@@ -1125,7 +1238,7 @@ private:
 	after its function lookup failed with no name-matched candidate.
 	Both return true when the invoke is consumed (resolved as a ctor call,
 	or rejected with a named diagnostic); false falls through to the
-	caller's generic failure. ProbeCtorType resolves a bare name to a class
+	caller's generic failure. ProbeCtorType resolves an unqualified name to a class
 	or struct the way Access(SnNewExpr&) resolves its type name, but as a
 	silent probe — a miss must not add a second diagnostic.
 	*/
@@ -1184,7 +1297,7 @@ private:
 	TypeArgInferenceOutcome m_genericInferFail;
 
 	//Declared-generic machinery (`class Name<T, ...>`, registry in
-	//GenericInstanceRegistry.h): mint-or-fetch the synthetic
+	//GenericInstanceRegistry.h): create-or-fetch the synthetic
 	//instantiation of tmpl for typeArgs, member signatures deep-copied
 	//with placeholders substituted. The instantiation owns no compiled
 	//records — they stay with the template row (dictionary model; the
@@ -1192,41 +1305,41 @@ private:
 	//construction: the shell is published in the instance cache BEFORE
 	//the recursive completion/fill window, so a fixed-key
 	//self-reference (Node<T> inside Node<T>) binds to the instance
-	//being minted; the mint entry carries the instantiation-depth
+	//being created; the creation entry carries the instantiation-depth
 	//guard (kMaxGenericInstantiationDepth) for genuinely growing keys.
 	SnClassDecl* GetDeclaredGenericClassDecl(SnClassDecl& tmpl,
 		const std::vector<SnField*>& typeArgs);
 	//GetDeclaredGenericClassDecl's depth guard: true when the entry
 	//must refuse (diagnostic logged once per template per build). The
-	//key is node identity — the interface mint shares the guard.
-	bool MintDepthLimitReached(const SyntaxNode& tmpl);
-	//GetDeclaredGenericClassDecl's fill window (the mint's second
+	//key is node identity — the interface instantiation shares the guard.
+	bool InstantiationDepthLimitReached(const SyntaxNode& tmpl);
+	//GetDeclaredGenericClassDecl's fill window (the creation's second
 	//phase): template completion, superclass refresh, the substituted
 	//implements edges and the member-clone fill.
 	void FillInstanceWindow(SnClassDecl& tmpl,
 		const std::vector<SnField*>& typeArgs, SnClassDecl& inst);
 	//FillInstanceWindow's implements-edge substitution: the template's
 	//edges were resolved against its own placeholders, so an edge
-	//`Wrapper<X>` must re-mint against the instantiation's concrete
+	//`Wrapper<X>` must re-create against the instantiation's concrete
 	//arguments (`Wrapper<string>` for Box<string>) — the canonical node
 	//the use-site resolves to, keeping the pointer-identity class→
 	//interface compatibility check meaningful. Bare (non-generic) edges
 	//are module-global and copied directly.
 	void FillInstanceImplementsEdges(SnClassDecl& tmpl,
 		const std::vector<SnField*>& typeArgs, SnClassDecl& inst);
-	//One implements-edge type argument substituted against the mint's
-	//argument vector: a placeholder maps to the mint's concrete arg, a
-	//nested instantiation re-mints with substituted arguments (the
+	//One implements-edge type argument substituted against the creation's
+	//argument vector: a placeholder maps to the creation's concrete arg, a
+	//nested instantiation re-creates with substituted arguments (the
 	//class and interface registry channels both carry the
 	//instance→template reverse lookup), a concrete argument passes
 	//through.
 	SnField* SubstitutedEdgeTypeArg(SnField* pArg,
 		const std::vector<SnField*>& typeArgs);
-	//Template-completion preamble of the mint: signatures resolved and
+	//Template-completion preamble of the creation: signatures resolved and
 	//the implicit Object superclass linked before any cloning (the
 	//depth claim must span this — completing a self-referential
-	//template re-enters the mint from here).
-	void CompleteTemplateForMint(SnClassDecl& tmpl);
+	//template re-enters the creation from here).
+	void CompleteTemplateForInstantiation(SnClassDecl& tmpl);
 	//Element-typed actuals of a member invoke on a declared-generic
 	//receiver wrap against the type argument (Same/Box/Auto casts; the
 	//template's placeholder-typed formals name the positions). Runs in
@@ -1235,7 +1348,7 @@ private:
 	void WrapGenericElemArgs(SnFieldExpr *pInnerExpr);
 	//0.13.1a: type-name-qualified static call into a generic template
 	//row (Maker.pass(7)). Infers the type arguments from the actuals,
-	//mints the instantiation, and leaves the resolution context on it —
+	//creates the instantiation, and leaves the resolution context on it —
 	//the queued invoke binding then picks the substituted clone member.
 	//Silent when the call is not the arm's shape (the ordinary binding
 	//owns those with its own diagnostics).
@@ -1262,7 +1375,7 @@ private:
 	bool FillInterfaceInstanceMembers(SnInterfaceDecl& tmpl,
 		const std::vector<SnField*>& typeArgs, SnInterfaceDecl& inst);
 	//0.13.1c: the interface twin of GetDeclaredGenericClassDecl — the
-	//minted SnInterfaceDecl instantiation for typeArgs, member
+	//created SnInterfaceDecl instantiation for typeArgs, member
 	//signatures deep-copied with placeholders substituted, cached in
 	//the registry's interface channel. Same two-phase
 	//publish-then-fill contract and the same depth guard.
@@ -1271,7 +1384,7 @@ private:
 	//Deep-copy one resolved type expression from a template signature,
 	//rebinding type-parameter placeholders to the instantiation's type
 	//arguments. Null = a shape the substitution does not carry (the
-	//minter rejects the member).
+	//creator rejects the member).
 	SnFieldExpr* SubstituteTypeExpr(SnFieldExpr& srcType,
 		const std::vector<SnField*>& typeArgs);
 	//SubstituteTypeExpr's name-leaf arms' shared tail: bind the copy
@@ -1449,19 +1562,19 @@ private:
 	*/
 	bool TryResolveGenericTypeArgs(SnGenericTypeExpr &genType,
 		const std::string &baseName, std::vector<SnField*> &typeArgs,
-		std::vector<uint8> &outFlags);
+		std::vector<uint8> &refFlags);
 	//Access(SnGenericTypeExpr&)'s declared-template arm (scope probe,
-	//arity check, instantiation mint-and-bind).
+	//arity check, instantiation create-and-bind).
 	bool TryResolveDeclaredGenericInstance(SnGenericTypeExpr &genType,
 		const std::string &baseName);
 	//The arm's interface face (0.13.1c): the probe answered a generic
-	//interface declaration — arity check, mint-and-bind. The class face
+	//interface declaration — arity check, create-and-bind. The class face
 	//keeps its exact shape and consumers.
 	bool TryResolveDeclaredGenericInterfaceInstance(
 		SnGenericTypeExpr &genType, const std::string &baseName,
 		SnInterfaceDecl &tmpl);
 	//The arm's scope probe: a generic-declaration class or interface
-	//under the bare name answers (node identity — the caller branches
+	//under the unqualified name answers (node identity — the caller branches
 	//on Kind()); a non-generic type is reported back for the miss
 	//diagnostics. Null template with a null type = unknown name.
 	SyntaxNode *FindDeclaredGenericTemplate(const std::string &baseName,
@@ -1472,9 +1585,9 @@ private:
 	bool LogDeclaredGenericMiss(SnGenericTypeExpr &genType,
 		const std::string &baseName, SnField *pNonGenericType);
 	//D7 helper: probe the scope chain for a DECLARED generic template by
-	//bare name and instantiate it with the given type arguments. Null =
+	//unqualified name and instantiate it with the given type arguments. Null =
 	//no matching generic declaration in scope (silent — probe semantics
-	//for the infer-site minters).
+	//for the infer-site creators).
 	SnClassDecl *FindDeclaredGenericInstance(const std::string &baseName,
 		const std::vector<SnField*> &typeArgs);
 	bool TryResolveBuiltinNameFallback(SnIdentifierExpr &idExpr,
@@ -1592,6 +1705,25 @@ private:
 	bool RejectPackageStringCoercion(SnInvokeExpr &invoke,
 		const std::vector<FormalBinding> &bindings,
 		const std::string &modulePath);
+	//Access arm of ResolveModuleQualifiedCallee (0.13.8 item 5): a
+	//foreign non-public namespace member consumes here with the
+	//manifest wording (the bare path's family), keeping codegen out.
+	//True = consumed, the caller returns false.
+	bool RejectInaccessibleCallee(SnInvokeExpr &invoke,
+		SnMemberExpr &snMember, SnFunction &callee);
+	//Shared prologue of the qualified VALUE routes (the enum-constant
+	//chain, the free-function value and the module type reference): the
+	//dotted chain with the tip pushed back, then the m12 priority probe
+	//(the leftmost local/field/type wins, as for calls). False =
+	//declined, the generic path keeps the expression.
+	bool RouteQualifiedValueChain(SnMemberExpr &snMember,
+		std::vector<std::string> &segs);
+	//The type admission of the qualified VALUE routes (0.13.8 item 5):
+	//the foreign non-public arm folds into not-found — the not-a-member
+	//wording covers both shapes and the member consumes on the miss.
+	//Null = reported and consumed; non-null = the admitted type.
+	SnField *FindAdmittedModuleTypeOrReport(SnMemberExpr &snMember,
+		const std::string &modulePath, const std::string &typeName);
 	void FinishConsumedMember(SnMemberExpr &snMember);
 
 	//Phase 5: package-qualified VALUE access (`alib.Color.Green`, the
@@ -1699,6 +1831,22 @@ public:
 		return m_Accessor.MatchCtorAgainst(actuals, candidates, rbAmbiguous);
 	}
 
+	//Statement-side entry of the ctor overload match PLUS its two named
+	//mismatch diagnostics — the super(...) selection in
+	//StatementResolverSuper. Same contract as the accessor member of the
+	//same name (kindWord="class" there); the match and its logging read
+	//only the resolved actuals and the candidate signatures, so no
+	//Resolve() context is required.
+	SnFunction *MatchCtorOrLogMismatch(
+		const std::vector<SnExpression*> &actuals,
+		const std::vector<SnFunction*> &candidates,
+		const ISourceLocation *pLoc, const char *kindWord,
+		const std::string &typeName)
+	{
+		return m_Accessor.MatchCtorOrLogMismatch(actuals, candidates,
+			pLoc, kindWord, typeName);
+	}
+
 	void ResolveFieldExprAs(SnFieldExpr &expr, SnField *pField)
 	{
 		m_Accessor.ResolveFieldExprAs(expr, pField);
@@ -1769,8 +1917,8 @@ Face-holder classes (v0.12.2, spec D10): String/Array declare the
 method faces of the string keyword and the array types. They have no
 instances and no dispatch shapes, so they stay out of the class
 hierarchy — no implicit Object base, not usable as a type or a base.
-Identity, never bare name: a user's own same-name class is an ordinary
-class and keeps the normal Object chain. The bare-name predicate lives
+Identity, never unqualified name: a user's own same-name class is an ordinary
+class and keeps the normal Object chain. The unqualified-name predicate lives
 in BuiltinNames.h (shared with the mirror name-yield pass); this pair
 needs registry identity. Definitions in ExprResolverBuiltinClasses.cpp.
 */

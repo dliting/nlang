@@ -121,7 +121,25 @@
 - 单流流水线：单stream上内核按入队序执行，无多流重叠——多流/事件编排/CUDA Graphs在backlog上。设备机制自身的故障在下一个观察点上报（延迟归因，主流取舍）；紧随故障只做输出、再无张量操作的窄场景可能输出错值而非抛异常。
 - CUDA插件构建时需要CUDA 12.6工具链、运行时需要兼容驱动；宿主运行时本身无GPU依赖。
 
-## [0.13.7]
+## [0.13.8] - 2026-11-15
+
+泛型机制术语统一（依据`docs/dev/generic_term_reference.md`）：运行时拼出实例化规范名称的那份记录统一称为*拼接记录*（代码中为`composition`），取代此前的"配方"措辞；"铸造/mint"措辞按语义并入创建／实例化词族。
+
+### 变更
+
+- **反汇编与加载器诊断改用新术语。**`ndisasm`（及调试器反汇编视图）把描述符行打印为`desc=composition#N`，`OP_TypeNameCompose`的操作数打印为`dst=%u composition=%u`；加载器与链接器诊断改为"truncated/malformed composition record"与"unknown composition record tag"。依赖旧`recipe`拼写的脚本需要同步更新。代码标识符随同一批改名（`compositionIdx`、`compositionLen`、`AppendArgComposition`）；`.ncu`字节布局不变，既有模块照常加载。
+- **"铸造/mint"标识符与注释按语义改名。**造对象走`Create*`（`CreateHostString`、`CreateShell`、`CreateThreadObject`），泛型实例化机制走`*Instantiation*`（`ExprResolverGenericInstantiation`、`InstantiationDepthClaim`；三个源文件随之改名），创建状态与门控走`Created`/`CreationGate`（`NativeCreationGate`、`creationGate`）。用户可见变化：native数组绑定诊断改为"element kind is not a creatable scalar"（原"mintable"）。无行为变化。
+- **"裸名"统一为"非限定名"**：源码注释与测试标识符中指名字解析（包前缀）语义的写法统一为unqualified name。泛型构造诊断保留既有文案"cannot be constructed by bare name"；仅注释与测试变化，无行为变化。
+- **手册泛型章节统一术语**——拼接记录、规范拼写、非限定名——覆盖中英文规格与VM架构各页（措辞统一，无语义变更）。
+
+### 新增
+
+- **跨模块访问控制（顶层函数与类型）。**`private`/`protected`/`public`前缀可用于顶层函数与类/结构体/接口/枚举，并在编译期强制：`private`把成员限定在自身单元内，`protected`放宽到同一包的兄弟单元，`public`——裸声明的缺省（D5.1：缺省可导入；封装以显式`private`/`protected`表达）——对每个过导入门的单元开放。被拒成员对查找不可见，而不是命中后再拒绝：外来私有类型在限定名中无法解析（`Type 'Vault' is not a member of package 'lib'.`），外来私有函数在限定与非限定两条路径上都报标准未找到诊断。在自身单元内，成员不论访问级别都可达。模块映像格式升到2.20：函数记录与类/结构体/接口记录在记录尾携带访问字节，枚举节扩出类型级访问表（三张平行表变四张），装载侧把`0`或高于`3`的访问字节按损坏映像拒绝；既有`.ncu`/`.npkg`需重新编译。
+- **泛型拼写的描述符限定身份。**用户单元泛型实例化的`typeName`规范拼写携带所属包路径（`"demo.Box<int>"`、`"alib.Box<int>"`；根单元类型保持裸名），落实0.13.1概要设计的D2拼写规则；类记录行键维持裸名（登记键与拼写键是两个键空间），加载侧的拼写解析与序列化往返接受带点模板头。不同包的同名模板现在身份不同：`typeName`拼写互不相同，经`Object`的跨包转型按限定拼写失败，静态字段补偿模式按键区分。非限定类型名解析自身单元优先；多个可见包声明同名时是歧义错误，诊断点名每个持有者的包；拼写键intern对重复键硬失败。
+
+## [0.13.7] - 2026-11-12
+
+本条目由两条并行开发线的同版本工作合并而成：张量向量运算（数组算术运算符、SIMD内核层、下标与比较原语）与位运算符、复合位赋值、regex包及死令牌脚手架移除；以下各小节为两侧内容并集。
 
 张量向量运算版本：语言内的numpy风格数组算术、tensor包背后的分档SIMD内核层，以及让MLP训练摆脱全部逐元素循环的激活/归约表面。
 
@@ -133,6 +151,9 @@
 - **下标与比较原语**——`gather(a, axis, indices)`对每个非轴位置取一个元素（标签收集拼写；秩1源退化为花式索引）、`argmax`/`argmin`沿轴取胜者（并列保首）、同种类数组广播比较出int 0/1的`eq`、`oneHot(labels, n)`，以及单参数`arange(n)`下标拼写。越界的gather下标与oneHot标签抛出`IndexOutOfBoundsException`。
 - **SIMD内核层**——`KernelOps`后端表背后的运行时CPU分档检测（AVX2+FMA/SSE2/标量）：matmul寄存器分块微内核、逐元素二元/一元/clamp通道、双累加器求和、载体点积、保持标量NaN/平局规则的比较选择极值、axis-0累加，以及向量化的exp（Cody-Waite+泰勒，实测对libm 0.65 ulp）与tanh。参考机实测：MNIST层形状的matmul达52.6 GFLOP/s。
 - **编译器支持**——`ReplaceChildNode`协议现覆盖全部typed表达式槽（逐类override+原位cell替换原语，遍历中途splice保持迭代器有效）、TU末扫描验证无tensor标记二元残留，发射器在codegen处同样断言。
+- **位运算符`&`、`^`、`|`、`~`。**只接受整型操作数（enum成员字面量按`int`参与，enum类型变量被拒绝——与`<<`的口径完全一致）；结果类型按算术族的提升规则取共同类型，两个操作数对等参与——`-1 & 1099511627776`保持`long`且高位保留。`~`是按位取补（`~5`是`-6`，二进制补码），窄整型操作数像二元位运算符那样提升为`int`。优先级循C族惯例：`&`、`^`、`|`位于相等比较与逻辑运算之间；`~`与其他单目运算符同级。编译产物映像升到格式2.14，已有的`.ncu`/`.npkg`需重新编译。
+- **复合位赋值`&=`、`|=`、`^=`。**存回全随复合赋值族：按左值声明类型写入、隐式窄化，与`+=`、`<<=`一致。
+- **`regex`包。**主流（RE2家族）模式语法的正则表达式：字面量与转义、`.`与字符类（范围、取反、`[:alpha:]`一类POSIX名）、分支、编号与命名捕获组、重复（`* + ? {n,m}`及惰性形态）、锚点（`^ $ \A \b \B \z`）与内联标志（`(?i)`、`(?s)`、`(?m)`）；后向引用与零宽断言明确拒绝并给出提示。`Regex(pattern)`一次编译、跨线程共享；`isMatch`、`match`、`matches`、`split`、`replaceFirst`、`replaceAll`对输入作答，每个`Match`携带一次结果的组内容与字节偏移；`regex.quoteMeta(text)`逐个转义元字符，使任意文本按字面匹配自身。
 
 ### 变更
 
@@ -141,6 +162,59 @@
 ### 已知限制
 
 - 数组上的复合赋值被拒绝（普通赋值是受支持写法）。`byte`/`ubyte`数组无算术。秩1数组配轴臂被拒绝（请用全归一形式）。数组存储中的浮点下标不转换（以`int`索引）。`tensor.n`壳重载与下沉后的运算符经不同调用深度到达相同内核。GPU（CUDA/ROCm）后端是后续工作——`KernelOps`表即扩展缝。
+
+### 移除
+
+- **死令牌脚手架`++`、`--`、`~=`与保留字`elseif`、`state`。**词法器会产出它们、语法也声明了它们，但没有任何合法构造消费它们——`i++`与`a ~= b`过去就是语法错误、现在依然是；`elseif`与`state`被保留却没有可解析的语法。一个可见后果：`v--1`现在读作合法表达式`v - (-1)`，而它此前是语法错误；另有他用请写明括号。
+
+## [0.13.6] - 2026-11-12
+
+### 新增
+
+- **`TcpStream.peekFilled`与`consume`。**面向自行分帧的代码交出原始接收窗口：`peekFilled(minBytes = 1, timeoutMs = 0)`等待未消费字节凑满`minBytes`（等待目标按8192字节的窗口容量封顶，`timeoutMs = 0`表示不设截止）并返回窗口的视图；`consume(count)`丢弃已经分帧消费的字节，为下一次补窗腾出空间。空视图表示流结束，与`read`返回0同一口径。视图在下一次读取或`consume`之后失效。
+
+### 变更
+
+- **`TcpStream`的读取不丢字节。**`read`、`readLine`与`readExactly`改由单个8192字节的惰性接收窗口支撑：`readExactly`超出`count`拿到的字节留在窗口供后续读取，读完固定长度的头部再接着读正文不再把尾巴消费掉丢掉；`readLine`跨补窗装配整行，行长仍无上限。
+- **超量HTTP连接的拒绝挪出accept线程。**`HttpServer`达到`maxConnections`时，超量连接由短工线程写503后关闭；已有64个这样的应答在途时，再超量的连接直接被关闭而无应答，客户端读到的是空响应。
+- **不设截止的`net.ping`不再推迟主机名解析。**`timeoutMs = 0`的ping把等待移出高优先级原生工作队列，一批无限期ping不再饿死正常优先级的主机名解析。
+
+### 修复
+
+- **带截止的网络等待不再付出约15毫秒的取整代价。**VM的截止停泊原先只在调度轮边界登记，截止落在操作系统时钟刻度上的等待会多睡整整一个量子：负载下就绪数据、超时与空闲保活连接的断开都要晚约15毫秒。等待现在直接停在各自的截止上，内置HTTP基准的p50延迟从每请求约15毫秒降到约1毫秒。
+
+### 性能
+
+- **HTTP服务吞吐提升一个数量级。**每条连接一个惰性接收窗口取代逐字节读取，响应头预编码且`Date`头按秒缓存，头与正文合并为一次写出。同机同参数的五方对拍（`tools/http_perf/`）里，服务器在单连接与高并发两档都进入Node.js的一个数量级之内，即本版的验收门槛。
+
+## [0.13.5] - 2026-11-09
+
+### 新增
+
+- **`http`包。**在`net`之上用NLang源码写成的HTTP/1.1库，自身不含native代码：消息模型`HttpRequest`/`HttpResponse`/`HttpHeaders`与加固的`HttpParser`、`HttpServer`（每连接一个线程；测试用的非阻塞`start()`与独立服务器的阻塞`serve()`；加固的400/408/413/417/431/500/503/505应答）、`HttpClient`（按origin的连接池、重定向、连接/读取/整体三档独立超时、默认请求头）及其`request`/`open`/`close`、建立在共享客户端之上的requests式自由函数`get`/`post`/`put`/`del`/`request`及其背后共享的`defaultClient()`，以及携带响应`status`的`HttpException`。
+- **流式正文。**请求正文的`HttpBodyReader`（`read`/`readAll`/`bodyText`/`close`/`drain`）、充当`HttpResponse.bodyChannel`的有界`Channel<byte[]>`——`send`阻塞就是背压——以及逐块读取响应的`HttpClient.open()`，其`close`把连接交回连接池。写失败会关闭通道，生产者的下一次`send`因此抛`ChannelClosedException`，已经离开的客户端不再继续产出。
+- **`gzip`包。**整块字节缓冲的`compress`/`decompress`（RFC 1952，载荷为RFC 1951的DEFLATE编解码）与`GzipException`，由新的`nlang_gzip`原生模块承载，zlib编解码编译在该模块内。
+- **示例。**`http_hello.n`、`http_conc_bench.n`（一千个并发工作者共用一个客户端、每主机至多4条持久复用连接，一并压测等连接）与`http_sse.n`（server-sent events：手工chunked分帧，客户端一走处理器就停）。
+
+### 修复
+
+- **`url`保留了只由端口承载的authority。**`toString`与`resolve`里RFC 3986第5.3节的重新装配现在共用同一个authority判定，`http://:8080/p`和以`resolve("//:80")`为基址的解析因此能完整往返，不再丢掉`//`。
+- **`DateTime.parse`要求每个字段全是数字。**`toInt`接受前导正负号，按位置扫描字符串的解析器不能依赖它：`T-1:00`曾被静默归一到前一天，带符号的年份则被补成`parse`再也读不回来的写法。现在每个字段必须全为数字，否则抛出`DateTimeException`。
+
+## [0.13.4] - 2026-11-08
+
+### 新增
+
+- **`system`包。**`wallMs`/`monoMs`时钟（由新的`nlang_system`原生模块承载）与`DateTime` UTC日历类型。
+- **`String`方法。**`indexOf(sub, from)`、`toInt(radix)`与`equalsIgnoreCase(other)`。
+- **`io` Base64编解码。**`base64Encode`/`base64Decode`/`base64UrlEncode`/`base64UrlDecode`。
+- **`url`包。**RFC 3986 `Url`（parse/resolve/toString/queryParams/encodeQuery）与`percentEncode`/`percentDecode`/`formEncode`/`formDecode`组件编解码。
+- **`string.EMPTY`。**空字符串`""`的具名常量，声明于预置类`String`。
+
+### 变更
+
+- **`io.nowMs`移至`system.monoMs`。**时钟面属于`system`而非`io`。
+- **null不再是字符串值。**`string`是内置值类型，其值域不含null（null仍是引用类型的空引用）。在string类型位置写null字面量——初始化、赋值、传参、返回、比较、case标号、拼接、静态常量初始化器——现在是编译错误；此前null被接受并在所有位置读作空字符串。空字符串是`""`/`string.EMPTY`，未初始化的string默认为`""`。声明返回string的native交出null句柄现在抛出宿主级执行期错误；一切string类型槽位——局部变量、字段、数组元素——都以`""`为默认值而非null句柄。
 
 ## [0.13.3] - 2026-11-13
 

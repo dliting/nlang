@@ -12,7 +12,7 @@ namespace nlang
 
 //Source location for stubs constructed from a CompiledModule.
 //Distinct from ImportedNodeLocation (which is backed by a RuntimeNode);
-//here we have no RuntimeNode — the stub is minted directly from .ncu data.
+//here we have no RuntimeNode — the stub is created directly from .ncu data.
 class CompiledModuleNodeLocation : public ISourceLocation
 {
 public:
@@ -48,10 +48,10 @@ private:
 
 //The parser's canonical shape for a named type leaf: SnNameExpr wrapping
 //the identifier (the nlang.y NameExpr production). The stub synthesizer
-//mints ONLY this shape for a named reference — every shape-sensitive
-//consumer (the resolution passes, the generic mint's SubstituteTypeExpr)
+//creates ONLY this shape for a named reference — every shape-sensitive
+//consumer (the resolution passes, the generic creation's SubstituteTypeExpr)
 //reads the parser shape, and a bare SnIdentifierExpr leaf would diverge
-//from every source-minted surface (the substitution crash that shaped
+//from every source-created surface (the substitution crash that shaped
 //this rule).
 inline SnFieldExpr *NamedLeafExpr(const std::string &name,
 	const ISourceLocation &loc)
@@ -60,13 +60,13 @@ inline SnFieldExpr *NamedLeafExpr(const std::string &name,
 		new SnIdentifierExpr(new std::string(name), loc), loc);
 }
 
-//The pre-bound builtin leaf family: an SnIdentifierExpr minted through
+//The pre-bound builtin leaf family: an SnIdentifierExpr created through
 //the NodeKind ctor — resolved at construction to the builtin datatype
 //(scalar types, string, void, the int32 fallback). This and
-//NamedLeafExpr above are the synthesizer's ONLY two leaf mints; the
+//NamedLeafExpr above are the synthesizer's ONLY two leaf creations; the
 //leaf contract (TemplateSignatureLeaves.h) asserts the resulting
 //invariant — bare leaves are exactly the pre-bound family — at the
-//stub mint and at the substitution entry, so a future mint outside
+//stub creation and at the substitution entry, so a future create outside
 //these factories fails there instead of diverging silently.
 inline SnFieldExpr *PreboundLeafExpr(NodeKind builtinKind,
 	const ISourceLocation &loc)
@@ -78,7 +78,7 @@ inline SnFieldExpr *PreboundLeafExpr(NodeKind builtinKind,
 //('c.S', 'lib.Handler') must take the qualified type path — the same node
 //hand-written source produces for `import c; c.S s;` — so Access
 //(SnQualifiedTypeExpr) binds it to the owning module's stub through the
-//registry. A bare-name identifier would resolve against the consumer's
+//registry. An unqualified-name identifier would resolve against the consumer's
 //own root and could silently bind a same-named local type instead.
 inline SnFieldExpr *NamedTypeExprFromKey(const std::string &key,
 	const ISourceLocation &loc)
@@ -109,8 +109,8 @@ inline SnFieldExpr *NamedTypeExprFromKey(const std::string &key,
 //the root, where the stub builder placed the imported struct/class
 //stubs; the List/Dict/func base names go through the built-in generic
 //instantiation path; builtin scalar kinds arrive pre-bound via the
-//NodeKind ctor). NonSerialized (interface types, defensive misses)
-//degrades to the int32 placeholder. Free function since 0.9.10 (moved
+//NodeKind ctor). Defensive misses (unknown kinds, out-of-range row
+//indices) degrade to the int32 placeholder. Free function since 0.9.10 (moved
 //verbatim out of CompiledModuleNodeBuilder for the source-size cap);
 //the stub builder and both stub-member helpers share it.
 //v0.13.1 D7: typeParamNames is the owning template row's declared
@@ -151,6 +151,18 @@ inline SnFieldExpr *SynthTypeExprFromDesc(const TypeDesc &td,
 			if (td.typeIdx < cm.classes.size())
 				return NamedTypeExprFromKey(
 					cm.classes[td.typeIdx].name, loc);
+			break;
+		//v0.13.9 Task 12 (D14 consumer tier): the identity kind's
+		//reading side — the producer writes RTK_Interface + the
+		//interfaces-table row (Tier 2), and the consumer rebuilds the
+		//named interface leaf exactly as the struct/class arms do, so
+		//interface-typed returns, formals, constants and fields stop
+		//degrading to the int32 placeholder at the module boundary
+		//(the pre-D14 NonSerialized degrade).
+		case RTK_Interface:
+			if (td.typeIdx < cm.interfaces.size())
+				return NamedTypeExprFromKey(
+					cm.interfaces[td.typeIdx].name, loc);
 			break;
 		case RTK_Array:
 			if (!td.elems.empty())
@@ -209,16 +221,34 @@ inline SnFieldExpr *SynthTypeExprFromDesc(const TypeDesc &td,
 			if (!td.elems.empty())
 			{
 				auto *pArgs = new std::vector<SnFieldExpr*>();
+				//v2.21: the qualifier flags re-stamp on the rebuilt argument
+				//expressions — the resolver derives the instantiation key
+				//from the argument nodes (TryResolveGenericTypeArgs), so the
+				//marks must ride the nodes exactly as the func<...> spelling
+				//leaves them. Wire element order is params first, return last;
+				//the spelling order is return first.
+				const auto elemQualifier = [&td](size_t elemIdx)
+					{
+						return elemIdx < td.elemFlags.size()
+							? td.elemFlags[elemIdx] : 0;
+					};
 				//Void serializes as the RTK_Void leaf; rebuild the
-				//same NK_Void node the parser mints for func<void,...>.
+				//same NK_Void node the parser creates for func<void,...>.
 				pArgs->push_back(td.elems.back().kind == RTK_Void
 					? PreboundLeafExpr(NK_Void, loc)
 					: SynthTypeExprFromDesc(td.elems.back(), cm, loc,
 						typeParamNames));
+				if (elemQualifier(td.elems.size() - 1) & PTDF_Ref)
+					(*pArgs)[0]->AddFlags(NF_Ref);
 				for (size_t i = 0; i + 1 < td.elems.size(); ++i)
-					pArgs->push_back(
-						SynthTypeExprFromDesc(td.elems[i], cm, loc,
-							typeParamNames));
+					{
+						auto *pArg = SynthTypeExprFromDesc(td.elems[i], cm, loc,
+							typeParamNames);
+						const uint8_t quals = elemQualifier(i);
+						if (quals & PTDF_Ref)
+							pArg->AddFlags(NF_Ref);
+						pArgs->push_back(pArg);
+					}
 				return new SnGenericTypeExpr(
 					NamedLeafExpr(kBuiltinFuncTypeName, loc),
 					pArgs, loc);

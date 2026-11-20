@@ -131,9 +131,10 @@ const char* const kBinaryOpSymbols[] = {
 	"&&", "||",
 	"-", "!",
 	"<<", ">>",
+	"&", "|", "^", "~",
 };
 static_assert(std::size(kBinaryOpSymbols)
-		== SnBinaryExpr::OP_Shr + 1,
+		== SnBinaryExpr::OP_BitNot + 1,
 	"kBinaryOpSymbols is positional and must cover every Operator value");
 }
 

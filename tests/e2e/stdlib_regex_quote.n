@@ -1,0 +1,20 @@
+// v0.13.7 regex: quoteMeta escapes exactly the Go QuoteMeta meta set.
+import io;
+import regex;
+
+int main() {
+    int bad = 0;
+    if (regex.quoteMeta("") != "") { bad = bad + 1; }
+    if (regex.quoteMeta("plain") != "plain") { bad = bad + 1; }
+    if (regex.quoteMeta("a.b") != "a\\.b") { bad = bad + 1; }
+    if (regex.quoteMeta("a+b*c?d") != "a\\+b\\*c\\?d") { bad = bad + 1; }
+    if (regex.quoteMeta("(x)[y]{z}|w^$") != "\\(x\\)\\[y\\]\\{z\\}\\|w\\^\\$") { bad = bad + 1; }
+    if (regex.quoteMeta("cost $5.*") != "cost \\$5\\.\\*") { bad = bad + 1; }
+    if (regex.quoteMeta("back\\slash") != "back\\\\slash") { bad = bad + 1; }   // \ itself is in the special set
+    // quoted text always matches itself literally, and nothing looser
+    string odd = "a(b[c{d^e$f.g*h+i?j|k\\lm";
+    Regex re = Regex(regex.quoteMeta(odd));
+    if (!re.isMatch("X" + odd + "Y")) { bad = bad + 1; }
+    if (re.isMatch("a.b")) { bad = bad + 1; }
+    return bad;
+}

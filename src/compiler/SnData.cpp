@@ -96,6 +96,14 @@ SnFormalParam::SnFormalParam(NodeBits flags, SnFieldExpr *pType,
 	Super_(RuntimeType::s_Kind, FA_Public, flags | RuntimeType::s_DefaultFlags,
 		pType, pName, pDefault, loc)
 {
+	//v0.13.9: & is syntactic — stamp the mark onto the descriptor at
+	//construction, the same timing as NF_Out in the grammar and the
+	//import-stub rebuild from the wire. Members resolve in declaration
+	//order, so a call-site judgment (promotion marking, func-type
+	//comparison) reading a forward-declared callee's formals must not
+	//wait for the callee's declaration pass to mirror the flag.
+	if (pType && pType->ContainFlags(NF_Ref))
+		AddFlags(NF_Ref);
 }
 
 SnFormalParam::SnFormalParam(RnFormalParam &rn) : Super_(rn)

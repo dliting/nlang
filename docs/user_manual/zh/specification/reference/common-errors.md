@@ -47,7 +47,7 @@ import nosuch;
 Error: Module 'nosuch' not found. Check the project Sources list or -I import path.
 ```
 
-精确`import`开放两种拼写——限定名`lib.f()`与裸名`f()`；通配`import`仅开放限定调用。未`import`就引用标准库包的成员（以及已知工程模块的成员）会报「未导入」诊断——例如未`import io;`就调用`io.print`，报`Package 'io' is not imported. Add 'import io;' at the top of this file.`。函数存在但不在本文件的裸名池内时，诊断会说明它所在的模块：`Function 'add' is not visible here. It lives in module 'utils.helper'. Add an explicit import ('import utils.helper;') or qualify the call ('utils.helper.add').`。详见[声明](../03-program-structure/declarations.md)「import声明」。
+精确`import`开放两种拼写——限定名`lib.f()`与非限定名`f()`；通配`import`仅开放限定调用。未`import`就引用标准库包的成员（以及已知工程模块的成员）会报「未导入」诊断——例如未`import io;`就调用`io.print`，报`Package 'io' is not imported. Add 'import io;' at the top of this file.`。函数存在但不在本文件的非限定名池内时，诊断会说明它所在的模块：`Function 'add' is not visible here. It lives in module 'utils.helper'. Add an explicit import ('import utils.helper;') or qualify the call ('utils.helper.add').`。详见[声明](../03-program-structure/declarations.md)「import声明」。
 
 ### 被导入函数的默认表达式
 
@@ -95,7 +95,7 @@ int main() {
 Error: a local declaration cannot be the unbraced body of a control-flow statement; use braces
 ```
 
-控制流语句的裸体（无花括号）不能是声明——请改用花括号体。调用带`out`形参的函数时，调用点须带`out`标记，否则报`The function invoke "foo(y)" is not compatible with the declaration.`。详见[语句](../06-statements/index.md)「无大括号的裸语句体」与[out参数](../07-functions/parameters.md)。
+控制流语句的裸体（无花括号）不能是声明——请改用花括号体。详见[语句](../06-statements/index.md)「无大括号的裸语句体」与[参数与实参](../07-functions/parameters.md)。
 
 ### 顶层直接初始化的首实参被当作类型解析
 
@@ -312,7 +312,19 @@ int main() {
 Warning: implicit conversion from 'Long' to 'Float' loses precision
 ```
 
-`int`/`long`与`ulong`混合的算术没有隐式公共类型——先显式统一符号域（`i as ulong`或`u as long`）；char不与数值隐式转换（比较先`c as int`取码点，算术同样如此）；int/uint/long/ulong→float与long/ulong→double的隐式赋值触发**有损警告**（不影响退出码，`ncc --no-warn`抑制这一族警告，显式`as`不警告）。详见[类型](../04-types/index.md)「数值转换矩阵」与[运算符](../05-expressions/operators.md)「算术」。
+```nlang
+int main() {
+    double d = 1.5;
+    int x = 1 & d;
+    return 0;
+}
+```
+
+```text
+Error: operator '&' requires integer operands, got "Double".
+```
+
+`int`/`long`与`ulong`混合的算术没有隐式公共类型——先显式统一符号域（`i as ulong`或`u as long`）；char不与数值隐式转换（比较先`c as int`取码点，算术同样如此）；int/uint/long/ulong→float与long/ulong→double的隐式赋值触发**有损警告**（不影响退出码，`ncc --no-warn`抑制这一族警告，显式`as`不警告）；位运算`&`、`^`、`|`、`~`只接受整型操作数（`null`报`null is not a valid bitwise operand.`），混合整型行的提升与算术完全一致（`-1 & 1099511627776L`是`long`，`int`与`ulong`的边界同样适用）。详见[类型](../04-types/index.md)「数值转换矩阵」与[运算符](../05-expressions/operators.md)「算术」「位运算符」。
 
 ### `as`转换
 
@@ -402,3 +414,21 @@ Compilation failed.
 ```
 
 `.n`源文件与`.nproj`项目文件在词法前做严格Unicode转换格式（UTF-8，Unicode Transformation Format）校验（执行点是ncc；nide的构建经由ncc，同样执行该校验）：无效字节会得到明确报错（含第一个无效字节所在行号），UTF-16保存的文件得到专门提示（`Source file ... is UTF-16, not UTF-8.`）——旧编码字节不会混入字符串常量。上面的代码块展示的是文件的逻辑内容；诊断来自磁盘上实际存储的字节——同一源文件改存为UTF-8后即可正常编译。文件开头的UTF-8字节顺序标记（BOM，byte order mark）被接受并跳过。详见[基本类型](../04-types/primitives.md)「表示链：从源码到控制台」。
+
+### 函数字节码大小
+
+```nlang
+int main() {
+    int x = 0;
+    x = x + 1;   // 实际文件中这一行重复了数千次……
+    return x % 2;
+}
+```
+
+```console
+$ ncc build big_loop.n -o big_loop.ncu
+big_loop.n(line 1, char 1): Error: function 'main' compiled to 261048 bytes of bytecode, over the 65535-byte limit for jump offsets in one function (split it into smaller functions)
+Compilation failed.
+```
+
+函数内部的跳转目标是16位程序计数器，因此单个函数编译出的字节码必须小于64KiB。编译器在构建期执行这一上限：超长函数会被拒绝，诊断点明函数的声明位置与实际字节数，而不是编出一个跳转回绕、静默执行错误分支的映像。修法是拆分函数体——抽出辅助函数再调用。只有病态巨大的平铺函数（数千条语句连排、没有任何调用）才逼近该上限，普通代码远未触及。详见[已知限制](known-limitations.md)「函数字节码大小上限」条。

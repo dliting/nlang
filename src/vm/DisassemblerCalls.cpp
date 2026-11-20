@@ -9,8 +9,7 @@
 namespace nlang {
 
 static void EmitCallDirect(BytecodeReader &r, std::ostringstream &out,
-    const std::string &head, const CompiledModule &module,
-    bool bWithOutMask) {
+    const std::string &head, const CompiledModule &module) {
     uint16_t funcIdx = r.ReadUint16();
     uint16_t base = r.ReadUint16();
     uint16_t descIdx = r.ReadUint16();
@@ -19,28 +18,19 @@ static void EmitCallDirect(BytecodeReader &r, std::ostringstream &out,
         out << " " << module.functions[funcIdx].name;
     out << " base=" << base << " desc=0x" << std::hex << descIdx
         << std::dec;
-    if (bWithOutMask) {
-        uint32_t outMask = r.ReadUint32();
-        out << " outMask=0x" << std::hex << outMask << std::dec;
-    }
     out << "\n";
 }
 
-//Bound-method direct call: "[i] name base=b" (+ the out-mask tail on
-//the *Out form) — no descriptor operand (the receiver fills the cell).
+//Bound-method direct call: "[i] name base=b" — no descriptor operand
+//(the receiver fills the cell).
 static void EmitCallMethodDirect(BytecodeReader &r, std::ostringstream &out,
-    const std::string &head, const CompiledModule &module,
-    bool bWithOutMask) {
+    const std::string &head, const CompiledModule &module) {
     uint16_t funcIdx = r.ReadUint16();
     uint16_t base = r.ReadUint16();
     out << head << " [" << funcIdx << "]";
     if (funcIdx < module.functions.size())
         out << " " << module.functions[funcIdx].name;
     out << " base=" << base;
-    if (bWithOutMask) {
-        uint32_t outMask = r.ReadUint32();
-        out << " outMask=0x" << std::hex << outMask << std::dec;
-    }
     out << "\n";
 }
 
@@ -79,16 +69,10 @@ bool DisasmCallOps(OpCode op, BytecodeReader &r,
     const CompiledModule &module) {
     switch (op) {
         case OpCode::OP_CallStatic:
-            EmitCallDirect(r, out, head, module, false);
+            EmitCallDirect(r, out, head, module);
             return true;
         case OpCode::OP_CallMethodDirect:
-            EmitCallMethodDirect(r, out, head, module, false);
-            return true;
-        case OpCode::OP_CallStaticOut:
-            EmitCallDirect(r, out, head, module, true);
-            return true;
-        case OpCode::OP_CallMethodDirectOut:
-            EmitCallMethodDirect(r, out, head, module, true);
+            EmitCallMethodDirect(r, out, head, module);
             return true;
         case OpCode::OP_CallMethod:
             EmitCallByName(r, out, head, module);
@@ -99,15 +83,6 @@ bool DisasmCallOps(OpCode op, BytecodeReader &r,
         case OpCode::OP_CallDelegate:
             DisasmU16xN(2, r, out, head, " callee=%u base=%u");
             return true;
-        case OpCode::OP_CallDelegateOut: {
-            uint16_t callee = r.ReadUint16();
-            uint16_t base = r.ReadUint16();
-            uint32_t outMask = r.ReadUint32();
-            out << head << " callee=" << callee << " base=" << base
-                << " outMask=0x" << std::hex << outMask << std::dec
-                << "\n";
-            return true;
-        }
         default:
             return false;
     }

@@ -1,0 +1,10 @@
+// v0.13.9 phase 3 Task 5: a & formal binds the caller's local storage;
+// the callee's write lands in x.
+void bump(int& v) {
+    v = v + 1;
+}
+int main() {
+    int x = 10;
+    bump(x);
+    return x;
+}

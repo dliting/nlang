@@ -1,0 +1,30 @@
+// Comparison server on Node's built-in http module (libuv event loop, one
+// thread). Same three fixed-size bodies as the NLang probe, served from
+// preallocated buffers, so the measured path is request handling plus the
+// socket, not buffer construction.
+'use strict';
+const http = require('http');
+
+const PORT = __PORT__;
+const BODY = {
+  '/b0': Buffer.alloc(0),
+  '/b1024': Buffer.alloc(1024, 0x61),
+  '/b8192': Buffer.alloc(8192, 0x61),
+};
+
+const server = http.createServer((req, res) => {
+  const body = BODY[req.url];
+  if (body === undefined) {
+    res.writeHead(404, { 'content-length': '0' });
+    res.end();
+    return;
+  }
+  res.writeHead(200, { 'content-length': String(body.length) });
+  res.end(body);
+});
+
+// Matched to the NLang server's keepAliveTimeoutMs so neither side is measured
+// with a shorter idle connection lifetime than the other.
+server.keepAliveTimeout = 30000;
+server.headersTimeout = 60000;
+server.listen(PORT, '127.0.0.1');

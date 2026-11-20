@@ -39,10 +39,10 @@ namespace tensor {
 namespace {
 
 //Element-count guard for arange: an absurd range with a tiny step must
-//fail by name, not by attempting a multi-GB mint.
+//fail by name, not by attempting a multi-GB create.
 constexpr int64_t kArangeMaxElems = 100 * 1000 * 1000;
 
-//full family: mint then fill with a constant (the fill rides the slot).
+//full family: create then fill with a constant (the fill rides the slot).
 template <typename T>
 void FillKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
                 uint8_t kind, T value) {
@@ -70,7 +70,7 @@ void FillThroughSlot(NativeHost* host, NativeArrayView& v, double fValue,
     }
 }
 
-//full(dims, value): the int[] dims vector shapes the mint, the fill
+//full(dims, value): the int[] dims vector shapes the creation, the fill
 //value rides slot 1. The dims cells are collected through the shared
 //rank-1 collector (stride-aware walk of a view's logical cells, bounded
 //length) — a direct linear read would shape the result from the wrong
@@ -182,7 +182,7 @@ void TensorBackend(NativeHost* host, uint8_t* ret, const uint8_t* args,
             static_cast<T>((Reader)(args, 1)));                        \
     }
 
-//Dims-shaped twin: same shape, but the mint is FullDimsKernel (the
+//Dims-shaped twin: same shape, but the creation is FullDimsKernel (the
 //dims vector is slot 0, the fill value slot 1).
 #define TENSOR_CONST_FILL_DIMS_BY_ARG(Name, Kind, T, Reader)           \
     void Name(NativeHost* host, uint8_t* ret, const uint8_t* args,     \
@@ -222,7 +222,7 @@ TENSOR_ARANGE(ArangeL, NEK_Int64, int64_t, ReadL)
 TENSOR_ARANGE(ArangeF, NEK_Float32, float, ReadF)
 TENSOR_ARANGE(ArangeD, NEK_Float64, double, ReadD)
 
-//ABI v10 exercise pair. strideViewI mints a rank-1 view through the
+//ABI v10 exercise pair. strideViewI creates a rank-1 view through the
 //new newArrayView host entry (len/stride/offset in element units —
 //the validation raises exactly like the language's view creation);
 //viewSumI walks any rank-1 int array or view through getArrayView,

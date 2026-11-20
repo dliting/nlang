@@ -143,7 +143,7 @@ int32_t RefFactory::ToHeapHandle(VmExecutor& exec, const Value& v) {
                                   static_cast<int64_t>(v.asChar()));
     case Value::Kind::String:
         return exec.BoxHostScalar(RTK_String,
-                                  exec.MintHostString(v.asString()));
+                                  exec.CreateHostString(v.asString()));
     default:
         break;
     }

@@ -8,7 +8,7 @@
     the executor's self-pipe in the resolve-wait shape. The park
     unwinds the native call and re-entry rebuilds the stack, so the
     job record carries the requesting context id: re-entry adopts the
-    job it already submitted (FindOwn) instead of minting a new one.
+    job it already submitted (FindOwn) instead of creating a new one.
     The helper timeout is always bounded by the echo slice (external
     review I3): a slice that expires while the script deadline still
     allows re-arms with a fresh echo, so one job never holds a pool
@@ -17,7 +17,7 @@
     the record: -1 (no reply in time) becomes the -2 timeout code, -2
     (unreachable/resolve failure) the -4 platform code.
 
-    The raw IcmpSocket arms follow the UDP discipline: bind mints the
+    The raw IcmpSocket arms follow the UDP discipline: bind creates the
     slot, recvFrom parks on read interest (net_tcp_park.h), the source
     address is stashed on the slot for _icmpLastRecvAddress. On
     Windows the raw socket needs administrator privileges — the bind
@@ -27,7 +27,6 @@
 
 #include "net_jobs.h"
 #include "net_platform.h"
-#include "net_platform_internal.h"   //g_lastErrorOverride (worker splice)
 #include "net_slots.h"
 #include "net_state.h"
 #include "net_tcp_park.h"
@@ -105,24 +104,23 @@ void IcmpWorker(void* arg) {
     } else if (r == -2) {
         //Either nothing the echo helpers can dial, or the platform
         //layer armed an override on this worker thread — prefer it.
-        errText = g_lastErrorOverride.empty()
-            ? std::string("host has no usable address")
-            : g_lastErrorOverride;
-        g_lastErrorOverride.clear();
+        const std::string armed = NetTakeLastErrorOverride();
+        errText = armed.empty() ? std::string("host has no usable address")
+                                : armed;
     }
     NetFinishIcmp(job->st, job->jobId, 0, kNetErrPlatform, errText,
                   resolveErr);
 }
 
-//Adopt the job this context already submitted (park re-entry) or mint
+//Adopt the job this context already submitted (park re-entry) or create
 //a fresh one, flagging the submit (the ping wait loop's prologue).
-int32_t PingMintOrAdopt(NetExecState* st, int self, bool* submit) {
+int32_t PingCreateOrAdopt(NetExecState* st, int self, bool* submit) {
     std::lock_guard<std::mutex> g(st->m_mutex);
     const int32_t jobId = st->m_jobs.FindOwn(kNetJobIcmp, self);
     if (jobId != 0)
         return jobId;
     *submit = true;
-    return st->m_jobs.Mint(kNetJobIcmp, self);
+    return st->m_jobs.Create(kNetJobIcmp, self);
 }
 
 //Slice expired: release the record and re-arm with a fresh echo (the
@@ -131,7 +129,7 @@ int32_t PingMintOrAdopt(NetExecState* st, int self, bool* submit) {
 //state mutex.
 void PingResubmit(NetExecState* st, int32_t* jobId, int self, bool* submit) {
     st->m_jobs.Release(*jobId);
-    *jobId = st->m_jobs.Mint(kNetJobIcmp, self);
+    *jobId = st->m_jobs.Create(kNetJobIcmp, self);
     *submit = true;
 }
 
@@ -159,6 +157,13 @@ int IcmpEchoTimeout(long long deadline, long long nowMs) {
         ? static_cast<int>(left) : kIcmpEchoSliceMs;
 }
 
+//The unbounded wait can afford the ordinary lane; keeping it off the priority
+//lane is what stops a fire-and-forget ping from queueing ahead of the
+//hostname resolution that connect and sendTo need (D6).
+int IcmpJobPriority(long long deadline) {
+    return deadline > 0 ? 1 : 0;
+}
+
 //Declared in net_icmp.h: only a slice timeout re-arms, and only while
 //the deadline still allows (external review I3) — a reply and an
 //unreachable verdict are terminal, and an unlimited deadline (0)
@@ -177,7 +182,17 @@ bool IcmpShouldResubmit(int err, long long deadline, long long nowMs) {
     return err == kNetErrTimeout && (deadline <= 0 || nowMs < deadline);
 }
 
-//ping(host, deadlineMs): mint-or-adopt, submit, park on the self-pipe
+//Submit (or re-arm) one echo-slice job. The work-pool lane follows the
+//deadline's presence (0.13.6 D6): a deadline-free ping waits on the
+//interest table instead of holding a priority-1 pool worker.
+void PingSubmitWork(NativeHost* h, NetExecState* st, int32_t jobId,
+                    const std::string& host, long long deadline) {
+    h->submitWork(h, &IcmpWorker, new IcmpJobArg{st, jobId, host,
+        IcmpEchoTimeout(deadline, h->nowMs(h))},
+        st->m_selfPipeFds[1], IcmpJobPriority(deadline));
+}
+
+//ping(host, deadlineMs): create-or-adopt, submit, park on the self-pipe
 //until the record is done (R9 drain discipline: the ack byte is a
 //hint, the record under the mutex is the truth). The helper timeout
 //is bounded by the echo slice (external review I3): a slice that
@@ -194,14 +209,12 @@ void NetPing(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     const long long deadline = ArgLong(a, 1);
     const int self = h->currentContextId(h);
     bool submit = false;
-    int32_t jobId = PingMintOrAdopt(st, self, &submit);
+    int32_t jobId = PingCreateOrAdopt(st, self, &submit);
     const int readFd = st->m_selfPipeFds[0];
     for (;;) {
         if (submit) {
             submit = false;
-            h->submitWork(h, &IcmpWorker, new IcmpJobArg{st, jobId, host,
-                IcmpEchoTimeout(deadline, h->nowMs(h))},
-                st->m_selfPipeFds[1], 1);   //priority 1 (D5 two-level queue)
+            PingSubmitWork(h, st, jobId, host, deadline);
         }
         NetDrainPipe(readFd);
         std::lock_guard<std::mutex> g(st->m_mutex);
@@ -270,7 +283,7 @@ void NetIcmpBind(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     }
     int32_t handle = 0;
     {   std::lock_guard<std::mutex> g(st->m_mutex);
-        handle = st->m_slots.Mint(fd, kNetKindIcmp);   }
+        handle = st->m_slots.Create(fd, kNetKindIcmp);   }
     ReturnInt(ret, handle);
 }
 
@@ -360,15 +373,17 @@ void NetIcmpRecvFrom(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     }
 }
 
-//icmpLastRecvAddress(handle): the source of the last recvFrom (null
-//sentinel 0 when the slot is gone).
+//icmpLastRecvAddress(handle): the source of the last recvFrom (the
+//empty string — string has no null value, 0.13.4 — when the slot is
+//gone; the script reads it right after a successful receive, so the
+//slot is live in practice).
 void NetIcmpLastRecvAddress(NativeHost* h, uint8_t* ret, const uint8_t* a,
     int) {
     NetExecState* st = NetState(h);
     std::lock_guard<std::mutex> g(st->m_mutex);
     auto* slot = st->m_slots.Lookup(ArgInt(a, 0));
     if (!slot) {
-        ReturnInt(ret, 0);
+        ReturnString(h, ret, std::string());
         return;
     }
     ReturnString(h, ret, slot->lastPeerAddress);
@@ -390,7 +405,9 @@ void NetIcmpClose(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
 //--- registration ------------------------------------------------------------
 
 //Declared in net_icmp.h: net_native.cpp's module init calls this.
-void NetRegisterIcmpNatives(void* registry, RegisterNativeFn reg,
+//The signature is the uniform one every NetRegister*Natives shares; this
+//module has no non-blocking native, so reg goes unused.
+void NetRegisterIcmpNatives(void* registry, [[maybe_unused]] RegisterNativeFn reg,
     RegisterNativeBlockingFn regBlocking) {
     regBlocking(registry, "net", "_ping", &NetPing);
     regBlocking(registry, "net", "_icmpBind", &NetIcmpBind);

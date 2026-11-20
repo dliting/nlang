@@ -1,0 +1,32 @@
+// v0.13.9 phase 3 Task 12 (D14) GC pin: an interface-typed runtime
+// constant (a static slot holding a class instance) must root it through
+// mid-loop collections. Before the fix BuildTypeDesc degraded the
+// interface to RTK_NonSerialized, MarkStaticSlotRoots skipped the slot,
+// and the constant's instance was swept mid-churn — reproducible as a
+// cleared-record dispatch assert after the loop.
+// The warm access forces the constant's lazy initializer to run BEFORE
+// the churn, so the collections see the static slot as the only anchor.
+// Expected exit code: 0.
+interface Inc {
+    void set(int v);
+    int get();
+}
+class A implements Inc {
+    public int v = 0;
+    public void set(int v) { this.v = v; }
+    public int get() { return this.v; }
+}
+interface Holder {
+    public static const Inc C = A();
+}
+int main() {
+    int warm = Holder.C.get();
+    int c = 0;
+    while (c < 3000) {
+        Inc g = A();
+        g.set(c);
+        c = c + 1;
+    }
+    Holder.C.set(41);
+    return Holder.C.get() - warm - 41;
+}

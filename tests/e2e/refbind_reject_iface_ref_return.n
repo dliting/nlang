@@ -1,0 +1,6 @@
+// Task 6 declaration gate: reference returns are implemented for
+// free functions and class methods; interface methods reject the
+// declaration up front (virtual pair dispatch is future work).
+interface R {
+    int& pick();
+}

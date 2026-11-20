@@ -1,0 +1,120 @@
+// Redirect policy (D12): 302 → GET with body dropped, 307 keeps method
+// and body, relative Location via Url.resolve, cross-origin strip of
+// Authorization/Cookie, maxRedirects cap → HttpException.
+//
+// File-scope variables are not allowed next to an explicit main(), so the
+// second server's port travels in a static field (the same shape as the
+// planned HttpClient.shared).
+import io;
+import http;
+
+class RedirectPorts {
+    public static int other = 0;
+
+    public static void setOther(int port) { other = port; }
+}
+
+// Serves both servers: the redirecting one answers /a, /keep, /loop and /x,
+// the target one only needs /b.
+HttpResponse redirectHandler(HttpRequest req) {
+    HttpResponse res = HttpResponse();
+    string p = req.url.path;
+    if (p == "/a") {
+        res.statusCode = 302;
+        res.reasonPhrase = "Found";
+        res.headers.set("Location", "/b");          // relative (same origin)
+        return res;
+    }
+    if (p == "/b") {
+        res.body = io.toBytes("final " + req.method + " auth " + req.headers.get("Authorization"));
+        return res;
+    }
+    if (p == "/x") {
+        // Absolute Location to the second server: same host, different port,
+        // so a different origin — the credentials must not follow (D12).
+        res.statusCode = 302;
+        res.reasonPhrase = "Found";
+        res.headers.set("Location", "http://127.0.0.1:" + RedirectPorts.other.toString() + "/b");
+        return res;
+    }
+    if (p == "/keep") {
+        res.statusCode = 307;
+        res.reasonPhrase = "Temporary Redirect";
+        res.headers.set("Location", "/echo");
+        return res;
+    }
+    if (p == "/echo") {
+        res.body = io.toBytes(req.method + " " + req.bodyText());
+        return res;
+    }
+    if (p == "/loop") {
+        res.statusCode = 301;
+        res.reasonPhrase = "Moved Permanently";
+        res.headers.set("Location", "/loop");
+        return res;
+    }
+    res.statusCode = 404;
+    res.reasonPhrase = "Not Found";
+    return res;
+}
+
+int main() {
+    HttpServer srv2 = HttpServer();
+    srv2.start("127.0.0.1", 0, redirectHandler);
+    RedirectPorts.setOther(srv2.localPort());
+
+    HttpServer srv = HttpServer();
+    srv.start("127.0.0.1", 0, redirectHandler);
+    string base = "http://127.0.0.1:" + srv.localPort().toString();
+
+    HttpClient cli = HttpClient();
+
+    // 1. 302 → GET, body dropped, same-origin Authorization kept.
+    HttpRequest r1 = HttpRequest();
+    r1.method = "POST";
+    r1.url = Url.parse(base + "/a");
+    r1.body = io.toBytes("will-drop");
+    r1.headers.set("Authorization", "Bearer t");
+    HttpResponse res1 = cli.request(r1);
+    if (res1.bodyText() != "final GET auth Bearer t") { return 1; }
+    if (res1.requestUrl == null || res1.requestUrl.path != "/b") { return 1; }
+
+    // 2. 307 keeps method and body.
+    HttpRequest r2 = HttpRequest();
+    r2.method = "POST";
+    r2.url = Url.parse(base + "/keep");
+    r2.body = io.toBytes("kept");
+    HttpResponse res2 = cli.request(r2);
+    if (res2.bodyText() != "POST kept") { return 2; }
+
+    // 3. Cross-origin redirect (port counts as a different origin) drops
+    // Authorization and Cookie.
+    HttpRequest r3 = HttpRequest();
+    r3.url = Url.parse(base + "/x");
+    r3.headers.set("Authorization", "Bearer t");
+    r3.headers.set("Cookie", "sid=1");
+    HttpResponse res3 = cli.request(r3);
+    if (res3.bodyText() != "final GET auth ") { return 3; }
+
+    // 4. Redirect loop → HttpException after maxRedirects.
+    HttpRequest r4 = HttpRequest();
+    r4.url = Url.parse(base + "/loop");
+    cli.maxRedirects = 3;
+    try {
+        cli.request(r4);
+        return 4;
+    } catch (HttpException e) {
+        if (e.message.indexOf("redirect") < 0) { return 4; }
+    }
+
+    // 5. maxRedirects = 0 → no following.
+    cli.maxRedirects = 0;
+    HttpResponse res5 = cli.request(r1);
+    if (res5.statusCode != 302) { return 5; }
+
+    cli.close();
+    srv.close();
+    srv2.close();
+    io.print("ok");
+    return 0;
+}

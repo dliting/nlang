@@ -223,6 +223,15 @@ void ReadInterfaceRecords(std::istream& fs, CompiledModule& mod)
         //v2.19 (0.13.1c Task 8): the generic-declaration tail (see the
         //worker).
         ReadInterfaceGenericTail(fs, ci);
+
+        //v2.20 (0.13.8 item 5): the interface's declared access, the
+        //record's trailing byte (same corrupt-image rule as the function
+        //record's — FA_Default never reaches the wire, above-FA_Public is
+        //not an access level).
+        fs.read(reinterpret_cast<char*>(&ci.access), sizeof(ci.access));
+        if (!fs.good() || ci.access == FA_Default || ci.access > FA_Public)
+            throw std::runtime_error(
+                "Invalid module: bad interface access byte");
     }
     if (!fs.good())
         throw std::runtime_error("Invalid module: truncated interface table");

@@ -1,0 +1,76 @@
+// E4 raw-socket probe (measurement-only: not shipped, not an example, not in ctest).
+//
+// The http.n-free twin of srv_nlang.n.in: accept, read one request head, answer
+// one fixed 0-byte response, keep-alive. It isolates the parking/registration
+// floor from everything the protocol layer adds.
+import io;
+import net;
+import thread;
+
+class Raw {
+    public static int port = __PORT__;
+    public static int lifetimeMs = 3600000;
+}
+
+// Whole-buffer scan for the head terminator: readLine is one syscall per byte
+// before D5, which would measure the wrong thing here.
+int findHeadEnd(byte[] buf, int len) {
+    for (int i = 0; i + 3 < len; i = i + 1) {
+        if (buf[i] == 13 && buf[i + 1] == 10 && buf[i + 2] == 13 && buf[i + 3] == 10) {
+            return i + 4;
+        }
+    }
+    return -1;
+}
+
+class Conn {
+    private TcpStream m_sock;
+    public Conn(TcpStream sock) { m_sock = sock; }
+
+    public void run() {
+        byte[] reply = io.toBytes("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");
+        byte[] buf = byte[8192];
+        int have = 0;
+        try {
+            m_sock.setNoDelay(true);
+            while (true) {
+                int end = findHeadEnd(buf, have);
+                if (end >= 0) {
+                    m_sock.write(reply, -1, 5000);
+                    have = 0;   // one request per read: oha's closed loop never pipelines
+                    continue;
+                }
+                if (have == buf.length()) { break; }   // head overruns the probe buffer
+                int n = m_sock.read(buf[have:buf.length()], 5000);
+                if (n <= 0) { break; }
+                have = have + n;
+            }
+            m_sock.close();
+        } catch (Exception e) {
+            try { m_sock.close(); } catch (Exception e2) { }
+        }
+    }
+}
+
+class Acceptor {
+    private TcpListener m_lst;
+    public Acceptor(TcpListener lst) { m_lst = lst; }
+
+    public void run() {
+        while (true) {
+            TcpStream sock = null;
+            try { sock = m_lst.accept(0); } catch (Exception e) { return; }
+            Conn c = Conn(sock);
+            thread.spawn(c.run);
+        }
+    }
+}
+
+int main() {
+    TcpListener lst = TcpListener.bind("127.0.0.1", Raw.port);
+    Acceptor a = Acceptor(lst);
+    thread.spawn(a.run);
+    thread.sleep(Raw.lifetimeMs);
+    lst.close();
+    return 0;
+}

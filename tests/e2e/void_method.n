@@ -1,5 +1,5 @@
 class Calc {
-    public void divide(int a, int b, out int rem) {
+    public void divide(int a, int b, int& rem) {
         rem = a % b;
     }
     public void bump(int x) {
@@ -11,7 +11,7 @@ class Calc {
 int main() {
     Calc c = Calc();
     int r = 0;
-    c.divide(17, 5, out r);
+    c.divide(17, 5, r);
     c.bump(r);
     // r = 17 % 5 = 2; value = 0 + 2 = 2; 2 * 10 + 2 = 22
     return r * 10 + c.value;

@@ -305,7 +305,7 @@ void VmBackend::EmitAsUnboxOp(SnAsExpr& asExpr, BytecodeEmitter& emitter,
 //v0.13.1: a generic-instantiation target also names its descriptor row
 //(the row check alone cannot tell Box<int> from Box<string> — one erased
 //row per template); non-instantiations carry the 0xFFFF sentinel, and
-//recipe rows compose against the receiver at run time like OP_New.
+//composition record rows compose against the receiver at run time like OP_New.
 void VmBackend::EmitAsDowncastOp(SnAsExpr& asExpr, BytecodeEmitter& emitter,
                                  uint16_t resultOffset) {
     auto* targetType = asExpr.ResolvedTarget();

@@ -1,4 +1,4 @@
-// v0.12.7 Task 10: dual-shape element ops on views. Views minted
+// v0.12.7 Task 10: dual-shape element ops on views. Views created
 // through the ABI-v10 exercise native walk the ordinary element
 // opcodes: static and dynamic load/store, length, foreach (the flat
 // reader), the zero-stride store rejection, negative strides, stores

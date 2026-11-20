@@ -1,7 +1,5 @@
-//Write protection reaches out-arguments. The grammar accepts only a
-//bare identifier after out (KT_Out TT_Identifier, nlang.y:2381-2387),
-//so the reachable surface is a static-const LOCAL — qualified field
-//spellings are grammar-level rejects and pin nothing here.
+// v0.13.9 phase 4: the out spelling retires at the declaration
+// throat before any call-site judgment runs.
 int fill(out int v) {
     v = 1;
     return 0;

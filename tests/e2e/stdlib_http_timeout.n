@@ -1,0 +1,148 @@
+// Head-phase timeout budget over the wire: a client that starts its request
+// head and then stalls gets 408 within headerTimeoutMs (Slowloris, D7); a
+// connection that sends nothing at all is closed after keepAliveTimeoutMs
+// without an answer. Neither branch had any coverage before, and
+// TcpStream.read signals its timeout by *throwing* TimeoutException, so the
+// head-phase deadline in readRequest is only observable at the read itself.
+import io;
+import net;
+import http;
+import thread;
+import system;
+
+HttpResponse okHandler(HttpRequest req) {
+    HttpResponse res = HttpResponse();
+    res.body = io.toBytes("ok");
+    return res;
+}
+
+// 2b. The head-phase budget is armed once, at the first readable byte, and a
+//     refill must not re-arm it: a client dribbling 8 bytes every 150 ms is
+//     still cut off at the original 500 ms deadline (Slowloris, D7). The
+//     dribble runs on its own thread so the read side can watch the answer
+//     arrive while bytes are still coming.
+class Dribbler {
+    private TcpStream m_sock;
+
+    public Dribbler(TcpStream sock) { m_sock = sock; }
+
+    public void run() {
+        byte[] msg = io.toBytes("GET / HTTP/1.1\r\nHost: x\r\nX: y\r\n\r\n");
+        int i = 0;
+        while (i < msg.length()) {
+            int take = msg.length() - i;
+            if (take > 8) { take = 8; }
+            try {
+                m_sock.write(msg[i:i + take], -1, 3000);
+            } catch (Exception e) {
+                return;             //the server already gave up on this head
+            }
+            i = i + take;
+            thread.sleep(150);
+        }
+    }
+}
+
+int main() {
+    HttpServer srv = HttpServer();
+    srv.keepAliveTimeoutMs = 500;
+    srv.headerTimeoutMs = 500;
+    srv.start("127.0.0.1", 0, okHandler);
+    int port = srv.localPort();
+
+    // 1. A request head that never finishes: the bytes stop after a partial
+    //    header line, so the head phase must end with 408, not a silent hang-up.
+    if (sendPartial(port, "GET / HTTP/1.1\r\nHost: x\r\nX: ") != 408) { return 1; }
+
+    // 2. The idle wait is a different budget: silence before the first byte
+    //    closes the connection with no response at all (a keep-alive
+    //    connection expiring is not a protocol error).
+    if (idleCloses(port) != 1) { return 2; }
+
+    // 2b. The dribbling client: still 408 within the original head budget,
+    //     not re-armed by each refill.
+    if (dribbleTimesOut(port) != 1) { return 4; }
+
+    // 3. A slow client must not poison the accept loop: a normal request after
+    //    the two timeouts above is still served.
+    if (statusOf(sendRaw(port, "GET / HTTP/1.1\r\nHost: x\r\n\r\n")) != 200) { return 3; }
+
+    srv.close();
+    io.print("ok");
+    return 0;
+}
+
+// Sends a partial request head (no terminating blank line) and returns the
+// status the server answers with, or -1 if it closed without answering.
+int sendPartial(int port, string req) {
+    TcpStream s = TcpStream.connect("127.0.0.1", port, 5000);
+    s.write(req);
+    string head = "";
+    while (true) {
+        string ln = s.readLine(5000);
+        if (s.isClosed() || ln == "") { break; }
+        head = head + ln + "\r\n";
+    }
+    s.close();
+    return statusOf(head);
+}
+
+// Connects, sends nothing, and reports 1 when the server closed the idle
+// connection within its keep-alive budget, 0 when the read timed out first.
+int idleCloses(int port) {
+    TcpStream s = TcpStream.connect("127.0.0.1", port, 5000);
+    int closed = 0;
+    try {
+        string ln = s.readLine(3000);
+        if (s.isClosed() || ln == "") { closed = 1; }
+    } catch (Exception e) {
+        closed = 0;
+    }
+    s.close();
+    return closed;
+}
+
+// Returns 1 only when the server answers 408 within 900 ms of the first byte.
+int dribbleTimesOut(int port) {
+    TcpStream c = TcpStream.connect("127.0.0.1", port, 5000);
+    Dribbler d = Dribbler(c);
+    long t0 = system.monoMs();
+    thread.spawn(d.run);
+    int st = -1;
+    try {
+        st = statusOf(c.readLine(1500));
+    } catch (Exception e) {
+        st = -1;                    //no answer at all: the budget was re-armed
+    }
+    long elapsed = system.monoMs() - t0;
+    try { c.close(); } catch (Exception e2) { }
+    if (st != 408) { return 0; }
+    if (elapsed > 900) { return 0; }
+    return 1;
+}
+
+// Sends the raw request bytes and returns the response head.
+string sendRaw(int port, string req) {
+    TcpStream s = TcpStream.connect("127.0.0.1", port, 5000);
+    s.write(req);
+    string acc = "";
+    while (true) {
+        string ln = s.readLine(5000);
+        if (s.isClosed() || ln == "") { break; }
+        acc = acc + ln + "\r\n";
+    }
+    s.close();
+    return acc;
+}
+
+int statusOf(string head) {
+    if (!head.startsWith("HTTP/1.1 ")) { return -1; }
+    string code = head.substring(9, 12);
+    int v = 0;
+    for (int i = 0; i < 3; i = i + 1) {
+        int c = code[i];
+        if (c < 48 || c > 57) { return -1; }
+        v = v * 10 + (c - 48);
+    }
+    return v;
+}

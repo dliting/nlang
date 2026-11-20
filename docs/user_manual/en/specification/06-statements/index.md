@@ -101,8 +101,9 @@ a class static constant (§4.8.8); any other expression runs lazily
 on the first execution.
 
 A static local of a struct type follows the struct value model:
-each store into the slot deep-copies the record, and a declaration
-without an initializer starts at the struct's zero value
+the slot owns one record for life — the first store establishes it
+(a declaration without an initializer starts at the struct's
+zeroed record), and every later store updates it in place
 (§4.7.4). Re-entering the initializer before it stores — a
 recursive call that reads its own static local — raises
 `InitializationException` (§8.3) at the reading site, catchable
@@ -122,7 +123,7 @@ the lvalue; the value must be assignable to the type of the lvalue
 of struct type stores a copy (§4.7), while an array-typed, class or
 interface lvalue stores a reference (§4.10, §4.8).
 
-Compound assignment `x op= e;` with `op` one of `+ - * / % << >>`
+Compound assignment `x op= e;` with `op` one of `+ - * / % << >> & | ^`
 (§2.5) is equivalent to `x = x op e;` (§5.2, §5.3) except that the
 lvalue is evaluated exactly once. Two differences from the binary
 operator:
@@ -145,6 +146,7 @@ Assignment to a `const` local is a compile-time error (§6.1).
 
 ```nlang
 x += y ;  x -= y ;  x *= y ;  x /= y ;  x %= y ;  x <<= y ;  x >>= y ;
+x &= y ;  x |= y ;  x ^= y ;
 ```
 
 Read-modify-write shorthand for `x = x op y`. Supported left-values: local

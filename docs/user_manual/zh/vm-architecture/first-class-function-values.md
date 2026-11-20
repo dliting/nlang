@@ -17,21 +17,19 @@ OP_MakeVFunc绑定时的空接收者守卫（接收者槽位读到 ≤ 0时抛�
 
 ### 分派布局（`this == 0`分支）
 
-`ExecuteDelegateCall`（OP_CallDelegate / OP_CallDelegateOut共用）按`slot[1]`分支：
+`ExecuteDelegateCall`按`slot[1]`分支：
 
-- **自由函数**——实参从`callParamBase`原样拷贝（OP_CallFunc的应用二进制接口（ABI，application binary interface））。native目标直接读取调用方的槽位单元。
+- **自由函数**——实参从`callParamBase`原样拷贝（OP_CallStatic的应用二进制接口（ABI，application binary interface））。native目标直接读取调用方的槽位单元。
 - **绑定方法**——被捕获的接收者占据被调帧的槽0，调用方的实参*不带* this依次落位，从槽1开始（`callee.paramCount`对方法而言包含this）。
 - **虚分派句柄**——先解析目标：在接收者的运行期类上按方法名查找（`FindMethodByName`，与OP_CallMethod执行同一套查找，沿`superClassIdx`链向上遍历`methodIndices`），再按绑定方法布局执行。落到此处的native或内建方法在分派时抛错（可编译的形状已被resolver拒绝）。
-
-out实参写回（`OP_CallDelegateOut`）按相反方向平移：outMask的第*i*位标记`func`签名顺序中的第*i*个用户参数；写回时对绑定句柄读取帧槽位`i+1`（自由函数为槽`i`），存入`callParamBase + i`。
 
 ### 接收者优先发射
 
 OP_MakeBoundFunc / OP_MakeVFunc在写入句柄*之前*从`pResult`读取接收者：代码生成先把接收者表达式发射进结果槽位，刷新`pResult`，然后绑定指令读取它，再用句柄索引覆写该槽位。
 
-### GC追踪位点
+### GC追踪位置
 
-MarkPhase按kind筛选追踪位点——多数看运行期kind，两个根扫描看静态局部/返回kind；`RTK_Func`记录在**8个**位点被追踪：
+MarkPhase按kind筛选追踪位置——多数看运行期kind，两个根扫描看静态局部/返回kind；`RTK_Func`记录在**8个**位置被追踪：
 
 1. 根集扫描（`LocalDescriptor.typeKind == RTK_Func`的局部/参数）
 2. 栈帧`pResult`扫描（进行中的返回值）

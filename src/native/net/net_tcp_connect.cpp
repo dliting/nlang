@@ -37,8 +37,8 @@ namespace {
 //outside the state mutex (I7 — a non-blocking connect can still stall
 //briefly on route lookup or ARP, and the 10k fan-out must not queue
 //behind the executor-wide lock). The fd is local until the
-//bookkeeping lock mints the slot and stashes it atomically for
-//re-entry; an immediate failure closes the fd without ever minting,
+//bookkeeping lock creates the slot and stashes it atomically for
+//re-entry; an immediate failure closes the fd without ever creating,
 //so a connect-failure storm never churns the slot table. Returns
 //1 = connected now, 0 = in flight (park below), -1 = failed.
 int NetConnectKick(NativeHost* h, const std::string& address, int port,
@@ -62,7 +62,7 @@ int NetConnectKick(NativeHost* h, const std::string& address, int port,
         return -1;
     }
     std::lock_guard<std::mutex> g(st->m_mutex);
-    *handle = st->m_slots.Mint(fd, kNetKindTcpStream);
+    *handle = st->m_slots.Create(fd, kNetKindTcpStream);
     if (r != 0)
         st->m_connectInFlight[self] = *handle;   //park below re-enters
     return r == 0 ? 1 : 0;

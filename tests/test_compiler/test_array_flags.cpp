@@ -3,13 +3,14 @@ test_array_flags.cpp - generic instance array-type-arg unit tests.
 
 In-process ModuleBuilder coverage of the instantiation key split:
 generic instantiations that differ only in the array-ness of a type
-argument (List<int> vs List<int[]>) must mint distinct synthetic
+argument (List<int> vs List<int[]>) must create distinct synthetic
 SnClassDecl instances. Since 0.7.3 B the split is carried by the type
 argument itself — an array-typed argument IS the interned
 SnArrayTypeToken (pointer identity), so GenericTypeArgs()[0] exposes
 the array-ness directly. Console-style suite (same shape as
 test_stdlib); the e2e suite pins the end-to-end compile/run behavior.
 ---*/
+#include "test_support/test_scratch.h"
 #include <nlang/runtime/Runtime.h>
 #include <nlang/compiler/ModuleBuilder.h>
 #include <nlang/compiler/BuildEnvironment.h>
@@ -75,8 +76,7 @@ struct CompileOutcome
 static CompileOutcome compileOne(const char* szBody)
 {
     static uint32_t runCount = 0;
-    const auto dir = std::filesystem::temp_directory_path()
-        / "nlang_array_flags_tests";
+    const auto dir = nlang::test::ScratchDir("nlang_array_flags_tests");
     std::error_code fsError;
     std::filesystem::create_directories(dir, fsError);
     const auto file = dir / "main.n";
@@ -156,8 +156,7 @@ static int runOne(const char* szBody)
     auto out = compileOne(szBody);
     if (!out.ok)
         return -1;
-    const auto modPath = std::filesystem::temp_directory_path()
-        / "nlang_array_flags_tests"
+    const auto modPath = nlang::test::ScratchDir("nlang_array_flags_tests")
         / (out.params->m_sOutputModule + ".ncu");
     CompiledModule mod = ModuleLoader::Load(modPath.string());
     VmExecutor exec;
@@ -286,17 +285,17 @@ static void test_generic_array_flags_split_keys()
         && pPlain->GenericTypeArgs()[0]->Kind() == NK_Int32,
         "plain variant's type arg is the int field");
     //builtin-decls phase 2 erasure naming: the instance shares the
-    //template's bare name ("List") — array-ness lives in the type-arg
+    //template's unqualified name ("List") — array-ness lives in the type-arg
     //token (asserted above), so the name no longer renders it.
     CHECK(pArrayOf->Name() == "List",
-        "instance shares the template's bare name, got: " + pArrayOf->Name());
+        "instance shares the template's unqualified name, got: " + pArrayOf->Name());
     PASS();
 }
 
 //Dict.keys() re-cast: the inferred List<K> must carry the SAME interned
 //token as the Dict's key slot — the per-TU intern table guarantees one
 //token per element type, so a distinct instance would mean the re-cast
-//minted a fresh type identity and the instantiation keys would diverge.
+//created a fresh type identity and the instantiation keys would diverge.
 static void test_dict_keys_recast_carries_token()
 {
     TEST(dict_keys_recast_carries_token);

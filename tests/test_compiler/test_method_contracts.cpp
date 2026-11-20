@@ -1,11 +1,12 @@
 /*---
     test_method_contracts.cpp — 覆写签名/接口契约检查单元测试。
-    载体形态同 test_statement_diag：MemLogger 收集诊断文本，
+    形态同 test_statement_diag：MemLogger 收集诊断文本，
     断言「出现次数」（e2e 只做子串存在性断言，抓不住双报回归）。
     Task 1 首用例是别名指针同一性事实探针（spec §3.5）：别名形参与
     底层类型形参的 Type()->Field() 必须同一节点，否则签名恒等谓词
     需要别名展开（探针已确立指针同一性，签名恒等谓词无需别名展开）。
 ---*/
+#include "test_support/test_scratch.h"
 #include <QtTest/QtTest>
 #include <nlang/runtime/Runtime.h>
 #include <nlang/compiler/ModuleBuilder.h>
@@ -53,8 +54,7 @@ struct CompileOutcome
 CompileOutcome compileOne(const char* szBody)
 {
     static uint32_t runCount = 0;
-    const auto dir = std::filesystem::temp_directory_path()
-        / "nlang_method_contracts_tests";
+    const auto dir = nlang::test::ScratchDir("nlang_method_contracts_tests");
     std::error_code fsError;
     std::filesystem::create_directories(dir, fsError);
     const auto file = dir / "main.n";
@@ -688,8 +688,10 @@ private slots:
     }
 
     //Review-driven: an out param is a signature mismatch for the
-    //protocol's in-param slot (same identity predicate as the rest
-    //of the check family).
+    //protocol's in-param slot. v0.13.9 phase 4: the out spelling
+    //retires at the declaration throat before the contract check
+    //runs, so the slot-mismatch arm is unreachable for out formals —
+    //the rejection stands with the retirement diagnostic.
     void TestEqualsOutParamRejected() {
         auto out = compileOne(
             "class P {\n"
@@ -699,7 +701,7 @@ private slots:
             "int main() { return 0; }\n");
         QVERIFY(!out.ok);
         QCOMPARE(countErrorsContaining(out,
-            "claims the virtual dispatch slot of \"Object.equals"), 1);
+            "out parameters are retired"), 1);
     }
 
     void TestGetHashCodeWrongReturnRejected() {

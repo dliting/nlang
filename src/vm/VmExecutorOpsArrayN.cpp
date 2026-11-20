@@ -26,7 +26,7 @@ void VmExecutor::OpAllocArrayN(BytecodeReader& reader, uint8_t* locals) {
     //The dims are rank consecutive int32 slots. Length validation
     //(per-dim negative/cap and the elemCount product) lives in
     //AllocArrayOnHeap — the single choke point shared with native
-    //minting.
+    //creating.
     int32_t dims[kMaxArrayRank];
     if (rank < 1 || rank > kMaxArrayRank)
         throw std::runtime_error(
@@ -293,7 +293,7 @@ void VmExecutor::OpLoadElementFlat(BytecodeReader& reader, uint8_t* locals) {
         static_cast<size_t>(cells) * sizeof(int32_t));
 }
 
-//Stage-2: mint the shape array int[rank] and copy the dims in.
+//Stage-2: create the shape array int[rank] and copy the dims in.
 void VmExecutor::OpArrayShape(BytecodeReader& reader, uint8_t* locals) {
     uint16_t dst = reader.ReadUint16();
     uint16_t arr = reader.ReadUint16();
@@ -320,7 +320,7 @@ void VmExecutor::OpArrayShape(BytecodeReader& reader, uint8_t* locals) {
     for (int32_t d = 0; d < rank; ++d)
         dimsSnapshot[d] = slot[4 + d];
     //The shape array is int[rank] — one dim cell per rank; the scalar
-    //int[] table entry comes from the mint filter.
+    //int[] table entry comes from the creation filter.
     const uint16_t shapeTypeIdx = FindScalarArrayTypeIdx(RTK_Int32, 1);
     int32_t shapeDim = rank;
     int32_t shapeIdx = AllocArrayOnHeap(shapeTypeIdx, 1, &shapeDim);

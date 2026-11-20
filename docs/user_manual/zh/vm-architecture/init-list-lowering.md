@@ -6,7 +6,7 @@
 
 ### resolver数据流
 
-`StatementResolveAccessor::Access(SnAssignStmt&)`在解析右值之前先做前瞻（peek）：不带`ExplicitType`的裸初始化列表把左值字段经`InferredTarget(pLeftField)`记录到节点上——成员存储（`b.m = {...}`）同样如此。所有能提供目标的位置都以同样方式传播：裸花括号返回值取函数声明的返回类型，下标存储的右值取元素/容器值槽位类型，调用实参取形参类型，foreach的可迭代对象取循环变量类型（花括号形态迭代由其铸造的`List<T>`，方括号形态取驻留数组令牌）。
+`StatementResolveAccessor::Access(SnAssignStmt&)`在解析右值之前先做前瞻（peek）：不带`ExplicitType`的裸初始化列表把左值字段经`InferredTarget(pLeftField)`记录到节点上——成员存储（`b.m = {...}`）同样如此。所有能提供目标的位置都以同样方式传播：裸花括号返回值取函数声明的返回类型，下标存储的右值取元素/容器值槽位类型，调用实参取形参类型，foreach的可迭代对象取循环变量类型（花括号形态迭代由其创建的`List<T>`，方括号形态取驻留数组令牌）。
 
 随后resolver访问右值；`ExprResolveAccessor::Access(SnInitListExpr&)`读取显式的`ExplicitType()`或`InferredTarget()`——两者皆无时，方括号形态字面量从条目推断元素类型（所有条目必须共享同一类型）——并把`EvalDataType`设为解析出的目标类型：数组目标为驻留数组令牌（`InternArrayTypeToken(元素)`），节点因此天然为数组值（`IsArrayValued()`），消费者经`ElemTypeOf()`剥出元素。
 

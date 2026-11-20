@@ -1,6 +1,6 @@
 //0.7.3 B pin (Task 2): a function reference stored via SUBSCRIPT into a
 //function-typed array element binds against the element type — the
-//resolver's func-ref subscript-store block (bare-name and member form).
+//resolver's func-ref subscript-store block (unqualified-name and member form).
 //Pins the current binding so the token flip (Task 3) keeps it green
 //through the token peel arm. No prior e2e covered the subscript form.
 int dbl(int x) { return x * 2; }

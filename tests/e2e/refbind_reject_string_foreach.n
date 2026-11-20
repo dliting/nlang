@@ -1,0 +1,8 @@
+// v0.13.9 phase 3: string iteration expands code points from an
+// immutable string — a char& loop variable has nothing to write through.
+int main() {
+    string s = "ab";
+    foreach (char& c in s) {
+    }
+    return 0;
+}

@@ -1,0 +1,17 @@
+// A tour of the url package: parse, inspect, resolve, query handling
+// and component encoding.
+import io;
+import url;
+
+int main() {
+    Url u = Url.parse("https://example.com:8443/api/search?q=nlang+lang&page=2#results");
+    io.print("host: " + u.host + "\n");
+    io.print("port: " + u.port.toString() + "\n");
+    Dict<string, List<string>> q = u.queryParams();
+    io.print("q: " + q["q"][0] + "\n");
+    Url next = u.resolve("./v2?q=1");
+    io.print("next: " + next.toString() + "\n");
+    io.print("seg: " + url.percentEncode("a/b c") + "\n");
+    io.print("ok");
+    return 0;
+}

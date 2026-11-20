@@ -7,6 +7,7 @@ native) in one template, instantiation signature substitution, and the
 declaration-level contract (bare type-parameter initializers/defaults,
 type-parameter arrays, member-name collisions).
 ---*/
+#include "test_support/test_scratch.h"
 #include <QtTest/QtTest>
 #include <nlang/runtime/Runtime.h>
 #include <nlang/compiler/ModuleBuilder.h>
@@ -57,7 +58,7 @@ private:
 std::string writeTempSource(const QString& name, const char* body)
 {
     const std::filesystem::path dir =
-        std::filesystem::temp_directory_path() / "nlang_generic_decl_tests";
+        nlang::test::ScratchDir("nlang_generic_decl_tests");
     std::filesystem::create_directories(dir);
     const std::filesystem::path file = dir / name.toStdString();
     std::ofstream(file, std::ios::binary) << body;
@@ -68,8 +69,7 @@ std::string writeTempSource(const QString& name, const char* body)
 std::pair<bool, std::vector<std::string>> compileSource(
     const std::string& tag, const std::string& path)
 {
-    const auto dir = std::filesystem::temp_directory_path()
-        / "nlang_generic_decl_tests";
+    const auto dir = nlang::test::ScratchDir("nlang_generic_decl_tests");
     BuildParams params;
     params.m_SourceFiles.push_back(path);
     params.m_sOutputModule = tag;
@@ -264,14 +264,14 @@ private slots:
             "diagnostic must point at the missing type arguments");
     }
 
-    //A class FIELD of declared-generic type mints the instantiation in
+    //A class FIELD of declared-generic type creates the instantiation in
     //the declaration pass — before the template's own signatures resolve.
-    //The mint must resolve the clone's signature surface: an unresolved
+    //The creation must resolve the clone's signature surface: an unresolved
     //return type read as void here, and the cache served the broken
     //instance to every later use of the same instantiation.
-    void declGenericFieldMintResolvesMembers()
+    void declGenericFieldCreateResolvesMembers()
     {
-        const auto path = writeTempSource("generic_field_mint.n",
+        const auto path = writeTempSource("generic_field_create.n",
             "import thread;\n"
             "class C {\n"
             "    public Promise<int> p;\n"
@@ -281,11 +281,11 @@ private slots:
             "    Future<int> f = p.future();\n"
             "    return 0;\n"
             "}\n");
-        const auto outcome = compileSource("generic_field_mint", path);
+        const auto outcome = compileSource("generic_field_create", path);
         QString diag;
         for (const auto& e : outcome.second) diag += QString::fromStdString(e) + " | ";
         QVERIFY2(outcome.first,
-            qPrintable("a declared-generic field must mint a complete "
+            qPrintable("a declared-generic field must create a complete "
                        "instance — errors: " + diag));
         QVERIFY2(!anyErrorMentions(outcome.second, "void function"),
             "future() must keep its declared return type");
@@ -570,7 +570,7 @@ private slots:
     //EmitDefaultBinding keys the scalar cast off the default
     //expression's EvalDataType, so a clone of `double d = 1 + 2` that
     //loses it emits int bits into the wider formal slot (bytecode-
-    //proven regression). Asserts at the mint seam through the
+    //proven regression). Asserts at the creation seam through the
     //build's declared-generic registry.
     void declGenericCloneDefaultKeepsOperatorType()
     {
@@ -583,8 +583,7 @@ private slots:
             "    Box<int> b = Box();\n"
             "    return b.f();\n"
             "}\n");
-        const auto dir = std::filesystem::temp_directory_path()
-            / "nlang_generic_decl_tests";
+        const auto dir = nlang::test::ScratchDir("nlang_generic_decl_tests");
         BuildParams params;
         params.m_SourceFiles.push_back(path);
         params.m_sOutputModule = "generic_op_default";
@@ -753,7 +752,7 @@ private slots:
     //decline and the field read silently emits nothing (the staged
     //default is then an unwritten frame cell; runtime values cannot
     //discriminate this window because instance fields stay zero until
-    //Task 5). Asserts at the mint seam like the operator-type pin.
+    //Task 5). Asserts at the creation seam like the operator-type pin.
     void declGenericCloneDefaultKeepsThisType()
     {
         const auto path = writeTempSource("generic_this_type.n",
@@ -766,8 +765,7 @@ private slots:
             "    Box<int> b = Box();\n"
             "    return b.f();\n"
             "}\n");
-        const auto dir = std::filesystem::temp_directory_path()
-            / "nlang_generic_decl_tests";
+        const auto dir = nlang::test::ScratchDir("nlang_generic_decl_tests");
         BuildParams params;
         params.m_SourceFiles.push_back(path);
         params.m_sOutputModule = "generic_this_type";
@@ -815,13 +813,13 @@ private slots:
 
     //The instantiation depth cap, boundary pair. A template family
     //where each member's field names the next template chains one
-    //nested mint per link (G1<int> clones a G2<int> member type, whose
-    //mint clones G3<int>...) — the concurrent mint depth equals the
+    //nested creation per link (G1<int> clones a G2<int> member type, whose
+    //create clones G3<int>...) — the concurrent instantiation depth equals the
     //chain length, so a 16-link family builds inside the cap and a
     //17-link family is rejected with the depth diagnostic. The
     //self-referential shape (A<A<T>> inside A<T>) is additionally the
     //e2e pin (generic_depth_limit) for the exit-code/text contract.
-    void mintDepthSixteenPasses()
+    void instantiationDepthSixteenPasses()
     {
         std::string src;
         for (int i = 1; i < 16; ++i)
@@ -839,7 +837,7 @@ private slots:
             "cap");
     }
 
-    void mintDepthSeventeenRejected()
+    void instantiationDepthSeventeenRejected()
     {
         std::string src;
         for (int i = 1; i < 17; ++i)
@@ -861,13 +859,13 @@ private slots:
     //The depth rejection must diagnose once, not cascade: every
     //in-flight frame retries the chain through two resolution arms
     //(template completion and member-clone substitution), and without
-    //per-template dedup each unwinding retry re-mints the chain from
+    //per-template dedup each unwinding retry re-creates the chain from
     //scratch — measured as 131071 depth guard trips for this six-line
     //program. The diagnostic latches per template: the first guard
     //trip reports and every later trip of the same family stays
     //silent, so exactly one depth diagnostic is emitted however many
     //arms retry.
-    void mintDepthRejectionDiagnosedOnce()
+    void instantiationDepthRejectionDiagnosedOnce()
     {
         const auto path = writeTempSource("generic_depth_once.n",
             "class A<T> {\n"
@@ -882,14 +880,14 @@ private slots:
     }
 
     //A fixed-key self-reference — the canonical linked-list shape —
-    //must COMPILE: the member `Node<T> next` re-enters the mint for
-    //the very key being minted, and two-phase construction serves the
+    //must COMPILE: the member `Node<T> next` re-enters the creation for
+    //the very key being created, and two-phase construction serves the
     //in-flight shell from the cache so the reference binds to the
     //instance itself (the same incomplete-during-construction contract
     //Clang holds). Publishing only after the recursive window rejected
-    //this shape as a depth overflow — the defect the two-phase mint
+    //this shape as a depth overflow — the defect the two-phase creation
     //removes.
-    void mintSelfReferenceCompiles()
+    void instantiationSelfReferenceCompiles()
     {
         const auto path = writeTempSource("generic_selfref_unit.n",
             "class Node<T> {\n"
@@ -910,7 +908,7 @@ private slots:
     //pin above never reaches the registration/emit path, and this shape
     //was depth-rejected before the two-phase fix (RED-equivalent
     //observed on the real ncc in the round-1 review).
-    void mintSelfReferenceInstantiatesConcretely()
+    void instantiationSelfReferenceInstantiatesConcretely()
     {
         const auto path = writeTempSource("generic_selfref_inst.n",
             "class Node<T> {\n"
@@ -932,7 +930,7 @@ private slots:
     //terminate through the cache, and neither template's completion
     //may observe the other's shell in a memberless state beyond the
     //fill window.
-    void mintMutualPairCompiles()
+    void instantiationMutualPairCompiles()
     {
         const auto path = writeTempSource("generic_mutual_unit.n",
             "class P<T> {\n"
@@ -950,15 +948,15 @@ private slots:
     }
 
     //The mutual pair CONCRETELY instantiated: the nested instantiation
-    //(Q<int> minted inside P<int>'s member substitution) must inherit
-    //the enclosing mint's unit owner. The substituted type-expression
+    //(Q<int> created inside P<int>'s member substitution) must inherit
+    //the enclosing creation's unit owner. The substituted type-expression
     //copy is detached from the tree, so its owner-of-context lookup
     //degrades to NO_OWNER — without the inheritance the same template
     //family's instances split across unit buckets, and the backend's
     //per-unit registration walks throw "own class missing from the
     //unit table" (the prelude image registers one instance's row
     //while its field type's row lives only in the user image).
-    void mintMutualPairInstantiatesConcretely()
+    void instantiationMutualPairInstantiatesConcretely()
     {
         const auto path = writeTempSource("generic_mutual_inst.n",
             "class P<T> {\n"
@@ -1052,7 +1050,7 @@ private slots:
     {
         ModuleRegistry reg;
         auto makeDecl = [] {
-            return new SnClassDecl(new std::string("Minted"),
+            return new SnClassDecl(new std::string("Created"),
                 nullptr, nullptr, ScriptLocation());
         };
         SyntheticBuiltinRegistry::GenericInstKey key;
@@ -1067,13 +1065,13 @@ private slots:
         SnClassDecl* pInstance = makeDecl();
         reg.DeclaredGenerics().AdoptInstance(pInstance, upTemplate.get(),
             {});
-        QCOMPARE(reg.SyntheticBuiltins().MintedCount(), size_t(2));
+        QCOMPARE(reg.SyntheticBuiltins().CreatedCount(), size_t(2));
         QVERIFY(reg.DeclaredGenerics().InstanceOf(pInstance)
             == upTemplate.get());
 
         reg.Reset();
 
-        QCOMPARE(reg.SyntheticBuiltins().MintedCount(), size_t(0));
+        QCOMPARE(reg.SyntheticBuiltins().CreatedCount(), size_t(0));
         //pInstance was freed with the reset registry; only its pointer
         //VALUE is compared here (map lookup, no dereference).
         QVERIFY(reg.DeclaredGenerics().InstanceOf(pInstance) == nullptr);
@@ -1081,11 +1079,11 @@ private slots:
 
     //v0.12.3 Task 5 signature substitution: a nested argument's clone
     //signature resolves the outer T to the INNER instantiation node (a
-    //template reference, not a bare name) — the chained get().get() at
+    //template reference, not an unqualified name) — the chained get().get() at
     //the use site type-checks through that substitution. The inner box
     //enters through a typed local: a bare Box(3) inside the argument
     //list has no declared target to route the construction.
-    void mintSubstitutesNestedArgSignatures()
+    void instantiationSubstitutesNestedArgSignatures()
     {
         const auto path = writeTempSource("sig_nested.n",
             "class Box<T> {\n"
@@ -1107,7 +1105,7 @@ private slots:
     //v0.12.3 Task 5 signature substitution: an array argument keeps its
     //array-ness through the clone (the substituted field is an array
     //handle, not the element kind).
-    void mintSubstitutesArrayArgSignatures()
+    void instantiationSubstitutesArrayArgSignatures()
     {
         const auto path = writeTempSource("sig_array.n",
             "class Vec<T> {\n"
@@ -1144,6 +1142,38 @@ private slots:
         const auto outcome = compileSource("free_generic_invoke", path);
         QVERIFY2(outcome.first && outcome.second.empty(),
             "expression-position generic free-function invoke must build clean");
+    }
+
+    //v0.13.9 phase 3 Task 8: the func instantiation key carries the &
+    //marks — func<int, int&> and func<int, int> coexist as distinct
+    //synthetics in one build (the key collision RED), and a plain
+    //function no longer binds to a &-marked key.
+    void funcKeysDifferByRefMark()
+    {
+        const auto path = writeTempSource("func_ref_key.n",
+            "int twice(int& v) { v = v * 2; return v; }\n"
+            "int plain(int v) { return v + 1; }\n"
+            "int main()\n"
+            "{\n"
+            "    func<int, int&> h = twice;\n"
+            "    func<int, int> g = plain;\n"
+            "    return 0;\n"
+            "}\n");
+        const auto outcome = compileSource("func_ref_key", path);
+        QVERIFY2(outcome.first && outcome.second.empty(),
+            "func<int,int&> and func<int,int> must coexist as distinct keys");
+
+        const auto pathReject = writeTempSource("func_ref_key_reject.n",
+            "int plain(int v) { return v + 1; }\n"
+            "int main()\n"
+            "{\n"
+            "    func<int, int&> h = plain;\n"
+            "    return 0;\n"
+            "}\n");
+        const auto reject = compileSource("func_ref_key_reject", pathReject);
+        QVERIFY2(!reject.first && anyErrorMentions(reject.second,
+                "does not match the signature"),
+            "a plain function must not bind to func<int, int&>");
     }
 
     //Base-class type arguments (class D<T> : Box<T>, class D : Box<int>)

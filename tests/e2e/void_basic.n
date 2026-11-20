@@ -1,4 +1,4 @@
-void classify(int x, out int sign) {
+void classify(int x, int& sign) {
     if (x > 0) {
         sign = 1;
         return;
@@ -8,7 +8,7 @@ void classify(int x, out int sign) {
 
 int main() {
     int s = 0;
-    classify(5, out s);
+    classify(5, s);
     // s = 1 via early bare return; 7 + 1 = 8
     return s + 7;
 }

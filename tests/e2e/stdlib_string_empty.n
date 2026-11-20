@@ -1,0 +1,32 @@
+// stdlib_string_empty — string.EMPTY is the empty string as a named
+// constant: the same value as "", usable anywhere a string is (method
+// receiver, argument, concatenation operand, switch label match).
+import io;
+
+int probe(string s) {
+    return s.length();
+}
+
+int main() {
+    string e = "";
+    if (string.EMPTY != e) { return 1; }
+    if (!(string.EMPTY == "")) { return 2; }
+    if (string.EMPTY.length() != 0) { return 3; }
+    if (string.EMPTY.charCount() != 0) { return 4; }
+    if (string.EMPTY.indexOf("a") != -1) { return 5; }
+    if (!string.EMPTY.startsWith("")) { return 6; }
+    if (!"ab".contains(string.EMPTY)) { return 7; }
+    if (("" + string.EMPTY) != "") { return 8; }
+    if (string.EMPTY.toUpper() != "") { return 9; }
+    if (probe(string.EMPTY) != 0) { return 10; }
+    string s = string.EMPTY;
+    if (s != "") { return 11; }
+    int bad = 0;
+    switch (string.EMPTY) {
+        case "": { break; }
+        default: { bad = 12; break; }
+    }
+    if (bad != 0) { return bad; }
+    io.print("ok");
+    return 0;
+}

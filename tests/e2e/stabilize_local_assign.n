@@ -1,0 +1,22 @@
+//v0.13.9 phase (2) record stabilization: local struct assignment writes
+//the EXISTING record in place. q keeps its record identity across the
+//assignment, so a later field write on q never bleeds into p — the
+//independence pin every value-semantics test already asserts.
+struct P {
+    int x;
+    int y;
+}
+int main() {
+    P p;
+    p.x = 1;
+    p.y = 2;
+    P q;
+    q.x = 3;
+    q.y = 4;
+    q = p;
+    q.x = 5;
+    if (p.x == 1 && p.y == 2 && q.x == 5 && q.y == 2) {
+        return 42;
+    }
+    return 1;
+}

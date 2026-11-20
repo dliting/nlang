@@ -14,8 +14,24 @@
 
 namespace nlang {
 
+//A descriptor interned from a foreign spelling can carry the
+//unresolved-leaf rowRef -1 (the head's same-template leaf check cannot
+//catch a same-leaf unknown template); the typed-table walks below must
+//take the loud corrupt-stream failure, never an index through the
+//65535 wrap.
+inline void ThrowIfTypeArgRowOutOfRange(const TypeArgDesc& arg,
+    size_t tableSize, const char* what)
+{
+    if (arg.rowRef >= 0
+        && static_cast<size_t>(arg.rowRef) < tableSize)
+        return;
+    throw std::runtime_error(std::string("NLang VM: ") + what
+        + " type-argument row out of range ("
+        + std::to_string(arg.rowRef) + ")");
+}
+
 //The class-ref head: the stream key (the erased class-row name) plus
-//the instantiation descriptor as its canonical spelling. The flag byte
+//the instantiation descriptor as its canonical name. The flag byte
 //keeps non-instantiation objects at one byte; pre-0.13.1 streams carry
 //no flag and only same-version streams interconvert (no backward
 //compatibility). The spelling is the intern key — the read side
@@ -74,8 +90,12 @@ void VmExecutor::ReadClassRefHead(Reader&& read, std::string& classNameOut,
         read(reinterpret_cast<uint8_t*>(&spelling[0]), spellingLen);
     instDescOut = InternDescriptorFromSpelling(spelling, module);
     //A descriptor naming another template under this row is a corrupt
-    //stream — the loud failure every malformed head takes.
-    if (instDescOut->TemplateName() != classNameOut)
+    //stream — the loud failure every malformed head takes. 0.13.8 item
+    //8: the descriptor's template is the qualified link identity
+    //("pkg.Cell") while the stream's row name is the v0.12.3 erasure
+    //key ("Cell") — the same-template test compares leaf names.
+    if (LeafNameOfKey(instDescOut->TemplateName())
+        != LeafNameOfKey(classNameOut))
         throw std::runtime_error(
             "NLang VM: ReadStruct descriptor template mismatch: "
             + spelling + " under " + classNameOut);
@@ -110,6 +130,8 @@ void VmExecutor::SerializeTypeArgField(const GenericInstDescriptor* instDesc,
     }
     else if (arg.resolvedKind == RTK_Struct)
     {
+        ThrowIfTypeArgRowOutOfRange(arg, m_currModule->structs.size(),
+            "WriteObject");
         SerializeStructFields(slot[cellOffset],
             static_cast<uint16_t>(arg.rowRef),
             std::forward<Writer>(write), st, depth);
@@ -170,6 +192,7 @@ void VmExecutor::DeserializeTypeArgField(int32_t heapIdx, uint16_t ordinal,
     }
     else if (arg.resolvedKind == RTK_Class)
     {
+        ThrowIfTypeArgRowOutOfRange(arg, m_currModule->classes.size(), "ReadStruct");
         int32_t childHeapIdx = 0;
         DeserializeClassFields(static_cast<uint16_t>(arg.rowRef),
             childHeapIdx, std::forward<Reader>(read), st, depth);

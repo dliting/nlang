@@ -1,8 +1,8 @@
 // Blocking-native staged roots are per-section: a long blocking call on
 // one carrier must not revoke a later section's roots when it exits.
 // Main holds a long sum kernel per round; churn's short arange calls
-// mint arrays whose mint root is their only reference mid-fill. With a
-// shared truncated root list the mint gets swept mid-kernel and the
+// create arrays whose create root is their only reference mid-fill. With a
+// shared truncated root list the handle gets swept mid-kernel and the
 // fill then hits a swept record (getArrayView raises through join).
 import tensor;
 import thread;

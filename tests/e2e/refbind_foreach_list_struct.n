@@ -1,0 +1,23 @@
+// v0.13.9 phase 3: a struct & loop variable over a List<Point> binds
+// the element record — member stores mutate the list's elements, and a
+// whole-struct store through the binding overwrites the element in
+// place instead of replacing a per-iteration copy.
+struct Point {
+    int x;
+    int y;
+}
+
+int main() {
+    List<Point> pts = {};
+    pts.add(Point());
+    pts.add(Point());
+    int i = 0;
+    foreach (Point& p in pts) {
+        p.x = p.x + 10 + i;
+        i = i + 1;
+    }
+    foreach (Point& p in pts) {
+        p = Point{x: 7, y: 8};
+    }
+    return pts.get(0).x * 10 + pts.get(1).x;
+}

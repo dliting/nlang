@@ -1,0 +1,62 @@
+// io Base64 codecs (RFC 4648): standard vectors, the URL-safe alphabet
+// without padding, and malformed input raising Exception.
+import io;
+
+int decodeThrows(string s) {
+    try {
+        io.base64Decode(s);
+    } catch (Exception e) {
+        return 1;
+    }
+    return 0;
+}
+
+int urlDecodeThrows(string s) {
+    try {
+        io.base64UrlDecode(s);
+    } catch (Exception e) {
+        return 1;
+    }
+    return 0;
+}
+
+int main() {
+    if (io.base64Encode(io.toBytes("")) != "") { return 1; }
+    if (io.base64Encode(io.toBytes("f")) != "Zg==") { return 2; }
+    if (io.base64Encode(io.toBytes("fo")) != "Zm8=") { return 3; }
+    if (io.base64Encode(io.toBytes("foo")) != "Zm9v") { return 4; }
+    if (io.base64Encode(io.toBytes("foob")) != "Zm9vYg==") { return 5; }
+    // Raw bytes FB FF BF: the two alphabets differ at values 62 ('+' vs '-')
+    // and 63 ('/' vs '_'); this vector exercises both substitutions at once.
+    byte[] raw = byte[3];
+    raw[0] = -5 as byte;    // 0xFB
+    raw[1] = -1 as byte;    // 0xFF
+    raw[2] = -65 as byte;   // 0xBF
+    if (io.base64Encode(raw) != "+/+/") { return 6; }
+    if (io.base64UrlEncode(raw) != "-_-_") { return 7; }
+    if (io.fromBytes(io.base64Decode("Zm9v")) != "foo") { return 8; }
+    byte[] d = io.base64UrlDecode("-_-_");
+    if (d.length() != 3) { return 9; }
+    int b0 = d[0];
+    int b1 = d[1];
+    int b2 = d[2];
+    if (b0 < 0) { b0 = b0 + 256; }
+    if (b1 < 0) { b1 = b1 + 256; }
+    if (b2 < 0) { b2 = b2 + 256; }
+    if (b0 != 251 || b1 != 255 || b2 != 191) { return 10; }
+    if (decodeThrows("Zg=") != 1) { return 11; }    // length % 4 != 0
+    if (decodeThrows("Zg*A") != 1) { return 12; }   // non-alphabet char
+    if (decodeThrows("Zh==") != 1) { return 13; }   // non-zero padding bits
+    if (urlDecodeThrows("a") != 1) { return 14; }   // length % 4 == 1
+    // Padding-bit checks belong to the final group only: the first group of
+    // "Zm9vYg==" has low bits set in its second char, which is valid data.
+    if (io.fromBytes(io.base64Decode("Zm9vYg==")) != "foob") { return 15; }
+    if (decodeThrows("Zm9vZh==") != 1) { return 16; }  // final-group non-zero bits
+    // Cross-check against encoding/base64: Go splits URL Base64 into
+    // URLEncoding (padding required) and RawURLEncoding (padding rejected);
+    // we merge the two, so the decoder accepts both padded and unpadded
+    // input. The padded form must decode like the standard codec's.
+    if (io.fromBytes(io.base64UrlDecode("Zm9vYg==")) != "foob") { return 17; }
+    io.print("ok");
+    return 0;
+}

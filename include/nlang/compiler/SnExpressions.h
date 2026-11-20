@@ -370,8 +370,6 @@ struct FormalBinding
 	Kind            kind;
 	SnExpression   *pCallerExpr;  //non-null for B_Positional / B_Named
 	SnFormalParam  *pFormal;      //always non-null
-	bool            bIsOut = false; //Phase 9e: caller wrote `out ident`
-	                                //and the formal is an out parameter
 };
 
 //The syntax node of a function call.
@@ -626,7 +624,7 @@ private:
 //Phase 8e-3: Generic type expression (e.g. "List<int>", "Dict<K,V>").
 //Constructed from a base type name and a list of type arguments. The base
 //must resolve to a built-in generic class; user-defined generics are not
-//supported. ExprResolver mints a per-instantiation synthetic SnClassDecl
+//supported. ExprResolver creates a per-instantiation synthetic SnClassDecl
 //(e.g. "List<int>") that carries substituted method signatures while
 //sharing a single backing CompiledClass at runtime (erasure model).
 class NLANG_COMPILER_API SnGenericTypeExpr : public SnCompoundFieldExpr
@@ -834,6 +832,7 @@ public:
 		OP_LogicalAnd, OP_LogicalOr,
 		OP_Neg, OP_LogicalNot,
 		OP_Shl, OP_Shr,
+		OP_BitAnd, OP_BitOr, OP_BitXor, OP_BitNot,
 	};
 
 	static const NodeKind	s_Kind			= NK_BinaryExpr;
@@ -966,7 +965,7 @@ public:
 	std::string ToString() const override;
 };
 
-//The "typeName(Type)" expression (v0.13.1 D4): the canonical spelling
+//The "typeName(Type)" expression (v0.13.1 D4): the canonical name
 //of a type as a string. The resolver folds concrete types to a
 //constant spelling; a bare type parameter (or an instantiation whose
 //arguments contain one) reads the receiver's own instantiation at run
@@ -1228,11 +1227,10 @@ private:
 };
 
 //Phase 9e: out argument expression `out ident` at call sites.
-//Wraps the inner identifier; ExprResolver validates the inner refers to a
-//local/formal slot and requires the matched formal to be an out parameter.
-//TryBindArgs unwraps the node into FormalBinding (pCallerExpr = Inner())
-//with bIsOut set, so codegen emits the inner read into the staging slot
-//and records a writeback pair for OP_CallStaticOut/OP_CallMethodDirectOut.
+//Wraps the inner identifier of the retired `out ident` argument spelling.
+//v0.13.9 phase 4: the grammar arm stays as a diagnostic anchor only —
+//resolution logs the migration diagnostic and leaves the node
+//unresolved; no binding or codegen path consumes it anymore.
 class NLANG_COMPILER_API SnOutArgExpr : public SnCompoundPlainExpr
 {
 	typedef SnCompoundPlainExpr Super_;

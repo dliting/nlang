@@ -1,0 +1,14 @@
+// v0.13.9 phase 3: a method call result is a fresh value, not a location
+// the reference could alias.
+struct Point { int x; }
+class Box {
+    public Point makePoint() {
+        Point p;
+        return p;
+    }
+}
+int main() {
+    Box box;
+    Point& r = box.makePoint();
+    return 0;
+}

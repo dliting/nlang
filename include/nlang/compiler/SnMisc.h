@@ -379,7 +379,7 @@ public:
 	bool IsDeclaredConstAggregate() const { return m_bIsConstAggregate; }
 
 	//0.13.1c: abstract-class queries. A bodyless non-native method is an
-	//abstract method (grammar-minted NF_Abstract | NF_Virtual); an
+	//abstract method (grammar-created NF_Abstract | NF_Virtual); an
 	//abstract obligation is one whose dispatch winner is still abstract
 	//(own re-declaration, or a re-abstraction between here and the
 	//concrete ancestor). The walk is on demand — no builder-phase
@@ -396,7 +396,7 @@ public:
 	const SnFunction *FindDispatchWinner(const std::string &name) const;
 
 	//Phase 8e-3: built-in generic instantiation marker (e.g. List<int>).
-	//Set by ExprResolver when minting a synthetic SnClassDecl for a
+	//Set by ExprResolver when creating a synthetic SnClassDecl for a
 	//built-in generic type. m_genericTypeArgs carries the resolved type
 	//arguments (e.g. {SnInt32} for List<int>); VmBackend reads these to
 	//emit OP_Box/OP_Unbox around primitive-T method args/returns.
@@ -404,12 +404,14 @@ public:
 	void SetGenericInstantiation() { m_bIsGenericInst = true; }
 	const std::vector<SnField*>& GenericTypeArgs() const { return m_genericTypeArgs; }
 	void SetGenericTypeArgs(std::vector<SnField*> args) { m_genericTypeArgs = std::move(args); }
-	//Phase 13: func<...> instantiation out markers, parallel to
-	//m_genericTypeArgs. On the node — not a side table — so
-	//context-free predicates (IsUnboundFuncRef) read a func's signature
-	//with no registry handle.
-	const std::vector<uint8_t>& GenericOutFlags() const { return m_genericOutFlags; }
-	void SetGenericOutFlags(std::vector<uint8_t> flags) { m_genericOutFlags = std::move(flags); }
+	//v0.13.9 phase 3: parallel reference marks of the type arguments
+	//(NF_Ref read off each argument expression). Only func<...>
+	//instantiations carry non-empty marks today; declared templates
+	//keep their &-ness on the cloned member signatures instead. On the
+	//node — not a side table — so context-free predicates
+	//(IsUnboundFuncRef) read a func's signature with no registry handle.
+	const std::vector<uint8_t>& GenericRefFlags() const { return m_genericRefFlags; }
+	void SetGenericRefFlags(std::vector<uint8_t> flags) { m_genericRefFlags = std::move(flags); }
 	//Base name without <...> suffix. For generic instantiations only;
 	//Equals Name() for ordinary classes. Used by VmBackend to look up the
 	//shared backing CompiledClass (e.g. "List" for List<int>).
@@ -432,7 +434,7 @@ public:
 	bool IsArrayType() const override;
 
 	//v0.12.3: true for the interned placeholder node a declared
-	//template's type parameter resolves to (minted by
+	//template's type parameter resolves to (created by
 	//GenericInstanceRegistry::PlaceholderFor). On the node — not the
 	//registry — for the same reason as IsFuncType: the backend's static
 	//kind classification (RuntimeTypeKind) reads it with no registry
@@ -461,7 +463,7 @@ private:
 	bool m_bIsGenericInst = false;
 	bool m_bIsTypeParamPlaceholder = false;
 	std::vector<SnField*> m_genericTypeArgs;
-	std::vector<uint8_t> m_genericOutFlags;  //func<...> out markers
+	std::vector<uint8_t> m_genericRefFlags;  //func<...> & marks
 	std::string m_baseName;  //e.g. "List" (without <T>) for generic instances
 	std::vector<std::string> m_typeParamNames;  //declaration-side template parameters
 };
@@ -500,9 +502,9 @@ public:
 	void SetTypeParamNames(std::vector<std::string> names)
 	{ m_typeParamNames = std::move(names); }
 	//Instantiated-shell markers, mirror of the class side: set by the
-	//interface mint; GenericTypeArgs carries the resolved arguments and
+	//interface create; GenericTypeArgs carries the resolved arguments and
 	//BaseName the erasure identity (the shell shares the template's
-	//bare name, the same way every List<T> shares "List").
+	//unqualified name, the same way every List<T> shares "List").
 	bool IsGenericInstantiation() const { return m_bIsGenericInst; }
 	void SetGenericInstantiation() { m_bIsGenericInst = true; }
 	const std::vector<SnField*>& GenericTypeArgs() const

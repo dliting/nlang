@@ -25,7 +25,7 @@ namespace nlang
 //(bare identifier or receiver-bound member form): 0 when the formal is a
 //func type whose signature matches the referenced function exactly, -1
 //otherwise. The exact-match-only rule also closes the legacy hole where
-//the bare name's RETURN type let it bind approximately to non-func
+//the unqualified name's RETURN type let it bind approximately to non-func
 //formals.
 static int FuncRefBindingDistance(const FormalBinding &b)
 {
@@ -48,9 +48,9 @@ static int FuncRefBindingDistance(const FormalBinding &b)
 //Null-literal policy against a formal type (the null literal is
 //Int32-typed): 0 = no null special case, adjudicate via CalcTypeDistance;
 //1 = accept (null binds an array formal as the raw sentinel 0, same bridge
-//the assignment grants); -1 = reject (null against a string formal would
-//emit OP_Int32_to_str and print "0"). Class/interface formals fall through
-//to the distance calculation.
+//the assignment grants); -1 = reject (string is a value type since
+//0.13.4 — the null literal has no string value). Class/interface formals
+//fall through to the distance calculation.
 static int NullBindingVerdict(SnExpression &caller, const SnField &formal)
 {
 	if (!caller.ContainFlags(NF_NullLiteral))
@@ -172,11 +172,6 @@ int ExprResolveAccessor::ComputeBindingDistance(
 		//Trial scoring stays pure (TryBindArgs' no-logging contract):
 		//rejecting a non-matching overload is expected among same-name
 		//array overloads; the final verdict's notes name the conversion.
-		//Phase 9e: out bindings require the exact same type — the callee
-		//writes its slot straight back into the caller's variable; any
-		//implicit cast (int→float etc.) would be discarded by writeback.
-		if (b.bIsOut && n != 0)
-			return -1;
 		nDistance += n;
 	}
 	return nDistance;

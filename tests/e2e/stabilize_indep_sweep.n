@@ -1,0 +1,77 @@
+//v0.13.9 phase (2) independence sweep: every rerouted storage site
+//walked with the same shape — store a struct into the position, mutate
+//one side, and require the other side's value untouched (stable
+//records, in-place writes). One leg per rerouted site: local
+//assignment, class field store, array element store, List subscript
+//set, Dict subscript set (new-key establish + same-key replace),
+//static slot store.
+struct P {
+    int x;
+    int y;
+}
+class Box {
+    public P f;
+}
+class Holder {
+    public static P slot;
+}
+int main() {
+    //leg 1: local assignment
+    P p1;
+    p1.x = 1;
+    p1.y = 1;
+    P q1;
+    q1 = p1;
+    q1.x = 9;
+    if (p1.x != 1 || q1.y != 1) { return 1; }
+    //leg 2: class field store
+    Box bx = Box();
+    P p2;
+    p2.x = 2;
+    p2.y = 2;
+    bx.f = p2;
+    p2.x = 9;
+    if (bx.f.x != 2 || bx.f.y != 2) { return 2; }
+    //leg 3: array element store
+    P p3;
+    p3.x = 3;
+    p3.y = 3;
+    P[] arr = [p3, p3];
+    P w3;
+    w3.x = 7;
+    w3.y = 7;
+    arr[1] = w3;
+    w3.x = 9;
+    if (arr[1].x != 7 || arr[0].x != 3) { return 3; }
+    //leg 4: List subscript set (existing index)
+    List<P> li = {};
+    P p4;
+    p4.x = 4;
+    p4.y = 4;
+    li.add(p3);
+    li[0] = p4;
+    p4.x = 9;
+    if (li[0].x != 4) { return 4; }
+    //leg 5: Dict subscript set (new-key establish + same-key replace)
+    Dict<string, P> d = {};
+    P p5;
+    p5.x = 5;
+    p5.y = 5;
+    d["k"] = p5;
+    p5.x = 9;
+    if (d["k"].x != 5) { return 5; }
+    P w5;
+    w5.x = 6;
+    w5.y = 6;
+    d["k"] = w5;
+    w5.x = 9;
+    if (d["k"].x != 6 || d["k"].y != 6) { return 6; }
+    //leg 6: static slot store
+    P p6;
+    p6.x = 8;
+    p6.y = 8;
+    Holder.slot = p6;
+    p6.x = 9;
+    if (Holder.slot.x != 8 || Holder.slot.y != 8) { return 7; }
+    return 42;
+}

@@ -1,15 +1,22 @@
 /*---
-VmExecutorStrings.cpp — string object store: minting + accessors.
+VmExecutorStrings.cpp — string object store: creating + accessors.
 
 Separate TU by the same discipline as VmExecutorDebug.cpp: the executor
 core only gains call sites; all store logic lives here. RTK_String slots
-hold 1-based handles into m_stringObjs (0 = null, reads as ""). Since
-Task 3, concatenation allocates a zero-copy Cons node; StrVal flattens
-in place on first read, StrValCopy serves frozen views, and MarkString
-traces cons children so a dropped chain is reclaimed whole.
+hold handles into m_stringObjs; string is a value type (0.13.4 ruling
+D26): the string domain has no null — handle 0 is the immortal, interned
+empty string, so zero-initialized slots read as "" with no fill pass —
+while reference-kind slots keep 0 = null (strings enter them only boxed,
+via OP_Box). Since Task 3, concatenation allocates
+a zero-copy Cons node; StrVal flattens in place on first read, StrValCopy
+serves frozen views, and MarkString traces cons children so a dropped
+chain is reclaimed whole.
 ---*/
 #include "VmExecutor.h"
+#include <nlang/runtime/StackDump.h>
 #include <algorithm>
+#include <stdexcept>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -17,7 +24,7 @@ namespace nlang {
 
 //Raw slot from the calling carrier's string shard; growth is the rare
 //slow path (one block appended under the Growth domain lock). Every
-//mint funnels through here — the single place the GC pressure flag gets
+//creation funnels through here — the single place the GC pressure flag gets
 //set for strings (K7: NoteGcPressure, the release-store into the
 //atomic).
 int32_t VmExecutor::AllocStringObj() {
@@ -55,26 +62,29 @@ void VmExecutor::GrowStrShardBlockLocked(size_t shard) {
 }
 
 bool VmExecutor::IsLiveStringHandle(int32_t handle) const {
-    return handle > 0
+    //Ruling D26: handle 0 is the live immortal empty string (the string
+    //domain has no null); only negative, out-of-range and swept-dead
+    //slots are non-live.
+    return handle >= 0
         && static_cast<size_t>(handle) < m_stringObjs.size()
         && static_cast<uint8_t>(m_stringObjs[static_cast<size_t>(handle)].form)
                != kStrFormDead;
 }
 
-//Content-aware mint (the only interning site class): short strings consult
+//Content-aware create (the only interning site class): short strings consult
 //the weak table and reuse the live handle on a hit — strings are
 //immutable, so sharing is aliasing-safe. Cons allocation and in-place
 //flattening never come through here, which is what keeps the uniqueness
 //invariant (at most one live interned object per content) intact: a
-//second mint of live content always hits the table, and a hit on a dead
+//second creation of live content always hits the table, and a hit on a dead
 //entry falls through and re-registers.
-int32_t VmExecutor::MintNewString(std::string content) {
+int32_t VmExecutor::CreateNewString(std::string content) {
     //K8: interning mutates the shared weak table, so find + insert are
     //one critical section under the string-maintenance domain lock. Two
-    //carriers racing the same fresh content must not both miss and mint:
+    //carriers racing the same fresh content must not both miss and create:
     //the second insert would orphan the first interned object and break
     //the uniqueness invariant OP_Eq_str's handle fast path relies on.
-    //Minting inside the lock is fine — TakeStringSlot takes Growth at
+    //Creating inside the lock is fine — TakeStringSlot takes Growth at
     //most, a forward acquisition (leaf under leaf, never outward).
     if (content.size() > kShortStringMaxBytes) {
         const int32_t handle = AllocStringObj();
@@ -94,10 +104,10 @@ int32_t VmExecutor::MintNewString(std::string content) {
 }
 
 //Constants take the same intern path — a short constant shares its object
-//with runtime mints of the same content — and additionally never die
+//with runtime creations of the same content — and additionally never die
 //(their table entries are therefore never purified either).
-int32_t VmExecutor::MintConstantString(const std::string& content) {
-    int32_t handle = MintNewString(content);
+int32_t VmExecutor::CreateConstantString(const std::string& content) {
+    int32_t handle = CreateNewString(content);
     m_stringObjs[static_cast<size_t>(handle)].immortal = true;
     return handle;
 }
@@ -113,21 +123,21 @@ bool VmExecutor::IsInternedString(int32_t handle) const {
 //Single source of string equality (OP_Eq_str / OP_Ne_str): both operands
 //interned compares handles (uniqueness invariant + immutability make
 //identity and content the same relation); any other pair flattens and
-//compares content. Two StrVal calls, no minting between them — the
+//compares content. Two StrVal calls, no creating between them — the
 //returned references stay valid (no store growth).
 bool VmExecutor::StringsEqual(int32_t hA, int32_t hB) {
     //K8: lock-free. Flag reads are benign value races; StrVal flattens
     //under the string-maintenance domain lock internally; and ChunkedArray
     //element addresses are stable across growth, so the two references
-    //survive any interleaved mint on another carrier.
+    //survive any interleaved creation on another carrier.
     if (IsInternedString(hA) && IsInternedString(hB))
         return hA == hB;
     return StrVal(hA) == StrVal(hB);
 }
 
 //O(1) zero-copy concatenation: content-blind, so never interned (intern
-//sites are content-aware mints only). Null sides stay 0 and contribute
-//nothing at flatten time.
+//sites are content-aware creations only). Empty (handle 0, ruling D26) and
+//dead sides contribute nothing at flatten time.
 //Precondition callers must uphold (OP_Concat_str guards it): left != right.
 //A shared child is not a cycle — edges only point at older nodes, and a
 //live parent keeps its children alive, so no true cycle can form — but
@@ -155,8 +165,8 @@ void VmExecutor::FlattenInto(std::string& out, int32_t handle) const {
     while (!work.empty()) {
         int32_t h = work.back();
         work.pop_back();
-        if (h == 0 || !IsLiveStringHandle(h))
-            continue;   //null side contributes nothing; dead reads as ""
+        if (!IsLiveStringHandle(h))
+            continue;   //dead reads as the empty string (0 is live: "")
         const StrObj& n = m_stringObjs[static_cast<size_t>(h)];
         if (n.form == StrObj::Form::Cons) {
             work.push_back(n.right);
@@ -170,20 +180,28 @@ void VmExecutor::FlattenInto(std::string& out, int32_t handle) const {
 //Execution-path accessor: guaranteed Flat on return. A Cons node is
 //flattened (via the shared walk) and rewritten in place (V8 ThinString
 //idea: every existing handle sees the flat content). Callers must not
-//hold the returned reference across further string minting (vector
+//hold the returned reference across further string creation (vector
 //growth invalidates it — same discipline as the old ReadStrArg by-value
 //rule).
 const std::string& VmExecutor::StrVal(int32_t handle) {
     //K8: the flat fast path is a lock-free read of immutable content,
     //and ChunkedArray addresses are stable across growth, so the
-    //returned reference survives interleaved mints on other carriers.
+    //returned reference survives interleaved creations on other carriers.
     //The cons rewrite is string-store maintenance: it runs under the
     //string-maintenance domain lock (two carriers flattening the same
     //handle must not interleave their moves), and str is written
     //before form, so a racing lock-free reader that observes Flat
     //observes the full content (sharing-model store order).
-    if (!IsLiveStringHandle(handle))
-        return m_stringObjs[static_cast<size_t>(m_emptyStrHandle)].str;
+    //Invariant (0.13.4 ruling D26): the string domain has no null —
+    //handle 0 is the immortal empty string and every zero-initialized
+    //slot is a live default — so a non-live handle here is a producer
+    //bug or a GC defect. Fail fast (debug: symbolized dump; every
+    //build: host-level error) instead of silently reading "".
+    if (!IsLiveStringHandle(handle)) {
+        NLANG_ASSERT(IsLiveStringHandle(handle));
+        throw std::runtime_error("NLang VM: invalid string handle " +
+                                 std::to_string(handle));
+    }
     StrObj& so = m_stringObjs[static_cast<size_t>(handle)];
     if (so.form != StrObj::Form::Cons)
         return so.str;
@@ -218,7 +236,8 @@ std::string VmExecutor::StrValCopy(int32_t handle) const {
 //GC mark face for one string handle: a live cons keeps its whole subtree
 //alive. Iterative worklist (left-leaning chains are arbitrarily deep —
 //no recursion). Handle validation is local (root faces pass raw handles;
-//0 = null and out-of-range are simply not marked).
+//out-of-range is simply not marked; handle 0 is the live empty string
+//and marks harmlessly — immortal, never swept).
 void VmExecutor::MarkString(int32_t handle) {
     std::vector<int32_t> work;
     auto mark = [&](int32_t h) {
@@ -264,7 +283,7 @@ void VmExecutor::SweepStrings() {
             continue;
         }
         //Weak-intern purification: drop the dying object's table entry so
-        //a later mint of the same content allocates fresh instead of
+        //a later creation of the same content allocates fresh instead of
         //resurrecting a dead (or slot-reused) handle.
         if (so.interned)
             m_shortStrTable.erase(so.str);
@@ -284,7 +303,8 @@ void VmExecutor::SweepStrings() {
     //form collects on every growth allocation once the free list
     //empties — quadratic for monotonically growing chains). The backoff
     //runs unconditionally — stress clamps only the initial thresholds
-    //(pre-K6 stress semantics; the deep-chain e2e pins the timing).
+    //(pre-K6 stress semantics; the deep-chain unit test pins the sweep
+    //count, a build-independent arithmetic observable).
     m_strGcThreshold = std::max(m_strGcThreshold,
         std::max(m_stringObjs.size(), 2 * liveCount));
 }

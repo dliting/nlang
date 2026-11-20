@@ -89,6 +89,6 @@ package's `ChannelClosedException`; user
 classes can inherit from `Exception` too (`class MyException : Exception`).
 Which operations raise which class is mapped on the
 [Exceptions](../specification/08-exceptions/index.md) and
-[Library Exceptions](../specification/library/19-library-exceptions.md) pages.
+[Library Exceptions](../specification/library/20-library-exceptions.md) pages.
 
 See also: [Specification / Exceptions](../specification/08-exceptions/index.md).

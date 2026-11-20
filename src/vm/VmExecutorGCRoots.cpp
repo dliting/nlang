@@ -15,7 +15,12 @@ namespace nlang {
 //derives their classes from the same typeKind routing, so this scan
 //kept its whole-table shape only while the mask path was bedded in.
 //Keeping params here preserves their precise declared-kind scan for
-//every mask state (the band starts after them).
+//every mask state (the band starts after them). v0.13.9 phase ③: an
+//&-bound parameter's slot holds the byref pair — the fallthrough heap
+//arm marks the pair's low half, which IS the base record handle. Task
+//11: a promoted param routes identically (the low half is its box
+//handle; before the prologue rewrites a raw argument the mark can only
+//over-mark, the RTK_Byref argument).
 void VmExecutor::MarkFrameLocals(const CallFrame& frame,
                                  std::vector<int32_t>& worklist) {
     for (auto& ld : frame.func->locals) {
@@ -23,14 +28,17 @@ void VmExecutor::MarkFrameLocals(const CallFrame& frame,
             continue;
         if (ld.typeKind != RTK_Struct && ld.typeKind != RTK_Class
             && ld.typeKind != RTK_Array && ld.typeKind != RTK_Func
-            && ld.typeKind != RTK_String && ld.typeKind != RTK_TypeParam)
+            && ld.typeKind != RTK_String && ld.typeKind != RTK_TypeParam
+            && ld.typeKind != RTK_Byref && ld.typeKind != RTK_ByrefCell
+            && ld.typeKind != RTK_Promoted)
             continue;
         int32_t val;
         std::memcpy(&val, frame.localsBuf.data() + ld.offset, sizeof(val));
         //String locals carry a string-store handle, not a heap index —
         //route before the heap-index guard below (a valid handle may
         //lie beyond the struct heap's size). MarkString does its own
-        //validation (0 = null, out-of-range skipped).
+        //validation (0 = the immortal empty string, harmlessly marked;
+        //out-of-range skipped).
         if (ld.typeKind == RTK_String) {
             MarkString(val);
             continue;
@@ -123,13 +131,23 @@ void VmExecutor::TestRootValue(int32_t val,
 //only in bytecode handlers under the GIL; the collection runs at the
 //quiescent rendezvous where no bytecode executes, so the read needs no
 //lock — the same soundness argument as the parked-frame scans.
+//v0.13.9 phase ③: RTK_Byref joins the filter as defensive completeness
+//only — byrefs are never stored (design D12: a static struct slot's
+//fields are inline cells and & rejects static targets), so no live slot
+//declares it today; the fallthrough heap arm marks the pair's base
+//handle if one ever does.
 void VmExecutor::MarkStaticSlotRoots(std::vector<int32_t>& worklist) {
     const size_t count = m_staticSlots.Count();
     for (size_t i = 0; i < count; ++i) {
         const uint8_t kind = m_currModule->staticSlots[i].type.kind;
         if (kind != RTK_Struct && kind != RTK_Class && kind != RTK_Array
             && kind != RTK_Func && kind != RTK_String
-            && kind != RTK_TypeParam)
+            && kind != RTK_TypeParam && kind != RTK_Byref
+            && kind != RTK_ByrefCell && kind != RTK_Promoted
+            //v0.13.9 Task 12 (D14): a runtime interface constant's
+            //slot names the interface (identity tier) while holding a
+            //class-instance handle — the plain heap arm below.
+            && kind != RTK_Interface)
             continue;
         int32_t val;
         std::memcpy(&val, m_staticSlots.Cell(i), sizeof(val));
@@ -171,7 +189,7 @@ void VmExecutor::MarkContextResultCell(const ExecutionContext* ctx,
                                        std::vector<int32_t>& worklist) {
     //Promise contexts: complete(T)'s value came through an erased
     //signature, so no resultKind classification exists (spawn's
-    //returnTypeKind snapshot has no equivalent at a promise mint). The
+    //returnTypeKind snapshot has no equivalent at a promise create). The
     //conservative both-domain test covers every T; it over-marks at
     //worst (the live-context arm's discipline) and the scan runs at the
     //quiescent rendezvous, so no torn read.
@@ -196,7 +214,14 @@ void VmExecutor::MarkContextResultCell(const ExecutionContext* ctx,
     if (retKind == RTK_String) {
         MarkString(val);
     } else if (retKind == RTK_Class || retKind == RTK_Struct
-        || retKind == RTK_Array || retKind == RTK_Func) {
+        || retKind == RTK_Array || retKind == RTK_Func
+        || retKind == RTK_Byref || retKind == RTK_ByrefCell
+        || retKind == RTK_Promoted) {
+        //v0.13.9 phase ③: an &-return cell holds the byref pair — the
+        //low half IS the base record handle (Task 6's & return form).
+        //Task 11: the split kinds route identically (SerializedReturn-
+        //Kind never emits them — defensive completeness, same as the
+        //static-slot filter).
         if (val > 0 && static_cast<size_t>(val) < m_slotKinds.size()
             && !m_markBits[val])
             PushMarked(val, worklist);
@@ -324,7 +349,7 @@ void VmExecutor::MarkSchedulerRoots(std::vector<int32_t>& worklist) {
 //cell — their contents exist only after entry (the ret cell is written
 //by the native itself), so only an address can see the final values;
 //argument cells are immutable past the entry copy (const in the ABI).
-//The value form covers handles minted by re-entrant NativeHost
+//The value form covers handles created by re-entrant NativeHost
 //callbacks during the blocking section. K8: registry mutations take
 //the root-registry leaf mutex (K7's GIL serialization died with the
 //lock-free allocation paths), and a blocking-native carrier sits
@@ -341,6 +366,12 @@ void VmExecutor::MarkNativeCallRoots(std::vector<int32_t>& worklist) {
                     sizeof(val));
                 TestRootValue(val, worklist);
             }
+        } else {
+            //Value form (RootCreatedNativeHandle): the created handle lives
+            //only in the native's C++ local until the native writes it
+            //into the staged ret cell, so the registry carries the value
+            //itself. TestRootValue ignores the 0 of address-form entries.
+            TestRootValue(root.value, worklist);
         }
     }
 }

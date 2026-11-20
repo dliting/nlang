@@ -1,0 +1,4 @@
+// int x ulong has no implicit common type: the bitwise family inherits
+// the arithmetic family's CommonNumericType boundary (spec D2) -- `a + b`
+// reports the same error (probe temp/bitwise_probe/uint_mix.n).
+int main() { int a = 1; ulong b = 2; int r = a & b; return r; }

@@ -1,0 +1,10 @@
+//Consumer: reads string.EMPTY directly and through the producer.
+//Both must observe the empty string. Expected exit code 0.
+import lib;
+
+int main() {
+    if (lib.emptyFromLib() != "") { return 1; }
+    if (string.EMPTY != "") { return 2; }
+    if (string.EMPTY.length() != 0) { return 3; }
+    return 0;
+}

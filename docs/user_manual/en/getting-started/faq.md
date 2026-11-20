@@ -79,14 +79,14 @@ under the installation's `docs\site\`), with the navigation tree on
 the left. The search box is in the window's top-left corner (next to
 the site title) and supports full-text search.
 
-### `v--1` gives a `syntax error`?
+### Why does `v--1` not decrement?
 
-The lexer reads `--` and `++` as single tokens (reserved for
-increment/decrement operators the grammar does not use yet), so `v--1`
-is read as `v`, `--`, `1` and fails as a statement (`syntax error`,
-`Invalid statement.`). Put a space between the two operators
-(`v - -1`) or parenthesize the unary operand (`v - (-1)`). Plain `v+1`
-and `v+-1` are fine — `+-` is not a token.
+nlang has no increment or decrement operators, and `++` and `--` are
+not single tokens — the lexer splits them character by character. So
+`v--1` reads as `v - (-1)`, subtraction of `-1`, and `v+-1` reads as
+`v + (-1)`. A bare `v++;` is a syntax error (`syntax error`,
+`Invalid statement.`) because the second `+` has no operand. Write
+`v = v + 1;` to increment.
 
 See also: [Specification / Expressions](../specification/05-expressions/index.md).
 
@@ -117,7 +117,7 @@ terminal's scrollback and copy work as usual.
 ### Cross-module reference gives `Module '...' is not imported`?
 
 `import` only opens **qualified names** — after `import lib;` you must
-write `lib.f()`; the bare name `f()` does not resolve. The visibility
+write `lib.f()`; the unqualified name `f()` does not resolve. The visibility
 rules for each reference form are on the [Specification /
 Declarations](../specification/03-program-structure/declarations.md) "Import Declaration"
 section. See [Common Error Messages](../specification/reference/common-errors.md)
@@ -139,10 +139,11 @@ Messages](../specification/reference/common-errors.md) for the full error text.
 It is legal and warning-free — every type has a definite default value:
 numbers are 0, `bool` is false, `char` is code point 0, enums hold
 underlying value 0 (the first member for auto-incremented enums),
-structs zero-initialize every field, and string plus the
-other reference types (class, interface, arrays, containers, `func`)
-are null. A null default compares directly with `== null`; using it
-without the check throws a `null reference error` at run time. The full
+structs zero-initialize every field, `string` defaults to the empty
+string `""`, and the other reference types (class, interface, arrays,
+containers, `func`) are null. A null default compares directly with
+`== null`; using it without the check throws a `null reference error`
+at run time. The full
 table is in [Specification /
 Declarations](../specification/03-program-structure/declarations.md), "Default values".
 

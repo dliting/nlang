@@ -1,0 +1,72 @@
+// v0.13.7 regex: capture groups -- numbering, names, Match value semantics,
+// and the caller-error half of the D6 contract.
+import io;
+import regex;
+
+int main() {
+    int bad = 0;
+    Regex re = Regex("(a)(b)");
+    Match m = re.match("xaby");
+    if (m == null) { return bad + 1; }
+    if (m.groupCount != 3) { bad = bad + 1; }
+    if (m.group(0) != "ab") { bad = bad + 1; }
+    if (m.group(1) != "a" || m.group(2) != "b") { bad = bad + 1; }
+    if (m.groupStart(1) != 1 || m.groupEnd(1) != 2) { bad = bad + 1; }
+    if (m.groupStart(2) != 2 || m.groupEnd(2) != 3) { bad = bad + 1; }
+    if (m.text != m.group(0)) { bad = bad + 1; }
+    // both named spellings compile (Go parity)
+    Regex kv = Regex("(?P<key>\\w+)=(?<val>[^ ]*)");
+    Match mk = kv.match("server=8080");
+    if (mk == null) { return bad + 1; }
+    if (mk.group("key") != "server" || mk.group("val") != "8080") { bad = bad + 1; }
+    if (mk.group(1) != "server" || mk.group(2) != "8080") { bad = bad + 1; }
+    if (mk.groupCount != 3) { bad = bad + 1; }
+    // numbering follows opening-paren order, nesting included
+    Regex nest = Regex("((a)(b))");
+    Match mn = nest.match("ab");
+    if (mn == null) { return bad + 1; }
+    if (mn.groupCount != 4) { bad = bad + 1; }
+    if (mn.group(1) != "ab") { bad = bad + 1; }
+    if (mn.group(2) != "a" || mn.group(3) != "b") { bad = bad + 1; }
+    // unmatched group: "" and -1, never an exception (review focus #2)
+    Regex opt = Regex("(a)?b");
+    Match mo = opt.match("b");
+    if (mo == null) { return bad + 1; }
+    if (mo.group(1) != "") { bad = bad + 1; }
+    if (mo.groupStart(1) != -1 || mo.groupEnd(1) != -1) { bad = bad + 1; }
+    if (mo.group(0) != "b") { bad = bad + 1; }
+    // an empty capture that DID participate reports real offsets (Go parity)
+    Regex ea = Regex("(a*)b");
+    Match me = ea.match("b");
+    if (me == null) { return bad + 1; }
+    if (me.group(1) != "") { bad = bad + 1; }
+    if (me.groupStart(1) != 0 || me.groupEnd(1) != 0) { bad = bad + 1; }
+    // caller errors raise with the pinned messages (D6)
+    try { mo.group(9); bad = bad + 1; }
+    catch (RegexException e) {
+        if (e.message.indexOf("group index 9 out of range") < 0) { bad = bad + 1; }
+    }
+    try { mo.group("nope"); bad = bad + 1; }
+    catch (RegexException e) {
+        if (e.message.indexOf("no capture group named \"nope\"") < 0) { bad = bad + 1; }
+    }
+    // duplicate group names rejected at compile time
+    try { Regex d = Regex("(?P<x>a)(?P<x>b)"); bad = bad + 1; }
+    catch (RegexException e) {
+        if (e.message.indexOf("duplicate group name") < 0) { bad = bad + 1; }
+    }
+    // look-around rejected at compile time (not in v1)
+    try { Regex la = Regex("(?=a)"); bad = bad + 1; }
+    catch (RegexException e) {
+        if (e.message.indexOf("look-around is not supported") < 0) { bad = bad + 1; }
+    }
+    // Match is a snapshot: later matches must not disturb it (D7)
+    Regex two = Regex("(x)|(y)");
+    Match m1 = two.match("x");
+    Match m2 = two.match("y");
+    if (m1 == null || m1.group(0) != "x" || m1.group(1) != "x") { bad = bad + 1; }
+    if (m2 == null || m2.group(0) != "y" || m2.group(2) != "y") { bad = bad + 1; }
+    if (m2 == null) { return bad + 1; }
+    if (m2.group(1) != "" || m2.groupStart(1) != -1) { bad = bad + 1; }
+    return bad;
+}

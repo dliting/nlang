@@ -1,0 +1,11 @@
+// v0.13.9 phase 3: a scalar & loop variable over a List<int> binds the
+// element storage, so stores through the variable mutate the list.
+int main() {
+    List<int> xs = {};
+    xs.add(5);
+    xs.add(6);
+    foreach (int& v in xs) {
+        v = v * 2;
+    }
+    return xs.get(0) * 10 + xs.get(1);
+}

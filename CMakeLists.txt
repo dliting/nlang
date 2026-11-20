@@ -168,6 +168,7 @@ if(NLANG_BUILD_IDE)
     endfunction()
 endif()
 
+
 # ---- AddressSanitizer runtime provisioning ----------------------------------
 # MSVC links the sanitizer DYNAMIC runtime: the flags carry
 # -fsanitize=address as a plain compiler flag, not the EnableASAN project
@@ -206,6 +207,7 @@ function(_nlang_sweep_asan_runtime dir)
             nlang_copy_asan_runtime(${_t})
         endif()
     endforeach()
+
 endfunction()
 
 # Subdirectories

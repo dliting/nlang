@@ -50,12 +50,12 @@ size_t VmBackend::BuildCtorBindings(SnFunction* pCtorFn,
     size_t idx = 0;
     for (auto* pArg : callerArgs) {
         bindings.push_back({FormalBinding::B_Positional, pArg,
-                            formals[idx], false});
+                            formals[idx]});
         ++idx;
     }
     for (; idx < formals.size(); ++idx)
         bindings.push_back({FormalBinding::B_Default, nullptr,
-                            formals[idx], false});
+                            formals[idx]});
     return formals.size();
 }
 

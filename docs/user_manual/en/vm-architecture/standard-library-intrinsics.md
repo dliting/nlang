@@ -12,7 +12,7 @@ library sources whose native members run from `nlang_<package>.dll`,
 `thread`'s native declarations are implemented inside the VM as intrinsic
 stubs, and `concurrent` is pure NLang — all described in
 [the library mechanism](library-mechanism.md). A call such as
-`math.sin(x)` compiles to `OP_CallFunc` against the inlined library
+`math.sin(x)` compiles to `OP_CallStatic` against the inlined library
 declaration, so it carries a `CompiledFunction` record like any user
 function.
 

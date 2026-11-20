@@ -1,0 +1,54 @@
+// Comparison server on the mainstream Rust server stack: axum (the most widely
+// used Rust web framework) on hyper for HTTP/1.1 framing and tokio's
+// multi-thread reactor -- the same combination Rust's benchmark entries run.
+// Same three fixed-size bodies as the other probes, as static slices, so the
+// measured path is request handling plus the socket.
+//
+// Two configuration notes, both left at the stack's defaults on purpose:
+//   * hyper keeps connections open without an idle timeout, where the other
+//     probes idle-close at 30 s. It cannot show up in these rows: the generator
+//     holds its connections busy for the whole run.
+//   * tokio starts one worker thread per logical CPU, as Go's runtime does;
+//     the NLang server's carrier count gets its own sensitivity row.
+use axum::body::Body;
+use axum::extract::Request;
+use axum::http::{header, StatusCode};
+use axum::response::Response;
+use axum::routing::get;
+use axum::Router;
+
+const PORT: u16 = __PORT__;
+const EMPTY: &[u8] = &[];
+const B1024: &[u8] = &[b'a'; 1024];
+const B8192: &[u8] = &[b'a'; 8192];
+
+async fn handle(req: Request) -> Response {
+    let body: &'static [u8] = match req.uri().path() {
+        "/b0" => EMPTY,
+        "/b1024" => B1024,
+        "/b8192" => B8192,
+        _ => {
+            return Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .header(header::CONTENT_LENGTH, "0")
+                .body(Body::empty())
+                .expect("static response")
+        }
+    };
+    Response::builder()
+        .status(StatusCode::OK)
+        // Content-Length stated explicitly, as in the other probes, so the
+        // generated headers line up row by row.
+        .header(header::CONTENT_LENGTH, body.len().to_string())
+        .body(Body::from(body))
+        .expect("static response")
+}
+
+#[tokio::main]
+async fn main() {
+    let app = Router::new().fallback(get(handle));
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", PORT))
+        .await
+        .expect("bind");
+    axum::serve(listener, app).await.expect("serve");
+}

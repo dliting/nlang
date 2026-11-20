@@ -1,0 +1,2134 @@
+/* ------------------------------------------------------------------
+ * http.n — HTTP/1.1 protocol library (spec docs/dev/http_library_design.md).
+ * Pure nlang on top of net.n: hardened parsing, buffered and streaming
+ * messages, a threaded server and a pooled client. The gzip codec lives
+ * in the gzip package.
+ * ------------------------------------------------------------------ */
+import io;
+import net;
+import concurrent;
+import thread;
+import system;
+import gzip;
+import url;
+
+const class HttpException : IOException {
+    public int status;                       // 0 = not an HTTP status error
+    public HttpException(string message, int status = 0, Exception cause = null) {
+        super(message, cause);
+        this.status = status;
+    }
+}
+
+// Case-insensitive header table: keys are matched lowercased, the
+// original spelling is kept for writing. List fields are read as
+// shallow copies (manual §12), so every mutation reads into locals and
+// writes the fields back.
+class HttpHeaders {
+    private List<string> m_names;            // original spelling
+    private List<string> m_lower;            // parallel lowercased keys
+    private List<string> m_values;           // parallel values
+
+    public HttpHeaders() {
+        m_names = {};
+        m_lower = {};
+        m_values = {};
+    }
+
+    private static string lower(string s) {
+        // ASCII-only folding; header field names are ASCII (RFC 9110).
+        byte[] b = io.toBytes(s);
+        for (int i = 0; i < b.length(); i = i + 1) {
+            int c = b[i];
+            if (c < 0) { c = c + 256; }
+            if (c >= 65 && c <= 90) { b[i] = (c + 32) as byte; }
+        }
+        return io.fromBytes(b);
+    }
+
+    public string get(string name) {
+        List<string> vs = this.getAll(name);
+        if (vs.length() == 0) { return ""; }
+        return vs[0];
+    }
+
+    public List<string> getAll(string name) {
+        List<string> matched = {};
+        string key = lower(name);
+        List<string> ls = m_lower;
+        List<string> vs = m_values;
+        for (int i = 0; i < ls.length(); i = i + 1) {
+            if (ls[i] == key) { matched.add(vs[i]); }
+        }
+        return matched;
+    }
+
+    public void set(string name, string value) {
+        // this-qualified: a bare remove() would also see fs.remove(string).
+        this.remove(name);
+        this.add(name, value);
+    }
+
+    public void add(string name, string value) {
+        // D9 write-boundary guard: a CR/LF in a name or value would
+        // inject a whole header line (or a request-splitting prefix).
+        // The parser validates the wire bytes before calling add(); this
+        // protects the programmatic path (client/server user headers).
+        if (name.indexOf("\r") >= 0 || name.indexOf("\n") >= 0
+                || value.indexOf("\r") >= 0 || value.indexOf("\n") >= 0) {
+            throw HttpException("http: header name/value must not contain CR or LF", 0);
+        }
+        List<string> ns = m_names;
+        List<string> ls = m_lower;
+        List<string> vs = m_values;
+        ns.add(name);
+        ls.add(lower(name));
+        vs.add(value);
+        m_names = ns;
+        m_lower = ls;
+        m_values = vs;
+    }
+
+    public void remove(string name) {
+        string key = lower(name);
+        List<string> ns = {};
+        List<string> ls = {};
+        List<string> vs = {};
+        for (int i = 0; i < m_lower.length(); i = i + 1) {
+            if (m_lower[i] != key) {
+                ns.add(m_names[i]);
+                ls.add(m_lower[i]);
+                vs.add(m_values[i]);
+            }
+        }
+        m_names = ns;
+        m_lower = ls;
+        m_values = vs;
+    }
+
+    public bool has(string name) {
+        return m_lower.indexOf(lower(name)) >= 0;
+    }
+
+    public List<string> names() {
+        // Deduplicated original spellings, first-seen order.
+        List<string> uniqNames = {};
+        List<string> seen = {};
+        for (int i = 0; i < m_lower.length(); i = i + 1) {
+            if (!seen.contains(m_lower[i])) {
+                seen.add(m_lower[i]);
+                uniqNames.add(m_names[i]);
+            }
+        }
+        return uniqNames;
+    }
+
+    public int count() {
+        return m_names.length();
+    }
+
+    // Shallow copy preserving order and original spellings (consumed
+    // by HttpClient.execute so redirects/retries never mutate the
+    // caller's headers).
+    public HttpHeaders copy() {
+        HttpHeaders merged = HttpHeaders();
+        for (int i = 0; i < m_names.length(); i = i + 1) {
+            merged.add(m_names[i], m_values[i]);
+        }
+        return merged;
+    }
+}
+
+class HttpRequest {
+    public string method = "GET";
+    public Url url;
+    public string version = "HTTP/1.1";
+    public HttpHeaders headers;
+    public byte[] body;                      // client: buffered body (exclusive with bodyChannel)
+    public Channel<byte[]> bodyChannel;      // client: streaming upload (chunked, D16)
+    public HttpBodyReader bodyReader;        // server: framing-aware streaming body (D5)
+    // Documented extensions beyond the spec field list (ledger Ruling):
+    public bool connectionClose;             // parsed "Connection: close" (D9)
+    public int framingMode;                  // HttpParser.MODE_*
+    public int framingLength = -1;           // Content-Length when MODE_LENGTH
+
+    public HttpRequest() {
+        headers = HttpHeaders();
+    }
+
+    public string bodyText() {
+        // A server-side request carries its body in the framing-aware
+        // reader (D5); a client-side request carries the buffered `body`.
+        if (bodyReader != null) { return bodyReader.bodyText(); }
+        if (body != null) { return io.fromBytes(body); }
+        return "";
+    }
+}
+
+class HttpResponse {
+    public int statusCode = 200;
+    public string reasonPhrase = "OK";
+    public string version = "HTTP/1.1";
+    public HttpHeaders headers;
+    public byte[] body;
+    public Channel<byte[]> bodyChannel;      // server: streaming response (chunked + backpressure)
+    public HttpBodyReader bodyReader;        // client: streaming body from open(), null when buffered (D16)
+    public Url requestUrl;                   // final URL after redirects (D12)
+    public bool compressBody = false;        // server: gzip the buffered body when accepted (D21)
+    public bool connectionClose;
+    public int framingMode;
+    public int framingLength = -1;
+
+    public HttpResponse() {
+        headers = HttpHeaders();
+    }
+
+    public string bodyText() {
+        // A streaming response (open(), D16) keeps its body in the reader
+        // and leaves `body` null; a buffered one is the inverse.
+        if (bodyReader != null) { return bodyReader.bodyText(); }
+        if (body != null) { return io.fromBytes(body); }
+        return "";
+    }
+}
+
+// Pure functions over a byte buffer: buffer + bytes available → message
+// + consumed, or "need more" (null). No socket, no state — the whole
+// hardening surface (D9) is testable offline (red line 3).
+class HttpParser {
+    public static const int MODE_NONE = 0;
+    public static const int MODE_LENGTH = 1;
+    public static const int MODE_CHUNKED = 2;
+    public static const int MODE_EOF = 3;
+    // Max bytes handed to one TcpStream.write call (D7): HttpConn.writeAll
+    // slices larger payloads into WRITE_SLICE chunks so each slice gets its
+    // own timeout budget — a slow reader can never hold one write forever.
+    public static const int WRITE_SLICE = 65536;
+
+    public static HttpRequest parseRequest(byte[] buf, int have,
+        int maxHeaderBytes, int maxHeaders, int& consumed) {
+        consumed = 0;
+        int end = findEndOfHeaders(buf, have);
+        int blockLen = have;
+        if (end >= 0) { blockLen = end + 4; }
+        checkHeaderBytes(buf, blockLen, end < 0);          // 400
+        if (end < 0) {
+            if (have > maxHeaderBytes) {
+                throw HttpException("http: header block exceeds " + maxHeaderBytes.toString() + " bytes", 431);
+            }
+            return null;
+        }
+        if (blockLen > maxHeaderBytes) {
+            throw HttpException("http: header block exceeds " + maxHeaderBytes.toString() + " bytes", 431);
+        }
+        List<string> lines = headerLines(buf, blockLen);
+        if (lines.length() - 1 > maxHeaders) {
+            throw HttpException("http: too many header fields", 431);
+        }
+        string line0 = lines[0];
+        int sp1 = line0.indexOf(" ");
+        int sp2 = -1;
+        if (sp1 >= 0) { sp2 = line0.indexOf(" ", sp1 + 1); }
+        if (sp1 < 0 || sp2 < 0 || line0.indexOf(" ", sp2 + 1) >= 0) {
+            throw HttpException("http: malformed request line", 400);
+        }
+        HttpRequest req = HttpRequest();
+        req.method = line0.substring(0, sp1);
+        try {
+            req.url = Url.parse(line0.substring(sp1 + 1, sp2));
+        } catch (UrlException e) {
+            throw HttpException("http: malformed request target", 400);
+        }
+        req.version = line0.substring(sp2 + 1);
+        if (!isToken(req.method)) {
+            throw HttpException("http: malformed method", 400);
+        }
+        if (req.version != "HTTP/1.1" && req.version != "HTTP/1.0") {
+            throw HttpException("http: unsupported version " + req.version, 505);
+        }
+        checkTarget(req.url);
+        parseInto(req.headers, lines);
+        checkHost(req.headers, req.version);
+        int fl = 0;
+        req.framingMode = framingOf(req.headers, false, 200, fl);
+        req.framingLength = fl;
+        req.connectionClose = hasCloseToken(req.headers);
+        if (req.version == "HTTP/1.0" && !hasKeepAliveToken(req.headers)) {
+            req.connectionClose = true;             // D7, RFC 9112 §9
+        }
+        consumed = blockLen;
+        return req;
+    }
+
+    public static HttpResponse parseResponse(byte[] buf, int have,
+        int maxHeaderBytes, int& consumed) {
+        consumed = 0;
+        int end = findEndOfHeaders(buf, have);
+        int blockLen = have;
+        if (end >= 0) { blockLen = end + 4; }
+        checkHeaderBytes(buf, blockLen, end < 0);
+        if (end < 0) {
+            if (have > maxHeaderBytes) {
+                throw HttpException("http: header block exceeds " + maxHeaderBytes.toString() + " bytes", 431);
+            }
+            return null;
+        }
+        if (blockLen > maxHeaderBytes) {
+            throw HttpException("http: header block exceeds " + maxHeaderBytes.toString() + " bytes", 431);
+        }
+        List<string> lines = headerLines(buf, blockLen);
+        string line0 = lines[0];
+        int sp1 = line0.indexOf(" ");
+        if (sp1 < 0) { throw HttpException("http: malformed status line", 400); }
+        HttpResponse res = HttpResponse();
+        res.version = line0.substring(0, sp1);
+        if (res.version != "HTTP/1.1" && res.version != "HTTP/1.0") {
+            throw HttpException("http: unsupported version " + res.version, 505);
+        }
+        string rest = line0.substring(sp1 + 1);
+        int sp2 = rest.indexOf(" ");
+        string codeText = rest;
+        string reason = "";
+        if (sp2 >= 0) {
+            codeText = rest.substring(0, sp2);
+            reason = trimOws(rest.substring(sp2 + 1));
+        }
+        res.reasonPhrase = reason;
+        res.statusCode = parseDigits(codeText);
+        if (res.statusCode < 100 || res.statusCode > 999) {
+            throw HttpException("http: malformed status code", 400);
+        }
+        parseInto(res.headers, lines);
+        int fl = 0;
+        res.framingMode = framingOf(res.headers, true, res.statusCode, fl);
+        res.framingLength = fl;
+        res.connectionClose = hasCloseToken(res.headers);
+        if (res.version == "HTTP/1.0" && !hasKeepAliveToken(res.headers)) {
+            res.connectionClose = true;             // D7, RFC 9112 §9
+        }
+        consumed = blockLen;
+        return res;
+    }
+
+    public static byte[] encodeChunk(byte[] data) {
+        List<byte> acc = {};
+        appendAscii(acc, toHex(data.length()) + "\r\n");
+        for (int i = 0; i < data.length(); i = i + 1) { acc.add(data[i]); }
+        appendAscii(acc, "\r\n");
+        return toByteArray(acc);
+    }
+
+    // List<byte> accumulators are the language's only growable byte
+    // sequence (Array<T> has no add); materialize at API boundaries.
+    public static byte[] toByteArray(List<byte> src) {
+        byte[] d = byte[src.length()];
+        for (int i = 0; i < src.length(); i = i + 1) { d[i] = src.get(i); }
+        return d;
+    }
+
+    public static byte[] encodeLastChunk() {
+        return io.toBytes("0\r\n\r\n");
+    }
+
+    // null + consumed==0 → need more; payload + consumed>0 → progress;
+    // payload (possibly empty) + consumed<0 → stream ended (|consumed|
+    // bytes consumed, last chunk and trailer included).
+    public static byte[] decodeChunked(byte[] buf, int have, int& consumed) {
+        consumed = 0;
+        List<byte> payload = {};
+        int pos = 0;
+        while (true) {
+            int crlf = findCrlf(buf, pos, have);
+            if (crlf < 0) { return chunkProgress(payload); }
+            int size = parseChunkSize(buf, pos, crlf);     // 400 on malformed
+            int dataStart = crlf + 2;
+            if (size == 0) {
+                int t = dataStart;
+                while (true) {
+                    int tcr = findCrlf(buf, t, have);
+                    if (tcr < 0) { return chunkProgress(payload); }
+                    if (tcr == t) { break; }               // empty line ends trailers
+                    checkTrailerLine(buf, t, tcr);        // 400 on malformed
+                    t = tcr + 2;
+                }
+                consumed = -(t + 2);
+                return toByteArray(payload);
+            }
+            // "need more", written against the bytes still in hand rather than
+            // as `have < dataStart + size + 2`: a declared size up to
+            // 0x7FFFFFFF (parseChunkSize's cap) would overflow that sum
+            // negative and the CRLF probe below would index out of range.
+            // Both sides here stay within the buffer, and a negative right-hand
+            // side (fewer than two bytes left) still means "need more".
+            if (size > (have - dataStart) - 2) { return chunkProgress(payload); }
+            if (byteAt(buf, dataStart + size) != 13 || byteAt(buf, dataStart + size + 1) != 10) {
+                throw HttpException("http: chunk data not CRLF-terminated", 400);
+            }
+            for (int i = 0; i < size; i = i + 1) { payload.add(buf[dataStart + i]); }
+            pos = dataStart + size + 2;
+            // Only ever set after a whole chunk: a "need more" exit then
+            // reports progress (consumed > 0), while nothing complete yet
+            // keeps consumed == 0 (the contract above).
+            consumed = pos;
+        }
+    }
+
+    // Need-more exit: a partial chunk collected so far is still progress
+    // (return it with the caller's consumed>0); nothing complete yet →
+    // null with consumed==0 (the contract above).
+    private static byte[] chunkProgress(List<byte> payload) {
+        if (payload.length() > 0) { return toByteArray(payload); }
+        return null;
+    }
+
+    public static bool isToken(string s) {
+        if (s.length() == 0) { return false; }
+        for (int i = 0; i < s.length(); i = i + 1) {
+            if (!isTchar(s[i])) { return false; }
+        }
+        return true;
+    }
+
+    public static List<string> splitTokens(string value) {
+        List<string> toks = {};
+        string tok = "";
+        for (int i = 0; i <= value.length(); i = i + 1) {
+            bool sep = i == value.length() || value[i] == 44 || value[i] == 32 || value[i] == 9;
+            if (sep) {
+                if (tok.length() > 0) { toks.add(tok); }
+                tok = "";
+            } else {
+                tok = tok + value.substring(i, i + 1);
+            }
+        }
+        return toks;
+    }
+
+    // ---- private helpers ----
+
+    private static int byteAt(byte[] b, int i) {
+        int c = b[i];
+        if (c < 0) { c = c + 256; }
+        return c;
+    }
+
+    private static int findCrlf(byte[] buf, int from, int have) {
+        for (int i = from; i + 1 < have; i = i + 1) {
+            if (byteAt(buf, i) == 13 && byteAt(buf, i + 1) == 10) { return i; }
+        }
+        return -1;
+    }
+
+    private static int findEndOfHeaders(byte[] buf, int have) {
+        for (int i = 0; i + 3 < have; i = i + 1) {
+            if (byteAt(buf, i) == 13 && byteAt(buf, i + 1) == 10
+                && byteAt(buf, i + 2) == 13 && byteAt(buf, i + 3) == 10) { return i; }
+        }
+        return -1;
+    }
+
+    // Rejects control chars (400) and bare CR/LF (400); HTAB stays legal
+    // as OWS / field-value content (RFC 9110 OWS = SP / HTAB). A trailing
+    // CR in undecided input is not yet known to be bare → tolerated until
+    // more bytes arrive.
+    private static void checkHeaderBytes(byte[] buf, int len, bool undecided) {
+        for (int i = 0; i < len; i = i + 1) {
+            int c = byteAt(buf, i);
+            if (c == 13) {
+                if (i + 1 < len) {
+                    if (byteAt(buf, i + 1) != 10) { throw HttpException("http: bare CR in header block", 400); }
+                    i = i + 1;
+                } else if (!undecided) {
+                    throw HttpException("http: bare CR in header block", 400);
+                }
+            } else if (c == 10) {
+                if (i == 0 || byteAt(buf, i - 1) != 13) { throw HttpException("http: bare LF in header block", 400); }
+            } else if ((c < 32 && c != 9) || c == 127) {
+                throw HttpException("http: control character in header block", 400);
+            }
+        }
+    }
+
+    private static List<string> headerLines(byte[] buf, int blockLen) {
+        // blockLen ends with CRLFCRLF; split on CRLF, drop the final empty.
+        List<string> lines = {};
+        int start = 0;
+        for (int i = 0; i + 1 < blockLen - 2; i = i + 1) {
+            if (byteAt(buf, i) == 13 && byteAt(buf, i + 1) == 10) {
+                lines.add(io.fromBytes(buf[start:i]));
+                start = i + 2;
+                i = i + 1;
+            }
+        }
+        return lines;
+    }
+
+    private static void parseInto(HttpHeaders headers, List<string> lines) {
+        for (int i = 1; i < lines.length(); i = i + 1) {
+            string ln = lines[i];
+            int colon = ln.indexOf(":");
+            if (colon <= 0) { throw HttpException("http: malformed header line", 400); }
+            int sp = ln.indexOf(" ");
+            int tab = ln.indexOf("\t");
+            if ((sp >= 0 && sp < colon) || (tab >= 0 && tab < colon)) {
+                throw HttpException("http: whitespace before header colon", 400);
+            }
+            string name = ln.substring(0, colon);
+            if (!isToken(name)) { throw HttpException("http: malformed header name", 400); }
+            headers.add(name, trimOws(ln.substring(colon + 1)));
+        }
+    }
+
+    private static void checkHost(HttpHeaders headers, string version) {
+        int n = headers.getAll("Host").length();
+        if (version == "HTTP/1.1") {
+            if (n != 1) { throw HttpException("http: exactly one Host header required", 400); }
+        } else if (n > 1) {
+            throw HttpException("http: exactly one Host header required", 400);
+        }
+    }
+
+    // TE/CL validation + framing decision (D9/D5). `isResponse` + status
+    // select the no-body statuses. Returns the framing mode; the CL value
+    // (-1 when absent) comes back in `framingLength`. Callers write both
+    // onto their own typed message — no Object pun, no downcast. The
+    // parser stays method-agnostic: the HEAD body-suppression rule
+    // (RFC 9112 §6.3) is the client's job (readResponse's requestWasHead
+    // override), because the parser never sees the request method.
+    private static int framingOf(HttpHeaders headers, bool isResponse,
+        int status, int& framingLength) {
+        int chunked = 0;
+        foreach (string v in headers.getAll("Transfer-Encoding")) {
+            foreach (string tok in splitTokens(v)) {
+                if (tok.equalsIgnoreCase("chunked")) { chunked = chunked + 1; }
+                else { throw HttpException("http: unsupported transfer encoding", 400); }
+            }
+        }
+        if (chunked > 1) { throw HttpException("http: multiple chunked Transfer-Encoding", 400); }
+        List<string> cls = headers.getAll("Content-Length");
+        int contentLength = -1;
+        if (cls.length() > 0) {
+            if (chunked == 1) { throw HttpException("http: Content-Length with Transfer-Encoding", 400); }
+            foreach (string c in cls) {
+                int d = parseDigits(c);
+                if (d < 0) { throw HttpException("http: invalid Content-Length", 400); }
+                if (contentLength >= 0 && d != contentLength) {
+                    throw HttpException("http: conflicting Content-Length", 400);
+                }
+                contentLength = d;
+            }
+        }
+        int mode = MODE_NONE;
+        if (isResponse && (status < 200 || status == 204 || status == 304)) {
+            mode = MODE_NONE;                       // no body regardless (RFC 9112 §6.3)
+        } else if (chunked == 1) {
+            mode = MODE_CHUNKED;
+        } else if (contentLength >= 0) {
+            mode = MODE_LENGTH;
+        } else if (isResponse) {
+            mode = MODE_EOF;                        // 1.1 without CL: read to close
+        }
+        framingLength = contentLength;
+        return mode;
+    }
+
+    private static bool hasCloseToken(HttpHeaders headers) {
+        foreach (string v in headers.getAll("Connection")) {
+            foreach (string tok in splitTokens(v)) {
+                if (tok.equalsIgnoreCase("close")) { return true; }
+            }
+        }
+        return false;
+    }
+
+    // D7: HTTP/1.0 defaults to closing; it persists only when a
+    // Connection token says keep-alive (RFC 9112 §9).
+    private static bool hasKeepAliveToken(HttpHeaders headers) {
+        foreach (string v in headers.getAll("Connection")) {
+            foreach (string tok in splitTokens(v)) {
+                if (tok.equalsIgnoreCase("keep-alive")) { return true; }
+            }
+        }
+        return false;
+    }
+
+    private static void checkTarget(Url u) {
+        string t = u.toString();
+        if (t == "*") { return; }
+        if (t.length() > 0 && t[0] == 47) { return; }          // origin-form "/"
+        if (u.isAbsolute()) { return; }                        // absolute-form
+        throw HttpException("http: malformed request target", 400);
+    }
+
+    private static void checkTrailerLine(byte[] buf, int start, int cr) {
+        for (int i = start; i < cr; i = i + 1) {
+            int c = byteAt(buf, i);
+            // Same rule as header fields: HTAB is legal value content.
+            if ((c < 32 && c != 9) || c == 127) { throw HttpException("http: control character in trailer", 400); }
+        }
+        string ln = io.fromBytes(buf[start:cr]);
+        if (ln.indexOf(":") <= 0) { throw HttpException("http: malformed trailer line", 400); }
+    }
+
+    private static int parseDigits(string s) {
+        // Strict all-digits → int; -1 on empty/non-digit/overflow.
+        if (s.length() == 0) { return -1; }
+        int v = 0;
+        for (int i = 0; i < s.length(); i = i + 1) {
+            int c = s[i];
+            if (c < 48 || c > 57) { return -1; }
+            // Pre-check before mul-add: a post-check would read already
+            // wrapped state. 214748364 = (INT_MAX - 7) / 10.
+            if (v > 214748364 || (v == 214748364 && (c - 48) > 7)) { return -1; }
+            v = v * 10 + (c - 48);
+        }
+        return v;
+    }
+
+    private static int parseChunkSize(byte[] buf, int start, int crlf) {
+        // hex digits, optional ";ext" ignored; 400 on malformed.
+        int v = -1;
+        int acc = 0;
+        for (int i = start; i < crlf; i = i + 1) {
+            int c = byteAt(buf, i);
+            if (c == 59) { break; }                            // ';' extension
+            int d = -1;
+            if (c >= 48 && c <= 57) { d = c - 48; }
+            else if (c >= 97 && c <= 102) { d = c - 87; }
+            else if (c >= 65 && c <= 70) { d = c - 55; }
+            if (d < 0) { throw HttpException("http: malformed chunk size", 400); }
+            if (v < 0) { v = 0; }
+            // Pre-check before mul-add; 0x7FFFFFF = 0x7FFFFFFF / 16 keeps
+            // acc * 16 + 15 within int32.
+            if (acc > 0x7FFFFFF) { throw HttpException("http: chunk size overflow", 400); }
+            acc = acc * 16 + d;
+            v = acc;
+        }
+        if (v < 0) { throw HttpException("http: malformed chunk size", 400); }
+        return v;
+    }
+
+    private static string toHex(int v) {
+        if (v == 0) { return "0"; }
+        string digits = "0123456789abcdef";
+        string s = "";
+        while (v > 0) {
+            s = digits.substring(v % 16, v % 16 + 1) + s;
+            v = v / 16;
+        }
+        return s;
+    }
+
+    // Public: HttpConn/HttpClient serialize headers through this helper
+    // too (nlang has no friend access for private statics).
+    public static void appendAscii(List<byte> dest, string s) {
+        byte[] b = io.toBytes(s);
+        for (int i = 0; i < b.length(); i = i + 1) { dest.add(b[i]); }
+    }
+
+    private static string trimOws(string s) {
+        int a = 0;
+        int b = s.length();
+        while (a < b && (s[a] == 32 || s[a] == 9)) { a = a + 1; }
+        while (b > a && (s[b - 1] == 32 || s[b - 1] == 9)) { b = b - 1; }
+        return s.substring(a, b);
+    }
+
+    private static bool isTchar(int c) {
+        // RFC 9110 tchar = ALPHA / DIGIT / "!" "#" "$" "%" "&" "'" "*"
+        // "+" "-" "." "^" "_" "`" "|" "~" ":"
+        if (c >= 97 && c <= 122) { return true; }
+        if (c >= 65 && c <= 90) { return true; }
+        if (c >= 48 && c <= 57) { return true; }
+        if (c == 33 || c == 35 || c == 36 || c == 37 || c == 38 || c == 39
+            || c == 42 || c == 43 || c == 45 || c == 46 || c == 94
+            || c == 95 || c == 96 || c == 124 || c == 126 || c == 58) { return true; }
+        return false;
+    }
+}
+
+// RFC 1123 IMF-fixdate, always UTC (DateTime is a UTC calendar type).
+class HttpDate {
+    public static string format(long epochMs) {
+        DateTime dt = DateTime.fromUnixMillis(epochMs);
+        string[] days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+        string[] months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                           "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        return days[dt.dayOfWeek()] + ", " + pad2(dt.day) + " " + months[dt.month - 1]
+            + " " + pad4(dt.year) + " " + pad2(dt.hour) + ":" + pad2(dt.minute)
+            + ":" + pad2(dt.second) + " GMT";
+    }
+
+    private static string pad2(int v) {
+        if (v < 10) { return "0" + v.toString(); }
+        return v.toString();
+    }
+
+    private static string pad4(int v) {
+        string s = v.toString();
+        while (s.length() < 4) { s = "0" + s; }
+        return s;
+    }
+}
+
+// Framing-aware body source over an HttpConn (D5): the request body is read
+// on demand instead of being buffered up front, so a large upload never has
+// to fit in memory. The server hands one to the handler as req.bodyReader;
+// the client's streaming open() path reuses the class in Task 5.
+class HttpBodyReader {
+    private static const int READALL_WINDOW = 8192;
+    private static const int DRAIN_WINDOW = 4096;
+    // readAll pre-sizes to a declared Content-Length up to this ceiling; past
+    // it the buffer starts at READALL_WINDOW and doubles instead (array
+    // lengths are int, so a body past this size fails at allocation either way).
+    private static const long MAX_PREALLOC_BODY = 1073741824;
+
+    private HttpConn m_conn;
+    private int m_mode;
+    private long m_remaining;          // MODE_LENGTH
+    private long m_max;                // readAll/drain bound (<=0 = unlimited)
+    private bool m_done;
+    private bool m_closed;
+    private byte[] m_chunkBuf;         // MODE_CHUNKED: decoded chunk not yet consumed
+    private int m_chunkPos;
+    private int m_timeoutMs;           // D7: per-read deadline
+    private HttpPool m_pool;           // client only (D19): null for server-side readers
+    private bool m_poolable;           // healthy keep-alive: goes back to the pool
+    private bool m_released;           // the pool has already seen this connection
+
+    public HttpBodyReader(HttpConn conn, int framingMode, int framingLength,
+        long maxBodyBytes, int bodyTimeoutMs) {
+        m_conn = conn;
+        m_mode = framingMode;
+        m_remaining = framingLength;
+        m_max = maxBodyBytes;
+        m_done = (framingMode == HttpParser.MODE_NONE);
+        m_closed = false;
+        m_chunkBuf = byte[0];
+        m_chunkPos = 0;
+        m_timeoutMs = bodyTimeoutMs;
+        m_pool = null;
+        m_poolable = false;
+        m_released = false;
+    }
+
+    // Client-side D19 hookup: the reader owns the borrowed connection from
+    // here on, and hands it back once the body ends. The connection is the
+    // one the reader was built with (m_conn), so it is not passed again.
+    public void attachPool(HttpPool pool, bool poolable) {
+        m_pool = pool;
+        m_poolable = poolable;
+        m_released = false;
+    }
+
+    // D19: a client-side reader returns the connection to its pool when the
+    // body is exhausted (and the connection is poolable), otherwise closes it
+    // (cancellation). m_done is checked without requiring !m_closed: a user
+    // close() *after* exhaustion must still pool the connection
+    // (stdlib_http_cancel.n vector 2).
+    private void releaseIfClient() {
+        if (m_pool != null && !m_released && (m_done || m_closed)) {
+            m_released = true;
+            m_pool.release(m_conn, m_poolable && m_done);
+        }
+    }
+
+    // Copies the next body bytes into buf; returns the count, or -1 once the
+    // body has ended. timeoutMs <= 0 falls back to the constructor budget
+    // (D7), so net's raw "<=0 = forever" spelling never leaks through here.
+    public int read(byte[] buf, int timeoutMs = 0) {
+        if (m_closed || m_done) { return -1; }
+        if (buf.length() == 0) { return 0; }
+        if (timeoutMs <= 0) { timeoutMs = m_timeoutMs; }
+        if (m_mode == HttpParser.MODE_LENGTH) {
+            if (m_remaining <= 0) { this.endBody(); return -1; }
+            int want = buf.length();
+            if (want > m_remaining) { want = m_remaining as int; }
+            // Read straight into the caller's buffer: capping the request to
+            // the body remainder is a length cap on the view, not a reason to
+            // bounce through a temporary (views write through to their source).
+            byte[] dst = buf;
+            if (want < buf.length()) { dst = buf[0:want]; }
+            int n = m_conn.readNext(dst, timeoutMs);
+            if (n <= 0) { this.endBody(); return -1; }   // early EOF = end of body
+            m_remaining = m_remaining - n;
+            return n;
+        }
+        if (m_mode == HttpParser.MODE_CHUNKED) {
+            // A decoded chunk larger than the caller's buf is capped here and
+            // the remainder stashed, so the caller's buffer size stays
+            // independent of the peer's chunk size (Go's chunkedReader). The
+            // loop, not an if: a zero-length chunk before the trailer must not
+            // make this read return 0 with no progress.
+            while (m_chunkPos >= m_chunkBuf.length()) {
+                byte[] chunk = m_conn.decodeChunk(timeoutMs);
+                if (chunk == null) { this.endBody(); return -1; }
+                m_chunkBuf = chunk;
+                m_chunkPos = 0;
+            }
+            int n = m_chunkBuf.length() - m_chunkPos;
+            if (n > buf.length()) { n = buf.length(); }
+            for (int i = 0; i < n; i = i + 1) { buf[i] = m_chunkBuf[m_chunkPos + i]; }
+            m_chunkPos = m_chunkPos + n;
+            return n;
+        }
+        // MODE_EOF: read until the peer closes.
+        int n = m_conn.readNext(buf, timeoutMs);
+        if (n <= 0) { this.endBody(); return -1; }
+        return n;
+    }
+
+    // The body has ended naturally: mark it and let the pool discipline run
+    // (a server-side reader has no pool, so this only flips the flag).
+    private void endBody() {
+        m_done = true;
+        this.releaseIfClient();
+    }
+
+    // Reads the whole body into one buffer: pre-sized to the declared
+    // Content-Length when framing declares one (capped by maxBodyBytes and by
+    // MAX_PREALLOC_BODY), otherwise starting at READALL_WINDOW and doubling.
+    // Each read lands in the unread tail — a slice view writing through to
+    // the buffer — so no window staging and no byte-by-byte list copy stand
+    // between the socket and the result. Throws HttpException(413) past
+    // maxBodyBytes (D5).
+    public byte[] readAll() {
+        int initial = READALL_WINDOW;
+        if (m_mode == HttpParser.MODE_LENGTH && m_remaining > initial) {
+            long cap = m_remaining;
+            if (m_max > 0 && cap > m_max) { cap = m_max; }
+            if (cap <= MAX_PREALLOC_BODY) { initial = cap as int; }
+        }
+        byte[] acc = byte[initial];
+        int filled = 0;
+        while (true) {
+            if (filled == acc.length()) {        // grow first: read needs room
+                byte[] grown = byte[acc.length() * 2];
+                for (int i = 0; i < filled; i = i + 1) { grown[i] = acc[i]; }
+                acc = grown;
+            }
+            int n = this.read(acc[filled:acc.length()], m_timeoutMs);
+            if (n < 0) { break; }
+            if (m_max > 0 && filled + n > m_max) {
+                throw HttpException("http: body exceeds " + m_max.toString() + " bytes", 413);
+            }
+            filled = filled + n;
+            if (m_mode == HttpParser.MODE_LENGTH && m_remaining == 0) {
+                this.endBody();     //the declared body is complete: end it here, so
+                break;              //the extra read's -1 (and its grow+copy round) is never paid
+            }
+        }
+        if (filled == acc.length()) { return acc; }
+        byte[] exact = byte[filled];
+        for (int i = 0; i < filled; i = i + 1) { exact[i] = acc[i]; }
+        return exact;
+    }
+
+    public string bodyText() {
+        return io.fromBytes(this.readAll());
+    }
+
+    // Closing an unexhausted body is a cancellation: the connection cannot be
+    // reused (unread body bytes would be mistaken for the next response), so
+    // releaseIfClient() closes it instead of pooling it.
+    public void close() {
+        m_closed = true;
+        this.releaseIfClient();
+    }
+
+    // Consumes whatever is left of the body so the connection can be reused;
+    // false when the remainder exceeded maxBytes (the caller must then close
+    // the connection — the server's drain cap, D5).
+    public bool drain(int maxBytes) {
+        byte[] tmp = byte[DRAIN_WINDOW];
+        int total = 0;
+        while (true) {
+            int n = this.read(tmp, m_timeoutMs);
+            if (n < 0) { return true; }
+            total = total + n;
+            if (total > maxBytes) { return false; }
+        }
+    }
+}
+
+// Socket wrapper for message assembly: incremental parsing needs one
+// contiguous readable span shared between the message parser and the body
+// reader, because a peer can coalesce a head and body into one segment or
+// split a head across several. The fast path for that span is the TcpStream's
+// own receive window (m_buf aliases it, no copying); items larger than the
+// window (a head longer than WINDOW_CAP) are parked in an overflow spill.
+class HttpConn {
+    private static const int DEFAULT_DRAIN_CAP = 262144;
+    // One write for the head plus a small body: two writes mean two packets
+    // on the wire and two wakeups per response. 8192 stays below
+    // HttpParser.WRITE_SLICE = 65536 so the joined buffer never needs slicing.
+    private static const int JOIN_CAP = 8192;
+    private static const int CLOSE_SINK_WINDOW = 4096;
+    private static const int CLOSE_GRACE_MS = 200;
+    // One text for the head-phase budget, raised at the deadline check and at
+    // the read that timed out (see readRequest).
+    private static const string HEAD_TIMEOUT_TEXT = "http: header phase timeout";
+
+    public TcpStream stream;
+    // The readable span right now, a mirror: an alias of the TcpStream's
+    // receive window, or a slice of the overflow spill below. The byte truth
+    // lives in only two places, the window and m_spill; the mirror must be
+    // re-aliased after every window or spill operation that consumed bytes.
+    private byte[] m_buf;
+    private int m_have;
+    private bool m_eof;
+    // Bytes that did not fit in the TcpStream window (a head longer than
+    // WINDOW_CAP): the window is the fast path, this is the overflow. 16 KiB
+    // start, below the 64 KiB default head cap, doubled on demand.
+    private static const int SPILL_START_CAP = 16384;
+    private byte[] m_spill;
+    private int m_spillLen;
+    private bool m_chunkDone;   // chunked terminator seen; reset per message
+    // IMF-fixdate has one-second resolution (RFC 9110 §7.1.1.2), so one text
+    // per second is byte-identical to one text per request (D4). One
+    // connection, one virtual thread, so no synchronization is needed.
+    private long m_dateSec = -1;
+    private string m_dateText = "";
+    private HttpServer m_srv;   // owning server; null for client-pool connections
+
+    public HttpConn(TcpStream s, HttpServer srv = null) {
+        stream = s;
+        m_srv = srv;
+        m_buf = byte[0];
+        m_spill = byte[0];
+        m_spillLen = 0;
+        m_have = 0;
+        m_eof = false;
+        m_chunkDone = false;
+    }
+
+    // Waits until more of the stream is readable than the parser has seen;
+    // false means no more bytes will come. The signature and the EOF
+    // semantics match the old one-read-and-append version, so the three call
+    // sites in readRequest, readResponse, and decodeChunk are untouched.
+    public bool fill(int timeoutMs) {
+        bool ended = false;
+        return this.gather(timeoutMs, ended);
+    }
+
+    // Body bytes may already sit in the window or spill behind a parsed head
+    // (the peer coalesced head and body into one segment). Drain what is
+    // readable first, then let the socket read take its course; returns the
+    // bytes copied into dst[0..] (0 = EOF, or dst empty).
+    public int readNext(byte[] dst, int timeoutMs) {
+        if (dst.length() == 0) { return 0; }
+        if (m_spillLen > 0) { return this.drainSpill(dst, 0); }
+        if (m_eof) { return 0; }
+        // stream.read drains the window first (net.n's order discipline), so
+        // these bytes are window bytes when the mirror says the window holds
+        // any; retreat the mirror by what was taken and re-alias the rest.
+        int n = stream.read(dst, timeoutMs);
+        if (m_have > 0) { m_have = m_have - n; }
+        this.reify();
+        if (n == 0) { m_eof = true; }
+        return n;
+    }
+
+    // Re-points m_buf/m_have at the bytes readable right now: the spill if it
+    // holds any, else the stream window. No syscall either way — the spill
+    // branch is a slice, and the window branch asks for a threshold the mirror
+    // already says is met, which peekFilled answers on the spot. The window
+    // view is an alias the next window operation invalidates, so every place
+    // that consumed bytes re-runs this instead of trusting an older m_buf.
+    private void reify() {
+        if (m_spillLen > 0) { this.mirrorSpill(); return; }
+        if (m_have == 0) { return; }             //nothing mirrored: the parser sees none
+        m_buf = stream.peekFilled(1, 0);         //threshold met: returns without parking
+        m_have = m_buf.length();
+    }
+
+    // The spill half of the mirror: spill bytes are always older than window
+    // bytes, because every gather round empties the window right after parking it.
+    private void mirrorSpill() {
+        m_buf = m_spill[0:m_spillLen];
+        m_have = m_spillLen;
+    }
+
+    // The parse-then-wait loop that replaces fill()'s "one read, append". Every
+    // round waits for at least one byte beyond what the parser already saw, so
+    // the caller's "parse → not enough → wait again" loop can never re-parse the
+    // same bytes — the same property today's fill has, where the read blocks
+    // until a byte arrives. ended reports that nothing more can come, the
+    // information fill()'s false return carries today, which is how readRequest
+    // tells a peer that closed (return null) from a head that stalled (408).
+    private bool gather(int timeoutMs, bool& ended) {
+        ended = false;
+        if (m_eof) { ended = true; return false; }
+        while (true) {
+            if (m_spillLen > 0) {
+                //The head outgrew the window: park each arriving window batch in
+                //the spill so the parser still sees one contiguous head. Consuming
+                //the window right after parking it is what frees the space the
+                //next round waits for (spec §五: full window → consume → wait).
+                byte[] win = stream.peekFilled(1, timeoutMs);
+                if (win.length() == 0) {        //empty view ⟺ EOF (spec §五)
+                    m_eof = true;
+                    ended = true;
+                    return false;
+                }
+                this.pushSpill(win);
+                stream.consume(win.length());   //at least 1 byte: never consume(0)
+                this.mirrorSpill();
+                return true;
+            }
+            if (m_have >= TcpStream.WINDOW_CAP) {
+                this.startSpill();              //full window: waiting cannot grow it
+                continue;
+            }
+            //One more byte than the parser holds: the smallest wait that can make
+            //progress, so a complete head never waits for bytes that will not come.
+            byte[] win = stream.peekFilled(m_have + 1, timeoutMs);
+            if (win.length() == 0) {            //empty view ⟺ EOF
+                m_eof = true;
+                ended = true;
+                return false;
+            }
+            m_buf = win;
+            m_have = win.length();
+            return true;
+        }
+    }
+
+    // The spill only ever holds a head longer than WINDOW_CAP. Both buffers stay
+    // bounded because the parser's own maxHeaderBytes check raises 431 first.
+    private void startSpill() {
+        m_spill = byte[SPILL_START_CAP];
+        m_spillLen = 0;
+        this.pushSpill(m_buf);                  //the mirrored window bytes
+        stream.consume(m_have);                 //== WINDOW_CAP, so never 0 (spec §五)
+        this.mirrorSpill();
+    }
+
+    private void pushSpill(byte[] src) {
+        int n = src.length();
+        if (n == 0) { return; }
+        if (m_spillLen + n > m_spill.length()) { this.growSpill(m_spillLen + n); }
+        for (int i = 0; i < n; i = i + 1) { m_spill[m_spillLen + i] = src[i]; }
+        m_spillLen = m_spillLen + n;
+    }
+
+    private void growSpill(int need) {
+        int cap = m_spill.length();
+        if (cap == 0) { cap = SPILL_START_CAP; }
+        while (cap < need) { cap = cap * 2; }
+        byte[] wider = byte[cap];
+        for (int i = 0; i < m_spillLen; i = i + 1) { wider[i] = m_spill[i]; }
+        m_spill = wider;
+    }
+
+    // readNext's spill half. Spill bytes are always older than window bytes,
+    // because every gather round empties the window right after parking it.
+    private int drainSpill(byte[] dst, int off) {
+        int n = m_spillLen;
+        if (n > dst.length() - off) { n = dst.length() - off; }
+        for (int i = 0; i < n; i = i + 1) { dst[off + i] = m_spill[i]; }
+        this.shiftSpill(n);
+        this.mirrorSpill();     //not reify(): in spill mode the window is empty, so
+                                //the mirror is the spill even once it drains to 0
+        return n;
+    }
+
+    private void shiftSpill(int n) {
+        if (n >= m_spillLen) { m_spillLen = 0; return; }
+        for (int i = n; i < m_spillLen; i = i + 1) { m_spill[i - n] = m_spill[i]; }
+        m_spillLen = m_spillLen - n;
+    }
+
+    // D7: the timeout bounds each ≤64KB slice, not the whole write — a
+    // slow-drip peer must not fail a large body at its first slice.
+    public void writeAll(byte[] data, int timeoutMs) {
+        int off = 0;
+        while (off < data.length()) {
+            int n = data.length() - off;
+            if (n > HttpParser.WRITE_SLICE) { n = HttpParser.WRITE_SLICE; }
+            stream.write(data[off:off + n], n, timeoutMs);
+            off = off + n;
+        }
+    }
+
+    // Joining the head and a buffered body into one write (D3): one packet
+    // instead of two, one wakeup on the peer instead of two. Anything the
+    // join could not fit through WRITE_SLICE in a single slice degrades to
+    // the old two-write shape; the bytes on the wire are identical either way.
+    private void writeHeadAndBody(byte[] head, byte[] body, int timeoutMs) {
+        int total = head.length() + body.length();
+        if (body.length() == 0 || total > JOIN_CAP) {
+            this.writeAll(head, timeoutMs);
+            if (body.length() > 0) { this.writeAll(body, timeoutMs); }
+            return;
+        }
+        byte[] joined = byte[total];
+        for (int i = 0; i < head.length(); i = i + 1) { joined[i] = head[i]; }
+        for (int i = 0; i < body.length(); i = i + 1) { joined[head.length() + i] = body[i]; }
+        stream.write(joined, total, timeoutMs);
+    }
+
+    // Parses one request from the buffer, refilling as needed. The first wait
+    // (no bytes yet) is the keep-alive idle timeout; once bytes have started
+    // arriving the header phase is bounded by headerTimeoutMs as a total
+    // budget (Slowloris, D7). null = the peer closed, or an idle keep-alive
+    // connection expired; HttpException(408) = a started head stalled past
+    // its budget.
+    public HttpRequest readRequest(int keepAliveTimeoutMs, int headerTimeoutMs,
+        int maxHeaderBytes, int maxHeaders) {
+        m_chunkDone = false;   // fresh message: the prior chunked stream is over
+        long deadline = -1;    // header-phase total deadline, set on the first byte
+        while (true) {
+            int consumed = 0;
+            HttpRequest req = HttpParser.parseRequest(m_buf, m_have,
+                maxHeaderBytes, maxHeaders, consumed);
+            if (req != null) {
+                this.discard(consumed);
+                return req;
+            }
+            int timeoutMs = keepAliveTimeoutMs;
+            if (m_have > 0) {
+                if (deadline < 0) { deadline = system.monoMs() + headerTimeoutMs; }
+                long left = deadline - system.monoMs();
+                if (left <= 0) { throw HttpException(HEAD_TIMEOUT_TEXT, 408); }
+                timeoutMs = headerTimeoutMs;
+                if (left < headerTimeoutMs) { timeoutMs = left as int; }
+            }
+            // stream.read reports an expired wait by *throwing* TimeoutException,
+            // so this budget is mostly observed here rather than at the
+            // left <= 0 check above (which only fires when a byte lands exactly
+            // on the boundary; a zero-or-less wait would block forever). The two
+            // intents stay distinct: a client that started its head and then
+            // stalled is the Slowloris case and gets 408, while silence before
+            // the first byte is an expiring keep-alive connection and just
+            // closes.
+            bool got = false;
+            try {
+                got = this.fill(timeoutMs);
+            } catch (TimeoutException e) {
+                if (m_have == 0) { return null; }
+                throw HttpException(HEAD_TIMEOUT_TEXT, 408);
+            }
+            if (!got) { return null; }
+        }
+    }
+
+    // Parses one response head from the buffer, refilling as needed (client
+    // side; mirrors readRequest). EOF before a complete head → HttpException.
+    // The parser never sees the request method, so a HEAD caller passes
+    // requestWasHead down and the body framing is suppressed here: a HEAD
+    // response keeps Content-Length but carries no body (RFC 9112 §6.3), so
+    // without this readAll would wait for bytes that never come.
+    public HttpResponse readResponse(int timeoutMs, int maxHeaderBytes,
+        bool requestWasHead = false) {
+        m_chunkDone = false;   // fresh message: the prior chunked stream is over
+        while (true) {
+            int consumed = 0;
+            HttpResponse res = HttpParser.parseResponse(m_buf, m_have,
+                maxHeaderBytes, consumed);
+            if (res != null) {
+                if (requestWasHead) {
+                    res.framingMode = HttpParser.MODE_NONE;
+                    res.framingLength = 0;
+                }
+                this.discard(consumed);
+                return res;
+            }
+            if (!this.fill(timeoutMs)) {
+                throw HttpException("connection closed", 0);
+            }
+        }
+    }
+
+    // Decodes one chunk payload, refilling as needed. null = the chunked
+    // stream ended (terminator seen or connection EOF). The terminator sets
+    // m_chunkDone, not m_eof: the socket may still carry the next pipelined
+    // message, and readRequest/readResponse reset the flag per message.
+    public byte[] decodeChunk(int timeoutMs) {
+        if (m_chunkDone) { return null; }
+        while (true) {
+            int consumed = 0;
+            byte[] payload = HttpParser.decodeChunked(m_buf, m_have, consumed);
+            if (consumed < 0) {
+                this.discard(-consumed);
+                m_chunkDone = true;
+                return payload;
+            }
+            if (payload != null) {
+                this.discard(consumed);
+                return payload;
+            }
+            if (!this.fill(timeoutMs)) { return null; }
+        }
+    }
+
+    // Serializes the status line and headers into one buffer (D9):
+    // string.length() is the UTF-8 byte count, so the exact head size is
+    // known before the first byte is written and the encode pass fills a
+    // ready array in place — no byte list to grow, no second pass to flatten
+    // it. The wire bytes match the old list-built head exactly: same status
+    // line, same name spellings and line order (names()/getAll insertion
+    // order), same UTF-8 encoding of values.
+    private byte[] writeHead(HttpResponse res) {
+        string statusLine = res.version + " " + res.statusCode.toString()
+            + " " + res.reasonPhrase + "\r\n";
+        int total = statusLine.length() + 2;
+        foreach (string name in res.headers.names()) {
+            foreach (string v in res.headers.getAll(name)) {
+                total = total + name.length() + 2 + v.length() + 2;
+            }
+        }
+        byte[] buf = byte[total];
+        int off = appendAsciiInto(buf, 0, statusLine);
+        foreach (string name in res.headers.names()) {
+            foreach (string v in res.headers.getAll(name)) {
+                off = appendAsciiInto(buf, off, name + ": " + v + "\r\n");
+            }
+        }
+        appendAsciiInto(buf, off, "\r\n");
+        return buf;
+    }
+
+    // Encodes s with io.toBytes (UTF-8) and writes the bytes at buf[off];
+    // returns the offset just past them.
+    private static int appendAsciiInto(byte[] buf, int off, string s) {
+        byte[] b = io.toBytes(s);
+        for (int i = 0; i < b.length(); i = i + 1) { buf[off + i] = b[i]; }
+        return off + b.length();
+    }
+
+    // Serializes and writes the response (D5/D14/D21): status line, headers
+    // (Date filled when absent), then the body per framing — buffered with
+    // Content-Length, a chunked pump for bodyChannel, or no body at all. A
+    // HEAD response keeps Content-Length and suppresses the bytes.
+    public void writeResponse(HttpResponse res, HttpRequest req, bool head, int writeTimeoutMs) {
+        bool noBody = res.statusCode < 200 || res.statusCode == 204 || res.statusCode == 304;
+        // D21: compress the buffered body before Content-Length is set, only
+        // when the handler opted in and the client accepts gzip.
+        byte[] body = res.body;
+        if (!noBody && res.compressBody && body != null && acceptsGzip(req)) {
+            body = gzip.compress(body);
+            res.headers.set("Content-Encoding", "gzip");
+            res.headers.set("Vary", "Accept-Encoding");
+        }
+        bool chunked = !noBody && res.bodyChannel != null;
+        // RFC 9112 §9: chunked is a HTTP/1.1-only framing, so a streaming
+        // response to a 1.0 client degrades to raw bytes framed by the
+        // connection close instead.
+        bool rawStream = false;
+        if (chunked && req != null && req.version == "HTTP/1.0") {
+            chunked = false;
+            rawStream = true;
+            res.connectionClose = true;
+        }
+        // Closing the channel for HEAD too: without it a producer blocked in
+        // send() would leak (the D18 cancellation path).
+        if (res.bodyChannel != null && (noBody || head)) { res.bodyChannel.close(); }
+        // A degraded raw stream carries neither Transfer-Encoding nor
+        // Content-Length: the close itself bounds the body.
+        if (chunked) { res.headers.set("Transfer-Encoding", "chunked"); }
+        if (!noBody && !chunked && !rawStream && body != null) {
+            res.headers.set("Content-Length", body.length().toString());
+        } else if (!noBody && !chunked && !rawStream && !head) {
+            res.headers.set("Content-Length", "0");
+        }
+        if (!res.headers.has("Date")) {
+            // D4: the format depends on nothing but the whole second, so the
+            // text is built once per second and reused; a handler that sets
+            // its own Date still wins.
+            long sec = system.wallMs() / 1000;
+            if (sec != m_dateSec) {
+                m_dateSec = sec;
+                m_dateText = HttpDate.format(sec * 1000);
+            }
+            res.headers.set("Date", m_dateText);
+        }
+        bool wantClose = res.connectionClose || (req != null && req.connectionClose);
+        if (wantClose) {
+            res.headers.set("Connection", "close");
+        } else if (req != null && req.version == "HTTP/1.0") {
+            res.headers.set("Connection", "keep-alive");   // RFC 9112 §9.1.1 echo
+        }
+        byte[] headText = this.writeHead(res);
+        if (noBody || head) {
+            this.writeAll(headText, writeTimeoutMs);
+            return;
+        }
+        if (chunked) {
+            // Streaming branches keep two writes: the pump's first chunk may
+            // wait for the producer, and joining would bill that wait to the
+            // head.
+            this.writeAll(headText, writeTimeoutMs);
+            this.pumpChunked(res.bodyChannel, writeTimeoutMs, true);
+            return;
+        }
+        if (rawStream) {
+            this.writeAll(headText, writeTimeoutMs);
+            this.pumpChunked(res.bodyChannel, writeTimeoutMs, false);
+            return;
+        }
+        if (body == null) {
+            this.writeAll(headText, writeTimeoutMs);
+            return;
+        }
+        // D3: the buffered body is already in hand, so the head and a small
+        // body go out together; two writes are two packets and two wakeups
+        // per answer.
+        this.writeHeadAndBody(headText, body, writeTimeoutMs);
+    }
+
+    // The interim response for Expect: 100-continue (D10); no body, no Date.
+    public void writeStatus100(int writeTimeoutMs) {
+        stream.write(io.toBytes("HTTP/1.1 100 Continue\r\n\r\n"), -1, writeTimeoutMs);
+    }
+
+    // Orderly close: half-close, let the peer finish, then close. Windows
+    // answers a closesocket() that still has received bytes queued with a
+    // reset, and that reset also discards the response the peer has buffered
+    // but not read yet — the client would see a broken connection instead of
+    // the answer. Dropping the queued bytes first makes the close land as the
+    // EOF the client expects; a peer that stays open after the FIN costs at
+    // most CLOSE_GRACE_MS.
+    public void close() {
+        try { stream.shutdownWrite(); } catch (Exception e) { }
+        this.drainSocket(system.monoMs() + CLOSE_GRACE_MS);
+        stream.close();
+    }
+
+    // Reads and throws away what the peer queued until it closes its side or
+    // the deadline passes.
+    private void drainSocket(long deadline) {
+        byte[] sink = byte[CLOSE_SINK_WINDOW];
+        while (true) {
+            long left = deadline - system.monoMs();
+            if (left <= 0) { return; }
+            int n = 0;
+            try { n = stream.read(sink, left as int); } catch (Exception e) { return; }
+            if (n <= 0) { return; }
+        }
+    }
+
+    // The parser's consume: spill bytes shift here, window bytes go back to the
+    // stream. The mirror is corrected on every branch, because reify() decides
+    // whether a fresh view is even needed by asking it — a mirror left too high
+    // would send that call into a peekFilled(1, 0) on an empty window, which has
+    // no deadline and would park forever.
+    private void discard(int n) {
+        if (n <= 0) { return; }
+        if (m_spillLen > 0) {
+            //The parser can only have seen spill bytes (m_buf is the spill
+            //slice), so n never reaches the window from here.
+            int take = n;
+            if (take > m_spillLen) { take = m_spillLen; }
+            this.shiftSpill(take);
+            this.mirrorSpill();
+            return;
+        }
+        stream.consume(n);
+        m_have = m_have - n;
+        this.reify();      //re-aliases what is left: consume invalidated the old view
+    }
+
+    // Streams the channel to the socket (D5/D18). framed=true writes chunked
+    // frames and ends with the terminating 0-chunk; framed=false writes the
+    // raw concatenation, for the HTTP/1.0 degradation where chunked is
+    // illegal and the close itself frames the body (RFC 9112 §9).
+    private void pumpChunked(Channel<byte[]> ch, int writeTimeoutMs, bool framed = true) {
+        try {
+            while (true) {
+                try {
+                    byte[] chunk = ch.recv();
+                    byte[] payload = chunk;
+                    if (framed) { payload = HttpParser.encodeChunk(chunk); }
+                    this.writeAll(payload, writeTimeoutMs);   // slices past WRITE_SLICE per deadline
+                } catch (ChannelClosedException e) {
+                    break;   // closed and drained: recv throws, never returns null
+                }
+            }
+            if (framed) { this.writeAll(HttpParser.encodeLastChunk(), writeTimeoutMs); }
+        } catch (Exception e) {
+            // Client vanished mid-stream: closing the channel unblocks the
+            // producer with ChannelClosedException (D18).
+            ch.close();
+            throw e;
+        }
+    }
+
+    // Per-connection keep-alive loop (D6), run on its own thread via
+    // thread.spawn(conn.run). The language has no anonymous function literals
+    // yet (lambda is the separate 0.13.3 subproject), so the loop body lives
+    // here as a bound method — the same shape as examples/net_conc_bench.n.
+    public void run() {
+        try {
+            stream.setNoDelay(true);
+            stream.setKeepAlive(true);
+            int served = 0;
+            while (true) {
+                HttpRequest req = null;
+                try {
+                    req = this.readRequest(m_srv.keepAliveTimeoutMs, m_srv.headerTimeoutMs,
+                        m_srv.maxHeaderBytes, m_srv.maxHeaders);
+                } catch (HttpException e) {
+                    // Malformed head (400/408/431/505): answer on the wire,
+                    // then close — the harden test asserts the status line,
+                    // not a silent hang-up.
+                    int st = e.status;
+                    if (st <= 0) { st = 400; }
+                    HttpResponse bad = errorResponse(st, e.message);
+                    // The head never parsed, so there is no request to
+                    // echo. A typed local is required: the argument binder
+                    // rejects a bare null literal against a class formal.
+                    HttpRequest noReq = null;
+                    this.writeResponse(bad, noReq, false, m_srv.writeTimeoutMs);
+                    break;
+                }
+                if (req == null) { break; }   // peer closed between requests
+                served = served + 1;
+                if (!this.serveOne(req, served)) { break; }
+            }
+            this.close();
+        } catch (Exception e) {
+            // Socket failure mid-connection (timeout, reset, half-write):
+            // drop the connection without an answer.
+            try { this.close(); } catch (Exception e2) { }
+        }
+        m_srv.connDone();
+    }
+
+    // Answers a connection the server will not serve (over maxConnections).
+    // Run on its own context (D7) so the accept loop stays free: the write can
+    // block on a client that never reads, and the orderly close below waits out
+    // CLOSE_GRACE_MS for a peer that stays open. Public because HttpServer
+    // reaches it; not part of the documented user surface. The request sits
+    // unread in the receive queue, so the answer goes out through the orderly
+    // close: a plain close would reset the connection and the client would
+    // never see the 503.
+    public void reject503() {
+        // Only the server's accept path rejects, and there the server
+        // reference is set; client-pool connections leave m_srv null.
+        assert(m_srv != null);
+        try {
+            HttpResponse res = errorResponse(503, "server is at capacity");
+            HttpRequest noReq = null;
+            try {
+                this.writeResponse(res, noReq, false, m_srv.writeTimeoutMs);
+            } catch (Exception e) {
+                // A client that hung up before the answer is not worth a log.
+            }
+            try { this.close(); } catch (Exception e) { }
+        } finally {
+            // The reservation comes back whatever happens: a lost one would
+            // shrink the in-flight cap for the life of the server.
+            m_srv.rejectDone();
+        }
+    }
+
+    // Serves one parsed request: the Expect handshake, the handler call, the
+    // drain that makes the connection reusable and the response write.
+    // Returns false when the connection must close afterwards.
+    private bool serveOne(HttpRequest req, int served) {
+        bool lastByCap = m_srv.maxRequestsPerConnection > 0
+            && served >= m_srv.maxRequestsPerConnection;
+        bool head = req.method == "HEAD";
+        // D10: answer 100-continue before the body is read; an Expect value we
+        // do not know is a 417 without invoking the handler.
+        string expect = req.headers.get("Expect");
+        if (expect != "") {
+            if (expect.equalsIgnoreCase("100-continue")) {
+                this.writeStatus100(m_srv.writeTimeoutMs);
+            } else {
+                HttpResponse bad = errorResponse(417, "Expectation Failed");
+                this.writeResponse(bad, req, false, m_srv.writeTimeoutMs);
+                return false;
+            }
+        }
+        req.bodyReader = HttpBodyReader(this, req.framingMode, req.framingLength,
+            m_srv.maxBodyBytes, m_srv.bodyTimeoutMs);
+        HttpResponse res = null;
+        try {
+            func<HttpResponse, HttpRequest> h = m_srv.handler();
+            res = h(req);
+        } catch (HttpException e) {
+            // A handler throwing HttpException picks its own status (D15).
+            int st = e.status;
+            if (st <= 0) { st = 500; }
+            res = errorResponse(st, e.message);
+        } catch (Exception e) {
+            // Any other handler failure: 500 with no internal detail leak.
+            res = errorResponse(500, "internal error");
+        }
+        if (res == null) { res = errorResponse(500, "handler returned no response"); }
+        res.requestUrl = req.url;
+        // Drain whatever the handler left unread so the connection can be
+        // reused; over the drain cap the stream cannot be trusted → close.
+        bool reusable = req.bodyReader.drain(DEFAULT_DRAIN_CAP);
+        // No HTTP/1.0 clause here: the parser already encoded the D7 default
+        // (bare 1.0 → connectionClose, explicit keep-alive → persist), so
+        // req.connectionClose carries it.
+        res.connectionClose = res.connectionClose || lastByCap || req.connectionClose;
+        this.writeResponse(res, req, head, m_srv.writeTimeoutMs);
+        return !res.connectionClose && reusable;
+    }
+
+    private static bool acceptsGzip(HttpRequest req) {
+        if (req == null) { return false; }
+        foreach (string v in req.headers.getAll("Accept-Encoding")) {
+            foreach (string tok in HttpParser.splitTokens(v)) {
+                if (tok.equalsIgnoreCase("gzip")) { return true; }
+            }
+        }
+        return false;
+    }
+
+    // The error responses the server produces itself (D6: they close the
+    // connection, since a parse failure leaves the stream position unknown).
+    private static HttpResponse errorResponse(int status, string message) {
+        HttpResponse res = HttpResponse();
+        res.statusCode = status;
+        res.reasonPhrase = reasonFor(status);
+        res.body = io.toBytes(message);
+        res.headers.set("Content-Type", "text/plain; charset=utf-8");
+        res.connectionClose = true;
+        return res;
+    }
+
+    // Reason phrases for the statuses this library generates; the statuses a
+    // handler invents keep the default "OK" unless it sets its own.
+    private static string reasonFor(int status) {
+        if (status == 400) { return "Bad Request"; }
+        if (status == 408) { return "Request Timeout"; }
+        if (status == 413) { return "Content Too Large"; }
+        if (status == 417) { return "Expectation Failed"; }
+        if (status == 431) { return "Request Header Fields Too Large"; }
+        if (status == 500) { return "Internal Server Error"; }
+        if (status == 503) { return "Service Unavailable"; }
+        if (status == 505) { return "HTTP Version Not Supported"; }
+        return "Error";
+    }
+}
+
+// Accept thread + one thread per connection (D6). start() is non-blocking;
+// serve() runs the same loop on the calling thread. close() wakes the blocked
+// accept (D14).
+class HttpServer {
+    public int maxHeaderBytes = 65536;
+    public int maxHeaders = 100;
+    public long maxBodyBytes = 16777216;
+    public int keepAliveTimeoutMs = 30000;
+    public int headerTimeoutMs = 10000;
+    public int bodyTimeoutMs = 10000;
+    public int writeTimeoutMs = 10000;
+    public int maxConnections = 0;              // 0 = unlimited
+    public int maxRequestsPerConnection = 0;    // 0 = unlimited
+
+    private TcpListener m_listener;
+    private func<HttpResponse, HttpRequest> m_handler;
+    private AtomicInt m_active;
+    private AtomicInt m_closing;
+
+    // A spawn-per-rejection storm is bounded only by the client's willingness
+    // to connect, so the accept loop stops spawning past this many rejections
+    // in flight and closes the socket instead: an over-capacity client that
+    // gets no answer at all is a fine overload signal, and the accept loop
+    // keeps accepting (D7).
+    private static const int MAX_INFLIGHT_REJECTIONS = 64;
+    private AtomicInt m_rejecting;
+
+    public HttpServer() {
+        m_active = AtomicInt(0);
+        m_closing = AtomicInt(0);
+        m_rejecting = AtomicInt(0);
+    }
+
+    // Binds and starts accepting; returns as soon as the listening socket is
+    // up, so a caller (or a test) can connect immediately.
+    public void start(string host, int port, func<HttpResponse, HttpRequest> handler) {
+        m_handler = handler;
+        m_listener = TcpListener.bind(host, port);
+        thread.spawn(this.acceptLoop);
+    }
+
+    // Binds and serves until close(), on the calling thread: the entry point
+    // for a standalone server process, whose main() must not return.
+    public void serve(string host, int port, func<HttpResponse, HttpRequest> handler) {
+        m_handler = handler;
+        m_listener = TcpListener.bind(host, port);
+        this.acceptLoop();
+    }
+
+    public string localAddress() { return m_listener.localAddress(); }
+    public int localPort() { return m_listener.localPort(); }
+
+    public void close() {
+        m_closing.store(1);
+        m_listener.close();   // wakes accept() with SocketException
+    }
+
+    private void acceptLoop() {
+        while (true) {
+            TcpStream sock = null;
+            try {
+                sock = m_listener.accept(0);
+            } catch (Exception e) {
+                // The listener was closed (the intended exit), or a transient
+                // accept failure worth retrying.
+                if (m_closing.load() == 1) { return; }
+                thread.sleep(10);
+                continue;
+            }
+            // Count every accepted connection unconditionally: run()'s
+            // connDone() decrements unconditionally, so short-circuiting the
+            // increment here would drift the counter negative.
+            int active = m_active.getAndIncrement();
+            HttpConn conn = HttpConn(sock, this);
+            if (maxConnections > 0 && active >= maxConnections) {
+                m_active.addAndGet(-1);
+                if (m_rejecting.getAndIncrement() < MAX_INFLIGHT_REJECTIONS) {
+                    thread.spawn(conn.reject503);
+                } else {
+                    m_rejecting.addAndGet(-1);
+                    // No drain here on purpose: the grace wait is exactly what
+                    // must not happen on the accept thread (D7).
+                    try { sock.close(); } catch (Exception e) { }
+                }
+                continue;
+            }
+            thread.spawn(conn.run);
+        }
+    }
+
+    // Internal helpers for HttpConn: nlang has no friend access, so they are
+    // public but are not part of the documented user surface.
+    public func<HttpResponse, HttpRequest> handler() { return m_handler; }
+    public void connDone() { m_active.addAndGet(-1); }
+    public void rejectDone() { m_rejecting.addAndGet(-1); }
+}
+
+// Per-origin connection pool (D8): at most MAX_IDLE idle connections, kept
+// for MAX_IDLE_MS (shorter than the server keep-alive, so a pooled socket is
+// never borrowed after the peer has dropped it), probed with isClosed() on
+// borrow, and dropped on any failed exchange (D19). When maxConns is reached
+// a borrow waits for a release until the call deadline; the stdlib has no
+// timed acquire primitive, so the wait is a poll with POOL_POLL_MS sleeps
+// (ledger Ruling). close() marks the pool closed: later borrows throw, idle
+// connections close at once, and borrowed ones close when release returns.
+class HttpPool {
+    private static const int MAX_IDLE = 4;
+    private static const int MAX_IDLE_MS = 10000;
+    private static const int POOL_POLL_MS = 2;
+
+    private string m_host;
+    private int m_port;
+    private List<HttpConn> m_idle;
+    private List<long> m_idleSince;
+    private List<HttpConn> m_active;         // borrowed (close() must account for them)
+    private bool m_closed;
+    private int m_total;
+    private Mutex m_mu;
+
+    public HttpPool(string host, int port) {
+        m_host = host;
+        m_port = port;
+        m_idle = {};
+        m_idleSince = {};
+        m_active = {};
+        m_closed = false;
+        m_total = 0;
+        m_mu = Mutex();
+    }
+
+    public HttpConn borrow(int connectTimeoutMs, int callTimeoutMs, int maxConns) {
+        long deadline = 0;
+        if (callTimeoutMs > 0) { deadline = system.monoMs() + callTimeoutMs; }
+        while (true) {
+            m_mu.lock();
+            if (m_closed) {
+                m_mu.unlock();
+                throw HttpException("http: client pool closed", 0);
+            }
+            this.evictIdle();
+            while (m_idle.length() > 0) {
+                List<HttpConn> ids = m_idle;
+                List<long> since = m_idleSince;
+                HttpConn conn = ids[ids.length() - 1];
+                ids.removeAt(ids.length() - 1);
+                since.removeAt(since.length() - 1);
+                m_idle = ids;
+                m_idleSince = since;
+                // Liveness probe: isClosed() reports only closes this
+                // client performed on the handle, so a close that arrived
+                // while the connection idled here stays invisible; it
+                // surfaces as a connection error on first use, and D19
+                // then keeps that connection out of the pool.
+                if (!conn.stream.isClosed()) {
+                    this.registerActive(conn);
+                    m_mu.unlock();
+                    return conn;
+                }
+                conn.close();
+                m_total = m_total - 1;
+            }
+            if (maxConns == 0 || m_total < maxConns) {
+                m_total = m_total + 1;
+                m_mu.unlock();
+                try {
+                    TcpStream s = TcpStream.connect(m_host, m_port, connectTimeoutMs);
+                    s.setNoDelay(true);
+                    s.setKeepAlive(true);
+                    HttpConn conn = HttpConn(s);
+                    m_mu.lock();
+                    this.registerActive(conn);
+                    m_mu.unlock();
+                    return conn;
+                } catch (Exception e) {
+                    m_mu.lock();
+                    m_total = m_total - 1;
+                    m_mu.unlock();
+                    throw e;
+                }
+            }
+            m_mu.unlock();
+            if (deadline > 0 && system.monoMs() >= deadline) {
+                throw TimeoutException("http: connection pool wait exceeded "
+                    + callTimeoutMs.toString() + " ms");
+            }
+            thread.sleep(POOL_POLL_MS);
+        }
+    }
+
+    // D19: an exhausted and healthy connection goes back to the pool;
+    // anything else is closed. A connection already reaped by close() (no
+    // longer in m_active) was accounted for there — just return.
+    public void release(HttpConn conn, bool reusable) {
+        m_mu.lock();
+        List<HttpConn> act = m_active;
+        int idx = act.indexOf(conn);
+        if (idx < 0) {
+            m_mu.unlock();
+            return;
+        }
+        act.removeAt(idx);
+        m_active = act;
+        if (reusable && !m_closed && !conn.stream.isClosed()) {
+            this.evictIdle();
+            if (m_idle.length() < MAX_IDLE) {
+                List<HttpConn> ids = m_idle;
+                List<long> since = m_idleSince;
+                ids.add(conn);
+                since.add(system.monoMs());
+                m_idle = ids;
+                m_idleSince = since;
+                m_mu.unlock();
+                return;
+            }
+        }
+        m_total = m_total - 1;
+        m_mu.unlock();
+        conn.close();
+    }
+
+    public void close() {
+        m_mu.lock();
+        m_closed = true;
+        List<HttpConn> ids = m_idle;
+        List<HttpConn> act = m_active;
+        m_idle = {};
+        m_idleSince = {};
+        m_active = {};
+        m_total = m_total - ids.length() - act.length();
+        m_mu.unlock();
+        foreach (HttpConn c in ids) { c.close(); }
+        foreach (HttpConn c in act) { c.close(); }
+    }
+
+    // Caller holds m_mu. Tracks borrowed connections so close() can reach
+    // them (List field reads are shallow copies, manual §12).
+    private void registerActive(HttpConn conn) {
+        List<HttpConn> act = m_active;
+        act.add(conn);
+        m_active = act;
+    }
+
+    // Caller holds m_mu. Drops idle connections past MAX_IDLE_MS; the
+    // isClosed() test only catches closes this client performed locally,
+    // as a close arriving from the peer while idle stays invisible to it.
+    private void evictIdle() {
+        long now = system.monoMs();
+        List<HttpConn> ids = {};
+        List<long> since = {};
+        List<HttpConn> old = m_idle;
+        List<long> oldSince = m_idleSince;
+        for (int i = 0; i < old.length(); i = i + 1) {
+            if (now - oldSince[i] <= MAX_IDLE_MS && !old[i].stream.isClosed()) {
+                ids.add(old[i]);
+                since.add(oldSince[i]);
+            } else {
+                old[i].close();
+                m_total = m_total - 1;
+            }
+        }
+        m_idle = ids;
+        m_idleSince = since;
+    }
+}
+
+// Buffered and streaming client over the pool: one request line + header
+// assembly per attempt, a keep-alive connection reused across calls, and the
+// redirect policy of D12. 4xx and 5xx are responses, not exceptions (D13).
+class HttpClient {
+    private static const int DEFAULT_MAX_HEADER_BYTES = 65536;
+    private static const int DEFAULT_HTTP_PORT = 80;
+
+    public int connectTimeoutMs = 10000;
+    public int readTimeoutMs = 10000;
+    public int callTimeoutMs = 0;            // 0 = wait forever (D8)
+    public int maxRedirects = 10;            // D12
+    public int maxConnsPerHost = 0;          // 0 = unlimited
+    public HttpHeaders defaultHeaders;       // fills gaps only (D15)
+    public static HttpClient shared;         // free-function default client
+
+    private Dict<string, HttpPool> m_pools;
+
+    public HttpClient() {
+        defaultHeaders = HttpHeaders();
+        m_pools = {};
+    }
+
+    // Buffered request: assemble → borrow → exchange → redirects → readAll →
+    // release (D19). The callTimeoutMs argument overrides the field when >0.
+    public HttpResponse request(HttpRequest req, int callTimeoutMs = 0) {
+        // The redirect loop rewrites url/method/body/headers, so it works on
+        // a copy and leaves the caller's request reusable.
+        req = copyRequest(req);
+        int budget = callTimeoutMs;
+        if (budget <= 0) { budget = this.callTimeoutMs; }
+        return this.exchangeWithRedirects(req, budget, true);
+    }
+
+    // Streaming request: the response body stays a reader the caller drains
+    // at their own pace (D5/D16). Redirects are followed here too (D12) —
+    // Go's Do and OkHttp both follow redirects for streaming bodies and
+    // discard the redirect response's unread body; the alternative would
+    // hand back a 3xx whose reader the caller has to notice and close.
+    public HttpResponse open(HttpRequest req) {
+        req = copyRequest(req);
+        return this.exchangeWithRedirects(req, this.callTimeoutMs, false);
+    }
+
+    // One exchange per hop, then the D12 redirect policy on top. Both modes
+    // share the policy verbatim; the only difference is whether the exchange
+    // buffers the body (buffered) or hands the reader over (streaming).
+    private HttpResponse exchangeWithRedirects(HttpRequest req, int budget, bool buffered) {
+        HttpResponse res = this.execute(req, budget, buffered);
+        int hops = 0;
+        while (hops < maxRedirects && this.applyRedirect(req, res)) {
+            hops = hops + 1;
+            res = this.execute(req, budget, buffered);
+        }
+        // Only a genuine cap miss throws; maxRedirects = 0 returns the
+        // redirect response itself.
+        if (maxRedirects > 0 && isRedirect(res.statusCode) && hops >= maxRedirects) {
+            // Abandoning a streaming response on the throw path must not
+            // strand its connection in the pool's active set.
+            if (res.bodyReader != null) { res.bodyReader.close(); }
+            throw HttpException("http: too many redirects", 0);
+        }
+        return res;
+    }
+
+    // D12: rewrites req for the next hop and returns true, or returns false
+    // when the response is not a followable redirect (not a 3xx, or a 3xx
+    // without Location — then the response is returned as-is).
+    private bool applyRedirect(HttpRequest req, HttpResponse res) {
+        if (!isRedirect(res.statusCode)) { return false; }
+        string loc = res.headers.get("Location");
+        if (loc == "") { return false; }
+        // A reader the caller never got to use is abandoned here: the unread
+        // bytes cannot be replayed, and closing keeps the connection account
+        // straight (D19).
+        if (res.bodyReader != null) { res.bodyReader.close(); }
+        Url next = res.requestUrl.resolve(loc);
+        // The upload body of the first attempt was already consumed, so a
+        // redirect that keeps the method (307/308) cannot be replayed when
+        // that body was a stream (D12; a buffered body was copied and can).
+        if (req.bodyChannel != null && keepsMethod(res.statusCode)) {
+            throw HttpException("http: cannot replay a streaming body across redirect", 0);
+        }
+        if (!keepsMethod(res.statusCode)) {
+            req.method = "GET";
+            req.body = null;
+        }
+        // Credentials stop at the origin boundary (D12): a redirect that
+        // changes scheme, host or port is a different origin, so the
+        // caller's Authorization and Cookie headers do not follow it.
+        if (originOf(next) != originOf(res.requestUrl)) {
+            req.headers.remove("Authorization");
+            req.headers.remove("Cookie");
+        }
+        req.url = next;
+        return true;
+    }
+
+    public void close() {
+        foreach (string k in m_pools.keys()) {
+            m_pools.get(k).close();
+        }
+        m_pools.clear();
+    }
+
+    // One exchange: assemble (D15/D17/D21) → borrow → write → read
+    // status+headers (skip 1xx, D10) → body. buffered=true reads the body
+    // whole and releases the connection straight back (D19); buffered=false
+    // hands the reader to the caller, who owns the connection until the body
+    // ends (open(), D16/D19).
+    private HttpResponse execute(HttpRequest req, int budget, bool buffered) {
+        Url u = req.url;
+        if (u == null || !u.isAbsolute()) {
+            throw HttpException("http: request url must be absolute", 0);
+        }
+        if (u.scheme != "http") {
+            throw HttpException("http: unsupported scheme " + u.scheme + " (no TLS in net.n)", 0);
+        }
+        int port = normalizePort(u);
+        // Assemble headers onto a copy so retries and redirects stay clean.
+        HttpHeaders h = req.headers.copy();
+        this.fillDefaults(h);
+        bool gzipInjected = false;
+        // gzip is a buffered-path feature (D21): the streaming reader cannot
+        // inflate transparently (gzip.decompress is a whole-buffer API), so
+        // open() neither injects Accept-Encoding nor decompresses — asking
+        // for an encoding this client cannot decode would hand the caller
+        // gzip bytes behind a plainly-typed reader. Within the buffered path,
+        // ask only when the answer can be decoded: a HEAD response carries no
+        // body bytes at all, and a Range response is a slice of the full body,
+        // which auto-decoding would misalign. Go's transport.go excludes the
+        // same two cases for the same reasons.
+        if (buffered && req.bodyChannel == null && !h.has("Accept-Encoding")
+            && req.method != "HEAD" && !h.has("Range")) {
+            h.set("Accept-Encoding", "gzip");
+            gzipInjected = true;
+        }
+        if (!h.has("Host")) {
+            string hostHeader = u.host;
+            if (port != DEFAULT_HTTP_PORT) { hostHeader = u.host + ":" + port.toString(); }
+            h.set("Host", hostHeader);
+        }
+        HttpPool pool = this.poolFor(u.host, port);
+        HttpConn conn = pool.borrow(connectTimeoutMs, budget, maxConnsPerHost);
+        if (!buffered) {
+            // Streaming: the reader owns the borrowed connection from here
+            // on. Everything thrown before attachPool hands it over has to
+            // put the connection back here, or the pool's active set keeps a
+            // slot nothing will ever release (and m_total never drops).
+            try {
+                this.writeRequest(conn, req, h, u);
+                HttpResponse res = this.readResponse(conn, req.method == "HEAD");
+                res.requestUrl = u;
+                res.body = null;
+                HttpBodyReader reader = HttpBodyReader(
+                    conn, res.framingMode, res.framingLength, 0, readTimeoutMs);
+                bool poolable = !conn.stream.isClosed() && !res.connectionClose
+                    && res.framingMode != HttpParser.MODE_EOF;
+                res.bodyReader = reader;
+                reader.attachPool(pool, poolable);
+                return res;
+            } catch (Exception e) {
+                pool.release(conn, false);
+                throw e;
+            }
+        }
+        bool reusable = false;
+        try {
+            this.writeRequest(conn, req, h, u);
+            HttpResponse res = this.readResponse(conn, req.method == "HEAD");
+            res.requestUrl = u;
+            HttpBodyReader reader = HttpBodyReader(conn, res.framingMode, res.framingLength, 0, readTimeoutMs);
+            res.body = reader.readAll();
+            reusable = !conn.stream.isClosed() && !res.connectionClose
+                && res.framingMode != HttpParser.MODE_EOF;
+            // Transparent decompress only for the Accept-Encoding this client
+            // injected (D21): a user-set one means the user reads the encoding.
+            if (gzipInjected && res.headers.get("Content-Encoding").equalsIgnoreCase("gzip")) {
+                res.body = gzip.decompress(res.body);
+                res.headers.remove("Content-Encoding");
+                res.headers.remove("Content-Length");
+            }
+            return res;
+        } catch (Exception e) {
+            reusable = false;
+            throw e;
+        } finally {
+            pool.release(conn, reusable);
+        }
+    }
+
+    private void writeRequest(HttpConn conn, HttpRequest req, HttpHeaders h, Url u) {
+        byte[] body = req.body;
+        if (req.bodyChannel != null) {
+            // A streaming upload has no known length, so chunked framing
+            // carries it (D5/D16, HTTP-CLI-008).
+            h.set("Transfer-Encoding", "chunked");
+        } else if (body != null && body.length() > 0) {
+            h.set("Content-Length", body.length().toString());
+        }
+        List<byte> head = {};
+        HttpParser.appendAscii(head, req.method + " " + targetOf(u) + " " + req.version + "\r\n");
+        foreach (string name in h.names()) {
+            foreach (string v in h.getAll(name)) {
+                HttpParser.appendAscii(head, name + ": " + v + "\r\n");
+            }
+        }
+        HttpParser.appendAscii(head, "\r\n");
+        conn.writeAll(HttpParser.toByteArray(head), readTimeoutMs);
+        if (req.bodyChannel != null) {
+            this.pumpUpload(conn, req.bodyChannel);
+        } else if (body != null && body.length() > 0) {
+            conn.writeAll(body, readTimeoutMs);
+        }
+    }
+
+    // Upload pump: the whole request body goes out before the response is
+    // read — v1 has no bidirectional reuse of one connection (ledger Ruling),
+    // so a handler that streams a response while the client is still
+    // uploading needs two connections. A write failure closes the channel so
+    // a producer blocked in send() stops instead of hanging (D18, the mirror
+    // of the server-side pumpChunked).
+    private void pumpUpload(HttpConn conn, Channel<byte[]> ch) {
+        try {
+            while (true) {
+                try {
+                    byte[] chunk = ch.recv();
+                    conn.writeAll(HttpParser.encodeChunk(chunk), readTimeoutMs);
+                } catch (ChannelClosedException e) {
+                    break;   // closed and drained: recv throws, never returns null
+                }
+            }
+            conn.writeAll(HttpParser.encodeLastChunk(), readTimeoutMs);
+        } catch (Exception e) {
+            ch.close();
+            throw e;
+        }
+    }
+
+    // Reads status line + headers, skipping 1xx interim responses (D10).
+    // `requestWasHead` flows to conn.readResponse so a HEAD response's body
+    // framing is suppressed (RFC 9112 §6.3) — the parser cannot see the
+    // request method. The current attempt's method matters: a redirect can
+    // change it (303 → GET), and the flag must follow the redirect's method.
+    private HttpResponse readResponse(HttpConn conn, bool requestWasHead) {
+        while (true) {
+            HttpResponse res = conn.readResponse(readTimeoutMs, DEFAULT_MAX_HEADER_BYTES, requestWasHead);
+            if (res.statusCode < 100 || res.statusCode >= 200) { return res; }
+            // interim response: body-less, keep waiting for the final one
+        }
+    }
+
+    // defaultHeaders fill gaps only (D15): a per-request header of the same
+    // name wins, and User-Agent gets the library default when neither set it.
+    private void fillDefaults(HttpHeaders h) {
+        if (!h.has("User-Agent")) { h.set("User-Agent", "nlang-http/1.1"); }
+        foreach (string name in defaultHeaders.names()) {
+            if (!h.has(name)) {
+                foreach (string v in defaultHeaders.getAll(name)) { h.add(name, v); }
+            }
+        }
+    }
+
+    // Origin-forming port: the scheme default when the URL gives none, so a
+    // redirect that spells out :80 is the same origin as one that omits it.
+    private static int normalizePort(Url u) {
+        if (u.port > 0) { return u.port; }
+        return DEFAULT_HTTP_PORT;
+    }
+
+    private static string originOf(Url u) {
+        return u.scheme + "://" + u.host + ":" + normalizePort(u).toString();
+    }
+
+    // Request target for the request line: origin form (RFC 9112 §3.1.5),
+    // an empty path meaning "/" plus the query if any.
+    private static string targetOf(Url u) {
+        string t = u.path;
+        if (t == "") { t = "/"; }
+        if (u.hasQuery) { t = t + "?" + u.query; }
+        return t;
+    }
+
+    private static bool isRedirect(int status) {
+        return status == 301 || status == 302 || status == 303
+            || status == 307 || status == 308;
+    }
+
+    // 301/302/303 → GET with the body dropped; 307/308 keep method+body (D12).
+    private static bool keepsMethod(int status) {
+        return status == 307 || status == 308;
+    }
+
+    // Shallow copy: the body byte[] is shared (never mutated in place), while
+    // headers get an independent copy so redirect credential stripping stays
+    // local to this call.
+    private static HttpRequest copyRequest(HttpRequest src) {
+        HttpRequest dst = HttpRequest();
+        dst.method = src.method;
+        dst.version = src.version;
+        dst.url = src.url;
+        dst.body = src.body;
+        dst.bodyChannel = src.bodyChannel;
+        dst.headers = src.headers.copy();
+        return dst;
+    }
+
+    private HttpPool poolFor(string host, int port) {
+        string key = host + ":" + port.toString();
+        // Dict.get throws on an absent key, so presence is checked first.
+        if (!m_pools.containsKey(key)) {
+            m_pools.set(key, HttpPool(host, port));
+        }
+        return m_pools.get(key);
+    }
+}
+
+// ---- free functions on the shared default client (D15) ----
+
+// Lock-free lazy init: storing a handle is atomic under the GIL, and the
+// worst case is one throwaway empty client (no socket, no pool, no thread).
+// A Mutex would need a file-scope global, which a library TU cannot carry.
+HttpClient defaultClient() {
+    if (HttpClient.shared == null) { HttpClient.shared = HttpClient(); }
+    return HttpClient.shared;
+}
+
+HttpResponse get(string url, int timeoutMs = 0) {
+    HttpRequest req = HttpRequest();
+    req.url = Url.parse(url);
+    return request(req, timeoutMs);
+}
+
+HttpResponse post(string url, string body, string contentType = "text/plain; charset=utf-8", int timeoutMs = 0) {
+    HttpRequest req = HttpRequest();
+    req.method = "POST";
+    req.url = Url.parse(url);
+    req.body = io.toBytes(body);
+    req.headers.set("Content-Type", contentType);
+    return request(req, timeoutMs);
+}
+
+HttpResponse put(string url, string body, string contentType = "text/plain; charset=utf-8", int timeoutMs = 0) {
+    HttpRequest req = HttpRequest();
+    req.method = "PUT";
+    req.url = Url.parse(url);
+    req.body = io.toBytes(body);
+    req.headers.set("Content-Type", contentType);
+    return request(req, timeoutMs);
+}
+
+HttpResponse del(string url, int timeoutMs = 0) {
+    HttpRequest req = HttpRequest();
+    req.method = "DELETE";
+    req.url = Url.parse(url);
+    return request(req, timeoutMs);
+}
+
+HttpResponse request(HttpRequest req, int timeoutMs = 0) {
+    return defaultClient().request(req, timeoutMs);
+}

@@ -6,6 +6,7 @@
 ---*/
 #pragma once
 #include "BytecodeOps.h"
+#include "BytecodeStrides.h"
 #include <cstdint>
 #include <functional>
 #include <unordered_map>
@@ -33,7 +34,7 @@ struct NcuOperandMaps
 	//never deduped (a slot is storage identity, not a symbol).
 	std::unordered_map<uint32_t, uint32_t> slots;
 	//v2.15 (v0.13.1): descriptor-table indices are unit-local in OP_New's
-	//descIdx operand — rows merge by full entry (spelling + recipe), so
+	//descIdx operand — rows merge by full entry (spelling + composition), so
 	//byte-identical rows from two units share one merged index.
 	std::unordered_map<uint32_t, uint32_t> descriptors;
 };

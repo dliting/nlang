@@ -37,7 +37,7 @@ EXAMPLE = REPO / "examples" / "mnist_mlp"
 #The numpy reference reads the example's frozen data files and mirrors
 #layers.n op-for-op: forward (matmul + bias broadcast + relu), softmax
 #(row-max shifted), mean cross entropy, the four gradients, plain SGD.
-#Weight init uses the same Xavier-uniform recipe under numpy's own RNG.
+#Weight init uses the same Xavier-uniform initialization under numpy's own RNG.
 NUMPY_REF = r'''
 import pathlib
 import time

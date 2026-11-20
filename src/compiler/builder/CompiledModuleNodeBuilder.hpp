@@ -34,7 +34,7 @@ namespace nlang
 //real, not skipped.
 //
 //After BuildFromCompiledModule, the caller can query ImportedFunctions()
-//for the minted stubs (registry owner tagging in ModuleBuilder::
+//for the created stubs (registry owner tagging in ModuleBuilder::
 //RegisterExternalStubs). Phase 5: table keys are package-qualified
 //("<pkg>.<name>"), but an imported stub's AST NAME must be the leaf —
 //the resolver looks stubs up by the caller's bare callee/type name,
@@ -122,7 +122,7 @@ public:
 				methodOrCtorIndices.insert(si);
 		//0.10.14: enum methods are likewise owned by their enum stub —
 		//without this they were promoted to free stubs under the leaf
-		//name (the double-mint the enum import corrects).
+		//name (the double creation the enum import corrects).
 		for (size_t ei = 0; ei < ownEnums; ++ei)
 			for (uint16_t mi : cm.enumMethodIndices[ei])
 				methodOrCtorIndices.insert(mi);
@@ -135,19 +135,22 @@ public:
 		{
 			if (methodOrCtorIndices.count(i))
 				continue;  //class method/ctor — owned by its class, not free
-			//Free functions have no declared member access on the wire —
-			//the stub mints public (top-level declarations are public).
+			//v2.20 (0.13.8 item 5): the free-function record carries its
+			//declared access on the wire — the stub carries the same byte
+			//(the consumer's visibility gate judges the import by what
+			//the producer declared).
 			//0.10.14: the table index rides the stub — the namespace
 			//branch of the cross-unit slot record carries it.
 			//0.13.1a Task 7: generic records pass their type parameter
-			//names so the stub mints a generic declaration (inference
+			//names so the stub creations a generic declaration (inference
 			//reads the stub's formals; T leaves synthesize by name).
 			const std::vector<std::string> *genericNames = nullptr;
 			if (cm.functions[i].isGeneric
 			    && !cm.functions[i].typeParamNames.empty())
 				genericNames = &cm.functions[i].typeParamNames;
 			SnFunction *stub = CreateFunctionStub(cm.functions[i], cm,
-				loc, FA_Public, ProducerIdxClamp(i), genericNames);
+				loc, static_cast<FieldAccessType>(cm.functions[i].access),
+				ProducerIdxClamp(i), genericNames);
 			if (nameExistsInRoot(LeafNameOfKey(cm.functions[i].name)))
 			{
 				//R10-1: no second root entry for an existing name — but
@@ -185,7 +188,7 @@ public:
 			if (nameExistsInRoot(LeafNameOfKey(cm.classes[ci].name)))
 				continue;  //R10-1
 			SnClassDecl *stub = CreateClassStub(cm.classes[ci], cm, loc);
-			//The leaf contract, enforced at the mint entry: a template
+			//The leaf contract, enforced at the creation entry: a template
 			//row whose signatures diverge from the canonical leaf shapes
 			//(bare leaves must be pre-bound builtins) fails here in
 			//Debug, before any consumer sees the stub
@@ -220,7 +223,10 @@ public:
 				continue;  //R10-1
 			SnEnumDecl *stub = CreateEnumStub(cm.enumKeys[ei],
 				cm.enumNames[ei], cm.enumMethodIndices[ei],
-				cm.enumMethodAccess[ei], cm, loc);
+				cm.enumMethodAccess[ei],
+				ei < cm.enumAccess.size()
+					? static_cast<FieldAccessType>(cm.enumAccess[ei])
+					: FA_Public, cm, loc);
 			m_Tree.Root()->Members().push_back(stub);
 			m_importedTypes.push_back(stub);
 		}
@@ -245,11 +251,11 @@ public:
 		return std::move(m_detachedStubs);
 	}
 
-	//Struct/class stubs minted into root, in source-module order.
+	//Struct/class stubs created into root, in source-module order.
 	//Caller (RegisterExternalStubs) tags each with its module's
 	//registry entry so FindModuleType can bind "<pkg>.<Type>" through
 	//the owner-filtered root scan. Unlike ImportedFunctions there are
-	//no detached type stubs: a collision means no stub was minted.
+	//no detached type stubs: a collision means no stub was created.
 	const std::vector<SnField*>& ImportedTypes() const
 	{
 		return m_importedTypes;

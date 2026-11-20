@@ -303,8 +303,6 @@ LineComment	\/\/[^\n]*
 "while"     { return KT_While; }
 
             /* double-character operators */
-"++"        { return OT_INC; }
-"--"        { return OT_DEC; }
 "<<"        { return OT_LSH; }
 "<<="       { return OT_LSHS; }
 ">>"        {
@@ -350,9 +348,12 @@ LineComment	\/\/[^\n]*
 ">="        { return OT_GE; }
 "!="        { return OT_NE; }
 "=="        { return OT_EQ; }
-"~="        { return OT_AEQ; }
 "&&"        { return OT_AND; }
 "||"        { return OT_OR; }
+"&"         { return '&'; }
+"|"         { return '|'; }
+"^"         { return '^'; }
+"~"         { return '~'; }
 "%="        { return OT_MODS; }
 "&="        { return OT_BANDS; }
 "*="        { return OT_MULS; }
@@ -360,6 +361,7 @@ LineComment	\/\/[^\n]*
 "-="        { return OT_DECS; }
 "/="        { return OT_DIVS; }
 "|="        { return OT_BORS; }
+"^="        { return OT_BXORS; }
 
             /* single-char angle brackets with generic-depth tracking */
 "<"         {

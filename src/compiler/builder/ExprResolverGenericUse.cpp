@@ -14,19 +14,41 @@
 #include "ModuleBuilderChecks.h"
 #include "BindingTable.h"   //IsBuiltinHandleDeclName (D11)
 #include <nlang/runtime/BuiltinGenericNames.h>
+#include <memory>
 #include <vector>
 #include <nlang/runtime/StackDump.h>
 
 namespace nlang
 {
 
+//v0.13.9 phase 3: the func instantiation's & marks, same discipline as
+//the out flags (expression-level NF_Ref, node-stored).
+const std::vector<uint8>& GetGenericRefFlags(SnClassDecl* pClass)
+{
+	static const std::vector<uint8> s_empty;
+	return pClass ? pClass->GenericRefFlags() : s_empty;
+}
+
+//Type arguments of a generic instantiation (List<T> → {T}, Dict<K,V> →
+//{K,V}; empty otherwise). Every creation — synthetic AND declared — sets
+//GenericTypeArgs on the node itself; the historical process-global side
+//table (whose fallback branch no creation could ever miss) is gone with the
+//per-build registry.
+std::vector<SnField*> GetGenericTypeArgs(SnClassDecl* pClass)
+{
+	if (pClass && pClass->IsGenericInstantiation())
+		return pClass->GenericTypeArgs();
+	return {};
+}
+
 //Type-argument collection of Access(SnGenericTypeExpr&): resolves each
 //argument in the caller's scope and gathers the canonical fields plus
-//the parallel out flags. False = a diagnostic is logged (unresolvable
-//argument, argument without a field, or the reject gate above).
+//the parallel reference marks. False = a diagnostic is
+//logged (unresolvable argument, argument without a field, or the
+//reject gate above).
 bool ExprResolveAccessor::TryResolveGenericTypeArgs(
 	SnGenericTypeExpr &genType, const std::string &baseName,
-	std::vector<SnField*> &typeArgs, std::vector<uint8> &outFlags)
+	std::vector<SnField*> &typeArgs, std::vector<uint8> &refFlags)
 {
 	for (auto *pTA : genType.TypeArgs())
 	{
@@ -52,7 +74,7 @@ bool ExprResolveAccessor::TryResolveGenericTypeArgs(
 		//v0.12.2 face gate: a type argument is a type position too —
 		//face classes (`List<String>`) have no element layout. One
 		//throat for every arm: the built-in generics, the declared
-		//templates, and the Func mint all resolve through here.
+		//templates, and the Func creation all resolve through here.
 		if (RejectPreludeFaceUse(m_Env, pField, pTA->Location(),
 			"used as a type"))
 			return false;
@@ -61,7 +83,9 @@ bool ExprResolveAccessor::TryResolveGenericTypeArgs(
 		//(same intern channel as declarations), so the key, the display
 		//name and every consumer read array-ness off the token itself.
 		typeArgs.push_back(pField);
-		outFlags.push_back(pTA->ContainFlags(NF_Out) ? 1 : 0);
+		//v0.13.9 phase 3: the & mark rides the argument expression the
+		//same way — func<int, int&> must key apart from func<int, int>.
+		refFlags.push_back(pTA->ContainFlags(NF_Ref) ? 1 : 0);
 	}
 	return true;
 }
@@ -105,7 +129,7 @@ static bool RejectMultiSlotTypeArgs(BuildEnvironment &env,
 }
 
 //The declared-template arm's scope probe: a generic-declaration class
-//or interface (0.13.1c) under the bare name answers; a TYPE that is
+//or interface (0.13.1c) under the unqualified name answers; a TYPE that is
 //not a generic declaration is reported back for the miss diagnostics;
 //anything else (including no name at all) leaves both outputs null.
 SyntaxNode *ExprResolveAccessor::FindDeclaredGenericTemplate(
@@ -191,7 +215,7 @@ bool ExprResolveAccessor::LogValueHeadMiss(SnGenericTypeExpr &genType,
 }
 
 //Shape discovery for the rescue: the misread call must sit directly in
-//an argument list — the generic head's parent is the minting SnNewExpr
+//an argument list — the generic head's parent is the creating SnNewExpr
 //and that node's parent is the call (or outer creation) whose argument
 //list splices. Returns the misread node and sets \p ppList to the
 //argument list, or returns null when the shape does not splice.
@@ -231,7 +255,7 @@ bool ExprResolveAccessor::TryRescueComparisonReading(SnGenericTypeExpr &genType)
 	//(SnNewExpr::SpanText) — an AST re-render would compress whitespace
 	//and break the fragment-to-file column correspondence, and multi-line
 	//spans would lose their line structure. No captured bytes (a
-	//different minting arm) means no rescue.
+	//different creating arm) means no rescue.
 	const std::string &sSpan = pMisread->SpanText();
 	if (sSpan.empty())
 		return false;
@@ -279,11 +303,11 @@ bool ExprResolveAccessor::TryResolveDeclaredGenericInterfaceInstance(
 		return false;
 	}
 	std::vector<SnField*> typeArgs;
-	std::vector<uint8> outFlags;
+	std::vector<uint8> refFlags;
 	//No multi-slot gate here: an interface carries no value storage —
 	//its T-typed members are signature positions only, so every
 	//argument kind is a legal substitution.
-	if (!TryResolveGenericTypeArgs(genType, baseName, typeArgs, outFlags))
+	if (!TryResolveGenericTypeArgs(genType, baseName, typeArgs, refFlags))
 		return false;
 	auto *pInstance = GetDeclaredGenericInterfaceDecl(tmpl, typeArgs);
 	if (!pInstance)
@@ -295,7 +319,7 @@ bool ExprResolveAccessor::TryResolveDeclaredGenericInterfaceInstance(
 //Access(SnGenericTypeExpr&)'s declared-template arm (`class Box<T>` +
 //`Box<int>`): the base must name a generic-declaration class or
 //interface in scope; the arity check runs against its parameter list;
-//the instantiation is minted (cached) and bound. False = a diagnostic
+//the instantiation is created (cached) and bound. False = a diagnostic
 //is logged.
 bool ExprResolveAccessor::TryResolveDeclaredGenericInstance(
 	SnGenericTypeExpr &genType, const std::string &baseName)
@@ -321,8 +345,8 @@ bool ExprResolveAccessor::TryResolveDeclaredGenericInstance(
 		return false;
 	}
 	std::vector<SnField*> typeArgs;
-	std::vector<uint8> outFlags;
-	if (!TryResolveGenericTypeArgs(genType, baseName, typeArgs, outFlags))
+	std::vector<uint8> refFlags;
+	if (!TryResolveGenericTypeArgs(genType, baseName, typeArgs, refFlags))
 		return false;
 	if (RejectMultiSlotTypeArgs(m_Env, *pClassTemplate, typeArgs, baseName,
 			genType.Location()))
@@ -331,6 +355,12 @@ bool ExprResolveAccessor::TryResolveDeclaredGenericInstance(
 		typeArgs);
 	if (!pInstance)
 		return false;
+	//D9 fork warning: a template member writing through a T& formal is
+	//only visible to the caller when T binds a by-slot-copy type; for
+	//identity types the write reaches the local formal alone. One
+	//warning per spelling site (this resolver pass runs once per site).
+	WarnIdentityRefFormals(m_Env, *pClassTemplate, typeArgs,
+		genType.Location());
 	ResolveFieldExprAs(genType, pInstance);
 	return true;
 }
@@ -343,7 +373,7 @@ void ExprResolveAccessor::Access(SnGenericTypeExpr &genType)
 	auto *pBase = genType.Base();
 	NLANG_ASSERT(pBase);
 	std::string baseName = pBase->ToString();
-	//D4 routing split: only func mints synthetically now — the four
+	//D4 routing split: only func creates synthetically now — the four
 	//generic prelude names resolve through their declared templates
 	//(Promise precedent). IsBuiltinGenericTypeName remains the
 	//SCANNER's flag set only.
@@ -354,14 +384,13 @@ void ExprResolveAccessor::Access(SnGenericTypeExpr &genType)
 	}
 
 	std::vector<SnField*> typeArgs;
-	std::vector<uint8> outFlags;
-	if (!TryResolveGenericTypeArgs(genType, baseName, typeArgs, outFlags))
+	std::vector<uint8> refFlags;
+	if (!TryResolveGenericTypeArgs(genType, baseName, typeArgs, refFlags))
 		return;
 
 	auto *pSynClass =
 		GetGenericClassDecl(m_Env.Registry(), baseName,
-			typeArgs, outFlags,
-			pBase->Location());
+			typeArgs, refFlags, pBase->Location());
 	if (!pSynClass)
 	{
 		m_Env.Log(CLL_Error, genType.Location(),
@@ -371,6 +400,37 @@ void ExprResolveAccessor::Access(SnGenericTypeExpr &genType)
 	}
 
 	ResolveFieldExprAs(genType, pSynClass);
+}
+
+//0.13.1a Task 4 (D4): the call-site value type of a generic free
+//function — the template row's return type expression substituted with
+//the invoke's inferred arguments, per the established convention (the
+//value slot reads the return type expr's resolved Field, exactly what
+//SnFunction::EvalDataType yields). The substituted copy is transient:
+//the substitution binds its leaves, and the resolved field it yields is
+//tree/registry-owned, so the invoke's slot outlives the copy.
+//No Access() re-entry here: the copy's static type is the base
+//SnFieldExpr, so an Access call static-dispatches to the defaulted
+//accessor and asserts regardless of the dynamic kind (the Task 4
+//Debug-only crash). Every SubstituteTypeExpr arm already owns the
+//copy's resolution — a resolved source leaf resolves the copy via
+//ResolveFieldExprAs/token interning/an explicit Access on the precise
+//SnGenericTypeExpr static type, and an unresolved source leaf stays
+//unresolved on purpose (the template row's own diagnostic already
+//fired; re-resolving the name at the call site would consult the
+//wrong scope).
+void ExprResolveAccessor::SubstituteInvokeReturnType(
+	SnInvokeExpr& invoke, SnFunction& func)
+{
+	if (!func.HasReturn() || !func.ReturnType())
+		return;
+	std::unique_ptr<SnFieldExpr> pRetCopy(
+		SubstituteTypeExpr(*func.ReturnType(),
+			invoke.InferredTypeArgs()));
+	if (!pRetCopy)
+		return;
+	if (pRetCopy->IsResolved())
+		invoke.EvalDataType(pRetCopy->Field());
 }
 
 } //namespace nlang

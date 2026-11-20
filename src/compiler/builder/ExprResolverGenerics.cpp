@@ -1,5 +1,5 @@
 /*--- ExprResolverGenerics.cpp — 合成内建泛型注册表与成员调用的元素实参
-    包装（声明泛型的铸造机器在 ExprResolverGenericMint.cpp）。
+    包装（声明泛型的实例化机器在 ExprResolverGenericInstantiation.cpp）。
 ---*/
 #include "ExprResolver.h"
 #include "SnExtraTypes.h"
@@ -26,22 +26,22 @@ namespace nlang
 //==================== synthetic builtin registry ====================
 //
 //Definitions for SyntheticBuiltinRegistry (owned by ModuleRegistry —
-//one per build; see the header). The minting free functions below it
+//one per build; see the header). The creating free functions below it
 //keep the name/arity logic; this block is storage and ownership only,
 //the same split GenericInstanceRegistry keeps with
 //GetDeclaredGenericClassDecl.
 
 SyntheticBuiltinRegistry::~SyntheticBuiltinRegistry()
 {
-	//The registry owns every node it minted. The synthetic decls are
+	//The registry owns every node it created. The synthetic decls are
 	//detached from any tree, so nothing else frees them.
-	for (auto* pDecl : m_minted)
+	for (auto* pDecl : m_created)
 		delete pDecl;
 }
 
 void SyntheticBuiltinRegistry::Own(SnClassDecl* pDecl)
 {
-	m_minted.push_back(pDecl);
+	m_created.push_back(pDecl);
 }
 
 SnClassDecl* SyntheticBuiltinRegistry::FindGeneric(
@@ -86,28 +86,6 @@ void SyntheticBuiltinRegistry::AdoptFaceClass(const std::string& typeName,
 	Own(pDecl);
 }
 
-//Phase 13: the func instantiation's parameter out markers. Stored ON the
-//node since the per-build registry migration (context-free predicates
-//like IsUnboundFuncRef read a synthetic func's signature with no
-//registry handle); default-empty for non-func classes.
-const std::vector<uint8>& GetGenericOutFlags(SnClassDecl* pClass)
-{
-	static const std::vector<uint8> s_empty;
-	return pClass ? pClass->GenericOutFlags() : s_empty;
-}
-
-//Type arguments of a generic instantiation (List<T> → {T}, Dict<K,V> →
-//{K,V}; empty otherwise). Every mint — synthetic AND declared — sets
-//GenericTypeArgs on the node itself; the historical process-global side
-//table (whose fallback branch no mint could ever miss) is gone with the
-//per-build registry.
-std::vector<SnField*> GetGenericTypeArgs(SnClassDecl* pClass)
-{
-	if (pClass && pClass->IsGenericInstantiation())
-		return pClass->GenericTypeArgs();
-	return {};
-}
-
 //Returns true if class decl is a synthetic generic instantiation
 //(e.g., List<int>). Used to dispatch member calls in Access(SnMemberExpr&).
 bool IsGenericClassDecl(SnClassDecl* pClass)
@@ -115,28 +93,50 @@ bool IsGenericClassDecl(SnClassDecl* pClass)
 	return pClass && pClass->IsGenericInstantiation();
 }
 
-//Mints (or fetches) a synthetic SnClassDecl for the given generic
+//Creates (or fetches) a synthetic SnClassDecl for the given generic
 //instantiation. Phase 8e-3: List<T> (arity 1). Phase 8e-4: Dict<K,V> (arity 2).
-//Phase 13: func<R, P...> (variadic, >= 1). outFlags are normalized here
-//so callers that infer instantiations (func handle coercion) can pass
-//an empty vector while declaration-path keys stay distinct.
+//Phase 13: func<R, P...> (variadic, >= 1). outFlags and refFlags are
+//normalized here so callers that infer instantiations (func handle
+//coercion) can pass empty vectors while declaration-path keys stay
+//distinct.
 //The cache is per-build (ModuleRegistry's SyntheticBuiltinRegistry):
 //the key is built from interned type-arg pointers, which only keep
 //identity within one build's syntax tree.
+//Display name e.g. "func<Int32, Int32&>"; array-typed arguments are
+//interned tokens with empty Name(), so render them via ToString
+//("Int32[]"). The flag vectors arrive normalized by the caller
+//(padded to typeArgs.size()) so the marks spell position-stable.
+static std::string RenderGenericInstName(const std::string& baseName,
+	const std::vector<SnField*>& typeArgs, const std::vector<uint8>& refFlags)
+{
+	std::string instName = baseName + "<";
+	for (size_t i = 0; i < typeArgs.size(); ++i) {
+		if (i) instName += ", ";
+		instName += typeArgs[i]->Kind() == NK_ArrayTypeToken
+			? typeArgs[i]->ToString() : typeArgs[i]->Name();
+		if (refFlags[i])
+			instName += "&";
+	}
+	instName += ">";
+	return instName;
+}
+
 SnClassDecl* GetGenericClassDecl(ModuleRegistry& reg,
 	const std::string& baseName,
-	const std::vector<SnField*>& typeArgs, const std::vector<uint8>& outFlags,
-	const ISourceLocation* pLoc)
+	const std::vector<SnField*>& typeArgs,
+	const std::vector<uint8>& refFlags, const ISourceLocation* pLoc)
 {
-	std::vector<uint8> normOutFlags(outFlags);
-	normOutFlags.resize(typeArgs.size(), 0);
+	//v0.13.9 phase 3: short caller vectors pad to per-argument zeros
+	//so the key stays position-stable.
+	std::vector<uint8> normRefFlags(refFlags);
+	normRefFlags.resize(typeArgs.size(), 0);
 	SyntheticBuiltinRegistry::GenericInstKey key{baseName, typeArgs,
-		normOutFlags};
+		normRefFlags};
 	auto& synthetics = reg.SyntheticBuiltins();
 	if (SnClassDecl* pCached = synthetics.FindGeneric(key))
 		return pCached;
 
-	//Phase-2 D4: func is the only synthetic mint left. The four generic
+	//Phase-2 D4: func is the only synthetic creation left. The four generic
 	//prelude names and every user template resolve through
 	//GetDeclaredGenericClassDecl; a miss here is a caller bug, so the
 	//admission rejects everything but func (variadic: first argument is
@@ -144,19 +144,7 @@ SnClassDecl* GetGenericClassDecl(ModuleRegistry& reg,
 	if (baseName != kBuiltinFuncTypeName || typeArgs.empty())
 		return nullptr;
 
-	//Build display name e.g. "List<int>", "Dict<string, int>". Array-typed
-	//arguments ARE interned tokens; their Name() is empty by design, so
-	//render them via ToString ("Int32[]") — without this the split
-	//instantiations would be indistinguishable in diagnostics.
-	std::string instName = baseName + "<";
-	for (size_t i = 0; i < typeArgs.size(); ++i) {
-		if (i) instName += ", ";
-		if (typeArgs[i]->Kind() == NK_ArrayTypeToken)
-			instName += typeArgs[i]->ToString();
-		else
-			instName += typeArgs[i]->Name();
-	}
-	instName += ">";
+	const std::string instName = RenderGenericInstName(baseName, typeArgs, normRefFlags);
 
 	auto* pName = new std::string(instName);
 	auto* pMembers = new PtrList<SnField>();
@@ -165,15 +153,19 @@ SnClassDecl* GetGenericClassDecl(ModuleRegistry& reg,
 		DeclLocation(pLoc, fallback));
 	pClass->SetBuiltinClass();
 	pClass->SetGenericInstantiation();
+	//v0.13.9 phase 3: the func arms own the & type-arg spelling; a &
+	//container argument is a grammar bypass (assert-grade).
+	if (baseName != kBuiltinFuncTypeName)
+		AssertNoRefTypeArgs(typeArgs);
 	pClass->SetGenericTypeArgs(typeArgs);
-	pClass->SetGenericOutFlags(normOutFlags);
+	pClass->SetGenericRefFlags(normRefFlags);
 	pClass->SetBaseName(baseName);
 	synthetics.AdoptGeneric(key, pClass);
 	return pClass;
 }
 
-//D7 helper: find a DECLARED generic template by bare name in the scope
-//chain and instantiate it (the three infer-site minters that used to
+//D7 helper: find a DECLARED generic template by unqualified name in the scope
+//chain and instantiate it (the three infer-site creators that used to
 //call GetGenericClassDecl directly). Null = the name does not address
 //a generic declaration in scope — callers keep their own fallback or
 //diagnostic; silent on purpose (probe semantics).
@@ -366,7 +358,7 @@ void ExprResolveAccessor::WrapGenericElemArgs(SnFieldExpr *pInnerExpr)
 	}
 	//0.13.1a Task 2: a template-row receiver (Maker.pass(7)) — the
 	//ordinary binding would score the actuals against the raw placeholder
-	//formals and reject; inference mints the instantiation first.
+	//formals and reject; inference creates the instantiation first.
 	if (cls.IsGenericDeclaration())
 		TryInferTemplateRowStaticCall(invoke, cls);
 }
@@ -434,7 +426,7 @@ bool BindsOwnTemplatePlaceholder(GenericInstanceRegistry &generics,
 
 //0.13.1a Task 2: a type-name-qualified static call into a generic
 //TEMPLATE row (Maker.pass(7)). Infers the type arguments from the
-//resolved actuals, mints the instantiation, and leaves m_pContext on it
+//resolved actuals, creates the instantiation, and leaves m_pContext on it
 //— the queued invoke resolution binds the substituted clone member, so
 //formals AND the return type carry the inferred arguments into binding
 //and codegen. Silent when the call is not the arm's shape: named

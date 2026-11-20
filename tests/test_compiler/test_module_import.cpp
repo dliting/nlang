@@ -8,6 +8,7 @@ the reserved path-segment gate, the per-TU import gates with their
 external .ncu stub tables, and the owner tags MergeTransUnits stamps
 on every merged TU member (top-level and container members).
 ---*/
+#include "test_support/test_scratch.h"
 #include <QtTest/QtTest>
 #include <nlang/runtime/Runtime.h>
 #include <nlang/compiler/ModuleBuilder.h>
@@ -95,8 +96,7 @@ private:
 //be created (the caller fails the test instead of testing nothing).
 std::string writeTempSource(const char* szName, const char* szBody)
 {
-    const std::filesystem::path dir = std::filesystem::temp_directory_path()
-        / "nlang_module_import_tests";
+    const std::filesystem::path dir = nlang::test::ScratchDir("nlang_module_import_tests");
     std::error_code fsError;
     std::filesystem::create_directories(dir, fsError);
     const std::filesystem::path file = dir / szName;
@@ -124,8 +124,7 @@ CompileOutcome compile(const std::string& tag,
     const std::vector<std::string>& sources,
     const std::string& projectDir)
 {
-    const auto outDir = std::filesystem::temp_directory_path()
-        / "nlang_module_import_tests";
+    const auto outDir = nlang::test::ScratchDir("nlang_module_import_tests");
     BuildParams params;
     for (const auto& source : sources)
         params.m_SourceFiles.push_back(source);
@@ -239,14 +238,16 @@ struct GateProjectOptions
     const char* szExtraBody = nullptr;    //explicit extra.n body
     bool withUtils2MyClass = false;  //also register utils2/MyClass.n
     bool withCoreHelper = false;     //also register core/helper.n (same stem, other dir)
+    const char* szCoreHelperBody = nullptr; //explicit core/helper.n body
     bool withRichLib = false;        //also build libsrc/rlib.n (type surface lib)
+    bool withAccessLib = false;      //also build libsrc/xlib.n (0.13.8 Task 4 access-surface lib)
 };
 
 GateResult buildGateProject(const GateProjectOptions& opts)
 {
     namespace fs = std::filesystem;
     GateResult failure;
-    const fs::path root = fs::temp_directory_path() / "nlang_import_gate";
+    const fs::path root = nlang::test::ScratchDir("nlang_import_gate");
     const fs::path libSrc = root / "libsrc";
     const fs::path out = root / "out";
     const fs::path proj = root / "proj";
@@ -302,9 +303,10 @@ GateResult buildGateProject(const GateProjectOptions& opts)
             writeFile(proj / "utils2" / "MyClass.n",
                 "int m() { return 8; }\n")) &&
         (!opts.withCoreHelper ||
-            writeFile(proj / "core" / "helper.n",
-                "int help() { return 5; }\n"
-                "struct Cfg { int c; }\n")) &&
+            writeFile(proj / "core" / "helper.n", opts.szCoreHelperBody
+                ? opts.szCoreHelperBody
+                : "int help() { return 5; }\n"
+                  "struct Cfg { int c; }\n")) &&
         (!opts.withRichLib ||
             writeFile(libSrc / "rlib.n",
                 "class Widget {\n"
@@ -324,6 +326,14 @@ GateResult buildGateProject(const GateProjectOptions& opts)
                 "interface Greeter {\n"
                 "    public string greet(string name);\n"
                 "}\n")) &&
+        (!opts.withAccessLib ||
+            writeFile(libSrc / "xlib.n",
+                "private int hiddenHelper() { return 1; }\n"
+                "protected int familyHelper() { return 2; }\n"
+                "public int openHelper() { return 3; }\n"
+                "private class Vault { int f() { return 4; } }\n"
+                "public class OpenBox { int f() { return 5; } }\n"
+                "public int helper() { return 9; }\n")) &&
         writeFile(proj / "main.n", opts.szMainBody);
     if (!written)
     {
@@ -338,6 +348,8 @@ GateResult buildGateProject(const GateProjectOptions& opts)
     int libCount = opts.withTwinLib ? 2 : 1;
     if (opts.withRichLib)
         libNames[libCount++] = "rlib";
+    if (opts.withAccessLib)
+        libNames[libCount++] = "xlib";
     for (int i = 0; i < libCount; ++i)
     {
         const fs::path ncu =
@@ -504,8 +516,7 @@ private slots:
     //utils.sub.deep, directory strings "" / "utils" / "utils.sub".
     void projectModulePaths()
     {
-        auto dir = std::filesystem::temp_directory_path()
-            / "nlang_proj_paths";
+        auto dir = nlang::test::ScratchDir("nlang_proj_paths");
         std::filesystem::create_directories(dir / "utils" / "sub");
         auto write = [&dir](const char* szRel, const char* szBody)
         {
@@ -551,8 +562,7 @@ private slots:
     //still illegal is ONE package name coming from TWO units.
     void duplicatePackagePathRejected()
     {
-        auto dir = std::filesystem::temp_directory_path()
-            / "nlang_proj_dup_pkg";
+        auto dir = nlang::test::ScratchDir("nlang_proj_dup_pkg");
         std::filesystem::create_directories(dir);
         std::ofstream(dir / "main.n", std::ios::binary)
             << "int main() { return 0; }\n";
@@ -1008,8 +1018,7 @@ private slots:
     //would both silently mis-include it. Reject the file name up front.
     void dottedStemSourceRejected()
     {
-        auto dir = std::filesystem::temp_directory_path()
-            / "nlang_proj_dotted_stem";
+        auto dir = nlang::test::ScratchDir("nlang_proj_dotted_stem");
         std::filesystem::create_directories(dir);
         std::ofstream(dir / "main.n", std::ios::binary)
             << "int main() { return 0; }\n";
@@ -1180,7 +1189,7 @@ private slots:
     //source position. The not-found fallback used to log "Cannot
     //resolve the field" with NO location, so for `return
     //undefined_name;` the only positioned line was the return-check
-    //echo; suppressing that echo as redundant (generic-mint
+    //echo; suppressing that echo as redundant (generic-creation
     //diagnostics) left the IDE compile log with nothing navigable —
     //error navigation degraded to nothing, and the journey test even
     //crashed building a cursor from the absent "(line" block. The
@@ -1252,26 +1261,26 @@ private slots:
         QVERIFY2(run.exitValue == 4, "(2-3)+5 must come back through f");
     }
 
-    //T3: a void-returning qualified call in statement form (here with an
-    //out parameter, the only way a void function can have an effect).
+    //T3: a void-returning qualified call in statement form (here with a
+    //reference formal, the only way a void function can have an effect).
     void qualifiedVoidCallExecuted()
     {
         GateProjectOptions opts;
         opts.szHelperBody =
-            "void set42(out int v) { v = 42; }\n";
+            "void set42(int& v) { v = 42; }\n";
         opts.szMainBody =
             "import utils.helper;\n"
             "int main()\n"
             "{\n"
             "    int v = 0;\n"
-            "    utils.helper.set42(out v);\n"
+            "    utils.helper.set42(v);\n"
             "    return v;\n"
             "}\n";
         auto run = runGateProject(opts);
         QVERIFY2(run.ok, runFailureText(run,
             "qualified void call must build and execute").c_str());
         QVERIFY2(run.runtimeError.empty(), "execution must be clean");
-        QVERIFY2(run.exitValue == 42, "the out write must be visible");
+        QVERIFY2(run.exitValue == 42, "the reference write must be visible");
     }
 
     //T4 (review I1, m12 flagship): a FUNCTION named like the module
@@ -1650,10 +1659,10 @@ private slots:
         QVERIFY(pMain != nullptr);
         QCOMPARE(reg.QualifiedName(*pMain), std::string("main.main"));
 
-        //(d) unowned member degrades to the bare name. The merged root
+        //(d) unowned member degrades to the unqualified name. The merged root
         //    container itself carries no owner tag, so this is the free
         //    NO_OWNER case (a synthetic generic instantiation would do
-        //    too, but needs a compile to mint). Runs BEFORE (c): that
+        //    too, but needs a compile to create). Runs BEFORE (c): that
         //    build resets the process-global AST (InitSyntaxTree), which
         //    frees the tree this rootView points into.
         QCOMPARE(reg.PackageOf(rootView), std::string());
@@ -1899,8 +1908,7 @@ private slots:
     //producer declaration order, which is what FindFieldOffset counts).
     void importedStructStubRebuildsFields()
     {
-        auto dir = std::filesystem::temp_directory_path()
-            / "nlang_stub_struct_fields";
+        auto dir = nlang::test::ScratchDir("nlang_stub_struct_fields");
         std::filesystem::create_directories(dir);
         std::ofstream(dir / "lib.n", std::ios::binary)
             << "struct Vec {\n"
@@ -1913,13 +1921,13 @@ private slots:
         QVERIFY2(outcome.ok, "producer lib must build clean");
         QCOMPARE(outcome.units.size(), size_t(1));
 
-        //Mint the consumer stubs over a fresh runtime tree (the same
+        //Create the consumer stubs over a fresh runtime tree (the same
         //path ModuleBuilderImports takes for an imported .ncu). The
         //global tree is required, not a local one: the scalar
         //pre-binding inside SynthTypeExprFromDesc resolves through
         //TheAST().FindNode (SnBuiltinDataType::InstanceOf), and
         //compile()'s ModuleBuilder destructor clears the global tree
-        //— a local tree would mint unbound scalar field types.
+        //— a local tree would create unbound scalar field types.
         BuildParams params;
         MemLogger logger;
         BuildEnvironment env(params, logger);
@@ -1942,7 +1950,7 @@ private slots:
         QCOMPARE(fields.size(), size_t(2));
         QCOMPARE(fields[0]->Name(), std::string("x"));
         QCOMPARE(fields[1]->Name(), std::string("y"));
-        //The minted type expression is syntactic (SynthTypeExprFromDesc
+        //The created type expression is syntactic (SynthTypeExprFromDesc
         //mirrors the parser's shape; the consumer's ResolveDataTypes
         //pass binds named types later — e2e imported_struct_field_*
         //pin the end-to-end typed behavior). Scalars arrive pre-bound:
@@ -1964,11 +1972,10 @@ private slots:
     //0.10.14: the enum stub rebuilds value members (sparse gaps
     //skipped, member value = table index) and member methods with their
     //declared access — and the enum's methods are NOT promoted to free
-    //stubs (the double-mint the enum import corrects).
+    //stubs (the double creation the enum import corrects).
     void importedEnumStubRebuildsMembersAndMethods()
     {
-        auto dir = std::filesystem::temp_directory_path()
-            / "nlang_stub_enum";
+        auto dir = nlang::test::ScratchDir("nlang_stub_enum");
         std::filesystem::create_directories(dir);
         std::ofstream(dir / "lib.n", std::ios::binary)
             << "enum Color {\n"
@@ -2068,7 +2075,7 @@ private slots:
         //leaf in the PARSER-CANONICAL shape (SnNameExpr wrapping the
         //identifier, NamedLeafExpr) — one name-leaf shape for every
         //template member type, source or stub, so shape-sensitive
-        //consumers (the generic mint's SubstituteTypeExpr, the
+        //consumers (the generic creation's SubstituteTypeExpr, the
         //resolution passes) read a single surface. The consumer's
         //resolver binds the inner identifier to the placeholder through
         //the stub's own declaration (BindTypeParamPlaceholderIfAny).
@@ -2106,11 +2113,11 @@ private slots:
     }
 
     //The template-signature leaf contract, enforced by assertion at the
-    //substitution entry and the stub mint (TemplateSignatureLeaves.h):
+    //substitution entry and the stub creation (TemplateSignatureLeaves.h):
     //a bare identifier leaf in a template member type must be a pre-bound
     //builtin (resolved to an SnBuiltinDataType); a named reference
     //arrives wrapped in SnNameExpr (NamedLeafExpr). A bare UNRESOLVED
-    //identifier is the divergent mint that once cloned every non-T
+    //identifier is the divergent creation that once cloned every non-T
     //signature of a stub template as void — these tests pin the
     //contract predicate itself, shape by shape.
     void templateLeafContract_acceptsCanonicalShapes()
@@ -2125,13 +2132,13 @@ private slots:
         delete pVoid;
         //A wrapped name, resolved or not, is canonical — the parser
         //shape (NamedLeafExpr); resolution may legitimately still be
-        //pending when the mint substitutes a template member.
+        //pending when the creation substitutes a template member.
         auto* pWrapped = new SnNameExpr(
             new SnIdentifierExpr(new std::string("T"), loc), loc);
         QVERIFY(TemplateSignatureLeavesAreCanonical(pWrapped));
         delete pWrapped;
         //A qualified path is a composite shape with its own documented
-        //mint-failure diagnostic ("cannot carry") — not this contract.
+        //creation-failure diagnostic ("cannot carry") — not this contract.
         auto* pQualified = new SnQualifiedTypeExpr(
             std::string("c"), std::string("S"), loc);
         QVERIFY(TemplateSignatureLeavesAreCanonical(pQualified));
@@ -2154,7 +2161,7 @@ private slots:
     void templateLeafContract_rejectsDivergentBareLeaves()
     {
         CompiledModuleNodeLocation loc(std::string("t"));
-        //THE bug class: a bare named leaf is a divergent mint — the
+        //THE bug class: an unqualified-name leaf is a divergent creation — the
         //substitution entry must never receive it (it once cloned every
         //non-T signature of a stub template as void).
         auto* pBare = new SnIdentifierExpr(new std::string("T"), loc);
@@ -2188,15 +2195,14 @@ private slots:
         QCOMPARE(ProducerIdxClamp(0x10000), uint16_t(0xFFFF));
     }
 
-    //0.10.14 (spec §7): two overload calls mint TWO namespace-level
+    //0.10.14 (spec §7): two overload calls create TWO namespace-level
     //slot records with distinct ownerOrdinals — the FunctionSymbolSlot
     //dedup key already carries the ordinal, so the pair must not
     //collapse into one record.
-    void overloadCallsMintDistinctOrdinalRecords()
+    void overloadCallsCreateDistinctOrdinalRecords()
     {
         namespace fs = std::filesystem;
-        const fs::path root = fs::temp_directory_path()
-            / "nlang_overload_ordinal_records";
+        const fs::path root = nlang::test::ScratchDir("nlang_overload_ordinal_records");
         const fs::path src = root / "src";
         const fs::path out = root / "out";
         std::error_code ec;
@@ -2259,7 +2265,7 @@ private slots:
         QVERIFY2(!images.units.empty(),
             joinErrors(ml.errorsText()).c_str());
         //Collect the ovlib.ov namespace records across every unit
-        //image (only main mints them; name is the qualified key).
+        //image (only main creates them; name is the qualified key).
         int found = 0;
         uint16_t ordinals[2] = {0xFFFF, 0xFFFF};
         for (const auto& u : images.units)
@@ -2330,8 +2336,7 @@ private slots:
     //embedded prelude source is written verbatim as the project file.
     void projectSourceNamedLangServesAsPrelude()
     {
-        auto dir = std::filesystem::temp_directory_path()
-            / "nlang_proj_lang";
+        auto dir = nlang::test::ScratchDir("nlang_proj_lang");
         std::filesystem::create_directories(dir);
         std::ofstream(dir / "main.n", std::ios::binary)
             << "int main() { Exception e = Exception(\"x\");\n"
@@ -2362,6 +2367,373 @@ private slots:
                  "Dict methods must bind through the containers package");
         QCOMPARE(LookupIntrinsicId("builtins", "Exception/2"), INTR_None);
         QCOMPARE(LookupIntrinsicId("builtins", "List.add"), INTR_None);
+    }
+
+    //--- 0.13.8 Task 4: cross-module access enforcement -----------------
+    //
+    //The access-surface lib (out/xlib.ncu in the gate shape; two
+    //same-directory project units in the source-inline shape) declares
+    //private/protected/public free functions plus a private and a
+    //public class. Task 1 carried the bytes on the wire (v2.20), Task 3
+    //made the stubs carry them; these tests watch the consumer side
+    //START admitting everything (RED) and then enforce (GREEN).
+
+    //Source-inline RED witness: the two units share the root namespace,
+    //so today the geometric sibling arm (accessor.Parent() ==
+    //Parent()) admits the foreign private. After the gate: named
+    //denial with the manifest wording.
+    void sourceInlineForeignPrivateBareRejected()
+    {
+        namespace fs = std::filesystem;
+        const auto dir = nlang::test::ScratchDir("nlang_access_inline_priv");
+        fs::remove_all(dir);
+        fs::create_directories(dir);
+        std::ofstream(dir / "xlib.n", std::ios::binary)
+            << "private int hiddenHelper() { return 1; }\n"
+               "public int openHelper() { return 3; }\n";
+        std::ofstream(dir / "main.n", std::ios::binary)
+            << "int main() { return hiddenHelper(); }\n";
+        const auto outcome = compile("access_inline_priv",
+            {(dir / "main.n").string(), (dir / "xlib.n").string()},
+            dir.string());
+        QVERIFY2(!outcome.ok,
+            "a bare foreign private call must fail the build");
+        QVERIFY2(containsError(outcome.errors, "hiddenHelper"),
+            joinErrors(outcome.errors).c_str());
+        QVERIFY2(containsError(outcome.errors,
+            "does not exist or is not accessible"),
+            joinErrors(outcome.errors).c_str());
+    }
+
+    void sourceInlineForeignProtectedBareRejected()
+    {
+        namespace fs = std::filesystem;
+        const auto dir = nlang::test::ScratchDir("nlang_access_inline_prot");
+        fs::remove_all(dir);
+        fs::create_directories(dir);
+        std::ofstream(dir / "xlib.n", std::ios::binary)
+            << "protected int familyHelper() { return 2; }\n";
+        std::ofstream(dir / "main.n", std::ios::binary)
+            << "int main() { return familyHelper(); }\n";
+        const auto outcome = compile("access_inline_prot",
+            {(dir / "main.n").string(), (dir / "xlib.n").string()},
+            dir.string());
+        QVERIFY2(!outcome.ok,
+            "a bare foreign protected call must fail the build");
+        QVERIFY2(containsError(outcome.errors, "familyHelper"),
+            joinErrors(outcome.errors).c_str());
+        QVERIFY2(containsError(outcome.errors,
+            "does not exist or is not accessible"),
+            joinErrors(outcome.errors).c_str());
+    }
+
+    //A bare spelling of a foreign private type must not bind - the
+    //root-walk path applies the same verdict (spec D5.2).
+    void sourceInlineForeignPrivateTypeRejected()
+    {
+        namespace fs = std::filesystem;
+        const auto dir = nlang::test::ScratchDir("nlang_access_inline_type");
+        fs::remove_all(dir);
+        fs::create_directories(dir);
+        std::ofstream(dir / "xlib.n", std::ios::binary)
+            << "private class Vault { int f() { return 4; } }\n";
+        std::ofstream(dir / "main.n", std::ios::binary)
+            << "int main() { Vault v; return 0; }\n";
+        const auto outcome = compile("access_inline_type",
+            {(dir / "main.n").string(), (dir / "xlib.n").string()},
+            dir.string());
+        QVERIFY2(!outcome.ok,
+            "a bare foreign private type must fail the build");
+        QVERIFY2(containsError(outcome.errors, "Vault"),
+            joinErrors(outcome.errors).c_str());
+    }
+
+    //Case 7 + case 6 (bare): the gate is foreign-only - the lib's own
+    //private use stays admitted, and a foreign PUBLIC member keeps
+    //resolving bare. Must pass before AND after.
+    void sourceInlineOwnPrivateAndForeignPublicAdmitted()
+    {
+        namespace fs = std::filesystem;
+        const auto dir = nlang::test::ScratchDir("nlang_access_inline_ok");
+        fs::remove_all(dir);
+        fs::create_directories(dir);
+        std::ofstream(dir / "xlib.n", std::ios::binary)
+            << "private int hiddenHelper() { return 1; }\n"
+               "public int openHelper() { return 3; }\n"
+               "public int usePrivate() { return hiddenHelper(); }\n";
+        std::ofstream(dir / "main.n", std::ios::binary)
+            << "int main() { return usePrivate() + openHelper(); }\n";
+        const auto outcome = compile("access_inline_ok",
+            {(dir / "main.n").string(), (dir / "xlib.n").string()},
+            dir.string());
+        QVERIFY2(outcome.ok,
+            "own-module private use and foreign public must stay "
+            "admitted");
+    }
+
+    //Case 1 (external): `import xlib;` admits the names to the bare
+    //pool today via the exact-import branch - the gate must still
+    //refuse a non-public one.
+    void externalForeignPrivateBareRejected()
+    {
+        GateProjectOptions opts;
+        opts.withAccessLib = true;
+        opts.szMainBody =
+            "import xlib;\n"
+            "int main() { return hiddenHelper(); }\n";
+        auto res = buildGateProject(opts);
+        QVERIFY2(res.builder != nullptr,
+            ("gate scaffold failed before the gate stage; errors: "
+             + joinErrors(res.errors)).c_str());
+        QVERIFY2(!res.ok,
+            "a bare imported private call must fail the build");
+        QVERIFY2(containsError(res.errors, "hiddenHelper"),
+            joinErrors(res.errors).c_str());
+        QVERIFY2(containsError(res.errors,
+            "does not exist or is not accessible"),
+            joinErrors(res.errors).c_str());
+    }
+
+    //Case 2: the qualified path - ResolveModuleQualifiedCallee never
+    //checked access today, so lib.hiddenHelper() compiled cleanly.
+    void foreignQualifiedPrivateCallRejected()
+    {
+        GateProjectOptions opts;
+        opts.withAccessLib = true;
+        opts.szMainBody =
+            "import xlib;\n"
+            "int main() { return xlib.hiddenHelper(); }\n";
+        auto res = buildGateProject(opts);
+        QVERIFY2(res.builder != nullptr,
+            ("gate scaffold failed before the gate stage; errors: "
+             + joinErrors(res.errors)).c_str());
+        QVERIFY2(!res.ok,
+            "a qualified foreign private call must fail the build");
+        QVERIFY2(containsError(res.errors, "hiddenHelper"),
+            joinErrors(res.errors).c_str());
+        QVERIFY2(containsError(res.errors,
+            "does not exist or is not accessible"),
+            joinErrors(res.errors).c_str());
+    }
+
+    //Case 3 (qualified arm): protected follows the same rule.
+    void foreignQualifiedProtectedCallRejected()
+    {
+        GateProjectOptions opts;
+        opts.withAccessLib = true;
+        opts.szMainBody =
+            "import xlib;\n"
+            "int main() { return xlib.familyHelper(); }\n";
+        auto res = buildGateProject(opts);
+        QVERIFY2(res.builder != nullptr,
+            ("gate scaffold failed before the gate stage; errors: "
+             + joinErrors(res.errors)).c_str());
+        QVERIFY2(!res.ok,
+            "a qualified foreign protected call must fail the build");
+        QVERIFY2(containsError(res.errors, "familyHelper"),
+            joinErrors(res.errors).c_str());
+        QVERIFY2(containsError(res.errors,
+            "does not exist or is not accessible"),
+            joinErrors(res.errors).c_str());
+    }
+
+    //Case 5: a qualified spelling of a foreign private type must not
+    //bind (the FindModuleType admission).
+    void foreignQualifiedPrivateTypeRejected()
+    {
+        GateProjectOptions opts;
+        opts.withAccessLib = true;
+        opts.szMainBody =
+            "import xlib;\n"
+            "int main()\n"
+            "{\n"
+            "    xlib.Vault v;\n"
+            "    return 0;\n"
+            "}\n";
+        auto res = buildGateProject(opts);
+        QVERIFY2(res.builder != nullptr,
+            ("gate scaffold failed before the gate stage; errors: "
+             + joinErrors(res.errors)).c_str());
+        QVERIFY2(!res.ok,
+            "a qualified foreign private type must fail the build");
+        QVERIFY2(containsError(res.errors, "is not a member of package"),
+            joinErrors(res.errors).c_str());
+    }
+
+    //Case 8: instance creation over a foreign private type. The
+    //language spells construction as a ctor-invoke (no `new` keyword):
+    //`xlib.Vault()` routes through TryResolveQualifiedCtorInvoke
+    //(ExprResolverNew.cpp's FindModuleType arm), which must apply the
+    //same admission.
+    void foreignQualifiedCtorRejected()
+    {
+        GateProjectOptions opts;
+        opts.withAccessLib = true;
+        opts.szMainBody =
+            "import xlib;\n"
+            "int main()\n"
+            "{\n"
+            "    xlib.Vault v = xlib.Vault();\n"
+            "    return 0;\n"
+            "}\n";
+        auto res = buildGateProject(opts);
+        QVERIFY2(res.builder != nullptr,
+            ("gate scaffold failed before the gate stage; errors: "
+             + joinErrors(res.errors)).c_str());
+        QVERIFY2(!res.ok,
+            "new over a foreign private type must fail the build");
+        QVERIFY2(containsError(res.errors, "is not a member of package"),
+            joinErrors(res.errors).c_str());
+    }
+
+    //Case 6 (external): the public surface stays open end to end -
+    //qualified type binding, new, and the qualified public call.
+    //Must pass before AND after.
+    void foreignPublicExternalStillWorks()
+    {
+        GateProjectOptions opts;
+        opts.withAccessLib = true;
+        opts.szMainBody =
+            "import xlib;\n"
+            "int main()\n"
+            "{\n"
+            "    xlib.OpenBox box = xlib.OpenBox();\n"
+            "    return xlib.openHelper();\n"
+            "}\n";
+        auto run = runGateProject(opts);
+        QVERIFY2(run.ok, runFailureText(run,
+            "foreign public surface must build and execute").c_str());
+        QVERIFY2(run.runtimeError.empty(), "execution must be clean");
+        QVERIFY2(run.exitValue == 3, "openHelper() must return 3");
+    }
+
+    //Case 9: a consumer-owned declaration shadows the imported
+    //namespace-level name - the gate must not touch the own-module
+    //binding. Must pass before AND after.
+    void ownDeclarationShadowsImportedHelper()
+    {
+        GateProjectOptions opts;
+        opts.withAccessLib = true;
+        opts.szMainBody =
+            "import xlib;\n"
+            "int helper() { return 10; }\n"
+            "int main() { return helper(); }\n";
+        auto run = runGateProject(opts);
+        QVERIFY2(run.ok, runFailureText(run,
+            "the own helper() must shadow the imported one").c_str());
+        QVERIFY2(run.runtimeError.empty(), "execution must be clean");
+        QVERIFY2(run.exitValue == 10,
+            "the consumer's own helper() must win (10, not 9)");
+    }
+
+    //--- 0.13.8 D8.4: same-name types across bare pools -----------------
+    //
+    //utils/helper.n and core/helper.n each declare the same-named
+    //generic family (the DuplicateFieldChecker explicitly permits
+    //cross-pool same-name: "utils.helper.Cfg vs core.helper.Cfg ...
+    //each keeps its own identity"). Expression-position bare type
+    //resolution (annotations, ctor invocations, casts, typeName) must
+    //bind the ACCESSOR'S OWN unit's declaration first; the sibling
+    //pool's same-name type is reachable only qualified. Today the
+    //bare-pool scope hands back the FIRST-REGISTERED same-name child
+    //regardless of origin, so the later unit silently binds the
+    //earlier one.
+
+    //Runtime witness: each package's tagPipe() folds ITS OWN
+    //instantiation spelling, each makePipe() constructs its own, and
+    //each castLen() accepts only its own instance.
+    void sameNameGenericBindsOwnPoolAtRuntime()
+    {
+        GateProjectOptions opts;
+        opts.withCoreHelper = true;
+        //Identical source text in both packages except the len()
+        //constant, so a conflation shows as a wrong value, not a
+        //compile error.
+        opts.szHelperBody =
+            "class Pipe<T>\n"
+            "{\n"
+            "    public T item;\n"
+            "    public Pipe(T v) { item = v; }\n"
+            "    public int len() { return 3; }\n"
+            "}\n"
+            "string tagPipe() { return typeName(Pipe<int>); }\n"
+            "Object makePipe() { Pipe<int> p = Pipe(3); return p; }\n"
+            "int castLen(Object o)\n"
+            "{\n"
+            "    Pipe<int> p = o as Pipe<int>;\n"
+            "    return p.len();\n"
+            "}\n";
+        opts.szCoreHelperBody =
+            "class Pipe<T>\n"
+            "{\n"
+            "    public T item;\n"
+            "    public Pipe(T v) { item = v; }\n"
+            "    public int len() { return 4; }\n"
+            "}\n"
+            "string tagPipe() { return typeName(Pipe<int>); }\n"
+            "Object makePipe() { Pipe<int> p = Pipe(4); return p; }\n"
+            "int castLen(Object o)\n"
+            "{\n"
+            "    Pipe<int> p = o as Pipe<int>;\n"
+            "    return p.len();\n"
+            "}\n";
+        opts.szMainBody =
+            "import utils.helper;\n"
+            "import core.helper;\n"
+            "int main()\n"
+            "{\n"
+            "    string a = utils.helper.tagPipe();\n"
+            "    string b = core.helper.tagPipe();\n"
+            "    if (a != \"utils.helper.Pipe<int>\") { return 12; }\n"
+            "    if (b != \"core.helper.Pipe<int>\") { return 13; }\n"
+            "    Object oa = utils.helper.makePipe();\n"
+            "    Object ob = core.helper.makePipe();\n"
+            "    if (utils.helper.castLen(oa) != 3) { return 14; }\n"
+            "    if (core.helper.castLen(ob) != 4) { return 15; }\n"
+            "    try { core.helper.castLen(oa); return 16; }\n"
+            "    catch (InvalidCastException e) { }\n"
+            "    try { utils.helper.castLen(ob); return 17; }\n"
+            "    catch (InvalidCastException e) { }\n"
+            "    return 0;\n"
+            "}\n";
+        auto run = runGateProject(opts);
+        QVERIFY2(run.ok, runFailureText(run,
+            "same-name family must compile").c_str());
+        QVERIFY2(run.runtimeError.empty(), "execution must be clean");
+        QVERIFY2(run.exitValue == 0,
+            ("each package must bind its own Pipe<int>; exit="
+             + std::to_string(run.exitValue)).c_str());
+    }
+
+    //A bare use with NO own declaration and several imported foreign
+    //candidates of the same name must diagnose the ambiguity (naming
+    //both packages) instead of silently answering with the first
+    //registered unit.
+    void sameNameForeignBareUseDiagnosesAmbiguity()
+    {
+        GateProjectOptions opts;
+        opts.withCoreHelper = true;
+        opts.szHelperBody = "class Solo { public int v = 1; }\n";
+        opts.szCoreHelperBody = "class Solo { public int v = 2; }\n";
+        opts.szMainBody =
+            "import utils.helper;\n"
+            "import core.helper;\n"
+            "int main()\n"
+            "{\n"
+            "    Solo s = Solo();\n"
+            "    return 0;\n"
+            "}\n";
+        auto res = buildGateProject(opts);
+        QVERIFY2(res.builder != nullptr,
+            ("gate scaffold failed before the gate stage; errors: "
+             + joinErrors(res.errors)).c_str());
+        QVERIFY2(!res.ok,
+            "a bare use of two foreign same-name types must be "
+            "ambiguous, not first-registered-wins");
+        QVERIFY2(containsError(res.errors, "utils.helper")
+            && containsError(res.errors, "core.helper"),
+            ("the ambiguity diagnostic must name both packages; errors: "
+             + joinErrors(res.errors)).c_str());
     }
 };
 

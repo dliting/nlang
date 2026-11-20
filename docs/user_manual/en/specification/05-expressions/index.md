@@ -36,8 +36,8 @@ accepted.
 
 ## 5.2 Arithmetic and Relational Operators
 
-The binary operators `+ - * / % << >> < <= > >= == != && ||` and
-the unary operators `- + !` are fixed by §2.7. This section fixes
+The binary operators `+ - * / % << >> < <= > >= == != & ^ | && ||`
+and the unary operators `- + ! ~` are fixed by §2.7. This section fixes
 their operand types and results.
 
 `bool` and `char` do not enter arithmetic (§4.2). An
@@ -99,8 +99,10 @@ result has the operand's type; `-` on an unsigned integer wraps
 ## 5.3 String Concatenation
 
 The `+` operator with a `string` operand on either side is string
-concatenation: the other operand is converted to `string` (§4.4)
-and the two byte sequences are joined; the result is `string`.
+concatenation: the other operand is rendered as text by the rules
+below (which types are assignable to `string` in their own right
+is §4.4) and the two byte sequences are joined; the result is
+`string`.
 `+` is left-associative, so `2 + 3 + "y"` is `"5y"` and
 `"y" + 2 + 3` is `"y23"`.
 
@@ -127,12 +129,12 @@ A class, array or function value renders through its `toString`
 
 A string literal may contain `${name}`, where `name` is an
 identifier: each occurrence stands for the string rendering of
-the value that `name` denotes. The name resolves as a bare name
+the value that `name` denotes. The name resolves as an unqualified name
 (chapter 3) and renders as in §5.3; an interpolated literal means
 the same as the concatenation of its parts, evaluated left to
 right (§5.1).
 
-Only a bare identifier is allowed between `${` and `}`. Any other
+Only an unqualified identifier is allowed between `${` and `}`. Any other
 form — an expression, a qualified name, a member access — is a
 compile-time error.
 
@@ -153,15 +155,17 @@ conversion is one of the following:
 - an explicit numeric conversion: a narrowing or sign-changing
   integer conversion, `float` or `double` to an integer, or
   `char` to or from an integer;
-- a function value to `string`; the conversion applies with or
-  without the operator, and §5.3 fixes the rendering.
+- a function value to `string`; §5.3 fixes the rendering. This
+  pair converts implicitly as well (§4.4); the cast is the
+  explicit spelling of the same rendering, and with the unboxing
+  above it is the only way into `string` through `as`.
 
 An implicit conversion that is not one of these — widening
 integers, an integer to a floating-point type, `float` to
-`double`, or any type but a function value to `string` — is a
-compile-time error with `as`: it applies without the operator
-(§4.4). A pair with no
-conversion path is a compile-time error; `bool` has no `as` path
+`double`, or any type but a function value or `Object` to
+`string` — is a compile-time error with `as`: it applies without
+the operator (§4.4). A pair with no conversion path is a
+compile-time error; `bool` has no `as` path
 to or from any type but `Object` (§4.2): its conversion to
 `string` is implicit and takes no operator.
 
@@ -224,7 +228,7 @@ A string subscript `s[i]` reads the byte at byte offset `i` as a
 out-of-range index is a catchable run-time error (chapter 8). A
 string subscript is read-only: writing through it is a
 compile-time error (§4.3). Code-point access is the `charAt`
-method (§16.2).
+method (§17.2).
 
 The subscript of a `List` or `Dict` is sugar over its `get` and
 `set` methods (§12): `li[i]` reads and writes the element

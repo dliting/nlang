@@ -1,0 +1,65 @@
+// HTTP throughput probe for the NLang server (measurement-only: not shipped,
+// not an example, not in ctest).
+//
+// Three fixed-size bodies behind three paths, so ONE listener answers every row
+// of the external-generator comparison. The bodies are built on the first
+// request instead of per request: what the measurement should price is the
+// server's request/response path (parsing, framing, connection reuse), not
+// building a buffer that a static-file server would not build either. The
+// build lands inside the warm-up window, so it never reaches a measured window.
+//
+// main() blocks on a sleep because main returning ends the process (and with it
+// the listener); the driver script kills the process tree when its pass is over.
+import http;
+import thread;
+
+class Probe {
+    public static int port = __PORT__;
+    public static int keepAliveMs = 30000;
+    public static int lifetimeMs = 3600000;
+}
+
+class Fixed {
+    public static byte[] empty = byte[0];
+    public static byte[] oneK = byte[0];
+    public static byte[] eightK = byte[0];
+}
+
+// Printable filler. The other probes fill the same lengths with 'a'; what the
+// bytes are plays no part, because every row measures with compression off.
+byte[] digits(int size) {
+    byte[] b = byte[size];
+    for (int i = 0; i < size; i = i + 1) {
+        b[i] = (48 + i % 10) as byte;
+    }
+    return b;
+}
+
+HttpResponse handle(HttpRequest req) {
+    if (Fixed.oneK.length() == 0) {       // first request pays the build (warm-up)
+        Fixed.oneK = digits(1024);
+        Fixed.eightK = digits(8192);
+    }
+    HttpResponse res = HttpResponse();
+    string path = req.url.path;
+    if (path == "/b1024") {
+        res.body = Fixed.oneK;
+    } else if (path == "/b8192") {
+        res.body = Fixed.eightK;
+    } else if (path == "/b0") {
+        res.body = Fixed.empty;
+    } else {
+        res.statusCode = 404;
+        res.body = Fixed.empty;
+    }
+    return res;
+}
+
+int main() {
+    HttpServer srv = HttpServer();
+    srv.keepAliveTimeoutMs = Probe.keepAliveMs;
+    srv.start("127.0.0.1", Probe.port, handle);
+    thread.sleep(Probe.lifetimeMs);
+    srv.close();
+    return 0;
+}

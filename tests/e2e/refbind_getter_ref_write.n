@@ -1,0 +1,17 @@
+// Task 6: a & binding of a container element aliases the stored
+// record — the write through r is visible in the container.
+struct Point {
+    int x;
+    int y;
+}
+
+int main() {
+    List<Point> pts = {};
+    Point p0;
+    p0.x = 1;
+    p0.y = 2;
+    pts.add(p0);
+    Point& r = pts[0];
+    r.x = 9;
+    return pts[0].x;
+}

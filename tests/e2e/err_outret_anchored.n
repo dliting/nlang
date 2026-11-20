@@ -1,0 +1,7 @@
+// v0.13.9 phase 4: the anchored generic spelling func<out T>(...) has
+// no grammar arm today and stays a plain syntax error (there is no
+// node to anchor a named diagnostic on).
+int main() {
+    func<out int>(int) f = null;
+    return 0;
+}

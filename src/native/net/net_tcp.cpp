@@ -324,7 +324,7 @@ void NetTcpWrite(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
 //--- accept ----------------------------------------------------------------
 
 //_tcpAccept(listener, deadlineMs): accept on the listener's read
-//interest; the accepted fd is minted into a new stream slot. Returns
+//interest; the accepted fd is created into a new stream slot. Returns
 //the new handle or an R10 code.
 void NetTcpAccept(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     NetExecState* st = NetState(h);
@@ -346,7 +346,7 @@ void NetTcpAccept(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
             int32_t newHandle = 0;
             {
                 std::lock_guard<std::mutex> g(st->m_mutex);
-                newHandle = st->m_slots.Mint(peer, kNetKindTcpStream);
+                newHandle = st->m_slots.Create(peer, kNetKindTcpStream);
             }
             ReturnInt(ret, newHandle);
             return;
@@ -400,14 +400,15 @@ void NetTcpIsClosed(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
 }
 
 //_tcpPeerAddress(handle): connected-peer text (v4-mapped unwrapped);
-//null on a closed slot or getpeername failure.
+//the empty string (string has no null value — 0.13.4) on a closed slot
+//or getpeername failure.
 void NetTcpPeerAddress(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     NetExecState* st = NetState(h);
     std::lock_guard<std::mutex> g(st->m_mutex);
     const NetSocketSlot* slot = st->m_slots.Lookup(ArgInt(a, 0));
     if (!slot) {
         st->m_lastErrorText[h->currentContextId(h)] = "socket closed";
-        ReturnInt(ret, 0);
+        ReturnString(h, ret, std::string());
         return;
     }
     const std::string text = NetPeerAddress(slot->fd);
@@ -415,7 +416,7 @@ void NetTcpPeerAddress(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
         { std::string errText; int errCode = 0;
           NetLastErrorInfo(errText, errCode);
           NetSetErrorLocked(st, h, errText, errCode); }
-        ReturnInt(ret, 0);
+        ReturnString(h, ret, std::string());
         return;
     }
     ReturnString(h, ret, text);

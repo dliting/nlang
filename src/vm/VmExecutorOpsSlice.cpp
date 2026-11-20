@@ -2,7 +2,7 @@
     VmExecutorOpsSlice.cpp — OP_MakeArrayView runtime (v0.12.7 Task 11):
     the slice-subscript executor. Normalizes per-axis endpoints and
     steps (defaults by step direction, negative endpoints len+neg,
-    clipping), folds scalar axes into the offset, and mints the
+    clipping), folds scalar axes into the offset, and creates the
     depth-one view through AllocViewOnHeap — the single view-creation
     choke point. Split from VmExecutorOpsArrayN.cpp at birth
     (source-size governance: that file was already near the cap).
@@ -168,7 +168,7 @@ void VmExecutor::FoldSliceAxes(VmExecutor* e, uint16_t rank,
     }
 }
 
-//v0.12.7 Task 11: mint the slice-subscript view. Element-type identity
+//v0.12.7 Task 11: create the slice-subscript view. Element-type identity
 //is validated against the owner's row inside AllocViewOnHeap
 //(ValidateViewTypeMatch); the view's own type row rode the opcode.
 //All shape math completes on locals before AllocViewOnHeap — the slot

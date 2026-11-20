@@ -55,6 +55,11 @@ private:
 		std::vector<SnFormalParam*> &formals);
 	void ResolveFunctionFormals(SnFunction &sn,
 		std::vector<SnFormalParam*> &formals);
+	//v0.13.9 phase 3 split: the default-value contract for one formal
+	//(resolution + the checks below). Definition in
+	//StatementResolverDeclDefaults.cpp.
+	void ResolveFormalDefault(SnFunction &sn,
+		std::vector<SnFormalParam*> &formals, size_t i);
 	void CheckDefaultForwardRefs(std::vector<SnFormalParam*> &formals,
 		size_t i);
 	void CheckDefaultTypeCompat(SnFormalParam *param);
@@ -84,6 +89,43 @@ private:
 	void RejectTypeNameVariable(const std::string &name, SyntaxNode &scope,
 		const SnField &accessor, const ISourceLocation *pLoc);
 	void RejectConstWithoutInit(SnLocalDeclStmt &sn);
+	//v0.13.9 phase 3: the &-declarator shape contract — a reference
+	//binding rides the '=' continuation only; constructor continuations,
+	//sized-array declarators and bare declarations name their own
+	//diagnostics. True = rejected (the caller stops). Definition in
+	//StatementResolverRef.cpp.
+	bool RejectRefDeclaratorShapes(SnLocalDeclStmt &sn);
+	//v0.13.9 phase 3: the &-binding judgment for one resolved
+	//initializer. Identity types are no-op marks; constBinding marks
+	//a const T& declaration (Task 9). Definition in
+	//StatementResolverRef.cpp.
+	bool RejectRefBindTarget(SnExpression &expr, SnField *pTypeField,
+		const ISourceLocation *pLoc, bool constBinding = false);
+	//v0.13.9 phase 3 Task 4: promotion marking for an accepted &-binding
+	//— scalar/enum/string local and formal targets get NF_Promoted so
+	//codegen compiles their storage as one stable boxed record.
+	//Definition in StatementResolverRef.cpp.
+	void MarkPromotedBindTarget(SnExpression &expr);
+	//v0.13.9 phase 3: the position family of the &-binding judgment
+	//(the out-argument template: identifier/member/subscript) — member
+	//and identifier targets run the shared storage gates, subscript
+	//binds elements and rejects slices. True = rejected. Definition in
+	//StatementResolverRef.cpp.
+	bool RejectRefBindPosition(SnExpression &expr,
+		const ISourceLocation *pLoc);
+	//v0.13.9 phase 3: the storage gates shared by the identifier and
+	//member arms of RejectRefBindTarget AND by RejectRefReturnTarget
+	//(enum members, const/static slots). True = rejected. Definition in
+	//StatementResolverRef.cpp.
+	bool RejectRefTargetStorage(SnField *pField,
+		const ISourceLocation *pLoc);
+	//v0.13.9 phase 3: the binding-only gate — the target must not
+	//itself be a reference (a binding aliases storage, not a binding
+	//slot). A reference formal MAY be returned, so this gate is not
+	//part of the shared storage check. True = rejected. Definition in
+	//StatementResolverRef.cpp.
+	bool RejectRefTargetIsReference(SnField *pField,
+		const ISourceLocation *pLoc);
 	//True = the declaration is the unbraced body of a control-flow
 	//statement (a child of the control node, not of the paragraph); the
 	//decomposition anchor would silently misplace its AssignStmts, so
@@ -117,6 +159,12 @@ private:
 	void SynthesizeSizedArrayDeclarator(SnLocalDeclStmt &sn,
 		SnLocalDeclStmt::LocalDecl &decl, SnParagraph &paragraph,
 		NodeIterator iInsert, SnField *pSizedElemField);
+	//v0.13.9 phase 3 split: resolve one init declarator's decomposition
+	//(build, insert, resolve) and judge the &-binding against the
+	//resolved initializer. Definition in StatementResolverDecls.cpp.
+	void ResolveInitDeclarator(SnLocalDeclStmt &sn,
+		SnLocalDeclStmt::LocalDecl &decl, SnParagraph &paragraph,
+		NodeIterator iInsert, SnField *pTypeField);
 	//0.9.0: build the decomposition of a sized declarator
 	//`Type name[n]` (+ optional `[...]` partial init): one creation
 	//assign plus one subscript-store statement per initializer entry.
@@ -154,6 +202,10 @@ private:
 		SnField *pTargetType, SnField* &pSourceType);
 	void RejectConstStoreTarget(SnExpression &left,
 		const ISourceLocation *pLoc);
+	//Task 9: the const-receiver arm of RejectConstStoreTarget's member
+	//branch. Definition in StatementResolverStoreGates.cpp.
+	void RejectConstReceiverMemberStore(SnMemberExpr &left,
+		SnField *pMemberField, const ISourceLocation *pLoc);
 	//v0.12.4 D3/D4: the const-aggregate field-store gate shared by both
 	//arms of RejectConstStoreTarget. A member (not a free helper) because
 	//the ctor exemption needs the private IsConstructorFunction.
@@ -182,6 +234,19 @@ private:
 	//pre-existing `s += arr` toString-coercion surface. True = rejected.
 	bool RejectArrayCompoundAssign(SnCompoundAssignStmt &sn,
 		const SnField *pTargetType, const SnField *pSourceType);
+	//v0.13.9 phase ②: struct-involved compound assignment is rejected
+	//by name — structs have no arithmetic operators (the expanded
+	//binary form is already rejected at the cast ladder), so an
+	//in-place compound arm has no coherent semantics; without the gate
+	//the emitter would run int-typed ops on the record's handle cells.
+	//True = rejected.
+	bool RejectStructCompoundAssign(SnCompoundAssignStmt &sn,
+		const SnField *pTargetType, const SnField *pSourceType);
+	//The type-admission prologue of Access(SnCompoundAssignStmt&) —
+	//target/source rows plus the array-involved compound gate. False =
+	//resolved-by-rejection. Definition in StatementResolverCompound.cpp.
+	bool AdmitCompoundOperandTypes(SnCompoundAssignStmt &sn,
+		SnField* &pTargetType, SnField* &pSourceType);
 	bool FinishInitListAssign(SnAssignStmt &sn);
 	void FinishAssignTypeCheck(SnAssignStmt &sn);
 	//0.9.10: the shift branch of Access(SnCompoundAssignStmt&) — the
@@ -189,10 +254,21 @@ private:
 	//with the LHS's declared row as the carrier. Definition in
 	//StatementResolverCompound.cpp.
 	void FinishCompoundShift(SnCompoundAssignStmt &sn, SnField &targetType);
+	//v0.13.7: the bitwise compound gate (&=/|=/^=) — pass-through for
+	//the other operators, integer-only operand check for the bitwise
+	//family. Definition in StatementResolverCompound.cpp.
+	bool CheckCompoundBitwiseTarget(SnCompoundAssignStmt &sn,
+		SnField &targetType);
 	//Shared tail of Access(SnReturnStmt&): the return-position func-ref
 	//binding and the cast fixup against the declared return type. False
 	//when the binding failed (diagnostic logged).
 	bool FinishReturnExpr(SnFunction &outerFunc, SnReturnStmt &sn);
+	//v0.13.9 phase 3: &-typed returns must return storage that outlives
+	//the call — a local's record survives (GC) but writes land in an
+	//orphan, and const/static slots take no aliasing at all. True =
+	//rejected. Definition in StatementResolverRef.cpp.
+	bool RejectRefReturnTarget(SnFunction &outerFunc, SnExpression &expr,
+		const ISourceLocation *pLoc);
 	//0.9.11 D1: constructor declaration-shape predicates. IsCtorNameShape
 	//= a member function of a class or struct whose name equals the type
 	//name, regardless of flags — the declaration contract must also
@@ -210,7 +286,7 @@ private:
 	void CheckCtorDeclarationContract(SnFunction &sn);
 	//v0.13.0 D5: the modifier contract — NF_Const has no meaning on a
 	//function (functions are not rebindable; const-aggregates are a type
-	//concept). Names the rule for every minted function (public spellings,
+	//concept). Names the rule for every created function (public spellings,
 	//class members, semi declarations); the bare top-level spellings are
 	//named by the grammar's TopItem diagnostic arms. Definition in
 	//StatementResolverDecls.cpp.
@@ -256,6 +332,15 @@ private:
 	void LogVoidSubscriptStoreValue(SnSubscriptAssignStmt &sn);
 	void CheckForeachSource(SnForeachStmt &sn);
 	void MatchForeachElemType(SnForeachStmt &sn, SnField *pVarField);
+	//v0.13.9 phase 3 split: the foreach loop-var registration in the
+	//enclosing paragraph. Definition in StatementResolverFlow.cpp.
+	void RegisterForeachLoopVar(SnForeachStmt &sn, SnParagraph &paragraph,
+		SnField *pVarField);
+	//v0.13.9 phase 3: a & loop variable aliases the iteration element;
+	//Dict keys and string code points are materialized copies, so their
+	//& loops name their own diagnostics. Definition in
+	//StatementResolverRef.cpp.
+	void RejectRefForeachSource(SnForeachStmt &sn);
 	void ResolveForInitDecl(SnForStmt &sn);
 	SnAssignStmt *BuildForInitAssign(SnLocalDeclStmt &decl,
 		SnLocalDeclStmt::LocalDecl &d, SnParagraph *pParagraph);

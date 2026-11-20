@@ -371,7 +371,85 @@ deployment detail, not a program detail.
   compatible driver at run time; the host runtime itself has no GPU
   dependency.
 
-## [0.13.7]
+## [0.13.8] - 2026-11-15
+
+Terminology pass over the generic machinery, per
+`docs/dev/generic_term_reference.md`: the runtime record that spells a
+canonical instantiation name is now consistently called a *composition
+record* (`composition` in code), replacing the previous "recipe"
+wording, and the "mint" wording is replaced by the create/creation/
+instantiation families.
+
+### Changed
+
+- **Disassembly and loader diagnostics use the new term.** `ndisasm`
+  (and the debugger's disassembly view) print descriptor rows as
+  `desc=composition#N` and the `OP_TypeNameCompose` operands as
+  `dst=%u composition=%u`; the loader and linker diagnostics read
+  "truncated/malformed composition record" and "unknown composition
+  record tag". Scripts that grep the old `recipe` spellings must be
+  updated. Code identifiers follow the same rename (`compositionIdx`,
+  `compositionLen`, `AppendArgComposition`); the `.ncu` byte layout is
+  unchanged and existing modules load as before.
+- **"Mint" identifiers and comments renamed by semantics.** Object
+  creation follows `Create*` (`CreateHostString`, `CreateShell`,
+  `CreateThreadObject`), the generic instantiation machinery follows
+  `*Instantiation*` (`ExprResolverGenericInstantiation`,
+  `InstantiationDepthClaim`; three source files renamed), and
+  created-state gating follows `Created`/`CreationGate`
+  (`NativeCreationGate`, `creationGate`). User-visible: the
+  native-array binding diagnostics now read "element kind is not a
+  creatable scalar" (previously "mintable"). No behavior change.
+- **"Bare name" unified to "unqualified name"** in source comments and
+  test identifiers for the name-resolution sense (the package-prefix
+  concept). The generic-construction diagnostic keeps its established
+  wording "cannot be constructed by bare name"; comments and tests
+  only, no behavior change.
+- **The manual's generic chapters use the unified terms** —
+  composition record, canonical name, unqualified name — across the
+  Chinese and English specification and VM-architecture pages
+  (wording unification, no semantic change).
+
+### Added
+
+- **Cross-module access control for top-level functions and types.**
+  `private`/`protected`/`public` prefixes are accepted on top-level
+  functions, classes, structs, interfaces, and enums and enforced at
+  compile time: `private` admits a member only inside its own unit,
+  `protected` widens to the sibling units of the same package, and
+  `public` — the default for bare declarations (D5.1: importable by
+  default; encapsulation is expressed with explicit `private`/
+  `protected`) — admits every unit past the import gate. A denied
+  member is invisible to lookup rather than rejected after a hit: a
+  foreign private type fails qualified-name resolution (`Type 'Vault'
+  is not a member of package 'lib'.`), and a foreign private function
+  reports the standard not-found diagnostic on both the qualified and
+  the unqualified path. Inside its own unit every member is reachable
+  regardless of access. The module image format rises to 2.20:
+  function records and class/struct/interface records carry an access
+  byte at the record tail, the enums section grows a type-level access
+  table (three parallel tables become four), and the loader rejects an
+  access byte of `0` or above `3` as a corrupt image; existing
+  `.ncu`/`.npkg` files must be recompiled.
+- **Qualified descriptor identity for generic spellings.** The
+  canonical `typeName` spellings of user-unit generic instantiations
+  carry the owning package path (`"demo.Box<int>"`, `"alib.Box<int>"`;
+  root-unit types stay bare), implementing the D2 spelling rule of the
+  0.13.1 design; class-record keys stay bare (registration keys and
+  spelling keys are separate key spaces), and the loader accepts
+  dotted template heads in spelling resolution and serialization
+  round trips. Templates of the same name in different packages now
+  have distinct identities: their `typeName` spellings differ, a
+  cross-package cast through `Object` fails on the qualified spelling,
+  and the static-field compensation pattern keys on the qualified
+  name. Unqualified type names resolve own-unit first; a name shared
+  by several visible packages is an ambiguity error naming every
+  owner's package, and spelling-key interning hard-fails on a
+  duplicate key.
+
+## [0.13.7] - 2026-11-12
+
+This entry merges same-version work from two parallel development lines: the tensor vector-ops batch (array arithmetic operators, the SIMD kernel layer, index and comparison primitives) and the bitwise operators, compound bitwise assignment, the regex package and the dead-token scaffold removal; the subsections below are the union of both sides.
 
 The tensor vector-ops release: numpy-style array arithmetic in the
 language, a tier-dispatched SIMD kernel layer behind the tensor
@@ -423,6 +501,32 @@ without a single element loop.
   cell replacement primitive, so mid-traversal splices keep all
   iterators valid), a TU-end sweep verifies no tensor-flagged binary
   survives resolution, and the emitter asserts the same at codegen.
+- **Bitwise operators `&`, `^`, `|`, `~`.** Integer operands only (enum
+  member literals participate as `int`, enum-typed variables are
+  rejected -- exactly how `<<` treats them); the result type follows
+  the arithmetic promotion rules, both operands on equal footing --
+  `-1 & 1099511627776` stays `long` and keeps the high bit. `~` is the
+  bitwise complement (`~5` is `-6`, two's complement), promoting a
+  narrow integer operand to `int` like the binary operators do.
+  Precedence follows the C family: `&`/`^`/`|` sit between equality
+  and the logical operators; `~` sits with the other unary operators.
+  Compiled modules move to image format 2.14; recompile existing
+  `.ncu`/`.npkg`.
+- **Compound bitwise assignment `&=`, `|=`, `^=`.** Store-back follows
+  the compound-assignment family: the result is written in the left-hand
+  side's declared type with implicit narrowing.
+- **`regex` package.** Regular expressions with the mainstream (RE2
+  family) pattern syntax: literals and escapes, `.` and character
+  classes (ranges, negation, POSIX names such as `[:alpha:]`),
+  alternation, numbered and named capture groups, repetition
+  (`* + ? {n,m}`, lazy variants), anchors (`^ $ \A \b \B \z`) and inline
+  flags (`(?i)`, `(?s)`, `(?m)`); back references and look-around are
+  rejected with explicit messages. `Regex(pattern)` compiles once and
+  stays shareable across threads; `isMatch`/`match`/`matches`/`split`/
+  `replaceFirst`/`replaceAll` answer about an input string, and each
+  `Match` carries the group texts and byte offsets of one result.
+  `regex.quoteMeta(text)` escapes every metacharacter so arbitrary
+  text matches itself literally.
 
 ### Changed
 
@@ -443,6 +547,150 @@ without a single element loop.
   lowered operators reach the same kernels through different call
   depths. GPU (CUDA/ROCm) backends are future work — the KernelOps
   table is the extension seam.
+
+### Removed
+
+- **Dead token scaffolding: `++`, `--`, `~=`, and the reserved words
+  `elseif` and `state`.** The lexer emitted them and the grammar
+  declared them, but no valid construct ever consumed them — `i++` and
+  `a ~= b` were syntax errors and stay syntax errors, and `elseif` /
+  `state` were reserved without any syntax to parse. One visible
+  consequence: `v--1` now reads as the valid expression `v - (-1)`
+  where it used to be a syntax error; write parentheses if you mean
+  something else.
+
+## [0.13.6] - 2026-11-12
+
+### Added
+
+- **`TcpStream.peekFilled` and `consume`.** The raw receive window,
+  for code that frames messages itself: `peekFilled(minBytes = 1,
+  timeoutMs = 0)` waits until `minBytes` unconsumed bytes are
+  buffered (the wait target is capped at the 8192-byte window
+  capacity, and `timeoutMs = 0` means no deadline) and returns a
+  view of the window; `consume(count)` discards the bytes already
+  framed, making room for the next refill. An empty view means end
+  of file, the same signal `read` gives. The view is invalidated by
+  the next read or `consume`.
+
+### Changed
+
+- **`TcpStream` reads lose nothing.** `read`, `readLine` and
+  `readExactly` now run over one lazy 8192-byte receive window:
+  bytes `readExactly` takes beyond `count` stay in the window for
+  later reads, so a fixed-size header read followed by a body read
+  no longer consumes and drops the tail; `readLine` assembles a
+  line across window refills, so line length stays unlimited.
+- **Surplus HTTP connections are refused off the accept thread.**
+  At `maxConnections`, a surplus connection now gets its 503 from a
+  short-lived worker; while 64 such answers are already in flight,
+  a surplus connection is closed with no answer, so the client
+  reads an empty reply.
+- **Deadline-free `net.ping` no longer postpones hostname
+  resolution.** A ping with `timeoutMs = 0` keeps its wait off the
+  high-priority native work queue, so a batch of open-ended pings
+  cannot starve name resolution running at normal priority.
+
+### Fixed
+
+- **Timed network waits no longer round up to ~15 ms.** The VM
+  registered deadline parking only at scheduler round boundaries,
+  so a wait whose deadline landed on the OS clock tick slept a
+  whole quantum: ready bytes, timeouts and idle keep-alive
+  cutoffs all arrived ~15 ms late under load. Waits now park on
+  their own deadline, and the p50 latency of the canned HTTP
+  benchmark fell from ~15 ms to ~1 ms per request.
+
+### Performance
+
+- **HTTP serving throughput moved up an order of magnitude.** One
+  lazy receive window per connection replaces the byte-at-a-time
+  reads, the response head is pre-encoded with the `Date` header
+  cached per second, and the head and body go out in one write.
+  On the same-machine five-way benchmark (`tools/http_perf/`) the
+  server now stays within one order of magnitude of Node.js on
+  both the single-connection and the high-concurrency rung, the
+  acceptance gate for this version.
+
+## [0.13.5] - 2026-11-09
+
+### Added
+
+- **`http` package.** HTTP/1.1 in NLang source on top of `net`, with
+  no native code of its own: the message model
+  `HttpRequest`/`HttpResponse`/`HttpHeaders` and the hardened
+  `HttpParser`, `HttpServer` (one thread per connection; the
+  non-blocking `start()` for tests and the blocking `serve()` for a
+  standalone server; hardened 400/408/413/417/431/500/503/505
+  answers), `HttpClient` (a connection pool per origin, redirects,
+  separate connect/read/call timeouts, default headers) with
+  `request`/`open`/`close`, the requests-style free functions
+  `get`/`post`/`put`/`del`/`request` and the shared `defaultClient()`
+  they run on, and `HttpException` carrying the response `status`.
+- **Streaming bodies.** `HttpBodyReader`
+  (`read`/`readAll`/`bodyText`/`close`/`drain`) for a request body, a
+  bounded `Channel<byte[]>` as `HttpResponse.bodyChannel` — a blocked
+  `send` is backpressure — and `HttpClient.open()` to read a response
+  chunk by chunk, whose `close` hands the connection back to the pool.
+  A failed write closes the channel, so the producer's next `send`
+  raises `ChannelClosedException` and a client that has gone away
+  stops the work it was causing.
+- **`gzip` package.** `compress`/`decompress` over a whole byte buffer
+  (RFC 1952, carrying the DEFLATE codec of RFC 1951) and
+  `GzipException`, served by the new `nlang_gzip` native module with
+  the zlib codec compiled into it.
+- **Examples.** `http_hello.n`, `http_conc_bench.n` (1000 concurrent
+  workers sending 1000 requests through one client capped at 4 pooled
+  keep-alive connections, so pool waiting is exercised too) and
+  `http_sse.n` (server-sent events: chunked framing done by hand, and a
+  handler that stops when the client goes).
+
+### Fixed
+
+- **`url` keeps an authority carried only by a port.** `toString` and
+  the RFC 3986 §5.3 reassembly in `resolve` now share one authority
+  predicate, so `http://:8080/p` and a `resolve("//:80")` base survive
+  the round trip instead of losing the `//`.
+- **`DateTime.parse` requires plain digits in every field.** `toInt`
+  accepts a leading sign, and a parser that walks the string by position
+  cannot lean on that: `T-1:00` used to normalize silently into the
+  previous day, and a signed year was padded to text `parse` can never
+  read back. Each field must now be all digits, or the parse raises
+  `DateTimeException`.
+
+## [0.13.4] - 2026-11-08
+
+### Added
+
+- **`system` package.** `wallMs`/`monoMs` clocks (served by the new
+  `nlang_system` native module) and the `DateTime` UTC calendar type.
+- **`String` methods.** `indexOf(sub, from)`, `toInt(radix)` and
+  `equalsIgnoreCase(other)`.
+- **`io` Base64 codecs.** `base64Encode`/`base64Decode`/
+  `base64UrlEncode`/`base64UrlDecode`.
+- **`url` package.** RFC 3986 `Url` (parse/resolve/toString/
+  queryParams/encodeQuery) and the `percentEncode`/`percentDecode`/
+  `formEncode`/`formDecode` component codecs.
+- **`string.EMPTY`.** The named constant for the empty string `""`,
+  declared on the `String` prelude class.
+
+### Changed
+
+- **`io.nowMs` moved to `system.monoMs`.** The clock face belongs to
+  `system`, not `io`.
+- **null is no longer a string value.** `string` is a builtin value
+  type and its value domain excludes null (null remains the empty
+  reference of the reference types). Writing the null literal in a
+  string-typed position — initialization, assignment, argument
+  passing, return, comparison, case label, concatenation, static
+  const initializer — is now a compile error; it was previously
+  accepted and read as the empty string everywhere. The empty string
+  is `""` / `string.EMPTY`, and an uninitialized string defaults to
+  `""`. A native function declared to return `string` that hands
+  back a null handle now raises a host-level run-time error, and
+  every string-typed slot — locals, fields, array elements —
+  defaults to `""` instead of a null handle.
+
 ## [0.13.3] - 2026-11-13
 
 The abstract-and-generic-interfaces release: bodyless method

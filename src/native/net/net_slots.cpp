@@ -42,7 +42,7 @@ void CloseFd(NetSocketSlot& slot) {
 
 }  //namespace
 
-int32_t NetSocketTable::Mint(int fd, uint8_t kind) {
+int32_t NetSocketTable::Create(int fd, uint8_t kind) {
     int32_t index = 0;
     if (!m_freeList.empty()) {
         index = m_freeList.back();

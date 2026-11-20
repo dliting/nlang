@@ -1,0 +1,9 @@
+// string is a value type: a null literal cannot initialize a
+// string-typed static constant.
+class Types {
+    public static const string S = null;
+}
+
+int main() {
+    return Types.S.length();
+}

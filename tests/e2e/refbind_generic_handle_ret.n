@@ -1,0 +1,9 @@
+//Task 8 probe: & return through a func handle — raw pair pass-through.
+int& pick(int& v) { return v; }
+int main() {
+    func<int&, int&> h = pick;
+    int x = 5;
+    int& r = h(x);
+    r = r + 100;
+    return x;
+}

@@ -1,3 +1,4 @@
+#include "test_support/test_scratch.h"
 #include "BytecodeEmitter.h"
 #include "BytecodeOps.h"
 #include "BytecodeReader.h"
@@ -141,7 +142,7 @@ void test_module_save_load() {
     mod.functions.push_back(std::move(func));
 
     // Save via the shared writer
-    std::string tmpPath = std::filesystem::temp_directory_path().string() + "/nlang_test_mod.ncu";
+    std::string tmpPath = (nlang::test::ScratchDir("nlang_test_vm") / "nlang_test_mod.ncu").string();
     {
         std::ofstream fs(tmpPath, std::ios::binary);
         CHECK(WriteCompiledModule(fs, mod, "main"), "WriteCompiledModule failed");
@@ -300,16 +301,19 @@ void test_module_import_slots_roundtrip() {
     mod.enumNames.push_back({});  //placeholder slot for lib.Color
     mod.enumKeys.push_back("app.Color");
     mod.enumKeys.push_back("lib.Color");  //placeholder carries the target key
-    //v2.9: the method tables keep the four-vector lockstep (the writer
+    //v2.9: the method tables keep the vector lockstep (the writer
     //refuses a diverging module); this module carries no enum methods.
     mod.enumMethodIndices.push_back({});
     mod.enumMethodIndices.push_back({});
     mod.enumMethodAccess.push_back({});
     mod.enumMethodAccess.push_back({});
+    //v2.20: the type-level access table joins the same lockstep.
+    mod.enumAccess.push_back(FA_Public);
+    mod.enumAccess.push_back(FA_Public);
     mod.enumImports.push_back({"lib", "lib.Color", 0});
 
-    std::string tmpPath = std::filesystem::temp_directory_path().string()
-        + "/nlang_test_imports.ncu";
+    std::string tmpPath =
+        (nlang::test::ScratchDir("nlang_test_vm") / "nlang_test_imports.ncu").string();
     {
         std::ofstream fs(tmpPath, std::ios::binary);
         CHECK(WriteCompiledModule(fs, mod, "app.main"),
@@ -390,7 +394,7 @@ void test_module_import_slots_roundtrip() {
 
     //Corrupt-image guard: import slots are table TAILS (own 0..n-1,
     //imports n..n+m), so an import count above the table size would
-    //underflow every ownCount consumer (stub minting, linker slot
+    //underflow every ownCount consumer (stub creation, linker slot
     //walks) into out-of-bounds reads. The reader must refuse the image.
     {
         mod.functionImports.push_back({"lib", "lib.g", 1});
@@ -535,14 +539,14 @@ void test_module_v27_surface_roundtrip() {
     pctor.returnTypeKind = RTK_Void;
     mod.functions.push_back(std::move(pctor));
 
-    //4: free function — out formal + a no-default slot (free functions
+    //4: free function — & formal + a no-default slot (free functions
     //carry one default entry per formal, unlike methods).
     CompiledFunction helper;
     helper.name = "surface.helper";
     helper.paramCount = 1;
     helper.returnTypeKind = RTK_Int32;
     helper.returnTypeDesc = IntDesc();
-    helper.paramTypeDescs.push_back({ IntDesc(), PTDF_Out });
+    helper.paramTypeDescs.push_back({ IntDesc(), PTDF_Ref });
     helper.defaultValues.push_back(NoDefault());
     mod.functions.push_back(std::move(helper));
 
@@ -622,14 +626,14 @@ void test_module_v27_surface_roundtrip() {
     CompiledInterfaceMethod go;
     go.name = "go";
     go.paramCount = 1;
-    go.paramTypeDescs.push_back({ StrDesc(), PTDF_Out });
+    go.paramTypeDescs.push_back({ StrDesc(), PTDF_Ref });
     go.returnType.kind = RTK_Void;   //the kind byte — a descriptor is never zero bytes
     go.defaultValues.push_back(StringDefault(0));
     iface.instanceMethods.push_back(go);
     mod.interfaces.push_back(std::move(iface));
 
-    std::string tmpPath = std::filesystem::temp_directory_path().string()
-        + "/nlang_test_surface.ncu";
+    std::string tmpPath =
+        (nlang::test::ScratchDir("nlang_test_vm") / "nlang_test_surface.ncu").string();
     {
         std::ofstream fs(tmpPath, std::ios::binary);
         CHECK(WriteCompiledModule(fs, mod, ""), "write surface module");

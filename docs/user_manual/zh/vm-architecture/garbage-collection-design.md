@@ -21,7 +21,7 @@ NLang的堆由垃圾回收（GC，garbage collection）自动管理：开发者�
 - `HeapIndex`：struct/class/数组/函数的堆索引；只测堆域。
 - `Dual`：未知；双域值测试——即保守测试本身，作为回退类别保留。
 
-后端由栈帧布局推导类别：求值区之下的固定暂存区（临时池与调用暂存）为`Dual`，因为任何表达式都可能流经；命名的局部变量与返回槽取各自声明的种类；求值区槽位初值为`None`，由使用它的代码位点所声明的类别（`EvalAreaClaim`）加宽。只有能枚举全部过路值的位点才可声明窄类别——例如委托调用的类别是`HeapIndex`，因为该槽只由一条`OP_LoadField`写入。若同一槽位还可能接收表达式中间值，声明保持`Dual`；被多个位点声明的槽位取各类别的并集（按位或），只会向`Dual`加宽。
+后端由栈帧布局推导类别：求值区之下的固定暂存区（临时池与调用暂存）为`Dual`，因为任何表达式都可能流经；命名的局部变量与返回槽取各自声明的种类；求值区槽位初值为`None`，由使用它的代码位置所声明的类别（`EvalAreaClaim`）加宽。只有能枚举全部过路值的位置才可声明窄类别——例如委托调用的类别是`HeapIndex`，因为该槽只由一条`OP_LoadField`写入。若同一槽位还可能接收表达式中间值，声明保持`Dual`；被多个位置声明的槽位取各类别的并集（按位或），只会向`Dual`加宽。
 
 意义所在：声明表看不见暂存槽。`f(g(), h())`中g的返回值在h入帧（安全点）时只活在调用帧的求值暂存区里。位图以每次收集更少的测试工作补上这个洞，且不依赖物理布局：只有`Dual`槽位才付双域值测试的代价。帧建立时零初始化，未写的槽值为0，两个域都不命中；GC不移动对象，因此`Dual`槽位的跨域命中只可能多标（对象暂留），绝不漏标。手工构造的内存函数记录若位图长度与帧布局不符（装载器在产物中拒绝这种形态），整带回退为双域保守扫描。
 
@@ -77,7 +77,7 @@ MarkPhase():
     if threadObjHeapIdx or failExcHeapIdx valid: mark, push to worklist
   for each in-flight blocking native call:
     staged argument cells and return slot: value-test both domains
-    handles minted by re-entrant callbacks: value-test both domains
+    handles created by re-entrant callbacks: value-test both domains
   for each host-registered root:
     string roots to MarkString, heap roots to worklist
   while worklist not empty:
@@ -132,7 +132,7 @@ SweepStrings():
 
 - 非阻塞原生调用不挂起、不取锁：任何收集都必须等其载体回到安全点才能推进，因此不会与其交错；实参留在求值栈上，由发布表覆盖为根，无需额外扎根。
 - **阻塞**原生调用使用暂存格（staged cells）：此类调用按ABI（应用二进制接口，application binary interface）第5版的注册通道声明。VM把实参拷入自有格子，释放锁，调用原生，重新取锁（先查停止标志），复原帧，再把结果拷回。无锁窗口内其他载体上的回收可以运行，因此暂存的实参格与返回槽在整个调用期间都是根；返回格按地址作为根——原生自己写入其中。
-- 阻塞原生内对VM的回调（构造字符串、构造列表、抛出异常）每次回调重新获取锁。它们铸造的句柄压入执行器的本地根向量，调用返回时截断到水印；它存放在执行器而非载体的C++栈上，因为运行在另一载体上的回收器看不见那条栈。
+- 阻塞原生内对VM的回调（构造字符串、构造列表、抛出异常）每次回调重新获取锁。它们创建的句柄压入执行器的本地根向量，调用返回时截断到水印；它存放在执行器而非载体的C++栈上，因为运行在另一载体上的回收器看不见那条栈。
 - 根向量的改动都在锁下进行（释放前登记，重新获取后截断），回收读到的列表因此始终一致。
 
 ### 数组字段与元素追踪
@@ -151,11 +151,11 @@ SweepStrings():
 
 ```text
 OP_New / OP_AllocStruct → set m_gcPending = true
-String allocation (mint / concatenation node) → set m_gcPending = true
+String allocation (creation / concatenation node) → set m_gcPending = true
                             ↓
 Function entry (frame push) → CheckGCSafepoint()
 Loop back-edge (OP_Jump backward) → CheckGCSafepoint()
-Thread intrinsic (spawn, after minting the context) → CheckGCSafepoint()
+Thread intrinsic (spawn, after creating the context) → CheckGCSafepoint()
                             ↓
 CheckGCSafepoint → if pending && (heap > threshold || strings > strThreshold)
                    → CollectGarbage()

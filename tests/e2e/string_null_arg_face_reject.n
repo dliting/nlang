@@ -1,0 +1,6 @@
+// string is a value type: a null literal cannot be passed to a
+// string-typed formal of a String face method.
+int main() {
+    string s = "ab";
+    return s.indexOf(null);
+}

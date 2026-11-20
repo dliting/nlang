@@ -259,7 +259,7 @@ void StatementResolveAccessor::MatchForeachElemType(SnForeachStmt &sn,
 //0.9.13 D-new-2: a bare `[...]`/`{...}` iterable has no target until the loop-var
 //type is known — supply the interned array token of the element field so
 //the init list resolves against it (the same shape the assignment site
-//passes). A jagged loop var (T[]) would mint a token-of-token target:
+//passes). A jagged loop var (T[]) would create a token-of-token target:
 //keep the existing jagged diagnostic instead.
 static void SupplyForeachInitListTarget(BuildEnvironment &env,
 	ExprResolver &resolver, SnForeachStmt &sn, SnField *pVarField)
@@ -285,6 +285,35 @@ static void SupplyForeachInitListTarget(BuildEnvironment &env,
 		return;
 	}
 	pInitList->InferredTarget(env.InternArrayTypeToken(pVarField));
+}
+
+//v0.13.9 phase 3 split (source-size guard): step 3 of the foreach walk
+//— the loop-var registration in the enclosing paragraph (function-
+//scoped, same as for-loop).
+void StatementResolveAccessor::RegisterForeachLoopVar(SnForeachStmt &sn,
+	SnParagraph &paragraph, SnField *pVarField)
+{
+	//0.9.0 semantic restriction: the foreach loop variable may not
+	//reuse a visible type name.
+	RejectTypeNameVariable(sn.VarName(), paragraph, *m_pCurrType,
+		sn.Location());
+	auto *pLocal = new SnLocalVar(sn.VarName(), pVarField,
+		*sn.Location());
+	if (sn.VarType()->IsArrayType())
+		pLocal->SetArrayType(true);
+	//Task 7 (D6): the & mark rides the VarType wrapper; the descriptor
+	//is built from the stripped inner node, so re-attach the flag for
+	//the dereference machinery to engage on body reads/writes. Bindable
+	//scalar/enum/string elements only — struct elements follow the
+	//pair-reads-as-handle convention without a flag, and class/array
+	//elements degrade to value form (spec 3.1).
+	if (sn.VarType()->ContainFlags(NF_Ref) && pVarField)
+	{
+		const NodeKind elemKind = pVarField->Kind();
+		if (IsPrimitiveType(elemKind) || elemKind == NK_EnumDecl)
+			pLocal->AddFlags(NF_Ref);
+	}
+	paragraph.AddLocal(sn.VarName(), pLocal);
 }
 
 //Phase 8e-5: foreach statement resolver.
@@ -323,20 +352,16 @@ void StatementResolveAccessor::Access(SnForeachStmt &sn)
 	sn.Iterable()->Accept(*m_pVisitor);
 	CheckForeachSource(sn);
 
+	//v0.13.9 phase 3: a & loop variable aliases the element — Dict-key
+	//and string sources are materialized copies and reject by name.
+	if (sn.VarType()->ContainFlags(NF_Ref))
+		RejectRefForeachSource(sn);
+
 	MatchForeachElemType(sn, pVarField);
 
 	//3. Register loop var in paragraph scope (function-scoped).
-	if (pVarField && pParagraph) {
-		//0.9.0 semantic restriction: the foreach loop variable may not
-		//reuse a visible type name.
-		RejectTypeNameVariable(sn.VarName(), *pParagraph, *m_pCurrType,
-			sn.Location());
-		auto *pLocal = new SnLocalVar(sn.VarName(), pVarField,
-			*sn.Location());
-		if (sn.VarType()->IsArrayType())
-			pLocal->SetArrayType(true);
-		pParagraph->AddLocal(sn.VarName(), pLocal);
-	}
+	if (pVarField && pParagraph)
+		RegisterForeachLoopVar(sn, *pParagraph, pVarField);
 
 	//4. Descend into body.
 	FlowDepthGuard guard(m_breakableDepth, m_loopDepth);

@@ -67,41 +67,54 @@ the heap, matching the class-typed `new` (§4.8.4).
 
 ## 4.7.4 Value semantics
 
-Assignment between struct values copies the whole value: every
-field is copied, including nested struct fields, so the source and
-the copy are independent. A field of a reference type copies its
+Assignment between struct values writes the source's value into the
+record the target position already owns: every field cell is
+overwritten, including nested struct fields, so the source and the
+target stay independent. A field of a reference type copies its
 reference, so the two struct values then share that one object
 (chapter 9).
 
-The same deep copy applies everywhere a struct value moves:
+Every struct storage position — a local variable, a field, an array
+element, a container element, a static slot — owns one heap record
+for its entire life; a write into an existing position is an **in-
+place update**: it overwrites that record's field cells and
+allocates nothing. Only establishing a new storage position
+allocates a record and fills it with the initial value:
 
-- **Declaration** (`Point p;`) gives every field its default value
-  (§4.7.2).
-- **Parameter passing and return** deep-copy the value once on the
-  way in and once on the way back; the callee operates on its own
-  copy.
-- **As a class field**: assigning `obj.s = s1` deep-copies `s1`
-  into the class's field.
-- **As a static field's value**: storing a struct into a class or
-  interface static slot (a static field, a static constant's lazy
-  channel, or a static local of struct type) deep-copies it — the
-  slot owns an independent record, reading the slot into a
-  variable deep-copies again, and a member write through the slot
-  mutates the slot's own record (§4.8.8).
-- **As an array element**: `Point[n]` allocates a fresh,
-  independent struct per element at creation, nested struct fields
-  included. Reading an element into a struct variable deep-copies
-  it; writing through a subscript stores into the array's own
-  element (§4.10). A zero-length struct array is legal and
-  creates no elements.
+- **Declaration** (`Point p;`) establishes the local's record and
+  gives every field its default value (§4.7.2).
+- **Parameter passing and return** each establish a fresh record
+  copied from the source: once on the way in and once on the way
+  back; the callee operates on its own copy.
+- **As a class field**: assigning `obj.s = s1` writes `s1`'s value
+  in place into the record the field already owns.
+- **As a static field's value**: a class or interface static slot
+  (a static field, a static constant's lazy channel, or a static
+  local of struct type) owns one record for life — the first store
+  establishes it (or fills the type-default record an
+  initializer-less slot starts at), and every later store updates
+  it in place; reading the slot into a variable copies the value
+  into a new record, and a member write through the slot mutates
+  the slot's own record (§4.8.8).
+- **As an array element**: `Point[n]` establishes a fresh,
+  independent record per element at creation, nested struct fields
+  included. Reading an element into a struct variable copies the
+  value; writing through a subscript updates that element's
+  existing record in place (§4.10). A zero-length struct array is
+  legal and creates no elements.
+- **As a container element**: `List<T>` and `Dict<K,T>` `set`
+  writes a struct value in place into the record that position
+  owns; storing under a new key establishes a record for the new
+  position (chapter 12).
 - **Equality** (`==` / `!=`) compares by field value: nested struct
   fields recurse, `string` fields compare content, and reference-
   shaped fields (class, array, interface, `func`) compare identity —
-  exactly what a copy stores. Two structs of different types never
-  compare equal, and ordering a struct is a compile error (§4.5).
+  exactly what the record stores. Two structs of different types
+  never compare equal, and ordering a struct is a compile error
+  (§4.5).
 
 When a struct contains a class-typed field, the class reference is
-copied as-is during the struct copy: the original and the copy
+copied as-is during the copy: the original and the copy
 refer to the same class object on the heap.
 
 ```nlang
@@ -198,3 +211,72 @@ int main() {
     return area;
 }
 ```
+
+## 4.7.9 References (`T&`)
+
+Value types — scalars, enums, strings and struct records — keep value
+semantics by default: assignment copies, and each name owns its own
+storage. The `&` mark opts a specific name into **aliasing existing
+storage** instead of copying it:
+
+```nlang
+int q = 10;
+int& r = q;    // r names q's storage — no copy is made
+r = 20;        // writes q's storage: q == 20 now
+```
+
+**`r = q` never rebinds.** An assignment to a reference writes the
+storage it already names. A reference is bound once, at its declaration,
+and keeps pointing there for its whole lifetime — to aim elsewhere,
+declare a new reference. The contrast:
+
+```nlang
+int a = 1;
+int b = 2;
+int& r = a;
+r = b;         // writes b's VALUE into a's storage: a == 2, r still names a
+int& s = r;    // compile error: "cannot bind a reference to reference"
+```
+
+References appear in four positions:
+
+- **Local bindings** — `int& r = q;` (the examples above).
+- **Formals** — `void bump(int& v)`: writes through `v` land in the
+  caller's argument (§7.2).
+- **Returns** — `Point& corner()`: the call result names storage owned
+  elsewhere; returning a reference to a local fails with
+  "cannot return a reference to local …; its storage ends with the
+  call." Reference returns are implemented for free functions and
+  class methods; an interface or enum method that declares one is a
+  compile-time error.
+- **Loop variables** — `foreach (int& n in nums)`: each pass names the
+  current element storage (§6.8).
+
+**The bindable family**: scalar, string and struct storage — locals,
+formals, struct fields, array elements and container elements reached
+through a value of that family. Identity types (class, array,
+interface, `func`) are references already; `&` on them is an equivalent
+notation. The binding requires the **exact** type — a conversion would
+build new storage and break the aliasing, so
+`cannot bind int to long&; a reference binding requires the exact
+type.` also rejects enum-to-integer and widening shapes.
+
+**Record stabilization** is the model that makes bindings safe: a
+struct local's storage is one stable record. Assignment `b = a` writes
+that record's cells in place; a fresh record is only established at
+creation scenes — a declaration without a copy, array element
+creation, initializer materialization. The record a binding names
+never moves, so the binding never dangles.
+
+**Read-only references** (`const T&`, §7.2) bind const storage and
+constants without allowing writes through the binding; an expression
+result materializes into a temporary that the binding keeps alive. A
+writable `&` to const storage is rejected:
+"cannot bind a reference to const storage …; a reference may write
+through its target."
+
+Also rejected at compile time: a reference to a slice ("a reference
+cannot bind a slice; slices are views, not element storage"), a
+reference to an enum member ("cannot bind a reference to enum member"),
+a reference to a method call result, and a `&` loop variable over a
+`Dict` or `string` source.

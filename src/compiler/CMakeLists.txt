@@ -111,8 +111,8 @@ add_library(nlang_compiler
     builder/ExprResolverMemberFields.cpp
     builder/ExprResolverTypes.cpp
     builder/ExprResolverGenerics.cpp
-    builder/ExprResolverGenericMint.cpp
-    builder/ExprResolverGenericMintIface.cpp
+    builder/ExprResolverGenericInstantiation.cpp
+    builder/ExprResolverGenericInstantiationIface.cpp
     builder/ExprResolverGenericDefaults.cpp
     builder/ExprResolverBuiltinClasses.cpp
     builder/ExprResolverStaticFace.cpp
@@ -125,7 +125,9 @@ add_library(nlang_compiler
     builder/ExprResolverSubscript.cpp
     builder/ExprResolverAlias.cpp
     builder/ExprResolverBinary.cpp
+
     builder/ExprResolverArrayOps.cpp
+    builder/ExprResolverBitwise.cpp
     builder/ExprResolverTypeGates.cpp
     builder/ExprResolverNew.cpp
     builder/ExprResolverNewCtor.cpp
@@ -154,6 +156,8 @@ add_library(nlang_compiler
     builder/StatementResolverTensorAssign.cpp
     builder/StatementResolverCompound.cpp
     builder/StatementResolverFlow.cpp
+    builder/StatementResolverRef.cpp
+    builder/RefBindJudgment.cpp
     builder/StatementResolverSwitchTry.cpp
     builder/StatementResolverSuper.cpp
     builder/StatementResolverStoreGates.cpp

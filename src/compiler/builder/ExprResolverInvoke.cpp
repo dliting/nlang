@@ -5,6 +5,7 @@
     ExprResolverInvokeMatch.cpp。
 ---*/
 #include "ExprResolver.h"
+#include "RefBindJudgment.h"
 #include "SnExtraTypes.h"
 #include "SnMisc.h"
 #include "SnArrayTypeToken.h"
@@ -191,22 +192,15 @@ bool ExprResolveAccessor::ResolveInvokeArguments(SnInvokeExpr &snInvoke,
 	return true;
 }
 
-//Chosen-callee admission gates of Access(SnInvokeExpr&) — the Phase 9e
-//out-argument veto on virtual (by-name dispatched) methods and the
-//Phase 12 bare-method reject. False = rejected with its diagnostic; the
-//deferred-argument sweep has run and the call stays unresolved.
+//Chosen-callee admission gates of Access(SnInvokeExpr&) — the Phase 12
+//bare-method reject and friends. False = rejected with its diagnostic;
+//the deferred-argument sweep has run and the call stays unresolved.
+//v0.13.9 phase 4: the out-argument veto on virtual methods is gone —
+//out actuals fail at their own retirement diagnostic first.
 bool ExprResolveAccessor::AdmitChosenCallee(SnInvokeExpr &snInvoke,
 	SnFunction *pCallee, const std::vector<FormalBinding> &bindings,
 	const std::vector<SnExpression*> &deferredBraceArgs)
 {
-	//Phase 9e: out arguments on virtual (by-name dispatched) methods are
-	//rejected before anything binds — see OutArgOnDispatchedCalleeRejected.
-	if (pCallee
-		&& OutArgOnDispatchedCalleeRejected(snInvoke, *pCallee, bindings))
-	{
-		AcceptDeferredBraceArgs(*m_pVisitor, deferredBraceArgs);
-		return false;
-	}
 	if (RejectBareMethodCall(snInvoke, pCallee))
 	{
 		AcceptDeferredBraceArgs(*m_pVisitor, deferredBraceArgs);
@@ -356,39 +350,54 @@ bool ExprResolveAccessor::ValidateInvokeSyntax(const SnInvokeExpr &invoke)
 
 //M3b: the SUCCESS tail of Access(SnInvokeExpr), shared with the
 //module-qualified call path so both bind a callee exactly alike.
+//Phase 13: the func-ref argument binder of ResolveInvokeWithFunc
+//(source-size split). Argument-position function references bind
+//against the formal func types of the chosen overload
+//(ComputeBindingDistance already required an exact signature match for
+//candidacy). Step 2 adds the receiver-bound member form (c.foo).
+bool ExprResolveAccessor::BindArgFuncRefs(
+	std::vector<FormalBinding> &bindings)
+{
+	for (auto &b : bindings)
+	{
+		if (b.kind == FormalBinding::B_Default || !b.pCallerExpr)
+			continue;
+		if (IsUnboundFuncRef(*b.pCallerExpr))
+		{
+			if (!BindFuncRefToExpected(m_Env,
+				*static_cast<SnIdentifierExpr*>(b.pCallerExpr),
+				b.pFormal->EvalDataType()))
+				return false;
+		}
+		else if (IsUnboundMemberFuncRef(*b.pCallerExpr)
+			&& !BindMemberFuncRefToExpected(m_Env,
+				*static_cast<SnMemberExpr*>(b.pCallerExpr),
+				b.pFormal->EvalDataType()))
+			return false;
+	}
+	return true;
+}
+
+//M3b: the SUCCESS tail of Access(SnInvokeExpr), shared with the
+//module-qualified call path so both bind a callee exactly alike.
 bool ExprResolveAccessor::ResolveInvokeWithFunc(SnInvokeExpr &invoke,
 	SnFunction &func, FindFuncResult match,
 	std::vector<FormalBinding> &bindings)
 {
-	//Phase 13: argument-position function references bind against the
-	//formal func types of the chosen overload (ComputeBindingDistance
-	//already required an exact signature match for candidacy). Step 2
-	//adds the receiver-bound member form (c.foo).
-	if (match == FFR_ExactMatch || match == FFR_ApproximateMatch)
-	{
-		for (auto &b : bindings)
-		{
-			if (b.kind == FormalBinding::B_Default || !b.pCallerExpr)
-				continue;
-			if (IsUnboundFuncRef(*b.pCallerExpr))
-			{
-				if (!BindFuncRefToExpected(m_Env,
-					*static_cast<SnIdentifierExpr*>(b.pCallerExpr),
-					b.pFormal->EvalDataType()))
-					return false;
-			}
-			else if (IsUnboundMemberFuncRef(*b.pCallerExpr)
-				&& !BindMemberFuncRefToExpected(m_Env,
-					*static_cast<SnMemberExpr*>(b.pCallerExpr),
-					b.pFormal->EvalDataType()))
-				return false;
-		}
-	}
+	if ((match == FFR_ExactMatch || match == FFR_ApproximateMatch)
+		&& !BindArgFuncRefs(bindings))
+		return false;
 
 	//0.9.0: deferred bare brace arguments bind now — the chosen formal's
 	//declared type is the init list's target. A false return (diagnostic
 	//logged) leaves the invoke unresolved, mirroring the func-ref path.
 	if (!ResolveDeferredBraceArgs(invoke, bindings))
+		return false;
+
+	//v0.13.9 phase 3 Task 5: the &-argument judgment (RefBindJudgment.cpp)
+	//— the SAME judgment as a &-binding initializer, on raw argument
+	//types (before the approximate cast fixup), with promotion marking.
+	if (!::nlang::RejectRefBindCallArgs(m_Env, bindings))
 		return false;
 
 	if (match == FFR_ApproximateMatch)
@@ -447,35 +456,6 @@ bool ExprResolveAccessor::ResolveDeferredBraceArgs(
 	return true;
 }
 
-//Phase 9e: out arguments on virtual methods are rejected — the
-//writeback mask is baked into the call instruction against the
-//static callee's parameter layout; a runtime override resolved by
-//name-based dispatch could disagree with it. Interface methods are
-//always dispatched by name (never NF_Virtual-flagged), so they are
-//covered via the parent decl kind. Shared by the bare and the
-//module-qualified call paths.
-bool ExprResolveAccessor::OutArgOnDispatchedCalleeRejected(
-	const SnInvokeExpr &invoke, const SnFunction &callee,
-	const std::vector<FormalBinding> &bindings) const
-{
-	bool bDispatchedByName = callee.ContainFlags(NF_Virtual)
-		|| (callee.Parent()
-			&& callee.Parent()->Kind() == NK_InterfaceDecl);
-	if (!bDispatchedByName)
-		return false;
-	for (auto &b : bindings)
-	{
-		if (b.bIsOut)
-		{
-			m_Env.Log(CLL_Error, invoke.Location(),
-				"out arguments are not supported on virtual method "
-				"\"%s\".",
-				callee.Name().c_str());
-			return true;
-		}
-	}
-	return false;
-}
 
 //The failure diagnostics of the invoke paths live in
 //ExprResolverInvokeDiag.cpp (LogInvokeFailure and its MaybeLog* sweeps).

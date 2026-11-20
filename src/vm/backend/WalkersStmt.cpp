@@ -109,11 +109,13 @@ uint16_t VmBackend::AssignStmtPeakDepth(SnStatement& stmt,
                 *member.Inner()).Indices().size();
         claim = static_cast<uint16_t>(2 + n);
     }
-    //Identifier targets (plain local `x = rhs`) stage the RHS in an
-    //EvalAreaClaim(1) before copying to the destination (round-7 —
-    //aliasing family). The struct branch (CopyStruct staging) and the
-    //implicit this-field branch use temps only after their last
-    //nested emission, needing no claim — over-reserve is safe.
+    //Identifier targets stage the RHS in an EvalAreaClaim(1) before
+    //copying to the destination (round-7 — aliasing family). The same
+    //budget covers the struct shapes: the plain-local struct branch
+    //stages via tempSlot2 (no claim), while the implicit this-field
+    //branch nests the struct-aware store tail's own claim(1)
+    //(EmitStructAwareStoreField) — the uniform identifier claim of 1
+    //fits both (over-reserve is the safe direction).
     else if (assign.Left()
         && assign.Left()->Kind() == NK_IdentifierExpr)
         claim = 1;
@@ -339,8 +341,17 @@ uint16_t VmBackend::SubscriptAssignStmtPeakDepth(SnStatement& stmt,
     }
     //Stage-2: the store claim is receiver + N indices + value (the
     //container path lowers to a set() call — same count). Walker
-    //symmetry with EmitArrayElementStore's claim(rank + 2).
-    const uint16_t claim = static_cast<uint16_t>(2 + sa.Indices().size());
+    //symmetry with EmitArrayElementStore's claim(rank + 2), plus one
+    //element-handle slot on the stabilization path (struct element
+    //type) — the same predicate codegen uses, shared via
+    //ArrayElementStoreType.
+    const bool elemIsStruct = [this, &sa]() {
+        SnField* elemType = ArrayElementStoreType(sa);
+        return elemType && RuntimeTypeKind(elemType) == RTK_Struct
+            && elemType->Kind() == NK_StructDecl;
+    }();
+    const uint16_t claim = static_cast<uint16_t>(
+        (elemIsStruct ? 3 : 2) + sa.Indices().size());
     uint16_t d = 0;
     for (auto *pIndex : sa.Indices())
         d = std::max(d, ExprPeakDepth(*pIndex, visited));

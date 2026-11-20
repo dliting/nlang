@@ -18,6 +18,7 @@ void VmBackend::RegisterEnums(SnNamespace& root) {
     m_enumIndexMap.clear();
     m_compiledModule.enumNames.clear();
     m_compiledModule.enumKeys.clear();
+    m_compiledModule.enumAccess.clear();
     //Placeholder slots are appended AFTER registration (codegen), so
     //clearing the import table here can never wipe a live placeholder —
     //it only keeps a premature one from leaving an orphan import entry.
@@ -45,6 +46,11 @@ void VmBackend::RegisterEnums(SnNamespace& root) {
         m_compiledModule.enumNames.push_back(std::move(names));
         //v2.0: parallel qualified key (nlink name-addresses enum slots).
         m_compiledModule.enumKeys.push_back(KeyOf(sn));
+        //v2.20 (0.13.8 item 5): parallel type-level access byte — the
+        //enum TYPE's declared visibility, which the consumer stub
+        //rebuilds the declaration from.
+        m_compiledModule.enumAccess.push_back(
+            static_cast<uint8_t>(sn.AccessType()));
         m_enumIndexMap[&sn] = defIdx;
     };
     ForEachDeclNode(root, [&](SnField& node) {

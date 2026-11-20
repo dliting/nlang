@@ -1,0 +1,9 @@
+import lib;
+
+int main() {
+    //3 + (12 & 10) == 11; 5 + (5 ^ 1) == 9; ~5 == -6
+    if (lib.andMask(3) != 11) { return 1; }
+    if (lib.xorFlip(5) != 9) { return 2; }
+    if (lib.flipped(5) != -6) { return 3; }
+    return 0;
+}

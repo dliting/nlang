@@ -8,6 +8,7 @@ add_library(nlang_vm
     VmWorkPool.cpp
     VmSchedulerJoin.cpp
     VmExecutor.cpp
+    VmExecutorRaise.cpp
     VmExecutorPump.cpp
     VmCarrierPool.cpp
     VmExecutorHostBridge.cpp
@@ -17,11 +18,13 @@ add_library(nlang_vm
     VmExecutorDebugArray.cpp
     VmExecutorDebugContainers.cpp
     VmExecutorDebugStatics.cpp
+    VmExecutorDebugSlots.cpp
     VmExecutorFreeze.cpp
     VmExecutorOps.cpp
     VmExecutorFrames.cpp
     VmExecutorOpsArith.cpp
     VmExecutorOpsPrim.cpp
+    VmExecutorOpsBit.cpp
     VmExecutorOpsControl.cpp
     VmExecutorOpsCalls.cpp
     VmExecutorOpsStrings.cpp
@@ -30,12 +33,14 @@ add_library(nlang_vm
     VmExecutorOpsSlice.cpp
     VmExecutorOpsArrayCheck.cpp
     VmExecutorOpsObjects.cpp
+    VmExecutorOpsRef.cpp
     VmExecutorOpsDescriptor.cpp
     VmExecutorOpsStaticInit.cpp
     VmExecutorGC.cpp
     VmExecutorGCContainers.cpp
     VmExecutorGCRoots.cpp
     VmExecutorGCSweep.cpp
+    VmExecutorGCMarks.cpp
     VmExecutorAlloc.cpp
     VmExecutorDeviceArray.cpp
     VmClassLayout.cpp
@@ -46,7 +51,9 @@ add_library(nlang_vm
     VmExecutorFormatArray.cpp
     VmExecutorIntrinsics.cpp
     VmExecutorNativeHost.cpp
+    VmExecutorNativeLoader.cpp
     VmExecutorNativeCallbacks.cpp
+    VmExecutorNativeArray.cpp
     VmExecutorBlockingNative.cpp
     VmExecutorFailure.cpp
     InputLineSource.cpp
@@ -85,6 +92,7 @@ add_library(nlang_vm
     backend/EmitCall.cpp
     backend/EmitCtorCall.cpp
     backend/WalkersExpr.cpp
+    backend/WalkersExprRef.cpp
     backend/WalkersStmt.cpp
     backend/WalkersMaxArgs.cpp
     backend/EmitExprCore.cpp
@@ -108,10 +116,13 @@ add_library(nlang_vm
     backend/EmitArrayOpcodes.cpp
     backend/EmitStmtDecl.cpp
     backend/EmitStmtAssign.cpp
+    backend/EmitStmtRef.cpp
+    backend/EmitExprRef.cpp
     backend/EmitStmtCompound.cpp
     backend/EmitStmtStore.cpp
     backend/EmitStmtFlow.cpp
     backend/EmitStmtForeach.cpp
+    backend/EmitStmtForeachString.cpp
     backend/EmitStmtSwitch.cpp
     backend/EmitStmtTry.cpp
     CrashReporter.cpp

@@ -12,13 +12,13 @@ NLang moves code in four kinds of file.
 - **`.ncu` — unit image.** The compiled artifact of one package.
   Cross-package references inside it are *import slots* — a
   target package path and a qualified name — never bodies
-  (§3.9.3). The format is chapter 21.
+  (§3.9.3). The format is chapter 26.
 - **`.npkg` — package archive.** A container of unit images, one
   member per package, each member named by its package path. A
   project build produces one with an *entry record* naming the
   entry unit (§3.2); a library archive omits the record — the
   standard library ships as `stdlib.npkg` (§3.9.4). The format is
-  chapter 22.
+  chapter 27.
 - **Native host library.** The host dynamic library that carries
   `native` implementations, named from the declaring package,
   which is necessarily single-segment (§7.5).
@@ -80,7 +80,7 @@ file `a/b/c.n` under a search root. At compile time:
   the same name — whose declarations enter the build as stubs;
   a dotted path with no source in the build is a compile-time
   error, since external artifacts carry single-segment names
-  (§3.3, §21.2).
+  (§3.3, §26.2).
 
 Inlining resolves declarations for the importing compilation; it
 copies no bodies. The compiled artifact names its dependencies
@@ -112,7 +112,7 @@ with project paths taking precedence over global ones. A change rebuilds the
 symbol index, refreshing completion and go-to-definition.
 
 **Viewing and jumping to source**: use Go to Definition on a
-package-qualified symbol — F12, F6 or Ctrl+click (a pointing-hand cursor
+symbol with a package-name prefix — F12, F6 or Ctrl+click (a pointing-hand cursor
 marks the jump targets while Ctrl is held) — to open its `.n` at the
 declaration: a `native` declaration shows the signature and
 documentation, an ordinary function shows an editable implementation. An
@@ -130,8 +130,8 @@ each open file's directory; rebuild after editing to pick up the change.
 Package identity is the dotted name. One build carries at most
 one source for each package name (§3.9.2), and every class,
 struct and function in a compiled artifact is keyed by its
-package-qualified name (`main.main`, `alib.Point`);
-implementation-owned built-ins keep their bare keys (`Object`,
+fully qualified name (`main.main`, `alib.Point`);
+implementation-owned built-ins keep their unqualified keys (`Object`,
 `List`). The qualified key is the spelling of linkage — linking,
 streams and tools alike.
 
@@ -182,15 +182,27 @@ cannot collide through qualified names, whatever wildcards are in
 scope.
 
 An explicit import opens both spellings: after `import lib;` the
-qualified `lib.f()` and the bare `f()` are both admissible — the
-import adds `lib`'s functions to this file's bare pool. A wildcard
+qualified `lib.f()` and the unqualified `f()` are both admissible — the
+import adds `lib`'s functions to this file's unqualified-name pool. A wildcard
 import opens qualified calls only. Same-directory files share the
-directory's bare pool without any import.
+directory's unqualified-name pool without any import.
+
+Each member's declared access applies on top of the gate.
+`private` confines a member to its own unit; `protected` admits
+the units of the same package; `public` — the default for
+top-level functions and types — admits every gated unit. A
+denied member is invisible to lookup rather than rejected after
+the fact: a foreign private type does not resolve in a qualified
+name (`Type 'Vault' is not a member of package 'lib'.`), and a
+foreign private function reports the standard not-found
+diagnostic on either path. Within its own unit every member is
+reachable regardless of its access.
 
 Qualified type names are spelled the same way: `alib.Point`,
 `gfx.color.deep.Shade`. Unlike functions, a type is also reachable by
-its bare name program-wide, whatever package declares it — the
-normative rule is §3.6.
+its unqualified name program-wide, whatever package declares it — the
+normative rule is §3.6; the declared access filters the foreign
+candidates there the same way.
 Two packages sharing a last path segment (`a.io`, `b.io`) are two
 different packages; each keeps its own functions and its own types.
 
@@ -226,7 +238,7 @@ ambiguity. See [Overload Resolution](../07-functions/overloads.md#cross-module-o
 `readStruct`/`readObject` take the type name as a string. That literal
 is resolved **at compile time** against the packages visible to the
 file (its own package plus the imported ones) into the declaration's
-qualified table key, so what reaches the VM is never a bare name. Two visible packages declaring the same type name make the
+qualified table key, so what reaches the VM is never an unqualified name. Two visible packages declaring the same type name make the
 literal ambiguous — the compile error asks you to qualify it
 (`readStruct("alib.S")`). Object streams store the qualified class key
 too: an object written by one program and read by another must come
@@ -269,16 +281,16 @@ The concurrency names split by what they answer:
 | `concurrent` | how running computations coordinate: `Mutex`, `Semaphore`, `ReentrantMutex`, `AtomicInt`, `Channel<T>`, `ChannelClosedException`, `WaitGroup` (§10.2–§10.4, §10.6) |
 
 Standard library packages are imported like any other (§3.3);
-chapters 13–20 describe the units they hold. The declarations in
+chapters 13–25 describe the units they hold. The declarations in
 the `.n` sources are the source of truth for every package,
 prelude included; the implementation binds the declared native
 members to its built-in implementations.
 
 *Informative:* NLang libraries are carried by `.n` source files:
-the standard `math.n`/`io.n`/`fs.n`/`thread.n`/`concurrent.n`/`tensor.n`/`net.n`
-ship with the toolchain, and a third-party library is just a
-directory of `.n` files (optionally alongside native dynamic
-libraries). A function implemented outside NLang is declared with
+the standard library ships one `.n` for every package — the prelude
+`lang.n` and `containers.n` plus the twelve standard packages — and a
+third-party library is just a directory of `.n` files (optionally
+alongside native dynamic libraries). A function implemented outside NLang is declared with
 the `native` keyword (`native void print(string s);`) — such a
 declaration carries only the signature and documentation, with no
 body; an ordinary function without `native` is a readable,

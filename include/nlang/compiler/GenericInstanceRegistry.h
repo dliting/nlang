@@ -4,7 +4,7 @@ instantiation registry, scoped to one build.
 
 Compile-time machinery for `class Name<T, ...>` declarations: the
 template resolves its member signatures against interned placeholder
-types (one per type parameter), and each `Name<Arg...>` use mints a
+types (one per type parameter), and each `Name<Arg...>` use creates a
 synthetic instantiation whose members are signature deep-copies with
 placeholders substituted. All artifacts are compile-time only: the
 instantiations never enter the syntax tree. The dictionary model keeps
@@ -19,7 +19,7 @@ pointers, unit indices that restart at 0), so a second in-process
 build would inherit the first build's entries: the unit-index
 collision walks stale instances and corrupts the build (observed as a
 silent exception in the in-process test harness). The registry also
-owns every node it mints (placeholders and instantiations) and frees
+owns every node it creates (placeholders and instantiations) and frees
 them when the build ends.
 ---*/
 #ifndef NLANG_COMPILER_GENERIC_INSTANCE_REGISTRY_H
@@ -56,7 +56,7 @@ public:
 	//parameter position `position` (interned on first request; one node
 	//per (template, parameter) pair). The template node is a generic
 	//CLASS declaration or — 0.13.1a — a generic free FUNCTION
-	//declaration; both mint the same opaque placeholder node.
+	//declaration; both create the same opaque placeholder node.
 	SnField* PlaceholderFor(SyntaxNode& tmpl, const std::string& name,
 		size_t position);
 
@@ -67,7 +67,7 @@ public:
 	//template's TypeParamNames()). Precondition: IsPlaceholder.
 	size_t PlaceholderIndex(const SnField* pPlaceholder) const;
 
-	//The template a declared instantiation was minted from; null when
+	//The template a declared instantiation was created from; null when
 	//the field is not a declared-generic instantiation.
 	SnClassDecl* InstanceOf(const SnClassDecl* pInstance) const;
 
@@ -82,8 +82,8 @@ public:
 	//(every record read wants the template row).
 	SnField* RecordOwnerOfMember(const SnField* pMember) const;
 
-	//Record a freshly minted instantiation. GetDeclaredGenericClassDecl
-	//is the only minting site; this call publishes the instance in the
+	//Record a freshly created instantiation. GetDeclaredGenericClassDecl
+	//is the only creating site; this call publishes the instance in the
 	//cache and links it to its template.
 	void AdoptInstance(SnClassDecl* pInstance, const SnClassDecl* pTemplate,
 		const std::vector<const SnField*>& typeArgs);
@@ -92,7 +92,7 @@ public:
 	//(called by the member fill right after the copy joins the shell).
 	void AdoptMemberClone(SnField* pClone, const SnField* pSource);
 
-	//The minted instantiation a clone member belongs to, recorded by the
+	//The created instantiation a clone member belongs to, recorded by the
 	//same fill-time pair point as AdoptMemberClone. The backend's static-
 	//call arm reads it for the frame descriptor cell (a clone static's
 	//cell is the instantiation's descriptor row); null for non-clones.
@@ -113,12 +113,12 @@ public:
 	void AdoptCloneInstantiation(SnField* pClone,
 		const SnClassDecl* pInstance);
 
-	//The minted instance for (template, type arguments), or null when
-	//this combination has not been minted yet.
+	//The created instance for (template, type arguments), or null when
+	//this combination has not been created yet.
 	SnClassDecl* FindInstance(const SnClassDecl* pTemplate,
 		const std::vector<const SnField*>& typeArgs) const;
 
-	//Iterate every declared instantiation, in mint order. Compile-time
+	//Iterate every declared instantiation, in creation order. Compile-time
 	//surfaces (diagnostics, tests) enumerate through this; the runtime
 	//records never do — they live on the template rows.
 	void ForEachInstance(
@@ -135,22 +135,22 @@ public:
 	void AdoptInterfaceInstance(SnInterfaceDecl* pInstance,
 		const SnInterfaceDecl* pTemplate,
 		const std::vector<const SnField*>& typeArgs);
-	//The interface template a minted interface instantiation was minted
+	//The interface template a created interface instantiation was created
 	//from; null when the node is not one.
 	SnInterfaceDecl* InstanceOfInterface(
 		const SnInterfaceDecl* pInstance) const;
 
-	//Concurrent-mint depth, the live instantiation chain: nested mints
-	//fire synchronously inside BOTH phases of the mint window — the
+	//Concurrent-instantiation depth, the live instantiation chain: nested creations
+	//fire synchronously inside BOTH phases of the creation window — the
 	//template-completion preamble resolves member types and the member
-	//cloning substitutes them — each nested mint through a freshly
+	//cloning substitutes them — each nested creation through a freshly
 	//constructed resolver, so the chain depth is registry state rather
 	//than resolver state. Enter/Leave pair is called by the resolver's
-	//RAII claim around the window; the depth guard at the mint entry
+	//RAII claim around the window; the depth guard at the creation entry
 	//reads the value.
-	int GenericMintDepth() const { return m_iGenericMintDepth; }
-	void EnterMintDepth() { ++m_iGenericMintDepth; }
-	void LeaveMintDepth() { --m_iGenericMintDepth; }
+	int GenericInstantiationDepth() const { return m_iGenericInstantiationDepth; }
+	void EnterInstantiationDepth() { ++m_iGenericInstantiationDepth; }
+	void LeaveInstantiationDepth() { --m_iGenericInstantiationDepth; }
 
 	//Depth-limit diagnostic bookkeeping: true on the FIRST guard trip
 	//for this template — the caller logs the depth diagnostic then;
@@ -158,7 +158,7 @@ public:
 	//one diagnostic: the unwinding resolution arms retry the chain
 	//(measured at 131071 guard trips for one six-line program), and
 	//every retry of an already-reported family repeats the same
-	//message. Presentation-only dedup — never gates a mint. Per-build
+	//message. Presentation-only dedup — never gates a creation. Per-build
 	//state. The key is node identity: the class and interface templates
 	//dedup in one set (implicit upcast — no cast at call sites).
 	bool MarkDepthLimitReported(const SyntaxNode* pTemplate)
@@ -215,7 +215,7 @@ private:
 	//0.13.1c Task 8: the interface twin of m_memberInstantiation (the
 	//minimal-channel ruling — class paths keep their exact types).
 	std::map<const SnField*, const SnInterfaceDecl*> m_ifaceCloneInstantiation;
-	int m_iGenericMintDepth = 0;
+	int m_iGenericInstantiationDepth = 0;
 	std::set<const SyntaxNode*> m_depthLimitReportedTmpls;
 };
 

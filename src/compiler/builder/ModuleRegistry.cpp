@@ -147,7 +147,7 @@ void ModuleRegistry::Reset()
 	//the owner tags do: their entries are keyed by pointers into the
 	//previous run's syntax tree, which RegisterUnits' caller has
 	//already destroyed. Replacement (not clear-in-place) so the old
-	//registry's destructor frees its minted nodes with it.
+	//registry's destructor frees its created nodes with it.
 	m_upDeclaredGenerics = std::make_unique<GenericInstanceRegistry>();
 	m_upSyntheticBuiltins = std::make_unique<SyntheticBuiltinRegistry>();
 }
@@ -250,7 +250,7 @@ bool ModuleRegistry::IsModuleImported(uint32_t moduleIndex,
 //import gate — the owner module is in the importer's EXACT list (the
 //same-directory auto-adds D7 and the explicit imports alike). Wildcards
 //are deliberately not consulted: a wildcard admits qualified paths only,
-//never bare names.
+//never unqualified names.
 bool ModuleRegistry::IsExactImportedBy(uint32_t importer,
 	uint32_t owner) const
 {
@@ -350,7 +350,7 @@ SnField* ModuleRegistry::FindModuleType(const std::string& path,
 	const std::string& typeName) const
 {
 	//Find the registered unit for path — project, inline library, or
-	//external .ncu. External entries own the type stubs minted by
+	//external .ncu. External entries own the type stubs created by
 	//CompiledModuleNodeBuilder and tagged in RegisterExternalStubs, so
 	//the same owner-filtered scan serves all three: `path.Type` binds
 	//the declaration that unit owns, never a same-name type another
@@ -408,6 +408,26 @@ uint32_t ModuleRegistry::OwnerOfContext(const SyntaxNode& context) const
 		}
 	}
 	return NO_OWNER;
+}
+
+//0.13.8 item 5 (Task 4): see the declaration. The kind test is the
+//Parent() shape: root-pushed stubs have Parent() == Root (wired
+//containers), R10-1 detached stubs have a null parent — both are
+//namespace-level; class members fail the arm and keep the geometric
+//rules.
+bool ModuleRegistry::ForeignNamespaceAccessDenied(const SnField& member,
+	uint32_t accessorModule) const
+{
+	const uint32_t owner = OwnerOf(member);
+	if (owner == NO_OWNER || owner == accessorModule)
+		return false;
+	const SyntaxNode* pParent = member.Parent();
+	if (pParent != nullptr && pParent->Kind() != NK_Namespace)
+		return false;
+	//Protected's package rule (spec D5.2): same-package sibling modules
+	//would compare package paths here once dotted multi-module packages
+	//exist; today package == module, so every foreign accessor denies.
+	return member.AccessType() != FA_Public;
 }
 
 std::string ModuleRegistry::PackageOf(const SnField& member) const

@@ -113,10 +113,12 @@ static void test_link_two_units() {
     lib.enumKeys.push_back("lib.ColorA");
     lib.enumMethodIndices.push_back({});
     lib.enumMethodAccess.push_back({});
+    lib.enumAccess.push_back(FA_Public);
     lib.enumNames.push_back({"Red", "Green"});        //own 1
     lib.enumKeys.push_back("lib.Color");
     lib.enumMethodIndices.push_back({});
     lib.enumMethodAccess.push_back({});
+    lib.enumAccess.push_back(FA_Private);
     lib.functions.push_back(MakeFunc("lib.g", 0));    //own 0
     CompiledFunction lf = MakeFunc("lib.f", 1);       //own 1
     {
@@ -161,6 +163,7 @@ static void test_link_two_units() {
     app.enumKeys.push_back("lib.Color");
     app.enumMethodIndices.push_back({});
     app.enumMethodAccess.push_back({});
+    app.enumAccess.push_back(FA_Public);
     app.enumImports.push_back({"lib", "lib.Color", 0});
 
     std::vector<CompiledModule> units;
@@ -182,6 +185,11 @@ static void test_link_two_units() {
           "enum table");
     CHECK(merged.enumNames[1].size() == 2
        && merged.enumNames[1][1] == "Green", "enum names merged");
+    //v2.20: the type-level access table rides the merge (the provider's
+    //row wins; the placeholder's default is never copied).
+    CHECK(merged.enumAccess.size() == 2
+       && merged.enumAccess[0] == FA_Public
+       && merged.enumAccess[1] == FA_Private, "enum access merged");
     CHECK(merged.stringConstants.size() == 4, "string dedup union");
     CHECK(merged.stringConstants[2] == "lib-str", "lib strings appended");
 
@@ -224,6 +232,7 @@ static void test_enum_method_index_remap_on_merge() {
     lib.enumKeys.push_back("lib.Color");
     lib.enumMethodIndices.push_back({0});    //lib's own function 0
     lib.enumMethodAccess.push_back({0});
+    lib.enumAccess.push_back(FA_Public);
     lib.functions.push_back(MakeFunc("lib.Color.rank", 1));  //own 0
 
     CompiledModule app = MakeUnit("app");
@@ -237,6 +246,7 @@ static void test_enum_method_index_remap_on_merge() {
     app.enumImports.push_back({"lib", "lib.Color", 0});
     app.enumMethodIndices.push_back({});
     app.enumMethodAccess.push_back({});
+    app.enumAccess.push_back(FA_Public);
 
     std::vector<CompiledModule> units;
     units.push_back(std::move(app));
@@ -332,6 +342,7 @@ static void test_link_unresolved_all_at_once() {
     app.enumKeys.push_back("nope.E");
     app.enumMethodIndices.push_back({});
     app.enumMethodAccess.push_back({});
+    app.enumAccess.push_back(FA_Public);
     app.enumImports.push_back({"nope", "nope.E", 0});
 
     std::vector<CompiledModule> units;
@@ -1002,7 +1013,7 @@ static void test_link_interface_signature_remap() {
     ParamTypeDesc structParam;
     structParam.type.kind = RTK_Struct;
     structParam.type.typeIdx = 0;                    //lib-local struct 0
-    structParam.flags = PTDF_Out;
+    structParam.flags = PTDF_Ref;
     sig.paramTypeDescs = {clsParam, structParam};
     sig.returnType.kind = RTK_Class;
     sig.returnType.typeIdx = 0;                      //lib-local class 0
@@ -1046,8 +1057,8 @@ static void test_link_interface_signature_remap() {
           "class-typed formal remapped to the merged class table");
     CHECK(m.paramTypeDescs[1].type.kind == RTK_Struct
        && m.paramTypeDescs[1].type.typeIdx == 0
-       && m.paramTypeDescs[1].flags == PTDF_Out,
-          "struct-typed formal remapped and its out flag preserved");
+       && m.paramTypeDescs[1].flags == PTDF_Ref,
+          "struct-typed formal remapped and its ref flag preserved");
     CHECK(m.returnType.kind == RTK_Class && m.returnType.typeIdx == 1,
           "class-typed return remapped to the merged class table");
     CHECK(m.defaultValues.size() == 2
@@ -1361,9 +1372,9 @@ static void test_two_namespace_records_same_arity() {
 }
 
 //v0.13.1 (v2.15): the descriptor table merges like the string table —
-//dedup by full entry (spelling + recipe bytes): a static entry's identity
-//is its spelling (the intern contract), and recipe entries share an empty
-//spelling, so the recipe bytes join the key. Byte-identical recipes from
+//dedup by full entry (spelling + composition record bytes): a static entry's identity
+//is its spelling (the intern contract), and composition entries share an empty
+//spelling, so the composition record bytes join the key. Byte-identical compositions from
 //two units compiling the same template merge; divergence keeps both (the
 //intern pool still folds the composed descriptors at runtime).
 static void test_descriptor_table_merge() {
@@ -1371,32 +1382,32 @@ static void test_descriptor_table_merge() {
     CompiledModule lib = MakeUnit("lib");
     lib.descriptorTable.push_back({"Box<int>", {}});            //own 0
     lib.descriptorTable.push_back({"Pair<int,string>", {}});    //own 1
-    DescriptorEntry libRecipe;
-    libRecipe.spelling = "";
-    libRecipe.recipe = {0x01, 0x00, 0x03, 'B', 'x', 0x02, 0x00};
-    lib.descriptorTable.push_back(std::move(libRecipe));        //own 2
+    DescriptorEntry libComposition;
+    libComposition.spelling = "";
+    libComposition.composition = {0x01, 0x00, 0x03, 'B', 'x', 0x02, 0x00};
+    lib.descriptorTable.push_back(std::move(libComposition));        //own 2
     CompiledModule app = MakeUnit("app");
     app.functions.push_back(MakeFunc("app.main", 0));
     app.descriptorTable.push_back({"Box<int>", {}});            //own 0 (dedup)
-    DescriptorEntry appRecipe;
-    appRecipe.spelling = "";
-    appRecipe.recipe = {0x01, 0x00, 0x03, 'B', 'x', 0x02, 0x00};
-    app.descriptorTable.push_back(std::move(appRecipe));        //own 1 (dedup)
+    DescriptorEntry appComposition;
+    appComposition.spelling = "";
+    appComposition.composition = {0x01, 0x00, 0x03, 'B', 'x', 0x02, 0x00};
+    app.descriptorTable.push_back(std::move(appComposition));        //own 1 (dedup)
     app.descriptorTable.push_back({"Hold<int>", {}});           //own 2 (new)
     std::vector<CompiledModule> units;
     units.push_back(std::move(app));
     units.push_back(std::move(lib));
     CompiledModule merged = NcuLinker::Link(std::move(units), "app.main");
     CHECK(merged.descriptorTable.size() == 4,
-          "Box<int>, Pair, recipe, Hold — duplicates fold");
+          "Box<int>, Pair, composition, Hold — duplicates fold");
     CHECK(merged.descriptorTable[0].spelling == "Box<int>",
           "app's static entry lands first");
-    CHECK(merged.descriptorTable[1].recipe.size() == 7,
-          "app's recipe row lands second");
+    CHECK(merged.descriptorTable[1].composition.size() == 7,
+          "app's composition record row lands second");
     CHECK(merged.descriptorTable[2].spelling == "Hold<int>",
           "app's Hold appends");
     CHECK(merged.descriptorTable[3].spelling == "Pair<int,string>",
-          "lib's Pair appends; identical recipes folded");
+          "lib's Pair appends; identical compositions folded");
     PASS();
 }
 

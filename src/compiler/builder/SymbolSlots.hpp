@@ -8,7 +8,7 @@ SymbolSlots.hpp — 跨单元引用的槽位解析（Phase 6 Task 3 核心）。
 
 两个不变量：
 1. 同一单元内同一目标只占一个槽（按目标去重＝限定名＋所属模块路径，
-   函数另加形参数——裸方法键跨包同名同参合法，缺模块路径会误并槽）；
+   函数另加形参数——非限定方法键跨包同名同参合法，缺模块路径会误并槽）；
 2. 自有条目永远占据 0..n-1，占位槽从 n 开始、与导入节按序对应；
 ---*/
 #pragma once
@@ -26,7 +26,7 @@ namespace nlang
 //0xFFFF own functions clamps to the 0xFFFF fallback — the same 16-bit
 //constraint as the member ordinals, so an oversized producer degrades to
 //the legacy name+arity scan instead of wrapping into a wrong record.
-//Shared by every function-stub mint site (CompiledModuleStubMembers.hpp,
+//Shared by every function-stub creation site (CompiledModuleStubMembers.hpp,
 //CompiledModuleNodeBuilder.hpp).
 inline uint16_t ProducerIdxClamp(size_t idx)
 {
@@ -45,12 +45,12 @@ inline std::string SymbolSlotModulePath(const ModuleRegistry &reg,
 
 //函数槽：按 modulePath+属主类键+名+形参数+静态性+属主类别+构造器序号
 //去重后追加占位记录，返回局部槽位。ownerClassKey 空＝命名空间级函数
-//（name 为限定键）；非空＝该类的方法或构造器（name 为裸名，构造器＝裸
-//类名）——裸方法键跨类同名同参合法并存，属主键是槽记录里唯一的消歧来源
-//（表键保持裸名，见设计 §2）。0.9.10 D5：静态性参与去重与导入记录——
+//（name 为限定键）；非空＝该类的方法或构造器（name 为非限定名，构造器＝非限定
+//类名）——非限定方法键跨类同名同参合法并存，属主键是槽记录里唯一的消歧来源
+//（表键保持非限定名，见设计 §2）。0.9.10 D5：静态性参与去重与导入记录——
 //同名同参的静态/实例成员对是两个不同的槽，静态记录的形参数不含 this
 //槽位。0.9.11（v2.6）：ownerKind 区分属主表类别（0 命名空间/1 class/
-//2 struct，裸键本身无法区分 struct 构造器与同名 class 方法）；
+//2 struct，非限定键本身无法区分 struct 构造器与同名 class 方法）；
 //ownerOrdinal 是成员在属主表内的序号——构造器＝constructorIndices
 //下标（重载构造器同名同参，如 Vec(int) 与 Vec(float)，仅靠名字+形参
 //数无法区分），方法/静态方法＝methodIndices 剔除构造器条目后的位置
@@ -126,10 +126,14 @@ inline uint32_t EnumSymbolSlot(CompiledModule &mod,
 		return static_cast<uint32_t>(existing);
 	mod.enumNames.push_back({});
 	mod.enumKeys.push_back(name);
-	//v2.9: the method tables keep the four-vector lockstep (empty rows
+	//v2.9: the method tables keep the vector lockstep (empty rows
 	//for the placeholder slot).
 	mod.enumMethodIndices.push_back({});
 	mod.enumMethodAccess.push_back({});
+	//v2.20: the type-level access table joins the lockstep (the
+	//placeholder row defaults to public; nlink's merge replaces the
+	//placeholder with the provider's rich row).
+	mod.enumAccess.push_back(FA_Public);
 	const uint32_t slot = static_cast<uint32_t>(mod.enumNames.size() - 1);
 	mod.enumImports.push_back({modulePath, name, 0});
 	return slot;

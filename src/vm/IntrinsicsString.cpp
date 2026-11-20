@@ -8,6 +8,9 @@ Two families live here:
               12; the 0.7.5 char bridge appended the 6 code-point/parse
               methods; v0.12.2: signatures are declared in
               stdlib/lang.n, ids served by the binding table)
+  id 176      String.equalsIgnoreCase (v0.13.4; the indexOf-from and
+              toInt-radix overloads ride the existing IndexOf/ToInt
+              ids — defaulted slots are staged and filled by codegen)
 
 ABI (mirror of string.equals): receiver string handle at callParamBase
 slot 0, arguments from slot 1 upward.
@@ -148,6 +151,27 @@ bool VmExecutor::ExecuteIntrinsicString(uint16_t intrinsicId,
         std::memcpy(pResult, &result, sizeof(result));
         return true;
     }
+    case INTR_String_EqualsIgnoreCase:
+    {
+        std::string a = ReadStrArg(*this, locals, callParamBase, 0);
+        std::string b = ReadStrArg(*this, locals, callParamBase, 1);
+        //ASCII-only folding: only A-Z fold to a-z; every other byte
+        //must match exactly (no locale, no non-ASCII case folding).
+        bool same = a.size() == b.size();
+        for (size_t i = 0; same && i < a.size(); ++i)
+        {
+            unsigned char ca = static_cast<unsigned char>(a[i]);
+            unsigned char cb = static_cast<unsigned char>(b[i]);
+            if (ca >= 'A' && ca <= 'Z')
+                ca = static_cast<unsigned char>(ca + 32);
+            if (cb >= 'A' && cb <= 'Z')
+                cb = static_cast<unsigned char>(cb + 32);
+            same = (ca == cb);
+        }
+        int32_t result = same ? 1 : 0;
+        std::memcpy(pResult, &result, sizeof(result));
+        return true;
+    }
     case INTR_String_GetHashCode:
     {
         std::string s = ReadStrArg(*this, locals, callParamBase, 0);
@@ -177,7 +201,7 @@ bool VmExecutor::ExecuteIntrinsicString(uint16_t intrinsicId,
                 + std::to_string(s.size()) + " bytes.");
         std::string out = s.substr(static_cast<size_t>(start),
             static_cast<size_t>(end - start));
-        int32_t handle = MintNewString(std::move(out));
+        int32_t handle = CreateNewString(std::move(out));
         std::memcpy(pResult, &handle, sizeof(handle));
         return true;
     }
@@ -186,10 +210,22 @@ bool VmExecutor::ExecuteIntrinsicString(uint16_t intrinsicId,
         std::string s = ReadStrArg(*this, locals, callParamBase, 0);
         std::string needle = ReadStrArg(*this, locals,
             callParamBase, 1);
-        //Empty needle finds at offset 0 (std::string::find semantics).
-        size_t hit = s.find(needle);
-        int32_t result = (hit == std::string::npos)
-            ? -1 : static_cast<int32_t>(hit);
+        //The from slot is always staged: the 1-arg form is lowered with
+        //from = 0 (the staged-arg predicate + the fill dispatch), so
+        //no absent-argument sentinel exists. A negative from counts as
+        //0; from past the end finds nothing.
+        int32_t from = 0;
+        std::memcpy(&from, locals + callParamBase + 2 * kFrameSlotBytes,
+            sizeof(from));
+        if (from < 0) { from = 0; }
+        //Empty needle finds at max(from, 0) (std::string::find semantics).
+        int32_t result = -1;
+        if (static_cast<size_t>(from) <= s.size())
+        {
+            size_t hit = s.find(needle, static_cast<size_t>(from));
+            if (hit != std::string::npos)
+                result = static_cast<int32_t>(hit);
+        }
         std::memcpy(pResult, &result, sizeof(result));
         return true;
     }
@@ -237,7 +273,7 @@ bool VmExecutor::ExecuteIntrinsicString(uint16_t intrinsicId,
             else if (!toUpper && ch >= 'A' && ch <= 'Z')
                 ch = static_cast<char>(ch - 'A' + 'a');
         }
-        int32_t handle = MintNewString(std::move(s));   //s dead after the mint
+        int32_t handle = CreateNewString(std::move(s));   //s dead after the creation
         std::memcpy(pResult, &handle, sizeof(handle));
         return true;
     }
@@ -252,7 +288,7 @@ bool VmExecutor::ExecuteIntrinsicString(uint16_t intrinsicId,
         while (b < e && isWs(s[b])) ++b;
         while (e > b && isWs(s[e - 1])) --e;
         std::string out = s.substr(b, e - b);
-        int32_t handle = MintNewString(std::move(out));
+        int32_t handle = CreateNewString(std::move(out));
         std::memcpy(pResult, &handle, sizeof(handle));
         return true;
     }
@@ -280,8 +316,8 @@ bool VmExecutor::ExecuteIntrinsicString(uint16_t intrinsicId,
             pos = hit + sep.size();
         }
         //List<string> = List class instance + handle (INTR_Dict_Keys
-        //recipe); elements are boxed-string heap slots. K8: the side
-        //table is Container-domain; mints/allocs are forward.
+        //composition); elements are boxed-string heap slots. K8: the side
+        //table is Container-domain; creations/allocs are forward.
         DomainGuard containerGuard(m_domainLocks, DomainId::Container);
         if (m_listClassIdx < 0)
             throw std::runtime_error(
@@ -296,7 +332,7 @@ bool VmExecutor::ExecuteIntrinsicString(uint16_t intrinsicId,
         for (auto& part : parts)
         {
             dst.push_back(AllocBoxedValue(RTK_String,
-                MintNewString(std::move(part))));
+                CreateNewString(std::move(part))));
         }
         std::memcpy(pResult, &listHeapIdx, sizeof(listHeapIdx));
         return true;
@@ -327,22 +363,42 @@ bool VmExecutor::ExecuteIntrinsicString(uint16_t intrinsicId,
             out += newStr;
             pos = hit + oldStr.size();
         }
-        int32_t handle = MintNewString(std::move(out));
+        int32_t handle = CreateNewString(std::move(out));
         std::memcpy(pResult, &handle, sizeof(handle));
         return true;
     }
     case INTR_String_ToInt:
     {
         std::string s = ReadStrArg(*this, locals, callParamBase, 0);
+        //The radix slot is always staged: the 0-arg form is lowered
+        //with radix = 10 (the staged-arg predicate + the fill dispatch).
+        int32_t radix = 10;
+        std::memcpy(&radix, locals + callParamBase + kFrameSlotBytes,
+            sizeof(radix));
+        if (radix < 2 || radix > 36)
+            RaiseNlangExceptionBase(
+                "string.toInt: radix must be between 2 and 36.");
         //Strict whole-string parse: no leading whitespace (strtol would
         //skip it — Java-compatible strictness) and full consumption. The
         //int32 bounds rationale lives at the check below.
         if (s.empty() || std::isspace(static_cast<unsigned char>(s[0])))
             RaiseNlangExceptionBase(
                 "string.toInt: \"" + s + "\" is not a valid int.");
+        //Go/Java rule: the 0x prefix is auto-detected only in the
+        //base-0 form; an explicit radix 16 rejects it (atoi.go
+        //case base == 0). Checked past the optional sign so "-0x1f"
+        //is rejected too; the message reuses the not-a-valid-int text.
+        size_t digits = 0;
+        if (digits < s.size()
+            && (s[digits] == '+' || s[digits] == '-'))
+            ++digits;
+        if (radix == 16 && digits + 1 < s.size() && s[digits] == '0'
+            && (s[digits + 1] == 'x' || s[digits + 1] == 'X'))
+            RaiseNlangExceptionBase(
+                "string.toInt: \"" + s + "\" is not a valid int.");
         errno = 0;
         char* end = nullptr;
-        long parsed = std::strtol(s.c_str(), &end, 10);
+        long parsed = std::strtol(s.c_str(), &end, radix);
         //Explicit int32 bounds: `long` is 32-bit on the supported
         //platforms (ERANGE catches overflow there), but an LP64 host
         //parses "5000000000" cleanly and the cast would truncate.

@@ -16,7 +16,7 @@ libs/
   quick.n         -> package quick
 ```
 
-After `import mylib.math;` the consumer calls through the qualified name, e.g. `mylib.math.square(6)`. Imported members are not visible to bare names — making every dependency visible at the call site is deliberate.
+After `import mylib.math;` the consumer calls through the qualified name, e.g. `mylib.math.square(6)`. Imported members are not visible to unqualified names — making every dependency visible at the call site is deliberate.
 
 The five search-path layers, `-I` and `NLANG_PATH` are covered under [ncc](../cli-tools/ncc.md) and [nvm](../cli-tools/nvm.md). Dotted-name libraries are not compiled into standalone units — they ship as project-file packages, see section 4.
 

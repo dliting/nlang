@@ -87,7 +87,7 @@ std::string EnclosureMethodKey(const ModuleRegistry& reg, const SnField& method)
         p = p->Parent();
     }
     //The outermost type's parent is a namespace, so its key comes from
-    //the registry branch of QualifiedName; inner types append bare names.
+    //the registry branch of QualifiedName; inner types append unqualified names.
     std::string key = QualifiedName(reg, *enclosure.back());
     for (auto it = enclosure.rbegin() + 1; it != enclosure.rend(); ++it) {
         key += '.';
@@ -98,14 +98,14 @@ std::string EnclosureMethodKey(const ModuleRegistry& reg, const SnField& method)
     return key;
 }
 
-//Canonical VM key of a declaration: "<package>.<name>", or the bare name
+//Canonical VM key of a declaration: "<package>.<name>", or the unqualified name
 //when the node carries no owner tag. The package comes from the compile-
 //time registry (path-derived), NOT from an AST namespace walk — a walk can
 //only name a unit that literally wrote `namespace <path>`, and project
 //members hang off the root, so every project key would stay bare.
-//A CLASS/INSTANCE METHOD always keeps a bare name, even when its owning
+//A CLASS/INSTANCE METHOD always keeps an unqualified name, even when its owning
 //type is package-nested: methods dispatch by name through their receiver
-//(VmExecutor::FindMethodByName compares the bare name), so a package
+//(VmExecutor::FindMethodByName compares the unqualified name), so a package
 //prefix would make every lookup fail. The exceptions take their
 //enclosure-qualified key instead (EnclosureMethodKey above): enum methods
 //and interface statics never dispatch by name through a receiver, so
@@ -115,17 +115,24 @@ std::string EnclosureMethodKey(const ModuleRegistry& reg, const SnField& method)
 //for List<int>): the backing CompiledClass is registered once under the
 //base name, and the instantiation node is ownerless, so the registry
 //would otherwise degrade to its display name ("List<int>") — not a key.
-//Exported as LinkKeyOf (TypeArgSpelling.h): the descriptor argument
-//spellings and the row keys must come from one function or they drift
-//apart (a cast would then compare two spellings of one type as different
-//instantiations). VmBackend::KeyOf is the codegen-side spelling of it.
+//Exported as LinkKeyOf (TypeArgSpelling.h). TWO-KEY CONTRACT (0.13.8
+//item 8): the row-key space and the descriptor-identity space each have
+//ONE producer and the two functions must never cross — this function is
+//the sole source of row keys and VM table keys (VmBackend::KeyOf is its
+//codegen-side spelling); DescriptorSpellingOf below is the sole source
+//of descriptor rows and intern keys. They AGREE on prelude/root-package/
+//ownerless members (both bare) and on non-generic package members (both
+//qualified); they deliberately DIVERGE on generic templates and
+//instantiations, where the row stays erased (one shared row per
+//template, v0.12.3 dictionary model) while the descriptor spelling
+//carries the qualified link identity (a.Pipe<int> vs b.Pipe<int>).
 std::string QualifiedName(const ModuleRegistry& reg, const SnField& field) {
     if (field.Kind() == NK_ClassDecl) {
         auto& cls = static_cast<const SnClassDecl&>(field);
-        //v0.12.3 dictionary model: the erasure key is the BARE name for
+        //v0.12.3 dictionary model: the erasure key is the UNQUALIFIED name for
         //the template row and every instantiation alike — the template
         //registers the one shared CompiledClass and ClassSlotFor looks
-        //it up by the bare name from both node shapes. A package
+        //it up by the unqualified name from both node shapes. A package
         //prefix would split the two spellings (the instantiation keys
         //BaseName, the template would key package-qualified).
         if (cls.IsGenericInstantiation() || cls.IsGenericDeclaration())
@@ -135,7 +142,7 @@ std::string QualifiedName(const ModuleRegistry& reg, const SnField& field) {
         if (field.Parent()->Kind() == NK_EnumDecl)
             return EnclosureMethodKey(reg, field);
         //0.9.10 D5: an interface static takes the qualified key; the
-        //abstract instance members keep bare names (they register no
+        //abstract instance members keep unqualified names (they register no
         //function record at all).
         if (field.Parent()->Kind() == NK_InterfaceDecl
             && field.ContainFlags(NF_Static))
@@ -156,6 +163,61 @@ std::string LinkKeyOf(const ModuleRegistry& reg, const SnField& field) {
     return QualifiedName(reg, field);
 }
 
+namespace
+{
+//The shared bare-or-qualified arm of the descriptor identity: the
+//member's own package dotted with its name. Bare for prelude members
+//and ownerless nodes; every OWNED member spells its registry module
+//path. That path is what makes the spelling resolvable at runtime: the
+//linked module's plain-class keys ARE these module-qualified names
+//(KeyOf/LinkKeyOf), so a leaf argument hits its class row exactly; a
+//generic template's spelling is qualified but its table row stays the
+//v0.12.3 erasure-bare name, and the runtime resolves that shape through
+//the unique-suffix bridge (FindClassBareOrUniqueSuffix). Producer and
+//consumer images converge on the same module path (the one
+//SymbolImport.modulePath carries) — imports, inline library TUs and
+//project units alike. Unlike QualifiedName this space has no
+//generic-erasure arm — see DescriptorSpellingOf.
+std::string PackageQualifiedName(const ModuleRegistry& reg,
+    const SnField& field) {
+    if (reg.IsPreludeModule(reg.OwnerOf(field)))
+        return field.Name();
+    const std::string package = reg.PackageOf(field);
+    if (package.empty())
+        return field.Name();
+    return package + '.' + field.Name();
+}
+} //namespace
+
+std::string DescriptorSpellingOf(const ModuleRegistry& reg,
+    const SnField& field) {
+    //A declared instantiation's synthetic node carries no owner tag, so
+    //the package comes from the TEMPLATE it was created from. A builtin
+    //instantiation (List<int>) has no declared template — InstanceOf
+    //answers null and the spelling stays bare, matching the erasure key.
+    if (field.Kind() == NK_ClassDecl) {
+        auto& cls = static_cast<const SnClassDecl&>(field);
+        if (cls.IsGenericInstantiation()) {
+            const SnClassDecl* pTemplate =
+                reg.DeclaredGenerics().InstanceOf(&cls);
+            if (pTemplate == nullptr)
+                return cls.BaseName();
+            return PackageQualifiedName(reg, *pTemplate);
+        }
+    }
+    else if (field.Kind() == NK_InterfaceDecl) {
+        auto& iface = static_cast<const SnInterfaceDecl&>(field);
+        if (iface.IsGenericInstantiation()) {
+            const SnInterfaceDecl* pTemplate =
+                reg.DeclaredGenerics().InstanceOfInterface(&iface);
+            if (pTemplate == nullptr)
+                return iface.BaseName();
+            return PackageQualifiedName(reg, *pTemplate);
+        }
+    }
+    return PackageQualifiedName(reg, field);
+}
+
 //--- AST-side argument classification -----------------------------------
 
 namespace
@@ -163,9 +225,10 @@ namespace
 //Class-typed argument, three shapes: a type-parameter placeholder
 //(position-encoded, runtime-composable; the spelling is the parameter
 //name — diagnostic surface only, canonical keys never contain it, the
-//recipe arm replaces the argument at runtime), a nested instantiation
-//(bare template name per the canonical contract, the argument tree
-//rides `nested`), or an ordinary class/interface (link key; rows are
+//composition-record path replaces the argument at runtime), a nested instantiation
+//(descriptor spelling per the two-key contract, the argument tree
+//rides `nested`), or an ordinary class/interface (descriptor spelling
+//likewise; rows are
 //per-module and remap at link time, so the runtime resolves by name,
 //not row).
 TypeArgDesc ClassArgOf(const ModuleRegistry& reg,
@@ -184,19 +247,20 @@ TypeArgDesc ClassArgOf(const ModuleRegistry& reg,
 	}
 	if (cls.IsGenericInstantiation())
 	{
-		desc.spelling = cls.BaseName();
+		desc.spelling = DescriptorSpellingOf(reg, cls);
 		desc.resolvedKind = RTK_Class;
 		desc.nested = BuildTypeArgsOf(reg, cls);
 		return desc;
 	}
-	desc.spelling = LinkKeyOf(reg, cls);
+	desc.spelling = DescriptorSpellingOf(reg, cls);
 	desc.resolvedKind = RTK_Class;
 	return desc;
 }
 
 //Interface-typed argument (0.13.1c Task 8): a nested instantiation of a
-//generic interface walks its argument tree (bare template name per the
-//canonical contract); a plain interface spells its link key. This also
+//generic interface walks its argument tree (descriptor spelling per the
+//two-key contract); a plain interface spells its descriptor spelling.
+//This also
 //retires the "?" degrade interface arguments used to hit, whose
 //spellings collided in the intern keys of distinct interfaces.
 TypeArgDesc InterfaceArgOf(const ModuleRegistry& reg,
@@ -205,12 +269,12 @@ TypeArgDesc InterfaceArgOf(const ModuleRegistry& reg,
 	TypeArgDesc desc;
 	if (iface.IsGenericInstantiation())
 	{
-		desc.spelling = iface.BaseName();
+		desc.spelling = DescriptorSpellingOf(reg, iface);
 		desc.resolvedKind = RTK_Class;
 		desc.nested = BuildTypeArgsOf(reg, iface);
 		return desc;
 	}
-	desc.spelling = LinkKeyOf(reg, iface);
+	desc.spelling = DescriptorSpellingOf(reg, iface);
 	desc.resolvedKind = RTK_Class;
 	return desc;
 }

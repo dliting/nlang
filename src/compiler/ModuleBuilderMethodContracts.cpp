@@ -74,8 +74,8 @@ bool SignaturesIdentical(const SnFunction &a, const SnFunction &b)
 	{
 		if (!TypeExprsIdentical(pa[i]->Type(), pb[i]->Type()))
 			return false;
-		if (pa[i]->ContainFlags(NF_Out) != pb[i]->ContainFlags(NF_Out))
-			return false;
+		//v0.13.9 phase 4: the out-flag comparison arm retired with the
+		//out mechanism (the & mark rides the type node compared above).
 	}
 	return true;
 }

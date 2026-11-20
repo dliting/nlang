@@ -3,8 +3,8 @@
 ## 13.1 Package Form
 
 `math` is a standard library package (§3.9.4): `import math;`
-brings it into scope and every function is called through the
-package qualifier (`math.sqrt(2)`). The package name is
+brings it into scope and every function is called by its fully
+qualified name (`math.sqrt(2)`). The package name is
 single-segment (§3.3). Its declarations are the standard
 library's `.n` source; the implementations are `native`
 functions (§7.5) carried by the host native library named from

@@ -56,7 +56,7 @@ int main() {
 
     // ranks 4..8 all flow through the one generic declaration (the old
     // per-rank rows once rode a comma-fix regression — the unannotated
-    // face keeps the mint rank equal to the shape length by construction)
+    // face keeps the creation rank equal to the shape length by construction)
     int[,,,] d4 = tensor.reshape(four, [2, 2, 1, 1]);
     if (d4.shape()[2] != 1 || d4[1,1,0,0] != 4) return 12;
     int[,,,,] d5 = tensor.reshape(four, [1, 1, 2, 1, 2]);

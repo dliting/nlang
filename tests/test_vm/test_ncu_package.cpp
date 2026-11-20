@@ -5,6 +5,7 @@ Writer/reader round trip, deterministic member ordering, duplicate and
 checksum rejections, entry-record round trip, and the magic/version
 negatives. Pure container tests: no compiler, no VM.
 ---*/
+#include "test_support/test_scratch.h"
 #include <cstdio>
 #include <fstream>
 #include <filesystem>
@@ -22,7 +23,7 @@ int g_pass = 0, g_fail = 0;
         std::fprintf(stderr, "FAIL: %s\n", msg); } } while (0)
 
 fs::path scratchDir() {
-    static fs::path dir = fs::temp_directory_path() / "nlang_test_ncu_pkg";
+    static fs::path dir = nlang::test::ScratchDir("nlang_test_ncu_pkg");
     std::error_code ec;
     fs::remove_all(dir, ec);
     fs::create_directories(dir, ec);

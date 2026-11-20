@@ -7,6 +7,8 @@
 #include "BytecodeOps.h"
 #include "BytecodeEmitter.h"      // src/vm/BytecodeEmitter.h
 #include "nlang/runtime/PrimitiveTypes.h"
+#include "nlang/runtime/NodeConsts.h"   // NodeKind/NK_* runtime rows
+#include "nlang/compiler/SyntaxNodeConsts.h"   // NK_EnumDecl (compile-only kind)
 #include "nlang/vm/CompiledModule.h"   // RTK_String (non-scalar tag row)
 
 namespace nlang {
@@ -42,6 +44,12 @@ inline void EmitPrimCast(BytecodeEmitter& e, NodeKind s, NodeKind d)
 inline void EmitNeg(BytecodeEmitter& e, NodeKind kind, uint16_t dst)
 {
     e.Emit(OpCode::OP_Neg); e.EmitByte(RtkOfKind(kind));
+    e.EmitUint16(dst);
+}
+
+inline void EmitBitNot(BytecodeEmitter& e, NodeKind kind, uint16_t dst)
+{
+    e.Emit(OpCode::OP_BitNot); e.EmitByte(RtkOfKind(kind));
     e.EmitUint16(dst);
 }
 

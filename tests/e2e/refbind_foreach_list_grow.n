@@ -1,0 +1,19 @@
+// v0.13.9 phase 3 Task 12: the growth side of the same re-probe
+// semantics — an append inside the loop extends the walk to the new
+// tail (the length probe runs per iteration, so the fresh element is
+// visited exactly once and the loop still terminates).
+// Expected exit code: 0.
+int main() {
+    List<int> nums = {};
+    nums.add(0);
+    nums.add(1);
+    int sum = 0;
+    foreach (int n in nums) {
+        if (n == 0)
+            nums.add(10);
+        sum = sum + n;
+    }
+    if (sum == 0 + 1 + 10 && nums.get(2) == 10)
+        return 0;
+    return 1;
+}

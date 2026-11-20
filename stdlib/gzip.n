@@ -1,0 +1,31 @@
+/* ------------------------------------------------------------------
+ * gzip.n — gzip (RFC 1952) compression via native zlib (spec D21/D23).
+ * The two natives return handle 0 for malformed input; Raise cannot
+ * name script classes, so the wrappers here turn that into
+ * GzipException.
+ * ------------------------------------------------------------------ */
+
+const class GzipException : IOException {
+    public GzipException(string message, Exception cause = null) {
+        super(message, cause);
+    }
+}
+
+native byte[] _gzipCompress(byte[] data);
+native byte[] _gzipDecompress(byte[] data);
+
+byte[] compress(byte[] data) {
+    byte[] compressed = _gzipCompress(data);
+    if (compressed == null) {
+        throw GzipException("gzip: compression failed");
+    }
+    return compressed;
+}
+
+byte[] decompress(byte[] data) {
+    byte[] decompressed = _gzipDecompress(data);
+    if (decompressed == null) {
+        throw GzipException("gzip: input is not a valid gzip stream");
+    }
+    return decompressed;
+}

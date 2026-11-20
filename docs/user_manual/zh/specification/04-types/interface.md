@@ -25,7 +25,7 @@ class Square implements IShape {
 
 ## 4.9.2 接口成员
 
-接口的实例成员是public抽象签名：访问修饰符默认`public`，写出`public`是冗余但合法的；`private`、`protected`、`const`、`native`与`virtual`在实例成员上是编译期错误，带体的实例成员也是编译期错误。实现类的对应方法则不受访问级别限制（§4.9.1）。
+接口的实例成员是public抽象签名：访问修饰符默认`public`，写出`public`是冗余但合法的；`private`、`protected`、`const`、`native`与`virtual`在实例成员上是编译期错误，带体的实例成员也是编译期错误。实例方法声明引用返回（`int& pick()`）是编译期错误——引用返回实现于游离函数和类方法（§4.7.9）。实现类的对应方法则不受访问级别限制（§4.9.1）。
 
 *资料性：*诊断会点名涉事成员，例如`The interface member "m" must be public.`与`The interface instance method "m" cannot have a body`。
 
@@ -36,7 +36,7 @@ class Square implements IShape {
 ```nlang
 interface IMath {
     static int twice(int x) { return x * 2; }
-    static int quad(int x) { return twice(twice(x)); }  // 接口内裸调用
+    static int quad(int x) { return twice(twice(x)); }  // 接口内非限定调用
     static const int base = 8;
     int sign(int x);                                    // 与静态并存的实例签名
 }

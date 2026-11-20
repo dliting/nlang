@@ -132,6 +132,7 @@ void VmBackend::GenerateStaticInitFunction(SnFunction& func,
     compiledFunc.bytecode = emitter.TakeBytes();
     compiledFunc.localsSize = ctx.nextOffset;
 
+    CheckFunctionBytecodeSize(func, compiledFunc.bytecode);
     CheckEvalAreaWalkerDrift(func, ctx, stats);
     BuildEvalAreaHandleMask(compiledFunc, ctx);
 

@@ -1,5 +1,5 @@
 // 0.13.1a: a T-argument construction inside a static member body
-// composes its recipe against the frame descriptor cell — the
+// composes its composition against the frame descriptor cell — the
 // caller-forward channel fills it, so the construction resolves to the
 // caller's instantiation (Box<int> here). The former instance-context
 // rejection is gone; an unfilled cell degrades to the named runtime

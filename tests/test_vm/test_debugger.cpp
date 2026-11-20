@@ -15,6 +15,7 @@ int main()
     TypeCastInfo::StaticInit();   //cast table (0.7.5: no longer inside Runtime::StaticInit)
 
     run_debugger_format_tests();
+    run_ncu_ref_sig_tests();
     run_debugger_gc_tests();
     run_debugger_hooks_tests();
     run_debugger_linepc_tests();
@@ -24,6 +25,7 @@ int main()
     run_debugger_hostio_tests();
     run_debugger_machine_tests();
     run_debugger_loop_tests();
+    run_debugger_refs_tests();
     run_debugger_multicontext_tests();
     run_debugger_k7_tests();
     run_backtrace_tests();

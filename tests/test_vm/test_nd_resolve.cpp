@@ -2,6 +2,7 @@
 // Resolution reaches the creation/subscript branches and the emit-side
 // temporary gates fire named diagnostics (ND emission lands in task 4).
 // In-process pipeline per test_native_array_abi.cpp (static-init contract).
+#include "test_support/test_scratch.h"
 
 #include "nlang/compiler/ModuleBuilder.h"
 #include "nlang/compiler/BuildEnvironment.h"
@@ -39,8 +40,7 @@ static int g_pass = 0, g_fail = 0;
 
 static std::filesystem::path scratchDir()
 {
-    static const auto dir = std::filesystem::temp_directory_path()
-        / "nlang_test_nd_resolve";
+    static const auto dir = nlang::test::ScratchDir("nlang_test_nd_resolve");
     std::filesystem::create_directories(dir);
     return dir;
 }
@@ -490,26 +490,50 @@ void test_leading_comma_diagnostics()
     PASS();
 }
 
-int main()
+int main(int argc, char *argv[])
 {
     Runtime::StaticInit();
     TypeCastInfo::StaticInit();
 
-    std::cerr << "=== ND resolve tests ===\n";
+    //--stress runs only the 200-iteration reject soak; the default run
+    //excludes it. The two forms are a partition registered as separate
+    //ctest entries (nd_resolve_tests / nd_resolve_stress_tests), so a
+    //routine sweep skips the soak by name while the full suite still
+    //covers it — the soak dominates the file (141 s Debug / 766 s ASan
+    //measured 2026-11-14) while everything else is seconds. An
+    //unrecognized argument fails loud instead of masquerading as a
+    //green fast run.
+    bool stressOnly = false;
+    for (int i = 1; i < argc; ++i) {
+        if (std::string(argv[i]) == "--stress") {
+            stressOnly = true;
+        } else {
+            std::cerr << "unknown argument: " << argv[i]
+                << " (only --stress is accepted)\n";
+            return 2;
+        }
+    }
+
+    std::cerr << "=== ND resolve "
+        << (stressOnly ? "stress only" : "tests")
+        << " ===\n";
     try {
-        test_nd_creation_resolves_to_gate();
-        test_subscript_arity_diagnostics();
-        test_jagged_still_rejected();
-        test_emit_gates_cover_nd_paths();
-        test_nd_rank_cap_diagnostics();
-        test_brace_row_is_depth_mismatch();
-        test_decl_comma_size_named_reject();
-        test_decl_comma_size_reject_stress();
-        test_leading_comma_diagnostics();
-        test_nd_initlist_dynamic_row_expr();
-        test_nd_initlist_dynamic_mixed_rows();
-        test_nd_initlist_dynamic_scalar_entry_rejected();
-        test_nd_initlist_dynamic_rank_mismatch_rejected();
+        if (stressOnly) {
+            test_decl_comma_size_reject_stress();
+        } else {
+            test_nd_creation_resolves_to_gate();
+            test_subscript_arity_diagnostics();
+            test_jagged_still_rejected();
+            test_emit_gates_cover_nd_paths();
+            test_nd_rank_cap_diagnostics();
+            test_brace_row_is_depth_mismatch();
+            test_decl_comma_size_named_reject();
+            test_leading_comma_diagnostics();
+            test_nd_initlist_dynamic_row_expr();
+            test_nd_initlist_dynamic_mixed_rows();
+            test_nd_initlist_dynamic_scalar_entry_rejected();
+            test_nd_initlist_dynamic_rank_mismatch_rejected();
+        }
     } catch (const std::exception& e) {
         std::cerr << "FAILED (exception: " << e.what() << "\n";
         g_fail++;

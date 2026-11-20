@@ -1,0 +1,29 @@
+// v0.13.9 phase 3 Task 12 (D14) GC pin: an interface-typed named local
+// must root its instance through mid-loop collections with the local as
+// the only anchor. Before the classification fix the locals-table kind
+// byte degraded to RTK_Int32, the band mask packed ESC_None, MarkFrameBand
+// skipped the slot, and the sweep freed the live instance mid-churn (the
+// second interface call then dispatched on a cleared record).
+//
+// Natural-GC churn form (no --gc-stress flag), same shape discipline as
+// generic_gc_tslot_survives.n. Expected exit code: 0.
+interface Inc {
+    void set(int v);
+    int get();
+}
+class A implements Inc {
+    public int v = 0;
+    public void set(int v) { this.v = v; }
+    public int get() { return this.v; }
+}
+int main() {
+    Inc x = A();
+    int c = 0;
+    while (c < 3000) {
+        Inc g = A();
+        g.set(c);
+        c = c + 1;
+    }
+    x.set(41);
+    return x.get() - 41;
+}

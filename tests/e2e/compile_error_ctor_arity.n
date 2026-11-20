@@ -15,7 +15,7 @@ int main() {
     WithParams p2 = WithParams(1, 2);   // extra args
     WithParams p3 = WithParams(a = 1);  // named argument
     int x = 0;
-    WithParams p4 = WithParams(out x);  // out argument
+    WithParams p4 = WithParams(x);  // out argument
     NoCtor n = NoCtor(1);               // no ctor + args
     return 0;
 }

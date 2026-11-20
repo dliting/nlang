@@ -139,16 +139,11 @@ void IoAppendFile(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     WriteLike(h, a, /*append=*/true, "appendFile");
 }
 
-// v0.13.0 net (r1 note 5): the generic IO surface — monotonic clock,
-// IO parking, and the byte helpers moved out of the net package
-// (string is a byte container; UTF-8 bytes pass through untouched).
-
-// nowMs: the host's monotonic millisecond clock — the same clock
-// domain as parkForIo deadlines (a deadline is an absolute nowMs
-// reading). Pure clock read, no VM state: normal channel.
-void IoNowMs(NativeHost* h, uint8_t* ret, const uint8_t*, int) {
-    ReturnLong(ret, h->nowMs(h));
-}
+// v0.13.0 net (r1 note 5): the generic IO surface — IO parking and the
+// byte helpers moved out of the net package (string is a byte container;
+// UTF-8 bytes pass through untouched). The monotonic clock moved to
+// system.monoMs in v0.13.4 (the host ABI nowMs callback stays: it is the
+// deadline domain of parkForIo).
 
 // parkForIo: registered on the blocking channel, so the GIL is
 // released around this call and the host can park the context and
@@ -166,7 +161,7 @@ void IoParkForIo(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
 
 // toBytes: string bytes -> rank-1 byte array. Cells are int32 each
 // and the low byte carries the value (the array store's narrow-cell
-// convention); the minted array is zero-initialized and every cell
+// convention); the created array is zero-initialized and every cell
 // below is written.
 void IoToBytes(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     const std::string text = ArgString(h, a, 0);
@@ -223,7 +218,6 @@ NLANG_DEFINE_NATIVE_INIT {
     regBlocking(registry, "io", "readFile",   &IoReadFile);
     regBlocking(registry, "io", "writeFile",  &IoWriteFile);
     regBlocking(registry, "io", "appendFile", &IoAppendFile);
-    reg(registry, "io", "nowMs",      &IoNowMs);
     regBlocking(registry, "io", "parkForIo",  &IoParkForIo);
     reg(registry, "io", "toBytes",    &IoToBytes);
     reg(registry, "io", "fromBytes",  &IoFromBytes);

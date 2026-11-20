@@ -60,7 +60,7 @@ bool UnifyFormalExpr(const GenericInstanceRegistry& generics,
     TypeArgConflict* pOutConflict);
 
 //Nested instantiation formal (List<T>) against an actual instantiation
-//of the same template (the erasure identity is the bare name); recurses
+//of the same template (the erasure identity is the unqualified name); recurses
 //per argument.
 bool UnifyFormalInstantiation(const GenericInstanceRegistry& generics,
     const SnGenericTypeExpr& genFormal, const SnClassDecl& instActual,
@@ -68,7 +68,7 @@ bool UnifyFormalInstantiation(const GenericInstanceRegistry& generics,
     TypeArgConflict* pOutConflict)
 {
     //The formal's own resolved field is the instantiation node the
-    //signature pass minted over its argument spellings — same bare
+    //signature pass created over its argument spellings — same bare
     //name or the shapes cannot pair.
     const SnField* pFormalInst = genFormal.Field();
     if (!pFormalInst || pFormalInst->Kind() != NK_ClassDecl

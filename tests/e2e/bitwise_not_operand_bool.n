@@ -1,0 +1,1 @@
+int main() { bool t = true; int r = ~t; return r; }

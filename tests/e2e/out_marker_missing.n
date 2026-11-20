@@ -1,5 +1,5 @@
-// Calling an out param without the `out` marker is rejected — the
-// writeback would leak the callee's local into the caller's variable.
+// v0.13.9 phase 4: the declaration throat fires; a call to a
+// reference formal needs no marker at all.
 int foo(out int x) {
     x = 1;
     return 2;

@@ -132,11 +132,9 @@ Error: a local declaration cannot be the unbraced body of a control-flow stateme
 ```
 
 A control-flow statement's unbraced (bare) body cannot be a declaration
-— use a braced body. When calling a function with an `out` parameter,
-the call site must carry the `out` marker, otherwise you get `The
-function invoke "foo(y)" is not compatible with the declaration.`. See
+— use a braced body. See
 [Statements](../06-statements/index.md) "Unbraced body" and
-[Out Parameters](../07-functions/parameters.md).
+[Parameters and Arguments](../07-functions/parameters.md).
 
 ### First direct-init argument parsed as a type at top level
 
@@ -400,15 +398,31 @@ int main() {
 Warning: implicit conversion from 'Long' to 'Float' loses precision
 ```
 
+```nlang
+int main() {
+    double d = 1.5;
+    int x = 1 & d;
+    return 0;
+}
+```
+
+```text
+Error: operator '&' requires integer operands, got "Double".
+```
+
 Arithmetic mixing `int`/`long` with `ulong` has no implicit common type
 — unify the sign domain explicitly first (`i as ulong` or `u as long`);
 char never converts implicitly to a numeric type (take the code point
 with `c as int` before comparing, likewise for arithmetic); implicit
 assignment of int/uint/long/ulong→float and long/ulong→double raises a
 **lossy warning** (it does not affect the exit code; `ncc --no-warn`
-suppresses this warning family; an explicit `as` never warns). See →
+suppresses this warning family; an explicit `as` never warns); bitwise
+`&` `^` `|` `~` take integer operands only (`null is not a valid
+bitwise operand.` for `null`), and their mixed integer rows promote
+exactly as arithmetic does (`-1 & 1099511627776L` is `long`, so the
+`int`/`ulong` boundary applies there too). See →
 [Types](../04-types/index.md) "Numeric conversion matrix" and
-[Operators](../05-expressions/operators.md) "Arithmetic".
+[Operators](../05-expressions/operators.md) "Arithmetic", "Bitwise".
 
 ### `as` casts
 
@@ -523,3 +537,31 @@ stored on disk, so the same source compiles fine once re-saved as
 UTF-8. A
 leading UTF-8 byte order mark (BOM) is accepted and skipped. See →
 [Primitive Types](../04-types/primitives.md) "Representation: from source to console".
+
+### Function bytecode size
+
+```nlang
+int main() {
+    int x = 0;
+    x = x + 1;   // …the line repeats thousands of times in the real file…
+    return x % 2;
+}
+```
+
+```console
+$ ncc build big_loop.n -o big_loop.ncu
+big_loop.n(line 1, char 1): Error: function 'main' compiled to 261048 bytes of bytecode, over the 65535-byte limit for jump offsets in one function (split it into smaller functions)
+Compilation failed.
+```
+
+Jump targets inside one function are 16-bit program counters, so one
+function's compiled bytecode must stay under 64 KiB. The compiler
+enforces that ceiling at build time: an overlong function is refused
+with a named error quoting its declaration site and actual size,
+instead of being emitted as an image whose wrapped jumps silently
+execute the wrong branch. Split the body into smaller functions —
+extract helper functions and call them. Only pathologically large flat
+functions (thousands of statements in a row, no calls) come near the
+limit; ordinary code is nowhere close. See [Known
+Limitations](known-limitations.md), the "Function bytecode size
+ceiling" item.

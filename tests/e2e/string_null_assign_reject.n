@@ -1,0 +1,7 @@
+// string is a value type: a null literal cannot be assigned to a
+// string-typed variable.
+int main() {
+    string s = "x";
+    s = null;
+    return s.length();
+}

@@ -1,9 +1,5 @@
-// Phase 10 audit round-14, LOW finding: out arguments on built-in methods
-// (by-name dispatched intrinsics) must be a compile error — the intrinsics
-// return values through pResult and never write back through callParam
-// slots, so an out argument silently does nothing. Round 12 added the
-// matching named-argument rejection at all four builtin dispatch sites;
-// this file covers the out-argument shapes on each site.
+// v0.13.9 phase 4: the out argument marker is retired on every
+// call, intrinsics included.
 import io;
 class Box { int v; }
 

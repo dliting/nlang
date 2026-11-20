@@ -3,7 +3,7 @@
     (v0.12.7 Task 12): transpose (full axis reversal and the axes
     permutation), flatten/reshape (an O(1) re-view of a contiguous
     source, a dense copy otherwise), slice (the all-axes function form)
-    and broadcastTo (the read-only zero-stride view). Views mint through
+    and broadcastTo (the read-only zero-stride view). Views create through
     the ABI v10 newArrayView entry with strides in owner space, so they
     compose: a view over a view peels to the same owning record.
 ---*/
@@ -25,7 +25,7 @@ namespace tensor {
 namespace {
 
 //Saturation ceiling for the shape-product accumulation: above any
-//legal mint (sized creation caps at 1e8 elements), so a saturated
+//legal creation (sized creation caps at 1e8 elements), so a saturated
 //product never equals an in-range element count and the final compare
 //stays exact without int64 overflow.
 constexpr int64_t kShapeProductSaturate = 2000000000LL;
@@ -33,7 +33,7 @@ constexpr int64_t kShapeProductSaturate = 2000000000LL;
 //Validate the reshape shape and fill dims, inferring the single -1 dim
 //from the source element count (the product of the rest must divide
 //evenly). Raises on every violated rule; the count-vs-product check
-//lives here so callers mint straight after.
+//lives here so callers create straight after.
 void PrepareReshapeDims(NativeHost* host, const NativeArrayView& src,
                         const int32_t* shapeCells, int32_t shapeLen,
                         int32_t* dims) {

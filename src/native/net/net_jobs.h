@@ -65,7 +65,7 @@ struct NetJobRecord {
 //recycled jobId never aliases a live worker's target — no generation.
 class NetJobTable {
 public:
-    int32_t Mint(int kind, int owner = 0);   //jobId = index + 1
+    int32_t Create(int kind, int owner = 0);   //jobId = index + 1
     //The record for a jobId, or null when free/stale.
     NetJobRecord* Lookup(int32_t jobId);
     //The jobId of this context's still-registered job of the kind

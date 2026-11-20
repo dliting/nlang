@@ -42,7 +42,7 @@ int ArrayTypeDepth(const SnFieldExpr* pType)
 		{
 			auto* pGen = static_cast<const SnGenericTypeExpr*>(pCur);
 			//The grammar wraps the base in an SnNameExpr; its ToString()
-			//is the bare name.
+			//is the unqualified name.
 			if (pGen->TypeArgs().size() != 1
 				|| pGen->Base()->ToString() != kBuiltinArrayTypeName)
 				return depth;
@@ -63,9 +63,11 @@ int ArrayTypeDepth(const SnFieldExpr* pType)
 bool RejectInvalidTypeArg(BuildEnvironment &env, SnFieldExpr *pTA,
 	const std::string &baseName, bool bFirstArg)
 {
-	//Phase 13: void and out are func-only type-argument features.
-	//void may only occupy func's first (return) type slot; out may
-	//only mark func parameter slots (any position after the first).
+	//Phase 13: void is a func-only type-argument feature.
+	//void may only occupy func's first (return) type slot.
+	//v0.13.9 phase 4: the out type mark is retired everywhere — the
+	//func<...> parameter-slot allowance died with the out mechanism;
+	//the reference mark ("int&") spells what it used to.
 	bool isVoidArg = pTA->Field()->Kind() == NK_Void;
 	bool isOutArg = pTA->ContainFlags(NF_Out);
 	if (isVoidArg && !(baseName == kBuiltinFuncTypeName && bFirstArg))
@@ -74,10 +76,11 @@ bool RejectInvalidTypeArg(BuildEnvironment &env, SnFieldExpr *pTA,
 			"void is only allowed as the return slot of func<...>.");
 		return true;
 	}
-	if (isOutArg && !(baseName == kBuiltinFuncTypeName && !bFirstArg))
+	if (isOutArg)
 	{
 		env.Log(CLL_Error, pTA->Location(),
-			"out is only allowed on func<...> parameters.");
+			"the out type marker is retired; use the reference mark "
+			"instead.");
 		return true;
 	}
 	//Array redesign B: a jagged type argument has no VM layout — the

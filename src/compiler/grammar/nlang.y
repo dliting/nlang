@@ -6,8 +6,8 @@
 %lex-param { yyscan_t yyscanner }
 %locations
 %debug
-/*v0.9.1: the grammar now carries accepted reduce/reduce conflicts (5 at
-the 2026-11-08 re-measure; 3 through 2026-11-07),
+/*v0.9.1: the grammar now carries accepted reduce/reduce conflicts (12 at
+the 2026-11-17 re-measure; 5 through 2026-11-15),
 and deterministic parsers cannot use %expect alongside any r/r
 conflict, so there is no %expect here. The counts are pinned by the
 accepted-conflict ledger below and re-measured by the direct bison
@@ -179,7 +179,7 @@ static SnExpression* BuildStringExpr(
 }
 
 //0.8.3: the func keyword's generic spellings share one builder — the
-//keyword is not an identifier token, so the base-name node is minted
+//keyword is not an identifier token, so the base-name node is created
 //from kBuiltinFuncTypeName; the resolver's generic dispatch matches on
 //that base name (IsBuiltinGenericTypeName).
 static SnGenericTypeExpr* MakeFuncType(
@@ -316,7 +316,8 @@ static bool CollectQualifiedSegments(
 %type <v_pFieldExpr>				Type TypeArg QualifiedType HeadType TypeName ImplementsName
 %type <v_pFieldExpr>				AsGenericTarget
 %type <v_pFieldExpr>				QualifiedGenericReceiver
-%type <v_pFieldExprVec>			TypeList
+%type <v_pFieldExpr>				TypeRef FuncTypeArg
+%type <v_pFieldExprVec>			TypeList FuncTypeList
 %type <v_pIdentifierExpr>		IdentifierExpr
 %type <v_pInvokeExpr>			InvokeExpr
 %type <v_pMemberExpr>			MemberExpr
@@ -338,7 +339,7 @@ static bool CollectQualifiedSegments(
 %type <v_pFunction>				TopBareFunc TopModFunc TopBareHeader TopModHeader TopGenericBareHeader TopGenericModHeader
 %type <v_pParagraph>			Paragraph DefaultCase FunctionBodyOrSemi
 %type <v_pStatementList>		StatementList
-%type <v_pStatement>			Statement ReturnStmt InvokeStmt LocalDeclStmt AssignStmt CompoundAssignStmt AssertStmt SubscriptAssignStmt IfStmt WhileStmt InitFor FiniFor TryStmt ThrowStmt SuperCallStmt FinallyClauseOpt
+%type <v_pStatement>			Statement ReturnStmt InvokeStmt LocalDeclStmt DeclLocalConst AssignStmt CompoundAssignStmt AssertStmt SubscriptAssignStmt IfStmt WhileStmt InitFor FiniFor TryStmt ThrowStmt SuperCallStmt FinallyClauseOpt
 %type <v_pForStmt>		ForStmt
 %type <v_pForeachStmt>	ForeachStmt
 %type <v_pCatchClause>		CatchClause
@@ -352,18 +353,22 @@ static bool CollectQualifiedSegments(
 %type <v_pContinueStmt>	ContinueStmt
 %type <v_pLocalDeclList>		LocalDeclList
 %type <v_pEnumDecl>			EnumDecl
+%type <v_pEnumDecl>			EnumDeclCore
 %type <v_pEnumMember>		EnumMember
 %type <v_pEnumMemberList>	EnumMemberList
 %type <v_pEnumMethodList>	EnumMethodSection EnumMethodList
 %type <v_pFunction>		EnumMethod
 %type <v_pStructDecl>		StructDecl
+%type <v_pStructDecl>		StructDeclCore
 %type <v_pStructField>		StructField
 %type <v_pField>			StructMember
 %type <v_pFunction>		StructCtor
 %type <v_pStructMemberList>	StructMemberList
 %type <v_pClassDecl>		ClassDecl
+%type <v_pClassDecl>		ClassDeclCore
 %type <v_pStrList>			TypeParamsOpt TypeParams TypeParamRests
 %type <v_pInterfaceDecl>	InterfaceDecl
+%type <v_pInterfaceDecl>	InterfaceDeclCore
 %type <v_pNameExprList>		ImplementsOpt NameList
 %type <v_pClassMemberList>	InterfaceMemberList
 %type <v_pField>			InterfaceMember
@@ -445,8 +450,6 @@ static bool CollectQualifiedSegments(
 %token KT_While
 
 /*double-character operator type */
-%token OT_INC
-%token OT_DEC
 %token OT_LSH
 %token OT_RSH
 %token OT_LSHS
@@ -455,7 +458,6 @@ static bool CollectQualifiedSegments(
 %token OT_GE
 %token OT_NE
 %token OT_EQ
-%token OT_AEQ
 %token OT_AND
 %token OT_OR
 %token OT_MODS
@@ -465,6 +467,7 @@ static bool CollectQualifiedSegments(
 %token OT_DECS
 %token OT_DIVS
 %token OT_BORS
+%token OT_BXORS
 %token OT_Brackets
 %token <v_Int>	OT_BracketsND
 %token OT_TypeLt
@@ -472,18 +475,18 @@ static bool CollectQualifiedSegments(
 %nonassoc P_Then
 %nonassoc KT_Else
 
-%right OT_BORS OT_DIVS OT_DECS OT_INCS OT_MULS OT_BANDS OT_MODS
+%right OT_BXORS OT_BORS OT_DIVS OT_DECS OT_INCS OT_MULS OT_BANDS OT_MODS
 %left OT_OR
 %left OT_AND
 %left '|'
 %left '^'
 %left '&'
-%left OT_AEQ OT_EQ OT_NE
+%left OT_EQ OT_NE
 %left OT_GE '>' OT_LE '<'
 %left OT_RSH OT_LSH
 %left '-' '+'
 %left '/' '*' '%'
-%right '~' OT_DEC P_Minus OT_INC '!'
+%right '~' P_Minus '!'
 %left KT_As
 
 %nonassoc P_NonMember
@@ -631,7 +634,7 @@ TopItem:	NamespaceMember {
 					//rides the statement path and dies at the body or param
 					//tokens with a bare syntax error. Top-level only: the
 					//in-body `const T p();` zero-argument construction keeps
-					//its LocalDeclList reading. The public spellings mint an
+					//its LocalDeclList reading. The public spellings create an
 					//SnFunction and are named by the resolver contract check.
 					//Adds one shared-paren conflict state (1 s/r + 2 r/r) of
 					//the accepted epsilon family — see the FormalParamList
@@ -691,6 +694,20 @@ TopGenericBareHeader:	HeadType TT_Identifier TypeParams '(' FormalParamList ')' 
 							$$->SetTypeParamNames(std::move(*$3));
 							delete $3;
 						} |
+						//v0.13.9 phase 3: `T& pick<T>(...)` — the '&' mark rides
+						//the return-type node (same convention as the out mark).
+						HeadType '&' TT_Identifier TypeParams '(' FormalParamList ')' {
+							$1->AddFlags(NF_Ref);
+							$$ = new SnFunction(FA_Default, NF_NONE, $1, $3, $6, @1);
+							$$->SetTypeParamNames(std::move(*$4));
+							delete $4;
+						} |
+						HeadType '&' TT_Identifier TypeParams '(' ')' {
+							$1->AddFlags(NF_Ref);
+							$$ = new SnFunction(FA_Default, NF_NONE, $1, $3, new PtrList<SnFormalParam>(), @1);
+							$$->SetTypeParamNames(std::move(*$4));
+							delete $4;
+						} |
 						KT_Void TT_Identifier TypeParams '(' FormalParamList ')' {
 							$$ = new SnFunction(FA_Default, NF_NONE | NF_ExplicitVoid, nullptr, $2, $5, @1);
 							$$->SetTypeParamNames(std::move(*$3));
@@ -702,6 +719,16 @@ TopBareHeader:	HeadType TT_Identifier '(' FormalParamList ')' {
 					} |
 					HeadType TT_Identifier '(' ')' {
 						$$ = new SnFunction(FA_Default, NF_NONE, $1, $2, new PtrList<SnFormalParam>(), @1);
+					} |
+					//v0.13.9 phase 3: `int& f()` — inline '&' arm; the mark
+					//rides the return-type node.
+					HeadType '&' TT_Identifier '(' FormalParamList ')' {
+						$1->AddFlags(NF_Ref);
+						$$ = new SnFunction(FA_Default, NF_NONE, $1, $3, $5, @1);
+					} |
+					HeadType '&' TT_Identifier '(' ')' {
+						$1->AddFlags(NF_Ref);
+						$$ = new SnFunction(FA_Default, NF_NONE, $1, $3, new PtrList<SnFormalParam>(), @1);
 					} |
 					KT_Void TT_Identifier '(' FormalParamList ')' {
 						$$ = new SnFunction(FA_Default, NF_NONE | NF_ExplicitVoid, nullptr, $2, $4, @1);
@@ -728,10 +755,19 @@ TopModFunc:	TopModHeader FunctionBodyOrSemi {
 
 //Generic variants of the modifier-led header — same matrix, required
 //TypeParams bracket, same reasoning as TopGenericBareHeader above.
+//v0.13.9 phase 3: each type-slot arm gains an inline-'&' twin (`static
+//int& f()`, `static T& pick<T>(...)`); the mark rides the type node.
+//KT_Void keeps no twin: `void&` is structurally meaningless.
 TopGenericModHeader:	AccessTypeNonEmpty HeadType TT_Identifier TypeParams '(' FormalParamList ')' {
 							$$ = new SnFunction($1, NF_NONE, $2, $3, $6, @2);
 							$$->SetTypeParamNames(std::move(*$4));
 							delete $4;
+						} |
+						AccessTypeNonEmpty HeadType '&' TT_Identifier TypeParams '(' FormalParamList ')' {
+							$2->AddFlags(NF_Ref);
+							$$ = new SnFunction($1, NF_NONE, $2, $4, $7, @2);
+							$$->SetTypeParamNames(std::move(*$5));
+							delete $5;
 						} |
 						AccessTypeNonEmpty KT_Void TT_Identifier TypeParams '(' FormalParamList ')' {
 							$$ = new SnFunction($1, NF_NONE | NF_ExplicitVoid, nullptr, $3, $6, @2);
@@ -743,6 +779,12 @@ TopGenericModHeader:	AccessTypeNonEmpty HeadType TT_Identifier TypeParams '(' Fo
 							$$->SetTypeParamNames(std::move(*$5));
 							delete $5;
 						} |
+						AccessTypeEmpty NodeFlagsNonEmpty HeadType '&' TT_Identifier TypeParams '(' FormalParamList ')' {
+							$3->AddFlags(NF_Ref);
+							$$ = new SnFunction($1, $2, $3, $5, $8, @3);
+							$$->SetTypeParamNames(std::move(*$6));
+							delete $6;
+						} |
 						AccessTypeEmpty NodeFlagsNonEmpty KT_Void TT_Identifier TypeParams '(' FormalParamList ')' {
 							$$ = new SnFunction($1, $2 | NF_ExplicitVoid, nullptr, $4, $7, @3);
 							$$->SetTypeParamNames(std::move(*$5));
@@ -753,6 +795,12 @@ TopGenericModHeader:	AccessTypeNonEmpty HeadType TT_Identifier TypeParams '(' Fo
 							$$->SetTypeParamNames(std::move(*$5));
 							delete $5;
 						} |
+						AccessTypeNonEmpty NodeFlagsNonEmpty HeadType '&' TT_Identifier TypeParams '(' FormalParamList ')' {
+							$3->AddFlags(NF_Ref);
+							$$ = new SnFunction($1, $2, $3, $5, $8, @3);
+							$$->SetTypeParamNames(std::move(*$6));
+							delete $6;
+						} |
 						AccessTypeNonEmpty NodeFlagsNonEmpty KT_Void TT_Identifier TypeParams '(' FormalParamList ')' {
 							$$ = new SnFunction($1, $2 | NF_ExplicitVoid, nullptr, $4, $7, @3);
 							$$->SetTypeParamNames(std::move(*$5));
@@ -762,17 +810,29 @@ TopGenericModHeader:	AccessTypeNonEmpty HeadType TT_Identifier TypeParams '(' Fo
 TopModHeader:	AccessTypeNonEmpty HeadType TT_Identifier '(' FormalParamList ')' {
 						$$ = new SnFunction($1, NF_NONE, $2, $3, $5, @2);
 					} |
+					AccessTypeNonEmpty HeadType '&' TT_Identifier '(' FormalParamList ')' {
+						$2->AddFlags(NF_Ref);
+						$$ = new SnFunction($1, NF_NONE, $2, $4, $6, @2);
+					} |
 					AccessTypeNonEmpty KT_Void TT_Identifier '(' FormalParamList ')' {
 						$$ = new SnFunction($1, NF_NONE | NF_ExplicitVoid, nullptr, $3, $5, @2);
 					} |
 					AccessTypeEmpty NodeFlagsNonEmpty HeadType TT_Identifier '(' FormalParamList ')' {
 						$$ = new SnFunction($1, $2, $3, $4, $6, @3);
 					} |
+					AccessTypeEmpty NodeFlagsNonEmpty HeadType '&' TT_Identifier '(' FormalParamList ')' {
+						$3->AddFlags(NF_Ref);
+						$$ = new SnFunction($1, $2, $3, $5, $7, @3);
+					} |
 					AccessTypeEmpty NodeFlagsNonEmpty KT_Void TT_Identifier '(' FormalParamList ')' {
 						$$ = new SnFunction($1, $2 | NF_ExplicitVoid, nullptr, $4, $6, @3);
 					} |
 					AccessTypeNonEmpty NodeFlagsNonEmpty HeadType TT_Identifier '(' FormalParamList ')' {
 						$$ = new SnFunction($1, $2, $3, $4, $6, @3);
+					} |
+					AccessTypeNonEmpty NodeFlagsNonEmpty HeadType '&' TT_Identifier '(' FormalParamList ')' {
+						$3->AddFlags(NF_Ref);
+						$$ = new SnFunction($1, $2, $3, $5, $7, @3);
 					} |
 					AccessTypeNonEmpty NodeFlagsNonEmpty KT_Void TT_Identifier '(' FormalParamList ')' {
 						$$ = new SnFunction($1, $2 | NF_ExplicitVoid, nullptr, $4, $6, @3);
@@ -842,24 +902,28 @@ FormalParamList:	FormalParamList ',' FormalParam {
 							//header wins and zero-parameter definitions parse (D6).
 						} ;
 
-FormalParam:	NodeFlagsNonEmpty Type TT_Identifier '=' Expression {
+FormalParam:	NodeFlagsNonEmpty TypeRef TT_Identifier '=' Expression {
 						$$ = new SnFormalParam($1, $2, $3, $5, @1);
 					} |
-					NodeFlagsNonEmpty Type TT_Identifier {
+					NodeFlagsNonEmpty TypeRef TT_Identifier {
 						$$ = new SnFormalParam($1, $2, $3, nullptr, @1);
 					} |
 					/*v0.9.1: bare arms. Type must open the production so a
 					 * dot-before-Type item lives in the shared paren state;
-					 * without it the epsilon suppression kills "int f(int x)".*/
-					Type TT_Identifier '=' Expression {
+					 * without it the epsilon suppression kills "int f(int x)".
+					 * v0.13.9 phase 3: TypeRef — the arms also accept the
+					 * reference '&' mark (`int& v`); the out arms below keep
+					 * plain Type, so `out int& v` stays a syntax error.*/
+					TypeRef TT_Identifier '=' Expression {
 						$$ = new SnFormalParam(NF_NONE, $1, $2, $4, @1);
 					} |
-					Type TT_Identifier {
+					TypeRef TT_Identifier {
 						$$ = new SnFormalParam(NF_NONE, $1, $2, nullptr, @1);
 					} |
-					/* Phase 9e: out parameter. No default-value form — an out
-					 * parameter is callee-assigned, a default is meaningless.
-					 * v0.9.1: modifier-led or bare, mirroring the arms above. */
+					/* Phase 9e: out parameter. v0.13.9 phase 4: diagnostic
+					 * anchor only — ResolveFunctionFormals reports the
+					 * retirement for every NF_Out formal. No default-value
+					 * form exists, so `out T x = d` stays a syntax error. */
 					NodeFlagsNonEmpty KT_Out Type TT_Identifier {
 						$$ = new SnFormalParam($1, $3, $4, nullptr, @2);
 						$$->AddFlags(NF_Out);
@@ -894,6 +958,9 @@ Statement:	';' {
 					$$ = $1;
 				} |
 				LocalDeclStmt {
+					$$ = $1;
+				} |
+				DeclLocalConst {
 					$$ = $1;
 				} |
 				AssignStmt {
@@ -974,6 +1041,20 @@ Phase 9a: `const Type decls;` form marks all locals as const (NF_Const).
 LocalDeclStmt: HeadType LocalDeclList ';' {
 						$$ = new SnLocalDeclStmt($1, $2, @1);
 					} |
+					//v0.13.9 phase 3: reference local declarations. The
+					//'&' is an INLINE arm after the head — no wrapper
+					//nonterminal — so the post-type state holds only
+					//shift actions and never conflicts with the plain
+					//declarator or the expression readings. The mark
+					//rides the type node; identifier-led heads reach the
+					//same shift through the HeadType completion (the
+					//accepted reduce/reduce at the statement-head
+					//identifier state resolves to it — see the conflict
+					//ledger in this file's header).
+					HeadType '&' LocalDeclList ';' {
+						$1->AddFlags(NF_Ref);
+						$$ = new SnLocalDeclStmt($1, $3, @1);
+					} |
 					KT_Const HeadType LocalDeclList ';' {
 						$$ = new SnLocalDeclStmt($2, $3, true, @1);
 					} |
@@ -988,6 +1069,16 @@ LocalDeclStmt: HeadType LocalDeclList ';' {
 					KT_Static KT_Const HeadType LocalDeclList ';' {
 						$$ = new SnLocalDeclStmt($3, $4, NF_Static | NF_Const, @1);
 					} ;
+
+//v0.13.9 phase 3 Task 9: the const read-only reference form. The '&'
+//rides the type node exactly like the plain reference arm above, and
+//the const bit rides the statement — the resolver's write gates key on
+//the descriptor's NF_Const, while the binding judgment relaxes its
+//const-storage arm for a const binding (RefBindJudgment).
+DeclLocalConst:	KT_Const HeadType '&' LocalDeclList ';' {
+				$2->AddFlags(NF_Ref);
+				$$ = new SnLocalDeclStmt($2, $4, true, @1);
+			} ;
 
 LocalDeclList: LocalDeclList ',' TT_Identifier {
 						$1->push_back({*$3, nullptr});
@@ -1216,6 +1307,18 @@ CompoundAssignStmt: IdentifierExpr OT_INCS Expression ';' {
 				IdentifierExpr OT_RSHS Expression ';' {
 					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Shr, $1, $3, @1);
 				} |
+				//v0.13.7: bitwise compound forms (&=, |=, ^=). The operator
+				//rides the same SnCompoundAssignStmt node; resolver gates and
+				//emission join the compound family in the later stages.
+				IdentifierExpr OT_BANDS Expression ';' {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_BitAnd, $1, $3, @1);
+				} |
+				IdentifierExpr OT_BORS Expression ';' {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_BitOr, $1, $3, @1);
+				} |
+				IdentifierExpr OT_BXORS Expression ';' {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_BitXor, $1, $3, @1);
+				} |
 				MemberExpr OT_INCS Expression ';' {
 					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Add, $1, $3, @1);
 				} |
@@ -1237,6 +1340,15 @@ CompoundAssignStmt: IdentifierExpr OT_INCS Expression ';' {
 				MemberExpr OT_RSHS Expression ';' {
 					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Shr, $1, $3, @1);
 				} |
+				MemberExpr OT_BANDS Expression ';' {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_BitAnd, $1, $3, @1);
+				} |
+				MemberExpr OT_BORS Expression ';' {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_BitOr, $1, $3, @1);
+				} |
+				MemberExpr OT_BXORS Expression ';' {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_BitXor, $1, $3, @1);
+				} |
 				SubscriptExpr OT_INCS Expression ';' {
 					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Add, $1, $3, @1);
 				} |
@@ -1257,6 +1369,15 @@ CompoundAssignStmt: IdentifierExpr OT_INCS Expression ';' {
 				} |
 				SubscriptExpr OT_RSHS Expression ';' {
 					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Shr, $1, $3, @1);
+				} |
+				SubscriptExpr OT_BANDS Expression ';' {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_BitAnd, $1, $3, @1);
+				} |
+				SubscriptExpr OT_BORS Expression ';' {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_BitOr, $1, $3, @1);
+				} |
+				SubscriptExpr OT_BXORS Expression ';' {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_BitXor, $1, $3, @1);
 				} ;
 
 /*
@@ -1412,17 +1533,28 @@ FiniFor:	{
 				} |
 				IdentifierExpr OT_RSHS Expression {
 					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_Shr, $1, $3, @1);
+				} |
+				IdentifierExpr OT_BANDS Expression {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_BitAnd, $1, $3, @1);
+				} |
+				IdentifierExpr OT_BORS Expression {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_BitOr, $1, $3, @1);
+				} |
+				IdentifierExpr OT_BXORS Expression {
+					$$ = new SnCompoundAssignStmt(SnBinaryExpr::OP_BitXor, $1, $3, @1);
 				} ;
 
 /*
 Foreach loop statement (Phase 8e-5).
 Iterates Array / List<T> / Dict<K,V> (keys).
 */
-ForeachStmt:	KT_Foreach '(' Type TT_Identifier KT_In Expression ')' Statement {
+ForeachStmt:	KT_Foreach '(' TypeRef TT_Identifier KT_In Expression ')' Statement {
 					$$ = new SnForeachStmt($3, *$4, $6, $8, @1);
 				} |
 				//0.9.13 B1: bare brace source for foreach.
-				KT_Foreach '(' Type TT_Identifier KT_In BracedInitExpr ')' Statement {
+				//v0.13.9 phase 3: TypeRef — `foreach (int& v in xs)` marks
+				//the element binding as a reference.
+				KT_Foreach '(' TypeRef TT_Identifier KT_In BracedInitExpr ')' Statement {
 					$$ = new SnForeachStmt($3, *$4, $6, $8, @1);
 				} ;
 
@@ -1479,9 +1611,23 @@ DefaultCase:	{
 					$$ = new SnParagraph($3, @1);
 				} ;
 /*
-Enum type declaration.
+Enum type declaration. The access-prefix layer (0.13.8 item 5, D5.4)
+wraps every top-level type-declaration family: only AccessTypeNonEmpty
+leads — it never derives empty, so the bare core stays the no-prefix
+reading and no epsilon reduction enters the type-decl follow sets. The
+setter runs in the wrapper action because the decl node does not exist
+until its core reduces. The const-aggregate spelling stays inside the
+struct/class cores, so the single accepted sr this layer adds is the
+KT_Const shift in the access-keyword state (the ledger re-measure has
+the row).
 */
-EnumDecl:	KT_Enum TT_Identifier '{' EnumMemberList EnumMethodSection '}' {
+EnumDecl:	AccessTypeNonEmpty EnumDeclCore {
+					$2->AccessType($1);
+					$$ = $2;
+				} |
+			EnumDeclCore ;
+
+EnumDeclCore:	KT_Enum TT_Identifier '{' EnumMemberList EnumMethodSection '}' {
 					$$ = new SnEnumDecl($2, $4, $5, @1);
 				} ;
 
@@ -1530,7 +1676,7 @@ Enum methods take no NodeFlag modifiers (no static/override/native),
 unlike ClassMember. Bodyless declarations still parse (FunctionBodyOrSemi)
 so the resolver can reject them with a proper diagnostic.
 */
-EnumMethod:	AccessType Type TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
+EnumMethod:	AccessType TypeRef TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
 				auto* func = new SnFunction($1, NF_NONE, $2, $3, $5, @2);
 				if ($7 == nullptr)
 					func->AddFlags(NF_Abstract);
@@ -1548,9 +1694,15 @@ EnumMethod:	AccessType Type TT_Identifier '(' FormalParamList ')' FunctionBodyOr
 			} ;
 
 /*
-Struct type declaration.
+Struct type declaration. Access-prefix wrapper per the EnumDecl comment.
 */
-StructDecl:	KT_Struct TT_Identifier '{' StructMemberList '}' {
+StructDecl:	AccessTypeNonEmpty StructDeclCore {
+					$2->AccessType($1);
+					$$ = $2;
+				} |
+			StructDeclCore ;
+
+StructDeclCore:	KT_Struct TT_Identifier '{' StructMemberList '}' {
 					$$ = new SnStructDecl($2, $4, @1);
 				} |
 			//v0.12.4 D1: const-aggregate prefix (const struct) — a
@@ -1659,9 +1811,15 @@ StructCtor:	TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
 
 
 /*
-Class type declaration.
+Class type declaration. Access-prefix wrapper per the EnumDecl comment.
 */
-ClassDecl:	KT_Class TT_Identifier TypeParamsOpt ClassInheritOpt ImplementsOpt '{' ClassMemberList '}' {
+ClassDecl:	AccessTypeNonEmpty ClassDeclCore {
+					$2->AccessType($1);
+					$$ = $2;
+				} |
+			ClassDeclCore ;
+
+ClassDeclCore:	KT_Class TT_Identifier TypeParamsOpt ClassInheritOpt ImplementsOpt '{' ClassMemberList '}' {
 					auto* pClass = new SnClassDecl($2, $4, $7, @1);
 					if ($5)
 						for (auto *pNode : *$5)
@@ -1797,7 +1955,7 @@ spelling. The implements position is unambiguous (a '<' after an
 entry's head can only open type arguments), so the dual angle spellings
 follow the Type rule exactly: OT_TypeLt for scan-flagged names, plain
 '<' (with the scan-time depth increment) for user-declared generics.
-Both mint the same SnGenericTypeExpr the type path builds, so the
+Both create the same SnGenericTypeExpr the type path builds, so the
 clause resolves through the one generic-use path and the class binds
 the INSTANTIATED interface.
 */
@@ -1833,9 +1991,15 @@ static member may carry a body (resolver-enforced). An interface
 establishes a contract that implementing classes must satisfy. The
 optional type-parameter list (0.13.1c) mirrors the ClassDecl shape:
 declaration context only, so the leading '<' has no competing
-production.
+production. The access-prefix wrapper follows the EnumDecl comment.
 */
-InterfaceDecl:	KT_Interface TT_Identifier TypeParamsOpt '{' InterfaceMemberList '}' {
+InterfaceDecl:	AccessTypeNonEmpty InterfaceDeclCore {
+						$2->AccessType($1);
+						$$ = $2;
+					} |
+				InterfaceDeclCore ;
+
+InterfaceDeclCore:	KT_Interface TT_Identifier TypeParamsOpt '{' InterfaceMemberList '}' {
 					auto* pIface = new SnInterfaceDecl($2, $5, @1);
 					if ($3)
 						pIface->SetTypeParamNames(std::move(*$3));
@@ -1872,12 +2036,32 @@ InterfaceMember:	AccessType NodeFlagsNonEmpty Type TT_Identifier '(' FormalParam
 						func->Body($8);
 					$$ = func;
 				} |
+				//v0.13.9 phase 3 (v3 grammar): inline '&' twins — same
+				//shape-for-shape mirror as ClassMember's.
+				AccessType NodeFlagsNonEmpty Type '&' TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
+					$3->AddFlags(NF_Ref);
+					auto* func = new SnFunction($1, $2, $3, $5, $7, @2);
+					if ($9 == nullptr)
+						func->AddFlags(NF_Abstract);
+					else
+						func->Body($9);
+					$$ = func;
+				} |
 				AccessType Type TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
 					auto* func = new SnFunction($1, NF_NONE, $2, $3, $5, @2);
 					if ($7 == nullptr)
 						func->AddFlags(NF_Abstract);
 					else
 						func->Body($7);
+					$$ = func;
+				} |
+				AccessType Type '&' TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
+					$2->AddFlags(NF_Ref);
+					auto* func = new SnFunction($1, NF_NONE, $2, $4, $6, @2);
+					if ($8 == nullptr)
+						func->AddFlags(NF_Abstract);
+					else
+						func->Body($8);
 					$$ = func;
 				}
 				| AccessType NodeFlagsNonEmpty KT_Void TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
@@ -1936,7 +2120,7 @@ ClassMemberList:	ClassMemberList ClassMember {
 
 //0.13.1c: a bodyless non-native method IS an abstract method — there
 //is no separate keyword. Abstract implies virtual, so the pair
-//NF_Abstract | NF_Virtual is minted together here (grammar-time, like
+//NF_Abstract | NF_Virtual is created together here (grammar-time, like
 //the explicit `virtual` keyword: PropagateVirtualOverrides reads the
 //ancestor's flag at derived-resolution time, and the class bases are
 //only pointer-bound by then). Native declarations are record-only
@@ -1949,6 +2133,21 @@ ClassMember:	AccessType NodeFlag Type TT_Identifier '(' FormalParamList ')' Func
 						func->Body($8);
 					$$ = func;
 				} |
+				//v0.13.9 phase 3 (v3 grammar): inline '&' twins of the
+				//plain-type method arms. A TypeRef wrapper here would put
+				//a `TypeRef: Type` reduction into the shared post-type
+				//state and lose it to the field-arm identifier shifts,
+				//dead-ending every plain-type method; the twins instead
+				//shift '&' directly in that state.
+				AccessType NodeFlag Type '&' TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
+					$3->AddFlags(NF_Ref);
+					auto* func = new SnFunction($1, $2, $3, $5, $7, @2);
+					if ($9 == nullptr && ($2 & NF_Native) == 0)
+						func->AddFlags(NF_Abstract | NF_Virtual);
+					else
+						func->Body($9);
+					$$ = func;
+				} |
 				AccessType NodeFlagsNonEmpty Type TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
 					auto* func = new SnFunction($1, $2, $3, $4, $6, @3);
 					if ($8 == nullptr && ($2 & NF_Native) == 0)
@@ -1957,12 +2156,30 @@ ClassMember:	AccessType NodeFlag Type TT_Identifier '(' FormalParamList ')' Func
 						func->Body($8);
 					$$ = func;
 				} |
+				AccessType NodeFlagsNonEmpty Type '&' TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
+					$3->AddFlags(NF_Ref);
+					auto* func = new SnFunction($1, $2, $3, $5, $7, @3);
+					if ($9 == nullptr && ($2 & NF_Native) == 0)
+						func->AddFlags(NF_Abstract | NF_Virtual);
+					else
+						func->Body($9);
+					$$ = func;
+				} |
 				AccessType Type TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
 					auto* func = new SnFunction($1, NF_NONE, $2, $3, $5, @2);
 					if ($7 == nullptr)
 						func->AddFlags(NF_Abstract | NF_Virtual);
 					else
 						func->Body($7);
+					$$ = func;
+				} |
+				AccessType Type '&' TT_Identifier '(' FormalParamList ')' FunctionBodyOrSemi {
+					$2->AddFlags(NF_Ref);
+					auto* func = new SnFunction($1, NF_NONE, $2, $4, $6, @2);
+					if ($8 == nullptr)
+						func->AddFlags(NF_Abstract | NF_Virtual);
+					else
+						func->Body($8);
 					$$ = func;
 				} |
 
@@ -2111,7 +2328,11 @@ AccessType:	KT_Private  	{ $$ = FA_Private;      } |
 //arms into SubscriptItemList REMOVES the two `ConcreteParam: Expression
 //.' shift/reduce conflicts — ConcreteParam no longer lives in the
 //bracket context — moving the totals to 29/3; every other conflict is
-//unchanged in kind (rule renumbering only, 364→375 family). History: dev's
+//unchanged in kind (rule renumbering only, 364→375 family). Re-measured
+//2026-11-13 (v0.13.7 dead-token teardown, bison 3.8.2): removing the
+//KT_Elseif/KT_State/OT_INC/OT_DEC/OT_AEQ declarations and their
+//precedence entries — no production ever consumed them — holds the
+//totals at 29/3 unchanged. History: dev's
 //line measured 27/3 with every generic opener on the 0.10.8 D1
 //OT_TypeLt token; master's declared-generics line re-adopted the
 //plain-'<' family because a user-declared generic class name cannot
@@ -2134,6 +2355,30 @@ AccessType:	KT_Private  	{ $$ = FA_Private;      } |
 //compare against this ledger and never bump it silently. State numbers
 //are those of the current .output; they shift with every grammar
 //change, so the whole list is re-derived at each re-measure.
+//Re-measured 2026-11-15 (cross-module completion Task 2, bison 3.8.2).
+//Two corrections first, both found while verifying this re-measure:
+//(1) the true merge (14e824dd, 2026-11-14) moved the totals 29/3 to
+//32/5 (+3 sr, +2 rr) without a ledger entry — verified by regenerating
+//the .output at 073a3538 (29/3 exact, so the 2026-11-13 entry held)
+//and at 14e824dd (32/5). The three new families are master-side
+//v0.13.7-era arms the merge brought over: the const-flagged top-level
+//header (`const T name(` — +1 sr +2 rr), the generic-header
+//empty-parens shape (`f<T>(` — +1 sr), and the plain-'<' arm in `as`
+//position splitting out of the direct-init family (+1 sr); the
+//v0.12.7 comma-index rows stay absent. (2) the itemized list had also
+//gone stale on its own: the totals moved twice since the 2026-11-02
+//re-derivation (v0.12.7's -2 among them) without the list being
+//re-derived, so its rows no longer summed to the header. The list is
+//re-derived below in full from the current .output. Task 2's own
+//change — the access-prefix wrapper layer on the four top-level
+//type-decl families — adds ZERO conflicts (32/5 before, 32/5 after,
+//identical conflict-shape multiset): AccessTypeNonEmpty's reduce sits
+//in an isolated single-item state (state 55), so it reduces by
+//default before any continuation token is ever seen; every
+//continuation lives in the GOTO states on AccessTypeNonEmpty (87
+//top-level, 467 struct-body) where only shifts compete; and since an
+//elaborated type spelling after an access prefix (`private Box<int>`)
+//is not in the language, no '<' FOLLOW ever reaches those states.
 //- state 12 (2): the top-level boundary vs AccessTypeEmpty's epsilon
 //  reduce. v0.9.1's `const` member: `const int x = 5;` lives (shift
 //  opens the statement) and `const int f(){}` is rejected. v0.12.6's
@@ -2142,45 +2387,94 @@ AccessType:	KT_Private  	{ $$ = FA_Private;      } |
 //  placement contract then rejects it), while a `static`-flagged
 //  top-level function header is unparseable — the pre-declared cost
 //  of putting KT_Static in FIRST(Statement), zero corpus hits.
-//- states 115/134 (1 each): the '<' shapes in head position — an
+//- states 124/144 (1 each): the '<' shapes in head position — an
 //  explicit generic type head (`Box<int> b;`) and the void-return func
 //  spellings, on the plain-'<' arms. Shift keeps the generic reading;
 //  the comparison reading loses only in these head states — never in
 //  pure expression states (the anchored literal holds OT_TypeLt).
-//- state 286 (2): catch/finally after a nested `try` statement — the
+//- state 325 (2): catch/finally after a nested `try` statement — the
 //  dangling-clause shape; shift binds the clause to the innermost try.
-//- state 303 (1 sr + 2 rr): after `T name(`, ')' shifts to the explicit
+//- states 344/441 (1 sr + 2 rr each): after `T name(` — and, one
+//  keyword earlier, after `const T name(` — ')' shifts to the explicit
 //  empty-parens arm, and FormalParamList's vs ConcreteParamList's empty
 //  productions both reduce on ')' and ',' — the function header wins
 //  (earlier-declared rule), so a bodyless bare `T name();` is always a
 //  construction, never a declaration; forward declarations carry the
-//  explicit `func` marker for that reason.
-//- states 308/309 (1 each, added with TypeName): ':' / `as` followed by
+//  explicit `func` marker for that reason. The 441 twin arrived with
+//  the merge (master's const-flagged top-level header arms).
+//- states 350/351 (1 each, added with TypeName): ':' / `as` followed by
 //  a dotted type name — '.' shifts to continue the chain, the default
 //  reduces TypeName. Nothing may follow a type name with '.', so the
 //  default is the intended reading.
-//- states 327/379 (1 each, added with 0.11.2's comma index lists): in a
-//  comma-index/subscript-assign context, ']' shifts to the subscript-
-//  assign reading instead of reducing a bare ConcreteParam expression.
-//- states 377/394 (1 each, added with 0.9.15): the empty-parens shape
+//- state 353 (1): '<' in `as` position — NameExpr vs the AsGenericTarget
+//  plain-'<' arm; shift keeps the generic-cast reading. Arrived with
+//  the merge, when the as-generic family split out of the state 504
+//  parent.
+//- states 445/458 (1 each, added with 0.9.15): the empty-parens shape
 //  on the body-context first declarator (`T name();` inside a body)
 //  and the top-level header alone — ')' shifts to the explicit empty
-//  arm; same reading as state 293.
-//- state 442 (1 sr + 1 rr): NameExpr vs Expression on '.'/'<' after a
+//  arm; same reading as the state 344 family.
+//- state 504 (1 sr + 1 rr): NameExpr vs Expression on '.'/'<' after a
 //  top-level direct-init first argument — NameExpr wins, so
 //  `T name(a.b);` fails cleanly on the type path; the workaround is
 //  `T name = T(a.b);`. Function bodies are unaffected.
-//- state 555 (1, added with 0.10.7 D1): the same empty-parens shape on
-//  a continuation declarator — after `T a, b(`, ')' shifts to the
-//  explicit empty-parens continuation arm; `T a, b();` is a zero-
-//  argument construction, same reading as the first arm.
-//- state 698 (16, renumbered from 677→678 by v0.12.1 and again by
-//  v0.12.6's re-derive): ClassMember's
+//- states 508/648 (1 each): the same empty-parens shape on a generic
+//  header (`f<T>(` — arrived with the merge's declared-generics line)
+//  and on a continuation declarator (added with 0.10.7 D1) — after
+//  `T a, b(`, ')' shifts to the explicit empty-parens continuation
+//  arm; `T a, b();` is a zero-argument construction, same reading as
+//  the first arm.
+//- state 826 (16, renumbered 677→678→698 by v0.12.1/v0.12.6 and again
+//  here): ClassMember's
 //  NodeFlag-singular vs
 //  NodeFlagsNonEmpty-plural productions overlap on the flag/type first
 //  tokens — both derivations parse the same member; shift keeps reading
 //  flags. The v0.9.1 epsilon-layer removal deleted the NodeFlags empty
 //  arm, taking this family from 20 down to 16.
+//Re-measured 2026-11-17 (v0.13.9 phase 3 Task 1, bison 3.8.2): the
+//reference-'&' declarator grammar (the v3 shape — inline
+//`HeadType '&' ...` arms on every declarator consumer, no wrapper
+//nonterminals) moves the totals 32/5 → 35/12. Every conflicted state
+//renumbered; the old list above keeps its 2026-11-15 numbers, whose
+//new homes are: 12→12, 124→125, 144→145, 325→331, 344→351, 350→359,
+//351→360, 353→362, 441→453, 445→473, 458→458, 504→523, 508→527,
+//648→681, 826→878. Each new conflict was read from the state tables
+//and resolves as intended:
+//- states 122/143 (1 rr each, new): `HeadType: MemberExpr .` vs
+//  `Expression: MemberExpr .` over '&' — HeadType wins (earlier rule),
+//  so `ns.Point& r = ...;` routes into the declarator arms; the
+//  ';'/assign/compound-assign shifts in the statement-head twin (122)
+//  are untouched.
+//- states 125/145 (1 sr + 1 rr each, renumbered from 124/144): the same
+//  '&' reduce/reduce on the identifier spellings — HeadType wins, so
+//  `Point& r = p;` and `Box<int>& r = q;` reach the declarator route
+//  while every expression continuation keeps its shift. The sr row is
+//  the pre-existing generic-head '<' family.
+//- state 523 (1 sr + 2 rr, renumbered from 504): '&' joins the
+//  NameExpr-vs-Expression family in the top-level direct-init argument
+//  position — NameExpr wins, so `T name(a & b);` fails cleanly on the
+//  type path exactly like `T name(a.b);` already did; the workaround
+//  is the init form `T name = T(a & b);`, whose context holds no
+//  HeadType/NameExpr-type items and keeps the bitwise reading.
+//- states 528/620/679 (new; 528 adds 1 sr + 2 rr, 620/679 add 1 sr
+//  each): the '&'-header empty-parens family — after `int& f(` and its
+//  generic twin `int& f<T>(`, ')' shifts to the explicit empty arm;
+//  528's two rr rows are FormalParamList's vs ConcreteParamList's
+//  epsilon reduces, the exact accepted 344-family shape on the new
+//  arm.
+//Route note: '&' never shifts in any expression-completion state. The
+//statement-head/init-context bitwise readings reduce through
+//Expression-only states (no HeadType items), and the three bitwise
+//guards in tests/test_compiler/test_ref_declarator.cpp (init,
+//subscript, call) pin that. Deleted with this change: the Route C
+//wrapper family DeclLocal/HeadTypeScan/HeadTypeScanRef/HeadTypeMarked/
+//ReturnSlot/ReturnSlotFlagged (interim measurement 44 sr + 8 rr,
+//rejected). Also removed with it: the `%prec P_Then` on
+//`Expression: IdentifierExpr` (Route C baggage; the identifier
+//state's only conflict is the '&' reduce/reduce, resolved by rule
+//order) and the ScriptScanner probe extension that armed
+//`Box<int>&`-shaped openers (unnecessary — the plain-'<' HeadType arms
+//complete HeadType directly and the '&' declarator shift follows).
 NameExpr:	IdentifierExpr	{ $$ = new SnNameExpr($1, @1); } ;
 
 //Type non-terminal used in type contexts (declarations, params, fields).
@@ -2228,11 +2522,12 @@ Type:	NameExpr		{ $$ = $1; } |
 						$$ = new SnGenericTypeExpr(new SnNameExpr($1, @1), $5, @1);
 					} |
 				//0.8.3: func is a keyword; its generic spellings mirror
-				//the NameExpr ones above but start from KT_Func and mint
+				//the NameExpr ones above but start from KT_Func and create
 				//the base-name node from kBuiltinFuncTypeName. The func
 				//keyword is always scan-flagged, so only the OT_TypeLt
-				//spelling is reachable here.
-				KT_Func OT_TypeLt TypeList '>'	{
+				//spelling is reachable here. v0.13.9 phase 3: the argument
+				//slots ride FuncTypeList so `func<int&>` parses.
+				KT_Func OT_TypeLt FuncTypeList '>'	{
 						$$ = MakeFuncType($3, @1);
 					} |
 				KT_Func OT_TypeLt KT_Void '>'	{
@@ -2240,13 +2535,21 @@ Type:	NameExpr		{ $$ = $1; } |
 						$$ = MakeFuncType(
 							new std::vector<nlang::SnFieldExpr*>{ pVoid }, @1);
 					} |
-				KT_Func OT_TypeLt KT_Void ',' TypeList '>'	{
+				KT_Func OT_TypeLt KT_Void ',' FuncTypeList '>'	{
 						auto* pVoid = new SnIdentifierExpr(NK_Void, @3);
 						$5->insert($5->begin(), pVoid);
 						$$ = MakeFuncType($5, @1);
 					} |
 				Type OT_Brackets	{ $$ = new SnArrayTypeExpr($1, @2); } |
 				Type OT_BracketsND	{ $$ = MakeArrayTypeND($1, @2, $2, parser); } ;
+
+//v0.13.9 phase 3: the '&' reference mark rides a Type wherever the
+//grammar holds only type items (formal params, foreach heads, member
+//methods, enum methods). Expression-context heads never read '&' here —
+//they route through the statement-head/DeclHeader arms instead, which
+//keeps '&' out of Type's lookahead in the shared statement-head states.
+TypeRef:	Type	{ $$ = $1; } |
+			Type '&'	{ $1->AddFlags(NF_Ref); $$ = $1; } ;
 
 //Qualified type reference for UNAMBIGUOUS type positions (params, fields,
 //catch, foreach, return types, type arguments, new): "ns.Type" /
@@ -2285,6 +2588,14 @@ HeadType:	IdentifierExpr {
 			//Dual angle spellings, same rule as Type above: OT_TypeLt
 			//for scan-flagged names, plain '<' for user-declared
 			//generics. Distinct openers, no shared lookahead.
+			//v0.13.9 phase 3 (v3 grammar): every '&'-declarator consumer
+			//holds an INLINE `HeadType '&' ...` arm, so post-type states
+			//keep shift-only '&' actions. The accepted reduce/reduce at
+			//the statement-head identifier state resolves HeadType-first
+			//(earlier rule) and routes into those declarator arms;
+			//init contexts hold no HeadType items, so bitwise '&' stays
+			//an expression operator there. See the conflict ledger in
+			//this file's header.
 			IdentifierExpr OT_TypeLt TypeList '>' {
 				$$ = new SnGenericTypeExpr(new SnNameExpr($1, @1), $3, @1);
 			} |
@@ -2334,10 +2645,11 @@ HeadType:	IdentifierExpr {
 			} |
 			//0.8.3: func is a keyword; its generic spellings mirror
 			//the IdentifierExpr ones above but start from KT_Func and
-			//mint the base-name node from kBuiltinFuncTypeName. The
+			//create the base-name node from kBuiltinFuncTypeName. The
 			//keyword is always scan-flagged, so only the OT_TypeLt
-			//spelling is reachable.
-			KT_Func OT_TypeLt TypeList '>' {
+			//spelling is reachable. v0.13.9 phase 3: the argument
+			//slots ride FuncTypeList so `func<int&>` parses.
+			KT_Func OT_TypeLt FuncTypeList '>' {
 				$$ = MakeFuncType($3, @1);
 			} |
 			KT_Func OT_TypeLt KT_Void '>' {
@@ -2345,7 +2657,7 @@ HeadType:	IdentifierExpr {
 				$$ = MakeFuncType(
 					new std::vector<nlang::SnFieldExpr*>{ pVoid }, @1);
 			} |
-			KT_Func OT_TypeLt KT_Void ',' TypeList '>' {
+			KT_Func OT_TypeLt KT_Void ',' FuncTypeList '>' {
 				auto* pVoid = new SnIdentifierExpr(NK_Void, @3);
 				$5->insert($5->begin(), pVoid);
 				$$ = MakeFuncType($5, @1);
@@ -2358,9 +2670,9 @@ HeadType:	IdentifierExpr {
 			} ;
 
 //A single type argument inside `<...>`: a plain type, or an
-//out-marked type (only legal as a func parameter slot, checked at
-//instantiation). The out marker lives as an NF_Out node flag on
-//the type node so it survives into GenericInstKey comparisons.
+//out-marked type. v0.13.9 phase 4: the out arms are diagnostic
+//anchors only — RejectInvalidTypeArg reports the retirement on every
+//NF_Out node; nothing keys or compares the flag anymore.
 TypeArg:	Type {
 						$$ = $1;
 					} |
@@ -2379,6 +2691,29 @@ TypeList:	TypeArg {
 						$$ = $1;
 					} ;
 
+//v0.13.9 phase 3: argument list of a func TYPE spelling. Sister of
+//TypeArg with the '&' mark added; `out int&` stays a syntax error and
+//plain generic arms keep plain TypeList, so `List<int&>` is rejected.
+FuncTypeArg:	Type {
+						$$ = $1;
+					} |
+					KT_Out Type {
+						$2->AddFlags(NF_Out);
+						$$ = $2;
+					} |
+					Type '&' {
+						$1->AddFlags(NF_Ref);
+						$$ = $1;
+					} ;
+
+FuncTypeList:	FuncTypeArg {
+						$$ = new std::vector<nlang::SnFieldExpr*>{ $1 };
+					} |
+					FuncTypeList ',' FuncTypeArg {
+						$1->push_back($3);
+						$$ = $1;
+					} ;
+
 Expression:	ParenthesesExpr	{ $$ = $1; } |
 				MemberExpr		{ $$ = $1; } |
 				LiteralExpr		{ $$ = $1; } |
@@ -2387,7 +2722,7 @@ Expression:	ParenthesesExpr	{ $$ = $1; } |
 				SubscriptExpr		{ $$ = $1; } |
 				KT_This		{ $$ = new SnThisExpr(@1); } |
 				KT_Null		{ auto* _nl = new SnLiteralExpr(*RnInt32::Instance(), 0, @1); _nl->AddFlags(NF_NullLiteral); $$ = _nl; } |
-				//v0.13.1 D4: typeName(Type) — the canonical spelling of a
+				//v0.13.1 D4: typeName(Type) — the canonical name of a
 				//type as a string. KT_TypeName leads no other rule, so the
 				//parenthesized Type (the same nonterminal the unambiguous
 				//type positions use) needs no dedicated state.
@@ -2417,7 +2752,7 @@ Expression:	ParenthesesExpr	{ $$ = $1; } |
 				//`a < b` expression state to the generic reading
 				//(0.11 merge re-measure). Since 0.13.1a Task 3 declared
 				//generics gained expression-position use too, through
-				//QualifiedGenericReceiver on the probe-minted OT_TypeLt
+				//QualifiedGenericReceiver on the probe-created OT_TypeLt
 				//(below); their type contexts still parse on the
 				//plain-'<' arms. In this state '{' shifts
 				//(the literal) and a name reduces the type.
@@ -2429,7 +2764,7 @@ Expression:	ParenthesesExpr	{ $$ = $1; } |
 				} |
 				//0.13.1a Task 3: constructor call on an explicit
 				//instantiation — `Hold<int>(5)`. The receiver is the
-				//probe-minted QualifiedGenericReceiver; SnNewExpr takes
+				//probe-created QualifiedGenericReceiver; SnNewExpr takes
 				//the class name as a SnFieldExpr and the argument list
 				//exactly like the SnInvokeExpr arm does.
 				QualifiedGenericReceiver '(' ConcreteParamList ')' {
@@ -2454,6 +2789,11 @@ Expression:	ParenthesesExpr	{ $$ = $1; } |
 				//0.7.5 (between relational and additive), productions did not.
 				Expression OT_LSH Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_Shl, $1, $3, @1); } |
 				Expression OT_RSH Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_Shr, $1, $3, @1); } |
+				//v0.13.7: bitwise family; tokens and precedence existed
+				//since 0.7.5, productions did not (same history as shift).
+				Expression '&' Expression		{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_BitAnd, $1, $3, @1); } |
+				Expression '^' Expression		{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_BitXor, $1, $3, @1); } |
+				Expression '|' Expression		{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_BitOr, $1, $3, @1); } |
 				Expression OT_EQ Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_Equal, $1, $3, @1); } |
 				Expression OT_NE Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_NotEqual, $1, $3, @1); } |
 				Expression OT_AND Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_LogicalAnd, $1, $3, @1); } |
@@ -2461,6 +2801,7 @@ Expression:	ParenthesesExpr	{ $$ = $1; } |
 				'-' Expression %prec P_Minus	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_Neg, $2, @1); } |
 				'+' Expression %prec P_Minus	{ $$ = $2; } |
 				'!' Expression					{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_LogicalNot, $2, @1); } |
+				'~' Expression					{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_BitNot, $2, @1); } |
 				Expression KT_As TypeName		{ $$ = new SnAsExpr($1, $3, @2); } |
 				//v0.13.1 D5: the as-target gains the generic spelling —
 				//`o as Box<int>` distinguishes instantiations of one erased
@@ -2513,7 +2854,7 @@ Expression:	ParenthesesExpr	{ $$ = $1; } |
 				//this arm cannot collide with the generic-name parses; the
 				//keyword is always scan-flagged, so only the OT_TypeLt
 				//spelling is reachable.
-				KT_Func OT_TypeLt TypeList '>' '(' ConcreteParamList ')' {
+				KT_Func OT_TypeLt FuncTypeList '>' '(' ConcreteParamList ')' {
 					$$ = new SnNewExpr(MakeFuncType($3, @1), $6, @1);
 				} ;
 
@@ -2534,11 +2875,11 @@ AsGenericTarget:	IdentifierExpr '<' {
 //0.13.1a Task 3: expression-position generic spelling on a declared
 //generic name — `Pair<int, string>.sig()` (static member call) and
 //`Hold<int>(5)` (constructor call). The opener is the dedicated
-//OT_TypeLt minted by the scanner's spelling probe (an identifier
+//OT_TypeLt created by the scanner's spelling probe (an identifier
 //followed by a balanced <...> whose terminator is exactly '.' or '(' —
 //the C# "grammar ambiguities" resolution), so this nonterminal never
 //competes with the plain-'<' comparison arms (same Expression-position
-//discipline as the 0.10.8 anchored literal arm). Base + args mint like
+//discipline as the 0.10.8 anchored literal arm). Base + args create like
 //the as-target arms; continuations live in MemberExpr ('.') and the
 //Expression constructor arm ('(').
 QualifiedGenericReceiver:
@@ -2555,7 +2896,7 @@ MemberExpr:	Expression '.' InvokeExpr		{
 				} |
 				//0.13.1a Task 3: explicit type-argument spelling on a
 				//static member call — `Pair<int, string>.sig()`. The
-				//receiver mints through the same SnGenericTypeExpr the
+				//receiver creates through the same SnGenericTypeExpr the
 				//as-target arms use, so the resolver's existing
 				//Access(SnGenericTypeExpr&) arm resolves it.
 				QualifiedGenericReceiver '.' InvokeExpr	{

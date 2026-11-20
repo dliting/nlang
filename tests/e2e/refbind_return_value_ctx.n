@@ -1,0 +1,15 @@
+// Task 6: a value binding of a &-return call dereferences — x reads
+// the aliased value and its own write stays local (a keeps 9).
+int& id(int& v) {
+    return v;
+}
+
+int main() {
+    int a = 5;
+    int& b = id(a);
+    b = 9;
+    int x = id(a);
+    x = 3;
+    if (x == 3 && a == 9) return 7;
+    return 5;
+}

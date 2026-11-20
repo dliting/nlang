@@ -9,9 +9,10 @@
     stores and deep copies never re-apply them. The e2e suite pins the
     script-observable shapes through the ncc/nvm CLI; these tests pin
     the full folded-tag surface (bool/char/float/double/long), the
-    constructor interaction, and GC survival of minted string defaults
+    constructor interaction, and GC survival of created string defaults
     (SetGcStressThresholds, same white-box hook as test_strings).
 ---*/
+#include "test_support/test_scratch.h"
 #include "nlang/compiler/ModuleBuilder.h"
 #include "nlang/compiler/BuildEnvironment.h"
 #include "nlang/compiler/Logger.h"
@@ -50,8 +51,7 @@ static int g_pass = 0, g_fail = 0;
 //Scratch directory for the temp sources and modules.
 static std::filesystem::path scratchDir()
 {
-    static const auto dir = std::filesystem::temp_directory_path()
-        / "nlang_test_struct_field_init";
+    static const auto dir = nlang::test::ScratchDir("nlang_test_struct_field_init");
     std::filesystem::create_directories(dir);
     return dir;
 }
@@ -275,7 +275,7 @@ void test_field_init_ctor_interaction()
 void test_field_init_string_gc_stress()
 {
     TEST(field_init_string_gc_stress);
-    //The string default is a runtime-minted object; the struct local
+    //The string default is a runtime-created object; the struct local
     //roots it through MarkStructFields, so it survives collection while
     //the loop's unreachable garbage is reclaimed (bounded live count
     //proves collection actually ran).

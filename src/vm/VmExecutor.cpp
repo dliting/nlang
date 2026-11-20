@@ -2,14 +2,19 @@
 #include "NativeLibraryLoader.h"
 #include <nlang/runtime/BuiltinGenericNames.h>
 #include <cstring>
+#include <chrono>
 #include <cstdio>
 #include <iostream>
 #include <exception>
+#include <thread>
 
 namespace nlang {
 
 //v11 R8: ~VmExecutor moved to VmExecutorNativeHost.cpp (it drives the
 //module-state teardown defined there; this file is at the size budget).
+//2026-11-12 source-size split: the backtrace/raise family
+//(FormatBacktrace/FormatBacktraceFrame, RaiseNlangException/
+//BuildNlangException) moved to VmExecutorRaise.cpp.
 
 //The container side tables (List/Dict/Mutex/Channel/Semaphore) share
 //one reset shape: clear store + free list, cache the builtin class
@@ -102,7 +107,7 @@ void VmExecutor::CacheBuiltinClassIndexes(const CompiledModule& module) {
     cacheExcClass("InitializationException",  &m_initExcClassIdx);
     cacheExcClass("ChannelClosedException",   &m_channelClosedExcClassIdx);
 
-    //K1 Slice 6: cache the Thread class index (spawn mints instances).
+    //K1 Slice 6: cache the Thread class index (spawn creates instances).
     int threadIdx = module.FindClassBareOrUniqueSuffix("Thread");
     m_threadClassIdx = (threadIdx >= 0) ? static_cast<int16_t>(threadIdx) : -1;
     //K3: same for the Future face of typed spawn.
@@ -122,14 +127,21 @@ void VmExecutor::InitStringStore(const CompiledModule& module) {
     //final by now — SetCarrierThreadCount precedes Execute.
     m_strShards.Configure(static_cast<size_t>(m_carrierThreadCount) + 1);
     m_shortStrTable.clear();
-    m_stringObjs.Emplace();   //sentinel slot 0 (handle 0 = null)
-    m_stringObjs[0].form = static_cast<StrObj::Form>(kStrFormDead);
+    //0.13.4 (ruling D26): the string domain has no null — slot 0 is the
+    //immortal, interned empty string, so the zero bit pattern every
+    //allocator already produces (frame locals, struct/class/array
+    //records, static slots, erased generic slots) reads as "" with no
+    //fill pass. Go's zero-value string is the model; reference-kind
+    //slots keep 0 = null (strings reach them only boxed, via OP_Box).
+    m_stringObjs.Emplace();   //slot 0: the empty string
+    m_stringObjs[0].interned = true;
+    m_stringObjs[0].immortal = true;
     m_strMarkBits.push_back(false);
+    m_shortStrTable[""] = 0;  //the one interned entry that never dies
     m_constStrCache.clear();
     m_constStrCache.reserve(module.stringConstants.size());
     for (const std::string& s : module.stringConstants)
-        m_constStrCache.push_back(MintConstantString(s));
-    m_emptyStrHandle = MintConstantString("");
+        m_constStrCache.push_back(CreateConstantString(s));
 }
 
 //Initialize struct heap with sentinel at index 0, plus GC state.

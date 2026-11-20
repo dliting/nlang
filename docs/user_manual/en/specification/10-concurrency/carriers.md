@@ -29,8 +29,12 @@ concurrency.
 The unlocked categories carry a cost: once an object is shared across
 carriers (through `spawn` arguments or a channel), concurrent reads and
 writes of its fields are a **data race** — a half-written transitional
-value may be read, but memory is never corrupted. Coordinate shared
-mutable state with a `Mutex` (§10.2).
+value may be read, but memory is never corrupted. Struct values are no
+exception: a whole-record store (assignment or declaration
+initialization) writes the record field by field, and a concurrent
+reader may observe a mix of old and new field values, while every
+field value stays type-correct. Coordinate shared mutable state and
+cross-field invariants with a `Mutex` (§10.2).
 
 ### Which code runs truly in parallel
 
@@ -48,7 +52,7 @@ same time:
 
 Programs that spend their time inside **blocking native calls** (file and
 network input/output) benefit as well: such calls carry a blocking
-declaration in their native signature (§23.7); while the call runs, the
+declaration in their native signature (§28.7); while the call runs, the
 calling virtual thread suspends and all its locks are released, so the
 remaining carriers keep running other virtual threads (at most as many
 native calls are in flight at once as there are carriers; beyond that

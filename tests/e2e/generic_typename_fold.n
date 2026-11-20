@@ -13,7 +13,7 @@ int main() {
     string d = typeName(int[,]);
     string e = typeName(List<List<int>>);
     if (a != "int") return 1;
-    if (b != "Box<int>") return 2;
+    if (b != "generic_typename_fold.Box<int>") return 2;
     if (c != "int[]") return 3;
     if (d != "int[,]") return 4;
     if (e != "List<List<int>>") return 5;

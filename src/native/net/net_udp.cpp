@@ -6,7 +6,7 @@
     registers the very same native as _tcpRead — a datagram arriving
     on a UDP socket is readable data, and the loop never inspects the
     slot kind. The last recvFrom source is stashed on the slot
-    (lastPeerAddress/lastPeerPort) so the script wrapper can mint its
+    (lastPeerAddress/lastPeerPort) so the script wrapper can create its
     out params after the receive completed (R2).
 
     Error contract is the TCP one (R10): closed slot -1, timeout -2,
@@ -97,7 +97,7 @@ void NetUdpBind(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     }
     int32_t handle = 0;
     {   std::lock_guard<std::mutex> g(st->m_mutex);
-        handle = st->m_slots.Mint(fd, kNetKindUdp);   }
+        handle = st->m_slots.Create(fd, kNetKindUdp);   }
     ReturnInt(ret, handle);
 }
 
@@ -292,16 +292,17 @@ void NetUdpRecvFrom(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     }
 }
 
-//udpLastRecvAddress(handle): the source of the last recvFrom (null
-//sentinel 0 when the slot is gone — the script reads it right after a
-//successful receive, so the slot is live in practice).
+//udpLastRecvAddress(handle): the source of the last recvFrom (the
+//empty string — string has no null value, 0.13.4 — when the slot is
+//gone; the script reads it right after a successful receive, so the
+//slot is live in practice).
 void NetUdpLastRecvAddress(NativeHost* h, uint8_t* ret, const uint8_t* a,
     int) {
     NetExecState* st = NetState(h);
     std::lock_guard<std::mutex> g(st->m_mutex);
     auto* slot = st->m_slots.Lookup(ArgInt(a, 0));
     if (!slot) {
-        ReturnInt(ret, 0);
+        ReturnString(h, ret, std::string());
         return;
     }
     ReturnString(h, ret, slot->lastPeerAddress);
@@ -338,16 +339,17 @@ void NetUdpSetRecvBufferSize(NativeHost* h, uint8_t* ret, const uint8_t* a,
 //--- state -------------------------------------------------------------------
 
 //udpLocalAddress/udpLocalPort/udpPeerAddress/udpPeerPort: getsockname
-//and getpeername arms, identical contracts to the TCP natives (null
-//sentinel for the address text, R10 code otherwise; an unconnected
-//peer query fails getpeername and surfaces as -4).
+//and getpeername arms, identical contracts to the TCP natives (the
+//empty string as the failure sentinel for the address text — string
+//has no null value, 0.13.4 — R10 code otherwise; an unconnected peer
+//query fails getpeername and surfaces as -4).
 void NetUdpLocalAddress(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     NetExecState* st = NetState(h);
     std::lock_guard<std::mutex> g(st->m_mutex);
     auto* slot = st->m_slots.Lookup(ArgInt(a, 0));
     if (!slot) {
         st->m_lastErrorText[h->currentContextId(h)] = "socket closed";
-        ReturnInt(ret, 0);
+        ReturnString(h, ret, std::string());
         return;
     }
     const std::string text = NetLocalAddress(slot->fd);
@@ -355,7 +357,7 @@ void NetUdpLocalAddress(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
         { std::string errText; int errCode = 0;
           NetLastErrorInfo(errText, errCode);
           NetSetErrorLocked(st, h, errText, errCode); }
-        ReturnInt(ret, 0);
+        ReturnString(h, ret, std::string());
         return;
     }
     ReturnString(h, ret, text);
@@ -386,7 +388,7 @@ void NetUdpPeerAddress(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     auto* slot = st->m_slots.Lookup(ArgInt(a, 0));
     if (!slot) {
         st->m_lastErrorText[h->currentContextId(h)] = "socket closed";
-        ReturnInt(ret, 0);
+        ReturnString(h, ret, std::string());
         return;
     }
     const std::string text = NetPeerAddress(slot->fd);
@@ -394,7 +396,7 @@ void NetUdpPeerAddress(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
         { std::string errText; int errCode = 0;
           NetLastErrorInfo(errText, errCode);
           NetSetErrorLocked(st, h, errText, errCode); }
-        ReturnInt(ret, 0);
+        ReturnString(h, ret, std::string());
         return;
     }
     ReturnString(h, ret, text);
@@ -440,7 +442,9 @@ void NetUdpClose(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
 //_udpRecv registers NetTcpRead — the recv park loop is socket-kind
 //agnostic (a datagram is readable data; n == 0 reads as an empty
 //datagram to the UDP script face, as EOF to TCP's).
-void NetRegisterUdpNatives(void* registry, RegisterNativeFn reg,
+//The signature is the uniform one every NetRegister*Natives shares; this
+//module has no non-blocking native, so reg goes unused.
+void NetRegisterUdpNatives(void* registry, [[maybe_unused]] RegisterNativeFn reg,
     RegisterNativeBlockingFn regBlocking) {
     regBlocking(registry, "net", "_udpBind", &NetUdpBind);
     regBlocking(registry, "net", "_udpSendTo", &NetUdpSendTo);

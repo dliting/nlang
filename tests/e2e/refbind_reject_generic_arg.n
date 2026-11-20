@@ -1,0 +1,6 @@
+// v0.13.9 phase 3 grammar: container element types admit no & mark —
+// references cannot be stored (the func-type arms own the & spelling).
+int main() {
+    List<int&> xs;
+    return 0;
+}

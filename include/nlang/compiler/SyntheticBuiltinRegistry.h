@@ -1,5 +1,5 @@
 /*---
-    SyntheticBuiltinRegistry.h - synthetic builtin declarations minted
+    SyntheticBuiltinRegistry.h - synthetic builtin declarations created
     on demand, scoped to one build.
 
     Compile-time cache for the resolver's on-demand synthesis: builtin
@@ -7,7 +7,7 @@
     func<void,out int>, ... keyed by base name + interned type-argument
     pointers + out flags), the non-generic builtin class singletons
     (ByteStream, FileStream) and the static-face qualifier singletons
-    (the `Future` of Future.selectAny). Pointer identity of the minted
+    (the `Future` of Future.selectAny). Pointer identity of the creationed
     nodes is load-bearing (CalcTypeDistance, the backend's codegen
     markers), so one key must always return the same node — within a
     build.
@@ -17,8 +17,8 @@
     keyed by raw tree pointers, and once the build's syntax tree is
     cleared a later allocation reusing a freed address would silently
     inherit the stale entry (whose type arguments dangle into the
-    cleared tree). The registry owns every node it mints and frees them
-    when the build ends. Storage and ownership only — the minting logic
+    cleared tree). The registry owns every node it creates and frees them
+    when the build ends. Storage and ownership only — the creating logic
     (name checks, arity checks, node construction) stays at the
     resolver's free functions, the same split GenericInstanceRegistry
     keeps with GetDeclaredGenericClassDecl.
@@ -43,63 +43,65 @@ public:
 	~SyntheticBuiltinRegistry();
 
 	//--- builtin generic instantiations ---------------------------------
-	//Key: (base class name, resolved type-arg SnField pointers, out
-	//flags). Interned type-arg tokens keep pointer identity per element
-	//type within one build, so the pointers are the cache discipline;
-	//the out flags ride a parallel vector because out markers live on
-	//type-arg EXPRESSIONS (NF_Out), not on the canonical fields.
+	//Key: (base class name, resolved type-arg SnField pointers,
+	//reference marks). Interned type-arg tokens keep pointer
+	//identity per element type within one build, so the pointers are the
+	//cache discipline; the reference marks ride a parallel vector
+	//because they live on type-arg EXPRESSIONS (NF_Ref), not on the
+	//canonical fields. v0.13.9 phase 4: the out-flag vector is gone
+	//with the out mechanism.
 	struct GenericInstKey
 	{
 		std::string baseName;
 		std::vector<SnField*> typeArgs;
-		std::vector<uint8> outFlags;
+		std::vector<uint8> refFlags;
 		bool operator<(const GenericInstKey& rhs) const
 		{
 			if (baseName != rhs.baseName)
 				return baseName < rhs.baseName;
 			if (typeArgs.size() != rhs.typeArgs.size())
 				return typeArgs.size() < rhs.typeArgs.size();
-			if (outFlags != rhs.outFlags)
-				return outFlags < rhs.outFlags;
+			if (refFlags != rhs.refFlags)
+				return refFlags < rhs.refFlags;
 			for (size_t i = 0; i < typeArgs.size(); ++i)
 				if (typeArgs[i] != rhs.typeArgs[i])
 					return typeArgs[i] < rhs.typeArgs[i];
 			return false;
 		}
 	};
-	//The minted instantiation for a key, or null before the first mint.
+	//The created instantiation for a key, or null before the first creation.
 	SnClassDecl* FindGeneric(const GenericInstKey& key) const;
-	//Publish a freshly minted instantiation (the node itself carries its
-	//type arguments and out flags — GenericTypeArgs/GenericOutFlags —
-	//so context-free readers never need this registry).
+	//Publish a freshly created instantiation (the node itself carries its
+	//type arguments and reference marks — GenericTypeArgs /
+	//GenericRefFlags — so context-free readers never need this registry).
 	void AdoptGeneric(const GenericInstKey& key, SnClassDecl* pDecl);
 
 	//--- non-generic builtin singletons (ByteStream/FileStream) -------
-	//Null until minted; the minting free function owns the name check
+	//Null until created; the creating free function owns the name check
 	//and node construction.
 	SnClassDecl* FindBuiltinClass(const std::string& name) const;
 	void AdoptBuiltinClass(const std::string& name, SnClassDecl* pDecl);
 
 	//--- static-face qualifier singletons ------------------------------
-	//Same shape: null until the resolver mints the call qualifier.
+	//Same shape: null until the resolver creates the call qualifier.
 	SnClassDecl* FindFaceClass(const std::string& typeName) const;
 	void AdoptFaceClass(const std::string& typeName, SnClassDecl* pDecl);
 
 	//Diagnostics/tests: how many nodes this registry owns. A FRESH
-	//registry mints 0 — the second-build seam (ModuleRegistry::Reset)
-	//pins exactly that: after a reset, the next build re-mints the same
+	//registry creates 0 — the second-build seam (ModuleRegistry::Reset)
+	//pins exactly that: after a reset, the next build re-creates the same
 	//set (same count), while a surviving registry accumulates (double).
-	size_t MintedCount() const { return m_minted.size(); }
+	size_t CreatedCount() const { return m_created.size(); }
 
 private:
-	//Every minted node goes on the ownership list; the destructor frees
+	//Every created node goes on the ownership list; the destructor frees
 	//them (the nodes are detached from any tree, so nothing else does).
 	void Own(SnClassDecl* pDecl);
 
 	std::map<GenericInstKey, SnClassDecl*> m_genericInstances;
 	std::map<std::string, SnClassDecl*> m_builtinClasses;
 	std::map<std::string, SnClassDecl*> m_faceClasses;
-	std::vector<SnClassDecl*> m_minted;
+	std::vector<SnClassDecl*> m_created;
 };
 
 } //namespace nlang

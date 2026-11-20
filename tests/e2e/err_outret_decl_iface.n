@@ -1,0 +1,7 @@
+// v0.13.9 phase 4: out on an interface method formal is retired.
+interface I {
+    int f(int a, out int b);
+}
+int main() {
+    return 0;
+}

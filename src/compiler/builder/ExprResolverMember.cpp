@@ -313,6 +313,8 @@ bool ExprResolveAccessor::TryResolveBuiltinMethodFamilies(
 {
 	if (TryResolveStringBuiltinMethod(snMember, pInnerExpr, pSavedContext))
 		return true;
+	if (TryResolveStringBuiltinConstant(snMember, pInnerExpr, pSavedContext))
+		return true;
 	if (TryResolveArrayLengthMethod(snMember, pOuterExpr, pInnerExpr,
 		pSavedContext))
 		return true;

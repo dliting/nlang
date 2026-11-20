@@ -1,6 +1,6 @@
-/*--- GenericInstDescriptor.h — 泛型实例化描述符：模板裸名＋类型实参表，
+/*--- GenericInstDescriptor.h — 泛型实例化描述符：模板非限定名＋类型实参表，
     规范拼写为无空格形Base<Arg1,Arg2>，按拼写intern。字典模型的运行时
-    类型实参载体——对象侧并行数组（实例化身份）、转型比较、typeName、
+    类型实参存放位置——对象侧并行数组（实例化身份）、转型比较、typeName、
     ABI回调与序列化的共享数据面。类型实参词汇（TypeArgDesc与
     CanonicalArgSpelling）随v0.13.1层界收正迁入编译器侧共享头。
 ---*/
@@ -43,7 +43,7 @@ std::string CanonicalSpelling(const std::string& templateName,
 
 //Return the interned descriptor for this instantiation, creating it on
 //first use; returned pointers are stable for the process lifetime. The
-//intern key is the full canonical spelling (reversibility per Rust RFC
+//intern key is the full canonical name (reversibility per Rust RFC
 //2603: the spelling reconstructs the argument tree). Interning happens
 //only on the runtime paths — module load (InitDescriptorTable) and an
 //executor's first instantiation cast or array stamp
@@ -60,13 +60,15 @@ GenericInstDescriptor* InternDescriptor(const std::string& templateName,
 
 struct CompiledModule;
 
-//Load-side residency: intern the descriptor a canonical spelling names,
+//Load-side residency: intern the descriptor a canonical name names,
 //rebuilding its argument tree by parsing (reversibility — the structure
 //defines the spelling). Leaf link keys resolve against the linked
 //module's struct/class/enum tables so the parsed argument carries the
-//runtime kind; an unresolved key stays RTK_Class with rowRef -1
-//(display-correct; dispatch paths degrade gracefully). Throws
-//std::runtime_error on a non-canonical spelling (corrupt image).
+//runtime kind. 0.13.8 item 8: a dotted head must name a package the
+//module knows (its own modulePath, a live import slot's target, or a
+//nlink-merged unit's path), and every leaf and nested-template row must
+//resolve — anything else throws std::runtime_error (corrupt image), as
+//does a non-canonical name.
 GenericInstDescriptor* InternDescriptorFromSpelling(
 	const std::string& spelling, const CompiledModule& module);
 

@@ -25,6 +25,14 @@ uint8_t VmBackend::RuntimeTypeKind(SnField* pType) {
     auto k = pType->Kind();
     if (k == NK_EnumDecl) return RTK_Int32;
     if (k == NK_StructDecl) return RTK_Struct;
+    //v0.13.9 Task 12 (D14): an interface-typed storage location holds a
+    //class-instance handle — file it as RTK_Class so every kind-keyed
+    //consumer (local descriptors' band mask, DeclaredFieldAcceptsRuntime,
+    //signature leaves) routes the slot to the heap-index GC class instead
+    //of the scalar degrade (enum -> RTK_Int32 is the same representation
+    //truth). Which interface it names is the identity tier's job
+    //(BuildTypeDesc -> RTK_Interface), never this one.
+    if (k == NK_InterfaceDecl) return RTK_Class;
     if (k == NK_ClassDecl) {
         //Phase 13: synthetic func<...> declarations are function-handle
         //values (RTK_Func), not classes. Every kind-keyed consumer (local
@@ -312,9 +320,14 @@ bool VmBackend::EncodeBinaryDesc(SnBinaryExpr& bin,
                                  const std::vector<SnFormalParam*>& formals,
                                  std::vector<uint8_t>& out, bool allowCall,
                                  int depth) {
-    //Unary negation (unary ctor leaves Right() null).
+    //Unary negation / bitwise complement (unary ctor leaves Right() null).
     if (bin.Op() == SnBinaryExpr::OP_Neg && !bin.Right()) {
         AppendU8(out, ED_Neg);
+        return EncodeExprDesc(*bin.Left(), formals, out, allowCall,
+                              depth + 1);
+    }
+    if (bin.Op() == SnBinaryExpr::OP_BitNot && !bin.Right()) {
+        AppendU8(out, ED_BitNot);
         return EncodeExprDesc(*bin.Left(), formals, out, allowCall,
                               depth + 1);
     }
@@ -327,6 +340,9 @@ bool VmBackend::EncodeBinaryDesc(SnBinaryExpr& bin,
     case SnBinaryExpr::OP_Mod: opCode = EDB_Mod; break;
     case SnBinaryExpr::OP_Shl: opCode = EDB_Shl; break;
     case SnBinaryExpr::OP_Shr: opCode = EDB_Shr; break;
+    case SnBinaryExpr::OP_BitAnd: opCode = EDB_BitAnd; break;
+    case SnBinaryExpr::OP_BitOr: opCode = EDB_BitOr; break;
+    case SnBinaryExpr::OP_BitXor: opCode = EDB_BitXor; break;
     default: return false;  //comparisons/logical ops: out of subset
     }
     AppendU8(out, ED_Binary);

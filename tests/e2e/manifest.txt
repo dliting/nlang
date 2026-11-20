@@ -14,6 +14,7 @@ arithmetic_mod 2
 arithmetic_mod_negative 11
 all_int_ops 1
 nested_arith 45
+bitwise_ops 0
 # --- Comparison ---
 compare_ops 1
 # --- Logical ---
@@ -567,6 +568,16 @@ logical_short_circuit_nested 7
 logical_operand_float compile_error operator '&&' requires bool operands
 logical_operand_string compile_error operator '||' requires bool operands
 not_operand_float compile_error operator '!' requires a bool operand
+# --- v0.13.7: bitwise & ^ | ~ operand gates (integer-only, null, enum var, precedence, signed/unsigned) ---
+bitwise_operand_float compile_error operator '&' requires integer operands
+bitwise_operand_bool compile_error operator '^' requires integer operands
+bitwise_operand_char compile_error operator '|' requires integer operands
+bitwise_operand_string compile_error operator '&' requires integer operands
+bitwise_operand_enum_var compile_error requires integer operands, got "enum E"
+bitwise_precedence_eq compile_error operator '&' requires integer operands
+bitwise_not_operand_bool compile_error operator '~' requires an integer operand
+bitwise_operand_null compile_error null is not a valid bitwise operand
+bitwise_signed_unsigned compile_error no implicit common type for "Int32" and "ULong"
 # --- P3.8: lock array negative-index throws (mirrors list_negative_index_throws) ---
 array_negative_index_throws 1
 # --- Phase 8e-9b: Object.toString() protocol (class/enum/string/int/float) ---
@@ -580,6 +591,12 @@ string_tostring_identity 7
 int_float_tostring 7
 implicit_coercion_class 7
 implicit_coercion_mixed_chain 7
+# --- v0.13.6: §4.4's one to-string relation also binds the argument position,
+# and the io output trio accepts the same set (§14.1); the string-formal note
+# must name a way out that exists for each kind it rejects ---
+arg_class_func_to_string 0 [badge]
+pkg_print_class_enum 0 SLOW
+arg_string_formal_kinds_reject compile_error has type "struct Point";a struct has no toString;has type "interface IDraw";an interface value has no members beyond its own declaration;has type "class Object";call .toString() or unbox with an as cast;!call .toString() first to pass a class, interface or enum value
 # --- Phase 8e-9b P3: boundary tests ---
 enum_tostring_out_of_range_throws 1
 class_tostring_inherited_override 7
@@ -703,7 +720,6 @@ cross_mod_default_negative_float 7
 cross_mod_default_float 7
 cross_mod_default_string 7
 cross_mod_default_null 7
-cross_mod_default_null_string 7
 cross_mod_default_override 28
 # Complex cross-module defaults (ExprDesc wire form): formal references,
 # producing-module calls, negation; literals stay on the folded path
@@ -711,6 +727,8 @@ cross_mod_default_expr 52
 cross_mod_default_ident 10
 # 0.9.9: shift expressions in cross-module defaults ride the ExprDesc subset
 cross_mod_default_shift 0
+# v0.13.7: bitwise expressions ride the same ExprDesc default subset
+cross_mod_default_bitwise 0
 # 0.9.10 D3: bool/char literals fold into RTK_Bool/RTK_Char defaults
 cross_mod_default_bool_char 8
 # Defaults outside the ExprDesc subset (casts etc.) stay rejected
@@ -883,12 +901,12 @@ out_param_var 42
 # out must target a plain local (grammar-level restriction)
 out_not_local compile_error
 # out param requires the `out` marker at every call site
-out_marker_missing compile_error
-out_on_non_out compile_error
+out_marker_missing compile_error out parameters are retired
+out_on_non_out compile_error the out argument marker is retired
 # struct out params are rejected at declaration
-out_struct_type compile_error
+out_struct_type compile_error out parameters are retired
 # out args are rejected on virtual dispatch
-out_virtual compile_error
+out_virtual compile_error out parameters are retired
 # out params cannot have defaults
 out_default compile_error
 # --- Void function support ---
@@ -932,7 +950,7 @@ native_body_reject compile_error
 native_crossmod 77
 native_crossmod_default 0
 unresolved_import_call compile_error
-native_out_reject compile_error
+native_out_reject compile_error out parameters are retired
 native_method 77
 native_tostring_throws 1
 native_default 0
@@ -960,7 +978,7 @@ compile_error_equals_arity compile_error
 compile_error_nodecl_method compile_error
 compile_error_generic_method_arity compile_error
 compile_error_ctor_arity compile_error
-compile_error_outarg_builtin compile_error
+compile_error_outarg_builtin compile_error the out argument marker is retired
 # Phase 11 stdlib (math/io/fs namespaces + string methods).
 stdlib_sqrt_canary 0
 stdlib_reserved_names 2
@@ -976,6 +994,7 @@ cross_mod_static_inherited 7
 cross_mod_staticness_overload 42
 cross_mod_static_lazy 0
 cross_mod_static_src_inline 106
+cross_mod_prelude_static 0
 call_result_get_positive 7
 call_result_length_positive 2
 stdlib_math_trig 0
@@ -1038,7 +1057,8 @@ stdlib_str_substring_binary_operand 0
 stdlib_str_substring_oob_caught 0
 stdlib_str_split_empty_sep_caught 0
 stdlib_str_replace_empty_old_caught 0
-string_null_assign 0
+stdlib_string_empty 0
+stdlib_string_default 0
 stdlib_fs_exists_type 0
 stdlib_fs_size 0
 stdlib_fs_listfiles 0
@@ -1096,7 +1116,7 @@ enum_method_void 0 101
 enum_semicolon_tail 0
 enum_method_abstract compile_error
 enum_method_default_param compile_error
-enum_method_out_param compile_error
+enum_method_out_param compile_error out parameters are retired
 enum_method_tostring_reserved compile_error
 enum_method_on_int compile_error
 switch_dup_label_enum_method compile_error
@@ -1170,7 +1190,7 @@ func_defaults_reject compile_error
 func_object_box_reject compile_error
 func_named_arg_reject compile_error
 func_switch_discriminant compile_error
-func_out_in_list_reject compile_error
+func_out_in_list_reject compile_error the out type marker is retired
 err_new_removed compile_error Error: syntax error
 func_new_void_syntax compile_error
 func_void_in_list_reject compile_error
@@ -1206,8 +1226,8 @@ io_func_chain_member_error compile_error is not a member of package
 func_bound_native_reject compile_error cannot reference the native method
 func_bound_iface_native_reject compile_error cannot reference the native method
 func_bound_defaults_reject compile_error default parameters cannot be referenced
-func_out_return_reject compile_error
-func_bound_virtual_out_reject compile_error not supported on virtual method references
+func_out_return_reject compile_error the out type marker is retired
+func_bound_virtual_out_reject compile_error the out type marker is retired
 func_compare_operand_reject compile_error only be compared with a function value or null
 func_bare_method_reject compile_error without a receiver
 array_length_elem_get 0
@@ -1348,7 +1368,7 @@ compound_str_array_append 7
 container_prim_to_arrayelem_store_reject compile_error only the null literal converts
 arg_array_to_int_reject compile_error not compatible with the declaration
 arg_int_to_arrayparam_reject compile_error not compatible with the declaration
-out_array_mismatch_reject compile_error not compatible with the declaration
+out_array_mismatch_reject compile_error out parameters are retired
 initlist_objarr_boxing 7
 initlist_arrayval_elem 0
 assign_null_to_array 5
@@ -1472,7 +1492,7 @@ compound_subscript_const_base 6
 compound_subscript_fini_for 55
 compound_subscript_string_base_error compile_error string does not support subscript access
 compound_subscript_string_elem_op_error compile_error operator not supported on string
-compound_subscript_struct_elem_error compile_error Incompatible type
+compound_subscript_struct_elem_error compile_error compound assignment is not supported on struct values
 compound_subscript_void_error compile_error cannot assign the result of void function
 # --- #11 L3: intrinsic-by-name chained methods ---
 intrinsic_chain_l3 8
@@ -1558,7 +1578,7 @@ ovsig_param_count_mismatch compile_error claims the virtual dispatch slot
 ovsig_midchain_mismatch compile_error claims the virtual dispatch slot
 ovsig_override_plus_overload compile_error claims the virtual dispatch slot
 ovsig_static_shadow compile_error claims the virtual dispatch slot
-ovsig_out_mismatch compile_error claims the virtual dispatch slot
+ovsig_out_mismatch compile_error out parameters are retired
 ovsig_iface_param_mismatch compile_error with a different signature
 ovsig_iface_return_mismatch compile_error with a different signature
 ovsig_iface_missing compile_error does not implement the method
@@ -1947,11 +1967,11 @@ array_slice_float_reject compile_error slice endpoints and the step must be inte
 array_slice_rank_reject compile_error array rank 65 exceeds the maximum of 64
 #Task 4 Step 0: an empty class body (marker classes) is legal.
 grammar_empty_class 0
-#thread.spawn mints instances; with-args rejects).
+#thread.spawn creates instances; with-args rejects).
 thread_decl_zeroarg 0
 thread_decl_ctorargs compile_error
 #A user class shadowing Thread does not break typed spawn —
-#the mint resolves the prelude record by bare name
+#the creation resolves the prelude record by bare name
 #(parity with pre-migration behavior).
 thread_spawn_shadow compile_error conflicts with an existing definition
 thread_fail_unjoined 0 main-done
@@ -2012,7 +2032,20 @@ string_substring_two_args 0
 string_equals_int_reject compile_error
 string_substring_3args_reject compile_error
 string_toupper_spelling_reject compile_error
-string_null_arg_semantics 0
+string_null_local_reject compile_error null is not a string value
+string_null_assign_reject compile_error null is not a string value
+string_null_return_reject compile_error null is not a string value
+string_null_initlist_reject compile_error null is not a string value
+string_null_compare_reject compile_error cannot compare string with a non-string operand
+string_null_arg_user_reject compile_error cannot be null
+string_null_arg_face_reject compile_error cannot be null
+string_null_default_reject compile_error cannot be null
+string_null_static_const_reject compile_error cannot be null
+string_null_field_reject compile_error cannot be null
+print_null_reject compile_error cannot be null
+string_null_as_reject compile_error cannot perform implicit conversion
+string_null_case_reject compile_error null is not a valid case label
+string_null_concat_reject compile_error null is not a valid arithmetic operand
 string_face_shadow_nonhijack 0
 array_face_shape_crossmod 0
 string_face_shadow_missing_reject compile_error
@@ -2029,6 +2062,9 @@ generic_mixed_members_run 1
 generic_two_instantiations 0
 generic_nested_instantiation 0
 generic_arg_domain 0
+# --- 0.13.8 item 8 / D8.4: source-inline library + qualified generic
+# --- cast/new family (the shape proj_generic_cross_unit never covers).
+xgen_source_inline 10
 kl_generic_struct_arg 0
 kl_generic_struct_independence 0
 kl_generic_struct_transfer_corner 0
@@ -2046,7 +2082,7 @@ generic_invoke_default_degrade compile_error not compatible with the declaration
 # (T-typed ones stay rejected by the declaration contract).
 generic_field_init_window 5
 generic_depth_limit compile_error instantiation depth
-# --- v0.12.3 Task 2: two-phase mint — fixed-key self-reference compiles (growing key stays rejected above) ---
+# --- v0.12.3 Task 2: two-phase create — fixed-key self-reference compiles (growing key stays rejected above) ---
 generic_selfref 0
 generic_mutual_pair 0
 
@@ -2113,7 +2149,7 @@ static_const_iface_array 7
 static_const_iface_enum 2
 static_const_iface_list 2
 cross_mod_static_iface_const 5
-err_static_const_out compile_error cannot be passed as an out argument
+err_static_const_out compile_error out parameters are retired
 err_static_local_sized compile_error sized array
 err_iface_mutable_static compile_error must be static const
 array_generic_face 0
@@ -2149,7 +2185,7 @@ stdlib_net_ping_loopback 0 ok
 stdlib_net_icmp_raw 0 ok
 stdlib_net_conc_echo 0 ok
 stdlib_net_parked_recv_gc 0 ok
-stdlib_net_tcp_concurrent_writer 0 ok
+stdlib_net_tcp_stream_integrity 0 ok
 stdlib_net_ping_stress 0 ok
 stdlib_net_count_guard 0 ok
 stdlib_net_udp_ttl 0 ok
@@ -2185,6 +2221,61 @@ view_object_protocol 7
 array_cast_class_target 7
 array_serialize_cycle 3
 object_field_value_ser 7
+stdlib_probe_funcclass 0
+stdlib_system_clock 0
+stdlib_str_indexof_from 0
+stdlib_str_toint_radix 0
+stdlib_str_equalsignore_case 0
+stdlib_io_base64 0
+stdlib_system_datetime 0
+stdlib_url_percent 0
+stdlib_url_parse 0
+stdlib_url_resolve 0
+stdlib_url_query 0
+stdlib_gzip_roundtrip 0
+stdlib_http_frame 0
+stdlib_http_chunked 0
+stdlib_http_server 0
+stdlib_http_headers 0
+stdlib_http_harden 0
+stdlib_http_timeout 0
+stdlib_http_client 0
+stdlib_http_redirect 0
+stdlib_http_stream 0
+stdlib_http_cancel 0
+stdlib_http_conc 0
+stdlib_http_pool 0
+#v0.13.6 net fix pass: readExactly stops at the requested byte count and
+#leaves the rest of the segment in the socket; readLine's contract is pinned
+#for a buffered reader.
+stdlib_net_tcp_readline_utf8 0
+stdlib_net_tcp_read_exactly_split 0
+stdlib_net_window 0
+stdlib_http_big_head 0
+stdlib_http_single_write 0
+stdlib_http_date_cache 0
+stdlib_http_reject503 0
+#v0.13.6 closed-handle pin: after close() every method of a net handle
+#raises SocketException, close is idempotent, isClosed reports true, and
+#after shutdownWrite() writes raise while reads work until end of stream.
+stdlib_net_closed_state 0
+bitwise_compound 0
+stdlib_regex_quote 0
+stdlib_regex_literal 0
+stdlib_regex_basic 0
+stdlib_regex_class 0
+stdlib_regex_repeat 0
+stdlib_regex_size 0
+stdlib_regex_anchor 0
+stdlib_regex_capture 0
+stdlib_regex_flags 0
+stdlib_regex_escape 0
+stdlib_regex_matches 0
+stdlib_regex_split 0
+stdlib_regex_template 0
+stdlib_regex_diff 0
+stdlib_regex_conc 0
+identifiers_former_keywords 0
 err_catch_generic_type compile_error cannot tell instantiations apart
 err_generic_static_infer_mismatch compile_error has type
 err_generic_static_infer_unbound compile_error cannot infer type argument
@@ -2329,3 +2420,147 @@ op_tensor_scatter_add 0
 op_tensor_scatter_add 0
 op_tensor_scatter_add_throw 1
 op_tensor_scatter_add_empty 1
+array_struct_identity 4
+stabilize_local_assign 42
+stabilize_field_store 42
+stabilize_nested_field 42
+stabilize_array_store 42
+stabilize_array_oob 1
+xacc_fn_private compile_error The function "hiddenHelper" does not exist or is not accessible.
+xacc_type_private compile_error Type 'Vault' is not a member of package 'lib'.
+xacc_ok_public 28
+stabilize_list_set 42
+stabilize_dict_set 42
+stabilize_static_store 42
+compile_error_struct_compound compile_error compound assignment is not supported on struct
+stabilize_concurrent_write 42
+stabilize_indep_sweep 42
+stdlib_dict_struct_key 42
+stdlib_stabilize_uncoordinated_race 42
+# --- v0.13.9 phase 3: reference-binding rejects (named diagnostics) ---
+refbind_reject_const_target compile_error cannot bind a reference to const storage
+refbind_reject_const_member compile_error cannot bind a reference to const storage
+refbind_reject_return_local compile_error cannot return a reference to local
+refbind_reject_scalar_convert compile_error cannot bind Byte to Int32&
+refbind_reject_enum_to_int_ref compile_error cannot bind Color to Int32&
+refbind_reject_int_to_enum_ref compile_error cannot bind Int32 to Color&
+refbind_reject_enum_member compile_error cannot bind a reference to enum member
+refbind_reject_param_default compile_error cannot have a default value
+refbind_reject_dict_keys compile_error iterate Dict keys by reference
+refbind_reject_string_foreach compile_error iterate a string by reference
+refbind_reject_static_scalar compile_error cannot bind a reference to static storage
+refbind_reject_static_ref_decl compile_error syntax error
+refbind_reject_no_init compile_error must bind an initializer
+refbind_reject_ctor_cont compile_error constructor initialization
+refbind_reject_size_cont compile_error array declarator
+refbind_reject_method_result compile_error method call result
+refbind_reject_ref_to_ref compile_error cannot bind a reference to reference
+# --- v0.13.9 phase 3: reference storage rejects pinned at the grammar layer ---
+refbind_reject_generic_arg compile_error syntax error
+refbind_reject_field_decl compile_error syntax error
+refbind_reject_callsite_amp compile_error syntax error
+refbind_reject_ref_array compile_error syntax error
+refbind_promote_local 7
+refbind_promote_param 7
+refbind_promote_loop 33
+refbind_promote_string 1
+refbind_promote_gc_survival 9
+refbind_promote_direct_guard 8
+refbind_promote_zero_init_guard 0
+# --- v0.13.9 phase 3 Task 5: & parameters and reference bindings ---
+refbind_param_local 11
+refbind_forward_callee 183
+refbind_param_field 42
+refbind_param_element 2
+refbind_param_struct 12
+refbind_param_rvalue 3
+refbind_param_exception 5
+refbind_param_alias 6
+refbind_param_byval_floor 1
+refbind_local_member 9
+refbind_local_element 8
+refbind_local_chain 9
+refbind_local_rvalue 3
+# --- v0.13.9 phase 3 Task 6: container getter T& and reference returns ---
+refbind_getter_value_copy 7
+refbind_getter_ref_write 9
+refbind_getter_member_write 9
+refbind_getter_boxed_elem 8
+refbind_getter_alias_set 6
+refbind_getter_alias_remove 8
+refbind_getter_alias_clear 8
+refbind_getter_alias_grow 9
+refbind_getter_alias_shift 0
+refbind_getter_dict_miss 1
+refbind_return_scalar 9
+refbind_return_element 9
+refbind_return_value_ctx 7
+refbind_getter_explicit_get_ref 9
+refbind_getter_dict_struct_ref 7
+refbind_return_method 9
+refbind_return_method_value 7
+refbind_reject_iface_ref_return compile_error reference return
+# --- v0.13.9 phase 3 Task 7: reference-form foreach over arrays and lists ---
+refbind_foreach_array_scalar 67
+refbind_foreach_array_struct 60
+refbind_foreach_list_scalar 112
+refbind_foreach_list_struct 77
+refbind_local_struct_element 8
+# --- v0.13.9 phase 3 Task 13: struct/identity/generic field binds (pair-shape fix) ---
+refbind_field_struct_class 1
+refbind_field_identity 1
+refbind_field_struct_generic 1
+refbind_field_struct_generic_body 1
+refbind_reject_native_formal compile_error cannot have reference parameters
+refbind_func_type_marks compile_error func<Int32, Int32&>
+# --- v0.13.9 phase 3 Task 8: generic keys, T& well-formedness, fork warning ---
+refbind_generic_func_coexist 7
+refbind_generic_func_reject_out compile_error does not match the signature
+refbind_generic_func_reject_in compile_error does not match the signature
+refbind_generic_class_write 7080
+refbind_generic_class_identity 3
+refbind_generic_handle_param 42042
+refbind_generic_handle_ret 105
+refbind_generic_field_struct 149
+refbind_generic_member_handle_param 42042
+refbind_generic_member_handle_ret 105
+refbind_generic_handle_ret_value 508
+# --- v0.13.9 phase 3 Task 9: const T& read-only references ---
+const_ref_materialize 47
+const_ref_const_storage 15
+const_ref_write_reject compile_error cannot assign to const local
+const_ref_member_write_reject compile_error through the const storage
+const_ref_struct_member_reject compile_error through the const storage
+const_ref_param 0
+const_ref_param_write_reject compile_error through the const storage
+const_ref_generic 0
+const_ref_generic_write_reject compile_error cannot assign to const local
+# --- v0.13.9 phase 3 Task 10: cross-module reference signatures ---
+ref_sig_crossmod 7
+ref_sig_func_key 7
+# --- v0.13.9 phase 3 Task 12 (D14): interface runtime-kind GC pins ---
+interface_local_gc_survives 0
+interface_field_gc_survives 0
+interface_constant_gc_survives 0
+interface_array_gc_survives 0
+cross_mod_interface_rtk_gc 0
+# consumer tier: interface-typed values cross the module boundary
+cross_mod_interface_return 7
+refbind_foreach_list_remove 0
+refbind_foreach_list_grow 0
+refbind_foreach_promote_local 9
+refbind_foreach_promote_call 32
+refbind_foreach_string_promote 244
+refbind_local_whole_struct 0
+refbind_enum_write 0
+refbind_param_string 0
+refbind_virtual_dispatch 0
+refbind_iface_dispatch 0
+# --- v0.13.9 phase 4: out retirement migration diagnostics ---
+err_outret_decl_free compile_error out parameters are retired
+err_outret_decl_class compile_error out parameters are retired
+err_outret_decl_iface compile_error out parameters are retired
+err_outret_call_marker compile_error the out argument marker is retired
+err_outret_func_mark compile_error the out type marker is retired
+err_outret_anchored compile_error
+err_outret_keyword compile_error

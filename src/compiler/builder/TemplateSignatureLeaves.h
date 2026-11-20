@@ -1,6 +1,6 @@
 /*---
 TemplateSignatureLeaves.h — the template-signature leaf contract,
-enforced programmatically (assertions at the stub mint and the
+enforced programmatically (assertions at the stub creation and the
 substitution entry) instead of by convention comments or implementor
 memory.
 
@@ -10,7 +10,7 @@ identifier leaf is a pre-bound builtin (resolved to an SnBuiltinDataType
 wrapped in SnNameExpr (the parser shape; NamedLeafExpr on the stub
 side). Composites recurse (generic, array) or pass (wrapped names,
 qualified paths — those carry their own resolution and diagnostic
-channels). A bare unresolved identifier is the divergent mint that once
+channels). A bare unresolved identifier is the divergent creation that once
 cloned every non-T signature of a stub template as void — the contract
 exists so that failure mode stops loudly at a checkpoint, never
 silently.
@@ -56,12 +56,12 @@ inline bool TemplateSignatureLeavesAreCanonical(const SnFieldExpr *pType)
 					->ElementType());
 		default:
 			//Wrapped names and qualified paths pass: this contract
-			//rejects exactly the divergent bare mint and nothing else.
+			//rejects exactly the divergent bare creation and nothing else.
 			return true;
 	}
 }
 
-//Class-level form for the stub mint: every member signature (return
+//Class-level form for the stub creation: every member signature (return
 //types, formal types, field types) through the leaf contract.
 inline bool TemplateClassSignaturesAreCanonical(const SnClassDecl &cls)
 {

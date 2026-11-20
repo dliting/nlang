@@ -1,10 +1,12 @@
 /*---
     tensor_matrix.cpp — concat and matmul of the `tensor` native
     module. P1 T1.2c migration: the dispatcher keeps operand
-    materialization (non-contiguous views copy to dense records first —
-    the kernels keep flat addressing), shape gates and output minting;
-    the run routes per call by the primary operand's residency (OpsForResidency) (matmul forwards to the
-    KernelOps tier table; concat's byte-level copy is kind-independent).
+    materialization (non-contiguous HOST views copy to dense records
+    first — the kernels keep flat addressing; device-resident
+    operands pass through strided per R8), shape gates and output
+    minting; the run routes per call by the primary operand's
+    residency (OpsForResidency — the matmul/concat slots live on both
+    tables; concat's byte-level copy is kind-independent).
     transpose/flatten/reshape live in tensor_views.cpp since v0.12.7
     Task 12.
 ---*/
@@ -37,6 +39,11 @@ namespace {
 //handle actually backing the computation — the original when it passes
 //through. The minted handle stays rooted per the newArray contract
 //until this native returns.
+//A view of the operand, materialized to a dense owning record when its
+//strides are not row-major dense (the copy path needs flat addressing).
+//Returns the handle actually backing the computation — the original
+//when it was already contiguous. The created handle stays rooted per the
+//newArray contract until this native returns.
 int32_t ContiguousOperand(NativeHost* host, const uint8_t* args, int slot,
                           NativeArrayView* view) {
     ArgArray(host, args, slot, view);

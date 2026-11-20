@@ -24,7 +24,9 @@ array types, generic class instantiations and function types:
 a variable of a reference type holds a reference to one object,
 and assignment copies the reference, so source and target then
 denote the same object. Every reference type accepts `null`, the
-reference to no object (§4.8).
+reference to no object (§4.8). The `&` marker introduces no third
+category: it lets one concrete name of a value type alias existing
+storage instead of copying (§4.7.9).
 
 `string` is a primitive with immutable value semantics: its value
 is a handle to the text's bytes, and assignment copies the handle,
@@ -36,7 +38,7 @@ Two types are *the same type* when:
 - they are array types with the same element type and the same
   rank;
 - they name the same type declaration — two declarations of one
-  name in different bare pools (§3.7) are different types;
+  name in different unqualified-name pools (§3.7) are different types;
 - they are instantiations of one generic class whose type
   arguments are pairwise the same type.
 
@@ -112,8 +114,9 @@ page that explains that type in detail.
   matrix (§4.4). See [Primitives](primitives.md).
 - **`string`** — value semantics *via* an immutable interned object: the
   handle is copied, but the object's content never changes, so "sharing" is
-  harmless. `==` compares content, not identity. A null string handle (0)
-  reads as the empty string `""`. See [String](string.md).
+  harmless. `==` compares content, not identity. null is not in its value
+  domain (writing null is a compile error); the empty string is `""` /
+  `string.EMPTY`. See [String](string.md).
 - **`enum`** — value type backed by int32. Assigned, passed, and returned by
   value; compared by its integer value; there is no independent object
   identity. See [Enum](enum.md).
@@ -169,8 +172,14 @@ assignment, argument passing and return-value conversion;
 - The value is a scalar primitive, `string` or enumeration and
   the target is `Object` (boxing, §4.11).
 - The target is `string` and the value is a scalar primitive, an
-  enumeration, a class, an array or a function; the conversion
-  renders the value as text, and chapter 5 fixes the rendering.
+  enumeration, an array, a class or a function value; the
+  conversion renders the value as text, and §5.3 fixes the
+  rendering. A struct, interface or `Object` value is not
+  assignable to `string`: a struct has no `toString` (§4.7.7) and
+  an interface value has no member beyond its own declaration
+  (§4.9), so each is written out from its own fields or its own
+  results, and an `Object` value reaches text through
+  `.toString()` (§4.11.2) or the unboxing cast of §5.5.
 - The value is an integer type and the target's value domain
   contains the source's: widening along one sign
   (`byte`→`short`→`int`→`long`, `ubyte`→`ushort`→`uint`→`ulong`)
@@ -183,8 +192,7 @@ assignment, argument passing and return-value conversion;
 - The value is an enumeration and the target is `int`, or the
   value is `int` and the target is an enumeration (§4.6).
 - The value is the `null` literal and the target is a reference
-  type or `string`. No other integer converts implicitly to a
-  reference type.
+  type. No other integer converts implicitly to a reference type.
 - The value is an integer literal whose value fits the target
   integer type's value domain, even when the general conversion
   between the two types is explicit-only; a literal that does not

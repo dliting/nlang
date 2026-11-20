@@ -1,0 +1,18 @@
+// The system package clocks (spec D20): wallMs reports a plausible
+// Unix-epoch time, monoMs never goes backwards across calls.
+import io;
+import system;
+
+int main() {
+    long w = system.wallMs();
+    if (w < 1767225600000) {   // 2026-01-01T00:00:00Z
+        return 1;
+    }
+    long m1 = system.monoMs();
+    long m2 = system.monoMs();
+    if (m2 < m1) {
+        return 2;
+    }
+    io.print("ok");
+    return 0;
+}

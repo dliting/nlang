@@ -58,7 +58,7 @@ std::string VmExecutor::FormatFuncHandle(int32_t heapIdx) const {
 }
 
 void VmExecutor::OpFunc_to_str(uint8_t* pResult) {
-    //K8: lock-free — benign heap reads plus a self-locking mint.
+    //K8: lock-free — benign heap reads plus a self-locking creation.
     //Accumulator-shaped like OP_Array_to_str: the handle comes in
     //via pResult, the interned string index goes back out through
     //pResult. Direct conversion paths bypass the member-dispatch
@@ -75,7 +75,7 @@ void VmExecutor::OpFunc_to_str(uint8_t* pResult) {
     } else {
         s = FormatFuncHandle(heapIdx);
     }
-    int32_t handle = MintNewString(std::move(s));
+    int32_t handle = CreateNewString(std::move(s));
     std::memcpy(pResult, &handle, sizeof(handle));
 }
 
@@ -205,11 +205,11 @@ std::string VmExecutor::FormatScalarValue(uint8_t rtk, int32_t lo,
 }
 
 //v0.12.7 Task 5: shared array formatting — null/stale/kind validation,
-//FormatArray, mint. OP_Array_to_str and the Array.toString intrinsic
+//FormatArray, create. OP_Array_to_str and the Array.toString intrinsic
 //format through this one path (K8: the walker snapshots container
-//structure under the Container domain lock internally; the mint
+//structure under the Container domain lock internally; the creation
 //self-locks).
-int32_t VmExecutor::MintArrayString(int32_t heapIdx) {
+int32_t VmExecutor::CreateArrayString(int32_t heapIdx) {
     std::string s;
     if (heapIdx <= 0) {
         s = "<null>";
@@ -224,7 +224,7 @@ int32_t VmExecutor::MintArrayString(int32_t heapIdx) {
     } else {
         s = FormatArray(heapIdx, 0);
     }
-    return MintNewString(std::move(s));
+    return CreateNewString(std::move(s));
 }
 
 std::string VmExecutor::FormatList(int32_t handle, int depth) {

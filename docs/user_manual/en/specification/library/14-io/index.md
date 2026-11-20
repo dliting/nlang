@@ -8,18 +8,19 @@ argument admission rule that governs every package call;
 §14.2–§14.4 define the io functions; §14.5 defines the generic
 input/output (IO) facilities that native-backed libraries build
 on; the stream classes (§14.6) and the byte-level encoding of
-stream values (§14.7) are defined on their own page.
+stream values (§14.7) are defined on their own pages, and
+§14.8 defines the Base64 codecs.
 
 ## 14.1 Package Form
 
 `io` is a standard library package (§3.9.4): `import io;` brings
-it into scope and every function is called through the package
-qualifier (`io.print(s)`). The package name is single-segment
+it into scope and every function is called by its fully qualified
+name (`io.print(s)`). The package name is single-segment
 (§3.3). Its declarations are the standard library's `.n`
 source; the output trio, the input functions and the file
 functions are `native` functions (§7.5), and the typed readers
 are NLang source wrappers over `readToken` and the string
-conversion methods (§16.2).
+conversion methods (§17.2).
 
 **Argument admission.** A call to a package function binds each
 argument against the declared formal type (§7.3); the implicit
@@ -31,17 +32,19 @@ call to a user-declared function keeps the §4.4 relation:
 but `io.writeFile(42, "x")` does not.
 
 The exception is the output trio `io.print`, `io.write` and
-`io.eprint` (§14.2). The trio additionally accepts arguments
-that render as text (§5.3): scalar primitives, arrays and
-function values. A class, interface or enumeration value is
-rejected — a class or interface value calls `.toString()` first
-(§11.2), and an enumeration variable likewise; an enumeration
-member constant is accepted and prints its member name (§5.3).
-A struct value is rejected outright: structs have no
-`toString` (§11.2). A `null` argument is rejected: it would
-print as `0`. The exception is keyed to these three names under
-the `io` package path; a user package that shadows `io`
-inherits it on exactly those names.
+`io.eprint` (§14.2). The trio additionally accepts every value
+§4.4 converts to `string`: scalar primitives, enumerations,
+arrays, class values and function values, each rendered as §5.3
+fixes (an enumeration by its member name). A struct, interface
+or `Object` value is rejected for the same reasons §4.4 gives:
+a struct has no `toString` (§4.7.7), an interface value has no
+member beyond its own declaration (§4.9) and so no `toString`
+to call, and an `Object` value reaches text only through its own
+`.toString()` call (§4.11.2) or the unboxing of §5.5 — the trio
+performs neither step on the caller's behalf. A `null` argument
+is rejected: it would print as `0`. The exception is keyed to
+these three names under the `io` package path; a user package
+that shadows `io` inherits it on exactly those names.
 
 ## 14.2 Console Output
 
@@ -93,13 +96,13 @@ the call waits.
   (UTF-8) bytes; leading whitespace is skipped, as for
   `readToken`. It yields literal characters — input `x` yields
   `'x'` — deliberately unlike the numeric parse of `toChar`
-  (§16.2), where `"120"` yields `'x'`. At end of input it
+  (§17.2), where `"120"` yields `'x'`. At end of input it
   raises `IOException`; with no input channel likewise. A byte
   sequence that is not valid UTF-8 raises `Exception` (§8.3),
   not `IOException`.
 - `io.readInt()`, `io.readLong()`, `io.readFloat()`,
   `io.readDouble()` and `io.readBool()` read the next token and
-  convert it with the matching string method (§16.2): end of
+  convert it with the matching string method (§17.2): end of
   input raises `IOException` (from `readToken`), with no input
   channel likewise, and a malformed token fails exactly as that
   string method fails.
@@ -144,20 +147,17 @@ while (io.hasInput()) {
 
 `path` is a host path in the platform's native form; the io
 package defines no path syntax of its own (the `fs` package of
-chapter 15 does). The content is bytes: the io functions
+chapter 16 does). The content is bytes: the io functions
 impose no text encoding on what they read or write.
 
 ## 14.5 Generic IO Facilities
 
-Four functions round out the package as infrastructure for
+Three functions round out the package as infrastructure for
 native-backed libraries rather than everyday user tools: ordinary
 programs reach the same behavior through the blocking calls of the
-`net` package (chapter 20) or the stream classes of §14.6, and
+`net` package (chapter 21) or the stream classes of §14.6, and
 rarely call these directly.
 
-- `io.nowMs()` returns a `long` reading of a monotonic millisecond
-  clock — an arbitrary epoch, not wall time — in the same clock
-  domain as `parkForIo` deadlines.
 - `io.parkForIo(fd, events, deadlineMs)` parks the calling virtual
   thread until the descriptor `fd` is ready (`events`: `1` read,
   `2` write) or the absolute deadline `deadlineMs` is reached
@@ -166,14 +166,14 @@ rarely call these directly.
   nothing can wake such a park, so the call does not wait. The
   call returns after the wake — the caller re-checks its condition
   and may park again. This is the parking primitive
-  the `net` package's blocking methods are built on (§20.1), and
+  the `net` package's blocking methods are built on (§21.1), and
   it is generic: a native library holding a descriptor parks
   through the same call, and future pipe and process plumbing
   will too.
 - `io.toBytes(s)` returns the raw Unicode Transformation Format
   (UTF-8) bytes of `s` as a `byte[]` array; `io.fromBytes(data)`
   decodes a `byte[]` array back to a `string`. The conversions
-  bypass the string method surface (§16.2) and carry no length
+  bypass the string method surface (§17.2) and carry no length
   prefix or terminator — the byte-level bridge for socket and
   stream payloads.
 

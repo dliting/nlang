@@ -15,13 +15,17 @@ the package; for a free native of a single-segment package the
 loader searches for `nlang_<package>.dll` on the host search path.
 A unit whose package name has more than one segment may not
 declare native functions: a compile-time error. A native function
-has no `out` parameters (§7.2).
+has no reference parameters (§7.2).
 
 If the host cannot find the implementation, the call raises a
 host-level run-time error (§7.1). The host is responsible for
 matching the declared signature: a mismatch between the declaration
 and the host implementation is not a type error and yields
-unspecified results (§0.4). The calling convention is §23.4.
+unspecified results (§0.4). One mismatch is specified: a native
+declared to return `string` must hand back a live string handle —
+the null handle, or an invalid handle that does not denote a live
+string object, raises a host-level run-time error (§7.1) —
+`string` has no null value (§4.3). The calling convention is §28.4.
 
 ### A native declaration
 
@@ -49,7 +53,7 @@ first call); only a further miss throws. On a hit the native is
 invoked directly with the caller's staged argument cells.
 
 - The value layout — one eight-byte cell per argument, the receiver
-  slot of a method, and the return cell — is §23.4 (see also
+  slot of a method, and the return cell — is §28.4 (see also
   [Stack Frame Layout](../../vm-architecture/stack-frame-layout.md)).
 - Resolution failures throw at the call site — never silent garbage: a
   missing `nlang_<package>.dll` reports `cannot find native module
@@ -66,9 +70,12 @@ invoked directly with the caller's staged argument cells.
 
 - A `native` declaration **must not have a body** — compile error.
   The host owns the implementation.
-- **No `out` parameters** — writeback needs a callee frame and natives
-  have none. Compile error; the VM enforces the same for hand-crafted
-  modules.
+- **No `&` formals** — the host receives arguments by value (one value
+  cell per argument, §28.4); the aliasing writes of a reference formal
+  cannot cross into the host
+  (`native function "f" cannot have reference parameters; the host receives values.`).
+  A `&` return is not restricted — the builtin
+  containers' `get` is `native T&`.
 - Keys of free natives are **fully qualified** (`<package>.<name>`):
   same-named natives in different packages are unrelated, and one package
   plus name is a single table entry. The host registration is responsible
@@ -84,7 +91,7 @@ invoked directly with the caller's staged argument cells.
 - Class-member `native` methods work: dispatch reaches the native through
   the normal method path, with the receiver riding in the first argument
   cell followed by the declared parameters — mirroring the bytecode
-  calling convention (§23.4).
+  calling convention (§28.4).
 - String/struct/class argument marshalling beyond the single-slot value
   cell is not supported.
 

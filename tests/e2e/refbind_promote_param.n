@@ -1,0 +1,10 @@
+// v0.13.9 phase 3 Task 4: a value formal whose slot is &-bound inside
+// the body is promoted the same way; writes land in the callee's copy.
+int bump(int v) {
+    int& r = v;
+    r = 7;
+    return v;
+}
+int main() {
+    return bump(1);
+}

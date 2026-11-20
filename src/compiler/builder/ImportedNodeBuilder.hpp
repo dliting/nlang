@@ -112,7 +112,7 @@ public:
 		m_Tree.Root()->Members().push_back(pNode);
 		//v0.12.2 face-name yield: a face-named builtin mirror (String)
 		//keeps its node attached — registry identity for InstanceOf,
-		//tree ownership, walks — but gives up the bare name, so the
+		//tree ownership, walks — but gives up the unqualified name, so the
 		//prelude's declared face class is the name's sole owner and
 		//DuplicateFieldChecker never sees the pair. Other builtin names
 		//keep their spellings (zero semantic change).

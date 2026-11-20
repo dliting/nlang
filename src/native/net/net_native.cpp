@@ -194,7 +194,7 @@ void NetFromBytes(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
 // from the text (host "::" opens a dual-stack listener: NetBind
 // clears IPV6_V6ONLY for it); port 0 is system-assigned and read back
 // through _tcpLocalPort. Migrated from the VM intrinsic (task 6): the
-// Raise became the R10 code + last-error text; the script mints the
+// Raise became the R10 code + last-error text; the script creates the
 // TcpListener object around the returned slot handle.
 void TcpBind(NativeHost* h, uint8_t* ret, const uint8_t* a, int argc) {
     NetExecState* st = NetState(h);
@@ -232,21 +232,22 @@ void TcpBind(NativeHost* h, uint8_t* ret, const uint8_t* a, int argc) {
     int32_t handle = 0;
     {
         std::lock_guard<std::mutex> g(st->m_mutex);
-        handle = st->m_slots.Mint(fd, kNetKindTcpListener);
+        handle = st->m_slots.Create(fd, kNetKindTcpListener);
     }
     ReturnInt(ret, handle);
 }
 
-// tcpLocalAddress: the bound address text; null (handle 0 — the null
-// literal is the sentinel 0) on a closed slot or a getsockname
-// failure, which the script maps through _throwNet.
+// tcpLocalAddress: the bound address text; the empty string (string
+// has no null value — 0.13.4) on a closed slot or a getsockname
+// failure, which the script maps through _throwNet. Address text is
+// never empty, so "" is an unambiguous failure sentinel.
 void TcpLocalAddress(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     NetExecState* st = NetState(h);
     std::lock_guard<std::mutex> g(st->m_mutex);
     auto* slot = st->m_slots.Lookup(ArgInt(a, 0));
     if (!slot) {
         st->m_lastErrorText[h->currentContextId(h)] = "socket closed";
-        ReturnInt(ret, 0);
+        ReturnString(h, ret, std::string());
         return;
     }
     const std::string text = NetLocalAddress(slot->fd);
@@ -254,7 +255,7 @@ void TcpLocalAddress(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
         { std::string errText; int errCode = 0;
           NetLastErrorInfo(errText, errCode);
           NetSetErrorLocked(st, h, errText, errCode); }
-        ReturnInt(ret, 0);
+        ReturnString(h, ret, std::string());
         return;
     }
     ReturnString(h, ret, text);

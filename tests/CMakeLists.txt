@@ -51,6 +51,24 @@ function(add_test)
         ENVIRONMENT "TMP=${NLANG_TEST_SCRATCH_ROOT};TEMP=${NLANG_TEST_SCRATCH_ROOT}")
 endfunction()
 
+
+# Shared test facilities (test_support/test_scratch.h) are reached as
+# "test_support/…": one directory-scope include path for every test target
+# here, instead of a per-target line for each of the ~100 targets that
+# compile sources into a scratch directory. No header name in tests/ itself
+# collides with a src/include header, so no lookup order is disturbed.
+include_directories(${CMAKE_CURRENT_SOURCE_DIR})
+
+# Scratch-directory helper tests: the contract the suite's temp-file users
+# rely on (distinct names, per-process root, contents kept across calls).
+# Needs nothing but <filesystem>, so it links no nlang library.
+add_executable(test_scratch
+    test_support/test_scratch.cpp
+)
+
+add_test(NAME scratch_tests COMMAND test_scratch)
+set_tests_properties(scratch_tests PROPERTIES TIMEOUT 60)
+
 add_executable(test_vm
     test_vm/test_vm.cpp
 )
@@ -565,6 +583,162 @@ target_compile_definitions(test_generic_runtime_info
 
 add_test(NAME generic_runtime_info_tests COMMAND test_generic_runtime_info)
 
+# v0.13.9 phase ②: the record-stabilization write primitive
+# (OP_CopyStructInPlace / CopyStructInPlace), compile+execute
+# in-process; allocation pins read HeapAllocCountForTests.
+add_executable(test_stabilize_copy
+    test_vm/test_stabilize_copy.cpp
+)
+
+target_include_directories(test_stabilize_copy
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_stabilize_copy
+    PRIVATE
+        nlang_vm
+        nlang_compiler
+        nlang_runtime
+        nlang_langservice
+)
+nlang_stdlib_test(test_stabilize_copy)
+target_compile_definitions(test_stabilize_copy
+    PRIVATE
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+)
+
+add_test(NAME stabilize_copy_tests COMMAND test_stabilize_copy)
+
+# v0.13.9 phase ③ Task 3: the byref slot representation and its opcode
+# family (OP_RefOf*/OP_RefHandle/OP_LoadRef/OP_StoreRef), real-compiled
+# modules + bytecode-tail surgery; the GC-survival pin exercises the
+# band-mask rooting of a byref slot through allocation churn.
+add_executable(test_ref_ops
+    test_vm/test_ref_ops.cpp
+)
+
+target_include_directories(test_ref_ops
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        #VmBackend.h (the EvalSlotClassOfKind pin) privately includes
+        #compiler-side headers — the same reverse precedent nlang_vm lists.
+        ${PROJECT_SOURCE_DIR}/src/compiler
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_ref_ops
+    PRIVATE
+        nlang_vm
+        nlang_compiler
+        nlang_runtime
+        nlang_langservice
+)
+nlang_stdlib_test(test_ref_ops)
+target_compile_definitions(test_ref_ops
+    PRIVATE
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+)
+
+add_test(NAME ref_ops_tests COMMAND test_ref_ops)
+
+# v0.13.9 phase 3 Task 12 (D14): interface runtime-kind classification
+# pins. Two tiers: the storage tier (interface slots hold class handles —
+# RTK_Class in locals/fields) and the identity tier (RTK_Interface in
+# TypeDesc channels and arrayTypes rows, indexed by the interfaces table).
+# Byte pins over real-compiled modules; the survival runs are the
+# interface_*_gc_survives e2e family.
+add_executable(test_interface_rtk_gc
+    test_vm/test_interface_rtk_gc.cpp
+)
+
+target_include_directories(test_interface_rtk_gc
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        #VmBackend.h (the RuntimeTypeKind/EvalSlotClassOfKind pins)
+        #privately includes compiler-side headers — same as test_ref_ops.
+        ${PROJECT_SOURCE_DIR}/src/compiler
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_interface_rtk_gc
+    PRIVATE
+        nlang_vm
+        nlang_compiler
+        nlang_runtime
+        nlang_langservice
+)
+nlang_stdlib_test(test_interface_rtk_gc)
+target_compile_definitions(test_interface_rtk_gc
+    PRIVATE
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+)
+
+add_test(NAME interface_rtk_gc_tests COMMAND test_interface_rtk_gc)
+
+# v0.13.9 phase ③ Task 4: scalar/string local promotion — a &-bound local
+# or value formal gets its storage compiled into one stable boxed record
+# (activation-lifetime GC root). Real-compiled modules, no surgery: the
+# pins are source-level behavior plus heap-allocation counts.
+add_executable(test_promote_local
+    test_vm/test_promote_local.cpp
+)
+
+target_include_directories(test_promote_local
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        #VmExecutor's build chain pulls compiler-side headers, same as
+        #test_ref_ops above.
+        ${PROJECT_SOURCE_DIR}/src/compiler
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_promote_local
+    PRIVATE
+        nlang_vm
+        nlang_compiler
+        nlang_runtime
+        nlang_langservice
+)
+nlang_stdlib_test(test_promote_local)
+target_compile_definitions(test_promote_local
+    PRIVATE
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+)
+
+add_test(NAME promote_local_tests COMMAND test_promote_local)
+
+# v0.13.9 phase ③ Task 5: & parameters and reference bindings — write-
+# through to the caller's local/field/element, struct & formals without
+# deep copy, rvalue bindings legal with writes lost, exception partial-
+# write visibility, f(x,x) aliasing, argument-side box suppression.
+add_executable(test_ref_params
+    test_vm/test_ref_params.cpp
+)
+
+target_include_directories(test_ref_params
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/compiler
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_ref_params
+    PRIVATE
+        nlang_vm
+        nlang_compiler
+        nlang_runtime
+        nlang_langservice
+)
+nlang_stdlib_test(test_ref_params)
+target_compile_definitions(test_ref_params
+    PRIVATE
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+)
+
+add_test(NAME ref_params_tests COMMAND test_ref_params)
+
 target_include_directories(test_array_view_record
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
@@ -639,6 +813,21 @@ target_compile_definitions(test_nd_resolve
 
 add_test(NAME nd_resolve_tests COMMAND test_nd_resolve)
 
+#The decl-comma reject soak dominates this file (141 s Debug / 766 s
+#ASan measured 2026-11-14; everything else is seconds), so it runs as
+#its own ctest entry via --stress: routine sweeps exclude it by name
+#(slow tests run at commit time only) and the full suite covers both
+#entries. --stress selects ONLY the soak — the two entries are a
+#partition, not a superset. The soak needs its own ceiling: the 180 s
+#family timeout cannot hold the ASan measurement, same shape as the
+#mnist_mlp_run ruling. The 900 s cap once hosted the ASan band, but
+#phase 3's resolver work moved it: 2026-11-19 direct measurement on an
+#idle machine — Debug 187.5 s, ASan 908 s (4.84x compile-heavy factor),
+#the cap clipped it by seconds. 1260 s hosts the measured ASan band
+#with the same ~39% oscillation slack the regex_redos_run cap carries.
+add_test(NAME nd_resolve_stress_tests COMMAND test_nd_resolve --stress)
+set_tests_properties(nd_resolve_stress_tests PROPERTIES TIMEOUT 1260)
+
 # Stride-table integrity: every opcode resolves to an extent in
 # [1, 9] (the rewrite regression — inline-braced constexpr rows
 # silently failed to match under MSVC).
@@ -690,7 +879,7 @@ add_test(NAME struct_ctor_tests COMMAND test_struct_ctor)
 # 0.9.11 D4 struct field initializer unit tests (console suite):
 # in-process compile+run pinning that field defaults apply at every
 # allocation (bare decl, array elements, nested fields), brace/ctor
-# stores override them, deep copy never re-applies them, and minted
+# stores override them, deep copy never re-applies them, and created
 # string defaults survive GC pressure (test_struct_ctor's runSource
 # shape + test_strings' SetGcStressThresholds hook).
 add_executable(test_struct_field_init
@@ -742,7 +931,7 @@ add_test(NAME class_layout_tests COMMAND test_class_layout)
 
 # Generic instance array-type-arg unit tests (console suite).
 # In-process ModuleBuilder compile of real .n sources, asserting the
-# key split (List<int> vs List<int[]> mint distinct classes) and the
+# key split (List<int> vs List<int[]> create distinct classes) and the
 # interned SnArrayTypeToken carried in the type-arg slots.
 add_executable(test_array_flags
     test_compiler/test_array_flags.cpp
@@ -763,6 +952,30 @@ target_link_libraries(test_array_flags
 )
 
 add_test(NAME array_flags_tests COMMAND test_array_flags)
+
+# v0.13.7 Task 15: per-function bytecode size limit. The executor's jump
+# operands are absolute in-function uint16 pcs, so a function whose
+# bytecode reaches 64 KiB silently wraps its branch targets; the backend
+# must reject it with a named diagnostic.
+add_executable(test_function_size
+    test_compiler/test_function_size.cpp
+)
+
+target_include_directories(test_function_size
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/compiler
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_function_size
+    PRIVATE
+        nlang_vm
+        nlang_compiler
+        nlang_runtime
+)
+
+add_test(NAME function_size_tests COMMAND test_function_size)
 
 # v0.12.6 Task 8 (D13): import-cycle detection unit tests. Pure edge-graph
 # coverage — both spec §8 forms need stale images no ordinary compilation
@@ -980,7 +1193,8 @@ if(WIN32)
         ${PROJECT_SOURCE_DIR}/src/native/net/net_platform_icmp_windows.cpp)
 else()
     list(APPEND NLANG_NET_MODULE_TEST_SOURCES
-        ${PROJECT_SOURCE_DIR}/src/native/net/net_platform_posix.cpp)
+        ${PROJECT_SOURCE_DIR}/src/native/net/net_platform_posix.cpp
+        ${PROJECT_SOURCE_DIR}/src/native/net/net_platform_icmp_posix.cpp)
 endif()
 
 # v0.13.0 net: the OS socket abstraction contract (loopback TCP/UDP,
@@ -1121,7 +1335,7 @@ endif()
 add_test(NAME net_icmp_tests COMMAND test_net_icmp)
 
 # v0.13.0 net task 6: per-executor module state — two executors in one
-# process run net bytecode through the nlang_net module and mint
+# process run net bytecode through the nlang_net module and create
 # independent handles; teardown closes the fds they left open.
 add_executable(test_module_state
     test_vm/test_module_state.cpp
@@ -1257,12 +1471,14 @@ add_executable(test_debugger
     test_vm/test_debugger.cpp
     test_vm/test_debugger_common.cpp
     test_vm/test_debugger_format.cpp
+    test_vm/test_ncu_ref_sig.cpp
     test_vm/test_debugger_gc.cpp
     test_vm/test_debugger_hooks.cpp
     test_vm/test_debugger_linepc.cpp
     test_vm/test_debugger_session.cpp
     test_vm/test_debugger_controller.cpp
     test_vm/test_debugger_machine.cpp
+    test_vm/test_debugger_refs.cpp
     test_vm/test_debugger_multicontext.cpp
     test_vm/test_debugger_k7.cpp
     test_vm/test_backtrace.cpp
@@ -1487,6 +1703,100 @@ if(NLANG_BUILD_IDE)
     endif()
     nlang_add_qtest(generic_decl_tests test_generic_decl)
 
+    # Access prefixes on top-level type declarations (0.13.8 item 5
+    # Task 2): in-process through ModuleBuilder, same shape as
+    # test_generic_decl.
+    add_executable(test_type_access_prefix
+        test_compiler/test_type_access_prefix.cpp
+    )
+    #src/compiler: builder/ModuleRegistry.h reach (same internal-header
+    #shape as test_generic_decl).
+    target_include_directories(test_type_access_prefix
+        PRIVATE
+            ${PROJECT_SOURCE_DIR}/src/compiler
+    )
+    target_link_libraries(test_type_access_prefix
+        PRIVATE
+            nlang_compiler
+            nlang_runtime
+            nlang_vm
+            Qt5::Test
+    )
+    nlang_stdlib_test(test_type_access_prefix)
+    target_compile_definitions(test_type_access_prefix
+        PRIVATE
+            STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+    )
+    if(WIN32)
+        add_custom_command(TARGET test_type_access_prefix POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:Qt5::Core> $<TARGET_FILE:Qt5::Test>
+                $<TARGET_FILE_DIR:test_type_access_prefix>)
+    endif()
+    nlang_add_qtest(type_access_prefix_tests test_type_access_prefix)
+
+    # The & declarator mark on declarations (v0.13.9 phase 3 Task 1):
+    # local/formal/return/foreach & positions and the func-type & arg at
+    # the parse layer. Same in-process shape as test_type_access_prefix.
+    add_executable(test_ref_declarator
+        test_compiler/test_ref_declarator.cpp
+    )
+    #src/compiler: builder/ModuleRegistry.h reach (same internal-header
+    #shape as test_type_access_prefix).
+    target_include_directories(test_ref_declarator
+        PRIVATE
+            ${PROJECT_SOURCE_DIR}/src/compiler
+    )
+    target_link_libraries(test_ref_declarator
+        PRIVATE
+            nlang_compiler
+            nlang_runtime
+            nlang_vm
+            Qt5::Test
+    )
+    nlang_stdlib_test(test_ref_declarator)
+    target_compile_definitions(test_ref_declarator
+        PRIVATE
+            STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+    )
+    if(WIN32)
+        add_custom_command(TARGET test_ref_declarator POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:Qt5::Core> $<TARGET_FILE:Qt5::Test>
+                $<TARGET_FILE_DIR:test_ref_declarator>)
+    endif()
+    nlang_add_qtest(ref_declarator_tests test_ref_declarator)
+
+    # The reference-binding contract (v0.13.9 phase 3 Task 2): named
+    # diagnostics, bindable positions, identity no-op downgrades and the
+    # IsRefNoOpType hook. Same in-process shape as test_ref_declarator.
+    add_executable(test_ref_binding
+        test_compiler/test_ref_binding.cpp
+    )
+    target_include_directories(test_ref_binding
+        PRIVATE
+            ${PROJECT_SOURCE_DIR}/src/compiler
+    )
+    target_link_libraries(test_ref_binding
+        PRIVATE
+            nlang_compiler
+            nlang_runtime
+            nlang_vm
+            Qt5::Test
+    )
+    nlang_stdlib_test(test_ref_binding)
+    target_compile_definitions(test_ref_binding
+        PRIVATE
+            STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+    )
+    if(WIN32)
+        add_custom_command(TARGET test_ref_binding POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:Qt5::Core> $<TARGET_FILE:Qt5::Test>
+                $<TARGET_FILE_DIR:test_ref_binding>)
+    endif()
+    nlang_add_qtest(ref_binding_tests test_ref_binding)
+
     # Const-aggregate declaration marker tests (v0.12.4 Task 1): the
     # `const class` / `const struct` prefix, marker propagation through
     # inheritance. Same in-process shape as test_generic_decl.
@@ -1514,7 +1824,7 @@ if(NLANG_BUILD_IDE)
     nlang_add_qtest(const_decl_tests test_const_decl)
 
     # Generic instantiation descriptor unit tests (v0.12.3 Task 3): pure
-    # C++ coverage of GenericInstDescriptor — canonical spelling, intern
+    # C++ coverage of GenericInstDescriptor — canonical name, intern
     # identity, nested/array arguments. No compilation, so no stdlib
     # deployment needed.
     add_executable(test_generic_descriptor
@@ -1534,10 +1844,42 @@ if(NLANG_BUILD_IDE)
     )
     nlang_add_qtest(generic_descriptor_tests test_generic_descriptor)
 
+    # Descriptor two-key contract (0.13.8 Task 7): row keys stay bare
+    # under erasure while descriptor spellings carry the producing
+    # package. Builds two same-named packages in-process and walks the
+    # main unit's emitted descriptor rows (needs stdlib for List<int>).
+    add_executable(test_descriptor_spelling
+        test_vm/test_descriptor_spelling.cpp
+    )
+    target_include_directories(test_descriptor_spelling
+        PRIVATE
+            ${PROJECT_SOURCE_DIR}/src/vm
+            ${PROJECT_SOURCE_DIR}/src/compiler
+    )
+    target_link_libraries(test_descriptor_spelling
+        PRIVATE
+            nlang_compiler
+            nlang_runtime
+            nlang_vm
+            Qt5::Test
+    )
+    nlang_stdlib_test(test_descriptor_spelling)
+    target_compile_definitions(test_descriptor_spelling
+        PRIVATE
+            STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+    )
+    if(WIN32)
+        add_custom_command(TARGET test_descriptor_spelling POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:Qt5::Core> $<TARGET_FILE:Qt5::Test>
+                $<TARGET_FILE_DIR:test_descriptor_spelling>)
+    endif()
+    nlang_add_qtest(descriptor_spelling_tests test_descriptor_spelling)
+
     # Type-parameter slot-kind unit tests (v0.12.3 Task 4): the RTK_TypeParam
     # label, the placeholder node predicate and the compile-time kind
     # emission + the .ncu byte round-trip. Links the compiler for the
-    # registry/AST mint and the vm for VmBackend::RuntimeTypeKind (same
+    # registry/AST create and the vm for VmBackend::RuntimeTypeKind (same
     # three-lib shape as test_generic_decl).
     add_executable(test_generic_typeparam_gc
         test_vm/test_generic_typeparam_gc.cpp
@@ -2069,11 +2411,13 @@ if(NLANG_BUILD_IDE)
             #the check from <build>/native — resolution must come from
             #the copied install-form layout (the property under test).
             -DCHECK_DIR=${CMAKE_CURRENT_BINARY_DIR}/nide_deploy_check/c1/c2/c3/c4/c5/c6/c7/c8
+            -DPYTHON3_EXE=${PYTHON3_EXECUTABLE}
+            -DQTEST_PROGRESS=${PROJECT_SOURCE_DIR}/tools/qtest_progress.py
             -P ${CMAKE_CURRENT_SOURCE_DIR}/test_nide/nide_deploy_check.cmake)
     set_tests_properties(nide_deploy_check PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH="
         # 150 s inner bound (see nide_deploy_check.cmake) + the
-        # scratch-copy script overhead.
+        # scratch-copy script overhead and the wrapper's tree kill.
         TIMEOUT 180)
 
     # Library search-path end-to-end tests: a global library dir is indexed
@@ -2667,12 +3011,28 @@ set_tests_properties(proj_import_visibility_compile proj_import_visibility_run
     mnist_mlp_compile
     PROPERTIES TIMEOUT 180)
 
-#mnist_mlp_run alone gets a wider ceiling: the MLP is compute-bound on
-#unvectorized bytecode, so the ASan-instrumented run sits near the wall
-#(measured 166s) and ordinary machine noise pushed it over 180s. User
-#ruling (2026-11-11): 300s until the VM gains vector-computation
-#optimization, at which point the number should come back down.
+#mnist_mlp_run needs its own ceiling: under the address-sanitizer tree
+#the training run measures 165-192 s on this machine (minute-scale
+#machine oscillation, not a regression band), so the shared 180 s family
+#timeout produced false TIMEOUT flakes at the pre-commit sweep. Raised
+#to 300 s by user ruling on 2026-11-12.
 set_tests_properties(mnist_mlp_run PROPERTIES TIMEOUT 300)
+
+#regex_redos pins the D9 linear bound (v0.13.7). Its own ceiling: the run
+#is timing-sensitive and the e2e runner's shared 30 s per-test cap cannot
+#host it; 300 s mirrors the mnist_mlp_run ruling (five 20 s caps worst
+#case total 100 s plus harness slack, inside the ceiling). The ASan tree
+#runs ~1.76x the Debug time (2026-11-14: Debug 171.9 s, ASan 302.7 s,
+#direct run on an idle machine) and clipped the 300 s cap, so 420 s hosts
+#the measured ASan band with oscillation slack.
+add_test(NAME regex_redos_compile
+    COMMAND ncc build
+        ${PROJECT_SOURCE_DIR}/tests/e2e/stdlib_regex_redos.n
+        -o ${CMAKE_BINARY_DIR}/e2e_out/regex_redos.ncu)
+add_test(NAME regex_redos_run
+    COMMAND nvm ${CMAKE_BINARY_DIR}/e2e_out/regex_redos.ncu)
+set_tests_properties(regex_redos_run PROPERTIES
+    DEPENDS regex_redos_compile TIMEOUT 420)
 
 #--- Docs-pipeline unit tests (pytest) ---------------------------------------
 #The nlang-docs subproject's pytest suite pins the linkcheck and offline-
@@ -2819,8 +3179,11 @@ add_custom_target(nlang_embed_deploy ALL
                 $<TARGET_FILE:nlang_io>
                 $<TARGET_FILE:nlang_math>
                 $<TARGET_FILE:nlang_fs>
+                $<TARGET_FILE:nlang_system>
+                $<TARGET_FILE:nlang_net>
+                $<TARGET_FILE:nlang_gzip>
                 ${embed_deploy_dir}
-    DEPENDS nlang_stdlib_package nlang_io nlang_math nlang_fs
+    DEPENDS nlang_stdlib_package nlang_io nlang_math nlang_fs nlang_system nlang_net nlang_gzip
     VERBATIM)
 
 add_executable(test_embed_source
@@ -2856,7 +3219,9 @@ if(Python3_FOUND)
             $<TARGET_FILE:embed_host>
             $<TARGET_FILE:ncc>
             ${NLANG_TEST_STDLIB_DIR}/stdlib.npkg
-            $<TARGET_FILE:nlang_io>)
+            $<TARGET_FILE:nlang_io>
+            $<TARGET_FILE:nlang_system>
+            $<TARGET_FILE:nlang_gzip>)
     set_tests_properties(embed_host_smoke PROPERTIES TIMEOUT 120)
 endif()
 
@@ -2904,3 +3269,21 @@ set_tests_properties(native_tensor_sse2 PROPERTIES
 add_test(NAME native_tensor_avx2 COMMAND test_native_tensor)
 set_tests_properties(native_tensor_avx2 PROPERTIES
     ENVIRONMENT "NLANG_TENSOR_TIER=avx2")
+
+#--- e2e runner unit tests (pytest) ------------------------------------------
+#The runner's environment-gating logic (env_gates.txt parse + the pure
+#skip decision): pure python, probes injected, no subprocesses.
+execute_process(
+    COMMAND ${NLANG_DOCS_PYTHON} -c "import pytest"
+    RESULT_VARIABLE NLANG_RUNNER_PYTEST_PROBE
+    OUTPUT_QUIET ERROR_QUIET)
+if(NLANG_RUNNER_PYTEST_PROBE EQUAL 0)
+    add_test(NAME e2e_runner_env_gate
+        COMMAND ${NLANG_DOCS_PYTHON} -m pytest
+            ${PROJECT_SOURCE_DIR}/tests/e2e/test_runner_env_gate.py -q
+        WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/tests/e2e)
+    set_tests_properties(e2e_runner_env_gate PROPERTIES TIMEOUT 60)
+else()
+    message(STATUS "e2e_runner_env_gate skipped: pytest is not importable "
+        "via '${NLANG_DOCS_PYTHON}' (pip install pytest to enable)")
+endif()

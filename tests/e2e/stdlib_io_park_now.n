@@ -1,20 +1,21 @@
 import io;
 import thread;
+import system;
 
 class Ticker {
     public int ticks = 0;
     public void run() {
-        long end = io.nowMs() + 300;
-        while (io.nowMs() < end) { ticks = ticks + 1; }
+        long end = system.monoMs() + 300;
+        while (system.monoMs() < end) { ticks = ticks + 1; }
     }
 }
 
 int main() {
-    long t0 = io.nowMs();
+    long t0 = system.monoMs();
     Ticker tk = Ticker();
     Thread t = thread.spawn(tk.run);
     io.parkForIo(-1, 0, t0 + 200);      //纯截止停泊,约200ms
-    long dt = io.nowMs() - t0;
+    long dt = system.monoMs() - t0;
     if (dt < 150) { return 1; }          //停泊确实等待了
     thread.join(t);
     if (tk.ticks <= 0) { return 2; }     //停泊期间载体跑了另一上下文

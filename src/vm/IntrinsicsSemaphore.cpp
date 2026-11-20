@@ -32,7 +32,7 @@ bool VmExecutor::IntrinsicSemaphoreCtor(uint16_t callParamBase,
         RaiseNlangException(m_exceptionClassIdx,
             "semaphore initial permit count must be at least 0");
     //The count write joins the allocation inside the allocator's Sync
-    //section — the Channel capacity shape (the minted handle is not
+    //section — the Channel capacity shape (the created handle is not
     //yet visible, but a concurrent growth reallocates the store
     //vector, so the slot write shares the structure section).
     const int32_t handle = AllocSemaphoreHandle(initial);

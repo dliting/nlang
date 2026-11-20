@@ -219,6 +219,11 @@ public:
 		//resolution, so this flag is the only array-ness signal that
 		//reaches codegen for a sized declarator.
 		bool bArrayType = false;
+		//v0.13.9 phase 3 Task 4: the declarator's SnLocalVar descriptor,
+		//set by CreateDeclaratorLocal. Codegen reads its NF_Promoted
+		//flag to compile the slot as a stable boxed record instead of a
+		//bare value slot.
+		SnLocalVar *pNode = nullptr;
 	};
 
 	SnLocalDeclStmt(SnFieldExpr *pType,

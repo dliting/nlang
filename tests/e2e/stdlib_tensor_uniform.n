@@ -1,4 +1,4 @@
-// tensor.uniform (v0.13.7): whole-array random fill — mints the
+// tensor.uniform (v0.13.7): whole-array random fill — creates the
 // dims-shaped array and fills it row-major with low + (high-low)*u,
 // u in [0, 1) drawn from the host PRNG (the same seeded stream
 // math.random draws). Kills the weight-init loops.

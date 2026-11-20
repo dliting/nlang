@@ -1,0 +1,68 @@
+// v0.13.7 regex: split() -- plain separators, limit rules, capture groups
+// staying out of the result, and the probed Go pair for empty matches (D10).
+import io;
+import regex;
+
+int main() {
+    int bad = 0;
+    List<string> fs = Regex(",").split("a,b,,c");
+    if (fs.length() != 4) { bad = bad + 1; }
+    if (fs.length() == 4) {
+        if (fs[0] != "a" || fs[1] != "b" || fs[2] != "" || fs[3] != "c") { bad = bad + 1; }
+    }
+    // leading and trailing separators yield empty edge segments
+    List<string> edge = Regex(",").split(",a,");
+    if (edge.length() != 3) { bad = bad + 1; }
+    if (edge.length() == 3) {
+        if (edge[0] != "" || edge[1] != "a" || edge[2] != "") { bad = bad + 1; }
+    }
+    // limit>0 caps segments; the tail stays glued (Go rule); 0 -> empty list
+    List<string> lim = Regex(",").split("a,b,c", 2);
+    if (lim.length() != 2) { bad = bad + 1; }
+    if (lim.length() == 2 && lim[1] != "b,c") { bad = bad + 1; }
+    List<string> zero = Regex(",").split("a,b,c", 0);
+    if (zero.length() != 0) { bad = bad + 1; }
+    // a pattern that never matches yields exactly the input
+    List<string> nm = Regex("x").split("abc");
+    if (nm.length() != 1 || nm[0] != "abc") { bad = bad + 1; }
+    // capture groups are NOT injected into the result (unlike JS/Python)
+    List<string> gp = Regex("(,)").split("a,b");
+    if (gp.length() != 2 || gp[0] != "a" || gp[1] != "b") { bad = bad + 1; }
+    // the probed Go pair (D10): "a*" splitting "ab" gives ["", "b"] -- the
+    // trailing empty remainder after the end-of-string empty match is dropped
+    List<string> em = Regex("a*").split("ab");
+    if (em.length() != 2 || em[0] != "" || em[1] != "b") { bad = bad + 1; }
+    // multibyte separators split on byte-exact boundaries (D4)
+    List<string> zh = Regex("，").split("一，二");
+    if (zh.length() != 2 || zh[0] != "一" || zh[1] != "二") { bad = bad + 1; }
+    // split of the empty input: one empty segment (Go Split parity)
+    List<string> ei = Regex(",").split("");
+    if (ei.length() != 1 || ei[0] != "") { bad = bad + 1; }
+    // a zero-width match at text position 0 yields no leading empty segment
+    // (Go regexp.go Split appends the segment only when match[1] != 0)
+    List<string> xk = Regex("x*").split("abc");
+    if (xk.length() != 3 || xk[0] != "a" || xk[1] != "b" || xk[2] != "c") { bad = bad + 1; }
+    // limit caps the separators consumed, not the segments: the skipped
+    // leading match still spends its budget (Go passes n to FindAllStringIndex)
+    List<string> xl = Regex("x*").split("abc", 2);
+    if (xl.length() != 2 || xl[0] != "a" || xl[1] != "bc") { bad = bad + 1; }
+    List<string> x1 = Regex("x*").split("abc", 1);
+    if (x1.length() != 1 || x1[0] != "abc") { bad = bad + 1; }
+    // empty pattern on empty text: the match consumes the whole input,
+    // leaving zero segments (Go); empty pattern between code points gives
+    // the code points with no leading empty segment (fixture rows 39/40)
+    List<string> ee = Regex("").split("");
+    if (ee.length() != 0) { bad = bad + 1; }
+    List<string> ep = Regex("").split("a中");
+    if (ep.length() != 2 || ep[0] != "a" || ep[1] != "中") { bad = bad + 1; }
+    List<string> e1 = Regex("").split("a中", 1);
+    if (e1.length() != 1 || e1[0] != "a中") { bad = bad + 1; }
+    // alternation matching empty at position 0 contributes no segment (row 49)
+    List<string> alt = Regex("a|").split("b");
+    if (alt.length() != 1 || alt[0] != "b") { bad = bad + 1; }
+    // a non-empty pattern on empty input short-circuits to one empty
+    // segment even when the pattern itself matches empty (Go's early return)
+    List<string> pe = Regex("(?:|a)").split("");
+    if (pe.length() != 1 || pe[0] != "") { bad = bad + 1; }
+    return bad;
+}

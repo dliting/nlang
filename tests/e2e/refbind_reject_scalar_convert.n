@@ -1,0 +1,8 @@
+// v0.13.9 phase 3: & bindings require the exact scalar type; a byte to
+// int& binding would break alias pointing (the converted value is new
+// storage).
+int main() {
+    byte b = 1;
+    int& r = b;
+    return 0;
+}

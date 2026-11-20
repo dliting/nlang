@@ -12,6 +12,7 @@
 //   2. handleClassesHaveDeclarations — every name the C++ side
 //      certifies (s_HandleClassNames + the face classes) resolves to a
 //      declared class in an imported package.
+#include "test_support/test_scratch.h"
 #include <QtTest/QtTest>
 #include <nlang/runtime/Runtime.h>
 #include <nlang/compiler/ModuleBuilder.h>
@@ -62,7 +63,7 @@ bool withStdlibBuild(const char* szName, Fn fn)
 {
     namespace fs = std::filesystem;
     const fs::path dir =
-        fs::temp_directory_path() / "nlang_builtin_surface_tests";
+        nlang::test::ScratchDir("nlang_builtin_surface_tests");
     fs::create_directories(dir);
     const fs::path file = dir / (std::string(szName) + ".n");
     std::ofstream(file, std::ios::binary)

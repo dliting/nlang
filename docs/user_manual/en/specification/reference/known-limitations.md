@@ -8,7 +8,7 @@ This page collects the language-level limitations visible to user programs, with
   compile error (``Invalid cast: `String as Int32` is not allowed``). The
   equivalent capability is covered by the string method family
   (`toInt`/`toLong`/`toFloat`/`toDouble`/`toBool`/`toChar`, see
-  [string methods](../library/16-string-methods.md)); this is a deliberate scope
+  [string methods](../library/17-string-methods.md)); this is a deliberate scope
   narrowing, not a defect.
 
 - **Array values in scalar contexts**: an array value has exactly three
@@ -116,7 +116,7 @@ This page collects the language-level limitations visible to user programs, with
 
 - **Types and global fields have no import gate**: function visibility
   follows this file's import set (§3.3), but class, struct and enum
-  type names and global fields are reachable by their bare name
+  type names and global fields are reachable by their unqualified name
   program-wide, whatever package declares them (§3.6). A cross-module
   visibility gate for types and fields is future work; until then a
   program's type names form one shared namespace.
@@ -127,6 +127,14 @@ This page collects the language-level limitations visible to user programs, with
   (a sanity ceiling) trigger a compile-time error. The
   frame size is otherwise dynamic — each function's frame is sized by
   what the body actually uses.
+
+- **Function bytecode size ceiling**: one function's compiled
+  bytecode must stay under 65536 bytes — jump targets inside a function
+  are 16-bit program counters. An overlong function is rejected at
+  build time with a named error (it reports the size and advises
+  splitting), not emitted as an image whose wrapped jumps mis-execute.
+  Split the body into smaller functions. See "Function bytecode size"
+  under [Common Error Messages](common-errors.md).
 
 - **No control flow in finally bodies**: `break` / `continue` / `return` /
   `throw` inside a `finally` body is a compile error (a finally body must
@@ -146,17 +154,23 @@ This page collects the language-level limitations visible to user programs, with
 
 - **Concurrency: storage is locked per data category, same-category
   operations serialize**: heap and string allocation proceeds per
-  carrier with no lock, object field reads and writes take no lock,
-  while containers (List/Dict), synchronization primitives, streams,
-  and string maintenance each hold their own lock — same-category
-  operations exclude each other, different categories overlap.
-  Pure-compute segments and object field access run in parallel across
-  carriers, but a dense loop leaning on containers or string
-  maintenance still serializes on its domain lock, and concurrent
-  reads and writes of a shared object's fields (shared through
-  `spawn` arguments or a channel) are a data race — a transitional
-  value may be read; single-value state takes
-  [AtomicInt](../library/17-concurrency-classes/atomic.md), multi-field invariants take a
+  carrier with no lock and field-level reads and writes take no lock;
+  struct values are no exception — a whole-record store (assignment
+  and declaration initialization) writes the record field by field,
+  and whole-record reads (`==` comparison, by-value passing,
+  `foreach` copies) read field by field, so a concurrent reader may
+  observe a mix of old and new field values (per-field values stay
+  type-correct); containers
+  (List/Dict), synchronization primitives, streams, and string
+  maintenance each hold their own lock — same-category operations
+  exclude each other, different categories overlap. Pure-compute
+  segments and field-level access run in parallel across carriers,
+  but a dense loop leaning on containers or string maintenance still
+  serializes on its domain lock, and concurrent field-level reads and
+  writes of a shared object's fields (shared through `spawn` arguments
+  or a channel) are a data race — a transitional value may be read;
+  single-value state takes
+  [AtomicInt](../library/18-concurrency-classes/atomic.md), cross-field invariants take a
   `Mutex`.
   Each virtual thread runs about 1000 loop iterations before yielding
   once, which keeps the rotation fair. Set the carrier count
@@ -191,7 +205,7 @@ This page collects the language-level limitations visible to user programs, with
 
 - **Concurrency: multi-way waiting stays in the `Future` domain**: a
   `Future` can be completed by hand through a `Promise`
-  ([Promise](../library/17-concurrency-classes/promise.md)), and `Future.selectAny` provides
+  ([Promise](../library/18-concurrency-classes/promise.md)), and `Future.selectAny` provides
   the "whichever decides first" multi-way wait; but channels have no
   "whichever is ready" `recv` variant — to receive from many sources
   whichever comes first, wrap each source with a `Promise` and call
@@ -202,7 +216,7 @@ This page collects the language-level limitations visible to user programs, with
   context. Waiting sides observe the failure through `join`/`Future.get`
   (a rethrow of the original exception object); non-blocking observation
   is available through `thread.isFailed`/`thread.failure` (see
-  [Probing a task's failure](../library/17-concurrency-classes/thread.md#probing-a-tasks-failure)).
+  [Probing a task's failure](../library/18-concurrency-classes/thread.md#probing-a-tasks-failure)).
   A failure nobody ever waited for or retrieved is not silently lost: at
   run end the VM prints one stderr line per such task (task id, exception
   type and message).
@@ -210,8 +224,8 @@ This page collects the language-level limitations visible to user programs, with
 - **Concurrency: `Mutex` is non-reentrant**: the mutex cannot be
   reentered — locking it again while holding it suspends until the
   deadlock report; composed or recursive methods take
-  [ReentrantMutex](../library/17-concurrency-classes/reentrant-mutex.md). See
-  [Mutex](../library/17-concurrency-classes/mutex.md).
+  [ReentrantMutex](../library/18-concurrency-classes/reentrant-mutex.md). See
+  [Mutex](../library/18-concurrency-classes/mutex.md).
 
 - **Concurrency: suspension inside carrier-less host windows**: inside
   re-entrant evaluation that runs **during a run** — your `toString`
@@ -236,7 +250,7 @@ This page collects the language-level limitations visible to user programs, with
   degrading to queued waiting at worst; a blocking native that parks
   on a readiness event (`io.parkForIo`, §14.5) hands its carrier back
   for the wait, so in-flight waits are not capped by the pool — every
-  `net` socket method parks this way (chapter 20). A native that does
+  `net` socket method parks this way (chapter 21). A native that does
   not declare blocking must not wait under
   the native declaration contract — a third-party native that waits
   anyway occupies only the carrier executing it, and every other
@@ -255,7 +269,7 @@ This page collects the language-level limitations visible to user programs, with
   group (many distributions ship it disabled), opening one raises
   `SocketException` with the platform's text. On Windows `IcmpSocket`
   raw sockets need administrator rights, while `net.ping` needs none.
-  See [ICMP](../library/20-network/icmp.md).
+  See [ICMP](../library/21-network/icmp.md).
 
 - **IPv6 is exercised on loopback only**: the shipped test suite binds
   `::` and connects `[::1]`; the dual-stack path on real IPv6 routes is

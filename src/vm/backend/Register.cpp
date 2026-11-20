@@ -44,9 +44,10 @@ static std::string SourceFilePathOf(const SnFunction& func) {
 //Codegen-side accessor: every name written into or looked up in the VM
 //tables goes through here, so the spelling cannot drift from what the
 //resolver reports. Requires the registry injected by ModuleBuilder.
-//The key rules themselves (member/prelude/generic-erasure cases) live
-//in the shared LinkKeyOf (builder/TypeArgSpelling.cpp) — the resolver's
-//descriptor spellings and the row keys come from one function there.
+//Two-key contract (0.13.8 item 8): THIS is the row-key space — the key
+//rules (member/prelude/generic-erasure cases) live in LinkKeyOf
+//(builder/TypeArgSpelling.cpp); descriptor rows and intern keys take
+//DescriptorSpellingOf instead and must never route through here.
 std::string VmBackend::KeyOf(const SnField& field) const {
     NLANG_ASSERT(m_pRegistry && "VmBackend::KeyOf before SetModuleRegistry");
     return LinkKeyOf(*m_pRegistry, field);
@@ -157,7 +158,7 @@ void VmBackend::RegisterFunctions(SnNamespace& root) {
             //Per-unit: only this unit's functions register — cross-unit
             //calls resolve through FunctionSlotFor placeholders. The
             //body/native gate below already skips imported stubs. A prelude
-            //declaration whose bare name a foreign declaration claims does
+            //declaration whose unqualified name a foreign declaration claims does
             //not register (spec §6.8 — the foreign declaration is the
             //visible winner; same rule as the class sites).
             if (!IsOwnUnit(func) || IsShadowedPreludeDecl(func))
@@ -180,6 +181,9 @@ void VmBackend::RegisterFunctions(SnNamespace& root) {
             CompiledFunction cf;
             cf.name = KeyOf(func);
             cf.sourceFile = SourceFilePathOf(func);
+            //v2.20 (0.13.8 item 5): the declared access rides the record —
+            //a free function's only access carrier on the wire.
+            cf.access = static_cast<uint8_t>(func.AccessType());
             m_compiledModule.functions.push_back(std::move(cf));
             m_funcIndexMap[&func] = m_compiledModule.functions.size() - 1;
         });
@@ -191,6 +195,11 @@ void VmBackend::RegisterFunctions(SnNamespace& root) {
 //registration below; the order IS the layout contract.
 void VmBackend::RegisterUnitTables(SnNamespace& root) {
     RegisterBuiltinClasses();
+    //v0.13.9 Task 12 (D14): interface rows first — pure layout with no
+    //table dependencies, so struct/class fieldTypeDescs and the
+    //array-type pre-pass below can name interface rows
+    //(BuildTypeDesc/RegisterArrayType identity tier).
+    RegisterInterfaceRows(root);
     RegisterStructs(root);
     RegisterClasses(root);
     ResolveStructClassRefs();

@@ -81,8 +81,10 @@ static SnField* UnanimousReturnPlaceholder(
 //tag, the calling body's own placeholder plans the descriptor-
 //dispatched dynamic variant (the uniform-T-representation invariant).
 //A concrete slot (the sugar sites' receiver type args, e.g. List<int>'s
-//element) plans the static tag by its own kind; everything else —
-//string/class/array kinds — passes through raw.
+//element) plans the static tag by its own kind — scalars AND strings
+//(strings box under their RTK_String tag at the boundary, exactly like
+//the scalar rows); only class/array kinds pass through raw (their
+//handle already names the heap record).
 VmBackend::ArgBoxPlan VmBackend::PlanBoundaryBox(SnField* pElemType,
                                                  SnClassDecl* pReceiverInst)
 {
@@ -168,7 +170,16 @@ void VmBackend::PlanGenericMethodBoxing(SnClassDecl& classDecl,
         ArgBoxPlan plan = PlanBoundaryBox(
             UnanimousFormalPlaceholder(methods, iParam, declaredGenerics),
             &classDecl);
-        if (plan.needsBox)
+        //Record stabilization (v0.13.9 phase ②): set's value slot
+        //copies into the element's EXISTING record at runtime, so the
+        //emit-side staging copy is suppressed. Struct values never
+        //box, so this rides the plan map alone (hence the widened
+        //insertion guard).
+        if (iParam == 1 && methodName == "set"
+            && (baseName == kBuiltinListTypeName
+                || baseName == kBuiltinDictTypeName))
+            plan.suppressStagingCopy = true;
+        if (plan.needsBox || plan.suppressStagingCopy)
             argPlans[static_cast<uint16_t>(iParam + 1)] = plan;
     }
     returnPlan = PlanBoundaryBox(

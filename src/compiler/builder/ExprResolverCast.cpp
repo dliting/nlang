@@ -35,11 +35,6 @@ void ExprResolveAccessor::FixupParamTypesWithBindings(SnInvokeExpr &invoke,
 	{
 		if (b.kind == FormalBinding::B_Default)
 			continue;
-		//Phase 9e: out bindings already required exact type match in
-		//ComputeBindingDistance — wrapping a cast would break the
-		//variable-slot identity the writeback relies on.
-		if (b.bIsOut)
-			continue;
 		NLANG_ASSERT(b.pCallerExpr && b.pFormal);
 		auto *pSrc = b.pCallerExpr->EvalDataType();
 		auto *pTgt = b.pFormal->EvalDataType();
@@ -189,6 +184,19 @@ static int ClassFamilyDistance(const SnField &source, const SnField &target,
 	return -1;
 }
 
+//The source kinds the cast table grants an implicit conversion to a string
+//target as TCK_Auto: any class except Object — its edge to text is an
+//unboxing (spec 5.5), never an implicit conversion — and the array type
+//token (0.7.3 B D5, a runtime toString). A func<...> handle shares the
+//class arm. Interface and struct values have no toString at all, and
+//same-token array pairs already verdict 0 at the pointer check above.
+static bool GrantsImplicitToString(NodeKind srcKind, const SnField &source)
+{
+	if (srcKind == NK_ClassDecl)
+		return source.Name() != "Object";
+	return srcKind == NK_ArrayTypeToken;
+}
+
 int ExprResolveAccessor::CalcTypeDistance(const SnField &source,
 	const SnField &target) const
 {
@@ -218,18 +226,18 @@ int ExprResolveAccessor::CalcTypeDistance(const SnField &source,
 		&& (srcKind == NK_ArrayTypeToken
 			|| ArrayInstantiationElem(const_cast<SnField*>(&source))))
 		return 1;
+	//v0.13.6: the implicit →string conversion is ONE assignable relation over
+	//initialization, assignment, argument passing and return (spec 4.4), so
+	//the call path grants candidacy on the same single rung the cast table
+	//already uses — the class-family arm below must not reject the call
+	//before it is consulted (the array rung sat after it until now, leaving
+	//a class value coercing on assignment but missing the same formal in a
+	//call). An exact match still wins the overload sweep (0 < kDistToString).
+	if (tgtKind == NK_String && GrantsImplicitToString(srcKind, source))
+		return kDistToString;
 	if (srcKind == NK_ClassDecl || srcKind == NK_InterfaceDecl
 		|| tgtKind == NK_ClassDecl || tgtKind == NK_InterfaceDecl)
 		return ClassFamilyDistance(source, target, srcKind, tgtKind);
-	//0.7.3 B D5: an array argument coerces to a string formal through the
-	//cast table's TCK_Auto (runtime toString). Grant candidacy a finite
-	//distance — the same rung as every scalar→string coercion (0.7.5:
-	//the hardcoded 1 became this rung). Everything else array-token-
-	//shaped stays -1: same-token pairs already returned 0 at the pointer
-	//check above, cross-token and token-vs-scalar pairs have no
-	//conversion.
-	if (srcKind == NK_ArrayTypeToken && tgtKind == NK_String)
-		return kDistToString;
 	if (IsPrimitiveType(srcKind) && IsPrimitiveType(tgtKind))
 	{
 		//0.7.5: distances derive from the registry ladder above (the
@@ -314,18 +322,27 @@ bool ExprResolveAccessor::RejectIncompatibleCast(SnExpression &srcExpr,
 		return true;
 	}
 
-	//The int→class/interface/array bridge (TCK_Auto) exists for the null
-	//literal only: any other int/enum value would end up as a garbage
-	//handle in the slot (an array target doubly so — a raw int would
-	//reintroduce the masquerade). ContainFlags is a flat bit test, so a
-	//null literal wrapped in `as` propagates the flag explicitly in
-	//Access(SnAsExpr).
-	if (castInfo.Kind() == TCK_Auto
-		&& castInfo.Target()
-		&& (castInfo.Target()->Kind() == NK_ClassDecl
-			|| castInfo.Target()->Kind() == NK_InterfaceDecl
-			|| castInfo.Target()->Kind() == NK_ArrayTypeToken)
-		&& !srcExpr.ContainFlags(NF_NullLiteral))
+	return RejectNullLiteralCast(srcExpr, castInfo);
+}
+
+//The two null-literal gates of the TCK_Auto int bridge. The
+//int→class/interface/array bridge exists for the null literal only:
+//any other int/enum value would end up as a garbage handle in the slot
+//(an array target doubly so — a raw int would reintroduce the
+//masquerade). ContainFlags is a flat bit test, so a null literal
+//wrapped in `as` propagates the flag explicitly in Access(SnAsExpr).
+//The int→string cell is the opposite gate: it is the legitimate
+//rendering coercion (`string s = 5` yields "5"), and the null literal
+//has no string value — string is a value type (0.13.4).
+bool ExprResolveAccessor::RejectNullLiteralCast(SnExpression &srcExpr,
+	TypeCastInfo &castInfo)
+{
+	if (castInfo.Kind() != TCK_Auto || !castInfo.Target())
+		return false;
+	const NodeKind kind = castInfo.Target()->Kind();
+	const bool isNull = srcExpr.ContainFlags(NF_NullLiteral);
+	if ((kind == NK_ClassDecl || kind == NK_InterfaceDecl
+		|| kind == NK_ArrayTypeToken) && !isNull)
 	{
 		m_Env.Log(CLL_Error, srcExpr.Location(),
 			"Incompatible value \"%s\": only the null literal converts "
@@ -333,24 +350,29 @@ bool ExprResolveAccessor::RejectIncompatibleCast(SnExpression &srcExpr,
 			srcExpr.ToString().c_str());
 		return true;
 	}
+	if (kind == NK_String && isNull)
+	{
+		m_Env.Log(CLL_Error, srcExpr.Location(),
+			"null is not a string value: string is a value type; "
+			"use \"\" or string.EMPTY.");
+		return true;
+	}
 	return false;
 }
 
 //Null literal (KT_Null is Int32-typed) must reach the slot as the raw
 //sentinel 0. Wrapping it destroys the null identity downstream:
-//Int32→String emits OP_Prim_to_str ("0"), TCK_Box to Object allocates
-//a boxed 0. Class/interface targets already treat TCK_Auto as a
-//runtime no-op, so skipping the wrap uniformly is safe there too.
-//Null operands in binary arithmetic/concat are rejected outright by
-//the guard in Access(SnBinaryExpr) (Phase 11 Step 3b) — the skip here
-//cannot leak a raw null into an arithmetic wrap anymore.
+//TCK_Box to Object allocates a boxed 0. Class/interface targets already
+//treat TCK_Auto as a runtime no-op, so skipping the wrap uniformly is
+//safe there too. Null into a string target is rejected outright by the
+//value-type gate in RejectIncompatibleCast (0.13.4), so no string wrap
+//can leak through; null operands in binary arithmetic/concat are
+//rejected by the guard in Access(SnBinaryExpr) (Phase 11 Step 3b).
 bool ExprResolveAccessor::SkipNullIdentityWrap(SnExpression &srcExpr,
 	TypeCastInfo &castInfo)
 {
 	return srcExpr.ContainFlags(NF_NullLiteral)
-		&& (castInfo.Kind() == TCK_Box
-			|| (castInfo.Target()
-				&& castInfo.Target()->Kind() == NK_String));
+		&& castInfo.Kind() == TCK_Box;
 }
 
 bool ExprResolveAccessor::FixupExprType(NodeIterator &iSrcExpr,

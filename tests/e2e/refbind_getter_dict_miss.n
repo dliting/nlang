@@ -1,0 +1,6 @@
+// Pin: a Dict get on a missing key keeps raising the current
+// runtime error (rc 1) across the &-return work.
+int main() {
+    Dict<int, int> d = {};
+    return d.get(99);
+}

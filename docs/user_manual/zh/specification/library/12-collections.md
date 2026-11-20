@@ -6,6 +6,19 @@
 
 经由`null`容器引用调用任何方法，抛出可捕获的`NullPointerException`，消息为`NLang VM: null reference error`——与其他类引用一致（§4.8.10、§8.3）。容器的存入或取出按§9.1的类别移动值。下标形式`li[i]`与`d[k]`是`get`与`set`的语法糖（§5.7、§4.12.7），容器方法按通常规则接受具名实参（§7.2）。
 
+结构体元素遵循记录稳定化（§4.7.4）：`set`把值原位写入该位置已有的记录——记录句柄不变，此前经`get`把元素读入变量的代码不会看到`set`后的改动（按值拷贝的独立性）；每个位置（含新键）的记录在建立时起就与源独立，源值与容器元素从不共享记录。
+
+`get`——以及与之等价的下标语法糖——是**保引用读取**：把结果赋给值变量照常拷贝，但绑定到引用（`int& r = li[2]`、`Point& p = d["k"]`）即别名该元素的存储（§4.7.9）。这样建立的绑定在此后容器的整个生命期里始终指名那个元素：
+
+| 绑定建立后的操作 | 绑定指名的对象 |
+| --- | --- |
+| 对同一位置或键`set` | 同一存储——写入是原位的，绑定读到新值 |
+| 增长（`add`、存入新键） | 同一元素——存储不因扩容而移动 |
+| 移除更前面的位置（`removeAt`） | 下移后位置上的那个元素——绑定跟随元素，不跟随位置 |
+| 移除被绑定的元素或键、或`clear()` | 不再指名任何元素——绑定脱离，经它的写入不再到达容器 |
+
+经显式`get`的读取（`li.get(2)`、`d.get("k")`）与此相同——两种写法是同一次读取（§5.7）。
+
 ## 12.1 List
 
 `List<T>`（§4.12）是可增长、有序、可按索引访问的`T`类型元素序列。
@@ -13,8 +26,8 @@
 | 方法 | 签名 | 效果 | 失败行为 |
 | --- | --- | --- | --- |
 | `add(value)` | `void add(T value)` | 追加`value` | — |
-| `get(i)` | `T get(int i)` | 位置`i`处的元素 | 越界抛出`IndexOutOfBoundsException` |
-| `set(i, value)` | `void set(int i, T value)` | 替换`i`处的元素 | 越界抛出`IndexOutOfBoundsException` |
+| `get(i)` | `T& get(int i)` | 位置`i`处的元素——保引用读取（见下文） | 越界抛出`IndexOutOfBoundsException` |
+| `set(i, value)` | `void set(int i, T value)` | 替换`i`处的元素（struct值原位写入该位置已有的记录，§4.7.4） | 越界抛出`IndexOutOfBoundsException` |
 | `length()` | `int length()` | 元素数 | — |
 | `removeAt(i)` | `void removeAt(int i)` | 移除`i`处的元素，后续元素下移 | 越界抛出`IndexOutOfBoundsException` |
 | `indexOf(value)` | `int indexOf(T value)` | 匹配`value`的首个位置，没有则为`-1` | — |
@@ -55,7 +68,7 @@ int main() {
 | 方法 | 签名 | 效果 | 失败行为 |
 | --- | --- | --- | --- |
 | `set(key, value)` | `void set(K key, V value)` | 把`value`存到`key`下；重新存一个键会替换值并保持该键的位置 | — |
-| `get(key)` | `V get(K key)` | `key`下所存的值 | `key`没有条目抛出`Exception` |
+| `get(key)` | `V& get(K key)` | `key`下所存的值——与`List`相同的保引用读取（见§12.1） | `key`没有条目抛出`Exception` |
 | `containsKey(key)` | `bool containsKey(K key)` | `key`的条目是否存在 | — |
 | `remove(key)` | `int remove(K key)` | 移除`key`的条目；移除了产出`1`，键未找到产出`0` | — |
 | `clear()` | `void clear()` | 移除所有条目 | — |
@@ -64,7 +77,7 @@ int main() {
 | `keys()` | `List<K> keys()` | 一个新的`List<K>`，含按插入序的各键 | — |
 | `toString()` | `string toString()` | `{k1: v1, k2: v2, ...}`，按插入序（§11.2） | — |
 
-键匹配就是§12.1的区分种类的相等性。内建容器接受结构体类型实参，因此结构体键按字段值比较（§4.12.5）；`func`键比较句柄内容——指向同一函数的两个引用是同一个键。
+键匹配就是§12.1的区分种类的相等性。内建容器接受结构体类型实参，因此结构体键按字段值比较（§4.12.5）；`func`键比较句柄内容——指向同一函数的两个引用是同一个键。存储规则键值两侧一致：插入新键时条目持有键记录的私有副本——此后改动插入所用变量不会改写已存条目，`d[k] = v`与`d.set(k, v)`两种写法语义相同；向已存在的键重新存值只替换值记录，已存的键记录不动。
 
 `keys()`是整个dict接口的顺序保证：返回的列表按插入序持有全部键——把一个值存到已经存在的键下不会移动该键（§6.4）——且该列表是副本，此后对源dict的`set`与`remove`不影响它。`foreach (K k in dict)`经一次`keys()`快照以同样的方式迭代键（§6.8），`toString`也按同一顺序渲染条目（§11.2）。不提供`values()`；请迭代键并调用`get`取值。
 

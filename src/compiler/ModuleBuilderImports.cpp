@@ -309,7 +309,7 @@ void ModuleBuilder::DiscoverLibraryUnits()
 	}
 }
 
-//Load one external .ncu candidate end to end: locate, parse, mint
+//Load one external .ncu candidate end to end: locate, parse, create
 //stubs, register owners, keep detached stubs alive, then take ownership
 //of the compiled module.
 //Package form (`.npkg`): extract the embedded compile unit. Importable
@@ -319,7 +319,7 @@ void ModuleBuilder::DiscoverLibraryUnits()
 //distribution) is REFUSED rather than silently reduced to its
 //alphabetically-first member: the consumer would compile against half
 //a surface and miss the invisible members until run time. Per-member
-//stub minting needs import-gate semantics for dotted external paths
+//stub creation needs import-gate semantics for dotted external paths
 //(external imports are single-segment today); deferred design
 //decision, phase6_loader_design.md section 9.
 static CompiledModule LoadModuleArtifact(const std::string &path)

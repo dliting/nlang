@@ -1,0 +1,14 @@
+//Generic field T=struct: stable record, whole-value level pin.
+struct Point { int x; int y; }
+class Holder<T> {
+    public T item;
+}
+int main() {
+    Holder<Point> h = Holder<Point>();
+    Point p = Point();
+    p.x = 5; p.y = 6;
+    h.item = p;
+    p.x = 99;
+    Point back = h.item;
+    return back.x * 10 + p.x;
+}

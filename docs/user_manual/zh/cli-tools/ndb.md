@@ -59,6 +59,8 @@ Program exited with code 0.
 
 （函数名按模块路径限定——`b utils.addBoth`；拼写规则见规范的[包](../specification/03-program-structure/packages.md)。）
 
+`&`形参的显示给出引用对与解引用值——`v = &#3[0] -> 40`：`#3`是所指记录的句柄，`[0]`是单元偏移，箭头后是被指名的值（§4.7.9）。被`&`形参绑定的调用方存储（提升槽）显示为普通值。`--machine`行协议在局部行里额外携带种类名（如`int&`）。
+
 程序跑完时ndb打印`Program exited with code N.`并以同一个退出码退出；`q`或stdin EOF则杀掉程序、ndb自身退出码0。
 
 ## 多上下文调试

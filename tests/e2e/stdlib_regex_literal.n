@@ -1,0 +1,142 @@
+// v0.13.7 regex: literal walking engine; byte offsets in, byte offsets out.
+import io;
+import regex;
+
+int main() {
+    int bad = 0;
+    Regex re = Regex("abc");
+    if (re.pattern() != "abc") { bad = bad + 1; }
+    if (!re.isMatch("xxabcyy")) { bad = bad + 1; }
+    if (re.isMatch("xxab yy")) { bad = bad + 1; }
+    Match m = re.match("xxabcyy");
+    if (m == null) { return bad + 1; }
+    if (m.text != "abc") { bad = bad + 1; }
+    if (m.start != 2) { bad = bad + 1; }
+    if (m.end != 5) { bad = bad + 1; }
+    if (m.groupCount != 1) { bad = bad + 1; }
+    // no match is null, not an exception
+    if (re.match("zzz") != null) { bad = bad + 1; }
+    // multi-byte literals: codepoint granularity, byte offsets out
+    Regex zh = Regex("中");
+    Match mz = zh.match("a中b");
+    if (mz == null) { return bad + 1; }
+    if (mz.start != 1) { bad = bad + 1; }
+    if (mz.end != 4) { bad = bad + 1; }        // U+4E2D is 3 UTF-8 bytes
+    if (mz.text != "中") { bad = bad + 1; }
+    // empty pattern matches at byte 0 with empty text
+    Regex empty = Regex("");
+    Match me = empty.match("abc");
+    if (me == null) { return bad + 1; }
+    if (me.start != 0 || me.end != 0 || me.text != "") { bad = bad + 1; }
+    // pattern-layer punctuation escape: \\ is one literal backslash
+    Regex bs = Regex("a\\\\b");                // pattern text: a\\b
+    if (!bs.isMatch("a\\b")) { bad = bad + 1; }
+    if (bs.isMatch("ab")) { bad = bad + 1; }
+    // unknown pattern escape rejected with the pinned message + offset
+    try {
+        Regex bad1 = Regex("a\\qb");
+        bad = bad + 1;
+    } catch (RegexException e) {
+        if (e.message.indexOf("invalid escape sequence") < 0) { bad = bad + 1; }
+        if (e.message.indexOf("at byte 2 of pattern") < 0) { bad = bad + 1; }
+    }
+    // trailing backslash rejected
+    try {
+        Regex bad2 = Regex("ab\\");
+        bad = bad + 1;
+    } catch (RegexException e) {
+        if (e.message.indexOf("trailing \\ in pattern") < 0) { bad = bad + 1; }
+    }
+    // malformed UTF-8 input: every byte outside a valid sequence decodes to
+    // one U+FFFD code point one byte wide (Go's RuneError rule, probed in
+    // the go matrix round). Only io.fromBytes can spell these bytes: string
+    // literals always carry valid UTF-8.
+    byte[] ab = byte[3];
+    ab[0] = 65 as byte;     // 'A'
+    ab[1] = -87 as byte;    // 0xA9: continuation byte with no lead
+    ab[2] = 66 as byte;     // 'B'
+    string inA9 = io.fromBytes(ab);
+    byte[] rawA9 = byte[1];
+    rawA9[0] = -87 as byte; // 0xA9
+    Regex fffd = Regex("\\x{FFFD}");
+    Match mf = fffd.match(inA9);
+    if (mf == null) { return bad + 1; }
+    if (mf.start != 1 || mf.end != 2) { bad = bad + 1; }
+    if (mf.text != io.fromBytes(rawA9)) { bad = bad + 1; }   // byte stays verbatim
+    // the invalid byte is no longer its own code point: neither the literal
+    // "©" (U+00A9) nor \x{A9} naming rune 169 matches it (Go parity)
+    if (Regex("©").isMatch(inA9)) { bad = bad + 1; }
+    if (Regex("\\x{A9}").isMatch(inA9)) { bad = bad + 1; }
+    // a class range naming that value misses it the same way (Go: no match)
+    if (Regex("[\\x{A0}-\\x{FF}]").isMatch(inA9)) { bad = bad + 1; }
+    // \x{80} names rune 128; a lone 0x80 byte decodes to U+FFFD, not 128
+    byte[] lone80 = byte[1];
+    lone80[0] = -128 as byte; // 0x80
+    if (Regex("\\x{80}").isMatch(io.fromBytes(lone80))) { bad = bad + 1; }
+    // a run of invalid bytes is a run of U+FFFD code points
+    byte[] run80 = byte[4];
+    run80[0] = 97 as byte;    // 'a'
+    run80[1] = -128 as byte;  // 0x80
+    run80[2] = -127 as byte;  // 0x81
+    run80[3] = 98 as byte;    // 'b'
+    List<Match> mrun = Regex("\\x{FFFD}+").matches(io.fromBytes(run80));
+    if (mrun.length() == 1) {
+        if (mrun[0].start != 1 || mrun[0].end != 3) { bad = bad + 1; }
+    } else { bad = bad + 1; }
+    // a lead byte whose continuation fails costs one byte, and the failing
+    // byte right after it is invalid in its own right
+    byte[] leadBad = byte[3];
+    leadBad[0] = -30 as byte;  // 0xE2: 3-byte lead
+    leadBad[1] = 40 as byte;   // '(': not a continuation byte
+    leadBad[2] = -90 as byte;  // 0xA6: orphaned continuation byte
+    List<Match> ml = fffd.matches(io.fromBytes(leadBad));
+    if (ml.length() == 2) {
+        if (ml[0].start != 0 || ml[0].end != 1) { bad = bad + 1; }
+        if (ml[1].start != 2 || ml[1].end != 3) { bad = bad + 1; }
+    } else { bad = bad + 1; }
+    // a sequence truncated at end of input: each stranded byte is one
+    byte[] trunc = byte[3];
+    trunc[0] = 97 as byte;    // 'a'
+    trunc[1] = -30 as byte;   // 0xE2
+    trunc[2] = -100 as byte;  // 0x9C
+    List<Match> mt = fffd.matches(io.fromBytes(trunc));
+    if (mt.length() == 2) {
+        if (mt[0].start != 1 || mt[0].end != 2) { bad = bad + 1; }
+        if (mt[1].start != 2 || mt[1].end != 3) { bad = bad + 1; }
+    } else { bad = bad + 1; }
+    // overlong encodings and leads above U+10FFFF decode per byte as well
+    byte[] overlong = byte[4];
+    overlong[0] = 65 as byte;    // 'A'
+    overlong[1] = -64 as byte;   // 0xC0: overlong 2-byte lead
+    overlong[2] = -128 as byte;  // 0x80
+    overlong[3] = 66 as byte;    // 'B'
+    if (fffd.matches(io.fromBytes(overlong)).length() != 2) { bad = bad + 1; }
+    byte[] f8 = byte[3];
+    f8[0] = 65 as byte;   // 'A'
+    f8[1] = -8 as byte;   // 0xF8: lead above U+10FFFF
+    f8[2] = 66 as byte;   // 'B'
+    if (fffd.matches(io.fromBytes(f8)).length() != 1) { bad = bad + 1; }
+    // a real U+FFFD (EF BF BD) stays one code point three bytes wide
+    byte[] realF = byte[5];
+    realF[0] = 97 as byte;   // 'a'
+    realF[1] = -17 as byte;  // 0xEF
+    realF[2] = -65 as byte;  // 0xBF
+    realF[3] = -67 as byte;  // 0xBD
+    realF[4] = 98 as byte;   // 'b'
+    List<Match> mreal = fffd.matches(io.fromBytes(realF));
+    if (mreal.length() == 1) {
+        if (mreal[0].start != 1 || mreal[0].end != 4) { bad = bad + 1; }
+    } else { bad = bad + 1; }
+    // separator ops see each invalid byte as one U+FFFD separator
+    List<string> segs = fffd.split(inA9);
+    if (segs.length() == 2) {
+        if (segs[0] != "A" || segs[1] != "B") { bad = bad + 1; }
+    } else { bad = bad + 1; }
+    if (fffd.replaceAll(inA9, "#") != "A#B") { bad = bad + 1; }
+    // "." still spans exactly one byte at an invalid byte (width stays 1)
+    List<Match> mdot = Regex("..").matches(inA9);
+    if (mdot.length() == 1) {
+        if (mdot[0].start != 0 || mdot[0].end != 2) { bad = bad + 1; }
+    } else { bad = bad + 1; }
+    return bad;
+}

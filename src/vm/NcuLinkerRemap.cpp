@@ -47,8 +47,6 @@ static void PatchNameOperands(OpCode op, std::vector<uint8_t>& bc, size_t pos,
             break;
         case OpCode::OP_CallStatic:
         case OpCode::OP_CallMethodDirect:
-        case OpCode::OP_CallStaticOut:
-        case OpCode::OP_CallMethodDirectOut:
         case OpCode::OP_MakeFunc:
         case OpCode::OP_MakeBoundFunc:
             PatchOperand(bc, pos + 1, maps.functions, "function", onUnmapped);
@@ -140,9 +138,6 @@ static void PatchDescriptorOperands(OpCode op, std::vector<uint8_t>& bc,
         case OpCode::OP_CallStatic:
             descOff = 5;  //funcIdx, callParamBase, descIdx (0.13.1a)
             break;
-        case OpCode::OP_CallStaticOut:
-            descOff = 5;  //funcIdx, callParamBase, descIdx, outMask
-            break;
         case OpCode::OP_CheckCast:
             descOff = 3;  //classIdx, descIdx
             break;
@@ -187,6 +182,11 @@ static void PatchTypeOperands(OpCode op, std::vector<uint8_t>& bc, size_t pos,
             PatchOperand(bc, pos + 3, maps.structs, "struct", onUnmapped);
             break;
         case OpCode::OP_CopyStruct:
+            PatchOperand(bc, pos + 5, maps.structs, "struct", onUnmapped);
+            break;
+        case OpCode::OP_CopyStructInPlace:
+            //Same operand layout as OP_CopyStruct — the structIdx is a
+            //unit-local index and must be remapped in merged-unit closures.
             PatchOperand(bc, pos + 5, maps.structs, "struct", onUnmapped);
             break;
         case OpCode::OP_AllocArrayN:

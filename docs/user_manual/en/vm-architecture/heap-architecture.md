@@ -42,6 +42,36 @@ layout when tracing references. The alternative (adding a type header to
 struct objects) would require shifting all LoadField/StoreField offsets by +1,
 a larger and more error-prone change.
 
+### Record Lifetime and In-Place Updates
+
+A struct record, once established, is stable for life: every storage
+position in the language (a local variable, a field, an array element,
+a container element, a static slot) owns one record for its entire life
+(§4.7.4), and a write into an existing position runs
+`OP_CopyStructInPlace` — the record's field cells are overwritten while
+the heap slot and its handle never move; only establishing a new
+position allocates a new record. The write is cell-granularity, like
+every other storage operation — one cell is a 4-byte machine word:
+there is no record-level lock anywhere in the executor. A cell's
+storage corresponds to a *memory location* in the C/C++ standards:
+reads and writes of a single cell are atomic, concurrent access to
+different cells needs no coordination, and unsynchronized concurrent
+access to the same cell is a data race (§10.1). A wide field (`long`,
+`ulong`, `double`) occupies two cells that are stored independently,
+so without coordination even a single wide-field read can see its two
+halves from different writes; atomicity beyond one cell — a wide
+field, or a whole record — is the user's duty to coordinate (§10.2).
+
+**Cross-carrier observability**: without coordination, a concurrent
+reader of a shared struct may observe a mix of old and new field values
+— a whole-record store (assignment or declaration initialization)
+writes the record cell by cell, and whole-record reads (`==`
+comparison, by-value parameter passing, `foreach` copies) read cell by
+cell the same way, and the two halves of a wide field can mix just the
+same. Every observed value stays type-correct (memory is never
+corrupted); when a record is shared across carriers, coordinate
+shared mutable state and cross-field invariants with a `Mutex` (§10.2).
+
 ### Implicit `Object` Base Class
 
 Every user class that does not explicitly inherit from another class has
@@ -110,7 +140,7 @@ element i = header cells + i * stride, laid out row-major
 A 1-D array is the `rank=1` special case; rectangular
 multi-dimensional arrays share the same layout — the element access
 instructions fold multi-dimensional coordinates into a row-major
-flat index, and `OP_ArrayShape` mints a shape array from the header
+flat index, and `OP_ArrayShape` creates a shape array from the header
 dimensions. GC marking resolves the element kind from
 `arrayTypeIdx` and traces reference-shaped elements (class/struct/
 string handles) as out-edges.
@@ -158,7 +188,7 @@ struct GenericInstKey {
 // List<int> and List<int[]> as distinct keys.
 ```
 
-Each cache miss mints a new SnClassDecl named e.g. `"List<int>"`; its
+Each cache miss creates a new SnClassDecl named e.g. `"List<int>"`; its
 member calls resolve to **substituted signatures** (T → int / Point /
 ...) for static type checking, driven by the type-argument side table.
 A polymorphic-signature registry drives substitution:

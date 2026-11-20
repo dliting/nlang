@@ -56,6 +56,13 @@ void StatementResolveAccessor::Access(SnReturnStmt &sn)
 		pInitList->InferredTarget(pOuterFunc->EvalDataType());
 
 	pResultExpr->Accept(*m_pVisitor);
+	//v0.13.9 phase 3: &-typed returns must return storage that outlives
+	//the call — a local's record survives (GC) but writes land in an
+	//orphan, so the shape is rejected instead of silently degraded.
+	if (pReturnType->ContainFlags(NF_Ref)
+		&& RejectRefReturnTarget(*pOuterFunc, *pResultExpr,
+			sn.Location()))
+		return;
 	FinishReturnExpr(*pOuterFunc, sn);
 }
 

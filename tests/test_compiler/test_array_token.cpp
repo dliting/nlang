@@ -12,6 +12,7 @@ test_array_flags).
 In-process host: Runtime::StaticInit() must run before any build,
 otherwise the build segfaults unrecoverably.
 ---*/
+#include "test_support/test_scratch.h"
 #include <nlang/runtime/Runtime.h>
 #include <nlang/compiler/ModuleBuilder.h>
 #include <nlang/compiler/BuildEnvironment.h>
@@ -72,8 +73,7 @@ struct CompileOutcome
 static CompileOutcome compileOne(const char* szBody)
 {
     static uint32_t runCount = 0;
-    const auto dir = std::filesystem::temp_directory_path()
-        / "nlang_array_token_tests";
+    const auto dir = nlang::test::ScratchDir("nlang_array_token_tests");
     std::error_code fsError;
     std::filesystem::create_directories(dir, fsError);
     const auto file = dir / "main.n";
@@ -98,7 +98,7 @@ static CompileOutcome compileOne(const char* szBody)
     return out;
 }
 
-//One real build stays alive for the whole run: a build mints the
+//One real build stays alive for the whole run: a build creates the
 //primitive type field singletons (SnInt32::Instance() and siblings,
 //bound to every `int`/`float`/`string` type expression in the tree)
 //and the builder owns their AST. Same ownership discipline as
@@ -162,14 +162,14 @@ static void test_intern_identity()
     CHECK(iia->ToString() == t1->ToString() + "[]",
         "nested display form composes, got: " + iia->ToString());
 
-    //Interning is TU-scoped: a fresh environment mints its own token
+    //Interning is TU-scoped: a fresh environment creates its own token
     //for the same element (lifetime = the owning environment).
     static BuildParams otherParams;
     static MemLogger otherLogger;
     static BuildEnvironment otherEnv(otherParams, otherLogger);
     auto* tOther = otherEnv.InternArrayTypeToken(IntField());
     CHECK(tOther != nullptr && tOther != t1,
-        "another environment mints its own token");
+        "another environment creates its own token");
     CHECK(tOther == otherEnv.InternArrayTypeToken(IntField()),
         "the second environment is self-consistent too");
     PASS();

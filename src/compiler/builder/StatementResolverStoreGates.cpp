@@ -3,6 +3,7 @@
     从 StatementResolverAssign.cpp 抽取（0.9.0 尺寸守卫解除，零行为变化）。
 ---*/
 #include "StatementResolver.h"
+#include "RefBindJudgment.h"
 #include <nlang/compiler/SnMisc.h>
 
 namespace nlang
@@ -73,6 +74,24 @@ void StatementResolveAccessor::RejectSealedFieldStore(SnField &field,
 			static_cast<SnClassDecl *>(pOwner)->Name().c_str());
 }
 
+//Task 9: reject a member store into const storage's own slots — const
+//struct locals, by-value const struct formals and every const& alias
+//form share the gate (the alias is read-only storage). The receiver
+//walk and the const-struct root test are shared with the &-binding
+//position family (RefBindJudgment.cpp). Const fields and enum members
+//keep their own arms above.
+void StatementResolveAccessor::RejectConstReceiverMemberStore(
+	SnMemberExpr &left, SnField *pMemberField, const ISourceLocation *pLoc)
+{
+	auto *pRootField = FindMemberChainRootStorage(left.Outer());
+	if (!IsConstStructStorage(pRootField))
+		return;
+	m_Env.Log(CLL_Error, pLoc,
+		"cannot assign to \"%s\" through the const storage \"%s\".",
+		pMemberField ? pMemberField->Name().c_str() : "",
+		pRootField->Name().c_str());
+}
+
 //Phase 9a: reject assignment to a const local (identifier targets only;
 //the const-init decomposition sets NF_Const AFTER resolving the
 //initializer AssignStmt, so initializer writes correctly pass).
@@ -95,25 +114,22 @@ void StatementResolveAccessor::RejectConstStoreTarget(SnExpression &left,
 	if (left.Kind() == NK_MemberExpr)
 	{
 		auto *pMemberField = static_cast<SnMemberExpr &>(left).Field();
-		//v0.12.6: enum member constants join the constant-store family.
-		//Before this arm the qualified form (`Mode.One = 5`) fell through
-		//every gate and codegen silently emitted nothing for the store.
-		if (pMemberField && pMemberField->Kind() == NK_EnumMember)
-			m_Env.Log(CLL_Error, pLoc,
-				"\"%s\" is a constant and cannot be assigned.",
-				pMemberField->Name().c_str());
-		else if (pMemberField && IsInterfaceConstantField(*pMemberField))
-			m_Env.Log(CLL_Error, pLoc,
-				"\"%s\" is a constant and cannot be assigned.",
-				pMemberField->Name().c_str());
-		else if (pMemberField && pMemberField->Kind() == NK_ClassField
-			&& pMemberField->ContainFlags(NF_Static)
-			&& pMemberField->ContainFlags(NF_Const))
+		//The constant-store family: enum members (v0.12.6 — before
+		//this arm the qualified form `Mode.One = 5` fell through every
+		//gate), interface constants and class static consts.
+		if (pMemberField && (pMemberField->Kind() == NK_EnumMember
+				|| IsInterfaceConstantField(*pMemberField)
+				|| (pMemberField->Kind() == NK_ClassField
+					&& pMemberField->ContainFlags(NF_Static)
+					&& pMemberField->ContainFlags(NF_Const))))
 			m_Env.Log(CLL_Error, pLoc,
 				"\"%s\" is a constant and cannot be assigned.",
 				pMemberField->Name().c_str());
 		else if (pMemberField && IsSealedFieldWrite(left, *pMemberField))
 			RejectSealedFieldStore(*pMemberField, pLoc);
+		else
+			RejectConstReceiverMemberStore(
+				static_cast<SnMemberExpr &>(left), pMemberField, pLoc);
 		return;
 	}
 	if (left.Kind() != NK_IdentifierExpr)

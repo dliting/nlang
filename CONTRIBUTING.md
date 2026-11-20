@@ -39,8 +39,25 @@ A change is done when the suites below pass, not when it compiles.
 The e2e runner takes ncc/nvm paths as positional arguments and defaults to the
 `build/` tree — pass explicit paths when testing an IDE (`build-ide/`) build.
 
+Full runs are batched into three tiers (`tools/gate_tier.sh`, design in
+`docs/dev/gate_tiering_design.md`): T0 runs only the test families an
+iteration's changed sources map to (unmapped changes fall back to the full
+Debug unit suite); T1 is the phase dock — full Debug units and e2e, the IDE
+tree, ASan units and the ASan memory-risk e2e subset; T2 adds full ASan e2e,
+the Release build and e2e, and the docs pipeline, and runs once at version
+close. Every e2e manifest entry must be selected by at least one tier
+(`tools/tier_coverage_check.py`); a red leg voids the whole batch and forces
+a full re-sweep.
+
 Tests should exercise real behavior (compile real `.n` files, execute real
 bytecode), not mocks of the compiler.
+
+Entries whose live-success premise rides on a machine capability that
+ambient software can revoke — loopback ICMP echo behind VPN filter
+drivers, reserved-TLD NXDOMAIN honesty behind DNS hijacks — are gated in
+`tests/e2e/env_gates.txt`: an OS oracle probes the capability once per
+run and the entry skips with a printed SKIP line when it is absent. A
+skip is counted and visible, never a silent pass.
 
 ## Versioning and Releases
 

@@ -25,7 +25,7 @@ class ModuleRegistry;
 //AST node types (SnData.h / SnStatements.h); pointer use below only.
 class SnFunction;
 class SnParagraph;
-//Internal stub-minting type (src/compiler/builder/
+//Internal stub-creation type (src/compiler/builder/
 // CompiledModuleNodeBuilder.hpp); reference use below only.
 class CompiledModuleNodeBuilder;
 //Reserved prelude package record (src/compiler/BuiltinPrelude.h);
@@ -164,7 +164,7 @@ private:
 	std::map<std::string, std::vector<std::string>>
 		CollectImportGraphEdges();
 	bool RejectImportCycles();
-	//Load one external .ncu candidate: parse it, mint the stub nodes,
+	//Load one external .ncu candidate: parse it, create the stub nodes,
 	//register their owners and keep the detached stubs alive. False
 	//after logging the failure.
 	bool LoadExternalModule(const std::string &name);
@@ -201,7 +201,7 @@ private:
 	//Runs in PrepareUnits BEFORE LoadImports: the import-stub collision
 	//checks (nameExistsInRoot) must see the consumer's own declarations,
 	//or a peer image's prelude records (own in every image by design)
-	//would be minted into the root beside them. TU order (user, prelude,
+	//would be created into the root beside them. TU order (user, prelude,
 	//libraries) is the root member order — the shadowing contract (user
 	//declarations ahead of the prelude) rides it.
 	void MergeTransUnits();

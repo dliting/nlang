@@ -23,7 +23,7 @@ static int g_failures = 0;
 //A live owned record is adopted; other kinds/owners are not.
 static void TestFindOwnAdoptsLiveRecord() {
     NetJobTable table;
-    const int32_t j = table.Mint(kNetJobIcmp, /*owner*/1);
+    const int32_t j = table.Create(kNetJobIcmp, /*owner*/1);
     CHECK(table.FindOwn(kNetJobIcmp, 1) == j);
     CHECK(table.FindOwn(kNetJobResolve, 1) == 0);
     CHECK(table.FindOwn(kNetJobIcmp, 2) == 0);
@@ -32,22 +32,22 @@ static void TestFindOwnAdoptsLiveRecord() {
 //The released record (worker still in flight) is never adopted again.
 static void TestFindOwnSkipsReleased() {
     NetJobTable table;
-    const int32_t j = table.Mint(kNetJobIcmp, /*owner*/1);
+    const int32_t j = table.Create(kNetJobIcmp, /*owner*/1);
     table.Release(j);                       //timeout path: not done yet
     CHECK(table.Lookup(j) != nullptr);      //worker keeps it alive
     CHECK(table.FindOwn(kNetJobIcmp, 1) == 0);   //must not re-adopt
 }
 
-//Release + done frees the record; a later Mint of the same kind and
+//Release + done frees the record; a later Create of the same kind and
 //owner starts clean and is adopted.
 static void TestReleasedFreesOnDone() {
     NetJobTable table;
-    const int32_t j = table.Mint(kNetJobIcmp, /*owner*/1);
+    const int32_t j = table.Create(kNetJobIcmp, /*owner*/1);
     table.Release(j);
     table.MarkDoneIcmp(j, /*rttMs*/5, /*err*/0);
     CHECK(table.Lookup(j) == nullptr);      //both flags: freed
     CHECK(table.FindOwn(kNetJobIcmp, 1) == 0);
-    const int32_t j2 = table.Mint(kNetJobIcmp, /*owner*/1);
+    const int32_t j2 = table.Create(kNetJobIcmp, /*owner*/1);
     CHECK(table.FindOwn(kNetJobIcmp, 1) == j2);
 }
 

@@ -54,7 +54,7 @@ accepts no collection initializer in any form).
 
 - `Expression : Expression` — keyed entry. In a `Dict<K,V>` target the
   key is a full expression checked against K (see Dict keys below). In
-  a struct/class target the key must be a bare identifier naming a
+  a struct/class target the key must be an identifier naming a
   field (e.g. `x:1, y:2`) — there the identifier is a field name, not a
   variable
 - `Expression` (no key) — list element, or a positional struct

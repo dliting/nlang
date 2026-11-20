@@ -18,6 +18,30 @@ values by the categories of §9.1. The subscript forms `li[i]` and
 container methods take named arguments under the ordinary rule
 (§7.2).
 
+Struct elements follow record stabilization (§4.7.4): `set` writes
+the value in place into the record that position already owns —
+the record's handle never moves, and code that earlier read the
+element into a variable never sees the change (the independence of
+a by-value copy); every position's record, including a new key's,
+is independent of the source from the moment it is established —
+a source value and a container element never share a record.
+
+`get` — and with it the subscript sugar — is a **reference-preserving
+read**: assigning the result to a value copies it, as any read does,
+but binding it to a reference (`int& r = li[2]`, `Point& p = d["k"]`)
+aliases that element's storage (§4.7.9). A binding made this way
+keeps naming the element through the container's later life:
+
+| Operation after the binding | What the binding names |
+| --- | --- |
+| `set` onto the same position or key | the same storage — the write is in place, so the binding reads the new value |
+| growth (`add`, storing new keys) | the same element — storage never moves on reallocation |
+| `removeAt` of an earlier position | the element at its shifted position — the binding follows the element, not the position |
+| removal of the bound element or key, or `clear()` | nothing further — the binding detaches, and writes through it no longer reach the container |
+
+The same holds for reads through `get` spelled out (`li.get(2)`,
+`d.get("k")`) — the two forms are the same read (§5.7).
+
 ## 12.1 List
 
 A `List<T>` (§4.12) is a growable, ordered, index-addressable
@@ -26,8 +50,8 @@ sequence of elements of type `T`.
 | Method | Signature | Effect | Failure behavior |
 | --- | --- | --- | --- |
 | `add(value)` | `void add(T value)` | appends `value` | — |
-| `get(i)` | `T get(int i)` | the element at position `i` | out of range raises `IndexOutOfBoundsException` |
-| `set(i, value)` | `void set(int i, T value)` | replaces the element at `i` | out of range raises `IndexOutOfBoundsException` |
+| `get(i)` | `T& get(int i)` | the element at position `i` — a reference-preserving read (see below) | out of range raises `IndexOutOfBoundsException` |
+| `set(i, value)` | `void set(int i, T value)` | replaces the element at `i` (a struct value is written in place into the record that position owns, §4.7.4) | out of range raises `IndexOutOfBoundsException` |
 | `length()` | `int length()` | the element count | — |
 | `removeAt(i)` | `void removeAt(int i)` | removes the element at `i`, shifting later elements down | out of range raises `IndexOutOfBoundsException` |
 | `indexOf(value)` | `int indexOf(T value)` | the first position matching `value`, `-1` if none | — |
@@ -76,8 +100,8 @@ A `Dict<K, V>` (§4.12) maps keys of type `K` to values of type `V`.
 
 | Method | Signature | Effect | Failure behavior |
 | --- | --- | --- | --- |
-| `set(key, value)` | `void set(K key, V value)` | stores `value` under `key`; re-storing a key replaces the value and keeps the key's position | — |
-| `get(key)` | `V get(K key)` | the value stored under `key` | no entry for `key` raises `Exception` |
+| `set(key, value)` | `void set(K key, V value)` | stores `value` under `key`; re-storing a key replaces the value in place and keeps the key's position | — |
+| `get(key)` | `V& get(K key)` | the value stored under `key` — a reference-preserving read like `List`'s (see §12.1) | no entry for `key` raises `Exception` |
 | `containsKey(key)` | `bool containsKey(K key)` | whether an entry for `key` exists | — |
 | `remove(key)` | `int remove(K key)` | removes the entry for `key`; yields `1` if one was removed, `0` if the key was not found | — |
 | `clear()` | `void clear()` | removes every entry | — |
@@ -90,6 +114,12 @@ Key matching is the kind-aware equality of §12.1. The built-in
 containers accept a `struct` type argument, and a struct key
 therefore compares by field value (§4.12.5); a `func` key compares
 handle content — two references to one function are the same key.
+The storage rule covers the key side the same way: inserting a new
+key gives the entry a private copy of the key record — mutating the
+variable used in the insert afterwards never rewrites the stored
+entry, and both spellings (`d[k] = v` and `d.set(k, v)`) behave
+identically; storing again under an existing key replaces only the
+value record and never touches the stored key record.
 
 `keys()` is the ordering guarantee for the whole dictionary
 surface: the returned list holds every key in insertion order —

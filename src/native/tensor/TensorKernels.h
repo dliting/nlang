@@ -69,7 +69,7 @@ inline std::string ShapeText(const NativeArrayView& v) {
 //below addresses as data[(offset + sum(idx*strides)) * elemCellBytes].
 
 //Row-major dense strides of dims — the contiguity reference and the
-//mint input for re-viewing.
+//create input for re-viewing.
 inline void DenseStrides(const int32_t* dims, int32_t rank, int32_t* out) {
     int64_t acc = 1;
     for (int32_t d = rank - 1; d >= 0; --d) {
@@ -267,7 +267,7 @@ void ArangeI(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
 void ArangeL(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
 void ArangeF(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
 void ArangeD(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
-//ABI v10 exercise pair: mint a rank-1 view through newArrayView, and
+//ABI v10 exercise pair: create a rank-1 view through newArrayView, and
 //sum any rank-1 int array or view through getArrayView (both arms).
 void StrideViewI(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);
 void ViewSumI(NativeHost* host, uint8_t* ret, const uint8_t* args, int argc);

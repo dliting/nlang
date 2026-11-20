@@ -41,7 +41,7 @@ void ExprResolveAccessor::TryResolveBuiltinClassName(
 
 //0.13.1c instantiation gate (see ExprResolver.h): an abstract class
 //allocates no object; the first obligation (outermost ancestor first)
-//names the fix. Minted generic instantiations carry the template's
+//names the fix. Created generic instantiations carry the template's
 //abstract members and share its superclass, so the same query covers
 //them. The flags the walk reads are grammar-time, so the answer is
 //independent of class resolution order.
@@ -179,7 +179,7 @@ void ExprResolveAccessor::Access(SnNewArrayExpr &sn)
 	BindArrayTypeToken(sn);
 }
 
-//0.9.0 (Phase A): resolve a bare name to a class or struct the way
+//0.9.0 (Phase A): resolve an unqualified name to a class or struct the way
 //Access(SnNewExpr&) resolves its type name (builtin table first, then
 //the scope chain), but as a silent probe — a miss must not add a second
 //diagnostic next to the caller's own failure text. Null = the name does
@@ -448,26 +448,35 @@ void ExprResolveAccessor::BindQualifiedCtorTail(SnMemberExpr &snMember,
 
 //Module-qualified `shapes.Point(args)` without new: the module table has
 //no function of the name and the type table does. Member wiring mirrors
-//BindQualifiedInvoke (direct field/type slots; the caller's
-//FinishConsumedMember adds the resolved flags). 0.9.11 D2: structs join
-//classes as module-qualified ctor targets.
+//BindQualifiedInvoke (direct field/type slots; the caller closes the
+//member out). 0.9.11 D2: structs join classes as ctor targets.
 bool ExprResolveAccessor::TryResolveQualifiedCtorInvoke(SnMemberExpr &snMember,
 	SnInvokeExpr &invoke, const std::string &modulePath)
 {
-	auto *pType = m_Env.Registry().FindModuleType(modulePath,
-		invoke.CalleeName());
+	//0.13.8 item 5 (Task 4): the foreign non-public admission consumes
+	//with the not-a-member wording — falling through would re-advertise
+	//the private type as a missing function.
+	bool bDenied = false;
+	auto *pType = FindAdmittedModuleType(m_Env.Registry(), modulePath,
+		invoke.CalleeName(), m_Env.Registry().OwnerOfContext(invoke),
+		bDenied);
+	if (bDenied)
+	{
+		m_Env.Log(CLL_Error, invoke.Location(),
+			"Type '%s' is not a member of package '%s'.",
+			invoke.CalleeName().c_str(), modulePath.c_str());
+		return true;
+	}
 	if (!pType
 		|| (pType->Kind() != NK_ClassDecl && pType->Kind() != NK_StructDecl))
 	{
 		//0.9.0: the qualified twin of the bare-name reject. Builtin generics
 		//own no module declaration (FindModuleType scans unit-owned AST
 		//members only), so without this check `shapes.List()` would fall
-		//through to the generic function-not-found text. The type lookup
-		//runs first: an imported class named List is legal and must
-		//construct. Consuming with the logged error mirrors
-		//RejectUnimportedModuleCall — the caller's
-		//FinishConsumedMember flags the member and the error keeps
-		//codegen out.
+		//through to the generic function-not-found text; an imported class
+		//named List is legal and must construct. Consuming with the logged
+		//error mirrors RejectUnimportedModuleCall — the caller's
+		//FinishConsumedMember flags the member; codegen stays out.
 		if (IsBuiltinGenericTypeName(invoke.CalleeName()))
 		{
 			m_Env.Log(CLL_Error, invoke.Location(),

@@ -1,7 +1,7 @@
 /*---
     tensor_random.cpp — whole-array random fill.
 
-    uniform(dims, low, high): mints the dims-shaped array and fills it
+    uniform(dims, low, high): creates the dims-shaped array and fills it
     row-major with low + (high - low) * u, u in [0, 1) drawn from the
     host PRNG (the same seeded stream math.random draws; the VM owns
     the state). The draw is inherently sequential — the win here is
@@ -36,9 +36,9 @@ double NextUnit(NativeHost* host) {
            * kRngUnitScale;
 }
 
-//uniform(dims, low, high): the dims vector shapes the mint (the
+//uniform(dims, low, high): the dims vector shapes the creation (the
 //full(dims, ...) creation path — shared rank-1 collector, negative-dim
-//and element-count checks inside the mint), then one draw per element
+//and element-count checks inside the creation), then one draw per element
 //in row-major order. Computed in double, stored at the element width.
 //low/high are read by the entry (the float cell packs into the low
 //half, so the F arm reads a float, not a double) and widened here.

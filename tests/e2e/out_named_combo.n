@@ -1,13 +1,13 @@
-int f(int a, out int y, int b = 7) {
+int f(int a, int& y, int b = 7) {
     y = a + b;
     return 0;
 }
 
 int main() {
     int y = 0;
-    f(1, out y);
+    f(1, y);
     int y2 = 0;
-    f(1, out y2, b = 10);
+    f(1, y2, b = 10);
 
     // First call: y = 1 + 7 = 8. Second: y2 = 11.
     if (y != 8) return 1;

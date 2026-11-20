@@ -1,5 +1,5 @@
 //0.9.14 D-new-2: inside the owning class a static method is referenceable
-//by bare name — from an instance method and from a static method alike.
+//by unqualified name — from an instance method and from a static method alike.
 class B {
     public static int twice(int x) { return x * 2; }
 

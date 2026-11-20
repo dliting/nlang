@@ -3,7 +3,7 @@
 
 Usage:
     conda run -n py313 python run_e2e_tests.py [ncc_path] [nvm_path]
-        [ndb_path] [filter_file]
+        [ndb_path] [filter_file] [--timeout=SEC]
 
 Every run pins NLANG_TENSOR_BACKEND (default `cpu`) so a machine with a
 GPU cannot silently move the suite onto the device; set
@@ -11,6 +11,10 @@ NLANG_E2E_TENSOR_BACKEND=mirror|cuda for the device double-runs.
 
 Reads manifest.txt (name + expected_exit_code [+ optional expected stdout
 substring]), compiles each <name>.n, runs the .ncu, and reports results.
+--timeout=SEC raises the flat 30 s per-test subprocess cap for this
+invocation only: the ASan-instrumented tree runs ~7x slower than Release,
+and its gate run needs more headroom for the pattern-budget case
+(stdlib_regex_size crosses the size limit with 25000 literal atoms).
 For compile_error tests the optional third column is instead the substring
 ncc's compile diagnostics must contain (rejection reason pinning) — works
 for single-file tests and for cross-module directory tests (checked against
@@ -31,21 +35,30 @@ negation semantics as the compile-phase .stderr file.
 Also reads examples_manifest.txt (when present): entries resolve against
 ../../examples, their .ncu and scratch artifacts live under
 _examples_tmp/ (their run CWD), removed at end of run.
+Reads env_gates.txt (when present): `name <capability...>` rows gate an
+entry behind a machine capability (icmp: OS loopback echo answers; dns:
+reserved-TLD NXDOMAIN honesty). When the out-of-band OS oracle says the
+capability is absent (VPN filter drivers, DNS hijacks), the entry is
+skipped with a printed SKIP line — counted, never silently green.
 """
 
 import os
 import sys
 import glob
+import socket
 import subprocess
 import shutil
 import shlex
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.normpath(os.path.join(SCRIPT_DIR, '..', '..'))
 DEFAULT_NCC = os.path.join(
     SCRIPT_DIR, '..', '..', 'build', 'src', 'tools', 'ncc', 'Release', 'ncc.exe')
 DEFAULT_NVM = os.path.join(
     SCRIPT_DIR, '..', '..', 'build', 'src', 'tools', 'nvm', 'Release', 'nvm.exe')
 MANIFEST = os.path.join(SCRIPT_DIR, 'manifest.txt')
+#Flat per-test subprocess cap (compile and run), overridable per invocation
+#with --timeout=SEC (see the module docstring).
 TIMEOUT_SEC = 30
 #Tensor-backend pinning for the run phase. The product default is `auto`
 #(spec D3a — use an installed device backend, fall back to cpu), so a
@@ -74,8 +87,30 @@ EXAMPLES_DIR = os.path.normpath(
 EXAMPLES_TMP = os.path.join(SCRIPT_DIR, '_examples_tmp')
 
 
+def _newest_file(paths):
+    """(mtime, relpath) of the newest existing path, (0.0, '') if none."""
+    best_mtime, best_name = 0.0, ''
+    for path in paths:
+        mtime = os.path.getmtime(path)
+        if mtime > best_mtime:
+            best_mtime = mtime
+            best_name = os.path.relpath(path, REPO_ROOT)
+    return best_mtime, best_name
+
+
+def _display_path(path):
+    """Path spelling for messages: repo-relative when possible. On
+    Windows os.path.relpath raises when path and the repo sit on
+    different drives (no relative form exists) — fall back to the
+    absolute path instead of crashing the guard itself."""
+    try:
+        return os.path.relpath(path, REPO_ROOT)
+    except ValueError:
+        return os.path.normpath(path)
+
+
 def _fail_on_stale_tools(ncc, nvm, ndb):
-    """Refuse to run against tool binaries older than any source file.
+    """Refuse to run against artifacts older than their real inputs.
 
     A targeted build refreshes only its own targets, so a changed VM
     source can leave one of ncc/nvm/ndb stale while its siblings look
@@ -83,26 +118,28 @@ def _fail_on_stale_tools(ncc, nvm, ndb):
     read as test-content bugs (the 2026-10-31 "Thread class not
     registered" session: ndb predated the suffix-lookup commit). The
     check over-approximates by design — ANY newer file under src/ or
-    stdlib/ demands a rebuild of the tools; a false alarm costs one
+    include/ demands a rebuild of the tools; a false alarm costs one
     build, a miss costs a misdiagnosed gate.
+
+    Each artifact is compared against its own inputs only. stdlib/*.n
+    is not a tool input (the tools compile it, they do not embed it),
+    so it belongs to the package check below — keeping it in the tool
+    set pressured a no-op tool rebuild on every stdlib edit and tempted
+    the timestamp-forging `touch` that once let a pre-merge nvm.exe
+    pass this guard for a full task (2026-11-08).
     """
-    repo_root = os.path.normpath(os.path.join(SCRIPT_DIR, '..', '..'))
-    newest_src = 0.0
-    newest_name = ''
-    for pattern in ('src/**/*.cpp', 'src/**/*.hpp', 'src/**/*.h',
-                    'include/**/*.h', 'include/**/*.hpp', 'stdlib/*.n'):
-        for path in glob.glob(os.path.join(repo_root, pattern),
-                              recursive=True):
-            mtime = os.path.getmtime(path)
-            if mtime > newest_src:
-                newest_src = mtime
-                newest_name = os.path.relpath(path, repo_root)
+    newest_src, newest_name = _newest_file(
+        path
+        for pattern in ('src/**/*.cpp', 'src/**/*.hpp', 'src/**/*.h',
+                        'include/**/*.h', 'include/**/*.hpp')
+        for path in glob.glob(os.path.join(REPO_ROOT, pattern),
+                              recursive=True))
     for tool in (ncc, nvm, ndb):
         if not os.path.isfile(tool):
             print(f"ERROR: tool not found: {tool}")
             sys.exit(2)
         if os.path.getmtime(tool) < newest_src:
-            print(f"ERROR: {os.path.relpath(tool, repo_root)} is older "
+            print(f"ERROR: {_display_path(tool)} is older "
                   f"than {newest_name} - rebuild the tools before "
                   f"running the suite (stale-binary results are "
                   f"meaningless)")
@@ -115,34 +152,120 @@ def _fail_on_stale_tools(ncc, nvm, ndb):
         print(f"ERROR: {pkg} shadows the system stdlib for modules run "
               f"from tests/e2e; remove it")
         sys.exit(2)
-    #Stale-package hazard: stdlib.npkg is compiled by ncc (the
-    #nlang_stdlib_package step), so a package older than ncc was built
-    #by a superseded compiler — e2e then passes against a stdlib image
-    #no current build produces (the 2026-10-31 redesign ran green
-    #against a pre-flip npkg for a full task before anyone noticed).
-    #Derived from the ncc path (<build>/src/tools/ncc/<cfg>/ncc.exe);
-    #skipped when no npkg sits at that layout (an installed tool tree
-    #ships its package beside the binaries, not under a build root).
-    #Comparing against ncc alone is sufficient: the tool loop above
-    #already forces ncc to be at least as new as every stdlib source,
-    #so npkg >= ncc transitively covers the sources.
+    #Stale-package hazard: stdlib.npkg is compiled by ncc from the
+    #stdlib/*.n sources (the nlang_stdlib_package step), so the package
+    #must be at least as new as BOTH of its inputs — a package older
+    #than the newest source misses the edit (the 2026-10-31 redesign ran
+    #green against a pre-flip npkg for a full task), and a package older
+    #than ncc was built by a superseded compiler. Derived from the ncc
+    #path (<build>/src/tools/ncc/<cfg>/ncc.exe); skipped when no npkg
+    #sits at that layout (an installed tool tree ships its package
+    #beside the binaries, not under a build root).
     build_root = os.path.dirname(os.path.dirname(os.path.dirname(
         os.path.dirname(os.path.dirname(ncc)))))
     npkg = os.path.join(build_root, 'stdlib', 'stdlib.npkg')
-    if os.path.isfile(npkg) and os.path.getmtime(npkg) < os.path.getmtime(ncc):
-        print(f"ERROR: {os.path.relpath(npkg, repo_root)} is older "
-              f"than {os.path.relpath(ncc, repo_root)} - rebuild the "
-              f"nlang_stdlib_package target before running the suite "
-              f"(stale-package results are meaningless)")
-        sys.exit(2)
+    if os.path.isfile(npkg):
+        newest_n, newest_n_name = _newest_file(
+            glob.glob(os.path.join(REPO_ROOT, 'stdlib', '*.n')))
+        for bound, bound_name in (
+                (os.path.getmtime(ncc), _display_path(ncc)),
+                (newest_n, newest_n_name)):
+            if os.path.getmtime(npkg) < bound:
+                print(f"ERROR: {_display_path(npkg)} is "
+                      f"older than {bound_name} - rebuild the "
+                      f"nlang_stdlib_package target before running the "
+                      f"suite (stale-package results are meaningless)")
+                sys.exit(2)
 
 
 def _manifest_configs():
-    """(manifest, sources_dir, out_dir) triples to run in order."""
+    """(manifest, sources_dir, out_dir) triples to run in order.
+    NLANG_E2E_MANIFEST=<path> selects ONLY that manifest — the tiered
+    gate's subset leg runs a family file in place of the full tour (the
+    orphan-sidecar check is meaningless for a subset and is skipped,
+    see main)."""
+    override = os.environ.get('NLANG_E2E_MANIFEST')
+    if override:
+        return [(os.path.abspath(override), SCRIPT_DIR, SCRIPT_DIR)]
     configs = [(MANIFEST, SCRIPT_DIR, SCRIPT_DIR)]
     if os.path.isfile(EXAMPLES_MANIFEST):
         configs.append((EXAMPLES_MANIFEST, EXAMPLES_DIR, EXAMPLES_TMP))
     return configs
+
+#Environment gating: an entry whose live-success premise needs a
+#machine capability that ambient software can revoke (VPN filter
+#drivers swallowing ICMP, DNS hijacks answering reserved TLDs) is
+#skipped, visibly, when an out-of-band OS oracle says the capability
+#is absent. Gates live in env_gates.txt (name -> capability keys), a
+#bypass file rather than a manifest column: the stdout column is free
+#text, and manifest-verbatim consumers (tier coverage, shard tool,
+#subset derivation) stay untouched. Pure-contract assertions are never
+#gated — the oracle only admits "the machine cannot do this at all".
+ENV_GATES_FILE = os.path.join(SCRIPT_DIR, 'env_gates.txt')
+
+def _probe_icmp():
+    """True when the OS itself gets loopback ICMP echo answers
+    (locale-independent exit code; 2 attempts so one lost echo is
+    noise, not an outage verdict)."""
+    cmd = (['ping', '-n', '2', '-w', '800', '127.0.0.1']
+           if os.name == 'nt'
+           else ['ping', '-c', '2', '-W', '1', '127.0.0.1'])
+    try:
+        result = subprocess.run(cmd, capture_output=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0
+
+def _probe_dns():
+    """True when the resolver honestly fails a reserved TLD
+    (RFC 2606: .invalid is guaranteed NXDOMAIN on any compliant
+    resolver; fake-ip DNS hijacks answer it, voiding the premise of
+    resolver-phrase tests)."""
+    try:
+        socket.getaddrinfo('nlang-no-such-host.invalid', None)
+        return False
+    except socket.gaierror:
+        return True
+
+ENV_PROBES = {'icmp': _probe_icmp, 'dns': _probe_dns}
+
+def parse_env_gates(path):
+    """name -> set of capability keys. Unknown keys and keyless rows
+    fail loud: a silent no-op gate would run environment-dependent
+    entries unguarded."""
+    gates = {}
+    if not os.path.isfile(path):
+        return gates
+    with open(path, encoding='utf-8') as gf:
+        for line in gf:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            parts = line.split()
+            name, keys = parts[0], parts[1:]
+            if not keys:
+                raise ValueError(f"env_gates.txt: {name}: no capability key")
+            unknown = [k for k in keys if k not in ENV_PROBES]
+            if unknown:
+                raise ValueError(
+                    f"env_gates.txt: {name}: unknown capability "
+                    f"{','.join(unknown)}")
+            gates[name] = set(keys)
+    return gates
+
+def probe_env(keys_needed):
+    """capability -> availability for the union of keys the gates
+    reference; probes run at most once per invocation."""
+    return {key: ENV_PROBES[key]() for key in sorted(keys_needed)}
+
+def env_skip_reason(name, gates, env_state):
+    """Skip reason for a gated entry whose capabilities are absent,
+    else None. env_state is injected so tests never subprocess."""
+    keys = gates.get(name)
+    if not keys:
+        return None
+    missing = [key for key in sorted(keys) if not env_state.get(key)]
+    return f"env {','.join(missing)} unavailable" if missing else None
 
 def _orphan_run_stderr_sidecars(known_names):
     """Names of <name>.run.stderr files whose <name> is no manifest
@@ -288,9 +411,28 @@ def _describe_run_error(exc):
     return str(exc)
 
 
+def _split_timeout_arg(argv):
+    """Pull a '--timeout=SEC' override out of argv (the positional tool
+    paths stay untouched). The last occurrence wins; a malformed number
+    propagates as a plain ValueError — this flag is set by gate scripts,
+    not typed by hand."""
+    timeout = None
+    rest = []
+    for a in argv:
+        if a.startswith('--timeout='):
+            timeout = int(a.split('=', 1)[1])
+        else:
+            rest.append(a)
+    return rest, timeout
+
+
 def main():
-    ncc = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_NCC
-    nvm = sys.argv[2] if len(sys.argv) > 2 else DEFAULT_NVM
+    global TIMEOUT_SEC
+    args, timeout = _split_timeout_arg(sys.argv[1:])
+    if timeout is not None:
+        TIMEOUT_SEC = timeout
+    ncc = args[0] if len(args) > 0 else DEFAULT_NCC
+    nvm = args[1] if len(args) > 1 else DEFAULT_NVM
     #dbg_ tests run under the debugger. An explicit third argument is
     #the ndb to use — gates pass it so an ASan/Debug sweep runs dbg_
     #tests under the same config's debugger (the derived Release path
@@ -299,7 +441,7 @@ def main():
     #so ndb sits two levels over from the nvm binary (build-tree
     #layout), not next to it.
     tools_dir = os.path.dirname(os.path.dirname(os.path.dirname(nvm)))
-    ndb = sys.argv[3] if len(sys.argv) > 3 else os.path.join(
+    ndb = args[2] if len(args) > 2 else os.path.join(
         tools_dir, 'ndb', 'Release', 'ndb.exe')
     #Optional fourth argument: a filter file restricting the run to the
     #named manifest entries (one name per line, '#' comments). The
@@ -317,7 +459,6 @@ def main():
     #any concurrent machine load into timeout flakes. Scale the
     #per-test cap by config, read off the tool path; x3 keeps every
     #test far from its limit and stays under the 3-minute project cap.
-    global TIMEOUT_SEC
     if '/Debug/' in ncc.replace(os.sep, '/'):
         TIMEOUT_SEC *= 3
 
@@ -325,13 +466,28 @@ def main():
         print(f"ERROR: manifest.txt not found at {MANIFEST}")
         sys.exit(1)
 
+    env_gates = {}
+    try:
+        env_gates = parse_env_gates(ENV_GATES_FILE)
+    except ValueError as e:
+        print(f"ERROR: {e}")
+        sys.exit(2)
+    keys_needed = set()
+    for keys in env_gates.values():
+        keys_needed |= keys
+    env_state = probe_env(keys_needed)
+
     passed = 0
     failed = 0
+    skipped = 0
     warnings = []
     errors = []
 
     #Sidecar coverage: every <name>.run.stderr must key a manifest
-    #entry, else its diagnostic assertion is silently skipped.
+    #entry, else its diagnostic assertion is silently skipped. A subset
+    #leg (NLANG_E2E_MANIFEST set) sees only its family's entries, so
+    #the orphan check would flag every other family's sidecar — suite
+    #coverage is a full-tour invariant, skip it here.
     known_names = set()
     for manifest_path, _, _ in _manifest_configs():
         with open(manifest_path, encoding='utf-8') as mf:
@@ -339,11 +495,12 @@ def main():
                 line = line.strip()
                 if line and not line.startswith('#'):
                     known_names.add(line.split(None, 1)[0])
-    for orphan in _orphan_run_stderr_sidecars(known_names):
-        print(f"FAIL {orphan} (run.stderr sidecar matches no manifest entry)")
-        failed += 1
-        errors.append(
-            f"  {orphan}: run.stderr sidecar matches no manifest entry")
+    if not os.environ.get('NLANG_E2E_MANIFEST'):
+        for orphan in _orphan_run_stderr_sidecars(known_names):
+            print(f"FAIL {orphan} (run.stderr sidecar matches no manifest entry)")
+            failed += 1
+            errors.append(
+                f"  {orphan}: run.stderr sidecar matches no manifest entry")
 
     filter_names = None
     if filter_path is not None:
@@ -382,6 +539,15 @@ def main():
                 continue
             name = parts[0]
             if filter_names is not None and name not in filter_names:
+                continue
+            #Environment gate: a gated entry whose capability the OS
+            #oracle says is absent is skipped before any tooling runs
+            #(the reason is authoritative — the machine cannot perform
+            #the premise, not a NLang regression).
+            gate_reason = env_skip_reason(name, env_gates, env_state)
+            if gate_reason:
+                print(f"SKIP {name} ({gate_reason})")
+                skipped += 1
                 continue
             #Expected may be an int (runtime exit code) or the literal
             #"compile_error" to assert that ncc rejects the source.
@@ -842,7 +1008,8 @@ def main():
         shutil.rmtree(EXAMPLES_TMP)
 
     print()
-    print(f"Results: {passed} passed, {failed} failed")
+    print(f"Results: {passed} passed, {failed} failed, "
+          f"{skipped} skipped (env-gated)")
     if warnings:
         print(f"Warnings ({len(warnings)} — possible masked bugs):")
         for w in warnings:

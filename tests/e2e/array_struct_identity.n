@@ -1,0 +1,15 @@
+//D8 identity pin, struct-element shape: the compare gate must route
+//struct-element arrays by arrayness (identity, handle compare) — never
+//through the struct field-value arm, which the element row's kind
+//(NK_StructDecl) would otherwise bait the family dispatch into.
+struct Point {
+    public int x;
+    public Point(int v) { x = v; }
+}
+int main() {
+    Point[] a = [Point(1), Point(2)];
+    Point[] b = a;
+    Point[] c = [Point(1), Point(2)];
+    if (a == b && a != c && !(a == null)) { return 4; }
+    return 1;
+}

@@ -40,6 +40,55 @@ static constexpr uint8_t RTK_TypeParam = 20;
 //offsets) and whose tail carries strides/offset/target. The target cell
 //always names an OWNED RTK_Array record (depth one).
 static constexpr uint8_t RTK_ArrayView = 21;
+//v0.13.9 phase ③: declared kind of a byref slot (an &-bound local,
+//parameter or return slot). The slot holds the pair (base heap-record
+//handle, cell offset) — design doc §3.2 — so the base handle is always a
+//heap-domain record (struct/boxed/array) and the GC classifies the slot
+//as ESC_HeapIndex (single domain, like a struct slot's low half). Byrefs
+//are never stored: no field, element, container entry or static slot ever
+//declares this kind — it exists only on frame slot descriptors (and the
+//return-kind cell), which is why MarkFrameLocals/MarkFrameBand style
+//consumers route it and record-side consumers never see it.
+static constexpr uint8_t RTK_Byref = 22;
+//v0.13.9 phase ③ Task 11: declared kind of a PROMOTED slot (a scalar or
+//string local/param whose storage became a stable boxed record because a
+//& binding aliases it). Only the slot's low half is meaningful — the box
+//handle; the upper half is stale bytes the prologue's Assign left (every
+//consumer reads the low half). The GC routes it exactly like RTK_Byref
+//(ESC_HeapIndex, over-mark before the prologue rewrites a raw argument),
+//and like RTK_Byref it never appears on fields, elements, container
+//entries, static slots or return kinds. The debug display is the reason
+//the two kinds split: a promoted slot renders its plain value, a byref
+//slot renders the base->cell->value pair (ndb, spec §4). Kind-value
+//extension of the locals-table byte — rides the v2.21 floor, no layout
+//change.
+static constexpr uint8_t RTK_Promoted = 23;
+//v0.13.9 phase ③ Task 11: declared kind of a CELL-addressed byref slot
+//(`int&`/`string&`/enum-`&` bindings — a reference whose declared element
+//type is a scalar, string or enum). The pair always names a payload CELL
+//(box payload, struct/class field cell, array element cell), never a
+//whole record, so the debug display resolves the element kind from the
+//base family's own metadata even at cell 0 — the aggregate family
+//(RTK_Byref) renders an offset-0 pair as the whole record per the D9
+//convention, which is the wrong read for a first-field scalar &. Same
+//GC routing as RTK_Byref (ESC_HeapIndex on the pair's base handle).
+//Kind-value extension of the locals-table byte — rides the v2.21 floor,
+//no layout change.
+static constexpr uint8_t RTK_ByrefCell = 24;
+//v0.13.9 phase ③ Task 12: the IDENTITY-tier kind of an interface type —
+//TypeDesc channels (static-slot/param/return descriptors, field
+//descriptors) and arrayTypes element rows. It names WHICH interface the
+//declaration carries: the type-index/elem-index cell holds the
+//interfaces-table row, so cast rows and linker merges keep interface
+//identity (a shared sentinel row would let `I[] as J[]` pass; the old
+//scalar degrade also collided with int[] rows). The STORAGE tier is a
+//different question with a different answer: a slot or field typed by an
+//interface HOLDS a class handle, and RuntimeTypeKind files it RTK_Class —
+//RTK_Interface never appears in locals-table bytes, fieldTypeKinds,
+//signature leaves or return kinds. GC routing: a value under this kind
+//is a heap reference exactly like RTK_Class (MarkStaticSlotRoots's
+//reference arm; ArrayElemKindAccepts accepts runtime RTK_Class records).
+static constexpr uint8_t RTK_Interface = 25;
 //Descriptor-only kinds RTK_List / RTK_Dict / RTK_NonSerialized live in
 //TypeDesc.h (they appear inside TypeDesc, never in these legacy bytes).
 static constexpr uint8_t RTK_Null   = 0xFD;  //Option B: null default value (any reference type)
@@ -114,6 +163,12 @@ struct CompiledStruct {
     //after fieldCount. The consumer stub rebuilds SetConstAggregate()
     //from it, so a lost byte silently unseals imported const structs.
     bool isConstAggregate = false;
+    //v2.20 (0.13.8 item 5): the STRUCT's declared access (FA_*), the
+    //record's trailing wire byte — the consumer stub rebuilds the type
+    //declaration's visibility from it (the member bytes below carry the
+    //members'). FA_Public default keeps records created outside the AST
+    //capture pass (intrinsics, test forges) valid.
+    uint8_t access = FA_Public;
     std::vector<std::string> fieldNames;
     std::vector<uint16_t> fieldTypeKinds;       // RTK_* per field
     std::vector<uint16_t> fieldStructIndices;    // struct index for struct-typed fields, 0xFFFF for non-struct
@@ -125,7 +180,7 @@ struct CompiledStruct {
     //consumer re-saving the module emit correct descriptors.
     std::vector<TypeDesc> fieldTypeDescs;
     //0.9.11 (v2.6): constructor function indices in declaration order —
-    //struct constructors are registered bare-name members, so the
+    //struct constructors are registered unqualified-name members, so the
     //ordinal within this vector is the only stable cross-module selector
     //(SymbolImport::ownerOrdinal). Empty = the struct has no constructor.
     std::vector<uint16_t> constructorIndices;
@@ -227,7 +282,7 @@ struct CompiledFunction {
     //descriptor grammar"; stub reconstruction degrades to the int32
     //placeholder for those, while embed call marshalling defers to the
     //frame-layout locals table (CallMarshalling.h DeclaredParamKind).
-    //Intrinsics/builtins carry none (their records are minted without
+    //Intrinsics/builtins carry none (their records are created without
     //the AST capture pass and never become stubs).
     std::vector<ParamTypeDesc> paramTypeDescs;
     TypeDesc returnTypeDesc;
@@ -241,6 +296,15 @@ struct CompiledFunction {
     //with localsSize/paramCount makes the GC fall back to the
     //conservative band scan.
     std::vector<uint8_t> evalAreaHandleMask;
+    //v2.20 (0.13.8 item 5): the function's declared access (FA_*), the
+    //record's trailing wire byte. For FREE (namespace-level) functions
+    //this is the only access carrier on the wire; for members the owner
+    //row's per-member access tables already exist (the class
+    //methodAccess/constructorAccess, the struct ctor table, the enum
+    //method table) and this byte mirrors them. FA_Public default keeps
+    //records created outside the AST capture pass (intrinsics, test
+    //forges) valid.
+    uint8_t access = FA_Public;
 };
 
 struct CompiledModule;
@@ -335,6 +399,12 @@ struct CompiledClass {
     //the defaults.
     bool isTemplate = false;
     std::vector<std::string> typeParamNames;
+    //v2.20 (0.13.8 item 5): the CLASS's declared access (FA_*), the
+    //record's trailing wire byte — the consumer stub rebuilds the type
+    //declaration's visibility from it (the member tables above carry the
+    //members'). FA_Public default keeps records created outside the AST
+    //capture pass (intrinsics, test forges) valid.
+    uint8_t access = FA_Public;
 };
 
 //0.9.12 (v2.7): one exported interface instance-method signature. The
@@ -390,6 +460,13 @@ struct CompiledInterface {
     //packages stay instantiable. Non-template rows carry the defaults.
     bool isTemplate = false;
     std::vector<std::string> typeParamNames;
+    //v2.20 (0.13.8 item 5): the INTERFACE's declared access (FA_*), the
+    //record's trailing wire byte. Members are implicitly public by the
+    //declaration contract (see CompiledInterfaceMethod), so this byte
+    //gates only the type name itself. FA_Public default keeps records
+    //created outside the AST capture pass (intrinsics, test forges)
+    //valid.
+    uint8_t access = FA_Public;
 };
 
 } // namespace nlang
