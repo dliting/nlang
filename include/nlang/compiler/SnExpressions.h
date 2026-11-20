@@ -252,6 +252,36 @@ inline bool KeyIsIdentifier(const InitEntry &entry)
 	return entry.pKey && entry.pKey->Kind() == NK_IdentifierExpr;
 }
 
+//0.13.10: one lambda parameter item as written in the source. Three
+//shapes arrive from the cover grammar's list: an explicit type (`int x`,
+//pType + name), a bare name (`x`, name only — the parser folds the
+//identifier), or a raw expression item (`x+y`, pValueExpr — rejected by
+//the resolver's parameter gate, kept so the diagnostic can quote it).
+struct LambdaParam
+{
+	std::string     name;
+	SnFieldExpr    *pType      = nullptr;
+	SnExpression   *pValueExpr = nullptr;
+};
+
+//Shape predicates over a parsed parameter item — the shared vocabulary
+//of the parser's arrow-confirmed reorganization, the resolver's
+//parameter gate and the later display/codegen consumers (KeyIsAbsent
+//precedent).
+inline bool ParamIsTyped(const LambdaParam &param)
+{
+	return param.pType != nullptr;
+}
+inline bool ParamIsBare(const LambdaParam &param)
+{
+	return param.pType == nullptr && param.pValueExpr == nullptr
+		&& !param.name.empty();
+}
+inline bool ParamIsRawExpression(const LambdaParam &param)
+{
+	return param.pValueExpr != nullptr;
+}
+
 //The syntax node of a literal constant expression.
 class NLANG_COMPILER_API SnLiteralExpr: public SnExpression
 {
@@ -1192,6 +1222,49 @@ private:
 	bool                         m_isArrayForm;
 	SnField                     *m_pInferredTarget = nullptr;  //parent-set, bare form
 	SnFunction                  *m_pCtorFunction = nullptr;    //resolver-set, class form
+};
+
+class SnParagraph;
+
+//The lambda expression `(params) => body` (0.13.10). Parse-layer only in
+//this task: the resolver/codegen arms land with the typing tasks, so a
+//lambda reaching resolution asserts through the accessor catch-alls.
+//Exactly one of ExprBody()/BlockBody() is non-null. Params() items are
+//typed, bare or raw-expression (see LambdaParam).
+class NLANG_COMPILER_API SnLambdaExpr : public SnCompoundPlainExpr
+{
+	typedef SnCompoundPlainExpr Super_;
+public:
+	static const NodeKind	s_Kind			= NK_LambdaExpr;
+	static const NodeBits	s_DefaultFlags	= NF_Expression;
+public:
+	//Takes ownership of every node carried by the params and of both
+	//body slots. Children() order: each param's type then raw item, then
+	//the body (dual-storage contract — typed mirrors beside the list).
+	SnLambdaExpr(std::vector<LambdaParam> params,
+		SnExpression *pExprBody, SnParagraph *pBlockBody,
+		const ISourceLocation &loc);
+
+	~SnLambdaExpr() override;
+
+	const std::vector<LambdaParam> &Params() const { return m_params; }
+	SnExpression *ExprBody() const { return m_pExprBody; }
+	SnParagraph *BlockBody() const { return m_pBlockBody; }
+
+	//The parent-set expected function type (the SnInitListExpr
+	//InferredTarget channel): nullptr until the parent populates it.
+	SnField *InferredTarget() const { return m_pInferredTarget; }
+	void InferredTarget(SnField *pT) { m_pInferredTarget = pT; }
+
+	bool IsDataExpr() const override;
+	void Accept(ISyntaxNodeVisitor &) override;
+	std::string ToString() const override;
+	bool ReplaceChildNode(SyntaxNode*, SyntaxNode*) override;
+private:
+	std::vector<LambdaParam>     m_params;
+	SnExpression                *m_pExprBody  = nullptr;
+	SnParagraph                 *m_pBlockBody = nullptr;
+	SnField                     *m_pInferredTarget = nullptr;
 };
 
 //Phase 9c: named argument expression `name = expr` at call sites.

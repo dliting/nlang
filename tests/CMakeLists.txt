@@ -1556,6 +1556,21 @@ target_link_libraries(test_ast_containment
 
 add_test(NAME ast_containment_tests COMMAND test_ast_containment)
 
+# Lambda cover-grammar parse tests (lambda/closure plan Task 2): the
+# unified-prefix split, SnLambdaExpr node shapes, and the ParenPrefix
+# post-check rejections.
+add_executable(test_lambda_parse
+    test_compiler/test_lambda_parse.cpp
+)
+
+target_link_libraries(test_lambda_parse
+    PRIVATE
+        nlang_compiler
+        nlang_runtime
+)
+
+add_test(NAME lambda_parse_tests COMMAND test_lambda_parse)
+
 # Script-mode wrap unit tests (v0.9.1): entry synthesis driven in
 # process through the real build -> load -> link pipeline; entry
 # selection/signature asserted on the linked function table, the two
