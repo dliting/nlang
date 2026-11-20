@@ -369,9 +369,14 @@ void ExprResolveAccessor::PropagateNestedInitListTargets(SnInitListExpr &sn,
         for (auto &entry : sn.Entries())
         {
             auto *pValue = entry.pValue;
-            auto *pNested = pValue ? UntypedInitListOf(*pValue) : nullptr;
-            if (pNested)
+            if (!pValue)
+                continue;
+            if (auto *pNested = UntypedInitListOf(*pValue))
                 pNested->InferredTarget(pRowTarget);
+            //0.13.10: a lambda row entry takes the row token as its
+            //expected function type the same way.
+            else if (auto *pLambda = UntypedLambdaOf(*pValue))
+                pLambda->InferredTarget(pRowTarget);
         }
         return;
     }
@@ -380,14 +385,20 @@ void ExprResolveAccessor::PropagateNestedInitListTargets(SnInitListExpr &sn,
     for (size_t nIdx = 0; nIdx < entries.size(); ++nIdx)
     {
         auto *pValue = entries[nIdx].pValue;
-        auto *pNested = pValue ? UntypedInitListOf(*pValue) : nullptr;
-        if (!pNested)
+        if (!pValue)
             continue;
         SnField *pNestedTarget = pElemType;
         if (!pNestedTarget && !bIsArray)
             pNestedTarget = InitListEntryFieldType(*pTargetField, sn, nIdx);
-        if (pNestedTarget)
+        if (!pNestedTarget)
+            continue;
+        //0.9.0: nested bare brace entries inherit the slot type.
+        //0.13.10: a lambda entry inherits it as its expected function
+        //type (the same identity the entry's func-ref binding reads).
+        if (auto *pNested = UntypedInitListOf(*pValue))
             pNested->InferredTarget(pNestedTarget);
+        else if (auto *pLambda = UntypedLambdaOf(*pValue))
+            pLambda->InferredTarget(pNestedTarget);
     }
 }
 

@@ -10,6 +10,7 @@
 #include <nlang/runtime/NodeContainers.h>
 #include <nlang/runtime/AutoPointers.h>
 #include <functional>
+#include <map>
 #include <memory>
 #include <vector>
 #include <string>
@@ -1225,6 +1226,7 @@ private:
 };
 
 class SnParagraph;
+class SnLocalVar;
 
 //The lambda expression `(params) => body` (0.13.10). Parse-layer only in
 //this task: the resolver/codegen arms land with the typing tasks, so a
@@ -1234,6 +1236,10 @@ class SnParagraph;
 class NLANG_COMPILER_API SnLambdaExpr : public SnCompoundPlainExpr
 {
 	typedef SnCompoundPlainExpr Super_;
+	//The typing arm rewrites m_pExprBody after the cast fixup splice
+	//(the FixupExprType caller duty — the list node is replaced, the
+	//dual-storage mirror follows here).
+	friend class ExprResolveAccessor;
 public:
 	static const NodeKind	s_Kind			= NK_LambdaExpr;
 	static const NodeBits	s_DefaultFlags	= NF_Expression;
@@ -1260,11 +1266,36 @@ public:
 	void Accept(ISyntaxNodeVisitor &) override;
 	std::string ToString() const override;
 	bool ReplaceChildNode(SyntaxNode*, SyntaxNode*) override;
+
+	//0.13.10: the parameter descriptors — one SnLocalVar per parameter,
+	//created by the resolver's typing arm (a typed param mirrors its
+	//written token's resolved field; a bare param takes the expected
+	//type's positional argument). Lightweight descriptors like the
+	//paragraph locals: never child nodes, but owned here. The name map
+	//backs the body's name lookup (FindField answers them before the
+	//parent chain, so a parameter shadows outer scopes).
+	const std::vector<std::unique_ptr<SnLocalVar>> &ParamLocals() const
+	{
+		return m_upParamLocals;
+	}
+	SnLocalVar *AddParamLocal(const std::string &sName,
+		SnField *pTypeField, const ISourceLocation &loc);
+	SnField *FindParamLocal(const std::string &sName) const;
+	SnField *FindField(const std::string &sName) const override;
+
+	//0.13.10: return bookkeeping for the 「块体无return即void」 check —
+	//the statement resolver marks every value return it resolves inside
+	//the block; the typing arm reads the mark after the walk.
+	void SetBlockHasValueReturn() { m_bBlockHasValueReturn = true; }
+	bool HasBlockValueReturn() const { return m_bBlockHasValueReturn; }
 private:
 	std::vector<LambdaParam>     m_params;
 	SnExpression                *m_pExprBody  = nullptr;
 	SnParagraph                 *m_pBlockBody = nullptr;
 	SnField                     *m_pInferredTarget = nullptr;
+	bool                         m_bBlockHasValueReturn = false;
+	std::vector<std::unique_ptr<SnLocalVar>> m_upParamLocals;
+	std::map<std::string, SnLocalVar *>        m_paramLookup;
 };
 
 //Phase 9c: named argument expression `name = expr` at call sites.

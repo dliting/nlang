@@ -39,6 +39,34 @@ SnLambdaExpr::~SnLambdaExpr()
 {
 }
 
+SnLocalVar *SnLambdaExpr::AddParamLocal(const std::string &sName,
+	SnField *pTypeField, const ISourceLocation &loc)
+{
+	auto upLocal = std::make_unique<SnLocalVar>(sName, pTypeField, loc);
+	auto *pLocal = upLocal.get();
+	m_upParamLocals.push_back(std::move(upLocal));
+	m_paramLookup[sName] = pLocal;
+	return pLocal;
+}
+
+SnField *SnLambdaExpr::FindParamLocal(const std::string &sName) const
+{
+	auto it = m_paramLookup.find(sName);
+	return it != m_paramLookup.end() ? it->second : nullptr;
+}
+
+SnField *SnLambdaExpr::FindField(const std::string &sName) const
+{
+	//Lambda parameters answer before the parent chain — the body's
+	//name lookup walks context → params → enclosing scopes, so a
+	//parameter shadows a same-named outer local (the SnFunction
+	//params-first discipline).
+	if (auto *pLocal = FindParamLocal(sName))
+		return pLocal;
+	auto *pParent = Parent();
+	return pParent ? pParent->FindField(sName) : nullptr;
+}
+
 bool SnLambdaExpr::IsDataExpr() const
 {
 	//A lambda is a function value, not data.

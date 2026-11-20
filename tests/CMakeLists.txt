@@ -2107,6 +2107,30 @@ if(NLANG_BUILD_IDE)
     endif()
     nlang_add_qtest(lambda_param_tests test_lambda_params)
 
+    #Lambda typing through the expected-type channel (lambda/closure
+    #plan Task 4): asserts the resolution artifacts on the tree (NF_Resolved,
+    #the stamped func<...> instantiation, one param descriptor per
+    #parameter) and the typing diagnostic COUNTS through the real
+    #ModuleBuilder pipeline. The emission seam ("NLang backend") stays
+    #filtered until Tasks 5-7 light the lowering up.
+    add_executable(test_lambda_typing
+        test_compiler/test_lambda_typing.cpp
+    )
+    target_link_libraries(test_lambda_typing
+        PRIVATE
+            nlang_compiler
+            nlang_runtime
+            nlang_vm
+            Qt5::Test
+    )
+    if(WIN32)
+        add_custom_command(TARGET test_lambda_typing POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:Qt5::Core> $<TARGET_FILE:Qt5::Test>
+                $<TARGET_FILE_DIR:test_lambda_typing>)
+    endif()
+    nlang_add_qtest(lambda_typing_tests test_lambda_typing)
+
     #Override-signature / interface-contract diagnostics (P1): asserts
     #diagnostic COUNTS (the e2e manifest only does substring existence)
     #and the alias type-node identity fact the signature predicate sits on.

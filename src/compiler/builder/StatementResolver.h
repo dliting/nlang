@@ -11,10 +11,17 @@
 namespace nlang
 {
 
-class StatementResolveAccessor
+class StatementResolveAccessor : public ILambdaBodyResolver
 {
 public:
 	explicit StatementResolveAccessor(BuildEnvironment &env);
+
+	//0.13.10: the lambda block body's back-channel (ILambdaBodyResolver)
+	//— the expression accessor hands the lambda's block over during
+	//typing; the walk resolves its statements like any paragraph body
+	//(the params answer through the lambda's FindField on the parent
+	//chain).
+	void ResolveLambdaBlockBody(SnLambdaExpr &lambda) override;
 
 	//--- Phase 12 Step 1: switch family model (D1/D2) ----------------------
 	//Switch discriminants and labels come in three families: int (including
@@ -460,6 +467,15 @@ private:
 		int* m_pLoop;
 	};
 	ExprResolver m_ExprResolver;
+
+	//0.13.10: the lambda whose block body is being walked — return
+	//statements check against its stamped return type instead of the
+	//enclosing function's (save/restore in ResolveLambdaBlockBody, so
+	//nested lambdas stack).
+	SnLambdaExpr *m_pCurrLambda = nullptr;
+	//One return statement's lambda-context handling (the function path's
+	//mirror: bare/value/void checks against the stamped return type).
+	void ResolveLambdaReturn(SnReturnStmt &sn, SnLambdaExpr &lambda);
 };
 
 class StatementResolver

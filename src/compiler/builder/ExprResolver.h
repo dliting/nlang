@@ -276,6 +276,12 @@ bool IsFuncTypeDecl(SnField *pType);
 //the expression is not a brace list awaiting a target. Definition in
 //ExprResolverInitList.cpp.
 SnInitListExpr *UntypedInitListOf(SnExpression &expr);
+//0.13.10: the lambda counterpart of UntypedInitListOf — the node whose
+//expected function type can only come from its parent (the deferred
+//call arguments, the statement-side propagations). Null when the
+//expression is not a lambda awaiting a target. Definition in
+//ExprResolverLambda.cpp.
+SnLambdaExpr *UntypedLambdaOf(SnExpression &expr);
 //0.9.0: the target shapes a collection initializer lowers to — array
 //tokens, structs, List/Dict instantiations, non-builtin user classes.
 //Scalars / string / func types / builtin classes / interfaces / enums
@@ -328,6 +334,20 @@ class SnEnumDecl;
 //(A<A<T>> inside A<T>) dies with a diagnostic instead of a stack
 //overflow.
 constexpr int kMaxGenericInstantiationDepth = 16;
+
+
+/*
+0.13.10: the lambda block body's resolution back-channel. The statement
+resolver owns the statement machinery (locals, returns) the expression
+accessor lacks, so the lambda typing arm hands it the block. Implemented
+by StatementResolveAccessor, which wires itself at construction.
+*/
+class ILambdaBodyResolver
+{
+public:
+	virtual ~ILambdaBodyResolver() = default;
+	virtual void ResolveLambdaBlockBody(SnLambdaExpr &lambda) = 0;
+};
 
 
 /*
@@ -472,18 +492,19 @@ private:
 	std::vector<RescueStash> m_rescueStash;
 
 	//0.9.0: argument prologue of Access(SnInvokeExpr&) — collects the
-	//deferred bare brace arguments into the out vector, resolves every
-	//other argument, and validates the call syntax. False = the call is
-	//consumed as failed (the sweep already reported the brace args).
+	//deferred arguments (untyped brace shapes, 0.13.10 also lambdas)
+	//into the out vector, resolves every other argument, and validates
+	//the call syntax. False = the call is consumed as failed (the sweep
+	//already reported the deferred args).
 	bool ResolveInvokeArguments(SnInvokeExpr &snInvoke,
-		std::vector<SnExpression*> &deferredBraceArgs);
+		std::vector<SnExpression*> &deferredArgs);
 
 	//Chosen-callee admission gates of Access(SnInvokeExpr&) — the Phase
 	//9e out-on-dispatched veto and the Phase 12 bare-method reject.
 	//False = rejected (diagnostic logged, brace-arg sweep run).
 	bool AdmitChosenCallee(SnInvokeExpr &snInvoke, SnFunction *pCallee,
 		const std::vector<FormalBinding> &bindings,
-		const std::vector<SnExpression*> &deferredBraceArgs);
+		const std::vector<SnExpression*> &deferredArgs);
 
 	//0.7.3 B: token binder at the binding tails. The array-valued
 	//property is derived from the interned SnArrayTypeToken carried in
@@ -901,7 +922,7 @@ private:
 	/*
 	The failure tail of Access(SnInvokeExpr) — the 0.9.0 ctor fallback
 	(TryResolveCtorInvoke) ahead of the shared diagnostics. Split out of
-	Access for the 50-line function budget. deferredBraceArgs gates the
+	Access for the 50-line function budget. deferredArgs gates the
 	ctor route (count-only binding has no target for a brace argument)
 	and receives the missing-target sweep on the way out.
 	*/
@@ -909,7 +930,7 @@ private:
 		SnFunction *pCallee, bool bNameMatchedImported,
 		bool bVisibilityHintLogged,
 		const std::vector<SnFunction*> &candidates,
-		const std::vector<SnExpression*> &deferredBraceArgs,
+		const std::vector<SnExpression*> &deferredArgs,
 		bool bAmbiguousCall = false);
 
 	/*
@@ -1021,14 +1042,15 @@ private:
 		std::vector<FormalBinding> &bindings);
 
 	/*
-	0.9.0 (D11): resolve the deferred bare brace arguments once the
-	overload is chosen — each formal's declared type becomes the init
-	list's target. False when an argument failed (its diagnostic is
-	logged); the invoke stays unresolved, mirroring the func-ref path.
-	0.9.13 B2: named arguments resolve through their SnNamedArgExpr
-	wrapper, located via the invoke's child list.
+	0.9.0 (D11): resolve the deferred arguments once the overload is
+	chosen — each formal's declared type becomes the target (an init
+	list's target, or 0.13.10 a lambda's expected function type). False
+	when an argument failed (its diagnostic is logged); the invoke stays
+	unresolved, mirroring the func-ref path. 0.9.13 B2: named arguments
+	resolve through their SnNamedArgExpr wrapper, located via the
+	invoke's child list.
 	*/
-	bool ResolveDeferredBraceArgs(SnInvokeExpr &invoke,
+	bool ResolveDeferredArgs(SnInvokeExpr &invoke,
 		std::vector<FormalBinding> &bindings);
 
 	/*
@@ -1283,7 +1305,7 @@ private:
 	//(its own diagnostic already logged; rbSwept tells the caller the
 	//failure-tail sweep must not re-accept the diagnosed arguments).
 	bool TryInferArrayDimsDeferredArgs(SnInvokeExpr &snInvoke,
-		const std::vector<SnExpression*> &deferredBraceArgs,
+		const std::vector<SnExpression*> &deferredArgs,
 		bool &rbSwept);
 	//The LHS declared type published by the assign resolver for the
 	//RHS invoke (`Channel<int> c = Channel(4);` ctor arm and the
@@ -1292,6 +1314,11 @@ private:
 	//Consumed (cleared) by ResolveDeclaredGenericCtorTarget; cleared
 	//after RHS resolution otherwise.
 	SnField *m_pAssignTargetHint = nullptr;
+
+	//0.13.10: the lambda block body's back-channel (ILambdaBodyResolver
+	//above). Set by the statement resolver at construction; null means
+	//no statement pass owns this resolution (a named diagnostic fires).
+	ILambdaBodyResolver *m_pLambdaBodyResolver = nullptr;
 
 	//0.13.1a Task 5: the free-function sweep's last generic-inference
 	//failure (reset at each sweep entry; retained for the named
@@ -1473,6 +1500,25 @@ private:
 	//addressed field's declared type for struct/class targets.
 	void PropagateNestedInitListTargets(SnInitListExpr &sn,
 		SnField *pTargetField, SnField *pElemType, bool bIsArray);
+
+	//0.13.10: the phases of Access(SnLambdaExpr&) typing — the expected-
+	//type channel (spec §3.2): target validation, the positional
+	//parameter fill, and the two body arms. Definitions in
+	//ExprResolverLambda.cpp.
+	void TypeLambda(SnLambdaExpr &sn);
+	//The positional parameter fill: a bare parameter takes the expected
+	//type's positional argument; an explicit spelling resolves its type
+	//token and must match position-for-position (no variance). Fills one
+	//param descriptor per parameter. False = reported (diagnostic logged).
+	bool FillLambdaParams(SnLambdaExpr &sn, SnClassDecl &funcDecl);
+	//The expression body arm: resolve with the lambda as the scope base
+	//(the param descriptors answer the body's name lookup), then
+	//adjudicate the body's value against the expected return type.
+	void ResolveLambdaExprBody(SnLambdaExpr &sn, SnField *pReturnType);
+	//The block body arm: the back-channel walk plus the 「块体无return
+	//即void」 check — a return-less block against a non-void return type
+	//is a named error, never a silent garbage value.
+	void ResolveLambdaBlockBodyChannel(SnLambdaExpr &sn, SnField *pReturnType);
 	void CheckClassInitListForm(SnInitListExpr &sn, SnClassDecl *pClassDecl);
 	//0.9.11 T6 (D10): select the zero-formal ctor for an init list —
 	//the ctor-selection step of CheckClassInitListForm, split out for
@@ -1785,6 +1831,13 @@ public:
 	void SetAssignTargetHint(SnField *pTarget)
 	{
 		m_Accessor.m_pAssignTargetHint = pTarget;
+	}
+
+	//0.13.10: pass-through for the lambda block body's back-channel —
+	//the statement resolver wires itself at construction.
+	void SetLambdaBodyResolver(ILambdaBodyResolver &resolver)
+	{
+		m_Accessor.m_pLambdaBodyResolver = &resolver;
 	}
 
 	//Resolve the child data type nodes in a specified field.

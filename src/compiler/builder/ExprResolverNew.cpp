@@ -323,12 +323,12 @@ bool ExprResolveAccessor::TryResolveArrayDynCtorInvoke(SnInvokeExpr &snInvoke,
 //dims formal IS known (int[], spec), so this arm hands each deferred
 //literal that target and re-resolves it; the reopened gate then runs
 //the ordinary TryResolveArrayDynCtorInvoke flow. Mirrors
-//ResolveDeferredBraceArgs' wrapper discipline: named arguments keep
+//ResolveDeferredArgs' wrapper discipline: named arguments keep
 //their SnNamedArgExpr wrapper accepted (its Access propagates the inner
 //resolution into the invoke's child list).
 bool ExprResolveAccessor::TryInferArrayDimsDeferredArgs(
 	SnInvokeExpr &snInvoke,
-	const std::vector<SnExpression*> &deferredBraceArgs, bool &rbSwept)
+	const std::vector<SnExpression*> &deferredArgs, bool &rbSwept)
 {
 	rbSwept = false;
 	auto *pTypeDecl = ProbeCtorType(snInvoke.CalleeName(),
@@ -344,7 +344,7 @@ bool ExprResolveAccessor::TryInferArrayDimsDeferredArgs(
 	auto *pDimsTarget = m_Env.InternArrayTypeToken(
 		SnBuiltinDataType::InstanceOf(NK_Int32), 1);
 	bool bAllResolved = true;
-	for (auto *pArg : deferredBraceArgs)
+	for (auto *pArg : deferredArgs)
 	{
 		SnExpression *pInner = pArg;
 		if (pArg->Kind() == NK_NamedArgExpr)

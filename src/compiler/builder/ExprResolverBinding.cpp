@@ -155,6 +155,16 @@ int ExprResolveAccessor::ComputeBindingDistance(
 				return -1;
 			continue;
 		}
+		//0.13.10: a deferred lambda argument only admits a func-typed
+		//formal — the lambda types against the chosen formal in
+		//ResolveDeferredArgs (the same deferral contract as the brace).
+		if (UntypedLambdaOf(*b.pCallerExpr))
+		{
+			auto *pTgt = b.pFormal->EvalDataType();
+			if (!pTgt || !IsFuncTypeDecl(pTgt))
+				return -1;
+			continue;
+		}
 		auto *pSrc = b.pCallerExpr->EvalDataType();
 		auto *pTgt = b.pFormal->EvalDataType();
 		if (!pSrc || !pTgt)

@@ -23,6 +23,14 @@ void StatementResolveAccessor::Access(SnReturnStmt &sn)
 	auto pOuterFunc		= static_cast<SnFunction *>(m_pCurrType);
 	auto pResultExpr	= sn.Result();
 
+	//0.13.10: a return inside a lambda block checks against the lambda's
+	//stamped return type, not the enclosing function's.
+	if (m_pCurrLambda)
+	{
+		ResolveLambdaReturn(sn, *m_pCurrLambda);
+		return;
+	}
+
 	auto pReturnType = pOuterFunc->ReturnType();
 	if (!pResultExpr)
 	{
@@ -47,9 +55,12 @@ void StatementResolveAccessor::Access(SnReturnStmt &sn)
 	}
 
 	//0.9.0: a bare brace return value takes the declared return type as
-	//its target — the same identity FinishReturnExpr reads.
+	//its target — the same identity FinishReturnExpr reads. 0.13.10: a
+	//lambda return value takes it as its expected function type.
 	if (auto *pInitList = UntypedInitListOf(*pResultExpr))
 		pInitList->InferredTarget(pOuterFunc->EvalDataType());
+	else if (auto *pLambda = UntypedLambdaOf(*pResultExpr))
+		pLambda->InferredTarget(pOuterFunc->EvalDataType());
 
 	pResultExpr->Accept(*m_pVisitor);
 	//v0.13.9 phase 3: &-typed returns must return storage that outlives
@@ -93,6 +104,58 @@ bool StatementResolveAccessor::FinishReturnExpr(SnFunction &outerFunc,
 	if (m_ExprResolver.FixupExprType(iExpr, castInfo))
 		sn.m_pResult = &static_cast<SnCastExpr &>(*iExpr);
 	return true;
+}
+
+//0.13.10: one return statement inside a lambda block — the function
+//path's mirror against the LAMBDA's stamped return type (the first
+//type argument of the stamped func instantiation). Every shape reuse:
+//bare return under a non-void type, a value under func<void>, the
+//nested-lambda target push, and the cast choke point.
+void StatementResolveAccessor::ResolveLambdaReturn(SnReturnStmt &sn,
+	SnLambdaExpr &lambda)
+{
+	NLANG_ASSERT(m_pVisitor);
+	auto *pFuncType = lambda.EvalDataType();
+	NLANG_ASSERT(pFuncType && IsFuncTypeDecl(pFuncType));
+	auto typeArgs = GetGenericTypeArgs(
+		static_cast<SnClassDecl *>(pFuncType));
+	NLANG_ASSERT(!typeArgs.empty());
+	auto *pReturnType = typeArgs[0];
+	const bool bVoidReturn = pReturnType->Kind() == NK_Void;
+	auto pResultExpr = sn.Result();
+
+	if (!pResultExpr)
+	{
+		if (!bVoidReturn)
+			m_Env.Log(CLL_Error, sn.Location(),
+				"Missing return value in a return statement.");
+		return;
+	}
+	if (bVoidReturn)
+	{
+		m_Env.Log(CLL_Error, pResultExpr->Location(),
+			"the expected type \"%s\" returns void; this return "
+			"statement carries a value.",
+			pFuncType->ToString().c_str());
+		return;
+	}
+	//A nested lambda result takes the return type as its expected
+	//function type — the same identity the choke point reads.
+	if (auto *pInner = UntypedLambdaOf(*pResultExpr))
+		pInner->InferredTarget(pReturnType);
+	pResultExpr->Accept(*m_pVisitor);
+	//The never-returns bookkeeping: a resolved value return marks the
+	//lambda (the typing arm reads it after the block walk).
+	lambda.SetBlockHasValueReturn();
+	if (!pReturnType->IsResolved())
+		return;
+	auto pSourceType = pResultExpr->EvalDataType();
+	if (!pSourceType)
+		return;
+	auto castInfo = GetCastInfo(pSourceType, pReturnType);
+	auto iExpr = sn.Children().find(sn.m_pResult);
+	if (m_ExprResolver.FixupExprType(iExpr, castInfo))
+		sn.m_pResult = &static_cast<SnCastExpr &>(*iExpr);
 }
 
 void StatementResolveAccessor::Access(SnAssignStmt &sn)
