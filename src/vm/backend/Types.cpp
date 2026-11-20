@@ -52,13 +52,6 @@ uint8_t VmBackend::RuntimeTypeKind(SnField* pType) {
             return RTK_TypeParam;
         return RTK_Class;
     }
-    //An interface-typed declared slot (local, field, parameter) holds a heap
-    //object reference exactly like a class-typed one: the receiver is an
-    //instance of some implementing class. GC traces a declared slot only when
-    //its declared kind is an object kind, so classifying an interface slot as
-    //something else frees the live receiver on the next collection
-    //("method not found" on the record the allocator handed out next).
-    if (k == NK_InterfaceDecl) return RTK_Class;
     //Builtin data types: NK_* and RTK_* are independent numberings since
     //the basic-types expansion (NK_String=12 vs RTK_String=2 — the old
     //layout held a coincidental identity for int/float/string). Scalars

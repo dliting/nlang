@@ -146,6 +146,7 @@ add_library(nlang_vm
     NcuLoader.cpp
     NativeLibraryLoader.cpp
     TypeDesc.cpp
+    TypeDescIndices.cpp
 )
 
 #The IO poller abstraction (IoPoller.h) is a VM facility — the net
