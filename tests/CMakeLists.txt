@@ -2084,6 +2084,29 @@ if(NLANG_BUILD_IDE)
     endif()
     nlang_add_qtest(statement_diag_tests test_statement_diag)
 
+    #Lambda parameter-shape gate (lambda/closure plan Task 3): asserts
+    #the raw-expression rejection diagnostic COUNT through the real
+    #ModuleBuilder pipeline (the decomposed local-decl revisit is the
+    #double-report trap), and the parse-layer rejections of the
+    #default-value / '<'-led spellings.
+    add_executable(test_lambda_params
+        test_compiler/test_lambda_params.cpp
+    )
+    target_link_libraries(test_lambda_params
+        PRIVATE
+            nlang_compiler
+            nlang_runtime
+            nlang_vm
+            Qt5::Test
+    )
+    if(WIN32)
+        add_custom_command(TARGET test_lambda_params POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:Qt5::Core> $<TARGET_FILE:Qt5::Test>
+                $<TARGET_FILE_DIR:test_lambda_params>)
+    endif()
+    nlang_add_qtest(lambda_param_tests test_lambda_params)
+
     #Override-signature / interface-contract diagnostics (P1): asserts
     #diagnostic COUNTS (the e2e manifest only does substring existence)
     #and the alias type-node identity fact the signature predicate sits on.
