@@ -378,11 +378,64 @@ void VmExecutor::RegisterNativeBlocking(const std::string& name,
 void VmExecutor::CallNative(const CompiledFunction& callee,
     uint16_t callParamBase, uint8_t* locals, uint8_t* pResult)
 {
+    CallNativeDispatch(callee, callParamBase, locals, pResult);
+    //Ruling D27: one boundary check after dispatch covers every arm
+    //(host hook, blocking DLL, direct DLL).
+    CheckNativeStringResult(callee, pResult);
+}
+
+//Ruling D27: a declared-string native result lives in the ABI's
+//handle-or-null domain. 0 = the native produced no string — a contract
+//violation, not the empty string (a silent "" would hide the producer
+//bug); a non-live handle is a producer bug whose slot may already
+//hold recycled content, so reading it would decode an arbitrary
+//value. Both are host-level errors naming the function; internally
+//handle 0 IS the empty string (ruling D26), and the host's
+//string-producing API (newString) never hands out 0.
+void VmExecutor::CheckNativeStringResult(const CompiledFunction& callee,
+                                         const uint8_t* pResult) {
+    if (callee.returnTypeKind != RTK_String)
+        return;
+    int32_t handle = 0;
+    std::memcpy(&handle, pResult, sizeof(handle));
+    if (handle == 0)
+        throw std::runtime_error("NLang VM: native function '" +
+                                 callee.name + "' returned null string");
+    if (!IsLiveStringHandle(handle))
+        throw std::runtime_error(
+            "NLang VM: native function '" + callee.name +
+            "' returned invalid string handle " + std::to_string(handle));
+}
+
+void VmExecutor::CallNativeDispatch(const CompiledFunction& callee,
+    uint16_t callParamBase, uint8_t* locals, uint8_t* pResult)
+{
+    //Extension point ⑤: the host dispatch hook answers first — host
+    //registrations win over same-named DLL natives and never trigger a
+    //DLL load attempt (that is why this precedes EnsureNativeAvailable).
+    //K2 slice 4 (§2.5): host code is unauditable, so the hook always
+    //runs through the blocking protocol (staged cells + GIL release);
+    //a declined call merely wastes the (state-neutral) dance.
+    if (m_pHostFunctions) {
+        const CompiledFunction* cal = &callee;
+        //K7: the blocking protocol hands the GIL over through the
+        //thread's current holder — the guard supplies that holder
+        //once the dispatch window is gone.
+        GilEnsureGuard g(*this);
+        if (RunBlockingNative(callee, callParamBase, locals, pResult,
+                [this, cal](const uint8_t* args, uint32_t argc,
+                            uint8_t* ret) {
+                    return m_pHostFunctions->Call(*cal, args, argc, ret);
+                }))
+            return;
+    }
     EnsureNativeAvailable(callee.name);
     auto it = m_natives.find(callee.name);
     if (it == m_natives.end())
         throw std::runtime_error(
             "NLang VM: native function not registered: " + callee.name);
+    //The tensor native layer's device-array argument gate (v0.14.x):
+    //device-resident arguments ride the residency-checked slots.
     CheckDeviceArrayArgs(callee, callParamBase, locals);
     VmNativeHost host;
     InitNativeHost(host);

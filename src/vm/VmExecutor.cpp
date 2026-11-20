@@ -421,41 +421,6 @@ void VmExecutor::RunRootWindow(const CompiledFunction& entryFunc,
     }
 }
 
-std::string VmExecutor::FormatBacktrace() const {
-    std::string out;
-    std::string moduleName = m_currModule ? m_currModule->name : "<module>";
-    //UnwindFrames() is innermost-first (innermost's destructor ran first).
-    //v0.8.5: each frame names ITS compiled translation unit, not the
-    //current module (single-file builds only looked right by accident).
-    for (const auto& f : UnwindFrames())
-        out += "  at "
-            + FormatBacktraceFrame(f.funcName, f.sourceFile, f.currentLine,
-                                   moduleName)
-            + "\n";
-    return out;
-}
-
-//v0.8.5: see the header. std::string concatenation, not snprintf: paths
-//on Windows exceed no buffer and need no truncation policy.
-std::string FormatBacktraceFrame(const std::string& funcName,
-    const std::string& file, uint16_t line,
-    const std::string& fallbackModule) {
-    //Legacy spelling: "<module>.n" — the fallback owns the suffix so
-    //callers pass the bare module name.
-    const std::string loc = !file.empty() ? file : fallbackModule + ".n";
-    return funcName + " (" + loc + ":"
-        + (line != 0 ? std::to_string(static_cast<unsigned>(line))
-                     : std::string("?")) + ")";
-}
-//0.13.1c: a name-based dispatch landing on an abstract record means the
-//artifact escaped the compiler's instantiation gate (third-party
-//producer or tampering) — the record has no bytecode to run. Same
-//corruption family as "method not found", named distinctly.
-[[noreturn]] void VmExecutor::RaiseAbstractMethodError(
-    const std::string& methodName) const {
-    throw std::runtime_error("NLang VM: abstract method \"" + methodName
-        + "\" has no implementation.");
-}
 
 int32_t VmExecutor::ResolveElementArrayBase(uint16_t arr, uint8_t* locals,
                                              const char* opcode) {

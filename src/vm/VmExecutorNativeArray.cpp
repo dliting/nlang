@@ -42,7 +42,7 @@ VmNativeHost* Wrap(NativeHost* self) {
 static void FillArrayView(NativeArrayView* out,
                           std::vector<int32_t>& record,
                           const CompiledArrayType& at,
-                          size_t payloadBase) {
+                          size_t payloadBase, uint8_t residency) {
     //Stage-2 header: [2]=rank, [3]=elemCount, [4..]=dims, payload after
     //the padded header.
     const int32_t rank = record[2];
@@ -60,10 +60,19 @@ static void FillArrayView(NativeArrayView* out,
     out->elemKind = at.elemKind;
     out->elemCellBytes = static_cast<uint8_t>(
         ArrayElemCells(at.elemKind) * kHeapCellBytes);
-    out->reserved[0] = 0;
+    out->reserved[0] = residency;   //ABI v13: payload residency
     out->reserved[1] = 0;
     out->offset = 0;   //owning array: data already points at element zero
-    out->data = record.data() + payloadBase;   //payload base
+    if (residency == 1) {
+        //The device record's payload area is the descriptor: two int32
+        //cells holding the 64-bit device pointer.
+        void* devicePtr = nullptr;
+        std::memcpy(&devicePtr, record.data() + payloadBase,
+                    sizeof(devicePtr));
+        out->data = devicePtr;
+    } else {
+        out->data = record.data() + payloadBase;   //payload base
+    }
 }
 
 //ABI v10 view arm of getArrayView: fill from the VIEW record's own
@@ -76,7 +85,7 @@ static void FillViewArrayView(NativeArrayView* out,
                               std::vector<int32_t>& view,
                               std::vector<int32_t>& owner,
                               const CompiledArrayType& at,
-                              size_t ownerPayloadBase) {
+                              size_t ownerPayloadBase, uint8_t residency) {
     const int32_t rank = view[2];
     for (int32_t d = 0; d < rank; ++d)
         out->stridesInline[d] =
@@ -88,10 +97,17 @@ static void FillViewArrayView(NativeArrayView* out,
     out->elemKind = at.elemKind;
     out->elemCellBytes = static_cast<uint8_t>(
         ArrayElemCells(at.elemKind) * kHeapCellBytes);
-    out->reserved[0] = 0;
+    out->reserved[0] = residency;   //ABI v13: owner payload residency
     out->reserved[1] = 0;
     out->offset = view[ArrayViewOffsetCell(static_cast<uint8_t>(rank))];
-    out->data = owner.data() + ownerPayloadBase;
+    if (residency == 1) {
+        void* devicePtr = nullptr;
+        std::memcpy(&devicePtr, owner.data() + ownerPayloadBase,
+                    sizeof(devicePtr));
+        out->data = devicePtr;
+    } else {
+        out->data = owner.data() + ownerPayloadBase;
+    }
 }
 
 //ABI v10 view-record arm of NativeGetArrayView (declaration in
@@ -121,7 +137,8 @@ void VmExecutor::FillViewRecordArrayView(VmExecutor* e, int32_t handle,
             "getArrayView: corrupt array type index");
     FillViewArrayView(out, view, owner,
         e->m_currModule->arrayTypes[static_cast<size_t>(viewTypeIdx)],
-        ArrayPayloadBase(owner));
+        ArrayPayloadBase(owner),
+        e->m_arrResidency[static_cast<size_t>(target)]);
 }
 
 int VmExecutor::NativeGetArrayView(NativeHost* self, int32_t handle,
@@ -159,7 +176,8 @@ int VmExecutor::NativeGetArrayView(NativeHost* self, int32_t handle,
         || static_cast<size_t>(arrayTypeIdx) >= arrayTypes.size())
         e->RaiseNlangExceptionBase("getArrayView: corrupt array type index");
     FillArrayView(out, record,
-                  arrayTypes[static_cast<size_t>(arrayTypeIdx)], payloadBase);
+                  arrayTypes[static_cast<size_t>(arrayTypeIdx)], payloadBase,
+                  e->m_arrResidency[static_cast<size_t>(handle)]);
     return 1;
 }
 
