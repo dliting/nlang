@@ -10,6 +10,10 @@ Every entry of a pass runs with that pass's fixed CWD (manifest.txt:
 tests/e2e/, examples_manifest.txt: its own scratch dir), so a corpus that
 writes files must address them under ../temp/, which .gitignore keeps out
 of the repository — never next to the corpora.
+NLANG_E2E_SCRATCH_TAG=<name> namespaces this run's scratch under
+../temp/<name>/ and moves the manifest pass's run CWD into it, so several
+runners can work one manifest at the same time (the shard tool gives each
+shard its own tag); unset, every path and CWD is exactly as above.
 --timeout=SEC raises the flat 30 s per-test subprocess cap for this
 invocation only: the ASan-instrumented tree runs ~7x slower than Release,
 and its gate run needs more headroom for the pattern-budget case
@@ -48,6 +52,8 @@ import socket
 import subprocess
 import shutil
 import shlex
+import re
+from collections import namedtuple
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.normpath(os.path.join(SCRIPT_DIR, '..', '..'))
@@ -59,15 +65,76 @@ MANIFEST = os.path.join(SCRIPT_DIR, 'manifest.txt')
 #Flat per-test subprocess cap (compile and run), overridable per invocation
 #with --timeout=SEC (see the module docstring).
 TIMEOUT_SEC = 30
-#Scratch for corpora that write files by relative path: the manifest pass
-#runs with CWD = tests/e2e/, so its corpora address this dir as
-#../temp/fs/... . One dir replaces the two per-phase dirs it grew out of
-#(they held the same thing); every scratch dir lives under tests/temp/,
-#which .gitignore keeps out of the repository.
-FS_SCRATCH = os.path.join(SCRIPT_DIR, '..', 'temp', 'fs')
+#Root of every scratch dir the runner owns: tests/temp/, which .gitignore
+#keeps out of the repository.
+SCRATCH_ROOT = os.path.normpath(os.path.join(SCRIPT_DIR, '..', 'temp'))
+#Scratch namespace for concurrent runs, selected by
+#NLANG_E2E_SCRATCH_TAG (the shard tool sets one tag per shard). Concurrent
+#runs share the manifest, the sources and the .ncu output dir, but they
+#cannot share scratch: every run wipes its scratch per entry and again at
+#teardown, and wiping a file a sibling process still holds open raises on
+#Windows. The fs-writing corpora spell their scratch the literal relative
+#path ../temp/fs/..., resolved against the run CWD, so a tag nests its
+#whole scratch set one level down and moves the run CWD with it — the same
+#literal then resolves inside the tag:
+#    tests/temp/<tag>/cwd/../temp/fs == tests/temp/<tag>/temp/fs
+#Renaming the scratch dir instead would mean editing every corpus that
+#writes files. Unset, every path keeps its historical spelling and the
+#manifest pass keeps running in tests/e2e.
+_SCRATCH_DIRS = namedtuple('ScratchDirs', ('ns', 'fs', 'imports',
+                                           'examples', 'run_cwd'))
+#One directory name, nothing else: separators, '.'/'..' and blank space are
+#all out, so a tag cannot escape tests/temp/ or name an ambiguous dir.
+_SCRATCH_TAG_RE = re.compile(r'[A-Za-z0-9][A-Za-z0-9_-]*\Z')
+
+
+def _validated_scratch_tag(tag):
+    """Accept only a plain directory name as a scratch tag: the tag comes
+    from an environment variable and the layout relies on it naming one
+    directory under tests/temp/, nothing else. A name, not a path, so the
+    allowed characters are the ones that can never mean anything else."""
+    if not tag:
+        return ''
+    if not _SCRATCH_TAG_RE.match(tag):
+        raise ValueError(
+            f'NLANG_E2E_SCRATCH_TAG must be a single directory name, '
+            f'got {tag!r}')
+    return tag
+
+
+def scratch_paths(tag):
+    """(ns, fs, imports, examples, run_cwd) scratch dirs for one scratch
+    tag; untagged keeps the historical dirs and no private run CWD."""
+    tag = _validated_scratch_tag(tag)
+    if not tag:
+        return _SCRATCH_DIRS(
+            ns=None,
+            fs=os.path.join(SCRATCH_ROOT, 'fs'),
+            imports=os.path.join(SCRATCH_ROOT, 'imports'),
+            examples=os.path.join(SCRATCH_ROOT, 'examples'),
+            run_cwd=None)
+    ns = os.path.join(SCRATCH_ROOT, tag)
+    return _SCRATCH_DIRS(
+        ns=ns,
+        #<ns>/temp/fs, the sibling ../temp/fs resolves to from <ns>/cwd.
+        fs=os.path.join(ns, 'temp', 'fs'),
+        imports=os.path.join(ns, 'imports'),
+        examples=os.path.join(ns, 'examples'),
+        run_cwd=os.path.join(ns, 'cwd'))
+
+
+SCRATCH_TAG = _validated_scratch_tag(
+    os.environ.get('NLANG_E2E_SCRATCH_TAG', ''))
+_SCRATCH = scratch_paths(SCRATCH_TAG)
+#Namespace root a tagged run owns outright, None when untagged.
+SCRATCH_NS = _SCRATCH.ns
+#Scratch for corpora that write files by relative path (../temp/fs/...).
+FS_SCRATCH = _SCRATCH.fs
 #Per-test artifact dir for multi-module imports (see the directory-form
 #compile block): holds ONLY the earlier modules' .ncu files.
-IMPORTS_TMP = os.path.join(SCRIPT_DIR, '..', 'temp', 'imports')
+IMPORTS_TMP = _SCRATCH.imports
+#Run CWD of a tagged manifest pass, None when untagged (see run_dir_for).
+RUN_CWD = _SCRATCH.run_cwd
 
 #Shipped examples (examples/) run through the same compile+run gate.
 #Entries resolve against EXAMPLES_DIR; their .ncu/stdin/scratch all
@@ -76,7 +143,50 @@ IMPORTS_TMP = os.path.join(SCRIPT_DIR, '..', 'temp', 'imports')
 EXAMPLES_MANIFEST = os.path.join(SCRIPT_DIR, 'examples_manifest.txt')
 EXAMPLES_DIR = os.path.normpath(
     os.path.join(SCRIPT_DIR, '..', '..', 'examples'))
-EXAMPLES_TMP = os.path.join(SCRIPT_DIR, '..', 'temp', 'examples')
+EXAMPLES_TMP = _SCRATCH.examples
+
+
+def reset_scratch_dir(path):
+    """Wipe and recreate one scratch dir: an entry must not meet another
+    entry's leftovers, and the dir has to exist for relative writes. The
+    wipe is scoped to the path handed in, so a concurrent run under
+    another tag — and any file it still holds open — stays untouched."""
+    if os.path.isdir(path):
+        shutil.rmtree(path)
+    os.makedirs(path, exist_ok=True)
+
+
+def prepare_scratch():
+    """Create the scratch this run owns before its first entry: the fs
+    scratch corpora write into, plus the private run CWD of a tagged run
+    (an untagged run works in tests/e2e, which is already there)."""
+    reset_scratch_dir(FS_SCRATCH)
+    if RUN_CWD:
+        reset_scratch_dir(RUN_CWD)
+
+
+def teardown_scratch():
+    """Drop this run's scratch: a stale file left behind would be the next
+    run's first file-path corpus reading someone else's output. A tagged
+    run owns a whole namespace root, so one removal clears everything under
+    it without reaching into a sibling tag's files."""
+    if SCRATCH_NS:
+        if os.path.isdir(SCRATCH_NS):
+            shutil.rmtree(SCRATCH_NS)
+        return
+    for scratch in (FS_SCRATCH, IMPORTS_TMP, EXAMPLES_TMP):
+        if os.path.isdir(scratch):
+            shutil.rmtree(scratch)
+
+
+def run_dir_for(out_dir):
+    """CWD the program runs in, so its relative paths resolve where this
+    run owns them. A tagged manifest pass runs in its private dir; every
+    other pass keeps running in its out_dir, as before (tests/e2e for the
+    manifest pass, the examples scratch for the examples pass)."""
+    if out_dir == SCRIPT_DIR and RUN_CWD:
+        return RUN_CWD
+    return out_dir
 
 
 def _newest_file(paths):
@@ -459,15 +569,17 @@ def main():
             errors.append(
                 f"  {orphan}: run.stderr sidecar matches no manifest entry")
 
+    #Scratch for this run (per-tag namespace when NLANG_E2E_SCRATCH_TAG is
+    #set): created before the first entry, dropped in teardown_scratch.
+    prepare_scratch()
+
     for manifest_path, sources_dir, out_dir in _manifest_configs():
       with open(manifest_path, 'r', encoding='utf-8') as f:
         #Scratch dir for the examples pass: reset once before its lines
         #(each example writes distinct files, so per-entry reset is not
         #needed); the manifest pass never creates it.
         if out_dir == EXAMPLES_TMP:
-            if os.path.isdir(EXAMPLES_TMP):
-                shutil.rmtree(EXAMPLES_TMP)
-            os.makedirs(EXAMPLES_TMP)
+            reset_scratch_dir(EXAMPLES_TMP)
         for line in f:
             line = line.strip()
             if not line or line.startswith('#'):
@@ -702,14 +814,14 @@ def main():
                         errors.append(f"    stderr: {stderr_text.splitlines()[0]}")
                 continue
 
-            #Manifest pass only: its CWD is tests/e2e/, so the scratch dir
-            #has to exist and be empty when the program starts — one entry
-            #must not see another's leftovers. The examples pass owns its
-            #own pre-cleaned CWD (see the out_dir handling in main).
+            #Manifest pass only: its CWD (tests/e2e/, or the tagged run's
+            #private dir) resolves ../temp/fs/... to FS_SCRATCH, so that
+            #dir has to exist and be empty when the program starts — one
+            #entry must not see another's leftovers. The examples pass
+            #owns its own pre-cleaned CWD (see the out_dir handling in
+            #main).
             if out_dir == SCRIPT_DIR:
-                if os.path.isdir(FS_SCRATCH):
-                    shutil.rmtree(FS_SCRATCH)
-                os.makedirs(FS_SCRATCH, exist_ok=True)
+                reset_scratch_dir(FS_SCRATCH)
 
             # Compile
             #0.7.5: <name>.ncc.flags (if present) supplies extra ncc CLI
@@ -726,10 +838,13 @@ def main():
             #compile look successful; the rejection gate owns the slot.
             if expected == "compile_error" and os.path.isfile(nmod_file):
                 os.remove(nmod_file)
+            #Fixed compile CWD: ncc takes an explicit -o, and a compiler
+            #that ignored it would drop the artifact in the CWD — pinned to
+            #out_dir so concurrent runs cannot pick each other's up.
             try:
                 compile_result = subprocess.run(
                     [ncc, 'build', test_file, '-o', nmod_file] + ncc_extra,
-                    capture_output=True, timeout=TIMEOUT_SEC)
+                    capture_output=True, timeout=TIMEOUT_SEC, cwd=out_dir)
             except Exception as e:
                 print(f"FAIL {name} (compile error: {e})")
                 failed += 1
@@ -737,15 +852,12 @@ def main():
                 continue
 
             if not os.path.isfile(nmod_file):
-                # ncc may output .ncu in CWD; try looking there. Only a
-                # successful compile can have produced it — on a non-zero
-                # exit the file is a stale artifact from an earlier run
-                # (a manual red-light probe, for instance) and must not
-                # mask the expected rejection.
-                cwd_nmod = os.path.join(os.getcwd(), f"{name}.ncu")
-                if compile_result.returncode == 0 and os.path.isfile(cwd_nmod):
-                    shutil.move(cwd_nmod, nmod_file)
-                elif expected == "compile_error":
+                #No artifact where the pinned compile CWD and -o put it: the
+                #compile did not produce one. On a non-zero exit a file that
+                #did survive an earlier run (a manual red-light probe, for
+                #instance) is stale and must not mask the expected rejection,
+                #which is why the slot is deleted before the compile.
+                if expected == "compile_error":
                     #For compile_error tests an optional column 3 is the
                     #substring ncc's diagnostics (stderr) must contain —
                     #it pins the rejection reason, not just the failure.
@@ -811,11 +923,12 @@ def main():
                     continue
 
             # Run
-            #One fixed CWD per pass: manifest entries run in tests/e2e/ so
-            #their ../temp/fs/... scratch paths resolve, and shipped
-            #examples run in their scratch dir because several write files
-            #next to their CWD (fs_example/, io_example.txt).
-            run_cwd = out_dir
+            #One fixed CWD per pass: manifest entries run in tests/e2e/ (or
+            #in the scratch tag's own dir, see run_dir_for) so their
+            #../temp/fs/... scratch paths resolve, and shipped examples run
+            #in their scratch dir because several write files next to their
+            #CWD (fs_example/, io_example.txt).
+            run_cwd = run_dir_for(out_dir)
             #Phase 11: <name>.stdin (if present) is piped to the program —
             #io.readLine tests drive stdin through it.
             stdin_path = os.path.join(sources_dir, f"{name}.stdin")
@@ -936,11 +1049,8 @@ def main():
                     errors.append(
                         f"    stderr: {stderr_text.splitlines()[0]}")
 
-    #Final cleanup: drop the scratch dirs — a stale file left here would be
-    #the next run's first file-path corpus reading someone else's output.
-    for scratch in (FS_SCRATCH, IMPORTS_TMP, EXAMPLES_TMP):
-        if os.path.isdir(scratch):
-            shutil.rmtree(scratch)
+    #Final cleanup: drop the scratch dirs this run owns.
+    teardown_scratch()
 
     print()
     print(f"Results: {passed} passed, {failed} failed, "

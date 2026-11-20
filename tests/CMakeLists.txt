@@ -3387,3 +3387,17 @@ else()
     message(STATUS "e2e_runner_env_gate skipped: pytest is not importable "
         "via '${NLANG_DOCS_PYTHON}' (pip install pytest to enable)")
 endif()
+
+#The runner's scratch namespace (NLANG_E2E_SCRATCH_TAG): the path geometry
+#that keeps concurrent shards out of each other's scratch dirs, plus the
+#teardown containment check (one real subprocess per tagged run).
+if(NLANG_RUNNER_PYTEST_PROBE EQUAL 0)
+    add_test(NAME e2e_runner_scratch_isolation
+        COMMAND ${NLANG_DOCS_PYTHON} -m pytest
+            ${PROJECT_SOURCE_DIR}/tests/e2e/test_runner_scratch_isolation.py -q
+        WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/tests/e2e)
+    set_tests_properties(e2e_runner_scratch_isolation PROPERTIES TIMEOUT 60)
+else()
+    message(STATUS "e2e_runner_scratch_isolation skipped: pytest is not "
+        "importable via '${NLANG_DOCS_PYTHON}' (pip install pytest to enable)")
+endif()
