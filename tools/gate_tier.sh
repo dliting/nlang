@@ -79,21 +79,33 @@ leg() { # leg <name> <command...>
   echo "leg $name rc=$?"
 }
 
-ctest_excludes() { # anchored ctest -E pattern from the defer file
+ctest_exclude_arg() { # emits " -E '<anchored regex>'" ready to embed in
+  #                     the inner bash -c string; nothing when the trim
+  #                     is off; rc=2 on a malformed defer file
   [ -s "$PERF_DEFER_CTEST" ] || return 1
-  local names pattern
+  local names bad joined
   names=$(grep -v '^[[:space:]]*#' "$PERF_DEFER_CTEST" |
-          grep -v '^[[:space:]]*$')
+          grep -v '^[[:space:]]*$') || return 1
   [ -n "$names" ] || return 1
-  pattern=$(paste -sd'|' - <<<"$names")
-  echo "-E ^($pattern)\$"
+  #The regex rides unquoted bytes inside a single-quoted inner script;
+  #identifiers only, so no entry can smuggle a quote past the sandbox.
+  bad=$(grep -vE '^[A-Za-z0-9_]+$' <<<"$names") || true
+  if [ -n "$bad" ]; then
+    echo "malformed ctest defer entries (identifiers only): $bad" >&2
+    return 2
+  fi
+  joined=$(paste -sd'|' - <<<"$names")
+  echo " -E '^(${joined})\$'"
 }
 
 ctest_leg() { # ctest_leg <name> <tree>
-  local exclude=()
-  local pattern
-  pattern=$(ctest_excludes) && exclude=($pattern)
-  leg "$1" bash -c "cd '$2' && ctest -C Debug ${exclude[*]}"
+  local exclude=""
+  exclude=$(ctest_exclude_arg)
+  if [ $? -eq 2 ]; then
+    echo "ctest_leg: refusing to run - fix the ctest defer file" >&2
+    return 2
+  fi
+  leg "$1" bash -c "cd '$2' && ctest -C Debug${exclude}"
 }
 
 e2e_leg() { # e2e_leg <name> <tree> <config> [manifest] [timeout]
@@ -185,11 +197,14 @@ t0() {
     echo "T0: impact mapping failed rc=$rc"; return 2
   fi
   if [ -n "$unit_regex" ]; then
-    local exclude=()
-    local pattern
-    pattern=$(ctest_excludes) && exclude=($pattern)
+    local exclude=""
+    exclude=$(ctest_exclude_arg)
+    if [ $? -eq 2 ]; then
+      echo "T0: fix the ctest defer file" >&2
+      return 2
+    fi
     leg T0-unit bash -c \
-      "cd '$MASTER_TREE' && ctest -C Debug -R '$unit_regex' ${exclude[*]}"
+      "cd '$MASTER_TREE' && ctest -C Debug -R '$unit_regex'${exclude}"
   fi
   if [ -n "$e2e_regex" ]; then
     grep -E "$e2e_regex" "$REPO/tests/e2e/manifest.txt" \
