@@ -52,23 +52,27 @@ bool VmExecutor::OpCallStatic(BytecodeReader& reader, uint8_t* locals, uint8_t* 
 
 void VmExecutor::OpMakeFunc(BytecodeReader& reader, uint8_t* pResult) {
     //Static-bound handle to a free function: {funcIdx, this=0,
-    //form=0}. Allocation always happens (no interning) so two
+    //form=0, descIdx}. Allocation always happens (no interning) so two
     //references to one function are distinct-but-equal records.
-    //0.13.1a: the resolver rejects generic targets at compile time
-    //(a value has no descriptor to pair with); this guard is the
-    //defense backstop for hand-built or linked images.
+    //v2.23: a generic target carries its instantiation descriptor row
+    //in the operand — the guard rejects only the descriptor-less form
+    //(hand-built or linked images); a paired row resolves T at call
+    //time through the callee frame cell.
     //K8: lock-free — AllocFuncRecord pops the calling carrier's
     //shard; the function table is link-time read-only.
     uint16_t funcIdx = reader.ReadUint16();
+    uint16_t descIdx = reader.ReadUint16();
     if (funcIdx >= m_currModule->functions.size())
         throw std::runtime_error("NLang VM: invalid function index in MakeFunc");
-    if (m_currModule->functions[funcIdx].isGeneric)
+    if (m_currModule->functions[funcIdx].isGeneric
+        && descIdx == kInstDescNone)
         throw std::runtime_error(
-            "NLang VM: a generic function cannot be referenced as a "
-            "value; call it directly: "
+            "NLang VM: a generic function value requires an "
+            "instantiation descriptor row: "
             + m_currModule->functions[funcIdx].name);
     int32_t heapIdx = AllocFuncRecord(
-        static_cast<int32_t>(funcIdx), 0, kFuncFormStatic);
+        static_cast<int32_t>(funcIdx), 0, kFuncFormStatic,
+        static_cast<int32_t>(descIdx));
     std::memcpy(pResult, &heapIdx, sizeof(heapIdx));
 }
 
@@ -111,7 +115,8 @@ void VmExecutor::OpMakeBoundFunc(BytecodeReader& reader, uint8_t* pResult) {
         throw std::runtime_error(
             "NLang VM: invalid function index in MakeBoundFunc");
     int32_t heapIdx = AllocFuncRecord(
-        static_cast<int32_t>(funcIdx), thisIdx, kFuncFormStatic);
+        static_cast<int32_t>(funcIdx), thisIdx, kFuncFormStatic,
+        kInstDescNone);
     std::memcpy(pResult, &heapIdx, sizeof(heapIdx));
 }
 
@@ -132,7 +137,8 @@ void VmExecutor::OpMakeVFunc(BytecodeReader& reader, uint8_t* pResult) {
         throw std::runtime_error(
             "NLang VM: invalid string index in MakeVFunc");
     int32_t heapIdx = AllocFuncRecord(
-        static_cast<int32_t>(nameIdx), thisIdx, kFuncFormVirtual);
+        static_cast<int32_t>(nameIdx), thisIdx, kFuncFormVirtual,
+        kInstDescNone);
     std::memcpy(pResult, &heapIdx, sizeof(heapIdx));
 }
 
@@ -243,14 +249,18 @@ void VmExecutor::OpCallIntrinsic(BytecodeReader& reader, uint8_t* locals, uint8_
 }
 
 //Phase 13: allocate one function-handle heap record. Mirrors
-//AllocBoxedValue's freelist discipline; 3 slots and RTK_Func kind.
+//AllocBoxedValue's freelist discipline; 4 slots and RTK_Func kind.
+//v2.23: cell 3 is the instantiation descriptor row (kInstDescNone
+//sentinel for non-generic targets and for bound/virtual forms, whose
+//descriptor rides the receiver-head channel instead).
 int32_t VmExecutor::AllocFuncRecord(int32_t target, int32_t thisIdx,
-                                    int32_t form) {
+                                    int32_t form, int32_t descIdx) {
     const int32_t heapIdx = TakeHeapSlot();
-    m_structHeap[static_cast<size_t>(heapIdx)].assign(3, 0);
+    m_structHeap[static_cast<size_t>(heapIdx)].assign(4, 0);
     m_structHeap[static_cast<size_t>(heapIdx)][0] = target;
     m_structHeap[static_cast<size_t>(heapIdx)][1] = thisIdx;
     m_structHeap[static_cast<size_t>(heapIdx)][2] = form;
+    m_structHeap[static_cast<size_t>(heapIdx)][3] = descIdx;
     m_slotKinds[static_cast<size_t>(heapIdx)] = RTK_Func;
     m_slotStructIdx[static_cast<size_t>(heapIdx)] = 0;
     NoteGcPressure();
@@ -331,14 +341,17 @@ int VmExecutor::ResolveDelegateTarget(const std::vector<int32_t>& handle) {
 
 //Free-function ABI — identical to OP_CallStatic: natives read their args
 //straight from the caller's callParamBase cells.
-//0.13.1a: a generic callee has no descriptor source through a handle
-//(MakeFunc rejects at bind time; this guard is the defense backstop).
+//v2.23: the handle's descriptor cell (cell 3) fills the callee frame —
+//a generic value resolves T through its paired row. The guard rejects
+//only the descriptor-less generic form (hand-built or linked images;
+//MakeFunc already refuses it at bind time).
 bool VmExecutor::CallDelegateFree(const CompiledFunction& callee,
-    uint16_t callParamBase, uint8_t* locals, uint8_t* pResult) {
-    if (callee.isGeneric)
+    int32_t handleDescIdx, uint16_t callParamBase, uint8_t* locals,
+    uint8_t* pResult) {
+    if (callee.isGeneric && handleDescIdx == kInstDescNone)
         throw std::runtime_error(
-            "NLang VM: a generic function cannot be referenced as a "
-            "value; call it directly: " + callee.name);
+            "NLang VM: a generic function value requires an "
+            "instantiation descriptor row: " + callee.name);
     if (callee.isNative) {
         //v0.13.0 net R7: park re-entry re-executes this call — undo the
         //past-the-call pc the delegate op staged (OpCallStatic native-
@@ -352,7 +365,7 @@ bool VmExecutor::CallDelegateFree(const CompiledFunction& callee,
         throw std::runtime_error(
             "NLang VM: callee locals smaller than the parameter "
             "block in CallDelegate");
-    PushCalleeFrame(callee, callParamBase, kInstDescNone, 0);
+    PushCalleeFrame(callee, callParamBase, handleDescIdx, 0);
     return true;
 }
 
@@ -385,9 +398,12 @@ bool VmExecutor::CallDelegateBound(const CompiledFunction& callee,
 //Phase 13 Step 2: shared OP_CallDelegate engine. Handle layout:
 //[0]=target (funcIdx for form 0, nameIdx for form 1), [1]=this
 //(0 ⟺ free function — the bind-time null guard establishes this
-//invariant), [2]=form. Frame layout differs by form:
+//invariant), [2]=form, [3]=descriptor row (v2.23; kInstDescNone for
+//non-generic targets and bound/virtual forms). Frame layout differs
+//by form:
 //  - free function: args copy verbatim from callParamBase (OP_CallStatic
-//    ABI; natives read straight from the caller's cells);
+//    ABI; natives read straight from the caller's cells); the handle's
+//    descriptor cell fills the callee frame;
 //  - bound method: the captured receiver occupies callee slot 0 and the
 //    caller's args (staged WITHOUT this) shift right by one.
 bool VmExecutor::ExecuteDelegateCall(const std::vector<int32_t>& handle,
@@ -397,7 +413,8 @@ bool VmExecutor::ExecuteDelegateCall(const std::vector<int32_t>& handle,
     const CompiledFunction& callee
         = m_currModule->functions[static_cast<size_t>(funcIndex)];
     if (thisIdx == 0)
-        return CallDelegateFree(callee, callParamBase, locals, pResult);
+        return CallDelegateFree(callee, handle[3], callParamBase, locals,
+                                pResult);
     return CallDelegateBound(callee, thisIdx, callParamBase, locals,
                              pResult);
 }

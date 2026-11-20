@@ -29,7 +29,11 @@ function value land in the caller; a `&` return passes the
 callee's reference through to the binding side.
 
 A value of a function type denotes a function: a free function, a
-static method, or a method bound to an instance (§5.9). The
+static method, or a method bound to an instance (§5.9). A generic
+function can be referenced too — its value denotes one
+instantiation of the function: the type arguments are inferred
+from the expected function type, or named by the qualified
+instantiation spelling (`Tag<int>.tag`, §4.12). The
 default value is `null`; calling a `null` function value is a
 run-time error. A function value is a reference type whose only
 implicit conversion is to `string` (§4.4): it does not enter
@@ -63,7 +67,10 @@ error (§5.6); forming a bound reference on a null receiver raises a
 catchable run-time error at the formation site.
 
 Two function values compare equal under `==` when they denote the
-same function and, for a bound reference, carry equal receivers;
+same instantiation of the same function — a generic function's
+instantiation participates in equality: two values of one function
+with different instantiations are not equal — and, for a bound
+reference, carry equal receivers;
 `!=` is the complement, and `== null` is allowed. Ordering
 comparisons are compile-time errors. A function value renders
 through `toString` (§5.3, §4.11.2).
@@ -153,7 +160,8 @@ on delegate invocations are rejected.
 ### Equality, null, toString
 
 *Informative:* `f == g` / `f != g` compare **handle content** (target +
-receiver + form): two references to the same function are equal. `f ==
+receiver + form + instantiation descriptor): two references to the
+same function and instantiation are equal. `f ==
 null` and `f != null` are valid. Ordering comparisons (`< <= > >=`) and
 comparisons with non-`func` operands are compile errors.
 
@@ -166,7 +174,7 @@ comparisons with non-`func` operands are compile errors.
   handles).
 - `List<func<...>>`'s `contains` / `indexOf` compare elements by
   `==` equality — two independent references to the same function
-  count as a match (§12.1).
+  and instantiation count as a match (§12.1).
 
 ### Restrictions
 

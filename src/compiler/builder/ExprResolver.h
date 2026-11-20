@@ -159,6 +159,26 @@ Shared by ExprResolver (argument positions) and StatementResolver
 bool BindFuncRefToExpected(BuildEnvironment &env, SnIdentifierExpr &idExpr,
 	SnField *pExpected);
 
+//0.13.10 Task 5: signature unification of a GENERIC declaration against
+//an expected func instantiation (the value-binding twin of the invoke
+//channel's inference). True = outArgs filled, indexed by type-parameter
+//ordinal; false = arity/shape mismatch (the binder's existing
+//"does not match the signature" diagnostic stays the report).
+bool UnifyGenericFuncRefAgainst(const SnFunction &func,
+	SnClassDecl *pFuncDecl, GenericInstanceRegistry &generics,
+	std::vector<SnField*> &outArgs);
+
+//0.13.10 Task 5: unify a generic CLASS's type parameters from the
+//expected func instantiation's slots (the inferred static-reference
+//arm, Tag.tag against func<string>). True = outBindings filled, indexed
+//by the class's type-parameter ordinal. On failure rbUnderdetermined
+//marks the CS0411 shape: the signature mentions none of the class's
+//parameters, so the expected type gives no binding.
+bool UnifyClassStaticRefAgainst(const SnFunction &method,
+	SnClassDecl &tmpl, SnClassDecl *pFuncDecl,
+	GenericInstanceRegistry &generics, std::vector<SnField*> &outBindings,
+	bool &rbUnderdetermined);
+
 /*
 Phase 13 Step 2: bind a pending bound-method reference (receiver.name in
 a value position, see IsUnboundMemberFuncRef) to the expected func<...>
@@ -174,7 +194,8 @@ structurally, like the unqualified-name form.
 resolving the statement.
 */
 bool BindMemberFuncRefToExpected(BuildEnvironment &env,
-	SnMemberExpr &snMember, SnField *pExpected);
+	SnMemberExpr &snMember, SnField *pExpected,
+	ExprResolveAccessor *pAccessor = nullptr);
 
 /*
 Phase 13: loose pending predicate — true while a bare function
@@ -215,6 +236,10 @@ inline bool IsModuleOwnedFunction(const SnField &func)
 //carry no receiver and always take the static OP_MakeFunc form; wording
 //and gate checks branch on this predicate (the VM side keeps its own
 //static copy in EmitExprMember.cpp: subsystem boundary).
+//Class-decl collector shared by the func-ref bind TUs (walks the
+//subtree, collects NK_ClassDecl nodes depth-first).
+void CollectClassDecls(SyntaxNode &node, std::vector<SnClassDecl*> &out);
+
 inline bool IsReceiverlessFuncRefTarget(const SnField &func)
 {
 	return IsModuleOwnedFunction(func) || func.ContainFlags(NF_Static);
@@ -444,6 +469,16 @@ public:
 	{
 		NLANG_ASSERT(false && "invalid expression.");
 	}
+
+	//0.13.10 Task 5: the inferred static-reference arm (Tag.tag against
+	//an expected func<...>): unify the CLASS's type parameters from the
+	//expected func slots, create/adopt the instantiation through
+	//GetDeclaredGenericClassDecl, and rebind the member pair to the
+	//clone — the explicit-spelling shape. False = unification mismatch
+	//(the named diagnostic is logged; the caller stops the statement).
+	bool BindInferredGenericStaticClone(BuildEnvironment &env,
+		SnMemberExpr &snMember, SnFunction &tmplMethod, SnClassDecl &tmpl,
+		SnClassDecl *pFuncDecl);
 private:
 	explicit ExprResolveAccessor(BuildEnvironment &env) : m_Env(env),
 		m_pVisitor(nullptr), m_pContext(nullptr), m_pAccessor(nullptr)
@@ -1115,6 +1150,13 @@ private:
 	bool SkipNullIdentityWrap(SnExpression &srcExpr, TypeCastInfo &castInfo);
 	bool TryFixupNamedArgBinding(SnInvokeExpr &invoke, FormalBinding &b,
 		TypeCastInfo &castInfo);
+	//0.13.10 Task 5: the delegate-call constant-fit pre-pass (defined in
+	//ExprResolverDelegate.cpp; free-function extraction would lose the
+	//private gate access). rbRejected = an out-of-range constant was
+	//already named by the gate. True = the argument is fully handled.
+	bool ConstantFitPreWrap(SnInvokeExpr &invoke, SnExpression &arg,
+		SnField *pFormal, size_t slot,
+		const std::vector<uint8> &refFlags, bool &rbRejected);
 
 	/*
 	2026-09-27 decomposition of Access(SnBinaryExpr&)
@@ -1838,6 +1880,15 @@ public:
 	void SetLambdaBodyResolver(ILambdaBodyResolver &resolver)
 	{
 		m_Accessor.m_pLambdaBodyResolver = &resolver;
+	}
+
+	//0.13.10 Task 5: the owning accessor for binding channels that need
+	//the instantiation machinery (the inferred generic-static function
+	//reference creates the instance through
+	//ExprResolveAccessor::GetDeclaredGenericClassDecl).
+	ExprResolveAccessor& Accessor()
+	{
+		return m_Accessor;
 	}
 
 	//Resolve the child data type nodes in a specified field.

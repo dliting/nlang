@@ -1,0 +1,10 @@
+//delegate-call constant fit, range arm: a constant that does NOT fit
+//the formal gets the named out-of-range diagnostic (the same verdict
+//the assignment path reports), never a silent raw-bit pass.
+float half(float x) { return x / 2; }
+
+int main() {
+    func<float, float> d = half;
+    float r = d(1.0e300);
+    return 0;
+}

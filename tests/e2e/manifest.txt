@@ -532,7 +532,10 @@ err_generic_t_eq_static 0
 err_generic_t_order compile_error cannot be applied to a type parameter
 err_generic_t_arith compile_error cannot be applied to a type parameter
 err_static_t_order_stays compile_error cannot be applied to a type parameter
-err_generic_func_value compile_error cannot be referenced as a value
+# --- 0.13.10 Task 5: generic function values (the 0.13.1a reject retires) ---
+generic_free_func_value 0
+generic_static_func_value 0
+generic_func_value_equality 0
 # --- P3.8: lock class field default values (int/float/string/class-ref) ---
 class_field_defaults 7
 # --- P3.8: cover switch on string discriminator ---
@@ -1428,6 +1431,8 @@ delegate_arg_upcast 2
 delegate_arg_array_exact 9
 delegate_arg_array_reject compile_error incompatible
 delegate_arg_widen_reject compile_error incompatible
+delegate_arg_const_fit 0
+delegate_const_fit_range_reject compile_error out of range
 qhead_call compile_error Malformed qualified type reference
 qhead_deep compile_error Malformed qualified type reference
 qhead_index compile_error Malformed qualified type reference
@@ -2280,7 +2285,7 @@ identifiers_former_keywords 0
 err_catch_generic_type compile_error cannot tell instantiations apart
 err_generic_static_infer_mismatch compile_error has type
 err_generic_static_infer_unbound compile_error cannot infer type argument
-err_generic_qualified_func_value compile_error cannot be referenced as a value
+generic_qualified_static_func_value 0
 err_generic_static_ctor 0
 generic_cast_distinguish 0
 array_cast_generic_elem 0

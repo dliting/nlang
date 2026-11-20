@@ -64,11 +64,14 @@ void VmBackend::EmitMemberFuncHandleRef(SnMemberExpr& member, SnField* field,
 //receiver); a cross-unit reference becomes an import placeholder the
 //load-time linker resolves. A receiver-bound method form never reaches
 //here (the dispatch splits the shapes before calling). The byte stream
-//is exactly the identifier arm's, so the body delegates to it.
+//is exactly the identifier arm's, so the body delegates to it — the
+//member expr is the referrer (a generic free function's stamped
+//arguments ride it).
 void VmBackend::EmitReceiverlessFuncHandleRef(SnField& func,
+                                        const SnFieldExpr& referrer,
                                         BytecodeEmitter& emitter,
                                         uint16_t resultOffset) {
-    EmitIdentifierFuncHandleRead(emitter, resultOffset, &func);
+    EmitIdentifierFuncHandleRead(emitter, resultOffset, &func, referrer);
 }
 
 //Phase 12: user-defined enum method call (c.rank(),

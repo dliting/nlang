@@ -12,7 +12,7 @@ states the loading contract.
 ## 26.1 Scope and Version
 
 **Format version.** This chapter describes format version
-**2.22**, recorded in the header as major `2`, minor `22`
+**2.23**, recorded in the header as major `2`, minor `23`
 (§26.2). A conforming loader accepts exactly this version and
 rejects every other: an older image with a "recompile"
 diagnostic, a newer image with an "upgrade the toolchain"
@@ -29,8 +29,8 @@ loading contract (§26.8).
 
 **What it does not fix.** The encoding of the instructions
 inside a function's bytecode array: the array is an opaque byte
-string here. It is pinned to the same format version — a 2.22
-image carries the instruction set of the 2.22 toolchain — but
+string here. It is pinned to the same format version — a 2.23
+image carries the instruction set of the 2.23 toolchain — but
 the opcode values and instruction forms are not part of this
 specification. The native calling convention is §28.4; the
 archive that packs images is chapter 27.
@@ -436,8 +436,8 @@ rejected image never runs in part. The rejection sites:
 
 - **magic.** Header bytes other than the magic → reject.
 - **truncation.** A stream that ends mid-record → reject.
-- **version.** Below 2.22 → reject with a "recompile with the
-  current compiler" diagnostic; above 2.22 → reject with an
+- **version.** Below 2.23 → reject with a "recompile with the
+  current compiler" diagnostic; above 2.23 → reject with an
   "upgrade the toolchain" diagnostic (§26.1).
 - **access bytes.** A function-record or type-level access byte
   of `0` or above `3` → reject as a corrupt image (§26.4).

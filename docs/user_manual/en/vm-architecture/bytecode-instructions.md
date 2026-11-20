@@ -107,9 +107,10 @@ creation (sizes from expressions) reads them from evaluation slots.
 | OP_CallIntrinsic       | intrinsicId, callParamBase  | Invoke intrinsic by ID   |
 | OP_ParaEnd             | —                           | End of parameter list    |
 
-The uint16 `descIdx` operand on the static-call family names a row in
-the module's generic-instantiation descriptor table (the `.ncu`
-template table, §26.4 of the specification): a call into a generic
+The uint16 `descIdx` operand on the static-call family and
+`OP_MakeFunc` names a row in the module's generic-instantiation
+descriptor table (the `.ncu` template table, §26.2.1 of the
+specification): a call into a generic
 function or a generic class member carries the descriptor so the
 callee's `T` reads and kind dispatches key on the actual type
 arguments. `0xFFFF` marks a non-generic call site; `0xFFFE` inherits
@@ -120,7 +121,7 @@ generic).
 
 | Opcode              | Operands                             | Description                     |
 |---------------------|--------------------------------------|---------------------------------|
-| OP_MakeFunc         | funcIdx (uint16)                     | Static handle {funcIdx, 0, 0}   |
+| OP_MakeFunc         | funcIdx, descIdx (uint16 each)       | Static handle {funcIdx, 0, 0, descIdx}; descIdx pairs the instantiation descriptor row of a generic target |
 | OP_MakeBoundFunc    | funcIdx (uint16)                     | Reads receiver from pResult → {funcIdx, this, static} |
 | OP_MakeVFunc        | nameIdx (uint16, string constant table) | Reads receiver from pResult → {nameIdx, this, virtual} |
 | OP_CallDelegate     | calleeLocal, callParamBase           | Invoke through a handle         |

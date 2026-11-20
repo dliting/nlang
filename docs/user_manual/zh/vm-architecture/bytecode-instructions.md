@@ -91,13 +91,13 @@
 | OP_CallIntrinsic       | intrinsicId, callParamBase  | 按ID调用内建函数       |
 | OP_ParaEnd             | —                           | 参数列表结束             |
 
-静态调用族上的uint16 `descIdx`操作数指向模块的泛型实例化描述符表（`.ncu`模板表，规格§26.4）中的一行：对泛型函数或泛型类成员的调用携带该描述符，被调帧的`T`读取与kind分派都以其真类型实参为键。`0xFFFF`标记非泛型调用点；`0xFFFE`继承调用方自己的描述符槽（泛型体转发到另一个泛型）。
+静态调用族与`OP_MakeFunc`上的uint16 `descIdx`操作数指向模块的泛型实例化描述符表（`.ncu`模板表，规格§26.2.1）中的一行：对泛型函数或泛型类成员的调用携带该描述符，被调帧的`T`读取与kind分派都以其真类型实参为键。`0xFFFF`标记非泛型调用点；`0xFFFE`继承调用方自己的描述符槽（泛型体转发到另一个泛型）。
 
 ### 函数值
 
 | 操作码              | 操作数                               | 说明                            |
 |---------------------|--------------------------------------|---------------------------------|
-| OP_MakeFunc         | funcIdx (uint16)                     | 静态句柄 {funcIdx, 0, 0}        |
+| OP_MakeFunc         | funcIdx, descIdx (各uint16)          | 静态句柄 {funcIdx, 0, 0, descIdx}；descIdx为泛型目标配对的实例化描述符行 |
 | OP_MakeBoundFunc    | funcIdx (uint16)                     | 从pResult读取接收者 → {funcIdx, this, static} |
 | OP_MakeVFunc        | nameIdx (uint16, 字符串常量表)       | 从pResult读取接收者 → {nameIdx, this, virtual} |
 | OP_CallDelegate     | calleeLocal, callParamBase           | 经句柄调用                      |

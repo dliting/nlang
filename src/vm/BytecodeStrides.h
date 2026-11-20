@@ -46,7 +46,7 @@ static constexpr OpCode kStrideOneWord[] = {
     OpCode::OP_AssertFail, OpCode::OP_VarLocal, OpCode::OP_Assign,
     OpCode::OP_Enum_to_str, OpCode::OP_LogicalNot, OpCode::OP_Switch,
     OpCode::OP_DebugInfo, OpCode::OP_NullCheck,
-    OpCode::OP_Throw, OpCode::OP_MakeFunc, OpCode::OP_MakeBoundFunc,
+    OpCode::OP_Throw, OpCode::OP_MakeBoundFunc,
     OpCode::OP_MakeVFunc,
     OpCode::OP_SlotInitDone, OpCode::OP_SlotInitFail};
 static constexpr OpCode kStrideKindWord[] = {
@@ -69,6 +69,10 @@ static constexpr OpCode kStrideTwoWords[] = {
     //v0.13.1: OP_CheckCast gained its second u16 (descIdx) — classIdx,
     //descIdx, the same extent family as the two-word loads.
     OpCode::OP_SlotInitGate, OpCode::OP_TypeNameCompose, OpCode::OP_CheckCast,
+    //v2.23: OP_MakeFunc gained its second u16 (descIdx) — funcIdx,
+    //descIdx; the descriptor row pairs the instantiation with the
+    //handle (kInstDescNone sentinel when the target is non-generic).
+    OpCode::OP_MakeFunc,
     //v0.13.9 phase ③: the ref-value family — dst/src word pairs (RefOfLocal
     //and RefOfPromoted build the pair, RefHandle extracts the base handle).
     OpCode::OP_RefOfLocal, OpCode::OP_RefOfPromoted, OpCode::OP_RefHandle};

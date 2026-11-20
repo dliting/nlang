@@ -583,6 +583,34 @@ target_compile_definitions(test_generic_runtime_info
 
 add_test(NAME generic_runtime_info_tests COMMAND test_generic_runtime_info)
 
+# lambda/closure plan Task 5: 4-slot function records + the MakeFunc
+# descIdx pairing (NCU v2.23), compile+execute in-process; the heap
+# stays inspectable so the record cells pin the ABI.
+add_executable(test_func_records
+    test_vm/test_func_records.cpp
+)
+
+target_include_directories(test_func_records
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_func_records
+    PRIVATE
+        nlang_vm
+        nlang_compiler
+        nlang_runtime
+        nlang_langservice
+)
+nlang_stdlib_test(test_func_records)
+target_compile_definitions(test_func_records
+    PRIVATE
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+)
+
+add_test(NAME func_records_tests COMMAND test_func_records)
+
 # v0.13.9 phase ②: the record-stabilization write primitive
 # (OP_CopyStructInPlace / CopyStructInPlace), compile+execute
 # in-process; allocation pins read HeapAllocCountForTests.

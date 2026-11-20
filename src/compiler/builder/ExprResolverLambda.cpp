@@ -166,10 +166,11 @@ void ExprResolveAccessor::ResolveLambdaBlockBodyChannel(
 	}
 }
 
-//0.13.10 Task 4: the expected-type channel (spec §3.2). Every error
-//exit flags the node resolved — the decomposed local-decl revisit is
-//the double-report discipline (Task 3's gate established it).
-void ExprResolveAccessor::TypeLambda(SnLambdaExpr &sn)
+//Target admission of TypeLambda: the expected type must exist, be a
+//function type, and its parameter count must match. nullptr = rejected
+//(diagnostic logged); the caller flags the node resolved.
+static SnClassDecl *AdmitLambdaTarget(BuildEnvironment &env,
+	SnLambdaExpr &sn)
 {
 	//The target is the parent-declared field; the unwrap is the
 	//ResolveInferredTarget convention (a type pushed directly answers
@@ -177,21 +178,33 @@ void ExprResolveAccessor::TypeLambda(SnLambdaExpr &sn)
 	auto *pTargetField = sn.InferredTarget();
 	if (!pTargetField)
 	{
-		m_Env.Log(CLL_Error, sn.Location(),
+		env.Log(CLL_Error, sn.Location(),
 			"a lambda expression requires an expected function type.");
-		sn.AddFlags(NF_Resolved);
-		return;
+		return nullptr;
 	}
 	auto *pFuncType = pTargetField->EvalDataType();
 	if (!pFuncType || !IsFuncTypeDecl(pFuncType))
 	{
-		m_Env.Log(CLL_Error, sn.Location(),
+		env.Log(CLL_Error, sn.Location(),
 			"the expected type of a lambda expression must be a "
 			"function type.");
+		return nullptr;
+	}
+	return static_cast<SnClassDecl *>(pFuncType);
+}
+
+//0.13.10 Task 4: the expected-type channel (spec §3.2). Every error
+//exit flags the node resolved — the decomposed local-decl revisit is
+//the double-report discipline (Task 3's gate established it).
+void ExprResolveAccessor::TypeLambda(SnLambdaExpr &sn)
+{
+	auto *pFuncDecl = AdmitLambdaTarget(m_Env, sn);
+	if (!pFuncDecl)
+	{
 		sn.AddFlags(NF_Resolved);
 		return;
 	}
-	auto *pFuncDecl = static_cast<SnClassDecl *>(pFuncType);
+	auto *pFuncType = static_cast<SnField *>(pFuncDecl);
 	auto typeArgs = GetGenericTypeArgs(pFuncDecl);
 	//The FIRST type argument is the return type; the rest are the
 	//parameters (nlang.y MakeFuncType's argument order).
@@ -211,8 +224,7 @@ void ExprResolveAccessor::TypeLambda(SnLambdaExpr &sn)
 		sn.AddFlags(NF_Resolved);
 		return;
 	}
-	//Stamp before the body walk — the block body's return statements
-	//read the stamped return type through the node.
+	//Stamp before the body walk — block-body returns read the type.
 	sn.EvalDataType(pFuncType);
 	sn.AddFlags(NF_Resolved);
 

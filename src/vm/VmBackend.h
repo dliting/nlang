@@ -655,8 +655,12 @@ private:
                                  BytecodeEmitter& emitter,
                                  uint16_t resultOffset);
     //Receiverless function reference in value position (lib.seven or a
-    //static method) — the bare static func handle.
-    void EmitReceiverlessFuncHandleRef(SnField& func, BytecodeEmitter& emitter,
+    //static method) — the bare static func handle. The member expr is
+    //the referrer whose stamped inferred arguments drive a generic
+    //free function's descriptor row.
+    void EmitReceiverlessFuncHandleRef(SnField& func,
+                                 const SnFieldExpr& referrer,
+                                 BytecodeEmitter& emitter,
                                  uint16_t resultOffset);
     //User-defined enum method call.
     bool EmitMemberEnumMethodCall(SnMemberExpr& member,
@@ -1718,7 +1722,8 @@ private:
     void EmitIdentifierEnumMemberRead(BytecodeEmitter& emitter,
                                       uint16_t resultOffset, SnField* field);
     void EmitIdentifierFuncHandleRead(BytecodeEmitter& emitter,
-                                      uint16_t resultOffset, SnField* field);
+                                      uint16_t resultOffset, SnField* field,
+                                      const SnFieldExpr& referrer);
     void EmitIdentifierFieldRead(BytecodeEmitter& emitter,
                                  uint16_t resultOffset, SnField* field);
     //v0.12.6 D3: inline-literal read of a compile-time-folded static

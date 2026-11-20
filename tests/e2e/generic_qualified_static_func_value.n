@@ -1,0 +1,19 @@
+// generic_qualified_static_func_value.n — 0.13.10 Task 5: the 0.13.1a
+// qualified-spelling reject retires — an explicit instantiation's static
+// binds as a func value with the named descriptor row, even when T
+// appears only in the static's return position (the bare spelling of
+// that shape stays a cannot-infer reject; the qualified spelling is the
+// channel that names the row).
+class Tag<T> {
+    public static string tag() { return typeName(T); }
+}
+int main() {
+    func<string> f = Tag<int>.tag;
+    if (f() != "int") { return 1; }
+    func<string> h = Tag<bool>.tag;
+    if (h() != "bool") { return 2; }
+    //cross-instantiation isolation: each value keeps its own row
+    if (f() != "int") { return 3; }
+    if (h() != "bool") { return 4; }
+    return 0;
+}

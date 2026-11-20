@@ -1,0 +1,17 @@
+//delegate-call constant fit (0.13.10 Task 5): a float literal argument
+//is Double-typed, and the delegate path has no fixup pass — the
+//Java/C# constant-fit rule rescues the in-range constant narrowing with
+//a real conversion wrapper (never raw bits). The variable arm keeps
+//proving the strict distance-0 discipline.
+float mul(float a, float b) { return a * b; }
+double scale(double x) { return x * 10.0; }
+
+int main() {
+    func<float, float, float> g = mul;
+    if (g(3.5, 7.5) != 26.25) { return 1; }
+    float x = 2.0;
+    if (g(x, 0.5) != 1.0) { return 2; }
+    func<double, double> s = scale;
+    if (s(1.5) != 15.0) { return 3; }
+    return 0;
+}

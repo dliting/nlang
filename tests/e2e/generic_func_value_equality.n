@@ -1,0 +1,23 @@
+// generic_func_value_equality.n — 0.13.10 Task 5: the descriptor index
+// joins the function-value equality tuple (spec §3.4) — same function,
+// different instantiation = not equal; same source, same instantiation
+// = equal; the underlying rows still call correctly.
+T pick<T>(T a, T b) {
+    return b;
+}
+int main() {
+    func<int, int, int> f = pick;
+    func<float, float, float> g = pick;
+    if (f == g) { return 1; }
+    if (g == f) { return 2; }
+    func<int, int, int> h = pick;
+    if (h != f) { return 3; }
+    if (h(3, 5) != 5) { return 4; }
+    if (g(3.5, 7.5) != 7.5) { return 5; }
+    //a re-bind after calls carries the same tuple (same target, same
+    //instantiation row) and stays equal; plain non-generic reference
+    //equality is func_ref_eq.n's coverage
+    func<int, int, int> n = pick;
+    if (n != h) { return 6; }
+    return 0;
+}

@@ -73,8 +73,11 @@ class NLANG_COMPILER_API SnExpression: public SyntaxNode
 	friend bool BindFuncRefToExpected(BuildEnvironment &env,
 		SnIdentifierExpr &idExpr, SnField *pExpected);
 	//Phase 13 Step 2: receiver-bound member form of the binder above.
+	//0.13.10 Task 5: the accessor parameter serves the inferred
+	//generic-static arm (friend-channel clone rebind).
 	friend bool BindMemberFuncRefToExpected(BuildEnvironment &env,
-		SnMemberExpr &snMember, SnField *pExpected);
+		SnMemberExpr &snMember, SnField *pExpected,
+		ExprResolveAccessor *pAccessor);
 	typedef SyntaxNode Super_;
 public:
 	SnExpression(NodeKind);
@@ -204,10 +207,27 @@ public:
 	}
 
 	static SnFieldExpr::FieldChecker& DataTypeChecker();
+	//0.13.10 Task 5: the expected-type channel's inferred type arguments
+	//of a GENERIC function value reference (the value twin of
+	//SnInvokeExpr's slot). Non-owning references to tree/registry-owned
+	//type fields, indexed by type-parameter ordinal; empty for ordinary
+	//references. The backend spells the handle's descriptor row from
+	//these; the strict bind predicates read the stamp as the binding
+	//proof (a generic declaration never matches a concrete func type by
+	//direct signature comparison).
+	const std::vector<SnField*>& InferredTypeArgs() const
+	{
+		return m_inferredTypeArgs;
+	}
+	void SetInferredTypeArgs(std::vector<SnField*> args)
+	{
+		m_inferredTypeArgs = std::move(args);
+	}
 protected:
 	SnField *m_pField;
 private:
 	FieldChecker *m_pChecker;
+	std::vector<SnField*> m_inferredTypeArgs;
 };
 
 //The expression composite by other expressions.

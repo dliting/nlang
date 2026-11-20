@@ -378,7 +378,7 @@ bool ExprResolveAccessor::BindArgFuncRefs(
 		else if (IsUnboundMemberFuncRef(*b.pCallerExpr)
 			&& !BindMemberFuncRefToExpected(m_Env,
 				*static_cast<SnMemberExpr*>(b.pCallerExpr),
-				b.pFormal->EvalDataType()))
+				b.pFormal->EvalDataType(), this))
 			return false;
 	}
 	return true;

@@ -221,5 +221,14 @@
     "path": "src/compiler/builder/ClassFieldInitializerInjection.cpp",
     "function": "CloneConstantInitializer",
     "reason": "per-fold-kind dispatcher; each arm rebuilds one constant family through the grammar's own literal shape"
+  },
+  {
+    "path": "src/compiler/builder/StatementResolver.h",
+    "reason": "statement-resolver class pair (accessor + visitor) and their declaration surface; C++ has no partial class, splitting would fragment the pair (the same shape as the allowlisted ExprResolver.h)"
+  },
+  {
+    "path": "src/vm/ModuleSaverRecordsFuncs.cpp",
+    "function": "WriteFunctionRecords",
+    "reason": "sequential field-group writer in on-disk-format order (the function table's twin of the allowlisted WriteCompiledModule)"
   }
 ]

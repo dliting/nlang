@@ -189,8 +189,12 @@ inline constexpr uint16_t NCU_FORMAT_MAJOR = 2;
 //v2.22 (0.13.9 phase 4 Task 5): the out wire forms (OP_*Out opcodes,
 //outMask channel, PTDF_Out bit) are gone; a v2.21 module can carry
 //them — refuse older.
+//v2.23 (0.13.10 Task 5): OP_MakeFunc gained its second u16 (the
+//instantiation descriptor row) and function records carry the isLambda
+//flag — a v2.22 module lacks both and misparses at the first MakeFunc
+//stride — refuse older.
 //Minor bump: every .ncu recompiles with the current ncc.
-inline constexpr uint16_t NCU_FORMAT_MINOR = 22;
+inline constexpr uint16_t NCU_FORMAT_MINOR = 23;
 
 //--- Slot-width ABI (0.7.5) ----------------------------------------------
 //The frame and the heap use two different stride contracts; both live

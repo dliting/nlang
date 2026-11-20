@@ -134,6 +134,7 @@ add_library(nlang_vm
     ModuleLoaderRecordsInterfaces.cpp
     ModuleLoaderRecordsClasses.cpp
     ModuleSaver.cpp
+    ModuleSaverRecordsFuncs.cpp
     ModuleSaverRecordsClasses.cpp
     ModuleSaverRecordsInterfaces.cpp
     ModuleSaverRecordsEnums.cpp

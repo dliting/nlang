@@ -476,6 +476,11 @@ private:
 	//One return statement's lambda-context handling (the function path's
 	//mirror: bare/value/void checks against the stamped return type).
 	void ResolveLambdaReturn(SnReturnStmt &sn, SnLambdaExpr &lambda);
+	//0.9.11 D1: a value return against a return-type-less function — a
+	//constructor gets its own wording, anything else the generic void
+	//reject (defined in StatementResolverReturn.cpp).
+	void RejectValueReturnWithoutType(SnFunction &outerFunc,
+		SnExpression &resultExpr);
 };
 
 class StatementResolver

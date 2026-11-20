@@ -121,6 +121,7 @@ add_library(nlang_compiler
     builder/ExprResolverThreadNs.cpp
     builder/ExprResolverTypedSpawn.cpp
     builder/ExprResolverFuncRef.cpp
+    builder/ExprResolverFuncRefGeneric.cpp
     builder/ExprResolverLambda.cpp
     builder/ExprResolverValues.cpp
     builder/TypeArgSpelling.cpp
@@ -156,6 +157,7 @@ add_library(nlang_compiler
     builder/StatementResolverTypes.cpp
     builder/StatementResolverInterface.cpp
     builder/StatementResolverAssign.cpp
+    builder/StatementResolverReturn.cpp
     builder/StatementResolverCompound.cpp
     builder/StatementResolverFlow.cpp
     builder/StatementResolverRef.cpp

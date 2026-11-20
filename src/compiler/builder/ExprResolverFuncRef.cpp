@@ -60,15 +60,12 @@ bool FuncRefMatchesDecl(const SnFunction &func, SnClassDecl *pFuncDecl)
 	return true;
 }
 
-//0.13.1a: a generic record is not a value — its behavior needs an
-//instantiation context, and a func value cannot carry one. Bound
-//instance references keep working: the receiver's head descriptor
-//fills the frame cell at every call.
-//0.13.1a Task 3: the explicit instantiation spelling (`Tag<int>.tag`)
-//binds the synthetic instantiation's method clones, whose owner is the
-//instantiation, not the declaration — the owner check covers both so
-//the policy rejects at compile time through either spelling.
-static bool RejectGenericRecordTarget(BuildEnvironment &env,
+//0.13.10 Task 5: the BARE spelling of a generic-class static inside its
+//own class body (`tag` in a Tag<T> method) keeps the 0.13.1a named
+//reject — the free channel has no class-instantiation context to pair
+//the descriptor row with; the member spellings (Tag.tag, Tag<int>.tag)
+//bind through BindMemberFuncRefToExpected instead.
+static bool RejectBareGenericStaticRef(BuildEnvironment &env,
 	const ISourceLocation *loc, const std::string &name,
 	SyntaxNode *pOwner)
 {
@@ -114,7 +111,7 @@ static bool RejectFuncRefTarget(BuildEnvironment &env,
 			idExpr.Name().c_str());
 		return true;
 	}
-	if (RejectGenericRecordTarget(env, idExpr.Location(),
+	if (RejectBareGenericStaticRef(env, idExpr.Location(),
 			idExpr.Name(), pOwner))
 		return true;
 	//Default parameters are filled only on the direct-call path.
@@ -141,10 +138,22 @@ bool BindFuncRefToExpected(BuildEnvironment &env, SnIdentifierExpr &idExpr,
 	auto *pFuncDecl = static_cast<SnClassDecl*>(pExpected);
 	if (!FuncRefMatchesDecl(*pFunc, pFuncDecl))
 	{
-		env.Log(CLL_Error, idExpr.Location(),
-			"function \"%s\" does not match the signature of \"%s\".",
-			idExpr.Name().c_str(), pFuncDecl->Name().c_str());
-		return false;
+		//0.13.10 Task 5: a generic free function binds through the
+		//expected type's instantiation — signature unification fills
+		//the type arguments (the value twin of the invoke channel);
+		//the handle pairs the template row with the composed descriptor
+		//row at emission. The stamp doubles as the bind predicates'
+		//binding proof.
+		std::vector<SnField*> inferredArgs;
+		if (!UnifyGenericFuncRefAgainst(*pFunc, pFuncDecl,
+				env.Registry().DeclaredGenerics(), inferredArgs))
+		{
+			env.Log(CLL_Error, idExpr.Location(),
+				"function \"%s\" does not match the signature of \"%s\".",
+				idExpr.Name().c_str(), pFuncDecl->Name().c_str());
+			return false;
+		}
+		idExpr.SetInferredTypeArgs(std::move(inferredArgs));
 	}
 	//Bound state is structural: EvalDataType becomes the func declaration
 	//(codegen detects Field()->Kind() == NK_Function in a value position
@@ -155,7 +164,7 @@ bool BindFuncRefToExpected(BuildEnvironment &env, SnIdentifierExpr &idExpr,
 
 //Phase 13 Step 2: collect every class declaration in the tree under
 //(and including) `node` — input of the native-override scan below.
-static void CollectClassDecls(SyntaxNode &node,
+void CollectClassDecls(SyntaxNode &node,
 	std::vector<SnClassDecl*> &out)
 {
 	for (auto &child : node.Children())
@@ -165,217 +174,6 @@ static void CollectClassDecls(SyntaxNode &node,
 			out.push_back(static_cast<SnClassDecl*>(&synChild));
 		CollectClassDecls(synChild, out);
 	}
-}
-
-//Phase 13 Step 2: a by-name binding (OP_MakeVFunc) resolves its target at
-//runtime, so a NATIVE override anywhere in the method's dispatch domain
-//would route the delegate into CallNative, which reads arguments straight
-//from callParamBase with no callee frame for the receiver shift. The
-//resolved method itself carries NF_Native only when the STATIC receiver
-//type declares it — for a virtual base declaration the scan must walk the
-//deriving classes, and for an interface declaration the implementers (the
-//implements clause is not modeled by SuperClass()).
-static bool HasNativeMethodOverride(SnFunction &method)
-{
-	auto *pOwner = method.Parent();
-	if (!pOwner || (pOwner->Kind() != NK_ClassDecl
-		&& pOwner->Kind() != NK_InterfaceDecl))
-		return false;
-	//Is `pClass` inside the dispatch domain of `pOwner`? Class owner:
-	//derive from it directly. Interface owner: the class or any ancestor
-	//names it in its implements clause.
-	auto dispatchesUnder = [](SnClassDecl *pClass, SyntaxNode *pOwner) {
-		for (SnClassDecl *cur = pClass; cur; cur = cur->SuperClass())
-		{
-			if (cur == pOwner)
-				return true;
-			if (pOwner->Kind() != NK_InterfaceDecl)
-				continue;
-			for (auto *pIface : cur->ImplementsList())
-			{
-				if (pIface == pOwner)
-					return true;
-			}
-		}
-		return false;
-	};
-	SyntaxNode *pRoot = pOwner;
-	while (pRoot->Parent())
-		pRoot = pRoot->Parent();
-	std::vector<SnClassDecl*> classes;
-	CollectClassDecls(*pRoot, classes);
-	for (auto *pClass : classes)
-	{
-		if (pClass == pOwner)
-			continue;
-		if (!dispatchesUnder(pClass, pOwner))
-			continue;
-		for (auto &member : pClass->Members())
-		{
-			//0.9.10 D2.4: only an instance member with the same parameter
-			//list can occupy the dispatch slot — a same-name static or
-			//differently-shaped overload must not veto the binding.
-			if (member.Kind() == NK_Function
-				&& member.Name() == method.Name()
-				&& !member.ContainFlags(NF_Static)
-				&& member.ContainFlags(NF_Native)
-				&& static_cast<SnFunction&>(member).ConflictedWith(method))
-				return true;
-		}
-	}
-	return false;
-}
-
-//Form gates of BindMemberFuncRefToExpected: the expected type must be a
-//func instantiation, and an enum receiver is rejected outright — enum
-//values are ints, and slot[1] of a handle (a heap index) cannot carry
-//the receiver. True = rejected with the named diagnostic.
-static bool RejectMemberFuncRefForm(BuildEnvironment &env,
-	SnMemberExpr &snMember, SnIdentifierExpr &inner, SnField *pExpected,
-	SnFunction *pMethod)
-{
-	if (!IsFuncTypeDecl(pExpected))
-	{
-		env.Log(CLL_Error, snMember.Location(),
-			IsReceiverlessFuncRefTarget(*pMethod)
-				? "function reference \"%s\" requires an expected function "
-				  "type."
-				: "bound method reference \"%s\" requires an expected "
-				  "function type.",
-			inner.Name().c_str());
-		return true;
-	}
-	auto *pOwner = pMethod->Parent();
-	if (pOwner && pOwner->Kind() == NK_EnumDecl)
-	{
-		env.Log(CLL_Error, snMember.Location(),
-			"cannot reference the enum method \"%s\": enum receivers are "
-			"int values, not heap objects.", inner.Name().c_str());
-		return true;
-	}
-	//0.13.1a: a receiverless (static) member of a generic class is the
-	//member form of the free-function reject — the handle carries no
-	//instantiation context, so the call would degrade to the named
-	//runtime error. Bound instance references keep working: the
-	//receiver's head descriptor fills the frame cell at every call.
-	if (IsReceiverlessFuncRefTarget(*pMethod)
-		&& RejectGenericRecordTarget(env, snMember.Location(),
-			inner.Name(), pOwner))
-		return true;
-	return false;
-}
-
-//By-name dispatch cannot bake late-bound marks: the & marks are
-//compiled from the func type, but the handle resolves its target at
-//runtime — an override's layout may disagree (the virtual-direct-call
-//rationale). The RETURN slot can carry a & mark (func<int&>), so the
-//ref scan starts at 0. v0.13.9 phase 4: the out half is gone with the
-//out mechanism. True = rejected.
-static bool RejectByNameLateBoundMarks(BuildEnvironment &env,
-	const ISourceLocation *pLoc, SnField *pExpected)
-{
-	auto *pFunc = static_cast<SnClassDecl *>(pExpected);
-	const auto &refFlags = GetGenericRefFlags(pFunc);
-	for (size_t k = 0; k < refFlags.size(); ++k)
-	{
-		if (refFlags[k] != 0)
-		{
-			env.Log(CLL_Error, pLoc,
-				"reference parameters and reference returns are not "
-				"supported on virtual method references: dispatch "
-				"resolves the target at runtime.");
-			return true;
-		}
-	}
-	return false;
-}
-
-//Signature gates of BindMemberFuncRefToExpected: native methods (and,
-//for by-name bindings, any native override in the dispatch domain) have
-//no callee frame for the receiver, by-name dispatch cannot bake an out
-//mask, and default parameters are filled only on the direct-call path.
-//Receiverless targets skip the receiver-frame and mark arms — a native
-//free function or static method is referenceable exactly like an
-//unqualified-name one. True = rejected with the named diagnostic.
-static bool RejectMemberFuncRefSignature(BuildEnvironment &env,
-	SnMemberExpr &snMember, SnIdentifierExpr &inner, SnFunction *pMethod,
-	SnField *pExpected, bool bDispatchesByName)
-{
-	if (!IsReceiverlessFuncRefTarget(*pMethod))
-	{
-		if (pMethod->ContainFlags(NF_Native)
-			|| (bDispatchesByName && HasNativeMethodOverride(*pMethod)))
-		{
-			env.Log(CLL_Error, snMember.Location(),
-				"cannot reference the native method \"%s\": native calls "
-				"have no callee frame for the receiver.",
-				inner.Name().c_str());
-			return true;
-		}
-		if (bDispatchesByName
-			&& RejectByNameLateBoundMarks(env, snMember.Location(),
-				pExpected))
-			return true;
-	}
-	//Default parameters are filled only on the direct-call path (mirrors
-	//the free-function reject of the unqualified-name channel).
-	for (auto &param : pMethod->Params())
-	{
-		if (param.Value())
-		{
-			env.Log(CLL_Error, snMember.Location(),
-				IsReceiverlessFuncRefTarget(*pMethod)
-					? "functions with default parameters cannot be "
-					  "referenced: \"%s\"."
-					: "methods with default parameters cannot be "
-					  "referenced: \"%s\".",
-				inner.Name().c_str());
-			return true;
-		}
-	}
-	return false;
-}
-
-bool BindMemberFuncRefToExpected(BuildEnvironment &env,
-	SnMemberExpr &snMember, SnField *pExpected)
-{
-	auto &inner = static_cast<SnIdentifierExpr&>(*snMember.Inner());
-	auto *pMethod = static_cast<SnFunction*>(inner.Field());
-	NLANG_ASSERT(pMethod && pMethod->Kind() == NK_Function);
-	auto *pOwner = pMethod->Parent();
-	//Handle form mirrors the direct-call codegen decision exactly:
-	//virtual methods and interface declarations dispatch by name at
-	//runtime (StatementResolver's implicit virtual propagation means an
-	//override of a parent virtual method carries NF_Virtual too).
-	//Receiverless targets have no receiver and always take the static
-	//handle — dispatch never resolves by name.
-	bool bDispatchesByName = !IsReceiverlessFuncRefTarget(*pMethod)
-		&& (pMethod->ContainFlags(NF_Virtual)
-			|| (pOwner && pOwner->Kind() == NK_InterfaceDecl));
-	if (RejectMemberFuncRefForm(env, snMember, inner, pExpected, pMethod))
-		return false;
-	if (RejectMemberFuncRefSignature(env, snMember, inner, pMethod,
-			pExpected, bDispatchesByName))
-		return false;
-	auto *pFuncDecl = static_cast<SnClassDecl*>(pExpected);
-	if (!FuncRefMatchesDecl(*pMethod, pFuncDecl))
-	{
-		env.Log(CLL_Error, snMember.Location(),
-			IsReceiverlessFuncRefTarget(*pMethod)
-				? "function \"%s\" does not match the signature of \"%s\"."
-				: "method \"%s\" does not match the signature of \"%s\".",
-			inner.Name().c_str(), pFuncDecl->Name().c_str());
-		return false;
-	}
-	//Bound state is structural (same as the unqualified-name form): the member
-	//carries the func declaration while Field() stays the SnFunction;
-	//codegen emits receiver + OP_MakeBoundFunc/OP_MakeVFunc for a method
-	//form, or a bare OP_MakeFunc for a module form. The inner identifier
-	//carries the func type too — the end-of-build sweep (loose predicate)
-	//would otherwise flag every bound member reference through it.
-	snMember.EvalDataType(pFuncDecl);
-	inner.EvalDataType(pFuncDecl);
-	return true;
 }
 
 //Phase 13: loose pending predicate — true while a bare function
@@ -413,6 +211,11 @@ bool IsUnboundFuncRef(SyntaxNode &expr)
 	auto *pType = idExpr.EvalDataType();
 	if (!IsFuncTypeDecl(pType))
 		return true;
+	//0.13.10 Task 5: a generic declaration never satisfies a concrete
+	//func type by direct signature comparison — the stamped inferred
+	//arguments are the binding proof (the unify channel).
+	if (static_cast<SnFunction*>(idExpr.Field())->IsGenericDeclaration())
+		return idExpr.InferredTypeArgs().empty();
 	return !FuncRefMatchesDecl(
 		*static_cast<SnFunction*>(idExpr.Field()),
 		static_cast<SnClassDecl*>(pType));
@@ -447,6 +250,26 @@ bool IsUnboundMemberFuncRef(SyntaxNode &expr)
 		&& pOwner->Kind() != NK_EnumDecl)
 		return false;
 	auto *pType = snMember.EvalDataType();
+	//0.13.10 Task 5: a member-channel generic free function (lib.pick)
+	//binds through the unify channel — the stamped arguments are the
+	//proof. (The inferred class-static arm rebinds to the substituted
+	//clone, whose signature satisfies the direct comparison.)
+	if (IsFuncTypeDecl(pType)
+		&& static_cast<SnFunction*>(pMethod)->IsGenericDeclaration()
+		&& !snMember.InferredTypeArgs().empty())
+		return false;
+	//0.13.10 Task 5: a receiverless static of a generic CLASS never
+	//satisfies a concrete func type structurally — even a T-less
+	//signature (tag() against func<string>) leaves the instantiation
+	//underdetermined (the CS0411 shape), so the binder's clone arm
+	//always runs. After the arm's rebind Field() is the substituted
+	//clone, whose owner is the instantiation: this guard no longer
+	//fires and the direct compare below judges it.
+	auto *pMOwner = pMethod->Parent();
+	if (pMOwner && pMOwner->Kind() == NK_ClassDecl
+		&& static_cast<SnClassDecl*>(pMOwner)->IsGenericDeclaration()
+		&& IsReceiverlessFuncRefTarget(*pMethod))
+		return true;
 	if (IsFuncTypeDecl(pType)
 		&& FuncRefMatchesDecl(*static_cast<SnFunction*>(pMethod),
 			static_cast<SnClassDecl*>(pType)))
@@ -460,7 +283,7 @@ bool IsUnboundMemberFuncRef(SyntaxNode &expr)
 //from ExprResolverInitList.cpp (source-size budget; the predicates
 //and binders live in this file).
 static void BindEntrySlotFuncRef(BuildEnvironment &env,
-    SnExpression *pExpr, SnField *pSlotType)
+    ExprResolveAccessor &accessor, SnExpression *pExpr, SnField *pSlotType)
 {
     if (!pExpr || !pSlotType)
         return;
@@ -472,7 +295,7 @@ static void BindEntrySlotFuncRef(BuildEnvironment &env,
     else if (IsUnboundMemberFuncRef(*pExpr))
     {
         BindMemberFuncRefToExpected(env,
-            *static_cast<SnMemberExpr*>(pExpr), pSlotType);
+            *static_cast<SnMemberExpr*>(pExpr), pSlotType, &accessor);
     }
 }
 
@@ -481,8 +304,8 @@ void ExprResolveAccessor::BindInitListFuncRefs(SnInitListExpr &sn,
 {
     for (auto &entry : sn.Entries())
     {
-        BindEntrySlotFuncRef(m_Env, entry.pKey, slots.pKeyType);
-        BindEntrySlotFuncRef(m_Env, entry.pValue, slots.pValueType);
+        BindEntrySlotFuncRef(m_Env, *this, entry.pKey, slots.pKeyType);
+        BindEntrySlotFuncRef(m_Env, *this, entry.pValue, slots.pValueType);
     }
 }
 

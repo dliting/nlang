@@ -260,6 +260,12 @@ struct CompiledFunction {
     //call-site descriptor row); T operations read it. Non-generic
     //records leave the cell null and pay nothing.
     bool isGeneric = false;
+    //v2.23 (0.13.10 Task 5): lambda record — the function was written as
+    //a lambda expression (no declared name); toString rendering and the
+    //debugger pick the synthetic name from this instead of guessing by
+    //the name shape. A flag, not a name-shape guess, so the synthetic
+    //naming convention can evolve without silently changing rendering.
+    bool isLambda = false;
     //v2.17: declared type-parameter names (generic records only). The
     //stub rebuild matches these to bind placeholder leaves in
     //signatures, mirroring CompiledClass::typeParamNames.

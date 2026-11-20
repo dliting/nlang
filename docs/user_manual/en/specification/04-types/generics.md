@@ -214,7 +214,8 @@ syntax error: references cannot be stored as elements (§4.7.9); the
 (§7.4).
 
 A user-declared generic class rejects function type arguments: a
-function value is a multi-slot record (target, receiver, form). A
+function value is a multi-slot record (target, receiver, form,
+instantiation descriptor row). A
 struct type argument is admitted — constructor formals, local binds,
 and `foreach` loop variables each establish a fresh record copied
 from the source, while field stores and field-to-field moves update
