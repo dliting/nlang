@@ -9,3 +9,4 @@ concurrent_gate_hammer
 str_concat_stress
 http_conc_bench
 net_conc_bench
+stdlib_regex_size
