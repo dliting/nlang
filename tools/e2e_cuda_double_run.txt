@@ -121,7 +121,6 @@ string_concat_float
 string_concat_null
 string_byte_at_oob
 string_charat
-string_null_arg_semantics
 
 # classes
 class_basic
