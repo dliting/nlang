@@ -29,6 +29,12 @@ LOGS="$REPO/temp/tier/gates"
 WORK="$REPO/temp/tier"
 DOCS_CONFIG_EN="$REPO/docs/mkdocs.en.yml"
 DOCS_CONFIG_ZH="$REPO/docs/mkdocs.zh.yml"
+#Temporary perf trim (user ruling 2026-11-20): a defer file's presence
+#excludes its entries; deleting the file restores the full suite. The
+#ctest side feeds ctest -E (no validation there), the e2e side feeds
+#NLANG_E2E_EXCLUDE (the runner validates names and fails loud).
+PERF_DEFER_CTEST="$REPO/tools/gate_perf_defer_ctest.txt"
+PERF_DEFER_E2E="$REPO/tools/gate_perf_defer_e2e.txt"
 
 TIER=""
 MASTER_TREE=""
@@ -73,8 +79,21 @@ leg() { # leg <name> <command...>
   echo "leg $name rc=$?"
 }
 
+ctest_excludes() { # anchored ctest -E pattern from the defer file
+  [ -s "$PERF_DEFER_CTEST" ] || return 1
+  local names pattern
+  names=$(grep -v '^[[:space:]]*#' "$PERF_DEFER_CTEST" |
+          grep -v '^[[:space:]]*$')
+  [ -n "$names" ] || return 1
+  pattern=$(paste -sd'|' - <<<"$names")
+  echo "-E ^($pattern)\$"
+}
+
 ctest_leg() { # ctest_leg <name> <tree>
-  leg "$1" bash -c "cd '$2' && ctest -C Debug"
+  local exclude=()
+  local pattern
+  pattern=$(ctest_excludes) && exclude=($pattern)
+  leg "$1" bash -c "cd '$2' && ctest -C Debug ${exclude[*]}"
 }
 
 e2e_leg() { # e2e_leg <name> <tree> <config> [manifest] [timeout]
@@ -82,8 +101,14 @@ e2e_leg() { # e2e_leg <name> <tree> <config> [manifest] [timeout]
   timeout=${timeout:-120}
   manifest=${manifest:-$REPO/tests/e2e/manifest.txt}
   local env_args=()
-  if [ -n "${4:-}" ]; then
-    env_args=(env "NLANG_E2E_MANIFEST=$manifest")
+  if [ -n "${4:-}" ] || [ -f "$PERF_DEFER_E2E" ]; then
+    env_args=(env)
+    [ -n "${4:-}" ] && env_args+=("NLANG_E2E_MANIFEST=$manifest")
+    #Presence of the defer file is the trim switch; the runner fails
+    #loud on a missing file or a stale name, so absence of the env var
+    #is the only restore path.
+    [ -f "$PERF_DEFER_E2E" ] && \
+      env_args+=("NLANG_E2E_EXCLUDE=$PERF_DEFER_E2E")
   fi
   leg "$name" "${env_args[@]}" \
     "$PY" "$REPO/tests/e2e/run_e2e_tests.py" \
@@ -160,7 +185,11 @@ t0() {
     echo "T0: impact mapping failed rc=$rc"; return 2
   fi
   if [ -n "$unit_regex" ]; then
-    leg T0-unit bash -c "cd '$MASTER_TREE' && ctest -C Debug -R '$unit_regex'"
+    local exclude=()
+    local pattern
+    pattern=$(ctest_excludes) && exclude=($pattern)
+    leg T0-unit bash -c \
+      "cd '$MASTER_TREE' && ctest -C Debug -R '$unit_regex' ${exclude[*]}"
   fi
   if [ -n "$e2e_regex" ]; then
     grep -E "$e2e_regex" "$REPO/tests/e2e/manifest.txt" \

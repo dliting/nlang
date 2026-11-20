@@ -61,10 +61,34 @@ def test_dead_selector_fails():
           "coverage: the dead selector must be named, got %r" % dead)
 
 
+def test_deferred_names_exempt_from_coverage():
+    #The temporary perf trim cuts listed names from every tier by user
+    #ruling; the guard must not report them as uncovered (the cut is
+    #intentional, not a tiering gap). Dead selectors still fail.
+    ok, uncovered, dead = check_coverage(
+        MANIFEST, TIERS_GAP, frozenset({"return_literal",
+                                        "stabilize_indep_sweep"}))
+    check(ok, "coverage: deferred names must be exempt, uncovered=%r"
+          % uncovered)
+    check(not dead, "coverage: no dead selectors expected, got %r" % dead)
+
+
+def test_undeferred_gap_still_fails():
+    #Exemption applies only to listed names: an unlisted gap must keep
+    #failing so the trim cannot mask a real tiering hole.
+    ok, uncovered, dead = check_coverage(
+        MANIFEST, TIERS_GAP, frozenset({"return_literal"}))
+    check(not ok, "coverage: unlisted gap must still fail")
+    check("stabilize_indep_sweep" in uncovered,
+          "coverage: the unlisted name must be named, got %r" % uncovered)
+
+
 def main():
     test_full_coverage()
     test_uncovered_row_fails()
     test_dead_selector_fails()
+    test_deferred_names_exempt_from_coverage()
+    test_undeferred_gap_still_fails()
     if failures:
         for f in failures:
             print("FAIL: %s" % f)
