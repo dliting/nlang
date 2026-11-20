@@ -96,7 +96,7 @@ lambda统一降阶为**编译器合成类**（display class）＋绑定引用：
 - 函数值记录由3槽`{target, this, form}`扩为4槽`{target, this, form, descIdx}`（`AllocFuncRecord`）。记录是运行时内部形状，不入NCU线格式，非序列化面。
 - `OP_MakeFunc`操作数追加`u16 descIdx`——哨兵沿用既有`kInstDescNone = 0xFFFF`（BytecodeOps.h:9，与OP_New同约定；0是合法描述符行）——**字节码格式变更，NCU版本提升**。绑定引用不增操作数：泛型类实例的描述符照旧从头描述符通道取（0.13.1a既有）；全部`OP_MakeBoundFunc`路径（含lambda闭包）的记录descIdx槽恒填0xFFFF——描述符经接收者头，槽位对绑定形式无独立意义，§3.4四元组相等的descIdx维度在闭包上由此恒等。
 - 解禁面：泛型游离函数引用`T max<T>(T a, T b)`赋给`func<int,int,int>`——类型实参由期望类型推断，实例化描述符随句柄配对；泛型静态方法引用同通道。`CallDelegateFree`的`isGeneric`拒绝（VmExecutorOpsCalls.cpp:338）改为从句柄descIdx填充被叫帧描述符单元。
-- 0.13.1a的具名拒绝诊断（"a generic function cannot be referenced as a value"）退役，按§3.5新诊断族替换。
+- 0.13.1a的具名拒绝诊断退役，按§3.5新诊断族替换。拒绝位点两处（计划评审M2修正）：resolver侧泛型类方法臂文本为"a function of a generic class cannot be referenced as a value"（ExprResolverFuncRef.cpp:82-85）；泛型游离函数值引用的resolver拒绝位点实现期实测钉位（RejectFuncRefTarget四处gate未见isGeneric检查）。VM防御后stop（"a generic function cannot be referenced as a value"，VmExecutorOpsCalls.cpp）随descIdx解禁收窄为「描述符缺失才拒」。
 
 ### 4.3 ABI与版本
 
