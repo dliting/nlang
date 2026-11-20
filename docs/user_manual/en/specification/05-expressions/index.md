@@ -208,8 +208,7 @@ parameter's type (§4.4). The result of a call is the callee's
 return type; a call to a `void` function is used as a statement
 (chapter 6). Calling a function value whose value is `null` is a
 catchable run-time error (chapter 8). Default arguments, named
-arguments, `out` parameters and overloading are defined in
-chapter 7.
+arguments and overloading are defined in chapter 7.
 
 ## 5.7 Member Access and Subscript
 

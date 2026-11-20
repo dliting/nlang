@@ -1,0 +1,8 @@
+// v0.13.9 phase 4: out on a generic function formal is retired.
+T pick<T>(out T x, T v) {
+    x = v;
+    return v;
+}
+int main() {
+    return 0;
+}

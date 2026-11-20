@@ -27,7 +27,7 @@
 | interpolation_tour.n | `"${}"`插值/toString隐式转换 | 9 |
 | cast_operator.n | as拆箱与引用下转（数值转换走隐式赋值） | 10 |
 | const_assert.n | const局部/assert/增量赋值 | 11 |
-| out_params.n | out参数多返回值 | 12 |
+| reference_formals.n | 引用形参（`&`）多返回值 | 12 |
 | ndarray_tour.n | 矩形多维数组/逗号下标/rank()/shape()/length | 13 |
 | switch_tour.n | switch/enum分支 | 0 |
 | enum_methods.n | enum方法与this | 0 |

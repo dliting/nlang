@@ -181,7 +181,7 @@ SnClassDecl instances keyed by the full instantiation signature:
 struct GenericInstKey {
     std::string baseName;            // "List" / "Dict" / "func" / "Channel"
     std::vector<SnField*> typeArgs;  // resolved type-argument fields
-    std::vector<uint8> outFlags;     // out-marked params (func)
+    std::vector<uint8> refFlags;     // reference-marked params (func)
 };
 // Array-ness needs no flag vector: an array-typed argument IS the
 // interned SnArrayTypeToken in typeArgs, so pointer identity keeps

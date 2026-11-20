@@ -365,11 +365,9 @@ public:
 	//The name itself is consumed by TryBindArgs when matching formals.
 	void Access(SnNamedArgExpr &);
 
-	//Phase 9e: resolve an out argument `out ident` at a call site.
-	//Validates the identifier binds to a caller-frame slot (local var or
-	//formal param — both register as NK_FormalParam-kind fields), then
-	//propagates the inner's EvalDataType. Consumed by TryBindArgs, which
-	//requires the matched formal to carry NF_Out.
+	//v0.13.9 phase 4: the out argument marker is retired — a pure
+	//diagnostic arm that rejects `out ident` at a call site and points
+	//at the reference-formal spelling.
 	void Access(SnOutArgExpr &);
 
 	void Access(SnMemberExpr &);

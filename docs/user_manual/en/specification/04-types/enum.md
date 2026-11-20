@@ -70,8 +70,8 @@ receiver expression — a variable, a member constant or any
 enumeration-valued expression; a receiver-less call is a
 compile-time error. Methods are dispatched statically:
 enumerations have no inheritance and no virtual dispatch.
-Enumeration methods take no default arguments and no `out`
-parameters (§7.2). The built-in `toString` is reserved: a user
+Enumeration methods take no default arguments (§7.2). The built-in
+`toString` is reserved: a user
 method cannot shadow it (§4.6.3). Inside a method, `this.M` for a
 member `M` denotes the constant value of `M`, not a comparison
 with the receiver. A member name and a method name may not

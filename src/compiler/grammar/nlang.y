@@ -3112,9 +3112,10 @@ ConcreteParam:	TT_Identifier '=' BracedInitExpr {
 					TT_Identifier '=' Expression {
 						$$ = new SnNamedArgExpr($1, $3, @1);
 					} |
-					/* Phase 9e: out argument. Restricted to a plain identifier
-					 * at the grammar level — out targets must be assignable
-					 * local slots; fields/elements are rejected here. */
+					/* Phase 9e: out argument. v0.13.9 phase 4: the marker is
+					 * retired; the arm still parses `out ident` so the resolver
+					 * rejects it with the named retirement diagnostic instead
+					 * of a bare syntax error. */
 					KT_Out TT_Identifier {
 						auto* pId = new SnIdentifierExpr($2, @2);
 						$$ = new SnOutArgExpr(pId, @1);
