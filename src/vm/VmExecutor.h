@@ -1390,6 +1390,12 @@ private:
     void MarkFuncReceiver(int32_t idx, std::vector<int32_t>& worklist);
     void MarkBoxedPayload(int32_t idx);
     void MarkClassFields(int32_t idx, std::vector<int32_t>& worklist);
+    //Pre-guard field-root routing: declared kinds whose cell holds
+    //something other than a plain struct-heap index (string handle,
+    //instantiation-dependent T, display capture base) — true when
+    //the kind alone decided the root.
+    bool RouteFieldRoot(uint8_t declaredKind, int32_t refIdx,
+                        std::vector<int32_t>& worklist);
     void MarkListElements(int32_t idx, std::vector<int32_t>& worklist);
     void MarkDictEntries(int32_t idx, std::vector<int32_t>& worklist);
     void MarkChannelElements(int32_t idx, std::vector<int32_t>& worklist);

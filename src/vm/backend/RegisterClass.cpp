@@ -19,15 +19,19 @@
 
 namespace nlang {
 
-//0.13.10 Task 6: a captured display field's descriptor kind follows its
-//flavor, not the declared type — a promoted field's cell holds a box
-//handle and a reference field's cell a (base, cell) pair, both rooted
-//through the heap-band kinds (the GC handle-mask builds from these
-//kinds; the plain declared kind would leave box/pair captures unrooted).
+//0.13.10 Task 8: a captured display field's declared kind follows its
+//capture flavor, not the declared type — a reference capture's cell
+//holds the (base, cell) pair (declared RTK_ByrefBase: the class mark
+//phase routes the base half conservatively) and a promoted capture's
+//cell holds its box handle (RTK_Promoted, same routing). The plain
+//declared kind would leave both the pair's base record and the box
+//unrooted: no record-side consumer routes them (the frame band's
+//RTK_Byref/RTK_ByrefCell kinds and their handle-mask live on the
+//locals table, never on fields).
 uint16_t VmBackend::InstanceFieldSlotKind(const SnClassField& cf)
 {
     if (cf.ContainFlags(NF_Captured) && cf.ContainFlags(NF_Ref))
-        return ByrefSlotKindOfType(cf.EvalDataType());
+        return RTK_ByrefBase;
     if (cf.ContainFlags(NF_Captured) && cf.ContainFlags(NF_Promoted))
         return RTK_Promoted;
     return RuntimeTypeKind(cf.EvalDataType());

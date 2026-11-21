@@ -42,6 +42,45 @@ inline bool DeclaredFieldAcceptsRuntime(uint8_t declaredKind,
 }
 } // namespace
 
+//Pre-guard routing for declared field kinds whose cell does not hold
+//a plain struct-heap index — true when the declared kind alone decided
+//the root and the caller's remaining arms must skip the field.
+bool VmExecutor::RouteFieldRoot(uint8_t declaredKind, int32_t refIdx,
+                                std::vector<int32_t>& worklist) {
+    switch (declaredKind) {
+    case RTK_String:
+        //String fields carry a string-store handle, not a heap
+        //index — route before the heap-index guard (a valid handle
+        //may lie beyond the struct heap's size). No runtime slot-
+        //kind double condition: the string store has no slotKinds.
+        MarkString(refIdx);
+        return true;
+    case RTK_TypeParam:
+        //A T field's representation depends on the instantiation (store
+        //handle, heap index or inline scalar) — test both domains, the
+        //same conservative routing the param scan and the frame band
+        //apply to RTK_TypeParam slots.
+        TestRootValue(refIdx, worklist);
+        return true;
+    case RTK_ByrefBase:
+    case RTK_Promoted:
+        //0.13.10 Task 8: a display capture's base handles are heap
+        //edges no declared-vs-runtime acceptance covers — a reference
+        //capture's field cell holds the (base, cell) pair (declared
+        //RTK_ByrefBase, the base half is refIdx) and a promoted
+        //capture's cell holds its box handle (RTK_Promoted). Both are
+        //the only references keeping the target alive once the owning
+        //frame dies, so route them through TestRootValue — the TypeParam
+        //arm's conservative dual-domain precedent (over-mark only; the
+        //pair's cell-offset half rides the high cell and never reaches
+        //a mark path).
+        TestRootValue(refIdx, worklist);
+        return true;
+    default:
+        return false;
+    }
+}
+
 void VmExecutor::MarkClassFields(int32_t idx,
                                  std::vector<int32_t>& worklist) {
     int32_t classIdx = m_structHeap[idx][0];
@@ -49,22 +88,8 @@ void VmExecutor::MarkClassFields(int32_t idx,
     const auto& fields = m_classLayout.Fields(static_cast<size_t>(classIdx));
     for (size_t i = 0; i < fields.size(); ++i) {
         int32_t refIdx = m_structHeap[idx][i * 2 + 1];
-        //String fields carry a string-store handle, not a heap
-        //index — route before the heap-index guard (a valid handle
-        //may lie beyond the struct heap's size). No runtime slot-
-        //kind double condition: the string store has no slotKinds.
-        if (fields[i].kind == RTK_String) {
-            MarkString(refIdx);
+        if (RouteFieldRoot(fields[i].kind, refIdx, worklist))
             continue;
-        }
-        //A T field's representation depends on the instantiation (store
-        //handle, heap index or inline scalar) — test both domains, the
-        //same conservative routing the param scan and the frame band
-        //apply to RTK_TypeParam slots.
-        if (fields[i].kind == RTK_TypeParam) {
-            TestRootValue(refIdx, worklist);
-            continue;
-        }
         if (refIdx <= 0 || static_cast<size_t>(refIdx) >= m_slotKinds.size())
             continue;
         const uint8_t refKind = m_slotKinds[static_cast<size_t>(refIdx)];

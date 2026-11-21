@@ -89,6 +89,19 @@ static constexpr uint8_t RTK_ByrefCell = 24;
 //is a heap reference exactly like RTK_Class (MarkStaticSlotRoots's
 //reference arm; ArrayElemKindAccepts accepts runtime RTK_Class records).
 static constexpr uint8_t RTK_Interface = 25;
+//0.13.10 Task 8: declared kind of a display class's synthetic field
+//that stores a captured & binding — the (base, cell) pair copied from
+//the frame slot, whose base half is the only heap edge. The FIRST
+//byref-family kind that appears as a field kind: RTK_Byref /
+//RTK_ByrefCell stay frame-slot-only (their "never on fields" boundary
+//holds — the display fields that briefly borrowed them now declare
+//this kind instead). The base record's runtime family varies with the
+//& target (struct record, box, container record, class instance), so
+//the class mark phase routes the slot conservatively through both
+//domains (the RTK_TypeParam discipline — over-mark only, non-moving
+//GC). The cell-offset half of the pair is never a handle and no
+//consumer visits it.
+static constexpr uint8_t RTK_ByrefBase = 26;
 //Descriptor-only kinds RTK_List / RTK_Dict / RTK_NonSerialized live in
 //TypeDesc.h (they appear inside TypeDesc, never in these legacy bytes).
 static constexpr uint8_t RTK_Null   = 0xFD;  //Option B: null default value (any reference type)

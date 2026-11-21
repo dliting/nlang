@@ -705,6 +705,37 @@ target_compile_definitions(test_interface_rtk_gc
 
 add_test(NAME interface_rtk_gc_tests COMMAND test_interface_rtk_gc)
 
+# 0.13.10 Task 8: display capture-field kind pins — a &-capture display
+# field declares RTK_ByrefBase (the class mark phase's base-handle
+# label), a promoted capture keeps RTK_Promoted, a value capture keeps
+# its declared kind. Byte pins over real-compiled modules; the survival
+# runs are tests/e2e/lambda_capture_gc_survive.n.
+add_executable(test_display_capture_kinds
+    test_vm/test_display_capture_kinds.cpp
+)
+
+target_include_directories(test_display_capture_kinds
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/compiler
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_display_capture_kinds
+    PRIVATE
+        nlang_vm
+        nlang_compiler
+        nlang_runtime
+        nlang_langservice
+)
+nlang_stdlib_test(test_display_capture_kinds)
+target_compile_definitions(test_display_capture_kinds
+    PRIVATE
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+)
+
+add_test(NAME display_capture_kinds_tests COMMAND test_display_capture_kinds)
+
 # v0.13.9 phase ③ Task 4: scalar/string local promotion — a &-bound local
 # or value formal gets its storage compiled into one stable boxed record
 # (activation-lifetime GC root). Real-compiled modules, no surgery: the

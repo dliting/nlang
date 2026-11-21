@@ -237,6 +237,13 @@ void CapturePass::SynthCapturedField(SnClassDecl &cls, CapturedVar &var)
 	case CaptureFlavor::Value:
 		break;
 	}
+	//0.13.10 Task 8: the field carries the full capture identity —
+	//NF_Captured beside the flavor flag — so InstanceFieldSlotKind's
+	//capture arms fire on the FIELD (the descriptor-side stamp below
+	//serves name resolution; the declared kind consults only the
+	//field's own flags, and without this half the flavor arms were
+	//dead and the field kept the plain target kind).
+	var.pField->AddFlags(NF_Captured);
 	cls.Members().push_back(var.pField);
 	var.pDecl->AddFlags(NF_Captured);
 	if (auto *pLocal = dynamic_cast<SnLocalVar *>(var.pDecl))

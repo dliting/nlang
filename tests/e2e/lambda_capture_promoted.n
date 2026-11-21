@@ -4,8 +4,10 @@
 //declarator init writes through the box payload, reads load it back,
 //an & binding over a capture at field index >= 1 resolves the right
 //cell, and the frame-level and in-lambda compounds read-modify-write
-//through the same box. Makers invoke their lambdas in-frame — the
-//escape-and-survive legs are lambda_capture_gc_survive.n (Task 8).
+//through the same box. Every maker's lambda escapes its owner frame
+//and runs from main — with the Task 8 mark arms the display's box and
+//pair bases survive the collection passes in between; the churn leg
+//with &-struct captures is lambda_capture_gc_survive.n.
 int makePromoted() {
     int x = 7;
     int& r = x;
@@ -32,6 +34,19 @@ int makeCompoundInside() {
     func<int> g = () -> { x += 3; return x + r; };
     return g();
 }
+func<int> escapePromoted() {
+    int x = 7;
+    int& r = x;
+    func<int> g = () -> x + r;
+    return g;
+}
+func<int> escapeRefSecond() {
+    int y = 5;
+    int x = 7;
+    int& r = x;
+    func<int> g = () -> y + x + r;
+    return g;
+}
 int main() {
     if (makePromoted() != 14) {
         return 1;
@@ -44,6 +59,14 @@ int main() {
     }
     if (makeCompoundInside() != 20) {
         return 4;
+    }
+    func<int> a = escapePromoted();
+    func<int> b = escapeRefSecond();
+    if (a() != 14) {
+        return 5;
+    }
+    if (b() != 19) {
+        return 6;
     }
     return 0;
 }
