@@ -73,9 +73,12 @@ echo "GATE $name: PASS"
 
 EXPECTED_LEGS = [
     "T1-debug-unit",
+    "T1-debug-unit-budget",
     "T1-debug-e2e",
     "T1-ide-ctest",
+    "T1-ide-ctest-budget",
     "T1-asan-unit",
+    "T1-asan-unit-budget",
     "T1-asan-e2e-subset",
 ]
 
@@ -94,9 +97,15 @@ def run_smoke():
         for tree in ("master", "asan", "ide"):
             (sandbox / "trees" / tree).mkdir(parents=True)
         shutil.copy(repo / "tools" / "gate_tier.sh", sandbox / "tools" / "gate_tier.sh")
-        (sandbox / "tools" / "gate.sh").write_text(STUB_GATE, newline="\n")
-        (sandbox / "tools" / "gate_tiers.txt").write_text(TIERS, newline="\n")
-        (sandbox / "tests" / "e2e" / "manifest.txt").write_text(MANIFEST, newline="\n")
+        # write_text(newline=) is 3.10+; the registered ${PYTHON3_EXECUTABLE}
+        # (the 9.3 line) is older, so the LF pins go through open(). The bash
+        # scripts must not gain CRLF translations on a Windows checkout.
+        def write_lf(path, text):
+            with path.open("w", encoding="utf-8", newline="\n") as handle:
+                handle.write(text)
+        write_lf(sandbox / "tools" / "gate.sh", STUB_GATE)
+        write_lf(sandbox / "tools" / "gate_tiers.txt", TIERS)
+        write_lf(sandbox / "tests" / "e2e" / "manifest.txt", MANIFEST)
 
         # NLANG_GATE_MACHINE_SCALE pins the per-leg calibration (D-4): the
         # stub trees hold no configured suite, so an unpinned assembly
@@ -137,6 +146,32 @@ def run_smoke():
             check("NLANG_GATE_MACHINE_SCALE=1.0" in body,
                   "machine scale missing from the leg command "
                   f"environment: {body!r}")
+            # Post-hoc budget judging needs the per-entry timings: the
+            # leg writes its junit file and keeps the transitional
+            # --timeout watchdog fallback until the TIMEOUT properties
+            # replace it (the caps consumer, Task 4).
+            check("--output-junit" in body,
+                  f"ctest leg writes no junit timings for the budget "
+                  f"checker: {body!r}")
+            check("--timeout 1500" in body,
+                  f"ctest leg lost the transitional --timeout fallback: "
+                  f"{body!r}")
+        # Each ctest leg gets its own <name>-budget gate.sh entry (the
+        # checker must not be spliced into the leg's own command string —
+        # gate_selftest.sh A-series lesson: a fused word makes the leg's
+        # verdict unknowable). It reuses the scalar that calibration just
+        # measured for this same leg (D-5), and the stub-pinned 1.0 must
+        # ride through verbatim.
+        budget_invocations = gates_dir / "T1-debug-unit-budget.invocations"
+        check(budget_invocations.exists(),
+              "stub gate.sh never received T1-debug-unit-budget — the "
+              "post-hoc checker leg never reached gate.sh")
+        if budget_invocations.exists():
+            body = budget_invocations.read_text()
+            for token in ("check-budget", "--junit", "--config ctest-Debug",
+                          "--scalar 1.0"):
+                check(token in body,
+                      f"budget checker invocation lost {token!r}: {body!r}")
         return not failures
     finally:
         shutil.rmtree(sandbox, ignore_errors=True)

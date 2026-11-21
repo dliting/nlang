@@ -138,13 +138,37 @@ leg_uncalibrated() { # leg_uncalibrated <name>
   leg "$1" false
 }
 
+# Transitional per-entry watchdog for ctest legs (guard three's kill
+# side): --timeout caps only the entries that carry no TIMEOUT property,
+# and every entry is in that state until the configure-time caps consumer
+# sets the properties (the plan's next task). The value equals ctest's
+# own built-in default and sits far above the worst legitimate run, so
+# it changes nothing today while making the kill point explicit in the
+# leg command.
+CTEST_TRANSITIONAL_TIMEOUT_S=1500
+
 ctest_leg() { # ctest_leg <name> <tree> <config-key> [-R <regex>]
   local name="$1" tree="$2" config="$3"; shift 3
-  local scale regex=""
+  local scale regex="" junit="$LOGS/$name.xml"
   [ $# -gt 0 ] && [ -n "$1" ] && regex=" -R '$1'"
   scale=$(leg_scale "$config" --tree "$tree") || { leg_uncalibrated "$name"; return; }
+  # The work directory is reused across batches, and ctest only writes the
+  # junit once it has started: clearing the old file first means the
+  # checker either judges this round's timings or reports a missing file
+  # (rc=1), never last round's numbers.
+  rm -f "$junit"
   leg "$name" env "NLANG_GATE_MACHINE_SCALE=$scale" bash -c \
-    "cd '$tree' && ctest -C Debug$regex"
+    "cd '$tree' && ctest -C Debug$regex --output-junit '$junit' --timeout $CTEST_TRANSITIONAL_TIMEOUT_S"
+  # Post-hoc budget judging (guard three): ctest has no inline budget
+  # knob, so the checker reads the leg's junit after the fact. Its own
+  # gate.sh entry, never spliced into the leg's command string -- a
+  # fused word fuses the two verdicts (gate_selftest.sh's lesson). It
+  # reuses this same leg's calibrated scalar (D-5: same leg, same
+  # number), and --parallel/--repeat/--work-factor state the leg's run
+  # form so the checker can refuse a form mismatch (guard ten).
+  leg "$name-budget" "$PY" "$REPO/tools/gate_time_check.py" check-budget \
+    --junit "$junit" --config "$config" --parallel 1 --repeat none \
+    --work-factor 1 --scalar "$scale"
 }
 
 e2e_leg() { # e2e_leg <name> <tree> <config> <ref-key> [manifest] [timeout]

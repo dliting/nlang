@@ -3165,6 +3165,30 @@ else()
     message(STATUS "gate_time_check_selftest skipped: Python3 not found")
 endif()
 
+# gate_tier.sh assembly smoke (tools/gate_tier_test.py): drives the leg
+# dispatch against a stub gate.sh in a sandbox, so it needs bash but no
+# build tree and no machine lock (the stub replaces gate.sh). The probe
+# variables come from the gate selftest block above: a bash that cannot
+# print a write-directory key is not one this script can drive either.
+# No ENVIRONMENT property here: the test pins its own child environment
+# (the machine scale stays off the suite configuration, D-4).
+if(Python3_FOUND)
+    if(BASH_PROGRAM AND NLANG_GATE_BASH_PROBE EQUAL 0
+            AND NLANG_GATE_BASH_OUT MATCHES "^key [0-9a-f]+ path ")
+        add_test(NAME gate_tier_smoke
+            COMMAND ${PYTHON3_EXECUTABLE}
+                ${PROJECT_SOURCE_DIR}/tools/gate_tier_test.py
+            WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+        set_tests_properties(gate_tier_smoke PROPERTIES TIMEOUT 180)
+    else()
+        message(STATUS "gate_tier_smoke skipped: bash missing or unable to "
+            "print a write-directory key (the gate selftest message above "
+            "names the cause)")
+    endif()
+else()
+    message(STATUS "gate_tier_smoke skipped: Python3 not found")
+endif()
+
 # In-process VM tests resolve the stdlib native modules through the
 # loader's build-tree fallback (NativeLibraryLoader walks up from the test
 # exe to <build>/native/<config>, the single authoritative module output).

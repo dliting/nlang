@@ -1,7 +1,8 @@
 # gate_time_check.py -- the reference timing table, the caps()/budget
-# formula and the timing guards one, two, four and seven
-# (docs/dev/gate_timing_design.md). The watchdog cap and the budget are
-# computed in exactly one place, caps(), per D-5. Stdlib only; run with -I.
+# formula and the timing guards one, two, three (post-hoc, with ten),
+# four and seven (docs/dev/gate_timing_design.md). The watchdog cap and
+# the budget are computed in exactly one place, caps(), per D-5. Stdlib
+# only; run with -I.
 #
 # Subcommands (each prints one verdict line "GATE gate_time_check: PASS|FAIL"):
 #   check-complete   guard one: the derived entry universe (three decision
@@ -17,6 +18,12 @@
 #                    will use (D-4); the scale is the median of per-sentinel
 #                    measured/reference readings and must stay in
 #                    [SCALE_BAND_MIN, SCALE_BAND_MAX]
+#   check-budget     guard three post-hoc (ctest legs are the only leg
+#                    type ctest gives no inline knob to, F-4) plus guard
+#                    ten: judge a finished leg's timed entries against
+#                    their rows from the --output-junit timings, with the
+#                    scope grading of D-3/R-17, the ratchet of D-15 and
+#                    the form-token refusal of guard ten
 #   check-constants  guard seven: constant band self-consistency and every
 #                    row's cap strictly above its budget at band-edge scalar
 #   record           merge measured readings (--from-junit / --from-measure),
@@ -147,6 +154,24 @@ def _resolve_row(rows, config, entry):
             if row.config == config and row.entry == "default":
                 return row
     raise KeyError("%s %s" % (config, entry))
+
+
+def _resolve_scoped_row(rows, config, entry):
+    """Row resolution for the post-hoc checker, widened to the coarse
+    scopes (D-3/R-17) in D-3's fixed priority: entry row > manifest row >
+    `default` row (nearest scope wins). ctest configs list every entry and
+    carry no coarse row today, so an unknown name resolves to None there
+    and the checker reports it missing rather than inventing a budget.
+    The grading of what a reading can do (red versus advisory) lives in
+    check_budget, not here."""
+    for row in rows:
+        if row.config == config and row.entry == entry:
+            return row
+    for scope in MANIFEST_SCOPES + ("default",):
+        for row in rows:
+            if row.config == config and row.entry == scope:
+                return row
+    return None
 
 
 def caps(config, entry, work_factor=1.0, scalar=1.0, table_path=None):
@@ -408,6 +433,25 @@ def parse_measure_rows(text):
     return measurements
 
 
+def _junit_cases(xml_text):
+    """The raw view of a ctest --output-junit document: (name, status,
+    seconds) triples for every <testcase> carrying all three attributes
+    (a row missing one carries nothing trustworthy; the record path has
+    always refused those, and the budget checker skips them the same
+    way). The CMake 3.25.2 status semantics -- Passed="run", Failed and
+    Timeout both="fail" with no attribute telling them apart,
+    skipped="notrun" -- are documented at each consumer's filter."""
+    cases = []
+    for case in ET.fromstring(xml_text).iter("testcase"):
+        name = case.get("name")
+        status = case.get("status")
+        raw = case.get("time")
+        if not name or status is None or raw is None:
+            continue
+        cases.append((name, status, float(raw)))
+    return cases
+
+
 def parse_junit_rows(xml_text, form="ctest-junit-serial"):
     """Parse ctest --output-junit XML into {name: (seconds, form)}, taking
     only <testcase> elements with status="run" (R-7: ref_s means seconds
@@ -425,12 +469,9 @@ def parse_junit_rows(xml_text, form="ctest-junit-serial"):
     remaining-0.00-rows listing. Same-name run duplicates keep the
     maximum (never sum)."""
     measurements = {}
-    for case in ET.fromstring(xml_text).iter("testcase"):
-        name = case.get("name")
-        raw = case.get("time")
-        if not name or raw is None or case.get("status") != "run":
+    for name, status, secs in _junit_cases(xml_text):
+        if status != "run":
             continue
-        secs = float(raw)
         if name not in measurements or secs > measurements[name][0]:
             measurements[name] = (secs, form)
     return measurements
@@ -498,6 +539,139 @@ def apply_record(table_path, config, measurements):
     with path.open("w", encoding="utf-8", newline="\n") as handle:
         handle.write("\n".join(out) + "\n")
     return updated, added
+
+
+# A junit document cannot name a killed entry (Failed and Timeout share
+# status="fail", probed against CMake 3.25.2), so check_budget decides
+# "watchdog kill" from the reading sitting at the cap its row computes:
+# the probe measured the kill landing at cap + 1.18%, and ctest's own
+# bookkeeping can sit a hair under the cap too, so the window brackets it.
+# A failed entry whose span sits elsewhere in the document carries no
+# workload reading (D-14: lit records failed runs as negative time for
+# exactly this reason) and is only listed for the human triage.
+# Transitional caveat: until the configure-time TIMEOUT properties replace
+# the legs' flat --timeout fallback (the plan's next task), a killed ctest
+# entry sits at the fallback value instead of at its row's cap and
+# surfaces as the informational FAILED line rather than TIMEOUT_WATCHDOG
+# -- a wording loss only: the fallback is far above every legitimate run,
+# so no budget judgment is lost.
+JUNIT_KILL_WINDOW_LO = 0.98
+JUNIT_KILL_WINDOW_HI = 1.15
+
+
+def _form_token(config, parallel, repeat):
+    """Guard ten's measurement-form token for a reading taken now: the
+    family half says which product timed it (ctest junit versus the e2e
+    runner's MEASURE rows), the mode half how the leg was driven. A
+    reading may only be judged against a row recorded in the same form:
+    a serial reference compared against parallel contention prices the
+    contention into the machine scalar and misjudges both (D-2's last
+    paragraph)."""
+    family = "ctest-junit" if config.startswith("ctest-") else "e2e"
+    mode = "-serial" if parallel <= 1 else "-parallel-%d" % parallel
+    if repeat and repeat != "none":
+        mode += "-repeat-%s" % repeat
+    return family + mode
+
+
+def check_budget(config, cases, rows, parallel=1, repeat="none",
+                 work_factor=1.0, scalar=1.0):
+    """Guard three post-hoc for one finished ctest leg (the leg type ctest
+    gives no inline knob to, F-4): judge every timed entry against the
+    row it resolves to, from the leg's --output-junit timings. Caps come
+    from _caps_values -- the single computation place, D-5 -- with this
+    same leg's calibrated scalar.
+
+    Status handling: a run row is a completed reading; a fail row is
+    either the watchdog kill -- it gets the TIMEOUT_WATCHDOG wording and
+    nothing else, because a span pinned at the kill cap measured the cap
+    rather than the workload (D-2's wording priority and its
+    no-double-verdict clause) -- or an ordinary test failure, which
+    contributes no reading and is only listed for triage (the leg's own
+    verdict owns its red); notrun spans are skip-decision cost and drop
+    out.
+
+    Scope grading (D-3/R-17) bounds the force of a reading: only an entry
+    resolved to its OWN row can make the checker red (BUDGET-FAIL); an
+    entry resolved through a coarse default/manifest row gets advisory
+    lines instead. A coarse scope's ratchet advisory prints once per row
+    naming that scope's largest reading -- firing per entry would grind
+    the coarse design back to fine every round (D-15).
+
+    The ratchet line is reference-based and scalar-free: D-15's wording
+    (reference * SAFETY_MULTIPLIER / 2, carried by the row's own work
+    ratio because that half is workload, not machine) plus D-4's
+    opposite-direction argument -- a contention-inflated scalar must not
+    make normal readings look worth lowering the reference for. D-5 is
+    not broken: the over-budget advisory and the verdict read the same
+    row, the same caps() numbers and the same scalar.
+
+    MISSING lines are report lines, not findings: the table is the single
+    truth, a row-less entry simply cannot be judged, and the absence
+    itself is guard one's territory at recording time. Returns
+    (findings, detail)."""
+    run_secs = {}
+    fail_secs = {}
+    for name, status, secs in cases:
+        if status == "run":
+            if name not in run_secs or secs > run_secs[name]:
+                run_secs[name] = secs
+        elif status == "fail":
+            if name not in fail_secs or secs > fail_secs[name]:
+                fail_secs[name] = secs
+    measured_form = _form_token(config, parallel, repeat)
+    ratio = max(float(work_factor), 1.0)
+    findings = []
+    detail = []
+    # Coarse-scope ratchet candidates bucketed per scope row:
+    # scope entry -> (ratchet line, [(actual, entry), ...]).
+    ratchet_buckets = {}
+    for name in sorted(set(run_secs) | set(fail_secs)):
+        row = _resolve_scoped_row(rows, config, name)
+        if row is None:
+            detail.append("MISSING %s %s" % (config, name))
+            continue
+        if row.form != measured_form:
+            findings.append("FORM %s %s recorded=%s measured=%s; re-record "
+                            "the reference row in the form this leg runs "
+                            "(guard ten)" % (config, name, row.form,
+                                             measured_form))
+            continue
+        budget, watchdog = _caps_values(row.ref_s, work_factor, scalar)
+        ratchet = row.ref_s * ratio * SAFETY_MULTIPLIER / 2
+        if name not in run_secs:
+            secs = fail_secs[name]
+            if (watchdog * JUNIT_KILL_WINDOW_LO <= secs
+                    <= watchdog * JUNIT_KILL_WINDOW_HI):
+                findings.append("BUDGET %s TIMEOUT_WATCHDOG actual=%.2f "
+                                "cap=%.2f" % (name, secs, watchdog))
+            else:
+                detail.append("BUDGET %s FAILED actual=%.2f" % (name, secs))
+            continue
+        actual = run_secs[name]
+        entry_scope = row.entry == name
+        if actual > budget:
+            if entry_scope:
+                findings.append("BUDGET-FAIL %s budget=%.2f actual=%.2f "
+                                "(TIMEOUT_BUDGET)"
+                                % (name, budget, actual))
+            else:
+                detail.append("advisory: %s 超预算 budget=%.2f "
+                              "actual=%.2f" % (name, budget, actual))
+        elif actual < ratchet:
+            if entry_scope:
+                detail.append("advisory: %s 建议下调参考 actual=%.2f "
+                              "line=%.2f" % (name, actual, ratchet))
+            else:
+                ratchet_buckets.setdefault(
+                    row.entry, (ratchet, []))[1].append((actual, name))
+    for scope in sorted(ratchet_buckets):
+        line, readings = ratchet_buckets[scope]
+        actual, name = sorted(readings, key=lambda item: (-item[0],
+                                                          item[1]))[0]
+        detail.append("advisory: %s 建议下调参考 max_actual=%.2f "
+                      "line=%.2f" % (name, actual, line))
+    return findings, detail
 
 
 def _read_name_set(path):
@@ -725,6 +899,22 @@ def _dispatch(args):
         if findings:
             findings += ["CANDIDATE " + line for line in candidates]
         return _verdict(findings)
+    if args.command == "check-budget":
+        if args.config not in CONFIG_KEYS:
+            return _verdict(["CHECK-BUDGET %s: unknown config key (want "
+                             "one of %s)" % (args.config,
+                                             ", ".join(CONFIG_KEYS))])
+        cases = _junit_cases(Path(args.junit).read_text(encoding="utf-8"))
+        findings, detail = check_budget(
+            args.config, cases, _effective_rows(table),
+            parallel=args.parallel, repeat=args.repeat,
+            work_factor=args.work_factor, scalar=args.scalar)
+        # Detail lines (advisories, MISSING, triage listings) print in
+        # both outcomes: they carry the context the verdict and the
+        # findings alone would leave out.
+        for line in detail:
+            print(line)
+        return _verdict(findings)
     rows = _effective_rows(table)
     if args.command == "check-constants":
         return _verdict(check_constants(rows)[1])
@@ -806,6 +996,27 @@ def _build_parser():
                                                 "subset derives from "
                                                 "(default tests/e2e/"
                                                 "manifest.txt)")
+    budget_p = sub.add_parser("check-budget", help="guard three post-hoc: "
+                              "judge a finished ctest leg's budgets from "
+                              "its junit timings")
+    budget_p.add_argument("--table", help="reference table (default "
+                                          "tests/gate_time_reference.txt)")
+    budget_p.add_argument("--junit", required=True, metavar="FILE",
+                          help="the leg's ctest --output-junit XML")
+    budget_p.add_argument("--config", required=True,
+                          help="config key the leg ran under")
+    budget_p.add_argument("--parallel", type=int, default=1,
+                          help="the -j level the leg ran at (guard ten's "
+                               "form token)")
+    budget_p.add_argument("--repeat", default="none",
+                          help="the --repeat mode the leg ran at (guard "
+                               "ten's form token)")
+    budget_p.add_argument("--work-factor", type=float, default=1.0,
+                          help="work scaling the leg ran at (the D-1 "
+                               "ratio)")
+    budget_p.add_argument("--scalar", type=float, default=1.0,
+                          help="the machine scale calibration measured for "
+                               "this very leg (D-5: same leg, same number)")
     return parser
 
 
