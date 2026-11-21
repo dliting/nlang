@@ -3150,6 +3150,21 @@ else()
     message(STATUS "nlang_gate_selftest skipped: bash not found in PATH")
 endif()
 
+# gate_time_check selftest: hermetic corpus for the reference timing
+# guards (tools/gate_time_check.py). Stdlib only, so plain Python3
+# suffices -- registering it through the pytest probe would drop the
+# entry wherever pytest is absent (build-dev registers zero pytest
+# entries), and the corpus must run in every configured tree.
+if(Python3_FOUND)
+    add_test(NAME gate_time_check_selftest
+        COMMAND ${PYTHON3_EXECUTABLE}
+            ${PROJECT_SOURCE_DIR}/tools/gate_time_check_test.py
+        WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+    set_tests_properties(gate_time_check_selftest PROPERTIES TIMEOUT 120)
+else()
+    message(STATUS "gate_time_check_selftest skipped: Python3 not found")
+endif()
+
 # In-process VM tests resolve the stdlib native modules through the
 # loader's build-tree fallback (NativeLibraryLoader walks up from the test
 # exe to <build>/native/<config>, the single authoritative module output).
