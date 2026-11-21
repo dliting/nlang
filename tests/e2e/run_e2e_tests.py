@@ -2,7 +2,8 @@
 """NLang Phase 2 end-to-end test runner.
 
 Usage:
-    conda run -n py313 python run_e2e_tests.py [ncc_path] [nvm_path] [--timeout=SEC]
+    conda run -n py313 python run_e2e_tests.py [ncc_path] [nvm_path]
+        [--timeout=SEC] [--record-out FILE]
 
 Reads manifest.txt (name + expected_exit_code [+ optional expected stdout
 substring]), compiles each <name>.n, runs the .ncu, and reports results.
@@ -18,6 +19,12 @@ shard its own tag); unset, every path and CWD is exactly as above.
 invocation only: the ASan-instrumented tree runs ~7x slower than Release,
 and its gate run needs more headroom for the pattern-budget case
 (stdlib_regex_size crosses the size limit with 25000 literal atoms).
+Every per-entry verdict line (PASS or FAIL) is followed by a
+TIME <name> <seconds> line with that entry's own wall-clock span; SKIP
+lines and the startup checks carry no timing. --record-out FILE
+additionally writes one raw `MEASURE <name> <seconds> form=e2e-serial`
+row per verdict — the gate-time reference recorder's only e2e input,
+so the TIME and MEASURE rows are the plan's single e2e timing outlet.
 For compile_error tests the optional third column is instead the substring
 ncc's compile diagnostics must contain (rejection reason pinning) — works
 for single-file tests and for cross-module directory tests (checked against
@@ -52,6 +59,7 @@ import socket
 import subprocess
 import shutil
 import shlex
+import time
 import re
 from collections import namedtuple
 
@@ -65,6 +73,9 @@ MANIFEST = os.path.join(SCRIPT_DIR, 'manifest.txt')
 #Flat per-test subprocess cap (compile and run), overridable per invocation
 #with --timeout=SEC (see the module docstring).
 TIMEOUT_SEC = 30
+#Seconds spelling for the per-entry TIME/MEASURE rows: fixed decimals,
+#so the rows stay byte-parseable for the gate-time reference recorder.
+_TIMING_SECONDS_FMT = '{:.2f}'
 #Root of every scratch dir the runner owns: tests/temp/, which .gitignore
 #keeps out of the repository.
 SCRATCH_ROOT = os.path.normpath(os.path.join(SCRIPT_DIR, '..', 'temp'))
@@ -501,9 +512,60 @@ def _split_timeout_arg(argv):
     return rest, timeout
 
 
+def _split_record_out_arg(argv):
+    """Pull a '--record-out <file>' (or '--record-out=<file>', the
+    --timeout= spelling of this same file) raw-measure sink out of argv
+    (the positional tool paths stay untouched), mirroring
+    _split_timeout_arg: the flag is set by the recording scripts, not
+    typed by hand, so a flag with no usable path after it — dangling or
+    empty — propagates as a plain ValueError rather than being silently
+    left among the positionals or disabling recording as a falsy path.
+    The last occurrence wins."""
+    record_out = None
+    rest = []
+    index = 0
+    while index < len(argv):
+        arg = argv[index]
+        value = None
+        if arg == '--record-out':
+            if index + 1 < len(argv):
+                value = argv[index + 1]
+                index += 2
+            else:
+                index += 1  #dangling flag: value stays None
+        elif arg.startswith('--record-out='):
+            value = arg.split('=', 1)[1]
+            index += 1
+        else:
+            rest.append(arg)
+            index += 1
+            continue
+        if not value:
+            raise ValueError('--record-out requires a file path')
+        record_out = value
+    return rest, record_out
+
+
+def _emit_verdict(name, verdict, entry_started, record_file):
+    """Single outlet for one per-entry verdict: print the verdict line
+    verbatim (its consumers — shard A/B diff, gate logs — grep the
+    PASS/FAIL glyphs), then the entry's TIME row, and when --record-out
+    is active the matching MEASURE row with the same seconds reading.
+    No branch may print a verdict directly: that keeps the TIME rows
+    adjacent to every verdict without repeating the timing logic across
+    the branches."""
+    print(verdict)
+    seconds = _TIMING_SECONDS_FMT.format(time.monotonic() - entry_started)
+    print(f"TIME {name} {seconds}")
+    if record_file:
+        print(f"MEASURE {name} {seconds} form=e2e-serial",
+              file=record_file)
+
+
 def main():
     global TIMEOUT_SEC
     args, timeout = _split_timeout_arg(sys.argv[1:])
+    args, record_out = _split_record_out_arg(args)
     if timeout is not None:
         TIMEOUT_SEC = timeout
     ncc = args[0] if len(args) > 0 else DEFAULT_NCC
@@ -564,6 +626,9 @@ def main():
                     known_names.add(line.split(None, 1)[0])
     if not os.environ.get('NLANG_E2E_MANIFEST'):
         for orphan in _orphan_run_stderr_sidecars(known_names):
+            #Not a per-entry run: no entry work happened, so this FAIL
+            #carries no TIME row (per-entry verdicts go via
+            #_emit_verdict, this startup check does not).
             print(f"FAIL {orphan} (run.stderr sidecar matches no manifest entry)")
             failed += 1
             errors.append(
@@ -572,6 +637,11 @@ def main():
     #Scratch for this run (per-tag namespace when NLANG_E2E_SCRATCH_TAG is
     #set): created before the first entry, dropped in teardown_scratch.
     prepare_scratch()
+    #Raw-measure sink (--record-out): opened after every startup guard
+    #so an aborted run leaves no half-written file; one MEASURE row per
+    #per-entry verdict, written by _emit_verdict.
+    record_file = (open(record_out, 'w', encoding='utf-8')
+                   if record_out else None)
 
     for manifest_path, sources_dir, out_dir in _manifest_configs():
       with open(manifest_path, 'r', encoding='utf-8') as f:
@@ -600,6 +670,10 @@ def main():
                 print(f"SKIP {name} ({gate_reason})")
                 skipped += 1
                 continue
+            #Per-entry timing origin: from here to the entry's verdict
+            #line is the entry's own work, which is what the TIME and
+            #MEASURE rows report.
+            entry_started = time.monotonic()
             #Expected may be an int (runtime exit code) or the literal
             #"compile_error" to assert that ncc rejects the source.
             if parts[1] == "compile_error":
@@ -612,7 +686,8 @@ def main():
             test_dir = os.path.join(sources_dir, name)
             if not os.path.isfile(test_file) and not os.path.isdir(test_dir):
                 if out_dir != SCRIPT_DIR:
-                    print(f"FAIL {name} (file missing)")
+                    _emit_verdict(name, f"FAIL {name} (file missing)",
+                                  entry_started, record_file)
                     failed += 1
                     errors.append(f"  {name}: file missing")
                 else:
@@ -624,9 +699,12 @@ def main():
             #dir, which must never happen under examples/. Multi-module
             #examples are gated by ctest (project_compile/project_run).
             if os.path.isdir(test_dir) and out_dir != SCRIPT_DIR:
-                print(f"FAIL {name} (directory-form entry not allowed"
-                      " in the examples manifest; gate multi-module"
-                      " examples via ctest instead)")
+                _emit_verdict(
+                    name,
+                    f"FAIL {name} (directory-form entry not allowed"
+                    " in the examples manifest; gate multi-module"
+                    " examples via ctest instead)",
+                    entry_started, record_file)
                 failed += 1
                 errors.append(f"  {name}: directory-form entry not "
                               f"allowed in the examples manifest")
@@ -640,14 +718,17 @@ def main():
             if os.path.isdir(test_dir):
                 order_path = os.path.join(test_dir, 'order.txt')
                 if not os.path.isfile(order_path):
-                    print(f"FAIL {name} (missing order.txt in test dir)")
+                    _emit_verdict(
+                        name, f"FAIL {name} (missing order.txt in test dir)",
+                        entry_started, record_file)
                     failed += 1
                     errors.append(f"  {name}: missing order.txt")
                     continue
                 with open(order_path, 'r', encoding='utf-8') as of:
                     modules = [m.strip() for m in of.read().split() if m.strip()]
                 if not modules:
-                    print(f"FAIL {name} (order.txt is empty)")
+                    _emit_verdict(name, f"FAIL {name} (order.txt is empty)",
+                                  entry_started, record_file)
                     failed += 1
                     errors.append(f"  {name}: empty order.txt")
                     continue
@@ -700,7 +781,9 @@ def main():
                             [ncc, 'build', src, '-o', out, '-I', imports_dir],
                             capture_output=True, timeout=TIMEOUT_SEC)
                     except Exception as e:
-                        print(f"FAIL {name} (compile error: {e})")
+                        _emit_verdict(name,
+                                      f"FAIL {name} (compile error: {e})",
+                                      entry_started, record_file)
                         failed += 1
                         errors.append(f"  {name}: compile error: {e}")
                         compile_ok = False
@@ -727,7 +810,9 @@ def main():
                                                    reject_stderr)
                         if bad:
                             negate, want = bad
-                            print(f"FAIL {name} (diagnostic mismatch)")
+                            _emit_verdict(
+                                name, f"FAIL {name} (diagnostic mismatch)",
+                                entry_started, record_file)
                             failed += 1
                             errors.append(
                                 f"  {name}: expected diagnostic "
@@ -735,16 +820,23 @@ def main():
                                 f"{want!r}; stderr: "
                                 f"{reject_stderr[:300]}")
                             continue
-                        print(f"PASS {name} (compile error as expected)")
+                        _emit_verdict(
+                            name,
+                            f"PASS {name} (compile error as expected)",
+                            entry_started, record_file)
                         passed += 1
                         continue
-                    print(f"FAIL {name} (compilation failed)")
+                    _emit_verdict(name, f"FAIL {name} (compilation failed)",
+                                  entry_started, record_file)
                     failed += 1
                     errors.append(f"  {name}: compilation failed")
                     continue
 
                 if expected == "compile_error":
-                    print(f"FAIL {name} (expected compile_error but compiled ok)")
+                    _emit_verdict(
+                        name,
+                        f"FAIL {name} (expected compile_error but compiled ok)",
+                        entry_started, record_file)
                     failed += 1
                     errors.append(f"  {name}: expected compile_error, compiled")
                     continue
@@ -768,8 +860,11 @@ def main():
                     actual = result.returncode
                     stderr_text = _matchable_stderr(result.stderr)
                 except Exception as e:
-                    print(f"FAIL {name} (runtime error: "
-                          f"{_describe_run_error(e)})")
+                    _emit_verdict(
+                        name,
+                        f"FAIL {name} (runtime error: "
+                        f"{_describe_run_error(e)})",
+                        entry_started, record_file)
                     failed += 1
                     errors.append(f"  {name}: runtime error: "
                                   f"{_describe_run_error(e)}")
@@ -782,7 +877,10 @@ def main():
                     if expected_stdout:
                         stdout_text = _matchable_stdout(name, result.stdout)
                         if expected_stdout not in stdout_text:
-                            print(f"FAIL {name} (stdout missing {expected_stdout!r})")
+                            _emit_verdict(
+                                name,
+                                f"FAIL {name} (stdout missing {expected_stdout!r})",
+                                entry_started, record_file)
                             failed += 1
                             errors.append(f"  {name}: stdout missing {expected_stdout!r}")
                             continue
@@ -797,17 +895,24 @@ def main():
                         negate = want.startswith('!')
                         want = want.lstrip('!').strip()
                         if (want in stderr_text) == negate:
-                            print(f"FAIL {name} (run stderr expectation mismatch)")
+                            _emit_verdict(
+                                name,
+                                f"FAIL {name} (run stderr expectation mismatch)",
+                                entry_started, record_file)
                             failed += 1
                             errors.append(
                                 f"  {name}: expected run stderr "
                                 f"{'NOT containing' if negate else 'containing'} "
                                 f"{want!r}; stderr: {stderr_text[:300]}")
                             continue
-                    print(f"PASS {name} (exit={actual})")
+                    _emit_verdict(name, f"PASS {name} (exit={actual})",
+                                  entry_started, record_file)
                     passed += 1
                 else:
-                    print(f"FAIL {name} (expected={expected}, actual={actual})")
+                    _emit_verdict(
+                        name,
+                        f"FAIL {name} (expected={expected}, actual={actual})",
+                        entry_started, record_file)
                     failed += 1
                     errors.append(f"  {name}: expected={expected} actual={actual}")
                     if stderr_text:
@@ -846,7 +951,8 @@ def main():
                     [ncc, 'build', test_file, '-o', nmod_file] + ncc_extra,
                     capture_output=True, timeout=TIMEOUT_SEC, cwd=out_dir)
             except Exception as e:
-                print(f"FAIL {name} (compile error: {e})")
+                _emit_verdict(name, f"FAIL {name} (compile error: {e})",
+                              entry_started, record_file)
                 failed += 1
                 errors.append(f"  {name}: compile error: {e}")
                 continue
@@ -871,7 +977,9 @@ def main():
                                                    stderr_text)
                         if bad:
                             negate, want = bad
-                            print(f"FAIL {name} (diagnostic mismatch)")
+                            _emit_verdict(
+                                name, f"FAIL {name} (diagnostic mismatch)",
+                                entry_started, record_file)
                             failed += 1
                             errors.append(
                                 f"  {name}: expected diagnostic "
@@ -879,11 +987,15 @@ def main():
                                 f"{want!r}; stderr: "
                                 f"{stderr_text[:300]}")
                             continue
-                    print(f"PASS {name} (compile error as expected)")
+                    _emit_verdict(
+                        name, f"PASS {name} (compile error as expected)",
+                        entry_started, record_file)
                     passed += 1
                     continue
                 else:
-                    print(f"FAIL {name} (compilation failed)")
+                    _emit_verdict(
+                        name, f"FAIL {name} (compilation failed)",
+                        entry_started, record_file)
                     failed += 1
                     errors.append(f"  {name}: compilation failed")
                     continue
@@ -891,7 +1003,10 @@ def main():
             #If we reach here, compilation succeeded. If the manifest said
             #compile_error, that's a FAIL (we expected rejection).
             if expected == "compile_error":
-                print(f"FAIL {name} (expected compile_error but compiled ok)")
+                _emit_verdict(
+                    name,
+                    f"FAIL {name} (expected compile_error but compiled ok)",
+                    entry_started, record_file)
                 failed += 1
                 errors.append(f"  {name}: expected compile_error, compiled")
                 if os.path.isfile(nmod_file):
@@ -912,7 +1027,9 @@ def main():
                     'utf-8', errors='replace')
                     if compile_result.stderr else '')
                 if (want in got_stderr) == negate:
-                    print(f"FAIL {name} (stderr expectation mismatch)")
+                    _emit_verdict(
+                        name, f"FAIL {name} (stderr expectation mismatch)",
+                        entry_started, record_file)
                     failed += 1
                     errors.append(
                         f"  {name}: expected stderr "
@@ -956,8 +1073,9 @@ def main():
                 actual = result.returncode
                 stderr_text = _matchable_stderr(result.stderr)
             except Exception as e:
-                print(f"FAIL {name} (runtime error: "
-                      f"{_describe_run_error(e)})")
+                _emit_verdict(
+                    name, f"FAIL {name} (runtime error: "
+                    f"{_describe_run_error(e)})", entry_started, record_file)
                 failed += 1
                 errors.append(f"  {name}: runtime error: "
                               f"{_describe_run_error(e)}")
@@ -976,7 +1094,10 @@ def main():
                 if expected_stdout:
                     stdout_text = _matchable_stdout(name, result.stdout)
                     if expected_stdout not in stdout_text:
-                        print(f"FAIL {name} (stdout missing {expected_stdout!r})")
+                        _emit_verdict(
+                            name,
+                            f"FAIL {name} (stdout missing {expected_stdout!r})",
+                            entry_started, record_file)
                         failed += 1
                         errors.append(f"  {name}: stdout missing {expected_stdout!r}")
                         continue
@@ -994,8 +1115,9 @@ def main():
                     want = want.lstrip('!').strip()
                     got_stdout = _matchable_stdout(name, result.stdout)
                     if (want in got_stdout) == negate:
-                        print(f"FAIL {name} (run stdout expectation "
-                              f"mismatch)")
+                        _emit_verdict(
+                            name, f"FAIL {name} (run stdout expectation "
+                            f"mismatch)", entry_started, record_file)
                         failed += 1
                         errors.append(
                             f"  {name}: expected run stdout "
@@ -1014,14 +1136,18 @@ def main():
                     negate = want.startswith('!')
                     want = want.lstrip('!').strip()
                     if (want in stderr_text) == negate:
-                        print(f"FAIL {name} (run stderr expectation mismatch)")
+                        _emit_verdict(
+                            name,
+                            f"FAIL {name} (run stderr expectation mismatch)",
+                            entry_started, record_file)
                         failed += 1
                         errors.append(
                             f"  {name}: expected run stderr "
                             f"{'NOT containing' if negate else 'containing'} "
                             f"{want!r}; stderr: {stderr_text[:300]}")
                         continue
-                print(f"PASS {name} (exit={actual})")
+                _emit_verdict(name, f"PASS {name} (exit={actual})",
+                              entry_started, record_file)
                 passed += 1
                 #P3.7 hidden-throw detector: a test that "passes" only
                 #because the runtime threw (exit 1) coinciding with an
@@ -1037,7 +1163,10 @@ def main():
                     print(warn)
                     warnings.append(f"  {name}: {stderr_text.splitlines()[0] if stderr_text else ''}")
             else:
-                print(f"FAIL {name} (expected={expected}, actual={actual})")
+                _emit_verdict(
+                    name,
+                    f"FAIL {name} (expected={expected}, actual={actual})",
+                    entry_started, record_file)
                 failed += 1
                 errors.append(f"  {name}: expected={expected} actual={actual}")
                 #Same shape as the directory-fixture path above: a failing
@@ -1048,6 +1177,14 @@ def main():
                 if stderr_text:
                     errors.append(
                         f"    stderr: {stderr_text.splitlines()[0]}")
+
+    #Close the --record-out sink before the final summary: MEASURE rows
+    #sit in the file object's block buffer (text mode with a file target
+    #is not line-buffered), so this explicit close — not the writes — is
+    #what leaves the file holding every row written up to this point no
+    #matter how the run ends below.
+    if record_file:
+        record_file.close()
 
     #Final cleanup: drop the scratch dirs this run owns.
     teardown_scratch()

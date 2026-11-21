@@ -3401,3 +3401,18 @@ else()
     message(STATUS "e2e_runner_scratch_isolation skipped: pytest is not "
         "importable via '${NLANG_DOCS_PYTHON}' (pip install pytest to enable)")
 endif()
+
+#The runner's per-entry timing rows: a TIME row after every PASS/FAIL
+#verdict line plus the --record-out MEASURE rows (the gate-time reference
+#recorder's only e2e input). One real runner subprocess over stub .cmd
+#tools laid out like a build root pins the row shapes end to end.
+if(NLANG_RUNNER_PYTEST_PROBE EQUAL 0)
+    add_test(NAME e2e_runner_timing_gate
+        COMMAND ${NLANG_DOCS_PYTHON} -m pytest
+            ${PROJECT_SOURCE_DIR}/tests/e2e/test_runner_timing_gate.py -q
+        WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/tests/e2e)
+    set_tests_properties(e2e_runner_timing_gate PROPERTIES TIMEOUT 60)
+else()
+    message(STATUS "e2e_runner_timing_gate skipped: pytest is not "
+        "importable via '${NLANG_DOCS_PYTHON}' (pip install pytest to enable)")
+endif()
