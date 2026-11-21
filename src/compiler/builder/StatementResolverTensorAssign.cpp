@@ -279,8 +279,15 @@ bool StatementResolveAccessor::TryTensorSliceAssign(
 		? ArrayElementRowOf(sn.Value()->EvalDataType()) : nullptr;
 	const char *fnName = pValRow ? "assignInto" : "assignIntoS";
 	if (m_Env.Registry().ModuleFunctions("tensor", fnName).empty())
-		return false;   //no tensor import: the plain store path's
-		                //type diagnostic is the honest failure.
+	{
+		//No tensor import: the plain store paths have no slice-item arm
+		//— the honest rejection names the statement (the classification
+		//consumed it; the plain paths would reach codegen with the
+		//slice-item nodes).
+		m_Env.Log(CLL_Error, sn.Location(),
+			"slice assignment requires the tensor package.");
+		return true;
+	}
 	if (!LowerTensorSliceAssign(sn))
 	{
 		//The lowering's diagnostic IS the statement's failure — the

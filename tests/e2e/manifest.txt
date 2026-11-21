@@ -1959,7 +1959,7 @@ array_view_ops 0
 #v0.12.7 Task 11: slice subscripts — colon items producing views
 #(the reject rows pin each diagnostic family).
 array_slice_syntax 0
-array_slice_lvalue_reject compile_error slice assignment is not supported yet
+array_slice_lvalue_reject compile_error slice assignment requires the tensor package
 array_slice_string_reject compile_error string indexing does not support slices
 array_slice_container_reject compile_error container subscripts do not support slices
 array_slice_creation_reject compile_error array creation dimensions cannot be slices

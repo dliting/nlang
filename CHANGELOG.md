@@ -8,6 +8,38 @@ All notable changes to NLang are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.14.8]
+
+Slice assignment — the write half of the slice surface. The
+subscript-assign statement accepts slice items and lowers to
+tensor.assignInto over the slice view.
+
+### Added
+
+- **`tensor.assignInto(view, values)` / `tensor.assignIntoS(view,
+  scalar)`** — the write half: the view's strides route each write
+  to the owning record, so a slice view writes through to its base.
+  The scalar arm covers every cell (the region-zeroing spelling);
+  the array arm requires an exact shape match (v1 carries no
+  broadcasting).
+- **Slice assignment statements** — `m[0:2, 1:3] = v` lowers to
+  `tensor.assignInto` over the slice view; the read path's
+  normalization, gates and residency are the single source of the
+  view's shape, strides and writability. A broadcast-axis view is
+  read-only (the assignment raises); an empty selection writes
+  nothing; a value whose shape misses the view's shape raises.
+  Without the tensor package the statement is a compile-time
+  rejection naming the missing import.
+- **Device kernel** — one thread per view cell, each write routed
+  stride-aware to the owner's buffer; the scalar arm carries the
+  constant in the launch parameters (no values staging for a
+  one-number broadcast).
+
+Gate: Debug unit 145/145, ASan unit 144/145 (regex_redos_run
+timed out under parallel leg load, 321s serial green), full cpu e2e
+2214 passed + 0 failed, CUDA double-run 200/200. mnist guardrail:
+acc 0.895.
+
 ## [0.14.7]
 
 The indexing and scatter completion: the argsort consumer becomes a

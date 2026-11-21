@@ -450,6 +450,15 @@ int main() {
 }
 ```
 
+The language's slice assignment lowers onto the accumulate-free
+write half: `m[0:2, 1:3] = v` writes `v` over the slice view's
+cells (the view's strides route each write to the owning record).
+The value broadcast-covers every cell (scalar) or matches the
+view's shape exactly (array) — anything else raises `Exception`.
+A broadcast-axis view is read-only: the assignment raises instead
+of writing through the fold. Under a device backend the writes
+land on the owner's buffer through the stride-aware kernel.
+
 ## 19.6 Error Behavior
 
 Every tensor failure is a catchable value of the `Exception`
@@ -486,7 +495,10 @@ raises `Exception`. A `gather` whose gather axis is a zero
 dimension raises `Exception`; a zero-size source whose gather
 axis is nonzero gathers an empty result (its non-axis position
 count is zero). A `uniform` call whose `low` exceeds its
-`high` raises `Exception`.
+`high` raises `Exception`. A slice assignment whose value's shape
+misses the view's shape, or whose view is read-only (a broadcast
+axis), raises `Exception`; without the tensor package the
+statement is a compile-time error.
 
 *Informative:* the diagnostics read like
 `tensor.matmul: shape mismatch (2x3 vs 2x2)` for `matmul` and

@@ -331,10 +331,14 @@ a[2] = 7;                     // visible through mid[1]
 ```
 
 — and views of views compose: slicing a view addresses the
-original elements, not a copy of the copy. A slice expression
-itself may not be the target of an assignment (`a[1:3] = x` is a
-compile-time error): the view is a value, and stores go through
-its own subscripts, one element at a time.
+original elements, not a copy of the copy. A slice-assign
+statement (`a[1:3] = x`) writes through the view: the value
+broadcasts over the selected cells (a scalar covers every cell;
+an array must match the view's shape exactly), a broadcast axis
+(read-only, below) rejects the statement, and an empty selection
+writes nothing. On numeric arrays with the tensor package the
+lowering goes through `tensor.assignInto` (§19.5.4); without the
+import the statement is a compile-time error.
 
 An axis can map several view positions onto one source position —
 through a broadcast view (`broadcastTo`, §19.2) or by slicing an
