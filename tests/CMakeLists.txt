@@ -46,12 +46,16 @@ set(NLANG_TEST_SCRATCH_ROOT
     "$ENV{TEMP}/nlang_test_scratch_${NLANG_TEST_SCRATCH_TOKEN}")
 file(MAKE_DIRECTORY "${NLANG_TEST_SCRATCH_ROOT}")
 
-# Merge-style ENVIRONMENT setter, the single entry point through which a
-# test's environment is written. It reads what is already attached, then
+# Merge-style ENVIRONMENT setter: every NEW test-environment write goes
+# through it, because a bare set_tests_properties(... ENVIRONMENT ...)
+# replaces the whole property and would clobber the scratch TMP/TEMP the
+# add_test wrapper below installs. It reads what is already attached, then
 # replaces a same-variable entry or appends the new VAR=value pair, so a
 # later site extends an earlier one instead of overwriting the whole list
-# (D-12 item 2: bare set_tests_properties(... ENVIRONMENT ...) sites were
-# clobbering the scratch TMP/TEMP the add_test wrapper below installs).
+# (D-12 item 2). The bare sites still in this file are the D-12 migration
+# roster named in docs/dev/gate_timing_design.md; Task 10 moves them here,
+# and until then those entries keep their pre-wrapper environment (the
+# existing behaviour, deliberately deferred).
 function(nlang_test_env name)
     # get_property(TEST) returns an empty value for an unset property (the
     # documented behaviour), so an entry with no ENVIRONMENT yet merges
@@ -103,17 +107,22 @@ endfunction()
 # cap derives from the very reference seconds its leg compares against.
 # Branch priority (one site, read top to bottom): the sanitizer predicate
 # wins over everything -- an instrumented tree is swept by the ctest-ASan
-# leg alone, and that column's rows already carry the sanitizer cost --
-# otherwise the plain ctest enumeration (ctest-IDE when the IDE is built,
-# ctest-Debug otherwise) is joined by ctest-Release exactly when
-# NLANG_PERF_TESTS=ON enumerates the perf entries too. The machine scale
-# (guard four) plays no part here: it reaches test processes only through
-# the leg environment (D-4), so the generated file holds no
-# NLANG_GATE_MACHINE_SCALE note and a stale scale can never stale-out a
-# cap. NLANG_TEST_WORK_FACTOR (D-8) scales every cap when set; when it is
-# unset the --work-factor flag must be omitted entirely -- an empty value
-# would fail the tool's parse rather than mean "1" -- so the factor rides
-# a conditional branch instead of a substitution.
+# leg alone, and that column's rows already carry the sanitizer cost, so
+# the sanitizer tree takes the single-element key set {ctest-ASan}. Every
+# other tree joins the ctest-Release column on top of its enumeration key
+# (ctest-IDE when the IDE is built, ctest-Debug otherwise), unconditionally
+# and regardless of NLANG_PERF_TESTS: the branches must read the tree's
+# shape (instrumented or plain), never its identity as some leg's sweep
+# tree, so a cap never drifts when a different tree starts sweeping the
+# Release-side entries (design D-2; guard five judges the same key sets).
+# The machine scale (guard four) plays no part here: it reaches test
+# processes only through the leg environment (D-4), so the generated file
+# holds no NLANG_GATE_MACHINE_SCALE note and a stale scale can never
+# stale-out a cap. NLANG_TEST_WORK_FACTOR (D-8) scales every cap when set;
+# when it is unset the --work-factor flag must be omitted entirely -- an
+# empty value would fail the tool's parse rather than mean "1" -- so the
+# factor rides a conditional branch instead of a substitution; an empty
+# string is treated as unset.
 if(Python3_FOUND)
     if(CMAKE_CXX_FLAGS MATCHES "fsanitize=address")
         set(NLANG_GATE_TIMEOUT_KEYS "ctest-ASan")
@@ -123,9 +132,7 @@ if(Python3_FOUND)
         else()
             set(NLANG_GATE_TIMEOUT_KEYS "ctest-Debug")
         endif()
-        if(NLANG_PERF_TESTS)
-            list(APPEND NLANG_GATE_TIMEOUT_KEYS "ctest-Release")
-        endif()
+        list(APPEND NLANG_GATE_TIMEOUT_KEYS "ctest-Release")
     endif()
     set(NLANG_GATE_TIMEOUT_CMD
         "${Python3_EXECUTABLE}" -I
@@ -135,7 +142,8 @@ if(Python3_FOUND)
     foreach(nlang_gate_key IN LISTS NLANG_GATE_TIMEOUT_KEYS)
         list(APPEND NLANG_GATE_TIMEOUT_CMD --config "${nlang_gate_key}")
     endforeach()
-    if(DEFINED ENV{NLANG_TEST_WORK_FACTOR})
+    if(DEFINED ENV{NLANG_TEST_WORK_FACTOR}
+            AND NOT "$ENV{NLANG_TEST_WORK_FACTOR}" STREQUAL "")
         list(APPEND NLANG_GATE_TIMEOUT_CMD
             --work-factor "$ENV{NLANG_TEST_WORK_FACTOR}")
     endif()
@@ -157,6 +165,17 @@ if(Python3_FOUND)
     include("${CMAKE_BINARY_DIR}/gate_time_thresholds.cmake")
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
         "${PROJECT_SOURCE_DIR}/tests/gate_time_reference.txt")
+    # The local overlay table (gate_time_reference.local.txt beside the
+    # committed table, folded into caps() by _effective_rows) is just as
+    # much a cap input as the committed table, so editing it must force a
+    # reconfigure too. It is a local file that never enters the repository,
+    # so its absence is the normal state and the dependency is guarded.
+    set(nlang_gate_reference_local
+        "${PROJECT_SOURCE_DIR}/tests/gate_time_reference.local.txt")
+    if(EXISTS "${nlang_gate_reference_local}")
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+            "${nlang_gate_reference_local}")
+    endif()
 endif()
 
 
@@ -2543,6 +2562,35 @@ if(NLANG_BUILD_IDE)
     # test per resolution class (Qt stack, stdlib, ncc/nvm, PTY, ndb)
     # must resolve purely from the copy. See nide_deploy_check.cmake
     # for the division of concerns vs the full in-tree suite.
+    # The script's inner bound must stay inside the entry's own watchdog
+    # cap: a bound sitting behind the cap can never fire, because ctest
+    # kills first and the failure then arrives with the unreadable log the
+    # script's bound exists to avoid. A static number cannot serve every
+    # tree (the ctest-IDE row prices the cap at the 120 s floor while the
+    # ctest-ASan row prices it at 164.5 s), so when this tree's table has a
+    # row for the entry, derive the bound from the generated cap: the
+    # script's outer backstop sits at PROBE_TIMEOUT + 25 and ctest needs a
+    # final 10 s of its own, hence the 35 s headroom below the cap. The
+    # floor stops a tiny reference row from producing a self-killing inner
+    # bound; it mirrors MIN_CAP_S in tools/gate_time_check.py. A tree with
+    # no row here passes no bound: the script's default applies and the
+    # entry stays under the leg's flat --timeout fallback.
+    set(NLANG_DEPLOY_PROBE_HEADROOM_S 35)
+    set(NLANG_DEPLOY_PROBE_FLOOR_S 60)
+    set(NLANG_DEPLOY_PROBE_ARGS "")
+    if(DEFINED GATE_TIMEOUT_nide_deploy_check)
+        # Floor the generated cap (its repr is a float, e.g. 164.5) before
+        # subtracting: the bound is handed to the script as an integer.
+        string(REGEX REPLACE "\\..*$" "" nlang_deploy_cap_seconds
+            "${GATE_TIMEOUT_nide_deploy_check}")
+        math(EXPR nlang_deploy_probe_timeout
+            "${nlang_deploy_cap_seconds} - ${NLANG_DEPLOY_PROBE_HEADROOM_S}")
+        if(nlang_deploy_probe_timeout LESS ${NLANG_DEPLOY_PROBE_FLOOR_S})
+            set(nlang_deploy_probe_timeout ${NLANG_DEPLOY_PROBE_FLOOR_S})
+        endif()
+        set(NLANG_DEPLOY_PROBE_ARGS
+            -DPROBE_TIMEOUT=${nlang_deploy_probe_timeout})
+    endif()
     add_test(NAME nide_deploy_check
         COMMAND ${CMAKE_COMMAND}
             -DDEPLOY_DIR=$<TARGET_FILE_DIR:nide>
@@ -2557,6 +2605,7 @@ if(NLANG_BUILD_IDE)
             -DCHECK_DIR=${CMAKE_CURRENT_BINARY_DIR}/nide_deploy_check/c1/c2/c3/c4/c5/c6/c7/c8
             -DPYTHON3_EXE=${PYTHON3_EXECUTABLE}
             -DQTEST_PROGRESS=${PROJECT_SOURCE_DIR}/tools/qtest_progress.py
+            ${NLANG_DEPLOY_PROBE_ARGS}
             -P ${CMAKE_CURRENT_SOURCE_DIR}/test_nide/nide_deploy_check.cmake)
     set_tests_properties(nide_deploy_check PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=")

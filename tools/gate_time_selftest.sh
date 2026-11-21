@@ -19,6 +19,11 @@
 #                        entry gets no TIMEOUT property at all because its
 #                        cap belongs to the leg's flat --timeout fallback
 #                        (the ownership split stated in tools/gate_tier.sh).
+#                        The plain-tree branch also joins the ctest-Release
+#                        column unconditionally (D-2), so the Release-only
+#                        stub row is capped here even with NLANG_PERF_TESTS
+#                        left OFF -- the shape the design calls for and a
+#                        perf-gated join could never produce.
 #   machine-scale-absent the generated file never mentions the machine scale:
 #                        the scalar reaches test processes only through the
 #                        leg environment (D-4), so no configure bakes it in.
@@ -29,9 +34,6 @@
 #                        and nothing else supplies it.
 #   work-factor-two      NLANG_TEST_WORK_FACTOR=2 at configure time doubles
 #                        every row-backed cap while the 120 s floor holds.
-#   perf-on-release-key  NLANG_PERF_TESTS=ON joins the ctest-Release key, so
-#                        the perf entry gets a cap exactly when its entries
-#                        are enumerated.
 #   asan-branch-priority -fsanitize=address narrows the key set to ctest-ASan
 #                        alone: that column's (deliberately lower) cap
 #                        replaces the Debug row's instead of maxing with it,
@@ -51,12 +53,16 @@
 # all three, but carrying this script to a machine without them must not
 # read as a false red.
 #
-# Scratch lives in $NLANG_TEST_SCRATCH_ROOT (the scratch root the add_test
-# wrapper installs into every test environment) or a mktemp directory, under
-# one fresh per-run directory. The stub table is named stub_table.txt rather
-# than gate_time_reference.txt so the tool's local overlay
-# (gate_time_reference.local.txt beside a table) can never reach the stub
-# readings by accident.
+# Scratch lives in $NLANG_TEST_SCRATCH_ROOT as this script's own calling
+# environment carries it — an interactive shell or a leg environment exports
+# it, and unset falls back to a mktemp directory — under one fresh per-run
+# directory. The inherit probe pins a different channel: it proves variables
+# set on the ctest command line reach the test process by inheritance
+# (tests/CMakeLists.txt installs only TMP/TEMP into every test environment),
+# so it never relies on this variable. The stub table is named
+# stub_table.txt rather than gate_time_reference.txt so the tool's local
+# overlay (gate_time_reference.local.txt beside a table) can never reach
+# the stub readings by accident.
 
 set -u
 
@@ -166,9 +172,7 @@ else()
     else()
         set(NLANG_GATE_TIMEOUT_KEYS "ctest-Debug")
     endif()
-    if(NLANG_PERF_TESTS)
-        list(APPEND NLANG_GATE_TIMEOUT_KEYS "ctest-Release")
-    endif()
+    list(APPEND NLANG_GATE_TIMEOUT_KEYS "ctest-Release")
 endif()
 set(NLANG_GATE_TIMEOUT_CMD
     "${GATE_STUB_PYTHON}" -I "${GATE_STUB_TOOL}" emit-cmake
@@ -177,7 +181,8 @@ set(NLANG_GATE_TIMEOUT_CMD
 foreach(nlang_gate_key IN LISTS NLANG_GATE_TIMEOUT_KEYS)
     list(APPEND NLANG_GATE_TIMEOUT_CMD --config "${nlang_gate_key}")
 endforeach()
-if(DEFINED ENV{NLANG_TEST_WORK_FACTOR})
+if(DEFINED ENV{NLANG_TEST_WORK_FACTOR}
+        AND NOT "$ENV{NLANG_TEST_WORK_FACTOR}" STREQUAL "")
     list(APPEND NLANG_GATE_TIMEOUT_CMD
         --work-factor "$ENV{NLANG_TEST_WORK_FACTOR}")
 endif()
@@ -272,7 +277,7 @@ before=$failures
 expect_cap base-caps "$WS/log/base.json" stub_big_probe 1000.0
 expect_cap base-caps "$WS/log/base.json" stub_small_probe 120.0
 expect_cap base-caps "$WS/log/base.json" stub.dash-name-probe 125.0
-expect_cap base-caps "$WS/log/base.json" stub_release_only NONE
+expect_cap base-caps "$WS/log/base.json" stub_release_only 3000.0
 expect_cap base-caps "$WS/log/base.json" stub_no_row_probe NONE
 expect_cap base-caps "$WS/log/base.json" stub_env_inherit_probe NONE
 [ "$failures" -eq "$before" ] && pass base-caps
@@ -303,16 +308,6 @@ else
     expect_cap work-factor-two "$WS/log/factor2.json" stub_small_probe 120.0
     expect_cap work-factor-two "$WS/log/factor2.json" stub.dash-name-probe 250.0
     [ "$failures" -eq "$before" ] && pass work-factor-two
-fi
-
-if ! configure_fixture perf NONE -DNLANG_PERF_TESTS=ON; then
-    fail perf-on-release-key "perf-on configure failed: [$(tail_of "$WS/log/perf.configure.txt")]"
-else
-    show_only perf
-    before=$failures
-    expect_cap perf-on-release-key "$WS/log/perf.json" stub_release_only 3000.0
-    expect_cap perf-on-release-key "$WS/log/perf.json" stub_big_probe 1000.0
-    [ "$failures" -eq "$before" ] && pass perf-on-release-key
 fi
 
 if ! configure_fixture asan NONE -DNLANG_PERF_TESTS=OFF \
