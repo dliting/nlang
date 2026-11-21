@@ -221,5 +221,9 @@
     "path": "src/compiler/builder/ClassFieldInitializerInjection.cpp",
     "function": "CloneConstantInitializer",
     "reason": "per-fold-kind dispatcher; each arm rebuilds one constant family through the grammar's own literal shape"
+  },
+  {
+    "path": "tools/nlang-docs/tests/test_snippets.py",
+    "reason": "pre-existing 513-line flat pytest corpus surfaced when the tools/ Python scan was added; pay-off (split into two topic-scoped pytest corpora) tracked in docs/roadmap.md v0.13.12 pay-off items (registered 2026-11-21)"
   }
 ]
