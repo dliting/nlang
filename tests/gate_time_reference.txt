@@ -614,3 +614,5 @@ e2e-ASan gc_stress_over_threshold 1.05 1 常规 e2e-serial yes 逐条目例外�
 e2e-ASan generic_gc_tslot_survives 12.44 1 常规 e2e-serial yes 逐条目例外行:标为标量校准哨兵(D-4),快、稳定、无时间断言,校准须逐条目实测读数
 ctest-Debug gate_tier_smoke 1.22 1 常规 ctest-junit-serial - R-19:本批新注册条目同行补录,秒数出自本批真T0腿junit实测单条目record
 ctest-Debug nlang_gate_time_selftest 4.31 1 常规 ctest-junit-serial - R-19:本批新注册条目同行补录,秒数出自本批ctest单条目实测record
+ctest-IDE gate_tier_smoke 0.84 1 常规 ctest-junit-serial - R-19:IDE树重配刷新枚举后补行,秒数出自build-ide单条目junit实测record
+ctest-IDE nlang_gate_time_selftest 3.91 1 常规 ctest-junit-serial - R-19:IDE树重配刷新枚举后补行,秒数出自build-ide单条目junit实测record
