@@ -36,7 +36,11 @@
 # (构型,条目)行, D-3); 本表只记参考基准, 机器差异不进本表。
 
 # 录制轮命令序列(另一台机器照抄即可复现; 每条腿都在tools/gate.sh锁内按当时
-# 默认并行形态跑, 形态写进form列):
+# 默认并行形态跑, 形态写进form列; junit读数只取`status="run"`的Passed行:
+# Failed与Timeout同为`status="fail"`无从区分(Timeout的time只是当时的生效帽),
+# Skipped为`status="notrun"`且time只是跳过判定耗时, 三者的time都不是一份
+# 工作量, 录制器不收; 未录到的条目保持0.00占位或旧值, 由腿判决行的FAIL与
+# 残留0.00行清单暴露):
 #   ctest-Debug:   ctest --test-dir build      -C Debug --output-junit <xml>
 #                  (腿集合按tools/gate_tiers.txt现行T1-debug-unit)
 #     -> tools/gate_time_check.py record --config ctest-Debug --from-junit <xml>

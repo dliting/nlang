@@ -337,14 +337,26 @@ def parse_measure_rows(text):
 
 
 def parse_junit_rows(xml_text, form="ctest-junit-serial"):
-    """Parse ctest --output-junit XML into {name: (seconds, form)} from
-    each <testcase name time>. Same-name duplicates keep the maximum
-    (never sum); testcases without a time attribute (skips) are ignored."""
+    """Parse ctest --output-junit XML into {name: (seconds, form)}, taking
+    only <testcase> elements with status="run" (R-7: ref_s means seconds
+    for one completed reference workload). Shapes verified against CMake
+    3.25.2: Passed carries status="run" with the real duration; Failed
+    carries status="fail" with the full span; Timeout carries the same
+    status="fail" (no attribute distinguishes it) with a time at the
+    then-active cap; a skipped test (SKIP_RETURN_CODE or
+    SKIP_REGULAR_EXPRESSION) carries status="notrun" with a time that is
+    only the skip-decision cost; entries filtered out by -R/-E emit no
+    <testcase> at all. So fail and notrun rows stay out of the readings,
+    and a row without the status attribute is refused too (no reading
+    beats a wrong reading); excluded entries keep their placeholder or
+    previous value and surface through the leg's gate.sh verdict and the
+    remaining-0.00-rows listing. Same-name run duplicates keep the
+    maximum (never sum)."""
     measurements = {}
     for case in ET.fromstring(xml_text).iter("testcase"):
         name = case.get("name")
         raw = case.get("time")
-        if not name or raw is None:
+        if not name or raw is None or case.get("status") != "run":
             continue
         secs = float(raw)
         if name not in measurements or secs > measurements[name][0]:
@@ -498,6 +510,13 @@ def _verdict(findings):
 def _dispatch(args):
     table = Path(args.table) if args.table else DEFAULT_TABLE
     if args.command == "caps":
+        if args.config not in CONFIG_KEYS:
+            # Name the misspelling against the legal vocabulary: a
+            # mistyped config must not read as "add a default row" (the
+            # KeyError wording below describes missing rows only).
+            return _verdict(["CAPS %s %s: unknown config key (want one of "
+                             "%s)" % (args.config, args.entry,
+                                      ", ".join(CONFIG_KEYS))])
         try:
             budget, watchdog = caps(args.config, args.entry,
                                     work_factor=args.work_factor,

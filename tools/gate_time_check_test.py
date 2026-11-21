@@ -16,6 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from gate_time_check import (
+    CONFIG_KEYS,
     apply_record,
     caps,
     check_complete,
@@ -223,8 +224,8 @@ JUNIT_XML = """<?xml version="1.0" encoding="UTF-8"?>
 <testsuites name="ctest">
   <testsuite name=" suite" tests="2">
     <testcase classname="E:/cases/nlang/dev/tests" name="soak_entry"
-              time="250.5"/>
-    <testcase name="fresh_missing_entry" time="12.0"/>
+              status="run" time="250.5"/>
+    <testcase name="fresh_missing_entry" status="run" time="12.0"/>
   </testsuite>
 </testsuites>
 """
@@ -298,6 +299,55 @@ def test_record_measure_group_max_and_default_skip():
               and "lone_entry" not in by_name,
               "record: a config with a default row must not grow rows for "
               "already-covered names, got %r" % sorted(by_name))
+
+
+def test_record_junit_group_max_never_sum():
+    # The R-4 max-merge discipline pinned on the junit side (the MEASURE
+    # side has its own case): same-name run rows merge keeping the
+    # maximum reading, never the sum, and a lone row is not an error.
+    meas = parse_junit_rows(
+        '<testsuites><testsuite name="s" tests="3">'
+        '<testcase name="dup_entry" status="run" time="30.0"/>'
+        '<testcase name="dup_entry" status="run" time="20.0"/>'
+        '<testcase name="lone_entry" status="run" time="5.0"/>'
+        '</testsuite></testsuites>')
+    check("dup_entry" in meas and close(meas["dup_entry"][0], 30.0),
+          "record: duplicate junit run rows must merge by max, never sum, "
+          "got %r" % (meas,))
+    check("lone_entry" in meas and close(meas["lone_entry"][0], 5.0),
+          "record: a lone junit run row must stand on its own, got %r"
+          % (meas,))
+
+
+def test_record_junit_keeps_only_run_status_rows():
+    # ref_s means "seconds for one completed reference workload" (R-7),
+    # and a real ctest junit (verified against CMake 3.25.2) marks Passed
+    # with status="run", Failed and Timeout alike with status="fail" (the
+    # timeout time is the then-active cap, not a workload), and Skipped
+    # with status="notrun" whose time is only the skip-decision cost. A
+    # row without the status attribute is refused too: no reading beats
+    # a wrong reading.
+    meas = parse_junit_rows(
+        '<testsuites><testsuite name="s" tests="6">'
+        '<testcase name="mixed_entry" status="run" time="40.0"/>'
+        '<testcase name="mixed_entry" status="fail" time="120.0"/>'
+        '<testcase name="mixed_entry" status="notrun" time="0.02"/>'
+        '<testcase name="timeout_shaped" status="fail" time="120.0"/>'
+        '<testcase name="skipped_only" status="notrun" time="0.02"/>'
+        '<testcase name="statusless_entry" time="40.0"/>'
+        '</testsuite></testsuites>')
+    check("mixed_entry" in meas and close(meas["mixed_entry"][0], 40.0),
+          "record: only the run row may feed an entry that also has "
+          "fail/notrun rows, got %r" % (meas,))
+    check("timeout_shaped" not in meas,
+          "record: a timeout-shaped fail row (cap-sized time) must not "
+          "become a reference, got %r" % (meas,))
+    check("skipped_only" not in meas,
+          "record: a notrun skip row must not become a reference, got %r"
+          % (meas,))
+    check("statusless_entry" not in meas,
+          "record: a testcase without the status attribute must be "
+          "refused, got %r" % (meas,))
 
 
 CAPS_TABLE = (
@@ -422,6 +472,30 @@ def test_cli_record_and_caps_verdicts():
               "out=%r" % (rc, out))
 
 
+def test_cli_caps_unknown_config_names_the_config_keys():
+    # A mistyped config key must be named against the legal seven-word
+    # vocabulary: the missing-row wording would otherwise steer the user
+    # toward "add a default row" as the wrong remedy. The verdict still
+    # goes through the shared FAIL glyph.
+    with tempfile.TemporaryDirectory() as tmp:
+        table = Path(tmp) / "reference.txt"
+        table.write_text(CAPS_TABLE, encoding="utf-8")
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = run_cli(["caps", "ctest-Todo", "caps_tiny_entry",
+                          "--table", str(table)])
+        out = buf.getvalue()
+        check(rc == 1, "caps: an unknown config key must exit 1, got "
+              "rc=%r out=%r" % (rc, out))
+        check("GATE gate_time_check: FAIL" in out,
+              "caps: the verdict glyph must stay the shared one, got "
+              "out=%r" % out)
+        for cfg in CONFIG_KEYS:
+            check(cfg in out, "caps: the unknown-config failure must "
+                  "list the legal config keys, %s missing from out=%r"
+                  % (cfg, out))
+
+
 def main():
     test_complete_ok_on_base_table()
     test_complete_missing_row_fails()
@@ -433,12 +507,15 @@ def main():
     test_orphan_renamed_e2e_entry_fails()
     test_record_preserves_human_columns()
     test_record_measure_group_max_and_default_skip()
+    test_record_junit_group_max_never_sum()
+    test_record_junit_keeps_only_run_status_rows()
     test_caps_work_factor_two_doubles_cap_and_budget()
     test_caps_floor_entry_watchdog_pinned_at_120()
     test_caps_clamp_lower_bound_does_not_invert()
     test_constants_ok_on_base_table()
     test_constants_sentinel_reference_above_min_cap_fails()
     test_cli_record_and_caps_verdicts()
+    test_cli_caps_unknown_config_names_the_config_keys()
     if failures:
         for f in failures:
             print("FAIL: %s" % f)
