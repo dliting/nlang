@@ -154,15 +154,16 @@ def run_smoke():
                   "leg environment lost the UTF-8 I/O pin: "
                   f"{body!r}")
             # Post-hoc budget judging needs the per-entry timings: the
-            # leg writes its junit file and keeps the transitional
-            # --timeout watchdog fallback until the TIMEOUT properties
-            # replace it (the caps consumer, Task 4).
+            # leg writes its junit file, and the flat --timeout
+            # watchdog now owns exactly the entries that carry no
+            # derived TIMEOUT property (the row-less ones; Task 4 put
+            # the per-row caps on every other entry at configure time).
             check("--output-junit" in body,
                   f"ctest leg writes no junit timings for the budget "
                   f"checker: {body!r}")
             check("--timeout 1500" in body,
-                  f"ctest leg lost the transitional --timeout fallback: "
-                  f"{body!r}")
+                  f"ctest leg lost the --timeout fallback for row-less "
+                  f"entries: {body!r}")
         # Each ctest leg gets its own <name>-budget gate.sh entry (the
         # checker must not be spliced into the leg's own command string —
         # gate_selftest.sh A-series lesson: a fused word makes the leg's

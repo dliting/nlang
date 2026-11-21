@@ -1,7 +1,8 @@
 # gate_time_check_test.py -- self-test corpus for the reference-timing
 # guards (tools/gate_time_check.py: guard one completeness, guard two
-# orphans, guard seven constant band, and the guard-six member that
-# --record must keep the four human columns). Stub trees and stub tables
+# orphans, guard seven constant band, the guard-six member that --record
+# must keep the four human columns, and the emit-cmake subcommand that
+# derives the configure-time TIMEOUT caps). Stub trees and stub tables
 # in the shape of real entry names keep the corpus hermetic: no third-party
 # imports, no ctest run, no network. Run:
 #   python gate_time_check_test.py
@@ -976,6 +977,217 @@ def test_calibrate_flag_config_mismatch_red():
               "the wanted flag, got rc=%r out=%r" % (rc, out))
 
 
+EMIT_TABLE = (
+    "# stub emit table\n"
+    "ctest-Debug emit_over_floor 100.00 1 常规 ctest-junit-serial - stub\n"
+    "ctest-Debug emit_floor_entry 5.00 1 常规 ctest-junit-serial - stub\n"
+    "ctest-Debug emit.dot-dash-name 12.50 1 常规 ctest-junit-serial - stub\n"
+    "ctest-Release emit_release_only 200.00 1 性能 ctest-junit-serial - stub\n"
+    "ctest-Debug emit_both_configs 100.00 1 常规 ctest-junit-serial - stub\n"
+    "ctest-Release emit_both_configs 300.00 1 性能 ctest-junit-serial - stub\n")
+
+EMIT_KEYS = ["--config", "ctest-Debug", "--config", "ctest-Release"]
+
+
+def _emit_run(tmp, table, extra=EMIT_KEYS):
+    # Shared CLI probe: returns (rc, stdout, generated-path). The generated
+    # file is the deliverable the CMake configure step includes, so every
+    # emit-cmake check reads it back from --out.
+    out = Path(tmp) / "thresholds.cmake"
+    buf = io.StringIO()
+    try:
+        with redirect_stdout(buf):
+            rc = run_cli(["emit-cmake", "--table", str(table),
+                          "--out", str(out)] + list(extra))
+    except SystemExit as exc:
+        # argparse errors (unknown subcommand, missing --out) exit outside
+        # main's error handler; record the code instead of aborting the
+        # corpus.
+        rc = exc.code
+    return rc, buf.getvalue(), out
+
+
+def _emit_vars(path):
+    # Parse generated lines into {variable name: float cap}; a line whose
+    # shape is wrong raises, which is how the syntax pin reports. A missing
+    # file yields {} so the rc/shape checks report instead of a traceback.
+    vals = {}
+    if not path.exists():
+        return vals
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.startswith("set("):
+            continue
+        assert line.endswith(")"), line
+        assert line.startswith("set(GATE_TIMEOUT_"), line
+        var, value = line[len("set("):-1].split(" ")
+        vals[var] = float(value)
+    return vals
+
+
+def test_cli_emit_cmake_writes_sanitized_variables():
+    # The generated file must be valid CMake: a header comment, then one
+    # set(GATE_TIMEOUT_<var> <value>) line per entry with a row under any
+    # requested key. Entry-name punctuation sanitizes to '_' exactly as
+    # the add_test wrapper sanitizes when it looks the variable up.
+    with tempfile.TemporaryDirectory() as tmp:
+        table = _write_table(tmp, EMIT_TABLE)
+        rc, out, path = _emit_run(tmp, table)
+        check(rc == 0 and "GATE gate_time_check: PASS" in out,
+              "emit-cmake: the happy path must pass, got rc=%r out=%r"
+              % (rc, out))
+        text = (path.read_text(encoding="utf-8") if path.exists() else "")
+        head = text.splitlines()[:1]
+        check(head and head[0].startswith("#"),
+              "emit-cmake: the file must open with a header comment, "
+              "got %r" % head)
+        set_lines = [l for l in text.splitlines() if l.startswith("set(")]
+        check(len(set_lines) == 5,
+              "emit-cmake: one set() line per row-holding entry expected, "
+              "got %r" % set_lines)
+        for line in set_lines:
+            check(line.startswith("set(GATE_TIMEOUT_") and line.endswith(")")
+                  and len(line[len("set("):-1].split(" ")) == 2,
+                  "emit-cmake: line must read set(GATE_TIMEOUT_<var> "
+                  "<value>), got %r" % line)
+        vals = _emit_vars(path)
+        check(vals.get("GATE_TIMEOUT_emit_over_floor") == 1000.0,
+              "emit-cmake: a 100 s reference must cap at 1000.0, got "
+              "%r" % vals)
+        check(vals.get("GATE_TIMEOUT_emit_floor_entry") == 120.0,
+              "emit-cmake: a 5 s reference must sit on the MIN_WATCHDOG_S "
+              "floor, got %r" % vals)
+        check(vals.get("GATE_TIMEOUT_emit_dot_dash_name") == 125.0,
+              "emit-cmake: the sanitized name must carry the 12.5 s "
+              "reference cap, got %r" % vals)
+        check(vals.get("GATE_TIMEOUT_emit_release_only") == 2000.0,
+              "emit-cmake: a Release-row entry must appear when "
+              "ctest-Release is requested, got %r" % vals)
+        check("emit.dot-dash" not in text,
+              "emit-cmake: entry-name punctuation must never reach a "
+              "variable name")
+
+
+def test_cli_emit_cmake_takes_the_max_watchdog_across_configs():
+    # D-2: a tree configured under several keys (e.g. Debug ∪ Release with
+    # NLANG_PERF_TESTS=ON) gets ONE TIMEOUT per entry, the largest cap over
+    # the keys carrying a row, so one ctest -C run never carries the cap
+    # tuned for a different tree.
+    with tempfile.TemporaryDirectory() as tmp:
+        table = _write_table(tmp, EMIT_TABLE)
+        rc, out, path = _emit_run(tmp, table, ["--config", "ctest-Debug"])
+        check(rc == 0 and _emit_vars(path).get(
+            "GATE_TIMEOUT_emit_both_configs") == 1000.0,
+              "emit-cmake: the Debug-only key set must use the Debug row, "
+              "got rc=%r out=%r" % (rc, out))
+        rc, out, path = _emit_run(tmp, table)
+        check(rc == 0 and _emit_vars(path).get(
+            "GATE_TIMEOUT_emit_both_configs") == 3000.0,
+              "emit-cmake: the Debug-plus-Release key set must take the "
+              "larger Release cap, got rc=%r out=%r" % (rc, out))
+
+
+def test_cli_emit_cmake_work_factor_doubles_caps():
+    # D-1: the configure-time work factor scales the watchdog cap together
+    # with the budget (caps() is the single site); the sub-floor reference
+    # stays pinned at MIN_WATCHDOG_S.
+    with tempfile.TemporaryDirectory() as tmp:
+        table = _write_table(tmp, EMIT_TABLE)
+        rc, out, path = _emit_run(
+            tmp, table, EMIT_KEYS + ["--work-factor", "2.0"])
+        vals = _emit_vars(path) if rc == 0 else {}
+        check(rc == 0, "emit-cmake: factor 2 must stay green, got rc=%r "
+              "out=%r" % (rc, out))
+        check(vals.get("GATE_TIMEOUT_emit_over_floor") == 2000.0,
+              "emit-cmake: factor 2 must double the 100 s cap, got "
+              "%r" % vals)
+        check(vals.get("GATE_TIMEOUT_emit_dot_dash_name") == 250.0,
+              "emit-cmake: factor 2 must double the 12.5 s cap (above the "
+              "12 s floor), got %r" % vals)
+        check(vals.get("GATE_TIMEOUT_emit_floor_entry") == 120.0,
+              "emit-cmake: the sub-12 s reference must stay floored even "
+              "at factor 2, got %r" % vals)
+
+
+def test_cli_emit_cmake_work_factor_below_one_is_rejected():
+    # D-8: a factor below 1 must fail the configure (rc != 0 feeds the
+    # CMake FATAL_ERROR), not silently shrink the caps below the committed
+    # table -- and must not leave a half-written generated file behind.
+    with tempfile.TemporaryDirectory() as tmp:
+        table = _write_table(tmp, EMIT_TABLE)
+        rc, out, path = _emit_run(
+            tmp, table, EMIT_KEYS + ["--work-factor", "0.5"])
+        check(rc == 1 and "GATE gate_time_check: FAIL" in out,
+              "emit-cmake: factor 0.5 must exit 1 with the shared FAIL "
+              "glyph, got rc=%r out=%r" % (rc, out))
+        check("work factor" in out.lower(),
+              "emit-cmake: the rejection must name the work factor, got "
+              "out=%r" % out)
+        check(not path.exists(),
+              "emit-cmake: the rejected configure must not write the "
+              "generated file")
+
+
+def test_cli_emit_cmake_omitted_work_factor_equals_one():
+    # The CMake side omits --work-factor entirely when
+    # NLANG_TEST_WORK_FACTOR is unset (an empty value would poison the
+    # argument list), so the omitted-factor run must equal the explicit
+    # 1.0 run byte for byte.
+    with tempfile.TemporaryDirectory() as tmp:
+        table = _write_table(tmp, EMIT_TABLE)
+        rc1, out1, path1 = _emit_run(tmp, table)
+        rc2, out2, path2 = _emit_run(
+            tmp, table, EMIT_KEYS + ["--work-factor", "1.0"])
+        b1 = path1.read_bytes() if path1.exists() else b""
+        b2 = path2.read_bytes() if path2.exists() else b""
+        check(rc1 == 0 and rc2 == 0,
+              "emit-cmake: both factor spellings must pass, got rc=%r/%r"
+              % (rc1, rc2))
+        check(bool(b1) and b1 == b2,
+              "emit-cmake: the omitted work factor must behave exactly "
+              "like the explicit 1.0")
+
+
+def test_cli_emit_cmake_rowless_entries_get_no_variable():
+    # An entry without a row under any requested key must not appear in the
+    # generated file at all: the wrapper then leaves it unmanaged and the
+    # leg's ctest --timeout fallback owns it (the ownership split the
+    # comments in gate_tier.sh and the qtest helper state).
+    with tempfile.TemporaryDirectory() as tmp:
+        table = _write_table(tmp, EMIT_TABLE)
+        rc, out, path = _emit_run(tmp, table, ["--config", "ctest-Debug"])
+        check(rc == 0, "emit-cmake: a Debug-only run must pass, got rc=%r "
+              "out=%r" % (rc, out))
+        vals = _emit_vars(path)
+        check(sorted(vals) == sorted([
+            "GATE_TIMEOUT_emit_both_configs",
+            "GATE_TIMEOUT_emit_dot_dash_name",
+            "GATE_TIMEOUT_emit_floor_entry",
+            "GATE_TIMEOUT_emit_over_floor"]),
+              "emit-cmake: exactly the entries with a Debug row must get "
+              "variables, got %r" % sorted(vals))
+        text = path.read_text(encoding="utf-8") if path.exists() else ""
+        check("GATE_TIMEOUT_emit_release_only" not in text,
+              "emit-cmake: the Release-row entry must be absent from a "
+              "Debug-only run")
+
+
+def test_cli_emit_cmake_output_never_mentions_machine_scale():
+    # D-4: the machine scale reaches test processes only through the leg
+    # environment, so nothing scalar-dependent (scale, budget) may be
+    # baked at configure time -- the generated file and the status line
+    # must stay scale-free by construction.
+    with tempfile.TemporaryDirectory() as tmp:
+        table = _write_table(tmp, EMIT_TABLE)
+        rc, out, path = _emit_run(tmp, table)
+        text = path.read_text(encoding="utf-8") if rc == 0 else ""
+        check(rc == 0, "emit-cmake: the run must pass, got rc=%r out=%r"
+              % (rc, out))
+        check("NLANG_GATE_MACHINE_SCALE" not in text
+              and "NLANG_GATE_MACHINE_SCALE" not in out,
+              "emit-cmake: no machine-scale note may survive in the "
+              "generated file or stdout")
+
+
 def main():
     test_complete_ok_on_base_table()
     test_complete_missing_row_fails()
@@ -1014,6 +1226,13 @@ def main():
     test_check_budget_scalar_scales_budget_not_ratchet()
     test_check_budget_ratchet_line_scalar_free()
     test_check_budget_ratchet_line_carries_work_ratio()
+    test_cli_emit_cmake_writes_sanitized_variables()
+    test_cli_emit_cmake_takes_the_max_watchdog_across_configs()
+    test_cli_emit_cmake_work_factor_doubles_caps()
+    test_cli_emit_cmake_work_factor_below_one_is_rejected()
+    test_cli_emit_cmake_omitted_work_factor_equals_one()
+    test_cli_emit_cmake_rowless_entries_get_no_variable()
+    test_cli_emit_cmake_output_never_mentions_machine_scale()
     if failures:
         for f in failures:
             print("FAIL: %s" % f)

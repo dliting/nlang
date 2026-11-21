@@ -138,14 +138,15 @@ leg_uncalibrated() { # leg_uncalibrated <name>
   leg "$1" false
 }
 
-# Transitional per-entry watchdog for ctest legs (guard three's kill
-# side): --timeout caps only the entries that carry no TIMEOUT property,
-# and every entry is in that state until the configure-time caps consumer
-# sets the properties (the plan's next task). The value equals ctest's
-# own built-in default and sits far above the worst legitimate run, so
-# it changes nothing today while making the kill point explicit in the
-# leg command.
-CTEST_TRANSITIONAL_TIMEOUT_S=1500
+# Per-entry watchdog split (guard three's kill side, design D-2): an
+# entry that holds a reference row carries a configure-time derived
+# TIMEOUT property (the derived-caps block in tests/CMakeLists.txt),
+# and that property takes precedence over --timeout, so the flag owns
+# exactly the row-less entries -- the ones the table does not price.
+# The value equals ctest's own built-in default and sits far above the
+# worst legitimate run, so it only ever catches a genuine hang while
+# keeping the kill point explicit in the leg command.
+CTEST_DEFAULT_TIMEOUT_S=1500
 
 # A leg's output lands in a log file, not on a terminal, so every timed
 # leg's environment pins one I/O encoding for its Python processes: on a
@@ -168,7 +169,7 @@ ctest_leg() { # ctest_leg <name> <tree> <config-key> [-R <regex>]
   rm -f "$junit"
   leg "$name" env "NLANG_GATE_MACHINE_SCALE=$scale" "$PY_IO_ENCODING" \
     bash -c \
-    "cd '$tree' && ctest -C Debug$regex --output-junit '$junit' --timeout $CTEST_TRANSITIONAL_TIMEOUT_S"
+    "cd '$tree' && ctest -C Debug$regex --output-junit '$junit' --timeout $CTEST_DEFAULT_TIMEOUT_S"
   # Post-hoc budget judging (guard three): ctest has no inline budget
   # knob, so the checker reads the leg's junit after the fact. Its own
   # gate.sh entry, never spliced into the leg's command string -- a
