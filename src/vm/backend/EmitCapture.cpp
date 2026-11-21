@@ -100,13 +100,17 @@ void VmBackend::EmitReceiverLoad(uint16_t dstOffset,
     emitter.EmitUint16(static_cast<uint16_t>(thisOff));
 }
 
-//Load the record that physically holds a captured field's cell: the
-//display instance slot for DisplayField, or local 0 chased through
-//`outerHops` "$outer" fields for CaptureField. The hop offsets re-walk
-//live — the same walk the resolver did (display classes cannot change
-//between resolution and emission).
+//Load the record that physically holds a captured field's storage: the
+//display instance for DisplayField, or local 0 chased through
+//`outerHops` "$outer" fields for CaptureField. A promoted capture
+//chases one more level — its storage is the box payload, and the field
+//cell holds the box handle — so every flavor arm downstream addresses
+//a single base (the payload at kHeapCellBytes, the same offset the
+//local promoted arms use). pField is the captured descriptor or the
+//display field (the flavor flags mirror onto both); null only where
+//the caller already rejected the flavored captures.
 void VmBackend::EmitCaptureCellLoad(uint16_t dstOffset,
-    const BareIdTarget& target, BytecodeEmitter& emitter)
+    const BareIdTarget& target, SnField* pField, BytecodeEmitter& emitter)
 {
     if (target.kind == BareIdTarget::DisplayField) {
         NLANG_ASSERT(target.outerHops == 0);
@@ -114,28 +118,34 @@ void VmBackend::EmitCaptureCellLoad(uint16_t dstOffset,
         emitter.EmitUint16(target.localOffset);
         emitter.Emit(OpCode::OP_Assign);
         emitter.EmitUint16(dstOffset);
-        return;
+    } else {
+        NLANG_ASSERT(target.kind == BareIdTarget::CaptureField);
+        emitter.Emit(OpCode::OP_VarLocal);
+        emitter.EmitUint16(0);   //local 0 = the anchor display instance
+        emitter.Emit(OpCode::OP_Assign);
+        emitter.EmitUint16(dstOffset);
+        NLANG_ASSERT(m_pCurrClass && m_pCurrClass->ContainFlags(NF_Generated));
+        SnClassDecl* pCls = m_pCurrClass;
+        for (int hop = 0; hop < target.outerHops; ++hop) {
+            const int outerOff = FindClassFieldOffset(*pCls, "$outer");
+            NLANG_ASSERT(outerOff >= 0 && "$outer chain does not reach the owner");
+            emitter.Emit(OpCode::OP_LoadField);
+            emitter.EmitUint16(dstOffset);
+            emitter.EmitUint16(dstOffset);
+            emitter.EmitUint16(static_cast<uint16_t>(outerOff));
+            auto* pOuterField = DisplayOwnFieldOf(*pCls, "$outer");
+            NLANG_ASSERT(pOuterField);
+            auto* pParent = dynamic_cast<SnClassDecl*>(
+                pOuterField->EvalDataType());
+            NLANG_ASSERT(pParent && "$outer names a non-class owner");
+            pCls = pParent;
+        }
     }
-    NLANG_ASSERT(target.kind == BareIdTarget::CaptureField);
-    emitter.Emit(OpCode::OP_VarLocal);
-    emitter.EmitUint16(0);   //local 0 = the anchor display instance
-    emitter.Emit(OpCode::OP_Assign);
-    emitter.EmitUint16(dstOffset);
-    NLANG_ASSERT(m_pCurrClass && m_pCurrClass->ContainFlags(NF_Generated));
-    SnClassDecl* pCls = m_pCurrClass;
-    for (int hop = 0; hop < target.outerHops; ++hop) {
-        const int outerOff = FindClassFieldOffset(*pCls, "$outer");
-        NLANG_ASSERT(outerOff >= 0 && "$outer chain does not reach the owner");
+    if (pField && pField->ContainFlags(NF_Promoted)) {
         emitter.Emit(OpCode::OP_LoadField);
         emitter.EmitUint16(dstOffset);
         emitter.EmitUint16(dstOffset);
-        emitter.EmitUint16(static_cast<uint16_t>(outerOff));
-        auto* pOuterField = DisplayOwnFieldOf(*pCls, "$outer");
-        NLANG_ASSERT(pOuterField);
-        auto* pParent = dynamic_cast<SnClassDecl*>(
-            pOuterField->EvalDataType());
-        NLANG_ASSERT(pParent && "$outer names a non-class owner");
-        pCls = pParent;
+        emitter.EmitUint16(static_cast<uint16_t>(target.fieldOff));
     }
 }
 
@@ -163,7 +173,7 @@ void VmBackend::EmitCapturedRead(SnField* field, const BareIdTarget& target,
     auto* pDisplayField = CapturedDisplayFieldOf(field);
     EvalAreaClaim cellClaim(*this, 1);
     uint16_t cellSlot = cellClaim.base();
-    EmitCaptureCellLoad(cellSlot, target, emitter);
+    EmitCaptureCellLoad(cellSlot, target, pDisplayField, emitter);
     if (pDisplayField->ContainFlags(NF_Ref)) {
         emitter.Emit(OpCode::OP_LoadField);
         emitter.EmitUint16(cellSlot);   //the pair staged here
@@ -178,8 +188,16 @@ void VmBackend::EmitCapturedRead(SnField* field, const BareIdTarget& target,
             emitter.EmitByte(BoxTypeTagOfKind(
                 pDisplayField->EvalDataType()->Kind()));
         } else {
-            //Aggregate-typed reference: the pair reads as a handle slot
-            //to the field ops downstream (EmitRefLocalRead's contract).
+            //Aggregate-typed reference: the pair IS the value — copy
+            //the staged pair into resultOffset (the local analog's
+            //caller reads the binding's own frame slot; a captured
+            //pair lives in the display field, so this arm publishes
+            //the copy itself). Downstream field ops read the pair's
+            //base half as a handle slot (EmitRefLocalRead's contract).
+            emitter.Emit(OpCode::OP_VarLocal);
+            emitter.EmitUint16(cellSlot);
+            emitter.Emit(OpCode::OP_Assign);
+            emitter.EmitUint16(resultOffset);
             return;
         }
         emitter.EmitUint16(resultOffset);

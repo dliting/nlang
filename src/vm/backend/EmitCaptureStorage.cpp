@@ -68,7 +68,7 @@ void VmBackend::EmitCapturedAssign(SnAssignStmt& assign, SnField* field,
         //Binding init (`int& r = expr;` decomposed): the pair lands in
         //the field cell.
         EmitMakeRef(valueSlot, *assign.Right(), emitter);
-        EmitCaptureCellLoad(cellSlot, target, emitter);
+        EmitCaptureCellLoad(cellSlot, target, pDisplayField, emitter);
         emitter.Emit(OpCode::OP_StoreField);
         emitter.EmitUint16(cellSlot);
         emitter.EmitUint16(static_cast<uint16_t>(target.fieldOff));
@@ -78,7 +78,7 @@ void VmBackend::EmitCapturedAssign(SnAssignStmt& assign, SnField* field,
     EmitExpression(*assign.Right(), emitter, valueSlot);
     EmitArrayRankBoundary(pDisplayField->EvalDataType(), assign.Right(),
         valueSlot, emitter);
-    EmitCaptureCellLoad(cellSlot, target, emitter);
+    EmitCaptureCellLoad(cellSlot, target, pDisplayField, emitter);
     if (pDisplayField->ContainFlags(NF_Promoted)) {
         emitter.Emit(OpCode::OP_StoreField);
         emitter.EmitUint16(cellSlot);
@@ -155,7 +155,7 @@ void VmBackend::EmitCapturedCompound(SnCompoundAssignStmt& ca,
     uint16_t cellSlot = claim.base();
     uint16_t oldValSlot = cellSlot + kFrameSlotBytes;
     uint16_t rhsSlot = oldValSlot + kFrameSlotBytes;
-    EmitCaptureCellLoad(cellSlot, target, emitter);
+    EmitCaptureCellLoad(cellSlot, target, pDisplayField, emitter);
     EmitCapturedOldValueRead(pDisplayField, target, cellSlot,
         oldValSlot, emitter);
     EmitExpression(*ca.Right(), emitter, rhsSlot);
@@ -182,7 +182,7 @@ void VmBackend::EmitCapturedCompound(SnCompoundAssignStmt& ca,
 
 //Reference-binding over chased display storage: the DisplayField /
 //CaptureField arm of EmitMakeRefOfIdentifier. The pair builds over the
-//chased display record; flavor flags ride the captured descriptor
+//chased storage base; flavor flags ride the captured descriptor
 //itself (mirrored onto the display field by the analysis).
 void VmBackend::EmitCapturedMakeRef(uint16_t dstOffset,
     SnIdentifierExpr& idExpr, const BareIdTarget& target,
@@ -194,7 +194,7 @@ void VmBackend::EmitCapturedMakeRef(uint16_t dstOffset,
         //a raw 8-byte copy preserves the alias (pass-through).
         EvalAreaClaim claim(*this, 1);
         uint16_t cellSlot = claim.base();
-        EmitCaptureCellLoad(cellSlot, target, emitter);
+        EmitCaptureCellLoad(cellSlot, target, pTarget, emitter);
         emitter.Emit(OpCode::OP_LoadField);
         emitter.EmitUint16(dstOffset);
         emitter.EmitUint16(cellSlot);
@@ -202,15 +202,11 @@ void VmBackend::EmitCapturedMakeRef(uint16_t dstOffset,
         return;
     }
     if (pTarget->ContainFlags(NF_Promoted)) {
-        //Promoted capture: stage the box handle out of the field cell,
-        //then the payload pair.
+        //Promoted capture: the chase already staged the box handle —
+        //the payload pair comes straight off it.
         EvalAreaClaim claim(*this, 1);
         uint16_t cellSlot = claim.base();
-        EmitCaptureCellLoad(cellSlot, target, emitter);
-        emitter.Emit(OpCode::OP_LoadField);
-        emitter.EmitUint16(cellSlot);
-        emitter.EmitUint16(cellSlot);
-        emitter.EmitUint16(kHeapCellBytes);
+        EmitCaptureCellLoad(cellSlot, target, pTarget, emitter);
         emitter.Emit(OpCode::OP_RefOfPromoted);
         emitter.EmitUint16(dstOffset);
         emitter.EmitUint16(cellSlot);
@@ -229,7 +225,7 @@ void VmBackend::EmitCapturedMakeRef(uint16_t dstOffset,
     //it writes.
     EvalAreaClaim claim(*this, 1);
     uint16_t cellSlot = claim.base();
-    EmitCaptureCellLoad(cellSlot, target, emitter);
+    EmitCaptureCellLoad(cellSlot, target, pTarget, emitter);
     EmitFieldRefBind(pTarget->EvalDataType(), dstOffset, cellSlot,
         target.fieldOff / kHeapCellBytes, cellSlot, emitter);
 }

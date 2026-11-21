@@ -544,6 +544,10 @@ lambda_tostring 0
 lambda_equality 0
 lambda_thread_spawn 0
 lambda_list_contains 0
+# --- 0.13.10 Task 6 follow-up: captured promoted storage emission shapes ---
+lambda_capture_promoted 0
+# --- 0.13.10 Task 8: GC rooting of display capture fields ---
+lambda_capture_gc_survive 0
 err_lambda_this_in_static compile_error this is not available in a static method.
 # --- P3.8: lock class field default values (int/float/string/class-ref) ---
 class_field_defaults 7

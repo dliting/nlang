@@ -502,11 +502,14 @@ private:
     //implicit this slot (with a null check — same contract as a ThisField
     //read).
     void EmitReceiverLoad(uint16_t dstOffset, BytecodeEmitter& emitter);
-    //Load the record that physically holds a captured field's cell: the
-    //display instance slot for DisplayField (hops 0 = itself), or local 0
-    //chased through `outerHops` "$outer" fields for CaptureField.
+    //Load the record that physically holds a captured field's storage:
+    //the display instance slot for DisplayField (hops 0 = itself), or
+    //local 0 chased through `outerHops` "$outer" fields for
+    //CaptureField. A promoted capture chases one more level — the
+    //field cell holds the box handle, and the box payload is the
+    //storage — so downstream flavor arms address a single base.
     void EmitCaptureCellLoad(uint16_t dstOffset, const BareIdTarget& target,
-        BytecodeEmitter& emitter);
+        SnField* pField, BytecodeEmitter& emitter);
     //Store a value (already in valueSlot) into a captured field's cell:
     //struct-typed captures copy in place into the born record, everything
     //else is an 8-byte cell store. Pair/box flavors must not come here.

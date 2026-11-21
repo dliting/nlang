@@ -180,7 +180,7 @@ void VmBackend::EmitDelegateInvoke(const SnInvokeExpr& invoke,
                 "NLang backend: promoted/reference capture as a "
                 "delegate callee is not supported: "
                 + invoke.CalleeName());
-        EmitCaptureCellLoad(calleeSlot, target, emitter);
+        EmitCaptureCellLoad(calleeSlot, target, pField, emitter);
         emitter.Emit(OpCode::OP_LoadField);
         emitter.EmitUint16(calleeSlot);
         emitter.EmitUint16(calleeSlot);

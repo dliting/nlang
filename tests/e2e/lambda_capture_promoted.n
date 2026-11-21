@@ -1,0 +1,49 @@
+//Captured promoted storage, emission shapes (the & alias promotes a
+//scalar local into a box; a later capture shares that box through the
+//display field cell). Pins the box staging on every access path: the
+//declarator init writes through the box payload, reads load it back,
+//an & binding over a capture at field index >= 1 resolves the right
+//cell, and the frame-level and in-lambda compounds read-modify-write
+//through the same box. Makers invoke their lambdas in-frame — the
+//escape-and-survive legs are lambda_capture_gc_survive.n (Task 8).
+int makePromoted() {
+    int x = 7;
+    int& r = x;
+    func<int> g = () -> x + r;
+    return g();
+}
+int makePromotedSecond() {
+    int y = 5;
+    int x = 7;
+    int& r = x;
+    func<int> g = () -> y + x + r;
+    return g();
+}
+int makeCompoundFrame() {
+    int x = 7;
+    int& r = x;
+    func<int> g = () -> x;
+    x += 2;
+    return g();
+}
+int makeCompoundInside() {
+    int x = 7;
+    int& r = x;
+    func<int> g = () -> { x += 3; return x + r; };
+    return g();
+}
+int main() {
+    if (makePromoted() != 14) {
+        return 1;
+    }
+    if (makePromotedSecond() != 19) {
+        return 2;
+    }
+    if (makeCompoundFrame() != 9) {
+        return 3;
+    }
+    if (makeCompoundInside() != 20) {
+        return 4;
+    }
+    return 0;
+}
