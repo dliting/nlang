@@ -1,0 +1,11 @@
+//Task 7 (spec §3.4/D5): a lambda value renders as "lambda" — the
+//judgment reads the function record's lambda bit, not the synthetic
+//name shape (a project function still renders "func <key>").
+int main() {
+    int c = 0;
+    func<int> f = () -> c + 1;
+    if (f.toString() == "lambda") {
+        return 0;
+    }
+    return 1;
+}

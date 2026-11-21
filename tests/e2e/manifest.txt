@@ -539,6 +539,11 @@ generic_func_value_equality 0
 # --- 0.13.10 Task 6: lambda capture (display synthesis and promotion) ---
 lambda_capture_counter 0
 lambda_capture_recur 0
+# --- 0.13.10 Task 7: lambda toString, equality, native binding, containers ---
+lambda_tostring 0
+lambda_equality 0
+lambda_thread_spawn 0
+lambda_list_contains 0
 err_lambda_this_in_static compile_error this is not available in a static method.
 # --- P3.8: lock class field default values (int/float/string/class-ref) ---
 class_field_defaults 7

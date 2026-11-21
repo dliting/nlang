@@ -100,11 +100,16 @@ bool ExprResolveAccessor::BindThreadSpawnCall(SnMemberExpr &snMember,
 		if (ReportSpawnFuncRefFailure(snMember, invoke, res))
 			return true;
 		LogInvokeFailure(invoke, res, pCallee, false, candidates);
+		//The consumed member stops the walker; an argument still deferred
+		//takes its missing-target diagnostic here (the args prologue
+		//skipped it for the formal that never claimed it).
+		SweepDeferredInvokeArgs(*m_pVisitor, invoke);
 		FinishConsumedMember(snMember);
 		return true;
 	}
 	if (!BindQualifiedInvoke(snMember, invoke, *pCallee, res, bindings))
 	{
+		SweepDeferredInvokeArgs(*m_pVisitor, invoke);
 		FinishConsumedMember(snMember);
 		return true;
 	}

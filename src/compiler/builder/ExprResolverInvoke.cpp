@@ -130,18 +130,13 @@ bool ExprResolveAccessor::RejectCrossNamespaceCall(SnInvokeExpr &snInvoke)
 	return true;
 }
 
-//0.9.0: the bare brace arguments of this call — untyped init lists whose
-//target type can only be the chosen overload's formal. Empty for every
-//other argument shape. 0.9.13 B2: a named argument `name = {...}` keeps
-//its SnNamedArgExpr wrapper in the deferred list (the skip-list matches
-//Params() entries by identity); the gate tests the inner expression.
 //0.9.0: the deferred arguments of this call — untyped shapes whose
 //target type can only be the chosen overload's formal: the bare brace
 //argument, and (0.13.10) the lambda. Empty for every other argument
 //shape. 0.9.13 B2: a named argument `name = {...}` keeps its
 //SnNamedArgExpr wrapper in the deferred list (the skip-list matches
 //Params() entries by identity); the gate tests the inner expression.
-static std::vector<SnExpression*> CollectDeferredArgs(
+std::vector<SnExpression*> CollectDeferredArgs(
 	SnInvokeExpr &invoke)
 {
 	std::vector<SnExpression*> deferredArgs;
@@ -165,6 +160,19 @@ static void AcceptDeferredArgs(ISyntaxNodeVisitor &visitor,
 	for (auto *pArg : deferredArgs)
 		if (!pArg->IsResolved())
 			pArg->Accept(visitor);
+}
+
+//0.13.10: the exported pair of the deferred-argument discipline for the
+//paths that pre-resolve arguments in the caller scope (member-receiver
+//and module-qualified calls): the skip-list for their eager pass, and
+//the sweep their failure tails owe once the consumed member stops the
+//walker. Both are idempotent — an argument the success channel already
+//typed drops out of a later recompute.
+void SweepDeferredInvokeArgs(ISyntaxNodeVisitor &visitor,
+	SnInvokeExpr &invoke)
+{
+	auto deferredArgs = CollectDeferredArgs(invoke);
+	AcceptDeferredArgs(visitor, deferredArgs);
 }
 
 //0.9.0: argument prologue of Access(SnInvokeExpr&) — collect the deferred
@@ -427,9 +435,22 @@ bool ExprResolveAccessor::ResolveInvokeWithFunc(SnInvokeExpr &invoke,
 //takes it as its expected function type). False when any of them
 //failed to resolve; its diagnostic is already logged.
 //0.9.13 B2: named arguments resolve through their SnNamedArgExpr wrapper.
+//0.13.10 Task 7: a deferred argument is CALLER code — it hangs off the
+//invoke in the caller's tree, never in the callee's scope. The member-
+//receiver path reaches this channel with the receiver-class context and
+//the parent-only flag still active (its callee lookup needed them);
+//anchor the resolution at the invoke itself and clear the flag, so the
+//argument's walk follows the caller's scope chain. The bare path
+//arrives with the caller context already set — the anchor is the same
+//chain, one hop shallower.
 bool ExprResolveAccessor::ResolveDeferredArgs(
 	SnInvokeExpr &invoke, std::vector<FormalBinding> &bindings)
 {
+	SyntaxNode *pSavedContext = m_pContext;
+	const bool bParentOnly = ContainFlags(ERF_SearchInParentOnly);
+	m_pContext = &invoke;
+	RemoveFlags(ERF_SearchInParentOnly);
+	bool bOK = true;
 	for (auto &b : bindings)
 	{
 		if (b.kind == FormalBinding::B_Default || !b.pCallerExpr)
@@ -460,9 +481,12 @@ bool ExprResolveAccessor::ResolveDeferredArgs(
 		}
 		pArg->Accept(*m_pVisitor);
 		if (!pArg->IsResolved())
-			return false;
+			bOK = false;
 	}
-	return true;
+	m_pContext = pSavedContext;
+	if (bParentOnly)
+		AddFlags(ERF_SearchInParentOnly);
+	return bOK;
 }
 
 

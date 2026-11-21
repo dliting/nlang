@@ -1,0 +1,15 @@
+//Task 7 (spec §3.4/D12): a zero-argument lambda binds to a native
+//func<void> formal (thread.spawn) and runs on the spawned thread; the
+//join keeps the owner frame alive for the captured atomic.
+import concurrent;
+import thread;
+
+int main() {
+    AtomicInt done = AtomicInt(0);
+    Thread t = thread.spawn(() -> { done.addAndGet(1); });
+    thread.join(t);
+    if (done.load() != 1) {
+        return 1;
+    }
+    return 0;
+}

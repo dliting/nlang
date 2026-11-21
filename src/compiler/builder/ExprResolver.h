@@ -307,6 +307,18 @@ SnInitListExpr *UntypedInitListOf(SnExpression &expr);
 //expression is not a lambda awaiting a target. Definition in
 //ExprResolverLambda.cpp.
 SnLambdaExpr *UntypedLambdaOf(SnExpression &expr);
+//0.13.10: the deferred arguments of an invoke — the untyped shapes whose
+//target type can only come from the chosen overload's formal (the bare
+//brace argument and the lambda). Shared by the bare call path and the
+//eager caller-scope prologues (member-receiver, module-qualified), which
+//skip exactly these. Definition in ExprResolverInvoke.cpp.
+std::vector<SnExpression*> CollectDeferredArgs(SnInvokeExpr &invoke);
+//0.13.10: the failure-tail sweep of the qualified/thread paths — a
+//consumed member stops the walker, so an unclaimed deferred argument
+//resolves here for its missing-target diagnostic (the bare path's
+//AcceptDeferredArgs contract). Definition in ExprResolverInvoke.cpp.
+void SweepDeferredInvokeArgs(ISyntaxNodeVisitor &visitor,
+	SnInvokeExpr &invoke);
 //0.9.0: the target shapes a collection initializer lowers to — array
 //tokens, structs, List/Dict instantiations, non-builtin user classes.
 //Scalars / string / func types / builtin classes / interfaces / enums
