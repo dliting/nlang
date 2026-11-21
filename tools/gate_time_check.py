@@ -1,5 +1,5 @@
 # gate_time_check.py -- the reference timing table, the caps()/budget
-# formula and the timing guards one, two and seven
+# formula and the timing guards one, two, four and seven
 # (docs/dev/gate_timing_design.md). The watchdog cap and the budget are
 # computed in exactly one place, caps(), per D-5. Stdlib only; run with -I.
 #
@@ -12,6 +12,11 @@
 #                    ctest-Release rows are verified against the
 #                    NLANG_PERF_TESTS=ON enumeration, never against the
 #                    three decision trees (their universes never hold them)
+#   calibrate        guard four: sample the machine scale fresh from the
+#                    config's sentinel rows in the load form the timed leg
+#                    will use (D-4); the scale is the median of per-sentinel
+#                    measured/reference readings and must stay in
+#                    [SCALE_BAND_MIN, SCALE_BAND_MAX]
 #   check-constants  guard seven: constant band self-consistency and every
 #                    row's cap strictly above its budget at band-edge scalar
 #   record           merge measured readings (--from-junit / --from-measure),
@@ -24,8 +29,11 @@
 
 import argparse
 import json
+import os
+import statistics
 import subprocess
 import sys
+import tempfile
 import xml.etree.ElementTree as ET
 from collections import namedtuple
 from pathlib import Path
@@ -307,6 +315,70 @@ def check_constants(rows):
     return not findings, findings
 
 
+def _sentinel_rows(config, rows):
+    """The sentinel-marked rows of one config in stable entry order (the
+    order the calibration detail lines and candidate rows print in)."""
+    return sorted((row for row in rows
+                   if row.config == config and row.sentinel == SENTINEL_MARK),
+                  key=lambda row: row.entry)
+
+
+def _sentinel_shortfall_finding(config, count):
+    """Guard four admission: below SENTINELS_PER_CONFIG[0] sentinels there
+    is no median worth acting on. Checked before any sampling round starts,
+    so a table defect never spends a real suite run to surface."""
+    if count >= SENTINELS_PER_CONFIG[0]:
+        return None
+    return "SENTINELS %s: %d marked, need at least %d" % (
+        config, count, SENTINELS_PER_CONFIG[0])
+
+
+def calibrate_scale(config, measurements, rows):
+    """Guard four (D-4): the machine scale is the median of the per-sentinel
+    measured/reference ratios -- the median over the mean so one
+    pathological reading cannot drag every budget of the machine. Returns
+    (scale, findings, candidate_rows); scale is None when no ratio could be
+    computed. A scale outside [SCALE_BAND_MIN, SCALE_BAND_MAX] is not a
+    slow machine but a table-versus-machine disagreement: the finding names
+    the config whose reference needs re-recording, and the candidate rows
+    carry this round's readings in table shape for that re-record. The
+    band and the MIN_CAP_S-above-sentinel-references clause of guard seven
+    together keep a calibration reading inside its budget floor."""
+    sent = _sentinel_rows(config, rows)
+    shortfall = _sentinel_shortfall_finding(config, len(sent))
+    findings = [] if shortfall is None else [shortfall]
+    if findings:
+        return None, findings, []
+    ratios = []
+    candidates = []
+    for row in sent:
+        if row.ref_s <= 0.0:
+            findings.append("CALIB %s %s: sentinel ref_s must be positive "
+                            "to form a ratio" % (config, row.entry))
+            continue
+        reading = measurements.get(row.entry)
+        if reading is None:
+            findings.append("CALIB %s %s: no reading from the sample run"
+                            % (config, row.entry))
+            continue
+        secs = reading[0]
+        ratios.append(secs / row.ref_s)
+        candidates.append(_row_line(config, row.entry, secs, row.ref_work,
+                                    row.category, row.form, row.sentinel,
+                                    row.reason))
+    if not ratios:
+        return None, findings, candidates
+    scale = statistics.median(ratios)
+    if not SCALE_BAND_MIN <= scale <= SCALE_BAND_MAX:
+        findings.append("BAND %s: scale %.3f outside [%s, %s]; re-record "
+                        "the reference rows of %s from the CANDIDATE rows "
+                        "and re-run (a machine this far from its recorded "
+                        "table is not calibratable)"
+                        % (config, scale, SCALE_BAND_MIN, SCALE_BAND_MAX,
+                           config))
+    return scale, findings, candidates
+
+
 def parse_measure_rows(text):
     """Parse Task 1 MEASURE rows (`MEASURE <name> <seconds> form=<form>`).
     The directory-form compile-exception path can emit two rows for one
@@ -459,6 +531,65 @@ def _run_ctest_enum(tree):
     return {t["name"] for t in data.get("tests", [])}
 
 
+def _sample_ctest(config, tree, names):
+    """Guard four sampling round for a ctest config (D-4): the sentinel set
+    runs once through a fresh ctest -R, in exactly the form the timed legs
+    use it (serial, -C Debug; ctest-Release reads the perf-on tree whose
+    config runs Release), and the readings come back through
+    --output-junit. A sentinel that fails or is killed during sampling
+    carries no run row, and the missing-reading finding reports it; the
+    round's own rc is not the verdict (a killed sentinel is what the band
+    decision and the findings are for)."""
+    cfg = "Release" if config == "ctest-Release" else "Debug"
+    regex = "^(" + "|".join(sorted(names)) + ")$"
+    with tempfile.TemporaryDirectory() as tmp:
+        xml_path = Path(tmp) / "calibrate.xml"
+        proc = subprocess.run(
+            ["ctest", "--test-dir", str(tree), "-C", cfg, "-R", regex,
+             "--output-junit", str(xml_path)],
+            capture_output=True, text=True, encoding="utf-8")
+        if not xml_path.is_file():
+            raise ValueError("calibration ctest run in %s produced no junit "
+                             "(rc=%d): is the tree configured?"
+                             % (tree, proc.returncode))
+        return parse_junit_rows(xml_path.read_text(encoding="utf-8"))
+
+
+def _sample_e2e(config, tools_tree, names, manifest_path):
+    """Guard four sampling round for an e2e config (D-4): the manifest
+    lines whose first column is a sentinel form a derived subset (the
+    runner takes one manifest per run, and subsets are derived artifacts,
+    never stored), run through the runner with --record-out in the legs'
+    serial form. --timeout=120 matches the 120 s legs; every sentinel
+    reference sits well below it (guard seven's MIN_CAP_S clause), so the
+    flag cannot shape a calibration reading."""
+    cfg = "Release" if config == "e2e-Release" else "Debug"
+    kept = [line for line in
+            Path(manifest_path).read_text(encoding="utf-8").splitlines()
+            if line.strip() and line.strip().split()[0] in names]
+    runner = REPO_ROOT / "tests" / "e2e" / "run_e2e_tests.py"
+    tools = Path(tools_tree) / "src" / "tools"
+    with tempfile.TemporaryDirectory() as tmp:
+        subset = Path(tmp) / "sentinels.txt"
+        record = Path(tmp) / "record.txt"
+        with subset.open("w", encoding="utf-8", newline="\n") as handle:
+            handle.write("\n".join(kept) + "\n")
+        env = dict(os.environ, NLANG_E2E_MANIFEST=str(subset))
+        proc = subprocess.run(
+            [sys.executable, str(runner),
+             str(tools / "ncc" / cfg / "ncc.exe"),
+             str(tools / "nvm" / cfg / "nvm.exe"),
+             str(tools / "ndb" / cfg / "ndb.exe"),
+             "--timeout=120", "--record-out", str(record)],
+            cwd=str(runner.parent), env=env, capture_output=True,
+            text=True, encoding="utf-8")
+        if not record.is_file():
+            raise ValueError("calibration e2e run against %s produced no "
+                             "record file (rc=%d): are the tools built?"
+                             % (tools_tree, proc.returncode))
+        return parse_measure_rows(record.read_text(encoding="utf-8"))
+
+
 def _enum_overrides(pairs):
     overrides = {}
     for pair in pairs:
@@ -548,6 +679,52 @@ def _dispatch(args):
         print("RECORD %s updated=%d added=%d" % (args.config, updated,
                                                  len(added)))
         return _verdict([])
+    if args.command == "calibrate":
+        if args.config not in CONFIG_KEYS:
+            return _verdict(["CALIBRATE %s: unknown config key (want one "
+                             "of %s)" % (args.config,
+                                         ", ".join(CONFIG_KEYS))])
+        is_ctest = (args.config in CTEST_CONFIGS
+                    or args.config == "ctest-Release")
+        if is_ctest and (not args.tree or args.tools):
+            raise ValueError("calibrate %s wants --tree (a configured "
+                             "decision tree)" % args.config)
+        if not is_ctest and (not args.tools or args.tree):
+            raise ValueError("calibrate %s wants --tools (the tree holding "
+                             "the ncc/nvm/ndb binaries)" % args.config)
+        rows = _effective_rows(table)
+        sent = _sentinel_rows(args.config, rows)
+        shortfall = _sentinel_shortfall_finding(args.config, len(sent))
+        if shortfall:
+            return _verdict([shortfall])
+        names = {row.entry for row in sent}
+        if is_ctest:
+            measurements = _sample_ctest(args.config, args.tree, names)
+        else:
+            manifest = (args.manifest
+                        or str(REPO_ROOT / "tests" / "e2e" / "manifest.txt"))
+            measurements = _sample_e2e(args.config, args.tools, names,
+                                       manifest)
+        for row in sent:
+            reading = measurements.get(row.entry)
+            if reading is not None and row.ref_s > 0.0:
+                print("CALIB %s %s measured=%.2f ref=%.2f ratio=%.3f"
+                      % (args.config, row.entry, reading[0], row.ref_s,
+                         reading[0] / row.ref_s))
+        scale, findings, candidates = calibrate_scale(args.config,
+                                                      measurements, rows)
+        if scale is not None:
+            # %s on the band edges keeps the constants' own canonical
+            # spelling (0.25 and 4.0) rather than a format that would drop
+            # the trailing zero (%g) or pad it (%.2f).
+            print("SCALE %s scale=%.3f band=[%s,%s]"
+                  % (args.config, scale, SCALE_BAND_MIN, SCALE_BAND_MAX))
+        # The candidate rows are the re-record input, printed exactly when
+        # the round is red (the band finding, or readings the table cannot
+        # yet explain): they are the CANDIDATE wording of guard four.
+        if findings:
+            findings += ["CANDIDATE " + line for line in candidates]
+        return _verdict(findings)
     rows = _effective_rows(table)
     if args.command == "check-constants":
         return _verdict(check_constants(rows)[1])
@@ -615,6 +792,20 @@ def _build_parser():
     caps_p.add_argument("entry")
     caps_p.add_argument("--work-factor", type=float, default=1.0)
     caps_p.add_argument("--scalar", type=float, default=1.0)
+    calibrate_p = sub.add_parser("calibrate", help="guard four: sample the "
+                                 "machine scale from a config's sentinels")
+    calibrate_p.add_argument("--table", help="reference table (default "
+                                             "tests/gate_time_reference.txt)")
+    calibrate_p.add_argument("config", help="config key to calibrate")
+    calibrate_p.add_argument("--tree", help="configured decision tree to "
+                                            "sample (ctest configs)")
+    calibrate_p.add_argument("--tools", help="tree holding the ncc/nvm/ndb "
+                                             "binaries to sample (e2e "
+                                             "configs)")
+    calibrate_p.add_argument("--manifest", help="e2e manifest the sentinel "
+                                                "subset derives from "
+                                                "(default tests/e2e/"
+                                                "manifest.txt)")
     return parser
 
 

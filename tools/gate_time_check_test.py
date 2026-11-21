@@ -15,6 +15,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import gate_time_check
 from gate_time_check import (
     CONFIG_KEYS,
     apply_record,
@@ -496,6 +497,126 @@ def test_cli_caps_unknown_config_names_the_config_keys():
                   % (cfg, out))
 
 
+def _stub_ctest_sampler(readings, calls=None):
+    """Replace the live ctest sampling round with a canned reading map for
+    one calibrate CLI call (the stub runner of guard four: no ctest run).
+    Returns the captured stdout/return-code pair."""
+    def _patched(config, tree, names):
+        if calls is not None:
+            calls.append(config)
+        return readings
+    return _patched
+
+
+def test_calibrate_median_and_scale_line():
+    # Guard four: the machine scalar is the MEDIAN of per-sentinel
+    # measured/reference ratios. Base-table sentinels all carry ref 10.00,
+    # so the stub readings below sit at ratios 1/2/3/4/100 -- a mean would
+    # report 22, the median reports 3.
+    with tempfile.TemporaryDirectory() as tmp:
+        table = _write_table(tmp, base_table_text())
+        readings = {"alpha_probe_tests": (10.0, "ctest-junit-serial"),
+                    "beta_probe_tests": (20.0, "ctest-junit-serial"),
+                    "gamma_probe_tests": (30.0, "ctest-junit-serial"),
+                    "delta_probe_tests": (40.0, "ctest-junit-serial"),
+                    "epsilon_probe_tests": (1000.0, "ctest-junit-serial")}
+        orig = gate_time_check._sample_ctest
+        gate_time_check._sample_ctest = _stub_ctest_sampler(readings)
+        try:
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                rc = run_cli(["calibrate", "ctest-Debug", "--tree",
+                              str(Path(tmp) / "tree"), "--table", str(table)])
+        finally:
+            gate_time_check._sample_ctest = orig
+        out = buf.getvalue()
+        check(rc == 0
+              and "SCALE ctest-Debug scale=3.000 band=[0.25,4.0]" in out
+              and "GATE gate_time_check: PASS" in out,
+              "calibrate: the median ratio must be reported on the SCALE "
+              "detail line, got rc=%r out=%r" % (rc, out))
+
+
+def test_calibrate_out_of_band_red_with_candidates():
+    # Guard four red side: an out-of-band scale names the config whose
+    # reference needs re-recording and prints this round's measured rows
+    # in table shape (the candidate rows a human re-records from).
+    for label, secs in (("above", 80.0), ("below", 1.0)):
+        with tempfile.TemporaryDirectory() as tmp:
+            table = _write_table(tmp, base_table_text())
+            readings = {name: (secs, "ctest-junit-serial")
+                        for name in CTEST_NAMES[:5]}
+            orig = gate_time_check._sample_ctest
+            gate_time_check._sample_ctest = _stub_ctest_sampler(readings)
+            try:
+                buf = io.StringIO()
+                with redirect_stdout(buf):
+                    rc = run_cli(["calibrate", "ctest-Debug", "--tree",
+                                  str(Path(tmp) / "tree"),
+                                  "--table", str(table)])
+            finally:
+                gate_time_check._sample_ctest = orig
+            out = buf.getvalue()
+            check(rc == 1 and "GATE gate_time_check: FAIL" in out,
+                  "calibrate %s band: must exit red, got rc=%r out=%r"
+                  % (label, rc, out))
+            check("BAND ctest-Debug" in out,
+                  "calibrate %s band: the config to re-record must be "
+                  "named, got out=%r" % (label, out))
+            check("CANDIDATE ctest-Debug alpha_probe_tests %.2f 1 常规 "
+                  "ctest-junit-serial yes stub" % secs in out,
+                  "calibrate %s band: this round's measured candidate rows "
+                  "must be printed, got out=%r" % (label, out))
+            # The SCALE line stays printed on the red path too (the detail
+            # line is what a human reads the band decision from).
+            check("SCALE ctest-Debug scale=" in out,
+                  "calibrate %s band: the SCALE line must still print, got "
+                  "out=%r" % (label, out))
+
+
+def test_calibrate_fewer_than_five_sentinels_red_without_sampling():
+    # Guard four admission: a participating config with fewer than
+    # SENTINELS_PER_CONFIG[0] sentinel rows cannot estimate a median, and
+    # the round must not sample at all (a real ctest run would burn
+    # minutes before the shortfall mattered).
+    with tempfile.TemporaryDirectory() as tmp:
+        table = _write_table(tmp, _drop_line(base_table_text(),
+                                             "ctest-Debug epsilon_probe_tests "))
+        calls = []
+        orig = gate_time_check._sample_ctest
+        gate_time_check._sample_ctest = _stub_ctest_sampler({}, calls)
+        try:
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                rc = run_cli(["calibrate", "ctest-Debug", "--tree",
+                              str(Path(tmp) / "tree"), "--table", str(table)])
+        finally:
+            gate_time_check._sample_ctest = orig
+        out = buf.getvalue()
+        check(rc == 1 and "SENTINELS ctest-Debug: 4" in out,
+              "calibrate: four sentinel rows must go red naming the count, "
+              "got rc=%r out=%r" % (rc, out))
+        check(calls == [], "calibrate: the shortfall path must not start a "
+              "sampling round, got calls=%r" % (calls,))
+
+
+def test_calibrate_flag_config_mismatch_red():
+    # The source flag follows the config family (ctest trees enumerate and
+    # run through ctest, e2e configs through the runner's tools): a crossed
+    # pairing is a caller mistake and must fail with the flag it wants, not
+    # an enumeration crash later.
+    with tempfile.TemporaryDirectory() as tmp:
+        table = _write_table(tmp, base_table_text())
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = run_cli(["calibrate", "e2e-Debug", "--tree",
+                          str(Path(tmp) / "tree"), "--table", str(table)])
+        out = buf.getvalue()
+        check(rc == 1 and "--tools" in out,
+              "calibrate: an e2e config with --tree must name --tools as "
+              "the wanted flag, got rc=%r out=%r" % (rc, out))
+
+
 def main():
     test_complete_ok_on_base_table()
     test_complete_missing_row_fails()
@@ -516,6 +637,10 @@ def main():
     test_constants_sentinel_reference_above_min_cap_fails()
     test_cli_record_and_caps_verdicts()
     test_cli_caps_unknown_config_names_the_config_keys()
+    test_calibrate_median_and_scale_line()
+    test_calibrate_out_of_band_red_with_candidates()
+    test_calibrate_fewer_than_five_sentinels_red_without_sampling()
+    test_calibrate_flag_config_mismatch_red()
     if failures:
         for f in failures:
             print("FAIL: %s" % f)

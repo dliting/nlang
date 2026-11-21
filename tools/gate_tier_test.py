@@ -98,12 +98,17 @@ def run_smoke():
         (sandbox / "tools" / "gate_tiers.txt").write_text(TIERS, newline="\n")
         (sandbox / "tests" / "e2e" / "manifest.txt").write_text(MANIFEST, newline="\n")
 
+        # NLANG_GATE_MACHINE_SCALE pins the per-leg calibration (D-4): the
+        # stub trees hold no configured suite, so an unpinned assembly
+        # would burn live sampling rounds against them and every timed leg
+        # would fail on the calibration, not on the wiring under test.
         proc = subprocess.run(
             [bash,
              (sandbox / "tools" / "gate_tier.sh").as_posix(), "T1",
              "--master-tree", (sandbox / "trees" / "master").as_posix(),
              "--asan-tree", (sandbox / "trees" / "asan").as_posix(),
              "--ide-tree", (sandbox / "trees" / "ide").as_posix()],
+            env=dict(os.environ, NLANG_GATE_MACHINE_SCALE="1.0"),
             capture_output=True, encoding="utf-8", errors="replace",
             timeout=120)
         output = proc.stdout + proc.stderr
@@ -126,6 +131,12 @@ def run_smoke():
             check("gate.sh" not in body,
                   "command word fused with the launcher path "
                   f"(quoting bug): {body!r}")
+            # D-4 delivery channel: the machine scale rides the leg
+            # command environment (a prefix variable), it is never baked
+            # into the suite's own configuration.
+            check("NLANG_GATE_MACHINE_SCALE=1.0" in body,
+                  "machine scale missing from the leg command "
+                  f"environment: {body!r}")
         return not failures
     finally:
         shutil.rmtree(sandbox, ignore_errors=True)

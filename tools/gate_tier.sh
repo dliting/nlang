@@ -95,17 +95,67 @@ leg() { # leg <name> <command...>
   echo "leg $name rc=$?"
 }
 
-ctest_leg() { # ctest_leg <name> <tree>
-  leg "$1" bash -c "cd '$2' && ctest -C Debug"
+# Machine scale per leg (D-4, guard four): calibrated fresh, in the load
+# form the leg itself will run, right before the leg is assembled. The
+# value reaches the leg only through the command-prefix environment -- a
+# ctest ENVIRONMENT property would override the inherited value for the
+# very entries the leg measures, so nothing bakes it at configure time.
+# An already-set NLANG_GATE_MACHINE_SCALE wins verbatim without sampling:
+# the stub smoke pins its own number, and a caller that must not re-sample
+# (same leg, same number, D-5) uses the same door. rc!=0 and the
+# calibration output on stderr mean the leg must not run uncalibrated.
+# The sampling round itself runs before the leg's gate.sh entry, so it is
+# not machine-locked: two test batches overlapping in that window see
+# each other's contention (D-4 keeps that case in its contention
+# caveat -- a machine at the band edge fails calibration, not silently).
+leg_scale() { # leg_scale <config-key> <source-flag> <path>
+  local config="$1" flag="$2" path="$3" out rc scale
+  if [ -n "${NLANG_GATE_MACHINE_SCALE:-}" ]; then
+    printf '%s\n' "$NLANG_GATE_MACHINE_SCALE"
+    return 0
+  fi
+  [ "$DRY" = 1 ] && { printf '<calibrated-at-run-time>'; return 0; }
+  out=$("$PY" "$REPO/tools/gate_time_check.py" calibrate "$config" \
+        "$flag" "$path" 2>&1)
+  rc=$?
+  scale=$(printf '%s\n' "$out" | \
+          awk '/^SCALE /{for(i=1;i<=NF;i++) if($i ~ /^scale=/){sub(/^scale=/,"",$i); print $i; exit}}')
+  if [ $rc -ne 0 ] || [ -z "$scale" ]; then
+    # stderr, not stdout: the caller captures stdout for the scale value,
+    # and the calibration report is the failure's whole content (guard
+    # four findings with the candidate rows).
+    printf '%s\n' "$out" >&2
+    return 1
+  fi
+  printf '%s\n' "$scale"
 }
 
-e2e_leg() { # e2e_leg <name> <tree> <config> [manifest] [timeout]
-  local name="$1" tree="$2" config="$3" manifest="$4" timeout="$5"
+# A leg whose calibration failed still gets its gate.sh entry (false), so
+# the batch conjunction shows the red verdict line instead of a leg that
+# silently ran with an unknown scale; the calibration report went to the
+# batch console above it.
+leg_uncalibrated() { # leg_uncalibrated <name>
+  leg "$1" false
+}
+
+ctest_leg() { # ctest_leg <name> <tree> <config-key> [-R <regex>]
+  local name="$1" tree="$2" config="$3"; shift 3
+  local scale regex=""
+  [ $# -gt 0 ] && [ -n "$1" ] && regex=" -R '$1'"
+  scale=$(leg_scale "$config" --tree "$tree") || { leg_uncalibrated "$name"; return; }
+  leg "$name" env "NLANG_GATE_MACHINE_SCALE=$scale" bash -c \
+    "cd '$tree' && ctest -C Debug$regex"
+}
+
+e2e_leg() { # e2e_leg <name> <tree> <config> <ref-key> [manifest] [timeout]
+  local name="$1" tree="$2" config="$3" refkey="$4" manifest="$5" timeout="$6"
   timeout=${timeout:-120}
   manifest=${manifest:-$REPO/tests/e2e/manifest.txt}
-  local env_args=()
-  if [ -n "${4:-}" ]; then
-    env_args=(env "NLANG_E2E_MANIFEST=$manifest")
+  local scale env_args=(env)
+  scale=$(leg_scale "$refkey" --tools "$tree") || { leg_uncalibrated "$name"; return; }
+  env_args+=("NLANG_GATE_MACHINE_SCALE=$scale")
+  if [ -n "${5:-}" ]; then
+    env_args+=("NLANG_E2E_MANIFEST=$manifest")
   fi
   leg "$name" "${env_args[@]}" \
     "$PY" "$REPO/tests/e2e/run_e2e_tests.py" \
@@ -161,12 +211,12 @@ docs_legs() {
 }
 
 t1_legs() {
-  ctest_leg T1-debug-unit "$MASTER_TREE"
-  e2e_leg T1-debug-e2e "$MASTER_TREE" Debug "" 120
-  ctest_leg T1-ide-ctest "$IDE_TREE"
-  ctest_leg T1-asan-unit "$ASAN_TREE"
+  ctest_leg T1-debug-unit "$MASTER_TREE" ctest-Debug
+  e2e_leg T1-debug-e2e "$MASTER_TREE" Debug e2e-Debug "" 120
+  ctest_leg T1-ide-ctest "$IDE_TREE" ctest-IDE
+  ctest_leg T1-asan-unit "$ASAN_TREE" ctest-ASan
   derive_asan_subset || return 2
-  e2e_leg T1-asan-e2e-subset "$ASAN_TREE" Debug \
+  e2e_leg T1-asan-e2e-subset "$ASAN_TREE" Debug e2e-ASan \
       "$WORK/asan_subset_derived.txt" 180
 }
 
@@ -191,7 +241,7 @@ t0() {
     echo "T0: impact mapping failed rc=$rc"; return 2
   fi
   if [ -n "$unit_regex" ]; then
-    leg T0-unit bash -c "cd '$MASTER_TREE' && ctest -C Debug -R '$unit_regex'"
+    ctest_leg T0-unit "$MASTER_TREE" ctest-Debug "$unit_regex"
   fi
   if [ -n "$e2e_regex" ]; then
     grep -E "$e2e_regex" "$REPO/tests/e2e/manifest.txt" \
@@ -202,7 +252,7 @@ t0() {
       echo "T0: e2e selector '$e2e_regex' matched no manifest rows"
       return 2
     fi
-    e2e_leg T0-e2e "$MASTER_TREE" Debug "$WORK/t0_subset.txt" 120
+    e2e_leg T0-e2e "$MASTER_TREE" Debug e2e-Debug "$WORK/t0_subset.txt" 120
   fi
   [ ${#LEG_NAMES[@]} -gt 0 ] || { echo "T0: nothing to run"; return 0; }
 }
@@ -212,11 +262,11 @@ t1() { t1_legs; docs_legs; }
 t2() {
   DOCS=1  #version close always includes the docs five legs
   t1_legs
-  e2e_leg T2-asan-e2e-full "$ASAN_TREE" Debug \
+  e2e_leg T2-asan-e2e-full "$ASAN_TREE" Debug e2e-ASan \
       "$REPO/tests/e2e/manifest.txt" 180
   leg T2-release-build bash -c \
       "cmake --build '$MASTER_TREE' --config Release"
-  e2e_leg T2-release-e2e "$MASTER_TREE" Release "" 120
+  e2e_leg T2-release-e2e "$MASTER_TREE" Release e2e-Release "" 120
   docs_legs
 }
 
