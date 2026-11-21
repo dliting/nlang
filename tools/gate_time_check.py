@@ -3,7 +3,8 @@
 # model and the single caps()/budget derivation site live in
 # gate_time_table.py, the measurement parsing, the table recording and
 # the calibration sampling rounds in gate_time_measure.py, and the
-# guard verdict bodies in gate_time_guards.py; this module owns the
+# guard verdict bodies in gate_time_guards.py (guard five's registered-
+# cap axis in its sibling gate_time_timeouts.py); this module owns the
 # argument parsing and the per-subcommand dispatch. Stdlib only; run
 # with -I.
 #
@@ -59,11 +60,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from gate_time_guards import (check_budget, check_complete, check_constants,
-                              check_orphans, check_timeouts,
-                              enum_overrides, expected_watchdogs,
-                              read_name_set, read_timeouts, run_ctest_enum,
-                              sentinel_rows, sentinel_shortfall_finding,
-                              show_only_json, threshold_inputs)
+                              check_orphans, enum_overrides, read_name_set,
+                              run_ctest_enum, sentinel_rows,
+                              sentinel_shortfall_finding)
 from gate_time_measure import (apply_record, calibrate_scale, junit_cases,
                                junit_reports, parse_junit_rows,
                                parse_measure_rows, sample_ctest, sample_e2e)
@@ -72,6 +71,9 @@ from gate_time_table import (CONFIG_KEYS, CTEST_CONFIGS, DECISION_TREES,
                              LOCAL_TABLE_NAME, REPO_ROOT, SCALE_BAND_MAX,
                              SCALE_BAND_MIN, caps, effective_rows,
                              emit_cmake)
+from gate_time_timeouts import (check_timeouts, expected_watchdogs,
+                                read_timeouts, show_only_json,
+                                threshold_inputs)
 
 
 def _inputs(args, repo):
