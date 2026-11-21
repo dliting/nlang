@@ -3,7 +3,8 @@
 
 Usage:
     conda run -n py313 python run_e2e_tests.py [ncc_path] [nvm_path]
-        [--timeout=SEC] [--record-out FILE]
+        [--timeout=SEC] [--config=Debug|ASan|Release] [--table=FILE]
+        [--record-out FILE]
 
 Reads manifest.txt (name + expected_exit_code [+ optional expected stdout
 substring]), compiles each <name>.n, runs the .ncu, and reports results.
@@ -15,16 +16,36 @@ NLANG_E2E_SCRATCH_TAG=<name> namespaces this run's scratch under
 ../temp/<name>/ and moves the manifest pass's run CWD into it, so several
 runners can work one manifest at the same time (the shard tool gives each
 shard its own tag); unset, every path and CWD is exactly as above.
---timeout=SEC raises the flat 30 s per-test subprocess cap for this
-invocation only: the ASan-instrumented tree runs ~7x slower than Release,
-and its gate run needs more headroom for the pattern-budget case
-(stdlib_regex_size crosses the size limit with 25000 literal atoms).
+--timeout=SEC now prices only entries with no gate-time table row (the
+fallback kill point; absent, the fallback is DEFAULT_TIMEOUT_FALLBACK_S).
+Row-backed entries take their kill from the table below, so this flag no
+longer carries per-config headroom.
 Every per-entry verdict line (PASS or FAIL) is followed by a
 TIME <name> <seconds> line with that entry's own wall-clock span; SKIP
 lines and the startup checks carry no timing. --record-out FILE
 additionally writes one raw `MEASURE <name> <seconds> form=e2e-serial`
 row per verdict — the gate-time reference recorder's only e2e input,
 so the TIME and MEASURE rows are the plan's single e2e timing outlet.
+Every entry's kill point is derived at startup from the gate-time
+reference table (default tests/gate_time_reference.txt, --table=FILE
+overrides; tools/gate_time_table.py holds the single caps() site every
+gate consumer shares): an entry with its own row under the judging
+config is killed at that row's budget and its FAIL line names
+(TIMEOUT_BUDGET budget=... watchdog=...); an entry priced through a
+coarse `default` or manifest-scope row is killed at that row's watchdog
+cap and names (TIMEOUT_WATCHDOG watchdog=...), and finishing over that
+coarse budget without being killed prints an `advisory: <name> 超预算`
+line without turning the run red (a coarse row pins a scope's pace,
+never one entry's own). An entry with no row at all prints a
+TIMEOUT-FALLBACK line naming the missing row and runs under --timeout.
+--config=CFG names the judging config (the gate legs pass it, derived
+from the reference key they sweep); without it the config is guessed
+from the tool path — Release or Debug (the ASan tree runs the Debug
+binaries, and its leg passes --config=ASan) — and the guess is printed.
+NLANG_GATE_MACHINE_SCALE (the calibrated machine scalar) scales every
+budget; without it budgets price at SCALE_BAND_MAX and both the startup
+note and any kill say 未做本机校准. NLANG_TEST_WORK_FACTOR scales
+row-backed budgets and watchdog caps through the same formula.
 For compile_error tests the optional third column is instead the substring
 ncc's compile diagnostics must contain (rejection reason pinning) — works
 for single-file tests and for cross-module directory tests (checked against
@@ -63,6 +84,17 @@ import time
 import re
 from collections import namedtuple
 
+#The startup notice, kill notes and advisory lines are Chinese (project
+#docs language) and are parsed by the gate guards and junit post-
+#processing, so their encoding must not follow the leg environment; the
+#consumers decode UTF-8 (the pytest harness with encoding='utf-8', ctest
+#into junit XML). Pin the text streams — measured under the registered ctest
+#environment on a zh-CN machine, the child otherwise encodes them cp936,
+#which crashed the parent's subprocess reader thread (a UnicodeDecodeError
+#surfacing as stdout=None despite capture_output=True).
+sys.stdout.reconfigure(encoding='utf-8')
+sys.stderr.reconfigure(encoding='utf-8')
+
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.normpath(os.path.join(SCRIPT_DIR, '..', '..'))
 DEFAULT_NCC = os.path.join(
@@ -70,9 +102,18 @@ DEFAULT_NCC = os.path.join(
 DEFAULT_NVM = os.path.join(
     SCRIPT_DIR, '..', '..', 'build', 'src', 'tools', 'nvm', 'Release', 'nvm.exe')
 MANIFEST = os.path.join(SCRIPT_DIR, 'manifest.txt')
-#Flat per-test subprocess cap (compile and run), overridable per invocation
-#with --timeout=SEC (see the module docstring).
-TIMEOUT_SEC = 30
+#Kill cap for an entry with no gate-time table row; --timeout=SEC
+#overrides it per invocation (see the module docstring). Row-backed
+#entries take their kill from the table instead: the old flat 30 s cap
+#and its Debug x3 config branch are reference rows now, and 90 s keeps
+#the ceiling the x3 branch gave row-less entries under Debug.
+DEFAULT_TIMEOUT_FALLBACK_S = 90
+#Coarse-scope budget for the 超预算 advisory of the entry being run
+#(set by main() before each entry): _emit_verdict is the single verdict
+#outlet and reads it there, so no branch has to plumb it. None means
+#this entry's verdicts carry no advisory (priced by its own row, or no
+#row at all).
+ENTRY_ADVISORY_BUDGET = None
 #Seconds spelling for the per-entry TIME/MEASURE rows: fixed decimals,
 #so the rows stay byte-parseable for the gate-time reference recorder.
 _TIMING_SECONDS_FMT = '{:.2f}'
@@ -546,16 +587,133 @@ def _split_record_out_arg(argv):
     return rest, record_out
 
 
+def _split_gate_flag_arg(argv):
+    """Pull the last '--config CFG'/'--config=CFG' and
+    '--table FILE'/'--table=FILE' gate flags out of argv, mirroring
+    _split_record_out_arg: a space-separated spelling left among the
+    positionals silently prices the run from the checked-in table
+    instead of the named file (measured with the stub-table cases), so
+    both spellings must be honoured here. The last occurrence of each
+    flag wins; a dangling or empty value propagates as a plain
+    ValueError rather than falling back, and an unknown --config value
+    fails in _resolve_judging_config."""
+    flag_names = {'--config': 'config', '--table': 'table'}
+    values = {'config': None, 'table': None}
+    rest = []
+    index = 0
+    while index < len(argv):
+        arg = argv[index]
+        head, sep, inline = arg.partition('=')
+        if arg in flag_names:
+            name = flag_names[arg]
+            if index + 1 < len(argv):
+                value = argv[index + 1]
+                index += 2
+            else:
+                value = None  # dangling flag: caught below
+                index += 1
+        elif sep and head in flag_names:
+            name = flag_names[head]
+            value = inline
+            index += 1
+        else:
+            rest.append(arg)
+            index += 1
+            continue
+        if not value:
+            raise ValueError('%s requires a value' % arg)
+        values[name] = value
+    return rest, values['config'], values['table']
+
+
+def _load_gate_time_table():
+    """The leaf timing-table module (tools/gate_time_table.py) loaded by
+    path — the same importlib trick tools/qtest_progress.py uses: one
+    caps()/resolve site is shared by every consumer, and loading the
+    leaf keeps the runner free of the checker package's sibling
+    imports."""
+    import importlib.util
+    path = os.path.join(REPO_ROOT, 'tools', 'gate_time_table.py')
+    spec = importlib.util.spec_from_file_location('gate_time_table', path)
+    #An absent tool file is missing input, not a silent fallback.
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f'cannot load {path}')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _resolve_judging_config(config, ncc):
+    """Which config key's rows price this run: e2e-<--config> when the
+    leg named one, else the two-way tool-path guess the retired config
+    branch used (a Release build tree, versus Debug — an ASan sweep
+    runs the Debug binaries but its leg passes --config=ASan). Returns
+    (key, guessed segment or None); an unknown --config raises ValueError
+    like the other gate flags."""
+    if config:
+        if config not in ('Debug', 'ASan', 'Release'):
+            raise ValueError('--config must be Debug, ASan or Release, '
+                             'got %r' % (config,))
+        return 'e2e-' + config, None
+    guess = 'Release' if '/Release/' in ncc.replace(os.sep, '/') else 'Debug'
+    return 'e2e-' + guess, guess
+
+
+def _price_e2e_entry(table_mod, rows, config_key, name, manifest_scope,
+                     work_factor, scalar, uncalibrated):
+    """(kill_s, kill_note, advisory_budget_s) for one entry, graded by
+    the row that prices it: the entry's own row -> kill at the budget,
+    kill note naming (TIMEOUT_BUDGET ...), no advisory (the kill already
+    carries the cap); a coarse `default` or manifest-scope row -> kill
+    at the watchdog cap, note naming (TIMEOUT_WATCHDOG ...), and an
+    advisory when the entry finishes over the budget; no row ->
+    (None, '', None) and the caller applies the --timeout fallback
+    visibly. An uncalibrated run labels its kill notes so the log says
+    why the budget is machine-wide."""
+    row = table_mod.resolve_scoped_row(rows, config_key, name,
+                                       manifest_scope)
+    if row is None:
+        return None, '', None
+    budget, watchdog = table_mod.caps_values(row.ref_s, work_factor,
+                                             scalar)
+    if row.entry == name:
+        kill_s, advisory = budget, None
+        note = f'(TIMEOUT_BUDGET budget={budget:.2f} ' \
+               f'watchdog={watchdog:.2f})'
+    else:
+        kill_s, advisory = watchdog, budget
+        note = f'(TIMEOUT_WATCHDOG watchdog={watchdog:.2f})'
+    if uncalibrated:
+        note += ' 未做本机校准'
+    return kill_s, f' {note}', advisory
+
+
+def _kill_note(exc, note):
+    """Only the runner's own kill — a TimeoutExpired at the derived kill
+    point — carries the cap-provenance note: any other exception text
+    already describes the entry's own failure, not a cap."""
+    return note if note and isinstance(exc, subprocess.TimeoutExpired) else ''
+
+
 def _emit_verdict(name, verdict, entry_started, record_file):
-    """Single outlet for one per-entry verdict: print the verdict line
-    verbatim (its consumers — shard A/B diff, gate logs — grep the
-    PASS/FAIL glyphs), then the entry's TIME row, and when --record-out
-    is active the matching MEASURE row with the same seconds reading.
-    No branch may print a verdict directly: that keeps the TIME rows
-    adjacent to every verdict without repeating the timing logic across
-    the branches."""
+    """Single outlet for one per-entry verdict: the coarse-scope budget
+    advisory when this entry finished over it (the kill notes are the
+    only other source of TIMEOUT in a verdict: a runner kill measured
+    the cap, not the workload, so it needs no second line), then the
+    verdict line verbatim (its consumers — shard A/B diff, gate logs —
+    grep the PASS/FAIL glyphs), then the entry's TIME row, and when
+    --record-out is active the matching MEASURE row with the same
+    seconds reading. No branch may print a verdict directly: that keeps
+    the TIME rows adjacent to every verdict without repeating the timing
+    logic across the branches."""
+    span = time.monotonic() - entry_started
+    if (ENTRY_ADVISORY_BUDGET is not None and span > ENTRY_ADVISORY_BUDGET
+            and 'TIMEOUT' not in verdict):
+        print(f"advisory: {name} 超预算 "
+              f"budget={ENTRY_ADVISORY_BUDGET:.2f} "
+              f"actual={_TIMING_SECONDS_FMT.format(span)}")
     print(verdict)
-    seconds = _TIMING_SECONDS_FMT.format(time.monotonic() - entry_started)
+    seconds = _TIMING_SECONDS_FMT.format(span)
     print(f"TIME {name} {seconds}")
     if record_file:
         print(f"MEASURE {name} {seconds} form=e2e-serial",
@@ -563,11 +721,12 @@ def _emit_verdict(name, verdict, entry_started, record_file):
 
 
 def main():
-    global TIMEOUT_SEC
+    global ENTRY_ADVISORY_BUDGET
     args, timeout = _split_timeout_arg(sys.argv[1:])
     args, record_out = _split_record_out_arg(args)
-    if timeout is not None:
-        TIMEOUT_SEC = timeout
+    args, config, table_arg = _split_gate_flag_arg(args)
+    timeout_fallback = (timeout if timeout is not None
+                        else DEFAULT_TIMEOUT_FALLBACK_S)
     ncc = args[0] if len(args) > 0 else DEFAULT_NCC
     nvm = args[1] if len(args) > 1 else DEFAULT_NVM
     #dbg_ tests run under the debugger. An explicit third argument is
@@ -581,15 +740,51 @@ def main():
     ndb = args[2] if len(args) > 2 else os.path.join(
         tools_dir, 'ndb', 'Release', 'ndb.exe')
     _fail_on_stale_tools(ncc, nvm, ndb)
-    #Debug (and ASan, which builds the Debug config) runs several times
-    #slower than Release: asserts on, no optimization, gc-stress
-    #amplified. A flat 30s cap that is generous in Release pushes the
-    #slowest stress tests against their ceiling under Debug, turning
-    #any concurrent machine load into timeout flakes. Scale the
-    #per-test cap by config, read off the tool path; x3 keeps every
-    #test far from its limit and stays under the 3-minute project cap.
-    if '/Debug/' in ncc.replace(os.sep, '/'):
-        TIMEOUT_SEC *= 3
+    #Gate-time budget pricing: the judging config comes from --config
+    #(the legs derive it from the reference key they sweep) or, missing
+    #that, from the two-way tool-path guess the retired config branch
+    #used. The table loads once here — it is the repository's and the
+    #legs', not hand-typed — so a malformed row or an unknown --config
+    #stops the run visibly before any entry work instead of silently
+    #running the historical flat cap.
+    try:
+        config_key, guessed = _resolve_judging_config(config, ncc)
+    except ValueError as e:
+        print(f"ERROR: {e}")
+        sys.exit(2)
+    table_path = table_arg or os.path.join(REPO_ROOT, 'tests',
+                                           'gate_time_reference.txt')
+    try:
+        gate_table = _load_gate_time_table()
+        gate_rows = gate_table.effective_rows(table_path)
+    except (OSError, ValueError) as e:
+        print(f"ERROR: gate-time table {table_path}: {e}")
+        sys.exit(2)
+    scale_env = os.environ.get('NLANG_GATE_MACHINE_SCALE')
+    try:
+        #Budget-only scaling (D-4/D-8): the scalar is this machine's
+        #calibration, the work factor the soak knob; a missing scalar
+        #prices at SCALE_BAND_MAX (the widest safe band) and says so.
+        scalar = (float(scale_env) if scale_env
+                  else float(gate_table.SCALE_BAND_MAX))
+        work_factor = float(os.environ.get('NLANG_TEST_WORK_FACTOR')
+                            or gate_table.DEFAULT_WORK_FACTOR)
+    except ValueError as e:
+        print(f"ERROR: {e} (NLANG_GATE_MACHINE_SCALE / "
+              f"NLANG_TEST_WORK_FACTOR)")
+        sys.exit(2)
+    if guessed:
+        print(f"TIMEOUT judging config={config_key} "
+              f"(构型按路径猜为{guessed}，--config=Debug|ASan|Release可显式指定)")
+    else:
+        print(f"TIMEOUT judging config={config_key}")
+    if not scale_env:
+        band = (scalar * max(work_factor, 1.0)
+                * gate_table.SAFETY_MULTIPLIER)
+        print(f"TIMEOUT budget: 未做本机校准（缺标量NLANG_GATE_MACHINE_SCALE，"
+              f"按SCALE_BAND_MAX计价）: 预算=参考秒数×{band:g}，参考秒数11.25"
+              f"对应旧Debug平帽90s；处置是经门禁跑完成校准，"
+              f"或导出NLANG_GATE_MACHINE_SCALE")
 
     if not os.path.isfile(MANIFEST):
         print(f"ERROR: manifest.txt not found at {MANIFEST}")
@@ -644,6 +839,14 @@ def main():
                    if record_out else None)
 
     for manifest_path, sources_dir, out_dir in _manifest_configs():
+      #The coarse scope that owns this pass's entries: one of the two
+      #committed manifests, recognized by file name; a subset or
+      #override manifest (NLANG_E2E_MANIFEST) has no scope row of its
+      #own, so its entries price through their own row or the
+      #`default` row only.
+      manifest_scope = os.path.basename(manifest_path)
+      if manifest_scope not in gate_table.MANIFEST_SCOPES:
+          manifest_scope = None
       with open(manifest_path, 'r', encoding='utf-8') as f:
         #Scratch dir for the examples pass: reset once before its lines
         #(each example writes distinct files, so per-entry reset is not
@@ -670,6 +873,21 @@ def main():
                 print(f"SKIP {name} ({gate_reason})")
                 skipped += 1
                 continue
+            #Per-entry kill point and advisory budget from the table
+            #(_price_e2e_entry grades own-row vs coarse-scope vs no
+            #row): kill_s drives the four subprocess timeouts below,
+            #kill_note labels only a runner kill there, and the coarse
+            #advisory rides the ENTRY_ADVISORY_BUDGET global that
+            #_emit_verdict reads.
+            kill_s, kill_note, advisory = _price_e2e_entry(
+                gate_table, gate_rows, config_key, name, manifest_scope,
+                work_factor, scalar, not scale_env)
+            if kill_s is None:
+                kill_s = timeout_fallback
+                print(f"TIMEOUT-FALLBACK {name}: no {config_key} row for "
+                      f"it in {table_path}, kill = "
+                      f"{_TIMING_SECONDS_FMT.format(kill_s)} s")
+            ENTRY_ADVISORY_BUDGET = advisory
             #Per-entry timing origin: from here to the entry's verdict
             #line is the entry's own work, which is what the TIME and
             #MEASURE rows report.
@@ -779,10 +997,11 @@ def main():
                     try:
                         r = subprocess.run(
                             [ncc, 'build', src, '-o', out, '-I', imports_dir],
-                            capture_output=True, timeout=TIMEOUT_SEC)
+                            capture_output=True, timeout=kill_s)
                     except Exception as e:
                         _emit_verdict(name,
-                                      f"FAIL {name} (compile error: {e})",
+                                      f"FAIL {name} (compile error: "
+                                      f"{e}){_kill_note(e, kill_note)}",
                                       entry_started, record_file)
                         failed += 1
                         errors.append(f"  {name}: compile error: {e}")
@@ -855,7 +1074,7 @@ def main():
                 try:
                     result = subprocess.run(
                         _runner_argv(name, ndb, nvm) + [main_nmod],
-                        capture_output=True, timeout=TIMEOUT_SEC,
+                        capture_output=True, timeout=kill_s,
                         input=stdin_bytes)
                     actual = result.returncode
                     stderr_text = _matchable_stderr(result.stderr)
@@ -863,7 +1082,7 @@ def main():
                     _emit_verdict(
                         name,
                         f"FAIL {name} (runtime error: "
-                        f"{_describe_run_error(e)})",
+                        f"{_describe_run_error(e)}){_kill_note(e, kill_note)}",
                         entry_started, record_file)
                     failed += 1
                     errors.append(f"  {name}: runtime error: "
@@ -949,9 +1168,11 @@ def main():
             try:
                 compile_result = subprocess.run(
                     [ncc, 'build', test_file, '-o', nmod_file] + ncc_extra,
-                    capture_output=True, timeout=TIMEOUT_SEC, cwd=out_dir)
+                    capture_output=True, timeout=kill_s, cwd=out_dir)
             except Exception as e:
-                _emit_verdict(name, f"FAIL {name} (compile error: {e})",
+                _emit_verdict(name,
+                              f"FAIL {name} (compile error: "
+                              f"{e}){_kill_note(e, kill_note)}",
                               entry_started, record_file)
                 failed += 1
                 errors.append(f"  {name}: compile error: {e}")
@@ -1068,14 +1289,15 @@ def main():
             try:
                 result = subprocess.run(
                     _runner_argv(name, ndb, nvm) + [nmod_file] + extra_flags,
-                    capture_output=True, timeout=TIMEOUT_SEC,
+                    capture_output=True, timeout=kill_s,
                     cwd=run_cwd, input=stdin_bytes)
                 actual = result.returncode
                 stderr_text = _matchable_stderr(result.stderr)
             except Exception as e:
                 _emit_verdict(
                     name, f"FAIL {name} (runtime error: "
-                    f"{_describe_run_error(e)})", entry_started, record_file)
+                    f"{_describe_run_error(e)}){_kill_note(e, kill_note)}",
+                    entry_started, record_file)
                 failed += 1
                 errors.append(f"  {name}: runtime error: "
                               f"{_describe_run_error(e)}")

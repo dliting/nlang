@@ -193,12 +193,21 @@ e2e_leg() { # e2e_leg <name> <tree> <config> <ref-key> [manifest] [timeout]
   if [ -n "${5:-}" ]; then
     env_args+=("NLANG_E2E_MANIFEST=$manifest")
   fi
+  # The table rows the runner judges against are this leg's own column
+  # (D-5: same leg, same row), so the reference key minus its e2e-
+  # prefix goes to --config: a leg never leans on the runner's tool-path
+  # guess, which would misprice the ASan sweep (its rows sit in e2e-ASan
+  # while the instrumented binaries sit in /Debug/) and silence the
+  # guess line that only a genuine guess deserves. The <config>
+  # parameter keeps naming the tool binary's build config, exactly the
+  # split the two differ on.
+  local judging="${refkey#e2e-}"
   leg "$name" "${env_args[@]}" \
     "$PY" "$REPO/tests/e2e/run_e2e_tests.py" \
     "$tree/src/tools/ncc/$config/ncc.exe" \
     "$tree/src/tools/nvm/$config/nvm.exe" \
     "$tree/src/tools/ndb/$config/ndb.exe" \
-    "--timeout=$timeout"
+    "--timeout=$timeout" "--config=$judging"
 }
 
 #The ASan subset manifest, derived fresh from gate_tiers.txt every run

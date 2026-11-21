@@ -101,81 +101,13 @@ endfunction()
 # configure step runs tools/gate_time_check.py emit-cmake over the
 # committed reference table tests/gate_time_reference.txt and includes the
 # generated file, which gives the add_test wrapper above one
-# GATE_TIMEOUT_<name> variable per row-holding entry; a change to the
-# table forces a reconfigure through CMAKE_CONFIGURE_DEPENDS. The
-# config-key set mirrors the legs that will judge this tree, so an entry's
-# cap derives from the very reference seconds its leg compares against.
-# Branch priority (one site, read top to bottom): the sanitizer predicate
-# wins over everything -- an instrumented tree is swept by the ctest-ASan
-# leg alone, and that column's rows already carry the sanitizer cost, so
-# the sanitizer tree takes the single-element key set {ctest-ASan}. Every
-# other tree joins the ctest-Release column on top of its enumeration key
-# (ctest-IDE when the IDE is built, ctest-Debug otherwise), unconditionally
-# and regardless of NLANG_PERF_TESTS: the branches must read the tree's
-# shape (instrumented or plain), never its identity as some leg's sweep
-# tree, so a cap never drifts when a different tree starts sweeping the
-# Release-side entries (design D-2; guard five judges the same key sets).
-# The machine scale (guard four) plays no part here: it reaches test
-# processes only through the leg environment (D-4), so the generated file
-# holds no NLANG_GATE_MACHINE_SCALE note and a stale scale can never
-# stale-out a cap. NLANG_TEST_WORK_FACTOR (D-8) scales every cap when set;
-# when it is unset the --work-factor flag must be omitted entirely -- an
-# empty value would fail the tool's parse rather than mean "1" -- so the
-# factor rides a conditional branch instead of a substitution; an empty
-# string is treated as unset.
+# GATE_TIMEOUT_<name> variable per row-holding entry. The config-key
+# predicate and the cap generation live in gate_time_keys.cmake -- the
+# single site, shared verbatim with the gate_time_selftest.sh stub
+# fixture (R-20) -- and that file documents the design branches.
 if(Python3_FOUND)
-    if(CMAKE_CXX_FLAGS MATCHES "fsanitize=address")
-        set(NLANG_GATE_TIMEOUT_KEYS "ctest-ASan")
-    else()
-        if(NLANG_BUILD_IDE)
-            set(NLANG_GATE_TIMEOUT_KEYS "ctest-IDE")
-        else()
-            set(NLANG_GATE_TIMEOUT_KEYS "ctest-Debug")
-        endif()
-        list(APPEND NLANG_GATE_TIMEOUT_KEYS "ctest-Release")
-    endif()
-    set(NLANG_GATE_TIMEOUT_CMD
-        "${Python3_EXECUTABLE}" -I
-        "${PROJECT_SOURCE_DIR}/tools/gate_time_check.py" emit-cmake
-        --table "${PROJECT_SOURCE_DIR}/tests/gate_time_reference.txt"
-        --out "${CMAKE_BINARY_DIR}/gate_time_thresholds.cmake")
-    foreach(nlang_gate_key IN LISTS NLANG_GATE_TIMEOUT_KEYS)
-        list(APPEND NLANG_GATE_TIMEOUT_CMD --config "${nlang_gate_key}")
-    endforeach()
-    if(DEFINED ENV{NLANG_TEST_WORK_FACTOR}
-            AND NOT "$ENV{NLANG_TEST_WORK_FACTOR}" STREQUAL "")
-        list(APPEND NLANG_GATE_TIMEOUT_CMD
-            --work-factor "$ENV{NLANG_TEST_WORK_FACTOR}")
-    endif()
-    execute_process(COMMAND ${NLANG_GATE_TIMEOUT_CMD}
-        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
-        RESULT_VARIABLE NLANG_GATE_TIMEOUT_RC
-        OUTPUT_VARIABLE NLANG_GATE_TIMEOUT_OUT
-        ERROR_VARIABLE NLANG_GATE_TIMEOUT_ERR)
-    if(NOT NLANG_GATE_TIMEOUT_RC EQUAL 0)
-        # D-8: an invalid factor or malformed table line stops the
-        # configure with the tool's own words quoted in front of the
-        # user -- silently mis-derived caps would otherwise mis-gate
-        # every later leg of this tree.
-        message(FATAL_ERROR
-            "gate_time_check.py emit-cmake failed (rc=${NLANG_GATE_TIMEOUT_RC},"
-            " keys: ${NLANG_GATE_TIMEOUT_KEYS})\n"
-            "${NLANG_GATE_TIMEOUT_OUT}${NLANG_GATE_TIMEOUT_ERR}")
-    endif()
-    include("${CMAKE_BINARY_DIR}/gate_time_thresholds.cmake")
-    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
-        "${PROJECT_SOURCE_DIR}/tests/gate_time_reference.txt")
-    # The local overlay table (gate_time_reference.local.txt beside the
-    # committed table, folded into caps() by _effective_rows) is just as
-    # much a cap input as the committed table, so editing it must force a
-    # reconfigure too. It is a local file that never enters the repository,
-    # so its absence is the normal state and the dependency is guarded.
-    set(nlang_gate_reference_local
-        "${PROJECT_SOURCE_DIR}/tests/gate_time_reference.local.txt")
-    if(EXISTS "${nlang_gate_reference_local}")
-        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
-            "${nlang_gate_reference_local}")
-    endif()
+    set(NLANG_GATE_PYTHON "${Python3_EXECUTABLE}")
+    include("${CMAKE_CURRENT_LIST_DIR}/gate_time_keys.cmake")
 endif()
 
 
@@ -1794,6 +1726,22 @@ if(NLANG_BUILD_IDE)
         #run shows exactly which function was in flight. The wrapper
         #kills the child tree just under the ctest ceiling (a stuck
         #nvm/ndb debug child cannot outlive the suite) and exits 124.
+        #The inline budget judgment (D-5) prices this entry from the
+        #table at run time under the tree's enumeration key (the first
+        #of the config-key set minus its ctest- prefix): the timed
+        #sweep's own reference column, matching the seconds the leg's
+        #post-hoc checker compares against. A row-less entry keeps a
+        #visible "no reference row" note from the wrapper and stays
+        #under the --timeout watchdog alone.
+        set(nlang_qtest_gate_args "")
+        if(NLANG_GATE_TIMEOUT_KEYS)
+            list(GET NLANG_GATE_TIMEOUT_KEYS 0 nlang_qtest_config_key)
+            string(REGEX REPLACE "^ctest-" "" nlang_qtest_config
+                "${nlang_qtest_config_key}")
+            set(nlang_qtest_gate_args
+                --table "${PROJECT_SOURCE_DIR}/tests/gate_time_reference.txt"
+                --config ${nlang_qtest_config} --entry ${name})
+        endif()
         add_test(NAME ${name}
             COMMAND ${Python3_EXECUTABLE}
                 ${PROJECT_SOURCE_DIR}/tools/qtest_progress.py
@@ -1801,6 +1749,7 @@ if(NLANG_BUILD_IDE)
                 --progress-log
                     ${CMAKE_CURRENT_BINARY_DIR}/qtest_logs/${name}.progress.log
                 --timeout ${wrapper_ceiling}
+                ${nlang_qtest_gate_args}
                 -- $<TARGET_FILE:${target}>)
         if(NOT nlang_qtest_derived)
             set_tests_properties(${name} PROPERTIES TIMEOUT ${ceiling})
@@ -2572,7 +2521,7 @@ if(NLANG_BUILD_IDE)
     # script's outer backstop sits at PROBE_TIMEOUT + 25 and ctest needs a
     # final 10 s of its own, hence the 35 s headroom below the cap. The
     # floor stops a tiny reference row from producing a self-killing inner
-    # bound; it mirrors MIN_CAP_S in tools/gate_time_check.py. A tree with
+    # bound; it mirrors MIN_CAP_S in tools/gate_time_table.py. A tree with
     # no row here passes no bound: the script's default applies and the
     # entry stays under the leg's flat --timeout fallback.
     set(NLANG_DEPLOY_PROBE_HEADROOM_S 35)

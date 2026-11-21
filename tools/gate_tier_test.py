@@ -181,7 +181,10 @@ def run_smoke():
                 check(token in body,
                       f"budget checker invocation lost {token!r}: {body!r}")
         # The e2e legs print through the same file-bound channel, so the
-        # UTF-8 pin must ride their environment too.
+        # UTF-8 pin must ride their environment too, and the judging
+        # config must be spelled out: e2e-Debug's leg passes
+        # --config=Debug so the runner never falls back to its tool-path
+        # guess.
         e2e_invocations = gates_dir / "T1-debug-e2e.invocations"
         check(e2e_invocations.exists(),
               "stub gate.sh never received T1-debug-e2e — dispatch broken")
@@ -190,6 +193,21 @@ def run_smoke():
             check("PYTHONIOENCODING=utf-8" in body,
                   "e2e leg environment lost the UTF-8 I/O pin: "
                   f"{body!r}")
+            check("--config=Debug" in body,
+                  f"e2e leg lost its judging --config: {body!r}")
+        # The ASan split (the two differ exactly here): the leg sweeps
+        # the e2e-ASan rows (--config=ASan) while its instrumented
+        # binaries sit in /Debug/, so the judging key and the binary
+        # path must not be conflated.
+        asan_e2e = gates_dir / "T1-asan-e2e-subset.invocations"
+        check(asan_e2e.exists(),
+              "stub gate.sh never received T1-asan-e2e-subset — "
+              "dispatch broken")
+        if asan_e2e.exists():
+            body = asan_e2e.read_text()
+            check("--config=ASan" in body and "/Debug/" in body,
+                  "the ASan e2e leg must judge from the e2e-ASan rows "
+                  f"while running the Debug binaries: {body!r}")
         return not failures
     finally:
         shutil.rmtree(sandbox, ignore_errors=True)

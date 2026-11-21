@@ -102,7 +102,7 @@ ctest-Debug duplicate_package_path_compile 0.16 1 常规 ctest-junit-serial
 ctest-Debug e2e_compile 0.17 1 常规 ctest-junit-serial
 ctest-Debug e2e_runner_env_gate 1.75 1 常规 ctest-junit-serial
 ctest-Debug e2e_runner_scratch_isolation 1.97 1 常规 ctest-junit-serial
-ctest-Debug e2e_runner_timing_gate 3.01 1 常规 ctest-junit-serial
+ctest-Debug e2e_runner_timing_gate 409.77 1 慢功能 ctest-junit-serial - 分级终止点用例为真实睡眠探针(Task6新增6条,其中5条睡眠60s以上),预算下限60s(MIN_CAP_S)不可下调,条目墙钟必然分钟级
 ctest-Debug embed_api_tests 0.99 1 常规 ctest-junit-serial
 ctest-Debug embed_host_smoke 0.47 1 常规 ctest-junit-serial
 ctest-Debug embed_source_tests 2.32 1 常规 ctest-junit-serial
@@ -257,7 +257,7 @@ ctest-IDE duplicate_package_path_compile 0.16 1 常规 ctest-junit-serial
 ctest-IDE e2e_compile 0.18 1 常规 ctest-junit-serial
 ctest-IDE e2e_runner_env_gate 2.54 1 常规 ctest-junit-serial
 ctest-IDE e2e_runner_scratch_isolation 2.76 1 常规 ctest-junit-serial
-ctest-IDE e2e_runner_timing_gate 4.21 1 常规 ctest-junit-serial
+ctest-IDE e2e_runner_timing_gate 409.80 1 慢功能 ctest-junit-serial - 分级终止点用例为真实睡眠探针(Task6新增6条,其中5条睡眠60s以上),预算下限60s(MIN_CAP_S)不可下调,条目墙钟必然分钟级
 ctest-IDE editor_tests 2.99 1 常规 ctest-junit-serial
 ctest-IDE embed_api_tests 1.89 1 常规 ctest-junit-serial
 ctest-IDE embed_host_smoke 0.77 1 常规 ctest-junit-serial

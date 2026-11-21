@@ -227,9 +227,13 @@ def sample_e2e(config, tools_tree, names, manifest_path):
     lines whose first column is a sentinel form a derived subset (the
     runner takes one manifest per run, and subsets are derived artifacts,
     never stored), run through the runner with --record-out in the legs'
-    serial form. --timeout=120 matches the 120 s legs; every sentinel
-    reference sits well below it (guard seven's MIN_CAP_S clause), so the
-    flag cannot shape a calibration reading."""
+    serial form. --config states this config's own table column so the
+    sampling run never leans on the tool-path guess (an ASan sweep drives
+    Debug binaries yet prices from the e2e-ASan rows); --timeout=120
+    prices only row-less entries now and every sentinel carries its own
+    row, so neither flag can shape a calibration reading (guard seven's
+    MIN_CAP_S clause keeps sentinel references well inside their
+    budgets)."""
     cfg = "Release" if config == "e2e-Release" else "Debug"
     kept = [line for line in
             Path(manifest_path).read_text(encoding="utf-8").splitlines()
@@ -247,6 +251,7 @@ def sample_e2e(config, tools_tree, names, manifest_path):
              str(tools / "ncc" / cfg / "ncc.exe"),
              str(tools / "nvm" / cfg / "nvm.exe"),
              str(tools / "ndb" / cfg / "ndb.exe"),
+             "--config=%s" % config.split("-", 1)[1],
              "--timeout=120", "--record-out", str(record)],
             cwd=str(runner.parent), env=env, capture_output=True,
             text=True, encoding="utf-8")

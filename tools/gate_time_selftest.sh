@@ -4,10 +4,16 @@
 # generation block and add_test wrapper in tests/CMakeLists.txt).
 #
 # The fixture is a scratch CMake project that runs the real generator over a
-# stub reference table. The two production code shapes (the config-key branch
-# and the wrapper's cap lookup) are mirrored verbatim here so the production
-# file can stay one inline copy; the stub project registers only stub entries,
-# so nothing compiles and no build tree is needed, and the audit reads the
+# stub reference table. The config-key predicate, command assembly, result
+# check, include and CMAKE_CONFIGURE_DEPENDS are not mirrored at all: the
+# stub project includes the very production file
+# tests/gate_time_keys.cmake (through -DGATE_STUB_KEYS) after pointing its
+# knobs (NLANG_GATE_PYTHON/TOOL/TABLE) at the stub paths, so the predicate
+# has one definition and no mirror that could drift from it. Only the two
+# shapes tests/CMakeLists.txt itself keeps — the nlang_test_env merge helper
+# and the add_test wrapper's cap lookup and scratch environment — are
+# mirrored verbatim here. The stub project registers only stub entries, so
+# nothing compiles and no build tree is needed, and the audit reads the
 # timeouts from `ctest --show-only=json-v1` — no entry is executed by the
 # audit, so machine load cannot turn a correct cap red.
 #
@@ -21,9 +27,9 @@
 #                        (the ownership split stated in tools/gate_tier.sh).
 #                        The plain-tree branch also joins the ctest-Release
 #                        column unconditionally (D-2), so the Release-only
-#                        stub row is capped here even with NLANG_PERF_TESTS
-#                        left OFF -- the shape the design calls for and a
-#                        perf-gated join could never produce.
+#                        stub row is capped here with no perf switch in the
+#                        fixture at all -- the shape the design calls for
+#                        and a perf-gated join could never produce.
 #   machine-scale-absent the generated file never mentions the machine scale:
 #                        the scalar reaches test processes only through the
 #                        leg environment (D-4), so no configure bakes it in.
@@ -59,10 +65,12 @@
 # directory. The inherit probe pins a different channel: it proves variables
 # set on the ctest command line reach the test process by inheritance
 # (tests/CMakeLists.txt installs only TMP/TEMP into every test environment),
-# so it never relies on this variable. The stub table is named
-# stub_table.txt rather than gate_time_reference.txt so the tool's local
-# overlay (gate_time_reference.local.txt beside a table) can never reach
-# the stub readings by accident.
+# so it never relies on this variable. The tool's local overlay is found by
+# a fixed name (gate_time_reference.local.txt) beside whichever table is
+# loaded, so the stub table's name alone would not keep it out: what keeps
+# it out is the scratch itself — the fixture table lives inside this run's
+# freshly created workspace directory, which holds nothing until this
+# script writes it.
 
 set -u
 
@@ -111,25 +119,29 @@ ctest-Debug   stub.dash-name-probe  12.50  1  常规  ctest-junit-serial
 ctest-Release stub_release_only    300.00  1  性能  ctest-junit-serial
 STUB_TABLE_EOF
 
-# The two mirrored production shapes below are copied verbatim from
-# tests/CMakeLists.txt (the nlang_test_env merge helper, the add_test
-# wrapper's cap lookup and scratch environment, and the generation block's
-# key-set branch, command assembly, result check, include and
-# CMAKE_CONFIGURE_DEPENDS). Paths and the interpreter arrive through -D
-# cache variables, never literals, so the same text serves any checkout;
-# production wraps the block in if(Python3_FOUND) while the fixture takes
-# its interpreter from GATE_STUB_PYTHON instead. The inherit probe's command
-# is one Python expression without a semicolon: the wrapper's
-# _add_test(${ARGV}) forwarding re-splits a semicolon item into two
-# arguments, and that split must not be what the probe accidentally pins.
+# The nlang_test_env merge helper and the add_test wrapper below are
+# copied verbatim from tests/CMakeLists.txt, which keeps exactly those
+# two shapes (the merge helper and the cap lookup with its scratch
+# environment). Everything the old generation block owned — key-set
+# branch, command assembly, result check, include and
+# CMAKE_CONFIGURE_DEPENDS — is NOT mirrored: the fixture sets the
+# production file's knobs from the GATE_STUB_* cache variables and then
+# includes tests/gate_time_keys.cmake itself (GATE_STUB_KEYS), so the
+# predicate under test is production's own text (R-20). Paths and the
+# interpreter arrive through -D cache variables, never literals, so the
+# same text serves any checkout; production resolves its interpreter
+# from find_package(Python3) while the fixture passes it explicitly.
+# The inherit probe's command is one Python expression without a
+# semicolon: the wrapper's _add_test(${ARGV}) forwarding re-splits a
+# semicolon item into two arguments, and that split must not be what the
+# probe accidentally pins.
 
 cat > "$WS/src/CMakeLists.txt" <<'STUB_CMAKE_EOF'
 cmake_minimum_required(VERSION 3.16)
 project(nlang_gate_time_selftest_stub NONE)
 enable_testing()
 
-option(NLANG_PERF_TESTS "fixture mirror of the production perf switch" OFF)
-option(NLANG_BUILD_IDE "fixture mirror of the production IDE switch" OFF)
+option(NLANG_BUILD_IDE "fixture knob for the production IDE branch" OFF)
 
 set(NLANG_TEST_SCRATCH_ROOT "${CMAKE_BINARY_DIR}/scratch")
 file(MAKE_DIRECTORY "${NLANG_TEST_SCRATCH_ROOT}")
@@ -164,42 +176,12 @@ function(add_test)
         TMP=${NLANG_TEST_SCRATCH_ROOT} TEMP=${NLANG_TEST_SCRATCH_ROOT})
 endfunction()
 
-if(CMAKE_CXX_FLAGS MATCHES "fsanitize=address")
-    set(NLANG_GATE_TIMEOUT_KEYS "ctest-ASan")
-else()
-    if(NLANG_BUILD_IDE)
-        set(NLANG_GATE_TIMEOUT_KEYS "ctest-IDE")
-    else()
-        set(NLANG_GATE_TIMEOUT_KEYS "ctest-Debug")
-    endif()
-    list(APPEND NLANG_GATE_TIMEOUT_KEYS "ctest-Release")
-endif()
-set(NLANG_GATE_TIMEOUT_CMD
-    "${GATE_STUB_PYTHON}" -I "${GATE_STUB_TOOL}" emit-cmake
-    --table "${GATE_STUB_TABLE}"
-    --out "${CMAKE_BINARY_DIR}/gate_time_thresholds.cmake")
-foreach(nlang_gate_key IN LISTS NLANG_GATE_TIMEOUT_KEYS)
-    list(APPEND NLANG_GATE_TIMEOUT_CMD --config "${nlang_gate_key}")
-endforeach()
-if(DEFINED ENV{NLANG_TEST_WORK_FACTOR}
-        AND NOT "$ENV{NLANG_TEST_WORK_FACTOR}" STREQUAL "")
-    list(APPEND NLANG_GATE_TIMEOUT_CMD
-        --work-factor "$ENV{NLANG_TEST_WORK_FACTOR}")
-endif()
-execute_process(COMMAND ${NLANG_GATE_TIMEOUT_CMD}
-    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
-    RESULT_VARIABLE NLANG_GATE_TIMEOUT_RC
-    OUTPUT_VARIABLE NLANG_GATE_TIMEOUT_OUT
-    ERROR_VARIABLE NLANG_GATE_TIMEOUT_ERR)
-if(NOT NLANG_GATE_TIMEOUT_RC EQUAL 0)
-    message(FATAL_ERROR
-        "gate_time_check.py emit-cmake failed (rc=${NLANG_GATE_TIMEOUT_RC},"
-        " keys: ${NLANG_GATE_TIMEOUT_KEYS})\n"
-        "${NLANG_GATE_TIMEOUT_OUT}${NLANG_GATE_TIMEOUT_ERR}")
-endif()
-include("${CMAKE_BINARY_DIR}/gate_time_thresholds.cmake")
-set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
-    "${GATE_STUB_TABLE}")
+#Point the production file's knobs at the stub paths, then run its one
+#definition (it self-locates nothing here: every knob arrives defined).
+set(NLANG_GATE_PYTHON "${GATE_STUB_PYTHON}")
+set(NLANG_GATE_TOOL "${GATE_STUB_TOOL}")
+set(NLANG_GATE_TABLE "${GATE_STUB_TABLE}")
+include("${GATE_STUB_KEYS}")
 
 foreach(stub_entry stub_big_probe stub_small_probe stub.dash-name-probe
         stub_release_only stub_no_row_probe)
@@ -222,11 +204,13 @@ configure_fixture() { # configure_fixture <log-stem> <factor|NONE> [extra cmake 
         env -u NLANG_TEST_WORK_FACTOR "$CMAKE" -S "$WS/src" -B "$WS/build" \
             "-DGATE_STUB_PYTHON=$PYTHON" "-DGATE_STUB_TOOL=$EMIT_TOOL" \
             "-DGATE_STUB_TABLE=$WS/src/stub_table.txt" \
+            "-DGATE_STUB_KEYS=$REPO/tests/gate_time_keys.cmake" \
             "$@" > "$WS/log/$log.configure.txt" 2>&1
     else
         env NLANG_TEST_WORK_FACTOR="$factor" "$CMAKE" -S "$WS/src" -B "$WS/build" \
             "-DGATE_STUB_PYTHON=$PYTHON" "-DGATE_STUB_TOOL=$EMIT_TOOL" \
             "-DGATE_STUB_TABLE=$WS/src/stub_table.txt" \
+            "-DGATE_STUB_KEYS=$REPO/tests/gate_time_keys.cmake" \
             "$@" > "$WS/log/$log.configure.txt" 2>&1
     fi
 }
@@ -310,7 +294,7 @@ else
     [ "$failures" -eq "$before" ] && pass work-factor-two
 fi
 
-if ! configure_fixture asan NONE -DNLANG_PERF_TESTS=OFF \
+if ! configure_fixture asan NONE \
         -DCMAKE_CXX_FLAGS=-fsanitize=address; then
     fail asan-branch-priority "asan configure failed: [$(tail_of "$WS/log/asan.configure.txt")]"
 else

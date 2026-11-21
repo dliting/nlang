@@ -129,21 +129,38 @@ def resolve_row(rows, config, entry):
     raise KeyError("%s %s" % (config, entry))
 
 
-def resolve_scoped_row(rows, config, entry):
-    """Row resolution for the post-hoc checker, widened to the coarse
-    scopes (D-3/R-17) in D-3's fixed priority: entry row > manifest row >
-    `default` row (nearest scope wins). ctest configs list every entry and
-    carry no coarse row today, so an unknown name resolves to None there
-    and the checker reports it missing rather than inventing a budget.
-    The grading of what a reading can do (red versus advisory) lives in
-    check_budget, not here."""
+# Scope-resolution mode for callers that cannot say which coarse scope
+# owns an entry (the post-hoc checker: a junit row carries no manifest
+# info): consult the scope rows in the table's fixed order.
+ANY_MANIFEST = object()
+
+
+def resolve_scoped_row(rows, config, entry, manifest=ANY_MANIFEST):
+    """Row resolution widened to the coarse scopes (D-3/R-17), nearest
+    scope first: entry row > owning manifest row > `default` row.
+    `manifest` names the scope the entry comes from when the caller
+    knows it (the e2e runner prices every entry against the manifest it
+    is walking; a subset or renamed override manifest outside
+    MANIFEST_SCOPES passes None, which means no scope row and
+    entry > `default` only). ANY_MANIFEST keeps the legacy fixed order
+    for callers that cannot tell the owner apart. ctest configs list
+    every entry and carry no coarse row today, so an unknown name
+    resolves to None there and the checker reports it missing rather
+    than inventing a budget. The grading of what a reading can do (red
+    versus advisory) lives in check_budget, not here."""
     for row in rows:
         if row.config == config and row.entry == entry:
             return row
-    for scope in MANIFEST_SCOPES + ("default",):
-        for row in rows:
-            if row.config == config and row.entry == scope:
-                return row
+    if manifest is not None:
+        scopes = (MANIFEST_SCOPES if manifest is ANY_MANIFEST
+                  else (manifest,))
+        for scope in scopes:
+            for row in rows:
+                if row.config == config and row.entry == scope:
+                    return row
+    for row in rows:
+        if row.config == config and row.entry == "default":
+            return row
     return None
 
 

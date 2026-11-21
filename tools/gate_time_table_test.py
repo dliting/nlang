@@ -10,8 +10,10 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from gate_time_table import caps
-from gate_time_testutil import CAPS_TABLE, check, close, write_table
+from gate_time_table import (ANY_MANIFEST, caps, load_table,
+                             resolve_scoped_row)
+from gate_time_testutil import (CAPS_TABLE, check, close, drop_line,
+                                write_table)
 
 
 def test_caps_work_factor_two_doubles_cap_and_budget():
@@ -72,7 +74,66 @@ def test_caps_clamp_lower_bound_does_not_invert():
               "watchdog stays scalar-free, got %r" % ((b, w),))
 
 
+# One entry row, the two manifest-scope rows and the `default` row of one
+# e2e config, so every resolution mode of resolve_scoped_row is visible
+# in the returned reference.
+SCOPED_TABLE = (
+    "# stub scoped table\n"
+    "e2e-Debug scoped_entry 5.00 1 常规 e2e-serial - entry row stub\n"
+    "e2e-Debug manifest.txt 10.00 1 常规 e2e-serial - manifest scope stub\n"
+    "e2e-Debug examples_manifest.txt 20.00 1 常规 e2e-serial - examples "
+    "scope stub\n"
+    "e2e-Debug default 30.00 1 常规 e2e-serial - default row stub\n")
+
+
+def test_scoped_row_same_name_hits_its_own_manifest_scope():
+    # M-3: resolve_scoped_row must price an entry from the manifest that
+    # owns it (the e2e runner is the first real consumer and knows the
+    # manifest per entry): same-named entries of different manifests hit
+    # their own scope row. ANY_MANIFEST (the checker's default, whose
+    # junit carries no manifest info) keeps the legacy fixed order; an
+    # explicit manifest name consults that one scope then `default`;
+    # None (a subset or renamed override manifest outside the scopes)
+    # skips scope rows entirely.
+    with tempfile.TemporaryDirectory() as tmp:
+        path = write_table(tmp, SCOPED_TABLE)
+        rows = load_table(path)
+        probe = "unlisted_probe"
+        for manifest in ("manifest.txt", "examples_manifest.txt",
+                         ANY_MANIFEST, None):
+            row = resolve_scoped_row(rows, "e2e-Debug", "scoped_entry",
+                                     manifest)
+            check(row.ref_s == 5.00,
+                  "scoped: the entry row must win for manifest=%r, got "
+                  "ref_s=%r" % (manifest, row.ref_s))
+        got = {}
+        for manifest in ("manifest.txt", "examples_manifest.txt",
+                         ANY_MANIFEST, None):
+            got[manifest] = resolve_scoped_row(rows, "e2e-Debug", probe,
+                                               manifest).ref_s
+        check(got["manifest.txt"] == 10.00
+              and got["examples_manifest.txt"] == 20.00,
+              "scoped: each manifest name must hit its own scope row, got "
+              "%r" % (got,))
+        check(got[ANY_MANIFEST] == 10.00,
+              "scoped: the ANY_MANIFEST default must keep the legacy "
+              "nearest-scope order, got %r" % (got[ANY_MANIFEST],))
+        check(got[None] == 30.00,
+              "scoped: manifest=None must skip scope rows and take "
+              "`default`, got %r" % (got[None],))
+        # A named manifest with no scope row of its own still lands on
+        # `default` (it must not fall through to the other scope rows).
+        rows = load_table(write_table(tmp, drop_line(SCOPED_TABLE,
+                                                     "e2e-Debug manifest.")))
+        row = resolve_scoped_row(rows, "e2e-Debug", probe, "manifest.txt")
+        check(row.ref_s == 30.00,
+              "scoped: a manifest without its own scope row must fall to "
+              "`default`, not to the other scopes, got ref_s=%r"
+              % row.ref_s)
+
+
 def run():
     test_caps_work_factor_two_doubles_cap_and_budget()
     test_caps_floor_entry_watchdog_pinned_at_120()
     test_caps_clamp_lower_bound_does_not_invert()
+    test_scoped_row_same_name_hits_its_own_manifest_scope()
