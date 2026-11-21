@@ -12,6 +12,9 @@
 namespace nlang
 {
 
+class SnClassDecl;
+class SnClassField;
+
 /*
 Lightweight local variable descriptor.
 Unlike SnFormalParam (which owns its type and init expressions via AddChild),
@@ -56,6 +59,33 @@ public:
 		return nullptr;
 	}
 
+	//Capture promotion (0.13.10): the display-class field this local was
+	//promoted into, or null when the local keeps frame storage.
+	SnClassField *DisplayField() const
+	{
+		return m_pDisplayField;
+	}
+
+	void SetDisplayField(SnClassField *pField)
+	{
+		m_pDisplayField = pField;
+	}
+
+	//Frame slot index stamped by the backend when this declarator declares
+	//a static local (kInvalidStaticSlot when it does not). The synthetic
+	//capture methods have no staticLocalSlots entry, so classification
+	//prefers this stamp over the owning function's map.
+	static const uint16_t	kInvalidStaticSlot	= 0xFFFF;
+	uint16_t StaticSlotIdx() const
+	{
+		return m_iStaticSlotIdx;
+	}
+
+	void SetStaticSlotIdx(uint16_t idx)
+	{
+		m_iStaticSlotIdx = idx;
+	}
+
 	void Accept(ISyntaxNodeVisitor&) override
 	{
 		//SnLocalVar is a lightweight descriptor, not a real AST node.
@@ -68,6 +98,8 @@ public:
 private:
 	SnField *m_pTypeField;
 	bool m_bIsArray;
+	SnClassField *m_pDisplayField = nullptr;
+	uint16_t m_iStaticSlotIdx = kInvalidStaticSlot;
 };
 
 //The abstract base class of a statement syntax node.
@@ -118,6 +150,19 @@ public:
 	//Find a local variable by name.
 	SnField *FindLocal(const std::string &sName) const;
 
+	//Capture promotion (0.13.10): the synthesized display class holding
+	//this paragraph's captured locals (and the lambdas anchored here),
+	//or null when nothing in this paragraph is captured.
+	SnClassDecl *DisplayClass() const
+	{
+		return m_pDisplayClass;
+	}
+
+	void SetDisplayClass(SnClassDecl *pClass)
+	{
+		m_pDisplayClass = pClass;
+	}
+
 	std::string ToString() const override;
 
 	SnField *FindField(const std::string& sName) const override;
@@ -128,6 +173,7 @@ public:
 private:
 	std::unique_ptr<SnStatementList> m_upStatements;
 	std::map<std::string, SnField*> m_Locals;
+	SnClassDecl *m_pDisplayClass = nullptr;
 };
 
 //The syntax node represent a "return" statement.

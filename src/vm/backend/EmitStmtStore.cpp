@@ -1,6 +1,9 @@
 /*---
-    EmitStmtStore.cpp — 下标存储语句发射（数组元素与容器 set 语法糖两路）。
-    从 VmBackend.cpp 抽取（2026-09-25 可维护性重构，零行为变化）。
+    EmitStmtStore.cpp — 下标存储语句发射（数组元素与容器 set 语法糖两
+    路），以及成员赋值的下标元素存储族（li[i].f = v / arr[i].f = v，
+    含其字段offset辅助）。2026-09-25 从 VmBackend.cpp 抽取；2026-11-21
+    自 EmitStmtAssign.cpp 并入下标元素存储族（source-size guard重构，
+    零行为变化）。
 ---*/
 #include "VmBackend.h"
 #include <nlang/compiler/BuildEnvironment.h>
@@ -15,6 +18,7 @@
 #include <nlang/runtime/NodeConsts.h>
 #include <cassert>
 #include <map>
+#include <stdexcept>
 #include <unordered_set>
 
 namespace nlang {
@@ -183,6 +187,153 @@ void VmBackend::EmitArrayElementStore(SnSubscriptAssignStmt& sub,
     emitter.EmitUint16(idxBase);
     emitter.EmitUint16(valueSlot);
     emitter.EmitUint16(static_cast<uint16_t>(rank));
+}
+
+//Field offset on a class/struct element type for the subscripted-member
+//stores; throws when the field is not found.
+uint16_t VmBackend::ResolveMemberFieldOffset(SyntaxNode* elemType,
+        const std::string& fieldName) {
+    if (elemType->Kind() == NK_ClassDecl) {
+        int off = FindClassFieldOffset(
+            *static_cast<SnClassDecl*>(elemType), fieldName);
+        if (off < 0) {
+            throw std::runtime_error(
+                "NLang backend: class field offset not found: "
+                + fieldName);
+        }
+        return static_cast<uint16_t>(off);
+    }
+    int off = FindFieldOffset(
+        *static_cast<SnStructDecl*>(elemType), fieldName);
+    if (off < 0) {
+        throw std::runtime_error(
+            "NLang backend: struct field offset not found: "
+            + fieldName);
+    }
+    return static_cast<uint16_t>(off);
+}
+
+//v0.12.6 D14: the declared-type twin of ResolveMemberFieldOffset —
+//class fields walk the inheritance chain (FindClassFieldDecl), struct
+//fields scan the flat list; a miss returns null and the caller's
+//store falls back to the plain 8-byte cell store.
+SnField* VmBackend::DeclaredMemberFieldType(SyntaxNode* elemType,
+        const std::string& fieldName) {
+    if (elemType->Kind() == NK_ClassDecl)
+        return FindClassFieldDecl(
+            *static_cast<SnClassDecl*>(elemType), fieldName);
+    if (elemType->Kind() == NK_StructDecl) {
+        for (auto& sf :
+            static_cast<SnStructDecl*>(elemType)->Fields()) {
+            if (sf.Name() == fieldName)
+                return sf.EvalDataType();
+        }
+    }
+    return nullptr;
+}
+
+//arr[i].field = v / li[i].field = v. The subscript outer's index must
+//NOT alias tempSlot2 (which holds the right side value). Returns true
+//when a class/struct element shape consumed the statement; false lets
+//the caller fall through to plain member stores.
+bool VmBackend::EmitAssignSubscriptElementStore(SnAssignStmt& assign,
+        SnMemberExpr& memberExpr, BytecodeEmitter& emitter) {
+    if (memberExpr.Outer()->Kind() != NK_SubscriptExpr)
+        return false;
+    auto& sub = static_cast<SnSubscriptExpr&>(
+        *memberExpr.Outer());
+    auto* elemType = sub.EvalDataType();
+    if (!(elemType
+        && (elemType->Kind() == NK_ClassDecl
+            || elemType->Kind() == NK_StructDecl)))
+    {
+        return false;
+    }
+    auto* inner = memberExpr.Inner();
+    if (inner->Kind() != NK_IdentifierExpr) return true;
+    auto fieldName = static_cast<SnIdentifierExpr*>(inner)->Name();
+    uint16_t fieldOff = ResolveMemberFieldOffset(elemType, fieldName);
+    SnField* fieldType = DeclaredMemberFieldType(elemType, fieldName);
+    if (IsContainerSubscript(*sub.Array())) {
+        EmitAssignContainerElementFieldStore(assign, sub, elemType,
+            fieldOff, fieldType, emitter);
+        return true;
+    }
+    EmitAssignArrayElementFieldStore(assign, sub, elemType, fieldOff,
+        fieldType, emitter);
+    return true;
+}
+
+//List/Dict receiver: `li[i].field = v` — the subscript is sugar over
+//get(), so delegate to the generic NK_SubscriptExpr lowering
+//(EvalAreaClaim + get() call). Phase 10 audit round-4: park [receiver,
+//value] in an EvalAreaClaim(2) — the old tempSlot/tempSlot2 staging was
+//clobbered by a call in the value (argument binaries fall through
+//PickTempSlot to tempSlot; struct-argument deep copy scratches
+//tempSlot), crashing or storing through the wrong object. Receiver
+//first (JLS 15.26.1).
+void VmBackend::EmitAssignContainerElementFieldStore(SnAssignStmt& assign,
+        SnSubscriptExpr& sub, SyntaxNode* elemType, uint16_t fieldOff,
+        SnField* fieldType, BytecodeEmitter& emitter) {
+    EvalAreaClaim claim(*this, 2);
+    uint16_t objSlot = claim.base();
+    uint16_t valueSlot = objSlot + kFrameSlotBytes;
+    EmitExpression(sub, emitter, objSlot);
+    if (elemType->Kind() == NK_ClassDecl) {
+        emitter.Emit(OpCode::OP_NullCheck);
+        emitter.EmitUint16(objSlot);
+    }
+    EmitExpression(*assign.Right(), emitter, valueSlot);
+    //v0.12.7: boundary rank check on the staged value (container
+    //elements may carry an annotated field).
+    EmitArrayRankBoundary(fieldType, assign.Right(), valueSlot, emitter);
+    EmitStructAwareStoreField(fieldType, objSlot, fieldOff, valueSlot,
+        emitter);
+}
+
+//Array receiver: `arr[i].field = v`. Phase 10 audit round-3: stage
+//value/index/array in an exclusive EvalAreaClaim(3) — the old
+//tempSlot/tempSlot2/callParamBase staging let a nested index expression
+//(subscript-get, binary arithmetic — both scratch tempSlot via the
+//PickTempSlot fall-through) clobber the parked array, crashing or
+//silently storing through the wrong heap object. Same discipline as the
+//container path above and SubscriptAssignStmt.
+void VmBackend::EmitAssignArrayElementFieldStore(SnAssignStmt& assign,
+        SnSubscriptExpr& sub, SyntaxNode* elemType, uint16_t fieldOff,
+        SnField* fieldType, BytecodeEmitter& emitter) {
+    //Stage-2: N indices + element temp + value in one exclusive claim.
+    const size_t rank = sub.Indices().size();
+    EvalAreaClaim claim(*this, rank + 2);
+    uint16_t claimBase = claim.base();
+    uint16_t idxBase = claimBase + kFrameSlotBytes;
+    uint16_t valueSlot = claimBase + (rank + 1) * kFrameSlotBytes;
+    //1. Evaluate right side → value slot
+    EmitExpression(*assign.Right(), emitter, valueSlot);
+    //2. Evaluate indices → idxBase..
+    for (size_t d = 0; d < rank; ++d)
+        EmitExpression(*sub.Indices()[d], emitter,
+            idxBase + d * kFrameSlotBytes);
+    //3. Evaluate array ref → claim[0], null-checked
+    EmitExpression(*sub.Array(), emitter, claimBase);
+    emitter.Emit(OpCode::OP_NullCheck);
+    emitter.EmitUint16(claimBase);
+    //4. load element into tempSlot (free scratch — all operands are
+    //parked in exclusive claim slots now)
+    emitter.Emit(SubscriptNeedsDynOps(*sub.Array())
+        ? OpCode::OP_LoadElementDyn : OpCode::OP_LoadElementN);
+    emitter.EmitUint16(m_currFunc->tempSlot);
+    emitter.EmitUint16(claimBase);
+    emitter.EmitUint16(idxBase);
+    emitter.EmitUint16(static_cast<uint16_t>(rank));
+    //5. null_check the element (class) or skip (struct is value)
+    if (elemType->Kind() == NK_ClassDecl) {
+        emitter.Emit(OpCode::OP_NullCheck);
+        emitter.EmitUint16(m_currFunc->tempSlot);
+    }
+    //6. store_field obj=tempSlot off=fieldOff src=claim[2] (struct
+    //values deep-copy in place first, D14)
+    EmitStructAwareStoreField(fieldType, m_currFunc->tempSlot, fieldOff,
+        valueSlot, emitter);
 }
 
 } //namespace nlang

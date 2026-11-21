@@ -449,7 +449,7 @@ public:
 	//instantiation at run time (rejected in static members).
 	void Access(SnTypeNameExpr &);
 
-	//0.13.10: resolve a lambda `(p) => body`. Current scope: the
+	//0.13.10: resolve a lambda `(p) -> body`. Current scope: the
 	//parameter-shape gate — every cover-list item that arrived as a raw
 	//expression is rejected by name (spec §3.5). Typing through the
 	//expected-type channel lands in the same entry.

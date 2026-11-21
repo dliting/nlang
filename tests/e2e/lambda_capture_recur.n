@@ -1,0 +1,10 @@
+//Recursive lambda: the function value names itself inside its own
+//body. The name resolves through the capture at call time, after the
+//value has been stored. Block body — the language has no ternary, so
+//the base case needs a statement.
+int main() {
+	func<int, int> fact = (x) -> { if (x <= 1) { return 1; } return x * fact(x - 1); };
+	if (fact(5) != 120) { return 1; }
+	if (fact(1) != 1) { return 2; }
+	return 0;
+}

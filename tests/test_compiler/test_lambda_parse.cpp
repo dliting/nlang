@@ -1,6 +1,6 @@
 // --- Lambda cover-grammar parse tests (lambda/closure plan Task 2) ---
 // Pins the unified-prefix grammar split: `(expr)` stays a parenthesized
-// expression, `... ) =>` routes to SnLambdaExpr, and the paren-group
+// expression, `... ) ->` routes to SnLambdaExpr, and the paren-group
 // shapes that used to be syntax errors (`()`, `(a, b)`, `(int x)` without
 // an arrow) are now rejected by the ParenPrefix semantic post-check
 // instead of the grammar. Shape cases go through ParseFragment (parse
@@ -122,11 +122,11 @@ static bool AnyErrorMentions(const FullParse &outcome, const char *zNeedle)
 //surface forms (spec §3.1/D9).
 static void TestLambdaShapes()
 {
-    //(x) => x*2 — one bare param folded from the identifier, expression
+    //(x) -> x*2 — one bare param folded from the identifier, expression
     //body. The bare param arrives as a raw identifier expression and the
     //arrow-confirmed reorganization folds it into the name slot.
     {
-        nlang::SnExpression *pExpr = ParseOneSpan("(x) => x*2");
+        nlang::SnExpression *pExpr = ParseOneSpan("(x) -> x*2");
         CHECK(pExpr != nullptr);
         if (pExpr)
         {
@@ -144,9 +144,9 @@ static void TestLambdaShapes()
             delete pExpr;
         }
     }
-    //(x, y) => x+y — two bare params, order preserved.
+    //(x, y) -> x+y — two bare params, order preserved.
     {
-        nlang::SnExpression *pExpr = ParseOneSpan("(x, y) => x+y");
+        nlang::SnExpression *pExpr = ParseOneSpan("(x, y) -> x+y");
         CHECK(pExpr != nullptr);
         if (pExpr)
         {
@@ -161,9 +161,9 @@ static void TestLambdaShapes()
             delete pExpr;
         }
     }
-    //(int x) => x — an explicit typed param.
+    //(int x) -> x — an explicit typed param.
     {
-        nlang::SnExpression *pExpr = ParseOneSpan("(int x) => x");
+        nlang::SnExpression *pExpr = ParseOneSpan("(int x) -> x");
         CHECK(pExpr != nullptr);
         if (pExpr)
         {
@@ -179,9 +179,9 @@ static void TestLambdaShapes()
             delete pExpr;
         }
     }
-    //(int& x) => x — the '&' mark rides the param type (spec §3.3).
+    //(int& x) -> x — the '&' mark rides the param type (spec §3.3).
     {
-        nlang::SnExpression *pExpr = ParseOneSpan("(int& x) => x");
+        nlang::SnExpression *pExpr = ParseOneSpan("(int& x) -> x");
         CHECK(pExpr != nullptr);
         if (pExpr)
         {
@@ -193,10 +193,10 @@ static void TestLambdaShapes()
             delete pExpr;
         }
     }
-    //(Point p) => p.x — a user-named type; ident-then-ident must route to
+    //(Point p) -> p.x — a user-named type; ident-then-ident must route to
     //the typed-param reading (spec D9: only the TypeRef path survives).
     {
-        nlang::SnExpression *pExpr = ParseOneSpan("(Point p) => p.x");
+        nlang::SnExpression *pExpr = ParseOneSpan("(Point p) -> p.x");
         CHECK(pExpr != nullptr);
         if (pExpr)
         {
@@ -211,9 +211,9 @@ static void TestLambdaShapes()
             delete pExpr;
         }
     }
-    //() => 1 — empty param list, expression body.
+    //() -> 1 — empty param list, expression body.
     {
-        nlang::SnExpression *pExpr = ParseOneSpan("() => 1");
+        nlang::SnExpression *pExpr = ParseOneSpan("() -> 1");
         CHECK(pExpr != nullptr);
         if (pExpr)
         {
@@ -225,11 +225,11 @@ static void TestLambdaShapes()
             delete pExpr;
         }
     }
-    //(x+y) => x — an Expression-arm param reaches the node as a raw
+    //(x+y) -> x — an Expression-arm param reaches the node as a raw
     //expression (name empty); Task 3's parameter gate rejects this shape,
     //Task 2 only pins that it parses through.
     {
-        nlang::SnExpression *pExpr = ParseOneSpan("(x+y) => x");
+        nlang::SnExpression *pExpr = ParseOneSpan("(x+y) -> x");
         CHECK(pExpr != nullptr);
         if (pExpr)
         {
@@ -244,9 +244,9 @@ static void TestLambdaShapes()
             delete pExpr;
         }
     }
-    //(x) => { return x; } — block body (Paragraph), no expression body.
+    //(x) -> { return x; } — block body (Paragraph), no expression body.
     {
-        nlang::SnExpression *pExpr = ParseOneSpan("(x) => { return x; }");
+        nlang::SnExpression *pExpr = ParseOneSpan("(x) -> { return x; }");
         CHECK(pExpr != nullptr);
         if (pExpr)
         {
@@ -350,7 +350,7 @@ static void TestLambdaContainment()
 //the lambda. Pins the resolution — a flip to reduce would fail here.
 static void TestGreedyBody()
 {
-    nlang::SnExpression *pExpr = ParseOneSpan("(x) => x*2 + 3");
+    nlang::SnExpression *pExpr = ParseOneSpan("(x) -> x*2 + 3");
     CHECK(pExpr != nullptr);
     if (pExpr)
     {

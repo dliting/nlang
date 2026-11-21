@@ -3053,7 +3053,7 @@ Expression:	ParenthesesExpr	{ $$ = $1; } |
 //parameter lists. `( InnerList )` always reduces to ParenPrefix; on the
 //OT_Arrow lookahead the parser then shifts into LambdaExpr, on anything
 //else it reduces ParenthesesExpr and the post-check decides the group
-//shape. `=>` sits in no existing expression FOLLOW set, so the split
+//shape. `->` sits in no existing expression FOLLOW set, so the split
 //stays conflict-free.
 ParenPrefix:	'(' InnerList ')'	{ $$ = $2; } ;
 

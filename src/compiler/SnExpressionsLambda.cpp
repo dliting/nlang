@@ -67,6 +67,26 @@ SnField *SnLambdaExpr::FindField(const std::string &sName) const
 	return pParent ? pParent->FindField(sName) : nullptr;
 }
 
+SnExpression *SnLambdaExpr::DetachExprBody()
+{
+	//Capture lowering moves the body into the synthetic method. The
+	//mirror is nulled beside the ownership list — a dangling
+	//ExprBody()/BlockBody() behind a detached child would be a
+	//landmine for any later walk or ToString.
+	NLANG_ASSERT(m_pExprBody);
+	SnExpression *pBody = DetachChild(m_pExprBody);
+	m_pExprBody = nullptr;
+	return pBody;
+}
+
+SnParagraph *SnLambdaExpr::DetachBlockBody()
+{
+	NLANG_ASSERT(m_pBlockBody);
+	SnParagraph *pBody = DetachChild(m_pBlockBody);
+	m_pBlockBody = nullptr;
+	return pBody;
+}
+
 bool SnLambdaExpr::IsDataExpr() const
 {
 	//A lambda is a function value, not data.

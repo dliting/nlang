@@ -4,7 +4,7 @@
 
 **目标：** 落地docs/dev/lambda_closure_design.md定义的lambda表达式/闭包，并清偿泛型函数值解禁两笔挂账。
 
-**架构：** 覆盖文法（内层按表达式列表解析，`)`处lookahead `=>`分流）→ 期望类型通道类型化 → 统一display class降阶（捕获变量存储改道display字段，lambda体降阶为display实例方法，函数值=OP_MakeBoundFunc）→ 函数值记录3槽扩4槽配对实例化描述符。
+**架构：** 覆盖文法（内层按表达式列表解析，`)`处lookahead `->`分流）→ 期望类型通道类型化 → 统一display class降阶（捕获变量存储改道display字段，lambda体降阶为display实例方法，函数值=OP_MakeBoundFunc）→ 函数值记录3槽扩4槽配对实例化描述符。
 
 **技术栈：** Flex/Bison（nlang.l/nlang.y）、C++17编译器（AST+resolver+VmBackend）、字节码VM、NCU v2.23。
 
@@ -24,15 +24,15 @@
 
 ## 评审关注点（spec未直言、最可能咬人的五类输入）
 
-1. **`(x)`单参lambda与括号表达式同形**——`func<int,int> f = (x) => x;`必须成lambda，`int y = (x);`必须成括号表达式；分流只看`)`后的`=>`。测试钉在Task 2（解析分流）。
+1. **`(x)`单参lambda与括号表达式同形**——`func<int,int> f = (x) -> x;`必须成lambda，`int y = (x);`必须成括号表达式；分流只看`)`后的`->`。测试钉在Task 2（解析分流）。
 2. **`(a, b)`两元素列表在非lambda位置**——`int p = (a, b);`今天就该是语法错误，覆盖文法不得让它悄悄变合法。测试钉在Task 2。
 3. **display分配遇早退作用域**——被捕获作用域内有`return`/`break`提前离开时，display分配仍须在入口完成（一次性分配，无路径分叉），Task 6验收。
-4. **递归lambda自引用**——`func<int,int> f = (x) => …f(…)…;`被捕获的`f`在lambda创建前已提升（spec §3.3），Task 6/11双钉。
+4. **递归lambda自引用**——`func<int,int> f = (x) -> …f(…)…;`被捕获的`f`在lambda创建前已提升（spec §3.3），Task 6/11双钉。
 5. **泛型display的实例化行**——`OP_New`的descIdx只认静态行或0xFFFF（VmExecutorOpsObjects.cpp:149-159），泛型display必须走TEMPLATE_HEAD＋ARG_CONTEXT组合行，不得按字面复用外层实例化行（spec §3.6）。测试钉在Task 10。
 
 ---
 
-### Task 1: 词法记号`=>`
+### Task 1: 词法记号`->`
 
 **Files:**
 - Modify: `src/compiler/grammar/nlang.l:347-350`（OT_LE/OT_GE/OT_NE/OT_EQ算符块）
@@ -40,15 +40,15 @@
 - Test: `tests/test_compiler/test_scanner.cpp`（scanner测试族实际位置——评审I13）
 
 **Interfaces:**
-- Produces: 记号`OT_Arrow`（拼写`=>`），供Task 2文法引用。
+- Produces: 记号`OT_Arrow`（拼写`->`），供Task 2文法引用。
 - 消费约束：`==`同首字符由flex最长匹配第二字符分流；`>=`首字符不同（spec §3.1词法论据）。
 
 **Steps:**
-- [ ] **1.1 写失败测试**：scanner单测（tests/test_compiler/test_scanner.cpp，即Files所指测试族——评审N2）断言`"=>"`产出OT_Arrow、`"=="`仍产出OT_EQ、`">="`仍产出OT_GE、`"=>="`产出OT_Arrow+OT_Assign（最长匹配边界）。
+- [ ] **1.1 写失败测试**：scanner单测（tests/test_compiler/test_scanner.cpp，即Files所指测试族——评审N2）断言`"->"`产出OT_Arrow、`"=="`仍产出OT_EQ、`">="`仍产出OT_GE、`"->="`产出OT_Arrow+OT_Assign（最长匹配边界）。
 - [ ] **1.2 跑测试确认RED**（OT_Arrow不存在，编译失败即预期形态）。
 - [ ] **1.3 实现**：nlang.l算符块加规则；nlang.y声明`%token <ival> OT_Arrow`（槽类型随既有OT_*同族）。
 - [ ] **1.4 跑测试确认GREEN**；跑既有parser测试族无回归。
-- [ ] **1.5 提交**：`feat(lexer): the => arrow token`。
+- [ ] **1.5 提交**：`feat(lexer): the -> arrow token`。
 
 ### Task 2: 覆盖文法与SnLambdaExpr节点
 
@@ -66,13 +66,13 @@
 **文法形状（spec §3.1/D9，统一前缀形态）：**
 - `ParenPrefix: '(' InnerList ')' ;` `ParenthesesExpr: ParenPrefix | LambdaExpr ;` `LambdaExpr: ParenPrefix OT_Arrow LambdaBody ;`
 - `InnerList`允许空、元素为`Expression | TypeRef TT_Identifier`；`LambdaBody: Expression | Block`。
-- **为何必须统一前缀（评审M1修正）**：若保留独立臂`ParenthesesExpr: '(' Expression ')'`，则`InnerElem: Expression`使LR状态`'( Expression .`在lookahead `)`处同时持有shift `)`（续括号臂）与reduce `InnerElem → Expression`＝shift/reduce冲突，bison默认shift导致`(x) => x`语法错误。统一前缀让`'(' InnerList ')'`整体先规约成ParenPrefix（括号表达式与lambda参数表共用此前缀），随后lookahead `OT_Arrow`→shift续LambdaExpr、其余→reduce入ParenthesesExpr——`=>`不入任何表达式FOLLOW集（spec D9论据）故无冲突。AST构造：ParenPrefix reduce时先造「括号组」中间形态（保留InnerList原始元素），`=>`确认后重组为SnLambdaExpr参数表并做形态后检（Task 3）；无`=>`时按括号表达式语义后检四分支（恰一个Expression元素＝其值；**空列表＝拒绝**——`()`今天是语法错误（ParenthesesExpr要求Expression），统一前缀后`()`能完成ParenPrefix规约，必须由语义后检拒绝空括号组，否则悄悄变合法（评审N3b）；**单TypeRef元素＝拒绝**——`(int x)`无`=>`在统一前缀下文法可达（InnerList的TypeRef臂），后检按非lambda位置拒绝（评审N3c）；多元素在非lambda位置＝既有「非法表达式」错误——评审关注点2由此后检钉住）。
+- **为何必须统一前缀（评审M1修正）**：若保留独立臂`ParenthesesExpr: '(' Expression ')'`，则`InnerElem: Expression`使LR状态`'( Expression .`在lookahead `)`处同时持有shift `)`（续括号臂）与reduce `InnerElem → Expression`＝shift/reduce冲突，bison默认shift导致`(x) -> x`语法错误。统一前缀让`'(' InnerList ')'`整体先规约成ParenPrefix（括号表达式与lambda参数表共用此前缀），随后lookahead `OT_Arrow`→shift续LambdaExpr、其余→reduce入ParenthesesExpr——`->`不入任何表达式FOLLOW集（spec D9论据）故无冲突。AST构造：ParenPrefix reduce时先造「括号组」中间形态（保留InnerList原始元素），`->`确认后重组为SnLambdaExpr参数表并做形态后检（Task 3）；无`->`时按括号表达式语义后检四分支（恰一个Expression元素＝其值；**空列表＝拒绝**——`()`今天是语法错误（ParenthesesExpr要求Expression），统一前缀后`()`能完成ParenPrefix规约，必须由语义后检拒绝空括号组，否则悄悄变合法（评审N3b）；**单TypeRef元素＝拒绝**——`(int x)`无`->`在统一前缀下文法可达（InnerList的TypeRef臂），后检按非lambda位置拒绝（评审N3c）；多元素在非lambda位置＝既有「非法表达式」错误——评审关注点2由此后检钉住）。
 - 验收＝bison零新增冲突（构建日志比对）＋既有语法全绿。
 
 **Steps:**
-- [ ] **2.1 写失败测试**：解析层用例——`(x) => x*2`、`(x, y) => x+y`、`(int x) => x`、`(int& x) => x`（&形参形态，spec §3.3）、`(Point p) => p.x`、`() => 1`、`(x+y) => x`（Expression臂参数，后检路径）、块体`(x) => { return x; }`各成SnLambdaExpr且参数表/体形状正确；反向用例——`int y = (x);`仍是括号表达式（非lambda）、`int p = (a, b);`仍被拒绝（统一前缀下`(a,b)`文法层可完成规约，拒绝时点移至语义后检，错误类别从syntax error变为语义诊断——评审N3a；若既有诊断用例逐字断言syntax error文本须同步迁移断言，2.4全parser族绿时核对）、`int e = ();`被拒（空括号组，评审N3b）、`int t = (int x);`被拒（单TypeRef元素无`=>`，评审N3c）。RED形态＝节点不存在，编译失败。
+- [ ] **2.1 写失败测试**：解析层用例——`(x) -> x*2`、`(x, y) -> x+y`、`(int x) -> x`、`(int& x) -> x`（&形参形态，spec §3.3）、`(Point p) -> p.x`、`() -> 1`、`(x+y) -> x`（Expression臂参数，后检路径）、块体`(x) -> { return x; }`各成SnLambdaExpr且参数表/体形状正确；反向用例——`int y = (x);`仍是括号表达式（非lambda）、`int p = (a, b);`仍被拒绝（统一前缀下`(a,b)`文法层可完成规约，拒绝时点移至语义后检，错误类别从syntax error变为语义诊断——评审N3a；若既有诊断用例逐字断言syntax error文本须同步迁移断言，2.4全parser族绿时核对）、`int e = ();`被拒（空括号组，评审N3b）、`int t = (int x);`被拒（单TypeRef元素无`->`，评审N3c）。RED形态＝节点不存在，编译失败。
 - [ ] **2.2 确认RED**。
-- [ ] **2.3 实现**：节点类（参照SnBinaryExpr:823的子槽+ReplaceChildNode范式；参数表用UniquePtrList挂子）；文法产生式（`(x,y)`列表按表达式列表规约，`(int x)`类型关键字分流、`(Point p)`ident后跟ident只有TypeRef TT_Identifier路径可活——spec D9）；块体复用Paragraph产生式。**注意**：`(`后跟类型关键字（KT_Int等）进入TypeRef路径时禁止悬垂——若`)`后无`=>`必须报既有「表达式位置非法」诊断而非崩溃。旧文法下此形态不可达（`(int x)`在表达式文法中本就不合法）、无既有行为需保持；统一前缀下它恰是文法可达、由语义后检拒绝——这正是覆盖文法的设计意图（评审N3c）。
+- [ ] **2.3 实现**：节点类（参照SnBinaryExpr:823的子槽+ReplaceChildNode范式；参数表用UniquePtrList挂子）；文法产生式（`(x,y)`列表按表达式列表规约，`(int x)`类型关键字分流、`(Point p)`ident后跟ident只有TypeRef TT_Identifier路径可活——spec D9）；块体复用Paragraph产生式。**注意**：`(`后跟类型关键字（KT_Int等）进入TypeRef路径时禁止悬垂——若`)`后无`->`必须报既有「表达式位置非法」诊断而非崩溃。旧文法下此形态不可达（`(int x)`在表达式文法中本就不合法）、无既有行为需保持；统一前缀下它恰是文法可达、由语义后检拒绝——这正是覆盖文法的设计意图（评审N3c）。
 - [ ] **2.4 确认GREEN**＋bison冲突计数零新增＋全parser族绿。
 - [ ] **2.5 提交**：`feat(parser): lambda cover grammar and the SnLambdaExpr node`。
 
@@ -88,9 +88,9 @@
 - Produces: 后检谓词`InvalidLambdaParameterList(SnLambdaExpr&)`（覆盖列表元素非裸标识符/类型形参形态→`invalid lambda parameter list`）；默认值形参诊断`a lambda parameter cannot have a default value`。诊断进CompileLogger，Task 4复用同一入口。
 
 **Steps:**
-- [ ] **3.1 写失败测试**：`(1) => 1`、`(x.y) => 1`、`(f()) => 1`各报`invalid lambda parameter list`；`(x = 3) => x`报`a lambda parameter cannot have a default value`（文法无默认值位，形态经覆盖列表以赋值表达式到达后检——若实测不可达则按spec §3.5在`(InnerElem=Expression)`形态处点名）；spec §3.5清单的「lambda带泛型参数表（`<T>`）」确认文法无此位（覆盖文法下`<`按算符进InnerElem=Expression路径，到达后检报invalid lambda parameter list）。
+- [ ] **3.1 写失败测试**：`(1) -> 1`、`(x.y) -> 1`、`(f()) -> 1`各报`invalid lambda parameter list`；`(x = 3) -> x`报`a lambda parameter cannot have a default value`（文法无默认值位，形态经覆盖列表以赋值表达式到达后检——若实测不可达则按spec §3.5在`(InnerElem=Expression)`形态处点名）；spec §3.5清单的「lambda带泛型参数表（`<T>`）」确认文法无此位（覆盖文法下`<`按算符进InnerElem=Expression路径，到达后检报invalid lambda parameter list）。
 - [ ] **3.2 确认RED**（当前无诊断，解析通过或报无关错误）。
-- [ ] **3.3 实现**：`=>`确认后对InnerList逐元素形态判定——裸标识符（省类型）或`TypeRef TT_Identifier`（显式）之外全拒。
+- [ ] **3.3 实现**：`->`确认后对InnerList逐元素形态判定——裸标识符（省类型）或`TypeRef TT_Identifier`（显式）之外全拒。
 - [ ] **3.4 确认GREEN**。
 - [ ] **3.5 提交**：`feat(resolver): lambda parameter shape post-check`。
 
@@ -113,7 +113,7 @@
 - 表达式体lambda的类型＝表达式类型。
 
 **Steps:**
-- [ ] **4.1 写失败测试**：`func<int,int> f = (x) => x*2;`类型解析成功；`(x) => x`裸表达式语句报「lambda需要期望类型」族诊断；`func<int,int> f = (float x) => x;`报显式不一致；`func<void> g = () => 1;`报void丢弃；`func<int,int> f = () => { f(); };`块体void成形；字段`func<int,int> m = (x) => x;`报字段初始化器拒绝；`func<int&,int&> f = (int& x) => x;`的&形参&返回类型化成形（spec §3.3「lambda的&形参与&返回」——引用形参/返回在类方法上既有实现照搬§4.7.9、§5.9）。
+- [ ] **4.1 写失败测试**：`func<int,int> f = (x) -> x*2;`类型解析成功；`(x) -> x`裸表达式语句报「lambda需要期望类型」族诊断；`func<int,int> f = (float x) -> x;`报显式不一致；`func<void> g = () -> 1;`报void丢弃；`func<int,int> f = () -> { f(); };`块体void成形；字段`func<int,int> m = (x) -> x;`报字段初始化器拒绝；`func<int&,int&> f = (int& x) -> x;`的&形参&返回类型化成形（spec §3.3「lambda的&形参与&返回」——引用形参/返回在类方法上既有实现照搬§4.7.9、§5.9）。
 - [ ] **4.2 确认RED**。
 - [ ] **4.3 实现**：五个压入点把期望类型写进InferredTarget（InferredTarget通道既有形态：parent-set、bare form、解析时读）；lambda解析臂读期望、校验、填充形参类型、写回类型token。
 - [ ] **4.4 确认GREEN**＋既有初始化器/调用族无回归。
@@ -172,7 +172,7 @@
 - display合成类字段集单测断言（spec §五单元项：「display字段集、MakeBoundFunc位点、byref字段标记臂」）。
 
 **Steps:**
-- [ ] **6.1 写失败测试**：单测——`func<int,int> f = (x) => x + n;`（n为外层int）合成display含字段n；两个lambda共享捕获变量合成同一display（兄弟块共享外层display）；`&`捕获字段集含基句柄＋偏移双位；**早退作用域**（被捕获作用域内`if (…) return;`分支后lambda仍可用、display分配不分叉——评审关注点3钉满）；**递归lambda**`func<int,int> f = (x) => x <= 1 ? 1 : x * f(x - 1);`合成形状（f被捕获先于lambda创建——评审关注点4的Task 6半边）；**静态上下文`this`捕获→编译错误**（静态方法内lambda引用this成员）。e2e先行（TDD外层钉行为）——计数器跨调用保持、两lambda共享存储（f1改f2见）。RED＝e2e编译失败（lambda尚无降阶）。
+- [ ] **6.1 写失败测试**：单测——`func<int,int> f = (x) -> x + n;`（n为外层int）合成display含字段n；两个lambda共享捕获变量合成同一display（兄弟块共享外层display）；`&`捕获字段集含基句柄＋偏移双位；**早退作用域**（被捕获作用域内`if (…) return;`分支后lambda仍可用、display分配不分叉——评审关注点3钉满）；**递归lambda**`func<int,int> f = (x) -> x <= 1 ? 1 : x * f(x - 1);`合成形状（f被捕获先于lambda创建——评审关注点4的Task 6半边）；**静态上下文`this`捕获→编译错误**（静态方法内lambda引用this成员）。e2e先行（TDD外层钉行为）——计数器跨调用保持、两lambda共享存储（f1改f2见）。RED＝e2e编译失败（lambda尚无降阶）。
 - [ ] **6.2 确认RED**。
 - [ ] **6.3 实现**：捕获分析walk（SnLambdaExpr体内标识符/this解析目标回溯声明作用域）；display合成（VmBackend.cpp:69 $staticInit协议臂先例——合成类进类表、合成方法进函数表）；被捕获变量存储改道（声明→display字段初始化、访问→字段寻址）。位预算扩容若需要，独立微提交先行。
 - [ ] **6.4 确认GREEN**（单测＋捕获族e2e）＋**加跑T1停靠层**（被捕获变量堆化＋存储改道属内存风险族，评审M6）。
@@ -192,7 +192,7 @@
 **验收（spec §五）：**
 - `toString`=="lambda"；
 - 同一次作用域激活内同一lambda两求值`==`、工厂函数两次调用（跨激活）`!=`（D12：零捕获同规，「!=」断言须用跨激活形态）；
-- `thread.spawn(() => …)`零参lambda；
+- `thread.spawn(() -> …)`零参lambda；
 - lambda入`List<func<…>>`与`contains`/`indexOf`。
 
 **Steps:**
@@ -249,7 +249,7 @@
 
 **Interfaces:**
 - Consumes: Task 6/7；泛型实例化既有机制（ComposeInstDescriptor、绑定头描述符通道VmExecutorFrames.cpp:120-127）。
-- Produces: `func<void> make<T>(T x) { return () => print(x); }`全链（spec §3.6）。闭包值描述符经接收者头填充——descIdx槽恒0xFFFF不冲突（Task 5已定）。
+- Produces: `func<void> make<T>(T x) { return () -> print(x); }`全链（spec §3.6）。闭包值描述符经接收者头填充——descIdx槽恒0xFFFF不冲突（Task 5已定）。
 
 **边界（spec §3.6）**：泛型体内static局部禁令照旧（含lambda降阶体）；引用外层static局部走静态槽直达。
 
@@ -268,7 +268,7 @@
 
 **Interfaces:**
 - Consumes: Task 2-10全部。
-- Produces: spec §五lambda族12条全覆盖——计数器跨调用保持；两lambda共享存储；循环新鲜（for/foreach，Task 9已建，此处收口进族）；递归lambda；`thread.spawn(() => …)`；`List<func>`容器；toString；同激活`==`/跨激活`!=`；`&`捕获逃逸；返回被捕获变量引用（`func<int&> f = () => r;`放行，spec §3.3）；`func<int&,int&> f = (int& x) => x;`的&形参&返回全链（评审M3——Task 4类型化之外补运行时行为）；泛型体内lambda（Task 10已建）；另钉spec §3.3尾条——`const`局部捕获后lambda内赋值仍是编译错误（捕获不改变声明语义，NF_Const位沿用）；静态上下文lambda引用`this`→编译错误（评审M4运行时面：Task 6单测钉编译期，此处e2e钉端到端）。
+- Produces: spec §五lambda族12条全覆盖——计数器跨调用保持；两lambda共享存储；循环新鲜（for/foreach，Task 9已建，此处收口进族）；递归lambda；`thread.spawn(() -> …)`；`List<func>`容器；toString；同激活`==`/跨激活`!=`；`&`捕获逃逸；返回被捕获变量引用（`func<int&> f = () -> r;`放行，spec §3.3）；`func<int&,int&> f = (int& x) -> x;`的&形参&返回全链（评审M3——Task 4类型化之外补运行时行为）；泛型体内lambda（Task 10已建）；另钉spec §3.3尾条——`const`局部捕获后lambda内赋值仍是编译错误（捕获不改变声明语义，NF_Const位沿用）；静态上下文lambda引用`this`→编译错误（评审M4运行时面：Task 6单测钉编译期，此处e2e钉端到端）。
 
 **Steps:**
 - [ ] **11.1 写失败测试**：族清单逐条落`.n`＋manifest行（部分已在Task 6-10先行，此处补齐收口并统一断言强度）。
@@ -278,7 +278,7 @@
 ### Task 12: 手册同步与版本收口
 
 **Files:**
-- Modify: 手册§7.4整节（lambda语法/捕获/相等/toString/错误清单）、§2文法概览、§5.9函数值表达式、§6.1 static局部与lambda、§26 NCU格式（v2.23、MakeFunc操作数、函数表标志位——泛型旗标行zh:91/en:147同位、若引新RTK字段种类值一并记录）、`stdlib/http.n:1357-1360`注释（「The language has no anonymous function literals」失实，且内文「lambda is the separate 0.13.3 subproject」版本号过时一并更正——评审I14）、§18 Promise页`thread.spawn(() => …)`表述——中英成对
+- Modify: 手册§7.4整节（lambda语法/捕获/相等/toString/错误清单）、§2文法概览、§5.9函数值表达式、§6.1 static局部与lambda、§26 NCU格式（v2.23、MakeFunc操作数、函数表标志位——泛型旗标行zh:91/en:147同位、若引新RTK字段种类值一并记录）、`stdlib/http.n:1357-1360`注释（「The language has no anonymous function literals」失实，且内文「lambda is the separate 0.13.3 subproject」版本号过时一并更正——评审I14）、§18 Promise页`thread.spawn(() -> …)`表述——中英成对
 - Modify: `VERSION`（0.13.10）、`CHANGELOG.md`（中英）、`docs/user_manual/SYNC_BASELINE`流程（`tools/manual_sync_check.py`先行，提交后`--update`）
 - Test: docs五腿门禁
 

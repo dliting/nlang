@@ -124,26 +124,37 @@ void VmBackend::EmitIdentifierFieldRead(BytecodeEmitter& emitter,
         emitter.Emit(OpCode::OP_LoadStatic);
         emitter.EmitUint16(resultOffset);
         emitter.EmitUint16(target.slotIdx);
+    } else if (target.kind == BareIdTarget::DisplayField
+        || target.kind == BareIdTarget::CaptureField) {
+        //0.13.10 Task 6: captured storage — the display field IS the
+        //variable; the flavor dispatch lives in EmitCapture.cpp.
+        EmitCapturedRead(field, target, resultOffset, emitter);
+        //Captured value reads copy through the chase slot; the sealed
+        //copy-on-read (D5) applies to this-fields only — a captured
+        //this reads the copy stashed into the display at prologue time.
     } else if (target.kind == BareIdTarget::ThisField) {
-        //Implicit this.<field> (bare member read inside a method).
-        //Same opcode shape as the MemberExpr class-field read.
-        emitter.Emit(OpCode::OP_VarLocal);
-        emitter.EmitUint16(ImplicitThisSlot());
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(resultOffset);
-        emitter.Emit(OpCode::OP_NullCheck);
-        emitter.EmitUint16(resultOffset);
-        emitter.Emit(OpCode::OP_LoadField);
-        emitter.EmitUint16(resultOffset);
-        emitter.EmitUint16(resultOffset);
-        emitter.EmitUint16(static_cast<uint16_t>(target.fieldOff));
-        //v0.12.4 D5: same copy-on-read seal as the explicit member tail.
-        EmitSealedFieldCopyIfNeeded(field, emitter, resultOffset);
+        EmitThisFieldRead(field, target, resultOffset, emitter);
     } else {
         throw std::runtime_error(
             "NLang backend: identifier has no codegen binding: "
             + field->Name());
     }
+}
+
+//ThisField arm of the bare-identifier read: implicit this.<field>
+//(bare member read inside a method), same opcode shape as the
+//MemberExpr class-field read. 0.13.10: synthetic capture frames
+//redirect to the anchor display's "$this" field (EmitReceiverLoad).
+void VmBackend::EmitThisFieldRead(SnField* field,
+    const BareIdTarget& target, uint16_t resultOffset,
+    BytecodeEmitter& emitter) {
+    EmitReceiverLoad(resultOffset, emitter);
+    emitter.Emit(OpCode::OP_LoadField);
+    emitter.EmitUint16(resultOffset);
+    emitter.EmitUint16(resultOffset);
+    emitter.EmitUint16(static_cast<uint16_t>(target.fieldOff));
+    //v0.12.4 D5: same copy-on-read seal as the explicit member tail.
+    EmitSealedFieldCopyIfNeeded(field, emitter, resultOffset);
 }
 
 void VmBackend::Access(SnIdentifierExpr& expr) {

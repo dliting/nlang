@@ -67,9 +67,43 @@ bool VmBackend::IsDelegateInvoke(const SnInvokeExpr& invoke)
         && invoke.Field()->Kind() != NK_Function;
 }
 
+//ExprPeakDepth front: transparent wrappers evaluate their inner into
+//the parent's claim slot — no claim of their own. True (with outDepth)
+//when expr is one of the wrapper shapes.
+bool VmBackend::TryTransparentWrapperDepth(SnExpression& expr,
+    const std::unordered_set<SnFunction*>& visited, uint16_t& outDepth) {
+    switch (expr.Kind())
+    {
+    case NK_CastExpr:
+        outDepth = ExprPeakDepth(*static_cast<SnCastExpr&>(expr).Source(), visited);
+        return true;
+    case NK_AsExpr:
+        outDepth = ExprPeakDepth(*static_cast<SnAsExpr&>(expr).Operand(), visited);
+        return true;
+    //NamedArgExpr / OutArgExpr — the inner evaluates into the claimed
+    //binding slot.
+    case NK_NamedArgExpr:
+        outDepth = ExprPeakDepth(*static_cast<SnNamedArgExpr&>(expr).Inner(), visited);
+        return true;
+    case NK_OutArgExpr:
+        outDepth = ExprPeakDepth(*static_cast<SnOutArgExpr&>(expr).Inner(), visited);
+        return true;
+    //SliceItemExpr (v0.12.7 Task 11): its present parts evaluate into
+    //the parent subscript's claim slots.
+    case NK_SliceItemExpr:
+        outDepth = SliceItemExprPeakDepth(expr, visited);
+        return true;
+    default:
+        return false;
+    }
+}
+
 uint16_t VmBackend::ExprPeakDepth(SnExpression& expr,
     const std::unordered_set<SnFunction*>& visited,
     bool isMethodContext) {
+    uint16_t wrapped = 0;
+    if (TryTransparentWrapperDepth(expr, visited, wrapped))
+        return wrapped;
     NodeKind kind = expr.Kind();
     if (kind == NK_InvokeExpr)
         return InvokeExprPeakDepth(expr, visited, isMethodContext);
@@ -78,28 +112,6 @@ uint16_t VmBackend::ExprPeakDepth(SnExpression& expr,
     //Unary ops (OP_Neg, OP_BitNot, OP_LogicalNot) have Right()==nullptr.
     if (kind == NK_BinaryExpr)
         return BinaryExprPeakDepth(expr, visited);
-    //CastExpr
-    if (kind == NK_CastExpr) {
-        auto& cast = static_cast<SnCastExpr&>(expr);
-        return ExprPeakDepth(*cast.Source(), visited);
-    }
-    //AsExpr (expr as T)
-    if (kind == NK_AsExpr) {
-        auto& as = static_cast<SnAsExpr&>(expr);
-        return ExprPeakDepth(*as.Operand(), visited);
-    }
-    //NamedArgExpr / OutArgExpr — transparent: the inner evaluates into
-    //the claimed binding slot.
-    if (kind == NK_NamedArgExpr)
-        return ExprPeakDepth(
-            *static_cast<SnNamedArgExpr&>(expr).Inner(), visited);
-    if (kind == NK_OutArgExpr)
-        return ExprPeakDepth(
-            *static_cast<SnOutArgExpr&>(expr).Inner(), visited);
-    //SliceItemExpr (v0.12.7 Task 11) — transparent: its present parts
-    //evaluate into the parent subscript's claim slots.
-    if (kind == NK_SliceItemExpr)
-        return SliceItemExprPeakDepth(expr, visited);
     //SubscriptExpr
     if (kind == NK_SubscriptExpr)
         return SubscriptExprPeakDepth(expr, visited);
@@ -112,6 +124,13 @@ uint16_t VmBackend::ExprPeakDepth(SnExpression& expr,
         return NewArrayExprPeakDepth(expr, visited);
     if (kind == NK_InitListExpr)
         return InitListExprPeakDepth(expr, visited);
+    //0.13.10 Task 6: a captured identifier read parks its chased
+    //display record in an EvalAreaClaim(1) (EmitCapturedRead) — the
+    //assignment walker's captured arm mirrors the same +1.
+    if (kind == NK_IdentifierExpr
+        && IsCapturedField(
+            static_cast<SnIdentifierExpr&>(expr).Field()))
+        return 1;
     //Leaf expressions (LiteralExpr, IdentifierExpr, ThisExpr, etc.)
     return 0;
 }

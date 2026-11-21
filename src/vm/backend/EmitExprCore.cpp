@@ -167,15 +167,28 @@ void VmBackend::EmitDelegateInvoke(const SnInvokeExpr& invoke,
         emitter.EmitUint16(target.localOffset);
         emitter.Emit(OpCode::OP_Assign);
         emitter.EmitUint16(calleeSlot);
+    } else if (target.kind == BareIdTarget::DisplayField
+        || target.kind == BareIdTarget::CaptureField) {
+        //0.13.10 Task 6: a func-typed capture as delegate callee. The
+        //delegate handle rides the display field cell: chase the record,
+        //load the cell. A flavored (promoted/reference) capture is
+        //rejected — its storage is not a raw handle (ledger ruling).
+        auto* pField = invoke.Field();
+        if (pField && (pField->ContainFlags(NF_Promoted)
+            || pField->ContainFlags(NF_Ref)))
+            throw std::runtime_error(
+                "NLang backend: promoted/reference capture as a "
+                "delegate callee is not supported: "
+                + invoke.CalleeName());
+        EmitCaptureCellLoad(calleeSlot, target, emitter);
+        emitter.Emit(OpCode::OP_LoadField);
+        emitter.EmitUint16(calleeSlot);
+        emitter.EmitUint16(calleeSlot);
+        emitter.EmitUint16(static_cast<uint16_t>(target.fieldOff));
     } else if (target.kind == BareIdTarget::ThisField) {
         //Implicit this.<field> — same load shape as the
         //identifier arm's ThisField branch.
-        emitter.Emit(OpCode::OP_VarLocal);
-        emitter.EmitUint16(ImplicitThisSlot());
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(calleeSlot);
-        emitter.Emit(OpCode::OP_NullCheck);
-        emitter.EmitUint16(calleeSlot);
+        EmitReceiverLoad(calleeSlot, emitter);
         emitter.Emit(OpCode::OP_LoadField);
         emitter.EmitUint16(calleeSlot);
         emitter.EmitUint16(calleeSlot);
@@ -379,6 +392,23 @@ void VmBackend::Access(SnThisExpr& expr) {
         //Inside a method-call default-param expression, `this` resolves
         //to the caller-side callParamBase slot holding the receiver.
         //Otherwise (inside a method body), `this` is local 0.
+        //0.13.10: inside a synthetic capture frame, `this` is the anchor
+        //display's "$this" field (the override logic is meaningless
+        //there — $lambda_N bodies carry no default params).
+        if (InSyntheticCaptureFrame()) {
+            emitter.Emit(OpCode::OP_VarLocal);
+            emitter.EmitUint16(0);
+            emitter.Emit(OpCode::OP_Assign);
+            emitter.EmitUint16(resultOffset);
+            NLANG_ASSERT(m_pCurrClass);
+            const int thisOff = FindClassFieldOffset(*m_pCurrClass, "$this");
+            NLANG_ASSERT(thisOff >= 0);
+            emitter.Emit(OpCode::OP_LoadField);
+            emitter.EmitUint16(resultOffset);
+            emitter.EmitUint16(resultOffset);
+            emitter.EmitUint16(static_cast<uint16_t>(thisOff));
+            return;
+        }
         auto thisOverride = LookupThisOverride();
         uint16_t thisSlot = thisOverride.first ? thisOverride.second : 0;
         emitter.Emit(OpCode::OP_VarLocal);

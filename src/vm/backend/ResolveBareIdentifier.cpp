@@ -28,6 +28,16 @@ VmBackend::BareIdTarget VmBackend::ResolveBareIdentifier(SnField* field) {
         t.slotIdx = StaticLocalSlotIndexOf(*field);
         return t;
     }
+    //0.13.10 Task 6: captured storage. Field-first, before the frame
+    //locals — flat frames reuse names (AllocLocal name-keying), and the
+    //display field IS the storage once NF_Captured is stamped: the
+    //declaring frame's coincidental local must never answer.
+    if (field->ContainFlags(NF_Captured)) {
+        t = DisplayFieldOfCaptured(field);
+        NLANG_ASSERT(t.kind == BareIdTarget::DisplayField
+            || t.kind == BareIdTarget::CaptureField);
+        return t;
+    }
     auto it = m_currFunc->localOffsets.find(field->Name());
     if (it != m_currFunc->localOffsets.end()) {
         t.kind = BareIdTarget::Local;
@@ -44,22 +54,30 @@ VmBackend::BareIdTarget VmBackend::ResolveBareIdentifier(SnField* field) {
             static_cast<SnClassField&>(*field));
         return t;
     }
-    if (auto* pOwner = OwningTypeOfMemberField(field)) {
-        //0.9.11 D2: struct fields flatten through the struct helper (the
-        //class helper walks the inheritance chain, which structs lack).
-        int off = (field->Kind() == NK_StructField)
-            ? FindFieldOffset(static_cast<SnStructDecl&>(*pOwner),
-                              field->Name())
-            : FindClassFieldOffset(static_cast<SnClassDecl&>(*pOwner),
-                                   field->Name());
-        if (off >= 0) {
-            t.kind = BareIdTarget::ThisField;
-            t.owner = pOwner;
-            t.fieldOff = off;
-            return t;
-        }
-    }
+    ResolveThisFieldTarget(*field, t);
     return t;
+}
+
+//ThisField arm of ResolveBareIdentifier: the owning class/struct walk
+//with the offset solver (structs flatten, classes walk the chain).
+//True with t filled when the field resolves to instance storage.
+bool VmBackend::ResolveThisFieldTarget(SnField& field, BareIdTarget& t) {
+    auto* pOwner = OwningTypeOfMemberField(&field);
+    if (!pOwner)
+        return false;
+    //0.9.11 D2: struct fields flatten through the struct helper (the
+    //class helper walks the inheritance chain, which structs lack).
+    const int off = (field.Kind() == NK_StructField)
+        ? FindFieldOffset(static_cast<SnStructDecl&>(*pOwner),
+                          field.Name())
+        : FindClassFieldOffset(static_cast<SnClassDecl&>(*pOwner),
+                               field.Name());
+    if (off < 0)
+        return false;
+    t.kind = BareIdTarget::ThisField;
+    t.owner = pOwner;
+    t.fieldOff = off;
+    return true;
 }
 
 //v0.12.6 Task 8: own fields answer from the registration map; an
@@ -105,12 +123,74 @@ uint16_t VmBackend::StaticSlotIndexOf(SnClassField& field) {
 //Task 7: the module slot a static local addresses. The declaration
 //statement registered the name before any use can emit (lexical
 //order), so a miss is a registration-order bug, not a tolerated one.
+//0.13.10: the declarator's stamp answers first — a static local
+//declared in the real frame but read inside a nested capture method
+//emits in the synthetic frame, whose per-function staticLocalSlots
+//map never saw the name.
 uint16_t VmBackend::StaticLocalSlotIndexOf(const SnField& field) const {
+    auto* pLocal = dynamic_cast<const SnLocalVar*>(&field);
+    if (pLocal && pLocal->StaticSlotIdx() != SnLocalVar::kInvalidStaticSlot)
+        return pLocal->StaticSlotIdx();
     auto it = m_currFunc->staticLocalSlots.find(field.Name());
     if (it == m_currFunc->staticLocalSlots.end())
         throw std::runtime_error(
             "NLang backend: static local without a slot: " + field.Name());
     return it->second;
+}
+
+//0.13.10 Task 6: classify a captured variable's storage. Two shapes:
+//the display instance is a plain frame local of the CURRENT frame
+//(the declaring paragraph's own frame — the common case), or the
+//reference emits inside a nested capture method, whose local 0 is the
+//anchor display instance and whose "$outer" fields hop to the owner
+//display. A miss in a synthetic frame is an invariant break: the
+//declaring paragraph is always on the capturing lambda's paragraph
+//chain (lexical scoping), so the hop walk terminates at the owner.
+VmBackend::BareIdTarget VmBackend::DisplayFieldOfCaptured(SnField* field) {
+    NLANG_ASSERT(field);
+    SnClassField* pDisplayField = nullptr;
+    if (auto* pLocal = dynamic_cast<SnLocalVar*>(field))
+        pDisplayField = pLocal->DisplayField();
+    else if (auto* pFormal = dynamic_cast<SnFormalParam*>(field))
+        pDisplayField = pFormal->DisplayField();
+    NLANG_ASSERT(pDisplayField
+        && "captured descriptor without a display field");
+    auto* pDisplayClass = static_cast<SnClassDecl*>(pDisplayField->Parent());
+    NLANG_ASSERT(pDisplayClass && pDisplayClass->ContainFlags(NF_Generated));
+
+    BareIdTarget t;
+    t.owner = pDisplayClass;
+    const std::string& name = pDisplayField->Name();
+    auto it = m_currFunc->localOffsets.find(pDisplayClass->Name());
+    if (it != m_currFunc->localOffsets.end()) {
+        //The display instance is this frame's local under the class name.
+        t.kind = BareIdTarget::DisplayField;
+        t.localOffset = it->second;
+        t.fieldOff = FindClassFieldOffset(*pDisplayClass, name);
+        NLANG_ASSERT(t.fieldOff >= 0);
+        return t;
+    }
+    //Synthetic capture frame: local 0 is the anchor instance; chase the
+    //"$outer" fields to the owning display.
+    NLANG_ASSERT(m_pCurrClass && m_pCurrClass->ContainFlags(NF_Generated)
+        && "captured reference outside any display-bearing frame");
+    SnClassDecl* pCls = m_pCurrClass;
+    while (FindClassFieldOffset(*pCls, name) < 0) {
+        SnField* pOuter = nullptr;
+        for (auto& member : pCls->Members())
+            if (member.Kind() == NK_ClassField
+                && !member.ContainFlags(NF_Static)
+                && member.Name() == "$outer")
+                pOuter = &member;
+        NLANG_ASSERT(pOuter && "$outer chain does not reach the owner");
+        auto* pParent = dynamic_cast<SnClassDecl*>(pOuter->EvalDataType());
+        NLANG_ASSERT(pParent);
+        ++t.outerHops;
+        pCls = pParent;
+    }
+    t.kind = BareIdTarget::CaptureField;
+    t.fieldOff = FindClassFieldOffset(*pCls, name);
+    return t;
 }
 
 } //namespace nlang

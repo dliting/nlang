@@ -226,7 +226,16 @@ void VmBackend::EmitBodyAndImplicitReturn(SnFunction& func, FuncContext& ctx,
                                           BytecodeEmitter& emitter) {
     //v0.13.9 phase 3 Task 4: promoted formals re-wrap the raw argument
     //into their stable boxed record before any body statement runs.
+    //0.13.10 Task 6: every marked display paragraph in the body subtree
+    //(uniform rule — the body root itself included) allocates + builds
+    //its display instance before any statement runs, then captured
+    //formals copy from their frame slots into the display fields. User
+    //code emits only after both.
     EmitPromotedParamPrologue(func, emitter);
+    if (func.Body()) {
+        EmitCaptureDisplayPrologue(*func.Body(), emitter);
+        EmitCapturedFormalCopies(func, emitter);
+    }
     // Generate bytecode for body
     if (func.Body()) {
         for (auto& stmt : func.Body()->Statements()) {

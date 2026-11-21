@@ -536,6 +536,10 @@ err_static_t_order_stays compile_error cannot be applied to a type parameter
 generic_free_func_value 0
 generic_static_func_value 0
 generic_func_value_equality 0
+# --- 0.13.10 Task 6: lambda capture (display synthesis and promotion) ---
+lambda_capture_counter 0
+lambda_capture_recur 0
+err_lambda_this_in_static compile_error this is not available in a static method.
 # --- P3.8: lock class field default values (int/float/string/class-ref) ---
 class_field_defaults 7
 # --- P3.8: cover switch on string discriminator ---

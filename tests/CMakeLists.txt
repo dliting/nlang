@@ -2159,6 +2159,30 @@ if(NLANG_BUILD_IDE)
     endif()
     nlang_add_qtest(lambda_typing_tests test_lambda_typing)
 
+    #Display synthesis and capture promotion (lambda/closure plan
+    #Task 6): asserts the synthesis artifacts on the tree — the display
+    #class field sets (captured name, & base+offset pair, $this, $outer
+    #chase), the shared-display identity across sibling lambdas, the
+    #recursive self-capture, and the static-context this reject that the
+    #redirect must not swallow.
+    add_executable(test_lambda_capture
+        test_compiler/test_lambda_capture.cpp
+    )
+    target_link_libraries(test_lambda_capture
+        PRIVATE
+            nlang_compiler
+            nlang_runtime
+            nlang_vm
+            Qt5::Test
+    )
+    if(WIN32)
+        add_custom_command(TARGET test_lambda_capture POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:Qt5::Core> $<TARGET_FILE:Qt5::Test>
+                $<TARGET_FILE_DIR:test_lambda_capture>)
+    endif()
+    nlang_add_qtest(lambda_capture_tests test_lambda_capture)
+
     #Override-signature / interface-contract diagnostics (P1): asserts
     #diagnostic COUNTS (the e2e manifest only does substring existence)
     #and the alias type-node identity fact the signature predicate sits on.

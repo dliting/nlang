@@ -232,6 +232,14 @@ private:
 	//consumers ran (never met an expected func type).
 	void SweepPendingFuncRefs();
 
+	//Capture promotion (0.13.10): discovery walk + display-class
+	//synthesis over the merged tree, before any codegen. Most failures
+	//are invariant breaks, but two shapes are reachable user code
+	//(expression-body nesting, receiver capture in an unsupported
+	//context) — they report through the regular error channel. False
+	//(with errors logged) aborts the unit build.
+	bool RunCapturePromotion();
+
 	//Check for circular struct references.
 	void CheckStructCircularRefs();
 

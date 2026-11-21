@@ -116,6 +116,8 @@ add_library(nlang_vm
     backend/EmitStmtAssign.cpp
     backend/EmitStmtRef.cpp
     backend/EmitExprRef.cpp
+    backend/EmitCapture.cpp
+    backend/EmitCaptureStorage.cpp
     backend/EmitStmtCompound.cpp
     backend/EmitStmtStore.cpp
     backend/EmitStmtFlow.cpp

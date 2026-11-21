@@ -167,6 +167,8 @@ add_library(nlang_compiler
     builder/StatementResolverStoreGates.cpp
     builder/ClassFieldInitializerInjection.cpp
     builder/StaticInitSynthesis.cpp
+    builder/LambdaCaptureAnalysis.cpp
+    builder/LambdaDisplaySynthesis.cpp
     builder/ModuleRegistry.cpp
     builder/ModuleRegistryGate.cpp
     builder/ImportCycleCheck.cpp

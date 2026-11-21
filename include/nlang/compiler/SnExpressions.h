@@ -56,6 +56,19 @@ SnField *ArrayElementRowOf(const SnField *pType);
 //Defined in SnArrayTypeToken.cpp next to ArrayInstantiationElem.
 bool SameArrayType(SnField *pLeft, SnField *pRight);
 
+//Builds an ALREADY-RESOLVED type expression for post-resolution node
+//synthesis (capture promotion, 0.13.10) from a resolved type ROW: a
+//builtin-kind leaf, an array annotation (element + rank, either array
+//spelling), or a named reference with the field bound and NF_Resolved
+//set. Ordinary synthesized expressions rely on later resolution passes
+//to bind m_pField, which never run after resolution — this factory
+//produces nodes that are final at birth. The new node owns its spelling
+//string; the referred row remains non-owning.
+//Defined in builder/LambdaCaptureAnalysis.cpp next to its only consumer.
+class SnExpression;
+SnExpression *SynthBornResolvedTypeExpr(SnField *pRow,
+	const ISourceLocation &loc);
+
 //The abstract expression syntax node.
 class BuildEnvironment;
 class SnClassDecl;
@@ -129,6 +142,10 @@ protected:
 	//Return a null child list by default.
 	ImmutableNodeList *ChildrenPtr() const override;
 private:
+	//Builds already-resolved type expressions for post-resolution
+	//synthesis (capture promotion); needs the protected type setter.
+	friend SnExpression *SynthBornResolvedTypeExpr(SnField *pRow,
+		const ISourceLocation &loc);
 	SnField *m_pEvalDataType;
 #ifdef NLANG_ENABLE_LLVM
 	llvm::Value *m_pMetaValue;
@@ -161,6 +178,10 @@ class NLANG_COMPILER_API SnFieldExpr : public SnExpression
 {
 	friend class ExprResolveAccessor;
 	friend class SyntaxTree;
+	//Capture promotion (0.13.10): born-resolved type expressions bind the
+	//referred field through this protected channel.
+	friend SnExpression *SynthBornResolvedTypeExpr(SnField *pRow,
+		const ISourceLocation &loc);
 	typedef SnExpression Super_;
 public:
 	typedef std::function<bool (SnFieldExpr&, BuildEnvironment&)> FieldChecker;
@@ -1248,11 +1269,14 @@ private:
 class SnParagraph;
 class SnLocalVar;
 
-//The lambda expression `(params) => body` (0.13.10). Parse-layer only in
+//The lambda expression `(params) -> body` (0.13.10). Parse-layer only in
 //this task: the resolver/codegen arms land with the typing tasks, so a
 //lambda reaching resolution asserts through the accessor catch-alls.
 //Exactly one of ExprBody()/BlockBody() is non-null. Params() items are
 //typed, bare or raw-expression (see LambdaParam).
+class NLANG_COMPILER_API SnClassDecl;
+class NLANG_COMPILER_API SnFunction;
+
 class NLANG_COMPILER_API SnLambdaExpr : public SnCompoundPlainExpr
 {
 	typedef SnCompoundPlainExpr Super_;
@@ -1308,6 +1332,29 @@ public:
 	//the block; the typing arm reads the mark after the walk.
 	void SetBlockHasValueReturn() { m_bBlockHasValueReturn = true; }
 	bool HasBlockValueReturn() const { return m_bBlockHasValueReturn; }
+
+	//0.13.10 Task 6: the capture lowering write-back — the synthesized
+	//display class hosting the captured storage and the synthetic
+	//method the body compiles into (both owned by the environment's
+	//class/function registries, non-owning here). Null until the
+	//capture pass runs (a null pair past resolution means the lambda
+	//was typed but the capture pass never saw it — internal error).
+	const SnClassDecl *DisplayClass() const { return m_pDisplayClass; }
+	SnClassDecl *DisplayClass() { return m_pDisplayClass; }
+	void DisplayClass(SnClassDecl *pClass) { m_pDisplayClass = pClass; }
+	SnFunction *SyntheticMethod() const { return m_pSyntheticMethod; }
+	void SyntheticMethod(SnFunction *pMethod)
+	{
+		m_pSyntheticMethod = pMethod;
+	}
+
+	//0.13.10 Task 6: moves the body out of the lambda into the synthetic
+	//method's paragraph (capture lowering). Detaching the child from the
+	//ownership list AND nulling the dual-storage mirror — a dangling
+	//mirror behind ExprBody()/BlockBody() would be a landmine for any
+	//later ToString/walk.
+	SnExpression *DetachExprBody();
+	SnParagraph *DetachBlockBody();
 private:
 	std::vector<LambdaParam>     m_params;
 	SnExpression                *m_pExprBody  = nullptr;
@@ -1316,6 +1363,8 @@ private:
 	bool                         m_bBlockHasValueReturn = false;
 	std::vector<std::unique_ptr<SnLocalVar>> m_upParamLocals;
 	std::map<std::string, SnLocalVar *>        m_paramLookup;
+	SnClassDecl                 *m_pDisplayClass = nullptr;
+	SnFunction                  *m_pSyntheticMethod = nullptr;
 };
 
 //Phase 9c: named argument expression `name = expr` at call sites.

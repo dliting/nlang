@@ -116,44 +116,44 @@ private slots:
         TypeCastInfo::StaticInit();   //cast table (0.7.5: no longer inside Runtime::StaticInit)
     }
 
-    //Raw literal item: `(1) => 1`.
+    //Raw literal item: `(1) -> 1`.
     void TestRawLiteralParamRejected() {
         const auto body = QString(kInitializerWrapper)
-            .arg("(1) => 1").toStdString();
+            .arg("(1) -> 1").toStdString();
         auto out = compileOne(body.c_str());
         QVERIFY(!out.ok);
         QCOMPARE(countErrorsContaining(
             out, "invalid lambda parameter list"), 1);
     }
 
-    //Raw member access: `(x.y) => 1` — the member expression rides the
+    //Raw member access: `(x.y) -> 1` — the member expression rides the
     //cover list as an expression (the ParenHeadType twin has no '.' arm).
     void TestMemberAccessParamRejected() {
         const auto body = QString(kInitializerWrapper)
-            .arg("(x.y) => 1").toStdString();
+            .arg("(x.y) -> 1").toStdString();
         auto out = compileOne(body.c_str());
         QVERIFY(!out.ok);
         QCOMPARE(countErrorsContaining(
             out, "invalid lambda parameter list"), 1);
     }
 
-    //Raw invoke: `(f()) => 1`.
+    //Raw invoke: `(f()) -> 1`.
     void TestInvokeParamRejected() {
         const auto body = QString(kInitializerWrapper)
-            .arg("(f()) => 1").toStdString();
+            .arg("(f()) -> 1").toStdString();
         auto out = compileOne(body.c_str());
         QVERIFY(!out.ok);
         QCOMPARE(countErrorsContaining(
             out, "invalid lambda parameter list"), 1);
     }
 
-    //The generic-parameter-list spelling `(T<int> x) => 1` (spec §3.5
+    //The generic-parameter-list spelling `(T<int> x) -> 1` (spec §3.5
     //"lambda带泛型参数表"): the grammar has no `<T>` slot; the plain-'<'
     //comparison reading owns the tokens, the chain arrives raw and the
     //gate rejects it.
     void TestGenericListSpellingRejected() {
         const auto body = QString(kInitializerWrapper)
-            .arg("(T<int> x) => 1").toStdString();
+            .arg("(T<int> x) -> 1").toStdString();
         auto out = compileOne(body.c_str());
         QVERIFY(!out.ok);
         QCOMPARE(countErrorsContaining(
@@ -162,24 +162,24 @@ private slots:
 
     //A deeper bit-and chain stays raw: only the two-bare-operand shape
     //is reinterpreted as a reference parameter (Task 2 ruling), so
-    //`(int & x & y) => 1` reaches the gate.
+    //`(int & x & y) -> 1` reaches the gate.
     void TestDeepBitAndChainRejected() {
         const auto body = QString(kInitializerWrapper)
-            .arg("(int & x & y) => 1").toStdString();
+            .arg("(int & x & y) -> 1").toStdString();
         auto out = compileOne(body.c_str());
         QVERIFY(!out.ok);
         QCOMPARE(countErrorsContaining(
             out, "invalid lambda parameter list"), 1);
     }
 
-    //The default-value spelling `(x = 3) => x` never reaches the gate:
+    //The default-value spelling `(x = 3) -> x` never reaches the gate:
     //NLang has no assignment-as-expression (the `=` lives only in the
     //call-site named-argument production), so the cover list rejects it
     //at parse time. Rejected is what spec §3.5 wants; the named
     //diagnostic would be dead code.
     void TestDefaultValueSpellingIsParseError() {
         const auto body = QString(kInitializerWrapper)
-            .arg("(x = 3) => x").toStdString();
+            .arg("(x = 3) -> x").toStdString();
         auto out = compileOne(body.c_str());
         QVERIFY(!out.ok);
         QVERIFY(countErrorsContaining(out, "syntax error") > 0);
@@ -187,11 +187,11 @@ private slots:
             out, "invalid lambda parameter list"), 0);
     }
 
-    //Same for the `<`-led generic list `(<T> x) => 1`: no expression
+    //Same for the `<`-led generic list `(<T> x) -> 1`: no expression
     //production starts with '<'.
     void TestAngleLedListIsParseError() {
         const auto body = QString(kInitializerWrapper)
-            .arg("(<T> x) => 1").toStdString();
+            .arg("(<T> x) -> 1").toStdString();
         auto out = compileOne(body.c_str());
         QVERIFY(!out.ok);
         QVERIFY(countErrorsContaining(out, "syntax error") > 0);

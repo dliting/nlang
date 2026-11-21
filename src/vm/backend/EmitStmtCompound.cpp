@@ -62,6 +62,12 @@ void VmBackend::EmitCompoundAssignBareIdentifier(SnCompoundAssignStmt& ca,
         EmitExpression(*ca.Right(), emitter, m_currFunc->tempSlot2);
         EmitCompoundOp(op, emitter, target.localOffset,
             m_currFunc->tempSlot2, field->EvalDataType());
+    } else if (target.kind == BareIdTarget::DisplayField
+        || target.kind == BareIdTarget::CaptureField) {
+        //0.13.10 Task 6: captured read-modify-write over the chased
+        //display record ([cell, oldVal, rhs] — the walker's uniform
+        //compound claim of 3 exactly).
+        EmitCapturedCompound(ca, field, target, op, emitter);
     } else if (target.kind == BareIdTarget::StaticSlot) {
         //v0.12.6: bare static field read-modify-write.
         EmitCompoundAssignStaticField(ca, target.slotIdx,
@@ -86,12 +92,9 @@ void VmBackend::EmitCompoundAssignThisField(SnCompoundAssignStmt& ca,
     uint16_t claimBase = claim.base();
     uint16_t oldValSlot = claimBase + kFrameSlotBytes;
     uint16_t rhsSlot = claimBase + 2 * kFrameSlotBytes;
-    emitter.Emit(OpCode::OP_VarLocal);
-    emitter.EmitUint16(ImplicitThisSlot());
-    emitter.Emit(OpCode::OP_Assign);
-    emitter.EmitUint16(claimBase);
-    emitter.Emit(OpCode::OP_NullCheck);
-    emitter.EmitUint16(claimBase);
+    //0.13.10: receiver load redirects to the anchor display's "$this"
+    //field inside a synthetic capture frame.
+    EmitReceiverLoad(claimBase, emitter);
     emitter.Emit(OpCode::OP_LoadField);
     emitter.EmitUint16(oldValSlot);
     emitter.EmitUint16(claimBase);

@@ -19,6 +19,20 @@
 
 namespace nlang {
 
+//0.13.10 Task 6: a captured display field's descriptor kind follows its
+//flavor, not the declared type — a promoted field's cell holds a box
+//handle and a reference field's cell a (base, cell) pair, both rooted
+//through the heap-band kinds (the GC handle-mask builds from these
+//kinds; the plain declared kind would leave box/pair captures unrooted).
+uint16_t VmBackend::InstanceFieldSlotKind(const SnClassField& cf)
+{
+    if (cf.ContainFlags(NF_Captured) && cf.ContainFlags(NF_Ref))
+        return ByrefSlotKindOfType(cf.EvalDataType());
+    if (cf.ContainFlags(NF_Captured) && cf.ContainFlags(NF_Promoted))
+        return RTK_Promoted;
+    return RuntimeTypeKind(cf.EvalDataType());
+}
+
 //0.9.12 (v2.7): the class record carries OWN instance fields only.
 //Inherited fields are no longer flattened here — the runtime view
 //(VmClassLayout) joins the superClassIdx chain base-first, and the
@@ -57,7 +71,7 @@ void VmBackend::CollectOwnClassFields(SnClassDecl& sn, CompiledClass& cc) {
             //0.7.3 B: array fields carry their interned token in
             //EvalDataType — RuntimeTypeKind files both arrays and
             //scalars (mirrors RegisterStructs).
-            const uint16_t ftk = RuntimeTypeKind(cf.EvalDataType());
+            const uint16_t ftk = InstanceFieldSlotKind(cf);
             cc.fieldTypeKinds.push_back(ftk);
             cc.fieldStructIndices.push_back(0xFFFF);
             //v0.13.1 D3: a T-typed field records its type-parameter

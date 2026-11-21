@@ -6,7 +6,7 @@
 
 ## 一、目标与范围
 
-1. **lambda表达式**——带捕获的匿名函数，成`func<R, P…>`值：`func<int,int> f = (x) => x * 2;`。
+1. **lambda表达式**——带捕获的匿名函数，成`func<R, P…>`值：`func<int,int> f = (x) -> x * 2;`。
 2. **清偿泛型完善两笔挂账**（docs/dev/generic_completion_design.md）：泛型游离函数/泛型静态方法的函数值解禁（描述符配对存储）；函数值表示随配对演进。
 3. **铺垫0.13.12 web框架回调**（roadmap：闭包落地后替换绑定方法+字段的状态持久写法）。
 
@@ -28,16 +28,16 @@
 ### 3.1 语法
 
 ```
-LambdaExpr: '(' InnerList ')' '=>' LambdaBody
+LambdaExpr: '(' InnerList ')' '->' LambdaBody
 InnerList:  InnerElem { ',' InnerElem } | /* 空 */
 InnerElem:  Expression | TypeRef TT_Identifier
 LambdaBody: Expression | Block
 ```
 
-- **覆盖文法（cover grammar）消解LALR冲突**（D9）：内层统一按表达式列表解析——`(x)`按括号表达式、`(x, y)`按列表规约，`=>`不处于任何既有表达式的FOLLOW集，`)`处由lookahead`=>`分流（shift向lambda、否则规约括号表达式），LALR(1)无冲突。参数形态在`=>`确认后语义后检：列表元素须为裸标识符（省类型形参）或`TypeRef 标识符`（显式形参），其余报「invalid lambda parameter list」；`TypeRef 标识符`对偶形态（如`int x`）在表达式文法中本就不合法，`(`后见类型关键字自然分流，不产生新冲突；自定义类型名形态（如`(Point p)`）中ident后跟ident在表达式文法中无去处、只有`TypeRef TT_Identifier`路径可活，同样分流。
-- 记号`=>`为新增双字符算符；`nlang.l`现无该记号。词法无歧义的完整论据：`=>`与同首字符的`==`在flex最长匹配下由第二字符分流；与`>=`首字符不同。
+- **覆盖文法（cover grammar）消解LALR冲突**（D9）：内层统一按表达式列表解析——`(x)`按括号表达式、`(x, y)`按列表规约，`->`不处于任何既有表达式的FOLLOW集，`)`处由lookahead`->`分流（shift向lambda、否则规约括号表达式），LALR(1)无冲突。参数形态在`->`确认后语义后检：列表元素须为裸标识符（省类型形参）或`TypeRef 标识符`（显式形参），其余报「invalid lambda parameter list」；`TypeRef 标识符`对偶形态（如`int x`）在表达式文法中本就不合法，`(`后见类型关键字自然分流，不产生新冲突；自定义类型名形态（如`(Point p)`）中ident后跟ident在表达式文法中无去处、只有`TypeRef TT_Identifier`路径可活，同样分流。
+- 记号`->`为新增双字符算符；`nlang.l`现无该记号。词法无歧义的完整论据：`->`与同首字符的`==`在flex最长匹配下由第二字符分流；与`>=`首字符不同。
 - 显式形参类型必须与期望函数类型逐位置**完全一致**（无变异性，与§7.4同规）。
-- 零参lambda写作`() => …`（括号不可省——省括号单参文法会与既有一元/二元表达式产生歧义，KISS不做）。
+- 零参lambda写作`() -> …`（括号不可省——省括号单参文法会与既有一元/二元表达式产生歧义，KISS不做）。
 
 ### 3.2 类型化
 
@@ -52,10 +52,10 @@ LambdaBody: Expression | Block
 - **`this`捕获**：lambda体内访问实例成员（字段/方法）即捕获接收者；统一进display（见§四），实例方法内`this`非null由既有规则保证，静态上下文引用`this`维持编译错误。
 - **`&`局部/`&`形参捕获**：捕获的是该引用（绑定）本身——按引用对`(堆句柄,单元偏移)`原样拷入display字段，lambda内的读写穿透到被引方存储。**生命周期安全由构造保证**：NLang的每个`&`绑定目标都是堆锚定存储——标量在绑定点即装箱提升（`NF_Promoted`，EmitExprRef.cpp:32-34的断言链：未提升标量到达发射＝内部不一致、响亮失败），结构/类局部本就是堆记录（`OP_RefOfLocal`），字段/数组/容器元素栖身堆记录。`foreach (int& v in xs)`的`&`头目标为容器元素（堆），同样安全。捕获不改变`&`的既有语义（§4.7.9）。
 - **lambda的`&`形参与`&`返回**：`func<int&, int&>`期望下lambda可声明`&`形参、`&`返回——lambda降阶为合成类方法（§4.1），引用形参/引用返回在类方法上既有实现照搬（§4.7.9、§5.9）。
-- **返回被捕获变量的引用合法**：被捕获变量的存储已堆化到display，§4.7.9「cannot return a reference to local; its storage ends with the call」的前提（存储随帧终结）不成立——`func<int&> f = () => r;`放行。
+- **返回被捕获变量的引用合法**：被捕获变量的存储已堆化到display，§4.7.9「cannot return a reference to local; its storage ends with the call」的前提（存储随帧终结）不成立——`func<int&> f = () -> r;`放行。
 - **循环头变量每次迭代新鲜**：`for`/`foreach`头部声明的变量，每次迭代是一个新鲜变量（Go 1.22共识）。未捕获时无可观察差异；捕获时各迭代的lambda各自持有当次值，不再共享尾值。新鲜性由display的分配模型直接给出（§4.1：循环体作用域每次迭代重新激活、重分配display）；头部声明的被捕获变量归属每迭代激活的display，条件段/递增段寻址当前迭代实例、迭代末经新display接续值链（Go 1.22实现形态）。
 - **static局部不被捕获**：lambda体内引用static局部直接寻址静态槽（模块级存储、所有调用共享，§6.1），与捕获机制无关。
-- **递归自引用**：`func<int,int> f = (x) => x <= 1 ? 1 : x * f(x - 1);`成立——被捕获的`f`在lambda创建前已提升，体内读`f`即读被捕获存储。
+- **递归自引用**：`func<int,int> f = (x) -> x <= 1 ? 1 : x * f(x - 1);`成立——被捕获的`f`在lambda创建前已提升，体内读`f`即读被捕获存储。
 - 捕获不改变被捕获变量的声明语义：`const`（`NF_Const`）局部捕获后lambda内仍不可赋值。
 
 ### 3.4 值语义
@@ -71,7 +71,7 @@ lambda无期望类型；显式形参类型与期望不一致；`invalid lambda p
 
 ### 3.6 泛型上下文中的lambda
 
-lambda定义在泛型函数/泛型类方法体内且捕获类型参数类型的变量（`func<void> make<T>(T x) { return () => print(x); }`）**本版支持**：
+lambda定义在泛型函数/泛型类方法体内且捕获类型参数类型的变量（`func<void> make<T>(T x) { return () -> print(x); }`）**本版支持**：
 
 - display合成类按**泛型类模板**合成——携带外层函数的全部类型参数，字段类型可为类型参数。实例化描述符**运行时拼接**：display的`OP_New`走TEMPLATE_HEAD＋ARG_CONTEXT组合行（机制既有，VmExecutorOpsDescriptor.cpp:30-36——组合记录行在运行时读执行帧的描述符单元拼出实例化；OP_New的descIdx操作数只认静态表行或0xFFFF哨兵、并无调用臂那样的转发臂，不能按字面复用外层实例化行）。
 - 闭包值是泛型display实例上的绑定引用，描述符经接收者头填充（绑定委托既有通道，VmExecutorFrames.cpp:120-127）——`T`操作在lambda体内拿到真实描述符。
@@ -105,10 +105,10 @@ lambda统一降阶为**编译器合成类**（display class）＋绑定引用：
 
 ## 五、测试与验收
 
-- **e2e—lambda族**（真实编译＋VM执行）：计数器跨调用保持（lambda内外互见修改）；两个lambda共享同一捕获存储（f1改f2见）；循环捕获每迭代新鲜（for与foreach各一，断言非尾值）；递归lambda；`thread.spawn(() => …)`零参lambda；lambda入`List<func<…>>`与`contains`/`indexOf`；`toString`=="lambda"；同一次作用域激活内同一lambda两求值`==`、两次进入作用域（工厂函数两次调用）`!=`；`&`捕获逃逸后调用（spawn回收写累加）；返回被捕获变量的引用；泛型体内lambda捕获`T`变量（实例化后`T`操作正确）。
+- **e2e—lambda族**（真实编译＋VM执行）：计数器跨调用保持（lambda内外互见修改）；两个lambda共享同一捕获存储（f1改f2见）；循环捕获每迭代新鲜（for与foreach各一，断言非尾值）；递归lambda；`thread.spawn(() -> …)`零参lambda；lambda入`List<func<…>>`与`contains`/`indexOf`；`toString`=="lambda"；同一次作用域激活内同一lambda两求值`==`、两次进入作用域（工厂函数两次调用）`!=`；`&`捕获逃逸后调用（spawn回收写累加）；返回被捕获变量的引用；泛型体内lambda捕获`T`变量（实例化后`T`操作正确）。
 - **e2e—泛型函数值族**（与捕获无关的解禁验收）：泛型游离函数值赋给具`func`类型后调用；泛型静态方法引用；两个不同实例化的句柄`!=`、同源两引用`==`。
-- **单元**：文法（`=>`与`==`/`>=`无冲突、覆盖文法`(x)`/`(x,y)`/`(int x)`分流、块体/表达式体）；类型化（期望类型推断、显式不一致、void丢弃拒绝）；诊断文本逐字断言（含`invalid lambda parameter list`、默认值形参）；降阶产物形状（display字段集、MakeBoundFunc位点、byref字段标记臂）。
-- **手册同步点**：§7.4整节（lambda语法/捕获/相等/toString/错误清单）、§2文法概览、§5.9函数值表达式（lambda语法落点＋引用对照）、§6.1 static局部与lambda、§26 NCU格式（v2.23、MakeFunc操作数、函数表标志位）、`stdlib/http.n:1358`注释（「The language has no anonymous function literals」失实，随web批或本版一并改）、§18 Promise页「直接派生带返回值的委托当前要求先经显式委托局部」表述（`thread.spawn(() => …)`改写）。
+- **单元**：文法（`->`与`==`/`>=`无冲突、覆盖文法`(x)`/`(x,y)`/`(int x)`分流、块体/表达式体）；类型化（期望类型推断、显式不一致、void丢弃拒绝）；诊断文本逐字断言（含`invalid lambda parameter list`、默认值形参）；降阶产物形状（display字段集、MakeBoundFunc位点、byref字段标记臂）。
+- **手册同步点**：§7.4整节（lambda语法/捕获/相等/toString/错误清单）、§2文法概览、§5.9函数值表达式（lambda语法落点＋引用对照）、§6.1 static局部与lambda、§26 NCU格式（v2.23、MakeFunc操作数、函数表标志位）、`stdlib/http.n:1358`注释（「The language has no anonymous function literals」失实，随web批或本版一并改）、§18 Promise页「直接派生带返回值的委托当前要求先经显式委托局部」表述（`thread.spawn(() -> …)`改写）。
 
 ## 六、非目标
 
@@ -126,7 +126,7 @@ lambda统一降阶为**编译器合成类**（display class）＋绑定引用：
 | D6 | 表达式体void期望非void＝编译错误 | 类型诚实，无静默丢弃 | 用户写块体，成本一行 |
 | D7 | 省略形参类型按期望填充（复用InferredTarget通道）、显式必须全同 | §7.4无变异性同规；推断面最小、通道已有 | — |
 | D8 | 零参括号强制 | 省括号与表达式文法歧义，KISS | — |
-| D9 | 覆盖文法：内层统一表达式列表、`)`处lookahead `=>`分流、参数形态`=>`后语义后检 | `(x)`括号表达式与单参前缀在LALR(1)内不可两全；`=>`不入任何表达式FOLLOW集故shift决策无冲突；`(int x)`类型关键字自然分流；自定义类型名`(Point p)`中ident后跟ident在表达式文法中无去处、只有`TypeRef TT_Identifier`路径可活，同样分流；本项目避LALR冲突改设计有先例（`as`弃`(T)`前缀cast） | 语义层多一道参数形态后检 |
+| D9 | 覆盖文法：内层统一表达式列表、`)`处lookahead `->`分流、参数形态`->`后语义后检 | `(x)`括号表达式与单参前缀在LALR(1)内不可两全；`->`不入任何表达式FOLLOW集故shift决策无冲突；`(int x)`类型关键字自然分流；自定义类型名`(Point p)`中ident后跟ident在表达式文法中无去处、只有`TypeRef TT_Identifier`路径可活，同样分流；本项目避LALR冲突改设计有先例（`as`弃`(T)`前缀cast） | 语义层多一道参数形态后检 |
 | D10 | 泛型上下文lambda支持：display按泛型类模板合成、实例化随外层、描述符经接收者头 | 与泛型函数值解禁同版相邻，交互不可回避；全部原语既有（OP_New descIdx、绑定头通道），VM组合哲学；排除须独立理由而工作量论不成立 | display合成参与实例化机制，编译器侧复杂度 |
 | D11 | `&`捕获安全（按构造堆锚定），GC补byref字段标记臂；返回被捕获变量引用放行 | 提升机制实证（NF_Promoted断言链）；「存储随帧终结」前提对display不成立 | MarkClassFields新增一臂；引用对拆基句柄＋偏移两字段位 |
 | D12 | 闭包身份＝(lambda方法, display实例)；display按作用域激活分配、作用域进入时创建，同激活内两求值相等、跨激活不等（C#语义） | 按引用捕获迫使被捕获变量存储唯一＝该激活一份display，「每次求值新闭包」与「共享存储/同一性相等」三联不可同时成立（第二轮R2-I1）；相等性跟随身份最简 | 与零捕获统一路径；e2e「!=」断言须用跨激活形态（工厂两次调用） |

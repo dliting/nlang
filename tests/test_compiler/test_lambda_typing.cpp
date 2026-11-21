@@ -123,6 +123,19 @@ const SnLambdaExpr* findLambda(const Node& node)
     return nullptr;
 }
 
+//First NK_IdentifierExpr spelled `name` in the subtree — null when none.
+const SnIdentifierExpr* findIdentifier(const Node& node, const char* name)
+{
+    if (node.Kind() == NK_IdentifierExpr
+        && static_cast<const SnIdentifierExpr&>(node).Name() == name)
+        return static_cast<const SnIdentifierExpr*>(&node);
+    const auto& children = node.Children();
+    for (auto it = children.cbegin(); it != children.cend(); ++it)
+        if (const auto* pHit = findIdentifier(*it, name))
+            return pHit;
+    return nullptr;
+}
+
 //The stamped func<...> instantiation of a resolved lambda — null when
 //the node carries no class-decl type (unresolved or misstamped).
 const SnClassDecl* stampedFuncDecl(const SnLambdaExpr& lambda)
@@ -184,10 +197,10 @@ private slots:
         TypeCastInfo::StaticInit();   //cast table (0.7.5: no longer inside Runtime::StaticInit)
     }
 
-    //Bare parameter filled from the expected type: `(x) => x*2` under
+    //Bare parameter filled from the expected type: `(x) -> x*2` under
     //`func<int, int>` types x as int and stamps the func instantiation.
     void TestTypedParamInferredFromExpected() {
-        auto out = compileOne(wrapped("(x) => x * 2").c_str());
+        auto out = compileOne(wrapped("(x) -> x * 2").c_str());
         auto* pLambda = findLambda(out.builder->TreeRootView());
         QVERIFY(pLambda != nullptr);
         QVERIFY(pLambda->IsResolved());
@@ -208,7 +221,7 @@ private slots:
     //No expected type — a lambda as a binary operand never receives an
     //InferredTarget: the named no-target diagnostic fires.
     void TestNoExpectedTypeRejected() {
-        auto out = compileOne(wrapped("1 + ((x) => x)").c_str());
+        auto out = compileOne(wrapped("1 + ((x) -> x)").c_str());
         QVERIFY(!out.ok);
         QCOMPARE(countErrorsContaining(
             out, "requires an expected function type"), 1);
@@ -217,7 +230,7 @@ private slots:
     //Explicit parameter types must match the expected signature
     //position-for-position, with no variance.
     void TestExplicitParamTypeMismatch() {
-        auto out = compileOne(wrapped("(float x) => x").c_str());
+        auto out = compileOne(wrapped("(float x) -> x").c_str());
         QVERIFY(!out.ok);
         QCOMPARE(countErrorsContaining(out, "lambda parameter"), 1);
     }
@@ -225,7 +238,7 @@ private slots:
     //D6: a func<void> expectation discards nothing silently — a
     //value-yielding expression body is a compile error.
     void TestVoidExprBodyDiscardRejected() {
-        auto out = compileOne(wrappedVoid("() => 1").c_str());
+        auto out = compileOne(wrappedVoid("() -> 1").c_str());
         QVERIFY(!out.ok);
         QCOMPARE(countErrorsContaining(out, "yields a value"), 1);
     }
@@ -233,7 +246,7 @@ private slots:
     //The zero-parameter lambda against a one-parameter expected type:
     //the arity gate names both counts.
     void TestZeroParamArityMismatch() {
-        auto out = compileOne(wrapped("() => 1").c_str());
+        auto out = compileOne(wrapped("() -> 1").c_str());
         QVERIFY(!out.ok);
         QCOMPARE(countErrorsContaining(out, "yields a value"), 0);
         QCOMPARE(countErrorsContaining(out, "takes 0 parameters"), 1);
@@ -244,7 +257,7 @@ private slots:
     //return-position discipline as a function's `return` statement
     //(FinishReturnExpr), which keeps the generic wording.
     void TestBodyTypeMismatchRejected() {
-        auto out = compileOne(wrapped("(x) => \"s\"").c_str());
+        auto out = compileOne(wrapped("(x) -> \"s\"").c_str());
         QVERIFY(!out.ok);
         QCOMPARE(countErrorsContaining(
             out, "Incompatible type"), 1);
@@ -255,13 +268,17 @@ private slots:
     void TestBlockBodyVoidFormed() {
         auto out = compileOne(
             "int main() {\n"
-            "    func<void> g = () => { int q = 1; q += 2; };\n"
+            "    func<void> g = () -> { int q = 1; q += 2; };\n"
             "    return 0;\n"
             "}\n");
         auto* pLambda = findLambda(out.builder->TreeRootView());
         QVERIFY(pLambda != nullptr);
         QVERIFY(pLambda->IsResolved());
-        QVERIFY(pLambda->BlockBody() != nullptr);
+        //Task 6's capture analysis moves the body into the synthetic
+        //method — the block now lives there, the lambda keeps the
+        //pointer pair.
+        QVERIFY(pLambda->SyntheticMethod() != nullptr);
+        QVERIFY(pLambda->SyntheticMethod()->Body() != nullptr);
         auto* pFunc = stampedFuncDecl(*pLambda);
         QVERIFY(pFunc != nullptr);
         QCOMPARE(pFunc->GenericTypeArgs().size(), size_t(1));
@@ -276,7 +293,7 @@ private slots:
     void TestBlockReturnTyped() {
         auto out = compileOne(
             "int main() {\n"
-            "    func<int, int> f = (x) => { return x * 2; };\n"
+            "    func<int, int> f = (x) -> { return x * 2; };\n"
             "    return 0;\n"
             "}\n");
         auto* pLambda = findLambda(out.builder->TreeRootView());
@@ -284,8 +301,14 @@ private slots:
         QVERIFY(pLambda->IsResolved());
         QCOMPARE(pLambda->ParamLocals().size(), size_t(1));
         auto* pParam = pLambda->ParamLocals()[0].get();
-        QCOMPARE(pLambda->BlockBody()->FindField("x"),
-            static_cast<SnField*>(pParam));
+        //Task 6 moved the body into the synthetic method. The
+        //resolution-time bindings still answer the original parameter
+        //descriptor (emission reads them there); the moved block's own
+        //name lookup answers the rebuilt formal instead.
+        QVERIFY(pLambda->SyntheticMethod() != nullptr);
+        auto* pUse = findIdentifier(*pLambda->SyntheticMethod()->Body(), "x");
+        QVERIFY(pUse != nullptr);
+        QCOMPARE(pUse->Field(), static_cast<SnField*>(pParam));
         QCOMPARE(countResolutionErrors(out), 0);
         QCOMPARE(countErrorsContaining(out, "lambda"), 0);
     }
@@ -295,7 +318,7 @@ private slots:
     void TestBlockNeverReturnsRejected() {
         auto out = compileOne(
             "int main() {\n"
-            "    func<int, int> f = (x) => { int q = x; };\n"
+            "    func<int, int> f = (x) -> { int q = x; };\n"
             "    return 0;\n"
             "}\n");
         QVERIFY(!out.ok);
@@ -307,7 +330,7 @@ private slots:
     void TestBareReturnInBlockRejected() {
         auto out = compileOne(
             "int main() {\n"
-            "    func<int, int> f = (x) => { return; };\n"
+            "    func<int, int> f = (x) -> { return; };\n"
             "    return 0;\n"
             "}\n");
         QVERIFY(!out.ok);
@@ -320,7 +343,7 @@ private slots:
     void TestValueReturnAgainstVoidRejected() {
         auto out = compileOne(
             "int main() {\n"
-            "    func<void> g = () => { return 1; };\n"
+            "    func<void> g = () -> { return 1; };\n"
             "    return 0;\n"
             "}\n");
         QVERIFY(!out.ok);
@@ -331,7 +354,7 @@ private slots:
     //parameter spelling, the descriptor carries the mark, and the body
     //types against the &-returning expectation.
     void TestRefParamAndReturnTyped() {
-        auto out = compileOne(wrappedRef("(int& x) => x").c_str());
+        auto out = compileOne(wrappedRef("(int& x) -> x").c_str());
         auto* pLambda = findLambda(out.builder->TreeRootView());
         QVERIFY(pLambda != nullptr);
         QVERIFY(pLambda->IsResolved());
@@ -349,7 +372,7 @@ private slots:
     //a reference-marked parameter under a plain-value expectation is the
     //named parameter mismatch.
     void TestRefParamMarkMismatchRejected() {
-        auto out = compileOne(wrapped("(int& x) => x").c_str());
+        auto out = compileOne(wrapped("(int& x) -> x").c_str());
         QVERIFY(!out.ok);
         QCOMPARE(countErrorsContaining(out, "lambda parameter"), 1);
     }
@@ -360,7 +383,7 @@ private slots:
         auto out = compileOne(
             "void run(func<int, int> g) { }\n"
             "int main() {\n"
-            "    run((x) => x * 2);\n"
+            "    run((x) -> x * 2);\n"
             "    return 0;\n"
             "}\n");
         auto* pLambda = findLambda(out.builder->TreeRootView());
@@ -378,7 +401,7 @@ private slots:
     void TestLambdaListEntryTyped() {
         auto out = compileOne(
             "int main() {\n"
-            "    List<func<int, int>> l = [(x) => x];\n"
+            "    List<func<int, int>> l = [(x) -> x];\n"
             "    return 0;\n"
             "}\n");
         auto* pLambda = findLambda(out.builder->TreeRootView());
@@ -396,7 +419,7 @@ private slots:
     void TestInstanceFieldInitializerRejected() {
         auto out = compileOne(
             "class C {\n"
-            "    func<int, int> m = (x) => x;\n"
+            "    func<int, int> m = (x) -> x;\n"
             "}\n"
             "int main() {\n"
             "    return 0;\n"
@@ -413,7 +436,7 @@ private slots:
     void TestStaticFieldLambdaResolves() {
         auto out = compileOne(
             "class C {\n"
-            "    static func<int, int> m = (x) => x;\n"
+            "    static func<int, int> m = (x) -> x;\n"
             "}\n"
             "int main() {\n"
             "    return 0;\n"

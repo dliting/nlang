@@ -116,11 +116,18 @@ uint16_t VmBackend::AssignStmtPeakDepth(SnStatement& stmt,
     //branch nests the struct-aware store tail's own claim(1)
     //(EmitStructAwareStoreField) — the uniform identifier claim of 1
     //fits both (over-reserve is the safe direction).
+    //0.13.10 Task 6: a CAPTURED target claims 2 — every flavor of
+    //EmitCapturedAssign parks [display record, value] in an exclusive
+    //claim (the bind-init pair staging included).
     else if (assign.Left()
         && assign.Left()->Kind() == NK_IdentifierExpr)
+    {
         claim = 1;
-    uint16_t m = l > r ? l : r;
-    return claim + m;
+        auto& idExpr = static_cast<SnIdentifierExpr&>(*assign.Left());
+        if (IsCapturedField(idExpr.Field()))
+            claim = 2;
+    }
+    return claim + (l > r ? l : r);
 }
 
 //NK_IfStmt arm of StmtPeakDepth.
