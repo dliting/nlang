@@ -1,0 +1,16 @@
+// Value-shape mismatch: uncaught Exception, exit 1 by design — the
+// value's shape must equal the view's (v1 carries no broadcasting;
+// numpy's misaligned-shape diagnostic is the honest failure). A
+// rank-1 float[5] against a 2x2 view mismatches both rank and count.
+import tensor;
+
+int main() {
+    float[] flat = tensor.full(16, 1.0f);
+    int[] shape = int[2];
+    shape[0] = 4;
+    shape[1] = 4;
+    float[,] m = tensor.reshape(flat, shape);
+    float[] v = tensor.full(5, 0.0f);
+    m[0:2, 0:2] = v;
+    return 0;
+}

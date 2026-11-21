@@ -1,0 +1,14 @@
+// Empty selection: the assignment is a no-op SUCCESS (exit 0) — a
+// zero-length axis selects nothing, the walk runs zero iterations.
+// numpy: empty slice assignment is silently empty.
+import tensor;
+
+int main() {
+    int[] a = tensor.arange(0, 3, 1);
+    int[] empty = int[0];
+    a[1:1] = empty;                    //no cells selected: no-op
+    if (a[0] != 0 || a[1] != 1 || a[2] != 2) return 1;
+    a[2:2] = 9;                        //the scalar arm on zero cells
+    if (a[2] != 2) return 2;
+    return 0;
+}

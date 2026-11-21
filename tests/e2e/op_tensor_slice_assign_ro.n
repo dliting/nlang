@@ -1,0 +1,20 @@
+// Broadcast-axis view assignment: uncaught Exception, exit 1 by
+// design. A broadcast axis (stride 0 over dim > 1, from broadcastTo)
+// folds several coordinates onto one owner cell — the view is
+// read-only by the store gate's rule, and the assignment honors it
+// (numpy: "assignment destination is read-only").
+import tensor;
+
+int main() {
+    float[] v = tensor.full(3, 1.0f);
+    int[] shape = int[2];
+    shape[0] = 3;
+    shape[1] = 1;
+    float[,] col = tensor.reshape(v, shape);
+    int[] target = int[2];
+    target[0] = 3;
+    target[1] = 3;
+    float[,] broad = tensor.broadcastTo(col, target);
+    broad[0:3, 0:3] = 0;
+    return 0;
+}

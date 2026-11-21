@@ -311,6 +311,46 @@ TensorOps MakeCudaTable() {
     t.takeAlongI32 = t.takeAlongF32;
     t.takeAlongI64 = t.takeAlongF32;
 
+    t.assignIntoF32 = [](NativeHost* host, NativeArrayView& view,
+                         NativeArrayView& values) {
+        RequireCuda(host);
+        //The values stage host-side (the dispatcher's metadata pattern)
+        //— a dense read rides the H2D scratch inside the launcher.
+        CUDA_CHECK(LaunchAssignInto(ToLaunch(view),
+            static_cast<const uint8_t*>(values.data)
+                + static_cast<size_t>(values.offset)
+                    * values.elemCellBytes,
+            view.elemKind), "tensor (cuda assignInto)");
+    };
+    t.assignIntoF64 = t.assignIntoF32;
+    t.assignIntoI32 = t.assignIntoF32;
+    t.assignIntoI64 = t.assignIntoF32;
+
+    t.assignIntoSF32 = [](NativeHost* host, NativeArrayView& view,
+                          double sv) {
+        RequireCuda(host);
+        CUDA_CHECK(LaunchAssignIntoScalar(ToLaunch(view), sv, 0, 1),
+            "tensor (cuda assignIntoS)");
+    };
+    t.assignIntoSF64 = [](NativeHost* host, NativeArrayView& view,
+                          double sv) {
+        RequireCuda(host);
+        CUDA_CHECK(LaunchAssignIntoScalar(ToLaunch(view), sv, 0, 17),
+            "tensor (cuda assignIntoS)");
+    };
+    t.assignIntoSI32 = [](NativeHost* host, NativeArrayView& view,
+                          int64_t sv) {
+        RequireCuda(host);
+        CUDA_CHECK(LaunchAssignIntoScalar(ToLaunch(view), 0.0, sv, 0),
+            "tensor (cuda assignIntoS)");
+    };
+    t.assignIntoSI64 = [](NativeHost* host, NativeArrayView& view,
+                          int64_t sv) {
+        RequireCuda(host);
+        CUDA_CHECK(LaunchAssignIntoScalar(ToLaunch(view), 0.0, sv, 15),
+            "tensor (cuda assignIntoS)");
+    };
+
     t.unaryF32 = [](NativeHost* host, UnaryKernelOp op,
                     NativeArrayView& src, NativeArrayView& dst) {
         RequireCuda(host);

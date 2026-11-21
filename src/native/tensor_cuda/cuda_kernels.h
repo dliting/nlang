@@ -128,6 +128,17 @@ cudaError_t LaunchScatterAdd(const LaunchView& a, const LaunchView& indices,
                              int32_t* errorOut);
 cudaError_t LaunchMatmul(const LaunchView& a, const LaunchView& b,
                          const LaunchView& dst, int elemKindCode);
+//assignInto (the slice-assignment write half): ASYNC — one thread per
+//view cell, each write routed through the view's strides (a slice
+//view writes through to its base). The values ride the pool scratch
+//H2D; the writeability gate rode the host check.
+cudaError_t LaunchAssignInto(const LaunchView& view,
+                             const void* values, int elemKindCode);
+//The scalar arm: the constant rides the launch parameters (no values
+//staging — the array arm's H2D row would ship count cells for a
+//one-number broadcast).
+cudaError_t LaunchAssignIntoScalar(const LaunchView& view, double sv,
+                                   int64_t isv, int elemKindCode);
 //sort/argsort (stable ascending per axis line, NaN to the end): ASYNC
 //— one thread per line, an in-thread insertion sort. Lines above
 //kSortMaxLine (declared in TensorOps.h — both dispatchers read it)

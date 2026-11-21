@@ -319,6 +319,10 @@ private:
 	//store paths skip). Defined in StatementResolverTensorAssign.cpp
 	//with the shared operand prologue.
 	bool TryTensorScatterInto(SnSubscriptAssignStmt &sn);
+	//v0.14.8: the slice assignment lowering (the subscript list
+	//carrying slice items) — the read half yields the slice view, the
+	//write half is tensor.assignInto over it. True = consumed.
+	bool TryTensorSliceAssign(SnSubscriptAssignStmt &sn);
 	bool ResolveSubscriptAssignOperands(SnSubscriptAssignStmt &sn);
 	bool RejectStringBase(SnExpression &base, const ISourceLocation *pLoc);
 	void ApplyArrayElementStoreCast(SnSubscriptAssignStmt &sn);

@@ -1866,6 +1866,103 @@ __global__ void TakeAlongKernel(DevView src, int32_t axis,
     ((T*)dst.data)[dstAddr] = ((const T*)src.data)[srcAddr];
 }
 
+//assignInto (the slice-assignment write half): one thread per view
+//cell, each write routed through the view's strides to the owning
+//record — a slice view writes through to its base. The values ride
+//the pool scratch H2D (dense, count cells — the dispatcher stages
+//them host-side first). ASYNC (no cell errors — the writeability
+//gate rode the host check).
+template <typename T>
+__global__ void AssignIntoKernel(DevView view, const T* values,
+                                 int64_t count) {
+    const int64_t cell = blockIdx.x * (int64_t)blockDim.x + threadIdx.x;
+    if (cell >= count)
+        return;
+    int64_t addr = view.offset;
+    int64_t rem = cell;
+    for (int32_t d = view.rank - 1; d >= 0; --d) {
+        const int64_t dim = view.dims[d];
+        const int64_t coord = dim > 0 ? rem % dim : 0;
+        rem /= (dim > 0 ? dim : 1);
+        addr += coord * view.strides[d];
+    }
+    ((T*)view.data)[addr] = values[cell];
+}
+
+cudaError_t LaunchAssignInto(const LaunchView& view,
+                             const void* values, int elemKindCode) {
+    //ASYNC (no cell errors — the writeability gate rode the host
+    //validation). Empty view: no cells — no launch, no scratch.
+    if (view.elemCount == 0)
+        return cudaSuccess;
+    const int64_t count = view.elemCount;
+    const int cellBytes = elemKindCode == 17 || elemKindCode == 15 ? 8 : 4;
+    void* dVals = PoolAlloc(static_cast<size_t>(count) * cellBytes,
+        g_stream);
+    if (dVals == nullptr)
+        return cudaErrorMemoryAllocation;
+    cudaMemcpyAsync(dVals, values, static_cast<size_t>(count) * cellBytes,
+        cudaMemcpyHostToDevice, g_stream);
+    const DevView dv = ToDevView(view);
+    const int64_t blocks = (count + kThreads - 1) / kThreads;
+    if (elemKindCode == 1)
+        AssignIntoKernel<float><<<(int)blocks, kThreads, 0, g_stream>>>(
+            dv, static_cast<const float*>(dVals), count);
+    else if (elemKindCode == 17)
+        AssignIntoKernel<double><<<(int)blocks, kThreads, 0, g_stream>>>(
+            dv, static_cast<const double*>(dVals), count);
+    else if (elemKindCode == 0)
+        AssignIntoKernel<int32_t><<<(int)blocks, kThreads, 0, g_stream>>>(
+            dv, static_cast<const int32_t*>(dVals), count);
+    else
+        AssignIntoKernel<int64_t><<<(int)blocks, kThreads, 0, g_stream>>>(
+            dv, static_cast<const int64_t*>(dVals), count);
+    PoolFree(dVals, g_stream);
+    return cudaGetLastError();
+}
+
+//The scalar arm: the constant rides the launch parameters — no values
+//staging at all (the array arm's H2D row would ship count cells for a
+//one-number broadcast).
+template <typename T>
+__global__ void AssignIntoScalarKernel(DevView view, T value,
+                                       int64_t count) {
+    const int64_t cell = blockIdx.x * (int64_t)blockDim.x + threadIdx.x;
+    if (cell >= count)
+        return;
+    int64_t addr = view.offset;
+    int64_t rem = cell;
+    for (int32_t d = view.rank - 1; d >= 0; --d) {
+        const int64_t dim = view.dims[d];
+        const int64_t coord = dim > 0 ? rem % dim : 0;
+        rem /= (dim > 0 ? dim : 1);
+        addr += coord * view.strides[d];
+    }
+    ((T*)view.data)[addr] = value;
+}
+
+cudaError_t LaunchAssignIntoScalar(const LaunchView& view, double sv,
+                                   int64_t isv, int elemKindCode) {
+    if (view.elemCount == 0)
+        return cudaSuccess;
+    const DevView dv = ToDevView(view);
+    const int64_t count = view.elemCount;
+    const int64_t blocks = (count + kThreads - 1) / kThreads;
+    if (elemKindCode == 1)
+        AssignIntoScalarKernel<float><<<(int)blocks, kThreads, 0,
+            g_stream>>>(dv, static_cast<float>(sv), count);
+    else if (elemKindCode == 17)
+        AssignIntoScalarKernel<double><<<(int)blocks, kThreads, 0,
+            g_stream>>>(dv, sv, count);
+    else if (elemKindCode == 0)
+        AssignIntoScalarKernel<int32_t><<<(int)blocks, kThreads, 0,
+            g_stream>>>(dv, static_cast<int32_t>(isv), count);
+    else
+        AssignIntoScalarKernel<int64_t><<<(int)blocks, kThreads, 0,
+            g_stream>>>(dv, isv, count);
+    return cudaGetLastError();
+}
+
 cudaError_t LaunchTakeAlong(const LaunchView& src, int axis,
                             const int32_t* indices,
                             const LaunchView& dst) {

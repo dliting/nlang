@@ -1074,6 +1074,46 @@ TensorOps MakeCpuTable() {
         ScatterAddCpuI64(host, a, axis, indices, values, dst,
             valuesScalar, isv, errorOut);
     };
+    t.assignIntoF32 = [](NativeHost* host, NativeArrayView& view,
+                         NativeArrayView& values) {
+        (void)host;
+        AssignIntoCpuF32(view, values);
+    };
+    t.assignIntoF64 = [](NativeHost* host, NativeArrayView& view,
+                         NativeArrayView& values) {
+        (void)host;
+        AssignIntoCpuF64(view, values);
+    };
+    t.assignIntoI32 = [](NativeHost* host, NativeArrayView& view,
+                         NativeArrayView& values) {
+        (void)host;
+        AssignIntoCpuI32(view, values);
+    };
+    t.assignIntoI64 = [](NativeHost* host, NativeArrayView& view,
+                         NativeArrayView& values) {
+        (void)host;
+        AssignIntoCpuI64(view, values);
+    };
+    t.assignIntoSF32 = [](NativeHost* host, NativeArrayView& view,
+                          double sv) {
+        (void)host;
+        AssignIntoScalarCpuF32(view, sv);
+    };
+    t.assignIntoSF64 = [](NativeHost* host, NativeArrayView& view,
+                          double sv) {
+        (void)host;
+        AssignIntoScalarCpuF64(view, sv);
+    };
+    t.assignIntoSI32 = [](NativeHost* host, NativeArrayView& view,
+                          int64_t sv) {
+        (void)host;
+        AssignIntoScalarCpuI32(view, sv);
+    };
+    t.assignIntoSI64 = [](NativeHost* host, NativeArrayView& view,
+                          int64_t sv) {
+        (void)host;
+        AssignIntoScalarCpuI64(view, sv);
+    };
     t.whereI64 = [](NativeHost* host, NativeArrayView& mask,
                     NativeArrayView& x, NativeArrayView& y,
                     NativeArrayView& dst, bool maskLong, bool xScalar,

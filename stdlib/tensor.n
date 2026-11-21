@@ -451,6 +451,19 @@ native void scatterAddInto(Array<long> a, Array<int> indices, Array<long> values
 native void scatterAddInto(Array<float> a, Array<int> indices, Array<float> values);
 native void scatterAddInto(Array<double> a, Array<int> indices, Array<double> values);
 
+// assignInto: the slice-assignment write half — the resolver lowers
+// `m[0:2, 0:2] = v` onto these. The values' shape must equal the
+// view's (cell-for-cell) or the scalar broadcast covers every cell;
+// a broadcast-axis view is read-only.
+native void assignInto(Array<float> view, Array<float> values);
+native void assignInto(Array<double> view, Array<double> values);
+native void assignInto(Array<int> view, Array<int> values);
+native void assignInto(Array<long> view, Array<long> values);
+native void assignIntoS(Array<float> view, float value);
+native void assignIntoS(Array<double> view, double value);
+native void assignIntoS(Array<int> view, int value);
+native void assignIntoS(Array<long> view, long value);
+
 // The scalar overload at the base spelling.
 Array<float> scatter(Array<float> a, int axis, Array<int> indices,
     float value) {

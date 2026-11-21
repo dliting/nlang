@@ -311,6 +311,30 @@ struct TensorOps {
                           NativeArrayView& values, NativeArrayView& dst,
                           bool valuesScalar, int64_t isv,
                           int32_t* errorOut);
+    //assignInto: write a value over a VIEW's cells (the slice-assign
+    //lowering's write half) — the view's strides route each write to
+    //the owning record, so a slice view writes through to its base.
+    //The writeability gate (a broadcast axis folds several coordinates
+    //onto one cell) rides the dispatcher's host-side check. ASYNC-GROUP
+    //(no cell errors — no indices to bound).
+    void (*assignIntoF32)(NativeHost* host, NativeArrayView& view,
+                          NativeArrayView& values);
+    void (*assignIntoF64)(NativeHost* host, NativeArrayView& view,
+                          NativeArrayView& values);
+    void (*assignIntoI32)(NativeHost* host, NativeArrayView& view,
+                          NativeArrayView& values);
+    void (*assignIntoI64)(NativeHost* host, NativeArrayView& view,
+                          NativeArrayView& values);
+    //The scalar arm: every view cell takes the constant (the int kinds
+    //carry the exact int64 twin).
+    void (*assignIntoSF32)(NativeHost* host, NativeArrayView& view,
+                           double sv);
+    void (*assignIntoSF64)(NativeHost* host, NativeArrayView& view,
+                           double sv);
+    void (*assignIntoSI32)(NativeHost* host, NativeArrayView& view,
+                           int64_t sv);
+    void (*assignIntoSI64)(NativeHost* host, NativeArrayView& view,
+                           int64_t sv);
     //oneHot: int32 labels → float32 [len, n] rows.
     void (*oneHotI32)(NativeHost* host, NativeArrayView& labels,
                       int32_t n, NativeArrayView& dst);

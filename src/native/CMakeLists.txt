@@ -29,6 +29,8 @@ tensor/tensor_scatter_add.cpp
     tensor/tensor_sort.cpp
     tensor/tensor_take_along.cpp
     tensor/tensor_unique.cpp
+    tensor/tensor_assign_into.cpp
+    
     tensor/tensor_matrix.cpp
     tensor/tensor_reduce.cpp
     tensor/tensor_views.cpp

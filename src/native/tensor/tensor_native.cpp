@@ -344,6 +344,10 @@ NLANG_DEFINE_NATIVE_INIT {
         &tensor::TensorScatterAdd);
     regBlocking(registry, "tensor", "scatterAddInto",
         &tensor::TensorScatterAddInto);
+    regBlocking(registry, "tensor", "assignInto",
+        &tensor::TensorAssignInto);
+    regBlocking(registry, "tensor", "assignIntoS",
+        &tensor::TensorAssignIntoS);
     regBlocking(registry, "tensor", "sort", &tensor::TensorSort);
     regBlocking(registry, "tensor", "argsort", &tensor::TensorArgSort);
     regBlocking(registry, "tensor", "takeAlongAxis",

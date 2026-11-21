@@ -175,10 +175,10 @@ void StatementResolveAccessor::FinishAssignTypeCheck(SnAssignStmt &sn)
 //element for array-valued bases (the interned token peeled), or the
 //container's value slot (List → type-args[0], Dict → type-args[1]).
 //Null = the base carries no derivable element type.
-//v0.12.7 Task 11: resolve the store's index expressions; a slice
-//index stops the statement — slice lvalues PARSE (the unified
-//subscript list) but have no store semantics until a writable view
-//gains materialization semantics. True = a diagnostic fired.
+//v0.12.7 Task 11: resolve the store's index expressions. Slice items
+//resolve too (their endpoint parts; the item node itself is the slice
+//view's argument row) — the tensor slice-assign classification below
+//owns the statement when at least one is present.
 bool StatementResolveAccessor::ResolveStoreIndices(
 	SnSubscriptAssignStmt &sn)
 {
@@ -187,12 +187,6 @@ bool StatementResolveAccessor::ResolveStoreIndices(
 		if (pIndex && !pIndex->IsResolved())
 			m_ExprResolver.Resolve(*pIndex, *pIndex->Parent(),
 				*m_pCurrType, ERF_None);
-		if (pIndex && pIndex->Kind() == NK_SliceItemExpr)
-		{
-			m_Env.Log(CLL_Error, pIndex->Location(),
-				"slice assignment is not supported yet.");
-			return true;
-		}
 	}
 	return false;
 }
@@ -205,6 +199,12 @@ void StatementResolveAccessor::Access(SnSubscriptAssignStmt &sn)
 	//The operands resolve before the tensor classification (the
 	//binary-lowering order — the shape gate reads resolved types).
 	if (ResolveSubscriptAssignOperands(sn))
+		return;
+	//v0.14.8: the slice assignment — a subscript list carrying slice
+	//items lowers to tensor.assignInto over the slice VIEW (the read
+	//path's normalization and gates own the view's shape and
+	//writability). Consumed statements skip the plain store paths.
+	if (TryTensorSliceAssign(sn))
 		return;
 	//v0.14.2: the fancy-index assignment — an array-valued index
 	//lowers to tensor.scatterInto (the write twin of gather; the

@@ -1,0 +1,45 @@
+// Slice assignment (v0.14.8): the statement writes THROUGH the slice
+// view — the read path's view aliases the base, and the value lands
+// over the view's cells (scalar broadcast or exact-shape array).
+// numpy's slice-assignment semantics. Exit 0 when every check holds.
+import tensor;
+
+int main() {
+    //Rank-1: the scalar arm zeroes the selected range.
+    int[] a = tensor.arange(0, 6, 1);
+    a[2:5] = 0;
+    if (a[0] != 0 || a[1] != 1 || a[2] != 0 || a[3] != 0 || a[4] != 0
+        || a[5] != 5) return 1;
+    //Rank-1 array arm: cell-for-cell over the selection.
+    int[] v = int[3];
+    v[0] = 7; v[1] = 8; v[2] = 9;
+    a[2:5] = v;
+    if (a[2] != 7 || a[3] != 8 || a[4] != 9) return 2;
+    //The unselected cells stay untouched (the write-through invariant).
+    if (a[0] != 0 || a[1] != 1 || a[5] != 5) return 3;
+    //Rank-2 middle-axis slice: cross-axis addressing through the view.
+    float[] flat = tensor.arange(0.0f, 16.0f, 1.0f);
+    int[] shape = int[2];
+    shape[0] = 4;
+    shape[1] = 4;
+    float[,] m = tensor.reshape(flat, shape);
+    float[] blk = tensor.full(2 * 2, -1.0f);
+    int[] bshape = int[2];
+    bshape[0] = 2;
+    bshape[1] = 2;
+    float[,] blkm = tensor.reshape(blk, bshape);
+    m[1:3, 1:3] = blkm;
+    //The 2x2 block at rows 1-2, cols 1-2: all -1.
+    if (m[1, 1] != -1.0f || m[1, 2] != -1.0f || m[2, 1] != -1.0f
+        || m[2, 2] != -1.0f) return 4;
+    //The untouched ring keeps the arange values.
+    if (m[0, 0] != 0.0f || m[0, 3] != 3.0f || m[3, 0] != 12.0f
+        || m[3, 3] != 15.0f) return 5;
+    if (m[1, 0] != 4.0f || m[2, 3] != 11.0f) return 6;
+    //Negative step: the reversed view walks the axis backwards — the
+    //scalar arm writes every selected cell regardless of the walk order.
+    int[] r = tensor.arange(0, 4, 1);
+    r[::-1] = 42;
+    if (r[0] != 42 || r[1] != 42 || r[2] != 42 || r[3] != 42) return 7;
+    return 0;
+}

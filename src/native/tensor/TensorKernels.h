@@ -450,7 +450,6 @@ void ScatterCpuF32(NativeHost* host, const NativeArrayView& a,
                    int32_t axis, const NativeArrayView& indices,
                    const NativeArrayView& values, NativeArrayView& dst,
                    bool valuesScalar, double sv, int32_t* errorOut);
-//--- v0.14.7: the accumulate twins (tensor_scatter.cpp) ---
 void ScatterAddCpuF32(NativeHost* host, const NativeArrayView& a,
                       int32_t axis, const NativeArrayView& indices,
                       const NativeArrayView& values, NativeArrayView& dst,
@@ -481,5 +480,20 @@ void ScatterCpuI64(NativeHost* host, const NativeArrayView& a,
                    bool valuesScalar, int64_t isv, int32_t* errorOut);
 void TensorOneHot(NativeHost* host, uint8_t* ret, const uint8_t* args,
                   int argc);
+//--- v0.14.8: the slice-assignment write half (tensor_assign_into.cpp) ---
+void TensorAssignInto(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                      int argc);
+void TensorAssignIntoS(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                       int argc);
+//The exported CPU walks (the CPU table's slots call them; the walks
+//are file-local in tensor_assign_into.cpp).
+void AssignIntoCpuF32(NativeArrayView& view, const NativeArrayView& values);
+void AssignIntoCpuF64(NativeArrayView& view, const NativeArrayView& values);
+void AssignIntoCpuI32(NativeArrayView& view, const NativeArrayView& values);
+void AssignIntoCpuI64(NativeArrayView& view, const NativeArrayView& values);
+void AssignIntoScalarCpuF32(NativeArrayView& view, double sv);
+void AssignIntoScalarCpuF64(NativeArrayView& view, double sv);
+void AssignIntoScalarCpuI32(NativeArrayView& view, int64_t sv);
+void AssignIntoScalarCpuI64(NativeArrayView& view, int64_t sv);
 
 } // namespace tensor
