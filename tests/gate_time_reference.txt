@@ -65,26 +65,550 @@
 
 # 以下为2a批的人工标注行(参考秒数待2b录制轮回填): 条目与类别依据spec D-7/D-8/D-9/D-12钉死,
 # 哨兵列待D-4选型后统一标注。
-ctest-Debug nd_resolve_stress_tests 0.00 100 常规 ctest-junit-serial - soak:轮数按构型给(D-8),Debug与IDE各100轮
-ctest-IDE nd_resolve_stress_tests 0.00 100 常规 ctest-junit-serial - soak:轮数按构型给(D-8),Debug与IDE各100轮
-ctest-ASan nd_resolve_stress_tests 0.00 30 常规 ctest-junit-serial - soak:轮数按构型给(D-8),ASan构型30轮当场即报
-ctest-Debug mnist_mlp_compile 0.00 1 演示验收 ctest-junit-serial - 演示验收面退出每轮判定(D-9第3类),全量腿与tensor族承接(D-7甲)
-ctest-IDE mnist_mlp_compile 0.00 1 演示验收 ctest-junit-serial - 演示验收面退出每轮判定(D-9第3类),全量腿与tensor族承接(D-7甲)
-ctest-ASan mnist_mlp_compile 0.00 1 演示验收 ctest-junit-serial - 演示验收面退出每轮判定(D-9第3类),全量腿与tensor族承接(D-7甲)
-ctest-Debug mnist_mlp_run 0.00 1 演示验收 ctest-junit-serial - 演示验收面退出每轮判定(D-9第3类),全量腿与tensor族承接(D-7甲)
-ctest-IDE mnist_mlp_run 0.00 1 演示验收 ctest-junit-serial - 演示验收面退出每轮判定(D-9第3类),全量腿与tensor族承接(D-7甲)
-ctest-ASan mnist_mlp_run 0.00 1 演示验收 ctest-junit-serial - 演示验收面退出每轮判定(D-9第3类),全量腿与tensor族承接(D-7甲)
-ctest-ASan mainwindow_tests 0.00 1 慢功能 ctest-junit-serial - 慢功能走乙路径(D-7末段):QtWidgets部件树与事件循环在ASan插桩下开销最大,不进ASan判定腿;功能面每轮由ctest-IDE腿覆盖,插桩面由T2的ASan全量腿每版承接
-ctest-ASan editor_tests 0.00 1 慢功能 ctest-junit-serial - 慢功能走乙路径(D-7末段):编辑器部件交互在ASan插桩下开销最大,不进ASan判定腿;功能面每轮由ctest-IDE腿覆盖,插桩面由T2的ASan全量腿每版承接
-ctest-ASan recentstore_tests 0.00 1 慢功能 ctest-junit-serial - 慢功能走乙路径(D-7末段):条目仅在IDE/ASan两棵树注册,不进ASan判定腿;功能面每轮由ctest-IDE腿覆盖,插桩面由T2的ASan全量腿每版承接
-ctest-ASan settingsstore_tests 0.00 1 慢功能 ctest-junit-serial - 慢功能走乙路径(D-7末段):条目仅在IDE/ASan两棵树注册,不进ASan判定腿;功能面每轮由ctest-IDE腿覆盖,插桩面由T2的ASan全量腿每版承接
-ctest-Debug threads_tests 0.00 1 常规 ctest-junit-serial - 时序敏感例外(D-12第4条):判据依赖激励窗口与静默窗口的相对比例而非绝对秒数,登记带理由的例外行,每轮保留
-ctest-IDE threads_tests 0.00 1 常规 ctest-junit-serial - 时序敏感例外(D-12第4条):判据依赖激励窗口与静默窗口的相对比例而非绝对秒数,登记带理由的例外行,每轮保留
-ctest-ASan threads_tests 0.00 1 常规 ctest-junit-serial - 时序敏感例外(D-12第4条):判据依赖激励窗口与静默窗口的相对比例而非绝对秒数,登记带理由的例外行,每轮保留
-e2e-Debug stdlib_regex_size 0.00 1 常规 e2e-serial - 满扫e2e腿每轮跑全清单不做类别过滤(D-7末段);近SLOW_MIN_REF_S=300阈值,ASan构型读数可超300仍判常规,超时帽由caps()按构型放大
-e2e-ASan stdlib_regex_size 0.00 1 常规 e2e-serial - 满扫e2e腿每轮跑全清单不做类别过滤(D-7末段);近SLOW_MIN_REF_S=300阈值,ASan构型读数可超300仍判常规,超时帽由caps()按构型放大
-e2e-Release stdlib_regex_size 0.00 1 常规 e2e-serial - 满扫e2e腿每轮跑全清单不做类别过滤(D-7末段);近SLOW_MIN_REF_S=300阈值,ASan构型读数可超300仍判常规,超时帽由caps()按构型放大
-e2e-Debug default 0.00 1 常规 e2e-serial - 清单行缺省参考(e2e构型的兜底行,D-3)
-e2e-ASan default 0.00 1 常规 e2e-serial - 清单行缺省参考(e2e构型的兜底行,D-3)
-e2e-Release default 0.00 1 常规 e2e-serial - 清单行缺省参考(e2e构型的兜底行,D-3)
-e2e-Release examples_manifest.txt 0.00 1 演示验收 e2e-serial - 示例清单条目按性质退出每轮判定(D-9第3类):验收面由T2-release-e2e全量腿承接;仅e2e-Release消费该清单
+ctest-Debug nd_resolve_stress_tests 155.94 100 常规 ctest-junit-serial - soak:轮数按构型给(D-8),Debug与IDE各100轮
+ctest-IDE nd_resolve_stress_tests 163.79 100 常规 ctest-junit-serial - soak:轮数按构型给(D-8),Debug与IDE各100轮
+ctest-ASan nd_resolve_stress_tests 881.80 30 常规 ctest-junit-serial - soak:轮数按构型给(D-8),ASan构型30轮当场即报
+ctest-Debug mnist_mlp_compile 0.41 1 演示验收 ctest-junit-serial - 演示验收面退出每轮判定(D-9第3类),全量腿与tensor族承接(D-7甲)
+ctest-IDE mnist_mlp_compile 0.43 1 演示验收 ctest-junit-serial - 演示验收面退出每轮判定(D-9第3类),全量腿与tensor族承接(D-7甲)
+ctest-ASan mnist_mlp_compile 1.80 1 演示验收 ctest-junit-serial - 演示验收面退出每轮判定(D-9第3类),全量腿与tensor族承接(D-7甲)
+ctest-Debug mnist_mlp_run 9.67 1 演示验收 ctest-junit-serial - 演示验收面退出每轮判定(D-9第3类),全量腿与tensor族承接(D-7甲)
+ctest-IDE mnist_mlp_run 9.68 1 演示验收 ctest-junit-serial - 演示验收面退出每轮判定(D-9第3类),全量腿与tensor族承接(D-7甲)
+ctest-ASan mnist_mlp_run 33.01 1 演示验收 ctest-junit-serial - 演示验收面退出每轮判定(D-9第3类),全量腿与tensor族承接(D-7甲)
+ctest-ASan mainwindow_tests 372.19 1 慢功能 ctest-junit-serial - 慢功能走乙路径(D-7末段):QtWidgets部件树与事件循环在ASan插桩下开销最大,不进ASan判定腿;功能面每轮由ctest-IDE腿覆盖,插桩面由T2的ASan全量腿每版承接
+ctest-ASan editor_tests 3.77 1 慢功能 ctest-junit-serial - 慢功能走乙路径(D-7末段):编辑器部件交互在ASan插桩下开销最大,不进ASan判定腿;功能面每轮由ctest-IDE腿覆盖,插桩面由T2的ASan全量腿每版承接
+ctest-ASan recentstore_tests 0.37 1 慢功能 ctest-junit-serial - 慢功能走乙路径(D-7末段):条目仅在IDE/ASan两棵树注册,不进ASan判定腿;功能面每轮由ctest-IDE腿覆盖,插桩面由T2的ASan全量腿每版承接
+ctest-ASan settingsstore_tests 0.38 1 慢功能 ctest-junit-serial - 慢功能走乙路径(D-7末段):条目仅在IDE/ASan两棵树注册,不进ASan判定腿;功能面每轮由ctest-IDE腿覆盖,插桩面由T2的ASan全量腿每版承接
+ctest-Debug threads_tests 61.41 1 常规 ctest-junit-serial - 时序敏感例外(D-12第4条):判据依赖激励窗口与静默窗口的相对比例而非绝对秒数,登记带理由的例外行,每轮保留
+ctest-IDE threads_tests 77.49 1 常规 ctest-junit-serial - 时序敏感例外(D-12第4条):判据依赖激励窗口与静默窗口的相对比例而非绝对秒数,登记带理由的例外行,每轮保留
+ctest-ASan threads_tests 248.56 1 常规 ctest-junit-serial - 时序敏感例外(D-12第4条):判据依赖激励窗口与静默窗口的相对比例而非绝对秒数,登记带理由的例外行,每轮保留
+e2e-Debug stdlib_regex_size 240.56 1 常规 e2e-serial - 满扫e2e腿每轮跑全清单不做类别过滤(D-7末段);本轮实测240.56s越过default行看门狗线10×10.0=100s,会被自己的看门狗掐死,须按本行ref_s定预算与看门狗帽;近SLOW_MIN_REF_S=300阈值,ASan构型读数可超300仍判常规,超时帽由caps()按构型放大
+e2e-ASan stdlib_regex_size 491.06 1 常规 e2e-serial - 满扫e2e腿每轮跑全清单不做类别过滤(D-7末段);本轮实测491.06s越过default行看门狗线10×10.0=100s,会被自己的看门狗掐死,须按本行ref_s定预算与看门狗帽;参考秒数超SLOW_MIN_REF_S=300仍标常规:全扫腿不按类别过滤,超时帽由caps()按构型放大
+e2e-Debug default 10.0 1 常规 e2e-serial - 清单行缺省参考:兜底覆盖其余全部无逐条目行的清单条目;ref_s按粗档登记(D-3),取本轮录制轮2202条MEASURE读数按条目名max合并后2201条的p99=1.89,向上取整到10秒、下限10.0
+e2e-ASan default 10.0 1 常规 e2e-serial - 清单行缺省参考:兜底覆盖其余全部无逐条目行的清单条目;ref_s按粗档登记(D-3),取本轮录制轮2202条MEASURE读数按条目名max合并后2201条的p99=5.13,向上取整到10秒、下限10.0
+e2e-Release default 10.0 1 常规 e2e-serial - 清单行缺省参考:兜底覆盖其余全部无逐条目行的清单条目;ref_s按粗档登记(D-3),取本轮录制轮2202条MEASURE读数按条目名max合并后2201条的p99=0.40,向上取整到10秒、下限10.0
+e2e-Release examples_manifest.txt 10.0 1 演示验收 e2e-serial - 示例清单条目按性质退出每轮判定(D-9第3类):验收面由T2-release-e2e全量腿承接;仅e2e-Release消费该清单;ref_s按粗档登记(D-3),取本轮该清单44条读数的最大值3.52,向上取整到10秒、下限10.0
+ctest-Debug array_flags_tests 0.31 1 常规 ctest-junit-serial
+ctest-Debug array_token_tests 0.30 1 常规 ctest-junit-serial
+ctest-Debug array_view_record_tests 1.75 1 常规 ctest-junit-serial
+ctest-Debug ast_containment_tests 0.06 1 常规 ctest-junit-serial
+ctest-Debug builtin_binding_tests 1.34 1 常规 ctest-junit-serial
+ctest-Debug chunkedarray_tests 0.05 1 常规 ctest-junit-serial
+ctest-Debug class_layout_tests 0.06 1 常规 ctest-junit-serial
+ctest-Debug cli_utf8_paths 0.42 1 常规 ctest-junit-serial
+ctest-Debug debugger_tests 24.94 1 常规 ctest-junit-serial
+ctest-Debug default_exprdesc_tests 0.19 1 常规 ctest-junit-serial
+ctest-Debug domainlocks_tests 1.14 1 常规 ctest-junit-serial
+ctest-Debug duplicate_package_path_compile 0.16 1 常规 ctest-junit-serial
+ctest-Debug e2e_compile 0.17 1 常规 ctest-junit-serial
+ctest-Debug e2e_runner_env_gate 1.75 1 常规 ctest-junit-serial
+ctest-Debug e2e_runner_scratch_isolation 1.97 1 常规 ctest-junit-serial
+ctest-Debug e2e_runner_timing_gate 3.01 1 常规 ctest-junit-serial
+ctest-Debug embed_api_tests 0.99 1 常规 ctest-junit-serial
+ctest-Debug embed_host_smoke 0.47 1 常规 ctest-junit-serial
+ctest-Debug embed_source_tests 2.32 1 常规 ctest-junit-serial
+ctest-Debug embed_value_tests 0.05 1 常规 ctest-junit-serial
+ctest-Debug embed_vm_tests 0.09 1 常规 ctest-junit-serial
+ctest-Debug function_size_tests 1.38 1 常规 ctest-junit-serial
+ctest-Debug gcworldstop_tests 0.68 1 常规 ctest-junit-serial
+ctest-Debug generic_runtime_info_tests 1.88 1 常规 ctest-junit-serial
+ctest-Debug import_cycle_tests 0.06 1 常规 ctest-junit-serial
+ctest-Debug interface_rtk_gc_tests 0.80 1 常规 ctest-junit-serial yes 哨兵:快、稳定、无时间断言(D-4)
+ctest-Debug io_input_tests 0.05 1 常规 ctest-junit-serial
+ctest-Debug langservice_tests 1.10 1 常规 ctest-junit-serial
+ctest-Debug libdemo_compile 0.18 1 常规 ctest-junit-serial
+ctest-Debug libdemo_run 0.26 1 常规 ctest-junit-serial
+ctest-Debug library_index_tests 0.18 1 常规 ctest-junit-serial
+ctest-Debug library_search_path_tests 0.05 1 常规 ctest-junit-serial
+ctest-Debug library_source_tests 9.15 1 常规 ctest-junit-serial
+ctest-Debug module_state_tests 0.70 1 常规 ctest-junit-serial
+ctest-Debug native_abi_tests 0.06 1 常规 ctest-junit-serial
+ctest-Debug native_array_abi_tests 2.31 1 常规 ctest-junit-serial
+ctest-Debug native_fs_tests 0.05 1 常规 ctest-junit-serial yes 哨兵:快、稳定、无时间断言(D-4)
+ctest-Debug native_host_tests 4.46 1 常规 ctest-junit-serial
+ctest-Debug native_loader_tests 0.08 1 常规 ctest-junit-serial
+ctest-Debug native_tensor_avx2 0.38 1 常规 ctest-junit-serial
+ctest-Debug native_tensor_scalar 0.65 1 常规 ctest-junit-serial
+ctest-Debug native_tensor_sse2 0.46 1 常规 ctest-junit-serial
+ctest-Debug ncc_flag_no_value 0.02 1 常规 ctest-junit-serial yes 哨兵:快、稳定、无时间断言(D-4)
+ctest-Debug ncc_no_o_output_cwd 0.20 1 常规 ctest-junit-serial
+ctest-Debug ncc_p_conflict 0.02 1 常规 ctest-junit-serial
+ctest-Debug ncc_run_verbose_search_path 0.08 1 常规 ctest-junit-serial
+ctest-Debug ncc_run_verbose_short 0.08 1 常规 ctest-junit-serial
+ctest-Debug ncc_thirdparty_default_run 0.25 1 常规 ctest-junit-serial
+ctest-Debug ncc_thirdparty_env_run 0.26 1 常规 ctest-junit-serial
+ctest-Debug ncc_thirdparty_run 0.26 1 常规 ctest-junit-serial
+ctest-Debug ncc_verbose_search_path 0.26 1 常规 ctest-junit-serial
+ctest-Debug ncc_verbose_short 0.25 1 常规 ctest-junit-serial
+ctest-Debug ncu_determinism 0.63 1 常规 ctest-junit-serial
+ctest-Debug ncu_package_tests 0.07 1 常规 ctest-junit-serial yes 哨兵:快、稳定、无时间断言(D-4)
+ctest-Debug nculinker_tests 0.06 1 常规 ctest-junit-serial
+ctest-Debug nculoader_tests 0.23 1 常规 ctest-junit-serial
+ctest-Debug nd_resolve_tests 4.81 1 常规 ctest-junit-serial
+ctest-Debug nd_tokens_tests 1.01 1 常规 ctest-junit-serial
+ctest-Debug ndb_native_machine 0.41 1 常规 ctest-junit-serial
+ctest-Debug ndisasm_qualified_func_name 0.02 1 常规 ctest-junit-serial
+ctest-Debug net_adopt_tests 0.05 1 常规 ctest-junit-serial
+ctest-Debug net_icmp_tests 0.05 1 常规 ctest-junit-serial
+ctest-Debug net_jobs_tests 0.05 1 常规 ctest-junit-serial
+ctest-Debug net_platform_tests 1.12 1 常规 ctest-junit-serial
+ctest-Debug net_scheduler_tests 0.70 1 常规 ctest-junit-serial
+ctest-Debug net_slots_tests 0.05 1 常规 ctest-junit-serial
+ctest-Debug nlang_c_inline 0.45 1 常规 ctest-junit-serial
+ctest-Debug nlang_cli_rejects 0.25 1 常规 ctest-junit-serial
+ctest-Debug nlang_docs_pytest 16.09 1 常规 ctest-junit-serial
+ctest-Debug nlang_gate_selftest 30.59 1 常规 ctest-junit-serial
+ctest-Debug nlang_run_script 0.92 1 常规 ctest-junit-serial
+ctest-Debug no_builtin_stdlib 1.40 1 常规 ctest-junit-serial
+ctest-Debug nproj_utf8 0.29 1 常规 ctest-junit-serial
+ctest-Debug nvm_carriers_flag 0.45 1 常规 ctest-junit-serial
+ctest-Debug nvm_gc_stress_position 0.30 1 常规 ctest-junit-serial
+ctest-Debug nvm_native_paths 0.64 1 常规 ctest-junit-serial
+ctest-Debug perunit_tests 4.55 1 常规 ctest-junit-serial
+ctest-Debug primitivetypes_tests 0.19 1 常规 ctest-junit-serial
+ctest-Debug primops_tests 0.70 1 常规 ctest-junit-serial
+ctest-Debug proj_ambiguous_bare_compile 0.17 1 常规 ctest-junit-serial
+ctest-Debug proj_bare_cross_dir_compile 0.16 1 常规 ctest-junit-serial
+ctest-Debug proj_bare_import_sub_compile 0.21 1 常规 ctest-junit-serial
+ctest-Debug proj_bare_import_sub_run 0.07 1 常规 ctest-junit-serial
+ctest-Debug proj_channel_initlist_compile 0.24 1 常规 ctest-junit-serial
+ctest-Debug proj_channel_initlist_run 0.08 1 常规 ctest-junit-serial
+ctest-Debug proj_concurrent_pkg_compile 0.24 1 常规 ctest-junit-serial
+ctest-Debug proj_concurrent_pkg_run 0.08 1 常规 ctest-junit-serial
+ctest-Debug proj_dup_import_compile 0.20 1 常规 ctest-junit-serial
+ctest-Debug proj_generic_cross_unit_compile 0.25 1 常规 ctest-junit-serial
+ctest-Debug proj_generic_cross_unit_run 0.08 1 常规 ctest-junit-serial
+ctest-Debug proj_generic_sourceless_compile 0.21 1 常规 ctest-junit-serial
+ctest-Debug proj_generic_sourceless_lib_compile 0.18 1 常规 ctest-junit-serial
+ctest-Debug proj_generic_sourceless_run 0.07 1 常规 ctest-junit-serial
+ctest-Debug proj_import_visibility_compile 0.24 1 常规 ctest-junit-serial
+ctest-Debug proj_import_visibility_run 0.08 1 常规 ctest-junit-serial
+ctest-Debug proj_imports_lib_stmts_compile 0.16 1 常规 ctest-junit-serial
+ctest-Debug proj_imports_script_compile 0.18 1 常规 ctest-junit-serial
+ctest-Debug proj_imports_script_lib 0.18 1 常规 ctest-junit-serial
+ctest-Debug proj_imports_script_run 0.02 1 常规 ctest-junit-serial
+ctest-Debug proj_name_visibility_compile 0.23 1 常规 ctest-junit-serial
+ctest-Debug proj_name_visibility_run 0.08 1 常规 ctest-junit-serial
+ctest-Debug proj_not_imported_compile 0.16 1 常规 ctest-junit-serial
+ctest-Debug proj_pkg_run_compile 0.22 1 常规 ctest-junit-serial
+ctest-Debug proj_pkg_run_run 0.08 1 常规 ctest-junit-serial
+ctest-Debug proj_qual_fail_chain_compile 0.17 1 常规 ctest-junit-serial
+ctest-Debug proj_qual_generic_hint_compile 0.17 1 常规 ctest-junit-serial
+ctest-Debug proj_qualified_ctor_compile 0.22 1 常规 ctest-junit-serial
+ctest-Debug proj_qualified_ctor_run 0.07 1 常规 ctest-junit-serial
+ctest-Debug proj_same_dir_compile 0.22 1 常规 ctest-junit-serial
+ctest-Debug proj_same_dir_run 0.08 1 常规 ctest-junit-serial
+ctest-Debug proj_thread_pkg_compile 0.23 1 常规 ctest-junit-serial
+ctest-Debug proj_thread_pkg_run 0.08 1 常规 ctest-junit-serial
+ctest-Debug proj_two_scripts_compile 0.16 1 常规 ctest-junit-serial
+ctest-Debug proj_user_overload_compile 0.22 1 常规 ctest-junit-serial yes 哨兵:快、稳定、无时间断言(D-4)
+ctest-Debug proj_user_overload_run 0.08 1 常规 ctest-junit-serial
+ctest-Debug proj_void_result_member_compile 0.17 1 常规 ctest-junit-serial
+ctest-Debug proj_wildcard_exact_union_compile 0.23 1 常规 ctest-junit-serial
+ctest-Debug proj_wildcard_exact_union_run 0.08 1 常规 ctest-junit-serial
+ctest-Debug project_compile 0.18 1 常规 ctest-junit-serial yes 哨兵:快、稳定、无时间断言(D-4)
+ctest-Debug project_run 0.19 1 常规 ctest-junit-serial
+ctest-Debug projectfile_tests 0.11 1 常规 ctest-junit-serial
+ctest-Debug promote_local_tests 1.91 1 常规 ctest-junit-serial
+ctest-Debug ref_ops_tests 1.50 1 常规 ctest-junit-serial
+ctest-Debug ref_params_tests 2.20 1 常规 ctest-junit-serial
+ctest-Debug regex_redos_compile 0.45 1 常规 ctest-junit-serial
+ctest-Debug regex_redos_run 44.68 1 常规 ctest-junit-serial
+ctest-Debug scanner_tests 0.05 1 常规 ctest-junit-serial
+ctest-Debug scratch_tests 0.05 1 常规 ctest-junit-serial
+ctest-Debug script_wrap_tests 1.07 1 常规 ctest-junit-serial
+ctest-Debug shardalloc_tests 0.06 1 常规 ctest-junit-serial
+ctest-Debug source_size_guard 0.22 1 常规 ctest-junit-serial
+ctest-Debug stabilize_copy_tests 2.07 1 常规 ctest-junit-serial
+ctest-Debug static_init_tests 0.19 1 常规 ctest-junit-serial
+ctest-Debug stdlib_concurrency_tests 6.73 1 常规 ctest-junit-serial
+ctest-Debug stdlib_tests 15.72 1 常规 ctest-junit-serial
+ctest-Debug stride_table_tests 0.05 1 常规 ctest-junit-serial
+ctest-Debug string_gc_tests 9.69 1 常规 ctest-junit-serial
+ctest-Debug struct_ctor_tests 0.77 1 常规 ctest-junit-serial
+ctest-Debug struct_field_init_tests 1.28 1 常规 ctest-junit-serial
+ctest-Debug thirdparty_tests 4.96 1 常规 ctest-junit-serial
+ctest-Debug version_ncc 0.09 1 常规 ctest-junit-serial
+ctest-Debug version_ndb 0.08 1 常规 ctest-junit-serial
+ctest-Debug version_ndisasm 0.12 1 常规 ctest-junit-serial
+ctest-Debug version_nlang 0.13 1 常规 ctest-junit-serial yes 哨兵:快、稳定、无时间断言(D-4)
+ctest-Debug version_nvm 0.08 1 常规 ctest-junit-serial
+ctest-Debug vm_tests 0.07 1 常规 ctest-junit-serial
+ctest-Debug work_pool_tests 0.05 1 常规 ctest-junit-serial
+ctest-IDE array_flags_tests 0.63 1 常规 ctest-junit-serial
+ctest-IDE array_property_tests 1.44 1 常规 ctest-junit-serial
+ctest-IDE array_token_tests 0.36 1 常规 ctest-junit-serial
+ctest-IDE array_view_record_tests 1.75 1 常规 ctest-junit-serial
+ctest-IDE ast_containment_tests 0.05 1 常规 ctest-junit-serial
+ctest-IDE builtin_binding_tests 1.35 1 常规 ctest-junit-serial
+ctest-IDE builtin_surface_coverage_tests 0.64 1 常规 ctest-junit-serial
+ctest-IDE chunkedarray_tests 0.07 1 常规 ctest-junit-serial
+ctest-IDE class_layout_tests 0.06 1 常规 ctest-junit-serial
+ctest-IDE cli_utf8_paths 0.43 1 常规 ctest-junit-serial
+ctest-IDE compilelogbrowser_tests 1.94 1 常规 ctest-junit-serial
+ctest-IDE const_decl_tests 1.18 1 常规 ctest-junit-serial
+ctest-IDE debug_client_tests 4.52 1 常规 ctest-junit-serial
+ctest-IDE debug_protocol_tests 0.37 1 常规 ctest-junit-serial
+ctest-IDE debugger_tests 25.07 1 常规 ctest-junit-serial
+ctest-IDE default_exprdesc_tests 0.20 1 常规 ctest-junit-serial
+ctest-IDE descriptor_spelling_tests 1.68 1 常规 ctest-junit-serial
+ctest-IDE dialogs_tests 2.47 1 常规 ctest-junit-serial
+ctest-IDE domainlocks_tests 1.07 1 常规 ctest-junit-serial
+ctest-IDE duplicate_package_path_compile 0.16 1 常规 ctest-junit-serial
+ctest-IDE e2e_compile 0.18 1 常规 ctest-junit-serial
+ctest-IDE e2e_runner_env_gate 2.54 1 常规 ctest-junit-serial
+ctest-IDE e2e_runner_scratch_isolation 2.76 1 常规 ctest-junit-serial
+ctest-IDE e2e_runner_timing_gate 4.21 1 常规 ctest-junit-serial
+ctest-IDE editor_tests 2.99 1 常规 ctest-junit-serial
+ctest-IDE embed_api_tests 1.89 1 常规 ctest-junit-serial
+ctest-IDE embed_host_smoke 0.77 1 常规 ctest-junit-serial
+ctest-IDE embed_source_tests 3.78 1 常规 ctest-junit-serial
+ctest-IDE embed_value_tests 0.08 1 常规 ctest-junit-serial
+ctest-IDE embed_vm_tests 0.14 1 常规 ctest-junit-serial
+ctest-IDE function_size_tests 1.55 1 常规 ctest-junit-serial
+ctest-IDE gate_time_check_selftest 0.36 1 常规 ctest-junit-serial
+ctest-IDE gcworldstop_tests 0.63 1 常规 ctest-junit-serial
+ctest-IDE generic_decl_tests 8.46 1 常规 ctest-junit-serial
+ctest-IDE generic_descriptor_tests 0.39 1 常规 ctest-junit-serial
+ctest-IDE generic_runtime_info_tests 1.86 1 常规 ctest-junit-serial
+ctest-IDE generic_typeparam_gc_tests 0.40 1 常规 ctest-junit-serial
+ctest-IDE import_cycle_tests 0.05 1 常规 ctest-junit-serial
+ctest-IDE import_parse_tests 1.17 1 常规 ctest-junit-serial
+ctest-IDE interface_rtk_gc_tests 0.81 1 常规 ctest-junit-serial yes 哨兵:快、稳定、无时间断言(D-4)
+ctest-IDE io_input_tests 0.05 1 常规 ctest-junit-serial
+ctest-IDE langservice_tests 1.17 1 常规 ctest-junit-serial
+ctest-IDE libdemo_compile 0.18 1 常规 ctest-junit-serial
+ctest-IDE libdemo_run 0.26 1 常规 ctest-junit-serial
+ctest-IDE library_index_tests 0.20 1 常规 ctest-junit-serial
+ctest-IDE library_search_path_tests 0.05 1 常规 ctest-junit-serial
+ctest-IDE library_source_tests 9.07 1 常规 ctest-junit-serial
+ctest-IDE mainwindow_tests 115.60 1 常规 ctest-junit-serial
+ctest-IDE method_contracts_tests 1.67 1 常规 ctest-junit-serial
+ctest-IDE module_import_tests 19.90 1 常规 ctest-junit-serial
+ctest-IDE module_state_tests 0.75 1 常规 ctest-junit-serial
+ctest-IDE native_abi_tests 0.05 1 常规 ctest-junit-serial
+ctest-IDE native_array_abi_tests 2.31 1 常规 ctest-junit-serial
+ctest-IDE native_fs_tests 0.07 1 常规 ctest-junit-serial yes 哨兵:快、稳定、无时间断言(D-4)
+ctest-IDE native_host_tests 4.50 1 常规 ctest-junit-serial
+ctest-IDE native_loader_tests 0.08 1 常规 ctest-junit-serial
+ctest-IDE native_tensor_avx2 0.55 1 常规 ctest-junit-serial
+ctest-IDE native_tensor_scalar 0.99 1 常规 ctest-junit-serial
+ctest-IDE native_tensor_sse2 0.67 1 常规 ctest-junit-serial
+ctest-IDE ncc_flag_no_value 0.02 1 常规 ctest-junit-serial yes 哨兵:快、稳定、无时间断言(D-4)
+ctest-IDE ncc_no_o_output_cwd 0.20 1 常规 ctest-junit-serial
+ctest-IDE ncc_p_conflict 0.02 1 常规 ctest-junit-serial
+ctest-IDE ncc_run_verbose_search_path 0.12 1 常规 ctest-junit-serial
+ctest-IDE ncc_run_verbose_short 0.08 1 常规 ctest-junit-serial
+ctest-IDE ncc_thirdparty_default_run 0.27 1 常规 ctest-junit-serial
+ctest-IDE ncc_thirdparty_env_run 0.26 1 常规 ctest-junit-serial
+ctest-IDE ncc_thirdparty_run 0.27 1 常规 ctest-junit-serial
+ctest-IDE ncc_verbose_search_path 0.27 1 常规 ctest-junit-serial
+ctest-IDE ncc_verbose_short 0.26 1 常规 ctest-junit-serial
+ctest-IDE ncu_determinism 0.65 1 常规 ctest-junit-serial
+ctest-IDE ncu_package_tests 0.08 1 常规 ctest-junit-serial yes 哨兵:快、稳定、无时间断言(D-4)
+ctest-IDE nculinker_tests 0.06 1 常规 ctest-junit-serial
+ctest-IDE nculoader_tests 0.24 1 常规 ctest-junit-serial
+ctest-IDE nd_resolve_tests 4.68 1 常规 ctest-junit-serial
+ctest-IDE nd_tokens_tests 0.95 1 常规 ctest-junit-serial
+ctest-IDE ndb_native_machine 0.40 1 常规 ctest-junit-serial
+ctest-IDE ndisasm_qualified_func_name 0.02 1 常规 ctest-junit-serial
+ctest-IDE net_adopt_tests 0.05 1 常规 ctest-junit-serial
+ctest-IDE net_icmp_tests 0.05 1 常规 ctest-junit-serial
+ctest-IDE net_jobs_tests 0.05 1 常规 ctest-junit-serial
+ctest-IDE net_platform_tests 1.13 1 常规 ctest-junit-serial
+ctest-IDE net_scheduler_tests 0.69 1 常规 ctest-junit-serial
+ctest-IDE net_slots_tests 0.05 1 常规 ctest-junit-serial
+ctest-IDE nide_deploy_check 6.09 1 常规 ctest-junit-serial
+ctest-IDE nlang_c_inline 0.46 1 常规 ctest-junit-serial
+ctest-IDE nlang_cli_rejects 0.26 1 常规 ctest-junit-serial
+ctest-IDE nlang_docs_pytest 16.68 1 常规 ctest-junit-serial
+ctest-IDE nlang_gate_selftest 32.76 1 常规 ctest-junit-serial
+ctest-IDE nlang_run_script 0.94 1 常规 ctest-junit-serial
+ctest-IDE no_builtin_stdlib 1.44 1 常规 ctest-junit-serial
+ctest-IDE nproj_utf8 0.29 1 常规 ctest-junit-serial
+ctest-IDE nvm_carriers_flag 0.47 1 常规 ctest-junit-serial
+ctest-IDE nvm_gc_stress_position 0.31 1 常规 ctest-junit-serial
+ctest-IDE nvm_native_paths 0.66 1 常规 ctest-junit-serial
+ctest-IDE perunit_tests 4.56 1 常规 ctest-junit-serial
+ctest-IDE prelude_faces_tests 0.90 1 常规 ctest-junit-serial
+ctest-IDE primitivetypes_tests 0.20 1 常规 ctest-junit-serial
+ctest-IDE primops_tests 0.75 1 常规 ctest-junit-serial
+ctest-IDE proj_ambiguous_bare_compile 0.17 1 常规 ctest-junit-serial
+ctest-IDE proj_bare_cross_dir_compile 0.17 1 常规 ctest-junit-serial
+ctest-IDE proj_bare_import_sub_compile 0.23 1 常规 ctest-junit-serial
+ctest-IDE proj_bare_import_sub_run 0.08 1 常规 ctest-junit-serial
+ctest-IDE proj_channel_initlist_compile 0.24 1 常规 ctest-junit-serial
+ctest-IDE proj_channel_initlist_run 0.08 1 常规 ctest-junit-serial
+ctest-IDE proj_concurrent_pkg_compile 0.25 1 常规 ctest-junit-serial
+ctest-IDE proj_concurrent_pkg_run 0.08 1 常规 ctest-junit-serial
+ctest-IDE proj_dup_import_compile 0.20 1 常规 ctest-junit-serial
+ctest-IDE proj_generic_cross_unit_compile 0.25 1 常规 ctest-junit-serial
+ctest-IDE proj_generic_cross_unit_run 0.08 1 常规 ctest-junit-serial
+ctest-IDE proj_generic_sourceless_compile 0.24 1 常规 ctest-junit-serial
+ctest-IDE proj_generic_sourceless_lib_compile 0.18 1 常规 ctest-junit-serial
+ctest-IDE proj_generic_sourceless_run 0.08 1 常规 ctest-junit-serial
+ctest-IDE proj_import_visibility_compile 0.25 1 常规 ctest-junit-serial
+ctest-IDE proj_import_visibility_run 0.08 1 常规 ctest-junit-serial
+ctest-IDE proj_imports_lib_stmts_compile 0.17 1 常规 ctest-junit-serial
+ctest-IDE proj_imports_script_compile 0.18 1 常规 ctest-junit-serial
+ctest-IDE proj_imports_script_lib 0.19 1 常规 ctest-junit-serial
+ctest-IDE proj_imports_script_run 0.02 1 常规 ctest-junit-serial
+ctest-IDE proj_name_visibility_compile 0.23 1 常规 ctest-junit-serial
+ctest-IDE proj_name_visibility_run 0.08 1 常规 ctest-junit-serial
+ctest-IDE proj_not_imported_compile 0.17 1 常规 ctest-junit-serial
+ctest-IDE proj_pkg_run_compile 0.22 1 常规 ctest-junit-serial
+ctest-IDE proj_pkg_run_run 0.08 1 常规 ctest-junit-serial
+ctest-IDE proj_qual_fail_chain_compile 0.18 1 常规 ctest-junit-serial
+ctest-IDE proj_qual_generic_hint_compile 0.20 1 常规 ctest-junit-serial
+ctest-IDE proj_qualified_ctor_compile 0.22 1 常规 ctest-junit-serial
+ctest-IDE proj_qualified_ctor_run 0.08 1 常规 ctest-junit-serial
+ctest-IDE proj_same_dir_compile 0.23 1 常规 ctest-junit-serial
+ctest-IDE proj_same_dir_run 0.08 1 常规 ctest-junit-serial
+ctest-IDE proj_thread_pkg_compile 0.24 1 常规 ctest-junit-serial
+ctest-IDE proj_thread_pkg_run 0.09 1 常规 ctest-junit-serial
+ctest-IDE proj_two_scripts_compile 0.17 1 常规 ctest-junit-serial
+ctest-IDE proj_user_overload_compile 0.37 1 常规 ctest-junit-serial yes 哨兵:快、稳定、无时间断言(D-4)
+ctest-IDE proj_user_overload_run 0.14 1 常规 ctest-junit-serial
+ctest-IDE proj_void_result_member_compile 0.18 1 常规 ctest-junit-serial
+ctest-IDE proj_wildcard_exact_union_compile 0.23 1 常规 ctest-junit-serial
+ctest-IDE proj_wildcard_exact_union_run 0.09 1 常规 ctest-junit-serial
+ctest-IDE project_compile 0.19 1 常规 ctest-junit-serial yes 哨兵:快、稳定、无时间断言(D-4)
+ctest-IDE project_run 0.20 1 常规 ctest-junit-serial
+ctest-IDE projectfile_tests 0.12 1 常规 ctest-junit-serial
+ctest-IDE projectmodel_tests 0.63 1 常规 ctest-junit-serial
+ctest-IDE promote_local_tests 1.82 1 常规 ctest-junit-serial
+ctest-IDE recentstore_tests 0.37 1 常规 ctest-junit-serial
+ctest-IDE ref_binding_tests 5.62 1 常规 ctest-junit-serial
+ctest-IDE ref_declarator_tests 2.74 1 常规 ctest-junit-serial
+ctest-IDE ref_ops_tests 1.47 1 常规 ctest-junit-serial
+ctest-IDE ref_params_tests 2.17 1 常规 ctest-junit-serial
+ctest-IDE regex_redos_compile 0.46 1 常规 ctest-junit-serial
+ctest-IDE regex_redos_run 45.02 1 常规 ctest-junit-serial
+ctest-IDE runerrorbrowser_tests 1.96 1 常规 ctest-junit-serial
+ctest-IDE scanner_tests 0.05 1 常规 ctest-junit-serial
+ctest-IDE scratch_tests 0.06 1 常规 ctest-junit-serial
+ctest-IDE script_wrap_tests 1.01 1 常规 ctest-junit-serial
+ctest-IDE searchpath_integration_tests 3.78 1 常规 ctest-junit-serial
+ctest-IDE searchpathargs_tests 0.37 1 常规 ctest-junit-serial
+ctest-IDE settingsstore_tests 0.39 1 常规 ctest-junit-serial
+ctest-IDE shardalloc_tests 0.07 1 常规 ctest-junit-serial
+ctest-IDE solutiontreemodel_tests 0.39 1 常规 ctest-junit-serial
+ctest-IDE source_size_guard 0.23 1 常规 ctest-junit-serial
+ctest-IDE stabilize_copy_tests 2.03 1 常规 ctest-junit-serial
+ctest-IDE statement_diag_tests 0.39 1 常规 ctest-junit-serial
+ctest-IDE static_init_tests 0.19 1 常规 ctest-junit-serial
+ctest-IDE stdlib_concurrency_tests 6.79 1 常规 ctest-junit-serial
+ctest-IDE stdlib_tests 15.78 1 常规 ctest-junit-serial
+ctest-IDE stride_table_tests 0.05 1 常规 ctest-junit-serial
+ctest-IDE string_gc_tests 9.81 1 常规 ctest-junit-serial
+ctest-IDE struct_ctor_tests 0.81 1 常规 ctest-junit-serial
+ctest-IDE struct_field_init_tests 1.39 1 常规 ctest-junit-serial
+ctest-IDE syntaxhighlighter_tests 1.45 1 常规 ctest-junit-serial
+ctest-IDE terminal_tests 4.25 1 常规 ctest-junit-serial
+ctest-IDE thirdparty_tests 5.05 1 常规 ctest-junit-serial
+ctest-IDE type_access_prefix_tests 1.42 1 常规 ctest-junit-serial
+ctest-IDE version_ncc 0.08 1 常规 ctest-junit-serial
+ctest-IDE version_ndb 0.08 1 常规 ctest-junit-serial
+ctest-IDE version_ndisasm 0.13 1 常规 ctest-junit-serial
+ctest-IDE version_nlang 0.14 1 常规 ctest-junit-serial yes 哨兵:快、稳定、无时间断言(D-4)
+ctest-IDE version_nvm 0.09 1 常规 ctest-junit-serial
+ctest-IDE vm_tests 0.11 1 常规 ctest-junit-serial
+ctest-IDE work_pool_tests 0.05 1 常规 ctest-junit-serial
+ctest-ASan array_flags_tests 1.36 1 常规 ctest-junit-serial
+ctest-ASan array_property_tests 6.11 1 常规 ctest-junit-serial
+ctest-ASan array_token_tests 1.27 1 常规 ctest-junit-serial
+ctest-ASan array_view_record_tests 8.72 1 常规 ctest-junit-serial
+ctest-ASan ast_containment_tests 0.09 1 常规 ctest-junit-serial
+ctest-ASan builtin_binding_tests 6.12 1 常规 ctest-junit-serial
+ctest-ASan builtin_surface_coverage_tests 2.44 1 常规 ctest-junit-serial
+ctest-ASan chunkedarray_tests 0.10 1 常规 ctest-junit-serial
+ctest-ASan class_layout_tests 0.15 1 常规 ctest-junit-serial
+ctest-ASan cli_utf8_paths 1.61 1 常规 ctest-junit-serial
+ctest-ASan compilelogbrowser_tests 2.24 1 常规 ctest-junit-serial
+ctest-ASan const_decl_tests 5.38 1 常规 ctest-junit-serial
+ctest-ASan debug_client_tests 10.53 1 常规 ctest-junit-serial
+ctest-ASan debug_protocol_tests 0.37 1 常规 ctest-junit-serial
+ctest-ASan debugger_tests 103.44 1 常规 ctest-junit-serial
+ctest-ASan default_exprdesc_tests 0.67 1 常规 ctest-junit-serial
+ctest-ASan descriptor_spelling_tests 8.15 1 常规 ctest-junit-serial
+ctest-ASan dialogs_tests 3.22 1 常规 ctest-junit-serial
+ctest-ASan domainlocks_tests 1.62 1 常规 ctest-junit-serial
+ctest-ASan duplicate_package_path_compile 0.80 1 常规 ctest-junit-serial
+ctest-ASan e2e_compile 0.89 1 常规 ctest-junit-serial
+ctest-ASan embed_api_tests 3.54 1 常规 ctest-junit-serial
+ctest-ASan embed_host_smoke 1.49 1 常规 ctest-junit-serial
+ctest-ASan embed_source_tests 8.89 1 常规 ctest-junit-serial
+ctest-ASan embed_value_tests 0.08 1 常规 ctest-junit-serial
+ctest-ASan embed_vm_tests 0.23 1 常规 ctest-junit-serial
+ctest-ASan function_size_tests 4.36 1 常规 ctest-junit-serial
+ctest-ASan gate_time_check_selftest 0.21 1 常规 ctest-junit-serial
+ctest-ASan gcworldstop_tests 0.84 1 常规 ctest-junit-serial
+ctest-ASan generic_decl_tests 43.28 1 常规 ctest-junit-serial
+ctest-ASan generic_descriptor_tests 0.39 1 常规 ctest-junit-serial
+ctest-ASan generic_runtime_info_tests 9.83 1 常规 ctest-junit-serial
+ctest-ASan generic_typeparam_gc_tests 0.39 1 常规 ctest-junit-serial
+ctest-ASan import_cycle_tests 0.09 1 常规 ctest-junit-serial
+ctest-ASan import_parse_tests 5.54 1 常规 ctest-junit-serial
+ctest-ASan interface_rtk_gc_tests 4.43 1 常规 ctest-junit-serial yes 哨兵:快、稳定、无时间断言(D-4)
+ctest-ASan io_input_tests 0.10 1 常规 ctest-junit-serial
+ctest-ASan langservice_tests 5.02 1 常规 ctest-junit-serial
+ctest-ASan libdemo_compile 0.88 1 常规 ctest-junit-serial
+ctest-ASan libdemo_run 1.15 1 常规 ctest-junit-serial
+ctest-ASan library_index_tests 0.76 1 常规 ctest-junit-serial
+ctest-ASan library_search_path_tests 0.10 1 常规 ctest-junit-serial
+ctest-ASan library_source_tests 57.69 1 常规 ctest-junit-serial
+ctest-ASan method_contracts_tests 5.34 1 常规 ctest-junit-serial
+ctest-ASan module_import_tests 97.68 1 常规 ctest-junit-serial
+ctest-ASan module_state_tests 3.00 1 常规 ctest-junit-serial
+ctest-ASan native_abi_tests 0.10 1 常规 ctest-junit-serial
+ctest-ASan native_array_abi_tests 11.36 1 常规 ctest-junit-serial
+ctest-ASan native_fs_tests 0.08 1 常规 ctest-junit-serial yes 哨兵:快、稳定、无时间断言(D-4)
+ctest-ASan native_host_tests 24.73 1 常规 ctest-junit-serial
+ctest-ASan native_loader_tests 0.15 1 常规 ctest-junit-serial
+ctest-ASan native_tensor_avx2 0.98 1 常规 ctest-junit-serial
+ctest-ASan native_tensor_scalar 1.51 1 常规 ctest-junit-serial
+ctest-ASan native_tensor_sse2 1.00 1 常规 ctest-junit-serial
+ctest-ASan ncc_flag_no_value 0.10 1 常规 ctest-junit-serial yes 哨兵:快、稳定、无时间断言(D-4)
+ctest-ASan ncc_no_o_output_cwd 0.91 1 常规 ctest-junit-serial
+ctest-ASan ncc_p_conflict 0.10 1 常规 ctest-junit-serial
+ctest-ASan ncc_run_verbose_search_path 0.36 1 常规 ctest-junit-serial
+ctest-ASan ncc_run_verbose_short 0.32 1 常规 ctest-junit-serial
+ctest-ASan ncc_thirdparty_default_run 1.79 1 常规 ctest-junit-serial
+ctest-ASan ncc_thirdparty_env_run 1.45 1 常规 ctest-junit-serial
+ctest-ASan ncc_thirdparty_run 1.60 1 常规 ctest-junit-serial
+ctest-ASan ncc_verbose_search_path 1.51 1 常规 ctest-junit-serial
+ctest-ASan ncc_verbose_short 1.44 1 常规 ctest-junit-serial
+ctest-ASan ncu_determinism 2.75 1 常规 ctest-junit-serial
+ctest-ASan ncu_package_tests 0.13 1 常规 ctest-junit-serial yes 哨兵:快、稳定、无时间断言(D-4)
+ctest-ASan nculinker_tests 0.17 1 常规 ctest-junit-serial
+ctest-ASan nculoader_tests 0.26 1 常规 ctest-junit-serial
+ctest-ASan nd_resolve_tests 24.94 1 常规 ctest-junit-serial
+ctest-ASan nd_tokens_tests 4.75 1 常规 ctest-junit-serial
+ctest-ASan ndb_native_machine 1.81 1 常规 ctest-junit-serial
+ctest-ASan ndisasm_qualified_func_name 0.06 1 常规 ctest-junit-serial
+ctest-ASan net_adopt_tests 0.09 1 常规 ctest-junit-serial
+ctest-ASan net_icmp_tests 0.09 1 常规 ctest-junit-serial
+ctest-ASan net_jobs_tests 0.09 1 常规 ctest-junit-serial
+ctest-ASan net_platform_tests 1.18 1 常规 ctest-junit-serial
+ctest-ASan net_scheduler_tests 0.78 1 常规 ctest-junit-serial
+ctest-ASan net_slots_tests 0.09 1 常规 ctest-junit-serial
+ctest-ASan nide_deploy_check 16.45 1 常规 ctest-junit-serial
+ctest-ASan nlang_c_inline 1.98 1 常规 ctest-junit-serial
+ctest-ASan nlang_cli_rejects 0.95 1 常规 ctest-junit-serial
+ctest-ASan nlang_gate_selftest 27.83 1 常规 ctest-junit-serial
+ctest-ASan nlang_run_script 4.11 1 常规 ctest-junit-serial
+ctest-ASan no_builtin_stdlib 1.40 1 常规 ctest-junit-serial
+ctest-ASan nproj_utf8 1.14 1 常规 ctest-junit-serial
+ctest-ASan nvm_carriers_flag 1.80 1 常规 ctest-junit-serial
+ctest-ASan nvm_gc_stress_position 1.21 1 常规 ctest-junit-serial
+ctest-ASan nvm_native_paths 3.31 1 常规 ctest-junit-serial
+ctest-ASan perunit_tests 29.94 1 常规 ctest-junit-serial
+ctest-ASan prelude_faces_tests 3.77 1 常规 ctest-junit-serial
+ctest-ASan primitivetypes_tests 0.79 1 常规 ctest-junit-serial
+ctest-ASan primops_tests 3.75 1 常规 ctest-junit-serial
+ctest-ASan proj_ambiguous_bare_compile 0.84 1 常规 ctest-junit-serial
+ctest-ASan proj_bare_cross_dir_compile 0.84 1 常规 ctest-junit-serial
+ctest-ASan proj_bare_import_sub_compile 1.00 1 常规 ctest-junit-serial
+ctest-ASan proj_bare_import_sub_run 0.24 1 常规 ctest-junit-serial
+ctest-ASan proj_channel_initlist_compile 1.12 1 常规 ctest-junit-serial
+ctest-ASan proj_channel_initlist_run 0.29 1 常规 ctest-junit-serial
+ctest-ASan proj_concurrent_pkg_compile 1.13 1 常规 ctest-junit-serial
+ctest-ASan proj_concurrent_pkg_run 0.29 1 常规 ctest-junit-serial
+ctest-ASan proj_dup_import_compile 0.99 1 常规 ctest-junit-serial
+ctest-ASan proj_generic_cross_unit_compile 1.18 1 常规 ctest-junit-serial
+ctest-ASan proj_generic_cross_unit_run 0.29 1 常规 ctest-junit-serial
+ctest-ASan proj_generic_sourceless_compile 1.05 1 常规 ctest-junit-serial
+ctest-ASan proj_generic_sourceless_lib_compile 0.88 1 常规 ctest-junit-serial
+ctest-ASan proj_generic_sourceless_run 0.26 1 常规 ctest-junit-serial
+ctest-ASan proj_import_visibility_compile 1.17 1 常规 ctest-junit-serial
+ctest-ASan proj_import_visibility_run 0.29 1 常规 ctest-junit-serial
+ctest-ASan proj_imports_lib_stmts_compile 0.80 1 常规 ctest-junit-serial
+ctest-ASan proj_imports_script_compile 0.91 1 常规 ctest-junit-serial
+ctest-ASan proj_imports_script_lib 0.88 1 常规 ctest-junit-serial
+ctest-ASan proj_imports_script_run 0.13 1 常规 ctest-junit-serial
+ctest-ASan proj_name_visibility_compile 1.12 1 常规 ctest-junit-serial
+ctest-ASan proj_name_visibility_run 0.26 1 常规 ctest-junit-serial
+ctest-ASan proj_not_imported_compile 0.83 1 常规 ctest-junit-serial
+ctest-ASan proj_pkg_run_compile 1.05 1 常规 ctest-junit-serial
+ctest-ASan proj_pkg_run_run 0.26 1 常规 ctest-junit-serial
+ctest-ASan proj_qual_fail_chain_compile 0.84 1 常规 ctest-junit-serial
+ctest-ASan proj_qual_generic_hint_compile 0.84 1 常规 ctest-junit-serial
+ctest-ASan proj_qualified_ctor_compile 1.07 1 常规 ctest-junit-serial
+ctest-ASan proj_qualified_ctor_run 0.25 1 常规 ctest-junit-serial
+ctest-ASan proj_same_dir_compile 1.05 1 常规 ctest-junit-serial
+ctest-ASan proj_same_dir_run 0.28 1 常规 ctest-junit-serial
+ctest-ASan proj_thread_pkg_compile 1.11 1 常规 ctest-junit-serial
+ctest-ASan proj_thread_pkg_run 0.28 1 常规 ctest-junit-serial
+ctest-ASan proj_two_scripts_compile 0.84 1 常规 ctest-junit-serial
+ctest-ASan proj_user_overload_compile 1.07 1 常规 ctest-junit-serial yes 哨兵:快、稳定、无时间断言(D-4)
+ctest-ASan proj_user_overload_run 0.26 1 常规 ctest-junit-serial
+ctest-ASan proj_void_result_member_compile 0.84 1 常规 ctest-junit-serial
+ctest-ASan proj_wildcard_exact_union_compile 1.12 1 常规 ctest-junit-serial
+ctest-ASan proj_wildcard_exact_union_run 0.28 1 常规 ctest-junit-serial
+ctest-ASan project_compile 0.94 1 常规 ctest-junit-serial yes 哨兵:快、稳定、无时间断言(D-4)
+ctest-ASan project_run 0.99 1 常规 ctest-junit-serial
+ctest-ASan projectfile_tests 0.16 1 常规 ctest-junit-serial
+ctest-ASan projectmodel_tests 0.64 1 常规 ctest-junit-serial
+ctest-ASan promote_local_tests 9.57 1 常规 ctest-junit-serial
+ctest-ASan ref_binding_tests 27.92 1 常规 ctest-junit-serial
+ctest-ASan ref_declarator_tests 12.56 1 常规 ctest-junit-serial
+ctest-ASan ref_ops_tests 7.30 1 常规 ctest-junit-serial
+ctest-ASan ref_params_tests 11.22 1 常规 ctest-junit-serial
+ctest-ASan regex_redos_compile 1.64 1 常规 ctest-junit-serial
+ctest-ASan regex_redos_run 83.85 1 常规 ctest-junit-serial
+ctest-ASan runerrorbrowser_tests 2.23 1 常规 ctest-junit-serial
+ctest-ASan scanner_tests 0.09 1 常规 ctest-junit-serial
+ctest-ASan scratch_tests 0.11 1 常规 ctest-junit-serial
+ctest-ASan script_wrap_tests 4.84 1 常规 ctest-junit-serial
+ctest-ASan searchpath_integration_tests 8.71 1 常规 ctest-junit-serial
+ctest-ASan searchpathargs_tests 0.38 1 常规 ctest-junit-serial
+ctest-ASan shardalloc_tests 0.15 1 常规 ctest-junit-serial
+ctest-ASan solutiontreemodel_tests 0.39 1 常规 ctest-junit-serial
+ctest-ASan source_size_guard 0.22 1 常规 ctest-junit-serial
+ctest-ASan stabilize_copy_tests 10.19 1 常规 ctest-junit-serial
+ctest-ASan statement_diag_tests 1.20 1 常规 ctest-junit-serial
+ctest-ASan static_init_tests 0.73 1 常规 ctest-junit-serial
+ctest-ASan stdlib_concurrency_tests 30.93 1 常规 ctest-junit-serial
+ctest-ASan stdlib_tests 86.80 1 常规 ctest-junit-serial
+ctest-ASan stride_table_tests 0.09 1 常规 ctest-junit-serial
+ctest-ASan string_gc_tests 16.50 1 常规 ctest-junit-serial
+ctest-ASan struct_ctor_tests 4.50 1 常规 ctest-junit-serial
+ctest-ASan struct_field_init_tests 7.13 1 常规 ctest-junit-serial
+ctest-ASan syntaxhighlighter_tests 1.68 1 常规 ctest-junit-serial
+ctest-ASan terminal_tests 4.83 1 常规 ctest-junit-serial
+ctest-ASan thirdparty_tests 28.82 1 常规 ctest-junit-serial
+ctest-ASan type_access_prefix_tests 6.36 1 常规 ctest-junit-serial
+ctest-ASan version_ncc 0.11 1 常规 ctest-junit-serial
+ctest-ASan version_ndb 0.11 1 常规 ctest-junit-serial
+ctest-ASan version_ndisasm 0.15 1 常规 ctest-junit-serial
+ctest-ASan version_nlang 0.18 1 常规 ctest-junit-serial yes 哨兵:快、稳定、无时间断言(D-4)
+ctest-ASan version_nvm 0.11 1 常规 ctest-junit-serial
+ctest-ASan vm_tests 0.13 1 常规 ctest-junit-serial
+ctest-ASan work_pool_tests 0.09 1 常规 ctest-junit-serial
+e2e-Debug char_escape_reject 0.15 1 常规 e2e-serial yes 逐条目例外行:标为标量校准哨兵(D-4),快、稳定、无时间断言,校准须逐条目实测读数
+e2e-Debug alias_redef 0.16 1 常规 e2e-serial yes 逐条目例外行:标为标量校准哨兵(D-4),快、稳定、无时间断言,校准须逐条目实测读数
+e2e-Debug stdlib_fs_mkdirs_remove 0.29 1 常规 e2e-serial yes 逐条目例外行:标为标量校准哨兵(D-4),快、稳定、无时间断言,校准须逐条目实测读数
+e2e-Debug file_stream_write_read 0.29 1 常规 e2e-serial yes 逐条目例外行:标为标量校准哨兵(D-4),快、稳定、无时间断言,校准须逐条目实测读数
+e2e-Debug gc_stress_over_threshold 0.22 1 常规 e2e-serial yes 逐条目例外行:标为标量校准哨兵(D-4),快、稳定、无时间断言,校准须逐条目实测读数
+e2e-Debug generic_gc_tslot_survives 2.71 1 常规 e2e-serial yes 逐条目例外行:标为标量校准哨兵(D-4),快、稳定、无时间断言,校准须逐条目实测读数
+e2e-Release char_escape_reject 0.02 1 常规 e2e-serial yes 逐条目例外行:标为标量校准哨兵(D-4),快、稳定、无时间断言,校准须逐条目实测读数
+e2e-Release alias_redef 0.03 1 常规 e2e-serial yes 逐条目例外行:标为标量校准哨兵(D-4),快、稳定、无时间断言,校准须逐条目实测读数
+e2e-Release stdlib_fs_mkdirs_remove 0.05 1 常规 e2e-serial yes 逐条目例外行:标为标量校准哨兵(D-4),快、稳定、无时间断言,校准须逐条目实测读数
+e2e-Release file_stream_write_read 0.05 1 常规 e2e-serial yes 逐条目例外行:标为标量校准哨兵(D-4),快、稳定、无时间断言,校准须逐条目实测读数
+e2e-Release gc_stress_over_threshold 0.04 1 常规 e2e-serial yes 逐条目例外行:标为标量校准哨兵(D-4),快、稳定、无时间断言,校准须逐条目实测读数
+e2e-Release generic_gc_tslot_survives 0.26 1 常规 e2e-serial yes 逐条目例外行:标为标量校准哨兵(D-4),快、稳定、无时间断言,校准须逐条目实测读数
+ctest-Release interface_rtk_gc_tests 0.17 1 常规 ctest-junit-serial yes 哨兵:快、稳定、无时间断言(D-4)
+ctest-Release native_fs_tests 0.05 1 常规 ctest-junit-serial yes 哨兵:快、稳定、无时间断言(D-4)
+ctest-Release ncc_flag_no_value 0.01 1 常规 ctest-junit-serial yes 哨兵:快、稳定、无时间断言(D-4)
+ctest-Release ncu_package_tests 0.08 1 常规 ctest-junit-serial yes 哨兵:快、稳定、无时间断言(D-4)
+ctest-Release proj_user_overload_compile 0.03 1 常规 ctest-junit-serial yes 哨兵:快、稳定、无时间断言(D-4)
+ctest-Release project_compile 0.07 1 常规 ctest-junit-serial yes 哨兵:快、稳定、无时间断言(D-4)
+ctest-Release regex_redos_perf_compile 0.04 1 性能 ctest-junit-serial - 性能类条目(D-6):仅NLANG_PERF_TESTS=ON登记并由T2-perf腿承接;fixture内建毫秒帽按Release读数校准断言墙钟预算,ctest帽只是兜底
+ctest-Release regex_redos_perf_run 7.40 1 性能 ctest-junit-serial - 性能类条目(D-6):仅NLANG_PERF_TESTS=ON登记并由T2-perf腿承接;fixture内建毫秒帽按Release读数校准断言墙钟预算,ctest帽只是兜底
+ctest-Release version_nlang 0.13 1 常规 ctest-junit-serial yes 哨兵:快、稳定、无时间断言(D-4)
+ctest-Debug gate_time_check_selftest 0.25 1 常规 ctest-junit-serial
+e2e-ASan char_escape_reject 0.82 1 常规 e2e-serial yes 逐条目例外行:标为标量校准哨兵(D-4),快、稳定、无时间断言,校准须逐条目实测读数
+e2e-ASan alias_redef 0.83 1 常规 e2e-serial yes 逐条目例外行:标为标量校准哨兵(D-4),快、稳定、无时间断言,校准须逐条目实测读数
+e2e-ASan stdlib_fs_mkdirs_remove 1.38 1 常规 e2e-serial yes 逐条目例外行:标为标量校准哨兵(D-4),快、稳定、无时间断言,校准须逐条目实测读数
+e2e-ASan file_stream_write_read 1.24 1 常规 e2e-serial yes 逐条目例外行:标为标量校准哨兵(D-4),快、稳定、无时间断言,校准须逐条目实测读数
+e2e-ASan gc_stress_over_threshold 1.05 1 常规 e2e-serial yes 逐条目例外行:标为标量校准哨兵(D-4),快、稳定、无时间断言,校准须逐条目实测读数
+e2e-ASan generic_gc_tslot_survives 12.44 1 常规 e2e-serial yes 逐条目例外行:标为标量校准哨兵(D-4),快、稳定、无时间断言,校准须逐条目实测读数
