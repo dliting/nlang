@@ -1013,6 +1013,11 @@ class NLANG_COMPILER_API SnSubscriptExpr : public SnCompoundFieldExpr
 {
 	typedef SnCompoundFieldExpr Super_;
 	friend class ExprResolveAccessor;
+	//v0.14.8: the slice-assign rollback transfers the read's children
+	//through the statement's accessor (the Node::AddChild/RemoveChild
+	//pair is protected; the friendship lets the lowering's rollback
+	//reach the view's child list).
+	friend class StatementResolveAccessor;
 public:
 	static const NodeKind	s_Kind			= NK_SubscriptExpr;
 	static const NodeBits	s_DefaultFlags	= NF_Expression;

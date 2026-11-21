@@ -131,6 +131,40 @@ struct AssignScalar {
     int64_t isv = 0;
 };
 
+//The residency route: the slot call per element kind and arm (the
+//CPU walk serves host and mirror views; the device slot writes the
+//owner's buffer stride-aware).
+void RouteAssignInto(const TensorOps& ops, NativeHost* host,
+                     NativeArrayView& view, NativeArrayView& values,
+                     const AssignScalar& scalar, bool valuesScalar) {
+    switch (view.elemKind) {
+        case NEK_Int32:
+            if (valuesScalar)
+                ops.assignIntoSI32(host, view, scalar.isv);
+            else
+                ops.assignIntoI32(host, view, values);
+            break;
+        case NEK_Int64:
+            if (valuesScalar)
+                ops.assignIntoSI64(host, view, scalar.isv);
+            else
+                ops.assignIntoI64(host, view, values);
+            break;
+        case NEK_Float32:
+            if (valuesScalar)
+                ops.assignIntoSF32(host, view, scalar.sv);
+            else
+                ops.assignIntoF32(host, view, values);
+            break;
+        default:
+            if (valuesScalar)
+                ops.assignIntoSF64(host, view, scalar.sv);
+            else
+                ops.assignIntoF64(host, view, values);
+            break;
+    }
+}
+
 //The shared entry: gates, then the residency route.
 void AssignIntoRun(NativeHost* host, uint8_t* ret, const uint8_t* args,
                    bool valuesScalar)
@@ -160,32 +194,7 @@ void AssignIntoRun(NativeHost* host, uint8_t* ret, const uint8_t* args,
         }
     }
     const TensorOps& ops = OpsForResidency(view.reserved[0]);
-    switch (view.elemKind) {
-        case NEK_Int32:
-            if (valuesScalar)
-                ops.assignIntoSI32(host, view, scalar.isv);
-            else
-                ops.assignIntoI32(host, view, values);
-            break;
-        case NEK_Int64:
-            if (valuesScalar)
-                ops.assignIntoSI64(host, view, scalar.isv);
-            else
-                ops.assignIntoI64(host, view, values);
-            break;
-        case NEK_Float32:
-            if (valuesScalar)
-                ops.assignIntoSF32(host, view, scalar.sv);
-            else
-                ops.assignIntoF32(host, view, values);
-            break;
-        default:
-            if (valuesScalar)
-                ops.assignIntoSF64(host, view, scalar.sv);
-            else
-                ops.assignIntoF64(host, view, values);
-            break;
-    }
+    RouteAssignInto(ops, host, view, values, scalar, valuesScalar);
 }
 
 } //namespace

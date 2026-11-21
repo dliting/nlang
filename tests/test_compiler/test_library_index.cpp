@@ -30,7 +30,7 @@ static int g_failures = 0;
 //Pin for the stdlib free-function surface (per-package breakdown in
 //TestLoadsStdLib); the printer turns any future drift into a
 //per-package diff instead of a bare FAIL line.
-constexpr std::size_t kStdlibSymbolPin = 484;
+constexpr std::size_t kStdlibSymbolPin = 492;
 
 static void PrintIndexShape(const langservice::SymbolIndex &index)
 {

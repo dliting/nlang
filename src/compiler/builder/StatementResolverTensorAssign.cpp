@@ -167,52 +167,40 @@ static bool SliceAssignShape(SnSubscriptAssignStmt &sn)
 		|| baseKind == NK_Float || baseKind == NK_Double;
 }
 
-bool StatementResolveAccessor::TryTensorSliceAssign(
-	SnSubscriptAssignStmt &sn)
+//The read half of the slice-assign lowering: detach the operands,
+//resolve `base[items]` as a plain read (yielding the slice VIEW —
+//the read path's normalization, gates and residency are the single
+//source of the view's shape, strides and writability), then detach
+//the view and hand it over. False = the read's diagnostic fired (the
+//operands rolled back; the caller consumes the failure).
+bool StatementResolveAccessor::ResolveSliceAssignView(
+	SnSubscriptAssignStmt &sn, SnExpression *&pView)
 {
-	if (!SliceAssignShape(sn))
-		return false;
 	//The values-arm spelling: an array-valued value takes the array
 	//form, a scalar the scalar form (the compile-time shape selects
 	//the overload family — the same gate the fancy assignment uses).
 	auto *pValRow = sn.Value()
 		? ArrayElementRowOf(sn.Value()->EvalDataType()) : nullptr;
 	const char *fnName = pValRow ? "assignInto" : "assignIntoS";
-	auto candidates = m_Env.Registry().ModuleFunctions("tensor", fnName);
-	if (candidates.empty())
+	if (m_Env.Registry().ModuleFunctions("tensor", fnName).empty())
 		return false;   //no tensor import: the plain store path's
 		                //type diagnostic is the honest failure.
 	//The operands detach FIRST (AddChild asserts a null parent — the
 	//subscript's construction below adopts the base and the indices,
 	//so they must leave the statement's child list before it exists).
-	{
-		auto &children = sn.Children();
-		while (children.begin() != children.end())
-		{
-			auto iChild = children.begin();
-			sn.RemoveChild(iChild);
-		}
-	}
-	//The read half: the subscript re-adopts the base and the index
-	//list as a plain read expression — resolving it yields the slice
-	//VIEW the assignment writes through (the read path's normalization,
-	//gates and residency are the single source of the view's shape,
-	//strides and writability).
+	while (sn.Children().begin() != sn.Children().end())
+		sn.RemoveChild(sn.Children().begin());
 	UniquePtrList<SnExpression> subIndices;
 	for (auto *pIdx : sn.Indices())
 		subIndices.Add(pIdx);
 	auto pSub = new SnSubscriptExpr(sn.Array(), std::move(subIndices),
 		*sn.Location());
-	//The subscript hangs off the statement for the resolve (the read
-	//lowering walks the parent chain — an orphan node crashes there).
 	sn.AddChild(pSub);
 	if (!m_ExprResolver.Resolve(*pSub, sn, *m_pCurrType, ERF_None))
 	{
-			//The read's diagnostic is logged; unwind one level: transfer
-		//whatever children the read resolution left in the subscript
-		//back to the statement (the lowering may have rearranged them —
-		//normalized slice arrays, partially bound args — so the
-		//transfer is generic over Node*, never over assumed shapes).
+		//The read's diagnostic is logged; the subscript's children roll
+		//back into the statement and the node retires. The friendship of
+		//SnSubscriptExpr gates the Node-level child transfer.
 		while (pSub->Children().begin() != pSub->Children().end())
 		{
 			Node *pChild = &*pSub->Children().begin();
@@ -221,48 +209,86 @@ bool StatementResolveAccessor::TryTensorSliceAssign(
 		}
 		sn.RemoveChild(pSub);
 		delete pSub;
-		//Consumed: the read's diagnostic IS the statement's failure —
-		//the plain store paths must not run on the transferred fragments
-		//(the compile stops at the logged diagnostics; codegen is
+		return false;
+	}
+	sn.RemoveChild(pSub);
+	pView = pSub;
+	return true;
+}
+
+//The slice-assign lowering body: the read half yields the slice view,
+//the write half binds tensor.assignInto(view, value). True = the
+//statement consumed (the tensor body bound); false = a diagnostic
+//fired and the operands rolled back into the statement.
+bool StatementResolveAccessor::LowerTensorSliceAssign(
+	SnSubscriptAssignStmt &sn)
+{
+	//The values-arm spelling selects the overload family (the same
+	//gate the fancy assignment uses) — checked before any detachment.
+	auto *pValRow = sn.Value()
+		? ArrayElementRowOf(sn.Value()->EvalDataType()) : nullptr;
+	if (m_Env.Registry().ModuleFunctions("tensor",
+		pValRow ? "assignInto" : "assignIntoS").empty())
+		return false;   //no tensor import: the plain store path's
+		                //type diagnostic is the honest failure.
+	SnExpression *pView = nullptr;
+	if (!ResolveSliceAssignView(sn, pView))
+	{
+		//The read's diagnostic IS the statement's failure — the plain
+		//store paths must not run on the rolled-back fragments (the
+		//compile stops at the logged diagnostics; codegen is
 		//unreachable).
 		return true;
 	}
 	//The write half: tensor.assignInto(<subscript read>, value) — the
-	//subscript node detaches into the invoke's params (the ownership
-	//moves; the raw pointer stays valid for ToString/unwind). The value
-	//left the statement's child list in the top detach — only the
-	//subscript hangs here now.
+	//view detaches into the invoke's params (the ownership moves; the
+	//raw pointer stays valid for ToString/unwind).
 	SnExpression *pValue = sn.Value();
+	auto *pValRow2 = pValue
+		? ArrayElementRowOf(pValue->EvalDataType()) : nullptr;
 	UniquePtrList<SnExpression> params;
-	params.Add(pSub);
+	params.Add(pView);
 	params.Add(pValue);
-	sn.RemoveChild(pSub);
 	auto pPlan = new SnInvokeExpr(
-		new std::string(fnName), std::move(params), *sn.Location());
+		new std::string(pValRow2 ? "assignInto" : "assignIntoS"),
+		std::move(params), *sn.Location());
 	if (!m_ExprResolver.Resolve(*pPlan, sn, *m_pCurrType, ERF_None))
 	{
-				//The invoke's diagnostic is logged; unwind two levels back to
-		//the statement — the same generic transfer, subscript first
-		//(its children keep their order under the statement's).
-		while (pPlan->Children().begin() != pPlan->Children().end())
-		{
-			Node *pChild = &*pPlan->Children().begin();
-			pPlan->RemoveChild(pPlan->Children().begin());
-			sn.AddChild(pChild);
-		}
-		while (pSub->Children().begin() != pSub->Children().end())
-		{
-			Node *pChild = &*pSub->Children().begin();
-			pSub->RemoveChild(pSub->Children().begin());
-			sn.AddChild(pChild);
-		}
+		//The invoke's diagnostic is logged; the operands roll back two
+		//levels into the statement (the view first, so its children keep
+		//their order under the statement's). The params release through
+		//the public list API (the FancyAssign rollback shape).
+		while (pPlan->Params().begin() != pPlan->Params().end())
+			pPlan->Params().erase(pPlan->Params().begin());
 		delete pPlan;
-		delete pSub;
-		//Consumed: the invoke's diagnostic IS the statement's failure
-		//(the same reasoning as the read half).
+		sn.AddChild(pView);
 		return true;
 	}
 	sn.TensorBody(std::unique_ptr<SnInvokeExpr>(pPlan));
+	return true;
+}
+
+bool StatementResolveAccessor::TryTensorSliceAssign(
+	SnSubscriptAssignStmt &sn)
+{
+	if (!SliceAssignShape(sn))
+		return false;
+	//The values-arm spelling selects the overload family (the same
+	//gate the fancy assignment uses) — checked before any detachment.
+	auto *pValRow = sn.Value()
+		? ArrayElementRowOf(sn.Value()->EvalDataType()) : nullptr;
+	const char *fnName = pValRow ? "assignInto" : "assignIntoS";
+	if (m_Env.Registry().ModuleFunctions("tensor", fnName).empty())
+		return false;   //no tensor import: the plain store path's
+		                //type diagnostic is the honest failure.
+	if (!LowerTensorSliceAssign(sn))
+	{
+		//The lowering's diagnostic IS the statement's failure — the
+		//plain store paths must not run on the rolled-back fragments
+		//(the compile stops at the logged diagnostics; codegen is
+		//unreachable).
+		return true;
+	}
 	return true;
 }
 

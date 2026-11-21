@@ -314,15 +314,16 @@ private:
 	//arm when the RHS is a bare invoke (ResolveDeclaredGenericCtorTarget).
 	void PropagateAssignTargetHint(SnAssignStmt &sn);
 	bool TryBindSubscriptStoreFuncRef(SnSubscriptAssignStmt &sn);
-	//v0.14.2: the fancy-index assignment lowering (the array-valued
-	//index form). True = consumed (the tensor body bound; the plain
-	//store paths skip). Defined in StatementResolverTensorAssign.cpp
-	//with the shared operand prologue.
+	//v0.14.2/0.14.8: the tensor assignment lowerings — the fancy-index
+	//form lowers to tensor.scatterInto, the slice-carrying form to
+	//tensor.assignInto over the slice view. True = consumed (the tensor
+	//body bound; the plain store paths skip). Defined in
+	//StatementResolverTensorAssign.cpp.
 	bool TryTensorScatterInto(SnSubscriptAssignStmt &sn);
-	//v0.14.8: the slice assignment lowering (the subscript list
-	//carrying slice items) — the read half yields the slice view, the
-	//write half is tensor.assignInto over it. True = consumed.
 	bool TryTensorSliceAssign(SnSubscriptAssignStmt &sn);
+	bool ResolveSliceAssignView(SnSubscriptAssignStmt &sn,
+		SnExpression *&pView);
+	bool LowerTensorSliceAssign(SnSubscriptAssignStmt &sn);
 	bool ResolveSubscriptAssignOperands(SnSubscriptAssignStmt &sn);
 	bool RejectStringBase(SnExpression &base, const ISourceLocation *pLoc);
 	void ApplyArrayElementStoreCast(SnSubscriptAssignStmt &sn);
@@ -336,10 +337,9 @@ private:
 	//enclosing paragraph. Definition in StatementResolverFlow.cpp.
 	void RegisterForeachLoopVar(SnForeachStmt &sn, SnParagraph &paragraph,
 		SnField *pVarField);
-	//v0.13.9 phase 3: a & loop variable aliases the iteration element;
-	//Dict keys and string code points are materialized copies, so their
-	//& loops name their own diagnostics. Definition in
-	//StatementResolverRef.cpp.
+	//v0.13.9 phase 3: a & loop variable aliases the iteration element
+	//(Dict keys and string code points are materialized copies — their
+	//& loops name their own diagnostics). Definition in Ref.cpp.
 	void RejectRefForeachSource(SnForeachStmt &sn);
 	void ResolveForInitDecl(SnForStmt &sn);
 	SnAssignStmt *BuildForInitAssign(SnLocalDeclStmt &decl,
@@ -354,7 +354,6 @@ private:
 	//or a logged rejection; a bare super() on a parent without ctors is
 	//the legal no-op shape and also answers null.
 	SnFunction *SelectSuperCtor(SnSuperCallStmt &sn, SnClassDecl *pParent);
-
 public:
 
 	//Pre-pass entry (forward-reference fix): resolve one class's
@@ -494,10 +493,8 @@ public:
 	//— the need test walks the super chain.
 	static void PreSynthesizeStaticInitializers(Node& node,
 		StatementResolveAccessor& accessor);
-
 	void Resolve(SnNamespace &root);
 private:
 	StatementResolveAccessor m_Accessor;
 };
-
 } //namespace nlang
