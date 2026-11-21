@@ -147,6 +147,15 @@ leg_uncalibrated() { # leg_uncalibrated <name>
 # leg command.
 CTEST_TRANSITIONAL_TIMEOUT_S=1500
 
+# A leg's output lands in a log file, not on a terminal, so every timed
+# leg's environment pins one I/O encoding for its Python processes: on a
+# machine whose ANSI code page cannot spell the checker's Chinese
+# advisory wording, an uncaught UnicodeEncodeError would otherwise turn
+# the budget leg into a false red. The pin rides the leg command's
+# environment only -- the interactive console is never injected, so the
+# operator's terminal keeps its own code page.
+PY_IO_ENCODING="PYTHONIOENCODING=utf-8"
+
 ctest_leg() { # ctest_leg <name> <tree> <config-key> [-R <regex>]
   local name="$1" tree="$2" config="$3"; shift 3
   local scale regex="" junit="$LOGS/$name.xml"
@@ -157,7 +166,8 @@ ctest_leg() { # ctest_leg <name> <tree> <config-key> [-R <regex>]
   # checker either judges this round's timings or reports a missing file
   # (rc=1), never last round's numbers.
   rm -f "$junit"
-  leg "$name" env "NLANG_GATE_MACHINE_SCALE=$scale" bash -c \
+  leg "$name" env "NLANG_GATE_MACHINE_SCALE=$scale" "$PY_IO_ENCODING" \
+    bash -c \
     "cd '$tree' && ctest -C Debug$regex --output-junit '$junit' --timeout $CTEST_TRANSITIONAL_TIMEOUT_S"
   # Post-hoc budget judging (guard three): ctest has no inline budget
   # knob, so the checker reads the leg's junit after the fact. Its own
@@ -166,7 +176,8 @@ ctest_leg() { # ctest_leg <name> <tree> <config-key> [-R <regex>]
   # reuses this same leg's calibrated scalar (D-5: same leg, same
   # number), and --parallel/--repeat/--work-factor state the leg's run
   # form so the checker can refuse a form mismatch (guard ten).
-  leg "$name-budget" "$PY" "$REPO/tools/gate_time_check.py" check-budget \
+  leg "$name-budget" env "$PY_IO_ENCODING" \
+    "$PY" "$REPO/tools/gate_time_check.py" check-budget \
     --junit "$junit" --config "$config" --parallel 1 --repeat none \
     --work-factor 1 --scalar "$scale"
 }
@@ -177,7 +188,7 @@ e2e_leg() { # e2e_leg <name> <tree> <config> <ref-key> [manifest] [timeout]
   manifest=${manifest:-$REPO/tests/e2e/manifest.txt}
   local scale env_args=(env)
   scale=$(leg_scale "$refkey" --tools "$tree") || { leg_uncalibrated "$name"; return; }
-  env_args+=("NLANG_GATE_MACHINE_SCALE=$scale")
+  env_args+=("NLANG_GATE_MACHINE_SCALE=$scale" "$PY_IO_ENCODING")
   if [ -n "${5:-}" ]; then
     env_args+=("NLANG_E2E_MANIFEST=$manifest")
   fi

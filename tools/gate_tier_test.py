@@ -146,6 +146,13 @@ def run_smoke():
             check("NLANG_GATE_MACHINE_SCALE=1.0" in body,
                   "machine scale missing from the leg command "
                   f"environment: {body!r}")
+            # The leg's output lands in a log file, so the leg
+            # environment pins UTF-8 I/O for its Python processes (a
+            # low ANSI codepage machine would otherwise die on the
+            # checker's Chinese advisory wording -- false red).
+            check("PYTHONIOENCODING=utf-8" in body,
+                  "leg environment lost the UTF-8 I/O pin: "
+                  f"{body!r}")
             # Post-hoc budget judging needs the per-entry timings: the
             # leg writes its junit file and keeps the transitional
             # --timeout watchdog fallback until the TIMEOUT properties
@@ -169,9 +176,19 @@ def run_smoke():
         if budget_invocations.exists():
             body = budget_invocations.read_text()
             for token in ("check-budget", "--junit", "--config ctest-Debug",
-                          "--scalar 1.0"):
+                          "--scalar 1.0", "PYTHONIOENCODING=utf-8"):
                 check(token in body,
                       f"budget checker invocation lost {token!r}: {body!r}")
+        # The e2e legs print through the same file-bound channel, so the
+        # UTF-8 pin must ride their environment too.
+        e2e_invocations = gates_dir / "T1-debug-e2e.invocations"
+        check(e2e_invocations.exists(),
+              "stub gate.sh never received T1-debug-e2e — dispatch broken")
+        if e2e_invocations.exists():
+            body = e2e_invocations.read_text()
+            check("PYTHONIOENCODING=utf-8" in body,
+                  "e2e leg environment lost the UTF-8 I/O pin: "
+                  f"{body!r}")
         return not failures
     finally:
         shutil.rmtree(sandbox, ignore_errors=True)

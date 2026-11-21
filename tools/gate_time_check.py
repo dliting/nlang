@@ -37,6 +37,7 @@
 import argparse
 import json
 import os
+import re
 import statistics
 import subprocess
 import sys
@@ -589,7 +590,8 @@ def check_budget(config, cases, rows, parallel=1, repeat="none",
     no-double-verdict clause) -- or an ordinary test failure, which
     contributes no reading and is only listed for triage (the leg's own
     verdict owns its red); notrun spans are skip-decision cost and drop
-    out.
+    out. When one entry carries both shapes (Task 8's --repeat), the
+    fail row owns the entry and the run reading is dropped.
 
     Scope grading (D-3/R-17) bounds the force of a reading: only an entry
     resolved to its OWN row can make the checker red (BUDGET-FAIL); an
@@ -639,7 +641,14 @@ def check_budget(config, cases, rows, parallel=1, repeat="none",
             continue
         budget, watchdog = _caps_values(row.ref_s, work_factor, scalar)
         ratchet = row.ref_s * ratio * SAFETY_MULTIPLIER / 2
-        if name not in run_secs:
+        if name in fail_secs:
+            # Fail-first merge: Task 8's --repeat can leave a passing run
+            # row beside a killed (or failed) row for one entry. The fail
+            # row owns the entry so the TIMEOUT_WATCHDOG wording and the
+            # FAILED triage line survive next to the passing reading --
+            # judging the run row first would silently drop them; the
+            # run reading of the same entry is dropped instead (D-2's
+            # no-double-verdict clause).
             secs = fail_secs[name]
             if (watchdog * JUNIT_KILL_WINDOW_LO <= secs
                     <= watchdog * JUNIT_KILL_WINDOW_HI):
@@ -715,7 +724,10 @@ def _sample_ctest(config, tree, names):
     round's own rc is not the verdict (a killed sentinel is what the band
     decision and the findings are for)."""
     cfg = "Release" if config == "ctest-Release" else "Debug"
-    regex = "^(" + "|".join(sorted(names)) + ")$"
+    # re.escape each name before the union: ctest -R is a regex, so one
+    # entry name carrying a metacharacter must not widen (or break) the
+    # sentinel set -- the escape holds regardless of name discipline.
+    regex = "^(" + "|".join(re.escape(name) for name in sorted(names)) + ")$"
     with tempfile.TemporaryDirectory() as tmp:
         xml_path = Path(tmp) / "calibrate.xml"
         proc = subprocess.run(
@@ -937,9 +949,14 @@ def _build_parser():
         description="Reference timing table guards (see the module "
                     "docstring).")
     sub = parser.add_subparsers(dest="command", required=True)
-    derived = argparse.ArgumentParser(add_help=False)
-    derived.add_argument("--table", help="reference table (default "
-                                         "tests/gate_time_reference.txt)")
+    # One shared definition of --table: every subcommand takes the flag
+    # with the same name, default and help text, and the parents
+    # mechanism carries the same action into each parser, so the flag
+    # can never drift between subcommands.
+    table_arg = argparse.ArgumentParser(add_help=False)
+    table_arg.add_argument("--table", help="reference table (default "
+                                           "tests/gate_time_reference.txt)")
+    derived = argparse.ArgumentParser(add_help=False, parents=[table_arg])
     derived.add_argument("--repo", default=str(REPO_ROOT),
                          help="repo root holding the decision trees "
                              "(default the tool's own repo)")
@@ -957,15 +974,10 @@ def _build_parser():
                    help="guard one: coverage and sentinel counts")
     sub.add_parser("check-orphans", parents=[derived],
                    help="guard two: rows for entries that no longer exist")
-    constants = argparse.ArgumentParser(add_help=False)
-    constants.add_argument("--table", help="reference table (default "
-                                           "tests/gate_time_reference.txt)")
-    sub.add_parser("check-constants", parents=[constants],
+    sub.add_parser("check-constants", parents=[table_arg],
                    help="guard seven: constant band self-consistency")
-    record = sub.add_parser("record", help="merge measured readings into "
-                                           "the table")
-    record.add_argument("--table", help="reference table (default "
-                                        "tests/gate_time_reference.txt)")
+    record = sub.add_parser("record", parents=[table_arg],
+                            help="merge measured readings into the table")
     record.add_argument("--config", required=True,
                         help="config key the readings belong to")
     record.add_argument("--from-junit", metavar="FILE",
@@ -974,18 +986,15 @@ def _build_parser():
                         help="runner --record-out MEASURE file")
     record.add_argument("--form", help="measurement form (default per "
                                        "source)")
-    caps_p = sub.add_parser("caps", help="print one entry's cap and "
-                                         "budget")
-    caps_p.add_argument("--table", help="reference table (default "
-                                        "tests/gate_time_reference.txt)")
+    caps_p = sub.add_parser("caps", parents=[table_arg],
+                            help="print one entry's cap and budget")
     caps_p.add_argument("config")
     caps_p.add_argument("entry")
     caps_p.add_argument("--work-factor", type=float, default=1.0)
     caps_p.add_argument("--scalar", type=float, default=1.0)
-    calibrate_p = sub.add_parser("calibrate", help="guard four: sample the "
-                                 "machine scale from a config's sentinels")
-    calibrate_p.add_argument("--table", help="reference table (default "
-                                             "tests/gate_time_reference.txt)")
+    calibrate_p = sub.add_parser("calibrate", parents=[table_arg],
+                                 help="guard four: sample the machine "
+                                      "scale from a config's sentinels")
     calibrate_p.add_argument("config", help="config key to calibrate")
     calibrate_p.add_argument("--tree", help="configured decision tree to "
                                             "sample (ctest configs)")
@@ -996,11 +1005,10 @@ def _build_parser():
                                                 "subset derives from "
                                                 "(default tests/e2e/"
                                                 "manifest.txt)")
-    budget_p = sub.add_parser("check-budget", help="guard three post-hoc: "
-                              "judge a finished ctest leg's budgets from "
-                              "its junit timings")
-    budget_p.add_argument("--table", help="reference table (default "
-                                          "tests/gate_time_reference.txt)")
+    budget_p = sub.add_parser("check-budget", parents=[table_arg],
+                              help="guard three post-hoc: judge a finished "
+                                   "ctest leg's budgets from its junit "
+                                   "timings")
     budget_p.add_argument("--junit", required=True, metavar="FILE",
                           help="the leg's ctest --output-junit XML")
     budget_p.add_argument("--config", required=True,

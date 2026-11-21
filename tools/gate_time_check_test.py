@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gate_time_check
 from gate_time_check import (
     CONFIG_KEYS,
+    SAFETY_MULTIPLIER,
     apply_record,
     caps,
     check_complete,
@@ -512,6 +513,10 @@ BUDGET_TABLE = (
     "ctest-Debug budget_failed_entry 100.00 1 常规 ctest-junit-serial - failed stub\n"
     "ctest-Debug budget_form_entry 100.00 1 常规 ctest-junit-serial - form stub\n"
     "ctest-Debug budget_flat_entry 100.00 1 常规 ctest-junit-serial - scalar stub\n"
+    "ctest-Debug budget_ratchet_mid_entry 100.00 1 常规 ctest-junit-serial - scalar ratchet stub\n"
+    "ctest-Debug budget_ratchet_low_entry 100.00 1 常规 ctest-junit-serial - scalar ratchet stub\n"
+    "ctest-Debug budget_ratchet_ratio_entry 100.00 1 常规 ctest-junit-serial - ratio ratchet stub\n"
+    "ctest-Debug budget_ratchet_high_entry 100.00 1 常规 ctest-junit-serial - ratio ratchet stub\n"
     "e2e-Debug default 10.00 1 常规 e2e-serial - coarse scope stub\n"
     "e2e-ASan manifest.txt 10.00 1 常规 e2e-serial - manifest scope stub\n")
 
@@ -597,6 +602,29 @@ def test_check_budget_failed_row_informational_only():
         check("advisory: budget_failed_entry" not in out,
               "budget: a failed run must not fire the ratchet, got "
               "out=%r" % out)
+
+
+def test_check_budget_run_and_fail_coexist_watchdog_wins():
+    # Task 8's --repeat shape: one entry can complete a pass (run row)
+    # and get killed at the cap (fail row) in the same leg. The fail row
+    # owns the entry's wording -- judging the run row alone would drop
+    # the TIMEOUT_WATCHDOG finding and its triage line (and the passing
+    # reading must not add a second verdict to the same entry).
+    with tempfile.TemporaryDirectory() as tmp:
+        table = _write_table(tmp, BUDGET_TABLE)
+        rc, out = _run_check_budget(table, "ctest-Debug",
+                                    [("budget_timeout_entry", "run",
+                                      300.0),
+                                     ("budget_timeout_entry", "fail",
+                                      1000.0)])
+        check(rc == 1 and "BUDGET budget_timeout_entry TIMEOUT_WATCHDOG"
+              in out,
+              "budget: a run row beside a killed fail row must read the "
+              "watchdog wording, got rc=%r out=%r" % (rc, out))
+        check("BUDGET-FAIL budget_timeout_entry" not in out,
+              "budget: the coexisting run row must not also judge the "
+              "entry by budget (D-2's no-double-verdict), got out=%r"
+              % out)
 
 
 def test_check_budget_default_row_over_budget_advisory_only():
@@ -761,6 +789,73 @@ def test_check_budget_scalar_scales_budget_not_ratchet():
               "rc=%r out=%r" % (rc, out))
 
 
+# The 100.00 reference of the budget_ratchet_* rows in numeric form: the
+# corridor readings below are computed from this and SAFETY_MULTIPLIER
+# instead of hand-typed numbers, so they keep straddling the two lines
+# even if the pinned constant moves.
+RATCHET_REF_S = 100.0
+
+
+def test_check_budget_ratchet_line_scalar_free():
+    # D-15's reference-based ratchet and D-4's opposite-direction clause
+    # (a contention-inflated scalar must not make normal readings look
+    # worth lowering the reference for), pinned by a discriminating
+    # corridor: mid sits between the reference line and what that line
+    # would become if the scalar multiplied in, so a scalar-carrying
+    # ratchet line fires an advisory here and must not. low sits under
+    # both lines, so the advisory must still fire -- without it, turning
+    # the ratchet off entirely would also read green.
+    with tempfile.TemporaryDirectory() as tmp:
+        table = _write_table(tmp, BUDGET_TABLE)
+        line = RATCHET_REF_S * SAFETY_MULTIPLIER / 2
+        polluted = line * 2.0                      # scalar 2 multiplied in
+        rc, out = _run_check_budget(
+            table, "ctest-Debug",
+            [("budget_ratchet_mid_entry", "run", (line + polluted) / 2),
+             ("budget_ratchet_low_entry", "run", line / 2)],
+            extra=["--scalar", "2.0"])
+        check(rc == 0 and "BUDGET-FAIL" not in out,
+              "budget: readings inside the corridor must not red, got "
+              "rc=%r out=%r" % (rc, out))
+        check("advisory: budget_ratchet_mid_entry" not in out,
+              "budget: the ratchet line must not carry the machine "
+              "scalar, got out=%r" % out)
+        check("advisory: budget_ratchet_low_entry 建议下调参考" in out,
+              "budget: the reading under both lines must still fire the "
+              "advisory, got out=%r" % out)
+
+
+def test_check_budget_ratchet_line_carries_work_ratio():
+    # The ratchet line carries the row's own work ratio (that half is
+    # workload, not machine). At work factor 2 the line sits at
+    # ratio * SAFETY_MULTIPLIER / 2 times the reference: the ratio_entry
+    # reading is under the ratio-carrying line and over the ratio-free
+    # one, so its advisory must fire; the high_entry reading is over the
+    # line and under a scalar-multiplied one, so it must stay silent.
+    # Each pair of assertions alone turns this case red on one of the
+    # two mutations (ratio dropped / scalar multiplied in).
+    with tempfile.TemporaryDirectory() as tmp:
+        table = _write_table(tmp, BUDGET_TABLE)
+        ratio_line = RATCHET_REF_S * 2.0 * SAFETY_MULTIPLIER / 2
+        polluted = ratio_line * 2.0                # scalar 2 multiplied in
+        rc, out = _run_check_budget(
+            table, "ctest-Debug",
+            [("budget_ratchet_ratio_entry", "run",
+              (RATCHET_REF_S + ratio_line) / 2),
+             ("budget_ratchet_high_entry", "run",
+              (ratio_line + polluted) / 2)],
+            extra=["--work-factor", "2.0", "--scalar", "2.0"])
+        check(rc == 0 and "BUDGET-FAIL" not in out,
+              "budget: readings inside the corridor must not red, got "
+              "rc=%r out=%r" % (rc, out))
+        check("advisory: budget_ratchet_ratio_entry 建议下调参考" in out,
+              "budget: the work ratio must enter the ratchet line, got "
+              "out=%r" % out)
+        check("advisory: budget_ratchet_high_entry" not in out,
+              "budget: the ratchet line must not carry the machine "
+              "scalar at work factor 2, got out=%r" % out)
+
+
 def _stub_ctest_sampler(readings, calls=None):
     """Replace the live ctest sampling round with a canned reading map for
     one calibrate CLI call (the stub runner of guard four: no ctest run).
@@ -907,6 +1002,7 @@ def main():
     test_calibrate_flag_config_mismatch_red()
     test_check_budget_over_entry_row_red()
     test_check_budget_timeout_watchdog_wording_once()
+    test_check_budget_run_and_fail_coexist_watchdog_wins()
     test_check_budget_failed_row_informational_only()
     test_check_budget_default_row_over_budget_advisory_only()
     test_check_budget_manifest_row_over_budget_advisory_only()
@@ -916,6 +1012,8 @@ def main():
     test_check_budget_form_mismatch_red()
     test_check_budget_missing_rows_are_report_lines()
     test_check_budget_scalar_scales_budget_not_ratchet()
+    test_check_budget_ratchet_line_scalar_free()
+    test_check_budget_ratchet_line_carries_work_ratio()
     if failures:
         for f in failures:
             print("FAIL: %s" % f)
