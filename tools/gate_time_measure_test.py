@@ -1,8 +1,9 @@
 # gate_time_measure_test.py -- measurement parsing and recording cases
 # for the measure module (gate_time_measure.py): the guard-six member
 # that --record keeps the four human columns, the max-merge discipline
-# on both measurement sources, and the run-status-only filter that
-# keeps failed/skipped rows out of the reference. Entry point:
+# on both measurement sources, the run-status-only filter that keeps
+# failed/skipped rows out of the reference, and the junit <system-out>
+# report channel the D-8 self-report cross-check reads. Entry point:
 # gate_time_check_test.py (its main() calls run()). Stdlib only; run
 # with -I.
 
@@ -11,7 +12,7 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from gate_time_measure import (apply_record, parse_junit_rows,
+from gate_time_measure import (apply_record, junit_reports, parse_junit_rows,
                                parse_measure_rows)
 from gate_time_table import load_table
 from gate_time_testutil import check, close, write_table
@@ -147,8 +148,49 @@ def test_record_junit_keeps_only_run_status_rows():
           "refused, got %r" % (meas,))
 
 
+def test_reports_channel_reads_system_out_per_entry():
+    # The D-8 self-report channel pinned on its reader: junit_reports
+    # yields {name: text} for entries whose <system-out> holds text (a
+    # passing entry's captured stdout on CMake 3.25.2; a failing entry
+    # carries <failure> and <system-out> side by side, which is why the
+    # checker reads reports from the same document the timings come from
+    # -- the inline BUDGET-EXCEEDED dedup needs exactly that shape),
+    # omits silent and empty-report entries so the checker's "absent =
+    # did not self-report" reading is exact, and joins multiple chunks
+    # with newlines.
+    reports = junit_reports(
+        '<testsuites><testsuite name="s" tests="5">'
+        '<testcase name="soak_entry" status="run" time="250.5">'
+        '<system-out>start\nrounds=100\n</system-out></testcase>'
+        '<testcase name="silent_entry" status="run" time="2.0"/>'
+        '<testcase name="empty_report" status="run" time="3.0">'
+        '<system-out></system-out></testcase>'
+        '<testcase name="over_budget_entry" status="fail" time="12.0">'
+        '<failure message="subprocess killed"/>'
+        '<system-out>  BUDGET-EXCEEDED budget=200 actual=240\n'
+        '</system-out></testcase>'
+        '<testcase name="split_entry" status="run" time="4.0">'
+        '<system-out>rounds=</system-out><system-out>200\n</system-out>'
+        '</testcase>'
+        '</testsuite></testsuites>')
+    check(reports.get("soak_entry") == "start\nrounds=100\n",
+          "reports: a passing entry's system-out must arrive verbatim, "
+          "got %r" % (reports,))
+    check("silent_entry" not in reports and "empty_report" not in reports,
+          "reports: entries without report text must be absent, got %r"
+          % (reports,))
+    check("over_budget_entry" in reports
+          and "BUDGET-EXCEEDED" in reports["over_budget_entry"],
+          "reports: a failing entry's report must survive its <failure> "
+          "sibling, got %r" % (reports,))
+    check(reports.get("split_entry") == "rounds=\n200\n",
+          "reports: multiple chunks must join with newlines, got %r"
+          % (reports,))
+
+
 def run():
     test_record_preserves_human_columns()
     test_record_measure_group_max_and_default_skip()
     test_record_junit_group_max_never_sum()
     test_record_junit_keeps_only_run_status_rows()
+    test_reports_channel_reads_system_out_per_entry()

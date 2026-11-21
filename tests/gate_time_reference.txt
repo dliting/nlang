@@ -65,7 +65,7 @@
 
 # 以下为2a批的人工标注行(参考秒数待2b录制轮回填): 条目与类别依据spec D-7/D-8/D-9/D-12钉死,
 # 哨兵列待D-4选型后统一标注。
-ctest-Debug nd_resolve_stress_tests 155.94 100 常规 ctest-junit-serial - soak:轮数按构型给(D-8),Debug与IDE各100轮
+ctest-Debug nd_resolve_stress_tests 77.80 100 常规 ctest-junit-serial - soak:轮数按构型给(D-8),Debug与IDE各100轮
 ctest-IDE nd_resolve_stress_tests 163.79 100 常规 ctest-junit-serial - soak:轮数按构型给(D-8),Debug与IDE各100轮
 ctest-ASan nd_resolve_stress_tests 881.80 30 常规 ctest-junit-serial - soak:轮数按构型给(D-8),ASan构型30轮当场即报
 ctest-Debug mnist_mlp_compile 0.41 1 演示验收 ctest-junit-serial - 演示验收面退出每轮判定(D-9第3类),全量腿与tensor族承接(D-7甲)

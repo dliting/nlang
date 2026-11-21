@@ -29,6 +29,14 @@
 #                    the form-token refusal of guard ten
 #   check-constants  guard seven: constant band self-consistency and every
 #                    row's cap strictly above its budget at band-edge scalar
+#   check-timeouts   guard five: every enumerated entry's registered ctest
+#                    TIMEOUT equals the watchdog cap the table derives under
+#                    the tree's own config-key set and configure-time work
+#                    factor (the generated thresholds header), the max over
+#                    the keys; red wording splits by configure freshness
+#                    (stale: re-run configure, one line; fresh: a
+#                    hand-written TIMEOUT override per entry, line-named
+#                    when it sits in tests/CMakeLists.txt)
 #   record           merge measured readings (--from-junit / --from-measure),
 #                    refreshing ref_s and form only; the four human columns
 #                    (category, ref_work, sentinel, reason) survive verbatim
@@ -51,16 +59,19 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from gate_time_guards import (check_budget, check_complete, check_constants,
-                              check_orphans, enum_overrides, read_name_set,
-                              run_ctest_enum, sentinel_rows,
-                              sentinel_shortfall_finding)
+                              check_orphans, check_timeouts,
+                              enum_overrides, expected_watchdogs,
+                              read_name_set, read_timeouts, run_ctest_enum,
+                              sentinel_rows, sentinel_shortfall_finding,
+                              show_only_json, threshold_inputs)
 from gate_time_measure import (apply_record, calibrate_scale, junit_cases,
-                               parse_junit_rows, parse_measure_rows,
-                               sample_ctest, sample_e2e)
+                               junit_reports, parse_junit_rows,
+                               parse_measure_rows, sample_ctest, sample_e2e)
 from gate_time_table import (CONFIG_KEYS, CTEST_CONFIGS, DECISION_TREES,
-                             DEFAULT_TABLE, DEFAULT_WORK_FACTOR, REPO_ROOT,
-                             SCALE_BAND_MAX, SCALE_BAND_MIN, caps,
-                             effective_rows, emit_cmake)
+                             DEFAULT_TABLE, DEFAULT_WORK_FACTOR,
+                             LOCAL_TABLE_NAME, REPO_ROOT, SCALE_BAND_MAX,
+                             SCALE_BAND_MIN, caps, effective_rows,
+                             emit_cmake)
 
 
 def _inputs(args, repo):
@@ -207,11 +218,15 @@ def _run_check_budget(args, table):
         return _verdict(["CHECK-BUDGET %s: unknown config key (want "
                          "one of %s)" % (args.config,
                                          ", ".join(CONFIG_KEYS))])
-    cases = junit_cases(Path(args.junit).read_text(encoding="utf-8"))
+    # One read of the document feeds both channels: the timings and the
+    # per-entry <system-out> reports the D-8 self-check cross-checks
+    # (the same file, so a report can never come from a different run).
+    text = Path(args.junit).read_text(encoding="utf-8")
     findings, detail = check_budget(
-        args.config, cases, effective_rows(table),
+        args.config, junit_cases(text), effective_rows(table),
         parallel=args.parallel, repeat=args.repeat,
-        work_factor=args.work_factor, scalar=args.scalar)
+        work_factor=args.work_factor, scalar=args.scalar,
+        reports=junit_reports(text))
     # Detail lines (advisories, MISSING, triage listings) print in
     # both outcomes: they carry the context the verdict and the
     # findings alone would leave out.
@@ -249,6 +264,63 @@ def _run_check_constants(args, table):
     return _verdict(check_constants(effective_rows(table))[1])
 
 
+def _tree_is_fresh(tree, table):
+    """Guard five's wording predicate: the tree's generated
+    CTestTestFiles must be at least as new as the table (and its
+    machine-local overlay, D-3) their caps were derived from. Anything
+    younger than both is a cap from the previous configure (the
+    configure step re-derives whenever CMAKE_CONFIGURE_DEPENDS sees the
+    table change, tests/gate_time_keys.cmake)."""
+    stamps = []
+    for rel in ("CTestTestfile.cmake", "tests/CTestTestfile.cmake"):
+        stamp = tree / rel
+        if stamp.is_file():
+            stamps.append(stamp.stat().st_mtime)
+    if not stamps:
+        raise ValueError("%s holds no CTestTestfile.cmake: is the tree "
+                         "configured?" % tree)
+    inputs = [Path(table).stat().st_mtime]
+    overlay = Path(table).resolve().parent / LOCAL_TABLE_NAME
+    if overlay.is_file():
+        inputs.append(overlay.stat().st_mtime)
+    return max(stamps) >= max(inputs)
+
+
+def _override_site(entry):
+    """Line in tests/CMakeLists.txt that both names the entry and sets
+    a TIMEOUT: where a hand-written override sits when guard five's
+    fresh-configure branch fires (the table cap itself is set in the
+    generated file and the add_test wrapper, never beside a literal
+    entry name, so a hit is the override itself). No hit is not a pass
+    -- the finding still fires, it just cannot point at a line (the
+    property can be set from any consumed CMake file)."""
+    path = REPO_ROOT / "tests" / "CMakeLists.txt"
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return ""
+    for lineno, line in enumerate(lines, 1):
+        if "TIMEOUT" in line and entry in line:
+            return "tests/CMakeLists.txt:%d" % lineno
+    return ""
+
+
+def _run_check_timeouts(args, table):
+    tree = Path(args.tree)
+    # The header of the tree's own generated thresholds file gives the
+    # config-key set and work factor the caps were derived from -- the
+    # emitter's inputs, not the current shell's guess.
+    configs, work_factor = threshold_inputs(
+        (tree / "gate_time_thresholds.cmake").read_text(encoding="utf-8"))
+    text = (Path(args.show_only).read_text(encoding="utf-8")
+            if args.show_only else show_only_json(tree))
+    findings = check_timeouts(
+        read_timeouts(text),
+        expected_watchdogs(effective_rows(table), configs, work_factor),
+        _tree_is_fresh(tree, table), site_of=_override_site)[1]
+    return _verdict(findings)
+
+
 def _dispatch(args):
     table = Path(args.table) if args.table else DEFAULT_TABLE
     if args.command == "caps":
@@ -263,6 +335,8 @@ def _dispatch(args):
         return _run_check_budget(args, table)
     if args.command == "check-constants":
         return _run_check_constants(args, table)
+    if args.command == "check-timeouts":
+        return _run_check_timeouts(args, table)
     if args.command == "check-complete":
         return _run_check_complete(args, table)
     return _run_check_orphans(args, table)
@@ -295,8 +369,8 @@ def _parent_parsers():
 
 
 def _add_check_parsers(sub):
-    """The coverage guards (one, two) and the constant-band guard
-    (seven)."""
+    """The coverage guards (one, two), the constant-band guard (seven)
+    and the registered-cap guard (five)."""
     table_arg, derived = _parent_parsers()
     sub.add_parser("check-complete", parents=[derived],
                    help="guard one: coverage and sentinel counts")
@@ -304,6 +378,17 @@ def _add_check_parsers(sub):
                    help="guard two: rows for entries that no longer exist")
     sub.add_parser("check-constants", parents=[table_arg],
                    help="guard seven: constant band self-consistency")
+    timeouts_p = sub.add_parser("check-timeouts", parents=[table_arg],
+                                help="guard five: registered ctest TIMEOUT "
+                                     "properties against the table caps")
+    timeouts_p.add_argument("--tree", required=True,
+                            help="configured tree to audit (its generated "
+                                 "gate_time_thresholds.cmake header gives "
+                                 "the config-key set and work factor the "
+                                 "caps were derived from)")
+    timeouts_p.add_argument("--show-only", metavar="FILE",
+                            help="saved ctest --show-only=json-v1 document "
+                                 "(default: enumerate the tree live)")
 
 
 def _add_record_parsers(sub):

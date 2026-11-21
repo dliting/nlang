@@ -865,14 +865,24 @@ add_test(NAME nd_resolve_tests COMMAND test_nd_resolve)
 #seconds), so it runs as its own ctest entry via --stress: routine
 #sweeps exclude it by name (slow tests run at commit time only) and the
 #full suite covers both entries. --stress selects ONLY the soak — the
-#two entries are a partition, not a superset. The soak outlives every
-#ordinary entry by a wide margin in the instrumented tree (2026-11-19
-#direct measurement on an idle machine: Debug 187.5 s, ASan 908 s, a
-#4.84x compile-heavy factor), which is exactly what the per-config
-#reference columns exist to price: its watchdog cap derives from
+#two entries are a partition, not a superset. The round count follows
+#the D-8 rounds axis: the reference rows price ref_work=100 for the
+#plain trees and 30 for the ASan tree, so the registration hands the
+#test that count through NLANG_TEST_ROUNDS; the test self-reports
+#rounds=<n> on stdout and check-budget cross-checks it against the
+#row's reference work times the run's work factor, which catches a
+#registration or table that stopped steering the loop. The sanitizer
+#predicate spells fsanitize=address exactly as the config-key branch
+#in tests/gate_time_keys.cmake does. Wall clock stays priced by the
+#per-config reference columns: the watchdog cap derives from
 #tests/gate_time_reference.txt like every other entry's (the derived-caps
 #block at the top of this file), no hand-picked ceiling.
 add_test(NAME nd_resolve_stress_tests COMMAND test_nd_resolve --stress)
+if(CMAKE_CXX_FLAGS MATCHES "fsanitize=address")
+    nlang_test_env(nd_resolve_stress_tests NLANG_TEST_ROUNDS=30)
+else()
+    nlang_test_env(nd_resolve_stress_tests NLANG_TEST_ROUNDS=100)
+endif()
 
 # Stride-table integrity: every opcode resolves to an extent in
 # [1, 9] (the rewrite regression — inline-braced constexpr rows

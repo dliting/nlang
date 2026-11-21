@@ -2,7 +2,8 @@
 # subcommand (gate_time_guards.check_budget via the CLI): the entry-row
 # red half, the TIMEOUT_WATCHDOG wording and its anti-double-verdict
 # clause, the coarse-scope advisory grading of D-3/R-17, the D-15
-# ratchet corridors and guard ten's form refusal. Entry point:
+# ratchet corridors, guard ten's form refusal, and the D-8 self-report
+# cross-check with its inline BUDGET-EXCEEDED dedup. Entry point:
 # gate_time_check_test.py (its main() calls run()). Stdlib only; run
 # with -I.
 
@@ -36,6 +37,8 @@ BUDGET_TABLE = (
     "ctest-Debug budget_ratchet_low_entry 100.00 1 常规 ctest-junit-serial - scalar ratchet stub\n"
     "ctest-Debug budget_ratchet_ratio_entry 100.00 1 常规 ctest-junit-serial - ratio ratchet stub\n"
     "ctest-Debug budget_ratchet_high_entry 100.00 1 常规 ctest-junit-serial - ratio ratchet stub\n"
+    "ctest-Debug budget_rounds_ok_entry 100.00 100 常规 ctest-junit-serial - rounds stub\n"
+    "ctest-Debug budget_rounds_missing_entry 100.00 100 常规 ctest-junit-serial - rounds stub\n"
     "e2e-Debug default 10.00 1 常规 e2e-serial - coarse scope stub\n"
     "e2e-ASan manifest.txt 10.00 1 常规 e2e-serial - manifest scope stub\n")
 
@@ -43,9 +46,19 @@ BUDGET_TABLE = (
 def _junit_xml(cases):
     """Build a junit document in the CMake 3.25.2 shape the checker must
     parse (status="run" completed, status="fail" for both Failed and
-    Timeout — no attribute tells them apart)."""
-    body = "".join('<testcase name="%s" status="%s" time="%.4f"/>'
-                   % (name, status, secs) for name, status, secs in cases)
+    Timeout — no attribute tells them apart). A 4th tuple element adds
+    that testcase's <system-out> text: the channel the D-8 self-report
+    and an inline BUDGET-EXCEEDED verdict travel on."""
+    body = ""
+    for case in cases:
+        name, status, secs = case[:3]
+        if len(case) > 3:
+            body += ('<testcase name="%s" status="%s" time="%.4f">'
+                     '<system-out>%s</system-out></testcase>'
+                     % (name, status, secs, case[3]))
+        else:
+            body += ('<testcase name="%s" status="%s" time="%.4f"/>'
+                     % (name, status, secs))
     return ('<?xml version="1.0" encoding="UTF-8"?>\n'
             '<testsuites><testsuite name="s" tests="%d">%s</testsuite>'
             '</testsuites>' % (len(cases), body))
@@ -375,6 +388,78 @@ def test_check_budget_ratchet_line_carries_work_ratio():
               "scalar at work factor 2, got out=%r" % out)
 
 
+def test_check_budget_selfreport_missing_red():
+    # D-8's self-report contract: the row prices 100 soak rounds and the
+    # entry printed no rounds=<n> line on its captured stdout. Absence is
+    # red rather than defaulted -- silently dropping the report would
+    # otherwise read as a free speedup of the soak, which is exactly the
+    # drift the contract exists to catch ("no report, red").
+    with tempfile.TemporaryDirectory() as tmp:
+        table = write_table(tmp, BUDGET_TABLE)
+        rc, out = _run_check_budget(
+            table, "ctest-Debug",
+            [("budget_rounds_missing_entry", "run", 100.0)])
+        check(rc == 1 and "GATE gate_time_check: FAIL" in out,
+              "budget: a rounds-priced row without a self-report must "
+              "go red, got rc=%r out=%r" % (rc, out))
+        check("SELFREPORT budget_rounds_missing_entry: no rounds=<n> "
+              "line" in out and "ref_work=100" in out,
+              "budget: the finding must name the entry and the work its "
+              "row prices, got out=%r" % out)
+
+
+def test_check_budget_selfreport_tracks_reference_and_factor():
+    # Both halves of the D-8 equation (self-report == ref_work x work
+    # factor) pinned by a discriminating triple: at factor 1 the row's
+    # own rounds pass; at factor 2 the doubled report passes while the
+    # undoubled one goes red naming both numbers -- catching "the factor
+    # was set but the soak loop never read it".
+    with tempfile.TemporaryDirectory() as tmp:
+        table = write_table(tmp, BUDGET_TABLE)
+        rc, out = _run_check_budget(
+            table, "ctest-Debug",
+            [("budget_rounds_ok_entry", "run", 100.0, "rounds=100\n")])
+        check(rc == 0 and "SELFREPORT" not in out,
+              "budget: a matching self-report must pass, got rc=%r "
+              "out=%r" % (rc, out))
+        rc, out = _run_check_budget(
+            table, "ctest-Debug",
+            [("budget_rounds_ok_entry", "run", 200.0, "rounds=200\n")],
+            extra=["--work-factor", "2.0"])
+        check(rc == 0 and "SELFREPORT" not in out,
+              "budget: at factor 2 the doubled self-report must pass, "
+              "got rc=%r out=%r" % (rc, out))
+        rc, out = _run_check_budget(
+            table, "ctest-Debug",
+            [("budget_rounds_ok_entry", "run", 200.0, "rounds=100\n")],
+            extra=["--work-factor", "2.0"])
+        check(rc == 1 and "SELFREPORT budget_rounds_ok_entry: "
+              "rounds=100, expected 200 (ref_work=100 x work factor 2)"
+              in out,
+              "budget: at factor 2 an undoubled self-report must red "
+              "with both numbers, got rc=%r out=%r" % (rc, out))
+
+
+def test_check_budget_inline_exceeded_names_its_cause():
+    # D-2's no-double-verdict on the fail-triage line: the qtest wrapper
+    # already judged this entry over budget (BUDGET-EXCEEDED on its
+    # captured stdout, exit 1), so ctest's fail row IS that verdict --
+    # the listing says so instead of reading as an unexplained test
+    # failure, and a plain failure without the marker keeps the bare
+    # wording (test_check_budget_failed_row_informational_only).
+    with tempfile.TemporaryDirectory() as tmp:
+        table = write_table(tmp, BUDGET_TABLE)
+        rc, out = _run_check_budget(
+            table, "ctest-Debug",
+            [("budget_failed_entry", "fail", 5.0,
+              "  BUDGET-EXCEEDED budget=200 actual=240\n")])
+        check(rc == 0
+              and "BUDGET budget_failed_entry FAILED actual=5.00 "
+                  "(inline BUDGET-EXCEEDED)" in out,
+              "budget: an inline over-budget verdict must own the fail "
+              "listing, got rc=%r out=%r" % (rc, out))
+
+
 def run():
     test_check_budget_over_entry_row_red()
     test_check_budget_timeout_watchdog_wording_once()
@@ -390,3 +475,6 @@ def run():
     test_check_budget_scalar_scales_budget_not_ratchet()
     test_check_budget_ratchet_line_scalar_free()
     test_check_budget_ratchet_line_carries_work_ratio()
+    test_check_budget_selfreport_missing_red()
+    test_check_budget_selfreport_tracks_reference_and_factor()
+    test_check_budget_inline_exceeded_names_its_cause()

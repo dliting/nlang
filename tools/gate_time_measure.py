@@ -74,6 +74,27 @@ def junit_cases(xml_text):
     return cases
 
 
+def junit_reports(xml_text):
+    """The captured output channel of a ctest --output-junit document:
+    {name: system-out text} for every <testcase> whose <system-out> holds
+    non-empty text. CMake 3.25.2 writes a passing entry's stdout there
+    (probed: a failing entry carries <failure> and <system-out> side by
+    side), which is why the D-8 self-report cross-check reads reports
+    from the same document the timings come from -- one file, one
+    source. An entry without a report is absent from the map (the
+    checker turns absence into "did not self-report")."""
+    reports = {}
+    for case in ET.fromstring(xml_text).iter("testcase"):
+        name = case.get("name")
+        if not name:
+            continue
+        parts = [node.text for node in case.iter("system-out")
+                 if node.text]
+        if parts:
+            reports[name] = "\n".join(parts)
+    return reports
+
+
 def parse_junit_rows(xml_text, form="ctest-junit-serial"):
     """Parse ctest --output-junit XML into {name: (seconds, form)}, taking
     only <testcase> elements with status="run" (R-7: ref_s means seconds

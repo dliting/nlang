@@ -33,11 +33,25 @@
 #   machine-scale-absent the generated file never mentions the machine scale:
 #                        the scalar reaches test processes only through the
 #                        leg environment (D-4), so no configure bakes it in.
+#   timeouts-live        guard five green half: the fresh tree's registered
+#                        caps replay green through check-timeouts against the
+#                        very document ctest's own show-only printed.
+#   timeouts-stale-wording a table edited behind the configure's back folds
+#                        every drifted cap into ONE "re-run configure"
+#                        finding — no per-entry edit list for caps that were
+#                        never hand-written.
 #   inherit-probe        a stub entry that reads an environment variable
 #                        purely by inheritance sees its value under
 #                        `VAR=value ctest -R ...` — that inheritance is the
 #                        channel the machine scale (guard four) travels on,
 #                        and nothing else supplies it.
+#   rounds-selfreport    the D-8 loop end to end: nlang_test_env installs the
+#                        round count, the stub entry multiplies it by the
+#                        inherited work factor and self-reports rounds=<n>
+#                        into the junit <system-out>, and check-budget passes
+#                        when the report equals ref_work x factor and goes
+#                        red naming both numbers at a factor the loop never
+#                        saw.
 #   work-factor-two      NLANG_TEST_WORK_FACTOR=2 at configure time doubles
 #                        every row-backed cap while the 120 s floor holds.
 #   asan-branch-priority -fsanitize=address narrows the key set to ctest-ASan
@@ -116,8 +130,37 @@ ctest-ASan    stub_big_probe        50.00  1  常规  ctest-junit-serial
 ctest-IDE     stub_big_probe        80.00  1  常规  ctest-junit-serial
 ctest-Debug   stub_small_probe       5.00  1  常规  ctest-junit-serial
 ctest-Debug   stub.dash-name-probe  12.50  1  常规  ctest-junit-serial
+ctest-Debug   stub_rounds_probe     40.00  100  常规  ctest-junit-serial
 ctest-Release stub_release_only    300.00  1  性能  ctest-junit-serial
 STUB_TABLE_EOF
+
+# The stub soak entry mirrors the round scaling of nd_resolve_stress_tests
+# in tests/test_vm/test_nd_resolve.cpp: it multiplies NLANG_TEST_ROUNDS (the
+# per-config count the registration installs through nlang_test_env) by the
+# inherited NLANG_TEST_WORK_FACTOR (the environment axis), bounds both the
+# same way, self-reports the product on stdout as the D-8 contract demands,
+# and sleeps 0.01 s per round so the budget checker's wall clock tracks the
+# loop (1 s base, 2 s at factor 2, inside the 80/160 s budgets either way).
+cat > "$WS/src/rounds_probe.py" <<'ROUNDS_EOF'
+import os
+import time
+
+def positive_env(name, fallback):
+    try:
+        value = int(os.environ.get(name, ""))
+    except ValueError:
+        return fallback
+    return value if 1 <= value <= 1000000 else fallback
+
+rounds = positive_env("NLANG_TEST_ROUNDS", 100)
+try:
+    factor = max(float(os.environ.get("NLANG_TEST_WORK_FACTOR") or "1"), 1.0)
+except ValueError:
+    factor = 1.0
+rounds = int(rounds * factor)
+print("rounds=%d" % rounds, flush=True)
+time.sleep(0.01 * rounds)
+ROUNDS_EOF
 
 # The nlang_test_env merge helper and the add_test wrapper below are
 # copied verbatim from tests/CMakeLists.txt, which keeps exactly those
@@ -190,6 +233,15 @@ endforeach()
 add_test(NAME stub_env_inherit_probe
     COMMAND "${GATE_STUB_PYTHON}" -c
     "print('INHERIT=' + __import__('os').environ.get('NLANG_T4_INHERIT_PROBE', 'MISSING'))")
+
+# The rounds registration mirrors nd_resolve_stress_tests in production's
+# tests/CMakeLists.txt (there under an fsanitize=address branch): the soak
+# round count enters the test environment through the merge helper, never
+# by inheritance -- what the self-report cross-check holds the registration
+# and the loop together with.
+add_test(NAME stub_rounds_probe
+    COMMAND "${GATE_STUB_PYTHON}" "${GATE_STUB_ROUNDS}")
+nlang_test_env(stub_rounds_probe NLANG_TEST_ROUNDS=100)
 STUB_CMAKE_EOF
 
 # --- probes -----------------------------------------------------------------
@@ -205,12 +257,14 @@ configure_fixture() { # configure_fixture <log-stem> <factor|NONE> [extra cmake 
             "-DGATE_STUB_PYTHON=$PYTHON" "-DGATE_STUB_TOOL=$EMIT_TOOL" \
             "-DGATE_STUB_TABLE=$WS/src/stub_table.txt" \
             "-DGATE_STUB_KEYS=$REPO/tests/gate_time_keys.cmake" \
+            "-DGATE_STUB_ROUNDS=$WS/src/rounds_probe.py" \
             "$@" > "$WS/log/$log.configure.txt" 2>&1
     else
         env NLANG_TEST_WORK_FACTOR="$factor" "$CMAKE" -S "$WS/src" -B "$WS/build" \
             "-DGATE_STUB_PYTHON=$PYTHON" "-DGATE_STUB_TOOL=$EMIT_TOOL" \
             "-DGATE_STUB_TABLE=$WS/src/stub_table.txt" \
             "-DGATE_STUB_KEYS=$REPO/tests/gate_time_keys.cmake" \
+            "-DGATE_STUB_ROUNDS=$WS/src/rounds_probe.py" \
             "$@" > "$WS/log/$log.configure.txt" 2>&1
     fi
 }
@@ -249,6 +303,16 @@ expect_cap() { # expect_cap <case> <json-file> <entry> <expected|NONE>
 
 tail_of() { tail -n 5 "$1" | tr '\n' ';'; }
 
+audit_timeouts() { # audit_timeouts <saved-show-only-doc> -> audit_rc/audit_out
+    # The saved document feeds the audit on purpose: ctest's own PATH never
+    # enters (the registered entry environment points at it through
+    # NLANG_GATE_CTEST), and the audit reads exactly the registrations the
+    # show-only case above already inspected.
+    audit_out=$( "$PYTHON" -I "$EMIT_TOOL" check-timeouts --tree "$WS/build" \
+        --table "$WS/src/stub_table.txt" --show-only "$1" 2>&1 )
+    audit_rc=$?
+}
+
 # --- cases ------------------------------------------------------------------
 
 if ! configure_fixture base NONE; then
@@ -261,6 +325,7 @@ before=$failures
 expect_cap base-caps "$WS/log/base.json" stub_big_probe 1000.0
 expect_cap base-caps "$WS/log/base.json" stub_small_probe 120.0
 expect_cap base-caps "$WS/log/base.json" stub.dash-name-probe 125.0
+expect_cap base-caps "$WS/log/base.json" stub_rounds_probe 400.0
 expect_cap base-caps "$WS/log/base.json" stub_release_only 3000.0
 expect_cap base-caps "$WS/log/base.json" stub_no_row_probe NONE
 expect_cap base-caps "$WS/log/base.json" stub_env_inherit_probe NONE
@@ -273,6 +338,40 @@ fi
 [ "$failures" -eq "$before" ] && pass machine-scale-absent
 
 before=$failures
+# Guard five green half, live: the caps this very configure registered
+# replay green against the current table (its thresholds header states the
+# config keys and work factor they were derived from, and the checker
+# replays those rather than guessing from the shell).
+audit_timeouts "$WS/log/base.json"
+if [ "$audit_rc" -ne 0 ] \
+        || ! printf '%s' "$audit_out" | grep -q "GATE gate_time_check: PASS"; then
+    fail timeouts-live "the fresh tree did not audit green: rc=$audit_rc [$(printf '%s' "$audit_out" | tr '\n' ';')]"
+fi
+[ "$failures" -eq "$before" ] && pass timeouts-live
+
+before=$failures
+# Guard five stale half: editing the table behind the configure's back is
+# the drift CMAKE_CONFIGURE_DEPENDS normally catches; while the tree
+# predates the edit the right next step is one re-run configure (only
+# CTestTestfile.cmake regenerates), not a hunt for hand-written properties
+# that do not exist. 300.00 is stub_release_only's reference alone in the
+# stub table, so the sed can stay bare, and the factor-2 reconfigure later
+# in the run refreshes the stamp again.
+sed -i 's/300\.00/301.00/' "$WS/src/stub_table.txt"
+audit_timeouts "$WS/log/base.json"
+if [ "$audit_rc" -eq 0 ]; then
+    fail timeouts-stale-wording "the drifted table audited green"
+elif ! printf '%s' "$audit_out" | grep -q "re-run configure"; then
+    fail timeouts-stale-wording "the drifted table never named the remedy: [$(printf '%s' "$audit_out" | tr '\n' ';')]"
+fi
+case "$audit_out" in
+    *"TIMEOUT stub_release_only registered="*)
+        fail timeouts-stale-wording "the stale path walked entries instead of folding into one finding" ;;
+esac
+sed -i 's/301\.00/300.00/' "$WS/src/stub_table.txt"
+[ "$failures" -eq "$before" ] && pass timeouts-stale-wording
+
+before=$failures
 # -V because the assertion reads the child's stdout: without it ctest keeps
 # a passing test's output to itself and the marker would never surface.
 inherit_out=$( cd "$WS/build" && \
@@ -283,6 +382,59 @@ case "$inherit_out" in
     *) fail inherit-probe "the inherited variable never reached the test process: [$(printf '%s' "$inherit_out" | tr '\n' ';')]" ;;
 esac
 
+before=$failures
+# D-8 end to end on the stub soak entry: the registration installs
+# NLANG_TEST_ROUNDS through nlang_test_env, the entry multiplies it by the
+# inherited NLANG_TEST_WORK_FACTOR and self-reports the product on stdout
+# (ctest --output-junit captures a passing entry's output into
+# <system-out>), and check-budget holds the report to ref_work x the work
+# factor it is run at. env -u on the base arm keeps an ambient factor from
+# the caller's shell out of the base reading.
+rounds_run() { # rounds_run <stem> <factor|NONE>  (the ctest round's rc)
+    if [ "$2" = NONE ]; then
+        ( cd "$WS/build" && env -u NLANG_TEST_WORK_FACTOR "$CTEST" -C Debug \
+            --output-junit "$WS/log/$1.junit.xml" -R '^stub_rounds_probe$' ) \
+            > "$WS/log/$1.run.txt" 2>&1
+    else
+        ( cd "$WS/build" && env NLANG_TEST_WORK_FACTOR="$2" "$CTEST" -C Debug \
+            --output-junit "$WS/log/$1.junit.xml" -R '^stub_rounds_probe$' ) \
+            > "$WS/log/$1.run.txt" 2>&1
+    fi
+}
+rounds_audit() { # rounds_audit <stem> <work-factor> -> audit_rc/audit_out
+    audit_out=$( "$PYTHON" -I "$EMIT_TOOL" check-budget --config ctest-Debug \
+        --table "$WS/src/stub_table.txt" --junit "$WS/log/$1.junit.xml" \
+        --work-factor "$2" 2>&1 )
+    audit_rc=$?
+}
+rounds_run rounds1 NONE \
+    || fail rounds-selfreport "the base ctest round failed: [$(tail_of "$WS/log/rounds1.run.txt")]"
+rounds_audit rounds1 1.0
+if [ "$audit_rc" -ne 0 ] \
+        || ! printf '%s' "$audit_out" | grep -q "GATE gate_time_check: PASS"; then
+    fail rounds-selfreport "the matching 100-round reading did not audit green: rc=$audit_rc [$(printf '%s' "$audit_out" | tr '\n' ';')]"
+fi
+if ! grep -q "<system-out>" "$WS/log/rounds1.junit.xml" \
+        || ! grep -q "rounds=100" "$WS/log/rounds1.junit.xml"; then
+    fail rounds-selfreport "the entry never self-reported rounds=100 into the junit document"
+fi
+rounds_run rounds2 2 \
+    || fail rounds-selfreport "the factor-2 ctest round failed: [$(tail_of "$WS/log/rounds2.run.txt")]"
+rounds_audit rounds2 2.0
+if [ "$audit_rc" -ne 0 ]; then
+    fail rounds-selfreport "the doubled 200-round reading at factor 2 did not audit green: rc=$audit_rc [$(printf '%s' "$audit_out" | tr '\n' ';')]"
+fi
+# The same document against a factor the loop never ran at: absence is the
+# corpus's case, but report-against-priced-workload is what this contract
+# exists to catch -- "the factor was set and the soak never read it".
+rounds_audit rounds2 3.0
+if [ "$audit_rc" -eq 0 ] \
+        || ! printf '%s' "$audit_out" | grep -q \
+            "SELFREPORT stub_rounds_probe: rounds=200, expected 300"; then
+    fail rounds-selfreport "a factor the soak never ran at must red naming both numbers: rc=$audit_rc [$(printf '%s' "$audit_out" | tr '\n' ';')]"
+fi
+[ "$failures" -eq "$before" ] && pass rounds-selfreport
+
 if ! configure_fixture factor2 2; then
     fail work-factor-two "factor-2 configure failed: [$(tail_of "$WS/log/factor2.configure.txt")]"
 else
@@ -291,6 +443,7 @@ else
     expect_cap work-factor-two "$WS/log/factor2.json" stub_big_probe 2000.0
     expect_cap work-factor-two "$WS/log/factor2.json" stub_small_probe 120.0
     expect_cap work-factor-two "$WS/log/factor2.json" stub.dash-name-probe 250.0
+    expect_cap work-factor-two "$WS/log/factor2.json" stub_rounds_probe 800.0
     [ "$failures" -eq "$before" ] && pass work-factor-two
 fi
 
@@ -304,6 +457,7 @@ else
     expect_cap asan-branch-priority "$WS/log/asan.json" stub_small_probe NONE
     expect_cap asan-branch-priority "$WS/log/asan.json" stub.dash-name-probe NONE
     expect_cap asan-branch-priority "$WS/log/asan.json" stub_release_only NONE
+    expect_cap asan-branch-priority "$WS/log/asan.json" stub_rounds_probe NONE
     [ "$failures" -eq "$before" ] && pass asan-branch-priority
 fi
 
@@ -317,6 +471,7 @@ else
     before=$failures
     expect_cap ide-key "$WS/log/ide.json" stub_big_probe 800.0
     expect_cap ide-key "$WS/log/ide.json" stub_small_probe NONE
+    expect_cap ide-key "$WS/log/ide.json" stub_rounds_probe NONE
     [ "$failures" -eq "$before" ] && pass ide-key
 fi
 
