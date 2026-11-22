@@ -1,5 +1,5 @@
 # gate_time_budget_test.py -- post-hoc budget cases for the check-budget
-# subcommand (gate_time_guards.check_budget via the CLI): the entry-row
+# subcommand (gate_time_budget.check_budget via the CLI): the entry-row
 # red half, the TIMEOUT_WATCHDOG wording and its anti-double-verdict
 # clause, the coarse-scope advisory grading of D-3/R-17, the D-15
 # ratchet corridors, guard ten's form refusal, and the D-8 self-report

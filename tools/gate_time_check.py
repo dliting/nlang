@@ -3,13 +3,15 @@
 # model and the single caps()/budget derivation site live in
 # gate_time_table.py, the measurement parsing, the table recording and
 # the calibration sampling rounds in gate_time_measure.py, the guard
-# verdict bodies in gate_time_guards.py (guard five's registered-cap
-# axis in its sibling gate_time_timeouts.py), and the schedule axis
+# verdict bodies in gate_time_guards.py (guard three's post-hoc budget
+# check in its sibling gate_time_budget.py, guard five's
+# registered-cap axis in its sibling gate_time_timeouts.py), and the
+# schedule axis
 # (print-slow, derive-e2e-subset, guards six and nine) in
 # gate_time_schedule.py, which registers its own parsers and this file
-# only maps the names to its runners (R-28/R-29); this module owns the
-# argument parsing and the per-subcommand dispatch. Stdlib only; run
-# with -I.
+# only maps the names to its runners (R-28/R-29); the argparse tree
+# lives in its sibling gate_time_cli.py and this module owns the
+# per-subcommand bodies and the dispatch. Stdlib only; run with -I.
 #
 # Subcommands (each prints one verdict line "GATE gate_time_check: PASS|FAIL"):
 #   check-complete   guard one: the derived entry universe (three decision
@@ -68,14 +70,15 @@
 # entry, work_factor=1.0, scalar=1.0) -> (budget_s, watchdog_s) and
 # load_table(path).
 
-import argparse
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gate_time_schedule
-from gate_time_guards import (check_budget, check_complete, check_constants,
+from gate_time_budget import check_budget
+from gate_time_cli import build_parser
+from gate_time_guards import (check_complete, check_constants,
                               check_orphans, enum_overrides, read_name_set,
                               read_perf_names, run_ctest_enum, sentinel_rows,
                               sentinel_shortfall_finding)
@@ -83,9 +86,9 @@ from gate_time_measure import (apply_record, calibrate_scale, junit_cases,
                                junit_reports, parse_junit_rows,
                                parse_measure_rows, sample_ctest, sample_e2e)
 from gate_time_table import (CONFIG_KEYS, CTEST_CONFIGS, DECISION_TREES,
-                             DEFAULT_TABLE, DEFAULT_WORK_FACTOR,
-                             REPO_ROOT, SCALE_BAND_MAX, SCALE_BAND_MIN,
-                             caps, effective_rows, emit_cmake, read_claims)
+                             DEFAULT_TABLE, REPO_ROOT, SCALE_BAND_MAX,
+                             SCALE_BAND_MIN, caps, effective_rows,
+                             emit_cmake, read_claims)
 from gate_time_timeouts import (check_timeouts, expected_watchdogs,
                                 override_site, read_timeouts,
                                 show_only_json, threshold_inputs,
@@ -348,155 +351,6 @@ def _dispatch(args):
     return _run_check_orphans(args, table)
 
 
-def _parent_parsers():
-    """One shared definition of --table: every subcommand takes the flag
-    with the same name, default and help text, and the parents
-    mechanism carries the same action into each parser, so the flag
-    can never drift between subcommands. `derived` adds the
-    derived-universe flags guards one/two consume."""
-    table_arg = argparse.ArgumentParser(add_help=False)
-    table_arg.add_argument("--table", help="reference table (default "
-                                           "tests/gate_time_reference.txt)")
-    derived = argparse.ArgumentParser(add_help=False, parents=[table_arg])
-    derived.add_argument("--repo", default=str(REPO_ROOT),
-                         help="repo root holding the decision trees "
-                             "(default the tool's own repo)")
-    derived.add_argument("--enum", action="append", default=[],
-                         metavar="CONFIG=FILE",
-                         help="pin one config's universe to a name dump or "
-                              "ctest json (repeatable)")
-    derived.add_argument("--perf-names",
-                         help="ctest-Release perf half: the names from "
-                              "print-perf-names, i.e. the NLANG_PERF_TESTS "
-                              "ON/OFF registration difference, not the "
-                              "full ON enumeration (R-61)")
-    derived.add_argument("--manifest", help="e2e manifest list file")
-    derived.add_argument("--examples-manifest",
-                         help="e2e examples manifest list file")
-    return table_arg, derived
-
-
-def _add_check_parsers(sub):
-    """The coverage guards (one, two), the constant-band guard (seven)
-    and the registered-cap guard (five)."""
-    table_arg, derived = _parent_parsers()
-    sub.add_parser("check-complete", parents=[derived],
-                   help="guard one: coverage and sentinel counts")
-    sub.add_parser("check-orphans", parents=[derived],
-                   help="guard two: rows for entries that no longer exist")
-    sub.add_parser("check-constants", parents=[table_arg],
-                   help="guard seven: constant band self-consistency")
-    timeouts_p = sub.add_parser("check-timeouts", parents=[table_arg],
-                                help="guard five: registered ctest TIMEOUT "
-                                     "properties against the table caps")
-    timeouts_p.add_argument("--tree", required=True,
-                            help="configured tree to audit (its generated "
-                                 "gate_time_thresholds.cmake header gives "
-                                 "the config-key set and work factor the "
-                                 "caps were derived from)")
-    timeouts_p.add_argument("--show-only", metavar="FILE",
-                            help="saved ctest --show-only=json-v1 document "
-                                 "(default: enumerate the tree live)")
-
-
-def _add_record_parsers(sub):
-    """The recording merge (guard six member: the three human columns
-    survive verbatim)."""
-    table_arg, _ = _parent_parsers()
-    record = sub.add_parser("record", parents=[table_arg],
-                            help="merge measured readings into the table")
-    record.add_argument("--config", required=True,
-                        help="config key the readings belong to")
-    record.add_argument("--from-junit", metavar="FILE",
-                        help="ctest --output-junit XML")
-    record.add_argument("--from-measure", metavar="FILE",
-                        help="runner --record-out MEASURE file")
-    record.add_argument("--form", help="measurement form (default per "
-                                       "source)")
-
-
-def _add_derive_parsers(sub):
-    """The caps readers and the machine-scale tools: caps, emit-cmake,
-    calibrate and check-budget."""
-    table_arg, _ = _parent_parsers()
-    caps_p = sub.add_parser("caps", parents=[table_arg],
-                            help="print one entry's cap and budget")
-    caps_p.add_argument("config")
-    caps_p.add_argument("entry")
-    caps_p.add_argument("--work-factor", type=float, default=1.0)
-    caps_p.add_argument("--scalar", type=float, default=1.0)
-    emit_p = sub.add_parser("emit-cmake", parents=[table_arg],
-                            help="write the configure-time ctest TIMEOUT "
-                                 "caps file from the table")
-    emit_p.add_argument("--config", dest="configs", action="append",
-                        help="config key whose rows feed the caps "
-                             "(repeatable; exactly the keys of the tree "
-                             "being configured)")
-    emit_p.add_argument("--work-factor", type=float,
-                        default=float(DEFAULT_WORK_FACTOR),
-                        help="configure-time work scaling, D-8 (>= 1; "
-                             "omit entirely when the environment gives no "
-                             "factor)")
-    emit_p.add_argument("--out", required=True, metavar="FILE",
-                        help="generated CMake file to write")
-    emit_p.add_argument("--claims", metavar="FILE",
-                        help="claim roster (the tools/gate_tiers.txt "
-                             "claim lines): one set(GATE_RESOURCE_...) "
-                             "per claimed entry, the variable the "
-                             "add_test wrapper turns into the ctest "
-                             "RESOURCE_LOCK property (D-11)")
-    calibrate_p = sub.add_parser("calibrate", parents=[table_arg],
-                                 help="guard four: sample the machine "
-                                      "scale from a config's sentinels")
-    calibrate_p.add_argument("config", help="config key to calibrate")
-    calibrate_p.add_argument("--tree", help="configured decision tree to "
-                                            "sample (ctest configs)")
-    calibrate_p.add_argument("--tools", help="tree holding the ncc/nvm/ndb "
-                                             "binaries to sample (e2e "
-                                             "configs)")
-    calibrate_p.add_argument("--manifest", help="e2e manifest the sentinel "
-                                                "subset derives from "
-                                                "(default tests/e2e/"
-                                                "manifest.txt)")
-    budget_p = sub.add_parser("check-budget", parents=[table_arg],
-                              help="guard three post-hoc: judge a finished "
-                                   "ctest leg's budgets from its junit "
-                                   "timings")
-    budget_p.add_argument("--junit", required=True, metavar="FILE",
-                          help="the leg's ctest --output-junit XML")
-    budget_p.add_argument("--config", required=True,
-                          help="config key the leg ran under")
-    budget_p.add_argument("--parallel", type=int, default=1,
-                          help="the -j level the leg ran at (guard ten's "
-                               "form token)")
-    budget_p.add_argument("--repeat", default="none",
-                          help="the --repeat mode the leg ran at (guard "
-                               "ten's form token)")
-    budget_p.add_argument("--work-factor", type=float, default=1.0,
-                          help="work scaling the leg ran at (the D-1 "
-                               "ratio)")
-    budget_p.add_argument("--scalar", type=float, default=1.0,
-                          help="the machine scale calibration measured for "
-                               "this very leg (D-5: same leg, same number)")
-
-
-def _build_parser():
-    parser = argparse.ArgumentParser(
-        description="Reference timing table guards (see the module "
-                    "docstring).")
-    sub = parser.add_subparsers(dest="command", required=True)
-    # Creation order fixes the subcommand listing in --help; the groups
-    # below build the parsers in the order the listing has always shown.
-    _add_check_parsers(sub)
-    _add_record_parsers(sub)
-    _add_derive_parsers(sub)
-    # The schedule axis (print-slow / derive-e2e-subset / check-schedule)
-    # is registered and executed by gate_time_schedule.py (R-28/R-29);
-    # this file only maps the names to its hooks.
-    gate_time_schedule.add_subparsers(sub)
-    return parser
-
-
 def main(argv=None):
     # The tier captures this script's stdout values (print-slow,
     # print-perf-names, derive-e2e-subset) through bash command
@@ -508,7 +362,7 @@ def main(argv=None):
         # In-process tests swap sys.stdout for a StringIO, which
         # normalizes line endings on its own.
         sys.stdout.reconfigure(newline="\n")
-    args = _build_parser().parse_args(argv)
+    args = build_parser().parse_args(argv)
     try:
         return _dispatch(args)
     except (ValueError, OSError, ET.ParseError) as exc:
