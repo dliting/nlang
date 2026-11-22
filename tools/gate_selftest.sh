@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# gate_selftest.sh — behaviour tests for gate.sh's write-directory lock and for
-# gate_tier.sh's batch assembly.
+# gate_selftest.sh — behaviour tests for gate.sh's write-directory and named-
+# resource (claim) locks and for gate_tier.sh's batch assembly.
 #
 # Two modes:
 #   (no arguments)            driver: run the cases below, print one line per
@@ -191,6 +191,48 @@ leg_env() {
         pending_gos+=("$go")
     fi
     NLANG_GATE_WRITE_DIR="$dir" bash "$GATE_SH" --shared "$name" "$stem" "$@" > "$stem.console" 2>&1 &
+}
+
+# leg_claim <name> <stem> <go> <resource> <command...>: as leg, but the leg
+# also declares one named resource (gate timing D-11). Like --shared the
+# option has to precede the leg name on gate.sh's command line (a --claim
+# after the name belongs to the wrapped command, not to the lock), which is
+# why this is a third launch helper rather than extra arguments to leg().
+leg_claim() {
+    local name="$1" stem="$2" go="$3" resource="$4"
+    shift 4
+    if [ -n "$go" ]; then
+        pending_gos+=("$go")
+    fi
+    bash "$GATE_SH" --shared --claim "$resource" "$name" "$stem" "$@" > "$stem.console" 2>&1 &
+}
+
+# claim_holder_records <count> / claim_holder_dump: the claim-root mirrors of
+# holder_records and holder_dump (the pairing is resource-name to holder
+# through the flag directory's own name, so no second copy of the mapping
+# lives here — spec 八.2).
+claim_holder_records() {
+    local want="$1" n files f key name
+    while :; do
+        files=$(find "$WS/lock/claim" -mindepth 2 -maxdepth 2 -name holder.info -print 2>/dev/null)
+        n=$(printf '%s\n' "$files" | grep -c .)
+        [ "$n" -eq "$want" ] && break
+        [ "$(deadline)" -gt 0 ] || return 1
+        sleep "$NLANG_GATE_POLL_S"
+    done
+    while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        key=$(basename "$(dirname "$f")")
+        name=$(sed -n 's/^name=//p' "$f" | head -1)
+        printf '%s\t%s\n' "$key" "$name"
+    done <<< "$files"
+}
+
+claim_holder_dump() {
+    local f
+    while IFS= read -r f; do
+        [ -n "$f" ] && printf '%s {%s}\n' "$f" "$(tr '\n' ' ' < "$f")"
+    done < <(find "$WS/lock/claim" -mindepth 2 -maxdepth 2 -name holder.info -print 2>/dev/null)
 }
 
 # holder_records <count>: poll until exactly <count> write-directory holder
@@ -774,6 +816,223 @@ case_a9_no_digest_warning() {
     fi
 }
 
+# The named-resource claim lock (gate timing D-11) is the third lock kind on
+# the same two-step shape, so these cases reuse the GO protocol unchanged and
+# assert gate.sh's claim wording family only: "claim <name> acquired after",
+# "waiting for the claim <name> in <lock root> (…", "claim <name> released"
+# and "taking over the claim <name> held …". The --shared and write-directory
+# probes above stay exactly as they are; the claim axis comes on top.
+case_a13_claim_serialize() {
+    # Two legs naming the same claim never run their commands at once,
+    # whatever directories they write — that is the whole nide-gui window
+    # rule between batches. Neither leg carries a write-directory flag, so
+    # the only lock they can collide on is the claim, and every wait line
+    # below carries the claim wording rather than the directory wording
+    # (which is what keeps this case apart from A5's assertions).
+    local nameA=a13A nameB=a13B stemA=a13A stemB=a13B
+    local ev="$WS/a13.events" goA goB want first acquired
+    goA=$(go_file "$case_name" A)
+    goB=$(go_file "$case_name" B)
+    leg_claim "$nameA" "$stemA" "$goA" nide-gui bash "$SELF" --stub A "$ev" "$goA"
+    if ! await "$ev" "start A"; then
+        fail "$case_name" "leg A never started: events=[$(cat "$ev" 2>/dev/null)]"
+        return
+    fi
+    if ! claim_holder_records 1 > /dev/null; then
+        fail "$case_name" "no single claim holder appeared: [$(claim_holder_dump | tr '\n' ';')]"
+        return
+    fi
+    leg_claim "$nameB" "$stemB" "$goB" nide-gui bash "$SELF" --stub B "$ev" "$goB"
+    # Precondition as in A5: B started while A still held the claim, so a
+    # working claim lock has to print this first-round line before anything
+    # is released — no timing assumption (spec D-10). The trailing "("
+    # pins the directory half; the repeats say "still waiting" instead, so
+    # counting this string stays at one.
+    want="LOCK $nameB: waiting for the claim nide-gui in $WS/lock ("
+    if ! await "$stemB.console" "$want"; then
+        fail "$case_name" "leg B never printed the claim wait line: console=[$(cat "$stemB.console" 2>/dev/null)] holders=[$(claim_holder_dump | tr '\n' ';')]"
+        return
+    fi
+    release_leg "$goA"
+    if ! await "$stemA.console" "LOCK $nameA: claim nide-gui released" || \
+       ! await "$stemA.console" "GATE $nameA: PASS"; then
+        fail "$case_name" "leg A never released and finished: console=[$(cat "$stemA.console" 2>/dev/null)]"
+        return
+    fi
+    release_leg "$goB"
+    if ! await "$ev" "finish B" || ! await "$stemB.console" "GATE $nameB: PASS"; then
+        fail "$case_name" "leg B never finished: console=[$(cat "$stemB.console" 2>/dev/null)]"
+        return
+    fi
+    local want_events="start A
+finish A
+start B
+finish B"
+    if [ "$(cat "$ev" 2>/dev/null)" != "$want_events" ]; then
+        fail "$case_name" "legs not serialized: events=[$(tr '\n' ';' < "$ev" 2>/dev/null)]"
+        return
+    fi
+    first=$(count_lines "$stemB.console" "$want")
+    acquired=$(count_lines "$stemB.console" "claim nide-gui acquired after")
+    if [ "$first" -ne 1 ]; then
+        fail "$case_name" "expected one claim wait line, found $first"
+    elif [ "$acquired" -ne 1 ]; then
+        fail "$case_name" "leg B never printed its claim acquired line, found $acquired"
+    else
+        pass "$case_name"
+    fi
+}
+
+case_a14_claim_distinct_resources() {
+    # Different claim names are no mutex — the other half of the D-11 rule,
+    # and the half a broken name-to-directory mapping would turn into one
+    # global lock. Both stubs hold their claim until their GO, so the
+    # overlap window is exactly as wide as the driver keeps it: B reaching
+    # its start line while A still holds the holder file is the proof.
+    local nameA=a14A nameB=a14B stemA=a14A stemB=a14B
+    local ev="$WS/a14.events" goA goB records pairing waitA waitB head2
+    goA=$(go_file "$case_name" A)
+    goB=$(go_file "$case_name" B)
+    leg_claim "$nameA" "$stemA" "$goA" nide-gui bash "$SELF" --stub A "$ev" "$goA"
+    if ! await "$ev" "start A"; then
+        fail "$case_name" "leg A never started: events=[$(cat "$ev" 2>/dev/null)]"
+        return
+    fi
+    leg_claim "$nameB" "$stemB" "$goB" display-server bash "$SELF" --stub B "$ev" "$goB"
+    if ! await "$ev" "start B"; then
+        fail "$case_name" "leg B never started while A held another claim: console=[$(cat "$stemB.console" 2>/dev/null)] holders=[$(claim_holder_dump | tr '\n' ';')]"
+        return
+    fi
+    if ! records=$(claim_holder_records 2); then
+        fail "$case_name" "expected two claim holders, one per resource: [$(claim_holder_dump | tr '\n' ';')]"
+        return
+    fi
+    # The pairing, not just the count: display-server claimed under its own
+    # name (a mapping to a shared directory would leave one holder and
+    # serialize the legs, which the start-while-held line above already
+    # refutes; a mapping to the wrong names is refuted only here).
+    pairing=$(printf '%s\n' "$records" | LC_ALL=C sort | tr '\n' ';')
+    if [ "$pairing" != "display-server	$nameB;nide-gui	$nameA;" ]; then
+        fail "$case_name" "claim holders not paired: [$pairing]"
+        return
+    fi
+    waitA=$(count_lines "$stemA.console" "waiting for the claim")
+    waitB=$(count_lines "$stemB.console" "waiting for the claim")
+    if [ "$waitA" -ne 0 ] || [ "$waitB" -ne 0 ]; then
+        fail "$case_name" "different claims waited anyway: A=$waitA B=$waitB"
+        return
+    fi
+    head2=$(head -2 "$ev" 2>/dev/null | tr '\n' ';')
+    if [ "$head2" != "start A;start B;" ] && [ "$head2" != "start B;start A;" ]; then
+        fail "$case_name" "legs did not overlap: events head=[$head2]"
+        return
+    fi
+    release_leg "$goA"
+    release_leg "$goB"
+    if ! await "$stemA.console" "GATE $nameA: PASS" || \
+       ! await "$stemB.console" "GATE $nameB: PASS"; then
+        fail "$case_name" "a leg never reached its verdict: A=[$(cat "$stemA.console" 2>/dev/null)] B=[$(cat "$stemB.console" 2>/dev/null)]"
+        return
+    fi
+    pass "$case_name"
+}
+
+case_a15_claim_stale_takeover() {
+    # The two shapes a killed gate leaves a claim in (the two-step
+    # mkdir-then-holder is the same for both lock kinds): a holder whose
+    # started= line is older than the threshold, and a flag directory with
+    # no holder file at all — killed between the mkdir and the write, with
+    # the creation time left on the directory. A fresh leg naming both has
+    # to take each over with its named line and run without waiting.
+    local resA=a15-dead resB=a15-noholder name=a15 stem=a15 rc waits
+    mkdir -p "$WS/lock/claim/$resA" "$WS/lock/claim/$resB"
+    printf 'name=dead-gate\npid=1\nstarted=%s\ndir=/nowhere\nmode=shared\ncmd=sleep 999999\n' \
+        "$(( $(date +%s) - 300 ))" > "$WS/lock/claim/$resA/holder.info"
+    touch -t 202001010000 "$WS/lock/claim/$resB"
+    # NLANG_GATE_STALE_S rides this one call only (the same per-command
+    # placement as every other leg environment here): waiting out the
+    # shipped three-hour threshold would spend the global budget on one
+    # case.
+    NLANG_GATE_STALE_S=60 bash "$GATE_SH" --shared --claim "$resA" \
+        --claim "$resB" "$name" "$stem" bash -c 'exit 0' > "$stem.console" 2>&1
+    rc=$?
+    if [ "$rc" -ne 0 ]; then
+        fail "$case_name" "takeover leg exited rc=$rc: console=[$(tr '\n' ';' < "$stem.console" 2>/dev/null)]"
+        return
+    fi
+    if ! grep -F -q -- "taking over the claim $resA held" "$stem.console"; then
+        fail "$case_name" "no taking-over line for the stale holder: console=[$(tr '\n' ';' < "$stem.console" 2>/dev/null)]"
+        return
+    fi
+    if ! grep -F -q -- "taking over the claim $resB held" "$stem.console" || \
+       ! grep -F -q -- "unknown holder" "$stem.console"; then
+        fail "$case_name" "no unknown-holder takeover for the holderless flag: console=[$(tr '\n' ';' < "$stem.console" 2>/dev/null)]"
+        return
+    fi
+    # Took over, did not queue: no claim wait line at all, and both claims
+    # went out through the release wording again.
+    waits=$(count_lines "$stem.console" "waiting for the claim")
+    if [ "$waits" -ne 0 ]; then
+        fail "$case_name" "stale claims were waited on instead of taken over: console=[$(tr '\n' ';' < "$stem.console" 2>/dev/null)]"
+        return
+    fi
+    if ! grep -F -q -- "claim $resA released" "$stem.console" || \
+       ! grep -F -q -- "claim $resB released" "$stem.console"; then
+        fail "$case_name" "taken-over claims not released in order: console=[$(tr '\n' ';' < "$stem.console" 2>/dev/null)]"
+        return
+    fi
+    pass "$case_name"
+}
+
+case_a16_env_vs_build_token() {
+    # The addendum step-5 smoke (batch-C addendum 二.4): one leg's write
+    # directory reaches gate.sh through the inline environment channel —
+    # the spelling gate_tier's --gate-env declaration ships — and the
+    # other's through a visible --build token in its command string, both
+    # naming the same directory. The normalization has to fold the two
+    # sources onto one key, so leg B's wait line names the directory leg
+    # A's holder recorded. This is A5 with the channels swapped: here the
+    # env channel holds first, which is the direction the assembly uses.
+    local dir="$WS/t16"
+    mkdir -p "$dir"
+    local nameA=a16A nameB=a16B stemA=a16A stemB=a16B
+    local ev="$WS/a16.events" goA goB records holder_path want
+    goA=$(go_file "$case_name" A)
+    goB=$(go_file "$case_name" B)
+    leg_env "$nameA" "$stemA" "$goA" "$dir" bash "$SELF" --stub A "$ev" "$goA"
+    if ! await "$ev" "start A"; then
+        fail "$case_name" "leg A never started: events=[$(cat "$ev" 2>/dev/null)]"
+        return
+    fi
+    if ! records=$(holder_records 1); then
+        fail "$case_name" "no write-directory holder for the env-channel leg: holders=[$(holder_dump)]"
+        return
+    fi
+    holder_path=${records##*$'\t'}
+    leg "$nameB" "$stemB" "$goB" bash "$SELF" --stub B "$ev" "$goB" --build "$dir"
+    want="LOCK $nameB: waiting for the write-directory lock on $holder_path ("
+    if ! await "$stemB.console" "$want"; then
+        fail "$case_name" "the argv-channel leg never waited for the env-channel holder's directory: console=[$(cat "$stemB.console" 2>/dev/null)] holders=[$(holder_dump)]"
+        return
+    fi
+    release_leg "$goA"
+    release_leg "$goB"
+    if ! await "$ev" "finish B" || ! await "$stemA.console" "GATE $nameA: PASS" \
+       || ! await "$stemB.console" "GATE $nameB: PASS"; then
+        fail "$case_name" "a leg never finished: A=[$(cat "$stemA.console" 2>/dev/null)] B=[$(cat "$stemB.console" 2>/dev/null)]"
+        return
+    fi
+    local want_events="start A
+finish A
+start B
+finish B"
+    if [ "$(cat "$ev" 2>/dev/null)" != "$want_events" ]; then
+        fail "$case_name" "legs not serialized: events=[$(tr '\n' ';' < "$ev" 2>/dev/null)]"
+        return
+    fi
+    pass "$case_name"
+}
+
 # gate_tier.sh is the assembler: it works out which legs a change needs and hands
 # each one to gate.sh. Two properties have to hold for a batch to mean anything,
 # and neither is visible from inside gate.sh:
@@ -908,6 +1167,13 @@ run_case a6-no-write-dir case_a6_no_write_dir
 run_case a7-print-write-dirs case_a7_print_write_dirs
 run_case a8-usage-lists-print-mode case_a8_usage_lists_print_mode
 run_case a9-no-digest-warning case_a9_no_digest_warning
+# A13-A16 pin the claim lock and the two-channel write-directory smoke on
+# gate.sh itself, so they sit with the other locking cases, before the
+# assembler cases (spec 八.3 run-order rule).
+run_case a13-claim-serialize case_a13_claim_serialize
+run_case a14-claim-distinct-resources case_a14_claim_distinct_resources
+run_case a15-claim-stale-takeover case_a15_claim_stale_takeover
+run_case a16-env-vs-build-token case_a16_env_vs_build_token
 # A10 drives the batch assembler rather than gate.sh itself, so it comes after the
 # locking cases, which own the run order spec 八.3 fixes for gate.sh.
 run_case a10-gate-tier-batch case_a10_gate_tier_batch

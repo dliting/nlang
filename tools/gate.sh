@@ -6,7 +6,7 @@
 # recorded "all green". Every gate (ctest, e2e, docs builds) must run
 # through this script instead of a piped tail.
 #
-# Usage: tools/gate.sh [--shared] <name> <logfile-stem> <command> [args...]
+# Usage: tools/gate.sh [--shared] [--claim <resource>]... <name> <logfile-stem> <command> [args...]
 #        tools/gate.sh --print-write-dirs <command> [args...]
 #   - stdout and stderr are captured SEPARATELY to <stem>.out/.err
 #     (merged capture can interleave and drop lines).
@@ -71,6 +71,26 @@
 # digest tool printed no hash for a directory it did derive warns the same way
 # rather than claiming a lock under an unusable name.
 #
+# Claim lock: --claim <resource> (repeatable) takes a named-resource lock at
+# $lock_dir/claim/<resource>/, with the same two-step atomic-mkdir-then-holder
+# shape and the same age-based takeover as the machine and write-directory
+# locks. It serializes gates that must not run beside each other but share no
+# write directory — today the nide-gui claim over the ctest legs of trees that
+# register window-launching tests (gate timing design D-11), where ctest's own
+# RESOURCE_LOCK covers the entries inside one process and the claim covers
+# whole legs running side by side (Task 12 removes the machine lock, after
+# which the claim is what keeps GUI families apart between batches).
+# Acquisition order is fixed for every gate: machine lock, then claims in
+# ascending resource-name order, then write-directory locks in ascending key
+# order; release runs the exact reverse. One total order across all three
+# kinds is the same sufficient condition wdir_keyed_pairs pins for
+# directories, so claims can never form a hold-one-wait-the-other cycle
+# against each other or against the directory locks. A claim works in both
+# modes: an exclusive gate's machine lock already excludes every other
+# exclusive gate, so a claim there queues against --shared gates of the same
+# resource; two --shared gates naming the same claim queue, different names
+# overlap.
+#
 # --print-write-dirs runs that same derivation and prints one
 # "key <16 hex> path <dir>" line per derived directory: no leg name, no lock of
 # any kind, no output files, so a configure-time probe can read the keys without
@@ -99,13 +119,16 @@ lock_dir="${NLANG_GATE_LOCK_DIR:-${TMPDIR:-/tmp}/nlang-gate-$lock_owner}"
 excl_dir="$lock_dir/exclusive"
 shared_dir="$lock_dir/shared"
 wdir_dir="$lock_dir/wdir"
+claim_root="$lock_dir/claim"
 # The keys whose directory locks were actually claimed, one per line in claim
 # order, so that the EXIT trap releases exactly what was taken and nothing that
-# was still being waited for (spec D-5).
+# was still being waited for (spec D-5). The claim names follow the same rule
+# for the resource locks.
 wdir_held=""
+claim_held=""
 
 usage() {
-    echo "usage: tools/gate.sh [--shared] <name> <logfile-stem> <command> [args...]" >&2
+    echo "usage: tools/gate.sh [--shared] [--claim <resource>]... <name> <logfile-stem> <command> [args...]" >&2
     echo "       tools/gate.sh --print-write-dirs <command> [args...]" >&2
     echo "           prints the derived write-directory keys; takes no lock and" >&2
     echo "           writes no file, so a configure-time probe can run in a batch" >&2
@@ -204,11 +227,35 @@ derive_write_dirs() {
     } | awk '!seen[$0]++'
 }
 
+# Leading options only, so they stay separable from the wrapped command's own
+# argv (a --claim after the name belongs to the command, not to the lock).
 shared_mode=0
-if [ "${1:-}" = "--shared" ]; then
-    shared_mode=1
+claims=""
+while [ "${1:-}" = "--shared" ] || [ "${1:-}" = "--claim" ]; do
+    if [ "$1" = "--shared" ]; then
+        shared_mode=1
+        shift
+        continue
+    fi
     shift
-fi
+    if [ $# -lt 1 ]; then
+        usage
+    fi
+    # The name becomes a directory name under the lock root, so it is checked
+    # against the same charset the roster and gate_tier.sh use: the claim is
+    # named, not hashed, and a name carrying a slash or whitespace would put
+    # the lock somewhere else or nowhere.
+    case "$1" in
+        ""|.|..) usage ;;
+        *[!A-Za-z0-9_.-]*) usage ;;
+    esac
+    # Duplicate names collapse: one resource, one lock.
+    case "$claims" in
+        *" $1 "*) ;;
+        *) claims="$claims $1 " ;;
+    esac
+    shift
+done
 
 # Key dump for the selftest and for the configure-time probe: no name, no
 # stem, and no lock of any kind, so configuring a build tree never queues
@@ -341,6 +388,19 @@ sweep_stale_wdir() { # <key> <normalized-dir>
     fi
 }
 
+# Take over a claim whose gate is gone. The same two-step shape as the
+# directory lock (the claim directory is created before its holder is
+# written), so the same fallback age source is what stops a claim killed
+# between those two steps from keeping everyone else waiting.
+sweep_stale_claim() { # <claim-name>
+    local age
+    age=$(holder_age_or_mtime_s "$claim_root/$1/holder.info" "$claim_root/$1")
+    if [ "$age" -gt "$LOCK_STALE_S" ]; then
+        echo "LOCK $name: taking over the claim $1 held ${age}s by $(holder_text "$claim_root/$1/holder.info")"
+        rm -rf "$claim_root/$1"
+    fi
+}
+
 # Report the current holder at most once a minute while waiting. The caller
 # brings the first-round line, because that line is the only place the two locks
 # differ: the machine lock names its lock directory there (which is what shows up
@@ -456,10 +516,48 @@ acquire_wdirs() {
     done <<< "$(printf '%s\n' "$wdirs" | wdir_keyed_pairs)"
 }
 
+# Take one named-resource lock per --claim, in ascending resource-name
+# order and after the machine lock, so the acquisition order is the fixed
+# machine → claims → directories the header comment pins: with one total
+# order across the three kinds, no two gates can each hold one lock and
+# wait on the other (the same sufficient condition wdir_keyed_pairs states
+# for directories, spec D-5). The resource cannot be derived from a path,
+# so the caller names it; everything else — atomic mkdir as the claim, the
+# holder file, the age-based takeover, the wait reporting — is the
+# machinery the other two locks already share.
+acquire_claims() {
+    local claim claim_dir desc waited
+    [ -n "$claims" ] || return 0
+    while IFS= read -r claim; do
+        [ -n "$claim" ] || continue
+        claim_dir="$claim_root/$claim"
+        waited=0
+        while :; do
+            # Re-made every round for the same reason the other locks
+            # re-make their parents: a temp cleaner can take the root away
+            # while we wait, and then the mkdir below would fail forever.
+            mkdir -p "$lock_dir" "$claim_root"
+            sweep_stale_claim "$claim"
+            if mkdir "$claim_dir" 2>/dev/null; then
+                write_holder "$claim_dir/holder.info"
+                claim_held+="$claim"$'\n'
+                echo "LOCK $name: claim $claim acquired after ${waited}s"
+                break
+            fi
+            desc="claim $claim held $(holder_age_or_mtime_s "$claim_dir/holder.info" "$claim_dir")s by $(holder_text "$claim_dir/holder.info")"
+            wait_round "$waited" "LOCK $name: waiting for the claim $claim in $lock_dir ($desc)" "$desc"
+            sleep "$LOCK_POLL_S"
+            waited=$(( waited + LOCK_POLL_S ))
+        done
+    done < <(printf '%s\n' $claims | LC_ALL=C sort)
+}
+
 release() {
-    # Directory locks first: releasing runs in the reverse of the order things
-    # were taken, and the machine lock is the outermost of them.
+    # Releasing runs in the reverse of the order things were taken
+    # (machine lock → claims → directory locks), so the directory locks go
+    # first, then the claims, then the machine lock as the outermost.
     release_wdirs
+    release_claims
     if [ "$shared_mode" -eq 1 ]; then
         rm -f "$shared_dir/$name-$$.info"
     else
@@ -468,6 +566,19 @@ release() {
     # Only the holder files go away; the root stays, so the atomic claim
     # always has its parent to work in.
     rmdir "$shared_dir" 2>/dev/null || true
+}
+
+# Claim names in the reverse of the order they were taken, the same rule
+# release_wdirs follows for keys. Only the holder and its flag directory go
+# away; claim/ and the lock root stay.
+release_claims() {
+    local claim
+    while IFS= read -r claim; do
+        [ -n "$claim" ] || continue
+        rm -f "$claim_root/$claim/holder.info"
+        rmdir "$claim_root/$claim" 2>/dev/null || true
+        echo "LOCK $name: claim $claim released"
+    done < <(printf '%s' "$claim_held" | tac)
 }
 
 # Keys in the reverse of the order they were claimed, which is what keeps the
@@ -485,10 +596,11 @@ release_wdirs() {
 
 mkdir -p "$lock_dir"
 acquire
-# Armed before the directory locks are taken, so a signal arriving while one is
-# being waited on releases the directories already claimed instead of leaving
-# them for the next gate to age out.
+# Armed before the claims and the directory locks are taken, so a signal
+# arriving while one is being waited on releases whatever is already claimed
+# instead of leaving it for the next gate to age out.
 trap release EXIT
+acquire_claims
 acquire_wdirs "$@"
 
 "$@" >"$stem.out" 2>"$stem.err"
