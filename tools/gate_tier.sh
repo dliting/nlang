@@ -551,8 +551,13 @@ t2() {
   t1_legs off  # the close-out sweep runs the slow entries itself (D-7)
   e2e_leg T2-asan-e2e-full "$ASAN_TREE" Debug e2e-ASan \
       "$REPO/tests/e2e/manifest.txt" 180
-  leg T2-release-build bash -c \
-      "cmake --build '$MASTER_TREE' --config Release"
+  # The sweep tree is named only inside the -c script (both here and in
+  # the two perf legs below), so the write directory is declared at the
+  # leg layer: the Release rebuild and the Debug decision legs share
+  # this tree, and the directory lock is what keeps them off each other
+  # now that no machine lock sits above them (D-10).
+  leg T2-release-build --gate-env "NLANG_GATE_WRITE_DIR=$MASTER_TREE" \
+      bash -c "cmake --build '$MASTER_TREE' --config Release"
   # The perf class (D-6): one leg opens the ON-registration window on
   # the sweep tree once its Release binaries exist (the flag gates test
   # registration only, so nothing recompiles), runs the differential
@@ -572,7 +577,8 @@ t2() {
         || leg_uncalibrated T2-perf
     if [ -n "$scale" ]; then
       rm -f "$LOGS/T2-perf.xml"
-      leg T2-perf env "NLANG_GATE_MACHINE_SCALE=$scale" "$PY_IO_ENCODING" \
+      leg T2-perf --gate-env "NLANG_GATE_WRITE_DIR=$MASTER_TREE" \
+        env "NLANG_GATE_MACHINE_SCALE=$scale" "$PY_IO_ENCODING" \
         bash -c \
         "cmake -S '$REPO' -B '$MASTER_TREE' -DNLANG_PERF_TESTS=ON && cd '$MASTER_TREE' && ctest -C Release --output-on-failure -R '^($PERF_E)$' --output-junit '$LOGS/T2-perf.xml' --timeout $CTEST_DEFAULT_TIMEOUT_S"
       leg T2-perf-budget env "$PY_IO_ENCODING" \
@@ -583,7 +589,8 @@ t2() {
         "$PY" "$REPO/tools/gate_time_check.py" check-timeouts \
         --tree "$MASTER_TREE" --table "$REF_TABLE"
     fi
-    leg T2-perf-restore bash -c \
+    leg T2-perf-restore --gate-env "NLANG_GATE_WRITE_DIR=$MASTER_TREE" \
+        bash -c \
         "cmake -S '$REPO' -B '$MASTER_TREE' -DNLANG_PERF_TESTS=OFF"
   fi
   e2e_leg T2-release-e2e "$MASTER_TREE" Release e2e-Release "" 120

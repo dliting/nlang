@@ -590,6 +590,18 @@ def run_smoke():
               f"no -E of its own: {perf_line!r}")
         check("-DNLANG_PERF_TESTS=OFF" in dry_leg_line("T2-perf-restore"),
               "no restore leg closing the ON-cache window")
+        # The three legs that name the sweep tree only INSIDE a single
+        # bash -c string (cmake --build, cmake -B): gate.sh derives write
+        # directories by walking argv words and cannot drill a quoted
+        # script, so with the machine lock gone (D-10) these legs would
+        # run unlocked against the Debug decision legs on the same tree
+        # unless the assembly declares the directory at the leg layer.
+        for leg_name in ("T2-release-build", "T2-perf", "T2-perf-restore"):
+            line = dry_leg_line(leg_name)
+            check(f"--gate-env NLANG_GATE_WRITE_DIR={tree_abs['master']}"
+                  in line,
+                  f"the {leg_name} dry-run leg line lost its --gate-env "
+                  f"write-directory declaration: {line!r}")
         carrier_line = dry_leg_line("T2-carrier")
         check("check-carrier" in carrier_line and "--leg-commands"
               in carrier_line and "--perf-names" in carrier_line,
@@ -606,7 +618,9 @@ def run_smoke():
               "carrier guard")
         if rec.exists():
             body = rec.read_text(encoding="utf-8")
-            check("T2-perf\tenv" in body and "T2-perf-restore\t" in body
+            check("T2-perf\t--gate-env NLANG_GATE_WRITE_DIR="
+                  + tree_abs["master"] + " env" in body
+                  and "T2-perf-restore\t" in body
                   and "T0-unit\t" not in body,
                   "leg_commands.tsv must hold this batch's commands and "
                   f"nothing an earlier batch recorded: {body!r}")
