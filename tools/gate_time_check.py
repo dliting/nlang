@@ -498,6 +498,16 @@ def _build_parser():
 
 
 def main(argv=None):
+    # The tier captures this script's stdout values (print-slow,
+    # print-perf-names, derive-e2e-subset) through bash command
+    # substitution, which keeps carriage returns; a CR that reaches a
+    # ctest -R/-E argv silently changes the regex (a CR-anchored last
+    # alternative matches no entry name). The machine-readable channel
+    # answers with LF line endings whatever the platform's text mode.
+    if hasattr(sys.stdout, "reconfigure"):
+        # In-process tests swap sys.stdout for a StringIO, which
+        # normalizes line endings on its own.
+        sys.stdout.reconfigure(newline="\n")
     args = _build_parser().parse_args(argv)
     try:
         return _dispatch(args)

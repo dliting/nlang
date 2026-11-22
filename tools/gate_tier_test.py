@@ -259,6 +259,39 @@ def run_smoke():
             if src.exists():
                 shutil.copy(src, sandbox / "tools" / module)
 
+        # The value producers own their machine-readable channel's line
+        # endings (Task 12, run-set replay contract): bash command
+        # substitution KEEPS a carriage return, and a CR riding into a
+        # ctest -R/-E argv silently changes the regex (a CR-anchored
+        # last alternative matches no entry name -- measured: -R
+        # 'native_fs' selects an entry, -R 'native_fs<CR>' selects
+        # none). Today the tier's MSYS grep/awk happen to strip the CR
+        # as text-mode intermediaries, but that cleanness is an
+        # accident of the pipeline, not a contract a door or a POSIX
+        # awk would keep. Verified on RAW bytes with no shell in
+        # between (subprocess pipes), because that is the channel the
+        # tier actually captures.
+        for value_probe in (
+            ("gate_time_check.py", ["print-slow", "ctest-Debug",
+                                    "--table",
+                                    "tests/gate_time_reference.txt"]),
+            ("test_impact.py", ["tools/test_families.txt",
+                                "src/native/tensor/x.cpp"]),
+        ):
+            probe = subprocess.run(
+                [sys.executable, "-I",
+                 str(sandbox / "tools" / value_probe[0]),
+                 *value_probe[1]],
+                capture_output=True, cwd=sandbox)
+            check(probe.returncode == 0,
+                  f"the value probe {value_probe[0]} exited "
+                  f"rc={probe.returncode}: {probe.stderr[:200]!r}")
+            check(b"\r" not in probe.stdout,
+                  f"the stdout value channel of {value_probe[0]} emits "
+                  f"a carriage return (it would ride into ctest -R/-E "
+                  f"argv when no text-mode filter sits in between): "
+                  f"{probe.stdout[:200]!r}")
+
         # NLANG_GATE_MACHINE_SCALE (inside run_tier) pins the calibration
         # (D-4): the stub trees hold no suite, so an unpinned run would
         # burn live sampling rounds and fail on calibration, not wiring.
