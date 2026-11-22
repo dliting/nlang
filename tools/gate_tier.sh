@@ -439,6 +439,113 @@ docs_legs() {
   done
 }
 
+# A tree's universe for the coverage guards (Task 12, R-91-C1): a named
+# file the checker is pointed at with --enum ctest-<key>=FILE. The
+# --enum channel exists because the tier's trees are operator arguments
+# while the checker's own live walk assumes repo-relative default trees:
+# pinning names each config's universe after the tree THIS batch was
+# given, and it is also the only way an unconfigured tree stays visible
+# -- the live walk would raise on a tree with no CMakeCache. A tree
+# whose enumeration is impossible (no CMakeCache, given or not, or the
+# enumeration itself failing) gets a NAMED-SKIP pin: the reference
+# table's own row names for that config, which keep guards one and two
+# self-consistent green for that config while the console line right
+# above says out loud that no live tree backed it (a green that names
+# what it did not see, per the same discipline as the named-skip rows
+# in the schedule pins). --show-only enumerates without running
+# anything, so these reads never need a write-directory claim.
+guard_tree_pin() { # guard_tree_pin <config-key> <tree> -> pin path on stdout
+  local cfg="$1" tree="$2" rc n
+  # Two local statements on purpose: bash expands every argument word of
+  # one `local` call BEFORE performing any of its assignments, so
+  # referencing $cfg inside the same list (pin="$WORK/guard_enum_$cfg.txt")
+  # would read an unbound variable, abort this function inside the
+  # caller's $(...) capture, and hand back an empty pin.
+  local pin="$WORK/guard_enum_$cfg.txt"
+  # All status lines go to stderr, never stdout: the caller captures this
+  # function's stdout as the pin path (the leg_scale lesson), and a stdout
+  # echo here would land inside the pin argument. The enumeration rides
+  # the ctest door (NLANG_GATE_CTEST, the same seam gate_time_selftest.sh
+  # and print-perf-names use) so the smoke sandbox enumerates its stub
+  # trees instead of this machine's real builds.
+  local ctest_bin="${NLANG_GATE_CTEST:-ctest}"
+  if [ "$DRY" = 1 ]; then
+    printf '%s\n' "$pin"
+    return 0
+  fi
+  if [ -n "$tree" ] && [ -f "$tree/CMakeCache.txt" ]; then
+    "$ctest_bin" --test-dir "$tree" -C Debug --show-only=json-v1 \
+        > "$pin" 2> "$WORK/guard_enum_$cfg.err"
+    rc=$?
+    if [ $rc -eq 0 ]; then
+      printf '%s\n' "$pin"
+      return 0
+    fi
+    echo "guard: ctest enumeration of $tree failed rc=$rc (see $WORK/guard_enum_$cfg.err)" >&2
+  else
+    echo "guard: $cfg tree ${tree:-<not given>} has no CMakeCache" >&2
+  fi
+  n=$(awk -v cfg="$cfg" '$1 == cfg && $2 != "default" { print $2 }' \
+      "$REF_TABLE" | sort -u | wc -l)
+  {
+    printf '# named skip for %s: no configured tree backed this\n' "$cfg"
+    printf '# universe in this batch; the names below are the reference\n'
+    printf '# table'\''s own rows for %s, so guards one and two judge\n' "$cfg"
+    printf '# self-consistency only here -- nothing verified them live.\n'
+    awk -v cfg="$cfg" '$1 == cfg && $2 != "default" { print $2 }' \
+        "$REF_TABLE" | sort -u
+  } > "$pin"
+  echo "guard: $cfg fed a named-skip pin of $n table row names" >&2
+  printf '%s\n' "$pin"
+}
+
+# The coverage and schedule guards as batch legs (Task 12, the shell-
+# side wiring of R-91-C1): guards one/two (coverage and orphans), six
+# and nine (the schedule axis), and eight's name half ride the batch
+# conjunction like every other leg instead of waiting for a human to
+# remember the checker. They write nothing -- ctest --show-only and a
+# table read -- so they carry no write-directory declaration, and the
+# "no write directory" warning on these legs is their designed face
+# (the same face the budget and timeouts checker legs show).
+# --perf-names is not optional here: without the perf differential the
+# coverage guards answer UNVERIFIED for every ctest-Release row (R-61),
+# and both t0() and t1_legs() have written the file before this call.
+# "$@" carries the caller's extra check-schedule arguments: the mapped
+# T0 round adds --mapping (the leg's own -R, whose run set guard six
+# replays through --show-only, or --tree when the assembly enumeration
+# itself failed) and T0's e2e branch adds --e2e-mapping plus
+# --derived-e2e; the full rounds pass no extras -- with no mapping the
+# backfill half answers vacuously and a live enumeration would add a
+# ctest walk whose answer nothing consumes.
+guard_legs() {
+  local pin_unit pin_ide pin_asan
+  pin_unit=$(guard_tree_pin ctest-Debug "$MASTER_TREE")
+  pin_ide=$(guard_tree_pin ctest-IDE "$IDE_TREE")
+  pin_asan=$(guard_tree_pin ctest-ASan "$ASAN_TREE")
+  local enum_args=(--enum "ctest-Debug=$pin_unit"
+                   --enum "ctest-IDE=$pin_ide"
+                   --enum "ctest-ASan=$pin_asan")
+  leg T-guards-complete env "$PY_IO_ENCODING" \
+    "$PY" "$REPO/tools/gate_time_check.py" check-complete \
+    --table "$REF_TABLE" "${enum_args[@]}" \
+    --perf-names "$WORK/perf_names.txt"
+  leg T-guards-orphans env "$PY_IO_ENCODING" \
+    "$PY" "$REPO/tools/gate_time_check.py" check-orphans \
+    --table "$REF_TABLE" "${enum_args[@]}" \
+    --perf-names "$WORK/perf_names.txt"
+  # The scheduled ctest config and the scheduled e2e config are the two
+  # the round actually runs; the close-out-only configs' claim half
+  # rides the next scheduled round of their own (the checker judges one
+  # ctest config plus one e2e config per call, and the round has exactly
+  # one of each).
+  leg T-schedule env "$PY_IO_ENCODING" \
+    "$PY" "$REPO/tools/gate_time_check.py" check-schedule \
+    --table "$REF_TABLE" --config ctest-Debug \
+    --perf-names "$WORK/perf_names.txt" \
+    --e2e-config e2e-Debug \
+    --e2e-manifest "$REPO/tests/e2e/manifest.txt" "$@"
+}
+
 t1_legs() { # t1_legs <slow-e on|off>
   # The perf set for the whole round is computed HERE, once (both the
   # t1 direct form and the t2 reuse form get it; the carrier file is
@@ -473,6 +580,11 @@ t1_legs() { # t1_legs <slow-e on|off>
   derive_asan_subset || return 2
   e2e_leg T1-asan-e2e-subset "$ASAN_TREE" Debug e2e-ASan \
       "$WORK/asan_subset_derived.txt" 180
+  # The coverage/schedule guard legs ride every full round too (the T2
+  # close-out inherits them through this function): with no fast round
+  # there is no backfill to judge, so the schedule guard runs with no
+  # mapping extras.
+  guard_legs
 }
 
 t0() {
@@ -486,7 +598,7 @@ t0() {
     impact_args=("${CHANGED_PATHS[@]}")
   fi
   [ ${#impact_args[@]} -gt 0 ] || { echo "T0: no changed paths"; return 2; }
-  local map rc unit_regex e2e_regex keep_regex=""
+  local map rc unit_regex e2e_regex keep_regex="" sched_extra=()
   map=$("$PY" -I "$REPO/tools/test_impact.py" \
       "$REPO/tools/test_families.txt" "${impact_args[@]}")
   rc=$?
@@ -517,6 +629,43 @@ t0() {
     slow_unit=$(slow_regex ctest-Debug "$keep_regex") \
         || { echo "T0: print-slow failed"; return 2; }
     ctest_leg T0-unit "$MASTER_TREE" ctest-Debug "$unit_regex" "$slow_unit"
+    # Guard six's run-set channel (Task 12, R-91-C1): the mapped round
+    # hands the schedule guard its own --mapping regex plus a --show-only
+    # enumeration taken with this leg's EXACT selectors (same -R, same
+    # joined -E the ctest_leg call above built -- -E beats -R, F-12), so
+    # guard six judges the run set the leg really carries rather than
+    # re-deriving one. An enumeration that fails or comes back empty
+    # falls back to --tree, the checker's own live walk: vacuous-but-
+    # named, never a silent skip (the console line below says so out
+    # loud -- a door that cannot carry the regex pipes through cmd.exe,
+    # e.g. a .bat stub, lands here rather than poisoning the replay).
+    # The dry listing cannot know the enumeration's rc, so it shows the
+    # fallback shape. Only the mapped round gets a channel at all: the
+    # conservative selector is "." -- handing guard six that mapping
+    # would re-search-hit every slow entry, its -E excludes them all,
+    # and the backfill half would answer false-red on every slow name
+    # (the same R-53 trap that keeps --keep-matched away from
+    # print-slow here).
+    if [ -n "$keep_regex" ]; then
+      sched_extra+=(--mapping "$unit_regex")
+      if [ "$DRY" = 1 ]; then
+        sched_extra+=(--tree "$MASTER_TREE")
+      else
+        local runset_e
+        runset_e=$(join_regex "$PERF_E" "$slow_unit")
+        local runset_args=(--test-dir "$MASTER_TREE" -C Debug
+                           --show-only=json-v1 -R "$unit_regex")
+        [ -n "$runset_e" ] && runset_args+=(-E "$runset_e")
+        "${NLANG_GATE_CTEST:-ctest}" "${runset_args[@]}" \
+            > "$WORK/t0_runset.json" 2> "$WORK/t0_runset.err"
+        if [ $? -eq 0 ] && [ -s "$WORK/t0_runset.json" ]; then
+          sched_extra+=(--show-only "$WORK/t0_runset.json")
+        else
+          echo "T0: run-set enumeration failed, guard six falls back to a live --tree enumeration"
+          sched_extra+=(--tree "$MASTER_TREE")
+        fi
+      fi
+    fi
   fi
   if [ -n "$e2e_regex" ]; then
     # This round's e2e lines come from derive-e2e-subset (R-64's set
@@ -540,8 +689,16 @@ t0() {
       return 2
     fi
     e2e_leg T0-e2e "$MASTER_TREE" Debug e2e-Debug "$WORK/t0_subset.txt" 120
+    # Guard nine judges the very subset formula this round selected: the
+    # checker re-derives the set from the mapping and the table and
+    # compares it to the file the leg actually swept.
+    sched_extra+=(--e2e-mapping "$e2e_regex"
+                  --derived-e2e "$WORK/t0_subset.txt")
   fi
   [ ${#LEG_NAMES[@]} -gt 0 ] || { echo "T0: nothing to run"; return 0; }
+  # The guard legs ride the scheduled round as well (Task 12); the "run
+  # nothing" case above keeps its old meaning and skips them with it.
+  guard_legs ${sched_extra[@]+"${sched_extra[@]}"}
 }
 
 t1() { t1_legs on; docs_legs; }

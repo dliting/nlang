@@ -200,6 +200,10 @@ EXPECTED_LEGS = [
     "T1-asan-unit-budget",
     "T1-asan-unit-timeouts",
     "T1-asan-e2e-subset",
+    # Task 12: the coverage pair and the schedule core ride every batch.
+    "T-guards-complete",
+    "T-guards-orphans",
+    "T-schedule",
 ]
 
 
@@ -443,6 +447,57 @@ def run_smoke():
                   "the ASan e2e leg must judge from the e2e-ASan rows "
                   f"while running the Debug binaries: {body!r}")
 
+        # Task 12 (R-91-C1): the coverage pair and the schedule core ride
+        # every batch as their own gate.sh legs. The --enum NAME=FILE
+        # pins name each config's universe after the trees THIS batch
+        # was given (the checker's live walk would judge repo-relative
+        # default trees instead), and --perf-names is load-bearing: the
+        # coverage guards answer UNVERIFIED for every ctest-Release row
+        # without the differential (R-61). The legs read only -- no
+        # write directory, so gate.sh's own environment shows none (the
+        # same no-directory face the budget and timeouts checker legs
+        # show by design).
+        tier_work = str(sandbox / "temp" / "tier")
+        for leg_name, verb in (("T-guards-complete", "check-complete"),
+                               ("T-guards-orphans", "check-orphans")):
+            invocations = gates_dir / f"{leg_name}.invocations"
+            check(invocations.exists(),
+                  f"stub gate.sh never received {leg_name} — the "
+                  "coverage guard never reached gate.sh")
+            if invocations.exists():
+                body = invocations.read_text(encoding="utf-8")
+                for token in (verb, "--table", "--enum ctest-Debug=",
+                              "--enum ctest-IDE=", "--enum ctest-ASan=",
+                              tier_work + "/guard_enum_ctest-Debug.txt",
+                              "--perf-names",
+                              tier_work + "/perf_names.txt"):
+                    check(token in body,
+                          f"{leg_name} lost {token!r} from the checker "
+                          f"invocation: {body!r}")
+                check("--gate-env" not in body,
+                      f"{leg_name} only reads (show-only enumerations "
+                      f"and table files), so no write-directory "
+                      f"declaration may appear: {body!r}")
+                check("GATE_ENV NLANG_GATE_WRITE_DIR=<unset>\n" in body,
+                      f"{leg_name}: a read-only checker leg must show "
+                      f"no write dir in gate.sh's environment: "
+                      f"{body!r}")
+        sched_invocations = gates_dir / "T-schedule.invocations"
+        check(sched_invocations.exists(),
+              "stub gate.sh never received T-schedule — the schedule "
+              "axis guard never reached gate.sh")
+        if sched_invocations.exists():
+            body = sched_invocations.read_text(encoding="utf-8")
+            for token in ("check-schedule", "--config ctest-Debug",
+                          "--perf-names", "--e2e-config e2e-Debug",
+                          "--e2e-manifest"):
+                check(token in body,
+                      f"T-schedule lost {token!r}: {body!r}")
+            check("--gate-env" not in body and "--mapping" not in body,
+                  "the full-scan round has no fast round to backfill, "
+                  "so its schedule guard runs with neither a write-dir "
+                  f"declaration nor a --mapping: {body!r}")
+
         # T0 through the schedule axis: the tensor src change maps the
         # mnist entries back in via -R (F-12 backfill), so the -E keeps
         # only the unmapped slow name; the e2e selection runs through
@@ -484,6 +539,47 @@ def run_smoke():
                   "∪ the lines with their own explicit non-default row "
                   "outside the slow set, in "
                   f"manifest order, got {lines!r}")
+        # Task 12: the guard legs ride the scheduled round too, and the
+        # mapped round additionally wires guard six's run-set channel
+        # (the leg's own -R/-E replayed through --show-only) and guard
+        # nine's derived-subset equality into T-schedule.
+        for leg_name in ("T-guards-complete", "T-guards-orphans",
+                         "T-schedule"):
+            check(f"GATE {leg_name}: PASS" in t0_out,
+                  f"T0 lost its {leg_name} leg; output:\n{t0_out}")
+        t0_sched = gates_dir / "T-schedule.invocations"
+        if t0_sched.exists():
+            lines = [ln for ln in t0_sched.read_text(
+                encoding="utf-8").splitlines()
+                if "check-schedule" in ln]
+            check(len(lines) >= 2,
+                  "the mapped T0 batch never added its own T-schedule "
+                  f"invocation: {lines!r}")
+            if len(lines) >= 2:
+                sched_line = lines[-1]
+                for token in ("--mapping mnist_mlp_compile|mnist_mlp_run",
+                              "--e2e-mapping smoke_", "--derived-e2e",
+                              "t0_subset.txt"):
+                    check(token in sched_line,
+                          f"the mapped T0 schedule guard lost "
+                          f"{token!r}: {sched_line!r}")
+                # The run-set channel is either the replayed --show-only
+                # enumeration or the NAMED --tree fallback the assembly
+                # prints when its own enumeration fails (a .bat door
+                # cannot carry the -R/-E regex pipes through cmd -- what
+                # must never happen is a mapped round with no run-set
+                # channel at all, guard six then judges nothing).
+                replay = ("--show-only" in sched_line
+                          and "t0_runset.json" in sched_line)
+                fallback = ("--tree " + tree_abs["master"]
+                            in sched_line)
+                check(replay or fallback,
+                      "the mapped T0 schedule guard lost its run-set "
+                      "channel (neither the --show-only replay nor the "
+                      f"named --tree fallback): {sched_line!r}")
+        else:
+            check(False, "stub gate.sh never received T-schedule in "
+                  "the mapped T0 round")
 
         # R-53: the unmapped conservative round. test_impact.py answers an
         # unmapped path with rc=3 and no families, so the -R selector
@@ -519,6 +615,25 @@ def run_smoke():
         else:
             check(False, "stub gate.sh never received the conservative "
                   "T0-unit batch leg")
+        # The conservative round feeds guard six no mapping at all (the
+        # R-53 lesson: "." re.search-hits every slow entry and would
+        # judge the backfill half vacuously), so its T-schedule line
+        # carries neither --mapping nor an e2e mapping.
+        if t0_sched.exists():
+            lines = [ln for ln in t0_sched.read_text(
+                encoding="utf-8").splitlines()
+                if "check-schedule" in ln]
+            check(len(lines) >= 3,
+                  "the conservative T0 batch never added its own "
+                  f"T-schedule invocation: {lines!r}")
+            if len(lines) >= 3:
+                check("--mapping" not in lines[-1],
+                      "the conservative round must not hand guard six a "
+                      f'"." mapping: {lines[-1]!r}')
+                check("--e2e-mapping" not in lines[-1],
+                      "the conservative round's e2e regex is empty, so "
+                      "its schedule guard must not carry an e2e "
+                      f"mapping either: {lines[-1]!r}")
 
         # Tier reuse: T2's copies of the shared ctest legs must NOT carry
         # the slow-set -E (the close-out sweep covers those entries),
@@ -559,6 +674,40 @@ def run_smoke():
         check("--claim" not in dry_leg_line_from(dry1, "T1-debug-unit"),
               "a plain-tree leg must not declare the nide-gui claim: "
               f"{dry_leg_line_from(dry1, 'T1-debug-unit')!r}")
+        # Task 12: the guard legs' shape is pinned from the dry-run
+        # listing as well -- the operator reads that line, and an
+        # invocations-only pin would pass on any stub that only echoes.
+        # The coverage pair names all three per-tree pins and the perf
+        # differential; the schedule core names both judged configs; no
+        # guard leg carries a lock declaration (they read only).
+        for gname, core in (("T-guards-complete", "check-complete"),
+                            ("T-guards-orphans", "check-orphans")):
+            gline = dry_leg_line_from(dry1, gname)
+            for token in (core,
+                          "--enum ctest-Debug=" + tier_work
+                          + "/guard_enum_ctest-Debug.txt",
+                          "--enum ctest-IDE=" + tier_work
+                          + "/guard_enum_ctest-IDE.txt",
+                          "--enum ctest-ASan=" + tier_work
+                          + "/guard_enum_ctest-ASan.txt",
+                          "--perf-names " + tier_work
+                          + "/perf_names.txt"):
+                check(token in gline,
+                      f"the {gname} dry-run leg line lost {token!r}: "
+                      f"{gline!r}")
+            check("--gate-env" not in gline and "--claim" not in gline,
+                  f"read-only guard legs carry no lock declaration: "
+                  f"{gline!r}")
+        gsched = dry_leg_line_from(dry1, "T-schedule")
+        for token in ("check-schedule", "--config ctest-Debug",
+                      "--perf-names", "--e2e-config e2e-Debug",
+                      "--e2e-manifest"):
+            check(token in gsched,
+                  f"the T-schedule dry-run leg line lost {token!r}: "
+                  f"{gsched!r}")
+        check("--mapping" not in gsched and "--gate-env" not in gsched,
+              f"T1's schedule guard is the no-mapping full-round form "
+              f"with no lock declaration: {gsched!r}")
         reuse = [line for line in dry2.stdout.splitlines()
                  if line.startswith("LEG T1-debug-unit: ")]
         check(len(reuse) == 1 and "e2e_runner_timing_gate" not in reuse[0]
@@ -606,6 +755,18 @@ def run_smoke():
         check("check-carrier" in carrier_line and "--leg-commands"
               in carrier_line and "--perf-names" in carrier_line,
               f"T2-carrier leg lost the pairing checker: {carrier_line!r}")
+        # T2 inherits the guard legs through t1_legs (the close-out
+        # judges the same coverage and schedule axes); they keep the no-
+        # mapping full-round form there too.
+        for gname in ("T-guards-complete", "T-guards-orphans",
+                      "T-schedule"):
+            gline = dry_leg_line(gname)
+            check(gline != "",
+                  f"the T2 dry listing lost the {gname} guard leg — "
+                  "t1_legs must emit it for the close-out too")
+            check("--mapping" not in gline,
+                  f"T2's {gname} leg must not carry a fast-round "
+                  f"mapping: {gline!r}")
         for leg_name, want in (("T2-asan-e2e-full", "--config=ASan"),
                                ("T2-release-e2e", "--config=Release")):
             line = dry_leg_line(leg_name)
