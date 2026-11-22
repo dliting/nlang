@@ -3,7 +3,7 @@
 # gate_time_guards / gate_time_measure / gate_time_timeouts modules:
 # guard one completeness, guard two orphans, guard seven constant band,
 # the guard-six member that
-# --record must keep the four human columns, and the emit-cmake subcommand
+# --record must keep the three human columns, and the emit-cmake subcommand
 # that derives the configure-time TIMEOUT caps). The case groups live in
 # companion modules -- gate_time_table_test / gate_time_measure_test /
 # gate_time_guards_test / gate_time_budget_test / gate_time_timeouts_test
@@ -97,12 +97,12 @@ def test_cli_caps_unknown_config_names_the_config_keys():
 
 EMIT_TABLE = (
     "# stub emit table\n"
-    "ctest-Debug emit_over_floor 100.00 1 常规 ctest-junit-serial - stub\n"
-    "ctest-Debug emit_floor_entry 5.00 1 常规 ctest-junit-serial - stub\n"
-    "ctest-Debug emit.dot-dash-name 12.50 1 常规 ctest-junit-serial - stub\n"
-    "ctest-Release emit_release_only 200.00 1 性能 ctest-junit-serial - stub\n"
-    "ctest-Debug emit_both_configs 100.00 1 常规 ctest-junit-serial - stub\n"
-    "ctest-Release emit_both_configs 300.00 1 性能 ctest-junit-serial - stub\n")
+    "ctest-Debug emit_over_floor 100.00 1 ctest-junit-serial - stub\n"
+    "ctest-Debug emit_floor_entry 5.00 1 ctest-junit-serial - stub\n"
+    "ctest-Debug emit.dot-dash-name 12.50 1 ctest-junit-serial - stub\n"
+    "ctest-Release emit_release_only 200.00 1 ctest-junit-serial - stub\n"
+    "ctest-Debug emit_both_configs 100.00 1 ctest-junit-serial - stub\n"
+    "ctest-Release emit_both_configs 300.00 1 ctest-junit-serial - stub\n")
 
 EMIT_KEYS = ["--config", "ctest-Debug", "--config", "ctest-Release"]
 

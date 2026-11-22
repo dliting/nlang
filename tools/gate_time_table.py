@@ -4,11 +4,12 @@
 # effective_rows folds in the machine-local overlay, caps() and
 # caps_values compute the watchdog cap and the budget in exactly one
 # place, resolve_row/resolve_scoped_row map a (config, entry) pair to
-# its row, row_line/form_token print table-shape rows and measurement
-# form tokens, and emit_cmake derives the configure-time ctest TIMEOUT
-# caps file. The CLI entry and the guard verdict bodies live in the
-# sibling gate_time_check / gate_time_measure / gate_time_guards
-# modules. The watchdog cap and the budget are computed in exactly one
+# its row, row_line/form_token print table-shape rows and
+# measurement form tokens, and emit_cmake derives the configure-time
+# ctest TIMEOUT caps file. The CLI entry and the guard verdict bodies
+# live in the sibling gate_time_check / gate_time_measure /
+# gate_time_guards modules. The watchdog cap and the budget are computed
+# in exactly one
 # place, caps(), per D-5. Stdlib only; run with -I.
 #
 # Importable consumers (D-5): caps(config, entry, work_factor=1.0,
@@ -18,8 +19,8 @@ import re
 from collections import namedtuple
 from pathlib import Path
 
-# Frozen values pinned by the design (D-1/D-3/D-7); changing one changes
-# the caps() contract every consumer shares.
+# Frozen values pinned by the design (D-1/D-3/D-7/D-16); changing one
+# changes the caps() or membership contract every consumer shares.
 SAFETY_MULTIPLIER = 2
 WATCHDOG_MULTIPLIER = 10
 MIN_CAP_S = 60
@@ -27,19 +28,17 @@ MIN_WATCHDOG_S = 120
 SCALE_BAND_MIN = 0.25
 SCALE_BAND_MAX = 4.0
 DEFAULT_WORK_FACTOR = 1
-SLOW_MIN_REF_S = 300
+# The one fast/slow threshold (D-16): an entry name is slow exactly when
+# its baseline row's reference seconds exceed this number; the slow set
+# runs only in the pre-version closeout batch. This constant is the only
+# site of the number, and the reference table never repeats it.
+SLOW_MIN_REF_S = 60
 
 SENTINEL_MARK = "yes"
 SENTINELS_PER_CONFIG = (5, 8)
 CTEST_CONFIGS = ("ctest-Debug", "ctest-IDE", "ctest-ASan")
 E2E_CONFIGS = ("e2e-Debug", "e2e-ASan", "e2e-Release")
 CONFIG_KEYS = CTEST_CONFIGS + ("ctest-Release",) + E2E_CONFIGS
-CATEGORIES = ("常规", "慢功能", "演示验收", "性能")
-# The two categories the schedule and carrier axes split the table on:
-# the one every scheduled round keeps, and the perf class that runs only
-# under the NLANG_PERF_TESTS=ON registration (D-6, D-7).
-REGULAR_CATEGORY = CATEGORIES[0]
-PERF_CATEGORY = CATEGORIES[3]
 MANIFEST_SCOPES = ("manifest.txt", "examples_manifest.txt")
 LOCAL_TABLE_NAME = "gate_time_reference.local.txt"
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -49,37 +48,45 @@ DECISION_TREES = {"ctest-Debug": "build",
                   "ctest-IDE": "build-ide",
                   "ctest-ASan": "build-asan"}
 
-Row = namedtuple("Row", "config entry ref_s ref_work category form sentinel "
-                        "reason line")
+Row = namedtuple("Row", "config entry ref_s ref_work form sentinel reason "
+                        "line")
 
 
 def load_table(path):
     """Parse one reference table file. One row per (config, entry),
-    whitespace-separated: config entry ref_s ref_work category form
-    [sentinel [reason]]; `reason` runs to end of line, so a row with seven
-    tokens carries no sentinel and a row with six neither. Blank lines and
-    `#` comments are skipped. Raises ValueError on a malformed row."""
+    whitespace-separated: config entry ref_s ref_work form [sentinel
+    [reason]]; `reason` runs to end of line, so a row of seven tokens is
+    complete, six carries a sentinel but no reason and five carries
+    neither. Blank lines and `#` comments are skipped. Raises ValueError
+    on a malformed row."""
     rows = []
     text = Path(path).read_text(encoding="utf-8")
     for lineno, line in enumerate(text.splitlines(), 1):
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
             continue
-        fields = stripped.split(None, 7)
-        if len(fields) < 6:
-            raise ValueError("%s line %d: expected at least six columns, "
+        fields = stripped.split(None, 6)
+        if len(fields) < 5:
+            raise ValueError("%s line %d: expected at least five columns, "
                              "got %d" % (path, lineno, len(fields)))
-        config, entry, ref_s, ref_work, category, form = fields[:6]
-        sentinel = fields[6] if len(fields) > 6 else ""
-        reason = fields[7] if len(fields) > 7 else ""
+        config, entry, ref_s, ref_work, form = fields[:5]
+        sentinel = fields[5] if len(fields) > 5 else ""
+        reason = fields[6] if len(fields) > 6 else ""
         if config not in CONFIG_KEYS:
             raise ValueError("%s line %d: unknown config key %r (want one "
                              "of %s)" % (path, lineno, config,
                                          ", ".join(CONFIG_KEYS)))
-        if category not in CATEGORIES:
-            raise ValueError("%s line %d: unknown category %r (want one of "
-                             "%s)" % (path, lineno, category,
-                                      ", ".join(CATEGORIES)))
+        if not (form.startswith("ctest-") or form.startswith("e2e-")
+                or form == "unknown"):
+            # D-17 deleted the category column between ref_work and the
+            # form; a stale row would otherwise reparse silently with the
+            # category token posing as the form, so the row shape error
+            # names the deleted column instead of trusting the token.
+            raise ValueError("%s line %d: column 5 must be the measurement "
+                             "form (ctest-*/e2e-*/unknown); %r reads as the "
+                             "category column deleted in D-17 -- drop it "
+                             "and shift the rest one column left"
+                             % (path, lineno, form))
         try:
             ref_s = float(ref_s)
             ref_work = int(ref_work)
@@ -89,8 +96,8 @@ def load_table(path):
         if ref_s < 0.0 or ref_work < 1:
             raise ValueError("%s line %d: ref_s must be >= 0 and ref_work "
                              ">= 1" % (path, lineno))
-        rows.append(Row(config, entry, ref_s, ref_work, category, form,
-                        sentinel, reason, lineno))
+        rows.append(Row(config, entry, ref_s, ref_work, form, sentinel,
+                        reason, lineno))
     return rows
 
 
@@ -203,7 +210,9 @@ def emit_cmake(configs, out_path, work_factor=DEFAULT_WORK_FACTOR,
             "widen the caps above the committed table but never shrink "
             "them (D-8)" % (work_factor,))
     keys = []
-    for config in configs:
+    # --config is repeatable and defaults to None: fold the absent case
+    # into the named refusal below instead of a TypeError on None.
+    for config in configs or ():
         if config not in CONFIG_KEYS:
             raise ValueError("unknown config key %r (legal keys: %s)"
                              % (config, ", ".join(CONFIG_KEYS)))
@@ -242,13 +251,11 @@ def emit_cmake(configs, out_path, work_factor=DEFAULT_WORK_FACTOR,
     return len(watchdogs)
 
 
-def row_line(config, entry, ref_s, ref_work, category, form, sentinel,
-             reason):
+def row_line(config, entry, ref_s, ref_work, form, sentinel, reason):
     # A row never carries a reason without a sentinel token in front of
     # it (the parser would have read the reason as the sentinel), so the
     # sentinel token gates the reason token.
-    line = "%s %s %.2f %s %s %s" % (config, entry, ref_s, ref_work,
-                                    category, form)
+    line = "%s %s %.2f %s %s" % (config, entry, ref_s, ref_work, form)
     if sentinel or reason:
         line += " %s" % (sentinel or "-")
     if reason:

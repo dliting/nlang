@@ -123,23 +123,28 @@ print(json.dumps({"tests": [{"name": n, "properties": []}
                             for n in names]}))
 '''
 
-# Stub reference table for the schedule wiring: the category column is
-# the only slow-set input (D-7), so the table alone decides which names
-# the legs must exclude. The e2e-Debug rows feed the derived-subset
-# check: the explicit-常规 line must join the mapping hits in manifest
-# order.
+# Stub reference table for the schedule wiring: the slow set is no
+# column (D-16/D-17) -- membership comes from the entry's baseline row
+# (ctest-Debug, then ctest-IDE, then e2e-Debug, first hit) exceeding
+# SLOW_MIN_REF_S, so mainwindow_tests needs its ctest-IDE row to be a
+# slow member at all: the ASan-only reading never classifies. The one
+# repo-wide roster projects onto every config's -E, so all three ctest
+# legs exclude the same names. The e2e-Debug rows feed the derived-
+# subset check: the explicit non-default line outside the slow set must
+# join the mapping hits in manifest order.
 REF_TABLE = """\
 # stub reference table
-ctest-Debug default 10.0 1 常规 ctest-junit-serial - stub
-ctest-Debug e2e_runner_timing_gate 409.77 1 慢功能 ctest-junit-serial - timing probes carried elsewhere every round
-ctest-Debug mnist_mlp_compile 220.0 1 演示验收 ctest-junit-serial - demo class carried by T2
-ctest-IDE default 10.0 1 常规 ctest-junit-serial - stub
-ctest-IDE e2e_runner_timing_gate 409.80 1 慢功能 ctest-junit-serial - timing probes carried elsewhere every round
-ctest-IDE mnist_mlp_compile 240.0 1 演示验收 ctest-junit-serial - demo class carried by T2
-ctest-ASan default 10.0 1 常规 ctest-junit-serial - stub
-ctest-ASan mainwindow_tests 372.19 1 慢功能 ctest-junit-serial - instrumented face carried by T2
-e2e-Debug default 10.0 1 常规 e2e-runner-serial - stub
-e2e-Debug stdlib_stub_size 30.0 1 常规 e2e-runner-serial - stub reason
+ctest-Debug default 10.0 1 ctest-junit-serial - stub
+ctest-Debug e2e_runner_timing_gate 409.77 1 ctest-junit-serial - timing probes carried elsewhere every round
+ctest-Debug mnist_mlp_compile 220.0 1 ctest-junit-serial - demo class carried by T2
+ctest-IDE default 10.0 1 ctest-junit-serial - stub
+ctest-IDE e2e_runner_timing_gate 409.80 1 ctest-junit-serial - timing probes carried elsewhere every round
+ctest-IDE mnist_mlp_compile 240.0 1 ctest-junit-serial - demo class carried by T2
+ctest-IDE mainwindow_tests 115.60 1 ctest-junit-serial - slow on its baseline row
+ctest-ASan default 10.0 1 ctest-junit-serial - stub
+ctest-ASan mainwindow_tests 372.19 1 ctest-junit-serial - instrumented face carried by T2
+e2e-Debug default 10.0 1 e2e-runner-serial - stub
+e2e-Debug stdlib_stub_size 30.0 1 e2e-runner-serial - stub reason
 """
 
 # Stub family file: the tensor family as D-7 specifies it, so a changed
@@ -286,6 +291,13 @@ def run_smoke():
             check("--output-junit" in body,
                   f"ctest leg writes no junit timings for the budget "
                   f"checker: {body!r}")
+            # --output-on-failure (R-59): the junit carries timings and
+            # verdicts but never the failing test's own output, so a
+            # red ctest leg would otherwise force a manual re-run just
+            # to see why.
+            check("--output-on-failure" in body,
+                  f"ctest leg lost --output-on-failure (R-59): "
+                  f"{body!r}")
             check("--timeout 1500" in body,
                   f"ctest leg lost the --timeout fallback for row-less "
                   f"entries: {body!r}")
@@ -325,19 +337,20 @@ def run_smoke():
                   and "tests/e2e/manifest.txt" in body,
                   "T1-debug-e2e must sweep the FULL manifest: "
                   f"{body!r}")
-        # Slow-set exclusions (D-7): the category column is the single
-        # source for the slow names, the perf differential (D-6) for the
-        # perf names -- both join every ctest leg's -E, which must ride
-        # the leg command itself (F-12: -E beats any TIMEOUT property).
+        # Slow-set exclusions (D-16/D-17): the baseline rows' seconds
+        # against SLOW_MIN_REF_S are the single source for the slow
+        # names, the perf differential (D-6) for the perf names -- the
+        # one repo-wide roster projects onto every config's -E (the
+        # ASan leg excludes names its tree never registered), and both
+        # joins ride the leg command itself (F-12: -E beats any TIMEOUT
+        # property).
+        slow_roster_e = ("-E 'e2e_runner_timing_gate|mainwindow_tests|"
+                         "mnist_mlp_compile|perf_stub_compile|"
+                         "perf_stub_run'")
         for leg, slow_e in (
-            ("T1-debug-unit",
-             "-E 'e2e_runner_timing_gate|mnist_mlp_compile|"
-             "perf_stub_compile|perf_stub_run'"),
-            ("T1-ide-ctest",
-             "-E 'e2e_runner_timing_gate|mnist_mlp_compile|"
-             "perf_stub_compile|perf_stub_run'"),
-            ("T1-asan-unit",
-             "-E 'mainwindow_tests|perf_stub_compile|perf_stub_run'")):
+            ("T1-debug-unit", slow_roster_e),
+            ("T1-ide-ctest", slow_roster_e),
+            ("T1-asan-unit", slow_roster_e)):
             invocations = gates_dir / f"{leg}.invocations"
             check(invocations.exists(),
                   f"stub gate.sh never received {leg} — dispatch broken")
@@ -397,9 +410,9 @@ def run_smoke():
             check("-R 'mnist_mlp_compile|mnist_mlp_run'" in body,
                   "T0-unit lost the mapped unit selector: "
                   f"{body!r}")
-            check("-E 'e2e_runner_timing_gate|perf_stub_compile|"
-                  "perf_stub_run'" in body,
-                  "T0-unit must keep only the unmapped slow name (the "
+            check("-E 'e2e_runner_timing_gate|mainwindow_tests|"
+                  "perf_stub_compile|perf_stub_run'" in body,
+                  "T0-unit must keep only the unmapped slow names (the "
                   "mapped mnist name came back through -R) plus the "
                   f"perf set in -E: {body!r}")
         else:
@@ -411,7 +424,8 @@ def run_smoke():
                 encoding="utf-8").splitlines() if line.strip()]
             check(lines == ["smoke_one 42", "stdlib_stub_size 5"],
                   "the derived e2e subset must be the mapping hits "
-                  "∪ the lines with their own explicit 常规 row, in "
+                  "∪ the lines with their own explicit non-default row "
+                  "outside the slow set, in "
                   f"manifest order, got {lines!r}")
 
         # R-53: the unmapped conservative round. test_impact.py answers an
@@ -438,12 +452,13 @@ def run_smoke():
             check("-R '.'" in body,
                   "the conservative round must select everything with "
                   f"-R '.': {body!r}")
-            check("-E 'e2e_runner_timing_gate|mnist_mlp_compile|"
-                  "perf_stub_compile|perf_stub_run'" in body,
-                  "the conservative round must exclude both stub-table "
-                  "slow names plus the perf set (nothing is mapped back, "
-                  "so print-slow runs without --keep-matched and keeps "
-                  f"the whole slow set): {body!r}")
+            check("-E 'e2e_runner_timing_gate|mainwindow_tests|"
+                  "mnist_mlp_compile|perf_stub_compile|perf_stub_run'"
+                  in body,
+                  "the conservative round must exclude all three stub-"
+                  "table slow names plus the perf set (nothing is "
+                  "mapped back, so print-slow runs without --keep-"
+                  f"matched and keeps the whole slow set): {body!r}")
         else:
             check(False, "stub gate.sh never received the conservative "
                   "T0-unit batch leg")
@@ -459,8 +474,9 @@ def run_smoke():
             check(proc_dry.returncode == 0,
                   f"{name} --dry-run exited rc={proc_dry.returncode}; "
                   f"output:\n{proc_dry.stdout + proc_dry.stderr}")
-        check("-E 'e2e_runner_timing_gate|mnist_mlp_compile|"
-              "perf_stub_compile|perf_stub_run'" in dry1.stdout,
+        check("-E 'e2e_runner_timing_gate|mainwindow_tests|"
+              "mnist_mlp_compile|perf_stub_compile|perf_stub_run'"
+              in dry1.stdout,
               "the T1 dry run lost the slow+perf -E from its ctest "
               f"legs: {dry1.stdout!r}")
         reuse = [line for line in dry2.stdout.splitlines()
@@ -486,11 +502,12 @@ def run_smoke():
         perf_line = dry_leg_line("T2-perf")
         check("-DNLANG_PERF_TESTS=ON" in perf_line
               and "-C Release" in perf_line
+              and "--output-on-failure" in perf_line
               and "-R '^(perf_stub_compile|perf_stub_run)$'" in perf_line
               and "-E '" not in perf_line,
               "the perf leg must flip the registration ON, run under "
-              "-C Release, and carry no -E of its own: "
-              f"{perf_line!r}")
+              "-C Release with --output-on-failure (R-59), and carry "
+              f"no -E of its own: {perf_line!r}")
         check("-DNLANG_PERF_TESTS=OFF" in dry_leg_line("T2-perf-restore"),
               "no restore leg closing the ON-cache window")
         carrier_line = dry_leg_line("T2-carrier")

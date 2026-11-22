@@ -17,9 +17,10 @@
 #                    covered by reference rows, and every participating
 #                    config must carry SENTINELS_PER_CONFIG sentinel marks
 #   check-orphans    guard two: rows whose entry name no longer exists;
-#                    ctest-Release rows are verified against the
-#                    NLANG_PERF_TESTS=ON enumeration, never against the
-#                    three decision trees (their universes never hold them)
+#                    ctest-Release rows are verified against the perf
+#                    names (the NLANG_PERF_TESTS ON/OFF registration
+#                    difference), never against the three decision trees
+#                    (their universes never hold them)
 #   calibrate        guard four: sample the machine scale fresh from the
 #                    config's sentinel rows in the load form the timed leg
 #                    will use (D-4); the scale is the median of per-sentinel
@@ -41,18 +42,20 @@
 #                    (stale: re-run configure, one line; fresh: a
 #                    hand-written TIMEOUT override per entry, line-named
 #                    when it sits in tests/CMakeLists.txt)
-#   print-slow       the schedule-axis wiring input (D-7): the config's
-#                    类别!=常规 entry names as one -E regex, minus
-#                    whatever --keep-matched (the leg's -R regex) hits
-#   derive-e2e-subset the round's e2e lines: explicit-常规 rows ∪ mapping
-#                    hits, manifest order (the T0 selection, one site)
-#   check-schedule   guards six/nine: category claims (甲/乙), the
-#                    backfill equivalence ctest itself computes, the >
-#                    SLOW_MIN_REF_S decision, the e2e set formula and
-#                    phantom src globs
+#   print-slow       the schedule-axis wiring input (D-16/D-17): the slow
+#                    set (an entry whose baseline row prices above
+#                    SLOW_MIN_REF_S) as one -E regex, minus whatever
+#                    --keep-matched (the leg's -R regex) hits; the member
+#                    roster goes to stderr for the leg's log
+#   derive-e2e-subset the round's e2e lines: explicit fast entry rows ∪
+#                    mapping hits, manifest order (the T0 selection, one
+#                    site)
+#   check-schedule   guards six/nine: slow-membership claims (甲/乙), the
+#                    backfill equivalence ctest itself computes, the e2e
+#                    set formula and phantom src globs
 #   record           merge measured readings (--from-junit / --from-measure),
-#                    refreshing ref_s and form only; the four human columns
-#                    (category, ref_work, sentinel, reason) survive verbatim
+#                    refreshing ref_s and form only; the three human columns
+#                    (ref_work, sentinel, reason) survive verbatim
 #   caps             print one entry's watchdog cap and budget
 #   emit-cmake       the configure-time cap emitter (D-1/D-2): one
 #                    set(GATE_TIMEOUT_<entry> <watchdog cap>) line per
@@ -92,8 +95,10 @@ from gate_time_timeouts import (check_timeouts, expected_watchdogs,
 def _inputs(args, repo):
     """Derived universes for guards one/two: live --show-only enumerations
     per decision tree unless --enum pins a config to a dump file;
-    --perf-on-enum (or --enum ctest-Release=FILE) feeds the ctest-Release
-    universe; both e2e manifests default to the repo lists."""
+    --perf-names (or --enum ctest-Release=FILE) feeds the ctest-Release
+    perf half with the NLANG_PERF_TESTS ON/OFF registration difference,
+    the set print-perf-names writes (R-61) -- not the full ON
+    enumeration; both e2e manifests default to the repo lists."""
     overrides = enum_overrides(args.enum)
     enums = {}
     for cfg, tree in DECISION_TREES.items():
@@ -101,11 +106,11 @@ def _inputs(args, repo):
             enums[cfg] = read_name_set(overrides[cfg])
         else:
             enums[cfg] = run_ctest_enum(repo / tree)
-    perf_on = None
-    if args.perf_on_enum:
-        perf_on = read_name_set(args.perf_on_enum)
+    perf_names = None
+    if args.perf_names:
+        perf_names = read_name_set(args.perf_names)
     elif "ctest-Release" in overrides:
-        perf_on = read_name_set(overrides["ctest-Release"])
+        perf_names = read_name_set(overrides["ctest-Release"])
     manifests = {
         "manifest.txt": read_name_set(
             args.manifest or repo / "tests" / "e2e" / "manifest.txt"),
@@ -113,7 +118,7 @@ def _inputs(args, repo):
             args.examples_manifest
             or repo / "tests" / "e2e" / "examples_manifest.txt"),
     }
-    return enums, perf_on, manifests
+    return enums, perf_names, manifests
 
 
 def _verdict(findings):
@@ -254,24 +259,24 @@ def _derived_inputs(args, table):
     """Rows plus the derived universes for guards one/two, with the ENUM
     progress lines shared by check-complete and check-orphans."""
     rows = effective_rows(table)
-    enums, perf_on, manifests = _inputs(args, Path(args.repo))
+    enums, perf_names, manifests = _inputs(args, Path(args.repo))
     for cfg in sorted(enums):
         print("ENUM %s: %d entries" % (cfg, len(enums[cfg])))
-    if perf_on is not None:
-        print("ENUM ctest-Release: %d entries (NLANG_PERF_TESTS=ON form)"
-              % len(perf_on))
-    return rows, enums, perf_on, manifests
+    if perf_names is not None:
+        print("ENUM ctest-Release: %d entries (perf names, the ON/OFF "
+              "registration difference)" % len(perf_names))
+    return rows, enums, perf_names, manifests
 
 
 def _run_check_complete(args, table):
-    rows, enums, perf_on, manifests = _derived_inputs(args, table)
-    return _verdict(check_complete(rows, enums, manifests, perf_on)[1])
+    rows, enums, perf_names, manifests = _derived_inputs(args, table)
+    return _verdict(check_complete(rows, enums, manifests, perf_names)[1])
 
 
 def _run_check_orphans(args, table):
-    rows, enums, perf_on, manifests = _derived_inputs(args, table)
+    rows, enums, perf_names, manifests = _derived_inputs(args, table)
     ctest_union = set().union(*enums.values())
-    return _verdict(check_orphans(rows, ctest_union, perf_on,
+    return _verdict(check_orphans(rows, ctest_union, perf_names,
                                   manifests)[1])
 
 
@@ -345,9 +350,11 @@ def _parent_parsers():
                          metavar="CONFIG=FILE",
                          help="pin one config's universe to a name dump or "
                               "ctest json (repeatable)")
-    derived.add_argument("--perf-on-enum",
-                         help="ctest-Release universe: entry names "
-                              "enumerated with NLANG_PERF_TESTS=ON")
+    derived.add_argument("--perf-names",
+                         help="ctest-Release perf half: the names from "
+                              "print-perf-names, i.e. the NLANG_PERF_TESTS "
+                              "ON/OFF registration difference, not the "
+                              "full ON enumeration (R-61)")
     derived.add_argument("--manifest", help="e2e manifest list file")
     derived.add_argument("--examples-manifest",
                          help="e2e examples manifest list file")
@@ -378,7 +385,7 @@ def _add_check_parsers(sub):
 
 
 def _add_record_parsers(sub):
-    """The recording merge (guard six member: the four human columns
+    """The recording merge (guard six member: the three human columns
     survive verbatim)."""
     table_arg, _ = _parent_parsers()
     record = sub.add_parser("record", parents=[table_arg],

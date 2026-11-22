@@ -1,26 +1,28 @@
 # gate_time_schedule.py -- the schedule axis (docs/dev/
-# gate_timing_design.md D-7): the reference table's category column is
-# the single source for which entries a scheduled round skips.
-# print-slow builds a config's -E regex from the 类别!=常规 rows and
-# subtracts whatever the leg's own -R regex re.search-hits first (ctest
-# -E beats -R, F-12: an entry both mapped and slow must not be silently
-# swallowed); check-schedule enforces guard six (every 类别!=常规 row
-# owns a recovery claim -- 甲 a family whose unit/e2e fragment hits the
-# entry over a live src rule, or 乙 a filled reason column -- and every
-# >SLOW_MIN_REF_S 常规 row states its reason, with the backfill
-# equivalence ctest itself computes and the e2e set formula "explicit-
-# 常规 rows union mapping hits, manifest order, deduped") and guard
-# nine (every family src glob hits at least one existing repo file; a
-# phantom glob would silently map a touched tree onto nothing);
-# derive-e2e-subset applies that e2e formula for the T0 wiring, so the
-# selection lives in exactly one place. print-perf-names enumerates the
-# perf class as the name difference of two scratch configures (flag ON
-# versus OFF, the seed cache's shape forwarded) so the set comes from
-# the registration itself, and check-carrier's guard eleven (body in
-# gate_time_carrier) pairs every 类别!=常规 row with a leg that ran it
-# under the row's own config key. The CLI entry and the shared verdict
-# glyph stay in gate_time_check.py: this module registers its
-# subcommand parsers and executes them through the injected verdict
+# gate_timing_design.md D-7 as re-derived by D-16/D-17): an entry's
+# reference seconds on its baseline row are the single source for which
+# entries a scheduled round skips (slow_names/baseline_rows here derive
+# the one global slow set from the SLOW_MIN_REF_S threshold -- this
+# module is the only fast/slow judgment site, D-17). print-slow
+# builds a leg's -E regex from that set and subtracts whatever the leg's
+# own -R regex re.search-hits first (ctest -E beats -R, F-12: an entry
+# both mapped and slow must not be silently swallowed); check-schedule
+# enforces guard six (every row of a slow member owns a recovery claim
+# -- 甲 a family whose unit/e2e fragment hits the entry over a live src
+# rule, or 乙 a filled reason column -- with the backfill equivalence
+# ctest itself computes and the e2e set formula "explicit fast rows
+# union mapping hits, manifest order, deduped") and guard nine (every
+# family src glob hits at least one existing repo file; a phantom glob
+# would silently map a touched tree onto nothing); derive-e2e-subset
+# applies that e2e formula for the T0 wiring, so the selection lives in
+# exactly one place. print-perf-names enumerates the perf set as the
+# name difference of two scratch configures (flag ON versus OFF, the
+# seed cache's shape forwarded) so the set comes from the registration
+# itself, and check-carrier's guard eleven (body in gate_time_carrier)
+# pairs every row of a slow member and every ASan/Release row with a leg
+# that ran it under the row's own config key. The CLI entry and the
+# shared verdict glyph stay in gate_time_check.py: this module registers
+# its subcommand parsers and executes them through the injected verdict
 # callback (R-28/R-29). Stdlib only; run with -I.
 
 import argparse
@@ -34,8 +36,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gate_time_carrier
 from gate_time_guards import read_name_set
-from gate_time_table import (CONFIG_KEYS, PERF_CATEGORY, REPO_ROOT,
-                             REGULAR_CATEGORY, SLOW_MIN_REF_S, load_table)
+from gate_time_table import (CONFIG_KEYS, MANIFEST_SCOPES, REPO_ROOT,
+                             SENTINEL_MARK, SLOW_MIN_REF_S, load_table)
 from gate_time_timeouts import cmake_tools, read_timeouts, show_only_json
 from test_impact import _parse_families
 
@@ -45,25 +47,61 @@ from test_impact import _parse_families
 COMMANDS = ("print-slow", "derive-e2e-subset", "check-schedule",
             "print-perf-names", "check-carrier")
 
+# The perf registration and the ctest-Release priced-set comparison
+# (guard eight) are pinned to that config key by D-3.
+PERF_CONFIG = "ctest-Release"
 
-def slow_names(rows, config):
-    """The config's exception entries (类别!=常规), table order: the
-    membership every scheduled round skips unless its own -R maps one
-    back in."""
-    return [row.entry for row in rows
-            if row.config == config and row.category != REGULAR_CATEGORY]
+# The config keys that decide one entry name's fast/slow membership
+# (D-16), most representative first: the ctest-Debug row when the entry
+# runs in the default tree, else the ctest-IDE row of an entry registered
+# only in the IDE tree, else the e2e-Debug row. ASan and Release rows
+# price the same work under a more expensive build and never classify.
+BASELINE_CONFIGS = ("ctest-Debug", "ctest-IDE", "e2e-Debug")
+
+
+def baseline_rows(rows):
+    """The classifying row of every entry name (D-16): the first hit in
+    BASELINE_CONFIGS order. The coarse-scope rows (`default`, manifest
+    scopes) price a run of entries rather than one entry, and ASan and
+    Release rows price a different build -- none of them classify, so
+    they never appear here."""
+    baseline = {}
+    for row in rows:
+        if row.entry == "default" or row.entry in MANIFEST_SCOPES:
+            continue
+        if row.config not in BASELINE_CONFIGS:
+            continue
+        prev = baseline.get(row.entry)
+        if prev is None or (BASELINE_CONFIGS.index(row.config)
+                            < BASELINE_CONFIGS.index(prev.config)):
+            baseline[row.entry] = row
+    return baseline
+
+
+def slow_names(rows):
+    """The slow member names (D-16/D-17): an entry name is slow exactly
+    when its baseline row's reference seconds exceed SLOW_MIN_REF_S
+    (strictly). The list is one per repo -- every config's regular legs
+    subtract the same names, and only the mapped closeout legs re-run
+    them. This is the single membership judgment site (D-17): no consumer
+    derives fast/slow from a row of its own config."""
+    return [row.entry for row in baseline_rows(rows).values()
+            if row.ref_s > SLOW_MIN_REF_S]
 
 
 def slow_regex(rows, config, keep_matched=None):
-    """The joined -E regex for a config (sorted, so one reference table
-    yields one byte-stable exclusion). keep_matched is the leg's -R
-    regex VERBATIM (the t0() mapping, not a name list: passing the
-    regex keeps the filtering logic in this one place): every exception
-    entry it re.search-hits -- ctest's partial-match semantics, the
-    same F-12 measures -- is subtracted before joining, because ctest
-    requires "hits -R and misses -E" and an unsubtracted mapped entry
-    would vanish from the round silently."""
-    names = set(slow_names(rows, config))
+    """The joined -E regex for a leg (sorted, so one reference table
+    yields one byte-stable exclusion). The membership is the one global
+    slow set (D-16) -- every config's regular legs subtract the same
+    names -- so `config` is the leg's label in the CLI shape, not a
+    filter. keep_matched is the leg's -R regex VERBATIM (the t0()
+    mapping, not a name list: passing the regex keeps the filtering
+    logic in this one place): every slow member it re.search-hits --
+    ctest's partial-match semantics, the same F-12 measures -- is
+    subtracted before joining, because ctest requires "hits -R and
+    misses -E" and an unsubtracted mapped entry would vanish from the
+    round silently."""
+    names = set(slow_names(rows))
     if keep_matched:
         names = {name for name in names
                  if not re.search(keep_matched, name)}
@@ -71,19 +109,21 @@ def slow_regex(rows, config, keep_matched=None):
 
 
 def derive_e2e_subset(lines, rows, config, mapping):
-    """This round's e2e lines under D-7's formula: the manifest lines
-    that carry their own explicit 常规 row under the leg's config
-    (the default row prices budgets for unlisted lines but never joins
-    the subset -- that would pull the full manifest into every T0
-    round, and the wall-clock gain comes from sharding, not from
-    category filtering), unioned with the lines the mapping's e2e
-    regex re.search-hits, in manifest order, deduped. Comments and
-    blank lines are skipped; each line is emitted verbatim (entry and
-    expected-exit columns), so the wiring can feed the file straight
-    to the runner."""
-    regular = {row.entry for row in rows
-               if row.config == config and row.category == REGULAR_CATEGORY
-               and row.entry != "default"}
+    """This round's e2e lines under D-7's formula (R-64 shape): a
+    manifest line qualifies when BOTH hold -- it carries its own explicit
+    (non-`default`) row under the leg's config (the candidate face: the
+    `default` row prices budgets for unlisted lines but never joins the
+    subset, that would pull the full manifest into every T0 round), and
+    its name is not in the one global slow set (the fast/slow face, read
+    from the baseline row per D-16 -- never from this leg's own config
+    row, or an ASan or Release reading would decide membership). The set
+    is unioned with the lines the mapping's e2e regex re.search-hits, in
+    manifest order, deduped. Comments and blank lines are skipped; each
+    line is emitted verbatim (entry and expected-exit columns), so the
+    wiring can feed the file straight to the runner."""
+    slow = set(slow_names(rows))
+    explicit = {row.entry for row in rows
+                if row.config == config and row.entry != "default"}
     subset = []
     seen = set()
     for raw in lines:
@@ -92,36 +132,28 @@ def derive_e2e_subset(lines, rows, config, mapping):
             continue
         entry = line.split()[0]
         hit = mapping and re.search(mapping, entry)
-        if entry in regular or hit:
+        if (entry in explicit and entry not in slow) or hit:
             if entry not in seen:
                 seen.add(entry)
                 subset.append(line)
     return subset
 
 
-def _claim_findings(rows, families, config):
-    """Guard six's claim half for one config: every 类别!=常规 row must
-    own 甲 (a family with at least one src rule whose unit or e2e
-    fragment re.search-hits the entry name -- the family, not the row,
-    carries the recovery) or 乙 (a non-empty reason column naming where
-    the entry still runs); and every 常规 row above SLOW_MIN_REF_S with
-    an empty reason column is an unexamined schedule decision. Both
-    findings name the entry."""
+def _claim_findings(rows, families, config, slow, baseline):
+    """Guard six's claim half for one config: every row of a slow member
+    (D-16: baseline row above SLOW_MIN_REF_S) must own 甲 (a family with
+    at least one src rule whose unit or e2e fragment re.search-hits the
+    entry name -- the family, not the row, carries the recovery) or 乙
+    (a non-empty reason column naming where the entry still runs): an
+    exception nobody carries is an entry that silently stops running.
+    `slow` is the membership export and `baseline` the classifying rows,
+    so the failure can quote the measured seconds instead of the deleted
+    category column. Findings name the entry."""
     findings = []
     src_rules, _ignore, unit_by, e2e_by = families
     claiming = {family for _glob, family in src_rules}
     for row in rows:
-        if row.config != config:
-            continue
-        if row.category == REGULAR_CATEGORY:
-            if row.ref_s > SLOW_MIN_REF_S and not row.reason.strip():
-                findings.append(
-                    "SCHEDULE %s %s: reference %.2f s exceeds "
-                    "SLOW_MIN_REF_S (%d s) yet the row stays %s with an "
-                    "empty reason column -- record the schedule decision "
-                    "or re-classify it"
-                    % (config, row.entry, row.ref_s, SLOW_MIN_REF_S,
-                       REGULAR_CATEGORY))
+        if row.config != config or row.entry not in slow:
             continue
         if row.reason.strip():
             continue
@@ -131,11 +163,13 @@ def _claim_findings(rows, families, config):
                for family in unit_by.keys() | e2e_by.keys()):
             continue
         findings.append(
-            "SCHEDULE %s %s: 类别=%s with neither a family claim (甲: a "
+            "SCHEDULE %s %s: slow member (%.2f s on its baseline row, "
+            "above the %d s gate) with neither a family claim (甲: a "
             "src-ruled family whose unit/e2e fragment hits the name) nor "
             "a reason column (乙) -- an exception nobody carries is an "
             "entry that silently stops running"
-            % (config, row.entry, row.category))
+            % (config, row.entry, baseline[row.entry].ref_s,
+               SLOW_MIN_REF_S))
     return findings
 
 
@@ -188,7 +222,7 @@ def _backfill_findings(args, rows):
     entry the pair does not exclude)."""
     if not args.mapping:
         return []
-    required = [name for name in slow_names(rows, args.config)
+    required = [name for name in slow_names(rows)
                 if re.search(args.mapping, name)]
     if not required:
         return []
@@ -208,8 +242,8 @@ def _backfill_findings(args, rows):
 
 def _e2e_findings(args, rows):
     """Guard six's e2e side: the wiring's written subset file must equal
-    derive_e2e_subset's formula output exactly -- a dropped explicit-
-    常规 line silently shrinks every future round, and an extra line
+    derive_e2e_subset's formula output exactly -- a dropped explicit
+    fast line silently shrinks every future round, and an extra line
     prices work the formula never selected. Findings name the line."""
     manifest = Path(args.e2e_manifest).read_text(
         encoding="utf-8").splitlines()
@@ -220,7 +254,7 @@ def _e2e_findings(args, rows):
     written = {line.strip() for line in Path(args.derived_e2e).read_text(
         encoding="utf-8").splitlines() if line.strip()}
     findings = ["SCHEDULE %s: the derived e2e subset is missing the round "
-                "line %r (explicit-常规 rows and mapping hits only)"
+                "line %r (explicit fast rows and mapping hits only)"
                 % (args.e2e_config, line)
                 for line in expected if line not in written]
     findings += [
@@ -231,23 +265,31 @@ def _e2e_findings(args, rows):
 
 
 def _perf_names_findings(args, rows):
-    """Guard eight: the ON/OFF registration difference and the table's
-    性能 rows are two independent views of one set -- both directions of
-    the set difference must come up empty (a 性能 row whose flag
-    vanished would run in no leg, a flag-only entry would run unpriced)
-    -- and a perf entry may appear in NO T0/T1 run enumeration: the
-    round that still lists one lost its -E. The file is print-perf-
-    names' value line verbatim ('|' or newline separated)."""
+    """Guard eight, single source (R-61/D-17): the ON/OFF registration
+    difference is the one truth about the perf class; the table only
+    prices it. Two verdicts remain, neither consulting a category -- a
+    difference name with no priced row would run in the regular legs
+    unpriced (the priced set is the ctest-Release rows not marked
+    sentinel=yes: D-3 pins that config's registration set to the perf
+    names union the sentinel names and the sentinel column marks the
+    latter, so one predicate restores the former without a new marker),
+    and a difference name in a round's run enumeration means that
+    round's -E lost the perf class. The old "table row missing from the
+    difference -- it runs in no leg" direction is deleted: under D-16 an
+    unpriced perf row simply runs in every regular leg, and guard one's
+    EXTRA ctest-Release verdict owns that direction once Task 10 Step 5
+    wires it (R-43); until then its bound is the two rows' combined 7.44
+    s of extra per-round runtime. The file is print-perf-names' value
+    line verbatim ('|' or newline separated) -- the ON/OFF DIFFERENCE,
+    not the ON enumeration."""
     text = Path(args.perf_names).read_text(encoding="utf-8")
     names = {name for name in re.split(r"[|\r\n]+", text) if name}
-    priced = {row.entry for row in rows if row.category == PERF_CATEGORY}
+    priced = {row.entry for row in rows
+              if row.config == PERF_CONFIG and row.sentinel != SENTINEL_MARK}
     findings = [
-        "PERF: the %s row %s is missing from the ON/OFF registration "
-        "difference -- it runs in no leg" % (PERF_CATEGORY, name)
-        for name in sorted(priced - names)]
-    findings += [
-        "PERF: the registration difference holds %s, which has no %s "
-        "row -- it would run unpriced" % (name, PERF_CATEGORY)
+        "PERF: the registration difference holds %s, which has no priced "
+        "ctest-Release row (no row, or one marked sentinel=yes) -- it "
+        "would run in the regular legs unpriced" % name
         for name in sorted(names - priced)]
     if not (args.show_only or args.tree):
         return findings
@@ -266,7 +308,17 @@ def _cmd_print_slow(args, table, verdict):
     if args.config not in CONFIG_KEYS:
         return verdict(["PRINT-SLOW %s: unknown config key (want one of "
                         "%s)" % (args.config, ", ".join(CONFIG_KEYS))])
-    print(slow_regex(load_table(table), args.config, args.keep_matched))
+    regex = slow_regex(load_table(table), args.config, args.keep_matched)
+    print(regex)
+    # The leg log has to name the members the regex excludes (D-17): a
+    # bare pattern is unreadable in a log line. The roster rides on
+    # stderr because stdout is the bash-captured -E regex at the wiring
+    # and the GATE verdict glyphs also print on stdout -- a roster line
+    # there would be concatenated into the captured pattern.
+    members = regex.split("|") if regex else []
+    sys.stderr.write("PRINT-SLOW %s excludes %d slow members: %s\n"
+                     % (args.config, len(members),
+                        ", ".join(members) if members else "(none)"))
     return verdict([])
 
 
@@ -292,15 +344,18 @@ def _cmd_check_schedule(args, table, verdict):
         return verdict(["CHECK-SCHEDULE: --e2e-config needs --e2e-manifest "
                         "(the e2e universe is the manifest)"])
     rows = load_table(table)
+    slow = set(slow_names(rows))
+    baseline = baseline_rows(rows)
     families = _parse_families(Path(args.families).read_text(
         encoding="utf-8"))
     findings = _phantom_findings(families, args.repo_root)
-    findings += _claim_findings(rows, families, args.config)
+    findings += _claim_findings(rows, families, args.config, slow, baseline)
     findings += _backfill_findings(args, rows)
     if args.perf_names:
         findings += _perf_names_findings(args, rows)
     if args.e2e_config:
-        findings += _claim_findings(rows, families, args.e2e_config)
+        findings += _claim_findings(rows, families, args.e2e_config, slow,
+                                    baseline)
         findings += _e2e_findings(args, rows)
     return verdict(findings)
 
@@ -386,16 +441,17 @@ def add_subparsers(sub):
     table_arg.add_argument("--table", help="reference table (default "
                                            "tests/gate_time_reference.txt)")
     slow_p = sub.add_parser("print-slow", parents=[table_arg],
-                            help="D-7 wiring input: the config's "
-                                 "类别!=常规 -E regex")
+                            help="D-16 wiring input: the global slow "
+                                 "set (baseline row above "
+                                 "SLOW_MIN_REF_S) as one -E regex")
     slow_p.add_argument("config", help="config key the leg judges under")
     slow_p.add_argument("--keep-matched", metavar="REGEX",
-                        help="the leg's -R regex verbatim; exception "
-                             "entries it re.search-hits are subtracted "
-                             "before joining (F-12)")
+                        help="the leg's -R regex verbatim; slow members "
+                             "it re.search-hits are subtracted before "
+                             "joining (F-12)")
     derive_p = sub.add_parser("derive-e2e-subset", parents=[table_arg],
-                              help="this round's e2e lines: explicit-常"
-                                   "规 rows ∪ mapping hits, manifest "
+                              help="this round's e2e lines: explicit "
+                                   "fast rows ∪ mapping hits, manifest "
                                    "order")
     derive_p.add_argument("config", help="e2e config key the leg judges "
                                          "under")
@@ -404,9 +460,10 @@ def add_subparsers(sub):
     derive_p.add_argument("--mapping",
                           help="the mapping's e2e regex (union side)")
     sched_p = sub.add_parser("check-schedule", parents=[table_arg],
-                             help="guards six/nine: category claims, the "
-                                  "backfill equivalence, phantom src "
-                                  "globs, the e2e set formula")
+                             help="guards six/nine: slow-membership "
+                                  "claims, the backfill equivalence, "
+                                  "phantom src globs, the e2e set "
+                                  "formula")
     sched_p.add_argument("--config", required=True,
                          help="ctest config key to judge")
     sched_p.add_argument("--families",
@@ -437,12 +494,13 @@ def add_subparsers(sub):
                          help="the wiring's written subset file to "
                               "compare against the formula")
     sched_p.add_argument("--perf-names", metavar="FILE",
-                         help="print-perf-names' ON/OFF registration "
-                              "difference (guard eight: equal to the "
-                              "性能 rows in both directions, absent "
-                              "from the round's run set)")
+                         help="print-perf-names' value line: the ON/OFF "
+                              "registration DIFFERENCE, not the ON "
+                              "enumeration (guard eight: every name owns "
+                              "a priced ctest-Release row, and no perf "
+                              "entry sits in the round's run set)")
     perf_p = sub.add_parser("print-perf-names", parents=[table_arg],
-                            help="D-6: the perf class as the name "
+                            help="D-6: the perf set as the name "
                                  "difference of an ON and an OFF scratch "
                                  "configure")
     perf_p.add_argument("--seed-tree", required=True,

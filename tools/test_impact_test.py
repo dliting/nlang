@@ -87,8 +87,10 @@ def test_family_without_unit_rule_is_unmapped():
 def test_real_families_map_tensor_to_mnist_entries():
     # D-7 backfill: the tensor family in the real tools/test_families.txt
     # must map the native tensor sources to both mnist ctest entries, so
-    # a tensor change backfills the 演示验收 rows that the slow-set -E
-    # excludes from every scheduled round (甲 path).
+    # a tensor change backfills both mnist entries through the mapping-
+    # hit side of the backfill (甲 path), whether or not they sit in the
+    # slow set -- D-16 derives membership from the baseline row's
+    # seconds, and these two sub-minute entries never do.
     families = (Path(__file__).resolve().parent
                 / "test_families.txt").read_text(encoding="utf-8")
     impact = compute_impact(["src/native/tensor/TensorCore.cpp"],

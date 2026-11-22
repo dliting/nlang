@@ -76,9 +76,9 @@ def test_timeouts_fresh_caps_match_including_the_floored_entry():
     with tempfile.TemporaryDirectory() as tmp:
         table = write_table(tmp, (
             "# stub guard-five table (gate_time_check selftest)\n"
-            "ctest-Debug alpha_probe_tests 100.00 1 常规 ctest-junit-"
+            "ctest-Debug alpha_probe_tests 100.00 1 ctest-junit-"
             "serial - stub\n"
-            "ctest-Debug zeta_probe_tests 5.00 1 常规 ctest-junit-serial"
+            "ctest-Debug zeta_probe_tests 5.00 1 ctest-junit-serial"
             " - stub\n"))
         doc = _show_only_doc([("alpha_probe_tests", 1000.0),
                               ("zeta_probe_tests", 120.0),
@@ -100,9 +100,9 @@ def test_timeouts_multi_key_tree_wants_the_largest_cap():
     with tempfile.TemporaryDirectory() as tmp:
         table = write_table(tmp, (
             "# stub guard-five table (gate_time_check selftest)\n"
-            "ctest-Debug dual_key_entry 100.00 1 常规 ctest-junit-serial"
+            "ctest-Debug dual_key_entry 100.00 1 ctest-junit-serial"
             " - stub\n"
-            "ctest-Release dual_key_entry 60.00 1 性能 ctest-junit-serial"
+            "ctest-Release dual_key_entry 60.00 1 ctest-junit-serial"
             " - stub\n"))
         tree = _timeouts_tree(tmp, configs="ctest-Debug ctest-Release")
         rc, out = _run_check_timeouts(
@@ -129,7 +129,7 @@ def test_timeouts_stale_configure_recommends_one_reconfigure():
     with tempfile.TemporaryDirectory() as tmp:
         table = write_table(tmp, (
             "# stub guard-five table (gate_time_check selftest)\n"
-            "ctest-Debug alpha_probe_tests 100.00 1 常规 ctest-junit-"
+            "ctest-Debug alpha_probe_tests 100.00 1 ctest-junit-"
             "serial - stub\n"))
         tree = _timeouts_tree(tmp)
         past = table.stat().st_mtime - 1000.0
@@ -156,7 +156,7 @@ def test_timeouts_fresh_mismatch_names_each_entry():
     with tempfile.TemporaryDirectory() as tmp:
         table = write_table(tmp, (
             "# stub guard-five table (gate_time_check selftest)\n"
-            "ctest-Debug alpha_probe_tests 100.00 1 常规 ctest-junit-"
+            "ctest-Debug alpha_probe_tests 100.00 1 ctest-junit-"
             "serial - stub\n"))
         doc = _show_only_doc([("alpha_probe_tests", 900.0),
                               ("extra_capped_entry", 120.0)])
@@ -215,7 +215,7 @@ def test_check_timeouts_missing_thresholds_header_is_a_named_verdict():
     with tempfile.TemporaryDirectory() as tmp:
         table = write_table(tmp, (
             "# stub guard-five table (gate_time_check selftest)\n"
-            "ctest-Debug alpha_probe_tests 100.00 1 常规 ctest-junit-"
+            "ctest-Debug alpha_probe_tests 100.00 1 ctest-junit-"
             "serial - stub\n"))
         bare = Path(tmp) / "bare-tree"
         bare.mkdir()
@@ -298,9 +298,9 @@ def test_timeouts_readers_and_the_site_hook():
     with tempfile.TemporaryDirectory() as tmp:
         table = write_table(tmp, (
             "# stub guard-five table (gate_time_check selftest)\n"
-            "ctest-Debug alpha_probe_tests 100.00 1 常规 ctest-junit-"
+            "ctest-Debug alpha_probe_tests 100.00 1 ctest-junit-"
             "serial - stub\n"
-            "ctest-Debug default 500.00 1 常规 ctest-junit-serial - stub\n"))
+            "ctest-Debug default 500.00 1 ctest-junit-serial - stub\n"))
         rows = load_table(table)
         check(expected_watchdogs(rows, ["ctest-Debug"], 1.0)
               == {"alpha_probe_tests": 1000.0},

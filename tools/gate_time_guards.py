@@ -27,13 +27,15 @@ from gate_time_table import (CONFIG_KEYS, CTEST_CONFIGS, DEFAULT_WORK_FACTOR,
                              caps_values, form_token, resolve_scoped_row)
 
 
-def check_complete(rows, enums, manifests, perf_on=None):
+def check_complete(rows, enums, manifests, perf_names=None):
     """Guard one: each derived entry needs a row in the config that
     consumes it (tree -> config key per D-2; e2e entries are covered by an
     entry row, a manifest-scope row or the config's default row), no row
     may point outside its config's derived set, and every participating
-    config must carry SENTINELS_PER_CONFIG sentinel marks (D-4). Returns
-    (ok, findings)."""
+    config must carry SENTINELS_PER_CONFIG sentinel marks (D-4). The
+    ctest-Release universe is the perf names (the NLANG_PERF_TESTS ON/OFF
+    registration difference, R-61) union the sentinel-marked Release rows
+    the table itself declares (D-3). Returns (ok, findings)."""
     findings = []
     entry_rows = set()
     defaults = set()
@@ -54,8 +56,8 @@ def check_complete(rows, enums, manifests, perf_on=None):
     manifest_names = set((manifests or {}).get("manifest.txt") or ())
     examples_names = set((manifests or {}).get("examples_manifest.txt") or ())
     release_marked = marked.get("ctest-Release", set())
-    if perf_on is not None or release_marked:
-        required["ctest-Release"] = set(perf_on or ()) | release_marked
+    if perf_names is not None or release_marked:
+        required["ctest-Release"] = set(perf_names or ()) | release_marked
     for cfg in E2E_CONFIGS:
         names = set(manifest_names)
         if cfg == "e2e-Release":
@@ -84,11 +86,12 @@ def check_complete(rows, enums, manifests, perf_on=None):
         elif row.config == "ctest-Release":
             if "ctest-Release" not in required:
                 continue
-            if row.entry in set(perf_on or ()) or row.sentinel == SENTINEL_MARK:
+            if (row.entry in set(perf_names or ())
+                    or row.sentinel == SENTINEL_MARK):
                 continue
-            if perf_on is None:
+            if perf_names is None:
                 findings.append("UNVERIFIED ctest-Release %s (pass "
-                                "--perf-on-enum)" % row.entry)
+                                "--perf-names)" % row.entry)
             else:
                 findings.append("EXTRA ctest-Release %s" % row.entry)
         elif row.entry == "default":
@@ -109,14 +112,14 @@ def check_complete(rows, enums, manifests, perf_on=None):
     return not findings, findings
 
 
-def check_orphans(rows, ctest_union=None, perf_on=None, manifests=None):
+def check_orphans(rows, ctest_union=None, perf_names=None, manifests=None):
     """Guard two: a renamed or dropped entry surfaces as a row whose name
     no universe contains any more. e2e names check against the two
     manifests, plain ctest rows against the union of the three decision
-    trees, ctest-Release rows against the NLANG_PERF_TESTS=ON enumeration
-    (the decision trees never contain them); a sentinel-marked Release row
-    needs no perf enumeration because the table itself declares it.
-    Returns (ok, findings)."""
+    trees, ctest-Release rows against the perf names (the NLANG_PERF_TESTS
+    ON/OFF registration difference, R-61; the decision trees never contain
+    them); a sentinel-marked Release row needs no perf set because the
+    table itself declares it. Returns (ok, findings)."""
     findings = []
     e2e_names = set()
     for names in (manifests or {}).values():
@@ -138,13 +141,13 @@ def check_orphans(rows, ctest_union=None, perf_on=None, manifests=None):
         elif row.config == "ctest-Release":
             if row.sentinel == SENTINEL_MARK:
                 continue
-            if perf_on is None:
+            if perf_names is None:
                 findings.append("UNVERIFIED ctest-Release %s (pass "
-                                "--perf-on-enum)" % row.entry)
-            elif row.entry not in perf_on:
+                                "--perf-names)" % row.entry)
+            elif row.entry not in perf_names:
                 findings.append("ORPHAN ctest-Release %s (no such entry in "
-                                "the NLANG_PERF_TESTS=ON enumeration)"
-                                % row.entry)
+                                "the NLANG_PERF_TESTS registration "
+                                "difference)" % row.entry)
         else:
             if ctest_union is None:
                 continue

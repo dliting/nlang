@@ -38,22 +38,22 @@ def base_table_text():
     lines = ["# stub reference table (gate_time_check selftest)"]
     for cfg in ("ctest-Debug", "ctest-IDE", "ctest-ASan"):
         for i, name in enumerate(CTEST_NAMES):
-            lines.append("%s %s 10.00 1 常规 ctest-junit-serial %s stub"
+            lines.append("%s %s 10.00 1 ctest-junit-serial %s stub"
                          % (cfg, name, "yes" if i < 5 else "-"))
     for name in PERF_NAMES:
-        lines.append("ctest-Release %s 10.00 1 性能 ctest-junit-serial - "
+        lines.append("ctest-Release %s 10.00 1 ctest-junit-serial - "
                      "perf wall-clock stub" % name)
     for name in CTEST_NAMES[:5]:
-        lines.append("ctest-Release %s 10.00 1 常规 ctest-junit-serial yes "
+        lines.append("ctest-Release %s 10.00 1 ctest-junit-serial yes "
                      "release sentinel stub" % name)
     for cfg in ("e2e-Debug", "e2e-ASan", "e2e-Release"):
-        lines.append("%s default 10.00 1 常规 e2e-serial - stub default"
+        lines.append("%s default 10.00 1 e2e-serial - stub default"
                      % cfg)
         for name in MANIFEST_NAMES[:5]:
-            lines.append("%s %s 10.00 1 常规 e2e-serial yes e2e sentinel "
+            lines.append("%s %s 10.00 1 e2e-serial yes e2e sentinel "
                          "stub" % (cfg, name))
-    lines.append("e2e-Release examples_manifest.txt 10.00 1 演示验收 "
-                 "e2e-serial - examples scope stub")
+    lines.append("e2e-Release examples_manifest.txt 10.00 1 e2e-serial "
+                 "- examples scope stub")
     return "\n".join(lines) + "\n"
 
 
@@ -68,7 +68,7 @@ def base_manifests():
             "examples_manifest.txt": set(EXAMPLES_NAMES)}
 
 
-def base_perf_on():
+def base_perf_names():
     return set(PERF_NAMES)
 
 
@@ -76,7 +76,7 @@ def test_complete_ok_on_base_table():
     with tempfile.TemporaryDirectory() as tmp:
         path = write_table(tmp, base_table_text())
         ok, findings = check_complete(load_table(path), base_enums(),
-                                      base_manifests(), base_perf_on())
+                                      base_manifests(), base_perf_names())
         check(ok, "complete: base stub table must pass, findings=%r"
               % findings)
 
@@ -87,7 +87,7 @@ def test_complete_missing_row_fails():
                          "ctest-Debug zeta_probe_tests ")
         path = write_table(tmp, text)
         ok, findings = check_complete(load_table(path), base_enums(),
-                                      base_manifests(), base_perf_on())
+                                      base_manifests(), base_perf_names())
         check(not ok, "complete: a dropped ctest-Debug row must fail")
         check(any(f.startswith("MISSING ctest-Debug zeta_probe_tests")
                   for f in findings),
@@ -98,10 +98,10 @@ def test_complete_missing_row_fails():
 def test_complete_extra_row_fails():
     with tempfile.TemporaryDirectory() as tmp:
         text = base_table_text() + ("ctest-Debug gone_probe_tests 10.00 1 "
-                                    "常规 ctest-junit-serial - stub extra\n")
+                                    "ctest-junit-serial - stub extra\n")
         path = write_table(tmp, text)
         ok, findings = check_complete(load_table(path), base_enums(),
-                                      base_manifests(), base_perf_on())
+                                      base_manifests(), base_perf_names())
         check(not ok, "complete: a row for an unenumerated entry must fail")
         check(any(f.startswith("EXTRA ctest-Debug gone_probe_tests")
                   for f in findings),
@@ -119,7 +119,7 @@ def test_complete_sentinels_cleared_fails():
                 .replace("e2e-serial yes ", "e2e-serial - "))
         path = write_table(tmp, text)
         ok, findings = check_complete(load_table(path), base_enums(),
-                                      base_manifests(), base_perf_on())
+                                      base_manifests(), base_perf_names())
         check(not ok, "complete: an emptied sentinel column must fail")
         for cfg in ("ctest-Debug", "ctest-IDE", "ctest-ASan",
                     "ctest-Release", "e2e-Debug", "e2e-ASan",
@@ -132,13 +132,13 @@ def test_complete_sentinels_cleared_fails():
 def test_complete_too_many_sentinels_fails():
     with tempfile.TemporaryDirectory() as tmp:
         extra = "".join(
-            "ctest-Debug eta_probe_%d 10.00 1 常规 ctest-junit-serial yes "
+            "ctest-Debug eta_probe_%d 10.00 1 ctest-junit-serial yes "
             "stub\n" % i for i in range(1, 5))
         path = write_table(tmp, base_table_text() + extra)
         enums = base_enums()
         enums["ctest-Debug"] |= {"eta_probe_%d" % i for i in range(1, 5)}
         ok, findings = check_complete(load_table(path), enums,
-                                      base_manifests(), base_perf_on())
+                                      base_manifests(), base_perf_names())
         check(not ok, "complete: nine sentinel marks in one config must fail")
         check(any(f.startswith("SENTINELS ctest-Debug: 9")
                   for f in findings),
@@ -151,7 +151,7 @@ def test_orphans_ok_on_base_table():
         path = write_table(tmp, base_table_text())
         union = set().union(*base_enums().values())
         ok, findings = check_orphans(load_table(path), union,
-                                     base_perf_on(), base_manifests())
+                                     base_perf_names(), base_manifests())
         check(ok, "orphans: base stub table must pass, findings=%r"
               % findings)
 
@@ -165,7 +165,7 @@ def test_orphan_renamed_ctest_entry_fails():
         path = write_table(tmp, text)
         union = set().union(*base_enums().values())
         ok, findings = check_orphans(load_table(path), union,
-                                     base_perf_on(), base_manifests())
+                                     base_perf_names(), base_manifests())
         check(not ok, "orphans: a renamed entry must fail")
         orphans = [f for f in findings
                    if "alpha_probe_tests_renamed" in f]
@@ -181,7 +181,7 @@ def test_orphan_renamed_e2e_entry_fails():
         path = write_table(tmp, text)
         union = set().union(*base_enums().values())
         ok, findings = check_orphans(load_table(path), union,
-                                     base_perf_on(), base_manifests())
+                                     base_perf_names(), base_manifests())
         check(not ok, "orphans: a renamed manifest row must fail")
         check(any("manifest_probe_a_gone" in f for f in findings),
               "orphans: the renamed manifest entry must be named, findings=%r"
@@ -201,7 +201,7 @@ def test_constants_sentinel_reference_above_min_cap_fails():
     # killed by its own budget floor during calibration.
     with tempfile.TemporaryDirectory() as tmp:
         text = base_table_text() + ("ctest-Debug slow_sentinel_tests "
-                                    "500.00 1 常规 ctest-junit-serial yes "
+                                    "500.00 1 ctest-junit-serial yes "
                                     "over-long sentinel stub\n")
         path = write_table(tmp, text)
         ok, findings = check_constants(load_table(path))
@@ -277,7 +277,7 @@ def test_calibrate_out_of_band_red_with_candidates():
             check("BAND ctest-Debug" in out,
                   "calibrate %s band: the config to re-record must be "
                   "named, got out=%r" % (label, out))
-            check("CANDIDATE ctest-Debug alpha_probe_tests %.2f 1 常规 "
+            check("CANDIDATE ctest-Debug alpha_probe_tests %.2f 1 "
                   "ctest-junit-serial yes stub" % secs in out,
                   "calibrate %s band: this round's measured candidate rows "
                   "must be printed, got out=%r" % (label, out))

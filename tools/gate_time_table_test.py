@@ -1,17 +1,22 @@
-# gate_time_table_test.py -- caps() unit cases for the reference timing
-# table module (gate_time_table.py): the work factor scales the watchdog
-# cap together with the budget, short references stay pinned at the
-# watchdog floor, and the MIN_CAP_S budget floor never inverts the
-# clamp. Entry point: gate_time_check_test.py (its main() calls run()).
-# Stdlib only; run with -I.
+# gate_time_table_test.py -- caps(), table-shape and slow-set membership
+# unit cases for the reference timing table module (gate_time_table.py):
+# the work factor scales the watchdog cap together with the budget, short
+# references stay pinned at the watchdog floor, the MIN_CAP_S budget floor
+# never inverts the clamp, the seven-column row shape round-trips, and the
+# slow membership follows the baseline-row seconds rule (D-16/D-17). Entry
+# point: gate_time_check_test.py (its main() calls run()). Stdlib only;
+# run with -I.
 
 import sys
 import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from gate_time_table import (ANY_MANIFEST, caps, load_table,
-                             resolve_scoped_row)
+from gate_time_table import (ANY_MANIFEST, SLOW_MIN_REF_S, caps, load_table,
+                             resolve_scoped_row, row_line)
+# slow_names is the schedule axis' one fast/slow judgment site (D-17);
+# this module's table-shape tests exercise it as the table's consumer.
+from gate_time_schedule import slow_names
 from gate_time_testutil import (CAPS_TABLE, check, close, drop_line,
                                 write_table)
 
@@ -79,11 +84,11 @@ def test_caps_clamp_lower_bound_does_not_invert():
 # in the returned reference.
 SCOPED_TABLE = (
     "# stub scoped table\n"
-    "e2e-Debug scoped_entry 5.00 1 常规 e2e-serial - entry row stub\n"
-    "e2e-Debug manifest.txt 10.00 1 常规 e2e-serial - manifest scope stub\n"
-    "e2e-Debug examples_manifest.txt 20.00 1 常规 e2e-serial - examples "
+    "e2e-Debug scoped_entry 5.00 1 e2e-serial - entry row stub\n"
+    "e2e-Debug manifest.txt 10.00 1 e2e-serial - manifest scope stub\n"
+    "e2e-Debug examples_manifest.txt 20.00 1 e2e-serial - examples "
     "scope stub\n"
-    "e2e-Debug default 30.00 1 常规 e2e-serial - default row stub\n")
+    "e2e-Debug default 30.00 1 e2e-serial - default row stub\n")
 
 
 def test_scoped_row_same_name_hits_its_own_manifest_scope():
@@ -132,8 +137,104 @@ def test_scoped_row_same_name_hits_its_own_manifest_scope():
               % row.ref_s)
 
 
+def _plain_row(config, entry, ref_s, form="ctest-junit-serial"):
+    # Sentinel-less stub row for the membership cases.
+    return "%s %s %.2f 1 %s - stub\n" % (config, entry, ref_s, form)
+
+
+def test_slow_names_derives_membership_from_the_baseline_row():
+    # D-16/D-17: the one machine-checkable predicate -- an entry name is
+    # slow exactly when its baseline row's reference seconds exceed
+    # SLOW_MIN_REF_S (strictly). The baseline row is the ctest-Debug row
+    # when present, else the ctest-IDE row (an entry registered only in
+    # the IDE tree), else the e2e-Debug row; ASan and Release rows never
+    # classify, the coarse-scope rows (`default`, manifest scopes) never
+    # classify, and membership is one global list shared by every config
+    # rather than a per-config reading.
+    check(SLOW_MIN_REF_S == 60,
+          "D-16: the fast/slow threshold must be exactly 60 s, got %r"
+          % SLOW_MIN_REF_S)
+    slow = SLOW_MIN_REF_S + 1.0
+    fast = SLOW_MIN_REF_S - 1.0
+    gate = float(SLOW_MIN_REF_S)
+    table = (
+        _plain_row("ctest-Debug", "slow_edge", slow)
+        + _plain_row("ctest-Debug", "fast_edge", fast)
+        + _plain_row("ctest-Debug", "gate_exact", gate)
+        + _plain_row("ctest-IDE", "ide_only_slow", slow)
+        + _plain_row("ctest-Debug", "debug_row_wins", fast)
+        + _plain_row("ctest-IDE", "debug_row_wins", slow + 30.0)
+        + _plain_row("ctest-ASan", "asan_only_heavy", 800.0)
+        + _plain_row("ctest-Release", "release_only_heavy", 500.0)
+        + _plain_row("e2e-ASan", "e2e_asan_only_heavy", 491.0)
+        + _plain_row("e2e-Debug", "e2e_baseline_slow", slow, "e2e-serial")
+        + _plain_row("ctest-Debug", "default", 100.0)
+        + _plain_row("e2e-Debug", "manifest.txt", 100.0, "e2e-serial"))
+    with tempfile.TemporaryDirectory() as tmp:
+        members = set(slow_names(load_table(write_table(tmp, table))))
+    expected = {"slow_edge", "ide_only_slow", "e2e_baseline_slow"}
+    check(members == expected,
+          "slow_names: membership must come from the baseline row's "
+          "seconds (strictly above the threshold), expected %s, got %s"
+          % (sorted(expected), sorted(members)))
+
+
+def test_load_table_names_the_deleted_category_column():
+    # D-17 dropped the category column; a stale eight-column row must not
+    # reparse silently (the category token would land in `form`, which no
+    # consumer reads), so the row's measurement form is validated against
+    # the form vocabulary and the error names the deleted column. A row
+    # too short to carry the form errors on the column count instead.
+    with tempfile.TemporaryDirectory() as tmp:
+        stale = ("ctest-Debug stale_shape 10.00 1 常规 ctest-junit-serial "
+                 "- stub\n")
+        try:
+            load_table(write_table(tmp, stale, name="stale.txt"))
+            check(False, "load_table: a stale category-column row must "
+                         "raise")
+        except ValueError as exc:
+            check("category" in str(exc),
+                  "load_table: the stale-row error must name the deleted "
+                  "category column, got %r" % str(exc))
+        short = "ctest-Debug short_row 10.00\n"
+        try:
+            load_table(write_table(tmp, short, name="short.txt"))
+            check(False, "load_table: a row without a form column must "
+                         "raise")
+        except ValueError as exc:
+            check("column" in str(exc),
+                  "load_table: the too-short-row error must name the "
+                  "columns, got %r" % str(exc))
+
+
+def test_row_line_prints_the_seven_columns():
+    # D-17: a table row carries config, entry, ref_s, ref_work, form,
+    # sentinel, reason -- seven columns with the three human columns last,
+    # and the sentinel placeholder rule (a reason never rides without a
+    # sentinel token in front of it) survives the column removal.
+    got = row_line("ctest-Debug", "priced_entry", 12.5, 1,
+                   "ctest-junit-serial", "yes", "measured 2026-11-21")
+    check(got == "ctest-Debug priced_entry 12.50 1 ctest-junit-serial yes "
+                 "measured 2026-11-21",
+          "row_line: the seven-column row mismatched, got %r" % got)
+    got = row_line("ctest-Debug", "bare_entry", 3.0, 2,
+                   "ctest-junit-serial", "", "")
+    check(got == "ctest-Debug bare_entry 3.00 2 ctest-junit-serial",
+          "row_line: no sentinel and no reason must not trail tokens, "
+          "got %r" % got)
+    got = row_line("e2e-Debug", "reasoned", 40.0, 1, "e2e-serial", "",
+                   "kept for the schedule")
+    check(got == "e2e-Debug reasoned 40.00 1 e2e-serial - kept for the "
+                 "schedule",
+          "row_line: a reason must ride behind a sentinel placeholder, "
+          "got %r" % got)
+
+
 def run():
     test_caps_work_factor_two_doubles_cap_and_budget()
     test_caps_floor_entry_watchdog_pinned_at_120()
     test_caps_clamp_lower_bound_does_not_invert()
     test_scoped_row_same_name_hits_its_own_manifest_scope()
+    test_slow_names_derives_membership_from_the_baseline_row()
+    test_load_table_names_the_deleted_category_column()
+    test_row_line_prints_the_seven_columns()

@@ -187,9 +187,10 @@ leg_uncalibrated() { # leg_uncalibrated <name>
 CTEST_DEFAULT_TIMEOUT_S=1500
 
 # The committed reference table: the single source for the schedule-axis
-# exclusions (the category column, D-7), the calibration sentinels and
-# the post-hoc checkers. Every tier batch reads this same path, so no
-# leg ever judges against a stale copy.
+# exclusions (the slow set, derived from the baseline rows' ref_s --
+# D-16/D-17), the calibration sentinels and the post-hoc checkers.
+# Every tier batch reads this same path, so no leg ever judges against
+# a stale copy.
 REF_TABLE="$REPO/tests/gate_time_reference.txt"
 
 # The config's slow set as one -E regex (D-7): print-slow owns the
@@ -263,9 +264,13 @@ ctest_leg() { # ctest_leg <name> <tree> <config-key> [-R <regex>] [-E <regex>]
   # checker either judges this round's timings or reports a missing file
   # (rc=1), never last round's numbers.
   rm -f "$junit"
+  # --output-on-failure (R-59): the junit hands the checkers the
+  # timings and the per-entry verdict but never the failing test's own
+  # output, so without this flag a red ctest leg forces a manual
+  # re-run just to see why; a green leg prints nothing extra.
   leg "$name" env "NLANG_GATE_MACHINE_SCALE=$scale" "$PY_IO_ENCODING" \
     bash -c \
-    "cd '$tree' && ctest -C Debug$regex$ereg --output-junit '$junit' --timeout $CTEST_DEFAULT_TIMEOUT_S"
+    "cd '$tree' && ctest -C Debug --output-on-failure$regex$ereg --output-junit '$junit' --timeout $CTEST_DEFAULT_TIMEOUT_S"
   # Post-hoc budget judging (guard three): ctest has no inline budget
   # knob, so the checker reads the leg's junit after the fact. Its own
   # gate.sh entry, never spliced into the leg's command string -- a
@@ -368,13 +373,15 @@ t1_legs() { # t1_legs <slow-e on|off>
   # failure as its own red leg and aborts the assembly.
   PERF_E=$(perf_names) || { leg T-perf-names false; return 2; }
   # The shared legs (D-7): the T1 direct form (t1() passes on) excludes
-  # each config's slow set -- print-slow derives it from the category
-  # column, and the T1 legs carry no -R, so there is no mapping hit to
-  # subtract. The T2 close-out reuses these same legs WITHOUT the -E
-  # (t2() passes off): the close-out batch must actually run the
-  # 慢功能 and 演示验收 entries -- the D-7 carrier clause and guard
-  # eleven lean on exactly this. A red print-slow aborts the assembly
-  # rather than silently sweeping the slow entries.
+  # the slow set -- print-slow derives membership from each entry's
+  # baseline row ref_s against SLOW_MIN_REF_S (D-16/D-17) and projects
+  # the one repo-wide roster onto every config's -E, and the T1 legs
+  # carry no -R, so there is no mapping hit to subtract. The T2
+  # close-out reuses these same legs WITHOUT the -E (t2() passes off):
+  # the close-out batch must actually run the slow members -- the D-7
+  # carrier clause and guard eleven lean on exactly this. A red
+  # print-slow aborts the assembly rather than silently sweeping the
+  # slow entries.
   local slow_unit="" slow_ide="" slow_asan=""
   if [ "$1" = on ]; then
     slow_unit=$(slow_regex ctest-Debug) || return 2
@@ -438,11 +445,13 @@ t0() {
     ctest_leg T0-unit "$MASTER_TREE" ctest-Debug "$unit_regex" "$slow_unit"
   fi
   if [ -n "$e2e_regex" ]; then
-    # This round's e2e lines come from derive-e2e-subset (D-7's set
+    # This round's e2e lines come from derive-e2e-subset (R-64's set
     # formula: mapping hits unioned with the lines carrying their own
-    # explicit 常规 row, manifest order) -- the selection lives in that
-    # one place, so guard six can judge the very formula the wiring
-    # runs, never a grep re-implementation of it.
+    # explicit non-default row under this config while sitting outside
+    # the one global slow set, manifest order, deduped) -- the
+    # selection lives in that one place, so guard six can judge the
+    # very formula the wiring runs, never a grep re-implementation of
+    # it.
     local subset
     subset=$("$PY" -I "$REPO/tools/gate_time_check.py" derive-e2e-subset \
         e2e-Debug --table "$REF_TABLE" \
@@ -481,6 +490,8 @@ t2() {
   # must never leave the tree registered differently from what every
   # later batch and checker reads -- and the batch runs the remaining
   # legs regardless, so the window closes whatever happened above it.
+  # The leg runs with --output-on-failure (R-59), the same failure-
+  # output guarantee every ctest_leg call gives.
   if [ -n "$PERF_E" ]; then
     local scale
     scale=$(leg_scale ctest-Release --tree "$MASTER_TREE") \
@@ -489,7 +500,7 @@ t2() {
       rm -f "$LOGS/T2-perf.xml"
       leg T2-perf env "NLANG_GATE_MACHINE_SCALE=$scale" "$PY_IO_ENCODING" \
         bash -c \
-        "cmake -S '$REPO' -B '$MASTER_TREE' -DNLANG_PERF_TESTS=ON && cd '$MASTER_TREE' && ctest -C Release -R '^($PERF_E)$' --output-junit '$LOGS/T2-perf.xml' --timeout $CTEST_DEFAULT_TIMEOUT_S"
+        "cmake -S '$REPO' -B '$MASTER_TREE' -DNLANG_PERF_TESTS=ON && cd '$MASTER_TREE' && ctest -C Release --output-on-failure -R '^($PERF_E)$' --output-junit '$LOGS/T2-perf.xml' --timeout $CTEST_DEFAULT_TIMEOUT_S"
       leg T2-perf-budget env "$PY_IO_ENCODING" \
         "$PY" "$REPO/tools/gate_time_check.py" check-budget \
         --junit "$LOGS/T2-perf.xml" --config ctest-Release --parallel 1 \
@@ -504,9 +515,10 @@ t2() {
   e2e_leg T2-release-e2e "$MASTER_TREE" Release e2e-Release "" 120
   docs_legs
   # Guard eleven last, once the assembly is complete: it pairs every
-  # 类别!=常规 row against the commands this batch recorded in
-  # leg_commands.tsv, so every leg it needs to see already has its line,
-  # and its verdict rides the batch conjunction like any other leg's.
+  # slow-member row and every ASan/Release row against the commands
+  # this batch recorded in leg_commands.tsv, so every leg it needs to
+  # see already has its line, and its verdict rides the batch
+  # conjunction like any other leg's.
   leg T2-carrier env "$PY_IO_ENCODING" \
     "$PY" "$REPO/tools/gate_time_check.py" check-carrier \
     --table "$REF_TABLE" --leg-commands "$LOGS/leg_commands.tsv" \

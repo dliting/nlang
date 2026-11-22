@@ -27,20 +27,20 @@ from gate_time_testutil import check, write_table
 # deterministic (no wall-clock dependency).
 BUDGET_TABLE = (
     "# stub budget table (gate_time_check selftest)\n"
-    "ctest-Debug budget_over_entry 100.00 1 常规 ctest-junit-serial - over stub\n"
-    "ctest-Debug budget_under_entry 100.00 1 常规 ctest-junit-serial - under stub\n"
-    "ctest-Debug budget_timeout_entry 100.00 1 常规 ctest-junit-serial - killed stub\n"
-    "ctest-Debug budget_failed_entry 100.00 1 常规 ctest-junit-serial - failed stub\n"
-    "ctest-Debug budget_form_entry 100.00 1 常规 ctest-junit-serial - form stub\n"
-    "ctest-Debug budget_flat_entry 100.00 1 常规 ctest-junit-serial - scalar stub\n"
-    "ctest-Debug budget_ratchet_mid_entry 100.00 1 常规 ctest-junit-serial - scalar ratchet stub\n"
-    "ctest-Debug budget_ratchet_low_entry 100.00 1 常规 ctest-junit-serial - scalar ratchet stub\n"
-    "ctest-Debug budget_ratchet_ratio_entry 100.00 1 常规 ctest-junit-serial - ratio ratchet stub\n"
-    "ctest-Debug budget_ratchet_high_entry 100.00 1 常规 ctest-junit-serial - ratio ratchet stub\n"
-    "ctest-Debug budget_rounds_ok_entry 100.00 100 常规 ctest-junit-serial - rounds stub\n"
-    "ctest-Debug budget_rounds_missing_entry 100.00 100 常规 ctest-junit-serial - rounds stub\n"
-    "e2e-Debug default 10.00 1 常规 e2e-serial - coarse scope stub\n"
-    "e2e-ASan manifest.txt 10.00 1 常规 e2e-serial - manifest scope stub\n")
+    "ctest-Debug budget_over_entry 100.00 1 ctest-junit-serial - over stub\n"
+    "ctest-Debug budget_under_entry 100.00 1 ctest-junit-serial - under stub\n"
+    "ctest-Debug budget_timeout_entry 100.00 1 ctest-junit-serial - killed stub\n"
+    "ctest-Debug budget_failed_entry 100.00 1 ctest-junit-serial - failed stub\n"
+    "ctest-Debug budget_form_entry 100.00 1 ctest-junit-serial - form stub\n"
+    "ctest-Debug budget_flat_entry 100.00 1 ctest-junit-serial - scalar stub\n"
+    "ctest-Debug budget_ratchet_mid_entry 100.00 1 ctest-junit-serial - scalar ratchet stub\n"
+    "ctest-Debug budget_ratchet_low_entry 100.00 1 ctest-junit-serial - scalar ratchet stub\n"
+    "ctest-Debug budget_ratchet_ratio_entry 100.00 1 ctest-junit-serial - ratio ratchet stub\n"
+    "ctest-Debug budget_ratchet_high_entry 100.00 1 ctest-junit-serial - ratio ratchet stub\n"
+    "ctest-Debug budget_rounds_ok_entry 100.00 100 ctest-junit-serial - rounds stub\n"
+    "ctest-Debug budget_rounds_missing_entry 100.00 100 ctest-junit-serial - rounds stub\n"
+    "e2e-Debug default 10.00 1 e2e-serial - coarse scope stub\n"
+    "e2e-ASan manifest.txt 10.00 1 e2e-serial - manifest scope stub\n")
 
 
 def _junit_xml(cases):
@@ -206,8 +206,8 @@ def test_check_budget_manifest_row_beats_default_row():
     with tempfile.TemporaryDirectory() as tmp:
         table = write_table(tmp, (
             "# stub scope-priority table (gate_time_check selftest)\n"
-            "e2e-Debug default 10.00 1 常规 e2e-serial - coarse default stub\n"
-            "e2e-Debug manifest.txt 40.00 1 常规 e2e-serial - manifest"
+            "e2e-Debug default 10.00 1 e2e-serial - coarse default stub\n"
+            "e2e-Debug manifest.txt 40.00 1 e2e-serial - manifest"
             " row stub\n"))
         rc, out = _run_check_budget(table, "e2e-Debug",
                                     [("scope_win_entry", "run", 85.0)])
@@ -469,7 +469,7 @@ def test_check_budget_coarse_rows_charging_rounds_refuse_pairing():
     probe = [("budget_probe_entry", "run", 150.0, "rounds=100\n")]
     with tempfile.TemporaryDirectory() as tmp:
         for work, want in ((100, 1), (1, 0)):
-            table = write_table(tmp, "ctest-Debug default 100.00 %d 常规 "
+            table = write_table(tmp, "ctest-Debug default 100.00 %d "
                                 "ctest-junit-serial - coarse row\n" % work)
             rc, out = _run_check_budget(table, "ctest-Debug", probe)
             refused = "SELFREPORT budget_probe_entry" in out and "own row" in out

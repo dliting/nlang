@@ -1,6 +1,6 @@
 # gate_time_measure_test.py -- measurement parsing and recording cases
 # for the measure module (gate_time_measure.py): the guard-six member
-# that --record keeps the four human columns, the max-merge discipline
+# that --record keeps the three human columns, the max-merge discipline
 # on both measurement sources, the run-status-only filter that keeps
 # failed/skipped rows out of the reference, and the junit <system-out>
 # report channel the D-8 self-report cross-check reads. Entry point:
@@ -31,15 +31,15 @@ JUNIT_XML = """<?xml version="1.0" encoding="UTF-8"?>
 
 def test_record_preserves_human_columns():
     # Guard six member: a re-record refreshes ref_s and form only; the
-    # category, ref_work, sentinel and reason columns must survive
-    # verbatim, and a ctest config (no default row) gains rows for
-    # measured entries it had none for.
+    # ref_work, sentinel and reason columns must survive verbatim, and a
+    # ctest config (no default row) gains rows for measured entries it
+    # had none for.
     with tempfile.TemporaryDirectory() as tmp:
         path = write_table(tmp, (
             "# stub recording table\n"
-            "ctest-Debug soak_entry 0.00 100 慢功能 ctest-junit-serial - "
+            "ctest-Debug soak_entry 0.00 100 ctest-junit-serial - "
             "soak keep reason\n"
-            "ctest-Debug stale_row 7.00 1 常规 ctest-junit-serial - "
+            "ctest-Debug stale_row 7.00 1 ctest-junit-serial - "
             "untouched row\n"))
         apply_record(path, "ctest-Debug", parse_junit_rows(JUNIT_XML))
         rows = {(r.config, r.entry): r for r in load_table(path)}
@@ -47,13 +47,13 @@ def test_record_preserves_human_columns():
         check(close(soak.ref_s, 250.5),
               "record: ref_s must take the measured value, got %r"
               % soak.ref_s)
-        check(soak.ref_work == 100 and soak.category == "慢功能",
-              "record: category/ref_work must survive, got %r" % (soak,))
+        check(soak.ref_work == 100,
+              "record: ref_work must survive, got %r" % (soak,))
         check(soak.sentinel == "-" and soak.reason == "soak keep reason",
               "record: sentinel/reason must survive, got %r" % (soak,))
         fresh = rows.get(("ctest-Debug", "fresh_missing_entry"))
         check(fresh is not None and close(fresh.ref_s, 12.0)
-              and fresh.category == "常规" and fresh.ref_work == 1,
+              and fresh.ref_work == 1,
               "record: a ctest config must gain a row for a new entry, "
               "got %r" % (fresh,))
         stale = rows[("ctest-Debug", "stale_row")]
@@ -71,8 +71,8 @@ def test_record_measure_group_max_and_default_skip():
     with tempfile.TemporaryDirectory() as tmp:
         path = write_table(tmp, (
             "# stub e2e table\n"
-            "e2e-Debug default 10.00 1 常规 e2e-serial - stub default\n"
-            "e2e-Debug soak_e2e 5.00 1 慢功能 e2e-serial yes e2e exception "
+            "e2e-Debug default 10.00 1 e2e-serial - stub default\n"
+            "e2e-Debug soak_e2e 5.00 1 e2e-serial yes e2e exception "
             "reason\n"))
         meas = parse_measure_rows(
             "PASS soak_e2e (exit=0)\n"
@@ -89,7 +89,7 @@ def test_record_measure_group_max_and_default_skip():
         by_name = {r.entry: r for r in load_table(path)}
         soak = by_name["soak_e2e"]
         check(close(soak.ref_s, 260.0) and soak.ref_work == 1
-              and soak.category == "慢功能" and soak.sentinel == "yes"
+              and soak.sentinel == "yes"
               and soak.reason == "e2e exception reason",
               "record: refreshed row must keep the human columns, got %r"
               % (soak,))

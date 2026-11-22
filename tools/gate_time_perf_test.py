@@ -2,10 +2,12 @@
 # (docs/dev/gate_timing_design.md D-6, guards eight and eleven): print-
 # perf-names computes the perf entry set as the --show-only difference
 # of two scratch configures (flag OFF then ON, seed cache flags
-# forwarded), check-schedule --perf-names pins the equality between
-# that differential and the table's 性能 rows plus the perf names'
-# absence from any T0/T1 run enumeration, and check-carrier pairs every
-# 类别!=常规 row with the leg that runs it under the row's own config
+# forwarded), check-schedule --perf-names pins guard eight (R-61):
+# every differential name owns a priced ctest-Release row (a row
+# without the sentinel mark) and no perf name may appear in any T0/T1
+# run enumeration; check-carrier pairs every slow member's row and
+# every ASan/Release row with the leg that runs it under the row's own
+# config
 # key (the ctest config from the tree cache plus -C, the e2e config
 # from the leg's explicit --config value). Stub cmake/ctest .bat files
 # behind the NLANG_GATE_CMAKE / NLANG_GATE_CTEST doors keep the corpus
@@ -27,31 +29,35 @@ from gate_time_testutil import check, write_table
 from gate_time_schedule_test import (SCHEDULE_TABLE, _fixture, _schedule,
                                      _show_only_doc)
 
-# The perf class as the committed table prices it (ctest-Release 性能
-# rows), appended to the schedule stub table so the guard-eight cases
-# see both views of the set.
+# The perf class as the committed table prices it (the ctest-Release
+# rows without the sentinel mark -- the priced set guard eight compares
+# the registration difference against, R-61), appended to the schedule
+# stub table so the cases see both views of the set.
 PERF_TABLE = SCHEDULE_TABLE + (
-    "ctest-Release regex_redos_perf_compile 0.04 1 性能 ctest-junit-"
+    "ctest-Release regex_redos_perf_compile 0.04 1 ctest-junit-"
     "serial - perf class registered only under the ON flag\n"
-    "ctest-Release regex_redos_perf_run 7.40 1 性能 ctest-junit-"
+    "ctest-Release regex_redos_perf_run 7.40 1 ctest-junit-"
     "serial - perf class registered only under the ON flag\n")
 
-# The carrier fixture's table: the perf rows above, the two scope rows
-# whose carrier is an e2e leg's manifest file (the stub demo line drops
-# to 常规 -- the e2e-Debug config has no leg in a T2 round), and a ghost
-# entry priced under exactly the ctest-Debug and ctest-IDE keys -- the
-# mispairing pin moves it out of one tree and requires the other
-# config's row to stay green, which needs both rows to exist.
+# The carrier fixture's table: the perf rows above, the two coarse
+# scope rows whose carrier is an e2e leg's manifest file (an ASan or
+# Release row pairs by its config key alone, D-17), the slow
+# e2e_runner_timing_gate's e2e-Debug row removed (guard eleven pairs a
+# slow member's row under EVERY config, and this stub round records no
+# e2e-Debug leg), and a ghost entry priced under exactly the
+# ctest-Debug and ctest-IDE keys -- the mispairing pin moves it out of
+# one tree and requires the other config's row to stay green, which
+# needs both rows to exist.
 CARRIER_TABLE = PERF_TABLE.replace(
-    "e2e-Debug e2e_stub_demo 40.00 1 演示验收",
-    "e2e-Debug e2e_stub_demo 40.00 1 常规") + (
-    "e2e-ASan manifest.txt 100.00 1 演示验收 e2e-runner-serial - full "
+    "e2e-Debug e2e_runner_timing_gate 50.00 1 e2e-runner-serial - "
+    "timing probes carried every round elsewhere\n", "") + (
+    "e2e-ASan manifest.txt 100.00 1 e2e-runner-serial - full "
     "sweep carried in T2\n"
-    "e2e-Release examples_manifest.txt 10.00 1 演示验收 e2e-runner-"
+    "e2e-Release examples_manifest.txt 10.00 1 e2e-runner-"
     "serial - examples carried by the release e2e leg\n"
-    "ctest-Debug ghost_debug_entry 500.00 1 慢功能 ctest-junit-serial "
+    "ctest-Debug ghost_debug_entry 500.00 1 ctest-junit-serial "
     "- debug unit leg carries it every round\n"
-    "ctest-IDE ghost_debug_entry 500.00 1 慢功能 ctest-junit-serial "
+    "ctest-IDE ghost_debug_entry 500.00 1 ctest-junit-serial "
     "- IDE ctest leg carries it every round\n")
 
 # A seed cache shaped like a real VS configure: generator keys (one
@@ -251,13 +257,18 @@ def test_print_perf_names_refusals_name_their_file_or_side():
               "got rc=%r out=%r" % (rc, out))
 
 
-def test_check_schedule_perf_differential_equality_and_run_doc():
-    # Guard eight: the differential and the table's 性能 rows are two
-    # independent views of one set and must match in both directions
-    # (a 性能 row whose flag vanished would run in no leg; a flag-only
-    # entry would run unpriced), and a perf name may appear in NO
-    # T0/T1 run enumeration -- the --show-only doc stands in for the
-    # leg's run set (the -E lost the perf set if it shows up there).
+def test_check_schedule_perf_names_priced_rows_and_run_set():
+    # Guard eight (R-61): the ON/OFF registration difference is the one
+    # truth about the perf class; the table only prices it. Two
+    # verdicts remain: a difference name with no priced ctest-Release
+    # row (no row, or one marked sentinel=yes) would run in the regular
+    # legs unpriced, and a perf name inside a T0/T1 run enumeration
+    # means that round's -E lost the perf class (the --show-only doc
+    # stands in for the leg's run set). The old third direction -- a
+    # priced row missing from the differential, an entry running in no
+    # leg -- is guard one's EXTRA ctest-Release verdict under R-43
+    # (Task 10 Step 5), so the half-differential stays silent HERE; the
+    # case pins that silence.
     with tempfile.TemporaryDirectory() as tmp:
         _table, families, root = _fixture(tmp)
         perf_table = write_table(tmp, PERF_TABLE)
@@ -276,16 +287,17 @@ def test_check_schedule_perf_differential_equality_and_run_doc():
 
         rc, out = run(pair)
         check(rc == 0 and "GATE gate_time_check: PASS" in out,
-              "guard eight: matching differential and 性能 rows must "
-              "pass, got rc=%r out=%r" % (rc, out))
+              "guard eight: a differential whose every name has a "
+              "priced row must pass, got rc=%r out=%r" % (rc, out))
         rc, out = run(pair[:1])
-        check(rc == 1 and "PERF" in out and "regex_redos_perf_run" in out,
-              "guard eight: a 性能 row missing from the differential "
-              "must be named, got rc=%r out=%r" % (rc, out))
+        check(rc == 0 and "PERF" not in out,
+              "guard eight: a priced row missing from the differential "
+              "is guard one's EXTRA direction (R-43), no finding here, "
+              "got rc=%r out=%r" % (rc, out))
         rc, out = run(pair + ["perf_ghost_build_only"])
         check(rc == 1 and "PERF" in out and "perf_ghost_build_only" in out,
-              "guard eight: a differential name with no 性能 row must be "
-              "named, got rc=%r out=%r" % (rc, out))
+              "guard eight: a differential name with no priced row must "
+              "be named, got rc=%r out=%r" % (rc, out))
         rc, out = run(pair, ["plain_unit_entry", "regex_redos_perf_run"])
         check(rc == 1 and "PERF" in out and "regex_redos_perf_run" in out,
               "guard eight: a perf name inside a T0/T1 run enumeration "
@@ -355,12 +367,18 @@ def _carrier(tmp):
         (tree / "CMakeCache.txt").write_text(cache, encoding="utf-8")
         p[key] = tree.as_posix()
         trees[key] = tree
+    # The stub trees enumerate what every paired row needs: the slow
+    # members' rows exist under all three ctest configs (mainwindow_tests
+    # included, D-17's membership is global), and the 800 s sanitizer-
+    # only entry under its own config.
     for key, names in (
             ("dbg", ("plain_unit_entry", "e2e_runner_timing_gate",
-                     "mnist_mlp_compile", "ghost_debug_entry")),
-            ("ide", ("e2e_runner_timing_gate", "mnist_mlp_compile",
+                     "mnist_mlp_compile", "mainwindow_tests",
                      "ghost_debug_entry")),
-            ("asan", ("mainwindow_tests", "plain_unit_entry"))):
+            ("ide", ("e2e_runner_timing_gate", "mnist_mlp_compile",
+                     "mainwindow_tests", "ghost_debug_entry")),
+            ("asan", ("mainwindow_tests", "asan_heavy_entry",
+                      "plain_unit_entry"))):
         (trees[key] / "entries.txt").write_text(
             "".join(n + "\n" for n in names), encoding="utf-8")
     e2e = base / "e2e"
@@ -393,9 +411,10 @@ def _carrier_run(p, lines=None, perf=True):
         return _run(argv)
 
 
-def test_check_carrier_pairs_every_exception_row_with_its_config():
-    # Guard eleven: every 类别!=常规 row needs a leg whose judging
-    # config and run set pair it -- the ctest config from the tree
+def test_check_carrier_pairs_every_guarded_row_with_its_config():
+    # Guard eleven (D-17): every row of a slow member and every
+    # ASan/Release row needs a leg whose judging config and run set
+    # pair it -- the ctest config from the tree
     # cache plus -C (the same shape predicate tests/gate_time_keys.
     # cmake applies), the e2e config from the leg's explicit --config
     # value, the run set from the tree enumeration or (the perf leg,
@@ -411,7 +430,8 @@ def test_check_carrier_pairs_every_exception_row_with_its_config():
         rc, out = _carrier_run(p)
         check(rc == 0 and "GATE gate_time_check: PASS" in out,
               "guard eleven: the T2 round's records must pair every "
-              "exception row, got rc=%r out=%r" % (rc, out))
+              "slow-member and ASan/Release row, got rc=%r out=%r"
+              % (rc, out))
         rc, out = _carrier_run(p, [kv for kv in p["lines"]
                                    if kv[0] != "T2-perf"])
         check(rc == 1 and "CARRIER" in out and "ctest-Release" in out
@@ -488,7 +508,7 @@ def test_check_carrier_named_refusals_on_missing_inputs():
 def run():
     test_print_perf_names_is_the_registration_differential()
     test_print_perf_names_refusals_name_their_file_or_side()
-    test_check_schedule_perf_differential_equality_and_run_doc()
-    test_check_carrier_pairs_every_exception_row_with_its_config()
+    test_check_schedule_perf_names_priced_rows_and_run_set()
+    test_check_carrier_pairs_every_guarded_row_with_its_config()
     test_check_carrier_refuses_mispaired_configs()
     test_check_carrier_named_refusals_on_missing_inputs()

@@ -122,8 +122,8 @@ def parse_junit_rows(xml_text, form="ctest-junit-serial"):
 
 def apply_record(table_path, config, measurements):
     """Merge measured readings into the table. Entry rows of `config`
-    refresh ref_s and form only; category, ref_work, sentinel and reason
-    keep their original tokens verbatim (guard six member), and every
+    refresh ref_s and form only; ref_work, sentinel and reason keep their
+    original tokens verbatim (guard six member), and every
     other line (comments included) is rewritten untouched. A config
     without a default row gains rows for measured entries it had none
     for; an e2e config with a default row already covers new names.
@@ -142,15 +142,14 @@ def apply_record(table_path, config, measurements):
     updated = 0
     for line in lines:
         stripped = line.strip()
-        fields = stripped.split(None, 7)
-        if (stripped and not stripped.startswith("#") and len(fields) >= 6
+        fields = stripped.split(None, 6)
+        if (stripped and not stripped.startswith("#") and len(fields) >= 5
                 and fields[0] == config and fields[1] in measured):
             secs, form = measurements[fields[1]]
-            sentinel = fields[6] if len(fields) > 6 else ""
-            reason = fields[7] if len(fields) > 7 else ""
+            sentinel = fields[5] if len(fields) > 5 else ""
+            reason = fields[6] if len(fields) > 6 else ""
             out.append(row_line(config, fields[1], secs, fields[3],
-                                 fields[4], form or fields[5], sentinel,
-                                 reason))
+                                 form or fields[4], sentinel, reason))
             updated += 1
         else:
             out.append(line)
@@ -159,7 +158,7 @@ def apply_record(table_path, config, measurements):
         for name in sorted(set(measurements) - measured):
             secs, form = measurements[name]
             out.append(row_line(config, name, secs,
-                                 str(DEFAULT_WORK_FACTOR), "常规",
+                                 str(DEFAULT_WORK_FACTOR),
                                  form or "unknown", "", ""))
             added.append(name)
     # Explicit newline="\n": the table stays LF on every platform (the
@@ -201,8 +200,7 @@ def calibrate_scale(config, measurements, rows):
         secs = reading[0]
         ratios.append(secs / row.ref_s)
         candidates.append(row_line(config, row.entry, secs, row.ref_work,
-                                    row.category, row.form, row.sentinel,
-                                    row.reason))
+                                    row.form, row.sentinel, row.reason))
     if not ratios:
         return None, findings, candidates
     scale = statistics.median(ratios)

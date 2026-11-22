@@ -1,7 +1,10 @@
 # gate_time_carrier.py -- the carrier axis (docs/dev/gate_timing_design.md
-# D-6, guard eleven): check-carrier pairs every 类别!=常规 reference row
-# with a leg of the batch itself that runs the entry under the row's own
-# config key. It reads the name<TAB>command lines gate_tier.sh records in
+# D-6, guard eleven as narrowed by D-16/D-17): check-carrier pairs every
+# row of a slow member and every ASan/Release row with a leg of the batch
+# itself that runs the entry under the row's own config key (regular
+# Debug/IDE rows are carried by construction: the regular legs run
+# whatever the tree enumerates except the slow members). It reads the
+# name<TAB>command lines gate_tier.sh records in
 # leg_commands.tsv and reconstructs each leg's judging config from the
 # state its own command attests to: a ctest leg's key set is the tree's
 # CMakeCache.txt shape converted by -C (the same predicate
@@ -25,7 +28,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from gate_time_table import REGULAR_CATEGORY, load_table
+from gate_time_table import load_table
 from gate_time_timeouts import read_timeouts, show_only_json
 
 # The --config= values an e2e leg may spell out (the e2e config keys
@@ -272,10 +275,13 @@ def _observed(args, leg_lines, findings):
 
 
 def run(args, table, verdict):
-    """Guard eleven's verdict: every 类别!=常规 row must sit in its own
-    config key's observed run set -- the same entry name under another
-    config proves nothing, and every mispaired or under-determined leg
-    already contributed its own finding."""
+    """Guard eleven's verdict (D-17): every row of a slow member (the
+    one set gate_time_schedule.slow_names derives from the baseline-row
+    seconds) and every ASan/Release row must sit in its own config key's
+    observed run set -- the same entry name under another config proves
+    nothing, and every mispaired or under-determined leg already
+    contributed its own finding. The `default` coarse rows price budgets
+    rather than run, so they pair against nothing."""
     findings = []
     path = Path(args.leg_commands)
     if not path.is_file():
@@ -288,15 +294,30 @@ def run(args, table, verdict):
         if sep:
             leg_lines.append((name, command))
     observed = _observed(args, leg_lines, findings)
-    for row in load_table(Path(table)):
-        if row.category == REGULAR_CATEGORY:
+    # Membership is the schedule axis' single judgment (D-17), imported
+    # here rather than at module head: gate_time_schedule dispatches
+    # into this module, so a head import would be circular.
+    from gate_time_schedule import slow_names
+    rows = load_table(Path(table))
+    slow = set(slow_names(rows))
+    for row in rows:
+        if row.entry == "default":
+            continue
+        # Regular Debug/IDE rows are carried by construction (the
+        # regular legs run the tree's enumeration minus the slow
+        # members), so pairing them would prove nothing; the rows that
+        # need a named carrier are the slow members in every config and
+        # the sanitizer/Release rows, whose legs run in other batches
+        # and can silently drop entries (D-17).
+        if not (row.entry in slow or row.config.endswith("-ASan")
+                or row.config.endswith("-Release")):
             continue
         if row.entry not in observed.get(row.config, ()):
             findings.append(
-                "CARRIER %s %s: 类别=%s and no leg of this batch runs it "
-                "under this config key -- an exception without its "
-                "carrier is an entry that silently stops being tested"
-                % (row.config, row.entry, row.category))
+                "CARRIER %s %s: no leg of this batch runs it under this "
+                "config key -- a slow member or sanitizer/Release row "
+                "without its carrier is an entry that silently stops "
+                "being tested" % (row.config, row.entry))
     return verdict(findings)
 
 
@@ -306,8 +327,9 @@ def add_subparsers(sub, table_arg):
     (R-28)."""
     carrier_p = sub.add_parser(
         "check-carrier", parents=[table_arg],
-        help="guard eleven: pair every 类别!=常规 row with a leg that "
-             "ran it under the row's own config key")
+        help="guard eleven: pair every slow-member row and every "
+             "ASan/Release row with a leg that ran it under the row's "
+             "own config key")
     carrier_p.add_argument("--leg-commands", required=True, metavar="TSV",
                            help="the batch's leg_commands.tsv "
                                 "(name<TAB>command lines)")

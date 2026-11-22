@@ -138,30 +138,32 @@ fi
 trap '[ -n "${NLANG_GATE_TIME_KEEP_WS:-}" ] || rm -rf "$WS"' EXIT
 
 # --- fixtures ---------------------------------------------------------------
-# Stub rows in the committed table's whitespace grammar (six columns minimum;
-# the numbers are fixture values, not measurements). stub_big_probe carries a
-# lower ctest-ASan row than its ctest-Debug row and a distinct ctest-IDE row:
-# only replacement-by-one-key distinguishes those branches from a key set
-# that joined the columns and took the max.
+# Stub rows in the committed table's whitespace grammar (five columns
+# minimum; the numbers are fixture values, not measurements).
+# stub_big_probe carries a lower ctest-ASan row than its ctest-Debug row
+# and a distinct ctest-IDE row: only replacement-by-one-key distinguishes
+# those branches from a key set that joined the columns and took the max.
+# The slow set has no column (D-16/D-17): membership is the entry's
+# baseline row ref_s alone, which is why the probe rows below carry no
+# class marker.
 
 cat > "$WS/src/stub_table.txt" <<'STUB_TABLE_EOF'
 # Stub reference table for tools/gate_time_selftest.sh.
-ctest-Debug   stub_big_probe       100.00  1  常规  ctest-junit-serial
-ctest-ASan    stub_big_probe        50.00  1  常规  ctest-junit-serial
-ctest-IDE     stub_big_probe        80.00  1  常规  ctest-junit-serial
-ctest-Debug   stub_small_probe       5.00  1  常规  ctest-junit-serial
-ctest-Debug   stub.dash-name-probe  12.50  1  常规  ctest-junit-serial
-ctest-Debug   stub_rounds_probe     40.00  100  常规  ctest-junit-serial
-ctest-Release stub_release_only    300.00  1  性能  ctest-junit-serial
-# Slow-set rows for the slow-export probe below: both carry ref_s above
-# SLOW_MIN_REF_S (60 s) AND a slow-class category, so the two names the
-# probe asserts stay in the slow set under the current category rule and
-# under the 60 s threshold rule planned next -- swapping the membership
-# criterion cannot invalidate the probe. stub_slow_probe is the name
-# --keep-matched subtracts; stub_slow_partner_probe must survive it
-# (neither name contains the other, so the flag can only hit its own).
-ctest-Debug   stub_slow_probe       90.00  1  慢功能  ctest-junit-serial
-ctest-Debug   stub_slow_partner_probe  150.00  1  慢功能  ctest-junit-serial
+ctest-Debug   stub_big_probe       100.00  1  ctest-junit-serial
+ctest-ASan    stub_big_probe        50.00  1  ctest-junit-serial
+ctest-IDE     stub_big_probe        80.00  1  ctest-junit-serial
+ctest-Debug   stub_small_probe       5.00  1  ctest-junit-serial
+ctest-Debug   stub.dash-name-probe  12.50  1  ctest-junit-serial
+ctest-Debug   stub_rounds_probe     40.00  100  ctest-junit-serial
+ctest-Release stub_release_only    300.00  1  ctest-junit-serial
+# Slow-set rows for the slow-export probe below: the one membership
+# rule (D-16/D-17) is the baseline row's ref_s crossing SLOW_MIN_REF_S,
+# and both rows cross it, so the two names the probe asserts sit in the
+# slow set on seconds alone. stub_slow_probe is the name --keep-matched
+# subtracts; stub_slow_partner_probe must survive it (neither name
+# contains the other, so the flag can only hit its own).
+ctest-Debug   stub_slow_probe       90.00  1  ctest-junit-serial
+ctest-Debug   stub_slow_partner_probe  150.00  1  ctest-junit-serial
 STUB_TABLE_EOF
 
 # The stub soak entry mirrors the round scaling of nd_resolve_stress_tests
@@ -536,6 +538,9 @@ before=$failures
 # handing its catch-all "." to the flag instead -- the exclusion then
 # emptied and the slow entries ran in the fast round), and with the flag
 # only the names it re.search-hits leave the set while the rest survive.
+# stub_big_probe's 100 s baseline row crosses the same gate, so it rides
+# the export too -- the probe pins its two named rows and the
+# subtraction's shape, not the roster's size.
 slow_base=$("$PYTHON" -I "$EMIT_TOOL" print-slow ctest-Debug \
     --table "$WS/src/stub_table.txt" 2>&1)
 slow_base_rc=$?

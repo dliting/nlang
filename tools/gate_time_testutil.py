@@ -39,6 +39,6 @@ def drop_line(text, prefix):
 # and budget-clamped paths of D-1.
 CAPS_TABLE = (
     "# stub caps table\n"
-    "ctest-Debug caps_over_floor 100.00 1 常规 ctest-junit-serial - stub\n"
-    "ctest-Debug caps_small_entry 5.00 1 常规 ctest-junit-serial - stub\n"
-    "ctest-Debug caps_tiny_entry 1.00 1 常规 ctest-junit-serial - stub\n")
+    "ctest-Debug caps_over_floor 100.00 1 ctest-junit-serial - stub\n"
+    "ctest-Debug caps_small_entry 5.00 1 ctest-junit-serial - stub\n"
+    "ctest-Debug caps_tiny_entry 1.00 1 ctest-junit-serial - stub\n")
