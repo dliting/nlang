@@ -141,19 +141,24 @@ void VmBackend::GenerateStaticInitFunction(SnFunction& func,
 }
 
 //The "$staticInit" protocol body shared by both owner kinds:
-//[optional super gate (classes); assignments] inside a catch-all try
-//whose handler resets the owner (D10) and rethrows; Done + return
-//outside. The super gate sits INSIDE the try — when the super
-//initializer fails, the unwinding reaches this frame's handler too,
-//so this class's owner state resets instead of hanging on a dead
-//attempt. Statements are the resolver-synthesized assignments; they
-//emit through the ordinary statement machinery.
+//[display prologue; optional super gate (classes); assignments] inside
+//a catch-all try whose handler resets the owner (D10) and rethrows;
+//Done + return outside. The display prologue is the same frame-entry
+//half EmitBodyAndImplicitReturn runs (a lambda in a static field
+//initializer binds its anchor display as a $staticInit frame local —
+//I3); it sits outside the try so a prologue failure is not laundered
+//through the init-fail handler. The super gate sits INSIDE the try —
+//when the super initializer fails, the unwinding reaches this frame's
+//handler too, so this class's owner state resets instead of hanging on
+//a dead attempt. Statements are the resolver-synthesized assignments;
+//they emit through the ordinary statement machinery.
 void VmBackend::EmitStaticInitProtocolBody(uint16_t ownerIdx,
                                            uint16_t kind,
                                            SnFunction& func,
                                            SnClassDecl* super,
                                            BytecodeEmitter& emitter)
 {
+    EmitCaptureDisplayPrologue(*func.Body(), emitter);
     const uint16_t tryStart =
         static_cast<uint16_t>(emitter.CurrentOffset());
     if (super)

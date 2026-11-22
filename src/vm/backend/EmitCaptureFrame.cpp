@@ -77,6 +77,27 @@ void VmBackend::EmitCapturedFormalCopy(SnFormalParam& param,
     }
 }
 
+//A captured catch variable's handler-entry copy: the runtime protocol
+//lands the caught exception heap idx in the clause's frame slot, and
+//every reference (captured or not) reads display storage once the
+//descriptor is NF_Captured — so the first handler instruction bridges
+//the slot into the display field. The value-flavor struct-aware store
+//is the only arm: a catch variable is a class-typed value by
+//construction (the flavor dispatch of the formal copy cannot apply).
+void VmBackend::EmitCatchVarDisplayCopy(SnCatchClause& catchClause,
+    uint16_t catchOff, BytecodeEmitter& emitter)
+{
+    auto* pDisplayField = CapturedDisplayFieldOf(catchClause.VarLocal());
+    auto* pDisplayClass = static_cast<SnClassDecl*>(
+        pDisplayField->Parent());
+    const uint16_t displaySlot = FindLocal(pDisplayClass->Name());
+    const int fieldOff = FindClassFieldOffset(*pDisplayClass,
+        pDisplayField->Name());
+    NLANG_ASSERT(fieldOff >= 0);
+    EmitStructAwareStoreField(pDisplayField->EvalDataType(),
+        displaySlot, static_cast<uint16_t>(fieldOff), catchOff, emitter);
+}
+
 //Lambda literal: bind the anchor display instance (a frame local under
 //the display class name — the anchor paragraph is always inside the
 //literal's own emission frame) and the synthetic method into a delegate

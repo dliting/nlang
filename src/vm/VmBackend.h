@@ -49,6 +49,7 @@ class SnMemberExpr;
 class SnIdentifierExpr;
 class SnAssignStmt;
 class SnCompoundAssignStmt;
+class SnCatchClause;
 
 //Phase 9c: forward-declared so EmitBinding/EmitCallArgs can take
 //references without including SnExpressions.h (heavy header dep). Full
@@ -563,11 +564,24 @@ private:
     //One captured formal's prologue copy — one flavor dispatch.
     void EmitCapturedFormalCopy(SnFormalParam& param,
         BytecodeEmitter& emitter);
+    //I2: a captured catch variable's handler-entry copy — the runtime
+    //lands the caught exception in the clause's frame slot, and this
+    //bridges that slot into the display field before any handler
+    //statement (the formal-copy analog; the value lands by protocol,
+    //not by an argument register). (EmitCaptureFrame.cpp.)
+    void EmitCatchVarDisplayCopy(SnCatchClause& catchClause,
+        uint16_t catchOff, BytecodeEmitter& emitter);
     //Binding-order step 2: NF_Captured fields. A display class's local
     //slot wins (the instance lives in this frame); otherwise hop-walk the
     //synthetic frame's "$outer" chain to the owning display. NotFound on
     //a captured name is an invariant break.
     BareIdTarget DisplayFieldOfCaptured(SnField* field);
+    //The delegate callee's handle load, one arm per resolved storage
+    //kind (EmitExprCore.cpp).
+    void EmitDelegateCalleeLoad(const SnInvokeExpr& invoke,
+                                const BareIdTarget& target,
+                                uint16_t calleeSlot,
+                                BytecodeEmitter& emitter);
     //The display field behind a captured descriptor — the resolver
     //stamped both halves (NF_Captured on the descriptor, the field
     //pointer beside the ownership list). A null here is an invariant
@@ -692,6 +706,12 @@ private:
     bool EmitMemberStaticCall(SnMemberExpr& member,
                               BytecodeEmitter& emitter,
                               uint16_t resultOffset);
+    //Delegate flavor of the receiverless static call — the callee bound
+    //to a func-typed static field (Cfg.dbl(21)); handle straight off the
+    //module slot, no receiver. (EmitExprMemberStatic.cpp.)
+    bool EmitMemberStaticDelegateCall(SnInvokeExpr& invoke,
+                                      BytecodeEmitter& emitter,
+                                      uint16_t resultOffset);
     //0.13.1a Task 2: an inferred template-row static — the resolver
     //bound a created instantiation's clone member; the frame descriptor
     //cell rides OP_CallStatic's operand (OP_CallMethodDirect has none).

@@ -204,7 +204,9 @@ to it in the lambda body addresses the static slot directly, shared
 by all calls (§6.1). Referencing an outer `static` local inside a
 lambda body is legal; declaring a new `static` local stays bound by
 the §6.1 edge (declarable in a function or method body, not in a
-generic context). Accessing an instance member in the lambda body
+generic context). A `catch` clause's variable is an ordinary local in
+this respect — a lambda in the handler captures the exception object
+the clause names. Accessing an instance member in the lambda body
 captures the receiver; referencing `this` in a static context is a
 compile error. An `&` reference (a reference local, a reference
 parameter, a `foreach` reference head) captures the binding itself:
@@ -262,6 +264,9 @@ A closure's `toString` renders as `"lambda"`; the `==`/`!=` and
 - **Bare identifier** — `f(x)`. A `func`-typed local/parameter/field
   **shadows** any same-named function.
 - **Member field** — `obj.cb(x)` where `cb` is a `func`-typed field.
+- **Static field** — `Cfg.dbl(x)` where `dbl` is a `func`-typed static
+  field; the type name qualifies, no receiver exists, and the field's
+  current handle is invoked.
 
 Arguments are staged per the `func` type's signature, and the receiver
 of a bound method is handled automatically by the call. Named arguments
@@ -337,6 +342,8 @@ comparisons with non-`func` operands are compile errors.
 - **A lambda with a generic parameter list** (`<T>` parameters).
 - **A reference to an undeclared name inside a lambda body** — the
   same name-resolution rules as an ordinary function body.
-- **A lambda as a field initializer** — field initializers are
-  constant-expression positions.
+- **A lambda as an instance field initializer** — instance field
+  initializers are constant-expression positions. A static field
+  initializer may hold a lambda; the class's static initializer
+  evaluates it once at first use.
 - **A lambda in a static context referencing `this`** (§6.1).

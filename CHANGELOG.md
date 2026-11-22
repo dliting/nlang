@@ -1,3 +1,40 @@
+## [0.13.11] - 2026-11-23
+
+Lambda review-fix pass over 0.13.10: currying, catch-variable
+capture and static-field lambda initializers arrive, and a
+shadowed-capture misroute is fixed by resolving captured access
+through the bound display-field descriptor instead of the field
+name. Not backward compatible by design.
+
+### Added
+
+- **Expression-body nesting (currying).** A lambda's expression
+  body may itself be a lambda — `(x) -> (y) -> x + y` under
+  `func<func<int, int>, int>` returns a closure that captures the
+  outer parameter. Expression bodies are normalized to a
+  single-return block before capture analysis, so every capture
+  rule (value and `&` forms, loop-head freshness, shadowing)
+  applies to both body shapes alike.
+- **Catch-variable capture.** A lambda written inside a `catch`
+  handler captures the handler's variable like any outer local —
+  `func<string> msg = () -> e.message;` reads the exception object
+  the clause bound.
+- **Lambdas as static field initializers.** A static field of
+  function type may be initialized with a lambda —
+  `public static func<int, int> dbl = (x) -> x * 2;` — evaluated
+  once by the class's static initializer at first use. Invoking it
+  through the type name (`Cfg.dbl(21)`) is the receiverless call
+  shape for a `func`-typed static field; instance field
+  initializers remain constant-expression positions.
+
+### Fixed
+
+- **Shadowed captures resolve by identity.** A captured reference
+  now walks the display chain by the bound display field's parent
+  class, not by field name: a lambda capturing an outer `n` while
+  an inner scope redeclares `n` reads and writes the declaring
+  scope's storage for both value and `&` captures.
+
 ## [0.13.10] - 2026-11-22
 
 Lambda expressions and closures deliver the program of

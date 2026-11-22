@@ -64,9 +64,12 @@ instance `constructor of class "C" is not accessible`.
 
 ## 4.8.3 Fields and field initializers
 
-A field may carry an initializer (§2.4). The initializer must be a
-constant expression: a literal of any type with unary negation
-allowed; it may not reference a field or `this`. The default is
+A field may carry an initializer (§2.4). An instance field's
+initializer must be a constant expression: a literal of any type with
+unary negation allowed; it may not reference a field or `this`. A
+static field's initializer instead runs at first use and may be a
+runtime expression, a lambda included (see "Lazy initialization"
+below). The default is
 injected into every constructor of the class before the body runs,
 base class first: a constructor that calls `super(...)` receives
 the injection just after that call, one without `super(...)` at

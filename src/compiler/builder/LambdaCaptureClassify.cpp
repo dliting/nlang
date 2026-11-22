@@ -75,9 +75,9 @@ void CapturePass::ClassifyFieldRead(SnField *pField, LambdaSite &innermost)
 //The SnLocalVar branch of ClassifyFieldRead: static locals keep slot
 //storage in every frame, the innermost lambda's own parameter is frame-
 //local, every other local resolves its declaring paragraph — an outer
-//lambda's parameter storage lives in the owner's block-body paragraph
-//(expression-body owners have no paragraph to host a display and are
-//refused loudly until generic displays land).
+//lambda's parameter storage lives in the owner's body paragraph (the
+//Phase-0 normalization guarantees a block body for expression-bodied
+//owners, so currying anchors like block-body nesting).
 void CapturePass::ClassifyLocalRead(SnLocalVar &local, LambdaSite &innermost)
 {
 	if (local.ContainFlags(NF_Static))
@@ -130,9 +130,10 @@ SnParagraph *CapturePass::DeclParaOfLoopHead(SnLocalVar &local)
 }
 
 //Plain-local arm of the declaring-paragraph resolution: the harvested
-//paragraph of an ordinary declaration, or — for a parameter of an OUTER
-//lambda in the nest — the owner's block body paragraph (its storage is
-//the owner's synthetic frame). Null only on a defensive miss.
+//paragraph of an ordinary declaration (local statement or catch
+//variable), or — for a parameter of an OUTER lambda in the nest — the
+//owner's body paragraph (its storage is the owner's synthetic frame).
+//Null only on a defensive miss.
 SnParagraph *CapturePass::DeclParaOfPlainLocal(SnLocalVar &local)
 {
 	auto itLocal = m_declParaOfLocal.find(&local);
@@ -142,12 +143,8 @@ SnParagraph *CapturePass::DeclParaOfPlainLocal(SnLocalVar &local)
 	if (itOwner == m_paramOwnerOf.end())
 		return nullptr;  //not capturable storage (defensive)
 	SnLambdaExpr *pOwner = itOwner->second;
-	if (!pOwner->BlockBody())
-		throw std::runtime_error(
-			"LambdaCaptureAnalysis: a lambda nested in another "
-			"lambda's expression body cannot capture the outer "
-			"lambda's parameter yet; bind the lambda to a local "
-			"first");
+	NLANG_ASSERT(pOwner->BlockBody()
+		&& "expression bodies are normalized before the walk");
 	return pOwner->BlockBody();
 }
 

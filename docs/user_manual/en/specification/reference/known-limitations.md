@@ -140,10 +140,6 @@ This page collects the language-level limitations visible to user programs, with
   `throw` inside a `finally` body is a compile error (a finally body must
   not swallow the in-flight control flow or exception).
 
-- **No lambda expressions / closures**: only references
-  to named functions and methods exist. Bound method references carry
-  receiver state and cover the common callback scenarios.
-
 ### Concurrency
 
 - **Concurrency: main's return ends the program**: virtual threads still

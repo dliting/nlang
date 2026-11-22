@@ -87,6 +87,15 @@ SnParagraph *SnLambdaExpr::DetachBlockBody()
 	return pBody;
 }
 
+void SnLambdaExpr::AdoptBlockBody(SnParagraph *pBody)
+{
+	//Phase-0 normalization only: the expression body was detached (and
+	//its mirror nulled) immediately before, so both slots must be free.
+	NLANG_ASSERT(!m_pExprBody && !m_pBlockBody);
+	AddChild(pBody);
+	m_pBlockBody = pBody;
+}
+
 bool SnLambdaExpr::IsDataExpr() const
 {
 	//A lambda is a function value, not data.

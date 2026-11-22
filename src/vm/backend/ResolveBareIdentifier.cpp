@@ -167,6 +167,36 @@ uint16_t VmBackend::StaticLocalSlotIndexOf(const SnField& field) const {
 //display. A miss in a synthetic frame is an invariant break: the
 //declaring paragraph is always on the capturing lambda's paragraph
 //chain (lexical scoping), so the hop walk terminates at the owner.
+//Hop count from a synthetic frame's anchor display class up the
+//"$outer" chain to the OWNING display — by identity of the bound
+//display field's parent class, never by field name. A same-named field
+//on an intermediate display is a shadowed capture (the declaring
+//paragraph's field, not the first name match down the chain, owns the
+//storage), and a name walk would stop at the first hop and rebind the
+//reference to the shadow. Lexical scoping guarantees termination: the
+//declaring paragraph is always on the capturing lambda's paragraph
+//chain.
+static int OuterHopsToDisplay(SnClassDecl* pStart,
+                              SnClassDecl* pDisplayClass)
+{
+    int hops = 0;
+    SnClassDecl* pCls = pStart;
+    while (pCls != pDisplayClass) {
+        SnField* pOuter = nullptr;
+        for (auto& member : pCls->Members())
+            if (member.Kind() == NK_ClassField
+                && !member.ContainFlags(NF_Static)
+                && member.Name() == "$outer")
+                pOuter = &member;
+        NLANG_ASSERT(pOuter && "$outer chain does not reach the owner display");
+        auto* pParent = dynamic_cast<SnClassDecl*>(pOuter->EvalDataType());
+        NLANG_ASSERT(pParent);
+        ++hops;
+        pCls = pParent;
+    }
+    return hops;
+}
+
 VmBackend::BareIdTarget VmBackend::DisplayFieldOfCaptured(SnField* field) {
     NLANG_ASSERT(field);
     SnClassField* pDisplayField = nullptr;
@@ -191,26 +221,14 @@ VmBackend::BareIdTarget VmBackend::DisplayFieldOfCaptured(SnField* field) {
         NLANG_ASSERT(t.fieldOff >= 0);
         return t;
     }
-    //Synthetic capture frame: local 0 is the anchor instance; chase the
-    //"$outer" fields to the owning display.
+    //Synthetic capture frame: local 0 is the anchor instance; hop the
+    //"$outer" fields to the owning display, then read the field there.
     NLANG_ASSERT(m_pCurrClass && m_pCurrClass->ContainFlags(NF_Generated)
         && "captured reference outside any display-bearing frame");
-    SnClassDecl* pCls = m_pCurrClass;
-    while (FindClassFieldOffset(*pCls, name) < 0) {
-        SnField* pOuter = nullptr;
-        for (auto& member : pCls->Members())
-            if (member.Kind() == NK_ClassField
-                && !member.ContainFlags(NF_Static)
-                && member.Name() == "$outer")
-                pOuter = &member;
-        NLANG_ASSERT(pOuter && "$outer chain does not reach the owner");
-        auto* pParent = dynamic_cast<SnClassDecl*>(pOuter->EvalDataType());
-        NLANG_ASSERT(pParent);
-        ++t.outerHops;
-        pCls = pParent;
-    }
     t.kind = BareIdTarget::CaptureField;
-    t.fieldOff = FindClassFieldOffset(*pCls, name);
+    t.outerHops = OuterHopsToDisplay(m_pCurrClass, pDisplayClass);
+    t.fieldOff = FindClassFieldOffset(*pDisplayClass, name);
+    NLANG_ASSERT(t.fieldOff >= 0);
     return t;
 }
 

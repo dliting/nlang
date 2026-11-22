@@ -566,6 +566,14 @@ lambda_ref_return 0
 lambda_ref_chain 0
 err_lambda_const_capture_assign compile_error cannot assign to const local "k".
 err_lambda_this_in_static compile_error this is not available in a static method.
+# --- 0.13.10 review fix pass: shadowed-capture identity, expression-body
+# nesting (currying), catch-variable capture, static-field lambda, and the
+# receiverless static delegate invoke it rides on ---
+lambda_capture_shadow 0
+lambda_capture_shadow_ref 0
+lambda_nested_expr 0
+lambda_catch_capture 0
+lambda_static_field 0
 # --- P3.8: lock class field default values (int/float/string/class-ref) ---
 class_field_defaults 7
 # --- P3.8: cover switch on string discriminator ---

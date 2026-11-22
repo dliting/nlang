@@ -20,7 +20,9 @@ namespace nlang {
 //value exists, so the outer identifier is never emitted; arguments stage
 //from slot 0 against a frame with no __this slot (AllocParamsAndDefaults
 //skips the this slot for statics), and dispatch is direct by function
-//index like the final-method arm.
+//index like the final-method arm. A callee-less invoke with a func-typed
+//static field is the delegate flavor of the same receiverless shape
+//(Cfg.dbl(21) — a lambda parked in a static initializer).
 bool VmBackend::EmitMemberStaticCall(SnMemberExpr& member,
                                      BytecodeEmitter& emitter,
                                      uint16_t resultOffset) {
@@ -29,7 +31,9 @@ bool VmBackend::EmitMemberStaticCall(SnMemberExpr& member,
         return false;
     auto& invoke = static_cast<SnInvokeExpr&>(*inner);
     auto* callee = invoke.Callee();
-    if (!(callee && callee->ContainFlags(NF_Static)))
+    if (!callee)
+        return EmitMemberStaticDelegateCall(invoke, emitter, resultOffset);
+    if (!callee->ContainFlags(NF_Static))
         return false;
     auto& generics = m_pRegistry->DeclaredGenerics();
     //0.13.1a Task 2: an inferred template-row static — the resolver
@@ -51,6 +55,43 @@ bool VmBackend::EmitMemberStaticCall(SnMemberExpr& member,
     EmitMemberDirectMethodCall(callee, emitter);
     emitter.Emit(OpCode::OP_Assign);
     emitter.EmitUint16(resultOffset);
+    emitter.Emit(OpCode::OP_ParaEnd);
+    return true;
+}
+
+//Delegate flavor of the receiverless static call: the callee name bound
+//to a func-typed STATIC field, so the handle loads straight from the
+//module slot — gate the declaring class's initializer first (D2), claim
+//the callee slot BEFORE the args so nested emissions cannot clobber it
+//(the EmitMemberDelegateInvoke contract), stage user args from slot 0,
+//dispatch by delegate. False when the shape is not this one (dispatch
+//continues to the receiver-bearing arms).
+bool VmBackend::EmitMemberStaticDelegateCall(SnInvokeExpr& invoke,
+                                             BytecodeEmitter& emitter,
+                                             uint16_t resultOffset) {
+    auto* field = invoke.Field();
+    if (!(field && field->Kind() == NK_ClassField
+          && field->ContainFlags(NF_Static)))
+        return false;
+    auto target = ResolveBareIdentifier(field);
+    if (target.kind != BareIdTarget::StaticSlot)
+        return false;  //defensive: a static class field always slots
+    EmitStaticFieldGate(field, emitter);
+    //K2 slice 5: the parked delegate handle is a bound-func record
+    //index — always the heap domain.
+    EvalAreaClaim calleeClaim(*this, 1, ESC_HeapIndex);
+    uint16_t calleeSlot = calleeClaim.base();
+    emitter.Emit(OpCode::OP_LoadStatic);
+    emitter.EmitUint16(calleeSlot);
+    emitter.EmitUint16(target.slotIdx);
+    EmitCallArgs(invoke, nullptr, emitter, /*slotBase=*/0,
+                 /*pArgPlans=*/nullptr, /*thisSlot=*/UINT16_MAX);
+    //A raw &-return binds the pair itself; a value read normalizes
+    //through the key's return deref tag (same contract as the member
+    //delegate arm).
+    const uint8_t refDerefKind = DelegateReturnDerefKind(
+        DelegateFuncTypeOfField(invoke.Field()));
+    EmitDelegateDispatch(emitter, calleeSlot, resultOffset, refDerefKind);
     emitter.Emit(OpCode::OP_ParaEnd);
     return true;
 }

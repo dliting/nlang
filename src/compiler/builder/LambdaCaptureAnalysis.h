@@ -37,6 +37,7 @@ class SnLambdaExpr;
 class SnLocalVar;
 class SnFormalParam;
 class SnIdentifierExpr;
+class SnCatchClause;
 template <typename T> class UniquePtrList;
 
 //Run the capture promotion pass over the merged syntax tree root.
@@ -104,6 +105,9 @@ private:
 	void EnterParagraph(SnParagraph &para);
 	void EnterFunction(SnFunction &func);
 	void EnterLambda(SnLambdaExpr &lambda);
+	//I2: the catch variable's declaring paragraph (braced handler = its
+	//own paragraph, bare handler = the paragraph hosting the try).
+	void HarvestCatchVar(SnCatchClause &clause);
 	void ClassifyIdentifier(SnIdentifierExpr &id, LambdaSite &innermost);
 	void ClassifyFieldRead(SnField *pField, LambdaSite &innermost);
 	void ClassifyLocalRead(SnLocalVar &local, LambdaSite &innermost);

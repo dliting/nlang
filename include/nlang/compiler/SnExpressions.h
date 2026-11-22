@@ -1362,6 +1362,11 @@ public:
 	//later ToString/walk.
 	SnExpression *DetachExprBody();
 	SnParagraph *DetachBlockBody();
+	//The capture walk's Phase 0 hands an expression body its return
+	//paragraph BEFORE the walk (expression-body nesting must anchor like
+	//block-body nesting); this adopts that paragraph under the same
+	//dual-storage contract as the constructor's block-body arm.
+	void AdoptBlockBody(SnParagraph *pBody);
 private:
 	std::vector<LambdaParam>     m_params;
 	SnExpression                *m_pExprBody  = nullptr;

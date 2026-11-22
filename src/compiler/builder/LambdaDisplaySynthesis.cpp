@@ -412,9 +412,9 @@ static SnFieldExpr *SynthLambdaReturnType(SnClassDecl &funcDecl,
 	return pRetExpr;
 }
 
-//One lambda's synthetic method: formals rebuilt, the body MOVED in
-//(block bodies directly; expression bodies wrapped in a synthesized
-//return), the display class and method published back onto the lambda.
+//One lambda's synthetic method: formals rebuilt, the block body MOVED
+//in (Phase 0 normalized expression bodies to their return paragraphs),
+//the display class and method published back onto the lambda.
 void CapturePass::SynthLambdaMethod(LambdaSite &site, DisplayScope &scope,
 	int &lambdaCounter)
 {
@@ -438,20 +438,11 @@ void CapturePass::SynthLambdaMethod(LambdaSite &site, DisplayScope &scope,
 		new std::string("$lambda_" + std::to_string(lambdaCounter++)),
 		std::move(upParams), loc);
 
-	//Body move — the analysis is fully complete before any move.
-	if (lambda.BlockBody())
-	{
-		pMethod->Body(lambda.DetachBlockBody());
-	}
-	else
-	{
-		SnExpression *pExpr = lambda.DetachExprBody();
-		NLANG_ASSERT(pExpr);
-		UniquePtrList<SnStatement> upStmts;
-		upStmts.Add(new SnReturnStmt(pExpr, *pExpr->Location()));
-		pMethod->Body(new SnParagraph(std::move(upStmts),
-			*pExpr->Location()));
-	}
+	//Body move — the analysis is fully complete before any move; Phase 0
+	//normalized every expression body to its return paragraph, so the
+	//block body is unconditional here.
+	NLANG_ASSERT(lambda.BlockBody());
+	pMethod->Body(lambda.DetachBlockBody());
 
 	lambda.DisplayClass(scope.pClass);
 	lambda.SyntheticMethod(pMethod);

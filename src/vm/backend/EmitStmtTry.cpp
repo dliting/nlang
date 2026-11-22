@@ -134,6 +134,14 @@ std::vector<size_t> VmBackend::EmitTryCatchClauses(SnTryStmt& ts,
                                           pCatch->VarName(), typeKind);
         m_currFunc->func->tryBlocks.push_back(
             {tryStart, tryEnd, handlerPc, excClassIdx, catchOff});
+        //I2: a captured catch variable reads through display storage;
+        //the runtime landed the exception in the frame slot, so the
+        //handler's first instruction bridges it into the display field
+        //(the display exists by construction: the frame prologue or the
+        //enclosing loop's activation ran before the protected range).
+        if (pCatch->VarLocal()
+            && pCatch->VarLocal()->ContainFlags(NF_Captured))
+            EmitCatchVarDisplayCopy(*pCatch, catchOff, emitter);
         if (pCatch->Body()) {
             ++m_catchBodyDepth;
             EmitStatement(*pCatch->Body(), emitter);

@@ -31,9 +31,9 @@
     exactly one storage location per captured variable.
 
     Storage for a captured lambda parameter lives in the owner lambda's
-    synthetic frame; nesting through an owner's EXPRESSION body has no
-    paragraph to host a display, so that shape is refused loudly until
-    generic displays land (plan Task 10).
+    synthetic frame; Phase 0 below normalizes every expression body to
+    its return paragraph BEFORE the walk, so nesting through an owner's
+    expression body anchors like block-body nesting always did.
 ---*/
 #include "LambdaCaptureAnalysis.h"
 #include "ModuleRegistry.h"
@@ -55,8 +55,35 @@ CaptureFlavor FlavorOf(const SnField &decl)
 	return CaptureFlavor::Value;
 }
 
+//Phase 0: every lambda's expression body is normalized to a return
+//paragraph at the lambda's own site, before any capture fact exists.
+//The walk, anchor assignment, and synthesis then see exactly one body
+//shape — a paragraph — so a lambda nested in another lambda's
+//EXPRESSION body anchors inside the owner's synthetic frame exactly
+//like block-body nesting (currying). Built here rather than at
+//synthesis time because anchoring runs first: the paragraph must exist
+//when the nested lambda's chain is recorded.
+static void NormalizeLambdaExprBodies(Node &node)
+{
+	if (node.Kind() == NK_LambdaExpr)
+	{
+		auto &lambda = static_cast<SnLambdaExpr &>(node);
+		if (lambda.ExprBody())
+		{
+			SnExpression *pExpr = lambda.DetachExprBody();
+			UniquePtrList<SnStatement> upStmts;
+			upStmts.Add(new SnReturnStmt(pExpr, *pExpr->Location()));
+			lambda.AdoptBlockBody(new SnParagraph(std::move(upStmts),
+				*pExpr->Location()));
+		}
+	}
+	for (auto &child : node.Children())
+		NormalizeLambdaExprBodies(child);
+}
+
 void CapturePass::Run(SnNamespace &root, ModuleRegistry &registry)
 {
+	NormalizeLambdaExprBodies(root);
 	Walk(root);
 	AssignAnchors();
 	BuildDisplaysAndMethods(root, registry);
@@ -109,6 +136,15 @@ void CapturePass::Walk(Node &node)
 	case NK_StructDecl:
 		WalkTypeDecl(node);
 		return;
+	case NK_CatchClause:
+		//Harvest the catch variable's declaring paragraph (I2): the
+		//clause's descriptor is not an SnLocalDeclStmt, so the paragraph
+		//harvest below never sees it — without this entry the variable
+		//classifies as non-capturable and a lambda inside the handler
+		//moves away with an unresolvable reference. Children walk below
+		//runs the handler body paragraph.
+		HarvestCatchVar(static_cast<SnCatchClause &>(node));
+		break;
 	default:
 		ClassifyExprRead(node);
 		break;
@@ -291,6 +327,24 @@ void CapturePass::EnterFunction(SnFunction &func)
 	m_loopBodyStack.clear();
 }
 
+//The catch variable's declaring paragraph, mirroring the resolver's
+//scoping decision: a braced handler owns its paragraph (the variable is
+//scoped to its clause); a bare-statement handler keeps the enclosing
+//paragraph that hosts the try. The runtime lands the caught exception
+//in the clause's frame slot; the handler-entry copy (EmitStmtTry)
+//bridges that slot into the display field once a lambda captures it.
+void CapturePass::HarvestCatchVar(SnCatchClause &clause)
+{
+	auto *pVar = clause.VarLocal();
+	if (!pVar || m_paraStack.empty())
+		return;  //unresolved catch type or outside any paragraph (defensive)
+	SnParagraph *pDeclPara = (clause.Body()
+		&& clause.Body()->Kind() == NK_Paragraph)
+		? static_cast<SnParagraph *>(clause.Body())
+		: m_paraStack.back();
+	m_declParaOfLocal[pVar] = pDeclPara;
+}
+
 void CapturePass::EnterLambda(SnLambdaExpr &lambda)
 {
 	NLANG_ASSERT(lambda.EvalDataType());  //typed before this pass runs
@@ -346,9 +400,11 @@ void CapturePass::AssignAnchors()
 	//promotes its immediate paragraph.
 	for (auto &site : m_sites)
 	{
-		NLANG_ASSERT(!site.paraChain.empty());  //field initializers carry
-			//no paragraphs; resolution only admits constant-foldable
-			//initializers, so a lambda there never reaches this pass
+		NLANG_ASSERT(!site.paraChain.empty());  //instance field
+			//initializers are constant-foldable only (no lambdas); a
+			//static field initializer's lambda anchors in the
+			//$staticInit function's body paragraph (the resolver
+			//synthesizes the assignments there)
 		SnParagraph *pAnchor = nullptr;
 		for (size_t i = site.paraChain.size(); i > site.boundaryDepth; --i)
 		{
