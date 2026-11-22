@@ -108,12 +108,13 @@ void VmScheduler::ParkForIo(int id, int fd, uint32_t events,
     NotifyGateWaiters();
 }
 
-void VmScheduler::WakeForIo(int id) {
+void VmScheduler::WakeForIo(int id, IoWakeReason reason) {
     GilEnsureGuard g(*this);
     ExecutionContext* ctx = FindMutable(id);
     if (!ctx || ctx->state != ContextState::ParkedIo)
         return;
     ctx->state = ContextState::Runnable;
+    ctx->ioWakeReason = reason;    //D-12: the branch, recorded with the state
     //v11 R7: arm the blocking-native re-entry — the re-executed
     //parkForIo call answers 1 (retry the syscall). Interpreter-path
     //parks never read the flag; a stale armed is harmless (contract in
@@ -162,7 +163,7 @@ void VmScheduler::WakeIoWaitersForFd(int fd) {
         m_ioCv.notify_all();
     }
     for (int id : ids)
-        WakeForIo(id);
+        WakeForIo(id, IoWakeReason::Closed);
     //WakeForIo leaves the carrier notify to its caller (the harvest bulk-notifies
     //after its own loop, VmSchedulerTimer.cpp's sweep likewise). A close is often
     //the only wake an infinite-deadline park ever gets, so an omitted notify here
@@ -227,13 +228,13 @@ void VmScheduler::HarvestIoEvents(void* poller, std::vector<IoPollerEvent>& evs)
             ++it;
             continue;
         }
-        WakeForIo(it->contextId);
+        WakeForIo(it->contextId, IoWakeReason::Ready);
         it = m_ioWaits.erase(it);
     }
     const auto now = std::chrono::steady_clock::now();
     for (auto it = m_ioWaits.begin(); it != m_ioWaits.end();) {
         if (it->hasDeadline && !(now < it->deadline)) {
-            WakeForIo(it->contextId);
+            WakeForIo(it->contextId, IoWakeReason::Deadline);
             it = m_ioWaits.erase(it);
         } else {
             ++it;
@@ -351,6 +352,12 @@ bool VmScheduler::IoPollerActiveForTests() {
 bool VmScheduler::IoThreadStartedForTests() {
     GilEnsureGuard g(*this);
     return m_ioThreadStarted;
+}
+
+IoWakeReason VmScheduler::LastIoWakeReasonForTests(int contextId) {
+    GilEnsureGuard g(*this);
+    const ExecutionContext* ctx = FindMutable(contextId);
+    return ctx ? ctx->ioWakeReason : IoWakeReason::None;
 }
 
 void VmScheduler::BeginShutdownForTests() {

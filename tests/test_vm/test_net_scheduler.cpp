@@ -135,11 +135,16 @@ static void TestStaleRegistrationOnFdReuse() {
         std::this_thread::sleep_for(50ms);   //park registered
         NetSendTo(peer, m, 1, "127.0.0.1", NetLocalPort(fd));
     });
-    const auto t0 = steady_clock::now();
     const bool woke = WaitUntilRunnable(sched, id, 2000);
     sender.join();
     CHECK(woke);
-    CHECK(steady_clock::now() - t0 < 1500ms);   //readiness, not deadline
+    //D-12: "readiness, not deadline" is decided by the reason the
+    //harvest recorded on the wake, not by the wall clock — a slow
+    //machine may legitimately exceed any fixed threshold, and the
+    //bug shape's wake (the 2s deadline) is exactly what the reason
+    //names: Deadline. (Deterministic-test ruling: no assertion may
+    //depend on elapsed time.)
+    CHECK(sched.LastIoWakeReasonForTests(id) == IoWakeReason::Ready);
     NetClose(fd);
     NetClose(peer);
 }

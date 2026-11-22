@@ -165,6 +165,12 @@ enum class ContextState {
     Failed,          //根帧异常逃逸
 };
 
+//Which harvest branch woke a ParkedIo context (WakeForIo records it,
+//LastIoWakeReasonForTests reads it): the Ready and Deadline wakes leave
+//the same state, so a test that must tell readiness from timeout reads
+//this recorded fact instead of the clock (D-12).
+enum class IoWakeReason { None, Ready, Deadline, Closed };
+
 //一个调度上下文（main 或后续 spawned 线程/协程）。frames 见文件头
 //「停泊即窃取」约定；其余字段由各生产者切片填充，本片恒零值。
 struct ExecutionContext {
@@ -186,6 +192,11 @@ struct ExecutionContext {
     //the syscall). A stale armed is harmless by contract (NativeHost.h).
     bool ioParkPending = false;
     bool ioParkArmed = false;
+    //v0.13.x D-12: which branch woke the last IO park (recorded by the
+    //WakeForIo transition, read by LastIoWakeReasonForTests). The ready
+    //and deadline wakes end in the same state, so the distinction has
+    //to be a recorded fact, not a clock reading.
+    IoWakeReason ioWakeReason = IoWakeReason::None;
     //P2-4 nested pump: 0 = dispatchable by anyone; nonzero = only the
     //pump holding this token may dispatch (PopAffinity skips it for
     //every other dispatcher — its owner serves it by id, never by
@@ -449,8 +460,9 @@ public:
                    std::chrono::steady_clock::time_point deadline,
                    bool hasDeadline);
     //Moves a ParkedIo context back to Runnable (enqueued under the
-    //framesParked handshake, WakeForMutex shape).
-    void WakeForIo(int id);
+    //framesParked handshake, WakeForMutex shape) and records which
+    //branch woke it (ctx->ioWakeReason, D-12).
+    void WakeForIo(int id, IoWakeReason reason);
     //v11 R13: drop every interest entry for fd AND wake the parked
     //contexts (the net module's socket-close path — it cannot reach
     //the VM poller directly). Callable without the GIL (self-guarded).
@@ -967,6 +979,11 @@ public:
     //Startup-order failure side (spec 七): makes the park's IoPollerCreate
     //call return null so the "no handle, no thread" branch is reachable.
     void SetIoPollerCreateFailsForTests(bool fails);
+    //Which branch ended this context's last IO park (the reason the
+    //wake recorded; None = never IO-woken). The IO-park tests'
+    //readiness-versus-deadline contract reads this instead of the
+    //clock (D-12; test_net_scheduler.cpp TestStaleRegistrationOnFdReuse).
+    IoWakeReason LastIoWakeReasonForTests(int contextId);
 
 private:
     std::mutex m_gil;
