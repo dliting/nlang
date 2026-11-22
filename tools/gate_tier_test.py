@@ -98,6 +98,17 @@ def run_smoke():
         (sandbox / "tools" / "gate_tiers.txt").write_text(TIERS, newline="\n")
         (sandbox / "tests" / "e2e" / "manifest.txt").write_text(MANIFEST, newline="\n")
 
+        #Plant stale flat artifacts from a "previous generation" in the
+        #shared gates root: a same-named one and a differently-cased one
+        #(the exact shape that once masqueraded as a fresh verdict). The
+        #run-scoped layout must leave both untouched and read neither.
+        gates_root = sandbox / "temp" / "tier" / "gates"
+        gates_root.mkdir(parents=True)
+        stale_same_name = gates_root / "T1-debug-unit.invocations"
+        stale_same_name.write_text("stale-from-another-generation\n")
+        stale_other_case = gates_root / "t1_debug_unit.gate"
+        stale_other_case.write_text("GATE T1-debug-unit: PASS (stale)\n")
+
         proc = subprocess.run(
             [bash,
              (sandbox / "tools" / "gate_tier.sh").as_posix(), "T1",
@@ -116,7 +127,29 @@ def run_smoke():
             check(f"GATE {leg}: PASS" in output,
                   f"no PASS verdict for {leg} (see batch output above)")
         gates_dir = sandbox / "temp" / "tier" / "gates"
-        unit_invocations = gates_dir / "T1-debug-unit.invocations"
+        runs = sorted(d for d in gates_dir.iterdir() if d.is_dir())
+        check(len(runs) == 1,
+              f"expected exactly one run-scoped log directory, found "
+              f"{[d.name for d in runs]} (flat artifacts must not appear)")
+        #Windows pathlib globs are case-insensitive, so the planted
+        #t1_debug_unit.gate would match a T1-* glob; enumerate instead
+        #and demand the flat root holds nothing but the stale plants.
+        flat_files = {p.name for p in gates_root.iterdir() if p.is_file()}
+        check(flat_files == {stale_same_name.name, stale_other_case.name},
+              f"leg artifacts landed flat in the gates root ({sorted(
+                  flat_files - {stale_same_name.name,
+                                stale_other_case.name})}) — verdict "
+              "files must live inside the per-run directory")
+        check(stale_same_name.read_text() == "stale-from-another-generation\n"
+              and stale_other_case.read_text() == "GATE T1-debug-unit: PASS (stale)\n",
+              "the batch overwrote or consumed a stale flat artifact — "
+              "generations must be isolated by construction")
+        if len(runs) != 1:
+            return False
+        run_dir = runs[0]
+        check((run_dir / "batch.info").exists(),
+              "no batch.info provenance file in the run directory")
+        unit_invocations = run_dir / "T1-debug-unit.invocations"
         check(unit_invocations.exists(),
               "stub gate.sh never received T1-debug-unit — dispatch broken")
         if unit_invocations.exists():

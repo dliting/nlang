@@ -25,7 +25,13 @@
 set -u
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 PY="D:/dev/miniconda3/envs/py313/python.exe"
-LOGS="$REPO/temp/tier/gates"
+#Run-scoped verdict artifacts: every leg file lands under a per-batch
+#directory, so files from an earlier generation can never be read as
+#this batch's results — a stale flat artifact once masqueraded as a
+#fresh verdict because only the filename distinguished generations.
+#The machine lock in tools/gate.sh is unaffected: it lives in $TMPDIR,
+#keyed independently of the logfile stem.
+LOGS="$REPO/temp/tier/gates/$(date +%Y%m%d-%H%M%S)-$$"
 WORK="$REPO/temp/tier"
 DOCS_CONFIG_EN="$REPO/docs/mkdocs.en.yml"
 DOCS_CONFIG_ZH="$REPO/docs/mkdocs.zh.yml"
@@ -67,6 +73,15 @@ done
 [ -z "$TIER" ] && usage
 [ -z "$MASTER_TREE" ] && usage
 mkdir -p "$LOGS" "$WORK"
+#Provenance: which batch produced these files. Any later read can (and
+#should) check this before trusting an artifact's generation.
+{
+  echo "tier $TIER"
+  echo "started $(date '+%Y-%m-%d %H:%M:%S')"
+  echo "head $(git -C "$REPO" rev-parse --short HEAD 2>/dev/null \
+      || echo unknown)"
+  echo "trees master=$MASTER_TREE asan=${ASAN_TREE:-} ide=${IDE_TREE:-}"
+} > "$LOGS/batch.info"
 
 leg() { # leg <name> <command...>
   local name="$1"; shift
