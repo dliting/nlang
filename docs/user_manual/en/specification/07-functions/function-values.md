@@ -229,7 +229,7 @@ created, and reading it in the body reads the captured storage.
 
 ```nlang
 int main() {
-    func<int, int> fact = (n) -> n <= 1 ? 1 : n * fact(n - 1);
+    func<int, int> fact = (n) -> { if (n <= 1) { return 1; } return n * fact(n - 1); };
     return fact(5);           // 120
 }
 ```
