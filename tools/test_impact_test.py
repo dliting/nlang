@@ -84,6 +84,24 @@ def test_family_without_unit_rule_is_unmapped():
           "bug and must fall back, got %r" % impact.unmapped)
 
 
+def test_real_families_map_tensor_to_mnist_entries():
+    # D-7 backfill: the tensor family in the real tools/test_families.txt
+    # must map the native tensor sources to both mnist ctest entries, so
+    # a tensor change backfills the 演示验收 rows that the slow-set -E
+    # excludes from every scheduled round (甲 path).
+    families = (Path(__file__).resolve().parent
+                / "test_families.txt").read_text(encoding="utf-8")
+    impact = compute_impact(["src/native/tensor/TensorCore.cpp"],
+                            families)
+    check(impact.unmapped == [],
+          "impact: src/native/tensor/** must map to the tensor family, "
+          "got %r" % (impact.unmapped,))
+    check("native_tensor" in impact.unit_regex
+          and "mnist_mlp" in impact.unit_regex,
+          "impact: the tensor unit rule must carry both entry "
+          "fragments, got %r" % impact.unit_regex)
+
+
 def main():
     test_leaf_file_maps_to_family()
     test_unknown_src_is_unmapped()
@@ -91,6 +109,7 @@ def main():
     test_families_merge_without_duplicates()
     test_ignore_glob_silences_path()
     test_family_without_unit_rule_is_unmapped()
+    test_real_families_map_tensor_to_mnist_entries()
     if failures:
         for f in failures:
             print("FAIL: %s" % f)

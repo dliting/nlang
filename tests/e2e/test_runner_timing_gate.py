@@ -17,6 +17,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 import uuid
 
 import pytest
@@ -430,6 +431,35 @@ def test_manifest_scope_row_prices_the_manifest_entries(request, tmp_path):
     assert len(advisories) == 1, lines
     assert f'advisory: {name} 超预算' in advisories[0], advisories
     assert 'budget=60.00' in advisories[0], advisories
+
+
+def test_advisory_suppression_is_the_cap_kill_flag(capsys, monkeypatch):
+    """The 超预算 advisory's suppression for runner kills is an explicit
+    flag from the pricing site (cap_killed), not a substring test on the
+    verdict text: an entry name or error message carrying TIMEOUT (this
+    probe is literally named TIMEOUT_*) must not silence its own
+    advisory forever, while a real cap kill still suppresses it -- the
+    span measured the kill cap, not the workload. In-process because the
+    flag is module logic with no tool involved; the verdict/TIMEOUT row
+    shape stays owned by the subprocess cases above."""
+    monkeypatch.setattr(runner, 'ENTRY_ADVISORY_BUDGET', 0.0)
+    started = time.monotonic() - 5.0
+    runner._emit_verdict('TIMEOUT_named_probe',
+                         'FAIL TIMEOUT_named_probe (file missing)',
+                         started, None)
+    lines = capsys.readouterr().out.splitlines()
+    assert any(ln.startswith('advisory: TIMEOUT_named_probe')
+               for ln in lines), lines
+    assert any(ln.startswith('FAIL TIMEOUT_named_probe')
+               for ln in lines), lines
+    runner._emit_verdict('slow_named_probe',
+                         'FAIL slow_named_probe (runtime error: boom '
+                         '(TIMEOUT_WATCHDOG watchdog=120.00))',
+                         started, None, cap_killed=True)
+    lines = capsys.readouterr().out.splitlines()
+    assert not any(ln.startswith('advisory:') for ln in lines), lines
+    assert any(ln.startswith('FAIL slow_named_probe')
+               for ln in lines), lines
 
 
 def test_row_less_entry_falls_back_to_timeout_visibly(request, tmp_path):

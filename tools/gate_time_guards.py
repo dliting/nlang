@@ -363,6 +363,18 @@ def check_budget(config, cases, rows, parallel=1, repeat="none",
                 name, row, (reports or {}).get(name, ""), work_factor)
             if finding is not None:
                 findings.append(finding)
+        elif (row.ref_work != DEFAULT_WORK_FACTOR
+              and ROUNDS_TOKEN_RE.search((reports or {}).get(name, ""))):
+            #A coarse row cannot pair a rounds count with one entry (it
+            #reads one measurement for the whole scope), so it must not
+            #charge plain units of reference work: an entry reporting
+            #rounds under such a row is a named refusal demanding the
+            #entry's own row, not a silently skipped assertion (D-8).
+            findings.append(
+                "SELFREPORT %s: rounds=<n> reading priced by coarse row "
+                "%s (ref_work=%d) -- the self-report pairing needs the "
+                "entry's own row (D-8)"
+                % (name, row.entry, row.ref_work))
         if actual > budget:
             if entry_scope:
                 findings.append("BUDGET-FAIL %s budget=%.2f actual=%.2f "

@@ -2,9 +2,12 @@
 # table guards (docs/dev/gate_timing_design.md). The reference-table
 # model and the single caps()/budget derivation site live in
 # gate_time_table.py, the measurement parsing, the table recording and
-# the calibration sampling rounds in gate_time_measure.py, and the
-# guard verdict bodies in gate_time_guards.py (guard five's registered-
-# cap axis in its sibling gate_time_timeouts.py); this module owns the
+# the calibration sampling rounds in gate_time_measure.py, the guard
+# verdict bodies in gate_time_guards.py (guard five's registered-cap
+# axis in its sibling gate_time_timeouts.py), and the schedule axis
+# (print-slow, derive-e2e-subset, guards six and nine) in
+# gate_time_schedule.py, which registers its own parsers and this file
+# only maps the names to its runners (R-28/R-29); this module owns the
 # argument parsing and the per-subcommand dispatch. Stdlib only; run
 # with -I.
 #
@@ -38,6 +41,15 @@
 #                    (stale: re-run configure, one line; fresh: a
 #                    hand-written TIMEOUT override per entry, line-named
 #                    when it sits in tests/CMakeLists.txt)
+#   print-slow       the schedule-axis wiring input (D-7): the config's
+#                    类别!=常规 entry names as one -E regex, minus
+#                    whatever --keep-matched (the leg's -R regex) hits
+#   derive-e2e-subset the round's e2e lines: explicit-常规 rows ∪ mapping
+#                    hits, manifest order (the T0 selection, one site)
+#   check-schedule   guards six/nine: category claims (甲/乙), the
+#                    backfill equivalence ctest itself computes, the >
+#                    SLOW_MIN_REF_S decision, the e2e set formula and
+#                    phantom src globs
 #   record           merge measured readings (--from-junit / --from-measure),
 #                    refreshing ref_s and form only; the four human columns
 #                    (category, ref_work, sentinel, reason) survive verbatim
@@ -59,6 +71,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import gate_time_schedule
 from gate_time_guards import (check_budget, check_complete, check_constants,
                               check_orphans, enum_overrides, read_name_set,
                               run_ctest_enum, sentinel_rows,
@@ -68,12 +81,12 @@ from gate_time_measure import (apply_record, calibrate_scale, junit_cases,
                                parse_measure_rows, sample_ctest, sample_e2e)
 from gate_time_table import (CONFIG_KEYS, CTEST_CONFIGS, DECISION_TREES,
                              DEFAULT_TABLE, DEFAULT_WORK_FACTOR,
-                             LOCAL_TABLE_NAME, REPO_ROOT, SCALE_BAND_MAX,
-                             SCALE_BAND_MIN, caps, effective_rows,
-                             emit_cmake)
+                             REPO_ROOT, SCALE_BAND_MAX, SCALE_BAND_MIN,
+                             caps, effective_rows, emit_cmake)
 from gate_time_timeouts import (check_timeouts, expected_watchdogs,
-                                read_timeouts, show_only_json,
-                                threshold_inputs)
+                                override_site, read_timeouts,
+                                show_only_json, threshold_inputs,
+                                tree_is_fresh)
 
 
 def _inputs(args, repo):
@@ -266,60 +279,29 @@ def _run_check_constants(args, table):
     return _verdict(check_constants(effective_rows(table))[1])
 
 
-def _tree_is_fresh(tree, table):
-    """Guard five's wording predicate: the tree's generated
-    CTestTestFiles must be at least as new as the table (and its
-    machine-local overlay, D-3) their caps were derived from. Anything
-    younger than both is a cap from the previous configure (the
-    configure step re-derives whenever CMAKE_CONFIGURE_DEPENDS sees the
-    table change, tests/gate_time_keys.cmake)."""
-    stamps = []
-    for rel in ("CTestTestfile.cmake", "tests/CTestTestfile.cmake"):
-        stamp = tree / rel
-        if stamp.is_file():
-            stamps.append(stamp.stat().st_mtime)
-    if not stamps:
-        raise ValueError("%s holds no CTestTestfile.cmake: is the tree "
-                         "configured?" % tree)
-    inputs = [Path(table).stat().st_mtime]
-    overlay = Path(table).resolve().parent / LOCAL_TABLE_NAME
-    if overlay.is_file():
-        inputs.append(overlay.stat().st_mtime)
-    return max(stamps) >= max(inputs)
-
-
-def _override_site(entry):
-    """Line in tests/CMakeLists.txt that both names the entry and sets
-    a TIMEOUT: where a hand-written override sits when guard five's
-    fresh-configure branch fires (the table cap itself is set in the
-    generated file and the add_test wrapper, never beside a literal
-    entry name, so a hit is the override itself). No hit is not a pass
-    -- the finding still fires, it just cannot point at a line (the
-    property can be set from any consumed CMake file)."""
-    path = REPO_ROOT / "tests" / "CMakeLists.txt"
-    try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return ""
-    for lineno, line in enumerate(lines, 1):
-        if "TIMEOUT" in line and entry in line:
-            return "tests/CMakeLists.txt:%d" % lineno
-    return ""
-
-
 def _run_check_timeouts(args, table):
     tree = Path(args.tree)
     # The header of the tree's own generated thresholds file gives the
     # config-key set and work factor the caps were derived from -- the
-    # emitter's inputs, not the current shell's guess.
-    configs, work_factor = threshold_inputs(
-        (tree / "gate_time_thresholds.cmake").read_text(encoding="utf-8"))
+    # emitter's inputs, not the current shell's guess. A tree without
+    # the header was never configured with the cap emitter, which is a
+    # named disposition (sibling of tree_is_fresh's refusal), not a
+    # read_text traceback.
+    try:
+        header = (tree / "gate_time_thresholds.cmake").read_text(
+            encoding="utf-8")
+    except FileNotFoundError:
+        return _verdict([
+            "TIMEOUTS: %s holds no gate_time_thresholds.cmake: the tree "
+            "was not configured with the cap emitter -- re-run configure"
+            % tree])
+    configs, work_factor = threshold_inputs(header)
     text = (Path(args.show_only).read_text(encoding="utf-8")
             if args.show_only else show_only_json(tree))
     findings = check_timeouts(
         read_timeouts(text),
         expected_watchdogs(effective_rows(table), configs, work_factor),
-        _tree_is_fresh(tree, table), site_of=_override_site)[1]
+        tree_is_fresh(tree, table), site_of=override_site)[1]
     return _verdict(findings)
 
 
@@ -341,6 +323,8 @@ def _dispatch(args):
         return _run_check_timeouts(args, table)
     if args.command == "check-complete":
         return _run_check_complete(args, table)
+    if args.command in gate_time_schedule.COMMANDS:
+        return gate_time_schedule.dispatch(args, table, _verdict)
     return _run_check_orphans(args, table)
 
 
@@ -478,6 +462,10 @@ def _build_parser():
     _add_check_parsers(sub)
     _add_record_parsers(sub)
     _add_derive_parsers(sub)
+    # The schedule axis (print-slow / derive-e2e-subset / check-schedule)
+    # is registered and executed by gate_time_schedule.py (R-28/R-29);
+    # this file only maps the names to its hooks.
+    gate_time_schedule.add_subparsers(sub)
     return parser
 
 

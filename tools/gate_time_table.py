@@ -35,6 +35,11 @@ CTEST_CONFIGS = ("ctest-Debug", "ctest-IDE", "ctest-ASan")
 E2E_CONFIGS = ("e2e-Debug", "e2e-ASan", "e2e-Release")
 CONFIG_KEYS = CTEST_CONFIGS + ("ctest-Release",) + E2E_CONFIGS
 CATEGORIES = ("常规", "慢功能", "演示验收", "性能")
+# The two categories the schedule and carrier axes split the table on:
+# the one every scheduled round keeps, and the perf class that runs only
+# under the NLANG_PERF_TESTS=ON registration (D-6, D-7).
+REGULAR_CATEGORY = CATEGORIES[0]
+PERF_CATEGORY = CATEGORIES[3]
 MANIFEST_SCOPES = ("manifest.txt", "examples_manifest.txt")
 LOCAL_TABLE_NAME = "gate_time_reference.local.txt"
 REPO_ROOT = Path(__file__).resolve().parent.parent

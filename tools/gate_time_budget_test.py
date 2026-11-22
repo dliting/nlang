@@ -460,6 +460,25 @@ def test_check_budget_inline_exceeded_names_its_cause():
               "listing, got rc=%r out=%r" % (rc, out))
 
 
+def test_check_budget_coarse_rows_charging_rounds_refuse_pairing():
+    # Cleanup six: a rounds self-report pairs only with the entry's OWN
+    # row (D-8) -- a coarse row reads one measurement for a whole scope,
+    # so one charging ref_work != 1 priced work the scope-granularity
+    # skip used to pass silently: refuse that pairing by name (a plain
+    # ref_work = 1 coarse row has no rounds axis to verify and passes).
+    probe = [("budget_probe_entry", "run", 150.0, "rounds=100\n")]
+    with tempfile.TemporaryDirectory() as tmp:
+        for work, want in ((100, 1), (1, 0)):
+            table = write_table(tmp, "ctest-Debug default 100.00 %d 常规 "
+                                "ctest-junit-serial - coarse row\n" % work)
+            rc, out = _run_check_budget(table, "ctest-Debug", probe)
+            refused = "SELFREPORT budget_probe_entry" in out and "own row" in out
+            check(rc == want and refused == (want == 1),
+                  "budget: coarse ref_work=%d may refuse the self-report "
+                  "only while it charges rounds, got rc=%r out=%r"
+                  % (work, rc, out))
+
+
 def run():
     test_check_budget_over_entry_row_red()
     test_check_budget_timeout_watchdog_wording_once()
@@ -477,4 +496,5 @@ def run():
     test_check_budget_ratchet_line_carries_work_ratio()
     test_check_budget_selfreport_missing_red()
     test_check_budget_selfreport_tracks_reference_and_factor()
+    test_check_budget_coarse_rows_charging_rounds_refuse_pairing()
     test_check_budget_inline_exceeded_names_its_cause()

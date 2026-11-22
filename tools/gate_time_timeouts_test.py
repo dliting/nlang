@@ -19,8 +19,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from gate_time_check import main as run_cli
 from gate_time_table import load_table
 from gate_time_testutil import check, write_table
-from gate_time_timeouts import (check_timeouts, expected_watchdogs,
-                                read_timeouts, threshold_inputs)
+from gate_time_timeouts import (check_timeouts, cmake_tools,
+                                expected_watchdogs, override_site,
+                                read_timeouts, show_only_json,
+                                threshold_inputs)
 
 
 def _show_only_doc(entries):
@@ -169,6 +171,102 @@ def test_timeouts_fresh_mismatch_names_each_entry():
               "out=%r" % out)
 
 
+def test_override_site_skips_the_cap_consumer_lines():
+    # The site finder must not point a human at the wiring that CONSUMES
+    # the derived cap: the generated GATE_TIMEOUT_<entry> variable reads
+    # appear in tests/CMakeLists.txt beside the entry name and contain
+    # TIMEOUT inside the identifier, so the loose predicate mispoints the
+    # finding (measured on nide_deploy_check: it named the wrapper's
+    # if(DEFINED GATE_TIMEOUT_...) line, whose deletion would dismantle
+    # the cap hookup). Only a real TIMEOUT property line is a site, and
+    # the live tree's deploy check -- priced purely through the generated
+    # cap -- must report no site at all.
+    with tempfile.TemporaryDirectory() as tmp:
+        stub = Path(tmp) / "CMakeLists.txt"
+        stub.write_text(
+            "# a comment that only names alpha_probe_tests\n"
+            "if(DEFINED GATE_TIMEOUT_alpha_probe_tests)\n"
+            "    message(\"${GATE_TIMEOUT_alpha_probe_tests}\")\n"
+            "endif()\n"
+            "add_test(NAME alpha_probe_tests COMMAND stub)\n"
+            "set_tests_properties(alpha_probe_tests PROPERTIES "
+            "TIMEOUT 600)\n", encoding="utf-8")
+        check(override_site("alpha_probe_tests", path=stub)
+              == "tests/CMakeLists.txt:6",
+              "override-site: only the real TIMEOUT property line is a "
+              "site, got %r" % override_site("alpha_probe_tests",
+                                             path=stub))
+        check(override_site("beta_probe_tests", path=stub) == "",
+              "override-site: an entry no line names has no site, got %r"
+              % override_site("beta_probe_tests", path=stub))
+    check(override_site("nide_deploy_check") == "",
+          "override-site: the deploy check is priced by the generated cap "
+          "alone, so the live tree must offer no override site")
+
+
+def test_check_timeouts_missing_thresholds_header_is_a_named_verdict():
+    # An unconfigured or pre-emitter tree lacks the generated thresholds
+    # header. The file missing still reaches a verdict today, but only
+    # as main()'s OSError funnel -- one ERROR line of the OS message
+    # and a FAIL (error) verdict, with no idea what to do next (the
+    # sibling refusals in threshold_inputs and tree_is_fresh are
+    # dispositions with a remedy). State it as an ordinary finding: the
+    # file named and re-run configure as the next step.
+    with tempfile.TemporaryDirectory() as tmp:
+        table = write_table(tmp, (
+            "# stub guard-five table (gate_time_check selftest)\n"
+            "ctest-Debug alpha_probe_tests 100.00 1 常规 ctest-junit-"
+            "serial - stub\n"))
+        bare = Path(tmp) / "bare-tree"
+        bare.mkdir()
+        rc, out = _run_check_timeouts(
+            tmp, table, bare,
+            _show_only_doc([("alpha_probe_tests", 1000.0)]))
+        check(rc == 1 and "GATE gate_time_check: FAIL (1 findings)" in out
+              and "gate_time_thresholds.cmake" in out
+              and "re-run configure" in out and "FAIL (error)" not in out,
+              "timeouts: a tree without the thresholds header must fail "
+              "with the file named and the remedy, got rc=%r out=%r"
+              % (rc, out))
+
+
+def test_show_only_json_resolves_ctest_beside_cmake():
+    # The repo's recipe (the gate corpora and the selftest all follow it):
+    # ctest comes from cmake's own directory, never a bare PATH lookup --
+    # a PATH miss was a FileNotFoundError traceback instead of a named
+    # refusal. NLANG_GATE_CMAKE pins cmake (the door gate_time_selftest.sh
+    # already honours for stub builds), and a cmake with no ctest sibling
+    # must be refused by name.
+    with tempfile.TemporaryDirectory() as tmp:
+        tools = Path(tmp) / "tools"
+        tools.mkdir()
+        (tools / "cmake.bat").write_text("@echo off\r\n", encoding="ascii")
+        (tools / "ctest.bat").write_text(
+            '@echo off\r\necho {"tests": []}\r\n', encoding="ascii")
+        saved = dict(os.environ)
+        try:
+            os.environ["NLANG_GATE_CMAKE"] = str(tools / "cmake.bat")
+            os.environ.pop("NLANG_GATE_CTEST", None)
+            doc = show_only_json(Path(tmp))
+            check('{"tests": []}' in doc,
+                  "show-only: the ctest beside the pinned cmake must run, "
+                  "got %r" % doc)
+            lonely = Path(tmp) / "lonely"
+            lonely.mkdir()
+            (lonely / "cmake.exe").write_text("", encoding="ascii")
+            os.environ["NLANG_GATE_CMAKE"] = str(lonely / "cmake.exe")
+            try:
+                cmake_tools()
+                check(False, "a cmake without a ctest sibling must raise")
+            except ValueError as exc:
+                check("ctest" in str(exc),
+                      "show-only: the refusal must name the missing ctest, "
+                      "got %r" % exc)
+        finally:
+            os.environ.clear()
+            os.environ.update(saved)
+
+
 def test_timeouts_readers_and_the_site_hook():
     # The guard-five readers pinned at the function level: the thresholds
     # header refuses a file that did not come from the cap emitter naming
@@ -228,4 +326,7 @@ def run():
     test_timeouts_multi_key_tree_wants_the_largest_cap()
     test_timeouts_stale_configure_recommends_one_reconfigure()
     test_timeouts_fresh_mismatch_names_each_entry()
+    test_override_site_skips_the_cap_consumer_lines()
+    test_check_timeouts_missing_thresholds_header_is_a_named_verdict()
+    test_show_only_json_resolves_ctest_beside_cmake()
     test_timeouts_readers_and_the_site_hook()

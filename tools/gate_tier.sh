@@ -18,7 +18,9 @@
 #     is DERIVED at run time from tools/gate_tiers.txt (the stale-copy
 #     lesson) — never stored.
 # T2  (version close, release-time only): T1 legs + full ASan e2e +
-#     Release build + Release e2e + docs five legs.
+#     Release build + perf class (the T2-perf leg runs the ON-registered
+#     entries, its restore leg closes the cache window unconditionally)
+#     + Release e2e + docs five legs + the carrier pairing guard.
 #
 # Every leg goes through tools/gate.sh (machine lock, verdict lines
 # "GATE <leg>: PASS|FAIL"); all legs run regardless of earlier reds —
@@ -58,6 +60,10 @@ DOCS=0
 DRY=0
 CHANGED_PATHS=()
 LEG_NAMES=()
+# The round's perf entry set ('|'-joined), computed once by perf_names()
+# at the head of t0()/t1_legs(); ctest_leg unions it into every leg's -E
+# (D-6). Declared here so set -u never trips before those heads run.
+PERF_E=""
 
 # Usage is the leading comment block: printing it by line count would need a
 # number to keep in step with the header, so the block ends where the comments
@@ -82,11 +88,43 @@ done
 
 [ -z "$TIER" ] && usage
 [ -z "$MASTER_TREE" ] && usage
+# Trees are absolutized at parse time exactly like WORK above: the e2e
+# legs run the suite runner from its own directory (tests/e2e), and a
+# relative tree handed to it resolves its tool executables against THAT
+# directory, not against this script's -- the calibration probe then
+# asked for tests/e2e/build/.../ncc.exe and the leg read rc=2 "are the
+# tools built?". cygpath spells the result the way both bash (cd) and
+# the native interpreter accept; a host without cygpath keeps POSIX.
+CYGPATH_BIN=$(command -v cygpath || true)
+abs_tree() { # abs_tree <path> -> absolute Windows-style, forward slashes
+  local p="$1"
+  case "$p" in
+    /*) ;;
+    [A-Za-z]:*) printf '%s\n' "$p"; return ;;
+    *) p="$PWD/$p" ;;
+  esac
+  if [ -n "$CYGPATH_BIN" ]; then
+    printf '%s\n' "$("$CYGPATH_BIN" -w "$p" | tr '\\' '/')"
+  else
+    printf '%s\n' "$p"
+  fi
+}
+MASTER_TREE=$(abs_tree "$MASTER_TREE")
+[ -n "$ASAN_TREE" ] && ASAN_TREE=$(abs_tree "$ASAN_TREE")
+[ -n "$IDE_TREE" ] && IDE_TREE=$(abs_tree "$IDE_TREE")
 mkdir -p "$LOGS" "$WORK"
+# The carrier guard (guard eleven) pairs the reference table against the
+# leg commands themselves, so every leg of this batch -- dry runs
+# included, that is where the assembly pins live -- records its full
+# command here (name<TAB>command). Truncated per batch: batches run
+# sequentially on this work directory, and a stale line from an earlier
+# tier would pair against rows the current batch never carried.
+: > "$LOGS/leg_commands.tsv"
 
 leg() { # leg <name> <command...>
   local name="$1"; shift
   LEG_NAMES+=("$name")
+  printf '%s\t%s\n' "$name" "$*" >> "$LOGS/leg_commands.tsv"
   if [ "$DRY" = 1 ]; then
     echo "LEG $name: $*"
     return 0
@@ -148,6 +186,56 @@ leg_uncalibrated() { # leg_uncalibrated <name>
 # keeping the kill point explicit in the leg command.
 CTEST_DEFAULT_TIMEOUT_S=1500
 
+# The committed reference table: the single source for the schedule-axis
+# exclusions (the category column, D-7), the calibration sentinels and
+# the post-hoc checkers. Every tier batch reads this same path, so no
+# leg ever judges against a stale copy.
+REF_TABLE="$REPO/tests/gate_time_reference.txt"
+
+# The config's slow set as one -E regex (D-7): print-slow owns the
+# membership AND the -R backfill subtraction (ctest -E beats -R, F-12),
+# so the filter exists in exactly one place -- the mapping regex goes to
+# it verbatim, never as a name list. A red print-slow must fail the
+# assembly, not silently run the slow entries: the caller checks rc.
+slow_regex() { # slow_regex <config-key> [<mapped -R regex>]
+  local out
+  if [ $# -gt 1 ] && [ -n "$2" ]; then
+    out=$("$PY" -I "$REPO/tools/gate_time_check.py" print-slow "$1" \
+          --table "$REF_TABLE" --keep-matched "$2") || return 1
+  else
+    out=$("$PY" -I "$REPO/tools/gate_time_check.py" print-slow "$1" \
+          --table "$REF_TABLE") || return 1
+  fi
+  printf '%s\n' "$out" | grep -v '^GATE '
+}
+
+# The perf class for the round (D-6): print-perf-names computes the
+# ON/OFF registration difference once per round, in its own scratch
+# directory (the sweep tree's cache stays untouched; only its seed-cache
+# shape is read). The value feeds every ctest leg's -E union, the
+# T2-perf leg's -R and the carrier checker; a red print-perf-names fails
+# the assembly like a red print-slow (the caller turns it into the
+# T-perf-names red leg). The file it writes is read back by check-carrier
+# after the ON-cache window has closed and the tree enumerates none of
+# these entries any more.
+perf_names() {
+  local out
+  out=$("$PY" -I "$REPO/tools/gate_time_check.py" print-perf-names \
+        --seed-tree "$MASTER_TREE" --scratch "$WORK/perf_scratch") \
+        || return 1
+  printf '%s\n' "$out" | grep -v '^GATE ' | tr -d '\r\n' \
+      > "$WORK/perf_names.txt"
+  cat "$WORK/perf_names.txt"
+}
+
+# Join two '|'-separated regex sets into one (deduped, byte-stable
+# under LC_ALL=C for the pins; empty halves drop): the perf union and a
+# leg's own -E must never spell one entry twice.
+join_regex() { # join_regex <a> <b>
+  printf '%s|%s' "$1" "$2" | tr '|' '\n' | grep -v '^$' | \
+      LC_ALL=C sort -u | paste -sd'|' -
+}
+
 # A leg's output lands in a log file, not on a terminal, so every timed
 # leg's environment pins one I/O encoding for its Python processes: on a
 # machine whose ANSI code page cannot spell the checker's Chinese
@@ -157,10 +245,18 @@ CTEST_DEFAULT_TIMEOUT_S=1500
 # operator's terminal keeps its own code page.
 PY_IO_ENCODING="PYTHONIOENCODING=utf-8"
 
-ctest_leg() { # ctest_leg <name> <tree> <config-key> [-R <regex>]
+ctest_leg() { # ctest_leg <name> <tree> <config-key> [-R <regex>] [-E <regex>]
   local name="$1" tree="$2" config="$3"; shift 3
-  local scale regex="" junit="$LOGS/$name.xml"
+  local scale regex="" ereg="" junit="$LOGS/$name.xml"
   [ $# -gt 0 ] && [ -n "$1" ] && regex=" -R '$1'"
+  # The perf set rides EVERY ctest leg's -E, mapped or not (D-6): the
+  # ON-only entries sit in no tree enumeration, so a leg that skipped
+  # them would run the perf class inside its budget-priced round. The
+  # join keeps the F-12 subtraction print-slow already applied to the
+  # leg's own -E intact.
+  local perf_e="$PERF_E"
+  [ $# -gt 1 ] && [ -n "$2" ] && perf_e=$(join_regex "$PERF_E" "$2")
+  [ -n "$perf_e" ] && ereg=" -E '$perf_e'"
   scale=$(leg_scale "$config" --tree "$tree") || { leg_uncalibrated "$name"; return; }
   # The work directory is reused across batches, and ctest only writes the
   # junit once it has started: clearing the old file first means the
@@ -169,7 +265,7 @@ ctest_leg() { # ctest_leg <name> <tree> <config-key> [-R <regex>]
   rm -f "$junit"
   leg "$name" env "NLANG_GATE_MACHINE_SCALE=$scale" "$PY_IO_ENCODING" \
     bash -c \
-    "cd '$tree' && ctest -C Debug$regex --output-junit '$junit' --timeout $CTEST_DEFAULT_TIMEOUT_S"
+    "cd '$tree' && ctest -C Debug$regex$ereg --output-junit '$junit' --timeout $CTEST_DEFAULT_TIMEOUT_S"
   # Post-hoc budget judging (guard three): ctest has no inline budget
   # knob, so the checker reads the leg's junit after the fact. Its own
   # gate.sh entry, never spliced into the leg's command string -- a
@@ -181,6 +277,15 @@ ctest_leg() { # ctest_leg <name> <tree> <config-key> [-R <regex>]
     "$PY" "$REPO/tools/gate_time_check.py" check-budget \
     --junit "$junit" --config "$config" --parallel 1 --repeat none \
     --work-factor 1 --scalar "$scale"
+  # Registered-cap judging (guard five, R-30): the same post-hoc shape
+  # as the budget checker -- its own gate.sh entry, its own verdict
+  # line, never spliced into the leg's command string -- and it judges
+  # THIS leg's own build tree: the --tree value is spelled out on the
+  # command line, never inferred from a binary path. One sampling per
+  # decision tree per round (the --show-only enumeration costs seconds).
+  leg "$name-timeouts" env "$PY_IO_ENCODING" \
+    "$PY" "$REPO/tools/gate_time_check.py" check-timeouts \
+    --tree "$tree" --table "$REF_TABLE"
 }
 
 e2e_leg() { # e2e_leg <name> <tree> <config> <ref-key> [manifest] [timeout]
@@ -255,17 +360,44 @@ docs_legs() {
   done
 }
 
-t1_legs() {
-  ctest_leg T1-debug-unit "$MASTER_TREE" ctest-Debug
-  e2e_leg T1-debug-e2e "$MASTER_TREE" Debug e2e-Debug "" 120
-  ctest_leg T1-ide-ctest "$IDE_TREE" ctest-IDE
-  ctest_leg T1-asan-unit "$ASAN_TREE" ctest-ASan
+t1_legs() { # t1_legs <slow-e on|off>
+  # The perf set for the whole round is computed HERE, once (both the
+  # t1 direct form and the t2 reuse form get it; the carrier file is
+  # written in the same call). A red print-perf-names must not silently
+  # run the perf entries inside the budget legs: the batch records the
+  # failure as its own red leg and aborts the assembly.
+  PERF_E=$(perf_names) || { leg T-perf-names false; return 2; }
+  # The shared legs (D-7): the T1 direct form (t1() passes on) excludes
+  # each config's slow set -- print-slow derives it from the category
+  # column, and the T1 legs carry no -R, so there is no mapping hit to
+  # subtract. The T2 close-out reuses these same legs WITHOUT the -E
+  # (t2() passes off): the close-out batch must actually run the
+  # 慢功能 and 演示验收 entries -- the D-7 carrier clause and guard
+  # eleven lean on exactly this. A red print-slow aborts the assembly
+  # rather than silently sweeping the slow entries.
+  local slow_unit="" slow_ide="" slow_asan=""
+  if [ "$1" = on ]; then
+    slow_unit=$(slow_regex ctest-Debug) || return 2
+    slow_ide=$(slow_regex ctest-IDE) || return 2
+    slow_asan=$(slow_regex ctest-ASan) || return 2
+  fi
+  ctest_leg T1-debug-unit "$MASTER_TREE" ctest-Debug "" "$slow_unit"
+  # T1's e2e legs are the full scan: the whole manifest, examples pass
+  # included (the manifest default is spelled out for the pin), and the
+  # slow e2e entries are excluded from T0 rounds only.
+  e2e_leg T1-debug-e2e "$MASTER_TREE" Debug e2e-Debug \
+      "$REPO/tests/e2e/manifest.txt" 120
+  ctest_leg T1-ide-ctest "$IDE_TREE" ctest-IDE "" "$slow_ide"
+  ctest_leg T1-asan-unit "$ASAN_TREE" ctest-ASan "" "$slow_asan"
   derive_asan_subset || return 2
   e2e_leg T1-asan-e2e-subset "$ASAN_TREE" Debug e2e-ASan \
       "$WORK/asan_subset_derived.txt" 180
 }
 
 t0() {
+  # Same per-round perf set as t1_legs() (the T0 unit leg's -E carries
+  # the union too; D-6 says no scheduled round runs the perf class).
+  PERF_E=$(perf_names) || { leg T-perf-names false; return 2; }
   local impact_args=()
   if [ -n "$GIT_BASE" ]; then
     impact_args=($(git diff --name-only "$GIT_BASE" HEAD))
@@ -286,15 +418,34 @@ t0() {
     echo "T0: impact mapping failed rc=$rc"; return 2
   fi
   if [ -n "$unit_regex" ]; then
-    ctest_leg T0-unit "$MASTER_TREE" ctest-Debug "$unit_regex"
+    # Slow-set exclusion (D-7): print-slow owns the membership and the
+    # F-12 backfill subtraction, so the mapping regex goes to it
+    # verbatim -- an entry both mapped and slow must stay in the round
+    # through -R, not vanish under -E (ctest -E beats -R). The
+    # conservative `.` fallback subtracts the whole slow set, which is
+    # right: that round already runs everything.
+    local slow_unit
+    slow_unit=$(slow_regex ctest-Debug "$unit_regex") \
+        || { echo "T0: print-slow failed"; return 2; }
+    ctest_leg T0-unit "$MASTER_TREE" ctest-Debug "$unit_regex" "$slow_unit"
   fi
   if [ -n "$e2e_regex" ]; then
-    grep -E "$e2e_regex" "$REPO/tests/e2e/manifest.txt" \
-        > "$WORK/t0_subset.txt"
+    # This round's e2e lines come from derive-e2e-subset (D-7's set
+    # formula: mapping hits unioned with the lines carrying their own
+    # explicit 常规 row, manifest order) -- the selection lives in that
+    # one place, so guard six can judge the very formula the wiring
+    # runs, never a grep re-implementation of it.
+    local subset
+    subset=$("$PY" -I "$REPO/tools/gate_time_check.py" derive-e2e-subset \
+        e2e-Debug --table "$REF_TABLE" \
+        --manifest "$REPO/tests/e2e/manifest.txt" \
+        --mapping "$e2e_regex") \
+        || { echo "T0: derive-e2e-subset failed"; return 2; }
+    printf '%s\n' "$subset" | grep -v '^GATE ' > "$WORK/t0_subset.txt"
     if [ ! -s "$WORK/t0_subset.txt" ]; then
       #A nonempty selector matching zero manifest rows is a mapping/
       #table inconsistency; running the leg would be vacuously green.
-      echo "T0: e2e selector '$e2e_regex' matched no manifest rows"
+      echo "T0: e2e selector '$e2e_regex' selected no manifest rows"
       return 2
     fi
     e2e_leg T0-e2e "$MASTER_TREE" Debug e2e-Debug "$WORK/t0_subset.txt" 120
@@ -302,17 +453,56 @@ t0() {
   [ ${#LEG_NAMES[@]} -gt 0 ] || { echo "T0: nothing to run"; return 0; }
 }
 
-t1() { t1_legs; docs_legs; }
+t1() { t1_legs on; docs_legs; }
 
 t2() {
   DOCS=1  #version close always includes the docs five legs
-  t1_legs
+  t1_legs off  # the close-out sweep runs the slow entries itself (D-7)
   e2e_leg T2-asan-e2e-full "$ASAN_TREE" Debug e2e-ASan \
       "$REPO/tests/e2e/manifest.txt" 180
   leg T2-release-build bash -c \
       "cmake --build '$MASTER_TREE' --config Release"
+  # The perf class (D-6): one leg opens the ON-registration window on
+  # the sweep tree once its Release binaries exist (the flag gates test
+  # registration only, so nothing recompiles), runs the differential
+  # under -C Release -- the only key the table prices these entries --
+  # and prices them against that same key (the budget reuses this
+  # leg's own scalar, D-5). The leg carries its names in -R and no -E
+  # of its own: an -E over exactly the perf names would cancel the -R
+  # outright (F-12). The restore leg is unconditional -- a red perf run
+  # must never leave the tree registered differently from what every
+  # later batch and checker reads -- and the batch runs the remaining
+  # legs regardless, so the window closes whatever happened above it.
+  if [ -n "$PERF_E" ]; then
+    local scale
+    scale=$(leg_scale ctest-Release --tree "$MASTER_TREE") \
+        || leg_uncalibrated T2-perf
+    if [ -n "$scale" ]; then
+      rm -f "$LOGS/T2-perf.xml"
+      leg T2-perf env "NLANG_GATE_MACHINE_SCALE=$scale" "$PY_IO_ENCODING" \
+        bash -c \
+        "cmake -S '$REPO' -B '$MASTER_TREE' -DNLANG_PERF_TESTS=ON && cd '$MASTER_TREE' && ctest -C Release -R '^($PERF_E)$' --output-junit '$LOGS/T2-perf.xml' --timeout $CTEST_DEFAULT_TIMEOUT_S"
+      leg T2-perf-budget env "$PY_IO_ENCODING" \
+        "$PY" "$REPO/tools/gate_time_check.py" check-budget \
+        --junit "$LOGS/T2-perf.xml" --config ctest-Release --parallel 1 \
+        --repeat none --work-factor 1 --scalar "$scale"
+      leg T2-perf-timeouts env "$PY_IO_ENCODING" \
+        "$PY" "$REPO/tools/gate_time_check.py" check-timeouts \
+        --tree "$MASTER_TREE" --table "$REF_TABLE"
+    fi
+    leg T2-perf-restore bash -c \
+        "cmake -S '$REPO' -B '$MASTER_TREE' -DNLANG_PERF_TESTS=OFF"
+  fi
   e2e_leg T2-release-e2e "$MASTER_TREE" Release e2e-Release "" 120
   docs_legs
+  # Guard eleven last, once the assembly is complete: it pairs every
+  # 类别!=常规 row against the commands this batch recorded in
+  # leg_commands.tsv, so every leg it needs to see already has its line,
+  # and its verdict rides the batch conjunction like any other leg's.
+  leg T2-carrier env "$PY_IO_ENCODING" \
+    "$PY" "$REPO/tools/gate_time_check.py" check-carrier \
+    --table "$REF_TABLE" --leg-commands "$LOGS/leg_commands.tsv" \
+    --perf-names "$WORK/perf_names.txt"
 }
 
 case "$TIER" in

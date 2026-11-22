@@ -438,11 +438,23 @@ static int positiveEnvCount(const char *name, int fallback)
 static int soakRounds()
 {
     //A sub-unity factor cannot happen here (positiveEnvCount already
-    //refuses it), so this is exactly max(factor, 1) x rounds.
+    //refuses it), so this is exactly max(factor, 1) x rounds. Each
+    //input is capped at MAX_ENV_COUNT on its own, yet the product of
+    //two capped inputs can reach 1e12 and overflow int, so the product
+    //carries the same named bound: the soak length stays representable
+    //and the self-report states the rounds actually run instead of a
+    //wrapped value (the clamp names itself, as malformed inputs do).
     const int rounds = positiveEnvCount("NLANG_TEST_ROUNDS",
         DEFAULT_SOAK_ROUNDS);
     const int factor = positiveEnvCount("NLANG_TEST_WORK_FACTOR", 1);
-    return rounds * factor;
+    const long long product = 1LL * rounds * factor;
+    if (product > MAX_ENV_COUNT)
+    {
+        std::cerr << "warning: rounds x factor = " << product
+            << " exceeds the soak bound; using " << MAX_ENV_COUNT << "\n";
+        return static_cast<int>(MAX_ENV_COUNT);
+    }
+    return static_cast<int>(product);
 }
 
 //ScopedEnv pins an environment variable for one check and restores (or
@@ -558,6 +570,16 @@ void test_soak_rounds_env_scaling()
         const ScopedEnv factor("NLANG_TEST_WORK_FACTOR", "1");
         CHECK(soakRounds() == DEFAULT_SOAK_ROUNDS,
             "a malformed count must fall back, not vanish");
+    }
+    {
+        const ScopedEnv rounds("NLANG_TEST_ROUNDS", "1000000");
+        const ScopedEnv factor("NLANG_TEST_WORK_FACTOR", "1000000");
+        //Each input is capped at MAX_ENV_COUNT on its own, but the
+        //product of two capped inputs (1e12) overflows int: the product
+        //must clamp to the same bound, not wrap into garbage that the
+        //self-report would then print as the rounds actually run.
+        CHECK(soakRounds() == MAX_ENV_COUNT,
+            "an overflowing product must clamp, not wrap");
     }
     PASS();
 }

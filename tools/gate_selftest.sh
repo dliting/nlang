@@ -791,8 +791,40 @@ case_a9_no_digest_warning() {
 # the legs inherit the private NLANG_GATE_LOCK_DIR exported above.
 case_a10_gate_tier_batch() {
     local out=a10-tier.out rc
-    NLANG_GATE_TIER_WORK="$WS/a10" bash "$TIER_SH" T0 \
-        --master-tree "$WS/no-such-tree" \
+    # T-perf-names (D-6) repeats the master tree's cache shape in two
+    # scratch configures to learn the perf class, so this batch needs a
+    # seed cache on disk, and its sampling passes through the cmake/ctest
+    # door stubs (the same isolation the tier smoke pins). The unit leg's
+    # failure is the uncalibrated path: the tree holds no suite to
+    # sample. The ambient machine scale is dropped because a scale
+    # inherited from a surrounding batch would skip that sampling and
+    # leave bare ctest reporting an empty success on the cache-only tree.
+    mkdir -p "$WS/a10-tree"
+    printf 'CMAKE_GENERATOR:INTERNAL=Stub\n' > "$WS/a10-tree/CMakeCache.txt"
+    cat > "$WS/a10-stub-cmake.py" <<'STUB'
+import os, sys
+a = sys.argv[1:]
+b = a[a.index("-B") + 1]
+os.makedirs(b, exist_ok=True)
+flag = "OFF"
+for t in a:
+    if t.startswith("-DNLANG_PERF_TESTS="):
+        flag = t.split("=", 1)[1]
+with open(os.path.join(b, "perf.flag"), "w") as fh:
+    fh.write(flag)
+STUB
+    cat > "$WS/a10-stub-ctest.py" <<'STUB'
+import json
+print(json.dumps({"tests": []}))
+STUB
+    # .bat doors because CreateProcess spawns no script; the interpreter
+    # matches the tier's own pin and %~dp0 anchors beside the .bat.
+    printf '@echo off\r\n"D:/dev/miniconda3/envs/py313/python.exe" -I "%%~dp0a10-stub-cmake.py" %%*\r\n' > "$WS/a10-stub-cmake.bat"
+    printf '@echo off\r\n"D:/dev/miniconda3/envs/py313/python.exe" -I "%%~dp0a10-stub-ctest.py" %%*\r\n' > "$WS/a10-stub-ctest.bat"
+    NLANG_GATE_TIER_WORK="$WS/a10" NLANG_GATE_CMAKE="$WS/a10-stub-cmake.bat" \
+        NLANG_GATE_CTEST="$WS/a10-stub-ctest.bat" \
+        env -u NLANG_GATE_MACHINE_SCALE \
+        bash "$TIER_SH" T0 --master-tree "$WS/a10-tree" \
         --paths src/__selftest_unmapped__.cpp > "$out" 2>&1
     rc=$?
     if ! grep -F -q -- "GATE T0-unit: FAIL" "$out" 2>/dev/null; then

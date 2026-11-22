@@ -688,27 +688,38 @@ def _price_e2e_entry(table_mod, rows, config_key, name, manifest_scope,
     return kill_s, f' {note}', advisory
 
 
+def _is_cap_kill(exc):
+    """Whether the exception is the runner's own kill — a TimeoutExpired
+    at the derived kill point. _kill_note attaches the cap-provenance
+    note on exactly this predicate, and the pricing sites pass it to
+    _emit_verdict as cap_killed: whether a verdict is a cap kill is a
+    fact of the call site, never text to be substring-matched (entry
+    names and compiler error texts can contain TIMEOUT)."""
+    return isinstance(exc, subprocess.TimeoutExpired)
+
+
 def _kill_note(exc, note):
     """Only the runner's own kill — a TimeoutExpired at the derived kill
     point — carries the cap-provenance note: any other exception text
     already describes the entry's own failure, not a cap."""
-    return note if note and isinstance(exc, subprocess.TimeoutExpired) else ''
+    return note if note and _is_cap_kill(exc) else ''
 
 
-def _emit_verdict(name, verdict, entry_started, record_file):
+def _emit_verdict(name, verdict, entry_started, record_file,
+                  cap_killed=False):
     """Single outlet for one per-entry verdict: the coarse-scope budget
-    advisory when this entry finished over it (the kill notes are the
-    only other source of TIMEOUT in a verdict: a runner kill measured
-    the cap, not the workload, so it needs no second line), then the
-    verdict line verbatim (its consumers — shard A/B diff, gate logs —
-    grep the PASS/FAIL glyphs), then the entry's TIME row, and when
-    --record-out is active the matching MEASURE row with the same
-    seconds reading. No branch may print a verdict directly: that keeps
-    the TIME rows adjacent to every verdict without repeating the timing
-    logic across the branches."""
+    advisory when this entry finished over it (a runner kill at the
+    derived cap — cap_killed, the same predicate _kill_note uses for the
+    cap note — measured the cap, not the workload, so it needs no second
+    line), then the verdict line verbatim (its consumers — shard A/B
+    diff, gate logs — grep the PASS/FAIL glyphs), then the entry's TIME
+    row, and when --record-out is active the matching MEASURE row with
+    the same seconds reading. No branch may print a verdict directly:
+    that keeps the TIME rows adjacent to every verdict without repeating
+    the timing logic across the branches."""
     span = time.monotonic() - entry_started
     if (ENTRY_ADVISORY_BUDGET is not None and span > ENTRY_ADVISORY_BUDGET
-            and 'TIMEOUT' not in verdict):
+            and not cap_killed):
         print(f"advisory: {name} 超预算 "
               f"budget={ENTRY_ADVISORY_BUDGET:.2f} "
               f"actual={_TIMING_SECONDS_FMT.format(span)}")
@@ -1002,7 +1013,8 @@ def main():
                         _emit_verdict(name,
                                       f"FAIL {name} (compile error: "
                                       f"{e}){_kill_note(e, kill_note)}",
-                                      entry_started, record_file)
+                                      entry_started, record_file,
+                                      cap_killed=_is_cap_kill(e))
                         failed += 1
                         errors.append(f"  {name}: compile error: {e}")
                         compile_ok = False
@@ -1083,7 +1095,8 @@ def main():
                         name,
                         f"FAIL {name} (runtime error: "
                         f"{_describe_run_error(e)}){_kill_note(e, kill_note)}",
-                        entry_started, record_file)
+                        entry_started, record_file,
+                        cap_killed=_is_cap_kill(e))
                     failed += 1
                     errors.append(f"  {name}: runtime error: "
                                   f"{_describe_run_error(e)}")
@@ -1173,7 +1186,8 @@ def main():
                 _emit_verdict(name,
                               f"FAIL {name} (compile error: "
                               f"{e}){_kill_note(e, kill_note)}",
-                              entry_started, record_file)
+                              entry_started, record_file,
+                              cap_killed=_is_cap_kill(e))
                 failed += 1
                 errors.append(f"  {name}: compile error: {e}")
                 continue
@@ -1297,7 +1311,8 @@ def main():
                 _emit_verdict(
                     name, f"FAIL {name} (runtime error: "
                     f"{_describe_run_error(e)}){_kill_note(e, kill_note)}",
-                    entry_started, record_file)
+                    entry_started, record_file,
+                    cap_killed=_is_cap_kill(e))
                 failed += 1
                 errors.append(f"  {name}: runtime error: "
                               f"{_describe_run_error(e)}")

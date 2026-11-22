@@ -7,7 +7,9 @@
 # that derives the configure-time TIMEOUT caps). The case groups live in
 # companion modules -- gate_time_table_test / gate_time_measure_test /
 # gate_time_guards_test / gate_time_budget_test / gate_time_timeouts_test
-# -- whose run() this file's main() calls first; what stays here are the
+# / gate_time_schedule_test / gate_time_perf_test -- whose run() this
+# file's main() calls
+# first; what stays here are the
 # CLI-facing cases (record, caps, emit-cmake) and the verdict line. Stub
 # trees and stub tables in
 # the shape of real entry names keep the corpus hermetic: no third-party
@@ -26,6 +28,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gate_time_budget_test
 import gate_time_guards_test
 import gate_time_measure_test
+import gate_time_perf_test
+import gate_time_schedule_test
 import gate_time_table_test
 import gate_time_timeouts_test
 from gate_time_check import main as run_cli
@@ -308,6 +312,8 @@ def main():
     gate_time_guards_test.run()
     gate_time_budget_test.run()
     gate_time_timeouts_test.run()
+    gate_time_schedule_test.run()
+    gate_time_perf_test.run()
     test_cli_record_and_caps_verdicts()
     test_cli_caps_unknown_config_names_the_config_keys()
     test_cli_emit_cmake_writes_sanitized_variables()

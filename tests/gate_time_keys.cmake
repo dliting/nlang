@@ -74,6 +74,17 @@ foreach(nlang_gate_key IN LISTS NLANG_GATE_TIMEOUT_KEYS)
 endforeach()
 if(DEFINED ENV{NLANG_TEST_WORK_FACTOR}
         AND NOT "$ENV{NLANG_TEST_WORK_FACTOR}" STREQUAL "")
+    # R-31: the factor scales workloads read by integer consumers (the
+    # C++ soak reads the count as an int), so only a positive decimal
+    # integer is a well-defined scale; freezing the format here stops
+    # one value from parsing differently per side (2.5 floats round,
+    # ints truncate). The wording carries the spaced form "work factor"
+    # so the selftest's disposition grep holds whichever side refused.
+    if(NOT "$ENV{NLANG_TEST_WORK_FACTOR}" MATCHES "^[1-9][0-9]*$")
+        message(FATAL_ERROR
+            "NLANG_TEST_WORK_FACTOR must be a positive integer work "
+            "factor, got '$ENV{NLANG_TEST_WORK_FACTOR}'")
+    endif()
     list(APPEND NLANG_GATE_TIMEOUT_CMD
         --work-factor "$ENV{NLANG_TEST_WORK_FACTOR}")
 endif()

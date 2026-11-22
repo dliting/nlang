@@ -64,6 +64,11 @@
 #                        configure and quote the tool's "work factor" wording,
 #                        so a bad factor can never leave the tree with
 #                        silently mis-derived caps.
+#   work-factor-noninteger R-31: outright garbage (abc123) meets the same
+#                        frozen positive-integer format with the same named
+#                        wording -- the factor scales integer-counting
+#                        consumers, so no spelling may parse differently
+#                        per side instead of reaching the cap emitter.
 #
 # Toolchain paths arrive in the environment: the registration in
 # tests/CMakeLists.txt passes NLANG_GATE_CMAKE, NLANG_GATE_CTEST and
@@ -98,6 +103,14 @@ fail() { printf 'selftest: FAIL %s: %s\n' "$1" "$2"; failures=$((failures + 1));
 CMAKE=${NLANG_GATE_CMAKE:-$(command -v cmake || true)}
 CTEST=${NLANG_GATE_CTEST:-$(command -v ctest || true)}
 PYTHON=${NLANG_GATE_PYTHON:-$(command -v python || command -v python3 || true)}
+# An existence hit can still be an unlaunchable stub: Windows keeps an App
+# Execution Alias named python on PATH even when no interpreter is installed
+# (CreateProcess reports it as 9009), so the probe launches the interpreter
+# it picked rather than trusting the name -- a machine without a real python
+# must reach the SKIP line, not a configure failure.
+if [ -n "$PYTHON" ] && ! "$PYTHON" -c pass >/dev/null 2>&1; then
+    PYTHON=
+fi
 if [ -z "$CMAKE" ] || [ -z "$CTEST" ] || [ -z "$PYTHON" ]; then
     echo "selftest: SKIP toolchain: cmake=[$CMAKE] ctest=[$CTEST] python=[$PYTHON]"
     echo "SELFTEST: PASS"
@@ -475,7 +488,7 @@ else
     [ "$failures" -eq "$before" ] && pass ide-key
 fi
 
-# D-8 last: a failed FATAL_ERROR configure can leave the cache mid-write, and
+# D-8 last: failed FATAL_ERROR configures can leave the cache mid-write, and
 # every reading above must come from a cleanly configured tree first.
 before=$failures
 if configure_fixture low 0.5; then
@@ -484,6 +497,18 @@ elif ! grep -qi "work factor" "$WS/log/low.configure.txt"; then
     fail work-factor-low "the failed configure never quoted the tool's wording: [$(tail_of "$WS/log/low.configure.txt")]"
 fi
 [ "$failures" -eq "$before" ] && pass work-factor-low
+
+# R-31: garbage meets the same frozen positive-integer format as the 0.5
+# above (the configure-time freeze in tests/gate_time_keys.cmake refuses
+# every non-matching spelling with the same named wording), so no value
+# can parse differently per side -- floats round, ints truncate.
+before=$failures
+if configure_fixture nonint abc123; then
+    fail work-factor-noninteger "a configure with NLANG_TEST_WORK_FACTOR=abc123 succeeded"
+elif ! grep -qi "work factor" "$WS/log/nonint.configure.txt"; then
+    fail work-factor-noninteger "the failed configure never quoted the work-factor wording: [$(tail_of "$WS/log/nonint.configure.txt")]"
+fi
+[ "$failures" -eq "$before" ] && pass work-factor-noninteger
 
 if [ "$failures" -eq 0 ]; then
     echo "SELFTEST: PASS"
