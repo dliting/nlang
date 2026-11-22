@@ -91,12 +91,25 @@ function(add_test)
     # exactly as tools/gate_time_check.py emit-cmake does. An entry with
     # no variable here stays unmanaged and falls to the leg's ctest
     # --timeout fallback (the ownership split stated in
-    # tools/gate_tier.sh).
-    string(REGEX REPLACE "[^A-Za-z0-9_]" "_" nlang_gate_timeout_key
+    # tools/gate_tier.sh). The same generated file defines one
+    # GATE_RESOURCE_<name> variable per entry listed in the claim roster
+    # (tools/gate_tiers.txt claim lines, D-11), holding the resource
+    # names that entry holds; ctest never runs tests sharing a
+    # RESOURCE_LOCK concurrently, so the window-launching families
+    # serialize inside one parallel ctest process (gate.sh --claim
+    # covers concurrency between legs). The sanitized key serves both
+    # lookups.
+    string(REGEX REPLACE "[^A-Za-z0-9_]" "_" nlang_gate_entry_key
         "${ARGV1}")
-    if(DEFINED GATE_TIMEOUT_${nlang_gate_timeout_key})
+    if(DEFINED GATE_TIMEOUT_${nlang_gate_entry_key})
         set_tests_properties(${ARGV1} PROPERTIES
-            TIMEOUT "${GATE_TIMEOUT_${nlang_gate_timeout_key}}")
+            TIMEOUT "${GATE_TIMEOUT_${nlang_gate_entry_key}}")
+    endif()
+    if(DEFINED GATE_RESOURCE_${nlang_gate_entry_key})
+        # Unquoted expansion: RESOURCE_LOCK is a list property, and the
+        # unquoted variable hands over one element per claim name.
+        set_tests_properties(${ARGV1} PROPERTIES
+            RESOURCE_LOCK ${GATE_RESOURCE_${nlang_gate_entry_key}})
     endif()
     nlang_test_env(${ARGV1}
         TMP=${NLANG_TEST_SCRATCH_ROOT} TEMP=${NLANG_TEST_SCRATCH_ROOT}

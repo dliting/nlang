@@ -85,7 +85,7 @@ from gate_time_measure import (apply_record, calibrate_scale, junit_cases,
 from gate_time_table import (CONFIG_KEYS, CTEST_CONFIGS, DECISION_TREES,
                              DEFAULT_TABLE, DEFAULT_WORK_FACTOR,
                              REPO_ROOT, SCALE_BAND_MAX, SCALE_BAND_MIN,
-                             caps, effective_rows, emit_cmake)
+                             caps, effective_rows, emit_cmake, read_claims)
 from gate_time_timeouts import (check_timeouts, expected_watchdogs,
                                 override_site, read_timeouts,
                                 show_only_json, threshold_inputs,
@@ -159,8 +159,10 @@ def _run_emit_cmake(args, table):
     # written: main's handler turns it into the ERROR + FAIL(error)
     # pair the CMake FATAL_ERROR quotes back (D-8), and the stale
     # generated file from the previous configure stays untouched.
+    claims = read_claims(args.claims) if args.claims else ()
     count = emit_cmake(args.configs, args.out,
-                       work_factor=args.work_factor, table_path=table)
+                       work_factor=args.work_factor, table_path=table,
+                       claims=claims)
     print("EMIT-CMAKE entries=%d out=%s" % (count, args.out))
     return _verdict([])
 
@@ -424,6 +426,12 @@ def _add_derive_parsers(sub):
                              "factor)")
     emit_p.add_argument("--out", required=True, metavar="FILE",
                         help="generated CMake file to write")
+    emit_p.add_argument("--claims", metavar="FILE",
+                        help="claim roster (the tools/gate_tiers.txt "
+                             "claim lines): one set(GATE_RESOURCE_...) "
+                             "per claimed entry, the variable the "
+                             "add_test wrapper turns into the ctest "
+                             "RESOURCE_LOCK property (D-11)")
     calibrate_p = sub.add_parser("calibrate", parents=[table_arg],
                                  help="guard four: sample the machine "
                                       "scale from a config's sentinels")

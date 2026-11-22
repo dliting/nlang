@@ -10,12 +10,14 @@
 #   NLANG_GATE_PYTHON   interpreter running the checker CLI
 #   NLANG_GATE_TOOL     gate_time_check.py path
 #   NLANG_GATE_TABLE    committed reference table
+#   NLANG_GATE_CLAIMS   claim roster (default tools/gate_tiers.txt)
 #   NLANG_GATE_OUT      generated thresholds file (written, then included)
 # Inputs read as-is: CMAKE_CXX_FLAGS (the sanitizer predicate),
 # NLANG_BUILD_IDE and the NLANG_TEST_WORK_FACTOR environment variable.
 # Outputs: NLANG_GATE_TIMEOUT_KEYS (the tree's config-key set, read by
-# the qtest wrapper wiring) and one GATE_TIMEOUT_<entry> variable per
-# row-holding entry from the generated file.
+# the qtest wrapper wiring), one GATE_TIMEOUT_<entry> variable per
+# row-holding entry and one GATE_RESOURCE_<entry> variable per claimed
+# entry (D-11) from the generated file.
 #
 # The config-key set mirrors the legs that will judge this tree, so an
 # entry's cap derives from the very reference seconds its leg compares
@@ -50,6 +52,10 @@ if(NOT DEFINED NLANG_GATE_TABLE)
     set(NLANG_GATE_TABLE
         "${CMAKE_CURRENT_LIST_DIR}/gate_time_reference.txt")
 endif()
+if(NOT DEFINED NLANG_GATE_CLAIMS)
+    set(NLANG_GATE_CLAIMS
+        "${CMAKE_CURRENT_LIST_DIR}/../tools/gate_tiers.txt")
+endif()
 if(NOT DEFINED NLANG_GATE_OUT)
     set(NLANG_GATE_OUT "${CMAKE_BINARY_DIR}/gate_time_thresholds.cmake")
 endif()
@@ -72,6 +78,12 @@ set(NLANG_GATE_TIMEOUT_CMD
 foreach(nlang_gate_key IN LISTS NLANG_GATE_TIMEOUT_KEYS)
     list(APPEND NLANG_GATE_TIMEOUT_CMD --config "${nlang_gate_key}")
 endforeach()
+# D-11: the claim roster rides the same emit-cmake call, so the
+# GATE_RESOURCE_<entry> variables land in the same generated file the
+# add_test wrapper reads for TIMEOUT. A malformed roster line stops the
+# configure with the tool's named refusal, the same D-8 posture as a
+# malformed table row.
+list(APPEND NLANG_GATE_TIMEOUT_CMD --claims "${NLANG_GATE_CLAIMS}")
 if(DEFINED ENV{NLANG_TEST_WORK_FACTOR}
         AND NOT "$ENV{NLANG_TEST_WORK_FACTOR}" STREQUAL "")
     # R-31: the factor scales workloads read by integer consumers (the
@@ -106,6 +118,11 @@ endif()
 include("${NLANG_GATE_OUT}")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
     "${NLANG_GATE_TABLE}")
+# The claim roster is a generated-file input just like the table: an
+# entry added to or removed from a claim line must reconfigure this tree
+# so the RESOURCE_LOCK properties follow immediately.
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${NLANG_GATE_CLAIMS}")
 # The local overlay table (gate_time_reference.local.txt beside the
 # committed table, folded into caps() by _effective_rows) is just as
 # much a cap input as the committed table, so editing it must force a

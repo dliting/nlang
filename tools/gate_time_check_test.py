@@ -135,6 +135,10 @@ def _emit_vars(path):
     for line in path.read_text(encoding="utf-8").splitlines():
         if not line.startswith("set("):
             continue
+        if line.startswith("set(GATE_RESOURCE_"):
+            # The claim axis (D-11) belongs to _emit_resources; an
+            # unknown set() shape still trips the assertion below.
+            continue
         assert line.endswith(")"), line
         assert line.startswith("set(GATE_TIMEOUT_"), line
         var, value = line[len("set("):-1].split(" ")
@@ -183,6 +187,96 @@ def test_cli_emit_cmake_writes_sanitized_variables():
         check("emit.dot-dash" not in text,
               "emit-cmake: entry-name punctuation must never reach a "
               "variable name")
+
+
+EMIT_CLAIMS = ("# gate_tiers.txt shape: tier lines are ignored, claim "
+               "lines feed RESOURCE_LOCK\n"
+               "tier T1-debug-e2e selector .\n"
+               "claim nide-gui mainwindow_tests emit_over_floor "
+               "emit.dot-dash-name\n"
+               "claim display-server mainwindow_tests\n")
+
+
+def _emit_resources(path):
+    # Parse the generated resource lines into {variable: "name1 name2"};
+    # a line whose shape is wrong raises, same reporting style as
+    # _emit_vars.
+    vals = {}
+    if not path.exists():
+        return vals
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.startswith("set(GATE_RESOURCE_"):
+            continue
+        assert line.endswith(")"), line
+        var, names = line[len("set("):-1].split(" ", 1)
+        vals[var] = names
+    return vals
+
+
+def test_cli_emit_cmake_claims_emit_resource_lock_variables():
+    # D-11: a --claims roster (the tools/gate_tiers.txt claim lines) adds
+    # one set(GATE_RESOURCE_<sanitized entry> <claim names...>) line per
+    # claimed entry, the variable the add_test wrapper turns into the
+    # ctest RESOURCE_LOCK property. Roster order is kept and an entry in
+    # two claims names both locks; claim entries get the variable even
+    # when the table holds no timing row for them (a claimed entry with
+    # no row still must not run beside another window launcher).
+    with tempfile.TemporaryDirectory() as tmp:
+        table = write_table(tmp, EMIT_TABLE)
+        claims = Path(tmp) / "claims.txt"
+        claims.write_text(EMIT_CLAIMS, encoding="utf-8")
+        rc, out, path = _emit_run(tmp, table,
+                                  EMIT_KEYS + ["--claims", str(claims)])
+        check(rc == 0, "emit-cmake claims: the happy path must pass, "
+              "got rc=%r out=%r" % (rc, out))
+        res = _emit_resources(path)
+        check(res.get("GATE_RESOURCE_mainwindow_tests")
+              == "nide-gui display-server",
+              "emit-cmake claims: an entry in two claims must name both "
+              "locks in roster order, got %r" % res)
+        check(res.get("GATE_RESOURCE_nide_gui") is None,
+              "emit-cmake claims: claim names never become variables "
+              "themselves, got %r" % res)
+        check(res.get("GATE_RESOURCE_emit_over_floor") == "nide-gui",
+              "emit-cmake claims: a table row entry must also carry its "
+              "lock, got %r" % res)
+        check(res.get("GATE_RESOURCE_emit_dot_dash_name") == "nide-gui",
+              "emit-cmake claims: entry-name punctuation sanitizes to '_' "
+              "in the resource variable too, got %r" % res)
+        text = (path.read_text(encoding="utf-8") if path.exists()
+                else "")
+        check("emit.dot-dash" not in text,
+              "emit-cmake claims: punctuation must never reach a "
+              "variable name")
+        # The TIMEOUT caps stay untouched by the claims axis (the same
+        # caps the claims-less run wrote).
+        vals = _emit_vars(path)
+        check(vals.get("GATE_TIMEOUT_emit_over_floor") == 1000.0,
+              "emit-cmake claims: the TIMEOUT caps must be unaffected, "
+              "got %r" % vals)
+
+
+def test_cli_emit_cmake_claims_bad_roster_is_rejected():
+    # A malformed claim roster is a named refusal (ERROR + FAIL(error)),
+    # never a silently lock-less generated file: the tier_coverage_check
+    # guard reads the same shape, so both must reject the same lines.
+    for label, text in (
+            ("no entries", "claim nide-gui\n"),
+            ("bad resource name", "claim bad/name e1\n"),
+            ("no resource name", "claim\n")):
+        with tempfile.TemporaryDirectory() as tmp:
+            table = write_table(tmp, EMIT_TABLE)
+            claims = Path(tmp) / "claims.txt"
+            claims.write_text(text, encoding="utf-8")
+            rc, out, path = _emit_run(tmp, table,
+                                      EMIT_KEYS + ["--claims", str(claims)])
+            check(rc == 1 and "ERROR" in out
+                  and "GATE gate_time_check: FAIL (error)" in out,
+                  "emit-cmake claims: a claim roster %s must be a named "
+                  "refusal, got rc=%r out=%r" % (label, rc, out))
+            rc2, _, _ = _emit_run(tmp, table, EMIT_KEYS)
+            check(rc2 == 0, "emit-cmake claims: the same run without "
+                  "--claims must stay green, got rc=%r" % rc2)
 
 
 def test_cli_emit_cmake_takes_the_max_watchdog_across_configs():
@@ -317,6 +411,8 @@ def main():
     test_cli_record_and_caps_verdicts()
     test_cli_caps_unknown_config_names_the_config_keys()
     test_cli_emit_cmake_writes_sanitized_variables()
+    test_cli_emit_cmake_claims_emit_resource_lock_variables()
+    test_cli_emit_cmake_claims_bad_roster_is_rejected()
     test_cli_emit_cmake_takes_the_max_watchdog_across_configs()
     test_cli_emit_cmake_work_factor_doubles_caps()
     test_cli_emit_cmake_work_factor_below_one_is_rejected()
