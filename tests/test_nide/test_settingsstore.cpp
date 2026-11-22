@@ -1,6 +1,8 @@
 /*--- test_settingsstore.cpp - SettingsStore unit tests (no widgets) ---*/
 #include "SettingsStore.h"
+#include "nide_test_process_names.h"
 
+#include <QCoreApplication>
 #include <QDir>
 #include <QFileInfo>
 #include <QSettings>
@@ -13,6 +15,16 @@ class TestSettingsStore : public QObject {
     Q_OBJECT
 
 private slots:
+    void initTestCase() {
+        //Process-level QSettings names: any DEFAULT-constructed QSettings
+        //this process reaches lands in the test's own registry/ini
+        //segment, scoped by the per-tree token the ctest wrapper exports
+        //so concurrent build trees never share it (D-12).
+        QCoreApplication::setOrganizationName(QStringLiteral("NLang"));
+        QCoreApplication::setApplicationName(nlang::nideTestApplicationName(
+            QStringLiteral("nide-settingsstore-test")));
+    }
+
     //The "system"/"zh"/"en" spellings appear as literals on purpose:
     //these tests pin the persisted strings, not the header constants.
     void testDefaults() {

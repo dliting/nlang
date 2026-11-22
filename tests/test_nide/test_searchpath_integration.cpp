@@ -10,6 +10,7 @@ real completion popup. ---*/
 #include "MainWindow.h"
 #include "CodeEditor.h"
 #include "SettingsStore.h"
+#include "nide_test_process_names.h"
 
 #include <QAction>
 #include <QApplication>
@@ -119,9 +120,13 @@ class TestSearchPathIntegration : public QObject {
 private slots:
     void initTestCase() {
         QApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
+        //persistGlobalPaths() drives SettingsStore::persisted(), whose
+        //DEFAULT-constructed QSettings keys off these two names; the
+        //per-tree token the ctest wrapper exports scopes the segment so
+        //concurrent build trees never share it (D-12).
         QCoreApplication::setOrganizationName(QStringLiteral("NLang"));
-        QCoreApplication::setApplicationName(
-            QStringLiteral("nide-searchpath-test"));
+        QCoreApplication::setApplicationName(nlang::nideTestApplicationName(
+            QStringLiteral("nide-searchpath-test")));
         persistGlobalPaths({});
     }
 

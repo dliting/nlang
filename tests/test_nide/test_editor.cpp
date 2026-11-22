@@ -4,6 +4,7 @@ unit tests ---*/
 #include "../../../src/tools/nide/CodeEditor.h"
 #include "../../../src/tools/nide/FileEditor.h"
 #include "nlang/langservice/SymbolIndex.h"
+#include "nide_test_process_names.h"
 
 #include <QAction>
 #include <QApplication>
@@ -59,6 +60,13 @@ private:
 
 private slots:
     void initTestCase() {
+        //Process-level QSettings names: any DEFAULT-constructed QSettings
+        //this process reaches lands in the test's own registry/ini
+        //segment, scoped by the per-tree token the ctest wrapper exports
+        //so concurrent build trees never share it (D-12).
+        QCoreApplication::setOrganizationName(QStringLiteral("NLang"));
+        QCoreApplication::setApplicationName(nlang::nideTestApplicationName(
+            QStringLiteral("nide-editor-test")));
         QVERIFY(m_tmpDir.isValid());
     }
 
