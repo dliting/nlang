@@ -71,6 +71,7 @@ def run_tier(bash, sandbox, *args):
 
 
 TIERS = """\
+claim nide-gui mainwindow_tests editor_tests
 tier T1-debug-e2e selector .
 tier T1-asan-subset selector smoke
 tier T2-debug-e2e selector .
@@ -87,8 +88,22 @@ stdlib_stub_size 5
 STUB_GATE = """\
 #!/usr/bin/env bash
 #Stub gate.sh: record what the tier assembly hands over, then pass.
+#The leading --shared/--claim options precede the leg name (gate timing
+#D-11), so skip them the way the real gate.sh parses them -- but record
+#the full argument line as received, because the assembly pins check
+#the claim declaration itself, and echo the gate-level environment the
+#stub process holds: an --gate-env that only reached the inner command
+#would show <unset> here instead of the declared path.
+raw="$*"
+while [ "$1" = "--shared" ] || [ "$1" = "--claim" ]; do
+  [ "$1" = "--claim" ] && shift
+  shift
+done
 name="$1"; stem="$2"; shift 2
-printf '%s\\n' "$*" >> "$stem.invocations"
+{
+  printf '%s\\n' "$raw"
+  printf 'GATE_ENV NLANG_GATE_WRITE_DIR=%s\\n' "${NLANG_GATE_WRITE_DIR-<unset>}"
+} >> "$stem.invocations"
 echo "GATE $name: PASS"
 """
 
@@ -377,6 +392,44 @@ def run_smoke():
                 check(want in body,
                       f"{leg}-timeouts must judge its own build tree "
                       f"({want!r} missing): {body!r}")
+        # D-11 / --gate-env assembly: every sweep ctest leg declares its
+        # own build tree and every e2e leg the repo-level tests/temp
+        # scratch, as a leg-level --gate-env declaration that leg() turns
+        # into an `env` prefix on the gate.sh call. The stub echoes the
+        # variable as gate.sh's own process holds it, so a declaration
+        # that only reached the inner command's environment (or never
+        # left the recorded line) reads <unset>. The nide-gui claim rides
+        # exactly the IDE-tree leg: the cache-shape predicate is the same
+        # one guard eleven pairs trees with ctest-IDE on, and the roster
+        # intersection runs on the leg's own selectors (mainwindow_tests
+        # sits in the leg's -E, so only editor_tests can reach it).
+        tree_abs = {name: (sandbox / "trees" / name).as_posix()
+                    for name in ("master", "asan", "ide")}
+        temp_abs = (sandbox / "tests" / "temp").as_posix()
+        for leg, tree, claim in (("T1-debug-unit", "master", False),
+                                 ("T1-ide-ctest", "ide", True),
+                                 ("T1-asan-unit", "asan", False)):
+            invocations = gates_dir / f"{leg}.invocations"
+            if not invocations.exists():
+                continue  # the dispatch pins above already reported it
+            body = invocations.read_text(encoding="utf-8")
+            check("GATE_ENV NLANG_GATE_WRITE_DIR="
+                  + tree_abs[tree] + "\n" in body,
+                  f"{leg}: gate.sh's own environment lost the declared "
+                  f"write dir: {body!r}")
+            check(("--claim nide-gui" in body) == claim,
+                  f"{leg}: the nide-gui claim declaration must be there "
+                  f"exactly when the tree is IDE-built (expected "
+                  f"{claim}): {body!r}")
+        if e2e_invocations.exists():
+            body = e2e_invocations.read_text(encoding="utf-8")
+            check("GATE_ENV NLANG_GATE_WRITE_DIR=" + temp_abs + "\n"
+                  in body,
+                  "T1-debug-e2e: the runner's shared scratch was never "
+                  f"declared to gate.sh: {body!r}")
+            check("--claim" not in body,
+                  "e2e legs hold no named resource today, so they must "
+                  f"carry no claim: {body!r}")
         # The ASan split (the two differ exactly here): the leg sweeps
         # the e2e-ASan rows (--config=ASan) while its instrumented
         # binaries sit in /Debug/, so the judging key and the binary
@@ -410,6 +463,9 @@ def run_smoke():
             check("-R 'mnist_mlp_compile|mnist_mlp_run'" in body,
                   "T0-unit lost the mapped unit selector: "
                   f"{body!r}")
+            check("--claim" not in body,
+                  "the master tree is not IDE-built, so no T0 leg may "
+                  f"declare the nide-gui claim: {body!r}")
             check("-E 'e2e_runner_timing_gate|mainwindow_tests|"
                   "perf_stub_compile|perf_stub_run'" in body,
                   "T0-unit must keep only the unmapped slow names (the "
@@ -479,6 +535,29 @@ def run_smoke():
               in dry1.stdout,
               "the T1 dry run lost the slow+perf -E from its ctest "
               f"legs: {dry1.stdout!r}")
+        # The dry-run listing must show the declarations verbatim at the
+        # head of each sweep leg line (the operator reads the same line
+        # the carrier guard parses): --gate-env on every ctest/e2e
+        # sweep leg, --claim only on the IDE ctest leg.
+        def dry_leg_line_from(proc_dry, name):
+            hits = [ln for ln in proc_dry.stdout.splitlines()
+                    if ln.startswith(f"LEG {name}: ")]
+            return hits[0] if len(hits) == 1 else ""
+        for name, want_dir in (("T1-debug-unit", tree_abs["master"]),
+                               ("T1-ide-ctest", tree_abs["ide"]),
+                               ("T1-asan-unit", tree_abs["asan"]),
+                               ("T1-debug-e2e", temp_abs)):
+            line = dry_leg_line_from(dry1, name)
+            check(f"--gate-env NLANG_GATE_WRITE_DIR={want_dir}" in line,
+                  f"the {name} dry-run leg line lost its --gate-env "
+                  f"declaration: {line!r}")
+        check("--claim nide-gui"
+              in dry_leg_line_from(dry1, "T1-ide-ctest"),
+              "the IDE ctest dry-run leg line lost its nide-gui claim: "
+              f"{dry_leg_line_from(dry1, 'T1-ide-ctest')!r}")
+        check("--claim" not in dry_leg_line_from(dry1, "T1-debug-unit"),
+              "a plain-tree leg must not declare the nide-gui claim: "
+              f"{dry_leg_line_from(dry1, 'T1-debug-unit')!r}")
         reuse = [line for line in dry2.stdout.splitlines()
                  if line.startswith("LEG T1-debug-unit: ")]
         check(len(reuse) == 1 and "e2e_runner_timing_gate" not in reuse[0]
@@ -530,6 +609,17 @@ def run_smoke():
                   and "T0-unit\t" not in body,
                   "leg_commands.tsv must hold this batch's commands and "
                   f"nothing an earlier batch recorded: {body!r}")
+            # The declaration is part of the recorded line (the carrier
+            # guard and the assembly pins read it there, and a leg
+            # re-run from the record reproduces the same locks): the
+            # sweep legs start with --gate-env, and the IDE one spells
+            # the claim right behind it.
+            check("T1-ide-ctest\t--gate-env NLANG_GATE_WRITE_DIR="
+                  + tree_abs["ide"] + " --claim nide-gui" in body
+                  and "T1-debug-unit\t--gate-env NLANG_GATE_WRITE_DIR="
+                  + tree_abs["master"] in body,
+                  "leg_commands.tsv lost the declaration head of the "
+                  f"sweep legs: {body!r}")
         return not failures
     finally:
         shutil.rmtree(sandbox, ignore_errors=True)

@@ -1,23 +1,26 @@
 #!/usr/bin/env bash
 # gate_time_selftest.sh — behaviour tests for the configure-time derived
-# ctest TIMEOUT watchdog caps (tools/gate_time_check.py emit-cmake plus the
-# generation block and add_test wrapper in tests/CMakeLists.txt).
+# ctest TIMEOUT watchdog caps and the D-11 claim roster's RESOURCE_LOCK
+# wiring (tools/gate_time_check.py emit-cmake plus the generation block
+# and add_test wrapper in tests/CMakeLists.txt).
 #
 # The fixture is a scratch CMake project that runs the real generator over a
 # stub reference table. The config-key predicate, command assembly, result
 # check, include and CMAKE_CONFIGURE_DEPENDS are not mirrored at all: the
 # stub project includes the very production file
 # tests/gate_time_keys.cmake (through -DGATE_STUB_KEYS) after pointing its
-# knobs (NLANG_GATE_PYTHON/TOOL/TABLE) at the stub paths, so the predicate
-# has one definition and no mirror that could drift from it. Only the two
+# knobs (NLANG_GATE_PYTHON/TOOL/TABLE/CLAIMS) at the stub paths, so the
+# predicate has one definition and no mirror that could drift from it.
+# Only the two
 # shapes tests/CMakeLists.txt itself keeps — the nlang_test_env merge helper
-# and the add_test wrapper's cap lookup and scratch environment (scratch
-# TMP/TEMP plus the tree token it installs) — are mirrored verbatim here. The stub project registers only stub entries, so
+# and the add_test wrapper's TIMEOUT/RESOURCE_LOCK lookups and their
+# scratch environment (scratch TMP/TEMP plus the tree token it installs) —
+# are mirrored verbatim here. The stub project registers only stub entries, so
 # nothing compiles and no build tree is needed, and the audit reads the
 # timeouts from `ctest --show-only=json-v1` — no entry is executed by the
 # audit, so machine load cannot turn a correct cap red.
 #
-# What gets pinned (one case per line; gate timing design D-1/D-2/D-4/D-8):
+# What gets pinned (one case per line; gate timing design D-1/D-2/D-4/D-8/D-11):
 #   base-caps            the D-1 watchdog cap max(ref_s * 10, 120) per config
 #                        row (a 100 s row caps past the floor, a 5 s row is
 #                        held by the floor), a dotted entry gets its cap
@@ -52,6 +55,18 @@
 #                        when the report equals ref_work x factor and goes
 #                        red naming both numbers at a factor the loop never
 #                        saw.
+#   resource-lock-props  the claim roster reaches the ctest registration the
+#                        same way the cap table does: the wrapper's
+#                        GATE_RESOURCE lookup gives both stub_lock_* entries
+#                        a RESOURCE_LOCK stub-display property in the
+#                        show-only document and the stub_free_* control
+#                        entries no such property.
+#   resource-lock-run    the D-11 serialization inside one parallel ctest:
+#                        under -j 2 the claimed pair's two sleep windows
+#                        never overlap while the unclaimed control pair on
+#                        the same tree does -- the control arm rules out the
+#                        vacuous reading where ctest never runs two entries
+#                        at once.
 #   work-factor-two      NLANG_TEST_WORK_FACTOR=2 at configure time doubles
 #                        every row-backed cap while the 120 s floor holds.
 #   asan-branch-priority -fsanitize=address narrows the key set to ctest-ASan
@@ -216,13 +231,47 @@ print("rounds=%d" % rounds, flush=True)
 time.sleep(0.01 * rounds)
 ROUNDS_EOF
 
+# The lock pair mirrors the D-11 window-launcher families one level down:
+# instead of a GUI process, each entry appends a start line with its wall
+# clock to an events file, sleeps, then appends an end line. The probes
+# merge the per-entry files by timestamp, so two concurrently running
+# entries show up as interleaved windows no matter how the OS scheduled
+# the processes. Each entry appends to its own file (the base path plus
+# the entry name): the control pair is concurrent by design, and an
+# append to one shared file is a seek to the end plus a write, so on
+# Windows two writers can clobber each other's line when the writes hit
+# the same offset -- which lost one control line in this case's first
+# parallel run. A per-entry file has exactly one writer.
+cat > "$WS/src/lock_probe.py" <<'LOCK_EOF'
+import sys
+import time
+
+name, events_base, sleep_s = sys.argv[1], sys.argv[2], float(sys.argv[3])
+with open("%s.%s" % (events_base, name), "a", encoding="utf-8") as handle:
+    handle.write("S %s %.3f\n" % (name, time.time()))
+    handle.flush()
+    time.sleep(sleep_s)
+    handle.write("E %s %.3f\n" % (name, time.time()))
+LOCK_EOF
+
+# Stub claim roster in tools/gate_tiers.txt's grammar (D-11): one named
+# resource held by both stub_lock_* entries, and no line at all for the
+# stub_free_* control entries. The resource name cannot collide with the
+# committed roster's nide-gui claim, and the entry names carry no dots or
+# dashes, so the RESOURCE_LOCK property value stays the bare name.
+cat > "$WS/src/stub_claims.txt" <<'STUB_CLAIMS_EOF'
+# Stub claim roster for tools/gate_time_selftest.sh.
+claim stub-display stub_lock_a stub_lock_b
+STUB_CLAIMS_EOF
+
 # The nlang_test_env merge helper and the add_test wrapper below are
 # copied verbatim from tests/CMakeLists.txt, which keeps exactly those
-# two shapes (the merge helper and the cap lookup with its scratch
-# environment). Everything the old generation block owned — key-set
-# branch, command assembly, result check, include and
+# two shapes (the merge helper and the TIMEOUT/RESOURCE_LOCK lookups
+# with their scratch environment). Everything the old generation block
+# owned — key-set branch, command assembly, result check, include and
 # CMAKE_CONFIGURE_DEPENDS — is NOT mirrored: the fixture sets the
-# production file's knobs from the GATE_STUB_* cache variables and then
+# production file's knobs (interpreter, tool, table and the D-11 claim
+# roster) from the GATE_STUB_* cache variables and then
 # includes tests/gate_time_keys.cmake itself (GATE_STUB_KEYS), so the
 # predicate under test is production's own text (R-20). Paths and the
 # interpreter arrive through -D cache variables, never literals, so the
@@ -264,11 +313,17 @@ function(nlang_test_env name)
 endfunction()
 function(add_test)
     _add_test(${ARGV})
-    string(REGEX REPLACE "[^A-Za-z0-9_]" "_" nlang_gate_timeout_key
+    string(REGEX REPLACE "[^A-Za-z0-9_]" "_" nlang_gate_entry_key
         "${ARGV1}")
-    if(DEFINED GATE_TIMEOUT_${nlang_gate_timeout_key})
+    if(DEFINED GATE_TIMEOUT_${nlang_gate_entry_key})
         set_tests_properties(${ARGV1} PROPERTIES
-            TIMEOUT "${GATE_TIMEOUT_${nlang_gate_timeout_key}}")
+            TIMEOUT "${GATE_TIMEOUT_${nlang_gate_entry_key}}")
+    endif()
+    if(DEFINED GATE_RESOURCE_${nlang_gate_entry_key})
+        # Unquoted expansion: RESOURCE_LOCK is a list property, and the
+        # unquoted variable hands over one element per claim name.
+        set_tests_properties(${ARGV1} PROPERTIES
+            RESOURCE_LOCK ${GATE_RESOURCE_${nlang_gate_entry_key}})
     endif()
     nlang_test_env(${ARGV1}
         TMP=${NLANG_TEST_SCRATCH_ROOT} TEMP=${NLANG_TEST_SCRATCH_ROOT}
@@ -280,6 +335,7 @@ endfunction()
 set(NLANG_GATE_PYTHON "${GATE_STUB_PYTHON}")
 set(NLANG_GATE_TOOL "${GATE_STUB_TOOL}")
 set(NLANG_GATE_TABLE "${GATE_STUB_TABLE}")
+set(NLANG_GATE_CLAIMS "${GATE_STUB_CLAIMS}")
 include("${GATE_STUB_KEYS}")
 
 foreach(stub_entry stub_big_probe stub_small_probe stub.dash-name-probe
@@ -298,6 +354,26 @@ add_test(NAME stub_env_inherit_probe
 add_test(NAME stub_rounds_probe
     COMMAND "${GATE_STUB_PYTHON}" "${GATE_STUB_ROUNDS}")
 nlang_test_env(stub_rounds_probe NLANG_TEST_ROUNDS=100)
+
+# The gate-lock pair (D-11): the roster gives both stub_lock_* entries one
+# named resource, and the wrapper's GATE_RESOURCE lookup turns that into a
+# ctest RESOURCE_LOCK property exactly as the cap table becomes TIMEOUT.
+# The stub_free_* pair is the control: no roster line names it, so it gets
+# no property, and under -j 2 its two sleep windows must overlap even when
+# the claimed pair's do not. 2.5 s per entry: wide enough that the
+# control's overlap cannot be lost to process-start jitter under parallel
+# gate load, short enough that both ctest rounds stay seconds.
+set(STUB_GATE_LOCK_SLEEP_S 2.5)
+foreach(stub_gate_entry stub_lock_a stub_lock_b)
+    add_test(NAME ${stub_gate_entry} COMMAND "${GATE_STUB_PYTHON}"
+        "${GATE_STUB_LOCK}" ${stub_gate_entry}
+        "${NLANG_TEST_SCRATCH_ROOT}/lock_events.txt" ${STUB_GATE_LOCK_SLEEP_S})
+endforeach()
+foreach(stub_gate_entry stub_free_a stub_free_b)
+    add_test(NAME ${stub_gate_entry} COMMAND "${GATE_STUB_PYTHON}"
+        "${GATE_STUB_LOCK}" ${stub_gate_entry}
+        "${NLANG_TEST_SCRATCH_ROOT}/free_events.txt" ${STUB_GATE_LOCK_SLEEP_S})
+endforeach()
 STUB_CMAKE_EOF
 
 # --- probes -----------------------------------------------------------------
@@ -314,6 +390,8 @@ configure_fixture() { # configure_fixture <log-stem> <factor|NONE> [extra cmake 
             "-DGATE_STUB_TABLE=$WS/src/stub_table.txt" \
             "-DGATE_STUB_KEYS=$REPO/tests/gate_time_keys.cmake" \
             "-DGATE_STUB_ROUNDS=$WS/src/rounds_probe.py" \
+            "-DGATE_STUB_LOCK=$WS/src/lock_probe.py" \
+            "-DGATE_STUB_CLAIMS=$WS/src/stub_claims.txt" \
             "$@" > "$WS/log/$log.configure.txt" 2>&1
     else
         env NLANG_TEST_WORK_FACTOR="$factor" "$CMAKE" -S "$WS/src" -B "$WS/build" \
@@ -321,6 +399,8 @@ configure_fixture() { # configure_fixture <log-stem> <factor|NONE> [extra cmake 
             "-DGATE_STUB_TABLE=$WS/src/stub_table.txt" \
             "-DGATE_STUB_KEYS=$REPO/tests/gate_time_keys.cmake" \
             "-DGATE_STUB_ROUNDS=$WS/src/rounds_probe.py" \
+            "-DGATE_STUB_LOCK=$WS/src/lock_probe.py" \
+            "-DGATE_STUB_CLAIMS=$WS/src/stub_claims.txt" \
             "$@" > "$WS/log/$log.configure.txt" 2>&1
     fi
 }
@@ -354,6 +434,31 @@ expect_cap() { # expect_cap <case> <json-file> <entry> <expected|NONE>
     elif ! awk -v g="$got" -v w="$4" \
             'BEGIN { d = g - w; if (d < 0) d = -d; exit !(d < 0.1) }'; then
         fail "$1" "$3 timeout $got, want $4"
+    fi
+}
+
+resource_locks() { # resource_locks <json-file> -> "<entry>\t<names>" per claimed entry
+    # RESOURCE_LOCK is a list property: this ctest serializes it as a JSON
+    # list, and the string split keeps an older serialization readable —
+    # the same tolerance the env-merge probe applies to ENVIRONMENT.
+    "$PYTHON" -I -c 'import json, sys
+doc = json.load(open(sys.argv[1], encoding="utf-8"))
+for test in doc["tests"]:
+    for prop in test.get("properties", []):
+        if prop["name"] == "RESOURCE_LOCK":
+            value = prop["value"]
+            names = value if isinstance(value, list) else value.split(";")
+            print("%s\t%s" % (test["name"], " ".join(names)))
+            break' "$1"
+}
+
+expect_lock() { # expect_lock <case> <json-file> <entry> <expected|NONE>
+    local got
+    got=$(resource_locks "$2" | awk -F '\t' -v e="$3" '$1 == e { print $2 }')
+    if [ "$4" = NONE ]; then
+        [ -z "$got" ] || fail "$1" "$3 carries RESOURCE_LOCK [$got], want no property"
+    elif [ "$got" != "$4" ]; then
+        fail "$1" "$3 RESOURCE_LOCK [$got], want [$4]"
     fi
 }
 
@@ -490,6 +595,65 @@ if [ "$audit_rc" -eq 0 ] \
     fail rounds-selfreport "a factor the soak never ran at must red naming both numbers: rc=$audit_rc [$(printf '%s' "$audit_out" | tr '\n' ';')]"
 fi
 [ "$failures" -eq "$before" ] && pass rounds-selfreport
+
+before=$failures
+# D-11 property half: the roster reaches the wrapper through the very
+# emit-cmake call that generates the caps, and the show-only document is
+# where a missing or stray property is visible without running anything.
+expect_lock resource-lock-props "$WS/log/base.json" stub_lock_a stub-display
+expect_lock resource-lock-props "$WS/log/base.json" stub_lock_b stub-display
+expect_lock resource-lock-props "$WS/log/base.json" stub_free_a NONE
+expect_lock resource-lock-props "$WS/log/base.json" stub_free_b NONE
+[ "$failures" -eq "$before" ] && pass resource-lock-props
+
+before=$failures
+# D-11 behaviour half, inside one parallel ctest: the claimed pair's sleep
+# windows must never overlap (ctest holds the second entry until the first
+# exits), while the unclaimed control pair on the very same tree must
+# overlap -- without that control arm the serialization half would pass
+# vacuously for a ctest that never parallelizes. The events files sit in
+# the tree's scratch root, the same path the wrapper stamps into every
+# entry environment, so the runs leave no scratch beside the logs.
+events_verdict() { # events_verdict <serial|overlap> <events-file-base>
+    "$PYTHON" -I -c 'import glob
+import sys
+mode, base = sys.argv[1], sys.argv[2]
+events = []
+for path in glob.glob(base + ".*"):
+    for line in open(path, encoding="utf-8"):
+        kind, name, when = line.split()
+        events.append((float(when), kind, name))
+events.sort()
+seq = [(kind, name) for _, kind, name in events]
+if mode == "serial":
+    ok = (len(seq) == 4
+          and seq[0][0] == "S" and seq[1][0] == "E"
+          and seq[1][1] == seq[0][1] and seq[2][1] != seq[0][1]
+          and seq[2][0] == "S" and seq[3][0] == "E"
+          and seq[3][1] == seq[2][1])
+else:
+    ok = (len(seq) == 4
+          and seq[0][0] == "S" and seq[1][0] == "S"
+          and seq[0][1] != seq[1][1]
+          and seq[2][0] == "E" and seq[3][0] == "E")
+if not ok:
+    print("EVENTS %s" % ",".join("%s:%s" % (name, kind)
+                                 for kind, name in seq))
+    sys.exit(1)' "$1" "$2"
+}
+( cd "$WS/build" && "$CTEST" -C Debug -j 2 \
+    -R '^(stub_lock_a|stub_lock_b)$' ) \
+    > "$WS/log/lockpair.run.txt" 2>&1 \
+    || fail resource-lock-run "the claimed pair's ctest round failed: [$(tail_of "$WS/log/lockpair.run.txt")]"
+( cd "$WS/build" && "$CTEST" -C Debug -j 2 \
+    -R '^(stub_free_a|stub_free_b)$' ) \
+    > "$WS/log/freepair.run.txt" 2>&1 \
+    || fail resource-lock-run "the control pair's ctest round failed: [$(tail_of "$WS/log/freepair.run.txt")]"
+serial_verdict=$(events_verdict serial "$WS/build/scratch/lock_events.txt") \
+    || fail resource-lock-run "the shared resource did not serialize the claimed pair: [$serial_verdict]"
+overlap_verdict=$(events_verdict overlap "$WS/build/scratch/free_events.txt") \
+    || fail resource-lock-run "the unclaimed control pair did not overlap: [$overlap_verdict]"
+[ "$failures" -eq "$before" ] && pass resource-lock-run
 
 if ! configure_fixture factor2 2; then
     fail work-factor-two "factor-2 configure failed: [$(tail_of "$WS/log/factor2.configure.txt")]"

@@ -121,15 +121,46 @@ mkdir -p "$LOGS" "$WORK"
 # tier would pair against rows the current batch never carried.
 : > "$LOGS/leg_commands.tsv"
 
-leg() { # leg <name> <command...>
+leg() { # leg <name> [--gate-env NAME=VAL]... [--claim <resource>]... <command...>
+  # The two leading declaration forms are leg-level metadata and must
+  # precede the command. Placement discipline matters: never `export` --
+  # an exported NLANG_GATE_WRITE_DIR would re-point every later gate.sh
+  # run on this machine -- and never a call-site `VAR=v leg ...` prefix,
+  # which works but hides the variable from the recorded line: the
+  # carrier guard and the assembly pins read the declaration where it
+  # lands, and gate.sh itself sees no command environment, only its own.
+  # "$*" is captured before the split so leg_commands.tsv and the
+  # --dry-run listing record every declaration exactly as written.
+  # --claim becomes one --claim argument of gate.sh (the named-resource
+  # lock serializes this whole leg against the other legs holding the
+  # same resource, gate timing design D-11). --gate-env pairs are put in
+  # front of the gate.sh call with `env`, so the variable lands in
+  # gate.sh's own process environment -- derive_write_dirs reads
+  # NLANG_GATE_WRITE_DIR there, and a declaration that only reached the
+  # wrapped command's environment would lock nothing. Today every leg
+  # still holds the machine lock, so the write-dir declaration changes
+  # no scheduling yet; it is what the Task 12 machine-lock removal
+  # builds on, and it already gives the dry-run listing and the carrier
+  # guard the tree each leg writes.
   local name="$1"; shift
+  local declared="$*"
+  local claim_args=() env_pairs=() rest=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --claim) claim_args+=("$1" "$2"); shift 2 ;;
+      --gate-env) env_pairs+=("$2"); shift 2 ;;
+      *) rest+=("$1"); shift ;;
+    esac
+  done
   LEG_NAMES+=("$name")
-  printf '%s\t%s\n' "$name" "$*" >> "$LOGS/leg_commands.tsv"
+  printf '%s\t%s\n' "$name" "$declared" >> "$LOGS/leg_commands.tsv"
   if [ "$DRY" = 1 ]; then
-    echo "LEG $name: $*"
+    echo "LEG $name: $declared"
     return 0
   fi
-  bash "$REPO/tools/gate.sh" "$name" "$LOGS/$name" "$@" > "$LOGS/$name.gate" 2>&1
+  env "${env_pairs[@]}" bash "$REPO/tools/gate.sh" \
+      "${claim_args[@]}" "$name" "$LOGS/$name" "${rest[@]}" \
+      > "$LOGS/$name.gate" 2>&1
   echo "leg $name rc=$?"
 }
 
@@ -248,8 +279,8 @@ PY_IO_ENCODING="PYTHONIOENCODING=utf-8"
 
 ctest_leg() { # ctest_leg <name> <tree> <config-key> [-R <regex>] [-E <regex>]
   local name="$1" tree="$2" config="$3"; shift 3
-  local scale regex="" ereg="" junit="$LOGS/$name.xml"
-  [ $# -gt 0 ] && [ -n "$1" ] && regex=" -R '$1'"
+  local scale raw_r="" regex="" ereg="" junit="$LOGS/$name.xml"
+  [ $# -gt 0 ] && [ -n "$1" ] && raw_r="$1" && regex=" -R '$1'"
   # The perf set rides EVERY ctest leg's -E, mapped or not (D-6): the
   # ON-only entries sit in no tree enumeration, so a leg that skipped
   # them would run the perf class inside its budget-priced round. The
@@ -268,7 +299,40 @@ ctest_leg() { # ctest_leg <name> <tree> <config-key> [-R <regex>] [-E <regex>]
   # timings and the per-entry verdict but never the failing test's own
   # output, so without this flag a red ctest leg forces a manual
   # re-run just to see why; a green leg prints nothing extra.
-  leg "$name" env "NLANG_GATE_MACHINE_SCALE=$scale" "$PY_IO_ENCODING" \
+  #
+  # The nide-gui claim (D-11) is decided at assembly time without any
+  # live enumeration, from two facts the batch already knows. First, the
+  # window-launching entries the roster names register only in an IDE-
+  # built tree -- the same CMakeCache shape predicate guard eleven uses
+  # to pair a tree with ctest-IDE -- so a plain or instrumented tree can
+  # never run one and takes no claim. Second, the leg must be able to
+  # actually reach a roster entry with its own selectors: ctest -E beats
+  # -R (F-12), so an entry inside the leg's -E is out no matter what -R
+  # says, and a given -R admits an entry only if it matches. grep -E
+  # stands in for ctest's matcher here: both sides only ever see this
+  # repo's alternation/anchor patterns, and the decision errs safe -- a
+  # spurious match can only add serialization, never remove it from a
+  # leg that does sweep a windowed entry. The single roster source is
+  # the claim line in tools/gate_tiers.txt.
+  local claim_args=() roster entry
+  # tr -d '\r' first: an anchored pattern must not fork on a CRLF cache
+  # copy (a configure on this host writes LF; a moved cache may not).
+  if tr -d '\r' < "$tree/CMakeCache.txt" 2>/dev/null | \
+     grep -q '^NLANG_BUILD_IDE:BOOL=ON$'; then
+    roster=$(sed -n 's/^claim nide-gui //p' "$REPO/tools/gate_tiers.txt")
+    for entry in $roster; do
+      if [ -n "$raw_r" ] && ! printf '%s\n' "$entry" | grep -qE -- "$raw_r"; then
+        continue
+      fi
+      if [ -n "$perf_e" ] && printf '%s\n' "$entry" | grep -qE -- "$perf_e"; then
+        continue
+      fi
+      claim_args=(--claim nide-gui)
+      break
+    done
+  fi
+  leg "$name" --gate-env "NLANG_GATE_WRITE_DIR=$tree" "${claim_args[@]}" \
+    env "NLANG_GATE_MACHINE_SCALE=$scale" "$PY_IO_ENCODING" \
     bash -c \
     "cd '$tree' && ctest -C Debug --output-on-failure$regex$ereg --output-junit '$junit' --timeout $CTEST_DEFAULT_TIMEOUT_S"
   # Post-hoc budget judging (guard three): ctest has no inline budget
@@ -312,7 +376,14 @@ e2e_leg() { # e2e_leg <name> <tree> <config> <ref-key> [manifest] [timeout]
   # parameter keeps naming the tool binary's build config, exactly the
   # split the two differ on.
   local judging="${refkey#e2e-}"
-  leg "$name" "${env_args[@]}" \
+  # The e2e runner works from tests/e2e and writes its per-test scratch
+  # under tests/temp (gate_selftest.sh's scratch lesson), a repo-level
+  # directory shared by every sweep tree -- so the declared write dir is
+  # the repo's own temp, absolutized like the trees (the runner may be
+  # reached from either path form, and the lock key must not fork on it).
+  leg "$name" --gate-env \
+    "NLANG_GATE_WRITE_DIR=$(abs_tree "$REPO/tests/temp")" \
+    "${env_args[@]}" \
     "$PY" "$REPO/tests/e2e/run_e2e_tests.py" \
     "$tree/src/tools/ncc/$config/ncc.exe" \
     "$tree/src/tools/nvm/$config/nvm.exe" \
