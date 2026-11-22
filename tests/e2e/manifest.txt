@@ -574,6 +574,10 @@ lambda_capture_shadow_ref 0
 lambda_nested_expr 0
 lambda_catch_capture 0
 lambda_static_field 0
+# minors closure (user ruling 2026-11-23): the static-local-not-captured
+# pin and the cross-module closure escape
+lambda_static_local 0
+lambda_cross_module 0
 # --- P3.8: lock class field default values (int/float/string/class-ref) ---
 class_field_defaults 7
 # --- P3.8: cover switch on string discriminator ---
