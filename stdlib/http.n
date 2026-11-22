@@ -1355,9 +1355,9 @@ class HttpConn {
     }
 
     // Per-connection keep-alive loop (D6), run on its own thread via
-    // thread.spawn(conn.run). The language has no anonymous function literals
-    // yet (lambda is the separate 0.13.3 subproject), so the loop body lives
-    // here as a bound method — the same shape as examples/net_conc_bench.n.
+    // thread.spawn(conn.run). The loop body lives here as a bound method —
+    // the same shape as examples/net_conc_bench.n; a lambda literal works
+    // equally well (func<void> spawn target).
     public void run() {
         try {
             stream.setNoDelay(true);
