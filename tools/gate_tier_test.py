@@ -114,7 +114,8 @@ def run_smoke():
              (sandbox / "tools" / "gate_tier.sh").as_posix(), "T1",
              "--master-tree", (sandbox / "trees" / "master").as_posix(),
              "--asan-tree", (sandbox / "trees" / "asan").as_posix(),
-             "--ide-tree", (sandbox / "trees" / "ide").as_posix()],
+             "--ide-tree", (sandbox / "trees" / "ide").as_posix(),
+             "--docs"],
             capture_output=True, encoding="utf-8", errors="replace",
             timeout=120)
         output = proc.stdout + proc.stderr
@@ -126,6 +127,16 @@ def run_smoke():
         for leg in EXPECTED_LEGS:
             check(f"GATE {leg}: PASS" in output,
                   f"no PASS verdict for {leg} (see batch output above)")
+        #Cross-language link checks read the sibling site: every build
+        #must precede the first check, or a clean work dir cannot pass
+        #check-en (its pages link into the zh tree built later).
+        build_zh_at = output.find("GATE T-docs-build-zh: PASS")
+        check_en_at = output.find("GATE T-docs-check-en: PASS")
+        check(build_zh_at != -1 and check_en_at != -1 and
+              build_zh_at < check_en_at,
+              "docs legs ordered build/check per language - check-en ran "
+              "before build-zh, so a clean work dir has no zh site to "
+              "link-check against")
         gates_dir = sandbox / "temp" / "tier" / "gates"
         runs = sorted(d for d in gates_dir.iterdir() if d.is_dir())
         check(len(runs) == 1,

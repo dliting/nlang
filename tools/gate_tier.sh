@@ -169,12 +169,19 @@ docs_legs() {
   leg "T-docs-pytest" env PYTHONPATH="$REPO/tools/nlang-docs/src" \
     "NLANG_NCC=$ncc" "NLANG_NVM=$nvm" \
     "$PY" -m pytest "$REPO/tools/nlang-docs/tests" -q
+  #Both builds precede the first check: cross-language link checks read
+  #the sibling site, so checking en before the zh site exists can only
+  #pass against leftovers from an earlier run — a clean work dir would
+  #be structurally red.
   for lang in en zh; do
     local config="$REPO/docs/mkdocs.$lang.yml"
     leg "T-docs-build-$lang" env PYTHONPATH="$REPO/tools/nlang-docs/src" \
       "$PY" -m nlang_docs build --config "$config" \
       --site-dir "$WORK/docs-site/$lang" --ncc "$ncc" --nvm "$nvm" \
       --defer-site-audit
+  done
+  for lang in en zh; do
+    local config="$REPO/docs/mkdocs.$lang.yml"
     leg "T-docs-check-$lang" env PYTHONPATH="$REPO/tools/nlang-docs/src" \
       "$PY" -m nlang_docs check --site-dir "$WORK/docs-site/$lang" \
       --config "$config"
