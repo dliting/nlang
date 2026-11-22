@@ -51,6 +51,20 @@ LOGS="$WORK/gates"
 DOCS_CONFIG_EN="$REPO/docs/mkdocs.en.yml"
 DOCS_CONFIG_ZH="$REPO/docs/mkdocs.zh.yml"
 
+# The batch owns its write-directory declarations: every leg either
+# names its tree as its own argv words (gate.sh derives the claim from
+# them) or declares the directory with --gate-env, and leg() puts that
+# declaration in front of the gate.sh call so it lands in gate.sh's own
+# environment (gate timing design D-10). An inherited ambient
+# NLANG_GATE_WRITE_DIR is therefore a silent misclaim here: every leg
+# without its own declaration would derive and lock the outer batch's
+# tree. That inheritance is not hypothetical -- a tier batch launched
+# from a ctest entry inside an outer batch's --gate-env window inherits
+# the value through ctest's test environment, the very hazard the
+# batch-C ruling R-52 rules out for `export`. Clear it at the batch
+# head instead of trusting the caller's environment.
+unset NLANG_GATE_WRITE_DIR
+
 TIER=""
 MASTER_TREE=""
 ASAN_TREE=""

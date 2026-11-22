@@ -80,6 +80,8 @@ docs的`check --site-dir`是读者、`build --site-dir`是写者，同目录并�
 
 `NLANG_GATE_WRITE_DIR`的使用纪律：只用逐次前缀形式（`NLANG_GATE_WRITE_DIR=<dir> tools/gate.sh …`），**不得export**。批脚本里的export会随环境继承给后面每条腿，让写别的树的腿也白等一把无关的锁；获锁行会把取到的每个目录都打出来，这种白等看得见，但仍要避免。
 
+污染也不止export一条路：批在另一个批的`--gate-env`窗口内的ctest条目里起跑时，值会经ctest的测试进程环境原样传进嵌套的批脚本，同样是静默误声明——嵌套批里每条没有自己声明的腿都会按外层树推导出键并认领它。所以**批编排脚本（`gate_tier.sh`）在入口清除环境里继承来的`NLANG_GATE_WRITE_DIR`**：批自己的声明要么写在各腿命令行的argv词里（gate.sh从中推导），要么由`leg()`的`env`前缀注入gate.sh自身进程（D-18腿面机制），两种都不依赖调用方的环境，清掉继承值不损失任何声明。
+
 ### D-4 路径规范化
 
 Windows下用`cygpath -ma`（实测`-m`不做绝对化，`-ma`才得`E:/…`正斜杠绝对形）再转小写——Windows大小写不敏感，`build-dev`与`BUILD-DEV`是同一棵树。无`cygpath`时（Linux移植预备）用`realpath -m`：`-m`不要求路径存在（`cmake -B`正是要新建目录），且**不转小写**——POSIX大小写敏感，`/Build-Dev`与`/build-dev`是两棵树，折叠成一把键就是假串行。相对路径按gate.sh的CWD解析——gate.sh不chdir，其CWD就是调用者的CWD。
