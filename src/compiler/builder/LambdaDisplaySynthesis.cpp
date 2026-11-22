@@ -102,6 +102,74 @@ void CapturePass::BuildDisplaysAndMethods(SnNamespace &root,
 //the root namespace's member list end, and owner-tagged for per-unit
 //registration. Fields and methods reference parents via pointers, so
 //the classes come first.
+
+//The type-parameter context a display is synthesized under (Task 10,
+//spec 3.6): the innermost GENERIC function owns the visible parameters
+//— a plain nested function level does not shadow them — and the
+//hosting class ends the walk the way the resolver's class arm does
+//(BindTypeParamPlaceholderIfAny's shape). Null when no ancestor
+//declares type parameters, the ordinary case.
+static SyntaxNode *TypeParamContextOf(SnParagraph& para)
+{
+	for (SyntaxNode *p = para.Parent(); p; p = p->Parent())
+	{
+		const NodeKind kind = p->Kind();
+		if (kind == NK_Function)
+		{
+			auto& fn = static_cast<SnFunction&>(*p);
+			if (fn.IsGenericDeclaration())
+				return p;
+			continue;
+		}
+		if (kind == NK_ClassDecl)
+			return static_cast<SnClassDecl&>(*p).IsGenericDeclaration()
+				? p : nullptr;
+	}
+	return nullptr;
+}
+
+//The context declaration's type-parameter names (function or class arm).
+static const std::vector<std::string>& TypeParamNamesOf(SyntaxNode& ctx)
+{
+	return ctx.Kind() == NK_Function
+		? static_cast<SnFunction&>(ctx).TypeParamNames()
+		: static_cast<SnClassDecl&>(ctx).TypeParamNames();
+}
+
+//Task 10 (spec 3.6): under a type-parameter context the display carries
+//the context's placeholders as its instantiation arguments — one node
+//serving as template AND instantiation row (the members are born
+//resolved; no member cloning applies, and the registry never adopts it,
+//so slot throats fall through to its own class row). The backend's
+//DescriptorIndexFor then emits a TEMPLATE_HEAD + ARG_CONTEXT composition
+//row; OP_New composes it against the executing frame's descriptor cell,
+//the display instance's head carries the real instantiation, and T
+//operations inside lambda bodies read it through the receiver head
+//channel. No-op when no ancestor declares type parameters.
+static void MarkGenericDisplayContext(SnClassDecl &cls, SnParagraph &para,
+	ModuleRegistry &registry)
+{
+	SyntaxNode *pCtx = TypeParamContextOf(para);
+	if (!pCtx)
+		return;
+	const auto& names = TypeParamNamesOf(*pCtx);
+	std::vector<SnField*> args;
+	args.reserve(names.size());
+	for (size_t i = 0; i < names.size(); ++i)
+		args.push_back(registry.DeclaredGenerics().PlaceholderFor(
+			*pCtx, names[i], i));
+	//Declaration surface AND instantiation args on one node: the
+	//declaration half drives FillGenericRecordMeta (isGeneric on the
+	//$lambda_N records, so the receiver head fills their frame descriptor
+	//cells at push), the instantiation half drives the OP_New composition
+	//row. Both faces are read post-resolution only — no binding walk
+	//revisits the synthesized tree.
+	cls.SetTypeParamNames(names);
+	cls.SetGenericInstantiation();
+	cls.SetBaseName(cls.Name());
+	cls.SetGenericTypeArgs(std::move(args));
+}
+
 void CapturePass::CreateDisplayClasses(SnNamespace &root,
 	ModuleRegistry &registry)
 {
@@ -121,6 +189,7 @@ void CapturePass::CreateDisplayClasses(SnNamespace &root,
 		pClass->AddFlags(NF_Generated);
 		m_displays[pPara].pClass = pClass;
 		m_classOfPara[pPara] = pClass;
+		MarkGenericDisplayContext(*pClass, *pPara, registry);
 		//Stamp the paragraph: the backend's frame prologue discovers the
 		//marked paragraphs of its body subtree through this pointer.
 		pPara->SetDisplayClass(pClass);
