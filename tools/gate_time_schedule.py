@@ -35,7 +35,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gate_time_carrier
-from gate_time_guards import read_name_set
+from gate_time_guards import read_name_set, read_perf_names
 from gate_time_table import (CONFIG_KEYS, MANIFEST_SCOPES, REPO_ROOT,
                              SENTINEL_MARK, SLOW_MIN_REF_S, load_table)
 from gate_time_timeouts import cmake_tools, read_timeouts, show_only_json
@@ -279,11 +279,13 @@ def _perf_names_findings(args, rows):
     unpriced perf row simply runs in every regular leg, and guard one's
     EXTRA ctest-Release verdict owns that direction once Task 10 Step 5
     wires it (R-43); until then its bound is the two rows' combined 7.44
-    s of extra per-round runtime. The file is print-perf-names' value
-    line verbatim ('|' or newline separated) -- the ON/OFF DIFFERENCE,
-    not the ON enumeration."""
-    text = Path(args.perf_names).read_text(encoding="utf-8")
-    names = {name for name in re.split(r"[|\r\n]+", text) if name}
+    s of extra per-round runtime. The file is read through the shared
+    perf-name roster reader (read_perf_names, spec D-17's format
+    contract): print-perf-names' '|'-joined value line, one name per
+    line, or that command's raw stdout redirect with its trailing 'GATE '
+    verdict line -- always the ON/OFF DIFFERENCE, never the ON
+    enumeration."""
+    names = read_perf_names(args.perf_names)
     priced = {row.entry for row in rows
               if row.config == PERF_CONFIG and row.sentinel != SENTINEL_MARK}
     findings = [

@@ -505,6 +505,58 @@ def test_check_carrier_named_refusals_on_missing_inputs():
               "got rc=%r out=%r" % (rc, out))
 
 
+def test_check_schedule_perf_names_reads_the_raw_redirect():
+    # R-80 (spec D-17's format contract): check-schedule's --perf-names
+    # reader is the shared roster reader, so the raw stdout redirect of
+    # print-perf-names -- the value line plus the trailing 'GATE '
+    # verdict line, the shape a shell `> file` capture leaves behind --
+    # reads as the differential itself. Before the shared reader the
+    # verdict line became a third difference name with no priced
+    # ctest-Release row, and guard eight went red quoting it.
+    with tempfile.TemporaryDirectory() as tmp:
+        _table, families, root = _fixture(tmp)
+        perf_table = write_table(tmp, PERF_TABLE)
+        pf = Path(tmp) / "perf_raw.txt"
+        pf.write_text("regex_redos_perf_compile|regex_redos_perf_run\n"
+                      "GATE gate_time_check: PASS\n", encoding="utf-8")
+        rc, out = _schedule(perf_table, families, root,
+                            ["--config", "ctest-Debug",
+                             "--perf-names", str(pf)])
+        check(rc == 0 and "GATE gate_time_check: PASS" in out
+              and "PERF" not in out,
+              "guard eight: the raw redirect of print-perf-names must "
+              "read as the differential, got rc=%r out=%r" % (rc, out))
+
+
+def test_check_carrier_tolerates_every_perf_roster_spelling():
+    # R-80: check-carrier reads --perf-names through the same shared
+    # reader as the other three consumers. Its perf-leg run set is the
+    # differential intersected with the leg's -R regex, so a roster in
+    # any of the print-perf-names spellings -- the '|'-joined value line
+    # (the production form the fixture already carries), one name per
+    # line, or the raw stdout redirect with the trailing 'GATE ' verdict
+    # line -- selects the same two perf entries and the round stays
+    # green. This case is the pin for the swap from the carrier's own
+    # inline split: a stray extra name reaches no -R alternative, so the
+    # tolerance it shows here is exactly the tolerance it must keep.
+    with tempfile.TemporaryDirectory() as tmp:
+        p = _carrier(tmp)
+        for spelling, text in (
+                ("joined value line", "regex_redos_perf_compile|"
+                 "regex_redos_perf_run\n"),
+                ("per line", "regex_redos_perf_compile\n"
+                 "regex_redos_perf_run\n"),
+                ("raw redirect", "regex_redos_perf_compile|"
+                 "regex_redos_perf_run\n"
+                 "GATE gate_time_check: PASS\n")):
+            Path(p["perf"]).write_text(text, encoding="utf-8")
+            rc, out = _carrier_run(p)
+            check(rc == 0 and "GATE gate_time_check: PASS" in out,
+                  "guard eleven: the perf roster in the %s spelling "
+                  "must still pair every perf row, got rc=%r out=%r"
+                  % (spelling, rc, out))
+
+
 def run():
     test_print_perf_names_is_the_registration_differential()
     test_print_perf_names_refusals_name_their_file_or_side()
@@ -512,3 +564,5 @@ def run():
     test_check_carrier_pairs_every_guarded_row_with_its_config()
     test_check_carrier_refuses_mispaired_configs()
     test_check_carrier_named_refusals_on_missing_inputs()
+    test_check_schedule_perf_names_reads_the_raw_redirect()
+    test_check_carrier_tolerates_every_perf_roster_spelling()

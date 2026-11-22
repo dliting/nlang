@@ -28,6 +28,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from gate_time_guards import read_perf_names
 from gate_time_table import load_table
 from gate_time_timeouts import read_timeouts, show_only_json
 
@@ -248,8 +249,7 @@ def _observed(args, leg_lines, findings):
             findings.append("CARRIER: --perf-names file %s does not "
                             "exist" % path)
         else:
-            perf_names = {n for n in re.split(
-                r"[|\r\n]+", path.read_text(encoding="utf-8")) if n}
+            perf_names = read_perf_names(path)
     observed = {}
     for name, command in leg_lines:
         tokens = flatten(command)

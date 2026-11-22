@@ -77,7 +77,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gate_time_schedule
 from gate_time_guards import (check_budget, check_complete, check_constants,
                               check_orphans, enum_overrides, read_name_set,
-                              run_ctest_enum, sentinel_rows,
+                              read_perf_names, run_ctest_enum, sentinel_rows,
                               sentinel_shortfall_finding)
 from gate_time_measure import (apply_record, calibrate_scale, junit_cases,
                                junit_reports, parse_junit_rows,
@@ -108,7 +108,7 @@ def _inputs(args, repo):
             enums[cfg] = run_ctest_enum(repo / tree)
     perf_names = None
     if args.perf_names:
-        perf_names = read_name_set(args.perf_names)
+        perf_names = read_perf_names(args.perf_names)
     elif "ctest-Release" in overrides:
         perf_names = read_name_set(overrides["ctest-Release"])
     manifests = {

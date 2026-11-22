@@ -331,6 +331,56 @@ def test_calibrate_flag_config_mismatch_red():
               "the wanted flag, got rc=%r out=%r" % (rc, out))
 
 
+def test_perf_names_roster_accepts_all_three_spellings():
+    # R-80 (spec D-17's format contract): the four --perf-names consumers
+    # share one roster reader, and the three spellings its writers produce
+    # must all read as the same set: print-perf-names' '|'-joined value
+    # line (gate_tier.sh's production form), one name per line, or the raw
+    # stdout redirect (value line plus the 'GATE ' verdict line). The base
+    # stub table prices the perf pair and carries the release sentinels,
+    # so every spelling keeps guard one and guard two green; a '|'-joined
+    # line read as one name -- the shape before the shared reader -- shows
+    # up here as the false MISSING/EXTRA (complete) and ORPHAN (orphans)
+    # findings the review measured.
+    with tempfile.TemporaryDirectory() as tmp:
+        table = write_table(tmp, base_table_text())
+        enums = []
+        for cfg in ("ctest-Debug", "ctest-IDE", "ctest-ASan"):
+            dump = Path(tmp) / ("enum_%s.txt" % cfg)
+            dump.write_text("".join(n + "\n" for n in CTEST_NAMES),
+                            encoding="utf-8")
+            enums += ["--enum", "%s=%s" % (cfg, dump)]
+        manifest = Path(tmp) / "manifest.txt"
+        manifest.write_text("".join(n + " 0\n" for n in MANIFEST_NAMES),
+                            encoding="utf-8")
+        examples = Path(tmp) / "examples_manifest.txt"
+        examples.write_text("".join(n + " 0\n" for n in EXAMPLES_NAMES),
+                            encoding="utf-8")
+        spellings = {
+            "joined_value_line": "|".join(PERF_NAMES) + "\n",
+            "per_line": "".join(n + "\n" for n in PERF_NAMES),
+            "raw_redirect": "|".join(PERF_NAMES) + "\n"
+                            "GATE gate_time_check: PASS\n",
+        }
+        for spelling, text in spellings.items():
+            perf = Path(tmp) / ("perf_%s.txt" % spelling)
+            perf.write_text(text, encoding="utf-8")
+            for cmd in ("check-complete", "check-orphans"):
+                buf = io.StringIO()
+                with redirect_stdout(buf):
+                    rc = run_cli([cmd, "--table", str(table),
+                                  "--repo", str(Path(tmp) / "repo")]
+                                 + enums
+                                 + ["--manifest", str(manifest),
+                                    "--examples-manifest", str(examples),
+                                    "--perf-names", str(perf)])
+                check(rc == 0 and "GATE gate_time_check: PASS"
+                      in buf.getvalue(),
+                      "%s --perf-names in the %s spelling must pass "
+                      "against the covered stub table, got rc=%r "
+                      "out=%r" % (cmd, spelling, rc, buf.getvalue()))
+
+
 def run():
     test_complete_ok_on_base_table()
     test_complete_missing_row_fails()
@@ -346,3 +396,4 @@ def run():
     test_calibrate_out_of_band_red_with_candidates()
     test_calibrate_fewer_than_five_sentinels_red_without_sampling()
     test_calibrate_flag_config_mismatch_red()
+    test_perf_names_roster_accepts_all_three_spellings()

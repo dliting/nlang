@@ -115,12 +115,21 @@ PYTHON=${NLANG_GATE_PYTHON:-$(command -v python || command -v python3 || true)}
 # Execution Alias named python on PATH even when no interpreter is installed
 # (CreateProcess reports it as 9009), so the probe launches the interpreter
 # it picked rather than trusting the name -- a machine without a real python
-# must reach the SKIP line, not a configure failure.
+# must reach the toolchain verdict below, not a configure failure.
 if [ -n "$PYTHON" ] && ! "$PYTHON" -c pass >/dev/null 2>&1; then
     PYTHON=
 fi
-if [ -z "$CMAKE" ] || [ -z "$CTEST" ] || [ -z "$PYTHON" ]; then
-    echo "selftest: SKIP toolchain: cmake=[$CMAKE] ctest=[$CTEST] python=[$PYTHON]"
+# Every leg below is python-driven (the checker CLI and the stub ctest),
+# so a missing interpreter must fail the run by name: skipping to the
+# final PASS would certify a script no leg executed. cmake and ctest only
+# gate the configure-driven legs, so their absence stays the named SKIP.
+if [ -z "$PYTHON" ]; then
+    echo "selftest: FAIL toolchain: no launchable python -- set NLANG_GATE_PYTHON to a real interpreter"
+    echo "SELFTEST: FAIL"
+    exit 1
+fi
+if [ -z "$CMAKE" ] || [ -z "$CTEST" ]; then
+    echo "selftest: SKIP toolchain: cmake=[$CMAKE] ctest=[$CTEST]"
     echo "SELFTEST: PASS"
     exit 0
 fi

@@ -419,6 +419,21 @@ def read_name_set(path):
     return names
 
 
+def read_perf_names(path):
+    """The perf-name roster reader shared by all four --perf-names
+    consumers (spec D-17's format contract). The file holds the ON/OFF
+    registration difference in one of the shapes its writers produce: one
+    name per line, print-perf-names' '|'-joined value line (gate_tier.sh's
+    production form), or that command's raw stdout redirect -- the value
+    line plus the trailing 'GATE ' verdict line. Splitting on both
+    separators and skipping empty lines, '#' comments and 'GATE ' verdict
+    lines makes every spelling read as the same set."""
+    text = Path(path).read_text(encoding="utf-8")
+    return {name for name in re.split(r"[|\r\n]+", text)
+            if name and not name.startswith("#")
+            and not name.startswith("GATE ")}
+
+
 def run_ctest_enum(tree):
     """Entry names of a configured tree: --show-only enumerates without
     running anything, and VS multi-config generators need -C for it."""

@@ -73,12 +73,12 @@
 ctest-Debug nd_resolve_stress_tests 77.80 100 ctest-junit-serial - soak:轮数按构型给(D-8),Debug与IDE各100轮
 ctest-IDE nd_resolve_stress_tests 163.79 100 ctest-junit-serial - soak:轮数按构型给(D-8),Debug与IDE各100轮
 ctest-ASan nd_resolve_stress_tests 881.80 30 ctest-junit-serial - soak:轮数按构型给(D-8),ASan构型30轮当场即报
-ctest-Debug mnist_mlp_compile 0.41 1 ctest-junit-serial - 演示验收用例(D-9第3类):基线行参考秒数低于SLOW_MIN_REF_S不入慢集,每轮随常规判定腿跑;功能面仍由全量腿与tensor族承接
-ctest-IDE mnist_mlp_compile 0.43 1 ctest-junit-serial - 演示验收用例(D-9第3类):基线行参考秒数低于SLOW_MIN_REF_S不入慢集,每轮随常规判定腿跑;功能面仍由全量腿与tensor族承接
-ctest-ASan mnist_mlp_compile 1.80 1 ctest-junit-serial - 演示验收用例(D-9第3类):基线行参考秒数低于SLOW_MIN_REF_S不入慢集,每轮随常规判定腿跑;功能面仍由全量腿与tensor族承接
-ctest-Debug mnist_mlp_run 9.67 1 ctest-junit-serial - 演示验收用例(D-9第3类):基线行参考秒数低于SLOW_MIN_REF_S不入慢集,每轮随常规判定腿跑;功能面仍由全量腿与tensor族承接
-ctest-IDE mnist_mlp_run 9.68 1 ctest-junit-serial - 演示验收用例(D-9第3类):基线行参考秒数低于SLOW_MIN_REF_S不入慢集,每轮随常规判定腿跑;功能面仍由全量腿与tensor族承接
-ctest-ASan mnist_mlp_run 33.01 1 ctest-junit-serial - 演示验收用例(D-9第3类):基线行参考秒数低于SLOW_MIN_REF_S不入慢集,每轮随常规判定腿跑;功能面仍由全量腿与tensor族承接
+ctest-Debug mnist_mlp_compile 0.41 1 ctest-junit-serial - 基线行参考秒数低于SLOW_MIN_REF_S不入慢集,每轮随常规判定腿跑;演示验收用例(D-9第3类只述条目性质,不作排期依据);功能面仍由全量腿与tensor族承接
+ctest-IDE mnist_mlp_compile 0.43 1 ctest-junit-serial - 基线行参考秒数低于SLOW_MIN_REF_S不入慢集,每轮随常规判定腿跑;演示验收用例(D-9第3类只述条目性质,不作排期依据);功能面仍由全量腿与tensor族承接
+ctest-ASan mnist_mlp_compile 1.80 1 ctest-junit-serial - 基线行参考秒数低于SLOW_MIN_REF_S不入慢集,每轮随常规判定腿跑;演示验收用例(D-9第3类只述条目性质,不作排期依据);功能面仍由全量腿与tensor族承接
+ctest-Debug mnist_mlp_run 9.67 1 ctest-junit-serial - 基线行参考秒数低于SLOW_MIN_REF_S不入慢集,每轮随常规判定腿跑;演示验收用例(D-9第3类只述条目性质,不作排期依据);功能面仍由全量腿与tensor族承接
+ctest-IDE mnist_mlp_run 9.68 1 ctest-junit-serial - 基线行参考秒数低于SLOW_MIN_REF_S不入慢集,每轮随常规判定腿跑;演示验收用例(D-9第3类只述条目性质,不作排期依据);功能面仍由全量腿与tensor族承接
+ctest-ASan mnist_mlp_run 33.01 1 ctest-junit-serial - 基线行参考秒数低于SLOW_MIN_REF_S不入慢集,每轮随常规判定腿跑;演示验收用例(D-9第3类只述条目性质,不作排期依据);功能面仍由全量腿与tensor族承接
 ctest-ASan mainwindow_tests 372.19 1 ctest-junit-serial - 慢集成员(基线行ctest-IDE 115.60s越过SLOW_MIN_REF_S):QtWidgets部件树与事件循环在ASan插桩下开销最大,不进每轮判定腿;功能面由收口前慢集腿承接,插桩面由T2的ASan全量腿每版承接
 ctest-ASan editor_tests 3.77 1 ctest-junit-serial - 非慢集成员(基线行ctest-IDE 2.99s低于SLOW_MIN_REF_S):编辑器部件交互在ASan插桩下开销增长,不进ASan判定子集腿;功能面每轮由ctest-IDE腿覆盖,插桩面由T2的ASan全量腿每版承接
 ctest-ASan recentstore_tests 0.37 1 ctest-junit-serial - 非慢集成员(基线行参考秒数低于SLOW_MIN_REF_S):条目仅在IDE/ASan两棵树注册,不进ASan判定子集腿;功能面每轮由ctest-IDE腿覆盖,插桩面由T2的ASan全量腿每版承接

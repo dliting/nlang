@@ -331,8 +331,8 @@ _GATE_TABLE_DEBUG_RELEASE = (
     '# stub gate table: the Debug config prices an entry row (ref 31 ->\n'
     '# budget 62, watchdog 310), the Release config only a coarse\n'
     '# `default` row (ref 1 -> budget 60, watchdog 120).\n'
-    'e2e-Debug {name} 31.00 1 常规 e2e-serial - stub entry row\n'
-    'e2e-Release default 1.00 1 常规 e2e-serial - stub default row\n')
+    'e2e-Debug {name} 31.00 1 e2e-serial - stub entry row\n'
+    'e2e-Release default 1.00 1 e2e-serial - stub default row\n')
 
 
 def test_explicit_config_prices_from_its_own_rows(request, tmp_path):
@@ -399,7 +399,7 @@ def test_missing_scalar_prices_band_max_and_says_uncalibrated(request,
     lines, rc, name = _gate_stub_run(
         request, tmp_path, manifest_name='gate_manifest.txt',
         table_fmt='# stub gate table\n'
-                  'e2e-Debug {name} 10.00 1 常规 e2e-serial '
+                  'e2e-Debug {name} 10.00 1 e2e-serial '
                   '- stub entry row\n',
         extra_args=['--config=Debug'], sleep_ticks=83, proc_timeout=140,
         scale=None)
@@ -421,9 +421,9 @@ def test_manifest_scope_row_prices_the_manifest_entries(request, tmp_path):
     lines, rc, name = _gate_stub_run(
         request, tmp_path, manifest_name='manifest.txt',
         table_fmt='# stub gate table\n'
-                  'e2e-Debug manifest.txt 30.00 1 常规 e2e-serial '
+                  'e2e-Debug manifest.txt 30.00 1 e2e-serial '
                   '- stub manifest scope\n'
-                  'e2e-Debug default 100.00 1 常规 e2e-serial '
+                  'e2e-Debug default 100.00 1 e2e-serial '
                   '- stub default row\n',
         extra_args=['--config=Debug'], sleep_ticks=62, proc_timeout=120)
     assert rc == 0, lines
@@ -470,7 +470,7 @@ def test_row_less_entry_falls_back_to_timeout_visibly(request, tmp_path):
     lines, rc, name = _gate_stub_run(
         request, tmp_path, manifest_name='gate_manifest.txt',
         table_fmt='# stub gate table\n'
-                  'e2e-Debug default 10.00 1 常规 e2e-serial '
+                  'e2e-Debug default 10.00 1 e2e-serial '
                   '- stub default row\n',
         extra_args=['--config=Release', '--timeout=3'],
         sleep_ticks=5, proc_timeout=45)
