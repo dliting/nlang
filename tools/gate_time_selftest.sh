@@ -69,6 +69,14 @@
 #                        wording -- the factor scales integer-counting
 #                        consumers, so no spelling may parse differently
 #                        per side instead of reaching the cap emitter.
+#   slow-export          print-slow's two arms on the stub slow rows: without
+#                        --keep-matched the config's slow names are exported,
+#                        and with the flag only the matched name is subtracted
+#                        while the rest survive -- the T0 wiring leans on
+#                        exactly this split (R-53: a catch-all -R selector
+#                        must never reach --keep-matched, or the conservative
+#                        round empties its own -E; R-54: the export itself
+#                        had no assertion before).
 #
 # Toolchain paths arrive in the environment: the registration in
 # tests/CMakeLists.txt passes NLANG_GATE_CMAKE, NLANG_GATE_CTEST and
@@ -145,6 +153,15 @@ ctest-Debug   stub_small_probe       5.00  1  常规  ctest-junit-serial
 ctest-Debug   stub.dash-name-probe  12.50  1  常规  ctest-junit-serial
 ctest-Debug   stub_rounds_probe     40.00  100  常规  ctest-junit-serial
 ctest-Release stub_release_only    300.00  1  性能  ctest-junit-serial
+# Slow-set rows for the slow-export probe below: both carry ref_s above
+# SLOW_MIN_REF_S (60 s) AND a slow-class category, so the two names the
+# probe asserts stay in the slow set under the current category rule and
+# under the 60 s threshold rule planned next -- swapping the membership
+# criterion cannot invalidate the probe. stub_slow_probe is the name
+# --keep-matched subtracts; stub_slow_partner_probe must survive it
+# (neither name contains the other, so the flag can only hit its own).
+ctest-Debug   stub_slow_probe       90.00  1  慢功能  ctest-junit-serial
+ctest-Debug   stub_slow_partner_probe  150.00  1  慢功能  ctest-junit-serial
 STUB_TABLE_EOF
 
 # The stub soak entry mirrors the round scaling of nd_resolve_stress_tests
@@ -509,6 +526,39 @@ elif ! grep -qi "work factor" "$WS/log/nonint.configure.txt"; then
     fail work-factor-noninteger "the failed configure never quoted the work-factor wording: [$(tail_of "$WS/log/nonint.configure.txt")]"
 fi
 [ "$failures" -eq "$before" ] && pass work-factor-noninteger
+
+before=$failures
+# R-54: print-slow is the single export of the slow set every scheduled
+# ctest leg consumes, and its --keep-matched subtraction is the exact
+# F-12 backfill the T0 wiring leans on. Both arms must be pinned here:
+# without the flag the whole slow set is exported (the unmapped
+# conservative T0 round runs that shape, and R-53 came from wiring
+# handing its catch-all "." to the flag instead -- the exclusion then
+# emptied and the slow entries ran in the fast round), and with the flag
+# only the names it re.search-hits leave the set while the rest survive.
+slow_base=$("$PYTHON" -I "$EMIT_TOOL" print-slow ctest-Debug \
+    --table "$WS/src/stub_table.txt" 2>&1)
+slow_base_rc=$?
+slow_keep=$("$PYTHON" -I "$EMIT_TOOL" print-slow ctest-Debug \
+    --table "$WS/src/stub_table.txt" --keep-matched stub_slow_probe 2>&1)
+slow_keep_rc=$?
+case "$slow_base" in
+    *stub_slow_probe*) : ;;
+    *) fail slow-export "print-slow without --keep-matched lost a slow name: [$(printf '%s' "$slow_base" | tr '\n' ';')]" ;;
+esac
+if [ "$slow_base_rc" -ne 0 ]; then
+    fail slow-export "print-slow exited rc=$slow_base_rc: [$(printf '%s' "$slow_base" | tr '\n' ';')]"
+fi
+case "$slow_keep" in
+    *stub_slow_probe*)
+        fail slow-export "--keep-matched stub_slow_probe never subtracted it: [$(printf '%s' "$slow_keep" | tr '\n' ';')]" ;;
+    *stub_slow_partner_probe*) : ;;
+    *) fail slow-export "--keep-matched must subtract only the matched name, yet the surviving slow name vanished: [$(printf '%s' "$slow_keep" | tr '\n' ';')]" ;;
+esac
+if [ "$slow_keep_rc" -ne 0 ]; then
+    fail slow-export "print-slow --keep-matched exited rc=$slow_keep_rc: [$(printf '%s' "$slow_keep" | tr '\n' ';')]"
+fi
+[ "$failures" -eq "$before" ] && pass slow-export
 
 if [ "$failures" -eq 0 ]; then
     echo "SELFTEST: PASS"

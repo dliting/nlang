@@ -414,6 +414,40 @@ def run_smoke():
                   "∪ the lines with their own explicit 常规 row, in "
                   f"manifest order, got {lines!r}")
 
+        # R-53: the unmapped conservative round. test_impact.py answers an
+        # unmapped path with rc=3 and no families, so the -R selector
+        # becomes "." (the full Debug unit suite) -- but "." must NOT be
+        # handed to print-slow as --keep-matched either: re.search hits
+        # every slow entry, the subtraction empties the -E down to the
+        # perf set alone, and the slow entries run inside the fast round
+        # (the 466 s timing gate with its load-induced false red). The
+        # unmapped branch therefore passes no --keep-matched at all: the
+        # conservative round excludes the WHOLE slow set, the same
+        # exclusion the full-scan T1 unit legs carry.
+        t0c = run_tier(bash, sandbox, "T0",
+                       "--master-tree",
+                       (sandbox / "trees" / "master").as_posix(),
+                       "--paths", "docs/dev/README.md")
+        t0c_out = t0c.stdout + t0c.stderr
+        check(t0c.returncode == 0,
+              f"unmapped T0 batch exited rc={t0c.returncode}; "
+              f"output:\n{t0c_out}")
+        t0c_unit = gates_dir / "T0-unit.invocations"
+        if t0c_unit.exists():
+            body = t0c_unit.read_text()
+            check("-R '.'" in body,
+                  "the conservative round must select everything with "
+                  f"-R '.': {body!r}")
+            check("-E 'e2e_runner_timing_gate|mnist_mlp_compile|"
+                  "perf_stub_compile|perf_stub_run'" in body,
+                  "the conservative round must exclude both stub-table "
+                  "slow names plus the perf set (nothing is mapped back, "
+                  "so print-slow runs without --keep-matched and keeps "
+                  f"the whole slow set): {body!r}")
+        else:
+            check(False, "stub gate.sh never received the conservative "
+                  "T0-unit batch leg")
+
         # Tier reuse: T2's copies of the shared ctest legs must NOT carry
         # the slow-set -E (the close-out sweep covers those entries),
         # while T1's own assembly does (t1_legs' slow_e parameter). The

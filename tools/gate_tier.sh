@@ -405,7 +405,7 @@ t0() {
     impact_args=("${CHANGED_PATHS[@]}")
   fi
   [ ${#impact_args[@]} -gt 0 ] || { echo "T0: no changed paths"; return 2; }
-  local map rc unit_regex e2e_regex
+  local map rc unit_regex e2e_regex keep_regex=""
   map=$("$PY" -I "$REPO/tools/test_impact.py" \
       "$REPO/tools/test_families.txt" "${impact_args[@]}")
   rc=$?
@@ -416,16 +416,24 @@ t0() {
     unit_regex="."
   elif [ $rc -ne 0 ]; then
     echo "T0: impact mapping failed rc=$rc"; return 2
+  else
+    keep_regex="$unit_regex"
   fi
   if [ -n "$unit_regex" ]; then
     # Slow-set exclusion (D-7): print-slow owns the membership and the
-    # F-12 backfill subtraction, so the mapping regex goes to it
-    # verbatim -- an entry both mapped and slow must stay in the round
-    # through -R, not vanish under -E (ctest -E beats -R). The
-    # conservative `.` fallback subtracts the whole slow set, which is
-    # right: that round already runs everything.
+    # F-12 backfill subtraction, but the -R selector and the regex fed
+    # to it are two different values (R-53). Mapped round: the mapping
+    # regex goes to print-slow verbatim, so an entry both mapped and
+    # slow stays in the round through -R instead of vanishing under -E
+    # (ctest -E beats -R). Unmapped conservative round: the selector is
+    # "." -- everything -- and nothing needs mapping back, so NO
+    # --keep-matched goes out: "." re.search-hits every slow entry and
+    # would empty the subtraction, running the slow entries inside the
+    # fast round (the 466 s timing gate with its load-induced false
+    # red). Without the flag print-slow keeps the whole slow set, the
+    # same exclusion the full-scan T1 unit legs carry.
     local slow_unit
-    slow_unit=$(slow_regex ctest-Debug "$unit_regex") \
+    slow_unit=$(slow_regex ctest-Debug "$keep_regex") \
         || { echo "T0: print-slow failed"; return 2; }
     ctest_leg T0-unit "$MASTER_TREE" ctest-Debug "$unit_regex" "$slow_unit"
   fi
