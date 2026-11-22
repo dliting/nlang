@@ -561,6 +561,10 @@ err_for_head_out_of_scope compile_error Cannot resolve the field: i
 err_for_head_duplicate_declarator compile_error local 'i' is already declared in this scope
 # --- 0.13.10 Task 10: displays in generic context (composed instantiation rows) ---
 lambda_generic_capture 0
+# --- 0.13.10 Task 11: lambda family closeout (ref returns, const capture) ---
+lambda_ref_return 0
+lambda_ref_chain 0
+err_lambda_const_capture_assign compile_error cannot assign to const local "k".
 err_lambda_this_in_static compile_error this is not available in a static method.
 # --- P3.8: lock class field default values (int/float/string/class-ref) ---
 class_field_defaults 7

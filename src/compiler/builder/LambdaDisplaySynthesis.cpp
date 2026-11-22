@@ -388,6 +388,30 @@ void CapturePass::RebuildLambdaFormals(SnLambdaExpr &lambda,
 	}
 }
 
+//The synthesized method's return type: born-resolved from the expected
+//func type's return row (null for void), with the & mark mirrored from
+//the instantiation's ref-flag row (Task 11, spec 3.3): the emission
+//gates the byref return channel on the return type expr's NF_Ref
+//(GenerateFunction's bDeclaredReturnRef → EmitMakeRef instead of a
+//value copy), and the parser-side & lives in the ref-flag row
+//([0] = return, i + 1 = params — the same row FillLambdaParams reads),
+//not in the type row itself. RebuildLambdaFormals plays the same
+//mirror for the parameter side.
+static SnFieldExpr *SynthLambdaReturnType(SnClassDecl &funcDecl,
+	const ISourceLocation &loc)
+{
+	SnField *pRetRow = funcDecl.GenericTypeArgs()[0];
+	if (pRetRow->Kind() == NK_Void)
+		return nullptr;
+	auto *pRetExpr = dynamic_cast<SnFieldExpr *>(
+		SynthBornResolvedTypeExpr(pRetRow, loc));
+	NLANG_ASSERT(pRetExpr);
+	const auto &refFlags = funcDecl.GenericRefFlags();
+	if (!refFlags.empty() && refFlags[0])
+		pRetExpr->AddFlags(NF_Ref);
+	return pRetExpr;
+}
+
 //One lambda's synthetic method: formals rebuilt, the body MOVED in
 //(block bodies directly; expression bodies wrapped in a synthesized
 //return), the display class and method published back onto the lambda.
@@ -400,13 +424,10 @@ void CapturePass::SynthLambdaMethod(LambdaSite &site, DisplayScope &scope,
 	auto *pFuncRow = lambda.EvalDataType();
 	auto *pFuncDecl = dynamic_cast<SnClassDecl *>(pFuncRow);
 	NLANG_ASSERT(pFuncDecl && pFuncDecl->IsFuncType());
-	const auto &typeArgs = pFuncDecl->GenericTypeArgs();
-	NLANG_ASSERT(typeArgs.size() == lambda.ParamLocals().size() + 1);
-	SnField *pRetRow = typeArgs[0];
-	const bool bVoidReturn = pRetRow->Kind() == NK_Void;
-	auto *pRetExpr = bVoidReturn
-		? nullptr : dynamic_cast<SnFieldExpr *>(
-			SynthBornResolvedTypeExpr(pRetRow, loc));
+	NLANG_ASSERT(pFuncDecl->GenericTypeArgs().size()
+		== lambda.ParamLocals().size() + 1);
+	auto *pRetExpr = SynthLambdaReturnType(*pFuncDecl, loc);
+	const bool bVoidReturn = pRetExpr == nullptr;
 
 	UniquePtrList<SnFormalParam> upParams;
 	RebuildLambdaFormals(lambda, loc, upParams);

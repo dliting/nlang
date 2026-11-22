@@ -214,19 +214,20 @@ void VmBackend::EmitCapturedMakeRef(uint16_t dstOffset,
     }
     auto* pType = pTarget->EvalDataType();
     NLANG_ASSERT(pType != nullptr);
-    if (IsPrimitiveType(pType->Kind()) || pType->Kind() == NK_EnumDecl)
-        throw std::runtime_error(
-            "NLang backend: scalar reference argument on an "
-            "un-promoted capture (promotion marking missed): " +
-            idExpr.Name() + " in " + m_currFunc->func->name);
-    //Struct/class/array value capture: the field-bind throat pairs the
-    //record the cell names (or the handle — equivalent notation).
+    //Value capture (Task 11, spec 3.3): the display field cell IS the
+    //variable's storage — the capture model heap-anchors it — so the
+    //pair names that cell outright. No promotion is owed: promotion
+    //exists to give FRAME slots stable addresses, while the display
+    //instance already outlives the frame by construction (a &-returning
+    //lambda's returns reach here without a body-level & binding to
+    //trigger the analysis-side promotion). The shared throat picks the
+    //pair shape (scalar/string/enum cells vs the record handle).
     //base == scratch is legal: the Record arm's LoadField reads before
     //it writes.
     EvalAreaClaim claim(*this, 1);
     uint16_t cellSlot = claim.base();
     EmitCaptureCellLoad(cellSlot, target, pTarget, emitter);
-    EmitFieldRefBind(pTarget->EvalDataType(), dstOffset, cellSlot,
+    EmitFieldRefBind(pType, dstOffset, cellSlot,
         target.fieldOff / kHeapCellBytes, cellSlot, emitter);
 }
 
