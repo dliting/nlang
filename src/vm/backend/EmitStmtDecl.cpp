@@ -73,8 +73,10 @@ uint16_t VmBackend::EmitLocalDeclaratorStorage(SnLocalDeclStmt& decl,
         typeKind = ByrefSlotKindOfType(evalType);
     else if (bPromoted)
         typeKind = RTK_Promoted;
-    uint16_t offset = AllocLocal(local.name, kFrameSlotBytes, typeKind,
-        false);
+    //0.13.10 Task 9: the slot keys on the declaration descriptor, not
+    //the name — a shadowed outer binding keeps its own storage (for-head
+    //declarators arrive here through the for-init declaration emission).
+    uint16_t offset = AllocDeclSlot(pDeclNode, local.name, typeKind);
     if (bPromoted) {
         EmitPromotedDeclStorage(offset, evalType, emitter);
         return offset;

@@ -92,9 +92,12 @@ static SnField *InferBracketElemType(SnInitListExpr &sn,
     return pElem;
 }
 
-//Bare form with a parent-supplied target: bIsArray keeps the
-//declaration-side signal (IsArrayType()); the type slot carries the
-//interned token for array variables, peeled to the element below.
+//Bare form with a parent-supplied target: the ROW is the canonical
+//witness of array-ness (token or Array<E> row — the dual-spelling
+//twin); the declaration/expression claims derive from the same row,
+//so formals, substituted leaves, local descriptors and plain rows
+//all agree through one channel. The type slot carries the interned
+//token for array variables, peeled to the element below.
 //0.7.3 B token path: an array-typed LHS carries the interned token;
 //the init-list's per-entry element gate consumes the ELEMENT (the node
 //itself keeps the interned token — Access stores it at the creation point,
@@ -102,8 +105,8 @@ static SnField *InferBracketElemType(SnInitListExpr &sn,
 static void ResolveInferredTarget(SnField *pInferred,
     SnField* &pTargetField, bool &bIsArray)
 {
-    bIsArray = pInferred->IsArrayType();
     pTargetField = pInferred->EvalDataType();
+    bIsArray = pTargetField && pTargetField->IsArrayType();
     if (pTargetField
         && pTargetField->Kind() == NK_ArrayTypeToken)
     {

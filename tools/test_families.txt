@@ -40,5 +40,17 @@ family concurrency src src/vm/VmDomainLocks.h
 family concurrency unit thread|conc|domainlock|carrier|work_pool|gcworldstop
 family concurrency e2e ^(conc_|carrier|thread|atomic|sync|selectany)
 
+# 0.13.10: the lambda capture pipeline (analysis, display synthesis,
+# captured-storage emission). The loop-head activation twins live in
+# EmitStmtForeach/EmitStmtFlow — those files stay unmapped so their
+# edits fall back to the conservative full Debug unit suite.
+family capture src src/vm/backend/EmitCapture.cpp
+family capture src src/vm/backend/EmitCaptureStorage.cpp
+family capture src src/compiler/builder/LambdaCaptureAnalysis.cpp
+family capture src src/compiler/builder/LambdaCaptureClassify.cpp
+family capture src src/compiler/builder/LambdaDisplaySynthesis.cpp
+family capture unit lambda|display_capture|promote_local
+family capture e2e ^lambda_|^err_for_head_|^err_lambda
+
 ignore docs/**
 ignore temp/**

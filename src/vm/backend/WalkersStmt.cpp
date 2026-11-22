@@ -189,6 +189,19 @@ uint16_t VmBackend::ForStmtPeakDepth(SnStatement& stmt,
     //Claim 1 stages the condition (codegen, round-9).
     if (forStmt.Cond()) { uint16_t cd = 1 + ExprPeakDepth(*forStmt.Cond(), visited); if (cd > d) d = cd; }
     if (forStmt.Fini()) { uint16_t fd = StmtPeakDepth(*forStmt.Fini(), visited); if (fd > d) d = fd; }
+    //0.13.10 Task 9: the back-edge display activation claims one eval
+    //slot per captured loop-head local to carry the old display's
+    //values into the fresh instance (EmitLoopDisplayActivation). The
+    //grammar wraps every loop body in a paragraph (WrapLoopBody), so
+    //the assert-bearing accessor replaces the old silent kind check.
+    {
+        SnParagraph& body = *forStmt.BodyParagraph();
+        if (body.HasCapturedLoopHeads()) {
+            uint16_t ad = static_cast<uint16_t>(
+                body.CapturedLoopHeads().size());
+            if (ad > d) d = ad;
+        }
+    }
     if (forStmt.Body()) { uint16_t bd = StmtPeakDepth(*forStmt.Body(), visited); if (bd > d) d = bd; }
     return d;
 }
@@ -226,6 +239,25 @@ uint16_t VmBackend::SwitchStmtPeakDepth(SnStatement& stmt,
 }
 
 //NK_ForeachStmt arm of StmtPeakDepth.
+//0.13.10 Task 9 review fix: value-flavor struct heads deep-copy into the
+//fresh display's born record through EmitStructAwareStoreField, whose
+//tail claims one staging slot inside the activation window. Shared by
+//the for/foreach walkers (walker/codegen symmetry).
+bool VmBackend::LoopHeadUsesStructTail(SnParagraph& loopBody) const
+{
+    for (auto* pHead : loopBody.CapturedLoopHeads()) {
+        auto* pDisplayField = CapturedDisplayFieldOf(pHead);
+        if (!pDisplayField || pDisplayField->ContainFlags(NF_Ref)
+            || pDisplayField->ContainFlags(NF_Promoted))
+            continue;
+        auto* pType = pDisplayField->EvalDataType();
+        if (pType && RuntimeTypeKind(pType) == RTK_Struct
+            && pType->Kind() == NK_StructDecl)
+            return true;
+    }
+    return false;
+}
+
 uint16_t VmBackend::ForeachStmtPeakDepth(SnStatement& stmt,
     const std::unordered_set<SnFunction*>& visited) {
     auto& fe = static_cast<SnForeachStmt&>(stmt);
@@ -234,6 +266,12 @@ uint16_t VmBackend::ForeachStmtPeakDepth(SnStatement& stmt,
         uint16_t bd = StmtPeakDepth(*fe.Body(), visited);
         if (bd > d) d = bd;
     }
+    //0.13.10 Task 9 review fix: the head copies' struct-aware tail
+    //claims one staging slot when a value-flavor struct head deep-copies
+    //into the display's born record (the activation itself claims
+    //nothing — foreach re-derives heads from the iterator each pass).
+    if (LoopHeadUsesStructTail(*fe.BodyParagraph()) && d < 1)
+        d = 1;
     return d;
 }
 

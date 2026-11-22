@@ -219,12 +219,20 @@ public:
 	virtual bool IsDataExpr() const override;
 
 	//Is this expression an array type (e.g. int[] or T[])?
-	//Subclasses representing array types override this to return true.
-	//This is the polymorphic hook used by SnField subclasses (via their
-	//m_pType pointer) to forward IsArrayType queries.
+	//DERIVED from the resolved row (0.13.10): a type expression is
+	//array-typed when the row it binds to is — the interned token or
+	//the Array<E> instantiation row, either spelling of the one array
+	//type (the v0.12.7 dual-spelling twin, once per-subclass). A
+	//NAME leaf bound to an array row (a substituted generic formal's
+	//clone, an imported stub's leaf, an array alias) answers through
+	//the same channel as a spelled Array<E>; the syntactic bracket
+	//spelling keeps its own override for the pre-resolution window.
+	//Value expressions never enter this channel — they answer
+	//IsArrayValued() below.
 	virtual bool IsArrayType() const
 	{
-		return false;
+		SnField* pResolved = Field();
+		return pResolved && pResolved->IsArrayType();
 	}
 
 	static SnFieldExpr::FieldChecker& DataTypeChecker();
@@ -678,6 +686,9 @@ public:
 		return m_Rank;
 	}
 
+	//The bracket spelling IS array syntax — true even before Field()
+	//binds (the derived base predicate answers false in that window;
+	//declaration-side gates may ask before resolution completes).
 	bool IsArrayType() const override
 	{
 		return true;
@@ -719,14 +730,10 @@ public:
 		return *m_upTypeArgs;
 	}
 
-	//v0.12.7: Array<E> is the array type's generic spelling — an array
-	//type expression once resolved (the declaration-side IsArrayType
-	//hook that SnDataField and the field walks forward to).
-	bool IsArrayType() const override
-	{
-		SnField* pResolved = Field();
-		return pResolved && ArrayInstantiationElem(pResolved) != nullptr;
-	}
+	//v0.12.7: Array<E> is the array type's generic spelling — its
+	//array-ness derives from the resolved row through the base-class
+	//predicate (once a per-class override here; folded 0.13.10 so every
+	//leaf shape answers through the one channel).
 
 	void Accept(ISyntaxNodeVisitor &) override;
 

@@ -2,10 +2,13 @@
     EmitCapture.cpp — 0.13.10 Task 6: lambda capture emission, frame
     machinery half. The display-instance frame prologue halves, the
     receiver redirect for synthetic capture frames, the chased-cell
-    load/store helpers, the captured identifier reads, and the lambda
-    literal's OP_MakeBoundFunc emission. The storage mutation arms
+    load/store helpers, the captured identifier reads, and the loop
+    display activation family (per-iteration freshness, Major-3 lift:
+    flavor-dispatched head carry). The storage mutation arms
     (assign / compound / reference binding / declarator) live in
-    EmitCaptureStorage.cpp. The analysis
+    EmitCaptureStorage.cpp; the synthetic frame's own two moments
+    (captured-formal prologue copies, the lambda literal) in
+    EmitCaptureFrame.cpp. The analysis
     (builder/LambdaCaptureAnalysis.cpp) synthesized the display classes
     and moved the bodies; this file is everything the back end adds.
 ---*/
@@ -35,17 +38,23 @@ SnClassField* DisplayOwnFieldOf(SnClassDecl& cls, const char* name)
     return nullptr;
 }
 
-//Collect the display-bearing paragraphs of a body subtree in document
-//order. Document order is the frame layout order: a display's parent is
-//always an enclosing paragraph, so the prologue allocates parents before
-//children and the "$outer" init finds its target local already present.
-void CollectDisplayParas(SnParagraph& para, std::vector<SnParagraph*>& out)
+//Collect display-bearing paragraphs from the complete statement subtree,
+//stopping at the frame boundary. Loop and branch bodies sit below their
+//statement nodes rather than directly under the enclosing paragraph, so
+//walking only paragraph children misses their display and leaves the
+//backend without its local slot. A lambda's body emits in its own
+//synthetic frame, so its display paragraphs belong to THAT frame's
+//prologue — descending here would allocate and construct them twice.
+void CollectDisplayParas(Node &node, std::vector<SnParagraph*> &out)
 {
-    if (para.DisplayClass())
-        out.push_back(&para);
-    for (auto& child : para.Children())
-        if (auto* pInner = dynamic_cast<SnParagraph*>(&child))
-            CollectDisplayParas(*pInner, out);
+    if (node.Kind() == NK_LambdaExpr)
+        return;
+    if (auto *pPara = dynamic_cast<SnParagraph*>(&node)) {
+        if (pPara->DisplayClass())
+            out.push_back(pPara);
+    }
+    for (auto &child : node.Children())
+        CollectDisplayParas(child, out);
 }
 
 } //namespace
@@ -218,6 +227,30 @@ void VmBackend::EmitCapturedRead(SnField* field, const BareIdTarget& target,
     emitter.EmitUint16(static_cast<uint16_t>(target.fieldOff));
 }
 
+//Construct one display instance into its frame slot: OP_New plus the
+//"$this"/"$outer" fills a synthesized display carries. Shared by the
+//frame prologue and the per-iteration loop activation — one recipe
+//keeps the two construction sites from drifting apart.
+void VmBackend::EmitDisplayConstruct(SnClassDecl& cls,
+    uint16_t displaySlot, BytecodeEmitter& emitter)
+{
+    emitter.Emit(OpCode::OP_New);
+    emitter.EmitUint16(displaySlot);
+    emitter.EmitUint16(static_cast<uint16_t>(ClassSlotFor(cls)));
+    emitter.EmitUint16(DescriptorIndexFor(cls));
+    const int thisOff = FindClassFieldOffset(cls, "$this");
+    if (thisOff >= 0) {
+        EmitReceiverLoad(m_currFunc->tempSlot, emitter);
+        emitter.Emit(OpCode::OP_StoreField);
+        emitter.EmitUint16(displaySlot);
+        emitter.EmitUint16(static_cast<uint16_t>(thisOff));
+        emitter.EmitUint16(m_currFunc->tempSlot);
+    }
+    const int outerOff = FindClassFieldOffset(cls, "$outer");
+    if (outerOff >= 0)
+        EmitDisplayOuterInit(displaySlot, outerOff, cls, emitter);
+}
+
 //Frame prologue half 1: one display instance per marked paragraph in the
 //body subtree (uniform rule — the body root itself included), allocated
 //under the display class name (RTK_Class gives the slot its GC heap
@@ -227,28 +260,178 @@ void VmBackend::EmitCapturedRead(SnField* field, const BareIdTarget& target,
 void VmBackend::EmitCaptureDisplayPrologue(SnParagraph& body,
     BytecodeEmitter& emitter)
 {
-    std::vector<SnParagraph*> markedParas;
-    CollectDisplayParas(body, markedParas);
-    for (auto* pPara : markedParas) {
+    std::vector<SnParagraph*> displayParas;
+    CollectDisplayParas(body, displayParas);
+    for (auto* pPara : displayParas) {
         auto* pClass = pPara->DisplayClass();
         NLANG_ASSERT(pClass && pClass->ContainFlags(NF_Generated));
+        //The slot is part of the frame layout for every display (the
+        //activation and capture reads route to it by name; a nested
+        //display's "$outer" init looks the parent slot up here too).
         const uint16_t displaySlot = AllocLocal(pClass->Name(),
             kFrameSlotBytes, RTK_Class, false);
-        emitter.Emit(OpCode::OP_New);
-        emitter.EmitUint16(displaySlot);
-        emitter.EmitUint16(static_cast<uint16_t>(ClassSlotFor(*pClass)));
-        emitter.EmitUint16(DescriptorIndexFor(*pClass));
-        const int thisOff = FindClassFieldOffset(*pClass, "$this");
-        if (thisOff >= 0) {
-            EmitReceiverLoad(m_currFunc->tempSlot, emitter);
+        //0.13.10 Task 9 (loop-scoped heads): a loop-owned display skips
+        //pre-construction — the head is scoped to the loop statement, so
+        //nothing before the loop can reference it; the loop's first
+        //activation (the for-init hand-off / foreach entry) constructs
+        //the instance before any body read. The unconstructed slot
+        //reads as the null sentinel until then.
+        if (pPara->LoopActivationOwner() == pPara)
+            continue;
+        EmitDisplayConstruct(*pClass, displaySlot, emitter);
+    }
+}
+
+//Activate all displays owned by one loop body. The old loop display is
+//copied into claim slots before OP_New so a for-loop's fini update becomes
+//the next iteration's starting value without requiring a hidden local for
+//the captured declaration (captured locals intentionally own no frame slot).
+void VmBackend::EmitLoopDisplayActivation(SnParagraph& loopBody,
+    bool linkPrevious, BytecodeEmitter& emitter)
+{
+    std::vector<SnParagraph*> displayParas;
+    CollectDisplayParas(loopBody, displayParas);
+    std::vector<SnParagraph*> owned;
+    for (auto *pPara : displayParas)
+        if (pPara->LoopActivationOwner() == &loopBody)
+            owned.push_back(pPara);
+    if (owned.empty())
+        return;
+
+    //Value carry-over only when this body hosts captured loop heads (the
+    //shared predicate keeps the walker's eval-area mirror in lockstep
+    //with this claim). The claim spans both halves — the construct sits
+    //in between.
+    const bool bLink = linkPrevious && loopBody.HasCapturedLoopHeads();
+    const auto capturedHeads = loopBody.CapturedLoopHeads();
+    EvalAreaClaim linkClaim(*this,
+        bLink ? static_cast<uint16_t>(capturedHeads.size()) : 0);
+    if (bLink)
+        EmitDisplayHeadCarryIn(loopBody, linkClaim.base(), emitter);
+
+    for (auto *pPara : owned) {
+        EmitDisplayConstruct(*pPara->DisplayClass(),
+            FindLocal(pPara->DisplayClass()->Name()), emitter);
+    }
+
+    if (bLink)
+        EmitDisplayHeadCarryOut(loopBody, linkClaim.base(), emitter);
+}
+
+//Link half 1: stage the outgoing display's head values into the claim
+//slots — runs before the OP_New replaces the instance. Only captured
+//heads have display fields; the claim indexes follow the same filtered
+//list as the walker mirror and half 2 below. A promoted head stages
+//the box PAYLOAD (handle deref in place) — the fresh display wraps a
+//new box, so the outgoing iteration's closures and & references keep
+//the old box frozen at its final value.
+void VmBackend::EmitDisplayHeadCarryIn(SnParagraph& loopBody,
+    uint16_t claimBase, BytecodeEmitter& emitter)
+{
+    auto *pRootClass = loopBody.DisplayClass();
+    const uint16_t oldSlot = FindLocal(pRootClass->Name());
+    const auto loopHeads = loopBody.CapturedLoopHeads();
+    for (size_t i = 0; i < loopHeads.size(); ++i) {
+        const int fieldOff = FindClassFieldOffset(*pRootClass,
+            loopHeads[i]->Name());
+        NLANG_ASSERT(fieldOff >= 0);
+        const uint16_t claimSlot =
+            claimBase + static_cast<uint16_t>(i * kFrameSlotBytes);
+        emitter.Emit(OpCode::OP_LoadField);
+        emitter.EmitUint16(claimSlot);
+        emitter.EmitUint16(oldSlot);
+        emitter.EmitUint16(static_cast<uint16_t>(fieldOff));
+        auto *pDisplayField = CapturedDisplayFieldOf(loopHeads[i]);
+        if (pDisplayField && pDisplayField->ContainFlags(NF_Promoted)) {
+            emitter.Emit(OpCode::OP_LoadField);
+            emitter.EmitUint16(claimSlot);
+            emitter.EmitUint16(claimSlot);
+            emitter.EmitUint16(kHeapCellBytes);
+        }
+    }
+}
+
+//Link half 2: store the staged values into the fresh display's fields.
+//A promoted head wraps its staged payload into a FRESH box first —
+// copying the field as-is would share one box across iterations and
+// every closure would observe the tail value (the freshness defect).
+// The claim slot is Dual-classed, so a string payload stays rooted
+// across OP_Box's allocation window.
+void VmBackend::EmitDisplayHeadCarryOut(SnParagraph& loopBody,
+    uint16_t claimBase, BytecodeEmitter& emitter)
+{
+    auto *pRootClass = loopBody.DisplayClass();
+    const uint16_t displaySlot = FindLocal(pRootClass->Name());
+    const auto loopHeads = loopBody.CapturedLoopHeads();
+    for (size_t i = 0; i < loopHeads.size(); ++i) {
+        const int fieldOff = FindClassFieldOffset(*pRootClass,
+            loopHeads[i]->Name());
+        NLANG_ASSERT(fieldOff >= 0);
+        const uint16_t claimSlot =
+            claimBase + static_cast<uint16_t>(i * kFrameSlotBytes);
+        auto *pDisplayField = CapturedDisplayFieldOf(loopHeads[i]);
+        if (pDisplayField && pDisplayField->ContainFlags(NF_Promoted)) {
+            emitter.Emit(OpCode::OP_VarLocal);
+            emitter.EmitUint16(claimSlot);
+            emitter.Emit(OpCode::OP_Box);
+            emitter.EmitByte(BoxTypeTagOfKind(
+                pDisplayField->EvalDataType()->Kind()));
+            emitter.Emit(OpCode::OP_Assign);
+            emitter.EmitUint16(claimSlot);
             emitter.Emit(OpCode::OP_StoreField);
             emitter.EmitUint16(displaySlot);
-            emitter.EmitUint16(static_cast<uint16_t>(thisOff));
-            emitter.EmitUint16(m_currFunc->tempSlot);
+            emitter.EmitUint16(static_cast<uint16_t>(fieldOff));
+            emitter.EmitUint16(claimSlot);
+            continue;
         }
-        const int outerOff = FindClassFieldOffset(*pClass, "$outer");
-        if (outerOff >= 0) {
-            EmitDisplayOuterInit(displaySlot, outerOff, *pClass, emitter);
+        //Reference heads keep the plain 8-byte pair copy — the pair
+        //intentionally aliases its target cell across iterations.
+        //Value-flavor struct heads store through the struct-aware field
+        //store — the plain handle copy aliased ONE record across every
+        //iteration's display. Promotion never applies to structs (the
+        //primitive/enum grant), so the arms are disjoint by construction.
+        if (pDisplayField && !pDisplayField->ContainFlags(NF_Ref)) {
+            EmitStructAwareStoreField(pDisplayField->EvalDataType(),
+                displaySlot, static_cast<uint16_t>(fieldOff), claimSlot,
+                emitter);
+        } else {
+            emitter.Emit(OpCode::OP_StoreField);
+            emitter.EmitUint16(displaySlot);
+            emitter.EmitUint16(static_cast<uint16_t>(fieldOff));
+            emitter.EmitUint16(claimSlot);
+        }
+    }
+}
+
+//Copy a foreach element loaded into its raw loop slot into the active
+//display field. The direct slot write in EmitForeachLoadElement bypasses
+//identifier capture routing, so this is the activation boundary. Struct
+//heads deep-copy into the display's born record — the plain handle copy
+//shared the source record (the container's element), so a write through
+//the closure would corrupt the container.
+void VmBackend::EmitLoopDisplayHeadCopies(SnParagraph& loopBody,
+    BytecodeEmitter& emitter)
+{
+    if (!loopBody.HasCapturedLoopHeads())
+        return;
+    auto *pClass = loopBody.DisplayClass();
+    const uint16_t displaySlot = FindLocal(pClass->Name());
+    for (auto *pHead : loopBody.CapturedLoopHeads()) {
+        const int fieldOff = FindClassFieldOffset(*pClass, pHead->Name());
+        NLANG_ASSERT(fieldOff >= 0);
+        auto *pDisplayField = CapturedDisplayFieldOf(pHead);
+        //Reference heads keep the plain pair copy (the pair aliases its
+        //target cell); value-flavor struct heads deep-copy into the
+        //display's born record.
+        if (pDisplayField && !pDisplayField->ContainFlags(NF_Ref)) {
+            EmitStructAwareStoreField(pDisplayField->EvalDataType(),
+                displaySlot, static_cast<uint16_t>(fieldOff),
+                DeclSlotOf(pHead, pHead->Name()), emitter);
+        } else {
+            emitter.Emit(OpCode::OP_StoreField);
+            emitter.EmitUint16(displaySlot);
+            emitter.EmitUint16(static_cast<uint16_t>(fieldOff));
+            emitter.EmitUint16(DeclSlotOf(pHead, pHead->Name()));
         }
     }
 }
@@ -277,89 +460,6 @@ void VmBackend::EmitDisplayOuterInit(uint16_t displaySlot, int outerOff,
     emitter.EmitUint16(displaySlot);
     emitter.EmitUint16(static_cast<uint16_t>(outerOff));
     emitter.EmitUint16(parentSlot);
-}
-
-//Frame prologue half 2: captured formals copy from their frame slots
-//into the display fields (the analysis mirrored each capture onto the
-//rebuilt formal). Flavor dispatch: a promoted formal wraps the raw
-//argument into the box the field owns (the frame slot keeps the raw
-//value, dead after the copy); a reference formal's pair is an 8-byte
-//cell copy; a value formal goes through the struct-aware store (in
-//place for struct-typed captures, born records from OP_New).
-void VmBackend::EmitCapturedFormalCopies(SnFunction& func,
-    BytecodeEmitter& emitter)
-{
-    for (auto& param : func.Params()) {
-        if (!param.ContainFlags(NF_Captured))
-            continue;
-        EmitCapturedFormalCopy(param, emitter);
-    }
-}
-
-//One captured formal's prologue copy (EmitCapturedFormalCopies' body —
-//one flavor dispatch per parameter).
-void VmBackend::EmitCapturedFormalCopy(SnFormalParam& param,
-    BytecodeEmitter& emitter)
-{
-    auto* pDisplayField = CapturedDisplayFieldOf(&param);
-    auto* pDisplayClass = static_cast<SnClassDecl*>(
-        pDisplayField->Parent());
-    const uint16_t displaySlot = FindLocal(pDisplayClass->Name());
-    const int fieldOff = FindClassFieldOffset(*pDisplayClass,
-        pDisplayField->Name());
-    NLANG_ASSERT(fieldOff >= 0);
-    const uint16_t paramSlot = FindLocal(param.Name());
-    if (param.ContainFlags(NF_Promoted)) {
-        //VarLocal; Box; park the handle in the shared temp — no
-        //nested emission between (the temps' two-op contract); the
-        //raw value in the param slot rides its kind's heap GC arm
-        //across the Box allocation (over-mark, same argument as
-        //EmitPromotedValueWrap).
-        emitter.Emit(OpCode::OP_VarLocal);
-        emitter.EmitUint16(paramSlot);
-        emitter.Emit(OpCode::OP_Box);
-        emitter.EmitByte(BoxTypeTagOfKind(
-            param.EvalDataType()->Kind()));
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(m_currFunc->tempSlot);
-        emitter.Emit(OpCode::OP_StoreField);
-        emitter.EmitUint16(displaySlot);
-        emitter.EmitUint16(static_cast<uint16_t>(fieldOff));
-        emitter.EmitUint16(m_currFunc->tempSlot);
-    } else if (param.ContainFlags(NF_Ref)) {
-        emitter.Emit(OpCode::OP_StoreField);
-        emitter.EmitUint16(displaySlot);
-        emitter.EmitUint16(static_cast<uint16_t>(fieldOff));
-        emitter.EmitUint16(paramSlot);
-    } else {
-        EmitStructAwareStoreField(pDisplayField->EvalDataType(),
-            displaySlot, static_cast<uint16_t>(fieldOff), paramSlot,
-            emitter);
-    }
-}
-
-//Lambda literal: bind the anchor display instance (a frame local under
-//the display class name — the anchor paragraph is always inside the
-//literal's own emission frame) and the synthetic method into a delegate
-//handle — the EmitMemberFuncHandleRef shape (receiver-first, pResult
-//refresh, OP_MakeBoundFunc, assign).
-void VmBackend::Access(SnLambdaExpr& expr) {
-    BytecodeEmitter& emitter = *m_pCurrEmitter;
-    uint16_t resultOffset = m_resultOffset;
-    auto* pDisplay = expr.DisplayClass();
-    auto* pMethod = expr.SyntheticMethod();
-    NLANG_ASSERT(pDisplay && pDisplay->ContainFlags(NF_Generated)
-        && pMethod && "lambda literal without its synthesis write-backs");
-    const uint16_t displaySlot = FindLocal(pDisplay->Name());
-    emitter.Emit(OpCode::OP_VarLocal);
-    emitter.EmitUint16(displaySlot);
-    emitter.Emit(OpCode::OP_Assign);
-    emitter.EmitUint16(resultOffset);
-    EmitPResultRefresh(emitter, resultOffset);
-    emitter.Emit(OpCode::OP_MakeBoundFunc);
-    emitter.EmitUint16(static_cast<uint16_t>(FunctionSlotFor(*pMethod)));
-    emitter.Emit(OpCode::OP_Assign);
-    emitter.EmitUint16(resultOffset);
 }
 
 } //namespace nlang

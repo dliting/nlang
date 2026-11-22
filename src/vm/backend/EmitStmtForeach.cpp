@@ -188,8 +188,10 @@ void VmBackend::EmitForeachIndexed(SnForeachStmt& fe, bool isArray,
         emitter.EmitUint16(slots.iSlot);
         size_t loopStart = EmitForeachLoopHead(slots.iSlot, slots.nSlot,
             emitter, !isArray, slots.iterSlot);
+        EmitLoopDisplayActivation(*fe.BodyParagraph(), false, emitter);
         EmitForeachLoadElement(isArray, pElemType, elemKind,
             elemBox, bRefLoop, bPromotedVar, slots, emitter);
+        EmitLoopDisplayHeadCopies(*fe.BodyParagraph(), emitter);
         EmitStatement(*fe.Body(), emitter);
         EmitForeachLoopTail(loopStart, slots.iSlot, emitter);
         return;
@@ -217,9 +219,10 @@ VmBackend::ForeachSlots VmBackend::AllocForeachLocals(SnForeachStmt& fe,
     const uint8_t userVarKind = bRefLoop ? refVarKind
         : (fe.ContainFlags(NF_Promoted)
             ? static_cast<uint8_t>(RTK_Promoted) : elemKind);
-    slots.userVarSlot = AllocLocal(fe.VarName(), kFrameSlotBytes,
-        userVarKind,
-        false);
+    //0.13.10 Task 9: the loop-var slot keys on the published descriptor
+    //so a shadowed outer binding keeps its own storage (AllocDeclSlot).
+    slots.userVarSlot = AllocDeclSlot(fe.VarLocal(), fe.VarName(),
+        userVarKind);
     //Array iter is RTK_Array; List and Dict-via-Keys are RTK_Class.
     uint8_t iterKind = isArray
         ? static_cast<uint8_t>(RTK_Array)

@@ -1,0 +1,8 @@
+//0.13.10 Task 9 review fix: same-name declarators in one for-init reject
+//like a plain declaration statement — a silent second head would displace
+//the first in the paragraph swap and leak past the loop's restore.
+int main() {
+    for (int i = 0, i = 5; i < 3; i = i + 1) {
+    }
+    return 0;
+}

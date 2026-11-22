@@ -168,6 +168,7 @@ add_library(nlang_compiler
     builder/ClassFieldInitializerInjection.cpp
     builder/StaticInitSynthesis.cpp
     builder/LambdaCaptureAnalysis.cpp
+    builder/LambdaCaptureClassify.cpp
     builder/LambdaDisplaySynthesis.cpp
     builder/ModuleRegistry.cpp
     builder/ModuleRegistryGate.cpp

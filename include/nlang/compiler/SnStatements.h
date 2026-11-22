@@ -8,6 +8,7 @@
 #include <memory>
 #include <vector>
 #include <map>
+#include <algorithm>
 
 namespace nlang
 {
@@ -150,6 +151,15 @@ public:
 	//Find a local variable by name.
 	SnField *FindLocal(const std::string &sName) const;
 
+	//0.13.10 Task 9 (loop-scoped heads): a loop-head declaration scopes
+	//to its statement — it registers into the enclosing map (name lookup
+	//walks parent chains, and the loop header expressions are not inside
+	//the body paragraph), shadowing any outer binding. The resolver
+	//restores the map when the loop's subtree is done: the displaced
+	//binding comes back, or the name disappears when there was none.
+	SnField *SwapLocal(const std::string &sName, SnField *pField);
+	void RestoreLocal(const std::string &sName, SnField *pPrevious);
+
 	//Capture promotion (0.13.10): the synthesized display class holding
 	//this paragraph's captured locals (and the lambdas anchored here),
 	//or null when nothing in this paragraph is captured.
@@ -163,6 +173,59 @@ public:
 		m_pDisplayClass = pClass;
 	}
 
+	//0.13.10 Task 9: this paragraph is activated once per loop
+	//iteration. The owner is the loop body paragraph itself for the
+	//nearest enclosing loop; nested paragraphs inherit that owner until
+	//an inner loop supplies a new one.
+	SnParagraph *LoopActivationOwner() const
+	{
+		return m_pLoopActivationOwner;
+	}
+
+	void SetLoopActivationOwner(SnParagraph *pOwner)
+	{
+		m_pLoopActivationOwner = pOwner;
+	}
+
+	void AddLoopHeadLocal(SnField *pLocal)
+	{
+		if (std::find(m_loopHeadLocals.begin(), m_loopHeadLocals.end(),
+			pLocal) == m_loopHeadLocals.end())
+			m_loopHeadLocals.push_back(pLocal);
+	}
+
+	const std::vector<SnField *> &LoopHeadLocals() const
+	{
+		return m_loopHeadLocals;
+	}
+
+	//0.13.10 Task 9: the loop-head locals this body actually hosts in
+	//its per-iteration display — the subset stamped NF_Captured by the
+	//capture synthesis (registration in the analysis walk records every
+	//head, captured or not, because the stamps land after the walk).
+	//Uncaptured heads keep plain declaration slots: no display field
+	//exists for them, so the carry/copy emitters must never reach them.
+	std::vector<SnField *> CapturedLoopHeads() const
+	{
+		std::vector<SnField *> captured;
+		for (auto *pHead : m_loopHeadLocals)
+			if (pHead->ContainFlags(NF_Captured))
+				captured.push_back(pHead);
+		return captured;
+	}
+
+	//0.13.10 Task 9: this loop body hosts captured loop-head locals in
+	//its per-iteration display. The single predicate behind the for
+	//back-edge value carry-over, the foreach raw-slot copy, and the
+	//walker's eval-area claim mirror — one definition keeps the sites
+	//from drifting apart. (Loop-body display activation itself needs no
+	//predicate: the emitter's owner-filtered walk answers it.)
+	bool HasCapturedLoopHeads() const
+	{
+		return LoopActivationOwner() == this
+			&& !CapturedLoopHeads().empty();
+	}
+
 	std::string ToString() const override;
 
 	SnField *FindField(const std::string& sName) const override;
@@ -174,6 +237,8 @@ private:
 	std::unique_ptr<SnStatementList> m_upStatements;
 	std::map<std::string, SnField*> m_Locals;
 	SnClassDecl *m_pDisplayClass = nullptr;
+	SnParagraph *m_pLoopActivationOwner = nullptr;
+	std::vector<SnField *> m_loopHeadLocals;
 };
 
 //The syntax node represent a "return" statement.
@@ -468,6 +533,14 @@ public:
 	SnExpression *Cond() const { return m_pCond; }
 	SnStatement *Body() const { return m_pBody; }
 
+	//The grammar normalizes every loop body to a paragraph (the
+	//WrapLoopBody single production point in nlang.y). Shape
+	//consumers — capture analysis, display activation — read the
+	//body through this assert-bearing accessor so a production
+	//that bypasses the wrap fails loudly here instead of silently
+	//skipping capture machinery.
+	SnParagraph *BodyParagraph() const;
+
 	std::string ToString() const override;
 	SnField *FindField(const std::string& sName) const override;
 	void Accept(nlang::ISyntaxNodeVisitor&) override;
@@ -492,6 +565,10 @@ public:
 
 	SnExpression *Cond() const { return m_pCond; }
 	SnStatement *Body() const { return m_pBody; }
+
+	//Loop bodies are paragraphs by grammar construction — see
+	//SnWhileStmt::BodyParagraph.
+	SnParagraph *BodyParagraph() const;
 
 	std::string ToString() const override;
 	SnField *FindField(const std::string& sName) const override;
@@ -522,6 +599,10 @@ public:
 	SnExpression *Cond() const { return m_pCond; }
 	SnStatement *Fini() const { return m_pFini; }
 	SnStatement *Body() const { return m_pBody; }
+
+	//Loop bodies are paragraphs by grammar construction — see
+	//SnWhileStmt::BodyParagraph.
+	SnParagraph *BodyParagraph() const;
 
 	//Decomposition extras: AssignStmts from init LocalDeclStmt decomposition.
 	//The child list contains the decomposed AssignStmts.
@@ -562,6 +643,17 @@ public:
 	SnExpression *Iterable() const { return m_pIterable; }
 	SnStatement *Body() const { return m_pBody; }
 
+	//Loop bodies are paragraphs by grammar construction — see
+	//SnWhileStmt::BodyParagraph.
+	SnParagraph *BodyParagraph() const;
+
+	//0.13.10 Task 9 (loop-scoped heads): the loop variable's descriptor.
+	//The resolver publishes it here — the swap/restore of the paragraph
+	//map means the capture analysis cannot recover it by name lookup
+	//after resolution finishes.
+	SnLocalVar *VarLocal() const { return m_pVarLocal; }
+	void SetVarLocal(SnLocalVar *pLocal) { m_pVarLocal = pLocal; }
+
 	std::string ToString() const override;
 	SnField *FindField(const std::string& sName) const override;
 	void Accept(nlang::ISyntaxNodeVisitor&) override;
@@ -571,6 +663,7 @@ private:
 	std::string   m_varName;
 	SnExpression *m_pIterable;
 	SnStatement  *m_pBody;
+	SnLocalVar   *m_pVarLocal = nullptr;
 };
 
 /*
@@ -688,6 +781,13 @@ public:
 	const std::string& VarName() const { return m_sVarName; }
 	SnStatement *Body() const { return m_pBody; }
 
+	//0.13.10 Task 9 (declaration-keyed storage): the catch variable's
+	//descriptor. The resolver publishes it here — the clause registers
+	//the name into the catch body's own paragraph, so the backend cannot
+	//recover the binding by name lookup after resolution finishes.
+	SnLocalVar *VarLocal() const { return m_pVarLocal; }
+	void SetVarLocal(SnLocalVar *pLocal) { m_pVarLocal = pLocal; }
+
 	std::string ToString() const override;
 	SnField *FindField(const std::string& sName) const override;
 	void Accept(nlang::ISyntaxNodeVisitor&) override;
@@ -697,6 +797,7 @@ private:
 	SnFieldExpr *m_pType;
 	std::string m_sVarName;
 	SnStatement *m_pBody;
+	SnLocalVar *m_pVarLocal = nullptr;
 	std::unique_ptr<ImmutableNodeList> m_upChildren;
 };
 

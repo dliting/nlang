@@ -153,34 +153,18 @@ bool ParseArrayArgRange(const std::string& s, size_t begin, size_t end,
 	return true;
 }
 
-//Leaf arm: scalar keyword, string, or a link key resolved against the
-//linked module's tables (struct/class/enum; enums are int32 at runtime
-//and the spelling keeps the enum name). 0.13.8 item 8: descriptor
-//spellings carry the qualified link identity, so a class leaf resolves
-//through the bare-or-unique-suffix bridge — plain-class spellings are
-//exact table keys (module-qualified outside the prelude), while a
-//qualified generic-template spelling lands on its erasure-bare row
-//through the bridge's dotted-input strip (0.13.8 item 8: the row-key
-//space keys templates by the bare BaseName). An unresolved key is a
-//corrupt image and throws — the old silent rowRef -1 forged identity.
-void ResolveLeafArg(const std::string& leaf, const CompiledModule& module,
-	TypeArgDesc& out)
+//Table-resolution tail of ResolveLeafArg: the link-key families
+//(struct/class/enum/interface). Spellings carry the qualified link
+//identity, so a class leaf resolves through the bare-or-unique-suffix
+//bridge — plain-class spellings are exact table keys (module-qualified
+//outside the prelude), while a qualified generic-template spelling
+//lands on its erasure-bare row through the bridge's dotted-input strip
+//(0.13.8 item 8: the row-key space keys templates by the bare
+//BaseName). An unresolved key is a corrupt image and throws — the old
+//silent rowRef -1 forged identity.
+void ResolveLinkKeyLeaf(const std::string& leaf,
+	const CompiledModule& module, TypeArgDesc& out)
 {
-	out.spelling = leaf;
-	out.rowRef = -1;
-	for (size_t pi = 0; pi < kScalarPrimCount; ++pi)
-	{
-		if (leaf == kScalarPrims[pi].name)
-		{
-			out.resolvedKind = kScalarPrims[pi].rtk;
-			return;
-		}
-	}
-	if (leaf == "string")
-	{
-		out.resolvedKind = RTK_String;
-		return;
-	}
 	if (int idx = module.FindStruct(leaf); idx >= 0)
 	{
 		out.resolvedKind = RTK_Struct;
@@ -208,6 +192,39 @@ void ResolveLeafArg(const std::string& leaf, const CompiledModule& module,
 		throw std::runtime_error(
 			"corrupt descriptor spelling: unresolved link key '"
 			+ leaf + "'");
+}
+
+//Leaf arm: scalar keyword, string, the void keyword (func<void>'s
+//return slot), or a link key resolved against the linked module's
+//tables (struct/class/enum; enums are int32 at runtime and the
+//spelling keeps the enum name).
+void ResolveLeafArg(const std::string& leaf, const CompiledModule& module,
+	TypeArgDesc& out)
+{
+	out.spelling = leaf;
+	out.rowRef = -1;
+	for (size_t pi = 0; pi < kScalarPrimCount; ++pi)
+	{
+		if (leaf == kScalarPrims[pi].name)
+		{
+			out.resolvedKind = kScalarPrims[pi].rtk;
+			return;
+		}
+	}
+	if (leaf == "string")
+	{
+		out.resolvedKind = RTK_String;
+		return;
+	}
+	//The void keyword leaf — func<void>'s return slot (0.13.10 lambda
+	//review). Rowless like the scalar family: a void leaf never walks a
+	//row space, it only rides nested func argument trees.
+	if (leaf == "void")
+	{
+		out.resolvedKind = RTK_Void;
+		return;
+	}
+	ResolveLinkKeyLeaf(leaf, module, out);
 }
 
 //Parse one argument substring into a TypeArgDesc: array, nested

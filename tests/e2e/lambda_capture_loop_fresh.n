@@ -1,0 +1,38 @@
+//0.13.10 Task 9: each for/foreach head declaration gets a fresh
+//captured variable per iteration. The closures are retained after the
+//loop, so a shared display would make every call observe the tail value.
+int checkForCapture() {
+    List<func<int>> funcs = List<func<int>>();
+    for (int i = 0; i < 3; i = i + 1) {
+        funcs.add(() -> i);
+    }
+    func<int> first = funcs.get(0);
+    func<int> second = funcs.get(1);
+    func<int> third = funcs.get(2);
+    return first() + 10 * second() + 100 * third();
+}
+
+int checkForeachCapture() {
+    List<int> values = List<int>();
+    values.add(10);
+    values.add(20);
+    values.add(30);
+    List<func<int>> funcs = List<func<int>>();
+    foreach (int value in values) {
+        funcs.add(() -> value);
+    }
+    func<int> first = funcs.get(0);
+    func<int> second = funcs.get(1);
+    func<int> third = funcs.get(2);
+    return first() + 10 * second() + 100 * third();
+}
+
+int main() {
+    if (checkForCapture() != 210) {
+        return 1;
+    }
+    if (checkForeachCapture() != 3210) {
+        return 2;
+    }
+    return 0;
+}

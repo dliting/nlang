@@ -533,6 +533,28 @@ private:
     //included), then copy captured formals from their frame slots into
     //the display fields. (EmitCapture.cpp.)
     void EmitCaptureDisplayPrologue(SnParagraph& body, BytecodeEmitter& emitter);
+    //Construct one display instance into its frame slot — the shared
+    //recipe behind the frame prologue and the loop activation.
+    void EmitDisplayConstruct(SnClassDecl& cls, uint16_t displaySlot,
+        BytecodeEmitter& emitter);
+    //Loop-body display activation for Task 9: allocate the displays owned
+    //by one iteration, optionally carrying the previous loop-head fields
+    //through an eval-area claim (the two carry halves emit around the
+    //construct).
+    void EmitLoopDisplayActivation(SnParagraph& loopBody,
+        bool linkPrevious, BytecodeEmitter& emitter);
+    void EmitDisplayHeadCarryIn(SnParagraph& loopBody, uint16_t claimBase,
+        BytecodeEmitter& emitter);
+    void EmitDisplayHeadCarryOut(SnParagraph& loopBody, uint16_t claimBase,
+        BytecodeEmitter& emitter);
+    void EmitLoopDisplayHeadCopies(SnParagraph& loopBody,
+        BytecodeEmitter& emitter);
+    //True when any captured loop head stores through the struct-aware
+    //tail during the activation window (EmitStructAwareStoreField's
+    //claim(1)): value-flavor struct heads only — reference heads keep
+    //the plain pair copy and promotion never applies to structs. The
+    //frame-size walkers mirror the claim with this predicate.
+    bool LoopHeadUsesStructTail(SnParagraph& loopBody) const;
     //One display instance's "$outer" field init (the parent display slot
     //or the frame-boundary local 0).
     void EmitDisplayOuterInit(uint16_t displaySlot, int outerOff,
@@ -1822,8 +1844,20 @@ private:
                           const ArgBoxPlan& box,
                           BytecodeEmitter& emitter);
     uint16_t AllocLocal(const std::string& name, uint16_t size,
-                        uint8_t typeKind, bool isParam);
+                        uint8_t typeKind, bool isParam,
+                        const std::string& debugName = std::string());
     uint16_t FindLocal(const std::string& name) const;
+    //0.13.10 Task 9 (declaration-keyed storage): allocate (or return) the
+    //private slot of one published declaration descriptor. A null
+    //descriptor keeps the legacy name-keyed behavior — defensive for
+    //paths that never publish. '$' never appears in user identifiers, so
+    //the suffixed slot name can neither collide with nor silently reuse a
+    //same-named outer slot.
+    uint16_t AllocDeclSlot(const SnField* decl, const std::string& name,
+                           uint8_t typeKind);
+    //Descriptor-first raw-slot read for a loop head; the name-keyed
+    //fallback keeps legacy shapes (no published descriptor) working.
+    uint16_t DeclSlotOf(const SnField* decl, const std::string& name) const;
     uint16_t AddStringConstant(const std::string& s);
 
     //--- Access(SnXExpr) decomposition (2026-09-25 maintainability
@@ -2180,9 +2214,12 @@ private:
                                     uint16_t resultOffset,
                                     BytecodeEmitter& emitter);
 
-    //SnForStmt arms: claim-staged condition + JumpIfNot placeholder
-    //(returns the patch offset), and the shared break/continue patch.
-    size_t EmitForCondition(SnForStmt& forStmt, BytecodeEmitter& emitter);
+    //Loop arms: claim-staged condition + JumpIfNot placeholder (returns
+    //the patch offset — shared by while/do/for), the for init part
+    //(display pre-activation + init + decomposed assigns), and the
+    //shared break/continue patch.
+    size_t EmitLoopCondition(SnExpression& cond, BytecodeEmitter& emitter);
+    void EmitForInitPart(SnForStmt& forStmt, BytecodeEmitter& emitter);
     void EmitLoopExitFixups(size_t breakTarget, size_t continueTarget,
                             BytecodeEmitter& emitter);
 
@@ -2216,6 +2253,10 @@ private:
         int outerHops = 0;          //CaptureField: $outer hops from local 0
     };
     BareIdTarget ResolveBareIdentifier(SnField* field);
+    //Field-first storage channels of ResolveBareIdentifier (static local
+    //module slot, captured display field, declaration-private slot).
+    //True with t filled when one answers.
+    bool TryResolveOwnedStorage(SnField* field, BareIdTarget& t);
     //ThisField arm of ResolveBareIdentifier: the owning class/struct walk
     //with the offset solver (structs flatten, classes walk the chain).
     //True with t filled when the field resolves to instance storage.
@@ -2411,6 +2452,17 @@ private:
         //AllocLocal dedupes by name (VmBackend.cpp:2194); without uniquification,
         //nested foreach loops would collide on __foreach_iter / __foreach_i / __foreach_n.
         uint16_t foreachCounter = 0;
+        //0.13.10 Task 9: storage identity moves from name to declaration.
+        //The flat frame's name-keyed slot reuse aliases shadowed bindings
+        //(loop head vs outer local, nested same-name heads, catch var,
+        //block declarations). Every allocation site that owns a published
+        //descriptor (local declarators incl. for-heads, foreach heads,
+        //catch variables) records descriptor → slot here; the bare-name
+        //routing consults it field-first, the same medicine the static
+        //(v0.12.6) and captured (Task 6) channels already apply.
+        std::unordered_map<const SnField*, uint16_t> localSlotOfDecl;
+        //Per-function counter for the $-suffixed private slot names.
+        uint16_t declSlotCounter = 0;
         //v0.12.7 Task 3: the declared return type of the function being
         //emitted (non-owning; null for void) — the return-boundary rank
         //check reads the annotation from it. Static-init contexts leave

@@ -81,6 +81,28 @@ static SnArrayTypeExpr* MakeArrayTypeND(SnFieldExpr *pElem,
 		rank > kMaxArrayRank ? kMaxArrayRank : rank));
 }
 
+//0.13.10 loop-body normalization: a single-statement loop body
+//behaves exactly like a braced body holding that one statement
+//(the mainstream reading — C#/Go/C++ all scope the embedded
+//statement to the loop), so every loop production wraps its body
+//into a paragraph at this single point. Downstream body-shape
+//consumers — head scoping, capture displays, per-iteration
+//activation — then see one shape instead of branching per site
+//on dynamic_cast and silently skipping the non-block form (the
+//single-statement capture crash). A null body (the warned empty
+//statement ';') becomes an empty paragraph, which the loop
+//constructors' non-null body assertions already require.
+static SnStatement* WrapLoopBody(SnStatement *pBody,
+	const ISourceLocation &loc)
+{
+	if (dynamic_cast<SnParagraph*>(pBody))
+		return pBody;
+	UniquePtrList<SnStatement> stmts;
+	if (pBody)
+		stmts.Add(pBody);
+	return new SnParagraph(std::move(stmts), loc);
+}
+
 //0.13.10 lambda cover grammar (spec D9): the unified `( InnerList )`
 //prefix feeds both the plain parenthesized group and the lambda
 //parameter list. These helpers serve the two consuming actions.
@@ -1584,21 +1606,21 @@ IfStmt:	KT_If '(' Expression ')' Statement %prec P_Then {
 While loop statement.
 */
 WhileStmt:	KT_While '(' Expression ')' Statement {
-					$$ = new SnWhileStmt($3, $5, @1);
+					$$ = new SnWhileStmt($3, WrapLoopBody($5, @5), @1);
 				} ;
 
 /*
 Do-while loop statement.
 */
 DoStmt:	KT_Do Statement KT_While '(' Expression ')' ';' {
-				$$ = new SnDoStmt($5, $2, @1);
+				$$ = new SnDoStmt($5, WrapLoopBody($2, @2), @1);
 			} ;
 
 /*
 For loop statement.
 */
 ForStmt:	KT_For '(' InitFor ';' Expression ';' FiniFor ')' Statement {
-					$$ = new SnForStmt($3, $5, $7, $9, @1);
+					$$ = new SnForStmt($3, $5, $7, WrapLoopBody($9, @9), @1);
 				} ;
 
 InitFor:	{
@@ -1662,13 +1684,13 @@ Foreach loop statement (Phase 8e-5).
 Iterates Array / List<T> / Dict<K,V> (keys).
 */
 ForeachStmt:	KT_Foreach '(' TypeRef TT_Identifier KT_In Expression ')' Statement {
-					$$ = new SnForeachStmt($3, *$4, $6, $8, @1);
+					$$ = new SnForeachStmt($3, *$4, $6, WrapLoopBody($8, @8), @1);
 				} |
 				//0.9.13 B1: bare brace source for foreach.
 				//v0.13.9 phase 3: TypeRef — `foreach (int& v in xs)` marks
 				//the element binding as a reference.
 				KT_Foreach '(' TypeRef TT_Identifier KT_In BracedInitExpr ')' Statement {
-					$$ = new SnForeachStmt($3, *$4, $6, $8, @1);
+					$$ = new SnForeachStmt($3, *$4, $6, WrapLoopBody($8, @8), @1);
 				} ;
 
 /*

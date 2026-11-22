@@ -95,6 +95,28 @@ SnField *SnParagraph::FindLocal(const std::string &sName) const
 	return nullptr;
 }
 
+//0.13.10 Task 9 (loop-scoped heads): see SnStatements.h — the resolver
+//swaps a head descriptor in ahead of the loop's subtree and restores
+//the displaced binding (or erases the name) once the subtree resolves.
+SnField *SnParagraph::SwapLocal(const std::string &sName, SnField *pField)
+{
+	NLANG_ASSERT(pField);
+	SnField *pPrevious = nullptr;
+	auto it = m_Locals.find(sName);
+	if (it != m_Locals.end())
+		pPrevious = it->second;
+	m_Locals[sName] = pField;
+	return pPrevious;
+}
+
+void SnParagraph::RestoreLocal(const std::string &sName, SnField *pPrevious)
+{
+	if (pPrevious)
+		m_Locals[sName] = pPrevious;
+	else
+		m_Locals.erase(sName);
+}
+
 SnReturnStmt::SnReturnStmt(SnExpression* pResult, const ISourceLocation& loc) :
 	Super_(s_Kind, loc), m_pResult(pResult)
 {

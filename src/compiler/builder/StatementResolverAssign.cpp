@@ -286,13 +286,10 @@ bool StatementResolveAccessor::TryBindSubscriptStoreFuncRef(
 			*sn.Array()).Field();
 		if (pArrField && pArrField->IsArrayType())
 		{
-			pElemType = pArrField->EvalDataType();
-			//0.7.3 B token path: an array-typed field carries
-			//the interned token; the func-ref binds against the
-			//ELEMENT type.
-			if (pElemType && pElemType->Kind() == NK_ArrayTypeToken)
-				pElemType = static_cast<SnArrayTypeToken*>(
-					pElemType)->ElemTypeOf();
+			//The func-ref binds against the ELEMENT type — derived
+			//through the shared dual-spelling primitive (token or
+			//Array<E> row; the admission above admits both).
+			pElemType = ArrayElementRowOf(pArrField->EvalDataType());
 		}
 		else if (pArrField && pArrField->EvalDataType()
 			&& pArrField->EvalDataType()->Kind() == NK_ClassDecl)

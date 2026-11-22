@@ -7,7 +7,8 @@
     lambda body into its method. Declared here so ModuleBuilderUnits can
     hook it between SweepPendingFuncRefs and codegen. The analysis half
     (discovery / classification / anchor assignment) lives in
-    LambdaCaptureAnalysis.cpp; the synthesis half (display classes,
+    LambdaCaptureAnalysis.cpp plus the read-classification family in
+    LambdaCaptureClassify.cpp; the synthesis half (display classes,
     fields, synthetic methods) in LambdaDisplaySynthesis.cpp.
 ---*/
 #pragma once
@@ -24,6 +25,10 @@ class ISourceLocation;
 class SnNamespace;
 class ModuleRegistry;
 class SnParagraph;
+class SnForStmt;
+class SnForeachStmt;
+class SnWhileStmt;
+class SnDoStmt;
 class SnField;
 class SnClassField;
 class SnClassDecl;
@@ -88,6 +93,13 @@ public:
 private:
 	//--- Analysis half (LambdaCaptureAnalysis.cpp) ---
 	void Walk(Node &node);
+	void ClassifyExprRead(Node &node);
+	void WalkFor(SnForStmt &stmt);
+	void WalkForeach(SnForeachStmt &stmt);
+	void WalkWhile(SnWhileStmt &stmt);
+	void WalkDo(SnDoStmt &stmt);
+	//Shared body-owning loop walk (owner stack discipline).
+	void WalkLoopChildren(Node &stmt, SnParagraph *pBody);
 	void WalkTypeDecl(Node &node);
 	void EnterParagraph(SnParagraph &para);
 	void EnterFunction(SnFunction &func);
@@ -95,6 +107,12 @@ private:
 	void ClassifyIdentifier(SnIdentifierExpr &id, LambdaSite &innermost);
 	void ClassifyFieldRead(SnField *pField, LambdaSite &innermost);
 	void ClassifyLocalRead(SnLocalVar &local, LambdaSite &innermost);
+	//Declaring-paragraph arms of ClassifyLocalRead (source-size guard
+	//split, zero behavior change): the loop-head arm answers null when
+	//the descriptor is not a loop head; the plain arm answers null only
+	//for non-capturable storage (defensive miss).
+	SnParagraph *DeclParaOfLoopHead(SnLocalVar &local);
+	SnParagraph *DeclParaOfPlainLocal(SnLocalVar &local);
 	void RecordCapture(SnField *pDecl, SnParagraph *pDeclPara,
 		CaptureFlavor flavor);
 	void AssignAnchors();
@@ -119,12 +137,14 @@ private:
 
 	//Discovery state.
 	std::vector<SnParagraph *> m_paraStack;
+	std::vector<SnParagraph *> m_loopBodyStack;
 	std::vector<SnField *> m_ownerStack;   //class/struct declarations
 	std::vector<LambdaSite> m_lambdaStack; //currently-descending sites
 	std::vector<LambdaSite> m_sites;       //all sites, walk order
 	std::map<SnLocalVar *, SnLambdaExpr *> m_paramOwnerOf;
 	std::map<SnLocalVar *, SnParagraph *> m_declParaOfLocal;
 	std::map<SnFormalParam *, SnParagraph *> m_declParaOfFormal;
+	std::map<SnField *, SnParagraph *> m_loopHeadParaOf;
 	std::map<SnParagraph *, SnField *> m_declOwnerOfPara;
 	std::map<SnField *, CapturedVar> m_capturedOf;
 	std::map<SnParagraph *, std::vector<CapturedVar *>> m_capturedByPara;

@@ -111,6 +111,15 @@ QString spellingDump(const CompiledModule& unit)
     }
     return dump;
 }
+
+//True when the unit's descriptor table carries the exact spelling.
+bool contains(const CompiledModule& unit, const std::string& spelling)
+{
+    for (const auto& row : unit.descriptorTable)
+        if (row.spelling == spelling)
+            return true;
+    return false;
+}
 } //namespace
 
 class TestDescriptorSpelling : public QObject
@@ -267,14 +276,6 @@ private slots:
 
         const CompiledModule& unitA = imgsA.units[0];
         const CompiledModule& unitB = imgsB.units[0];
-        auto contains = [](const CompiledModule& unit,
-            const std::string& spelling)
-        {
-            for (const auto& row : unit.descriptorTable)
-                if (row.spelling == spelling)
-                    return true;
-            return false;
-        };
         QVERIFY2(contains(unitA, "a.Pipe<int>"),
             qPrintable("package a's Pipe<int> must spell qualified — rows: "
                 + spellingDump(unitA)));
@@ -510,6 +511,68 @@ private slots:
         }
         QVERIFY2(threw,
             "executor init must refuse a poisoned row before main runs");
+    }
+
+    //0.13.10 lambda review: func<void>'s return slot is an NK_Void node —
+    //BuildTypeArgOf must spell it "void" (the old default-arm "?" degrade
+    //detonated at container-creation intern time with "unresolved link
+    //key"), and the runtime leaf resolver must admit the keyword back so
+    //the two-key round trip holds. Pins both halves on real emitted rows.
+    void voidReturnLeafRoundTrips()
+    {
+        namespace fs = std::filesystem;
+        const fs::path dir =
+            nlang::test::ScratchDir("nlang_descriptor_void_leaf");
+        const fs::path out = dir / "out";
+        std::error_code fsError;
+        fs::remove_all(dir, fsError);
+        fs::create_directories(out, fsError);
+        const char* szBody =
+            "int main() {\n"
+            "    List<func<void>> mut = List<func<void>>();\n"
+            "    mut.add(() -> { });\n"
+            "    func<void> first = mut.get(0);\n"
+            "    first();\n"
+            "    return 0;\n"
+            "}\n";
+        QVERIFY2(writeFile(dir / "main.n", szBody),
+            "main source could not be written");
+        BuildParams params;
+        params.m_SourceFiles.push_back((dir / "main.n").string());
+        params.m_sOutputModule = "main";
+        params.m_sOutputDir = out.string();
+        params.m_sTempDir = out.string();
+        params.m_sStdLibDir = STDLIB_DIR;
+        MemLogger logger;
+        ModuleBuilder builder(params, logger);
+        ModuleBuilder::UnitImages imgs;
+        bool built = false;
+        QString errors;
+        try { imgs = builder.BuildUnitImages(); built = true; }
+        catch (const std::exception& e)
+        {
+            errors = QString::fromLatin1(e.what());
+        }
+        for (const auto& e : logger.errorsText())
+            errors += QString::fromStdString(e) + " | ";
+        QVERIFY2(built && !imgs.units.empty(),
+            qPrintable("main must build clean — " + errors));
+        QVERIFY2(contains(imgs.units[0], "List<func<void>>"),
+            qPrintable("the container row must spell the void leaf — rows: "
+                + spellingDump(imgs.units[0])));
+        QVERIFY2(!contains(imgs.units[0], "List<func<?>>"),
+            qPrintable("the '?' degrade must be gone — rows: "
+                + spellingDump(imgs.units[0])));
+        try
+        {
+            InternDescriptorFromSpelling("List<func<void>>",
+                imgs.units[0]);
+        }
+        catch (const std::exception& e)
+        {
+            QFAIL(qPrintable(QString::fromLatin1(
+                "the void leaf must intern back — ") + e.what()));
+        }
     }
 
     //D8.4(b): the descriptor table survives the wire verbatim —

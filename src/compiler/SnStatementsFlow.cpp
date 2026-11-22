@@ -66,6 +66,39 @@ std::string SnWhileStmt::ToString() const
 	return "while (" + m_pCond->ToString() + ") " + m_pBody->ToString();
 }
 
+//0.13.10 loop-body normalization: the shared shape read. The grammar
+//wraps every loop body into a paragraph (WrapLoopBody in nlang.y), so
+//a non-paragraph body here means a production bypassed the wrap —
+//fail loudly at the boundary instead of letting capture machinery
+//silently skip the body (the single-statement capture crash).
+SnParagraph *SnWhileStmt::BodyParagraph() const
+{
+	auto *pParagraph = dynamic_cast<SnParagraph *>(m_pBody);
+	NLANG_ASSERT(pParagraph);
+	return pParagraph;
+}
+
+SnParagraph *SnDoStmt::BodyParagraph() const
+{
+	auto *pParagraph = dynamic_cast<SnParagraph *>(m_pBody);
+	NLANG_ASSERT(pParagraph);
+	return pParagraph;
+}
+
+SnParagraph *SnForStmt::BodyParagraph() const
+{
+	auto *pParagraph = dynamic_cast<SnParagraph *>(m_pBody);
+	NLANG_ASSERT(pParagraph);
+	return pParagraph;
+}
+
+SnParagraph *SnForeachStmt::BodyParagraph() const
+{
+	auto *pParagraph = dynamic_cast<SnParagraph *>(m_pBody);
+	NLANG_ASSERT(pParagraph);
+	return pParagraph;
+}
+
 void SnWhileStmt::Accept(nlang::ISyntaxNodeVisitor &v)
 {
 	v.Visit(*this);

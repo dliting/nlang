@@ -14,10 +14,12 @@
 
 namespace nlang {
 
-VmBackend::BareIdTarget VmBackend::ResolveBareIdentifier(SnField* field) {
-    BareIdTarget t;
-    if (!field)
-        return t;
+//Field-first storage channels of ResolveBareIdentifier: the three ways a
+//binding addresses storage that is NOT the flat frame's name-keyed pool
+//(a module slot, a captured display field, a declaration-private slot).
+//True with t filled when one answers; false leaves the caller on the
+//name-keyed local / this-field arms.
+bool VmBackend::TryResolveOwnedStorage(SnField* field, BareIdTarget& t) {
     //v0.12.6 Task 7 (spec §8): a static local addresses its module
     //slot. The check is field-first — the binding node decides, so a
     //same-named frame local (flat frames reuse names) can never
@@ -26,7 +28,7 @@ VmBackend::BareIdTarget VmBackend::ResolveBareIdentifier(SnField* field) {
     if (field->Kind() == NK_FormalParam && field->ContainFlags(NF_Static)) {
         t.kind = BareIdTarget::StaticSlot;
         t.slotIdx = StaticLocalSlotIndexOf(*field);
-        return t;
+        return true;
     }
     //0.13.10 Task 6: captured storage. Field-first, before the frame
     //locals — flat frames reuse names (AllocLocal name-keying), and the
@@ -36,8 +38,27 @@ VmBackend::BareIdTarget VmBackend::ResolveBareIdentifier(SnField* field) {
         t = DisplayFieldOfCaptured(field);
         NLANG_ASSERT(t.kind == BareIdTarget::DisplayField
             || t.kind == BareIdTarget::CaptureField);
-        return t;
+        return true;
     }
+    //0.13.10 Task 9: declaration-keyed storage — the third field-first
+    //channel. A published descriptor owns its private slot; a shadowed
+    //name must never answer another binding's slot (loop head vs outer
+    //local, nested heads, catch var, block declarations).
+    auto it = m_currFunc->localSlotOfDecl.find(field);
+    if (it != m_currFunc->localSlotOfDecl.end()) {
+        t.kind = BareIdTarget::Local;
+        t.localOffset = it->second;
+        return true;
+    }
+    return false;
+}
+
+VmBackend::BareIdTarget VmBackend::ResolveBareIdentifier(SnField* field) {
+    BareIdTarget t;
+    if (!field)
+        return t;
+    if (TryResolveOwnedStorage(field, t))
+        return t;
     auto it = m_currFunc->localOffsets.find(field->Name());
     if (it != m_currFunc->localOffsets.end()) {
         t.kind = BareIdTarget::Local;

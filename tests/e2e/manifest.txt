@@ -548,6 +548,17 @@ lambda_list_contains 0
 lambda_capture_promoted 0
 # --- 0.13.10 Task 8: GC rooting of display capture fields ---
 lambda_capture_gc_survive 0
+# --- 0.13.10 Task 9: per-iteration loop-head capture freshness ---
+lambda_capture_loop_fresh 0
+lambda_capture_uncaptured_head 0
+# --- 0.13.10 Major-3 lift: reference-form and promoted heads capturable ---
+lambda_capture_ref_head 0
+lambda_capture_promoted_head 0
+lambda_capture_single_stmt_body 0
+lambda_capture_struct_head 0
+lambda_void_in_list 0
+err_for_head_out_of_scope compile_error Cannot resolve the field: i
+err_for_head_duplicate_declarator compile_error local 'i' is already declared in this scope
 err_lambda_this_in_static compile_error this is not available in a static method.
 # --- P3.8: lock class field default values (int/float/string/class-ref) ---
 class_field_defaults 7

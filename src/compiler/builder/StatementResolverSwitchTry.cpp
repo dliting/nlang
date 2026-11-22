@@ -402,6 +402,10 @@ void StatementResolveAccessor::Access(SnCatchClause &sn)
 		auto *pLocal = new SnLocalVar(sn.VarName(),
 			sn.CatchType()->Field(), *sn.Location());
 		pScope->AddLocal(sn.VarName(), pLocal);
+		//0.13.10 Task 9: publish on the clause for the declaration-keyed
+		//slot channel — the paragraph registration above is invisible to
+		//the backend once resolution finishes.
+		sn.SetVarLocal(pLocal);
 	}
 
 	//4. Resolve body.

@@ -280,6 +280,45 @@ TypeArgDesc InterfaceArgOf(const ModuleRegistry& reg,
 }
 } //namespace
 
+namespace
+{
+//Leaf arms of BuildTypeArgOf's switch — string and the void return
+//slot are rowless keywords; struct/enum leaves carry their link key
+//(enums are int32 at runtime, spec §4; the spelling keeps the enum
+//name for typeName).
+TypeArgDesc LeafArgOf(const ModuleRegistry& reg, const SnField& arg)
+{
+	TypeArgDesc desc;
+	switch (arg.Kind())
+	{
+	case NK_String:
+		desc.spelling = "string";
+		desc.resolvedKind = RTK_String;
+		return desc;
+	//func<void>'s return slot is an NK_Void node (the grammar's void
+	//sister productions). The leaf must round-trip as the keyword so the
+	//runtime leaf resolver admits it back — the old fall-through to the
+	//"?" degrade detonated at container-creation intern time with
+	//"unresolved link key" (0.13.10 lambda review).
+	case NK_Void:
+		desc.spelling = "void";
+		desc.resolvedKind = RTK_Void;
+		return desc;
+	case NK_StructDecl:
+		desc.spelling = LinkKeyOf(reg, arg);
+		desc.resolvedKind = RTK_Struct;
+		return desc;
+	case NK_EnumDecl:
+		desc.spelling = LinkKeyOf(reg, arg);
+		desc.resolvedKind = RTK_Int32;
+		return desc;
+	default:
+		break;
+	}
+	return desc;
+}
+} //namespace
+
 TypeArgDesc BuildTypeArgOf(const ModuleRegistry& reg, const SnField& arg)
 {
 	TypeArgDesc desc;
@@ -294,19 +333,10 @@ TypeArgDesc BuildTypeArgOf(const ModuleRegistry& reg, const SnField& arg)
 	switch (arg.Kind())
 	{
 	case NK_String:
-		desc.spelling = "string";
-		desc.resolvedKind = RTK_String;
-		return desc;
+	case NK_Void:
 	case NK_StructDecl:
-		desc.spelling = LinkKeyOf(reg, arg);
-		desc.resolvedKind = RTK_Struct;
-		return desc;
-	//Enums are int32 at runtime (spec §4); the spelling keeps the enum
-	//name for typeName.
 	case NK_EnumDecl:
-		desc.spelling = LinkKeyOf(reg, arg);
-		desc.resolvedKind = RTK_Int32;
-		return desc;
+		return LeafArgOf(reg, arg);
 	case NK_ArrayTypeToken:
 	{
 		auto& token = static_cast<const SnArrayTypeToken&>(arg);
@@ -323,8 +353,11 @@ TypeArgDesc BuildTypeArgOf(const ModuleRegistry& reg, const SnField& arg)
 		return InterfaceArgOf(reg,
 			static_cast<const SnInterfaceDecl&>(arg));
 	default:
-		//Unreachable through resolved instantiations (func arguments
-		//are rejected at the use site); degrade so intern keys never collide.
+		//Unreachable through resolved instantiations: func arguments
+		//arrive as SnClassDecl instantiations through ClassArgOf above
+		//(Phase 13), their void return slot through the NK_Void arm.
+		//Degrade so intern keys never collide, and loudly — the runtime
+		//leaf resolver throws on the "?" this spells.
 		desc.spelling = "?";
 		desc.resolvedKind = RTK_NonSerialized;
 		return desc;

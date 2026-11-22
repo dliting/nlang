@@ -267,11 +267,14 @@ static void RejectDuplicateDeclarator(BuildEnvironment &env,
 
 //0.10.7 D2: a size payload types only its own declarator; the
 //interned array token is that declarator's field (the statement
-//type stays the head type for every declarator).
-SnLocalVar *StatementResolveAccessor::CreateDeclaratorLocal(
+//type stays the head type for every declarator). Descriptor half of
+//CreateDeclaratorLocal: create + publish + array flags, no map
+//registration — the for-init path swaps its heads into the paragraph
+//map itself (loop-scoped heads, 0.13.10 Task 9), while every other
+//path registers through the factory below.
+SnLocalVar *StatementResolveAccessor::CreateLocalDescriptor(
 	SnLocalDeclStmt::LocalDecl &decl, const ISourceLocation &loc,
-	SnParagraph &paragraph, SnField *pTypeField, bool bIsArray,
-	SnField *pSizedArrayField)
+	SnField *pTypeField, bool bIsArray, SnField *pSizedArrayField)
 {
 	SnField *pDeclField = (pSizedArrayField && decl.pArraySize)
 		? pSizedArrayField : pTypeField;
@@ -286,6 +289,16 @@ SnLocalVar *StatementResolveAccessor::CreateDeclaratorLocal(
 		pLocal->SetArrayType(true);
 	if (pSizedArrayField && decl.pArraySize)
 		decl.bArrayType = true;
+	return pLocal;
+}
+
+SnLocalVar *StatementResolveAccessor::CreateDeclaratorLocal(
+	SnLocalDeclStmt::LocalDecl &decl, const ISourceLocation &loc,
+	SnParagraph &paragraph, SnField *pTypeField, bool bIsArray,
+	SnField *pSizedArrayField)
+{
+	auto *pLocal = CreateLocalDescriptor(decl, loc, pTypeField,
+		bIsArray, pSizedArrayField);
 	RejectDuplicateDeclarator(m_Env, paragraph, decl.name, pLocal, &loc);
 	return pLocal;
 }

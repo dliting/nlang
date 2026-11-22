@@ -5,6 +5,7 @@
 #include "StatementResolver.h"
 #include <nlang/runtime/BuiltinGenericNames.h>
 #include <nlang/runtime/StackDump.h>
+#include <set>
 
 namespace nlang
 {
@@ -60,8 +61,13 @@ void StatementResolveAccessor::Access(SnDoStmt &sn)
 //the StatementResolver visitor — its Access(SnArrayTypeExpr&) is empty,
 //so an array-typed for-init (for (int[] x = ...)) would never resolve
 //and body references die (same trap as SnLocalDeclStmt above).
-void StatementResolveAccessor::ResolveForInitDecl(SnForStmt &sn)
+//0.13.10 Task 9 (loop-scoped heads): returns the bindings the head
+//declarations displaced in the enclosing paragraph map — the caller
+//restores them (or erases the names) once the loop's subtree resolves.
+std::vector<std::pair<std::string, SnField*>>
+StatementResolveAccessor::ResolveForInitDecl(SnForStmt &sn)
 {
+	std::vector<std::pair<std::string, SnField*>> swapped;
 	auto& decl = static_cast<SnLocalDeclStmt&>(*sn.Init());
 	m_ExprResolver.Resolve(*decl.Type(), *sn.Parent(), *m_pCurrType,
 		ERF_None);
@@ -72,41 +78,78 @@ void StatementResolveAccessor::ResolveForInitDecl(SnForStmt &sn)
 		m_Env.Log(CLL_Error, decl.Location(),
 			"jagged arrays (T[][]) are not supported");
 	if (!decl.Type()->IsResolved())
-		return;
+		return swapped;
 	//v0.12.2 face gate (mirror of Access(SnLocalDeclStmt&)).
 	if (RejectPreludeFaceUse(m_Env, decl.Type()->Field(),
 		decl.Type()->Location(), "used as a type"))
-		return;
-	auto *pTypeField = decl.Type()->Field();
+		return swapped;
 	auto *pParagraph = FindEnclosingParagraph(sn.Parent());
+	if (!pParagraph)
+		return swapped;
 	auto bIsArray = decl.Type()->IsArrayType();
+	//Every head of one init declares into the same scope (this
+	//statement): same-name declarators reject exactly like a plain
+	//declaration statement (first-wins AddLocal there — mirror of
+	//RejectDuplicateDeclarator's diagnostic). Rejecting up front keeps a
+	//same-round swap from displacing an earlier head of this init,
+	//which the restore bookkeeping below could not unwind.
+	std::set<std::string> seenNames;
 	for (auto& d : decl.Decls()) {
-		//0.9.0: direct-init and sized-array declarators in for-init
-		//position would be silently dropped here (no InitExtras
-		//synthesis in this path) — reject loudly instead of compiling
-		//an unconstructed local.
-		if (d.pCtorArgs || d.pArraySize) {
+		if (!seenNames.insert(d.name).second) {
 			m_Env.Log(CLL_Error, decl.Location(),
-				"direct-init and sized-array declarations are not "
-				"supported in a for initializer; declare before the loop");
+				"local '%s' is already declared in this scope",
+				d.name.c_str());
 			continue;
 		}
-		auto *pLocal = new SnLocalVar(d.name, pTypeField,
-			*decl.Location());
-		if (bIsArray)
-			pLocal->SetArrayType(true);
-		if (pParagraph) {
-			//0.9.0 semantic restriction: the for-init variable may not
-			//reuse a visible type name.
-			RejectTypeNameVariable(d.name, *pParagraph, *m_pCurrType,
-				decl.Location());
-			pParagraph->AddLocal(d.name, pLocal);
-		}
-		if (d.pInitExpr) {
-			auto *pAssign = BuildForInitAssign(decl, d, pParagraph);
-			sn.InitExtras().push_back(pAssign);
-		}
+		auto displacement = ResolveOneForInitHead(sn, decl, d,
+			*pParagraph, decl.Type()->Field(), bIsArray);
+		if (!displacement.first.empty())
+			swapped.push_back(std::move(displacement));
 	}
+	return swapped;
+}
+
+//One for-init declarator: the head's descriptor, its swap into the
+//enclosing paragraph map, and the decomposed init assign registered in
+//InitExtras. Returns the binding the swap displaced (an empty name
+//marks a rejected declarator — nothing was swapped).
+std::pair<std::string, SnField*>
+StatementResolveAccessor::ResolveOneForInitHead(SnForStmt &sn,
+	SnLocalDeclStmt &decl, SnLocalDeclStmt::LocalDecl &d,
+	SnParagraph &paragraph, SnField *pTypeField, bool bIsArray)
+{
+	//0.9.0: direct-init and sized-array declarators in for-init
+	//position would be silently dropped here (no InitExtras
+	//synthesis in this path) — reject loudly instead of compiling
+	//an unconstructed local.
+	if (d.pCtorArgs || d.pArraySize) {
+		m_Env.Log(CLL_Error, decl.Location(),
+			"direct-init and sized-array declarations are not "
+			"supported in a for initializer; declare before the loop");
+		return {};
+	}
+	//0.9.0 semantic restriction: the for-init variable may not
+	//reuse a visible type name.
+	RejectTypeNameVariable(d.name, paragraph, *m_pCurrType,
+		decl.Location());
+	//0.13.10 Task 9 (loop-scoped heads): descriptor creation goes
+	//through the descriptor half of the factory every declarator path
+	//shares — it publishes d.pNode besides carrying every codegen flag.
+	//A hand-rolled descriptor here once left d.pNode null, hiding the
+	//local from the capture analysis (no display, no capture stamp).
+	auto *pLocal = CreateLocalDescriptor(d, *decl.Location(),
+		pTypeField, bIsArray, nullptr);
+	//The head scopes to the for statement: swap it into the
+	//enclosing map (the header expressions resolve through parent-
+	//chain lookups, not the body paragraph), shadowing any outer
+	//binding; Access(SnForStmt&) restores when the subtree is done.
+	std::pair<std::string, SnField*> displacement(d.name,
+		paragraph.SwapLocal(d.name, pLocal));
+	if (d.pInitExpr) {
+		auto *pAssign = BuildForInitAssign(decl, d, &paragraph);
+		sn.InitExtras().push_back(pAssign);
+	}
+	return displacement;
 }
 
 //Build and pre-resolve the decomposed `x = init` assign for one
@@ -157,8 +200,13 @@ void StatementResolveAccessor::Access(SnForStmt &sn)
 {
 	NLANG_ASSERT(m_pVisitor);
 
+	//0.13.10 Task 9 (loop-scoped heads): the init declarations scope to
+	//this statement — swap them in ahead of the subtree and restore the
+	//paragraph map afterwards (a shadowed outer binding comes back; an
+	//unshadowed name disappears with the loop).
+	std::vector<std::pair<std::string, SnField*>> swapped;
 	if (sn.Init() && sn.Init()->Kind() == NK_LocalDeclStmt)
-		ResolveForInitDecl(sn);
+		swapped = ResolveForInitDecl(sn);
 	else if (sn.Init()) {
 		sn.Init()->Accept(*m_pVisitor);
 	}
@@ -169,6 +217,10 @@ void StatementResolveAccessor::Access(SnForStmt &sn)
 	sn.Body()->Accept(*m_pVisitor);
 	if (sn.Fini())
 		sn.Fini()->Accept(*m_pVisitor);
+
+	if (auto *pParagraph = FindEnclosingParagraph(sn.Parent()))
+		for (auto it = swapped.rbegin(); it != swapped.rend(); ++it)
+			pParagraph->RestoreLocal(it->first, it->second);
 }
 
 //0.7.3 B D10: array-valued sources (get()/subscript/call/new
@@ -288,9 +340,11 @@ static void SupplyForeachInitListTarget(BuildEnvironment &env,
 }
 
 //v0.13.9 phase 3 split (source-size guard): step 3 of the foreach walk
-//— the loop-var registration in the enclosing paragraph (function-
-//scoped, same as for-loop).
-void StatementResolveAccessor::RegisterForeachLoopVar(SnForeachStmt &sn,
+//— the loop-var swap into the enclosing paragraph's local map. 0.13.10
+//Task 9 (loop-scoped heads): the variable scopes to the foreach
+//statement, so it swaps in (shadowing any outer binding) and the caller
+//restores the map once the loop's subtree resolves.
+SnField *StatementResolveAccessor::RegisterForeachLoopVar(SnForeachStmt &sn,
 	SnParagraph &paragraph, SnField *pVarField)
 {
 	//0.9.0 semantic restriction: the foreach loop variable may not
@@ -313,25 +367,21 @@ void StatementResolveAccessor::RegisterForeachLoopVar(SnForeachStmt &sn,
 		if (IsPrimitiveType(elemKind) || elemKind == NK_EnumDecl)
 			pLocal->AddFlags(NF_Ref);
 	}
-	paragraph.AddLocal(sn.VarName(), pLocal);
+	//Publish the descriptor on the statement: the swap/restore of the
+	//map means later passes (the capture analysis) cannot recover it
+	//by name lookup.
+	sn.SetVarLocal(pLocal);
+	return paragraph.SwapLocal(sn.VarName(), pLocal);
 }
 
-//Phase 8e-5: foreach statement resolver.
-//Resolves iterable + var type, registers the loop var in the enclosing
-//Paragraph scope (function-scoped, same as for-loop). Element type and
-//3-way dispatch (Array / List / Dict) is determined later in codegen via
-//EvalDataType; the resolver does not need to compute it.
-void StatementResolveAccessor::Access(SnForeachStmt &sn)
+//Foreach var-type resolution (phase 1 of the foreach walk). Route the
+//type through ExprResolver, not the StatementResolver visitor — its
+//Access(SnArrayTypeExpr&) is empty, so an array-typed loop var would
+//never resolve and body references die (same trap as SnLocalDeclStmt
+//above). Answers the bound type field; null on an unresolved type (the
+//caller keeps walking for cascading diagnostics).
+SnField *StatementResolveAccessor::ResolveForeachVarType(SnForeachStmt &sn)
 {
-	NLANG_ASSERT(m_pVisitor);
-
-	//Find enclosing Paragraph for loop-var registration (mirror for-loop).
-	auto *pParagraph = FindEnclosingParagraph(sn.Parent());
-
-	//1. Resolve declared var type. Route through ExprResolver, not
-	//the StatementResolver visitor (its Access(SnArrayTypeExpr&) is
-	//empty — an array-typed loop var would never resolve and body
-	//references die; same trap as SnLocalDeclStmt above).
 	m_ExprResolver.Resolve(*sn.VarType(), *sn.Parent(), *m_pCurrType,
 		ERF_None);
 	//Array redesign B: reject jagged loop vars; ArrayTypeDepth is
@@ -339,9 +389,25 @@ void StatementResolveAccessor::Access(SnForeachStmt &sn)
 	if (ArrayTypeDepth(sn.VarType()) >= 2)
 		m_Env.Log(CLL_Error, sn.VarType()->Location(),
 			"jagged arrays (T[][]) are not supported");
-	SnField *pVarField = nullptr;
-	if (sn.VarType()->IsResolved())
-		pVarField = sn.VarType()->Field();
+	if (!sn.VarType()->IsResolved())
+		return nullptr;
+	return sn.VarType()->Field();
+}
+
+//Phase 8e-5: foreach statement resolver.
+//Resolves iterable + var type, registers the loop var in the enclosing
+//Paragraph scope. 0.13.10 Task 9 (loop-scoped heads): the variable
+//scopes to the foreach statement — swap in, resolve the subtree,
+//restore the displaced binding (or erase the name).
+void StatementResolveAccessor::Access(SnForeachStmt &sn)
+{
+	NLANG_ASSERT(m_pVisitor);
+
+	//Find enclosing Paragraph for loop-var registration (mirror for-loop).
+	auto *pParagraph = FindEnclosingParagraph(sn.Parent());
+
+	//1. Resolve declared var type.
+	SnField *pVarField = ResolveForeachVarType(sn);
 	//v0.12.2 face gate (mirror of Access(SnLocalDeclStmt&)).
 	if (pVarField && RejectPreludeFaceUse(m_Env, pVarField,
 		sn.VarType()->Location(), "used as a type"))
@@ -359,13 +425,22 @@ void StatementResolveAccessor::Access(SnForeachStmt &sn)
 
 	MatchForeachElemType(sn, pVarField);
 
-	//3. Register loop var in paragraph scope (function-scoped).
+	//3. Swap the loop var into the paragraph map (loop-scoped).
+	SnField *pDisplaced = nullptr;
 	if (pVarField && pParagraph)
-		RegisterForeachLoopVar(sn, *pParagraph, pVarField);
+		pDisplaced = RegisterForeachLoopVar(sn, *pParagraph,
+			pVarField);
 
-	//4. Descend into body.
+	//4. Descend into body, then restore the displaced binding (or
+	//erase the name when the loop shadowed nothing). The condition
+	//mirrors the registration gate — restoring after a skipped
+	//registration would erase a same-named outer binding (spurious
+	//cascade diagnostic on top of the real unresolved-type error).
 	FlowDepthGuard guard(m_breakableDepth, m_loopDepth);
 	sn.Body()->Accept(*m_pVisitor);
+
+	if (pParagraph && pVarField)
+		pParagraph->RestoreLocal(sn.VarName(), pDisplaced);
 }
 
 void StatementResolveAccessor::Access(SnBreakStmt &sn)

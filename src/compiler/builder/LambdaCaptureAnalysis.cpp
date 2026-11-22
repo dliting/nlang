@@ -17,8 +17,10 @@
          binds a (field-less) display instance — every lambda's emission
          shape is uniform.
 
-    The synthesis half (one "$disp_N" class per display scope, one
-    "$lambda_M" method per lambda, bodies moved in) lives in
+    The read-classification family (identifier/invoke reads down to a
+    declaring paragraph) lives in LambdaCaptureClassify.cpp and the
+    synthesis half (one "$disp_N" class per display scope, one
+    "$lambda_M" method per lambda, bodies moved in) in
     LambdaDisplaySynthesis.cpp; the pass internals are shared through
     the header.
 
@@ -40,7 +42,6 @@
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnStatements.h>
 #include <algorithm>
-#include <stdexcept>
 
 namespace nlang
 {
@@ -92,10 +93,38 @@ void CapturePass::Walk(Node &node)
 	case NK_LambdaExpr:
 		EnterLambda(static_cast<SnLambdaExpr &>(node));
 		return;
+	case NK_ForStmt:
+		WalkFor(static_cast<SnForStmt &>(node));
+		return;
+	case NK_ForeachStmt:
+		WalkForeach(static_cast<SnForeachStmt &>(node));
+		return;
+	case NK_WhileStmt:
+		WalkWhile(static_cast<SnWhileStmt &>(node));
+		return;
+	case NK_DoStmt:
+		WalkDo(static_cast<SnDoStmt &>(node));
+		return;
 	case NK_ClassDecl:
 	case NK_StructDecl:
 		WalkTypeDecl(node);
 		return;
+	default:
+		ClassifyExprRead(node);
+		break;
+	}
+	for (auto &child : node.Children())
+		Walk(child);
+}
+
+//The expression arms of Walk's dispatch: receiver and storage reads are
+//classified only inside a lambda body (the site stack is empty
+//elsewhere). Non-matching kinds fall through untouched; the children
+//walk stays with the caller either way.
+void CapturePass::ClassifyExprRead(Node &node)
+{
+	switch (node.Kind())
+	{
 	case NK_ThisExpr:
 		//`this` inside a lambda body captures the receiver.
 		if (!m_lambdaStack.empty())
@@ -124,13 +153,78 @@ void CapturePass::Walk(Node &node)
 	default:
 		break;
 	}
-	for (auto &child : node.Children())
-		Walk(child);
 }
 
-//Class/struct declarations push the owner stack and walk their members.
-//Func/array type descriptors (also class nodes) are rows, not method
-//hosts — they skip the stack but their children still walk.
+void CapturePass::WalkFor(SnForStmt &stmt)
+{
+	//The body is a paragraph by grammar construction (WrapLoopBody) —
+	//the assert-bearing read replaces the old silent skip of
+	//single-statement bodies.
+	SnParagraph *pBody = stmt.BodyParagraph();
+	pBody->SetLoopActivationOwner(pBody);
+	//The for-init declarators publish their descriptors through
+	//d.pNode (CreateDeclaratorLocal); a non-decl init (an assign to
+	//an outer variable) declares nothing and registers no head.
+	if (auto *pDecl = dynamic_cast<SnLocalDeclStmt *>(stmt.Init())) {
+		for (const auto &decl : pDecl->Decls()) {
+			if (decl.pNode) {
+				pBody->AddLoopHeadLocal(decl.pNode);
+				m_loopHeadParaOf[decl.pNode] = pBody;
+			}
+		}
+	}
+	WalkLoopChildren(stmt, pBody);
+}
+
+void CapturePass::WalkForeach(SnForeachStmt &stmt)
+{
+	SnParagraph *pBody = stmt.BodyParagraph();
+	pBody->SetLoopActivationOwner(pBody);
+	//The foreach variable's descriptor is published on the statement
+	//(RegisterForeachLoopVar): the resolver's swap/restore of the
+	//paragraph map means this analysis — which runs after resolution
+	//finished — cannot recover it by name lookup.
+	if (auto *pLocal = stmt.VarLocal()) {
+		pBody->AddLoopHeadLocal(pLocal);
+		m_loopHeadParaOf[pLocal] = pBody;
+	}
+	WalkLoopChildren(stmt, pBody);
+}
+
+//While/do bodies own an activation boundary like every loop body (spec
+//§4.1 — a loop-body scope re-activates per iteration) but declare no
+//head locals, so nothing is registered: only the owner is stamped.
+void CapturePass::WalkWhile(SnWhileStmt &stmt)
+{
+	SnParagraph *pBody = stmt.BodyParagraph();
+	pBody->SetLoopActivationOwner(pBody);
+	WalkLoopChildren(stmt, pBody);
+}
+
+void CapturePass::WalkDo(SnDoStmt &stmt)
+{
+	SnParagraph *pBody = stmt.BodyParagraph();
+	pBody->SetLoopActivationOwner(pBody);
+	WalkLoopChildren(stmt, pBody);
+}
+
+//Shared loop-statement walk: the body paragraph becomes the activation
+//owner for every display inside it; the stack propagates that owner to
+//nested paragraphs until an inner loop replaces it with its own body.
+//WalkFor/WalkForeach set the owner before this runs, so the inheritance
+//for inner paragraphs always starts from the body itself.
+void CapturePass::WalkLoopChildren(Node &stmt, SnParagraph *pBody)
+{
+	for (auto &child : stmt.Children()) {
+		const bool bEnterBody = pBody && &child == pBody;
+		if (bEnterBody)
+			m_loopBodyStack.push_back(pBody);
+		Walk(child);
+		if (bEnterBody)
+			m_loopBodyStack.pop_back();
+	}
+}
+
 void CapturePass::WalkTypeDecl(Node &node)
 {
 	auto *pClass = static_cast<SnClassDecl *>(&node);
@@ -159,6 +253,8 @@ void CapturePass::EnterParagraph(SnParagraph &para)
 		? nullptr : m_lambdaStack.back().pLambda;
 	m_declOwnerOfPara[&para] = m_ownerStack.empty()
 		? nullptr : m_ownerStack.back();
+	if (!m_loopBodyStack.empty())
+		para.SetLoopActivationOwner(m_loopBodyStack.back());
 	m_paraStack.push_back(&para);
 	//Harvest this paragraph's local descriptors (lightweight nodes
 	//outside the child lists).
@@ -183,6 +279,7 @@ void CapturePass::EnterFunction(SnFunction &func)
 		return;
 	m_paraStack.clear();  //defensive: a function body never nests
 	m_lambdaStack.clear();
+	m_loopBodyStack.clear();
 	//A formal's declaring scope is its function's body paragraph — the
 	//display hosting a captured formal's storage (and running the
 	//prologue copy from the formal's frame slot).
@@ -191,6 +288,7 @@ void CapturePass::EnterFunction(SnFunction &func)
 	Walk(*func.Body());
 	m_paraStack.clear();
 	m_lambdaStack.clear();
+	m_loopBodyStack.clear();
 }
 
 void CapturePass::EnterLambda(SnLambdaExpr &lambda)
@@ -205,8 +303,16 @@ void CapturePass::EnterLambda(SnLambdaExpr &lambda)
 	for (auto &up : lambda.ParamLocals())
 		m_paramOwnerOf[up.get()] = &lambda;
 	m_lambdaStack.push_back(site);
+	//A lambda body is a fresh emission frame: paragraphs inside it take
+	//no loop-activation owner from the enclosing frame's loops. Move the
+	//stack aside rather than clearing in place — WalkLoopChildren's
+	//push/pop pairing around an enclosing loop body must stay balanced
+	//when the walk descends through this lambda and comes back.
+	auto savedLoopBodies = std::move(m_loopBodyStack);
+	m_loopBodyStack.clear();
 	for (auto &child : lambda.Children())
 		Walk(child);
+	m_loopBodyStack = std::move(savedLoopBodies);
 	//Classification marked the stack entry (a copy of the local site) —
 	//sync it back before dropping the entry.
 	site.bReceiverCapture = m_lambdaStack.back().bReceiverCapture;
@@ -214,107 +320,6 @@ void CapturePass::EnterLambda(SnLambdaExpr &lambda)
 	m_sites.push_back(site);
 }
 
-void CapturePass::ClassifyIdentifier(SnIdentifierExpr &id,
-	LambdaSite &innermost)
-{
-	//A member-access inner names the target member; its receiver is the
-	//outer side (a captured object), not `this` — no receiver capture.
-	auto *pParent = id.Parent();
-	if (pParent && pParent->Kind() == NK_MemberExpr
-		&& static_cast<SnMemberExpr *>(pParent)->Inner() == &id)
-		return;
-	ClassifyFieldRead(id.Field(), innermost);
-}
-
-//The storage classification shared by bare identifier reads and
-//delegate-invoke callees. A delegate invoke's callee identifier is
-//detached at resolution (the binding rides the invoke node), so the
-//recursive self-reference `f = ... f(x - 1) ...` names its storage only
-//through the invoke — without classifying there, the function value
-//would never capture itself.
-void CapturePass::ClassifyFieldRead(SnField *pField, LambdaSite &innermost)
-{
-	if (!pField)
-		return;
-	//Locals and lambda parameters share the NK_FormalParam kind; the
-	//lightweight descriptor answers the dynamic type first.
-	if (auto *pLocal = dynamic_cast<SnLocalVar *>(pField))
-	{
-		ClassifyLocalRead(*pLocal, innermost);
-		return;
-	}
-	if (pField->Kind() == NK_FormalParam)
-	{
-		//A real formal of an enclosing function (lambda parameters are
-		//SnLocalVar descriptors; the lambda answers those first).
-		auto *pFormal = static_cast<SnFormalParam *>(pField);
-		auto it = m_declParaOfFormal.find(pFormal);
-		if (it == m_declParaOfFormal.end())
-			return;  //not walked (imported stub) — defensive
-		RecordCapture(pFormal, it->second, FlavorOf(*pFormal));
-		return;
-	}
-	if (pField->Kind() == NK_ClassField)
-	{
-		//Instance member through implicit this: receiver capture. Static
-		//members keep module slots; explicit-receiver member reads were
-		//filtered above.
-		auto *pClassField = static_cast<SnClassField *>(pField);
-		if (pClassField->ContainFlags(NF_Static))
-			return;
-		innermost.bReceiverCapture = true;
-		return;
-	}
-	//Types, functions, enum members: no capture.
-}
-
-//The SnLocalVar branch of ClassifyFieldRead: static locals keep slot
-//storage in every frame, the innermost lambda's own parameter is frame-
-//local, every other local resolves its declaring paragraph — an outer
-//lambda's parameter storage lives in the owner's block-body paragraph
-//(expression-body owners have no paragraph to host a display and are
-//refused loudly until generic displays land).
-void CapturePass::ClassifyLocalRead(SnLocalVar &local, LambdaSite &innermost)
-{
-	if (local.ContainFlags(NF_Static))
-		return;
-	for (auto &up : innermost.pLambda->ParamLocals())
-		if (up.get() == &local)
-			return;  //the innermost lambda's own parameter
-	SnParagraph *pDeclPara = nullptr;
-	auto itLocal = m_declParaOfLocal.find(&local);
-	if (itLocal != m_declParaOfLocal.end())
-	{
-		pDeclPara = itLocal->second;
-	}
-	else
-	{
-		//A parameter of an OUTER lambda in the nest: its storage is
-		//the owner's synthetic frame, hosted by the owner's block
-		//body paragraph.
-		auto itOwner = m_paramOwnerOf.find(&local);
-		if (itOwner == m_paramOwnerOf.end())
-			return;  //not capturable storage (defensive)
-		SnLambdaExpr *pOwner = itOwner->second;
-		if (!pOwner->BlockBody())
-			throw std::runtime_error(
-				"LambdaCaptureAnalysis: a lambda nested in another "
-				"lambda's expression body cannot capture the outer "
-				"lambda's parameter yet; bind the lambda to a local "
-				"first");
-		pDeclPara = pOwner->BlockBody();
-	}
-	//A declaration inside the innermost lambda's own body is frame-
-	//local there — no capture.
-	if (pDeclPara && m_paraStack.size() > innermost.visitDepth)
-	{
-		for (size_t i = innermost.visitDepth;
-			i < m_paraStack.size(); ++i)
-			if (m_paraStack[i] == pDeclPara)
-				return;
-	}
-	RecordCapture(&local, pDeclPara, FlavorOf(local));
-}
 
 void CapturePass::RecordCapture(SnField *pDecl, SnParagraph *pDeclPara,
 	CaptureFlavor flavor)

@@ -128,9 +128,8 @@ bool ExprResolveAccessor::RejectBraceArrayInitTarget(SnInitListExpr &sn,
 //0.10.10: the slot types init-list entries bind against — the array
 //element type / the List value slot / the Dict key+value slots
 //(`List<func<int,int>> l = [bar];`, `Dict<string,int> d = {k: 1};`).
-//A null pair = the target carries no per-slot type (a user class/struct
-//target is per-field); the func-ref binding and the slot casts then
-//address the declared field instead.
+//A null pair = no per-slot type (a user class/struct target is
+//per-field); the func-ref binding and slot casts address the field.
 InitListSlotTypes ExprResolveAccessor::ResolveInitListSlotTypes(
     SnField *pTargetField, bool bIsArray)
 {
@@ -138,11 +137,12 @@ InitListSlotTypes ExprResolveAccessor::ResolveInitListSlotTypes(
     if (bIsArray)
     {
         //Stage-2 ND: an un-peeled ND token target carries the element
-        //inside - slot types are always the leaf element.
-        SnField *pSlot = pTargetField;
-        if (pSlot && pSlot->Kind() == NK_ArrayTypeToken)
-            pSlot = static_cast<SnArrayTypeToken*>(pSlot)->ElemTypeOf();
-        slots.pValueType = pSlot;
+        //inside - slot types are always the leaf element. The peel is
+        //the shared dual-spelling primitive (0.13.10): a token-only
+        //hand peel keyed the Array<E> spelling's entry casts on the
+        //class row and every element came back incompatible.
+        SnField *pSlot = ArrayElementRowOf(pTargetField);
+        slots.pValueType = pSlot ? pSlot : pTargetField;
         return slots;
     }
     if (pTargetField->Kind() == NK_ClassDecl)
