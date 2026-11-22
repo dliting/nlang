@@ -6,7 +6,7 @@
 # recorded "all green". Every gate (ctest, e2e, docs builds) must run
 # through this script instead of a piped tail.
 #
-# Usage: tools/gate.sh [--shared] [--claim <resource>]... <name> <logfile-stem> <command> [args...]
+# Usage: tools/gate.sh [--claim <resource>]... <name> <logfile-stem> <command> [args...]
 #        tools/gate.sh --print-write-dirs <command> [args...]
 #   - stdout and stderr are captured SEPARATELY to <stem>.out/.err
 #     (merged capture can interleave and drop lines).
@@ -17,79 +17,62 @@
 # never from a tail alone. Wait/report lines use a "LOCK " prefix, so
 # they can never be mistaken for a verdict.
 #
-# Machine lock: a test suite measures a machine it must own. Two worktree
-# gate batches on one machine share the CPU (timing-sensitive VM and
-# concurrency tests), the desktop (only the foreground process has a
-# keyboard focus chain) and — until the tests got their own scratch trees
-# — %TEMP%. So a gate that RUNS tests takes a machine-wide lock, and a
-# gate that only BUILDS (--shared: cmake, vcpkg-style compiles, docs)
-# waits for the test gates but still overlaps other build gates, which is
-# what the parallel three-tree rebuild needs.
+# Locks: two kinds, each naming something real about the collision it
+# prevents (gate timing design D-10 retired the machine-wide lock that used
+# to sit above both, and the --shared flag that asked for it: what it guarded
+# — %TEMP% collisions, the desktop focus chain, timing sensitivity — is each
+# handled in its own layer now, and the lock itself only ever queued legs
+# that share nothing).
 #
-#   --shared  the command writes only inside its own build tree and is
-#             safe next to another --shared gate; never next to a test gate
-#             (leave it off for ctest, e2e, and anything timing- or
-#             GUI-sensitive: forgetting the flag costs a wait, forgetting
-#             it where it was needed costs a polluted measurement). The
-#             contract is enforced, not trusted: the write directories a
-#             command names are derived from its own argv, so two
-#             --shared gates writing the same directory are still
-#             serialized one directory at a time, while gates writing
-#             different trees overlap freely.
+#   Write-directory lock: every gate claims every directory its own command
+#             names (--build/-B, --test-dir, --site-dir, --workdir, or an
+#             inline NLANG_GATE_WRITE_DIR), because a build tree's CPack and
+#             CMakeCache files sit at its root and are shared by every
+#             configuration — two configurations of one tree building at once
+#             fight over the same .tmp files. Claims are keyed by the
+#             normalized path, taken with an atomic mkdir of wdir/<key>/
+#             under the lock directory, and released in the reverse order
+#             they were taken; a leg that holds several claims takes them in
+#             ascending key order, which is what keeps two such legs from
+#             deadlock. The stale rule is age only: a remnant older than
+#             LOCK_STALE_S is taken over whether or not its holder is still
+#             alive, and the holder's pid= line is written for a human to
+#             read — nothing checks it, because an MSYS pid says nothing
+#             about liveness across a reboot. A directory claimed by a leg
+#             that was killed therefore still waits out that same threshold;
+#             when that is too long, the waiting line prints the holder (its
+#             path= names the directory), the claim can be removed by hand,
+#             or NLANG_GATE_STALE_S lowers the threshold. A gate that derives
+#             no writable directory and names no claim prints a warning and
+#             runs unlocked, and one whose digest tool printed no hash for a
+#             directory it did derive warns the same way rather than claiming
+#             a lock under an unusable name.
+#
+#   Claim lock: --claim <resource> (repeatable) takes a named-resource lock
+#             at $lock_dir/claim/<resource>/, with the same two-step
+#             atomic-mkdir-then-holder shape and the same age-based takeover
+#             as the write-directory lock. It serializes gates that must not
+#             run beside each other but share no write directory — today the
+#             nide-gui claim over the ctest legs of trees that register
+#             window-launching tests (gate timing design D-11), where ctest's
+#             own RESOURCE_LOCK covers the entries inside one process and the
+#             claim covers whole legs running side by side. Two gates naming
+#             the same claim queue one at a time; different names overlap.
+#
+# Acquisition order is fixed for every gate: claims in ascending
+# resource-name order, then write-directory locks in ascending key order;
+# release runs the exact reverse. One total order across the two kinds is
+# the same sufficient condition wdir_keyed_pairs pins for directories, so
+# claims can never form a hold-one-wait-the-other cycle against each other
+# or against the directory locks.
 #
 # The lock lives in $TMPDIR/nlang-gate-<user>/ by default (one directory
 # per machine user, shared by every worktree); set NLANG_GATE_LOCK_DIR to
 # point it somewhere else, which a CI runner with a per-job TMPDIR has to
-# do to keep one machine's gates in one lock. The acquire and wait lines
-# print the path, so a batch that took the wrong lock is visible in the
-# log rather than silent. Holders are an atomic mkdir of exclusive/ for
-# exclusive gates and one file each in shared/ for build gates. A holder
-# has been held for more than LOCK_STALE_S is assumed dead — a killed or
-# crashed gate — and is taken over, naming the holder it replaced. A long
-# stream of --shared gates can in principle keep a waiting test gate
-# waiting (the waiting gate prints its elapsed wait, so it is visible);
-# in a batch the test gates come last anyway.
-#
-# Write-directory lock: a --shared gate also claims every directory its own
-# command names (--build/-B, --test-dir, --site-dir, --workdir, or an
-# inline NLANG_GATE_WRITE_DIR), because a build tree's CPack and CMakeCache
-# files sit at its root and are shared by every configuration — two
-# configurations of one tree building at once fight over the same .tmp
-# files. Claims are keyed by the normalized path, taken with an atomic
-# mkdir of wdir/<key>/ under the same lock directory, and released in the
-# reverse order they were taken; a leg that holds several claims takes
-# them in ascending key order, which is what keeps two such legs from
-# deadlock. The stale rule is the machine lock's, age only: a remnant older
-# than LOCK_STALE_S is taken over whether or not its holder is still alive,
-# and the holder's pid= line is written for a human to read — nothing checks
-# it, because an MSYS pid says nothing about liveness across a reboot. A
-# directory claimed by a leg that was killed therefore still waits out that
-# same threshold; when that is too long, the waiting line prints the holder
-# (its path= names the directory), the claim can be removed by hand, or
-# NLANG_GATE_STALE_S lowers the threshold. A --shared gate from which no
-# directory can be derived prints a warning and runs unlocked, and one whose
-# digest tool printed no hash for a directory it did derive warns the same way
-# rather than claiming a lock under an unusable name.
-#
-# Claim lock: --claim <resource> (repeatable) takes a named-resource lock at
-# $lock_dir/claim/<resource>/, with the same two-step atomic-mkdir-then-holder
-# shape and the same age-based takeover as the machine and write-directory
-# locks. It serializes gates that must not run beside each other but share no
-# write directory — today the nide-gui claim over the ctest legs of trees that
-# register window-launching tests (gate timing design D-11), where ctest's own
-# RESOURCE_LOCK covers the entries inside one process and the claim covers
-# whole legs running side by side (Task 12 removes the machine lock, after
-# which the claim is what keeps GUI families apart between batches).
-# Acquisition order is fixed for every gate: machine lock, then claims in
-# ascending resource-name order, then write-directory locks in ascending key
-# order; release runs the exact reverse. One total order across all three
-# kinds is the same sufficient condition wdir_keyed_pairs pins for
-# directories, so claims can never form a hold-one-wait-the-other cycle
-# against each other or against the directory locks. A claim works in both
-# modes: an exclusive gate's machine lock already excludes every other
-# exclusive gate, so a claim there queues against --shared gates of the same
-# resource; two --shared gates naming the same claim queue, different names
-# overlap.
+# do to keep one machine's gates in one lock. The wait lines print where
+# they wait — a claim says which lock root, a write-directory lock says
+# which directory — so a batch that took the wrong lock is visible in the
+# log rather than silent.
 #
 # --print-write-dirs runs that same derivation and prints one
 # "key <16 hex> path <dir>" line per derived directory: no leg name, no lock of
@@ -116,8 +99,6 @@ LOCK_STALE_S=${NLANG_GATE_STALE_S:-10800}
 # values rather than locking under an anonymous name.
 lock_owner="${USER:-${USERNAME:-unknown}}"
 lock_dir="${NLANG_GATE_LOCK_DIR:-${TMPDIR:-/tmp}/nlang-gate-$lock_owner}"
-excl_dir="$lock_dir/exclusive"
-shared_dir="$lock_dir/shared"
 wdir_dir="$lock_dir/wdir"
 claim_root="$lock_dir/claim"
 # The keys whose directory locks were actually claimed, one per line in claim
@@ -128,7 +109,7 @@ wdir_held=""
 claim_held=""
 
 usage() {
-    echo "usage: tools/gate.sh [--shared] [--claim <resource>]... <name> <logfile-stem> <command> [args...]" >&2
+    echo "usage: tools/gate.sh [--claim <resource>]... <name> <logfile-stem> <command> [args...]" >&2
     echo "       tools/gate.sh --print-write-dirs <command> [args...]" >&2
     echo "           prints the derived write-directory keys; takes no lock and" >&2
     echo "           writes no file, so a configure-time probe can run in a batch" >&2
@@ -229,14 +210,8 @@ derive_write_dirs() {
 
 # Leading options only, so they stay separable from the wrapped command's own
 # argv (a --claim after the name belongs to the command, not to the lock).
-shared_mode=0
 claims=""
-while [ "${1:-}" = "--shared" ] || [ "${1:-}" = "--claim" ]; do
-    if [ "$1" = "--shared" ]; then
-        shared_mode=1
-        shift
-        continue
-    fi
+while [ "${1:-}" = "--claim" ]; do
     shift
     if [ $# -lt 1 ]; then
         usage
@@ -269,6 +244,16 @@ if [ "${1:-}" = "--print-write-dirs" ]; then
     exit 0
 fi
 
+# A leading token that still looks like an option after the known ones were
+# consumed is a stale or mistyped invocation. gate.sh once took --shared
+# here, and silently eating a removed option would start the wrapped command
+# one word late — a misparse no verdict line would explain — so an unknown
+# leading option now fails with usage instead.
+if [ -n "${1:-}" ] && [ "${1#-}" != "$1" ]; then
+    echo "gate.sh: unrecognized leading option: $1" >&2
+    usage
+fi
+
 if [ "$#" -lt 3 ]; then
     usage
 fi
@@ -284,12 +269,10 @@ write_holder() {
         printf 'pid=%s\n' "$$"
         printf 'started=%s\n' "$(date +%s)"
         printf 'dir=%s\n' "$PWD"
-        printf 'mode=%s\n' "$([ "$shared_mode" -eq 1 ] && echo shared || echo exclusive)"
         printf 'cmd=%s\n' "$gate_cmd"
         # A directory lock names its flag directory by a hash, so this file is
         # the one place where that key and the real path are recorded together
-        # (spec D-8). The machine lock has no path of its own, so it gets no
-        # path= line and its holders keep the shape they have today.
+        # (spec D-8).
         if [ "$#" -ge 2 ]; then
             printf 'path=%s\n' "$2"
         fi
@@ -353,27 +336,6 @@ holder_age_or_mtime_s() {
     fi
 }
 
-# Drop holders that outlived their process (a gate killed with the shell
-# closed leaves its directory behind, and that must not freeze the
-# machine until someone notices).
-sweep_stale() {
-    if [ -d "$excl_dir" ]; then
-        age=$(holder_age_or_mtime_s "$excl_dir/holder.info" "$excl_dir")
-        if [ "$age" -gt "$LOCK_STALE_S" ]; then
-            echo "LOCK $name: taking over an exclusive lock held ${age}s by $(holder_text "$excl_dir/holder.info")"
-            rm -rf "$excl_dir"
-        fi
-    fi
-    for file in "$shared_dir"/*.info; do
-        [ -f "$file" ] || continue
-        age=$(holder_age_or_mtime_s "$file" "$file")
-        if [ "$age" -gt "$LOCK_STALE_S" ]; then
-            echo "LOCK $name: dropping a shared lock held ${age}s by $(holder_text "$file")"
-            rm -f "$file"
-        fi
-    done
-}
-
 # Take over a directory lock whose gate is gone. The fallback half of the age
 # source is not a detail here: the flag directory is created before its holder
 # is written, so a gate killed between those two steps leaves a flag with no
@@ -402,12 +364,12 @@ sweep_stale_claim() { # <claim-name>
 }
 
 # Report the current holder at most once a minute while waiting. The caller
-# brings the first-round line, because that line is the only place the two locks
-# differ: the machine lock names its lock directory there (which is what shows up
-# when two batches silently took two different locks), the write-directory lock
-# names the directory it wants, and the repeat lines read the same for both. The
-# throttle itself lives here and nowhere else, so a wait can report at one rate
-# whatever lock it is waiting on.
+# brings the first-round line, because that line is the only place the two
+# lock kinds differ: the claim wait line names the lock root (which is what
+# shows up when two batches silently took two different locks), the
+# write-directory wait line names the directory it wants, and the repeat
+# lines read the same for both. The throttle itself lives here and nowhere
+# else, so a wait can report at one rate whatever lock it is waiting on.
 wait_round() { # <waited-seconds> <first-round-line> <holder-description>
     if [ "$1" -eq 0 ]; then
         echo "$2"
@@ -416,60 +378,25 @@ wait_round() { # <waited-seconds> <first-round-line> <holder-description>
     fi
 }
 
-acquire() {
-    waited=0
-    while :; do
-        # The root dir is never deleted (see release), but a temp cleaner
-        # or a manual sweep can take it away, and then the atomic claim
-        # below would fail forever.
-        mkdir -p "$lock_dir"
-        sweep_stale
-        if [ "$shared_mode" -eq 1 ]; then
-            # A build gate only has to stay out of a test gate's way.
-            if [ ! -e "$excl_dir" ]; then
-                mkdir -p "$shared_dir"
-                write_holder "$shared_dir/$name-$$.info"
-                echo "LOCK $name: shared lock acquired after ${waited}s ($lock_dir)"
-                return 0
-            fi
-            desc="exclusive lock held $(holder_age_or_mtime_s "$excl_dir/holder.info" "$excl_dir")s by $(holder_text "$excl_dir/holder.info")"
-        else
-            # A test gate wants the machine to itself: no other exclusive
-            # holder (mkdir is the atomic claim, so a losing racer just
-            # loops) and no build gate compiling next to it.
-            if [ ! -e "$excl_dir" ] && [ -z "$(ls -A "$shared_dir" 2>/dev/null)" ]; then
-                if mkdir "$excl_dir" 2>/dev/null; then
-                    write_holder "$excl_dir/holder.info"
-                    echo "LOCK $name: machine lock acquired after ${waited}s ($lock_dir)"
-                    return 0
-                fi
-                desc="exclusive lock claimed by another waiting gate"
-            else
-                desc="exclusive lock held $(holder_age_or_mtime_s "$excl_dir/holder.info" "$excl_dir")s by $(holder_text "$excl_dir/holder.info")"
-            fi
-        fi
-        wait_round "$waited" "LOCK $name: waiting for the machine lock in $lock_dir ($desc)" "$desc"
-        sleep "$LOCK_POLL_S"
-        waited=$(( waited + LOCK_POLL_S ))
-    done
-}
-
-# Take one directory lock per directory the command names for itself, so two legs
-# writing one tree queue while legs writing different trees keep running side by
-# side. Only build gates ask: the machine lock already keeps every test gate out
-# of every build gate's way, so a test gate has nothing left to conflict with.
+# Take one directory lock per directory the command names for itself, so two
+# legs writing one tree queue while legs writing different trees keep running
+# side by side. Every leg asks, with no mode to opt in: the machine lock no
+# longer exists to keep a test leg out of a build leg's way, and what is left
+# of that job is exactly the directory claim plus the named claims for
+# conflicts no path can name (gate timing design D-10, D-11).
 acquire_wdirs() {
     local wdirs pair wdir_path key desc waited
-    if [ "$shared_mode" -ne 1 ]; then
-        return 0
-    fi
     wdirs=$(derive_write_dirs "$@")
-    # A build gate that names no directory at all cannot be checked for a
+    # A leg that names no writable directory anywhere (flag token or inline
+    # NLANG_GATE_WRITE_DIR) and declares no claim cannot be checked for a
     # conflicting write target, and running it silently unlocked is how two
-    # batches end up in one tree again. Warning rather than failing is what keeps
-    # the directory-less legs that are legitimate today running.
+    # batches end up in one tree again. Warning rather than failing is what
+    # keeps the directory-less legs that are legitimate today — the checker
+    # legs read and print, they write nothing — running.
     if [ -z "$wdirs" ]; then
-        echo "LOCK $name: no write directory derived from the command line, no directory lock taken"
+        if [ -z "$claims" ]; then
+            echo "LOCK $name: no write directory derived from the command line, no directory lock taken"
+        fi
         return 0
     fi
     # Ascending key order, not argv order: see wdir_keyed_pairs. The pair is
@@ -492,12 +419,11 @@ acquire_wdirs() {
         fi
         waited=0
         while :; do
-            # Re-made every round, for the same reason acquire() re-makes the lock
-            # root: a temp cleaner can take either parent away while we wait, and
-            # without this the claim below would fail forever. The claim is a bare
-            # mkdir because mkdir -p also reports success for a directory that
-            # already exists, and reporting that failure is the whole mutual
-            # exclusion.
+            # Re-made every round: a temp cleaner can take either parent away
+            # while we wait, and without this the claim below would fail
+            # forever. The claim is a bare mkdir because mkdir -p also reports
+            # success for a directory that already exists, and reporting that
+            # failure is the whole mutual exclusion.
             mkdir -p "$lock_dir" "$wdir_dir"
             sweep_stale_wdir "$key" "$wdir_path"
             if mkdir "$wdir_dir/$key" 2>/dev/null; then
@@ -506,7 +432,7 @@ acquire_wdirs() {
                 echo "LOCK $name: write-directory lock acquired after ${waited}s ($wdir_path)"
                 break
             fi
-            # The same wording and the same age source as the machine lock's wait
+            # The same wording and the same age source as the claim lock's wait
             # line, so a holder read through either lock says the same thing.
             desc="write-directory lock held $(holder_age_or_mtime_s "$wdir_dir/$key/holder.info" "$wdir_dir/$key")s by $(holder_text "$wdir_dir/$key/holder.info")"
             wait_round "$waited" "LOCK $name: waiting for the write-directory lock on $wdir_path ($desc)" "$desc"
@@ -517,14 +443,14 @@ acquire_wdirs() {
 }
 
 # Take one named-resource lock per --claim, in ascending resource-name
-# order and after the machine lock, so the acquisition order is the fixed
-# machine → claims → directories the header comment pins: with one total
-# order across the three kinds, no two gates can each hold one lock and
-# wait on the other (the same sufficient condition wdir_keyed_pairs states
-# for directories, spec D-5). The resource cannot be derived from a path,
-# so the caller names it; everything else — atomic mkdir as the claim, the
+# order and before the directory locks, so the acquisition order is the
+# fixed claims → directories the header comment pins: with one total order
+# across the two kinds, no two gates can each hold one lock and wait on the
+# other (the same sufficient condition wdir_keyed_pairs states for
+# directories, spec D-5). The resource cannot be derived from a path, so
+# the caller names it; everything else — atomic mkdir as the claim, the
 # holder file, the age-based takeover, the wait reporting — is the
-# machinery the other two locks already share.
+# machinery the directory lock already provides.
 acquire_claims() {
     local claim claim_dir desc waited
     [ -n "$claims" ] || return 0
@@ -554,18 +480,10 @@ acquire_claims() {
 
 release() {
     # Releasing runs in the reverse of the order things were taken
-    # (machine lock → claims → directory locks), so the directory locks go
-    # first, then the claims, then the machine lock as the outermost.
+    # (claims → directory locks): the directory locks go first and the
+    # claims after them.
     release_wdirs
     release_claims
-    if [ "$shared_mode" -eq 1 ]; then
-        rm -f "$shared_dir/$name-$$.info"
-    else
-        rm -rf "$excl_dir"
-    fi
-    # Only the holder files go away; the root stays, so the atomic claim
-    # always has its parent to work in.
-    rmdir "$shared_dir" 2>/dev/null || true
 }
 
 # Claim names in the reverse of the order they were taken, the same rule
@@ -595,7 +513,6 @@ release_wdirs() {
 }
 
 mkdir -p "$lock_dir"
-acquire
 # Armed before the claims and the directory locks are taken, so a signal
 # arriving while one is being waited on releases whatever is already claimed
 # instead of leaving it for the next gate to age out.

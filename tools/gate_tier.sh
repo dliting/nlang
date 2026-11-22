@@ -137,11 +137,14 @@ leg() { # leg <name> [--gate-env NAME=VAL]... [--claim <resource>]... <command..
   # front of the gate.sh call with `env`, so the variable lands in
   # gate.sh's own process environment -- derive_write_dirs reads
   # NLANG_GATE_WRITE_DIR there, and a declaration that only reached the
-  # wrapped command's environment would lock nothing. Today every leg
-  # still holds the machine lock, so the write-dir declaration changes
-  # no scheduling yet; it is what the Task 12 machine-lock removal
-  # builds on, and it already gives the dry-run listing and the carrier
-  # guard the tree each leg writes.
+  # wrapped command's environment would lock nothing. With the machine
+  # lock retired (gate timing design D-10) this declaration IS the leg's
+  # locking: gate.sh derives the write-directory lock from the command
+  # line when the command names a tree as its own argv words, and from
+  # this variable otherwise -- a tree that only appears inside a quoted
+  # bash -c script is invisible to that walk, so those legs declare the
+  # directory here. The dry-run listing and the carrier guard read the
+  # tree each leg writes from the same recorded head.
   local name="$1"; shift
   local declared="$*"
   local claim_args=() env_pairs=() rest=()

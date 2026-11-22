@@ -168,7 +168,7 @@ leg() {
     if [ -n "$go" ]; then
         pending_gos+=("$go")
     fi
-    bash "$GATE_SH" --shared "$name" "$stem" "$@" > "$stem.console" 2>&1 &
+    bash "$GATE_SH" "$name" "$stem" "$@" > "$stem.console" 2>&1 &
 }
 
 # release_leg <go>: let one waiting leg run to its finish.
@@ -190,21 +190,21 @@ leg_env() {
     if [ -n "$go" ]; then
         pending_gos+=("$go")
     fi
-    NLANG_GATE_WRITE_DIR="$dir" bash "$GATE_SH" --shared "$name" "$stem" "$@" > "$stem.console" 2>&1 &
+    NLANG_GATE_WRITE_DIR="$dir" bash "$GATE_SH" "$name" "$stem" "$@" > "$stem.console" 2>&1 &
 }
 
 # leg_claim <name> <stem> <go> <resource> <command...>: as leg, but the leg
-# also declares one named resource (gate timing D-11). Like --shared the
-# option has to precede the leg name on gate.sh's command line (a --claim
-# after the name belongs to the wrapped command, not to the lock), which is
-# why this is a third launch helper rather than extra arguments to leg().
+# also declares one named resource (gate timing D-11). The option has to
+# precede the leg name on gate.sh's command line (a --claim after the name
+# belongs to the wrapped command, not to the lock), which is why this is a
+# third launch helper rather than extra arguments to leg().
 leg_claim() {
     local name="$1" stem="$2" go="$3" resource="$4"
     shift 4
     if [ -n "$go" ]; then
         pending_gos+=("$go")
     fi
-    bash "$GATE_SH" --shared --claim "$resource" "$name" "$stem" "$@" > "$stem.console" 2>&1 &
+    bash "$GATE_SH" --claim "$resource" "$name" "$stem" "$@" > "$stem.console" 2>&1 &
 }
 
 # claim_holder_records <count> / claim_holder_dump: the claim-root mirrors of
@@ -302,7 +302,7 @@ one_tree_pair() {
     # what shows B waiting for A's tree and not for something unrelated; the
     # trailing "(" makes the directory half of the line exact. This is the
     # write-directory lock's own first-round wording, so it cannot be confused
-    # with the machine lock's wait line or with the load-dependent repeats.
+    # with a claim wait line or with the load-dependent repeats.
     want="LOCK $stemB: waiting for the write-directory lock on $holder_path ("
     if ! await "$stemB.console" "$want"; then
         fail "$case_name" "leg B never printed the write-directory wait line for $holder_path: console=[$(cat "$stemB.console" 2>/dev/null)] holders=[$(holder_dump)]"
@@ -436,9 +436,9 @@ case_a3_different_trees() {
     a3_paths="$pathA"$'\n'"$pathB"
     # Neither leg waited: the two claims are for different keys. The negative
     # half is anchored on the directory lock's own first-round wording, because a
-    # machine-lock wait line would fail it for the wrong reason and the repeat
-    # lines look the same for both locks. The acquired lines are asserted as
-    # well: a leg that claimed no directory also prints no wait line.
+    # claim wait line would fail it for the wrong reason and the repeat lines
+    # look the same for both lock kinds. The acquired lines are asserted as well:
+    # a leg that claimed no directory also prints no wait line.
     waitA=$(count_lines "$stemA.console" "waiting for the write-directory lock on")
     waitB=$(count_lines "$stemB.console" "waiting for the write-directory lock on")
     acqA=$(count_lines "$stemA.console" "write-directory lock acquired after")
@@ -556,7 +556,7 @@ finish single"
     fi
     # The claim order, read off the two acquired lines in the order they were
     # printed: ascending lock key. The "write-directory lock acquired" wording
-    # keeps the machine lock's own acquired line out of the count, and each
+    # keeps the claim lock's own acquired line out of the count, and each
     # directory is named by exactly one of the two lines.
     acqM=$(count_lines "$stemM.console" "write-directory lock acquired after")
     early_line=$(grep -n -F -m 1 -- "($early_dir)" "$stemM.console" 2>/dev/null | cut -d: -f1)
@@ -742,7 +742,7 @@ case_a7_print_write_dirs() {
 # The usage line is the only documentation a person who mistypes the
 # invocation actually reads, and --print-write-dirs is an advertised way to run
 # gate.sh (the docs-build legs and the configure-time probe both use it), so it
-# has to be named there next to --shared (spec 九).
+# has to be named there (spec 九).
 case_a8_usage_lists_print_mode() {
     local err=a8-usage.err rc
     # A bare call has no name, no stem and no command, so usage() is the only
@@ -783,14 +783,14 @@ case_a9_no_digest_warning() {
     # PATH is set for this one call only, and on the same line as the command
     # (exporting it would re-point every later leg) — the same reason leg_env()
     # cannot go through leg(). sha256sum has exactly one consumer in gate.sh
-    # (wdir_key), so the stub cannot be quietly reached through by the machine
-    # lock or by the wrapped command, which is a `bash -c` that ignores the two
+    # (wdir_key), so the stub cannot be quietly reached through by the wrapped
+    # command, which is a `bash -c` that ignores the two
     # tokens the derivation still has to read. The leg is awaited on the suite's
     # own deadline rather than run in the foreground, because the defect this
     # case pins is a leg that never reaches its verdict: with an empty key half
     # (read strips a leading tab) the path landed in $key and the leg waited for
     # a lock directory that could never be created.
-    PATH="$bin:$PATH" bash "$GATE_SH" --shared "$name" "$stem" \
+    PATH="$bin:$PATH" bash "$GATE_SH" "$name" "$stem" \
         bash -c 'exit 0' ignore --build "$dir" > "$stem.console" 2>&1 &
     local leg_pid=$!
     if ! await "$stem.console" "GATE $name: PASS"; then
@@ -820,8 +820,8 @@ case_a9_no_digest_warning() {
 # the same two-step shape, so these cases reuse the GO protocol unchanged and
 # assert gate.sh's claim wording family only: "claim <name> acquired after",
 # "waiting for the claim <name> in <lock root> (…", "claim <name> released"
-# and "taking over the claim <name> held …". The --shared and write-directory
-# probes above stay exactly as they are; the claim axis comes on top.
+# and "taking over the claim <name> held …". The write-directory probes above
+# stay exactly as they are; the claim axis comes on top.
 case_a13_claim_serialize() {
     # Two legs naming the same claim never run their commands at once,
     # whatever directories they write — that is the whole nide-gui window
@@ -946,14 +946,14 @@ case_a15_claim_stale_takeover() {
     # to take each over with its named line and run without waiting.
     local resA=a15-dead resB=a15-noholder name=a15 stem=a15 rc waits
     mkdir -p "$WS/lock/claim/$resA" "$WS/lock/claim/$resB"
-    printf 'name=dead-gate\npid=1\nstarted=%s\ndir=/nowhere\nmode=shared\ncmd=sleep 999999\n' \
+    printf 'name=dead-gate\npid=1\nstarted=%s\ndir=/nowhere\ncmd=sleep 999999\n' \
         "$(( $(date +%s) - 300 ))" > "$WS/lock/claim/$resA/holder.info"
     touch -t 202001010000 "$WS/lock/claim/$resB"
     # NLANG_GATE_STALE_S rides this one call only (the same per-command
     # placement as every other leg environment here): waiting out the
     # shipped three-hour threshold would spend the global budget on one
     # case.
-    NLANG_GATE_STALE_S=60 bash "$GATE_SH" --shared --claim "$resA" \
+    NLANG_GATE_STALE_S=60 bash "$GATE_SH" --claim "$resA" \
         --claim "$resB" "$name" "$stem" bash -c 'exit 0' > "$stem.console" 2>&1
     rc=$?
     if [ "$rc" -ne 0 ]; then
@@ -1031,6 +1031,31 @@ finish B"
         return
     fi
     pass "$case_name"
+}
+
+# The machine lock is gone (gate timing D-10, Task 12), so the leading
+# --shared option is gone with it. An invocation that still names it has to
+# fail loudly: silently eating the flag would let a stale caller run with its
+# first token — the option — consumed and the real command starting one word
+# late, which is a misparse no verdict line would explain. Rejecting every
+# leading option the parser does not know is the general guard; --shared is
+# just the option this removal makes stale.
+case_a17_removed_option_rejected() {
+    local stem=a17 rc
+    bash "$GATE_SH" --shared "$stem" "$stem" bash -c 'exit 0' \
+        > "$stem.out" 2> "$stem.err"
+    rc=$?
+    if [ "$rc" -ne 64 ]; then
+        fail "$case_name" "a leading --shared should exit 64, got $rc: out=[$(tr '\n' ';' < "$stem.out" 2>/dev/null)]"
+        return
+    fi
+    # The stderr must name the rejected option, not just print usage: a person
+    # with a stale script has to see which word the parser refused.
+    if [ "$(count_lines "$stem.err" "--shared")" -ne 1 ]; then
+        fail "$case_name" "the rejection does not name --shared exactly once: err=[$(tr '\n' ';' < "$stem.err" 2>/dev/null)]"
+    else
+        pass "$case_name"
+    fi
 }
 
 # gate_tier.sh is the assembler: it works out which legs a change needs and hands
@@ -1174,6 +1199,7 @@ run_case a13-claim-serialize case_a13_claim_serialize
 run_case a14-claim-distinct-resources case_a14_claim_distinct_resources
 run_case a15-claim-stale-takeover case_a15_claim_stale_takeover
 run_case a16-env-vs-build-token case_a16_env_vs_build_token
+run_case a17-removed-option-rejected case_a17_removed_option_rejected
 # A10 drives the batch assembler rather than gate.sh itself, so it comes after the
 # locking cases, which own the run order spec 八.3 fixes for gate.sh.
 run_case a10-gate-tier-batch case_a10_gate_tier_batch

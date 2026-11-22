@@ -88,14 +88,15 @@ stdlib_stub_size 5
 STUB_GATE = """\
 #!/usr/bin/env bash
 #Stub gate.sh: record what the tier assembly hands over, then pass.
-#The leading --shared/--claim options precede the leg name (gate timing
-#D-11), so skip them the way the real gate.sh parses them -- but record
+#The leading --claim options precede the leg name (gate timing D-11;
+#the machine lock's --shared retired with it, D-10), so skip them the
+#way the real gate.sh parses them -- but record
 #the full argument line as received, because the assembly pins check
 #the claim declaration itself, and echo the gate-level environment the
 #stub process holds: an --gate-env that only reached the inner command
 #would show <unset> here instead of the declared path.
 raw="$*"
-while [ "$1" = "--shared" ] || [ "$1" = "--claim" ]; do
+while [ "$1" = "--claim" ]; do
   [ "$1" = "--claim" ] && shift
   shift
 done
