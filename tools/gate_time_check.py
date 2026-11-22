@@ -94,11 +94,21 @@ from gate_time_timeouts import (check_timeouts, expected_watchdogs,
 
 def _inputs(args, repo):
     """Derived universes for guards one/two: live --show-only enumerations
-    per decision tree unless --enum pins a config to a dump file;
-    --perf-names (or --enum ctest-Release=FILE) feeds the ctest-Release
-    perf half with the NLANG_PERF_TESTS ON/OFF registration difference,
-    the set print-perf-names writes (R-61) -- not the full ON
-    enumeration; both e2e manifests default to the repo lists."""
+    per decision tree unless --enum pins a config to a dump file. The
+    two file channels take different shapes and are not interchangeable:
+    --perf-names takes the perf roster in any of the spellings its writer
+    produces, the contract read_perf_names enforces (spec D-17) -- one
+    name per line, the '|'-joined value line, or the raw stdout redirect
+    including its trailing 'GATE ' verdict line -- while --enum CFG=FILE
+    (ctest-Release included) is read by read_name_set, which takes one
+    name per line (blank lines and '#' comments skipped, trailing
+    columns ignored) or a ctest --show-only JSON document. Feeding the
+    raw redirect to --enum ctest-Release=FILE would read the verdict
+    line as an entry name and add a phantom entry: pass only the value
+    line or a one-per-line dump there. Either channel feeds the
+    ctest-Release perf half with the NLANG_PERF_TESTS ON/OFF
+    registration difference (R-61) -- not the full ON enumeration; both
+    e2e manifests default to the repo lists."""
     overrides = enum_overrides(args.enum)
     enums = {}
     for cfg, tree in DECISION_TREES.items():
@@ -272,14 +282,17 @@ def _derived_inputs(args, table):
 
 def _run_check_complete(args, table):
     rows, enums, perf_names, manifests = _derived_inputs(args, table)
-    return _verdict(check_complete(rows, enums, manifests, perf_names)[1])
+    # as_posix: the closing record command lands in bash logs, so the
+    # table path pastes cleanly from any shell.
+    return _verdict(check_complete(rows, enums, manifests, perf_names,
+                                   table.as_posix())[1])
 
 
 def _run_check_orphans(args, table):
     rows, enums, perf_names, manifests = _derived_inputs(args, table)
     ctest_union = set().union(*enums.values())
     return _verdict(check_orphans(rows, ctest_union, perf_names,
-                                  manifests)[1])
+                                  manifests, table.as_posix())[1])
 
 
 def _run_check_constants(args, table):

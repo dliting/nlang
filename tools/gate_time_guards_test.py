@@ -87,12 +87,45 @@ def test_complete_missing_row_fails():
                          "ctest-Debug zeta_probe_tests ")
         path = write_table(tmp, text)
         ok, findings = check_complete(load_table(path), base_enums(),
-                                      base_manifests(), base_perf_names())
+                                      base_manifests(), base_perf_names(),
+                                      path.as_posix())
         check(not ok, "complete: a dropped ctest-Debug row must fail")
         check(any(f.startswith("MISSING ctest-Debug zeta_probe_tests")
                   for f in findings),
               "complete: the missing entry must be named, findings=%r"
               % findings)
+        # R-43: the finding carries the verbatim record command that
+        # closes it (spec D-15's re-record discipline), table path and
+        # config spelled so the line pastes as-is.
+        closing = [f for f in findings
+                   if f.startswith("MISSING ctest-Debug zeta_probe_tests")]
+        check(len(closing) == 1
+              and "record --table %s --config ctest-Debug --from-junit"
+              % path.as_posix() in closing[0],
+              "complete: the MISSING finding must name its closing record "
+              "command, findings=%r" % findings)
+
+
+def test_complete_missing_e2e_row_names_from_measure():
+    # The e2e closing command differs from the ctest one: the runner's
+    # --record-out file feeds record, not a junit (spec section 9.0).
+    with tempfile.TemporaryDirectory() as tmp:
+        text = drop_line(drop_line(base_table_text(),
+                                   "e2e-Debug manifest_probe_a "),
+                         "e2e-Debug default ")
+        path = write_table(tmp, text)
+        ok, findings = check_complete(load_table(path), base_enums(),
+                                      base_manifests(), base_perf_names(),
+                                      path.as_posix())
+        check(not ok, "complete: a dropped e2e row must fail")
+        closing = [f for f in findings
+                   if f.startswith("MISSING e2e-Debug manifest_probe_a")]
+        check(len(closing) == 1
+              and "record --table %s --config e2e-Debug --from-measure"
+              % path.as_posix() in closing[0]
+              and "--from-junit" not in closing[0],
+              "complete: the e2e MISSING finding must name the "
+              "--from-measure record command, findings=%r" % findings)
 
 
 def test_complete_extra_row_fails():
@@ -165,13 +198,45 @@ def test_orphan_renamed_ctest_entry_fails():
         path = write_table(tmp, text)
         union = set().union(*base_enums().values())
         ok, findings = check_orphans(load_table(path), union,
-                                     base_perf_names(), base_manifests())
+                                     base_perf_names(), base_manifests(),
+                                     path.as_posix())
         check(not ok, "orphans: a renamed entry must fail")
         orphans = [f for f in findings
                    if "alpha_probe_tests_renamed" in f]
         check(len(orphans) >= 3,
               "orphans: every stale config row must be reported, findings=%r"
               % findings)
+        # R-43 asked for a closing record command, but apply_record
+        # never removes a row (gate_time_measure.apply_record), so an
+        # orphan closes only by deleting the row: the finding names the
+        # exact deletion (table path) instead of an impossible record.
+        check(all("delete the row in %s" % path.as_posix() in f
+                  for f in orphans),
+              "orphans: every orphan finding must name its closing "
+              "deletion, findings=%r" % findings)
+
+
+def test_orphans_without_enum_source_names_enum():
+    # Symmetry with guard one: rows of ctest configs with no
+    # enumeration source are unverifiable, and the finding names that
+    # disposition (the same ENUM line) per affected config instead of
+    # silently skipping every row.
+    with tempfile.TemporaryDirectory() as tmp:
+        path = write_table(tmp, base_table_text())
+        ok, findings = check_orphans(load_table(path), None,
+                                     base_perf_names(), base_manifests(),
+                                     path.as_posix())
+        check(not ok,
+              "orphans: unverifiable rows must not pass as a silent "
+              "green, findings=%r" % findings)
+        for cfg in ("ctest-Debug", "ctest-IDE", "ctest-ASan"):
+            check("ENUM %s: no enumeration source, rows unverifiable"
+                  % cfg in findings,
+                  "orphans: %s must carry the named ENUM disposition, "
+                  "findings=%r" % (cfg, findings))
+        check(not any(f.startswith("ORPHAN ctest-") for f in findings),
+              "orphans: an unverifiable config must not also report its "
+              "rows as orphans, findings=%r" % findings)
 
 
 def test_orphan_renamed_e2e_entry_fails():
@@ -384,12 +449,14 @@ def test_perf_names_roster_accepts_all_three_spellings():
 def run():
     test_complete_ok_on_base_table()
     test_complete_missing_row_fails()
+    test_complete_missing_e2e_row_names_from_measure()
     test_complete_extra_row_fails()
     test_complete_sentinels_cleared_fails()
     test_complete_too_many_sentinels_fails()
     test_orphans_ok_on_base_table()
     test_orphan_renamed_ctest_entry_fails()
     test_orphan_renamed_e2e_entry_fails()
+    test_orphans_without_enum_source_names_enum()
     test_constants_ok_on_base_table()
     test_constants_sentinel_reference_above_min_cap_fails()
     test_calibrate_median_and_scale_line()

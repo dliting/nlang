@@ -19,7 +19,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from gate_time_table import (CONFIG_KEYS, CTEST_CONFIGS, DEFAULT_WORK_FACTOR,
+from gate_time_table import (CONFIG_KEYS, CTEST_CONFIGS, DEFAULT_TABLE,
+                             DEFAULT_WORK_FACTOR,
                              E2E_CONFIGS, MANIFEST_SCOPES, MIN_CAP_S,
                              MIN_WATCHDOG_S, SAFETY_MULTIPLIER,
                              SCALE_BAND_MAX, SENTINELS_PER_CONFIG,
@@ -27,7 +28,27 @@ from gate_time_table import (CONFIG_KEYS, CTEST_CONFIGS, DEFAULT_WORK_FACTOR,
                              caps_values, form_token, resolve_scoped_row)
 
 
-def check_complete(rows, enums, manifests, perf_names=None):
+def _enum_finding(cfg):
+    """The named no-source disposition both completeness guards print
+    (R-43: an unverifiable universe is a named red, never a silent
+    green); one definition so the two guards' wording cannot drift."""
+    return "ENUM %s: no enumeration source, rows unverifiable" % cfg
+
+
+def _closing_record(cfg, table):
+    """R-43: a MISSING finding names the verbatim record command that
+    closes it (spec D-15: reference rows come from a real run of that
+    config's own leg, so the repair has exactly one path). The ctest
+    configs' numbers come from that leg's junit, the e2e configs' from
+    the runner's --record-out file (spec section 9 step 0); the path
+    placeholders stay literal because only the repair run knows them."""
+    source = ("--from-measure <runner --record-out file>"
+              if cfg in E2E_CONFIGS else
+              "--from-junit <ctest --output-junit XML>")
+    return "record --table %s --config %s %s" % (table, cfg, source)
+
+
+def check_complete(rows, enums, manifests, perf_names=None, table=None):
     """Guard one: each derived entry needs a row in the config that
     consumes it (tree -> config key per D-2; e2e entries are covered by an
     entry row, a manifest-scope row or the config's default row), no row
@@ -35,8 +56,12 @@ def check_complete(rows, enums, manifests, perf_names=None):
     config must carry SENTINELS_PER_CONFIG sentinel marks (D-4). The
     ctest-Release universe is the perf names (the NLANG_PERF_TESTS ON/OFF
     registration difference, R-61) union the sentinel-marked Release rows
-    the table itself declares (D-3). Returns (ok, findings)."""
+    the table itself declares (D-3). Every MISSING finding carries the
+    record command that closes it (R-43); table names the reference file
+    being checked and defaults to the in-repo one. Returns (ok,
+    findings)."""
     findings = []
+    table = table or DEFAULT_TABLE.as_posix()
     entry_rows = set()
     defaults = set()
     marked = {}
@@ -51,8 +76,7 @@ def check_complete(rows, enums, manifests, perf_names=None):
         if enums.get(cfg) is not None:
             required[cfg] = set(enums[cfg])
         elif any(r.config == cfg for r in rows):
-            findings.append("ENUM %s: no enumeration source, rows "
-                            "unverifiable" % cfg)
+            findings.append(_enum_finding(cfg))
     manifest_names = set((manifests or {}).get("manifest.txt") or ())
     examples_names = set((manifests or {}).get("examples_manifest.txt") or ())
     release_marked = marked.get("ctest-Release", set())
@@ -74,7 +98,8 @@ def check_complete(rows, enums, manifests, perf_names=None):
                     continue
                 if name in examples_names and (cfg, "examples_manifest.txt") in entry_rows:
                     continue
-            findings.append("MISSING %s %s" % (cfg, name))
+            findings.append("MISSING %s %s (close: %s)"
+                            % (cfg, name, _closing_record(cfg, table)))
     for row in rows:
         if row.config in CTEST_CONFIGS:
             if row.entry == "default" or row.entry in MANIFEST_SCOPES:
@@ -112,15 +137,29 @@ def check_complete(rows, enums, manifests, perf_names=None):
     return not findings, findings
 
 
-def check_orphans(rows, ctest_union=None, perf_names=None, manifests=None):
+def check_orphans(rows, ctest_union=None, perf_names=None, manifests=None,
+                  table=None):
     """Guard two: a renamed or dropped entry surfaces as a row whose name
     no universe contains any more. e2e names check against the two
     manifests, plain ctest rows against the union of the three decision
     trees, ctest-Release rows against the perf names (the NLANG_PERF_TESTS
     ON/OFF registration difference, R-61; the decision trees never contain
     them); a sentinel-marked Release row needs no perf set because the
-    table itself declares it. Returns (ok, findings)."""
+    table itself declares it. A missing source is named, not skipped:
+    plain ctest rows without a ctest_union carry guard one's ENUM line
+    per affected config, and each ORPHAN finding names its deletion
+    (apply_record never removes rows, so no record command closes an
+    orphan). Returns (ok, findings)."""
     findings = []
+    table = table or DEFAULT_TABLE.as_posix()
+    if ctest_union is None:
+        # Symmetric with guard one's ENUM line (R-43's named-disposition
+        # discipline at the guard layer: the Task 10 Step 5 wiring may
+        # skip an unconfigured tree, but a guard fed no source must say
+        # so per config instead of passing its rows as green).
+        for cfg in CTEST_CONFIGS:
+            if any(row.config == cfg for row in rows):
+                findings.append(_enum_finding(cfg))
     e2e_names = set()
     for names in (manifests or {}).values():
         e2e_names |= set(names)
@@ -129,15 +168,17 @@ def check_orphans(rows, ctest_union=None, perf_names=None, manifests=None):
             continue
         if row.entry in MANIFEST_SCOPES:
             if manifests is not None and row.entry not in manifests:
-                findings.append("ORPHAN %s %s (no such manifest)"
-                                % (row.config, row.entry))
+                findings.append("ORPHAN %s %s (no such manifest; delete "
+                                "the row in %s)"
+                                % (row.config, row.entry, table))
             continue
         if row.config in E2E_CONFIGS:
             if manifests is None:
                 continue
             if row.entry not in e2e_names:
                 findings.append("ORPHAN %s %s (renamed away from both e2e "
-                                "manifests)" % (row.config, row.entry))
+                                "manifests; delete the row in %s)"
+                                % (row.config, row.entry, table))
         elif row.config == "ctest-Release":
             if row.sentinel == SENTINEL_MARK:
                 continue
@@ -147,13 +188,15 @@ def check_orphans(rows, ctest_union=None, perf_names=None, manifests=None):
             elif row.entry not in perf_names:
                 findings.append("ORPHAN ctest-Release %s (no such entry in "
                                 "the NLANG_PERF_TESTS registration "
-                                "difference)" % row.entry)
+                                "difference; delete the row in %s)"
+                                % (row.entry, table))
         else:
             if ctest_union is None:
                 continue
             if row.entry not in ctest_union:
                 findings.append("ORPHAN %s %s (no decision tree enumerates "
-                                "it any more)" % (row.config, row.entry))
+                                "it any more; delete the row in %s)"
+                                % (row.config, row.entry, table))
     return not findings, findings
 
 
