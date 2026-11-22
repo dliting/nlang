@@ -28,7 +28,11 @@ endfunction()
 # this explicit (19/20 concurrent same-test pairs failed; isolated
 # TEMP roots: all green). std::filesystem::temp_directory_path()
 # resolves TMP/TEMP on Windows, so stamping each test separates the
-# trees. The root must also stay NEUTRAL: tests walk UP from it
+# trees; the same MD5 rides the wrapper environment as
+# NLANG_TEST_TREE_TOKEN, so a test process can derive a per-tree
+# identity (the nide tests' QSettings application name, D-12) instead
+# of guessing which tree launched it. The root must also stay NEUTRAL:
+# tests walk UP from it
 # (FindStdLibDir absence cases, the docs bare-build dev-label fallback)
 # and must not hit a stdlib dir or the repo VERSION file — which rules
 # out any path inside the source or build trees. The system temp dir is
@@ -52,10 +56,11 @@ file(MAKE_DIRECTORY "${NLANG_TEST_SCRATCH_ROOT}")
 # add_test wrapper below installs. It reads what is already attached, then
 # replaces a same-variable entry or appends the new VAR=value pair, so a
 # later site extends an earlier one instead of overwriting the whole list
-# (D-12 item 2). The bare sites still in this file are the D-12 migration
-# roster named in docs/dev/gate_timing_design.md; Task 10 moves them here,
-# and until then those entries keep their pre-wrapper environment (the
-# existing behaviour, deliberately deferred).
+# (D-12 item 2). The 13 bare sites that roster named are all migrated, so
+# no bare ENVIRONMENT write remains; the env-merge probe in
+# tools/gate_time_selftest.sh re-reads this file's registrations from the
+# configured tree and keeps that count at zero (a regression arrives with
+# the offending entry named, not as a silent TMP loss).
 function(nlang_test_env name)
     # get_property(TEST) returns an empty value for an unset property (the
     # documented behaviour), so an entry with no ENVIRONMENT yet merges
@@ -94,7 +99,8 @@ function(add_test)
             TIMEOUT "${GATE_TIMEOUT_${nlang_gate_timeout_key}}")
     endif()
     nlang_test_env(${ARGV1}
-        TMP=${NLANG_TEST_SCRATCH_ROOT} TEMP=${NLANG_TEST_SCRATCH_ROOT})
+        TMP=${NLANG_TEST_SCRATCH_ROOT} TEMP=${NLANG_TEST_SCRATCH_ROOT}
+        NLANG_TEST_TREE_TOKEN=${NLANG_TEST_SCRATCH_TOKEN})
 endfunction()
 
 # Derived ctest TIMEOUT watchdog caps (gate timing design D-1/D-2): the
@@ -468,8 +474,8 @@ add_test(NAME ncc_thirdparty_env_run
         -o ${CMAKE_BINARY_DIR}/e2e_out/env_run.ncu)
 set_tests_properties(ncc_thirdparty_env_run PROPERTIES
     PASS_REGULAR_EXPRESSION "hello, world"
-    ENVIRONMENT "NLANG_PATH=${mylib_pkg_dir}"
     DEPENDS nlang_mylib_env_src)
+nlang_test_env(ncc_thirdparty_env_run NLANG_PATH=${mylib_pkg_dir})
 
 # --- --verbose search-path observability (compile and run forms) ---
 # The (-I) attribution line proves the resolved search listing was
@@ -2373,8 +2379,8 @@ if(NLANG_BUILD_IDE)
     endif()
     get_filename_component(QT_PLATFORM_PLUGINS_DIR "${Qt5_DIR}/../../../plugins/platforms" ABSOLUTE)
     nlang_add_qtest(editor_tests test_editor)
-    set_tests_properties(editor_tests PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
+    nlang_test_env(editor_tests
+        QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR})
 
     # Syntax highlighter unit tests (Phase 10 Step 3).
     add_executable(test_syntaxhighlighter
@@ -2393,8 +2399,8 @@ if(NLANG_BUILD_IDE)
                 $<TARGET_FILE_DIR:test_syntaxhighlighter>)
     endif()
     nlang_add_qtest(syntaxhighlighter_tests test_syntaxhighlighter)
-    set_tests_properties(syntaxhighlighter_tests PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
+    nlang_test_env(syntaxhighlighter_tests
+        QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR})
 
     # Compile-log browser unit tests (Phase 10 Step 5). Widget test:
     # same QApplication/QPA harness as the editor tests.
@@ -2414,8 +2420,8 @@ if(NLANG_BUILD_IDE)
                 $<TARGET_FILE_DIR:test_compilelogbrowser>)
     endif()
     nlang_add_qtest(compilelogbrowser_tests test_compilelogbrowser)
-    set_tests_properties(compilelogbrowser_tests PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
+    nlang_test_env(compilelogbrowser_tests
+        QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR})
 
     # Run-error browser unit tests (v0.8.5): same harness shape as the
     # compile-log browser tests.
@@ -2435,8 +2441,8 @@ if(NLANG_BUILD_IDE)
                 $<TARGET_FILE_DIR:test_runerrorbrowser>)
     endif()
     nlang_add_qtest(runerrorbrowser_tests test_runerrorbrowser)
-    set_tests_properties(runerrorbrowser_tests PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
+    nlang_test_env(runerrorbrowser_tests
+        QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR})
 
     # Dialog unit tests (Phase 10 Step 6). Widget tests driving modal
     # exec() loops via zero-timeout timers; same QApplication/QPA
@@ -2457,8 +2463,8 @@ if(NLANG_BUILD_IDE)
                 $<TARGET_FILE_DIR:test_dialogs>)
     endif()
     nlang_add_qtest(dialogs_tests test_dialogs)
-    set_tests_properties(dialogs_tests PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
+    nlang_test_env(dialogs_tests
+        QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR})
 
     # Main-window integration tests (Phase 10 Step 7). These drive the
     # real modal flows (file dialogs, message boxes) and run the real
@@ -2511,8 +2517,8 @@ if(NLANG_BUILD_IDE)
     # debug tests each took 88-119s and the suite blew past 470s —
     # 15 minutes leaves honest headroom for the loaded case.
     nlang_add_qtest(mainwindow_tests test_mainwindow 900)
-    set_tests_properties(mainwindow_tests PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
+    nlang_test_env(mainwindow_tests
+        QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR})
 
     # Deployment self-containment check (Phase 10 Step 9). Runs a
     # curated five-test probe subset from a scratch copy of the nide
@@ -2566,8 +2572,7 @@ if(NLANG_BUILD_IDE)
             -DQTEST_PROGRESS=${PROJECT_SOURCE_DIR}/tools/qtest_progress.py
             ${NLANG_DEPLOY_PROBE_ARGS}
             -P ${CMAKE_CURRENT_SOURCE_DIR}/test_nide/nide_deploy_check.cmake)
-    set_tests_properties(nide_deploy_check PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=")
+    nlang_test_env(nide_deploy_check QT_QPA_PLATFORM_PLUGIN_PATH=)
 
     # Library search-path end-to-end tests: a global library dir is indexed
     # and offered in completion and built via -I; a project <ImportPaths>
@@ -2593,8 +2598,8 @@ if(NLANG_BUILD_IDE)
                 $<TARGET_FILE_DIR:test_searchpath_integration>)
     endif()
     nlang_add_qtest(searchpath_integration_tests test_searchpath_integration)
-    set_tests_properties(searchpath_integration_tests PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
+    nlang_test_env(searchpath_integration_tests
+        QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR})
 
     # Embedded terminal unit tests: emulator over vendored libvterm,
     # widget input/render model, pty backend with real child processes.
@@ -2617,8 +2622,8 @@ if(NLANG_BUILD_IDE)
     #The TIMEOUT cap comes from this entry's derived reference-row cap
     #like every other qtest entry's; only the platform plugin path is
     #specific to this test.
-    set_tests_properties(terminal_tests PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
+    nlang_test_env(terminal_tests
+        QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR})
 endif()
 
 # Version single-source guard: each tool's --version must echo the
@@ -3311,10 +3316,16 @@ if(BASH_PROGRAM AND Python3_FOUND
         COMMAND ${BASH_PROGRAM}
             ${PROJECT_SOURCE_DIR}/tools/gate_time_selftest.sh
         WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+    # The env-merge probe audits the registrations of THIS configure's
+    # tree (D-12 item 2), so the tree path and its scratch root ride the
+    # same channel as the toolchain trio: the probe's expectation is the
+    # very string this configure stamped into every entry, not a guess.
     nlang_test_env(nlang_gate_time_selftest
         NLANG_GATE_CMAKE=${CMAKE_COMMAND}
         NLANG_GATE_CTEST=${CMAKE_CTEST_COMMAND}
-        NLANG_GATE_PYTHON=${Python3_EXECUTABLE})
+        NLANG_GATE_PYTHON=${Python3_EXECUTABLE}
+        NLANG_GATE_PROD_TREE=${CMAKE_BINARY_DIR}
+        NLANG_GATE_SCRATCH_ROOT=${NLANG_TEST_SCRATCH_ROOT})
 else()
     message(STATUS "nlang_gate_time_selftest skipped: bash or Python3 "
         "unavailable (the gate selftest messages above name the bash cause)")
@@ -3511,14 +3522,11 @@ target_include_directories(test_native_tensor PRIVATE
     ${PROJECT_SOURCE_DIR}/include
     ${PROJECT_SOURCE_DIR}/src/native/tensor)
 add_test(NAME native_tensor_scalar COMMAND test_native_tensor)
-set_tests_properties(native_tensor_scalar PROPERTIES
-    ENVIRONMENT "NLANG_TENSOR_TIER=scalar")
+nlang_test_env(native_tensor_scalar NLANG_TENSOR_TIER=scalar)
 add_test(NAME native_tensor_sse2 COMMAND test_native_tensor)
-set_tests_properties(native_tensor_sse2 PROPERTIES
-    ENVIRONMENT "NLANG_TENSOR_TIER=sse2")
+nlang_test_env(native_tensor_sse2 NLANG_TENSOR_TIER=sse2)
 add_test(NAME native_tensor_avx2 COMMAND test_native_tensor)
-set_tests_properties(native_tensor_avx2 PROPERTIES
-    ENVIRONMENT "NLANG_TENSOR_TIER=avx2")
+nlang_test_env(native_tensor_avx2 NLANG_TENSOR_TIER=avx2)
 
 # fs native unit tests: the bridge from a <filesystem> timestamp to Unix epoch
 # milliseconds (src/native/fs/FileTimeEpoch.h) that fs.modifiedTimeMs answers

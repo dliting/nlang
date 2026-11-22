@@ -11,8 +11,8 @@
 # knobs (NLANG_GATE_PYTHON/TOOL/TABLE) at the stub paths, so the predicate
 # has one definition and no mirror that could drift from it. Only the two
 # shapes tests/CMakeLists.txt itself keeps — the nlang_test_env merge helper
-# and the add_test wrapper's cap lookup and scratch environment — are
-# mirrored verbatim here. The stub project registers only stub entries, so
+# and the add_test wrapper's cap lookup and scratch environment (scratch
+# TMP/TEMP plus the tree token it installs) — are mirrored verbatim here. The stub project registers only stub entries, so
 # nothing compiles and no build tree is needed, and the audit reads the
 # timeouts from `ctest --show-only=json-v1` — no entry is executed by the
 # audit, so machine load cannot turn a correct cap red.
@@ -77,11 +77,23 @@
 #                        must never reach --keep-matched, or the conservative
 #                        round empties its own -E; R-54: the export itself
 #                        had no assertion before).
+#   env-merge            every entry the production tree registers still
+#                        carries the scratch TMP the add_test wrapper
+#                        installs: a bare set_tests_properties(...
+#                        ENVIRONMENT ...) replaces the whole property and
+#                        silently drops it, and the 13 such sites are the
+#                        D-12 migration roster this probe keeps at zero.
+#                        The audit reads the tree's own registrations
+#                        through --show-only, judged against that very
+#                        configure's scratch root (the two knobs arrive
+#                        on the entry environment; a bare interactive run
+#                        names its skip instead of passing vacuously).
 #
 # Toolchain paths arrive in the environment: the registration in
 # tests/CMakeLists.txt passes NLANG_GATE_CMAKE, NLANG_GATE_CTEST and
-# NLANG_GATE_PYTHON through nlang_test_env, and an interactive run falls back
-# to the PATH lookups. A missing cmake, ctest or python prints a SKIP line
+# NLANG_GATE_PYTHON — plus the env-merge probe's NLANG_GATE_PROD_TREE and
+# NLANG_GATE_SCRATCH_ROOT — through nlang_test_env, and an interactive run
+# falls back to the PATH lookups. A missing cmake, ctest or python prints a SKIP line
 # and passes — the entry is registered only when the configuring CMake found
 # all three, but carrying this script to a machine without them must not
 # read as a false red.
@@ -91,7 +103,8 @@
 # it, and unset falls back to a mktemp directory — under one fresh per-run
 # directory. The inherit probe pins a different channel: it proves variables
 # set on the ctest command line reach the test process by inheritance
-# (tests/CMakeLists.txt installs only TMP/TEMP into every test environment),
+# (tests/CMakeLists.txt installs only the scratch TMP/TEMP and the tree
+# token into every test environment),
 # so it never relies on this variable. The tool's local overlay is found by
 # a fixed name (gate_time_reference.local.txt) beside whichever table is
 # loaded, so the stub table's name alone would not keep it out: what keeps
@@ -228,6 +241,7 @@ enable_testing()
 option(NLANG_BUILD_IDE "fixture knob for the production IDE branch" OFF)
 
 set(NLANG_TEST_SCRATCH_ROOT "${CMAKE_BINARY_DIR}/scratch")
+string(MD5 NLANG_TEST_SCRATCH_TOKEN "${CMAKE_BINARY_DIR}")
 file(MAKE_DIRECTORY "${NLANG_TEST_SCRATCH_ROOT}")
 
 function(nlang_test_env name)
@@ -257,7 +271,8 @@ function(add_test)
             TIMEOUT "${GATE_TIMEOUT_${nlang_gate_timeout_key}}")
     endif()
     nlang_test_env(${ARGV1}
-        TMP=${NLANG_TEST_SCRATCH_ROOT} TEMP=${NLANG_TEST_SCRATCH_ROOT})
+        TMP=${NLANG_TEST_SCRATCH_ROOT} TEMP=${NLANG_TEST_SCRATCH_ROOT}
+        NLANG_TEST_TREE_TOKEN=${NLANG_TEST_SCRATCH_TOKEN})
 endfunction()
 
 #Point the production file's knobs at the stub paths, then run its one
@@ -573,6 +588,64 @@ if [ "$slow_keep_rc" -ne 0 ]; then
     fail slow-export "print-slow --keep-matched exited rc=$slow_keep_rc: [$(printf '%s' "$slow_keep" | tr '\n' ';')]"
 fi
 [ "$failures" -eq "$before" ] && pass slow-export
+
+before=$failures
+# D-12 item 2: the add_test wrapper installs the scratch TMP/TEMP into
+# every entry, and a bare set_tests_properties(... ENVIRONMENT ...)
+# replaces the whole property and silently drops them — the 13 bare
+# sites in tests/CMakeLists.txt are that migration roster, and the
+# contract is the count, not the line numbers. The judgement is on the
+# production registrations themselves rather than on the stub mirror:
+# the tree that configured this script's ctest entry enumerates its
+# entries, and each must carry TMP=<that very configure's scratch
+# root>. Both knobs arrive with the entry environment (nlang_test_env
+# at the registration site); an interactive run without them has no
+# tree to audit and prints the named skip, because a stale or foreign
+# tree would prove nothing about these sources.
+prod_tree=${NLANG_GATE_PROD_TREE:-}
+prod_scratch=${NLANG_GATE_SCRATCH_ROOT:-}
+if [ -z "$prod_tree" ] || [ -z "$prod_scratch" ]; then
+    echo "selftest: SKIP env-merge: no production tree to audit (the ctest entry carries NLANG_GATE_PROD_TREE and NLANG_GATE_SCRATCH_ROOT)"
+elif ! ( cd "$prod_tree" && "$CTEST" -C Debug --show-only=json-v1 ) \
+        > "$WS/log/envmerge.json" 2>&1; then
+    fail env-merge "the production tree enumeration failed: [$(tail_of "$WS/log/envmerge.json")]"
+else
+    # ENVIRONMENT arrives as a JSON list on this ctest; a plain string
+    # is split on ';' so an older serialization keeps working. The
+    # stored value carries the configure's own spelling ($ENV{TEMP}'s
+    # backslashes mixed with CMake's forward slashes) and the knob
+    # reaches this process verbatim from the same CMake string, yet
+    # ctest may rewrite separators on the way into a child — so both
+    # sides are normalized to lowercase forward-slash form instead of
+    # trusting either spelling.
+    envmerge_report=$("$PYTHON" -I -c 'import json, sys
+doc = json.load(open(sys.argv[1], encoding="utf-8"))
+def norm(value):
+    return value.replace("\\", "/").lower()
+want = "tmp=" + norm(sys.argv[2])
+missing = 0
+for test in doc["tests"]:
+    env = []
+    for prop in test.get("properties", []):
+        if prop["name"] == "ENVIRONMENT":
+            value = prop["value"]
+            env = value if isinstance(value, list) else value.split(";")
+            break
+    if not any(norm(item) == want for item in env):
+        missing += 1
+        print("NO-SCRATCH-TMP %s" % test["name"])
+# Exit with the missing count (13 today, 0 once the roster is migrated):
+# the shell reports that number in its finding, so a JSON or argument
+# error surfacing as rc=1 reads as one bad registration carrying the
+# traceback in the same list.
+sys.exit(missing)' \
+        "$WS/log/envmerge.json" "$prod_scratch" 2>&1)
+    envmerge_rc=$?
+    if [ "$envmerge_rc" -ne 0 ]; then
+        fail env-merge "$envmerge_rc registrations without the scratch TMP=$prod_scratch: [$(printf '%s' "$envmerge_report" | tr '\n' ';')]"
+    fi
+    [ "$failures" -eq "$before" ] && pass env-merge
+fi
 
 if [ "$failures" -eq 0 ]; then
     echo "SELFTEST: PASS"
