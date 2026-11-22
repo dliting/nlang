@@ -702,12 +702,15 @@ Node的0 B行从上午到复测涨14.7 %，1 KiB行涨20.2 %（对它自己上�
 ## 6 重跑配方
 
 ```bash
-tools/gate.sh http-perf temp/t12_perf bash tools/http_perf/run_baseline.sh
+NLANG_GATE_WRITE_DIR=E:/cases/nlang/dev/build-dev \
+  tools/gate.sh http-perf temp/t12_perf bash tools/http_perf/run_baseline.sh
 ```
 
-经`tools/gate.sh`跑是为了拿机器锁：测量类门禁要独占整机，它会等到既没有其他测量门禁、也没有任何构建门禁
-在跑才持锁，持锁期间别的门禁一律排队；构建类门禁（`--shared`）之间可以并行，但不能与持锁的测量门禁重叠。
-锁有个已知的松处：还在排队的测量门禁不会挡住刚起跑的构建门禁（`tools/gate.sh`的`acquire()`机器锁认领段，今天落在`:362-390`）。
+经`tools/gate.sh`跑是为了让它替脚本做目录认领：`run_baseline.sh`的重建发生在脚本内部，门禁从命令行派生不出构建目录，
+所以用一次性环境变量`NLANG_GATE_WRITE_DIR`（对应`PERF_BUILD`，默认`build-dev`）把那棵树声明给门禁——写同一棵树的两趟
+按键认领并互斥，不同树照旧并行。机器锁删除后（D-10，机制裁定见`docs/dev/gate_timing_design.md`）测量不再独占整机：
+读数公理由同一趟里的参照行承担（oha/nginx/node/go同期测量，整机波动同向进入每一行），跨趟的漂移由§5的时间交替配对
+消掉；在安静的机器上跑仍然是读数可比的前提。其余`bash tools/http_perf/run_baseline.sh`形态的重跑同理带该前缀。
 前置条件（`run_baseline.sh`头部有完整清单）：oha、nginx 1.31.8（官方zip，sha512 12ff3672…0cbbc8）、
 node、go、cargo（axum/hyper需要rustc 1.85以上，工具链由`srv_rust/rust-toolchain.toml`钉住）。
 
@@ -750,7 +753,7 @@ tools/gate.sh slice-ab temp/t15 bash tools/http_perf/probe_slice_ab.sh A   # 标
 运行时加载stdlib包，重建那一个目标就换服务器），编译器与VM始终是同一构建：
 
 ```bash
-bash tools/http_perf/probe_pair_ab.sh <基线提交> <新提交> <输出目录> [对数]   # 默认5对；脚本自己逐次调用机器锁，外面不要再包一层gate.sh
+bash tools/http_perf/probe_pair_ab.sh <基线提交> <新提交> <输出目录> [对数]   # 默认5对；脚本自己把每次重建与每次测量各包成一条gate.sh腿（重建的`--build`令牌天然认领该树），外面不要再包一层gate.sh
 D:/dev/miniconda3/envs/py313/python.exe -I tools/http_perf/pair_summary.py <输出目录>   # 判据先写死：差值中位数超过差值散布且增益≥1 %才保留新侧
 ```
 
@@ -764,7 +767,7 @@ PERF_SERVERS="nlang node nginx" PERF_OUT=E:/cases/nlang/dev/temp/http_perf/reche
 ```
 
 第5节E0与E1a的控制组也一样可单独重跑：先用`build_control.ps1`编出三个形态的二进制（VS2022的`cl`，只编四个
-翻译单元，不链VM），再经机器锁跑判据脚本。各形态各占一个端口（`NetBind`不设`SO_REUSEADDR`，刚用过的端口未必
+翻译单元，不链VM），再经`gate.sh`跑判据脚本。各形态各占一个端口（`NetBind`不设`SO_REUSEADDR`，刚用过的端口未必
 肯立刻再绑），脚本还要求服务器自报的`mode=`日志行出现后才开测，免得某个形态没起来而量到另一台的进程：
 
 ```bash
@@ -784,20 +787,20 @@ E1在VM里重做只要一次临时补丁加一次重建：在`src/tools/nvm/main
 `nvm`重建回去（最后一条），否则工作树干净而二进制仍带补丁，下一轮测量就被它掺水：
 
 ```bash
-tools/gate.sh --shared e1-build temp/t19 cmake --build build-dev --config Release --target nvm   # 打补丁的nvm
+tools/gate.sh e1-build temp/t19 cmake --build build-dev --config Release --target nvm   # 打补丁的nvm
 tools/gate.sh e1-off1 temp/t20_off1 bash tools/http_perf/probe_slice_ab.sh off1                   # 对照臂两趟
 tools/gate.sh e1-off2 temp/t20_off2 bash tools/http_perf/probe_slice_ab.sh off2
 NLANG_TIMEBEGIN=1 tools/gate.sh e1-tb1 temp/t20_tb1 bash tools/http_perf/probe_slice_ab.sh tb1    # E1臂两趟
 NLANG_TIMEBEGIN=1 tools/gate.sh e1-tb2 temp/t20_tb2 bash tools/http_perf/probe_slice_ab.sh tb2
-tools/gate.sh --shared e1-revert temp/t21 cmake --build build-dev --config Release --target nvm  # 删回补丁之后
+tools/gate.sh e1-revert temp/t21 cmake --build build-dev --config Release --target nvm  # 删回补丁之后
 ```
 
 档位由`PERF_SLICE_CONNS`控制（默认`1 4 32 128`），每臂两趟取中位数。防覆盖要分两层：标签管探针自己的
 产物（JSON叫`slice<标签>_<连接数>c.json`，服务器日志叫`slice_<标签>.log`，打印出来的读数行也以
 `slice<标签>_`开头，本节E1表的四格读数即出自`off1`／`off2`／`tb1`／`tb2`四个标签的JSON），门禁的
 `.out`／`.err`则只按`gate.sh`的第二个参数命名（`tools/gate.sh`里`"$@" >"$stem.out" 2>"$stem.err"`那一行，今天落在`:494`），四个臂共用一个前缀就会让后一趟
-把前一趟的控制台读数盖掉，故上面第二到第五条各带一个前缀。只有两条重建用`--shared`（编译不争用时钟），
-四条测量仍走独占机器锁；`NLANG_TIMEBEGIN`经`gate.sh`透传给探针脚本再传给`nvm.exe`，不设即对照臂。
+把前一趟的控制台读数盖掉，故上面第二到第五条各带一个前缀。五条腿一律经`gate.sh`起跑，不再有绕锁之分：
+两条重建的命令行带可见的`--build build-dev`令牌，认领自动落在那棵树上；`NLANG_TIMEBEGIN`经`gate.sh`透传给探针脚本再传给`nvm.exe`，不设即对照臂。
 
 可调环境变量：`PERF_CONTROL_DIR`（二进制目录）、`PERF_CONTROL_MODES`（跑哪几个形态，取值`round`／`immediate`
 ／`round-tb`，默认前两个）、`PERF_CONTROL_CONNS`、`PERF_CONTROL_PORT`（起始端口，逐形态加一）、`PERF_PASSES`，
@@ -807,7 +810,7 @@ E2不需要补丁也不需要临时改动——D1已在主干，测前只需保�
 重建出来的（下面第一条重建是保险做法）：
 
 ```bash
-tools/gate.sh --shared e2-build temp/t30b cmake --build build-dev --config Release --target nvm
+tools/gate.sh e2-build temp/t30b cmake --build build-dev --config Release --target nvm
 tools/gate.sh e2-parksite temp/t30 bash tools/http_perf/probe_slice_ab.sh E2
 ```
 
@@ -817,9 +820,9 @@ E3在它之上只改一处：把`NextIoTimeoutMs()`里`if (!any)`分支（`VmSch
 为空才算还原干净：
 
 ```bash
-tools/gate.sh --shared e3-build temp/t31 cmake --build build-dev --config Release --target nvm   # 打补丁的nvm
+tools/gate.sh e3-build temp/t31 cmake --build build-dev --config Release --target nvm   # 打补丁的nvm
 tools/gate.sh e3-infinite temp/t32 bash tools/http_perf/probe_slice_ab.sh E3
-tools/gate.sh --shared e3-revert temp/t31b cmake --build build-dev --config Release --target nvm  # 删回补丁之后
+tools/gate.sh e3-revert temp/t31b cmake --build build-dev --config Release --target nvm  # 删回补丁之后
 ```
 
 E3的两种预期结局都算正证：要么挂起仍被登记唤醒、P50保持亚毫秒（`GATE e3-infinite: PASS`带读数，
@@ -828,7 +831,7 @@ E3的两种预期结局都算正证：要么挂起仍被登记唤醒、P50保持
 `GATE e3-infinite: FAIL rc=1`。后一种FAIL形态是本判据预期内的正证（挂死＝挂起本身要靠注册唤醒），
 按正证记录，不触发「任一门禁失败全批作废重扫」。
 
-E4裸套接字地板探针不依赖主测量产物——脚本自己渲染`probe_raw_server.n.in`并编译`probe_raw.ncu`，全程只占机器锁。
+E4裸套接字地板探针不依赖主测量产物——脚本自己渲染`probe_raw_server.n.in`并编译`probe_raw.ncu`，全程不认领构建树。
 标签口径同本节标题：改动前用`base`，本版改完后用`post`（与`probe_slice_ab.sh`的标签口径一致，两趟地板不会互相覆盖）：
 
 ```bash
@@ -846,11 +849,11 @@ E5成分表需要打临时插桩补丁（内容见§5末E5读数小节开头：`
 
 ```bash
 git apply temp/e5_patch.txt
-tools/gate.sh --shared e5-build temp/t33b cmake --build build-dev --config Release
+tools/gate.sh e5-build temp/t33b cmake --build build-dev --config Release
 tools/gate.sh e5-sat temp/t33 bash tools/http_perf/probe_slice_ab.sh e5sat                                       # 饱和档，PERF_SLICE_CONNS="1 128"
 PERF_SLICE_CONNS="1 128" PERF_OHA_EXTRA="-q 166" PERF_DUR=90s tools/gate.sh e5-throttle temp/t34 bash tools/http_perf/probe_slice_ab.sh e5thr
 git apply -R temp/e5_patch.txt
-tools/gate.sh --shared e5-revert temp/t36 cmake --build build-dev --config Release
+tools/gate.sh e5-revert temp/t36 cmake --build build-dev --config Release
 ```
 
 重跑的三个坑：`PERF_DUR`／`PERF_WARM`必须带单位后缀（`90`会被`oha`的参数解析拒绝，探针把两条`oha`调用的
@@ -864,7 +867,7 @@ stdout与stderr都重定向到`/dev/null`，clap报错被吞掉——实测轮�
 重写文件时换行符与索引存储形态不同造成的幻影（内容一致），`git checkout -- <文件>`恢复索引表示即可——
 这些文件还原后本应等于HEAD，checkout丢弃的正是补丁改写本身。
 
-定时器分辨率探针只读不测吞吐，不必占机器锁：`powershell -File tools/http_perf/probe_clock_hold.ps1 -Seconds 120`。
+定时器分辨率探针只读不测吞吐，没有可认领的目录，不经`gate.sh`：`powershell -File tools/http_perf/probe_clock_hold.ps1 -Seconds 120`。
 
 每次测量的原始JSON与`results.md`都在`temp/http_perf/`（临时区，不入库）；本文是入库的那份快照，
 重跑出新数据后用上面那条命令重生成——要改正文就改模板，别改生成出来的那份；想留多份带日期的快照，

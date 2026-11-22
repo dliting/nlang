@@ -1,5 +1,11 @@
 # 门禁写目录互斥（tools/gate.sh）概要设计
 
+> **状态更新（2026-11-23）**：本文描述的机器锁与随之的`--shared`旗标已被`docs/dev/gate_timing_design.md`D-10整体删除，
+> 本文的写目录按键认领升为唯一互斥层，所有腿无条件认领（「只在共享模式下认领」的入口门已随旗标消失，命令行无可派生目录的腿
+> 报一行说明即可起跑）；认领家族本身按该spec的D-18未改名，`wdir_key()`（规范化路径的SHA-256前16位十六进制）与`LOCK`行文案仍如本文。
+> D-11登记的`build-dir:<规范化目录指纹>`资源名没有落成第二个claim族——命令行看不到的目录（`cd`形态ctest腿、脚本内部的重建）
+> 经一次性`NLANG_GATE_WRITE_DIR`声明参与同一个按键认领，同树同键与本文派生收敛为同一把键。正文中的「机器锁」是本文落地当时的历史描述，原样保留。
+
 ## 一、引言
 
 v0.13.8收官批的一次门禁误红是这样的：两条`--shared`腿（同一棵build-dev的Debug与Release重建）并发起跑，两条CPack配置写序程抢`build-dev/CPackConfig.cmake.tmp`，报`Permission denied`、rc=127，build-dev于是留着0.13.8的旧二进制，连带5条`version_*`单测假失败（台账`.superpowers/sdd/2026-11-15-json-library/progress.md:141`，原始日志`temp/gate_json_t12_rebuild_release.err:1-3`）。当时的处置只改了批次编排——重建腿跨树配对（同一条目:142），机制本身没动，也就是说下一次还会有人踩同一个坑。

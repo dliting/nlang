@@ -10,7 +10,7 @@
 # points at: rebuild nvm with a different kIoPollSliceMs, run the probe again
 # with a different tag, and the two sets of rows differ only in that setting.
 #
-# Like every other measurement on this box, run it through the machine lock:
+# Like every other measurement on this box, run it through tools/gate.sh:
 #
 #   tools/gate.sh slice-ab temp/t15 bash tools/http_perf/probe_slice_ab.sh A
 #

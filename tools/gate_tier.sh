@@ -22,7 +22,7 @@
 #     entries, its restore leg closes the cache window unconditionally)
 #     + Release e2e + docs five legs + the carrier pairing guard.
 #
-# Every leg goes through tools/gate.sh (machine lock, verdict lines
+# Every leg goes through tools/gate.sh (named- and keyed-resource claims, verdict lines
 # "GATE <leg>: PASS|FAIL"); all legs run regardless of earlier reds —
 # any red voids the batch and forces a full re-sweep. --dry-run prints
 # the planned legs without executing (assembly self-check).

@@ -56,18 +56,29 @@ A tier only decides which legs run; `tools/gate.sh` decides when each one may
 start and what counts as its result, and the tier script starts every leg
 through it. A leg is therefore judged by that script's verdict line or exit
 code and never by a piped tail (a pipe reports the tail's code, which once
-turned a four-failure ctest run into a recorded "all green"), and a leg that
-runs tests holds a machine-wide lock while it runs, because two batches on one
-machine would otherwise share the CPU the timing- and concurrency-sensitive VM
-tests measure and the desktop whose foreground process owns the keyboard focus
-chain the IDE tests need. The tier script never asks to run legs in parallel:
-it works through its batch one leg at a time, so a tier measures one machine
-at a time. Parallelism belongs to the person assembling a batch instead, and
-the tool for it is the script's `--shared` flag: a command that only builds (a
-configure, a compile, a docs build) still waits for any running test gate, but
-overlaps other build gates, while claiming each build directory its own
-command line names, so two build gates can never fight over one tree even
-though different trees build side by side.
+turned a four-failure ctest run into a recorded "all green"). Nothing waits
+on a machine-wide lock any more; exclusion comes from claims, and each claim
+covers exactly one resource. A named claim covers a resource no command line
+names: the roster holds one today, `nide-gui`, taken by the legs that run the
+Qt GUI entries whose keyboard-focus chain belongs to the single desktop
+session that can own foreground focus. A keyed claim covers a directory a leg
+writes: the script derives the write directories from the command line — a
+`--build`, `-B`, `--test-dir`, `--site-dir` or `--workdir` argument, or a
+one-shot `NLANG_GATE_WRITE_DIR` the tier script declares for legs whose
+writes hide inside one quoted `bash -c` string — and claims each one under a
+key taken from its path, so two legs writing the same build tree or the same
+e2e scratch root wait for each other while different trees build side by
+side. A leg with nothing to claim prints `no write directory derived from the
+command line, no directory lock taken` and runs anyway; that is the designed
+face, not a miss to chase. What the lock used to protect by exclusion — the
+CPU the timing- and concurrency-sensitive VM tests measure — is protected by
+relative budgets instead: a leg's per-entry timeouts derive from the recorded
+reference times for that configuration (`tests/gate_time_reference.txt`)
+scaled by a machine-load scalar measured as the leg starts (house defaults
+where no row is recorded yet), so a busy machine widens its own caps instead
+of delaying everyone else's. The tier script still works through its batch
+one leg at a time; parallelism belongs to the person assembling a batch, and
+the claims above are what makes running two batches on one machine safe.
 
 The network cases assume a working loopback. The TCP and UDP cases bind their
 own peers, so they only need loopback sockets; `stdlib_net_ping_loopback` and

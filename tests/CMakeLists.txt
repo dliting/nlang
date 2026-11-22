@@ -3290,7 +3290,7 @@ endif()
 
 # gate_tier.sh assembly smoke (tools/gate_tier_test.py): drives the leg
 # dispatch against a stub gate.sh in a sandbox, so it needs bash but no
-# build tree and no machine lock (the stub replaces gate.sh). The probe
+# build tree and no lock to wait on (the stub replaces gate.sh). The probe
 # variables come from the gate selftest block above: a bash that cannot
 # print a write-directory key is not one this script can drive either.
 # No ENVIRONMENT property here: the test pins its own child environment
