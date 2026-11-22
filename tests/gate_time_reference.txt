@@ -105,9 +105,6 @@ ctest-Debug default_exprdesc_tests 0.19 1 ctest-junit-serial
 ctest-Debug domainlocks_tests 1.14 1 ctest-junit-serial
 ctest-Debug duplicate_package_path_compile 0.16 1 ctest-junit-serial
 ctest-Debug e2e_compile 0.17 1 ctest-junit-serial
-ctest-Debug e2e_runner_env_gate 1.75 1 ctest-junit-serial
-ctest-Debug e2e_runner_scratch_isolation 1.97 1 ctest-junit-serial
-ctest-Debug e2e_runner_timing_gate 409.77 1 ctest-junit-serial - 分级终止点用例为真实睡眠探针(Task6新增6条,其中5条睡眠60s以上),预算下限60s(MIN_CAP_S)不可下调,条目墙钟必然分钟级
 ctest-Debug embed_api_tests 0.99 1 ctest-junit-serial
 ctest-Debug embed_host_smoke 0.47 1 ctest-junit-serial
 ctest-Debug embed_source_tests 2.32 1 ctest-junit-serial
@@ -160,7 +157,6 @@ ctest-Debug net_scheduler_tests 0.70 1 ctest-junit-serial
 ctest-Debug net_slots_tests 0.05 1 ctest-junit-serial
 ctest-Debug nlang_c_inline 0.45 1 ctest-junit-serial
 ctest-Debug nlang_cli_rejects 0.25 1 ctest-junit-serial
-ctest-Debug nlang_docs_pytest 16.09 1 ctest-junit-serial
 ctest-Debug nlang_gate_selftest 30.59 1 ctest-junit-serial
 ctest-Debug nlang_run_script 0.92 1 ctest-junit-serial
 ctest-Debug no_builtin_stdlib 1.40 1 ctest-junit-serial
