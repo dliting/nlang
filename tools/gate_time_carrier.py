@@ -1,7 +1,9 @@
 # gate_time_carrier.py -- the carrier axis (docs/dev/gate_timing_design.md
 # D-6, guard eleven as narrowed by D-16/D-17): check-carrier pairs every
 # row of a slow member and every ASan/Release row with a leg of the batch
-# itself that runs the entry under the row's own config key (regular
+# itself that runs the entry under the row's own config key -- the
+# sentinel-marked ctest-Release rows excepted, which guard four's
+# calibration carries (D-19) (regular
 # Debug/IDE rows are carried by construction: the regular legs run
 # whatever the tree enumerates except the slow members). It reads the
 # name<TAB>command lines gate_tier.sh records in
@@ -29,7 +31,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from gate_time_guards import read_perf_names
-from gate_time_table import load_table
+from gate_time_table import SENTINEL_MARK, load_table
 from gate_time_timeouts import read_timeouts, show_only_json
 
 # The --config= values an e2e leg may spell out (the e2e config keys
@@ -277,7 +279,9 @@ def _observed(args, leg_lines, findings):
 def run(args, table, verdict):
     """Guard eleven's verdict (D-17): every row of a slow member (the
     one set gate_time_schedule.slow_names derives from the baseline-row
-    seconds) and every ASan/Release row must sit in its own config key's
+    seconds) and every ASan/Release row -- the sentinel-marked ctest-
+    Release rows excepted, carried by guard four's calibration (D-19)
+    -- must sit in its own config key's
     observed run set -- the same entry name under another config proves
     nothing, and every mispaired or under-determined leg already
     contributed its own finding. The `default` coarse rows price budgets
@@ -311,6 +315,20 @@ def run(args, table, verdict):
         # and can silently drop entries (D-17).
         if not (row.entry in slow or row.config.endswith("-ASan")
                 or row.config.endswith("-Release")):
+            continue
+        # D-19: the sentinel-marked ctest-Release rows have no leg to
+        # pair against -- guard four's calibration runs exactly these
+        # rows in the perf family's load form (each batch samples the
+        # ctest-Release scale through leg_scale before any leg of that
+        # family runs), and a failed calibration stubs those legs red
+        # through the uncalibrated `false` face, so the batch still
+        # fails closed. leg_commands.tsv -- this guard's only input --
+        # can never show a calibration, so demanding a leg carrier for
+        # these rows would price work the batch does by another
+        # mechanism. Guard one already confines the ctest-Release
+        # enumeration to the perf rows plus these sentinels, so
+        # nothing else can hide behind the exemption.
+        if row.config == "ctest-Release" and row.sentinel == SENTINEL_MARK:
             continue
         if row.entry not in observed.get(row.config, ()):
             findings.append(

@@ -9,7 +9,9 @@
 # every ASan/Release row with the leg that runs it under the row's own
 # config
 # key (the ctest config from the tree cache plus -C, the e2e config
-# from the leg's explicit --config value). Stub cmake/ctest .bat files
+# from the leg's explicit --config value), the sentinel-marked ctest-
+# Release rows excepted -- guard four's calibration runs those (D-19).
+# Stub cmake/ctest .bat files
 # behind the NLANG_GATE_CMAKE / NLANG_GATE_CTEST doors keep the corpus
 # hermetic: no real configure, no tree. Entry point:
 # gate_time_check_test.py (its main() calls run()). Stdlib only; run
@@ -557,6 +559,34 @@ def test_check_carrier_tolerates_every_perf_roster_spelling():
                   % (spelling, rc, out))
 
 
+def test_check_carrier_calibration_sentinels_need_no_leg():
+    # D-19: a sentinel-marked ctest-Release row is carried by guard
+    # four's calibration, not by a leg of leg_commands.tsv -- the perf
+    # family's legs sample the ctest-Release scale from exactly these
+    # rows in the load form, and a failed calibration stubs that leg
+    # red (the uncalibrated `false` face), so the batch still fails
+    # closed. Guard one already prices only the perf rows and the
+    # sentinels under ctest-Release; guard eleven's only input is
+    # leg_commands.tsv, where a calibration never appears, so it must
+    # not demand a leg carrier for them. A non-sentinel ctest-Release
+    # row outside the perf differential stays flagged.
+    with tempfile.TemporaryDirectory() as tmp:
+        p = _carrier(tmp)
+        table = Path(p["table"])
+        text = table.read_text(encoding="utf-8")
+        table.write_text(
+            text + "ctest-Release release_calib_sentinel 0.02 1 "
+            "ctest-junit-serial yes calibration sentinel face\n"
+            "ctest-Release release_plain_entry 0.03 1 ctest-junit-"
+            "serial - priced but never run\n", encoding="utf-8")
+        rc, out = _carrier_run(p)
+        check(rc == 1 and "CARRIER ctest-Release release_plain_entry"
+              in out and "release_calib_sentinel" not in out,
+              "D-19: the sentinel-marked ctest-Release row must not "
+              "need a leg carrier while an unmarked one still does, "
+              "got rc=%r out=%r" % (rc, out))
+
+
 def run():
     test_print_perf_names_is_the_registration_differential()
     test_print_perf_names_refusals_name_their_file_or_side()
@@ -566,3 +596,4 @@ def run():
     test_check_carrier_named_refusals_on_missing_inputs()
     test_check_schedule_perf_names_reads_the_raw_redirect()
     test_check_carrier_tolerates_every_perf_roster_spelling()
+    test_check_carrier_calibration_sentinels_need_no_leg()
