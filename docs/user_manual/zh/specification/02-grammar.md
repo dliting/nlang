@@ -222,7 +222,7 @@ ParenthesesExpr = ParenPrefix | LambdaExpr ;
 ParenPrefix     = "(" [ InnerList ] ")" ;
 InnerList       = InnerListElem { "," InnerListElem } ;
 InnerListElem   = Expression | ParenHeadType <identifier> ;
-LambdaExpr      = ParenPrefix "=>" ( Expression | Paragraph ) ;
+LambdaExpr      = ParenPrefix "->" ( Expression | Paragraph ) ;
 ParenHeadType   = ( IdentifierExpr [ "<" TypeArgs ">" ]
                   | "func" "<" FuncTypeArgs ">" | MemberExpr )
                   { "[]" | "[,,]" } ;
@@ -259,7 +259,7 @@ ConcreteParam   = <identifier> "=" ( Expression | BracedInitExpr )
 
 `IdentifierExpr`容纳基本类型关键字，使类型名可以出现在期望表达式头部的位置（静态风格的成员访问与类型实参头部）。`func<...>(...)`形式是函数值表达式（第7章）。`AsGenericTarget`是泛型`as`目标，即`e as Box<int>`及其数组后缀形式`e as Box<int>[]`；内建模板与用户声明模板同样适用。`QualifiedGenericReceiver`是表达式位的显式实例化拼写——`Pair<int, string>.sig()`与`Hold<int>(5)`（§4.12.2，§4.12.3）。在表达式位，`<`是否开启拼写按形状规则判定，不做大小写检验也不查名字表：成对尖括号段在`.`或`(`之前闭合时保持拼写解读，标识符后其余的`<`一律按比较解读。因此`a < b > c`这类比较链保持比较解读，而实参为比较运算的调用可能与形状相撞——`both(a < b, c > (d))`会被读成拼写`a<b, c>(d)`。此时编译器具名指出碰撞而非笼统的`Cannot resolve the type`错误：头部名字解析为值时，诊断说明这一点并给出加括号形式`f((a < b), (c > d))`；头部名字解析为函数时，诊断说明调用不携带类型实参拼写；名字解析为不接收类型实参的类型时，诊断说明该类型不是泛型。接收者名字的解析与裸模板名一致。
 
-括号组与lambda参数表共用一个前缀。括号内的记号先按表达式列表读取；闭括号后出现`=>`即确认参数解读，同一前缀成为lambda——`(x, y) => x + y`——其余后随记号保持组解读。组必须恰好携带一个表达式：空组、类型标注、多元素组各有一条具名诊断。参数表中每个元素必须是裸名字（`x`）或带类型的名字（`int x`、`int& x`）；任何其他表达式形状——`1`、`x.y`、`f()`、比较链`T<int> x`——都会被作为无效参数表拒绝，且元素不能带默认值（语言没有赋值表达式可用来书写）。参数表的类型头保留HeadType的拼写，唯独泛型拼写保留给内建模板名（List、Dict、Array、Channel、Future、func）：组内声明模板名后随`<`按比较解读，因此用户声明的泛型不能在组内作参数类型头，lambda自身的`<T>`式类型参数也不在文法之内。
+括号组与lambda参数表共用一个前缀。括号内的记号先按表达式列表读取；闭括号后出现`->`即确认参数解读，同一前缀成为lambda——`(x, y) -> x + y`——其余后随记号保持组解读。组必须恰好携带一个表达式：空组、类型标注、多元素组各有一条具名诊断。参数表中每个元素必须是裸名字（`x`）或带类型的名字（`int x`、`int& x`）；任何其他表达式形状——`1`、`x.y`、`f()`、比较链`T<int> x`——都会被作为无效参数表拒绝，且元素不能带默认值（语言没有赋值表达式可用来书写）。参数表的类型头保留HeadType的拼写，唯独泛型拼写保留给内建模板名（List、Dict、Array、Channel、Future、func）：组内声明模板名后随`<`按比较解读，因此用户声明的泛型不能在组内作参数类型头，lambda自身的`<T>`式类型参数也不在文法之内。lambda的语义——期望类型、捕获与错误清单——见§7.4。
 
 ## 2.7 运算符优先级
 

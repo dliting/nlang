@@ -57,7 +57,7 @@ IEEE 754 binary32 and binary64 encodings (§4.2).
 |---|---|---|
 | magic | 8 bytes | `NLANGCU` followed by a zero byte |
 | version major | u16 | `2` |
-| version minor | u16 | `22` |
+| version minor | u16 | `23` |
 | module path | u16 length + bytes | the package path of the unit (§3.9.1) |
 | name | u32 length + bytes | the unit name: the same string as the module path in every image the current toolchain writes |
 | entry key | u16 length + bytes | the qualified key (§3.6) of the entry function (§9.3); empty for a library image (§3.9.1) |
@@ -145,6 +145,7 @@ constructor of the unit, in registration order. Each record:
 | instance-method flag | u8 | `1` for a non-static member of a class, struct or enum (instance methods and constructors, §4.8.7); its frame carries the slot-0 receiver, and the native call bridge locates the receiver handle through it (§28.5) |
 | abstract flag | u8 | `1` for a body-less abstract method declaration (§4.8.10); the record then carries the signature only, so consumer stubs see the obligation |
 | generic flag | u8 | `1` for a generic record; a generic record then also carries a u16 type-parameter count followed by that many length-prefixed type-parameter names (§4.12.3) |
+| lambda flag | u8 | `1` for a function synthesized from a lambda expression; `toString` renders such a closure as `"lambda"` off this flag (§7.4), not off the synthetic name shape |
 | default count | u16 | followed by that many default value records (§26.6) |
 | bytecode size | u32 | followed by that many instruction bytes |
 | try block count | u16 | followed by five u16 values per entry |

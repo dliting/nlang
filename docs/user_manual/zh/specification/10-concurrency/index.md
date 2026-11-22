@@ -10,7 +10,7 @@ NLang并发构建在*虚拟线程*之上：由实现调度到*载体*线程（�
 
 并发名字分属两个标准库包（第18章），各自按名导入（§3.9.4）：`thread`（声明于`stdlib/thread.n`）回答谁来跑、结果在哪取——`Thread`、`Future<T>`、`Promise<T>`与`thread.*`函数；`concurrent`（声明于`stdlib/concurrent.n`）回答跑起来之后怎么配合——`Mutex`、`ReentrantMutex`、`Semaphore`、`AtomicInt`、`Channel<T>`、`ChannelClosedException`、`WaitGroup`。它们的声明位于标准库，其实现内建于虚拟机。
 
-- `thread.spawn(f)`接受一个零参函数值（§7.4）：一个自由函数、一个绑定方法，或持有其一的变量。它启动一个新上下文并立即返回其句柄。类型为`func<void>`的委托产出`Thread`句柄；类型为`func<T>`的委托产出`Future<T>`句柄（§10.5）。
+- `thread.spawn(f)`接受一个零参函数值（§7.4）：一个自由函数、一个绑定方法、一个零参lambda（`() -> …`），或持有其一的变量。它启动一个新上下文并立即返回其句柄。类型为`func<void>`的委托产出`Thread`句柄；类型为`func<T>`的委托产出`Future<T>`句柄（§10.5）。
 - `thread.join(t)`挂起调用上下文，直到目标上下文结束。多个上下文可以join同一目标；它们都会被唤醒。join一个已结束的上下文立即返回；把上下文join到自己身上是*宿主级*执行期错误（§8.1）。
 - `thread.isFailed(t)`从不停泊：目标以未捕获异常结束之后它产出`true`——运行期间与正常结束之后都是`false`。`thread.failure(t)`产出失败目标的原始异常对象，即`join`重新抛出的同一个实例；目标尚未失败时产出`null`。这次读取本身就算观察到失败，§10.1的运行结束报告不会因它触发。
 - `thread.yield()`把调用上下文移到运行队列的队尾。

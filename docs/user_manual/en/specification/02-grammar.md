@@ -257,7 +257,7 @@ ParenthesesExpr = ParenPrefix | LambdaExpr ;
 ParenPrefix     = "(" [ InnerList ] ")" ;
 InnerList       = InnerListElem { "," InnerListElem } ;
 InnerListElem   = Expression | ParenHeadType <identifier> ;
-LambdaExpr      = ParenPrefix "=>" ( Expression | Paragraph ) ;
+LambdaExpr      = ParenPrefix "->" ( Expression | Paragraph ) ;
 ParenHeadType   = ( IdentifierExpr [ "<" TypeArgs ">" ]
                   | "func" "<" FuncTypeArgs ">" | MemberExpr )
                   { "[]" | "[,,]" } ;
@@ -317,9 +317,9 @@ the type is not generic. The receiver name resolves like a bare
 template name.
 
 A parenthesized group and a lambda parameter list share one prefix.
-The tokens inside `( )` are first read as an expression list; a `=>`
+The tokens inside `( )` are first read as an expression list; a `->`
 after the closing parenthesis confirms the parameter reading and the
-same prefix becomes a lambda — `(x, y) => x + y` — while any other
+same prefix becomes a lambda — `(x, y) -> x + y` — while any other
 follower keeps the group reading. A group must carry exactly one
 expression: an empty group, a type annotation, and a multi-item group
 are each named by a diagnostic. In a parameter list every item must be
@@ -332,7 +332,9 @@ that the generic spelling stays reserved to the built-in template
 names (List, Dict, Array, Channel, Future, func): inside a group a
 declared template name followed by `<` is comparison, so a
 user-declared generic cannot head a parameter there, and the lambda's
-own `<T>`-style type parameters are not part of the grammar.
+own `<T>`-style type parameters are not part of the grammar. The
+lambda's semantics — expected type, capture and the error list —
+are §7.4.
 
 ## 2.7 Operator Precedence
 

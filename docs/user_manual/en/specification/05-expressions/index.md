@@ -302,6 +302,10 @@ value (§7.4):
 - a bound reference to a virtual or interface method dispatches
   against the receiver's runtime class at each call (§4.8.9, §4.9.4).
 
+A lambda expression — `(params) -> body` — produces a function value
+as well: capture semantics, closure identity and the error list are
+§7.4.
+
 The type of the value is `func<R, P1, ..., Pn>`, matching the
 signature of the denoted function exactly (§7.4). A function
 value is called with `v(a1, ..., an)` (§5.6).
