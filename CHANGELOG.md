@@ -1,3 +1,74 @@
+## [0.13.10] - 2026-11-22
+
+Lambda expressions and closures deliver the program of
+`docs/dev/lambda_closure_design.md`: `->` writes a function value
+in place wherever a `func` type is expected, captured outer locals
+move to heap storage shared with the enclosing scope, loop heads
+bind a fresh variable per iteration, and closures gain their own
+identity surface. The module format rises to NCU v2.23; modules
+compiled by earlier compilers are rejected with the
+outdated-version diagnostic. Not backward compatible by design.
+
+### Added
+
+- **Lambda expressions.** `(params) -> body` produces a function
+  value at the same consumer positions as a function reference —
+  declarations, assignments, returns, call arguments, array
+  elements, init-list entries. The parameter list takes bare
+  identifiers (the type and `&` marker come from the expected
+  type), typed identifiers (exact positional match, no variance)
+  or the empty form; the body is an expression (its value is the
+  return value) or a brace block (returning through `return`; a
+  `func<void>` block needs no `return`). A lambda with no expected
+  function type is a compile error, as are default-valued or
+  generic parameter lists and a lambda as a field initializer.
+- **Capture.** An outer local referenced in a lambda body is
+  captured: its storage moves to the heap and is shared by the
+  lambda and the enclosing code — writes on either side are
+  visible to the other, and several lambdas capturing one variable
+  share the single storage. `const` locals stay const, `static`
+  locals are not captured (the body addresses the static slot
+  directly), instance-member access captures the receiver, and an
+  `&` reference captures the binding itself, writing through to
+  the referent's storage.
+- **Closure identity and rendering.** Two evaluations of one
+  lambda literal within a single activation of its scope are equal
+  under `==`; re-activating the scope — calling the containing
+  function again, entering the next loop iteration — yields an
+  unequal closure. `toString` renders `"lambda"` off the function
+  record's lambda flag; `==`/`!=`/`null` otherwise follow the
+  function-value rules.
+- **Reference-form returns on closures.** A lambda under a
+  `func<int&, int&>` expectation may declare `&` parameters and an
+  `&` return: writes through a `&` parameter reach the caller's
+  storage, and returning a reference to a captured variable is
+  legal — its storage is already on the heap. A lambda recurses
+  through the local it is bound to.
+- **Lambdas in generic context.** A lambda inside a generic
+  function or a generic class method captures type-parameter-typed
+  variables with their real runtime instantiation: `typeName(T)`
+  and `==` dispatch on the actual type argument, matching the
+  behavior outside the generic body.
+- **Zero-parameter lambdas spawn.** `thread.spawn` accepts a
+  `func<void>` lambda written in place as the spawn target; a
+  value-returning spawn with a lambda goes through the explicit
+  delegate local, like the bound-method form.
+
+### Changed
+
+- **Loop heads bind per iteration.** A variable declared in a
+  `for` or `foreach` head is a new variable on each iteration: a
+  lambda captured in an iteration holds that iteration's value,
+  not the loop's tail value. Without capture there is no
+  observable difference; a single-statement loop body is exactly
+  the braced form.
+- **NCU v2.23.** Function records carry a lambda flag after the
+  generic flag, and function-value handles pair their
+  instantiation descriptor — `OP_MakeFunc` takes a `descIdx`
+  operand beside `funcIdx` so a generic target's handle names its
+  descriptor row. Modules from earlier toolchains must be
+  recompiled.
+
 ## [0.13.9] - 2026-11-20
 
 Value-type references complete the four-phase program of
