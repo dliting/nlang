@@ -74,6 +74,16 @@ void VmBackend::FillGenericRecordMeta(const SnFunction& func,
         compiledFunc.isGeneric = true;
         compiledFunc.typeParamNames = func.TypeParamNames();
     }
+    //0.13.10 Task 7: the lambda bit — a $lambda_N synthetic method's
+    //parent is its $disp_N display class, and display classes are the
+    //only NF_Generated classes (the capture analysis stamps it; other
+    //NF_Generated functions — static initializers — sit in normal
+    //scopes), so the structural predicate identifies a lambda method
+    //without a name shape. toString renders "lambda" off this bit; the
+    //debugger picks the synthetic name the same way.
+    if (pOwner && pOwner->Kind() == NK_ClassDecl
+        && pOwner->ContainFlags(NF_Generated))
+        compiledFunc.isLambda = true;
 }
 
 //v1.12 type descriptors: capture the true formal/return types for

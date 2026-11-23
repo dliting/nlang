@@ -5,9 +5,13 @@
 #e2e input). The second section drives the reference-table budgets:
 #--config/--table pricing, the config path guess, the uncalibrated
 #band-max path, the entry-row versus coarse-row kill grading (D-3/R-17)
-#and the row-less --timeout fallback. The contract is pinned end-to-end:
-#one real runner subprocess over stub .cmd tools laid out like a build
-#root. The stale-binary guard demands tool mtimes newer than src/, and
+#and the row-less --timeout fallback. The row-shape and fallback
+#contracts run one real runner subprocess over stub .cmd tools laid out
+#like a build root; the kill-point cases drive the runner's main()
+#in-process with the timing-table floors shrunk on the loaded module
+#(the real floor values stay pinned in tools/gate_time_table_test.py),
+#so a kill costs seconds instead of minutes. The stale-binary guard
+#demands tool mtimes newer than src/, and
 #the package guard demands <build-root>/stdlib/stdlib.npkg newer than
 #both ncc and stdlib/*.n, so the stubs are written fresh and the npkg
 #last. Seconds are machine state: rows are pinned by shape and only
@@ -46,11 +50,11 @@ _NVM_STUB = (
 #Sleeping stub-VM variant for the kill-point cases below: with
 #NLANG_STUB_SLEEP=N in the runner environment the stub VM idles ~N-1
 #seconds (ping ticks one second apart, the first echo is immediate)
-#before honouring the source's exit code. MIN_CAP_S and MIN_WATCHDOG_S
-#are module constants of the timing table, not per-test knobs, so a
-#computed budget or watchdog cap can never sit below 60/120 s and these
-#sleeps must deliberately clear them -- the cases are minute-scale by
-#construction.
+#before honouring the source's exit code. The in-process cases shrink
+#MIN_CAP_S/MIN_WATCHDOG_S on the loaded table module (see the
+#kill-point section comment), so seconds-scale sleeps cross the
+#computed caps; the row-less subprocess case has no row and no floor
+#involved at all.
 _NVM_STUB_SLEEP = (
     '@echo off\n'
     'setlocal\n'
@@ -327,110 +331,203 @@ def _gate_stub_run(request, tmp_path, *, manifest_name, table_fmt,
     return done.stdout.splitlines(), done.returncode, name
 
 
-_GATE_TABLE_DEBUG_RELEASE = (
-    '# stub gate table: the Debug config prices an entry row (ref 31 ->\n'
-    '# budget 62, watchdog 310), the Release config only a coarse\n'
-    '# `default` row (ref 1 -> budget 60, watchdog 120).\n'
-    'e2e-Debug {name} 31.00 1 e2e-serial - stub entry row\n'
-    'e2e-Release default 1.00 1 e2e-serial - stub default row\n')
+#In-process kill-point cases: the runner's main() driven directly over
+#the same stub tools, with the timing-table floors shrunk on the loaded
+#module. The real floors (MIN_CAP_S 60 / MIN_WATCHDOG_S 120) exist so a
+#real gate never kills a fast entry; here they would only force every
+#case to sleep past 60 s. Shrunk to 2/4 -- keeping the 2x relationship
+#so the clamp bounds cannot invert -- the runner's own pricing, kill,
+#advisory and startup-note logic runs for real against small caps. The
+#real floor values stay pinned in tools/gate_time_table_test.py, and
+#the subprocess cases above and below keep one true end-to-end pass
+#each.
+_SMALL_MIN_CAP_S = 2.0
+_SMALL_MIN_WATCHDOG_S = 4.0
 
 
-def test_explicit_config_prices_from_its_own_rows(request, tmp_path):
+def _gate_main_run(monkeypatch, capsys, request, tmp_path, *, manifest_name,
+                   table_fmt, extra_args, sleep_ticks, scale: 'str | None' = '1.0'):
+    """One real main() pass in-process over a single sleeping probe
+    entry, priced from a stub reference table with shrunk floors (see
+    the comment above). table_fmt carries one {name} placeholder filled
+    with the suffix-named entry (the same concurrency discipline as the
+    probes above). The ambient machine-scale variable is always dropped
+    and re-set explicitly; scale=None leaves it absent (the uncalibrated
+    path). Returns (stdout lines, main()'s exit code, entry name); the
+    exit code arrives through SystemExit, whose value is main()'s
+    failure count."""
+    suffix = f'_{uuid.uuid4().hex[:8]}'
+    name = f'{_GATE_PREFIX}{suffix}'
+    single = os.path.join(SCRIPT_DIR, name + '.n')
+
+    def remove_corpus():
+        if os.path.exists(single):
+            os.remove(single)
+    remove_corpus()
+    request.addfinalizer(remove_corpus)
+    with open(single, 'w', encoding='utf-8', newline='\r\n') as sf:
+        sf.write('0\n')
+
+    tools = _make_stub_tools(tmp_path / 'stub_build_root',
+                             nvm_body=_NVM_STUB_SLEEP)
+    manifest = tmp_path / manifest_name
+    manifest.write_text(f'{name} 0\n', encoding='utf-8')
+    table = tmp_path / 'gate_table.txt'
+    table.write_text(table_fmt.format(name=name), encoding='utf-8')
+    monkeypatch.setenv('NLANG_E2E_MANIFEST', str(manifest))
+    monkeypatch.setenv('NLANG_STUB_SLEEP', str(sleep_ticks))
+    #The runner binds its scratch globals at import time and never
+    #re-reads the environment, so an in-process main() cannot be tagged
+    #through NLANG_E2E_SCRATCH_TAG: without this patch the run would wipe
+    #and tear down the real untagged tests/temp dirs, exactly what the
+    #tag exists to prevent. Patch the globals directly -- the same
+    #discipline the scratch-isolation tests use.
+    tag = f'{_TAG_PREFIX}{suffix}'
+    paths = runner.scratch_paths(tag)
+    monkeypatch.setattr(runner, 'SCRATCH_TAG', tag)
+    monkeypatch.setattr(runner, 'SCRATCH_NS', paths.ns)
+    monkeypatch.setattr(runner, 'FS_SCRATCH', paths.fs)
+    monkeypatch.setattr(runner, 'IMPORTS_TMP', paths.imports)
+    monkeypatch.setattr(runner, 'EXAMPLES_TMP', paths.examples)
+    monkeypatch.setattr(runner, 'RUN_CWD', paths.run_cwd)
+    #An ambient work factor would double the stub budgets from outside
+    #the case; the stub rows carry ref_work=1, so the run must be pinned
+    #to factor 1 to price what the table says.
+    monkeypatch.delenv('NLANG_TEST_WORK_FACTOR', raising=False)
+    monkeypatch.delenv('NLANG_GATE_MACHINE_SCALE', raising=False)
+    if scale is not None:
+        monkeypatch.setenv('NLANG_GATE_MACHINE_SCALE', scale)
+    #Shrunk floors on the module main() will load: _load_gate_time_table
+    #builds a fresh module per call, so one patched instance is pinned
+    #in place of the loader.
+    table_mod = runner._load_gate_time_table()
+    monkeypatch.setattr(table_mod, 'MIN_CAP_S', _SMALL_MIN_CAP_S)
+    monkeypatch.setattr(table_mod, 'MIN_WATCHDOG_S', _SMALL_MIN_WATCHDOG_S)
+    monkeypatch.setattr(runner, '_load_gate_time_table', lambda: table_mod)
+    monkeypatch.setattr(
+        sys, 'argv',
+        ['run_e2e_tests.py', tools['ncc'], tools['nvm'], tools['ndb']]
+        + list(extra_args) + ['--table', str(table)])
+    with pytest.raises(SystemExit) as caught:
+        try:
+            runner.main()
+        finally:
+            #main() tears down on its normal exits; a scenario that dies
+            #mid-run must not leave this tag's namespace behind either.
+            runner.teardown_scratch()
+    return capsys.readouterr().out.splitlines(), caught.value.code, name
+
+
+def test_explicit_config_prices_entry_row_and_kills_at_budget(
+        monkeypatch, capsys, request, tmp_path):
     """--config beats the path guess: the tools sit under a /Release/
     path, yet with --config=Debug the kill and the budget come from the
-    e2e-Debug entry row, and no guess line is printed."""
-    lines, rc, name = _gate_stub_run(
-        request, tmp_path, manifest_name='gate_manifest.txt',
-        table_fmt=_GATE_TABLE_DEBUG_RELEASE, extra_args=['--config=Debug'],
-        sleep_ticks=64, proc_timeout=120)
-    assert rc == 1, lines
+    e2e-Debug entry row (ref 1 -> budget 2, watchdog 10; a ~4 s sleep is
+    killed at 2), the FAIL line names (TIMEOUT_BUDGET ...), the judging
+    line names the config, and no guess marker prints."""
+    lines, code, name = _gate_main_run(
+        monkeypatch, capsys, request, tmp_path,
+        manifest_name='gate_manifest.txt',
+        table_fmt='# stub gate table\n'
+                  'e2e-Debug {name} 1.00 1 e2e-serial - stub entry row\n',
+        extra_args=['--config=Debug'], sleep_ticks=5)
+    assert code == 1, lines
     fails = [ln for ln in lines if ln.startswith(f'FAIL {name}')]
     assert fails, lines
-    assert '(TIMEOUT_BUDGET' in fails[0], fails[0]
-    assert 'budget=62.00' in fails[0], fails[0]
+    assert '(TIMEOUT_BUDGET budget=2.00 watchdog=10.00)' in fails[0], fails[0]
     assert any(ln.startswith('TIMEOUT judging config=e2e-Debug')
                for ln in lines), lines
     assert not any('猜' in ln for ln in lines), lines
+    _assert_time_row(lines, fails[0])
 
 
-def test_missing_config_guesses_and_coarse_row_advisory_only(request,
-                                                             tmp_path):
+def test_missing_config_guesses_and_coarse_row_overrun_is_advisory_only(
+        monkeypatch, capsys, request, tmp_path):
     """No --config: the /Release/ tool path guesses the config (the line
     carries 猜), and an entry resolved through the coarse `default` row
-    that runs over its budget is advisory only -- PASS, rc 0, no FAIL,
-    so the runner's own kill never reds a coarse-scope entry (R-17)."""
-    lines, rc, name = _gate_stub_run(
-        request, tmp_path, manifest_name='gate_manifest.txt',
-        table_fmt=_GATE_TABLE_DEBUG_RELEASE, extra_args=[],
-        sleep_ticks=64, proc_timeout=120)
-    assert rc == 0, lines
+    that runs over its budget (~3 s against budget 2, watchdog 6) is
+    advisory only -- PASS, exit code 0, no FAIL, so the runner's own
+    kill never reds a coarse-scope entry (R-17)."""
+    lines, code, name = _gate_main_run(
+        monkeypatch, capsys, request, tmp_path,
+        manifest_name='gate_manifest.txt',
+        table_fmt='# stub gate table\n'
+                  'e2e-Release default 0.60 1 e2e-serial '
+                  '- stub default row\n',
+        extra_args=[], sleep_ticks=4)
+    assert code == 0, lines
     assert any('构型按路径猜为Release' in ln for ln in lines), lines
     advisories = [ln for ln in lines if ln.startswith('advisory:')]
     assert len(advisories) == 1, lines
     assert f'advisory: {name} 超预算' in advisories[0], advisories
-    assert 'budget=60.00' in advisories[0], advisories
+    assert 'budget=2.00' in advisories[0], advisories
     assert any(ln.startswith(f'PASS {name}') for ln in lines), lines
     assert not any(ln.startswith(f'FAIL {name}') for ln in lines), lines
 
 
-def test_default_row_entry_kills_at_watchdog_cap(request, tmp_path):
+def test_default_row_hang_kills_at_watchdog_cap(
+        monkeypatch, capsys, request, tmp_path):
     """R-17's other half: the same coarse row keeps a hang detectable --
-    sleeping past the watchdog cap (120) is a runner kill naming
+    sleeping past the watchdog cap (6) is a runner kill naming
     (TIMEOUT_WATCHDOG), the kill point the budget never provides for a
     coarse-scope entry."""
-    lines, rc, name = _gate_stub_run(
-        request, tmp_path, manifest_name='gate_manifest.txt',
-        table_fmt=_GATE_TABLE_DEBUG_RELEASE, extra_args=[],
-        sleep_ticks=123, proc_timeout=180)
-    assert rc == 1, lines
+    lines, code, name = _gate_main_run(
+        monkeypatch, capsys, request, tmp_path,
+        manifest_name='gate_manifest.txt',
+        table_fmt='# stub gate table\n'
+                  'e2e-Release default 0.60 1 e2e-serial '
+                  '- stub default row\n',
+        extra_args=['--config=Release'], sleep_ticks=8)
+    assert code == 1, lines
     fails = [ln for ln in lines if ln.startswith(f'FAIL {name}')]
     assert fails, lines
-    assert '(TIMEOUT_WATCHDOG' in fails[0], fails[0]
-    assert 'watchdog=120.00' in fails[0], fails[0]
+    assert '(TIMEOUT_WATCHDOG watchdog=6.00)' in fails[0], fails[0]
 
 
-def test_missing_scalar_prices_band_max_and_says_uncalibrated(request,
-                                                              tmp_path):
+def test_missing_scalar_prices_band_max_and_says_uncalibrated(
+        monkeypatch, capsys, request, tmp_path):
     """No NLANG_GATE_MACHINE_SCALE: the budget derives with
-    SCALE_BAND_MAX (ref 10 -> 10*4*2 = 80 s) and both the startup line
-    and the kill verdict say 未做本机校准, the startup line also naming
-    the remedy and the 11.25 s consequence for short references (the
-    old Debug-era 90 s default)."""
-    lines, rc, name = _gate_stub_run(
-        request, tmp_path, manifest_name='gate_manifest.txt',
+    SCALE_BAND_MAX (ref 0.25 -> 0.25*4*2 = 2 s) and both the startup
+    line and the kill verdict say 未做本机校准, the startup line also
+    naming the remedy and the 11.25 s consequence for short references
+    (the old Debug-era 90 s default)."""
+    lines, code, name = _gate_main_run(
+        monkeypatch, capsys, request, tmp_path,
+        manifest_name='gate_manifest.txt',
         table_fmt='# stub gate table\n'
-                  'e2e-Debug {name} 10.00 1 e2e-serial '
+                  'e2e-Debug {name} 0.25 1 e2e-serial '
                   '- stub entry row\n',
-        extra_args=['--config=Debug'], sleep_ticks=83, proc_timeout=140,
-        scale=None)
-    assert rc == 1, lines
+        extra_args=['--config=Debug'], sleep_ticks=5, scale=None)
+    assert code == 1, lines
     assert any('未做本机校准' in ln and 'NLANG_GATE_MACHINE_SCALE' in ln
                and '11.25' in ln for ln in lines), lines
     fails = [ln for ln in lines if ln.startswith(f'FAIL {name}')]
     assert fails, lines
-    assert 'budget=80.00' in fails[0], fails[0]
+    assert 'budget=2.00' in fails[0], fails[0]
     assert '未做本机校准' in fails[0], fails[0]
 
 
-def test_manifest_scope_row_prices_the_manifest_entries(request, tmp_path):
+def test_manifest_scope_row_prices_the_manifest_entries(
+        monkeypatch, capsys, request, tmp_path):
     """M-3 at the runner: an entry owned by a manifest named
-    manifest.txt is priced by that manifest's scope row (ref 30 ->
-    budget 60, so the ~62 s run is over budget), not by the wider
-    `default` row (ref 100 -> budget 200, no advisory). An advisory
-    naming budget=60.00 is the proof the owning scope was consulted."""
-    lines, rc, name = _gate_stub_run(
-        request, tmp_path, manifest_name='manifest.txt',
+    manifest.txt is priced by that manifest's scope row (ref 0.6 ->
+    budget 2, so the ~3 s run is over budget), not by the wider
+    `default` row (ref 25 -> budget 50, no advisory). An advisory
+    naming budget=2.00 is the proof the owning scope was consulted."""
+    lines, code, name = _gate_main_run(
+        monkeypatch, capsys, request, tmp_path,
+        manifest_name='manifest.txt',
         table_fmt='# stub gate table\n'
-                  'e2e-Debug manifest.txt 30.00 1 e2e-serial '
+                  'e2e-Debug manifest.txt 0.60 1 e2e-serial '
                   '- stub manifest scope\n'
-                  'e2e-Debug default 100.00 1 e2e-serial '
+                  'e2e-Debug default 25.00 1 e2e-serial '
                   '- stub default row\n',
-        extra_args=['--config=Debug'], sleep_ticks=62, proc_timeout=120)
-    assert rc == 0, lines
+        extra_args=['--config=Debug'], sleep_ticks=4)
+    assert code == 0, lines
     advisories = [ln for ln in lines if ln.startswith('advisory:')]
     assert len(advisories) == 1, lines
     assert f'advisory: {name} 超预算' in advisories[0], advisories
-    assert 'budget=60.00' in advisories[0], advisories
+    assert 'budget=2.00' in advisories[0], advisories
 
 
 def test_advisory_suppression_is_the_cap_kill_flag(capsys, monkeypatch):

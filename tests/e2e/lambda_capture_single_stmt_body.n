@@ -1,0 +1,34 @@
+//0.13.10 review finding: a single-statement loop body (no braces)
+//must behave exactly like a braced body with that one statement —
+//a capture inside it hit an internal error instead ("identifier has
+//no codegen binding"). The parser now wraps every non-block loop
+//body in an implicit paragraph, giving head scoping, capture
+//displays, and per-iteration activation the uniform body shape.
+void sink(int& x) {
+    x = x + 50;
+}
+int main() {
+    List<int> xs = List<int>();
+    xs.add(10);
+    xs.add(20);
+    List<func<int>> funcs = List<func<int>>();
+    foreach (int v in xs) funcs.add(() -> v);
+    func<int> a = funcs.get(0);
+    func<int> b = funcs.get(1);
+    if (a() + b() != 30) {
+        return 1;
+    }
+    List<func<int>> fs2 = List<func<int>>();
+    for (int i = 0; i < 3; i = i + 1) fs2.add(() -> i * 10);
+    func<int> c = fs2.get(0);
+    func<int> d = fs2.get(1);
+    func<int> e = fs2.get(2);
+    if (c() + d() + e() != 30) {
+        return 2;
+    }
+    //Promoted head in a single-statement body: the & binding bumps i
+    //by 50 per visit, so the loop exits after two iterations (a
+    //broken box path would hang the fixture or crash it).
+    for (int i = 0; i < 100; i = i + 1) sink(i);
+    return 0;
+}

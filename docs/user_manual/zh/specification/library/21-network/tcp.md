@@ -34,6 +34,7 @@
 | `shutdownWrite()` | — | 半关闭：向对端发送流结束标记，读端保持打开（见下）；之后的写抛`SocketException` |
 | `close()` | — | 关闭连接；幂等。对端停泊中的读者会看到流结束 |
 | `isClosed()` | →`bool` | 这个句柄是否已关闭 |
+| `isEof()` | →`bool` | 本流是否已观测到对端把流写终——某次`read`返回`0`就是那次观测；因超时抛出的`TimeoutException`从不置位，这正是"对端已经结束"与"暂时还没有字节到来"的区分。粘滞：`close()`之后、后续读取之后都保持为真。与`isClosed()`正交，后者只报告本地一侧；尚未被任何读取触及的对端关闭保持为`false`，直到某次读取执行 |
 | `peerAddress()`/`peerPort()` | →`string`/`int` | 远端 |
 | `localAddress()`/`localPort()` | →`string`/`int` | 本地端 |
 | `setNoDelay(on)` | — | 关闭Nagle合批，用于对时延敏感的协议 |

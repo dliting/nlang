@@ -27,7 +27,8 @@ namespace nlang
 //otherwise. The exact-match-only rule also closes the legacy hole where
 //the unqualified name's RETURN type let it bind approximately to non-func
 //formals.
-static int FuncRefBindingDistance(const FormalBinding &b)
+static int FuncRefBindingDistance(BuildEnvironment &env,
+	const FormalBinding &b)
 {
 	SnFunction *pRef = nullptr;
 	if (IsUnboundFuncRef(*b.pCallerExpr))
@@ -39,8 +40,39 @@ static int FuncRefBindingDistance(const FormalBinding &b)
 				static_cast<SnMemberExpr*>(
 					b.pCallerExpr)->Inner())->Field());
 	auto *pTgt = b.pFormal->EvalDataType();
-	if (!IsFuncTypeDecl(pTgt) || !pRef
-		|| !FuncRefMatchesDecl(*pRef, static_cast<SnClassDecl*>(pTgt)))
+	if (!IsFuncTypeDecl(pTgt) || !pRef)
+		return -1;
+	//0.13.10 Task 5: a generic reference unifies against the formal —
+	//distance 0 when the expected type's slots fill every type
+	//parameter (the value channel; the call-site bind re-runs the same
+	//unification idempotently).
+	if (pRef->IsGenericDeclaration())
+	{
+		std::vector<SnField*> inferredArgs;
+		return UnifyGenericFuncRefAgainst(*pRef,
+			static_cast<SnClassDecl*>(pTgt),
+			env.Registry().DeclaredGenerics(), inferredArgs)
+			? 0 : -1;
+	}
+	//0.13.10 Task 5: a receiverless static of a generic CLASS unifies
+	//the CLASS's parameters from the formal's slots — the same channel
+	//the bind site's clone arm runs. An underdetermined signature (the
+	//CS0411 shape) scores -1 here; the bind site reports the
+	//cannot-infer diagnostic.
+	auto *pOwner = pRef->Parent();
+	if (pOwner && pOwner->Kind() == NK_ClassDecl
+		&& static_cast<SnClassDecl*>(pOwner)->IsGenericDeclaration()
+		&& IsReceiverlessFuncRefTarget(*pRef))
+	{
+		std::vector<SnField*> classArgs;
+		bool bUnderdetermined = false;
+		return UnifyClassStaticRefAgainst(*pRef,
+			*static_cast<SnClassDecl*>(pOwner),
+			static_cast<SnClassDecl*>(pTgt),
+			env.Registry().DeclaredGenerics(), classArgs,
+			bUnderdetermined) ? 0 : -1;
+	}
+	if (!FuncRefMatchesDecl(*pRef, static_cast<SnClassDecl*>(pTgt)))
 		return -1;
 	return 0;
 }
@@ -129,6 +161,22 @@ int ExprResolveAccessor::TypedBindingDistance(SnExpression &caller,
 	return FittedConstantRung(srcT.Kind(), tgtT.Kind());
 }
 
+//Per-binding deferral admission (the brace and lambda deferral
+//contracts): 0 = deferred and admitted (no distance contribution),
+//-1 = deferred and rejected, 1 = not a deferred shape.
+static int DeferredArgAdmission(SnExpression &caller,
+	SnFormalParam &formal)
+{
+	if (UntypedInitListOf(caller))
+		return AdmitsInitListArg(formal) ? 0 : -1;
+	if (UntypedLambdaOf(caller))
+	{
+		auto *pTgt = formal.EvalDataType();
+		return (pTgt && IsFuncTypeDecl(pTgt)) ? 0 : -1;
+	}
+	return 1;
+}
+
 int ExprResolveAccessor::ComputeBindingDistance(
 	const std::vector<FormalBinding> &bindings) const
 {
@@ -141,18 +189,16 @@ int ExprResolveAccessor::ComputeBindingDistance(
 		if (IsUnboundFuncRef(*b.pCallerExpr)
 			|| IsUnboundMemberFuncRef(*b.pCallerExpr))
 		{
-			if (FuncRefBindingDistance(b) < 0)
+			if (FuncRefBindingDistance(m_Env, b) < 0)
 				return -1;
 			continue;
 		}
-		//0.9.0 (D11): a deferred brace argument only admits an
-		//init-compatible formal — anything else rejects the candidate.
-		if (UntypedInitListOf(*b.pCallerExpr))
-		{
-			if (!AdmitsInitListArg(*b.pFormal))
-				return -1;
+		const int nDeferred = DeferredArgAdmission(*b.pCallerExpr,
+			*b.pFormal);
+		if (nDeferred < 0)
+			return -1;
+		if (nDeferred == 0)
 			continue;
-		}
 		auto *pSrc = b.pCallerExpr->EvalDataType();
 		auto *pTgt = b.pFormal->EvalDataType();
 		if (!pSrc || !pTgt)

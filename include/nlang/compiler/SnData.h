@@ -17,6 +17,8 @@ namespace llvm
 namespace nlang
 {
 
+class SnClassField;
+
 //Phase 9c: sanity ceiling on a function's formal parameter count.
 //
 //The VM frame layout now sizes callParamBase dynamically per caller
@@ -92,8 +94,22 @@ public:
 	//Construct from an import module.
 	explicit SnFormalParam(RnFormalParam &);
 
+	//Capture promotion (0.13.10): the display-class field this formal was
+	//copied into, or null when the formal keeps frame storage.
+	SnClassField *DisplayField() const
+	{
+		return m_pDisplayField;
+	}
+
+	void SetDisplayField(SnClassField *pField)
+	{
+		m_pDisplayField = pField;
+	}
+
 	//Accept a visitor using the Visitor design pattern.
 	void Accept(ISyntaxNodeVisitor&) override;
+private:
+	SnClassField *m_pDisplayField = nullptr;
 };
 
 //A syntax node of function declaration.

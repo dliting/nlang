@@ -1,0 +1,57 @@
+//0.13.10 Task 9 review fix: a loop body captures a body-local while the
+//head stays uncaptured — the most ordinary loop+lambda shape. The head
+//must keep plain declaration-slot storage (no display field exists for
+//it), and the body-local's display must still re-activate per iteration.
+int checkForUncapturedHead() {
+    List<func<int>> funcs = List<func<int>>();
+    for (int i = 0; i < 3; i = i + 1) {
+        int counter = i * 10;
+        funcs.add(() -> counter);
+    }
+    func<int> first = funcs.get(0);
+    func<int> second = funcs.get(1);
+    func<int> third = funcs.get(2);
+    return first() + 10 * second() + 100 * third();
+}
+
+//Mixed declarators: one head captured, the sibling head uncaptured in
+//the same for-init.
+int checkMixedHeads() {
+    List<func<int>> funcs = List<func<int>>();
+    for (int i = 0, j = 5; i < 3; i = i + 1) {
+        funcs.add(() -> i + j);
+    }
+    func<int> first = funcs.get(0);
+    func<int> second = funcs.get(1);
+    func<int> third = funcs.get(2);
+    return first() + 10 * second() + 100 * third();
+}
+
+//The foreach twin: head uncaptured, body-local captured (the indexed
+//copy path and the string path share the activation boundary).
+int checkForeachUncapturedHead() {
+    List<int> values = List<int>();
+    values.add(1);
+    values.add(2);
+    List<func<int>> funcs = List<func<int>>();
+    foreach (int value in values) {
+        int doubled = value * 2;
+        funcs.add(() -> doubled);
+    }
+    func<int> first = funcs.get(0);
+    func<int> second = funcs.get(1);
+    return first() + 10 * second();
+}
+
+int main() {
+    if (checkForUncapturedHead() != 2100) {
+        return 1;
+    }
+    if (checkMixedHeads() != 765) {
+        return 2;
+    }
+    if (checkForeachUncapturedHead() != 42) {
+        return 3;
+    }
+    return 0;
+}

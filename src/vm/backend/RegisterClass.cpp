@@ -19,6 +19,24 @@
 
 namespace nlang {
 
+//0.13.10 Task 8: a captured display field's declared kind follows its
+//capture flavor, not the declared type — a reference capture's cell
+//holds the (base, cell) pair (declared RTK_ByrefBase: the class mark
+//phase routes the base half conservatively) and a promoted capture's
+//cell holds its box handle (RTK_Promoted, same routing). The plain
+//declared kind would leave both the pair's base record and the box
+//unrooted: no record-side consumer routes them (the frame band's
+//RTK_Byref/RTK_ByrefCell kinds and their handle-mask live on the
+//locals table, never on fields).
+uint16_t VmBackend::InstanceFieldSlotKind(const SnClassField& cf)
+{
+    if (cf.ContainFlags(NF_Captured) && cf.ContainFlags(NF_Ref))
+        return RTK_ByrefBase;
+    if (cf.ContainFlags(NF_Captured) && cf.ContainFlags(NF_Promoted))
+        return RTK_Promoted;
+    return RuntimeTypeKind(cf.EvalDataType());
+}
+
 //0.9.12 (v2.7): the class record carries OWN instance fields only.
 //Inherited fields are no longer flattened here — the runtime view
 //(VmClassLayout) joins the superClassIdx chain base-first, and the
@@ -57,7 +75,7 @@ void VmBackend::CollectOwnClassFields(SnClassDecl& sn, CompiledClass& cc) {
             //0.7.3 B: array fields carry their interned token in
             //EvalDataType — RuntimeTypeKind files both arrays and
             //scalars (mirrors RegisterStructs).
-            const uint16_t ftk = RuntimeTypeKind(cf.EvalDataType());
+            const uint16_t ftk = InstanceFieldSlotKind(cf);
             cc.fieldTypeKinds.push_back(ftk);
             cc.fieldStructIndices.push_back(0xFFFF);
             //v0.13.1 D3: a T-typed field records its type-parameter

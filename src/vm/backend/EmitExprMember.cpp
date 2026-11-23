@@ -172,7 +172,8 @@ bool VmBackend::EmitMemberHeaderDispatch(SnMemberExpr& member, SnField* field,
     //travel with the emission helpers.
     if (field && IsValueFuncRefShape(*field, member)) {
         if (IsReceiverlessFuncRefTarget(*field))
-            EmitReceiverlessFuncHandleRef(*field, emitter, resultOffset);
+            EmitReceiverlessFuncHandleRef(*field, member, emitter,
+                                          resultOffset);
         else
             EmitMemberFuncHandleRef(member, field, emitter, resultOffset);
         return true;

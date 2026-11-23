@@ -1,0 +1,15 @@
+//Lambda capture: a captured variable's storage outlives the call that
+//creates the lambda. bump's writes stay visible through count itself,
+//and peek — a second lambda capturing the same variable — reads the
+//same storage the writes landed in.
+int main() {
+	int count = 0;
+	func<int> bump = () -> { count = count + 1; return count; };
+	func<int> peek = () -> count;
+	if (bump() != 1) { return 1; }
+	if (bump() != 2) { return 2; }
+	if (bump() != 3) { return 3; }
+	if (count != 3) { return 4; }
+	if (peek() != 3) { return 5; }
+	return 0;
+}

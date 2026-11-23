@@ -1390,6 +1390,12 @@ private:
     void MarkFuncReceiver(int32_t idx, std::vector<int32_t>& worklist);
     void MarkBoxedPayload(int32_t idx);
     void MarkClassFields(int32_t idx, std::vector<int32_t>& worklist);
+    //Pre-guard field-root routing: declared kinds whose cell holds
+    //something other than a plain struct-heap index (string handle,
+    //instantiation-dependent T, display capture base) — true when
+    //the kind alone decided the root.
+    bool RouteFieldRoot(uint8_t declaredKind, int32_t refIdx,
+                        std::vector<int32_t>& worklist);
     void MarkListElements(int32_t idx, std::vector<int32_t>& worklist);
     void MarkDictEntries(int32_t idx, std::vector<int32_t>& worklist);
     void MarkChannelElements(int32_t idx, std::vector<int32_t>& worklist);
@@ -2013,11 +2019,13 @@ private:
     //string split / fs.listFiles intrinsics.
     int32_t AllocBoxedValue(uint8_t typeTag, int64_t val);
 
-    //Phase 13: allocate one function-handle heap record (3 slots:
-    //[0]=target, [1]=this, [2]=form; m_slotKinds=RTK_Func). Always
+    //Phase 13: allocate one function-handle heap record (4 slots:
+    //[0]=target, [1]=this, [2]=form, [3]=descriptor row (v2.23;
+    //kInstDescNone sentinel); m_slotKinds=RTK_Func). Always
     //allocates — handles are never interned, two references to the same
     //function are distinct records compared by content.
-    int32_t AllocFuncRecord(int32_t target, int32_t thisIdx, int32_t form);
+    int32_t AllocFuncRecord(int32_t target, int32_t thisIdx, int32_t form,
+                            int32_t descIdx);
 
     //Phase 13: render a function handle for toString / container
     //formatting ("func <name>" for static handles, "method <name>" for
@@ -2052,9 +2060,11 @@ private:
     int ResolveDelegateTarget(const std::vector<int32_t>& handle);
 
     //Free-function delegate ABI (identical to OP_CallStatic, natives
-    //included).
+    //included); the handle's descriptor cell fills the callee frame
+    //(v2.23 — kInstDescNone for a non-generic target).
     bool CallDelegateFree(const CompiledFunction& callee,
-        uint16_t callParamBase, uint8_t* locals, uint8_t* pResult);
+        int32_t handleDescIdx, uint16_t callParamBase, uint8_t* locals,
+        uint8_t* pResult);
 
     //Bound-method delegate ABI: the captured receiver rides at callee
     //slot 0, caller args shift right by one.

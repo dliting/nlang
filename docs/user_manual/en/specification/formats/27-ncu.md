@@ -12,7 +12,7 @@ states the loading contract.
 ## 27.1 Scope and Version
 
 **Format version.** This chapter describes format version
-**2.22**, recorded in the header as major `2`, minor `22`
+**2.23**, recorded in the header as major `2`, minor `23`
 (§27.2). A conforming loader accepts exactly this version and
 rejects every other: an older image with a "recompile"
 diagnostic, a newer image with an "upgrade the toolchain"
@@ -29,8 +29,8 @@ loading contract (§27.8).
 
 **What it does not fix.** The encoding of the instructions
 inside a function's bytecode array: the array is an opaque byte
-string here. It is pinned to the same format version — a 2.22
-image carries the instruction set of the 2.22 toolchain — but
+string here. It is pinned to the same format version — a 2.23
+image carries the instruction set of the 2.23 toolchain — but
 the opcode values and instruction forms are not part of this
 specification. The native calling convention is §29.4; the
 archive that packs images is chapter 28.
@@ -57,7 +57,7 @@ IEEE 754 binary32 and binary64 encodings (§4.2).
 |---|---|---|
 | magic | 8 bytes | `NLANGCU` followed by a zero byte |
 | version major | u16 | `2` |
-| version minor | u16 | `22` |
+| version minor | u16 | `23` |
 | module path | u16 length + bytes | the package path of the unit (§3.9.1) |
 | name | u32 length + bytes | the unit name: the same string as the module path in every image the current toolchain writes |
 | entry key | u16 length + bytes | the qualified key (§3.6) of the entry function (§9.3); empty for a library image (§3.9.1) |
@@ -159,6 +159,7 @@ constructor of the unit, in registration order. Each record:
 | instance-method flag | u8 | `1` for a non-static member of a class, struct or enum (instance methods and constructors, §4.8.7); its frame carries the slot-0 receiver, and the native call bridge locates the receiver handle through it (§29.5) |
 | abstract flag | u8 | `1` for a body-less abstract method declaration (§4.8.10); the record then carries the signature only, so consumer stubs see the obligation |
 | generic flag | u8 | `1` for a generic record; a generic record then also carries a u16 type-parameter count followed by that many length-prefixed type-parameter names (§4.12.3) |
+| lambda flag | u8 | `1` for a function synthesized from a lambda expression; `toString` renders such a closure as `"lambda"` off this flag (§7.4), not off the synthetic name shape |
 | default count | u16 | followed by that many default value records (§27.6) |
 | bytecode size | u32 | followed by that many instruction bytes |
 | try block count | u16 | followed by five u16 values per entry |
@@ -451,8 +452,8 @@ rejected image never runs in part. The rejection sites:
 
 - **magic.** Header bytes other than the magic → reject.
 - **truncation.** A stream that ends mid-record → reject.
-- **version.** Below 2.22 → reject with a "recompile with the
-  current compiler" diagnostic; above 2.22 → reject with an
+- **version.** Below 2.23 → reject with a "recompile with the
+  current compiler" diagnostic; above 2.23 → reject with an
   "upgrade the toolchain" diagnostic (§27.1).
 - **access bytes.** A function-record or type-level access byte
   of `0` or above `3` → reject as a corrupt image (§27.4).

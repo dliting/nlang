@@ -102,9 +102,10 @@ bool ExprResolveAccessor::BindStaticFaceCall(SnMemberExpr &snMember,
 	//m_pContext is the caller's context, no receiver switch happens).
 	ResolveExpressionList(invoke.Params());
 	//The wait set: one array of Future values (any Future<T> — the
-	//erasure 口径). Array-ness rides the interned token (locals and
-	//call results alike — EvalDataType, the foreach source shape), the
-	//element is the erased generic instantiation's base name.
+	//erasure 口径). Array-ness is the row's own claim (locals and call
+	//results alike — EvalDataType, the foreach source shape; either
+	//spelling of the one array type), the element is the erased generic
+	//instantiation's base name.
 	SnExpression *pArg = nullptr;
 	for (auto &param : invoke.Params())
 	{
@@ -113,10 +114,9 @@ bool ExprResolveAccessor::BindStaticFaceCall(SnMemberExpr &snMember,
 	}
 	auto *pArgType = pArg ? pArg->EvalDataType() : nullptr;
 	bool elemOk = false;
-	if (pArgType && pArgType->Kind() == NK_ArrayTypeToken)
+	if (pArgType && pArgType->IsArrayType())
 	{
-		auto *pElem = static_cast<SnArrayTypeToken *>(pArgType)
-			->ElemTypeOf();
+		auto *pElem = ArrayElementRowOf(pArgType);
 		elemOk = pElem && pElem->Kind() == NK_ClassDecl
 			&& static_cast<SnClassDecl *>(pElem)->BaseName()
 				== kBuiltinFutureTypeName;

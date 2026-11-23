@@ -70,6 +70,17 @@ def run_smoke():
                   f"argv when no text-mode filter sits in between): "
                   f"{probe.stdout[:200]!r}")
 
+        #Plant stale flat artifacts from a "previous generation" in the
+        #shared gates root: a same-named one and a differently-cased one
+        #(the exact shape that once masqueraded as a fresh verdict). The
+        #run-scoped layout must leave both untouched and read neither.
+        gates_root = sandbox / "temp" / "tier" / "gates"
+        gates_root.mkdir(parents=True)
+        stale_same_name = gates_root / "T1-debug-unit.invocations"
+        stale_same_name.write_text("stale-from-another-generation\n")
+        stale_other_case = gates_root / "t1_debug_unit.gate"
+        stale_other_case.write_text("GATE T1-debug-unit: PASS (stale)\n")
+
         # NLANG_GATE_MACHINE_SCALE (inside run_tier) pins the calibration
         # (D-4): the stub trees hold no suite, so an unpinned run would
         # burn live sampling rounds and fail on calibration, not wiring.
@@ -83,16 +94,52 @@ def run_smoke():
         # A live batch exports NLANG_GATE_TIER_WORK and this smoke runs as
         # a ctest entry inside one: a nested batch must pin its own WORK.
         os.environ["NLANG_GATE_TIER_WORK"] = str(sandbox / "leaked-work")
-        proc = run_tier(bash, sandbox, "T1", *trees)
+        # --docs rides the batch so the docs legs' cross-language build/
+        # check link order is pinned below; the stub gate.sh records the
+        # leg commands without running them, so the docs payload costs
+        # the smoke its assembly pass only.
+        proc = run_tier(bash, sandbox, "T1", *trees, "--docs")
         output = proc.stdout + proc.stderr
 
         check(proc.returncode == 0,
               f"tier batch exited rc={proc.returncode}; output:\n{output}")
         check("rc=127" not in output, "rc=127 leg launch: command word fused")
         for leg in EXPECTED_LEGS:
-            check(f"GATE {leg}: PASS" in output, f"no PASS verdict for {leg}")
-        gates_dir = sandbox / "temp" / "tier" / "gates"
-        unit_invocations = gates_dir / "T1-debug-unit.invocations"
+            check(f"GATE {leg}: PASS" in output,
+                  f"no PASS verdict for {leg} (see batch output above)")
+        #Cross-language link checks read the sibling site: every build
+        #must precede the first check, or a clean work dir cannot pass
+        #check-en (its pages link into the zh tree built later).
+        build_zh_at = output.find("GATE T-docs-build-zh: PASS")
+        check_en_at = output.find("GATE T-docs-check-en: PASS")
+        check(build_zh_at != -1 and check_en_at != -1 and
+              build_zh_at < check_en_at,
+              "docs legs ordered build/check per language - check-en ran "
+              "before build-zh, so a clean work dir has no zh site to "
+              "link-check against")
+        runs = sorted(d for d in gates_root.iterdir() if d.is_dir())
+        check(len(runs) == 1,
+              f"expected exactly one run-scoped log directory, found "
+              f"{[d.name for d in runs]} (flat artifacts must not appear)")
+        #Windows pathlib globs are case-insensitive, so the planted
+        #t1_debug_unit.gate would match a T1-* glob; enumerate instead
+        #and demand the flat root holds nothing but the stale plants.
+        flat_files = {p.name for p in gates_root.iterdir() if p.is_file()}
+        check(flat_files == {stale_same_name.name, stale_other_case.name},
+              f"leg artifacts landed flat in the gates root ({sorted(
+                  flat_files - {stale_same_name.name,
+                                stale_other_case.name})}) — verdict "
+              "files must live inside the per-run directory")
+        check(stale_same_name.read_text() == "stale-from-another-generation\n"
+              and stale_other_case.read_text() == "GATE T1-debug-unit: PASS (stale)\n",
+              "the batch overwrote or consumed a stale flat artifact — "
+              "generations must be isolated by construction")
+        if len(runs) != 1:
+            return False
+        run_dir = runs[0]
+        check((run_dir / "batch.info").exists(),
+              "no batch.info provenance file in the run directory")
+        unit_invocations = run_dir / "T1-debug-unit.invocations"
         check(unit_invocations.exists(),
               "stub gate.sh never received T1-debug-unit — dispatch broken")
         if unit_invocations.exists():
@@ -136,7 +183,7 @@ def run_smoke():
         # word makes the leg's verdict unknowable (gate_selftest.sh
         # A-series lesson). It reuses the scalar calibration just measured
         # for this same leg (D-5); the stub-pinned 1.0 rides verbatim.
-        budget_invocations = gates_dir / "T1-debug-unit-budget.invocations"
+        budget_invocations = run_dir /"T1-debug-unit-budget.invocations"
         check(budget_invocations.exists(),
               "stub gate.sh never received T1-debug-unit-budget — the "
               "post-hoc checker leg never reached gate.sh")
@@ -151,7 +198,7 @@ def run_smoke():
         # config must be spelled out: e2e-Debug's leg passes
         # --config=Debug so the runner never falls back to its tool-path
         # guess.
-        e2e_invocations = gates_dir / "T1-debug-e2e.invocations"
+        e2e_invocations = run_dir /"T1-debug-e2e.invocations"
         check(e2e_invocations.exists(),
               "stub gate.sh never received T1-debug-e2e — dispatch broken")
         if e2e_invocations.exists():
@@ -182,7 +229,7 @@ def run_smoke():
             ("T1-debug-unit", slow_roster_e),
             ("T1-ide-ctest", slow_roster_e),
             ("T1-asan-unit", slow_roster_e)):
-            invocations = gates_dir / f"{leg}.invocations"
+            invocations = run_dir /f"{leg}.invocations"
             check(invocations.exists(),
                   f"stub gate.sh never received {leg} — dispatch broken")
             if invocations.exists():
@@ -196,7 +243,7 @@ def run_smoke():
         for leg, tree in (("T1-debug-unit", "master"),
                           ("T1-ide-ctest", "ide"),
                           ("T1-asan-unit", "asan")):
-            invocations = gates_dir / f"{leg}-timeouts.invocations"
+            invocations = run_dir /f"{leg}-timeouts.invocations"
             check(invocations.exists(),
                   f"stub gate.sh never received {leg}-timeouts (R-30)")
             if invocations.exists():
@@ -225,7 +272,7 @@ def run_smoke():
         for leg, tree, claim in (("T1-debug-unit", "master", False),
                                  ("T1-ide-ctest", "ide", True),
                                  ("T1-asan-unit", "asan", False)):
-            invocations = gates_dir / f"{leg}.invocations"
+            invocations = run_dir /f"{leg}.invocations"
             if not invocations.exists():
                 continue  # the dispatch pins above already reported it
             body = invocations.read_text(encoding="utf-8")
@@ -250,7 +297,7 @@ def run_smoke():
         # the e2e-ASan rows (--config=ASan) while its instrumented
         # binaries sit in /Debug/, so the judging key and the binary
         # path must not be conflated.
-        asan_e2e = gates_dir / "T1-asan-e2e-subset.invocations"
+        asan_e2e = run_dir /"T1-asan-e2e-subset.invocations"
         check(asan_e2e.exists(), "stub gate never received asan-e2e-subset")
         if asan_e2e.exists():
             body = asan_e2e.read_text()
@@ -271,7 +318,7 @@ def run_smoke():
         tier_work = str(sandbox / "temp" / "tier")
         for leg_name, verb in (("T-guards-complete", "check-complete"),
                                ("T-guards-orphans", "check-orphans")):
-            invocations = gates_dir / f"{leg_name}.invocations"
+            invocations = run_dir /f"{leg_name}.invocations"
             check(invocations.exists(),
                   f"stub gate.sh never received {leg_name} — the "
                   "coverage guard never reached gate.sh")
@@ -293,7 +340,7 @@ def run_smoke():
                       f"{leg_name}: a read-only checker leg must show "
                       f"no write dir in gate.sh's environment: "
                       f"{body!r}")
-        sched_invocations = gates_dir / "T-schedule.invocations"
+        sched_invocations = run_dir /"T-schedule.invocations"
         check(sched_invocations.exists(),
               "stub gate.sh never received T-schedule — the schedule "
               "axis guard never reached gate.sh")

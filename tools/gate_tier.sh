@@ -47,7 +47,15 @@ case "$WORK" in
   /*|[A-Za-z]:*) ;;
   *) WORK="$PWD/$WORK" ;;
 esac
-LOGS="$WORK/gates"
+#Run-scoped verdict artifacts (master d8ca1d74, kept through the
+#merge): every leg file lands under a per-batch directory, so files
+#from an earlier generation can never be read as this batch's
+#results -- a stale flat artifact once masqueraded as a fresh verdict
+#because only the filename distinguished generations. The machine
+#lock in tools/gate.sh is unaffected: it lives in $TMPDIR, keyed
+#independently of the logfile stem, and NLANG_GATE_TIER_WORK still
+#redirects the whole scratch root.
+LOGS="$WORK/gates/$(date +%Y%m%d-%H%M%S)-$$"
 DOCS_CONFIG_EN="$REPO/docs/mkdocs.en.yml"
 DOCS_CONFIG_ZH="$REPO/docs/mkdocs.zh.yml"
 
@@ -133,6 +141,15 @@ MASTER_TREE=$(abs_tree "$MASTER_TREE")
 [ -n "$ASAN_TREE" ] && ASAN_TREE=$(abs_tree "$ASAN_TREE")
 [ -n "$IDE_TREE" ] && IDE_TREE=$(abs_tree "$IDE_TREE")
 mkdir -p "$LOGS" "$WORK"
+#Provenance: which batch produced these files. Any later read can (and
+#should) check this before trusting an artifact's generation.
+{
+  echo "tier $TIER"
+  echo "started $(date '+%Y-%m-%d %H:%M:%S')"
+  echo "head $(git -C "$REPO" rev-parse --short HEAD 2>/dev/null \
+      || echo unknown)"
+  echo "trees master=$MASTER_TREE asan=$ASAN_TREE ide=$IDE_TREE"
+} > "$LOGS/batch.info"
 # The carrier guard (guard eleven) pairs the reference table against the
 # leg commands themselves, so every leg of this batch -- dry runs
 # included, that is where the assembly pins live -- records its full

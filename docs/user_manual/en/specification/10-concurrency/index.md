@@ -32,7 +32,8 @@ the standard library and their implementations are built into the
 virtual machine.
 
 - `thread.spawn(f)` takes a zero-argument function value (§7.4):
-  a free function, a bound method, or a variable holding one. It
+  a free function, a bound method, a zero-parameter lambda
+  (`() -> …`), or a variable holding one. It
   starts a new context and returns its handle immediately. A
   delegate of type `func<void>` yields a `Thread` handle; a
   delegate of type `func<T>` yields a `Future<T>` handle (§10.5).

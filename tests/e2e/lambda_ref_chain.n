@@ -1,0 +1,24 @@
+//0.13.10 Task 11: the reference formal and reference return full
+//chain on a lambda (spec 3.3, review M3): a lambda declared under
+//func<int&, int&> forwards its & formal out as the & return, and a
+//void-returning & formal writes through to the caller's storage.
+//Both directions must alias: writes through the returned reference
+//land on the caller's variable, and writes inside the lambda body
+//through the formal are visible to the caller.
+int main() {
+    func<int&, int&> id = (int& x) -> x;
+    int v = 3;
+    int& r = id(v);
+    if (r != 3) { return 1; }
+    r = 8;
+    if (v != 8) { return 2; }
+
+    func<void, int&> setter = (int& x) -> { x = 42; };
+    int w = 0;
+    setter(w);
+    if (w != 42) { return 3; }
+
+    setter(v);
+    if (id(v) != 42) { return 4; }
+    return 0;
+}

@@ -1,0 +1,6 @@
+//0.13.10 review M3: library module. Returns a closure whose display
+//object is built here and invoked from the importing module.
+func<int, int> mk() {
+    int n = 40;
+    return (b) -> n + b;
+}

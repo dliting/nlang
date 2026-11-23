@@ -229,7 +229,16 @@ void VmBackend::EmitBodyAndImplicitReturn(SnFunction& func, FuncContext& ctx,
                                           BytecodeEmitter& emitter) {
     //v0.13.9 phase 3 Task 4: promoted formals re-wrap the raw argument
     //into their stable boxed record before any body statement runs.
+    //0.13.10 Task 6: every marked display paragraph in the body subtree
+    //(uniform rule — the body root itself included) allocates + builds
+    //its display instance before any statement runs, then captured
+    //formals copy from their frame slots into the display fields. User
+    //code emits only after both.
     EmitPromotedParamPrologue(func, emitter);
+    if (func.Body()) {
+        EmitCaptureDisplayPrologue(*func.Body(), emitter);
+        EmitCapturedFormalCopies(func, emitter);
+    }
     // Generate bytecode for body
     if (func.Body()) {
         for (auto& stmt : func.Body()->Statements()) {
@@ -332,7 +341,8 @@ void VmBackend::Access(SyntaxNode& sn) {
 }
 
 uint16_t VmBackend::AllocLocal(const std::string& name, uint16_t size,
-                                uint8_t typeKind, bool isParam) {
+                                uint8_t typeKind, bool isParam,
+                                const std::string& debugName) {
     NLANG_ASSERT(m_currFunc);
     auto it = m_currFunc->localOffsets.find(name);
     if (it != m_currFunc->localOffsets.end())
@@ -358,7 +368,10 @@ uint16_t VmBackend::AllocLocal(const std::string& name, uint16_t size,
     //(params, __this): live from entry.
     desc.declPc = m_pCurrEmitter
         ? static_cast<uint16_t>(m_pCurrEmitter->CurrentOffset()) : 0;
-    desc.name = name;
+    //Slot identity (the map key, suffixed for declaration-keyed storage)
+    //and debug identity (what the debugger lists) are distinct concerns;
+    //desc.name defaults to the slot name for every legacy caller.
+    desc.name = debugName.empty() ? name : debugName;
     m_currFunc->func->locals.push_back(std::move(desc));
 
     return offset;
@@ -370,6 +383,39 @@ uint16_t VmBackend::FindLocal(const std::string& name) const {
     if (it != m_currFunc->localOffsets.end())
         return it->second;
     throw std::runtime_error("NLang backend: local variable not found: " + name);
+}
+
+uint16_t VmBackend::AllocDeclSlot(const SnField* decl,
+    const std::string& name, uint8_t typeKind) {
+    NLANG_ASSERT(m_currFunc);
+    if (decl) {
+        auto it = m_currFunc->localSlotOfDecl.find(decl);
+        if (it != m_currFunc->localSlotOfDecl.end())
+            return it->second;
+    }
+    const std::string slotName = decl
+        ? name + "$" + std::to_string(m_currFunc->declSlotCounter++)
+        : name;
+    //Debug identity: the debugger lists the user-facing name, not the
+    //collision-avoiding slot key (local total$0 would leak into ndb's
+    //locals view otherwise).
+    const std::string debugName = decl ? name : std::string();
+    const uint16_t offset = AllocLocal(slotName, kFrameSlotBytes,
+        typeKind, false, debugName);
+    if (decl)
+        m_currFunc->localSlotOfDecl.emplace(decl, offset);
+    return offset;
+}
+
+uint16_t VmBackend::DeclSlotOf(const SnField* decl,
+    const std::string& name) const {
+    NLANG_ASSERT(m_currFunc);
+    if (decl) {
+        auto it = m_currFunc->localSlotOfDecl.find(decl);
+        if (it != m_currFunc->localSlotOfDecl.end())
+            return it->second;
+    }
+    return FindLocal(name);
 }
 
 //ResolveBareIdentifier/StaticSlotIndexOf live in ResolveBareIdentifier.cpp

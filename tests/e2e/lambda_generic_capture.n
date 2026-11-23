@@ -1,0 +1,37 @@
+//0.13.10 Task 10: a lambda capturing a T-typed variable inside a generic
+//function must get the real instantiation descriptor — the display class is
+//synthesized as a generic template carrying the outer type parameters, so
+//T operations inside the lambda body dispatch on the actual runtime kind
+//(spec 3.6). The two legs assert through operations that already work on
+//T outside lambdas: typeName(T) reflection (descriptor identity) and ==
+//comparison (value-sensitive dispatch). Method calls on T-typed values
+//remain unsupported in plain generic functions and stay out of scope here.
+string captureTypeName<T>(T x) {
+    func<string> f = () -> typeName(T);
+    return f();
+}
+
+bool captureSame<T>(T x, T y) {
+    func<bool> f = () -> x == y;
+    return f();
+}
+
+//The generic CLASS-method arm: a lambda capturing a T-typed formal of a
+//static method on a generic class reads the type through the call-site
+//instantiation row the method frame carries.
+class TagCtx<U> {
+    public static string probe(U v) {
+        func<string> f = () -> typeName(U);
+        return f();
+    }
+}
+
+int main() {
+    if (captureTypeName(1) != "int") { return 1; }
+    if (captureTypeName("s") != "string") { return 2; }
+    if (!captureSame(41, 41)) { return 3; }
+    if (captureSame("k", "j")) { return 4; }
+    if (TagCtx<int>.probe(5) != "int") { return 5; }
+    if (TagCtx<string>.probe("s") != "string") { return 6; }
+    return 0;
+}

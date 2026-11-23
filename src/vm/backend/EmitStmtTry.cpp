@@ -127,11 +127,21 @@ std::vector<size_t> VmBackend::EmitTryCatchClauses(SnTryStmt& ts,
         //catchLocalOff: allocate a local slot for the catch var. This
         //is where the runtime writes the caught Exception heap idx on
         //handler entry, and where the body's IdentifierExpr resolves.
-        uint16_t typeKind = RTK_Class;
-        uint16_t catchOff = AllocLocal(pCatch->VarName(), kFrameSlotBytes,
-                                       typeKind, false);
+        //0.13.10 Task 9: the slot keys on the clause's published
+        //descriptor so a shadowed outer local keeps its own storage.
+        uint8_t typeKind = RTK_Class;
+        uint16_t catchOff = AllocDeclSlot(pCatch->VarLocal(),
+                                          pCatch->VarName(), typeKind);
         m_currFunc->func->tryBlocks.push_back(
             {tryStart, tryEnd, handlerPc, excClassIdx, catchOff});
+        //I2: a captured catch variable reads through display storage;
+        //the runtime landed the exception in the frame slot, so the
+        //handler's first instruction bridges it into the display field
+        //(the display exists by construction: the frame prologue or the
+        //enclosing loop's activation ran before the protected range).
+        if (pCatch->VarLocal()
+            && pCatch->VarLocal()->ContainFlags(NF_Captured))
+            EmitCatchVarDisplayCopy(*pCatch, catchOff, emitter);
         if (pCatch->Body()) {
             ++m_catchBodyDepth;
             EmitStatement(*pCatch->Body(), emitter);

@@ -1,0 +1,19 @@
+//0.13.10 Task 11: returning a reference to a captured variable is
+//legal (spec 3.3) — the storage is heap-anchored on the display, so
+//the "storage ends with the call" premise of the local-reference
+//rejection does not hold. The returned pair must alias the captured
+//cell in both directions: writes through it land in the variable the
+//lambda captured, and writes through the captured name are visible
+//through the returned reference.
+int main() {
+    int r = 5;
+    func<int&> f = () -> r;
+    int& via = f();
+    if (via != 5) { return 1; }
+    via = 9;
+    if (r != 9) { return 2; }
+    r = 11;
+    if (via != 11) { return 3; }
+    if (f() != 11) { return 4; }
+    return 0;
+}

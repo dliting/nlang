@@ -42,6 +42,7 @@ and closing the listener ends the loop through `SocketException`.
 | `shutdownWrite()` | — | Half-close: sends the end-of-stream marker to the peer while the read side stays open (below); a later write raises `SocketException` |
 | `close()` | — | Closes the connection; idempotent. A parked reader on the peer sees end of stream |
 | `isClosed()` | → `bool` | Whether this handle has been closed |
+| `isEof()` | → `bool` | Whether the end of this stream has been observed on the peer's side — a `read` returning `0` is the observation, and a `TimeoutException` never sets the flag, which is how a caller separates "the peer is done" from "nothing has arrived yet". Sticky: it stays true after `close()` and after later reads. Orthogonal to `isClosed()`, which reports only the local side; a peer close that no read has reached yet stays `false` until some read runs |
 | `peerAddress()` / `peerPort()` | → `string` / `int` | The remote end |
 | `localAddress()` / `localPort()` | → `string` / `int` | The local end |
 | `setNoDelay(on)` | — | Disables Nagle batching, for latency-sensitive protocols |

@@ -6,15 +6,23 @@
 #include "ExprResolver.h"
 #include "SnStatements.h"
 #include "SnData.h"
+#include <utility>
 #include <vector>
 
 namespace nlang
 {
 
-class StatementResolveAccessor
+class StatementResolveAccessor : public ILambdaBodyResolver
 {
 public:
 	explicit StatementResolveAccessor(BuildEnvironment &env);
+
+	//0.13.10: the lambda block body's back-channel (ILambdaBodyResolver)
+	//— the expression accessor hands the lambda's block over during
+	//typing; the walk resolves its statements like any paragraph body
+	//(the params answer through the lambda's FindField on the parent
+	//chain).
+	void ResolveLambdaBlockBody(SnLambdaExpr &lambda) override;
 
 	//--- Phase 12 Step 1: switch family model (D1/D2) ----------------------
 	//Switch discriminants and labels come in three families: int (including
@@ -192,6 +200,12 @@ private:
 	SnLocalVar *CreateDeclaratorLocal(SnLocalDeclStmt::LocalDecl &decl,
 		const ISourceLocation &loc, SnParagraph &paragraph,
 		SnField *pTypeField, bool bIsArray, SnField *pSizedArrayField);
+	//0.13.10 Task 9: descriptor half of the factory — create + publish
+	//+ array flags, no map registration. The for-init path swaps its
+	//loop-scoped heads into the paragraph map itself.
+	SnLocalVar *CreateLocalDescriptor(SnLocalDeclStmt::LocalDecl &decl,
+		const ISourceLocation &loc, SnField *pTypeField, bool bIsArray,
+		SnField *pSizedArrayField);
 	void ResolveClassBases(SnClassDecl &sn);
 	void PropagateVirtualOverrides(SnClassDecl &sn);
 	bool TryBindStatementFuncRef(SnExpression &expr,
@@ -325,16 +339,34 @@ private:
 	void LogVoidSubscriptStoreValue(SnSubscriptAssignStmt &sn);
 	void CheckForeachSource(SnForeachStmt &sn);
 	void MatchForeachElemType(SnForeachStmt &sn, SnField *pVarField);
-	//v0.13.9 phase 3 split: the foreach loop-var registration in the
-	//enclosing paragraph. Definition in StatementResolverFlow.cpp.
-	void RegisterForeachLoopVar(SnForeachStmt &sn, SnParagraph &paragraph,
+	//v0.13.9 phase 3 split: the foreach loop-var swap into the enclosing
+	//paragraph. 0.13.10 Task 9 (loop-scoped heads): returns the binding
+	//the variable displaced — the caller restores it once the loop's
+	//subtree resolves. Definition in StatementResolverFlow.cpp.
+	SnField *RegisterForeachLoopVar(SnForeachStmt &sn, SnParagraph &paragraph,
 		SnField *pVarField);
+	//Foreach var-type resolution (phase 1 of the foreach walk, split for
+	//the source-size guard). Definition in StatementResolverFlow.cpp.
+	SnField *ResolveForeachVarType(SnForeachStmt &sn);
 	//v0.13.9 phase 3: a & loop variable aliases the iteration element;
 	//Dict keys and string code points are materialized copies, so their
 	//& loops name their own diagnostics. Definition in
 	//StatementResolverRef.cpp.
 	void RejectRefForeachSource(SnForeachStmt &sn);
-	void ResolveForInitDecl(SnForStmt &sn);
+	//0.13.10 Task 9 (loop-scoped heads): resolves the for-init declaration
+	//with its heads swapped into the enclosing paragraph map; returns the
+	//bindings the swap displaced for Access(SnForStmt&) to restore.
+	std::vector<std::pair<std::string, SnField*>> ResolveForInitDecl(
+		SnForStmt &sn);
+	//0.13.10 Task 9 (loop-scoped heads): one for-init declarator — the
+	//head's descriptor, its swap into the enclosing paragraph map, and
+	//the decomposed init assign registered in InitExtras. Returns the
+	//binding the swap displaced (an empty name marks a rejected
+	//declarator — nothing was swapped). Definition in
+	//StatementResolverFlow.cpp.
+	std::pair<std::string, SnField*> ResolveOneForInitHead(SnForStmt &sn,
+		SnLocalDeclStmt &decl, SnLocalDeclStmt::LocalDecl &d,
+		SnParagraph &paragraph, SnField *pTypeField, bool bIsArray);
 	SnAssignStmt *BuildForInitAssign(SnLocalDeclStmt &decl,
 		SnLocalDeclStmt::LocalDecl &d, SnParagraph *pParagraph);
 	static bool ExtractEnumMemberLabel(SnExpression& label,
@@ -460,6 +492,20 @@ private:
 		int* m_pLoop;
 	};
 	ExprResolver m_ExprResolver;
+
+	//0.13.10: the lambda whose block body is being walked — return
+	//statements check against its stamped return type instead of the
+	//enclosing function's (save/restore in ResolveLambdaBlockBody, so
+	//nested lambdas stack).
+	SnLambdaExpr *m_pCurrLambda = nullptr;
+	//One return statement's lambda-context handling (the function path's
+	//mirror: bare/value/void checks against the stamped return type).
+	void ResolveLambdaReturn(SnReturnStmt &sn, SnLambdaExpr &lambda);
+	//0.9.11 D1: a value return against a return-type-less function — a
+	//constructor gets its own wording, anything else the generic void
+	//reject (defined in StatementResolverReturn.cpp).
+	void RejectValueReturnWithoutType(SnFunction &outerFunc,
+		SnExpression &resultExpr);
 };
 
 class StatementResolver

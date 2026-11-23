@@ -1,3 +1,48 @@
+## [0.13.12] - 2026-11-23
+
+Lambda review-fix pass over 0.13.10: currying, catch-variable
+capture and static-field lambda initializers arrive, and a
+shadowed-capture misroute is fixed by resolving captured access
+through the bound display-field descriptor instead of the field
+name. Not backward compatible by design.
+
+This release also absorbs the master-line releases 0.13.9 and
+0.13.10: everything user-visible on that line lands here —
+value-type references and the retired `out` parameter mechanism
+(0.13.9), lambda closures and per-iteration loop-head capture
+(0.13.10), NCU format v2.23 included. Those entries sit below
+0.13.11, each dated by its own line's release day; read them
+alongside this one.
+
+### Added
+
+- **Expression-body nesting (currying).** A lambda's expression
+  body may itself be a lambda — `(x) -> (y) -> x + y` under
+  `func<func<int, int>, int>` returns a closure that captures the
+  outer parameter. Expression bodies are normalized to a
+  single-return block before capture analysis, so every capture
+  rule (value and `&` forms, loop-head freshness, shadowing)
+  applies to both body shapes alike.
+- **Catch-variable capture.** A lambda written inside a `catch`
+  handler captures the handler's variable like any outer local —
+  `func<string> msg = () -> e.message;` reads the exception object
+  the clause bound.
+- **Lambdas as static field initializers.** A static field of
+  function type may be initialized with a lambda —
+  `public static func<int, int> dbl = (x) -> x * 2;` — evaluated
+  once by the class's static initializer at first use. Invoking it
+  through the type name (`Cfg.dbl(21)`) is the receiverless call
+  shape for a `func`-typed static field; instance field
+  initializers remain constant-expression positions.
+
+### Fixed
+
+- **Shadowed captures resolve by identity.** A captured reference
+  now walks the display chain by the bound display field's parent
+  class, not by field name: a lambda capturing an outer `n` while
+  an inner scope redeclares `n` reads and writes the declaring
+  scope's storage for both value and `&` captures.
+
 ## [0.13.11] - 2026-11-15
 
 The JSON library: a `json` package that reads, edits and writes JSON
@@ -142,6 +187,139 @@ fixes four defects it uncovered.
   instance of a class that implements it), and a declared type with no
   answer in that classifier fails the build naming the kind instead of
   degrading to an integer and losing the object.
+
+## [0.13.10] - 2026-11-22
+
+Lambda expressions and closures deliver the program of
+`docs/dev/lambda_closure_design.md`: `->` writes a function value
+in place wherever a `func` type is expected, captured outer locals
+move to heap storage shared with the enclosing scope, loop heads
+bind a fresh variable per iteration, and closures gain their own
+identity surface. The module format rises to NCU v2.23; modules
+compiled by earlier compilers are rejected with the
+outdated-version diagnostic. Not backward compatible by design.
+
+### Added
+
+- **Lambda expressions.** `(params) -> body` produces a function
+  value at the same consumer positions as a function reference —
+  declarations, assignments, returns, call arguments, array
+  elements, init-list entries. The parameter list takes bare
+  identifiers (the type and `&` marker come from the expected
+  type), typed identifiers (exact positional match, no variance)
+  or the empty form; the body is an expression (its value is the
+  return value) or a brace block (returning through `return`; a
+  `func<void>` block needs no `return`). A lambda with no expected
+  function type is a compile error, as are default-valued or
+  generic parameter lists and a lambda as a field initializer.
+- **Capture.** An outer local referenced in a lambda body is
+  captured: its storage moves to the heap and is shared by the
+  lambda and the enclosing code — writes on either side are
+  visible to the other, and several lambdas capturing one variable
+  share the single storage. `const` locals stay const, `static`
+  locals are not captured (the body addresses the static slot
+  directly), instance-member access captures the receiver, and an
+  `&` reference captures the binding itself, writing through to
+  the referent's storage.
+- **Closure identity and rendering.** Two evaluations of one
+  lambda literal within a single activation of its scope are equal
+  under `==`; re-activating the scope — calling the containing
+  function again, entering the next loop iteration — yields an
+  unequal closure. `toString` renders `"lambda"` off the function
+  record's lambda flag; `==`/`!=`/`null` otherwise follow the
+  function-value rules.
+- **Reference-form returns on closures.** A lambda under a
+  `func<int&, int&>` expectation may declare `&` parameters and an
+  `&` return: writes through a `&` parameter reach the caller's
+  storage, and returning a reference to a captured variable is
+  legal — its storage is already on the heap. A lambda recurses
+  through the local it is bound to.
+- **Lambdas in generic context.** A lambda inside a generic
+  function or a generic class method captures type-parameter-typed
+  variables with their real runtime instantiation: `typeName(T)`
+  and `==` dispatch on the actual type argument, matching the
+  behavior outside the generic body.
+- **Zero-parameter lambdas spawn.** `thread.spawn` accepts a
+  `func<void>` lambda written in place as the spawn target; a
+  value-returning spawn with a lambda goes through the explicit
+  delegate local, like the bound-method form.
+
+### Changed
+
+- **Loop heads bind per iteration.** A variable declared in a
+  `for` or `foreach` head is a new variable on each iteration: a
+  lambda captured in an iteration holds that iteration's value,
+  not the loop's tail value. Without capture there is no
+  observable difference; a single-statement loop body is exactly
+  the braced form.
+- **NCU v2.23.** Function records carry a lambda flag after the
+  generic flag, and function-value handles pair their
+  instantiation descriptor — `OP_MakeFunc` takes a `descIdx`
+  operand beside `funcIdx` so a generic target's handle names its
+  descriptor row. Modules from earlier toolchains must be
+  recompiled.
+
+## [0.13.9] - 2026-11-20
+
+Value-type references complete the four-phase program of
+`docs/dev/value_type_reference_design.md`: struct records become
+stable in-place storage, `&` becomes the explicit reference notation
+for locals, formals, returns and foreach variables, and the `out`
+parameter mechanism retires in favor of reference formals. Phase 1
+(deep value comparison, generic struct type arguments) shipped with
+0.13.0; this release delivers phases 2-4. Not backward compatible by
+design.
+
+### Changed
+
+- **Struct records are stable (phase 2).** Assigning a struct or
+  storing into a field/element updates the destination record's cells
+  in place instead of rebinding the slot to a fresh copy; List/Dict/Set
+  element writes land in the stored record; a static slot holds one
+  record for its lifetime; record access works at cell granularity
+  (the whole-record lock is gone) and wide rows carry their hi cells
+  through in-place copies. Writes through a reference and writes to a
+  container element are the same storage — there is no copy-out/
+  copy-in window left to observe.
+- **The `&` reference notation (phase 3).** `&` marks locals, formals,
+  returns and foreach variables as references; container getters
+  expose stored records by reference; on class and other
+  identity-reference types `&` reads as an equivalent mark. Value
+  semantics remain the default for scalars, enums, structs and
+  strings.
+- **Reference formals replace `out` parameters (phase 4).** Every
+  stdlib signature that used `out` now declares `&` (`net`'s
+  `recvFrom(buf, string& peerAddress, int& peerPort, …)` and the ICMP
+  variant, the http parser's consumed counter); the shipped example is
+  renamed `reference_formals.n`. Each retired spelling gets a named
+  migration diagnostic that points at the `&` form: `out parameters
+  are retired; declare "x" as a reference formal instead.`, `the out
+  argument marker is retired; pass "x" to a reference formal
+  instead.`, `the out type marker is retired; use the reference mark
+  instead.` `out` remains a reserved word.
+- **Migration behavior differences** (design §3.10): when an exception
+  interrupts a call, partial writes through a reference formal stay
+  visible — the `out` write-back never fired after an unwind; when the
+  same variable is both a reference argument and receives the call's
+  result, the return value wins — the `out` write-back used to
+  overwrite it after the call returned; reference formals accept
+  fields and array elements as arguments, where `out` accepted only
+  local variables (a capability gain, not a break).
+- **Debugger front ends can surface pending stops.**
+  `DebugSessionController::HasPendingStop(contextId)` is true while a
+  context's stop is decided but not yet resumed (it holds the freeze
+  token or waits in the freeze queue) — pending-stop indicators no
+  longer need to bet on timing.
+
+### Removed
+
+- **The `out` wire format.** The module format rises to NCU v2.22:
+  `OP_CallStaticOut`, `OP_CallMethodDirectOut` and `OP_CallDelegateOut`
+  are gone together with the out-mask write-back channel and the
+  `PTDF_Out` bit — bit 0 of the function-value qualifier byte and of
+  the parameter-descriptor flags byte are freed (bit 1 marks `&`, bit
+  2 marks `const`). Modules compiled by earlier compilers are rejected
+  with the outdated-version diagnostic and must be recompiled.
 
 ## [0.13.8] - 2026-11-15
 

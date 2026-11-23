@@ -38,7 +38,13 @@ void ExprResolveAccessor::ResolveInvokeArgsInCallerScope(
 		auto* pClassCtx = m_pContext;
 		m_pContext = pSavedContext;
 		RemoveFlags(ERF_SearchInParentOnly);
-		ResolveExpressionList(invoke.Params());
+		//0.13.10: deferred shapes (bare brace / lambda) skip here — their
+		//target can only come from the chosen overload's formal, which
+		//the inner Access(SnInvokeExpr) supplies through its own deferred
+		//channel. Resolving them now would kill them with no expected
+		//type before that channel opens.
+		auto deferredArgs = CollectDeferredArgs(invoke);
+		ResolveExpressionList(invoke.Params(), &deferredArgs);
 		m_pContext = pClassCtx;
 		AddFlags(ERF_SearchInParentOnly);
 	}

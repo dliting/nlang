@@ -30,6 +30,10 @@ void WriteEnumRecords(std::ostream& fs, const CompiledModule& mod);
 //there.
 void WriteClassRecords(std::ostream& fs, const CompiledModule& mod);
 
+//The function table (per-function records; wire layout in
+//ModuleSaverRecordsFuncs.cpp — one table per TU).
+void WriteFunctionRecords(std::ostream& fs, const CompiledModule& mod);
+
 //Stream-level adapters shared by the saver TUs (defined in
 //ModuleSaver.cpp): one length-prefixed type descriptor and one fixed
 //default-value record.

@@ -6,9 +6,21 @@
 %lex-param { yyscan_t yyscanner }
 %locations
 %debug
-/*v0.9.1: the grammar now carries accepted reduce/reduce conflicts (12 at
-the 2026-11-17 re-measure; 5 through 2026-11-15),
-and deterministic parsers cannot use %expect alongside any r/r
+/*The grammar carries accepted conflicts (2026-11-20 re-measure, bison
+3.8.2: 50 shift/reduce + 12 reduce/reduce; the 2026-11-17 state was
+35 s/r + 12 r/r). The lambda cover grammar's 15 s/r are the lambda-body
+extension state (`ParenPrefix OT_Arrow Expression` shares the Expression
+continuation items): every conflicting lookahead is an operator, `as`,
+`.` or `[` — one that must extend the body (greedy-body binding, like
+assignment in C) — and bison's shift default resolves all of them to
+exactly that; the body terminators (`,` `)` `;` `]`) are not Expression
+continuations and never conflict, and the resolution is pinned by
+TestGreedyBody in test_compiler/test_lambda_parse.cpp. The group's
+identifier state stays conflict-free on purpose: the typed-param arm
+rides ParenHeadType (the group twin of HeadType), whose lookahead set
+never overlaps the expression continuations on '.'/'&'/'<' — see the
+ParenHeadType block.
+Deterministic parsers cannot use %expect alongside any r/r
 conflict, so there is no %expect here. The counts are pinned by the
 accepted-conflict ledger below and re-measured by the direct bison
 gate on every grammar edit; the build passes -Wno-conflicts-sr and
@@ -67,6 +79,123 @@ static SnArrayTypeExpr* MakeArrayTypeND(SnFieldExpr *pElem,
 			rank, kMaxArrayRank);
 	return new SnArrayTypeExpr(pElem, loc, static_cast<uint8_t>(
 		rank > kMaxArrayRank ? kMaxArrayRank : rank));
+}
+
+//0.13.10 loop-body normalization: a single-statement loop body
+//behaves exactly like a braced body holding that one statement
+//(the mainstream reading — C#/Go/C++ all scope the embedded
+//statement to the loop), so every loop production wraps its body
+//into a paragraph at this single point. Downstream body-shape
+//consumers — head scoping, capture displays, per-iteration
+//activation — then see one shape instead of branching per site
+//on dynamic_cast and silently skipping the non-block form (the
+//single-statement capture crash). A null body (the warned empty
+//statement ';') becomes an empty paragraph, which the loop
+//constructors' non-null body assertions already require.
+static SnStatement* WrapLoopBody(SnStatement *pBody,
+	const ISourceLocation &loc)
+{
+	if (dynamic_cast<SnParagraph*>(pBody))
+		return pBody;
+	UniquePtrList<SnStatement> stmts;
+	if (pBody)
+		stmts.Add(pBody);
+	return new SnParagraph(std::move(stmts), loc);
+}
+
+//0.13.10 lambda cover grammar (spec D9): the unified `( InnerList )`
+//prefix feeds both the plain parenthesized group and the lambda
+//parameter list. These helpers serve the two consuming actions.
+
+//Frees one parameter item's nodes on a reject path (the grammar owns
+//the nodes until SnLambdaExpr's constructor takes them).
+static void DisposeLambdaParam(nlang::LambdaParam &param)
+{
+	delete param.pType;
+	delete param.pValueExpr;
+}
+
+//Folds the arrow-confirmed group's bare identifier items into their name
+//slots (the "bare identifier" parameter form); other raw expression
+//items stay in pValueExpr for the resolver's parameter gate.
+//The '&' declarator has no grammar arm in a group (the expression
+//reading owns the '&' lookahead — see ParenHeadType), so `int& x`
+//parses as the binary `int & x`. Once the arrow confirms the parameter
+//reading, a bitwise binary over two bare identifiers reinterprets as a
+//reference parameter: the left identifier becomes the type (kept as the
+//same node, preserving its type kind — `int` carries NK_Int32), the
+//right identifier's spelling becomes the name, NF_Ref rides the type
+//wrapper. Deeper bit-and chains stay raw for the parameter gate.
+static void FoldBareIdentifierParams(std::vector<nlang::LambdaParam> &params,
+	ISourceLocation &loc)
+{
+	for (auto &param : params)
+	{
+		if (!param.pValueExpr)
+			continue;
+		if (param.pValueExpr->Kind() == NK_BinaryExpr)
+		{
+			auto *pBinary = static_cast<nlang::SnBinaryExpr *>(
+				param.pValueExpr);
+			if (pBinary->Op() == nlang::SnBinaryExpr::OP_BitAnd
+				&& pBinary->Left()->Kind() == NK_IdentifierExpr
+				&& pBinary->Right()->Kind() == NK_IdentifierExpr)
+			{
+				auto *pLeft = static_cast<nlang::SnIdentifierExpr *>(
+					pBinary->Left());
+				//Detach the reused left node before the binary's
+				//destructor walks its remaining children.
+				pBinary->DetachChild(pLeft);
+				param.name = static_cast<nlang::SnIdentifierExpr *>(
+					pBinary->Right())->Name();
+				delete pBinary;
+				param.pType = new nlang::SnNameExpr(pLeft, loc);
+				param.pType->AddFlags(nlang::NF_Ref);
+				param.pValueExpr = nullptr;
+				continue;
+			}
+		}
+		if (param.pValueExpr->Kind() == NK_IdentifierExpr)
+		{
+			param.name = static_cast<nlang::SnIdentifierExpr*>(
+				param.pValueExpr)->Name();
+			delete param.pValueExpr;
+			param.pValueExpr = nullptr;
+		}
+	}
+}
+
+//The non-lambda paren-group post-check (review N3a/N3b/N3c): exactly one
+//raw-expression item yields its value — today's `'( Expression ')'
+//semantics; the shapes the old grammar rejected as syntax errors get
+//semantic diagnostics here. The placeholder returned on the reject paths
+//is never resolved (HasError aborts the build before the resolver runs).
+static SnExpression* ParenGroupAsExpression(ScriptParser &parser,
+	std::vector<nlang::LambdaParam> *pParams, ISourceLocation& loc)
+{
+	if (pParams->empty())
+	{
+		parser.Log(CLL_Error, loc,
+			"empty parenthesized group is not an expression.");
+		return new SnLiteralExpr(*RnInt32::Instance(), 0, loc);
+	}
+	if (pParams->size() == 1 && (*pParams)[0].pValueExpr)
+	{
+		//The parenthesized value: ownership passes to the caller.
+		SnExpression* pInner = (*pParams)[0].pValueExpr;
+		delete pParams;
+		return pInner;
+	}
+	if (pParams->size() == 1)
+		parser.Log(CLL_Error, loc,
+			"a type annotation is not valid in a parenthesized expression.");
+	else
+		parser.Log(CLL_Error, loc,
+			"a parenthesized group with multiple items is not an expression.");
+	for (auto &param : *pParams)
+		DisposeLambdaParam(param);
+	delete pParams;
+	return new SnLiteralExpr(*RnInt32::Instance(), 0, loc);
 }
 
 //Phase 9b: scan string literal content for ${identifier} interpolation.
@@ -290,6 +419,8 @@ static bool CollectQualifiedSegments(
 	nlang::FieldAccessType					v_AccessType;
 	std::vector<nlang::InitEntry>*			v_pInitEntryList;
 	nlang::InitEntry*						v_pInitEntry;
+	std::vector<nlang::LambdaParam>*		v_pLambdaParamList;
+	nlang::LambdaParam*						v_pLambdaParam;
 }
 
 %destructor { } <v_Char> <v_Int> <v_Long> <v_ULong> <v_Float> <v_Double>
@@ -313,7 +444,7 @@ static bool CollectQualifiedSegments(
 %type <v_NodeFlags>    			NodeFlag
 %type <v_NodeFlags>				NodeFlagsNonEmpty
 %type <v_pNameExpr>				NameExpr
-%type <v_pFieldExpr>				Type TypeArg QualifiedType HeadType TypeName ImplementsName
+%type <v_pFieldExpr>				Type TypeArg QualifiedType HeadType ParenHeadType TypeName ImplementsName
 %type <v_pFieldExpr>				AsGenericTarget
 %type <v_pFieldExpr>				QualifiedGenericReceiver
 %type <v_pFieldExpr>				TypeRef FuncTypeArg
@@ -336,6 +467,9 @@ static bool CollectQualifiedSegments(
 %type <v_pExpression>			SliceItem SliceHead SliceStop SliceStepOpt SliceStep
 %type <v_pInitEntryList>		InitEntries InitEntryList
 %type <v_pInitEntry>			InitEntry
+%type <v_pLambdaParamList>		InnerList ParenPrefix
+%type <v_pLambdaParam>			InnerListElem
+%type <v_pExpression>			LambdaExpr
 %type <v_pFunction>				TopBareFunc TopModFunc TopBareHeader TopModHeader TopGenericBareHeader TopGenericModHeader
 %type <v_pParagraph>			Paragraph DefaultCase FunctionBodyOrSemi
 %type <v_pStatementList>		StatementList
@@ -458,6 +592,7 @@ static bool CollectQualifiedSegments(
 %token OT_GE
 %token OT_NE
 %token OT_EQ
+%token OT_Arrow
 %token OT_AND
 %token OT_OR
 %token OT_MODS
@@ -1471,21 +1606,21 @@ IfStmt:	KT_If '(' Expression ')' Statement %prec P_Then {
 While loop statement.
 */
 WhileStmt:	KT_While '(' Expression ')' Statement {
-					$$ = new SnWhileStmt($3, $5, @1);
+					$$ = new SnWhileStmt($3, WrapLoopBody($5, @5), @1);
 				} ;
 
 /*
 Do-while loop statement.
 */
 DoStmt:	KT_Do Statement KT_While '(' Expression ')' ';' {
-				$$ = new SnDoStmt($5, $2, @1);
+				$$ = new SnDoStmt($5, WrapLoopBody($2, @2), @1);
 			} ;
 
 /*
 For loop statement.
 */
 ForStmt:	KT_For '(' InitFor ';' Expression ';' FiniFor ')' Statement {
-					$$ = new SnForStmt($3, $5, $7, $9, @1);
+					$$ = new SnForStmt($3, $5, $7, WrapLoopBody($9, @9), @1);
 				} ;
 
 InitFor:	{
@@ -1549,13 +1684,13 @@ Foreach loop statement (Phase 8e-5).
 Iterates Array / List<T> / Dict<K,V> (keys).
 */
 ForeachStmt:	KT_Foreach '(' TypeRef TT_Identifier KT_In Expression ')' Statement {
-					$$ = new SnForeachStmt($3, *$4, $6, $8, @1);
+					$$ = new SnForeachStmt($3, *$4, $6, WrapLoopBody($8, @8), @1);
 				} |
 				//0.9.13 B1: bare brace source for foreach.
 				//v0.13.9 phase 3: TypeRef — `foreach (int& v in xs)` marks
 				//the element binding as a reference.
 				KT_Foreach '(' TypeRef TT_Identifier KT_In BracedInitExpr ')' Statement {
-					$$ = new SnForeachStmt($3, *$4, $6, $8, @1);
+					$$ = new SnForeachStmt($3, *$4, $6, WrapLoopBody($8, @8), @1);
 				} ;
 
 /*
@@ -2669,6 +2804,84 @@ HeadType:	IdentifierExpr {
 				$$ = MakeArrayTypeND($1, @2, $2, parser);
 			} ;
 
+//ParenHeadType: the group-position twin of HeadType (lambda/closure
+//plan Task 2). Same deferred-reduction shape — dotted chains ride
+//MemberExpr and only the parameter-name identifier proves the type
+//reading — but with a different ambiguity policy, because a
+//parenthesized group is an EXPRESSION position while a statement head
+//is a declaration position. HeadType's identifier state resolves the
+//accepted reduce/reduce HeadType-first and its consumers hold inline
+//'&' declarator arms, so statement heads read ident-first as
+//declarations. The twin deliberately omits the plain-'<' generic arms
+//and any '&' declarator: '.', '&' and '<' then have no type-side
+//viability in the twin's identifier state and route to member access,
+//bitwise-and and comparison — the pre-existing parenthesized-expression
+//behavior every existing source relies on (stdlib/regex.n's
+//`(mFlags & kFlagDot)` idiom, `(mPos < mCpCount)` guards). What remains
+//type-only (ident-followed-by-ident, OT_TypeLt generics, OT_Brackets
+//arrays) keeps the twin's identifier state conflict-free. A lambda
+//parameter typed `int&` therefore arrives as the binary `int & x`;
+//the LambdaExpr action reinterprets it once the arrow confirms the
+//parameter reading (FoldBareIdentifierParams). User-declared generics
+//spelled with plain '<' cannot head a group parameter — OT_TypeLt
+//(scan-flagged builtin names) still can.
+ParenHeadType:	IdentifierExpr {
+					$$ = new SnNameExpr($1, @1);
+				} |
+				IdentifierExpr OT_TypeLt TypeList '>' {
+					$$ = new SnGenericTypeExpr(new SnNameExpr($1, @1), $3, @1);
+				} |
+				IdentifierExpr OT_TypeLt KT_Void '>' {
+					auto* pVoid = new SnIdentifierExpr(NK_Void, @3);
+					$$ = new SnGenericTypeExpr(new SnNameExpr($1, @1),
+						new std::vector<nlang::SnFieldExpr*>{ pVoid }, @1);
+				} |
+				IdentifierExpr OT_TypeLt KT_Void ',' TypeList '>' {
+					auto* pVoid = new SnIdentifierExpr(NK_Void, @3);
+					$5->insert($5->begin(), pVoid);
+					$$ = new SnGenericTypeExpr(new SnNameExpr($1, @1), $5, @1);
+				} |
+				MemberExpr {
+					std::vector<std::string> segs;
+					SnQualifiedTypeExpr* pQ = nullptr;
+					if (CollectQualifiedSegments($1, segs) && segs.size() >= 2)
+					{
+						pQ = new SnQualifiedTypeExpr(segs[0], segs[1], @1);
+						for (size_t k = 2; k < segs.size(); ++k)
+							pQ->AppendSegment(segs[k]);
+					}
+					else
+					{
+						//Not an identifier chain (a call, a subscript, a
+						//parenthesised outer). Keep a typed, unresolved node on
+						//the tree so the resolver owns the diagnostic.
+						pQ = new SnQualifiedTypeExpr(
+							std::string(), std::string(), @1);
+						pQ->MarkMalformed();
+					}
+					$$ = pQ;
+					delete $1;
+				} |
+				KT_Func OT_TypeLt FuncTypeList '>' {
+					$$ = MakeFuncType($3, @1);
+				} |
+				KT_Func OT_TypeLt KT_Void '>' {
+					auto* pVoid = new SnIdentifierExpr(NK_Void, @3);
+					$$ = MakeFuncType(
+						new std::vector<nlang::SnFieldExpr*>{ pVoid }, @1);
+				} |
+				KT_Func OT_TypeLt KT_Void ',' FuncTypeList '>' {
+					auto* pVoid = new SnIdentifierExpr(NK_Void, @3);
+					$5->insert($5->begin(), pVoid);
+					$$ = MakeFuncType($5, @1);
+				} |
+				ParenHeadType OT_Brackets {
+					$$ = new SnArrayTypeExpr($1, @2);
+				} |
+				ParenHeadType OT_BracketsND {
+					$$ = MakeArrayTypeND($1, @2, $2, parser);
+				} ;
+
 //A single type argument inside `<...>`: a plain type, or an
 //out-marked type. v0.13.9 phase 4: the out arms are diagnostic
 //anchors only — RejectInvalidTypeArg reports the retirement on every
@@ -2858,7 +3071,67 @@ Expression:	ParenthesesExpr	{ $$ = $1; } |
 					$$ = new SnNewExpr(MakeFuncType($3, @1), $6, @1);
 				} ;
 
-ParenthesesExpr: '(' Expression ')' { $$ = $2; } ;
+//0.13.10 D9: the unified prefix for parenthesized groups and lambda
+//parameter lists. `( InnerList )` always reduces to ParenPrefix; on the
+//OT_Arrow lookahead the parser then shifts into LambdaExpr, on anything
+//else it reduces ParenthesesExpr and the post-check decides the group
+//shape. `->` sits in no existing expression FOLLOW set, so the split
+//stays conflict-free.
+ParenPrefix:	'(' InnerList ')'	{ $$ = $2; } ;
+
+InnerList:	/* empty */
+					{ $$ = new std::vector<nlang::LambdaParam>(); } |
+				InnerListElem {
+						auto* pVec = new std::vector<nlang::LambdaParam>();
+						pVec->push_back(std::move(*$1));
+						delete $1;
+						$$ = pVec;
+					} |
+				InnerList ',' InnerListElem {
+						$1->push_back(std::move(*$3));
+						delete $3;
+						$$ = $1;
+					} ;
+
+InnerListElem:	Expression {
+						auto* pElem = new nlang::LambdaParam();
+						pElem->pValueExpr = $1;
+						$$ = pElem;
+					} |
+				//The typed-param arm rides ParenHeadType (the group-position
+				//twin of HeadType, see there), not TypeRef: QualifiedType
+				//would put '.' in the type lookahead of the group's
+				//identifier state, and the reduce/reduce there resolves
+				//ident '.' to the earlier type rule — every parenthesized
+				//member access `(t.length)` would die as a qualified-type
+				//chain. Keyword types are IdentifierExprs, so
+				//`int`/`func<...>` ride the same arm. The reference
+				//declarator `int& x` has no grammar arm here (the expression
+				//reading owns '&'); it parses as the binary `int & x` and
+				//the LambdaExpr action reinterprets it after the arrow.
+				ParenHeadType TT_Identifier {
+						auto* pElem = new nlang::LambdaParam();
+						pElem->pType = $1;
+						pElem->name = *$2;
+						delete $2;
+						$$ = pElem;
+					} ;
+
+ParenthesesExpr:	ParenPrefix {
+						$$ = ParenGroupAsExpression(parser, $1, @1);
+					} |
+					LambdaExpr	{ $$ = $1; } ;
+
+LambdaExpr:	ParenPrefix OT_Arrow Expression {
+						FoldBareIdentifierParams(*$1, @1);
+						$$ = new SnLambdaExpr(std::move(*$1), $3, nullptr, @1);
+						delete $1;
+					} |
+				ParenPrefix OT_Arrow Paragraph {
+						FoldBareIdentifierParams(*$1, @1);
+						$$ = new SnLambdaExpr(std::move(*$1), nullptr, $3, @1);
+						delete $1;
+					} ;
 
 //v0.13.1 D5: the plain-'<' generic as-target core for the array-suffix
 //arms (`o as Box<string>[]`). Its ONE mid-rule depth increment is its

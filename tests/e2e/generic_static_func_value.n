@@ -1,0 +1,21 @@
+// generic_static_func_value.n — 0.13.10 Task 5: the 0.13.1a named
+// reject retires ("a function of a generic class cannot be referenced
+// as a value") — the expected func type's instantiation now pairs the
+// template-row handle with the inferred descriptor row, and the call
+// resolves T. The static's signature must mention the class's
+// parameter: a T-less signature leaves the instantiation
+// underdetermined and is a compile-time cannot-infer reject (pinned by
+// the unit suite's genericStaticTless).
+class Tag<T> {
+    public static string kind(T v) { return typeName(T); }
+}
+int main() {
+    func<string, int> f = Tag.kind;
+    if (f(42) != "int") { return 1; }
+    func<string, string> g = Tag.kind;
+    if (g("x") != "string") { return 2; }
+    //explicit instantiation spelling binds through the same channel
+    func<string, float> h = Tag<float>.kind;
+    if (h(1.5) != "float") { return 3; }
+    return 0;
+}

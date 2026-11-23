@@ -348,6 +348,7 @@ LineComment	\/\/[^\n]*
 ">="        { return OT_GE; }
 "!="        { return OT_NE; }
 "=="        { return OT_EQ; }
+"->"        { return OT_Arrow; }
 "&&"        { return OT_AND; }
 "||"        { return OT_OR; }
 "&"         { return '&'; }

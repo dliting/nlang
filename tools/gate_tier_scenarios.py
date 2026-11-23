@@ -11,17 +11,18 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from gate_tier_sandbox import check, run_tier  # pyright: ignore[reportMissingImports]
+from gate_tier_sandbox import (check, new_run_dir, run_tier,  # pyright: ignore[reportMissingImports]
+                               snapshot_runs)
 
 
 def run_mapped_round(bash, sandbox):
-    gates_dir = sandbox / "temp" / "tier" / "gates"
     tree_abs = {name: (sandbox / "trees" / name).as_posix()
                 for name in ("master", "asan", "ide")}
     # T0 through the schedule axis: the tensor src change maps the
     # mnist entries back in via -R (F-12 backfill), so the -E keeps
     # only the unmapped slow name; the e2e selection runs through
     # derive-e2e-subset instead of a bare grep.
+    before = snapshot_runs(sandbox)
     t0 = run_tier(bash, sandbox, "T0",
                   "--master-tree",
                   (sandbox / "trees" / "master").as_posix(),
@@ -29,11 +30,19 @@ def run_mapped_round(bash, sandbox):
     t0_out = t0.stdout + t0.stderr
     check(t0.returncode == 0,
           f"T0 batch exited rc={t0.returncode}; output:\n{t0_out}")
+    # Every batch owns a run-scoped log directory: the round reads
+    # back exactly its own artifacts, never an earlier batch's.
+    run_dir = new_run_dir(sandbox, before)
+    check(run_dir is not None,
+          "the mapped T0 batch left no run directory (died before "
+          "creating its log dir?)")
+    if run_dir is None:
+        return
     for leg in ("T0-unit", "T0-unit-budget", "T0-unit-timeouts",
                 "T0-e2e"):
         check(f"GATE {leg}: PASS" in t0_out,
               f"no PASS verdict for {leg}; output:\n{t0_out}")
-    t0_unit = gates_dir / "T0-unit.invocations"
+    t0_unit = run_dir / "T0-unit.invocations"
     if t0_unit.exists():
         body = t0_unit.read_text()
         check("-R 'mnist_mlp_compile|mnist_mlp_run'" in body,
@@ -67,15 +76,19 @@ def run_mapped_round(bash, sandbox):
                      "T-schedule"):
         check(f"GATE {leg_name}: PASS" in t0_out,
               f"T0 lost its {leg_name} leg; output:\n{t0_out}")
-    t0_sched = gates_dir / "T-schedule.invocations"
+    t0_sched = run_dir / "T-schedule.invocations"
     if t0_sched.exists():
+        # Run-scoped logs hold only this batch's calls: the schedule
+        # guard rode this round exactly once, so one check-schedule
+        # line is the contract (the flat layout used to count the
+        # earlier batches' appended lines too).
         lines = [ln for ln in t0_sched.read_text(
             encoding="utf-8").splitlines()
             if "check-schedule" in ln]
-        check(len(lines) >= 2,
+        check(len(lines) >= 1,
               "the mapped T0 batch never added its own T-schedule "
               f"invocation: {lines!r}")
-        if len(lines) >= 2:
+        if lines:
             sched_line = lines[-1]
             for token in ("--mapping mnist_mlp_compile|mnist_mlp_run",
                           "--e2e-mapping smoke_", "--derived-e2e",
@@ -103,8 +116,7 @@ def run_mapped_round(bash, sandbox):
 
 
 def run_conservative_round(bash, sandbox):
-    gates_dir = sandbox / "temp" / "tier" / "gates"
-    t0_sched = gates_dir / "T-schedule.invocations"
+    before = snapshot_runs(sandbox)
     # R-53: the unmapped conservative round. test_impact.py answers an
     # unmapped path with rc=3 and no families, so the -R selector
     # becomes "." (the full Debug unit suite) -- but "." must NOT be
@@ -123,7 +135,13 @@ def run_conservative_round(bash, sandbox):
     check(t0c.returncode == 0,
           f"unmapped T0 batch exited rc={t0c.returncode}; "
           f"output:\n{t0c_out}")
-    t0c_unit = gates_dir / "T0-unit.invocations"
+    run_dir = new_run_dir(sandbox, before)
+    check(run_dir is not None,
+          "the conservative T0 batch left no run directory (died "
+          "before creating its log dir?)")
+    if run_dir is None:
+        return
+    t0c_unit = run_dir / "T0-unit.invocations"
     if t0c_unit.exists():
         body = t0c_unit.read_text()
         check("-R '.'" in body,
@@ -143,14 +161,16 @@ def run_conservative_round(bash, sandbox):
     # R-53 lesson: "." re.search-hits every slow entry and would
     # judge the backfill half vacuously), so its T-schedule line
     # carries neither --mapping nor an e2e mapping.
+    t0_sched = run_dir / "T-schedule.invocations"
     if t0_sched.exists():
+        # Run-scoped logs: this round's file holds this round's call.
         lines = [ln for ln in t0_sched.read_text(
             encoding="utf-8").splitlines()
             if "check-schedule" in ln]
-        check(len(lines) >= 3,
+        check(len(lines) >= 1,
               "the conservative T0 batch never added its own "
               f"T-schedule invocation: {lines!r}")
-        if len(lines) >= 3:
+        if lines:
             check("--mapping" not in lines[-1],
                   "the conservative round must not hand guard six a "
                   f'"." mapping: {lines[-1]!r}')
@@ -161,7 +181,6 @@ def run_conservative_round(bash, sandbox):
 
 
 def run_listing_rounds(bash, sandbox):
-    gates_dir = sandbox / "temp" / "tier" / "gates"
     tree_abs = {name: (sandbox / "trees" / name).as_posix()
                 for name in ("master", "asan", "ide")}
     temp_abs = (sandbox / "tests" / "temp").as_posix()
@@ -174,19 +193,31 @@ def run_listing_rounds(bash, sandbox):
     # while T1's own assembly does (t1_legs' slow_e parameter). The
     # perf names join EVERY ctest leg's -E either way (D-6: a
     # scheduled round may only run under the OFF-cache registration).
-    # A dry run assembles the batch; it must not clear the work
-    # directory the way an executed round does (R-106): a listing pass
-    # over a work directory that still owes a record round would
-    # otherwise destroy that round's junit evidence. Pre-place one
-    # sentinel per clear site (ctest_leg's junit for every ctest leg,
-    # the perf branch's T2-perf.xml) and require both to survive both
-    # listings.
-    gates_dir.mkdir(parents=True, exist_ok=True)
-    pending = (gates_dir / "T1-ide-ctest.xml", gates_dir / "T2-perf.xml")
+    # R-106 under the run-scoped log layout: each batch owns its log
+    # directory, so a listing pass can no longer clear an executed
+    # round's junit by construction. What it must still never do is
+    # reach into another batch's directory or dispatch a leg of its
+    # own. Pre-place one sentinel per junit clear site (ctest_leg's
+    # junit for a ctest leg, the perf branch's T2-perf.xml) in the
+    # previous batch's run directory and require both to survive both
+    # listings; below, require each dry round's own run directory to
+    # hold no leg artifacts at all.
+    prev_runs = sorted(snapshot_runs(sandbox))
+    check(bool(prev_runs),
+          "no executed batch preceded the listing rounds, so the "
+          "junit sentinels had nowhere to be planted")
+    if not prev_runs:
+        return
+    prev_run = prev_runs[-1]
+    pending = (prev_run / "T1-ide-ctest.xml", prev_run / "T2-perf.xml")
     for stale in pending:
         stale.write_text("pending-evidence\n", encoding="utf-8")
+    before1 = snapshot_runs(sandbox)
     dry1 = run_tier(bash, sandbox, "T1", *trees, "--dry-run")
+    dry1_run = new_run_dir(sandbox, before1)
+    before2 = snapshot_runs(sandbox)
     dry2 = run_tier(bash, sandbox, "T2", *trees, "--dry-run")
+    dry2_run = new_run_dir(sandbox, before2)
     for name, proc_dry in (("T1", dry1), ("T2", dry2)):
         check(proc_dry.returncode == 0,
               f"{name} --dry-run exited rc={proc_dry.returncode}; "
@@ -195,9 +226,23 @@ def run_listing_rounds(bash, sandbox):
         check(stale.exists() and stale.read_text(encoding="utf-8")
               == "pending-evidence\n",
               f"a --dry-run round destroyed the pending junit "
-              f"{stale.name} in the work directory: the listing pass "
-              "must assemble without clearing an executed round's "
-              "evidence (R-106)")
+              f"{stale.name} in another batch's log directory: the "
+              "listing pass must assemble without touching an "
+              "executed round's evidence (R-106)")
+    # A dry round records the assembled legs but dispatches none: its
+    # run directory holds batch.info and the leg_commands.tsv record
+    # only -- no .gate verdict, no .invocations stub call, no junit.
+    for name, dry_run in (("T1", dry1_run), ("T2", dry2_run)):
+        check(dry_run is not None,
+              f"the {name} --dry-run left no run directory")
+        if dry_run is None:
+            continue
+        dispatched = sorted(p.name for p in dry_run.iterdir()
+                            if p.suffix in (".gate", ".invocations",
+                                            ".xml"))
+        check(not dispatched,
+              f"the {name} --dry-run dispatched legs into its own "
+              f"run directory: {dispatched}")
     check("-E 'e2e_runner_timing_gate|mainwindow_tests|"
           "mnist_mlp_compile|perf_stub_compile|perf_stub_run'"
           in dry1.stdout,
@@ -341,7 +386,15 @@ def run_listing_rounds(bash, sandbox):
               f"the {leg_name} leg must spell out its judging "
               f"--config VALUE (a path prefix cannot pair a config): "
               f"{line!r}")
-    rec = gates_dir / "leg_commands.tsv"
+    # The close-out's own run directory carries its record: the file
+    # is batch-scoped by construction (a fresh directory per batch),
+    # so what is pinned here is that the record exists and that its
+    # lines carry the T2 assembly, declarations included.
+    rec = (dry2_run / "leg_commands.tsv") if dry2_run is not None \
+        else sandbox / "missing-leg-commands.tsv"
+    check(dry2_run is not None,
+          "the T2 --dry-run left no run directory to hold its "
+          "leg_commands.tsv record")
     check(rec.exists(), "leg commands were never recorded for the "
           "carrier guard")
     if rec.exists():

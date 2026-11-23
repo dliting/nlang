@@ -4,6 +4,7 @@
     从 EmitExprCore.cpp 抽取（2026-11-02 尺寸守卫触发的拆分，零行为变化）。
 ---*/
 #include "VmBackend.h"
+#include "builder/ModuleRegistry.h"
 #include "builder/FieldInitializerChecks.hpp"
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnArrayTypeToken.h>
@@ -43,12 +44,37 @@ void VmBackend::EmitIdentifierEnumMemberRead(BytecodeEmitter& emitter,
 //static-bound handle (the pending-ref sweep rejects unbound references).
 //SlotFor keeps this unit-local: a cross-unit reference becomes an import
 //placeholder the load-time linker resolves.
+//v2.23: the second operand pairs the instantiation with the handle —
+//three arms: a clone static (explicit or inferred spelling) carries its
+//instantiation's descriptor row; a generic free function composes the
+//row from the referrer's stamped inferred arguments (the expected-type
+//channel); an ordinary reference keeps the no-descriptor sentinel.
 void VmBackend::EmitIdentifierFuncHandleRead(BytecodeEmitter& emitter,
                                              uint16_t resultOffset,
-                                             SnField* field) {
+                                             SnField* field,
+                                             const SnFieldExpr& referrer) {
+    auto* pFunc = static_cast<SnFunction*>(field);
+    auto& generics = m_pRegistry->DeclaredGenerics();
+    uint16_t descIdx = kInstDescNone;
+    auto* pInst = generics.InstantiationOfClone(pFunc);
+    if (pInst) {
+        descIdx = DescriptorIndexFor(*pInst);
+    } else {
+        //0.13.1c Task 8: the interface twin — the clone static's owner
+        //may be a generic INTERFACE instantiation.
+        auto* pIfaceInst = generics.InstantiationOfInterfaceClone(pFunc);
+        if (pIfaceInst)
+            descIdx = DescriptorIndexFor(*pIfaceInst);
+        else if (pFunc->IsGenericDeclaration()) {
+            NLANG_ASSERT(!referrer.InferredTypeArgs().empty());
+            descIdx = FreeCallDescriptorIndexFor(
+                DescriptorSpellingOf(*m_pRegistry, *pFunc),
+                referrer.InferredTypeArgs());
+        }
+    }
     emitter.Emit(OpCode::OP_MakeFunc);
-    emitter.EmitUint16(static_cast<uint16_t>(
-        FunctionSlotFor(static_cast<SnFunction&>(*field))));
+    emitter.EmitUint16(static_cast<uint16_t>(FunctionSlotFor(*pFunc)));
+    emitter.EmitUint16(descIdx);
     emitter.Emit(OpCode::OP_Assign);
     emitter.EmitUint16(resultOffset);
 }
@@ -98,26 +124,37 @@ void VmBackend::EmitIdentifierFieldRead(BytecodeEmitter& emitter,
         emitter.Emit(OpCode::OP_LoadStatic);
         emitter.EmitUint16(resultOffset);
         emitter.EmitUint16(target.slotIdx);
+    } else if (target.kind == BareIdTarget::DisplayField
+        || target.kind == BareIdTarget::CaptureField) {
+        //0.13.10 Task 6: captured storage — the display field IS the
+        //variable; the flavor dispatch lives in EmitCapture.cpp.
+        EmitCapturedRead(field, target, resultOffset, emitter);
+        //Captured value reads copy through the chase slot; the sealed
+        //copy-on-read (D5) applies to this-fields only — a captured
+        //this reads the copy stashed into the display at prologue time.
     } else if (target.kind == BareIdTarget::ThisField) {
-        //Implicit this.<field> (bare member read inside a method).
-        //Same opcode shape as the MemberExpr class-field read.
-        emitter.Emit(OpCode::OP_VarLocal);
-        emitter.EmitUint16(ImplicitThisSlot());
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(resultOffset);
-        emitter.Emit(OpCode::OP_NullCheck);
-        emitter.EmitUint16(resultOffset);
-        emitter.Emit(OpCode::OP_LoadField);
-        emitter.EmitUint16(resultOffset);
-        emitter.EmitUint16(resultOffset);
-        emitter.EmitUint16(static_cast<uint16_t>(target.fieldOff));
-        //v0.12.4 D5: same copy-on-read seal as the explicit member tail.
-        EmitSealedFieldCopyIfNeeded(field, emitter, resultOffset);
+        EmitThisFieldRead(field, target, resultOffset, emitter);
     } else {
         throw std::runtime_error(
             "NLang backend: identifier has no codegen binding: "
             + field->Name());
     }
+}
+
+//ThisField arm of the bare-identifier read: implicit this.<field>
+//(bare member read inside a method), same opcode shape as the
+//MemberExpr class-field read. 0.13.10: synthetic capture frames
+//redirect to the anchor display's "$this" field (EmitReceiverLoad).
+void VmBackend::EmitThisFieldRead(SnField* field,
+    const BareIdTarget& target, uint16_t resultOffset,
+    BytecodeEmitter& emitter) {
+    EmitReceiverLoad(resultOffset, emitter);
+    emitter.Emit(OpCode::OP_LoadField);
+    emitter.EmitUint16(resultOffset);
+    emitter.EmitUint16(resultOffset);
+    emitter.EmitUint16(static_cast<uint16_t>(target.fieldOff));
+    //v0.12.4 D5: same copy-on-read seal as the explicit member tail.
+    EmitSealedFieldCopyIfNeeded(field, emitter, resultOffset);
 }
 
 void VmBackend::Access(SnIdentifierExpr& expr) {
@@ -141,7 +178,8 @@ void VmBackend::Access(SnIdentifierExpr& expr) {
             return;
         }
         if (field && field->Kind() == NK_Function) {
-            EmitIdentifierFuncHandleRead(emitter, resultOffset, field);
+            EmitIdentifierFuncHandleRead(emitter, resultOffset, field,
+                                         idExpr);
             return;
         }
         if (field) {

@@ -27,6 +27,14 @@ is re-evaluated). Variables declared in the init clause are **function-scoped**
 [Foreach](#foreach) below); other declarations inside the body are visible only
 within it (block scope).
 
+A single-statement loop body without braces (including the empty-statement `;`
+body) has exactly the semantics of a braced body wrapping that statement: a
+local declared in it takes effect on each iteration, and capture inside it
+follows the capture rules of §7.4. A variable declared in the head is a new
+variable on each iteration — with no capture there is no observable
+difference; under capture, the lambda of each iteration holds that
+iteration's value, not a shared tail value after the loop ends (§7.4).
+
 ```nlang
 int sum = 0;
 for (int i = 1; i <= 10; i += 1) {

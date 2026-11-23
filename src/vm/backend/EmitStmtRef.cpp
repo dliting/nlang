@@ -133,12 +133,16 @@ void VmBackend::EmitPromotedValueWrap(uint16_t slot, NodeKind typeKind,
 
 //Promoted-formal prologue (see the header comment): the raw argument
 //still sits in the frame slot when the body starts; wrap it into the
-//stable box and rewrite the slot to the box handle.
+//stable box and rewrite the slot to the box handle. A CAPTURED promoted
+//formal skips this pass: its frame slot keeps the raw argument and the
+//display-field copy (EmitCapturedFormalCopies) wraps the value into the
+//box that the display field owns — the slot is dead after the copy.
 void VmBackend::EmitPromotedParamPrologue(SnFunction& func,
     BytecodeEmitter& emitter)
 {
     for (auto& param : func.Params()) {
-        if (!param.ContainFlags(NF_Promoted))
+        if (!param.ContainFlags(NF_Promoted)
+            || param.ContainFlags(NF_Captured))
             continue;
         auto target = ResolveBareIdentifier(&param);
         NLANG_ASSERT(target.kind == BareIdTarget::Local);

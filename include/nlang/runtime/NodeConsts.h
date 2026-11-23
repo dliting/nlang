@@ -28,7 +28,9 @@ typedef uint64 NodeBits;
 //format impact.
 //v0.13.9: 26 -> 29. NF_TensorOp/NF_Ref/NF_Promoted need bits 26..28 (the
 //same single-bit-per-flag growth; the budget was again exactly full).
-#define NODE_FLAG_BITS		29
+//0.13.10: 29 -> 30. NF_Captured (the lambda capture promotion — a local
+//whose storage moves into a display field) needs bit 29.
+#define NODE_FLAG_BITS		30
 
 const size_t	NODE_KIND_LIMIT = 1 << NODE_KIND_BITS;
 

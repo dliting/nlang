@@ -146,19 +146,15 @@ void VmBackend::Access(SnWhileStmt& stmt) {
         //Condition staging: EvalAreaClaim, never tempSlot (round-9 —
         //same binary-LEFT vs. struct deep-copy scratch family; the loop
         //bound was silently corrupted. StmtPeakDepth tracks the claim=1).
-        //Scope ends at the JumpIfNot operand — the loop body re-claims.
-        size_t jumpToEnd;
-        {
-            EvalAreaClaim condClaim(*this, 1);
-            uint16_t condSlot = condClaim.base();
-            EmitExpression(*whileStmt.Cond(), emitter, condSlot);
-            //JumpIfNot to end of loop
-            emitter.Emit(OpCode::OP_JumpIfNot);
-            jumpToEnd = emitter.CurrentOffset();
-            emitter.EmitUint16(0);  //placeholder for target
-            emitter.EmitUint16(condSlot);  //local offset to check
-        }
+        size_t jumpToEnd = EmitLoopCondition(*whileStmt.Cond(), emitter);
         m_loopStack.back().breakJumps.push_back(jumpToEnd);
+
+        //0.13.10 Task 9: the body scope re-activates per iteration —
+        //construct the loop-owned displays before the body reads them.
+        //(The body is a paragraph by grammar construction; the empty
+        //paragraph of a ';' body owns no displays and no-ops.)
+        EmitLoopDisplayActivation(*whileStmt.BodyParagraph(), false,
+            emitter);
 
         //Loop body
         EmitStatement(*whileStmt.Body(), emitter);
@@ -167,14 +163,8 @@ void VmBackend::Access(SnWhileStmt& stmt) {
         emitter.Emit(OpCode::OP_Jump);
         emitter.EmitUint16(static_cast<uint16_t>(loopStart));
 
-        //Fixup jumps
-        size_t loopEnd = emitter.CurrentOffset();
-        auto& ctx = m_loopStack.back();
-        for (size_t pos : ctx.breakJumps)
-            emitter.PatchUint16(pos, static_cast<uint16_t>(loopEnd));
-        //continue jumps back to locStart (condition check)
-        for (size_t pos : ctx.continueJumps)
-            emitter.PatchUint16(pos, static_cast<uint16_t>(loopStart));
+        //Fixup jumps (continue jumps back to loopStart — the condition)
+        EmitLoopExitFixups(emitter.CurrentOffset(), loopStart, emitter);
 
         m_loopStack.pop_back();
         return;
@@ -187,8 +177,11 @@ void VmBackend::Access(SnDoStmt& stmt) {
 
         PushLoopContext();
 
-        //1. Loop body (executed at least once)
+        //1. Loop body (executed at least once). 0.13.10 Task 9: the body
+        //scope re-activates per iteration — the back-edge lands here, so
+        //each entry (first and re-jump alike) constructs fresh displays.
         size_t loopStart = emitter.CurrentOffset();
+        EmitLoopDisplayActivation(*doStmt.BodyParagraph(), false, emitter);
         EmitStatement(*doStmt.Body(), emitter);
 
         //2. Continue target: condition check
@@ -198,18 +191,8 @@ void VmBackend::Access(SnDoStmt& stmt) {
         //see EmitStatementAnchor).
         EmitStatementAnchor(doStmt, emitter);
 
-        //3. Condition check (claim staging — see WhileStmt above, round-9;
-        //scope ends at the JumpIfNot operand)
-        size_t jumpToEnd;
-        {
-            EvalAreaClaim condClaim(*this, 1);
-            uint16_t condSlot = condClaim.base();
-            EmitExpression(*doStmt.Cond(), emitter, condSlot);
-            emitter.Emit(OpCode::OP_JumpIfNot);
-            jumpToEnd = emitter.CurrentOffset();
-            emitter.EmitUint16(0);  //placeholder
-            emitter.EmitUint16(condSlot);
-        }
+        //3. Condition check (claim staging — see WhileStmt above)
+        size_t jumpToEnd = EmitLoopCondition(*doStmt.Cond(), emitter);
         m_loopStack.back().breakJumps.push_back(jumpToEnd);
 
         //4. Jump back to loop start
@@ -217,13 +200,8 @@ void VmBackend::Access(SnDoStmt& stmt) {
         emitter.EmitUint16(static_cast<uint16_t>(loopStart));
 
         //5. Loop end, fixup jumps
-        size_t loopEnd = emitter.CurrentOffset();
-        auto& ctx = m_loopStack.back();
-        for (size_t pos : ctx.breakJumps)
-            emitter.PatchUint16(pos, static_cast<uint16_t>(loopEnd));
-        //continue jumps to locCondition
-        for (size_t pos : ctx.continueJumps)
-            emitter.PatchUint16(pos, static_cast<uint16_t>(continueTarget));
+        EmitLoopExitFixups(emitter.CurrentOffset(), continueTarget,
+            emitter);
 
         m_loopStack.pop_back();
         return;
@@ -234,12 +212,8 @@ void VmBackend::Access(SnForStmt& stmt) {
     BytecodeEmitter& emitter = *m_pCurrEmitter;
     auto& forStmt = static_cast<SnForStmt&>(stmt);
 
-        //1. Compile init part (before loop context)
-        if (forStmt.Init())
-            EmitStatement(*forStmt.Init(), emitter);
-        //Compile decomposed init AssignStmts
-        for (auto* pExtra : forStmt.InitExtras())
-            EmitStatement(*pExtra, emitter);
+        //1. Init part (display pre-activation included)
+        EmitForInitPart(forStmt, emitter);
 
         //2. Loop start
         size_t loopStart = emitter.CurrentOffset();
@@ -251,14 +225,20 @@ void VmBackend::Access(SnForStmt& stmt) {
         PushLoopContext();
 
         //4. Condition check
-        size_t jumpToEnd = EmitForCondition(forStmt, emitter);
+        size_t jumpToEnd = EmitLoopCondition(*forStmt.Cond(), emitter);
         m_loopStack.back().breakJumps.push_back(jumpToEnd);
 
         //5. Loop body
         EmitStatement(*forStmt.Body(), emitter);
 
-        //6. Continue target: fini part
+        //6. Continue target: the per-iteration display hand-off. The
+        //fresh display inherits the body-end header values FIRST, then
+        //the fini bumps the FRESH instance — the outgoing iteration's
+        //closures (bound to the old display) never observe the post-
+        //increment (Go 1.22 semantics: the new display doubles as the
+        //hidden value carrier the post statement writes through).
         size_t continueTarget = emitter.CurrentOffset();
+        EmitLoopDisplayActivation(*forStmt.BodyParagraph(), true, emitter);
 
         //7. Compile fini part
         if (forStmt.Fini())
@@ -268,26 +248,39 @@ void VmBackend::Access(SnForStmt& stmt) {
         emitter.Emit(OpCode::OP_Jump);
         emitter.EmitUint16(static_cast<uint16_t>(loopStart));
 
-        //9. Loop end
-        size_t loopEnd = emitter.CurrentOffset();
-
-        //10. Fixup jumps
-        EmitLoopExitFixups(loopEnd, continueTarget, emitter);
+        //9. Loop end, fixup jumps
+        EmitLoopExitFixups(emitter.CurrentOffset(), continueTarget,
+            emitter);
 
         m_loopStack.pop_back();
         return;
 }
 
-//For-loop condition check: claim-staged evaluation and the JumpIfNot
-//placeholder (claim staging — see WhileStmt above, round-9; the claim's
-//scope ends at the JumpIfNot operand so the body re-claims). Returns the
-//placeholder offset to patch with the loop-end address.
-size_t VmBackend::EmitForCondition(SnForStmt& forStmt, BytecodeEmitter& emitter) {
+//For-init emission: the display pre-activation (a captured for-header
+//variable has no frame slot of its own — its first display must exist
+//before the init assignment is emitted), then the init statement and
+//the decomposed init AssignStmts.
+void VmBackend::EmitForInitPart(SnForStmt& forStmt,
+    BytecodeEmitter& emitter) {
+    EmitLoopDisplayActivation(*forStmt.BodyParagraph(), false, emitter);
+    if (forStmt.Init())
+        EmitStatement(*forStmt.Init(), emitter);
+    for (auto* pExtra : forStmt.InitExtras())
+        EmitStatement(*pExtra, emitter);
+}
+
+//Loop condition check: claim-staged evaluation and the JumpIfNot
+//placeholder (claim staging — see WhileStmt, round-9; the claim's scope
+//ends at the JumpIfNot operand so the body re-claims). Returns the
+//placeholder offset to patch with the loop-end address. Shared by the
+//while/do/for arms.
+size_t VmBackend::EmitLoopCondition(SnExpression& cond,
+    BytecodeEmitter& emitter) {
     size_t jumpToEnd;
     {
         EvalAreaClaim condClaim(*this, 1);
         uint16_t condSlot = condClaim.base();
-        EmitExpression(*forStmt.Cond(), emitter, condSlot);
+        EmitExpression(cond, emitter, condSlot);
         emitter.Emit(OpCode::OP_JumpIfNot);
         jumpToEnd = emitter.CurrentOffset();
         emitter.EmitUint16(0);  //placeholder

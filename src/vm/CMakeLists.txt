@@ -117,6 +117,9 @@ add_library(nlang_vm
     backend/EmitStmtAssign.cpp
     backend/EmitStmtRef.cpp
     backend/EmitExprRef.cpp
+    backend/EmitCapture.cpp
+    backend/EmitCaptureStorage.cpp
+    backend/EmitCaptureFrame.cpp
     backend/EmitStmtCompound.cpp
     backend/EmitStmtStore.cpp
     backend/EmitStmtFlow.cpp
@@ -135,6 +138,7 @@ add_library(nlang_vm
     ModuleLoaderRecordsInterfaces.cpp
     ModuleLoaderRecordsClasses.cpp
     ModuleSaver.cpp
+    ModuleSaverRecordsFuncs.cpp
     ModuleSaverRecordsClasses.cpp
     ModuleSaverRecordsInterfaces.cpp
     ModuleSaverRecordsEnums.cpp

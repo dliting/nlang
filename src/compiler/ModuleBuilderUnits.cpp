@@ -8,6 +8,7 @@
 #include "ModuleBuilder.h"
 #include "TranslationUnit.h"
 #include "VmBackend.h"
+#include "builder/LambdaCaptureAnalysis.h"
 #include "builder/ModuleRegistry.h"
 #include <nlang/vm/CompiledModule.h>
 #include <nlang/vm/NcuPackage.h>
@@ -103,6 +104,26 @@ bool WritePackageFile(BuildEnvironment& env, NcuPackageWriter& packer,
 //external .ncu imports stay un-merged on purpose: they enter the
 //caller's link closure as peer images, so codegen never bakes their
 //table layout into the unit images.
+//Capture promotion (0.13.10): discovery walk + display-class synthesis
+//over the merged tree, before any codegen (LambdaCaptureAnalysis.h).
+//Most failures are invariant breaks, but two shapes are reachable user
+//code (expression-body nesting, receiver capture in an unsupported
+//context) — they report through the regular error channel. False (with
+//errors logged) aborts the unit build.
+bool ModuleBuilder::RunCapturePromotion()
+{
+	try
+	{
+		RunLambdaCaptureAnalysis(TreeRoot(), m_upEnv->Registry());
+	}
+	catch (const std::exception& e)
+	{
+		m_upEnv->Log(CLL_Error, "%s", e.what());
+		return false;
+	}
+	return true;
+}
+
 ModuleBuilder::UnitImages ModuleBuilder::BuildUnitImages()
 {
 	UnitImages none;
@@ -110,6 +131,8 @@ ModuleBuilder::UnitImages ModuleBuilder::BuildUnitImages()
 		return none;
 	SweepPendingFuncRefs();
 	if (m_upEnv->HasError())
+		return none;
+	if (!RunCapturePromotion())
 		return none;
 	auto* vmBackend = dynamic_cast<VmBackend*>(m_upEnv->Backend());
 	if (!vmBackend)

@@ -1,0 +1,27 @@
+// 0.13.10 review M2 pin: a static local is never captured — a lambda
+// body referencing it addresses the static slot directly, so every
+// activation of the declaring function shares the one storage (a
+// per-activation capture would reset it). Writes from inside the
+// lambda land in the same slot.
+int visit(int add) {
+    static int counter = 0;
+    counter = counter + add;
+    func<int> read = () -> counter;
+    return read();
+}
+
+int bump() {
+    static int hits = 0;
+    func<void> inc = () -> { hits = hits + 1; };
+    inc();
+    inc();
+    return hits;
+}
+
+int main() {
+    if (visit(2) != 2) { return 1; }
+    if (visit(3) != 5) { return 2; }   // not 3: one slot across activations
+    if (bump() != 2) { return 3; }     // the lambda's writes land in the slot
+    if (bump() != 4) { return 4; }
+    return 0;
+}

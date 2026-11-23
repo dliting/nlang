@@ -12,6 +12,9 @@ StatementResolveAccessor::StatementResolveAccessor(BuildEnvironment &env) :
 	m_Env(env), m_pCurrType(nullptr), m_pVisitor(nullptr),
 	m_ExprResolver(m_Env)
 {
+	//0.13.10: the lambda typing arm reaches the statement machinery
+	//(locals, returns) only through this back-channel.
+	m_ExprResolver.SetLambdaBodyResolver(*this);
 }
 
 void StatementResolveAccessor::Visitor(ISyntaxNodeVisitor *pVisitor)
@@ -50,6 +53,23 @@ void StatementResolveAccessor::Access(SnParagraph &sn)
 	{
 		stmt.Accept(*m_pVisitor);
 	}
+}
+
+//0.13.10: the lambda block body's walk — statements resolve like any
+//paragraph body. The lambda rides as the current return context, so a
+//return statement checks against the lambda's stamped return type; the
+//save/restore stacks nested lambdas correctly. m_pCurrType stays the
+//ENCLOSING function (the body inherits the enclosing member's this/
+//static semantics — spec §3.3).
+void StatementResolveAccessor::ResolveLambdaBlockBody(SnLambdaExpr &lambda)
+{
+	NLANG_ASSERT(m_pVisitor);
+	NLANG_ASSERT(lambda.BlockBody());
+	auto *pSaved = m_pCurrLambda;
+	m_pCurrLambda = &lambda;
+	for (auto &stmt : lambda.BlockBody()->Statements())
+		stmt.Accept(*m_pVisitor);
+	m_pCurrLambda = pSaved;
 }
 
 void StatementResolveAccessor::Access(SnNewExpr &sn)

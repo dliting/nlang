@@ -162,20 +162,56 @@ void VmBackend::EmitDelegateInvoke(const SnInvokeExpr& invoke,
     auto target = ResolveBareIdentifier(invoke.Field());
     EvalAreaClaim calleeClaim(*this, 1);
     uint16_t calleeSlot = calleeClaim.base();
+    EmitDelegateCalleeLoad(invoke, target, calleeSlot, emitter);
+    const uint8_t refDerefKind = bRawRefResult ? kNoRefDeref
+        : DelegateReturnDerefKind(DelegateFuncTypeOfField(invoke.Field()));
+    EmitDelegateDispatch(emitter, calleeSlot, resultOffset,
+        refDerefKind);
+    emitter.Emit(OpCode::OP_ParaEnd);
+}
+
+//The delegate callee's handle load, one arm per resolved storage kind.
+//The capture arm carries its own rejection (a flavored capture's storage
+//is not a raw handle — ledger ruling); the fall-through throw is the
+//invariant break for any unmatched kind.
+void VmBackend::EmitDelegateCalleeLoad(const SnInvokeExpr& invoke,
+                                       const BareIdTarget& target,
+                                       uint16_t calleeSlot,
+                                       BytecodeEmitter& emitter) {
     if (target.kind == BareIdTarget::Local) {
         emitter.Emit(OpCode::OP_VarLocal);
         emitter.EmitUint16(target.localOffset);
         emitter.Emit(OpCode::OP_Assign);
         emitter.EmitUint16(calleeSlot);
+    } else if (target.kind == BareIdTarget::DisplayField
+        || target.kind == BareIdTarget::CaptureField) {
+        //0.13.10 Task 6: a func-typed capture as delegate callee. The
+        //delegate handle rides the display field cell: chase the record,
+        //load the cell.
+        auto* pField = invoke.Field();
+        if (pField && (pField->ContainFlags(NF_Promoted)
+            || pField->ContainFlags(NF_Ref)))
+            throw std::runtime_error(
+                "NLang backend: promoted/reference capture as a "
+                "delegate callee is not supported: "
+                + invoke.CalleeName());
+        EmitCaptureCellLoad(calleeSlot, target, pField, emitter);
+        emitter.Emit(OpCode::OP_LoadField);
+        emitter.EmitUint16(calleeSlot);
+        emitter.EmitUint16(calleeSlot);
+        emitter.EmitUint16(static_cast<uint16_t>(target.fieldOff));
+    } else if (target.kind == BareIdTarget::StaticSlot) {
+        //I3 tail: a func-typed STATIC field as delegate callee (the bare
+        //in-class spelling of Cfg.dbl) — gate the declaring class, load
+        //the handle from the module slot; no receiver exists.
+        EmitStaticFieldGate(invoke.Field(), emitter);
+        emitter.Emit(OpCode::OP_LoadStatic);
+        emitter.EmitUint16(calleeSlot);
+        emitter.EmitUint16(target.slotIdx);
     } else if (target.kind == BareIdTarget::ThisField) {
         //Implicit this.<field> — same load shape as the
         //identifier arm's ThisField branch.
-        emitter.Emit(OpCode::OP_VarLocal);
-        emitter.EmitUint16(ImplicitThisSlot());
-        emitter.Emit(OpCode::OP_Assign);
-        emitter.EmitUint16(calleeSlot);
-        emitter.Emit(OpCode::OP_NullCheck);
-        emitter.EmitUint16(calleeSlot);
+        EmitReceiverLoad(calleeSlot, emitter);
         emitter.Emit(OpCode::OP_LoadField);
         emitter.EmitUint16(calleeSlot);
         emitter.EmitUint16(calleeSlot);
@@ -185,11 +221,6 @@ void VmBackend::EmitDelegateInvoke(const SnInvokeExpr& invoke,
             "NLang backend: delegate callee has no codegen "
             "binding: " + invoke.CalleeName());
     }
-    const uint8_t refDerefKind = bRawRefResult ? kNoRefDeref
-        : DelegateReturnDerefKind(DelegateFuncTypeOfField(invoke.Field()));
-    EmitDelegateDispatch(emitter, calleeSlot, resultOffset,
-        refDerefKind);
-    emitter.Emit(OpCode::OP_ParaEnd);
 }
 
 //Delegate dispatch: OP_CallDelegate. A ref-returning key parks a raw
@@ -379,6 +410,23 @@ void VmBackend::Access(SnThisExpr& expr) {
         //Inside a method-call default-param expression, `this` resolves
         //to the caller-side callParamBase slot holding the receiver.
         //Otherwise (inside a method body), `this` is local 0.
+        //0.13.10: inside a synthetic capture frame, `this` is the anchor
+        //display's "$this" field (the override logic is meaningless
+        //there — $lambda_N bodies carry no default params).
+        if (InSyntheticCaptureFrame()) {
+            emitter.Emit(OpCode::OP_VarLocal);
+            emitter.EmitUint16(0);
+            emitter.Emit(OpCode::OP_Assign);
+            emitter.EmitUint16(resultOffset);
+            NLANG_ASSERT(m_pCurrClass);
+            const int thisOff = FindClassFieldOffset(*m_pCurrClass, "$this");
+            NLANG_ASSERT(thisOff >= 0);
+            emitter.Emit(OpCode::OP_LoadField);
+            emitter.EmitUint16(resultOffset);
+            emitter.EmitUint16(resultOffset);
+            emitter.EmitUint16(static_cast<uint16_t>(thisOff));
+            return;
+        }
         auto thisOverride = LookupThisOverride();
         uint16_t thisSlot = thisOverride.first ? thisOverride.second : 0;
         emitter.Emit(OpCode::OP_VarLocal);

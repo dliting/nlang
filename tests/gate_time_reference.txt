@@ -102,20 +102,26 @@ ctest-Debug class_layout_tests 0.06 1 ctest-junit-serial
 ctest-Debug cli_utf8_paths 0.42 1 ctest-junit-serial
 ctest-Debug debugger_tests 25.68 1 ctest-junit-serial
 ctest-Debug default_exprdesc_tests 0.18 1 ctest-junit-serial
+ctest-Debug display_capture_kinds_tests 0.60 1 ctest-junit-serial - R-122:双线合并lambda特性新注册条目,本批ctest单条目实测record
 ctest-Debug domainlocks_tests 1.30 1 ctest-junit-serial
 ctest-Debug duplicate_package_path_compile 0.16 1 ctest-junit-serial
 ctest-Debug e2e_compile 0.18 1 ctest-junit-serial
+ctest-Debug e2e_runner_env_gate 1.66 1 ctest-junit-serial - R-123:双线合并timing-slim改名后新注册条目,本批ctest单条目实测record(py313)
+ctest-Debug e2e_runner_scratch_isolation 1.83 1 ctest-junit-serial - R-123:双线合并timing-slim改名后新注册条目,本批ctest单条目实测record(py313)
+ctest-Debug e2e_runner_timing_gate 35.79 1 ctest-junit-serial - R-123:双线合并timing-slim改名后新注册条目,本批ctest单条目实测record(py313)
 ctest-Debug embed_api_tests 1.04 1 ctest-junit-serial
 ctest-Debug embed_host_smoke 0.48 1 ctest-junit-serial
 ctest-Debug embed_source_tests 2.30 1 ctest-junit-serial
 ctest-Debug embed_value_tests 0.05 1 ctest-junit-serial
 ctest-Debug embed_vm_tests 0.07 1 ctest-junit-serial
+ctest-Debug func_records_tests 1.12 1 ctest-junit-serial - R-122:双线合并lambda特性新注册条目,本批ctest单条目实测record
 ctest-Debug function_size_tests 1.43 1 ctest-junit-serial
 ctest-Debug gcworldstop_tests 0.76 1 ctest-junit-serial
 ctest-Debug generic_runtime_info_tests 2.08 1 ctest-junit-serial
 ctest-Debug import_cycle_tests 0.05 1 ctest-junit-serial
 ctest-Debug interface_rtk_gc_tests 0.85 1 ctest-junit-serial yes 哨兵:快、稳定、无时间断言(D-4)
 ctest-Debug io_input_tests 0.07 1 ctest-junit-serial
+ctest-Debug lambda_parse_tests 0.08 1 ctest-junit-serial - R-122:双线合并lambda特性新注册条目,本批ctest单条目实测record
 ctest-Debug langservice_tests 1.14 1 ctest-junit-serial
 ctest-Debug libdemo_compile 0.19 1 ctest-junit-serial
 ctest-Debug libdemo_run 0.26 1 ctest-junit-serial
@@ -157,6 +163,7 @@ ctest-Debug net_scheduler_tests 0.68 1 ctest-junit-serial
 ctest-Debug net_slots_tests 0.05 1 ctest-junit-serial
 ctest-Debug nlang_c_inline 0.45 1 ctest-junit-serial
 ctest-Debug nlang_cli_rejects 0.26 1 ctest-junit-serial
+ctest-Debug nlang_docs_pytest 15.51 1 ctest-junit-serial - R-123:双线合并timing-slim改名后新注册条目,本批ctest单条目实测record(py313)
 ctest-Debug nlang_gate_selftest 54.18 1 ctest-junit-serial
 ctest-Debug nlang_run_script 0.92 1 ctest-junit-serial
 ctest-Debug no_builtin_stdlib 1.57 1 ctest-junit-serial
@@ -253,18 +260,20 @@ ctest-IDE debugger_tests 25.29 1 ctest-junit-serial
 ctest-IDE default_exprdesc_tests 0.19 1 ctest-junit-serial
 ctest-IDE descriptor_spelling_tests 1.69 1 ctest-junit-serial
 ctest-IDE dialogs_tests 2.74 1 ctest-junit-serial
+ctest-IDE display_capture_kinds_tests 0.62 1 ctest-junit-serial - R-123:双线合并lambda特性IDE树新注册条目,本批IDE树单条目junit实测record
 ctest-IDE domainlocks_tests 2.01 1 ctest-junit-serial
 ctest-IDE duplicate_package_path_compile 0.16 1 ctest-junit-serial
 ctest-IDE e2e_compile 0.18 1 ctest-junit-serial
 ctest-IDE e2e_runner_env_gate 1.60 1 ctest-junit-serial
 ctest-IDE e2e_runner_scratch_isolation 1.83 1 ctest-junit-serial
-ctest-IDE e2e_runner_timing_gate 409.74 1 ctest-junit-serial - 分级终止点用例为真实睡眠探针(Task6新增6条,其中5条睡眠60s以上),预算下限60s(MIN_CAP_S)不可下调,条目墙钟必然分钟级
+ctest-IDE e2e_runner_timing_gate 36.04 1 ctest-junit-serial - 分级终止点用例进程内驱动runner主函数并缩小MIN_CAP_S/MIN_WATCHDOG_S下限,墙钟秒级
 ctest-IDE editor_tests 3.27 1 ctest-junit-serial
 ctest-IDE embed_api_tests 1.01 1 ctest-junit-serial
 ctest-IDE embed_host_smoke 0.62 1 ctest-junit-serial
 ctest-IDE embed_source_tests 2.31 1 ctest-junit-serial
 ctest-IDE embed_value_tests 0.05 1 ctest-junit-serial
 ctest-IDE embed_vm_tests 0.07 1 ctest-junit-serial
+ctest-IDE func_records_tests 1.14 1 ctest-junit-serial - R-123:双线合并lambda特性IDE树新注册条目,本批IDE树单条目junit实测record
 ctest-IDE function_size_tests 1.42 1 ctest-junit-serial
 ctest-IDE gate_time_check_selftest 4.48 1 ctest-junit-serial
 ctest-IDE gcworldstop_tests 0.66 1 ctest-junit-serial
@@ -276,6 +285,10 @@ ctest-IDE import_cycle_tests 0.05 1 ctest-junit-serial
 ctest-IDE import_parse_tests 1.41 1 ctest-junit-serial
 ctest-IDE interface_rtk_gc_tests 0.77 1 ctest-junit-serial yes 哨兵:快、稳定、无时间断言(D-4)
 ctest-IDE io_input_tests 0.05 1 ctest-junit-serial
+ctest-IDE lambda_capture_tests 0.68 1 ctest-junit-serial - R-123:双线合并lambda特性IDE树新注册条目,本批IDE树单条目junit实测record
+ctest-IDE lambda_param_tests 0.41 1 ctest-junit-serial - R-123:双线合并lambda特性IDE树新注册条目,本批IDE树单条目junit实测record
+ctest-IDE lambda_parse_tests 0.08 1 ctest-junit-serial - R-123:双线合并lambda特性IDE树新注册条目,本批IDE树单条目junit实测record
+ctest-IDE lambda_typing_tests 0.66 1 ctest-junit-serial - R-123:双线合并lambda特性IDE树新注册条目,本批IDE树单条目junit实测record
 ctest-IDE langservice_tests 1.10 1 ctest-junit-serial
 ctest-IDE libdemo_compile 0.18 1 ctest-junit-serial
 ctest-IDE libdemo_run 0.28 1 ctest-junit-serial
@@ -432,6 +445,7 @@ ctest-ASan debugger_tests 104.52 1 ctest-junit-serial
 ctest-ASan default_exprdesc_tests 0.59 1 ctest-junit-serial
 ctest-ASan descriptor_spelling_tests 8.17 1 ctest-junit-serial
 ctest-ASan dialogs_tests 2.95 1 ctest-junit-serial
+ctest-ASan display_capture_kinds_tests 2.96 1 ctest-junit-serial - R-123:双线合并lambda特性ASan树新注册条目,本批ASan树单条目junit实测record
 ctest-ASan domainlocks_tests 1.98 1 ctest-junit-serial
 ctest-ASan duplicate_package_path_compile 0.86 1 ctest-junit-serial
 ctest-ASan e2e_compile 0.92 1 ctest-junit-serial
@@ -440,6 +454,7 @@ ctest-ASan embed_host_smoke 1.50 1 ctest-junit-serial
 ctest-ASan embed_source_tests 9.08 1 ctest-junit-serial
 ctest-ASan embed_value_tests 0.05 1 ctest-junit-serial
 ctest-ASan embed_vm_tests 0.18 1 ctest-junit-serial
+ctest-ASan func_records_tests 5.48 1 ctest-junit-serial - R-123:双线合并lambda特性ASan树新注册条目,本批ASan树单条目junit实测record
 ctest-ASan function_size_tests 3.87 1 ctest-junit-serial
 ctest-ASan gate_time_check_selftest 4.58 1 ctest-junit-serial
 ctest-ASan gcworldstop_tests 0.75 1 ctest-junit-serial
@@ -451,6 +466,10 @@ ctest-ASan import_cycle_tests 0.04 1 ctest-junit-serial
 ctest-ASan import_parse_tests 5.58 1 ctest-junit-serial
 ctest-ASan interface_rtk_gc_tests 3.64 1 ctest-junit-serial yes 哨兵:快、稳定、无时间断言(D-4)
 ctest-ASan io_input_tests 0.05 1 ctest-junit-serial
+ctest-ASan lambda_capture_tests 1.74 1 ctest-junit-serial - R-123:双线合并lambda特性ASan树新注册条目,本批ASan树单条目junit实测record
+ctest-ASan lambda_param_tests 0.67 1 ctest-junit-serial - R-123:双线合并lambda特性ASan树新注册条目,本批ASan树单条目junit实测record
+ctest-ASan lambda_parse_tests 0.22 1 ctest-junit-serial - R-123:双线合并lambda特性ASan树新注册条目,本批ASan树单条目junit实测record
+ctest-ASan lambda_typing_tests 2.24 1 ctest-junit-serial - R-123:双线合并lambda特性ASan树新注册条目,本批ASan树单条目junit实测record
 ctest-ASan langservice_tests 5.25 1 ctest-junit-serial
 ctest-ASan libdemo_compile 0.93 1 ctest-junit-serial
 ctest-ASan libdemo_run 1.22 1 ctest-junit-serial
@@ -613,7 +632,7 @@ e2e-ASan stdlib_fs_mkdirs_remove 1.38 1 e2e-serial yes 逐条目例外行:标为
 e2e-ASan file_stream_write_read 1.24 1 e2e-serial yes 逐条目例外行:标为标量校准哨兵(D-4),快、稳定、无时间断言,校准须逐条目实测读数
 e2e-ASan gc_stress_over_threshold 1.05 1 e2e-serial yes 逐条目例外行:标为标量校准哨兵(D-4),快、稳定、无时间断言,校准须逐条目实测读数
 e2e-ASan generic_gc_tslot_survives 12.44 1 e2e-serial yes 逐条目例外行:标为标量校准哨兵(D-4),快、稳定、无时间断言,校准须逐条目实测读数
-ctest-Debug gate_tier_smoke 11.59 1 ctest-junit-serial - R-19:本批新注册条目同行补录,秒数出自本批真T0腿junit实测单条目record
+ctest-Debug gate_tier_smoke 12.10 1 ctest-junit-serial - R-19:本批新注册条目同行补录,秒数出自本批真T0腿junit实测单条目record
 ctest-Debug nlang_gate_time_selftest 19.53 1 ctest-junit-serial - R-19:本批新注册条目同行补录,秒数出自本批ctest单条目实测record
 ctest-IDE gate_tier_smoke 11.81 1 ctest-junit-serial - R-19:IDE树重配刷新枚举后补行,秒数出自build-ide单条目junit实测record
 ctest-IDE nlang_gate_time_selftest 19.77 1 ctest-junit-serial - R-19:IDE树重配刷新枚举后补行,秒数出自build-ide单条目junit实测record

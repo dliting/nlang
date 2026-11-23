@@ -293,9 +293,22 @@ instead of silently sending an empty body (§23.6).
 `start(host, port, handler)` returns once the socket is listening;
 `serve(host, port, handler)` runs the same accept loop on the calling
 thread and is the entry point for a standalone server, whose `main`
-must not return (§10.9). `close()` stops accepting and wakes the
-blocked `accept` call; connections already in flight finish the
-requests of their own keep-alive loop.
+must not return (§10.9).
+
+Two switches stop the accept loop. `drain(graceMs = 15000)` is the
+graceful one: it stops accepting new connections, answers from then
+on carry `Connection: close`, idle keep-alive waits are closed at
+once, and in-flight requests are waited out — it returns the number
+of connections it force-closed when the grace window ran out, `0`
+when everything finished inside it. `close()` is the immediate one:
+it closes the listening socket (a blocked `accept` wakes through
+`SocketException`), force-closes the open connections, and waits up
+to two seconds for running handlers to finish. Both switches are
+repeatable, and a server stopped this way can start again — a later
+`start()` binds the address anew. `isServing()` reports whether the
+accept loop is up: `false` before the first `start()`, while a drain
+runs, and after `close()` — the flag a handler-polling shutdown loop
+watches, in the shape §21.2 describes for `accept` timeouts.
 
 The accept loop spawns one thread per connection (§10), and each
 thread serves its connection's requests in order. A handler therefore

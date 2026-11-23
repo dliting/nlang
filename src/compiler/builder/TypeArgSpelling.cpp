@@ -299,7 +299,13 @@ TypeArgDesc ArrayArgOf(const ModuleRegistry& reg,
 }
 } //namespace
 
-TypeArgDesc BuildTypeArgOf(const ModuleRegistry& reg, const SnField& arg)
+namespace
+{
+//Leaf arms of BuildTypeArgOf's switch — string and the void return
+//slot are rowless keywords; struct/enum leaves carry their link key
+//(enums are int32 at runtime, spec §4; the spelling keeps the enum
+//name for typeName).
+TypeArgDesc LeafArgOf(const ModuleRegistry& reg, const SnField& arg)
 {
 	TypeArgDesc desc;
 	//Keyword-named leaves (the 12 scalars, `string`, `void`): the shared
@@ -319,12 +325,35 @@ TypeArgDesc BuildTypeArgOf(const ModuleRegistry& reg, const SnField& arg)
 		desc.spelling = LinkKeyOf(reg, arg);
 		desc.resolvedKind = RTK_Struct;
 		return desc;
-	//Enums are int32 at runtime (spec §4); the spelling keeps the enum
-	//name for typeName.
 	case NK_EnumDecl:
 		desc.spelling = LinkKeyOf(reg, arg);
 		desc.resolvedKind = RTK_Int32;
 		return desc;
+	default:
+		break;
+	}
+	return desc;
+}
+} //namespace
+
+TypeArgDesc BuildTypeArgOf(const ModuleRegistry& reg, const SnField& arg)
+{
+	TypeArgDesc desc;
+	//Scalar family (int/float/byte../bool/char): canonical keyword name
+	//and the RTK the dispatch paths read.
+	if (int pi = ScalarPrimIndexOf(arg.Kind()); pi >= 0)
+	{
+		desc.spelling = kScalarPrims[pi].name;
+		desc.resolvedKind = kScalarPrims[pi].rtk;
+		return desc;
+	}
+	switch (arg.Kind())
+	{
+	case NK_String:
+	case NK_Void:
+	case NK_StructDecl:
+	case NK_EnumDecl:
+		return LeafArgOf(reg, arg);
 	case NK_ArrayTypeToken:
 		return ArrayArgOf(reg, static_cast<const SnArrayTypeToken&>(arg));
 	case NK_ClassDecl:

@@ -10,6 +10,7 @@
 #include <nlang/runtime/NodeContainers.h>
 #include <nlang/runtime/AutoPointers.h>
 #include <functional>
+#include <map>
 #include <memory>
 #include <vector>
 #include <string>
@@ -55,6 +56,19 @@ SnField *ArrayElementRowOf(const SnField *pType);
 //Defined in SnArrayTypeToken.cpp next to ArrayInstantiationElem.
 bool SameArrayType(SnField *pLeft, SnField *pRight);
 
+//Builds an ALREADY-RESOLVED type expression for post-resolution node
+//synthesis (capture promotion, 0.13.10) from a resolved type ROW: a
+//builtin-kind leaf, an array annotation (element + rank, either array
+//spelling), or a named reference with the field bound and NF_Resolved
+//set. Ordinary synthesized expressions rely on later resolution passes
+//to bind m_pField, which never run after resolution — this factory
+//produces nodes that are final at birth. The new node owns its spelling
+//string; the referred row remains non-owning.
+//Defined in builder/LambdaCaptureAnalysis.cpp next to its only consumer.
+class SnExpression;
+SnExpression *SynthBornResolvedTypeExpr(SnField *pRow,
+	const ISourceLocation &loc);
+
 //The abstract expression syntax node.
 class BuildEnvironment;
 class SnClassDecl;
@@ -72,8 +86,11 @@ class NLANG_COMPILER_API SnExpression: public SyntaxNode
 	friend bool BindFuncRefToExpected(BuildEnvironment &env,
 		SnIdentifierExpr &idExpr, SnField *pExpected);
 	//Phase 13 Step 2: receiver-bound member form of the binder above.
+	//0.13.10 Task 5: the accessor parameter serves the inferred
+	//generic-static arm (friend-channel clone rebind).
 	friend bool BindMemberFuncRefToExpected(BuildEnvironment &env,
-		SnMemberExpr &snMember, SnField *pExpected);
+		SnMemberExpr &snMember, SnField *pExpected,
+		ExprResolveAccessor *pAccessor);
 	typedef SyntaxNode Super_;
 public:
 	SnExpression(NodeKind);
@@ -125,6 +142,10 @@ protected:
 	//Return a null child list by default.
 	ImmutableNodeList *ChildrenPtr() const override;
 private:
+	//Builds already-resolved type expressions for post-resolution
+	//synthesis (capture promotion); needs the protected type setter.
+	friend SnExpression *SynthBornResolvedTypeExpr(SnField *pRow,
+		const ISourceLocation &loc);
 	SnField *m_pEvalDataType;
 #ifdef NLANG_ENABLE_LLVM
 	llvm::Value *m_pMetaValue;
@@ -157,6 +178,10 @@ class NLANG_COMPILER_API SnFieldExpr : public SnExpression
 {
 	friend class ExprResolveAccessor;
 	friend class SyntaxTree;
+	//Capture promotion (0.13.10): born-resolved type expressions bind the
+	//referred field through this protected channel.
+	friend SnExpression *SynthBornResolvedTypeExpr(SnField *pRow,
+		const ISourceLocation &loc);
 	typedef SnExpression Super_;
 public:
 	typedef std::function<bool (SnFieldExpr&, BuildEnvironment&)> FieldChecker;
@@ -194,19 +219,44 @@ public:
 	virtual bool IsDataExpr() const override;
 
 	//Is this expression an array type (e.g. int[] or T[])?
-	//Subclasses representing array types override this to return true.
-	//This is the polymorphic hook used by SnField subclasses (via their
-	//m_pType pointer) to forward IsArrayType queries.
+	//DERIVED from the resolved row (0.13.10): a type expression is
+	//array-typed when the row it binds to is — the interned token or
+	//the Array<E> instantiation row, either spelling of the one array
+	//type (the v0.12.7 dual-spelling twin, once per-subclass). A
+	//NAME leaf bound to an array row (a substituted generic formal's
+	//clone, an imported stub's leaf, an array alias) answers through
+	//the same channel as a spelled Array<E>; the syntactic bracket
+	//spelling keeps its own override for the pre-resolution window.
+	//Value expressions never enter this channel — they answer
+	//IsArrayValued() below.
 	virtual bool IsArrayType() const
 	{
-		return false;
+		SnField* pResolved = Field();
+		return pResolved && pResolved->IsArrayType();
 	}
 
 	static SnFieldExpr::FieldChecker& DataTypeChecker();
+	//0.13.10 Task 5: the expected-type channel's inferred type arguments
+	//of a GENERIC function value reference (the value twin of
+	//SnInvokeExpr's slot). Non-owning references to tree/registry-owned
+	//type fields, indexed by type-parameter ordinal; empty for ordinary
+	//references. The backend spells the handle's descriptor row from
+	//these; the strict bind predicates read the stamp as the binding
+	//proof (a generic declaration never matches a concrete func type by
+	//direct signature comparison).
+	const std::vector<SnField*>& InferredTypeArgs() const
+	{
+		return m_inferredTypeArgs;
+	}
+	void SetInferredTypeArgs(std::vector<SnField*> args)
+	{
+		m_inferredTypeArgs = std::move(args);
+	}
 protected:
 	SnField *m_pField;
 private:
 	FieldChecker *m_pChecker;
+	std::vector<SnField*> m_inferredTypeArgs;
 };
 
 //The expression composite by other expressions.
@@ -250,6 +300,36 @@ inline bool KeyIsAbsent(const InitEntry &entry)
 inline bool KeyIsIdentifier(const InitEntry &entry)
 {
 	return entry.pKey && entry.pKey->Kind() == NK_IdentifierExpr;
+}
+
+//0.13.10: one lambda parameter item as written in the source. Three
+//shapes arrive from the cover grammar's list: an explicit type (`int x`,
+//pType + name), a bare name (`x`, name only — the parser folds the
+//identifier), or a raw expression item (`x+y`, pValueExpr — rejected by
+//the resolver's parameter gate, kept so the diagnostic can quote it).
+struct LambdaParam
+{
+	std::string     name;
+	SnFieldExpr    *pType      = nullptr;
+	SnExpression   *pValueExpr = nullptr;
+};
+
+//Shape predicates over a parsed parameter item — the shared vocabulary
+//of the parser's arrow-confirmed reorganization, the resolver's
+//parameter gate and the later display/codegen consumers (KeyIsAbsent
+//precedent).
+inline bool ParamIsTyped(const LambdaParam &param)
+{
+	return param.pType != nullptr;
+}
+inline bool ParamIsBare(const LambdaParam &param)
+{
+	return param.pType == nullptr && param.pValueExpr == nullptr
+		&& !param.name.empty();
+}
+inline bool ParamIsRawExpression(const LambdaParam &param)
+{
+	return param.pValueExpr != nullptr;
 }
 
 //The syntax node of a literal constant expression.
@@ -606,6 +686,9 @@ public:
 		return m_Rank;
 	}
 
+	//The bracket spelling IS array syntax — true even before Field()
+	//binds (the derived base predicate answers false in that window;
+	//declaration-side gates may ask before resolution completes).
 	bool IsArrayType() const override
 	{
 		return true;
@@ -647,14 +730,10 @@ public:
 		return *m_upTypeArgs;
 	}
 
-	//v0.12.7: Array<E> is the array type's generic spelling — an array
-	//type expression once resolved (the declaration-side IsArrayType
-	//hook that SnDataField and the field walks forward to).
-	bool IsArrayType() const override
-	{
-		SnField* pResolved = Field();
-		return pResolved && ArrayInstantiationElem(pResolved) != nullptr;
-	}
+	//v0.12.7: Array<E> is the array type's generic spelling — its
+	//array-ness derives from the resolved row through the base-class
+	//predicate (once a per-class override here; folded 0.13.10 so every
+	//leaf shape answers through the one channel).
 
 	void Accept(ISyntaxNodeVisitor &) override;
 
@@ -1192,6 +1271,112 @@ private:
 	bool                         m_isArrayForm;
 	SnField                     *m_pInferredTarget = nullptr;  //parent-set, bare form
 	SnFunction                  *m_pCtorFunction = nullptr;    //resolver-set, class form
+};
+
+class SnParagraph;
+class SnLocalVar;
+
+//The lambda expression `(params) -> body` (0.13.10). Parse-layer only in
+//this task: the resolver/codegen arms land with the typing tasks, so a
+//lambda reaching resolution asserts through the accessor catch-alls.
+//Exactly one of ExprBody()/BlockBody() is non-null. Params() items are
+//typed, bare or raw-expression (see LambdaParam).
+class NLANG_COMPILER_API SnClassDecl;
+class NLANG_COMPILER_API SnFunction;
+
+class NLANG_COMPILER_API SnLambdaExpr : public SnCompoundPlainExpr
+{
+	typedef SnCompoundPlainExpr Super_;
+	//The typing arm rewrites m_pExprBody after the cast fixup splice
+	//(the FixupExprType caller duty — the list node is replaced, the
+	//dual-storage mirror follows here).
+	friend class ExprResolveAccessor;
+public:
+	static const NodeKind	s_Kind			= NK_LambdaExpr;
+	static const NodeBits	s_DefaultFlags	= NF_Expression;
+public:
+	//Takes ownership of every node carried by the params and of both
+	//body slots. Children() order: each param's type then raw item, then
+	//the body (dual-storage contract — typed mirrors beside the list).
+	SnLambdaExpr(std::vector<LambdaParam> params,
+		SnExpression *pExprBody, SnParagraph *pBlockBody,
+		const ISourceLocation &loc);
+
+	~SnLambdaExpr() override;
+
+	const std::vector<LambdaParam> &Params() const { return m_params; }
+	SnExpression *ExprBody() const { return m_pExprBody; }
+	SnParagraph *BlockBody() const { return m_pBlockBody; }
+
+	//The parent-set expected function type (the SnInitListExpr
+	//InferredTarget channel): nullptr until the parent populates it.
+	SnField *InferredTarget() const { return m_pInferredTarget; }
+	void InferredTarget(SnField *pT) { m_pInferredTarget = pT; }
+
+	bool IsDataExpr() const override;
+	void Accept(ISyntaxNodeVisitor &) override;
+	std::string ToString() const override;
+	bool ReplaceChildNode(SyntaxNode*, SyntaxNode*) override;
+
+	//0.13.10: the parameter descriptors — one SnLocalVar per parameter,
+	//created by the resolver's typing arm (a typed param mirrors its
+	//written token's resolved field; a bare param takes the expected
+	//type's positional argument). Lightweight descriptors like the
+	//paragraph locals: never child nodes, but owned here. The name map
+	//backs the body's name lookup (FindField answers them before the
+	//parent chain, so a parameter shadows outer scopes).
+	const std::vector<std::unique_ptr<SnLocalVar>> &ParamLocals() const
+	{
+		return m_upParamLocals;
+	}
+	SnLocalVar *AddParamLocal(const std::string &sName,
+		SnField *pTypeField, const ISourceLocation &loc);
+	SnField *FindParamLocal(const std::string &sName) const;
+	SnField *FindField(const std::string &sName) const override;
+
+	//0.13.10: return bookkeeping for the 「块体无return即void」 check —
+	//the statement resolver marks every value return it resolves inside
+	//the block; the typing arm reads the mark after the walk.
+	void SetBlockHasValueReturn() { m_bBlockHasValueReturn = true; }
+	bool HasBlockValueReturn() const { return m_bBlockHasValueReturn; }
+
+	//0.13.10 Task 6: the capture lowering write-back — the synthesized
+	//display class hosting the captured storage and the synthetic
+	//method the body compiles into (both owned by the environment's
+	//class/function registries, non-owning here). Null until the
+	//capture pass runs (a null pair past resolution means the lambda
+	//was typed but the capture pass never saw it — internal error).
+	const SnClassDecl *DisplayClass() const { return m_pDisplayClass; }
+	SnClassDecl *DisplayClass() { return m_pDisplayClass; }
+	void DisplayClass(SnClassDecl *pClass) { m_pDisplayClass = pClass; }
+	SnFunction *SyntheticMethod() const { return m_pSyntheticMethod; }
+	void SyntheticMethod(SnFunction *pMethod)
+	{
+		m_pSyntheticMethod = pMethod;
+	}
+
+	//0.13.10 Task 6: moves the body out of the lambda into the synthetic
+	//method's paragraph (capture lowering). Detaching the child from the
+	//ownership list AND nulling the dual-storage mirror — a dangling
+	//mirror behind ExprBody()/BlockBody() would be a landmine for any
+	//later ToString/walk.
+	SnExpression *DetachExprBody();
+	SnParagraph *DetachBlockBody();
+	//The capture walk's Phase 0 hands an expression body its return
+	//paragraph BEFORE the walk (expression-body nesting must anchor like
+	//block-body nesting); this adopts that paragraph under the same
+	//dual-storage contract as the constructor's block-body arm.
+	void AdoptBlockBody(SnParagraph *pBody);
+private:
+	std::vector<LambdaParam>     m_params;
+	SnExpression                *m_pExprBody  = nullptr;
+	SnParagraph                 *m_pBlockBody = nullptr;
+	SnField                     *m_pInferredTarget = nullptr;
+	bool                         m_bBlockHasValueReturn = false;
+	std::vector<std::unique_ptr<SnLocalVar>> m_upParamLocals;
+	std::map<std::string, SnLocalVar *>        m_paramLookup;
+	SnClassDecl                 *m_pDisplayClass = nullptr;
+	SnFunction                  *m_pSyntheticMethod = nullptr;
 };
 
 //Phase 9c: named argument expression `name = expr` at call sites.

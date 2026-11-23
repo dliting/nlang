@@ -14,10 +14,11 @@ endif()
 
 add_custom_command(
     OUTPUT ${GENERATED_DIR}/nlang.tab.cpp ${GENERATED_DIR}/nlang.tab.h
-    #v0.9.1: the grammar carries 4 accepted reduce/reduce conflicts, and
-    #deterministic parsers cannot use %expect alongside any r/r conflict,
-    #so the conflict notices are silenced here; the counts are pinned by
-    #the accepted-conflict ledger in nlang.y and its re-measurement gate.
+    #The grammar carries accepted conflicts (2026-11-20: 50 s/r + 12 r/r,
+    #see the header ledger in nlang.y), and deterministic parsers cannot
+    #use %expect alongside any r/r conflict, so the conflict notices are
+    #silenced here; the counts are pinned by the accepted-conflict ledger
+    #in nlang.y and its re-measurement gate.
     COMMAND ${BISON_EXE} -d --header=${GENERATED_DIR}/nlang.tab.h
         -Wno-conflicts-sr -Wno-conflicts-rr
         -o ${GENERATED_DIR}/nlang.tab.cpp ${GRAMMAR_DIR}/nlang.y
@@ -93,6 +94,7 @@ add_library(nlang_compiler
     SnTypes.cpp
     SnData.cpp
     SnExpressions.cpp
+    SnExpressionsLambda.cpp
     SnExpressionsValues.cpp
     SnChildSync.cpp
     SnStatements.cpp
@@ -121,6 +123,8 @@ add_library(nlang_compiler
     builder/ExprResolverThreadNs.cpp
     builder/ExprResolverTypedSpawn.cpp
     builder/ExprResolverFuncRef.cpp
+    builder/ExprResolverFuncRefGeneric.cpp
+    builder/ExprResolverLambda.cpp
     builder/ExprResolverValues.cpp
     builder/TypeArgSpelling.cpp
     builder/TypeArgInference.cpp
@@ -155,6 +159,7 @@ add_library(nlang_compiler
     builder/StatementResolverTypes.cpp
     builder/StatementResolverInterface.cpp
     builder/StatementResolverAssign.cpp
+    builder/StatementResolverReturn.cpp
     builder/StatementResolverCompound.cpp
     builder/StatementResolverFlow.cpp
     builder/StatementResolverRef.cpp
@@ -164,6 +169,9 @@ add_library(nlang_compiler
     builder/StatementResolverStoreGates.cpp
     builder/ClassFieldInitializerInjection.cpp
     builder/StaticInitSynthesis.cpp
+    builder/LambdaCaptureAnalysis.cpp
+    builder/LambdaCaptureClassify.cpp
+    builder/LambdaDisplaySynthesis.cpp
     builder/ModuleRegistry.cpp
     builder/ModuleRegistryGate.cpp
     builder/ImportCycleCheck.cpp

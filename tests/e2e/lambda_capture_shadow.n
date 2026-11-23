@@ -1,0 +1,20 @@
+//Shadowed captures: the hop walk from a synthetic frame must stop at
+//the display OWNING the bound descriptor, not the first display with
+//a same-named field. l2 and lw are declared before the inner n, so
+//their bodies bind main's n (declaration-before-use); l3 is declared
+//after and binds the inner n. The write half pins the same identity
+//for stores: lw must land in main's storage, visible after the call.
+int main() {
+	int n = 1;
+	func<int, int> l1 = (a) -> {
+		func<int, int> l2 = (b) -> n + b;
+		func<void> lw = () -> { n = n + 1; };
+		int n = 100;
+		func<int, int> l3 = (c) -> n + c;
+		lw();
+		return l2(0) * 10 + l3(0) / 100;
+	};
+	if (l1(0) != 21) { return 1; }  // (2*10) + (100/100)
+	if (n != 2) { return 2; }       // lw wrote main's n
+	return 0;
+}

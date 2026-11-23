@@ -49,6 +49,7 @@ class SnMemberExpr;
 class SnIdentifierExpr;
 class SnAssignStmt;
 class SnCompoundAssignStmt;
+class SnCatchClause;
 
 //Phase 9c: forward-declared so EmitBinding/EmitCallArgs can take
 //references without including SnExpressions.h (heavy header dep). Full
@@ -249,6 +250,9 @@ public:
     //pool, bare type parameter via OP_TypeNameArg (the receiver's
     //descriptor), composition instantiations via OP_TypeNameCompose.
     void Access(SnTypeNameExpr&);
+    //0.13.10 Task 6: a lambda literal binds its anchor display instance
+    //and synthetic method (OP_MakeBoundFunc) in value position.
+    void Access(SnLambdaExpr&);
     void Access(SnNewArrayExpr&);
     void Access(SnInitListExpr&);
     void Access(SnSubscriptExpr&);
@@ -305,6 +309,10 @@ private:
     //(T& formals included: the element kind is only known per
     //instantiation). Shared by the param and local declarator arms.
     static uint8_t ByrefSlotKindOfType(SnField* evalType);
+    //Descriptor kind of one instance field: the captured flavors claim
+    //byref/box-shaped cells (both root their heap handle), everything
+    //else files under its runtime kind (RegisterClass.cpp).
+    static uint16_t InstanceFieldSlotKind(const SnClassField& cf);
     void GenerateFunction(SnFunction& func, size_t funcIdx);
     //GenerateFunction's native arm (split for the 50-line function
     //budget): signature fill via FillNativeFunctionRecord, then the
@@ -359,6 +367,9 @@ private:
     //opcodes; returns the slot offset.
     uint16_t EmitLocalDeclaratorStorage(SnLocalDeclStmt& decl,
         const SnLocalDeclStmt::LocalDecl& local, SnField* evalType,
+        BytecodeEmitter& emitter);
+    //The struct-typed declarator's OP_AllocStruct tail.
+    void EmitStructDeclStorage(uint16_t offset, SnField& evalType,
         BytecodeEmitter& emitter);
     void EmitStaticLocalInitSequence(SnAssignStmt& assign, uint16_t slotIdx,
         BytecodeEmitter& emitter);
@@ -482,6 +493,133 @@ private:
     void EmitCompoundRefLocal(SnCompoundAssignStmt& ca, SnField* field,
         const BareIdTarget& target, int op, BytecodeEmitter& emitter);
 
+    //--- Lambda capture emission (0.13.10 Task 6) — EmitCapture.cpp ---
+    //True while emitting inside a $lambda_N synthetic frame (the current
+    //class is a generated display class). Locals resolve local 0 = the
+    //anchor display instance; "this" reads the anchor's "$this" field.
+    bool InSyntheticCaptureFrame() const;
+    //Load the implicit receiver into a slot: the this-override slot when
+    //one is active, local 0 in a synthetic frame, otherwise the frame's
+    //implicit this slot (with a null check — same contract as a ThisField
+    //read).
+    void EmitReceiverLoad(uint16_t dstOffset, BytecodeEmitter& emitter);
+    //Load the record that physically holds a captured field's storage:
+    //the display instance slot for DisplayField (hops 0 = itself), or
+    //local 0 chased through `outerHops` "$outer" fields for
+    //CaptureField. A promoted capture chases one more level — the
+    //field cell holds the box handle, and the box payload is the
+    //storage — so downstream flavor arms address a single base.
+    void EmitCaptureCellLoad(uint16_t dstOffset, const BareIdTarget& target,
+        SnField* pField, BytecodeEmitter& emitter);
+    //Store a value (already in valueSlot) into a captured field's cell:
+    //struct-typed captures copy in place into the born record, everything
+    //else is an 8-byte cell store. Pair/box flavors must not come here.
+    void EmitCaptureCellStore(SnField* pDisplayField, int fieldOff,
+        uint16_t cellOwnerSlot, uint16_t valueSlot,
+        BytecodeEmitter& emitter);
+    //Identifier read through captured storage (value / promoted / ref).
+    void EmitCapturedRead(SnField* field, const BareIdTarget& target,
+        uint16_t resultOffset, BytecodeEmitter& emitter);
+    //Plain assign through captured storage. The NF_Generated binding-init
+    //assign stages the ref pair into the field; flavors otherwise mirror
+    //the local promoted/ref/value assign shapes. (EmitCaptureStorage.cpp.)
+    void EmitCapturedAssign(SnAssignStmt& assign, SnField* field,
+        const BareIdTarget& target, BytecodeEmitter& emitter);
+    //Compound read-modify-write through captured storage
+    //(EvalAreaClaim(3) — the walker's uniform compound charge).
+    void EmitCapturedCompound(SnCompoundAssignStmt& ca, SnField* field,
+        const BareIdTarget& target, int op, BytecodeEmitter& emitter);
+    //Frame prologue halves: allocate + construct one display instance per
+    //marked paragraph in the body subtree (uniform rule, body root
+    //included), then copy captured formals from their frame slots into
+    //the display fields. (EmitCapture.cpp.)
+    void EmitCaptureDisplayPrologue(SnParagraph& body, BytecodeEmitter& emitter);
+    //Construct one display instance into its frame slot — the shared
+    //recipe behind the frame prologue and the loop activation.
+    void EmitDisplayConstruct(SnClassDecl& cls, uint16_t displaySlot,
+        BytecodeEmitter& emitter);
+    //Loop-body display activation for Task 9: allocate the displays owned
+    //by one iteration, optionally carrying the previous loop-head fields
+    //through an eval-area claim (the two carry halves emit around the
+    //construct).
+    void EmitLoopDisplayActivation(SnParagraph& loopBody,
+        bool linkPrevious, BytecodeEmitter& emitter);
+    void EmitDisplayHeadCarryIn(SnParagraph& loopBody, uint16_t claimBase,
+        BytecodeEmitter& emitter);
+    void EmitDisplayHeadCarryOut(SnParagraph& loopBody, uint16_t claimBase,
+        BytecodeEmitter& emitter);
+    void EmitLoopDisplayHeadCopies(SnParagraph& loopBody,
+        BytecodeEmitter& emitter);
+    //True when any captured loop head stores through the struct-aware
+    //tail during the activation window (EmitStructAwareStoreField's
+    //claim(1)): value-flavor struct heads only — reference heads keep
+    //the plain pair copy and promotion never applies to structs. The
+    //frame-size walkers mirror the claim with this predicate.
+    bool LoopHeadUsesStructTail(SnParagraph& loopBody) const;
+    //One display instance's "$outer" field init (the parent display slot
+    //or the frame-boundary local 0).
+    void EmitDisplayOuterInit(uint16_t displaySlot, int outerOff,
+        SnClassDecl& cls, BytecodeEmitter& emitter);
+    void EmitCapturedFormalCopies(SnFunction& func, BytecodeEmitter& emitter);
+    //One captured formal's prologue copy — one flavor dispatch.
+    void EmitCapturedFormalCopy(SnFormalParam& param,
+        BytecodeEmitter& emitter);
+    //I2: a captured catch variable's handler-entry copy — the runtime
+    //lands the caught exception in the clause's frame slot, and this
+    //bridges that slot into the display field before any handler
+    //statement (the formal-copy analog; the value lands by protocol,
+    //not by an argument register). (EmitCaptureFrame.cpp.)
+    void EmitCatchVarDisplayCopy(SnCatchClause& catchClause,
+        uint16_t catchOff, BytecodeEmitter& emitter);
+    //Binding-order step 2: NF_Captured fields. A display class's local
+    //slot wins (the instance lives in this frame); otherwise hop-walk the
+    //synthetic frame's "$outer" chain to the owning display. NotFound on
+    //a captured name is an invariant break.
+    BareIdTarget DisplayFieldOfCaptured(SnField* field);
+    //The delegate callee's handle load, one arm per resolved storage
+    //kind (EmitExprCore.cpp).
+    void EmitDelegateCalleeLoad(const SnInvokeExpr& invoke,
+                                const BareIdTarget& target,
+                                uint16_t calleeSlot,
+                                BytecodeEmitter& emitter);
+    //The display field behind a captured descriptor — the resolver
+    //stamped both halves (NF_Captured on the descriptor, the field
+    //pointer beside the ownership list). A null here is an invariant
+    //break. Shared by the capture emission TUs.
+    static SnClassField* CapturedDisplayFieldOf(SnField* field);
+    //A captured descriptor reads/writes through display storage — the
+    //walker claim shapes and the emission dispatch share this predicate
+    //so their +1 claim cannot drift from the dispatch decision.
+    static bool IsCapturedField(const SnField* pField)
+    {
+        return pField != nullptr && pField->ContainFlags(NF_Captured);
+    }
+
+    //--- Captured-storage mutation arms — EmitCaptureStorage.cpp ---
+    //Reference-typed capture store-through: re-stage the pair out of the
+    //field cell into the scratch record slot (the read-modify-write's
+    //in-place deref consumed the staged pair), then the tagged
+    //store-through. Shared by the plain assign and the compound
+    //store-back so their pair staging cannot drift.
+    void EmitCapturedRefStore(SnClassField& displayField,
+        int fieldOff, uint16_t recordSlot, uint16_t valueSlot,
+        BytecodeEmitter& emitter);
+    //Old-value read of a captured compound: the chased record sits in
+    //cellSlot; the flavor dispatch stages the old value (the deref
+    //flavors in place over the staged pair).
+    void EmitCapturedOldValueRead(SnClassField* pDisplayField,
+        const BareIdTarget& target, uint16_t cellSlot,
+        uint16_t oldValSlot, BytecodeEmitter& emitter);
+    //Reference-binding MakeRef over chased display storage (the
+    //DisplayField/CaptureField arm of EmitMakeRefOfIdentifier).
+    void EmitCapturedMakeRef(uint16_t dstOffset, SnIdentifierExpr& idExpr,
+        const BareIdTarget& target, BytecodeEmitter& emitter);
+    //A captured declarator owns no frame slot — the display field IS the
+    //storage; a promoted capture writes its activation box into the
+    //field cell. True when the declarator was captured.
+    bool EmitCapturedDeclaratorStorage(SnField* pDeclNode,
+        SnField* evalType, BytecodeEmitter& emitter);
+
     //Shared shape predicates, consumed by both the emission members and
     //the frame-size walkers (Walkers*.cpp) so the dispatch
     //decision cannot drift between codegen and walkers.
@@ -568,6 +706,12 @@ private:
     bool EmitMemberStaticCall(SnMemberExpr& member,
                               BytecodeEmitter& emitter,
                               uint16_t resultOffset);
+    //Delegate flavor of the receiverless static call — the callee bound
+    //to a func-typed static field (Cfg.dbl(21)); handle straight off the
+    //module slot, no receiver. (EmitExprMemberStatic.cpp.)
+    bool EmitMemberStaticDelegateCall(SnInvokeExpr& invoke,
+                                      BytecodeEmitter& emitter,
+                                      uint16_t resultOffset);
     //0.13.1a Task 2: an inferred template-row static — the resolver
     //bound a created instantiation's clone member; the frame descriptor
     //cell rides OP_CallStatic's operand (OP_CallMethodDirect has none).
@@ -655,8 +799,12 @@ private:
                                  BytecodeEmitter& emitter,
                                  uint16_t resultOffset);
     //Receiverless function reference in value position (lib.seven or a
-    //static method) — the bare static func handle.
-    void EmitReceiverlessFuncHandleRef(SnField& func, BytecodeEmitter& emitter,
+    //static method) — the bare static func handle. The member expr is
+    //the referrer whose stamped inferred arguments drive a generic
+    //free function's descriptor row.
+    void EmitReceiverlessFuncHandleRef(SnField& func,
+                                 const SnFieldExpr& referrer,
+                                 BytecodeEmitter& emitter,
                                  uint16_t resultOffset);
     //User-defined enum method call.
     bool EmitMemberEnumMethodCall(SnMemberExpr& member,
@@ -805,6 +953,12 @@ private:
     static uint16_t ExprPeakDepth(SnExpression& expr,
         const std::unordered_set<SnFunction*>& visited,
         bool isMethodContext = false);
+    //ExprPeakDepth front: transparent wrappers (Cast/As/NamedArg/OutArg/
+    //SliceItem) evaluate their inner into the parent's claim slot — no
+    //claim of their own. True (with outDepth) when expr is one.
+    static bool TryTransparentWrapperDepth(SnExpression& expr,
+        const std::unordered_set<SnFunction*>& visited,
+        uint16_t& outDepth);
     //Instance method: the NK_SuperCallStmt arm reads m_pCurrClass to
     //find the parent ctor's formal count (P3) — same shape as the
     //MaxArgs walker family.
@@ -1008,9 +1162,21 @@ private:
     void EmitAssignToThisField(SnAssignStmt& assign, int fieldOff,
                                SnField* fieldType,
                                BytecodeEmitter& emitter);
+    //ThisField arm of the bare-identifier read (implicit this.<field>,
+    //receiver redirect included).
+    void EmitThisFieldRead(SnField* field, const BareIdTarget& target,
+                           uint16_t resultOffset, BytecodeEmitter& emitter);
+    //Local arm of the reference binding (EmitMakeRefOfIdentifier): the
+    //pair/box/record shapes of one frame local.
+    void EmitLocalMakeRef(uint16_t dstOffset, SnIdentifierExpr& idExpr,
+                          BytecodeEmitter& emitter);
     void EmitAssignMemberField(SnAssignStmt& assign,
                                SnMemberExpr& memberExpr,
                                BytecodeEmitter& emitter);
+    //Static-store arm of the member assign (class-name keyed). False
+    //when the member is not a storable static.
+    bool EmitAssignStaticClassField(SnAssignStmt& assign, SnField* field,
+                                    BytecodeEmitter& emitter);
     bool EmitAssignSubscriptElementStore(SnAssignStmt& assign,
                                          SnMemberExpr& memberExpr,
                                          BytecodeEmitter& emitter);
@@ -1698,8 +1864,20 @@ private:
                           const ArgBoxPlan& box,
                           BytecodeEmitter& emitter);
     uint16_t AllocLocal(const std::string& name, uint16_t size,
-                        uint8_t typeKind, bool isParam);
+                        uint8_t typeKind, bool isParam,
+                        const std::string& debugName = std::string());
     uint16_t FindLocal(const std::string& name) const;
+    //0.13.10 Task 9 (declaration-keyed storage): allocate (or return) the
+    //private slot of one published declaration descriptor. A null
+    //descriptor keeps the legacy name-keyed behavior — defensive for
+    //paths that never publish. '$' never appears in user identifiers, so
+    //the suffixed slot name can neither collide with nor silently reuse a
+    //same-named outer slot.
+    uint16_t AllocDeclSlot(const SnField* decl, const std::string& name,
+                           uint8_t typeKind);
+    //Descriptor-first raw-slot read for a loop head; the name-keyed
+    //fallback keeps legacy shapes (no published descriptor) working.
+    uint16_t DeclSlotOf(const SnField* decl, const std::string& name) const;
     uint16_t AddStringConstant(const std::string& s);
 
     //--- Access(SnXExpr) decomposition (2026-09-25 maintainability
@@ -1718,7 +1896,8 @@ private:
     void EmitIdentifierEnumMemberRead(BytecodeEmitter& emitter,
                                       uint16_t resultOffset, SnField* field);
     void EmitIdentifierFuncHandleRead(BytecodeEmitter& emitter,
-                                      uint16_t resultOffset, SnField* field);
+                                      uint16_t resultOffset, SnField* field,
+                                      const SnFieldExpr& referrer);
     void EmitIdentifierFieldRead(BytecodeEmitter& emitter,
                                  uint16_t resultOffset, SnField* field);
     //v0.12.6 D3: inline-literal read of a compile-time-folded static
@@ -2056,9 +2235,12 @@ private:
                                     uint16_t resultOffset,
                                     BytecodeEmitter& emitter);
 
-    //SnForStmt arms: claim-staged condition + JumpIfNot placeholder
-    //(returns the patch offset), and the shared break/continue patch.
-    size_t EmitForCondition(SnForStmt& forStmt, BytecodeEmitter& emitter);
+    //Loop arms: claim-staged condition + JumpIfNot placeholder (returns
+    //the patch offset — shared by while/do/for), the for init part
+    //(display pre-activation + init + decomposed assigns), and the
+    //shared break/continue patch.
+    size_t EmitLoopCondition(SnExpression& cond, BytecodeEmitter& emitter);
+    void EmitForInitPart(SnForStmt& forStmt, BytecodeEmitter& emitter);
     void EmitLoopExitFixups(size_t breakTarget, size_t continueTarget,
                             BytecodeEmitter& emitter);
 
@@ -2066,25 +2248,40 @@ private:
     //bare identifier that resolved to an SnField:
     //  1. binding override scope (default-param formal) — checked by the
     //     caller via LookupOverride() before calling here
-    //  2. local frame (params + user locals) — localOffsets
-    //  3. implicit this.<classField> — bare member access inside a method
-    //  4. static class field — module slot (0.12.6 D1/D3: no instance
+    //  2. NF_Captured — the display instance (0.13.10): DisplayField when
+    //     the owning display is a frame slot of the current function,
+    //     CaptureField when it sits behind $outer hops (synthetic frame)
+    //  3. local frame (params + user locals) — localOffsets
+    //  4. implicit this.<classField> — bare member access inside a method
+    //     (redirected through the display's "$this" field inside a
+    //     synthetic method — 0.13.10)
+    //  5. static class field — module slot (0.12.6 D1/D3: no instance
     //     involved; locals keep shadowing per the bare-pool precedence)
-    //  5. NotFound — resolver/codegen model divergence (internal error)
+    //  6. NotFound — resolver/codegen model divergence (internal error)
     //Single source of truth shared by the IdentifierExpr read, AssignStmt
     //write, and CompoundAssignStmt paths so the three stay in lockstep.
     struct BareIdTarget {
-        enum Kind { Local, ThisField, StaticSlot, NotFound };
+        enum Kind { Local, DisplayField, CaptureField, ThisField,
+                    StaticSlot, NotFound };
         Kind kind = NotFound;
-        uint16_t localOffset = 0;   //Local
+        uint16_t localOffset = 0;   //Local; DisplayField: display instance
         uint16_t slotIdx = 0;       //StaticSlot: module slot index
-        //ThisField: owning type decl (SnClassDecl or SnStructDecl —
-        //0.9.11 D2). Consumers read fieldOff only; the owner exists to
-        //keep the binding auditable.
+        //ThisField/DisplayField/CaptureField: owning type decl. Consumers
+        //read fieldOff only; the owner exists to keep the binding
+        //auditable.
         SnField* owner = nullptr;
-        int fieldOff = -1;          //ThisField: flattened field offset
+        int fieldOff = -1;          //flattened field offset (all field kinds)
+        int outerHops = 0;          //CaptureField: $outer hops from local 0
     };
     BareIdTarget ResolveBareIdentifier(SnField* field);
+    //Field-first storage channels of ResolveBareIdentifier (static local
+    //module slot, captured display field, declaration-private slot).
+    //True with t filled when one answers.
+    bool TryResolveOwnedStorage(SnField* field, BareIdTarget& t);
+    //ThisField arm of ResolveBareIdentifier: the owning class/struct walk
+    //with the offset solver (structs flatten, classes walk the chain).
+    //True with t filled when the field resolves to instance storage.
+    bool ResolveThisFieldTarget(SnField& field, BareIdTarget& t);
     //0.12.6: the module slot a static class field owns (declaration
     //order, assigned at class registration). Throws on a static field
     //the registration walk never saw — an internal invariant break.
@@ -2276,6 +2473,17 @@ private:
         //AllocLocal dedupes by name (VmBackend.cpp:2194); without uniquification,
         //nested foreach loops would collide on __foreach_iter / __foreach_i / __foreach_n.
         uint16_t foreachCounter = 0;
+        //0.13.10 Task 9: storage identity moves from name to declaration.
+        //The flat frame's name-keyed slot reuse aliases shadowed bindings
+        //(loop head vs outer local, nested same-name heads, catch var,
+        //block declarations). Every allocation site that owns a published
+        //descriptor (local declarators incl. for-heads, foreach heads,
+        //catch variables) records descriptor → slot here; the bare-name
+        //routing consults it field-first, the same medicine the static
+        //(v0.12.6) and captured (Task 6) channels already apply.
+        std::unordered_map<const SnField*, uint16_t> localSlotOfDecl;
+        //Per-function counter for the $-suffixed private slot names.
+        uint16_t declSlotCounter = 0;
         //v0.12.7 Task 3: the declared return type of the function being
         //emitted (non-owning; null for void) — the return-boundary rank
         //check reads the annotation from it. Static-init contexts leave

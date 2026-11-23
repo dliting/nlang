@@ -650,6 +650,34 @@ target_compile_definitions(test_generic_runtime_info
 
 add_test(NAME generic_runtime_info_tests COMMAND test_generic_runtime_info)
 
+# lambda/closure plan Task 5: 4-slot function records + the MakeFunc
+# descIdx pairing (NCU v2.23), compile+execute in-process; the heap
+# stays inspectable so the record cells pin the ABI.
+add_executable(test_func_records
+    test_vm/test_func_records.cpp
+)
+
+target_include_directories(test_func_records
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_func_records
+    PRIVATE
+        nlang_vm
+        nlang_compiler
+        nlang_runtime
+        nlang_langservice
+)
+nlang_stdlib_test(test_func_records)
+target_compile_definitions(test_func_records
+    PRIVATE
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+)
+
+add_test(NAME func_records_tests COMMAND test_func_records)
+
 # v0.13.9 phase ②: the record-stabilization write primitive
 # (OP_CopyStructInPlace / CopyStructInPlace), compile+execute
 # in-process; allocation pins read HeapAllocCountForTests.
@@ -743,6 +771,37 @@ target_compile_definitions(test_interface_rtk_gc
 )
 
 add_test(NAME interface_rtk_gc_tests COMMAND test_interface_rtk_gc)
+
+# 0.13.10 Task 8: display capture-field kind pins — a &-capture display
+# field declares RTK_ByrefBase (the class mark phase's base-handle
+# label), a promoted capture keeps RTK_Promoted, a value capture keeps
+# its declared kind. Byte pins over real-compiled modules; the survival
+# runs are tests/e2e/lambda_capture_gc_survive.n.
+add_executable(test_display_capture_kinds
+    test_vm/test_display_capture_kinds.cpp
+)
+
+target_include_directories(test_display_capture_kinds
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/compiler
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_display_capture_kinds
+    PRIVATE
+        nlang_vm
+        nlang_compiler
+        nlang_runtime
+        nlang_langservice
+)
+nlang_stdlib_test(test_display_capture_kinds)
+target_compile_definitions(test_display_capture_kinds
+    PRIVATE
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+)
+
+add_test(NAME display_capture_kinds_tests COMMAND test_display_capture_kinds)
 
 # v0.13.9 phase ③ Task 4: scalar/string local promotion — a &-bound local
 # or value formal gets its storage compiled into one stable boxed record
@@ -1630,6 +1689,21 @@ target_link_libraries(test_ast_containment
 
 add_test(NAME ast_containment_tests COMMAND test_ast_containment)
 
+# Lambda cover-grammar parse tests (lambda/closure plan Task 2): the
+# unified-prefix split, SnLambdaExpr node shapes, and the ParenPrefix
+# post-check rejections.
+add_executable(test_lambda_parse
+    test_compiler/test_lambda_parse.cpp
+)
+
+target_link_libraries(test_lambda_parse
+    PRIVATE
+        nlang_compiler
+        nlang_runtime
+)
+
+add_test(NAME lambda_parse_tests COMMAND test_lambda_parse)
+
 # Script-mode wrap unit tests (v0.9.1): entry synthesis driven in
 # process through the real build -> load -> link pipeline; entry
 # selection/signature asserted on the linked function table, the two
@@ -2209,6 +2283,77 @@ if(NLANG_BUILD_IDE)
                 $<TARGET_FILE_DIR:test_statement_diag>)
     endif()
     nlang_add_qtest(statement_diag_tests test_statement_diag)
+
+    #Lambda parameter-shape gate (lambda/closure plan Task 3): asserts
+    #the raw-expression rejection diagnostic COUNT through the real
+    #ModuleBuilder pipeline (the decomposed local-decl revisit is the
+    #double-report trap), and the parse-layer rejections of the
+    #default-value / '<'-led spellings.
+    add_executable(test_lambda_params
+        test_compiler/test_lambda_params.cpp
+    )
+    target_link_libraries(test_lambda_params
+        PRIVATE
+            nlang_compiler
+            nlang_runtime
+            nlang_vm
+            Qt5::Test
+    )
+    if(WIN32)
+        add_custom_command(TARGET test_lambda_params POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:Qt5::Core> $<TARGET_FILE:Qt5::Test>
+                $<TARGET_FILE_DIR:test_lambda_params>)
+    endif()
+    nlang_add_qtest(lambda_param_tests test_lambda_params)
+
+    #Lambda typing through the expected-type channel (lambda/closure
+    #plan Task 4): asserts the resolution artifacts on the tree (NF_Resolved,
+    #the stamped func<...> instantiation, one param descriptor per
+    #parameter) and the typing diagnostic COUNTS through the real
+    #ModuleBuilder pipeline. The emission seam ("NLang backend") stays
+    #filtered until Tasks 5-7 light the lowering up.
+    add_executable(test_lambda_typing
+        test_compiler/test_lambda_typing.cpp
+    )
+    target_link_libraries(test_lambda_typing
+        PRIVATE
+            nlang_compiler
+            nlang_runtime
+            nlang_vm
+            Qt5::Test
+    )
+    if(WIN32)
+        add_custom_command(TARGET test_lambda_typing POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:Qt5::Core> $<TARGET_FILE:Qt5::Test>
+                $<TARGET_FILE_DIR:test_lambda_typing>)
+    endif()
+    nlang_add_qtest(lambda_typing_tests test_lambda_typing)
+
+    #Display synthesis and capture promotion (lambda/closure plan
+    #Task 6): asserts the synthesis artifacts on the tree — the display
+    #class field sets (captured name, & base+offset pair, $this, $outer
+    #chase), the shared-display identity across sibling lambdas, the
+    #recursive self-capture, and the static-context this reject that the
+    #redirect must not swallow.
+    add_executable(test_lambda_capture
+        test_compiler/test_lambda_capture.cpp
+    )
+    target_link_libraries(test_lambda_capture
+        PRIVATE
+            nlang_compiler
+            nlang_runtime
+            nlang_vm
+            Qt5::Test
+    )
+    if(WIN32)
+        add_custom_command(TARGET test_lambda_capture POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:Qt5::Core> $<TARGET_FILE:Qt5::Test>
+                $<TARGET_FILE_DIR:test_lambda_capture>)
+    endif()
+    nlang_add_qtest(lambda_capture_tests test_lambda_capture)
 
     #Override-signature / interface-contract diagnostics (P1): asserts
     #diagnostic COUNTS (the e2e manifest only does substring existence)

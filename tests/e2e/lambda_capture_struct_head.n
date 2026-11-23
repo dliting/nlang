@@ -1,0 +1,118 @@
+//0.13.10 review round 2, Critical finding: a captured STRUCT-typed
+//for-head must keep per-iteration records — the continue-target
+//carry's plain field copy aliased one record across every display
+//(all closures read the tail value; writes through any closure were
+//visible to all iterations). The carry now deep-copies into the
+//fresh display's born record. The foreach arm pins the same
+//per-iteration record independence for value-form struct heads (the
+//plain handle copy shared the container's element record), and the
+//uncaptured leg pins the plain slot path staying correct beside the
+//capture machinery. Exit codes stay small: bash wraps $? mod 256.
+struct Counter {
+    public int n;
+    public Counter(int v) { n = v; }
+}
+int forStructHead() {
+    List<func<int>> fs = List<func<int>>();
+    for (Counter c = Counter(0); c.n < 3; c = Counter(c.n + 1)) {
+        fs.add(() -> c.n);
+    }
+    func<int> a = fs.get(0);
+    func<int> b = fs.get(1);
+    func<int> c2 = fs.get(2);
+    return a() + 10 * b() + 100 * c2();
+}
+int foreachStructHead() {
+    List<Counter> cs = List<Counter>();
+    cs.add(Counter(10));
+    cs.add(Counter(20));
+    cs.add(Counter(30));
+    List<func<int>> fs = List<func<int>>();
+    foreach (Counter c in cs) {
+        fs.add(() -> c.n);
+    }
+    func<int> a = fs.get(0);
+    func<int> b = fs.get(1);
+    func<int> c2 = fs.get(2);
+    if (a() != 10) {
+        return 20;
+    }
+    if (b() != 20) {
+        return 21;
+    }
+    if (c2() != 30) {
+        return 22;
+    }
+    return 0;
+}
+int foreachWriteIsolation() {
+    List<Counter> cs = List<Counter>();
+    cs.add(Counter(10));
+    cs.add(Counter(20));
+    cs.add(Counter(30));
+    List<func<void>> mut = List<func<void>>();
+    foreach (Counter c in cs) {
+        mut.add(() -> { c.n = 77; });
+    }
+    func<void> first = mut.get(0);
+    first();
+    //The display holds a per-iteration record copy: a write through the
+    //closure must stay inside that copy and leave the container intact.
+    if (cs.get(0).n != 10) {
+        return 300;
+    }
+    if (cs.get(1).n != 20) {
+        return 301;
+    }
+    return 0;
+}
+int writeThroughIsolation() {
+    List<func<void>> mut = List<func<void>>();
+    List<func<int>> rd = List<func<int>>();
+    for (Counter c = Counter(0); c.n < 3; c = Counter(c.n + 1)) {
+        mut.add(() -> { c.n = 77; });
+        rd.add(() -> c.n);
+    }
+    func<void> first = mut.get(0);
+    first();
+    func<int> a = rd.get(0);
+    func<int> b = rd.get(1);
+    if (a() != 77) {
+        return 200;
+    }
+    if (b() != 1) {
+        return 201;
+    }
+    return 0;
+}
+int uncapturedStructHead() {
+    int last = -1;
+    int visits = 0;
+    Counter start = Counter(0);
+    for (Counter c = start; c.n < 3; c = Counter(c.n + 1)) {
+        last = c.n;
+        visits = visits + 1;
+    }
+    if (visits != 3 || last != 2) {
+        return 1;
+    }
+    return 0;
+}
+int main() {
+    if (forStructHead() != 210) {
+        return 1;
+    }
+    if (foreachStructHead() != 0) {
+        return 2;
+    }
+    if (foreachWriteIsolation() != 0) {
+        return 5;
+    }
+    if (writeThroughIsolation() != 0) {
+        return 3;
+    }
+    if (uncapturedStructHead() != 0) {
+        return 4;
+    }
+    return 0;
+}

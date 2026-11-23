@@ -45,13 +45,30 @@ static void EmitCallByName(BytecodeReader &r, std::ostringstream &out,
     out << " base=" << base << "\n";
 }
 
-//funcIdx line with "(name)" suffix (MakeFunc/MakeBoundFunc share it).
+//funcIdx line with "(name)" suffix (MakeBoundFunc only — MakeFunc
+//carries the second descriptor word and renders below).
 static void EmitMakeFuncIdx(BytecodeReader &r, std::ostringstream &out,
     const std::string &head, const CompiledModule &module) {
     uint16_t funcIdx = r.ReadUint16();
     out << head << " funcIdx=" << funcIdx;
     if (funcIdx < module.functions.size())
         out << " (" << module.functions[funcIdx].name << ")";
+    out << "\n";
+}
+
+//MakeFunc: funcIdx + descriptor row (v2.23) — the desc= token mirrors
+//the direct-call lines (the descriptor table names the row).
+static void EmitMakeFuncDesc(BytecodeReader &r, std::ostringstream &out,
+    const std::string &head, const CompiledModule &module) {
+    uint16_t funcIdx = r.ReadUint16();
+    uint16_t descIdx = r.ReadUint16();
+    out << head << " funcIdx=" << funcIdx;
+    if (funcIdx < module.functions.size())
+        out << " (" << module.functions[funcIdx].name << ")";
+    out << " desc=0x" << std::hex << descIdx << std::dec;
+    if (descIdx < module.descriptorTable.size()
+        && !module.descriptorTable[descIdx].spelling.empty())
+        out << " (" << module.descriptorTable[descIdx].spelling << ")";
     out << "\n";
 }
 
@@ -93,6 +110,8 @@ bool DisasmFuncValueOps(OpCode op, BytecodeReader &r,
     const CompiledModule &module) {
     switch (op) {
         case OpCode::OP_MakeFunc:
+            EmitMakeFuncDesc(r, out, head, module);
+            return true;
         case OpCode::OP_MakeBoundFunc:
             EmitMakeFuncIdx(r, out, head, module);
             return true;

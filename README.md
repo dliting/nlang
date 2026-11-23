@@ -211,7 +211,7 @@ Full semantics — resolution order, reserved path segments, single-file
 mode — are in the Declarations chapter
 (`docs/user_manual/en/specification/03-program-structure/declarations.md`, Import Declaration).
 
-Compiled units use a versioned binary format, currently v2.8 (import
+Compiled units use a versioned binary format, currently v2.23 (import
 slots and per-unit module paths — the load-time linking model). The
 loader enforces a compatibility floor: after a floor bump, older
 `.ncu` files are rejected as outdated and must be recompiled with the

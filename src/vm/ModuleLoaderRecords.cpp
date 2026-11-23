@@ -123,6 +123,14 @@ void ReadFunctionRecords(std::istream& fs, CompiledModule& mod)
             throw std::runtime_error(
                 "Invalid module: bad function generic flag");
         func.isGeneric = (genericFlag != 0);
+        //v2.23: lambda record (see ModuleSaver). A wild flag is a
+        //corrupt image — rendering branches on it.
+        uint8_t lambdaFlag = 0;
+        fs.read(reinterpret_cast<char*>(&lambdaFlag), sizeof(lambdaFlag));
+        if (!fs.good() || lambdaFlag > 1)
+            throw std::runtime_error(
+                "Invalid module: bad function lambda flag");
+        func.isLambda = (lambdaFlag != 0);
         uint16_t fnTypeParamCount = 0;
         fs.read(reinterpret_cast<char*>(&fnTypeParamCount),
                 sizeof(fnTypeParamCount));

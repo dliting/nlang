@@ -33,8 +33,10 @@ VmBackend::StringForeachSlots VmBackend::AllocStringForeachLocals(
     const uint8_t userVarKind = fe.ContainFlags(NF_Promoted)
         ? static_cast<uint8_t>(RTK_Promoted)
         : static_cast<uint8_t>(RTK_Char);
-    slots.userVarSlot = AllocLocal(fe.VarName(), kFrameSlotBytes,
-                                   userVarKind, false);
+    //0.13.10 Task 9: the loop-var slot keys on the published descriptor
+    //so a shadowed outer binding keeps its own storage (AllocDeclSlot).
+    slots.userVarSlot = AllocDeclSlot(fe.VarLocal(), fe.VarName(),
+        userVarKind);
     slots.iterSlot = AllocLocal(
         "__foreach_iter_" + std::to_string(counter),
         kFrameSlotBytes, RTK_String, false);
@@ -69,6 +71,11 @@ void VmBackend::EmitStringForeach(SnForeachStmt& fe,
     emitter.EmitUint16(0);  //placeholder, patched below
     emitter.EmitUint16(slots.condSlot);
     m_loopStack.back().breakJumps.push_back(jumpToEnd);
+    //0.13.10 Task 9: the body scope re-activates per iteration — the
+    //step just landed the code point in the raw loop slot; activate the
+    //fresh display, then copy the slot into it before the body's
+    //captures read through the display field.
+    EmitLoopDisplayActivation(*fe.BodyParagraph(), false, emitter);
     //Promoted loop var (char bound by & in the body): the step just
     //wrote the code point into the slot — wrap before any body read.
     if (fe.ContainFlags(NF_Promoted)) {
@@ -77,6 +84,7 @@ void VmBackend::EmitStringForeach(SnForeachStmt& fe,
         EmitPromotedValueWrap(slots.userVarSlot, pCharType->Kind(),
             emitter);
     }
+    EmitLoopDisplayHeadCopies(*fe.BodyParagraph(), emitter);
     EmitStatement(*fe.Body(), emitter);
     emitter.Emit(OpCode::OP_Jump);
     emitter.EmitUint16(static_cast<uint16_t>(loopStart));

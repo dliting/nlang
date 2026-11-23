@@ -253,7 +253,14 @@ UnaryOp         = "-" | "+" | "!" | "~" ;
 AsGenericTarget = IdentifierExpr "<" TypeList ">" [ "[]" | "[,,]" ] ;
 QualifiedGenericReceiver = IdentifierExpr "<" TypeList ">" ;
 
-ParenthesesExpr = "(" Expression ")" ;
+ParenthesesExpr = ParenPrefix | LambdaExpr ;
+ParenPrefix     = "(" [ InnerList ] ")" ;
+InnerList       = InnerListElem { "," InnerListElem } ;
+InnerListElem   = Expression | ParenHeadType <identifier> ;
+LambdaExpr      = ParenPrefix "->" ( Expression | Paragraph ) ;
+ParenHeadType   = ( IdentifierExpr [ "<" TypeArgs ">" ]
+                  | "func" "<" FuncTypeArgs ">" | MemberExpr )
+                  { "[]" | "[,,]" } ;
 LiteralExpr     = <int-literal> | <long-literal> | <ulong-literal>
                 | <float-literal> | <double-literal>
                 | <char-literal> | <string-literal>
@@ -308,6 +315,26 @@ the diagnostic says a call carries no type-argument spelling; when
 it names a type that takes no type arguments, the diagnostic says
 the type is not generic. The receiver name resolves like a bare
 template name.
+
+A parenthesized group and a lambda parameter list share one prefix.
+The tokens inside `( )` are first read as an expression list; a `->`
+after the closing parenthesis confirms the parameter reading and the
+same prefix becomes a lambda — `(x, y) -> x + y` — while any other
+follower keeps the group reading. A group must carry exactly one
+expression: an empty group, a type annotation, and a multi-item group
+are each named by a diagnostic. In a parameter list every item must be
+a bare name (`x`) or a typed name (`int x`, `int& x`); any other
+expression shape — `1`, `x.y`, `f()`, or the comparison chain
+`T<int> x` — is rejected as an invalid parameter list, and no item can
+carry a default value (there is no assignment expression to write one
+with). A parameter-list type head keeps the HeadType spellings except
+that the generic spelling stays reserved to the built-in template
+names (List, Dict, Array, Channel, Future, func): inside a group a
+declared template name followed by `<` is comparison, so a
+user-declared generic cannot head a parameter there, and the lambda's
+own `<T>`-style type parameters are not part of the grammar. The
+lambda's semantics — expected type, capture and the error list —
+are §7.4.
 
 ## 2.7 Operator Precedence
 

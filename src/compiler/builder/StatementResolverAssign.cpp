@@ -11,90 +11,6 @@
 namespace nlang
 {
 
-void StatementResolveAccessor::Access(SnReturnStmt &sn)
-{
-	NLANG_ASSERT(m_pVisitor);
-	NLANG_ASSERT(m_pCurrType && m_pCurrType->Kind() == NK_Function);
-	if (m_inFinallyBody) {
-		m_Env.Log(CLL_Error, sn.Location(),
-			"return is not allowed inside a finally block");
-		return;
-	}
-	auto pOuterFunc		= static_cast<SnFunction *>(m_pCurrType);
-	auto pResultExpr	= sn.Result();
-
-	auto pReturnType = pOuterFunc->ReturnType();
-	if (!pResultExpr)
-	{
-		if (pReturnType)
-			m_Env.Log(CLL_Error, sn.Location(),
-				"Missing return value in a return statement.");
-		return;
-	}
-
-	if (!pReturnType)
-	{
-		//0.9.11 D1: constructors carry no return type; a value return
-		//gets the constructor-specific wording.
-		if (IsConstructorFunction(*pOuterFunc))
-			m_Env.Log(CLL_Error, pResultExpr->Location(),
-				"constructor \"%s\" cannot return a value",
-				pOuterFunc->Name().c_str());
-		else
-			m_Env.Log(CLL_Error, pResultExpr->Location(),
-				"No value should be returned here.");
-		return;
-	}
-
-	//0.9.0: a bare brace return value takes the declared return type as
-	//its target — the same identity FinishReturnExpr reads.
-	if (auto *pInitList = UntypedInitListOf(*pResultExpr))
-		pInitList->InferredTarget(pOuterFunc->EvalDataType());
-
-	pResultExpr->Accept(*m_pVisitor);
-	//v0.13.9 phase 3: &-typed returns must return storage that outlives
-	//the call — a local's record survives (GC) but writes land in an
-	//orphan, so the shape is rejected instead of silently degraded.
-	if (pReturnType->ContainFlags(NF_Ref)
-		&& RejectRefReturnTarget(*pOuterFunc, *pResultExpr,
-			sn.Location()))
-		return;
-	FinishReturnExpr(*pOuterFunc, sn);
-}
-
-//Shared tail of Access(SnReturnStmt&): the return-position function
-//reference binding (Phase 13, TryBindStatementFuncRef) and the cast-
-//fixup choke point against the declared return type. Returns false when
-//the binding failed (its diagnostic is logged) — the caller just stops.
-bool StatementResolveAccessor::FinishReturnExpr(SnFunction &outerFunc,
-	SnReturnStmt &sn)
-{
-	auto pResultExpr = sn.Result();
-	if (!TryBindStatementFuncRef(*pResultExpr,
-		outerFunc.EvalDataType()))
-		return false;
-
-	if (!outerFunc.ReturnType()->IsResolved())
-		return false;
-	auto pSourceType = pResultExpr->EvalDataType();
-	//A result with no resolved type is already an error upstream (a
-	//failed invoke match has its own named diagnosis); the cast report
-	//would only bury it.
-	if (!pSourceType)
-		return true;
-	auto pTargetType = outerFunc.EvalDataType();
-	//0.7.3 B: array results and array return types both carry the
-	//interned token, so the cast choke point adjudicates — same
-	//token = Same (pass-through), different tokens = the named
-	//array reject in FixupExprType, scalar targets = the generic
-	//reject, string targets = Auto toString coercion.
-	auto castInfo = GetCastInfo(pSourceType, pTargetType);
-	auto iExpr = sn.Children().find(sn.m_pResult);
-	if (m_ExprResolver.FixupExprType(iExpr, castInfo))
-		sn.m_pResult = &static_cast<SnCastExpr &>(*iExpr);
-	return true;
-}
-
 void StatementResolveAccessor::Access(SnAssignStmt &sn)
 {
 	if (sn.IsResolved())
@@ -293,7 +209,8 @@ bool StatementResolveAccessor::TryBindStatementFuncRef(SnExpression &expr,
 			static_cast<SnIdentifierExpr&>(expr), pExpectedType);
 	if (IsUnboundMemberFuncRef(expr))
 		return BindMemberFuncRefToExpected(m_Env,
-			static_cast<SnMemberExpr&>(expr), pExpectedType);
+			static_cast<SnMemberExpr&>(expr), pExpectedType,
+			&m_ExprResolver.Accessor());
 	return true;
 }
 
@@ -369,13 +286,10 @@ bool StatementResolveAccessor::TryBindSubscriptStoreFuncRef(
 			*sn.Array()).Field();
 		if (pArrField && pArrField->IsArrayType())
 		{
-			pElemType = pArrField->EvalDataType();
-			//0.7.3 B token path: an array-typed field carries
-			//the interned token; the func-ref binds against the
-			//ELEMENT type.
-			if (pElemType && pElemType->Kind() == NK_ArrayTypeToken)
-				pElemType = static_cast<SnArrayTypeToken*>(
-					pElemType)->ElemTypeOf();
+			//The func-ref binds against the ELEMENT type — derived
+			//through the shared dual-spelling primitive (token or
+			//Array<E> row; the admission above admits both).
+			pElemType = ArrayElementRowOf(pArrField->EvalDataType());
 		}
 		else if (pArrField && pArrField->EvalDataType()
 			&& pArrField->EvalDataType()->Kind() == NK_ClassDecl)

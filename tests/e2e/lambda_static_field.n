@@ -1,0 +1,14 @@
+//A lambda in a STATIC field initializer: static initializers are
+//runtime $staticInit stores (Task 4 ruling), so the initializer types
+//through the ordinary assignment channel and the lambda's display
+//allocates in the $staticInit frame's prologue like any function body.
+class Cfg {
+	public static func<int, int> dbl = (x) -> x * 2;
+	public static func<int> seven = () -> 7;
+}
+
+int main() {
+	if (Cfg.dbl(21) != 42) { return 1; }
+	if (Cfg.seven() != 7) { return 2; }
+	return 0;
+}

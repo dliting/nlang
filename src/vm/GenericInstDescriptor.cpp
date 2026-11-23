@@ -5,6 +5,7 @@
 #include <nlang/vm/CompiledModule.h>
 #include <nlang/vm/CompiledModuleRecords.h>
 #include <nlang/runtime/PrimitiveTypes.h>
+#include <nlang/compiler/TypeArgSpelling.h>
 #include <map>
 #include <memory>
 #include <stdexcept>
@@ -153,29 +154,18 @@ bool ParseArrayArgRange(const std::string& s, size_t begin, size_t end,
 	return true;
 }
 
-//Leaf arm: a builtin type keyword, or a link key resolved against the
-//linked module's tables (struct/class/enum; enums are int32 at runtime
-//and the spelling keeps the enum name). 0.13.8 item 8: descriptor
-//spellings carry the qualified link identity, so a class leaf resolves
-//through the bare-or-unique-suffix bridge — plain-class spellings are
-//exact table keys (module-qualified outside the prelude), while a
-//qualified generic-template spelling lands on its erasure-bare row
-//through the bridge's dotted-input strip (0.13.8 item 8: the row-key
-//space keys templates by the bare BaseName). An unresolved key is a
-//corrupt image and throws — the old silent rowRef -1 forged identity.
-void ResolveLeafArg(const std::string& leaf, const CompiledModule& module,
-	TypeArgDesc& out)
+//Table-resolution tail of ResolveLeafArg: the link-key families
+//(struct/class/enum/interface). Spellings carry the qualified link
+//identity, so a class leaf resolves through the bare-or-unique-suffix
+//bridge — plain-class spellings are exact table keys (module-qualified
+//outside the prelude), while a qualified generic-template spelling
+//lands on its erasure-bare row through the bridge's dotted-input strip
+//(0.13.8 item 8: the row-key space keys templates by the bare
+//BaseName). An unresolved key is a corrupt image and throws — the old
+//silent rowRef -1 forged identity.
+void ResolveLinkKeyLeaf(const std::string& leaf,
+	const CompiledModule& module, TypeArgDesc& out)
 {
-	out.spelling = leaf;
-	out.rowRef = -1;
-	//Keyword leaves (the 12 scalars, `string`, `void`) come from the shared
-	//vocabulary table: no module table is involved, and the producer spells
-	//the same rows, so a keyword can no longer be known on one side only.
-	if (const TypeLeafKeyword* pLeaf = FindTypeLeafKeyword(leaf))
-	{
-		out.resolvedKind = pLeaf->rtk;
-		return;
-	}
 	if (int idx = module.FindStruct(leaf); idx >= 0)
 	{
 		out.resolvedKind = RTK_Struct;
@@ -203,6 +193,27 @@ void ResolveLeafArg(const std::string& leaf, const CompiledModule& module,
 		throw std::runtime_error(
 			"corrupt descriptor spelling: unresolved link key '"
 			+ leaf + "'");
+}
+
+//Leaf arm: keyword-named leaves (the 12 scalars, `string`, `void`
+// - func<void>'s return slot) from the shared vocabulary table, else
+//a link key resolved through ResolveLinkKeyLeaf (struct/class/enum/
+//interface; enums are int32 at runtime and the spelling keeps the
+//enum name).
+void ResolveLeafArg(const std::string& leaf, const CompiledModule& module,
+	TypeArgDesc& out)
+{
+	out.spelling = leaf;
+	out.rowRef = -1;
+	//Keyword leaves (the 12 scalars, `string`, `void`) come from the shared
+	//vocabulary table: no module table is involved, and the producer spells
+	//the same rows, so a keyword can no longer be known on one side only.
+	if (const TypeLeafKeyword* pLeaf = FindTypeLeafKeyword(leaf))
+	{
+		out.resolvedKind = pLeaf->rtk;
+		return;
+	}
+	ResolveLinkKeyLeaf(leaf, module, out);
 }
 
 //Parse one argument substring into a TypeArgDesc: array, nested

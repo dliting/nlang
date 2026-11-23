@@ -1,0 +1,20 @@
+//Task 7 (spec §3.4): lambdas stored in a List<func<...>> keep value
+//identity — contains and indexOf find the stored value, and a freshly
+//evaluated different lambda is not contained.
+int main() {
+    int c = 0;
+    List<func<int>> fs = List<func<int>>();
+    func<int> a = () -> c + 1;
+    fs.add(a);
+    fs.add(() -> c + 2);
+    if (!fs.contains(a)) {
+        return 1;
+    }
+    if (fs.indexOf(a) != 0) {
+        return 2;
+    }
+    if (fs.contains(() -> c + 3)) {
+        return 3;
+    }
+    return 0;
+}

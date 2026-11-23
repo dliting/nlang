@@ -243,6 +243,43 @@ void test_module_generic_fn_roundtrip() {
     PASS();
 }
 
+// --- v2.23 lambda flag round-trip (lambda/closure plan Task 5) ---
+
+void test_islambda_flag_roundtrip() {
+    TEST(islambda_flag_roundtrip);
+    //The function-table lambda flag (toString's Task 7 judge, spec §3.4)
+    //rides the wire like the isGeneric flag: the producer writes it, the
+    //loader rebuilds it, and ordinary records load false.
+    CompiledModule mod;
+    mod.name = "lambda_flag_rt";
+    CompiledFunction anon;
+    anon.name = "lambda$0";
+    anon.paramCount = 1;
+    anon.isLambda = true;
+    CompiledFunction plain;
+    plain.name = "main";
+    plain.paramCount = 0;
+    mod.functions.push_back(std::move(anon));
+    mod.functions.push_back(std::move(plain));
+
+    std::string tmpPath = std::filesystem::temp_directory_path().string()
+        + "/nlang_test_lambda_flag.ncu";
+    {
+        std::ofstream fs(tmpPath, std::ios::binary);
+        CHECK(WriteCompiledModule(fs, mod, "main"),
+              "WriteCompiledModule failed");
+        fs.close();
+    }
+    auto loaded = ModuleLoader::Load(tmpPath);
+    CHECK(loaded.functions.size() == 2, "function count mismatch");
+    CHECK(loaded.functions[0].isLambda,
+          "isLambda survived the wire");
+    CHECK(!loaded.functions[1].isLambda,
+          "ordinary records load with the flag false");
+    std::filesystem::remove(tmpPath);
+    PASS();
+}
+
 // --- v2.0 symbol import slots round-trip ---
 
 void test_module_import_slots_roundtrip() {
@@ -1267,6 +1304,11 @@ int main() {
         g_fail++;
     }
     try { test_module_generic_fn_roundtrip(); }
+    catch (const std::exception& e) {
+        std::cerr << "FAILED (exception: " << e.what() << ")\n";
+        g_fail++;
+    }
+    try { test_islambda_flag_roundtrip(); }
     catch (const std::exception& e) {
         std::cerr << "FAILED (exception: " << e.what() << ")\n";
         g_fail++;

@@ -1,0 +1,7 @@
+//0.13.10 Task 9: the loop head is scoped to the loop statement —
+//reading it after the loop must be a compile error.
+int main() {
+    for (int i = 0; i < 3; i = i + 1) {
+    }
+    return i;  //'i' left its scope with the for statement
+}

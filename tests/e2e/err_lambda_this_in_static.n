@@ -1,0 +1,13 @@
+//A lambda inside a static method referencing instance state stays a
+//compile error: the capture machinery must not swallow the static-
+//context this diagnostic (lambda/closure plan review M4).
+class C {
+	int count;
+	public static func<int, int> make() {
+		return (x) -> x + count;
+	}
+}
+int main() {
+	func<int, int> g = C.make();
+	return g(1);
+}

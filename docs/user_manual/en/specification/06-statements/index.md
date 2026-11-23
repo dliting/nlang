@@ -100,6 +100,12 @@ error. A constant-foldable initializer folds at compile time, like
 a class static constant (§4.8.8); any other expression runs lazily
 on the first execution.
 
+The interaction of a static local with a lambda (§7.4): a `static`
+local is not captured — a reference to it in a lambda body addresses
+the static slot directly, and both reads and writes land on the one
+storage shared by all calls; the same lambda, in different calls and
+different iterations, sees the same static local.
+
 A static local of a struct type follows the struct value model:
 the slot owns one record for life — the first store establishes it
 (a declaration without an initializer starts at the struct's

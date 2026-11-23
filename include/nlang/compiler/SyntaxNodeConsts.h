@@ -41,6 +41,7 @@ typedef NodeBits SyntaxNodeBits;
 	MACRO_IMPL(InitListExpr)			/* [e1,e2] / {k:v} / new T{} (Phase 8e-6) */	\
 	MACRO_IMPL(ThisExpr)					/* this expression */				\
 	MACRO_IMPL(TypeNameExpr)				/* typeName(T) expression (v0.13.1 D4) */	\
+	MACRO_IMPL(LambdaExpr)				/* lambda expression `(p) -> body` (0.13.10) */	\
 	MACRO_IMPL(SubscriptExpr)				/* array subscript access */		\
 	MACRO_IMPL(SliceItemExpr)			/* slice item h:s:st (v0.12.7 T11) */	\
 	MACRO_IMPL(ReturnStmt)				/* return statement */				\
@@ -138,7 +139,8 @@ inline const char* NodeKindDebugName(NodeKind k)
 	MACRO_IMPL(ScriptEntry, 11, "synthesized script entry (D8)") \
 	MACRO_IMPL(TensorOp, 12, "lowered to a tensor module call (v0.13.7)") \
 	MACRO_IMPL(Ref, 13, "reference & mark (declarator/type-arg, v0.13.9)") \
-	MACRO_IMPL(Promoted, 14, "storage promoted to a stable boxed record (v0.13.9)")
+	MACRO_IMPL(Promoted, 14, "storage promoted to a stable boxed record (v0.13.9)") \
+	MACRO_IMPL(Captured, 15, "storage moved into a display field (0.13.10 lambda)")
 
 enum CompNodeFlag: NodeBits
 {

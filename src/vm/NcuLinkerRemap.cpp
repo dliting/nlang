@@ -138,6 +138,9 @@ static void PatchDescriptorOperands(OpCode op, std::vector<uint8_t>& bc,
         case OpCode::OP_CallStatic:
             descOff = 5;  //funcIdx, callParamBase, descIdx (0.13.1a)
             break;
+        case OpCode::OP_MakeFunc:
+            descOff = 3;  //funcIdx, descIdx (v2.23 — the handle's row)
+            break;
         case OpCode::OP_CheckCast:
             descOff = 3;  //classIdx, descIdx
             break;

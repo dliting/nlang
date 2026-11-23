@@ -39,29 +39,13 @@ void VmBackend::EmitMakeRefOfIdentifier(uint16_t dstOffset,
     NLANG_ASSERT(pTarget != nullptr);
     auto target = ResolveBareIdentifier(pTarget);
     if (target.kind == BareIdTarget::Local) {
-        if (pTarget->ContainFlags(NF_Ref)) {
-            emitter.Emit(OpCode::OP_VarLocal);
-            emitter.EmitUint16(target.localOffset);
-            emitter.Emit(OpCode::OP_Assign);
-            emitter.EmitUint16(dstOffset);
-            return;
-        }
-        if (pTarget->ContainFlags(NF_Promoted)) {
-            emitter.Emit(OpCode::OP_RefOfPromoted);
-            emitter.EmitUint16(dstOffset);
-            emitter.EmitUint16(target.localOffset);
-            return;
-        }
-        auto* pType = pTarget->EvalDataType();
-        NLANG_ASSERT(pType != nullptr);
-        if (IsPrimitiveType(pType->Kind()) || pType->Kind() == NK_EnumDecl)
-            throw std::runtime_error(
-                "NLang backend: scalar reference argument on an "
-                "un-promoted local (promotion marking missed): " +
-                idExpr.Name() + " in " + m_currFunc->func->name);
-        emitter.Emit(OpCode::OP_RefOfLocal);
-        emitter.EmitUint16(dstOffset);
-        emitter.EmitUint16(target.localOffset);
+        EmitLocalMakeRef(dstOffset, idExpr, emitter);
+        return;
+    }
+    if (target.kind == BareIdTarget::DisplayField
+        || target.kind == BareIdTarget::CaptureField) {
+        //0.13.10 Task 6: chased display storage (EmitCaptureStorage.cpp).
+        EmitCapturedMakeRef(dstOffset, idExpr, target, emitter);
         return;
     }
     if (target.kind == BareIdTarget::ThisField) {
@@ -78,6 +62,42 @@ void VmBackend::EmitMakeRefOfIdentifier(uint16_t dstOffset,
     throw std::runtime_error(
         "NLang backend: reference binding to a static or unresolved "
         "slot reached emission (resolver gate missed)");
+}
+
+//Local arm of EmitMakeRefOfIdentifier: the reference to a frame local.
+//A reference local passes its pair through (an 8-byte copy preserves
+//the alias); a promoted local pairs the stable box's payload; a scalar
+//means the promotion marking was skipped — failed loudly (the raw
+//value would corrupt the heap as a "handle"); a struct/class/array
+//local pairs the record itself.
+void VmBackend::EmitLocalMakeRef(uint16_t dstOffset,
+    SnIdentifierExpr& idExpr, BytecodeEmitter& emitter)
+{
+    auto* pTarget = idExpr.Field();
+    auto target = ResolveBareIdentifier(pTarget);
+    if (pTarget->ContainFlags(NF_Ref)) {
+        emitter.Emit(OpCode::OP_VarLocal);
+        emitter.EmitUint16(target.localOffset);
+        emitter.Emit(OpCode::OP_Assign);
+        emitter.EmitUint16(dstOffset);
+        return;
+    }
+    if (pTarget->ContainFlags(NF_Promoted)) {
+        emitter.Emit(OpCode::OP_RefOfPromoted);
+        emitter.EmitUint16(dstOffset);
+        emitter.EmitUint16(target.localOffset);
+        return;
+    }
+    auto* pType = pTarget->EvalDataType();
+    NLANG_ASSERT(pType != nullptr);
+    if (IsPrimitiveType(pType->Kind()) || pType->Kind() == NK_EnumDecl)
+        throw std::runtime_error(
+            "NLang backend: scalar reference argument on an "
+            "un-promoted local (promotion marking missed): " +
+            idExpr.Name() + " in " + m_currFunc->func->name);
+    emitter.Emit(OpCode::OP_RefOfLocal);
+    emitter.EmitUint16(dstOffset);
+    emitter.EmitUint16(target.localOffset);
 }
 
 //Compile-time cell offset of one field within its owner record: the

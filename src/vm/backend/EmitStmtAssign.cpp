@@ -64,6 +64,11 @@ void VmBackend::EmitAssignBareIdentifier(SnAssignStmt& assign,
         else
             EmitAssignToLocal(assign, target.localOffset,
                 field->EvalDataType(), emitter);
+    } else if (target.kind == BareIdTarget::DisplayField
+        || target.kind == BareIdTarget::CaptureField) {
+        //0.13.10 Task 6: captured storage — flavor dispatch over the
+        //chased display record (EmitCapture.cpp).
+        EmitCapturedAssign(assign, field, target, emitter);
     } else if (target.kind == BareIdTarget::StaticSlot) {
         EmitAssignStaticSlot(assign, field, target.slotIdx, emitter);
     } else if (target.kind == BareIdTarget::ThisField) {
@@ -141,12 +146,9 @@ void VmBackend::EmitAssignToThisField(SnAssignStmt& assign, int fieldOff,
     //v0.12.7: boundary rank check on the staged value.
     EmitArrayRankBoundary(fieldType, assign.Right(),
         m_currFunc->tempSlot2, emitter);
-    emitter.Emit(OpCode::OP_VarLocal);
-    emitter.EmitUint16(ImplicitThisSlot());
-    emitter.Emit(OpCode::OP_Assign);
-    emitter.EmitUint16(m_currFunc->tempSlot);
-    emitter.Emit(OpCode::OP_NullCheck);
-    emitter.EmitUint16(m_currFunc->tempSlot);
+    //0.13.10: receiver load redirects to the anchor display's "$this"
+    //field inside a synthetic capture frame.
+    EmitReceiverLoad(m_currFunc->tempSlot, emitter);
     EmitStructAwareStoreField(fieldType, m_currFunc->tempSlot,
         static_cast<uint16_t>(fieldOff), m_currFunc->tempSlot2, emitter);
 }
@@ -168,31 +170,10 @@ void VmBackend::EmitAssignMemberField(SnAssignStmt& assign,
             "NLang backend: enum member reached store emission: "
             + guard->Name());
     }
-    //v0.12.6 D3: static store through the class name. Keyed on the
-    //bound field, not the receiver's type — the outer names a type and
-    //has no value shape (a value receiver never reaches codegen; the
-    //resolver's namespace filter rejects it).
-    //Task 7 (D11): a RUNTIME interface constant stores through the
-    //interface's synthesized $staticInit only (user stores were
-    //rejected at the resolver's const gate); folded constants never
-    //have a slot, so the map membership is the discriminator.
-    if (auto* field = memberExpr.Field(); field
-        && field->Kind() == NK_ClassField
-        && field->ContainFlags(NF_Static)
-        && (!IsInterfaceConstantField(*field)
-            || m_staticSlotByField.count(
-                static_cast<SnClassField*>(field)) != 0)) {
-        //Gate before the RHS (first active use, D2; declaring class, D4).
-        EmitStaticFieldGate(field, emitter);
-        EvalAreaClaim claim(*this, 1);
-        uint16_t valueSlot = claim.base();
-        EmitExpression(*assign.Right(), emitter, valueSlot);
-        emitter.Emit(OpCode::OP_StoreStatic);
-        emitter.EmitUint16(StaticSlotIndexOf(
-            static_cast<SnClassField&>(*field)));
-        emitter.EmitUint16(valueSlot);
+    //v0.12.6 D3: static store through the class name (the helper carries
+    //the D11 interface-constant discriminator).
+    if (EmitAssignStaticClassField(assign, memberExpr.Field(), emitter))
         return;
-    }
     auto* outerType = memberExpr.Outer()->EvalDataType();
     if (outerType && outerType->Kind() == NK_ClassDecl) {
         EmitAssignClassField(assign, memberExpr,
@@ -203,151 +184,32 @@ void VmBackend::EmitAssignMemberField(SnAssignStmt& assign,
     }
 }
 
-//Field offset on a class/struct element type for the subscripted-member
-//stores; throws when the field is not found.
-uint16_t VmBackend::ResolveMemberFieldOffset(SyntaxNode* elemType,
-        const std::string& fieldName) {
-    if (elemType->Kind() == NK_ClassDecl) {
-        int off = FindClassFieldOffset(
-            *static_cast<SnClassDecl*>(elemType), fieldName);
-        if (off < 0) {
-            throw std::runtime_error(
-                "NLang backend: class field offset not found: "
-                + fieldName);
-        }
-        return static_cast<uint16_t>(off);
-    }
-    int off = FindFieldOffset(
-        *static_cast<SnStructDecl*>(elemType), fieldName);
-    if (off < 0) {
-        throw std::runtime_error(
-            "NLang backend: struct field offset not found: "
-            + fieldName);
-    }
-    return static_cast<uint16_t>(off);
-}
-
-//v0.12.6 D14: the declared-type twin of ResolveMemberFieldOffset —
-//class fields walk the inheritance chain (FindClassFieldDecl), struct
-//fields scan the flat list; a miss returns null and the caller's
-//store falls back to the plain 8-byte cell store.
-SnField* VmBackend::DeclaredMemberFieldType(SyntaxNode* elemType,
-        const std::string& fieldName) {
-    if (elemType->Kind() == NK_ClassDecl)
-        return FindClassFieldDecl(
-            *static_cast<SnClassDecl*>(elemType), fieldName);
-    if (elemType->Kind() == NK_StructDecl) {
-        for (auto& sf :
-            static_cast<SnStructDecl*>(elemType)->Fields()) {
-            if (sf.Name() == fieldName)
-                return sf.EvalDataType();
-        }
-    }
-    return nullptr;
-}
-
-//arr[i].field = v / li[i].field = v. The subscript outer's index must
-//NOT alias tempSlot2 (which holds the right side value). Returns true
-//when a class/struct element shape consumed the statement; false lets
-//the caller fall through to plain member stores.
-bool VmBackend::EmitAssignSubscriptElementStore(SnAssignStmt& assign,
-        SnMemberExpr& memberExpr, BytecodeEmitter& emitter) {
-    if (memberExpr.Outer()->Kind() != NK_SubscriptExpr)
+//Static-store arm of the member assign: store through the class name.
+//Keyed on the bound field, not the receiver's type — the outer names a
+//type and has no value shape (a value receiver never reaches codegen;
+//the resolver's namespace filter rejects it). Task 7 (D11): a RUNTIME
+//interface constant stores through the interface's synthesized
+//$staticInit only (user stores were rejected at the resolver's const
+//gate); folded constants never have a slot, so the map membership is
+//the discriminator. False when the member is not a storable static.
+bool VmBackend::EmitAssignStaticClassField(SnAssignStmt& assign,
+        SnField* field, BytecodeEmitter& emitter) {
+    if (!field || field->Kind() != NK_ClassField
+        || !field->ContainFlags(NF_Static)
+        || (IsInterfaceConstantField(*field)
+            && m_staticSlotByField.count(
+                static_cast<SnClassField*>(field)) == 0))
         return false;
-    auto& sub = static_cast<SnSubscriptExpr&>(
-        *memberExpr.Outer());
-    auto* elemType = sub.EvalDataType();
-    if (!(elemType
-        && (elemType->Kind() == NK_ClassDecl
-            || elemType->Kind() == NK_StructDecl)))
-    {
-        return false;
-    }
-    auto* inner = memberExpr.Inner();
-    if (inner->Kind() != NK_IdentifierExpr) return true;
-    auto fieldName = static_cast<SnIdentifierExpr*>(inner)->Name();
-    uint16_t fieldOff = ResolveMemberFieldOffset(elemType, fieldName);
-    SnField* fieldType = DeclaredMemberFieldType(elemType, fieldName);
-    if (IsContainerSubscript(*sub.Array())) {
-        EmitAssignContainerElementFieldStore(assign, sub, elemType,
-            fieldOff, fieldType, emitter);
-        return true;
-    }
-    EmitAssignArrayElementFieldStore(assign, sub, elemType, fieldOff,
-        fieldType, emitter);
+    //Gate before the RHS (first active use, D2; declaring class, D4).
+    EmitStaticFieldGate(field, emitter);
+    EvalAreaClaim claim(*this, 1);
+    uint16_t valueSlot = claim.base();
+    EmitExpression(*assign.Right(), emitter, valueSlot);
+    emitter.Emit(OpCode::OP_StoreStatic);
+    emitter.EmitUint16(StaticSlotIndexOf(
+        static_cast<SnClassField&>(*field)));
+    emitter.EmitUint16(valueSlot);
     return true;
-}
-
-//List/Dict receiver: `li[i].field = v` — the subscript is sugar over
-//get(), so delegate to the generic NK_SubscriptExpr lowering
-//(EvalAreaClaim + get() call). Phase 10 audit round-4: park [receiver,
-//value] in an EvalAreaClaim(2) — the old tempSlot/tempSlot2 staging was
-//clobbered by a call in the value (argument binaries fall through
-//PickTempSlot to tempSlot; struct-argument deep copy scratches
-//tempSlot), crashing or storing through the wrong object. Receiver
-//first (JLS 15.26.1).
-void VmBackend::EmitAssignContainerElementFieldStore(SnAssignStmt& assign,
-        SnSubscriptExpr& sub, SyntaxNode* elemType, uint16_t fieldOff,
-        SnField* fieldType, BytecodeEmitter& emitter) {
-    EvalAreaClaim claim(*this, 2);
-    uint16_t objSlot = claim.base();
-    uint16_t valueSlot = objSlot + kFrameSlotBytes;
-    EmitExpression(sub, emitter, objSlot);
-    if (elemType->Kind() == NK_ClassDecl) {
-        emitter.Emit(OpCode::OP_NullCheck);
-        emitter.EmitUint16(objSlot);
-    }
-    EmitExpression(*assign.Right(), emitter, valueSlot);
-    //v0.12.7: boundary rank check on the staged value (container
-    //elements may carry an annotated field).
-    EmitArrayRankBoundary(fieldType, assign.Right(), valueSlot, emitter);
-    EmitStructAwareStoreField(fieldType, objSlot, fieldOff, valueSlot,
-        emitter);
-}
-
-//Array receiver: `arr[i].field = v`. Phase 10 audit round-3: stage
-//value/index/array in an exclusive EvalAreaClaim(3) — the old
-//tempSlot/tempSlot2/callParamBase staging let a nested index expression
-//(subscript-get, binary arithmetic — both scratch tempSlot via the
-//PickTempSlot fall-through) clobber the parked array, crashing or
-//silently storing through the wrong heap object. Same discipline as the
-//container path above and SubscriptAssignStmt.
-void VmBackend::EmitAssignArrayElementFieldStore(SnAssignStmt& assign,
-        SnSubscriptExpr& sub, SyntaxNode* elemType, uint16_t fieldOff,
-        SnField* fieldType, BytecodeEmitter& emitter) {
-    //Stage-2: N indices + element temp + value in one exclusive claim.
-    const size_t rank = sub.Indices().size();
-    EvalAreaClaim claim(*this, rank + 2);
-    uint16_t claimBase = claim.base();
-    uint16_t idxBase = claimBase + kFrameSlotBytes;
-    uint16_t valueSlot = claimBase + (rank + 1) * kFrameSlotBytes;
-    //1. Evaluate right side → value slot
-    EmitExpression(*assign.Right(), emitter, valueSlot);
-    //2. Evaluate indices → idxBase..
-    for (size_t d = 0; d < rank; ++d)
-        EmitExpression(*sub.Indices()[d], emitter,
-            idxBase + d * kFrameSlotBytes);
-    //3. Evaluate array ref → claim[0], null-checked
-    EmitExpression(*sub.Array(), emitter, claimBase);
-    emitter.Emit(OpCode::OP_NullCheck);
-    emitter.EmitUint16(claimBase);
-    //4. load element into tempSlot (free scratch — all operands are
-    //parked in exclusive claim slots now)
-    emitter.Emit(SubscriptNeedsDynOps(*sub.Array())
-        ? OpCode::OP_LoadElementDyn : OpCode::OP_LoadElementN);
-    emitter.EmitUint16(m_currFunc->tempSlot);
-    emitter.EmitUint16(claimBase);
-    emitter.EmitUint16(idxBase);
-    emitter.EmitUint16(static_cast<uint16_t>(rank));
-    //5. null_check the element (class) or skip (struct is value)
-    if (elemType->Kind() == NK_ClassDecl) {
-        emitter.Emit(OpCode::OP_NullCheck);
-        emitter.EmitUint16(m_currFunc->tempSlot);
-    }
-    //6. store_field obj=tempSlot off=fieldOff src=claim[2] (struct
-    //values deep-copy in place first, D14)
-    EmitStructAwareStoreField(fieldType, m_currFunc->tempSlot, fieldOff,
-        valueSlot, emitter);
 }
 
 //Class field assignment: reference semantics for handles, deep copy for

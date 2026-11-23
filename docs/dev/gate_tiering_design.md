@@ -38,6 +38,10 @@ Release构建与Release e2e维持「仅发布时点」裁定不变，不因分�
 
 先知逻辑自身的pytest语料挂在ctest条目`e2e_runner_env_gate`上，而该条目与既有的`nlang_docs_pytest`共用configure期解释器探针（`NLANG_DOCS_PYTHON`探`import pytest`），因此它只在配置期解释器能导入pytest的树里注册：本机`build-ide`缓存了py313路径故注册，`build-dev`与`build-asan`缓存裸`python`（无pytest）故不注册——这两棵树在配置时打印跳过说明而不是静默丢条目，这条差异在两个条目上早已存在，不是本设施新引入的。改动`tests/CMakeLists.txt`后必须重新configure，条目才出现在`tests/CTestTestfile.cmake`里；核对注册的口径是三树各自的`tests/CTestTestfile.cmake`而非顶层文件。
 
+## 性能递延（机制已退役）
+
+2026-11-20用户裁定曾以两份递延名单文件（ctest/e2e各一）加`NLANG_E2E_EXCLUDE`临时裁剪超过1分钟的性能测试；计时表施设合入后，该机制随裁定R-114（2026-11-23）退役，无向下兼容。慢集合不再由外部文件承载，而是由参考表的实测参考耗时在单点推导——门槛是`gate_time_table.py`的`SLOW_MIN_REF_S`——T0/T1腿执行时各自排除成员（PRINT-SLOW行列出该配置排除的成员），慢条目的覆盖由T2收口层的完整扫描承载。`tier_coverage_check.py`的递延豁免随之消失，「至少被一层选中」不变量回到全覆盖，无需豁免参数。
+
 ## 落地物
 
 - tools/gate_tier.sh：按层名组装既有gate.sh腿（T0/T1/T2各一入口），腿间互斥按D-11具名资源claim（`nide-gui`）＋按键写目录认领（构建树、e2e scratch）。

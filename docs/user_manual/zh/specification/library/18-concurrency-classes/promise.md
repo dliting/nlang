@@ -82,4 +82,4 @@ int main() {
 
 - **永不完成是静默的**：`Promise`没有超时；一个永不完成的源会让等待者一直挂起，最终由死锁报告拦下（见[挂起与调度限制](../../10-concurrency/suspension.md#主退出策略与死锁报告)）。需要限时就用「等待者加定时器」的组合：等待与`thread.sleep`分别派生，先醒者决定走哪条路。
 - **多路等待限于`Future`**：通道上没有「任意一个就绪」的`recv`变体。多源通道要任意收，为每个源经`Promise`组合一层（每个源一个转发任务，收到的值`complete`给各自的`Promise`），再对`Future`数组`selectAny`。
-- **带返回值的`spawn`接收裸函数引用或已绑定的委托值**：`thread.spawn(obj.method)`直接派生带返回值的委托当前要求先经`func<int> d = obj.method;`这样的显式委托局部（或改用自由函数）；无返回值形态不受影响。
+- **带返回值的`spawn`接收裸函数引用或已绑定的委托值**：`thread.spawn(obj.method)`直接派生带返回值的委托当前要求先经`func<int> d = obj.method;`这样的显式委托局部（或改用自由函数）；lambda同样要走显式委托局部——`func<int> d = () -> obj.method();`——直接把lambda写实参不行；无返回值形态不受影响（`thread.spawn(() -> …)`可用）。

@@ -213,7 +213,9 @@ int main() {
 | `maxConnections` | 0 | `0`为不限。超过上限时新连接得到503并被关闭；这样的作答最多并发64个，再多出的连接直接关闭而不作答，客户端读到空响应。 |
 | `maxRequestsPerConnection` | 0 | `0`为不限。第N条响应之后同时关闭连接。 |
 
-`start(host, port, handler)`在套接字开始监听后即返回；`serve(host, port, handler)`在调用线程上跑同一条accept循环，是独立服务器的入口，其`main`不得返回（§10.9）。`close()`停止接受并唤醒阻塞中的`accept`；已在处理的连接在自己的keep-alive循环里把手头的请求做完。
+`start(host, port, handler)`在套接字开始监听后即返回；`serve(host, port, handler)`在调用线程上跑同一条accept循环，是独立服务器的入口，其`main`不得返回（§10.9）。
+
+停止accept循环有两个开关。`drain(graceMs = 15000)`是优雅停机的开关：停止接受新连接，此后的应答都带上`Connection: close`，空闲的keep-alive等待即刻关闭，正在处理的请求则被等待做完——它返回宽限期耗尽时被强制关闭的连接数，全部在宽限期内做完就返回`0`。`close()`是立即关闭的开关：关闭监听套接字（阻塞中的`accept`经`SocketException`唤醒），强制关闭仍打开的连接，并最多等待两秒让运行中的处理器收尾。两个开关都可重复调用，这样停掉的服务器还能再启动——之后的`start()`会重新绑定地址。`isServing()`报告accept循环是否在跑：首次`start()`之前、`drain`排空期间、`close()`之后都是`false`——这正是轮询式关停循环要盯的旗标，形态就是§21.2为`accept`超时描述的那个。
 
 accept循环每连接派生一条线程（§10），每条线程按顺序服务自己那条连接上的请求。处理器因此与其他处理器并发运行，且可以阻塞——等慢客户端、等`Channel`、等`Mutex`——而不会拖住整个服务器。没有线程池需要调大小：连接数即并发度，`maxConnections`就是封顶的旋钮。
 

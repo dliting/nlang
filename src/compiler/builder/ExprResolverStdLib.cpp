@@ -109,18 +109,25 @@ bool ExprResolveAccessor::TryResolveModuleCallTarget(
 //Argument handling mirrors Access(SnInvokeExpr), in the same order —
 //params resolve first, then the caller-side syntax check (the caller
 //context is still active here; the receiver scope switch happens
-//later). False = a failure was diagnosed and the member consumed;
-//true = both steps passed.
+//later). 0.13.10: deferred shapes (bare brace / lambda) skip — the
+//chosen formal hands them their target in BindQualifiedInvoke's
+//ResolveDeferredArgs, exactly as the bare path does; the failure exits
+//sweep them so the missing-target diagnostic still fires once the
+//consumed member stops the walker. False = a failure was diagnosed and
+//the member consumed; true = both steps passed.
 bool ExprResolveAccessor::TryResolveModuleQualifiedArgs(
 	SnMemberExpr &snMember, SnInvokeExpr &invoke)
 {
-	if (!ResolveExpressionList(invoke.Params()))
+	auto deferredArgs = CollectDeferredArgs(invoke);
+	if (!ResolveExpressionList(invoke.Params(), &deferredArgs))
 	{
+		SweepDeferredInvokeArgs(*m_pVisitor, invoke);
 		FinishConsumedMember(snMember);
 		return false;
 	}
 	if (!ValidateInvokeSyntax(invoke))
 	{
+		SweepDeferredInvokeArgs(*m_pVisitor, invoke);
 		FinishConsumedMember(snMember);
 		return false;
 	}
@@ -143,13 +150,22 @@ bool ExprResolveAccessor::TryResolveModuleQualified(SnMemberExpr &snMember)
 	auto &invoke = *pInvoke;
 
 	if (RejectUnimportedModuleCall(snMember, modulePath))
+	{
+		SweepDeferredInvokeArgs(*m_pVisitor, invoke);
 		return true;
+	}
 
 	if (!TryResolveModuleQualifiedArgs(snMember, invoke))
 		return true;
 
 	if (!ResolveModuleQualifiedCallee(snMember, invoke, modulePath))
+	{
+		//The callee-side failures consumed the member above; any argument
+		//still deferred (never claimed by a formal) takes its
+		//missing-target diagnostic here.
+		SweepDeferredInvokeArgs(*m_pVisitor, invoke);
 		return true;
+	}
 
 	FinishConsumedMember(snMember);
 	return true;

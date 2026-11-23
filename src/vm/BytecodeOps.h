@@ -131,8 +131,11 @@ enum class OpCode : uint8_t {
     OP_PopHandler,      // no operands — pop one entry from handlerExcStack at catch exit
 
     // === Phase 13: first-class function values (func<...>) ===
-    OP_MakeFunc,        // uint16 funcIdx — allocate a static function handle
-                        // {funcIdx, this=0, form=0}, write heap idx to pResult
+    OP_MakeFunc,        // uint16 funcIdx, uint16 descIdx — allocate a static
+                        // function handle {funcIdx, this=0, form=0, descIdx},
+                        // write heap idx to pResult; descIdx is the
+                        // instantiation descriptor row (kInstDescNone when the
+                        // target is non-generic)
     OP_CallDelegate,    // uint16 calleeLocal, uint16 callParamBase — invoke the
                         // handle at locals[calleeLocal]; this==0 → free function,
                         // params staged at callParamBase[0..n)

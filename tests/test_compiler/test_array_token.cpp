@@ -329,6 +329,49 @@ static void test_init_list_tostring_spelling()
     PASS();
 }
 
+//0.13.10 Task 9 fix pass: the deferred-argument and inferred-target
+//channels must key array-ness off the target ROW (token or Array<E>
+//row — the dual-spelling twin), not the type-expression claim alone.
+//A substituted generic leaf (T bound to an array type argument) never
+//claims IsArrayType(), and an Array<E> class-row target needs its
+//element row derived for the entry-slot casts — both shapes are real
+//compiles here, no diagnostics expected.
+static void test_classrow_init_shapes()
+{
+    TEST(classrow_init_shapes);
+    auto decl = compileOne(
+        "int main() {\n"
+        "    Array<int> x = [7, 8];\n"
+        "    return x[0] + x[1];\n"
+        "}\n");
+    CHECK(decl.ok, "class-row declaration takes a bracket initializer");
+    auto call = compileOne(
+        "int sum(Array<int> v) { return v[0] + v[1]; }\n"
+        "int main() { return sum([7, 8]); }\n");
+    CHECK(call.ok, "class-row formal takes a bare bracket argument");
+    PASS();
+}
+
+static void test_substituted_array_typearg_shapes()
+{
+    TEST(substituted_array_typearg_shapes);
+    auto out = compileOne(
+        "class Cell<T> {\n"
+        "    public T a;\n"
+        "    public Cell(T a) { this.a = a; }\n"
+        "    public bool neA(T other) { return a != other; }\n"
+        "}\n"
+        "int main() {\n"
+        "    int[] arr = [1, 2];\n"
+        "    Cell<int[]> ca = Cell(arr);\n"
+        "    if (ca.neA([1, 2])) { return 0; }\n"
+        "    return 1;\n"
+        "}\n");
+    CHECK(out.ok,
+        "bracket argument to a T formal instantiated with an array type");
+    PASS();
+}
+
 int main()
 {
     Runtime::StaticInit();
@@ -343,6 +386,8 @@ int main()
     test_param_binding_matrix();
     test_init_list_token_alignment();
     test_init_list_tostring_spelling();
+    test_classrow_init_shapes();
+    test_substituted_array_typearg_shapes();
     std::cerr << "\narray_token: " << g_pass << " passed, "
         << g_fail << " failed\n";
     return g_fail == 0 ? 0 : 1;
