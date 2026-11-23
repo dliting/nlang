@@ -94,6 +94,7 @@ class StaticFiles {
             }
             return;
         }
+        // A file that vanishes between the check and the read raises an IOException the App maps to a 500 (D-11): an accepted race, not over-defended.
         ctx.bytes(200, fs.readBytes(target), this.mimeFor(target));
         if (useETag) { ctx.res.headers.set("ETag", tag); }
         // The validator is floored to the second because the condition that

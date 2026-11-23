@@ -6,7 +6,7 @@
 // the obsolete two spellings rendered from the file's own mtime (ruling 5, no
 // wall-clock assertions), addType normalization (ruling 26 i), the dotfile gate,
 // the traversal matrix judged after percent-decoding (ruling 14), the directory
-// 301 keeping the mount prefix and the query (D-27), the 405 decided before any
+// 301 keeping the mount prefix and the query (ruling 27), the 405 decided before any
 // path is resolved (ruling 26 iv), the root checked when the handler is built
 // (D-24), setNotFound reserved to the top level (ruling 26 v) and empty segments
 // folding flat (ruling 26 iii). Every request runs over a real socket against one
@@ -144,7 +144,7 @@ int main() {
     // Bare class name, not the qualified web.static.StaticFiles spelling: the dot
     // chain still refuses a reserved-word segment (KT_Static), so the corpus form
     // of ruling 14 and of `import web.*;` (D-29 rule 2 opens web.static) is the
-    // one that parses. See the task-8 report.
+    // one that parses.
     StaticFiles assets = StaticFiles(root);
     // A bound method as a function value: the mount form Task 6 leg E left here.
     app.mount("/static", assets.serve);
@@ -365,8 +365,17 @@ int legE(string base) {
 // named configuration error (D-24, ruling 26 i).
 int legF(string base, StaticFiles assets) {
     int bad = 0;
-    assets.addType("myext", "application/x-myext");
+    // The unknown-extension fallback the builtin table owes (octet-stream) is
+    // pinned before the registrations below, so the two states bracket addType.
     http.HttpResponse res = ask("GET", base + "/static/x.myext");
+    bad = bad + want(res.statusCode == 200,
+        "leg F an unregistered extension must answer 200 before addType",
+        "answered " + res.statusCode.toString());
+    bad = bad + want(res.headers.get("Content-Type") == "application/octet-stream",
+        "leg F an unregistered extension must answer as octet-stream before addType",
+        "got " + res.headers.get("Content-Type"));
+    assets.addType("myext", "application/x-myext");
+    res = ask("GET", base + "/static/x.myext");
     bad = bad + want(res.headers.get("Content-Type") == "application/x-myext",
         "leg F a registered extension must answer with its type",
         "got " + res.headers.get("Content-Type"));
