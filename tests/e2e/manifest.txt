@@ -2655,3 +2655,12 @@ stdlib_web_session_conc 0
 # refused at construction time, setNotFound keeping its top-level-only domain
 # inside a mounted subtree, and the empty segments folded away.
 stdlib_web_static_files 0
+# --- v0.13.12: Sse framing over a chunked channel — the four event-stream
+# headers with exactly one Connection and no gzip on the wire, the seven-frame
+# byte table (the three arities, the three line endings folding into one field
+# set, the comment's per-line colon prefix, the empty id omitting its field
+# and the empty data keeping one), the named refusals for a CR or LF inside
+# id or event, the quiet double close with the queued frame still draining
+# first, a feeder on another thread that outlives its handler, and one UTF-8
+# frame checked byte by byte.
+stdlib_web_sse_frames 0

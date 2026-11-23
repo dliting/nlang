@@ -1,0 +1,100 @@
+/* ------------------------------------------------------------------
+ * sse.n — Sse, the server-sent-events framing helper
+ * (module web.sse; spec docs/dev/web_framework_design.md 6.8 and D-16).
+ * One channel element is one frame and one http chunk: the response pump
+ * (stdlib/http.n pumpChunked) writes every element the moment it arrives
+ * and ends the stream when the channel closes, so this helper only owes
+ * the WHATWG field grammar, the four event-stream headers and a bounded
+ * channel. What D-16 left open is pinned by the plan's ruling 28: the
+ * capacity is 16, an empty id or event omits its field line, the three
+ * line endings fold to LF before the data split, and a CR or LF inside
+ * id or event is a caller error with a named message. close() is the
+ * channel close itself: a user close and the pump closing the channel
+ * when the client vanishes travel one path, and a send after close
+ * raises ChannelClosedException (D-16 keeps exactly one cancellation
+ * signal).
+ * ------------------------------------------------------------------ */
+import io;
+import http;
+import web;
+import thread;
+import concurrent;
+
+// Frames one event stream over a response's chunked channel (D-16): the
+// constructor answers the four headers and publishes the channel, the send
+// overloads and comment serialize frames onto it, and close ends the stream.
+// The buffered-body compression never fires for such a response: Sse opens
+// neither res.compressBody nor res.body, so the event stream is never
+// gzipped (ruling 15).
+class Sse {
+    // Ruling 28 i: wide enough that a typical handler (send a few events,
+    // return) never blocks, short enough that the frames still queued after
+    // a vanished client bound the cancellation delay.
+    private static const int DEFAULT_SSE_CHANNEL_CAPACITY = 16;
+
+    private Channel<byte[]> m_ch;
+
+    public Sse(http.HttpResponse res) {
+        res.headers.set("Content-Type", "text/event-stream");
+        res.headers.set("Cache-Control", "no-cache");
+        res.headers.set("Connection", "keep-alive");
+        res.headers.set("X-Accel-Buffering", "no");
+        m_ch = Channel<byte[]>(DEFAULT_SSE_CHANNEL_CAPACITY);
+        res.bodyChannel = m_ch;
+    }
+
+    public void send(string data) { this.writeFrame("", "", data); }
+
+    public void send(string event, string data) { this.writeFrame("", event, data); }
+
+    public void send(string id, string event, string data) { this.writeFrame(id, event, data); }
+
+    // A comment carries no value semantics, so it accepts any text: each
+    // line just gets its own ": " prefix (ruling 28 iv). The space after the
+    // colon is the optional one a WHATWG parser ignores either way.
+    public void comment(string text) {
+        m_ch.send(io.toBytes(this.linesWith(": ", text) + "\r\n"));
+    }
+
+    // The channel close is the whole story: a second close is quiet and a
+    // send after close raises ChannelClosedException, exactly the channel's
+    // own semantics — no status flag here, both closing paths and both
+    // post-close calls behave the same (probe temp/probe_channel_close.n).
+    public void close() { m_ch.close(); }
+
+    private void writeFrame(string id, string event, string data) {
+        // A CR or LF inside a field value would cut the frame into two field
+        // lines, and the response is already on the stream when the caller
+        // gets this back, so no status code can ride with it: a plain named
+        // Exception, not an HttpException (ruling 28 iv).
+        if (id.length() > 0 && (id.indexOf("\r") >= 0 || id.indexOf("\n") >= 0)) {
+            throw Exception("web.sse.Sse.send: id must not contain CR or LF.");
+        }
+        if (event.length() > 0 && (event.indexOf("\r") >= 0 || event.indexOf("\n") >= 0)) {
+            throw Exception("web.sse.Sse.send: event must not contain CR or LF.");
+        }
+        string frame = "";
+        // An empty value omits its field line (ruling 28 ii); the line order
+        // is the parameter order, id then event then data (ruling 28 iii,
+        // pinned by the corpus byte table).
+        if (id.length() > 0) { frame = frame + "id: " + id + "\r\n"; }
+        if (event.length() > 0) { frame = frame + "event: " + event + "\r\n"; }
+        frame = frame + this.linesWith("data: ", data);
+        m_ch.send(io.toBytes(frame + "\r\n"));
+    }
+
+    // Folds the three line endings to LF and gives every line its own field
+    // line (ruling 28 iii). CRLF must fold before the lone CR: the other
+    // order would split one CRLF into two empty fields. An empty text
+    // splits into one empty element, so an empty data still emits one
+    // field line.
+    private string linesWith(string prefix, string text) {
+        string norm = text.replace("\r\n", "\n").replace("\r", "\n");
+        List<string> lines = norm.split("\n");
+        string fields = "";
+        for (int i = 0; i < lines.length(); i = i + 1) {
+            fields = fields + prefix + lines[i] + "\r\n";
+        }
+        return fields;
+    }
+}

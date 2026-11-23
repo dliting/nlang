@@ -1,0 +1,322 @@
+// stdlib_web_sse_frames — the frame grammar of web.sse.Sse (spec 6.8, D-16):
+// the four event-stream headers and the chunked shape without any gzip on the
+// wire (ruling 15), the seven-table frames compared byte for byte — the three
+// arities, the three line endings folding into one field set, the comment's
+// per-line prefix, the empty id omitting its field and the empty data keeping
+// one (ruling 28 ii/iii), the named refusals for a CR or LF inside id or
+// event (ruling 28 iv), the quiet double close with send-after-close still
+// draining the queued frame first, a feeder on another thread that keeps
+// sending after the handler returned (the pump reads to the channel close and
+// only then writes the last chunk), and one UTF-8 frame checked cell by cell.
+// Legs A and E run over a real socket against one shared App; legs B, C, D and
+// F drive the channel the constructor published directly. No timing assertion
+// anywhere: the buffered client read ends when the stream ends, and the 16-slot
+// channel (ruling 28 i) never lets the feeder block. The .flags file puts the
+// cross-thread leg on four carriers under the runner; the direct single-corpus
+// run stays single-carrier and only compares bytes.
+import io;
+import http;
+import thread;
+import concurrent;
+import web.*;
+
+// One checked expectation: the leg reads as a list of them, and the failure
+// line quotes what was expected against what arrived.
+int want(bool ok, string what, string detail) {
+    if (!ok) {
+        io.print(what + " -- " + detail);
+        return 1;
+    }
+    return 0;
+}
+
+// Byte-for-byte comparison of a string against an unsigned byte table: the
+// signed byte cell is widened to 0..255 before the comparison (the corpus
+// family's checkBytes shape), so the non-ASCII leg can spell the UTF-8 bytes
+// of one Chinese character as plain numbers.
+int checkBytes(string text, int[] want) {
+    byte[] got = io.toBytes(text);
+    if (got.length() != want.length()) {
+        io.print("bytes len " + got.length() + " want " + want.length());
+        return 1;
+    }
+    int i = 0;
+    while (i < want.length()) {
+        int b = got[i];
+        if (b < 0) { b = b + 256; }
+        if (b != want[i]) {
+            io.print("bytes at " + i + " got " + b + " want " + want[i]);
+            return 1;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+
+// The next channel element compared as text: the table is ASCII, so at this
+// altitude text equality is the byte comparison (leg F carries the non-ASCII
+// witness through checkBytes instead).
+int wantFrame(Channel<byte[]> ch, string expect, string what) {
+    byte[] frame = ch.recv();
+    string got = io.fromBytes(frame);
+    return want(got == expect, what, "got [" + got + "] want [" + expect + "]");
+}
+
+// A recv on a closed and drained channel raises ChannelClosedException; any
+// other outcome — a returned element, a different exception, no exception —
+// fails the witness.
+int wantClosed(Channel<byte[]> ch, string what) {
+    int outcome = 0;
+    try {
+        byte[] more = ch.recv();
+        if (more != null) { outcome = 1; }
+    } catch (concurrent.ChannelClosedException e) {
+        outcome = 2;
+    } catch (Exception e) {
+        outcome = 3;
+    }
+    return want(outcome == 2, what + " must raise ChannelClosedException",
+        "outcome " + outcome.toString());
+}
+
+// The seven leg-B frames in one string: leg E asserts the feeder's whole
+// stream against this concatenation.
+string sevenFrames() {
+    return "data: plain\r\n\r\n"
+        + "data: multi\r\ndata: line\r\ndata: last\r\ndata: only\r\n\r\n"
+        + "event: tick\r\ndata: payload\r\n\r\n"
+        + "id: 7\r\nevent: tick\r\ndata: payload\r\n\r\n"
+        + ": beat\r\n: still beating\r\n\r\n"
+        + "event: evt\r\ndata: noid\r\n\r\n"
+        + "data: \r\n\r\n";
+}
+
+// Leg A's handler: three calls through Sse and a close. The two frames answer
+// frames 1 and 3 of the leg-B table, and the close ends the stream: the body
+// that arrives is exactly those two frames concatenated.
+void feedA(RequestContext ctx) {
+    web.sse.Sse sse = web.sse.Sse(ctx.res);
+    sse.send("plain");
+    sse.send("tick", "payload");
+    sse.close();
+}
+
+// Leg E's feeder body: the seven leg-B frames verbatim, then close. Bound
+// method as a func<void> value, the examples/http_sse.n shape.
+class SseFeed {
+    private web.sse.Sse m_sse;
+
+    public SseFeed(web.sse.Sse sse) { m_sse = sse; }
+
+    public void run() {
+        m_sse.send("plain");
+        m_sse.send("multi\nline\r\nlast\ronly");
+        m_sse.send("tick", "payload");
+        m_sse.send("7", "tick", "payload");
+        m_sse.comment("beat\nstill beating");
+        m_sse.send("", "evt", "noid");
+        m_sse.send("");
+        m_sse.close();
+    }
+}
+
+// Leg E's handler: hand the stream to the feeder and return without closing —
+// the handler returning must not cut the stream, the pump keeps pulling the
+// channel until the feeder closes it.
+void feedE(RequestContext ctx) {
+    web.sse.Sse sse = web.sse.Sse(ctx.res);
+    SseFeed f = SseFeed(sse);
+    thread.spawn(f.run);
+}
+
+// Leg A: the four event-stream headers, the chunked framing with neither
+// Content-Length nor Content-Encoding (the gzip gate never fires because Sse
+// opens neither compressBody nor body), and the close-terminated body.
+int legA(string base) {
+    int bad = 0;
+    http.HttpResponse res = http.get(base + "/feedA");
+    bad = bad + want(res.statusCode == 200,
+        "leg A the answer must be 200", "answered " + res.statusCode.toString());
+    bad = bad + want(res.headers.get("Content-Type") == "text/event-stream",
+        "leg A the event stream must carry its content type",
+        "got [" + res.headers.get("Content-Type") + "]");
+    bad = bad + want(res.headers.get("Cache-Control") == "no-cache",
+        "leg A the event stream must not be cached",
+        "got [" + res.headers.get("Cache-Control") + "]");
+    bad = bad + want(res.headers.get("X-Accel-Buffering") == "no",
+        "leg A a proxy must be told not to buffer",
+        "got [" + res.headers.get("X-Accel-Buffering") + "]");
+    // Ruling 15: the framework writes Connection once, and writeResponse only
+    // adds one of its own when closing or echoing a 1.0 request — a normal
+    // keep-alive 1.1 answer must therefore carry exactly one.
+    List<string> conns = res.headers.getAll("Connection");
+    string connText = "";
+    if (conns.length() > 0) { connText = conns[0]; }
+    bad = bad + want(conns.length() == 1,
+        "leg A exactly one Connection header", "saw " + conns.length().toString());
+    bad = bad + want(conns.length() == 1 && connText == "keep-alive",
+        "leg A the one Connection header must say keep-alive",
+        "got [" + connText + "]");
+    bad = bad + want(res.headers.get("Transfer-Encoding") == "chunked",
+        "leg A the channel body must be chunked",
+        "got [" + res.headers.get("Transfer-Encoding") + "]");
+    bad = bad + want(!res.headers.has("Content-Length"),
+        "leg A a chunked body carries no Content-Length",
+        "got [" + res.headers.get("Content-Length") + "]");
+    bad = bad + want(!res.headers.has("Content-Encoding"),
+        "leg A the event stream is never gzipped",
+        "got [" + res.headers.get("Content-Encoding") + "]");
+    bad = bad + want(res.bodyText() == "data: plain\r\n\r\nevent: tick\r\ndata: payload\r\n\r\n",
+        "leg A the body is frames 1 and 3 and then the stream ends",
+        "got [" + res.bodyText() + "]");
+    return bad;
+}
+
+// Leg B: the seven-frame table, byte for byte, straight off the channel the
+// constructor published. From the field to a local before any call on it
+// (ruling 12).
+int legB() {
+    int bad = 0;
+    http.HttpResponse res = http.HttpResponse();
+    web.sse.Sse sse = web.sse.Sse(res);
+    Channel<byte[]> ch = res.bodyChannel;
+    sse.send("plain");
+    bad = bad + wantFrame(ch, "data: plain\r\n\r\n", "leg B frame 1 send(data)");
+    sse.send("multi\nline\r\nlast\ronly");
+    // The lone CR ends the "last" line and the fourth field is "only": the
+    // frame's witness is the three-terminator fold into four data fields.
+    bad = bad + wantFrame(ch, "data: multi\r\ndata: line\r\ndata: last\r\ndata: only\r\n\r\n",
+        "leg B frame 2 the three line endings fold and each line gets a data field");
+    sse.send("tick", "payload");
+    bad = bad + wantFrame(ch, "event: tick\r\ndata: payload\r\n\r\n", "leg B frame 3 send(event, data)");
+    sse.send("7", "tick", "payload");
+    bad = bad + wantFrame(ch, "id: 7\r\nevent: tick\r\ndata: payload\r\n\r\n", "leg B frame 4 send(id, event, data)");
+    sse.comment("beat\nstill beating");
+    bad = bad + wantFrame(ch, ": beat\r\n: still beating\r\n\r\n", "leg B frame 5 comment lines carry the colon prefix");
+    sse.send("", "evt", "noid");
+    bad = bad + wantFrame(ch, "event: evt\r\ndata: noid\r\n\r\n", "leg B frame 6 an empty id omits the field");
+    sse.send("");
+    bad = bad + wantFrame(ch, "data: \r\n\r\n", "leg B frame 7 an empty data still sends one field");
+    sse.close();
+    // Every queued frame arrived above, so the close leaves the channel
+    // closed and drained: recv raises now, it never returned null.
+    bad = bad + wantClosed(ch, "leg B recv after the seven frames and the close");
+    return bad;
+}
+
+// Leg C: a CR or LF inside id or event is a caller error with the named
+// message (ruling 28 iv), and a refused frame must not have half-enqueued.
+int legC() {
+    int bad = 0;
+    http.HttpResponse res = http.HttpResponse();
+    web.sse.Sse sse = web.sse.Sse(res);
+    Channel<byte[]> ch = res.bodyChannel;
+    string msg = "";
+    try {
+        sse.send("7", "tick\nx", "d");
+    } catch (Exception e) {
+        msg = e.message;
+    }
+    bad = bad + want(msg == "web.sse.Sse.send: event must not contain CR or LF.",
+        "leg C an LF inside event must raise the named message", "got [" + msg + "]");
+    msg = "";
+    try {
+        sse.send("a\rb", "", "d");
+    } catch (Exception e) {
+        msg = e.message;
+    }
+    bad = bad + want(msg == "web.sse.Sse.send: id must not contain CR or LF.",
+        "leg C a CR inside id must raise the named message", "got [" + msg + "]");
+    // Both refusals left the channel empty, so the close is followed straight
+    // by the throw: the rejected frames never reached the queue.
+    sse.close();
+    bad = bad + wantClosed(ch, "leg C recv after both refusals and the close");
+    return bad;
+}
+
+// Leg D: close() twice is quiet, send after close raises the channel's own
+// exception, and the frame queued before the close stays readable until the
+// channel drains (probe temp/probe_channel_close.n: drain-then-throw).
+int legD() {
+    int bad = 0;
+    http.HttpResponse res = http.HttpResponse();
+    web.sse.Sse sse = web.sse.Sse(res);
+    Channel<byte[]> ch = res.bodyChannel;
+    sse.send("x");
+    sse.close();
+    string dbl = "";
+    try {
+        sse.close();
+    } catch (Exception e) {
+        dbl = e.message;
+    }
+    bad = bad + want(dbl == "", "leg D the second close must be quiet", "raised [" + dbl + "]");
+    int outcome = 0;
+    try {
+        sse.send("y");
+        outcome = 1;
+    } catch (concurrent.ChannelClosedException e) {
+        outcome = 2;
+    } catch (Exception e) {
+        outcome = 3;
+    }
+    bad = bad + want(outcome == 2, "leg D send after close must raise ChannelClosedException",
+        "outcome " + outcome.toString());
+    bad = bad + wantFrame(ch, "data: x\r\n\r\n", "leg D the frame queued before the close stays readable");
+    bad = bad + wantClosed(ch, "leg D recv after the queued frame drained");
+    return bad;
+}
+
+// Leg E: the handler returned while the feeder is still running on another
+// thread; the buffered client read ends only when the pump has pulled the
+// channel to its close and written the last chunk. The bytes must be the
+// seven-frame table concatenated in order.
+int legE(string base) {
+    int bad = 0;
+    http.HttpResponse res = http.get(base + "/feedE");
+    bad = bad + want(res.statusCode == 200,
+        "leg E the answer must be 200", "answered " + res.statusCode.toString());
+    bad = bad + want(res.bodyText() == sevenFrames(),
+        "leg E the feeder's seven frames arrive concatenated", "got [" + res.bodyText() + "]");
+    return bad;
+}
+
+// Leg F: the only non-ASCII witness — "中" travels as its three UTF-8 bytes
+// inside the data line, so the frame is checked cell by cell (spec 6.8's
+// byte-for-byte framing).
+int legF() {
+    int bad = 0;
+    http.HttpResponse res = http.HttpResponse();
+    web.sse.Sse sse = web.sse.Sse(res);
+    Channel<byte[]> ch = res.bodyChannel;
+    sse.send("中");
+    byte[] frame = ch.recv();
+    // "data: " is 100 97 116 97 58 32, "中" is 228 184 173, then the field's
+    // CRLF and the frame's terminating CRLF.
+    bad = bad + want(checkBytes(io.fromBytes(frame),
+        [100, 97, 116, 97, 58, 32, 228, 184, 173, 13, 10, 13, 10]) == 0,
+        "leg F the UTF-8 frame byte for byte", "checkBytes flagged above");
+    sse.close();
+    return bad;
+}
+
+int main() {
+    int bad = 0;
+    web.App app = web.App();
+    // The two TCP legs ride one App, one ephemeral port, one listen; the port
+    // and the timing never enter an assertion.
+    app.get("/feedA", feedA);
+    app.get("/feedE", feedE);
+    app.listen("127.0.0.1", 0);
+    string base = "http://127.0.0.1:" + app.server().localPort().toString();
+    if (legA(base) != 0) { bad = bad + 1; }
+    if (legB() != 0) { bad = bad + 1; }
+    if (legC() != 0) { bad = bad + 1; }
+    if (legD() != 0) { bad = bad + 1; }
+    if (legE(base) != 0) { bad = bad + 1; }
+    if (legF() != 0) { bad = bad + 1; }
+    app.drain(5000);
+    app.close();
+    if (bad == 0) { io.print("ok"); }
+    return bad;
+}
