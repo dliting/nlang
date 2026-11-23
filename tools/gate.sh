@@ -529,7 +529,9 @@ strip_env=()
 while IFS= read -r strip_name; do
     strip_env+=(-u "$strip_name")
 done < <(compgen -e | grep '^NLANG_GATE_' || true)
-env ${strip_env[@]+"${strip_env[@]}"} "$@" >"$stem.out" 2>"$stem.err"
+# `--` ends env's own option scan so a wrapped command whose first word
+# starts with a dash is never eaten as an env option (review Minor-1).
+env ${strip_env[@]+"${strip_env[@]}"} -- "$@" >"$stem.out" 2>"$stem.err"
 rc=$?
 
 echo "----- $name: stdout tail ($stem.out) -----"
