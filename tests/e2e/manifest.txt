@@ -2645,3 +2645,13 @@ stdlib_web_session_basic 0
 # their own, eight workers writing one shared session until last-write-wins leaves a
 # value somebody actually wrote, and one middleware instance counting every request.
 stdlib_web_session_conc 0
+# --- v0.13.12: StaticFiles over a mounted directory — the index fallback, the
+# builtin extension table with its text charset, HEAD answering headers-only, the
+# weak ETag's four states and the 304 header set, the three If-Modified-Since date
+# forms with their ignore postures (unparseable, comma lists, repeated fields), the
+# addType normalization, the dot-file gate, the traversal matrix (dot-dot, encoded
+# separators, NUL, drive letters), the directory 301 carrying the mount prefix and
+# the query back, the 405 that answers before the path is looked at, the root
+# refused at construction time, setNotFound keeping its top-level-only domain
+# inside a mounted subtree, and the empty segments folded away.
+stdlib_web_static_files 0

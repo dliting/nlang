@@ -1,0 +1,486 @@
+/* ------------------------------------------------------------------
+ * static.n — StaticFiles, the mounted static-directory handler
+ * (module web.static; spec docs/dev/web_framework_design.md 6.7 and D-14).
+ * A Go FileServer behavior subset: per-segment rejection after percent
+ * decoding, a directory 301 that carries the mount prefix and query back,
+ * a per-instance extension table, and conditional requests over a weak
+ * ETag plus a second-granularity Last-Modified. The If-Modified-Since
+ * HTTP-date parser is private to this module (ruling 5): RFC 9110 5.6.7
+ * names three forms, and the parser accepts exactly those, case-
+ * sensitively, treating anything unparseable as no condition at all.
+ * ------------------------------------------------------------------ */
+import http;
+import url;
+import fs;
+import system;
+import web;
+
+// Serves one mounted directory (D-24: the root is checked when the handler
+// is built, so a misconfigured mount fails at startup, not per request).
+class StaticFiles {
+    public StaticFiles(string root) {
+        if (!fs.isDirectory(root)) {
+            throw Exception("web.static.StaticFiles: root is not a directory: " + root);
+        }
+        m_root = root;
+        m_types = builtinTypes();
+    }
+
+    public string index = "index.html";
+    public int maxAgeSeconds = 0;             // 0 = no Cache-Control (D-14)
+    public bool useETag = true;
+    public bool allowDotFiles = false;        // a '.'-leading segment is 404 by default (D-14)
+
+    // Registers one extension after construction, per instance (ruling 26 vi).
+    // The key drops a leading '.' and folds case so ".HTML", ".Html" and
+    // "html" land on one entry; a text/* type gains the charset that the
+    // builtin table gives every text type (ruling 26 i).
+    public void addType(string ext, string mime) {
+        if (ext == "" || mime == "") {
+            string which = "ext";
+            if (ext != "") { which = "mime"; }
+            throw Exception("web.static.StaticFiles.addType: " + which + " is empty.");
+        }
+        string key = ext;
+        if (key.startsWith(".")) { key = key.substring(1); }
+        m_types.set(key.toLower(), withCharset(mime));
+    }
+
+    // The nine-step answer of D-14: the method gate comes first (ruling 26 iv,
+    // the path is not even looked at), then decode-and-reject per segment, the
+    // 301 with the mount prefix restored (ruling 27), the index fallback, and
+    // the conditional-answer chain over the file's size and mtime.
+    public void serve(RequestContext ctx) {
+        if (ctx.method != "GET" && ctx.method != "HEAD") {
+            ctx.res.headers.set("Allow", "GET, HEAD");
+            ctx.text(405, "method not allowed: " + ctx.method);
+            return;
+        }
+        string target = this.resolveTarget(ctx);
+        if (target == "") {
+            notFound(ctx);
+            return;
+        }
+        if (fs.isDirectory(target)) {
+            string path = ctx.req.url.path;
+            if (path.substring(path.length() - 1) != "/") {
+                string location = path + "/";
+                if (ctx.req.url.hasQuery) { location = location + "?" + ctx.req.url.query; }
+                ctx.redirect(location, 301);
+                return;
+            }
+            target = fs.join(target, index);
+        }
+        if (!fs.isFile(target)) {
+            notFound(ctx);
+            return;
+        }
+        int size = fs.size(target);
+        long ms = fs.modifiedTimeMs(target);
+        string tag = "W/\"" + size.toString() + "-" + ms.toString() + "\"";
+        if (this.notModified(ctx, tag, ms)) {
+            ctx.res.statusCode = 304;
+            ctx.res.reasonPhrase = HttpResponse.reasonPhraseFor(304);
+            ctx.res.body = null;   // a 304 carries no body (RFC 9112 6.3)
+            if (useETag) { ctx.res.headers.set("ETag", tag); }
+            if (maxAgeSeconds > 0) {
+                ctx.res.headers.set("Cache-Control", "public, max-age=" + maxAgeSeconds.toString());
+            }
+            // RFC 9110 15.4.5: Last-Modified is the validator that is left
+            // once the response carries no ETag (ruling 26 vii).
+            if (!useETag) {
+                ctx.res.headers.set("Last-Modified", http.HttpDate.format(
+                    ms / DEFAULT_MILLIS_PER_SECOND * DEFAULT_MILLIS_PER_SECOND));
+            }
+            return;
+        }
+        ctx.bytes(200, fs.readBytes(target), this.mimeFor(target));
+        if (useETag) { ctx.res.headers.set("ETag", tag); }
+        // The validator is floored to the second because the condition that
+        // compares against it is second-granularity (ruling 5).
+        ctx.res.headers.set("Last-Modified", http.HttpDate.format(
+            ms / DEFAULT_MILLIS_PER_SECOND * DEFAULT_MILLIS_PER_SECOND));
+        if (maxAgeSeconds > 0) {
+            ctx.res.headers.set("Cache-Control", "public, max-age=" + maxAgeSeconds.toString());
+        }
+    }
+
+    private string m_root;
+    private Dict<string, string> m_types;
+
+    // The three RFC 9110 5.6.7 forms, told apart by length: the variable-
+    // length rfc850 form is whatever is neither of the two fixed ones.
+    private static const int DEFAULT_HTTP_DATE_IMF_LEN = 29;       // "Mon, 02 Jun 1985 08:49:37 GMT"
+    private static const int DEFAULT_HTTP_DATE_ASCTIME_LEN = 24;   // "Mon Jun  2 08:49:37 1985"
+    private static const int DEFAULT_HTTP_DATE_RFC850_TAIL_LEN = 22;   // "02-Jun-85 08:49:37 GMT"
+    private static const int DEFAULT_HTTP_DATE_CLOCK_LEN = 8;      // "HH:MM:SS"
+    private static const int DEFAULT_HTTP_DATE_NAME_LEN = 3;       // a weekday or month name
+    private static const int DEFAULT_HTTP_DATE_DAY_LEN = 2;        // a day of month
+    private static const int DEFAULT_HTTP_DATE_YEAR4_LEN = 4;      // an IMF/asctime year
+    private static const int DEFAULT_HTTP_DATE_YEAR2_LEN = 2;      // an rfc850 two-digit year
+    private static const int DEFAULT_MIN_MONTH_DAY = 1;
+    private static const int DEFAULT_MAX_MONTH_DAY = 31;
+    private static const int DEFAULT_MAX_HOUR = 23;
+    private static const int DEFAULT_MAX_MINUTE = 59;
+    private static const int DEFAULT_MAX_SECOND = 60;              // RFC 9110 allows a leap second
+    private static const int DEFAULT_TWO_DIGIT_YEAR_SLACK = 50;    // the rfc850 century-window rule
+    private static const int DEFAULT_SECONDS_PER_MINUTE = 60;
+    private static const int DEFAULT_SECONDS_PER_HOUR = 3600;
+    private static const int DEFAULT_SECONDS_PER_DAY = 86400;
+    private static const int DEFAULT_MILLIS_PER_SECOND = 1000;
+    private static const int DEFAULT_CENTURY_YEARS = 100;
+    // One reason message for every shape rejection in the three date parsers:
+    // the caller cannot act on the difference, the condition is just absent.
+    private static const string HTTP_DATE_REJECT_MSG =
+        "web.static.StaticFiles: malformed http-date.";
+
+    // Joins the decoded, cleaned segments of ctx.path onto the root; "" is the
+    // 404 signal. Segments come from a bare-'/' split (ruling 18), empty ones
+    // fold away (ruling 26 iii), and every rejection is decided after decoding
+    // (ruling 14): a%2F..%2Fx must not hand the filesystem a hidden '..'.
+    private string resolveTarget(RequestContext ctx) {
+        string target = m_root;
+        List<string> raw = ctx.path.split("/");
+        for (int i = 0; i < raw.length(); i = i + 1) {
+            if (raw[i] == "") { continue; }
+            string seg = "";
+            try {
+                seg = url.percentDecode(raw[i]);
+            } catch (Exception e) {
+                return "";   // a malformed escape is the request's mistake (404, not 500)
+            }
+            if (seg == ".." || seg == "." || seg.indexOf("\0") >= 0) { return ""; }
+            // The '/'-split cannot see separators that decoding produces, so
+            // the decoded segment itself must refuse them (D-14's rooted and
+            // in-segment-separator arms in one test).
+            if (seg.indexOf("/") >= 0 || seg.indexOf("\\") >= 0) { return ""; }
+            if (startsWithDriveLetter(seg)) { return ""; }
+            if (seg.startsWith(".") && !allowDotFiles) { return ""; }
+            target = fs.join(target, seg);
+        }
+        return target;
+    }
+
+    // The D-14 drive-letter arm: the first cell is an ASCII letter and the
+    // next is ':'. Compared through one-character substrings because s[i]
+    // yields a raw int byte, not a char.
+    private static bool startsWithDriveLetter(string seg) {
+        const string LETTERS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        if (seg.length() < 2 || seg.substring(1, 2) != ":") { return false; }
+        return LETTERS.indexOf(seg.substring(0, 1)) >= 0;
+    }
+
+    // The mounted-subtree 404 (D-14: its own body, not App's setNotFound text,
+    // which answers only the top-level route miss).
+    private static void notFound(RequestContext ctx) {
+        ctx.text(404, "not found: " + ctx.req.url.path);
+    }
+
+    // Condition evaluation per ruling 26 ii/viii: the ETag chain gates itself
+    // on useETag, If-None-Match wins over If-Modified-Since, and every
+    // malformed or multi-member spelling makes the condition absent (200).
+    private bool notModified(RequestContext ctx, string tag, long ms) {
+        if (useETag && ctx.req.headers.has("If-None-Match")) {
+            return matchesEtag(ctx.req.headers.getAll("If-None-Match"), tag);
+        }
+        if (!ctx.req.headers.has("If-Modified-Since")) { return false; }
+        List<string> stamps = ctx.req.headers.getAll("If-Modified-Since");
+        // The value grammar carries exactly one HTTP-date (RFC 9110 5.2), so a
+        // repeated field makes the condition absent (ruling 26 viii). A single
+        // field may still be a comma-joined date list, but a bare comma cannot
+        // tell the two apart -- the IMF and rfc850 forms contain one inside a
+        // legal date -- so the form checks in parseHttpDate decide: a naive
+        // list matches none of the three forms and reads as absent the same.
+        if (stamps.length() != 1) { return false; }
+        long imsMs = 0;
+        if (!parseHttpDate(stamps[0], imsMs)) { return false; }
+        // Second granularity: the condition fails when the stamp is at or after
+        // the floored modification time (RFC 9110 5.2).
+        return imsMs / DEFAULT_MILLIS_PER_SECOND >= ms / DEFAULT_MILLIS_PER_SECOND;
+    }
+
+    // RFC 9110 13.2.3 weak comparison: "*" matches, every listed member is
+    // compared on its strong form, and a hit on any member answers 304.
+    private static bool matchesEtag(List<string> fields, string tag) {
+        string want = strongForm(tag);
+        for (int i = 0; i < fields.length(); i = i + 1) {
+            if (fields[i].trim() == "*") { return true; }
+            List<string> members = fields[i].split(",");
+            for (int j = 0; j < members.length(); j = j + 1) {
+                if (strongForm(members[j].trim()) == want) { return true; }
+            }
+        }
+        return false;
+    }
+
+    private static string strongForm(string tag) {
+        if (tag.startsWith("W/")) { return tag.substring(2); }
+        return tag;
+    }
+
+    // Looks the extension of the target's final name component up in the
+    // per-instance table; anything off the table is octet-stream (D-14).
+    // Scanned by one-character cells because s[i] yields a raw int byte.
+    private string mimeFor(string path) {
+        int leaf = 0;
+        int dot = -1;
+        for (int i = 0; i < path.length(); i = i + 1) {
+            string cell = path.substring(i, i + 1);
+            if (cell == "/" || cell == "\\") {
+                leaf = i + 1;
+                dot = -1;
+            } else if (cell == ".") {
+                dot = i;
+            }
+        }
+        string ext = "";
+        if (dot > leaf) { ext = path.substring(dot + 1).toLower(); }
+        if (m_types.containsKey(ext)) { return m_types.get(ext); }
+        return "application/octet-stream";
+    }
+
+    // The 23-entry table (ruling 26 vi), built per instance so two mounts
+    // never pollute each other through addType. The text/* entries carry the
+    // charset that ruling 26 i also demands of addType input; the table is
+    // literal data, so the rule is spelled here and once in withCharset.
+    private static Dict<string, string> builtinTypes() {
+        Dict<string, string> table = Dict<string, string>();
+        table.set("html", "text/html; charset=utf-8");
+        table.set("htm", "text/html; charset=utf-8");
+        table.set("txt", "text/plain; charset=utf-8");
+        table.set("css", "text/css; charset=utf-8");
+        table.set("js", "text/javascript; charset=utf-8");
+        table.set("mjs", "text/javascript; charset=utf-8");
+        table.set("json", "application/json");
+        table.set("xml", "application/xml");
+        table.set("svg", "image/svg+xml");
+        table.set("png", "image/png");
+        table.set("jpg", "image/jpeg");
+        table.set("jpeg", "image/jpeg");
+        table.set("gif", "image/gif");
+        table.set("webp", "image/webp");
+        table.set("ico", "image/x-icon");
+        table.set("woff", "font/woff");
+        table.set("woff2", "font/woff2");
+        table.set("ttf", "font/ttf");
+        table.set("otf", "font/otf");
+        table.set("md", "text/markdown; charset=utf-8");
+        table.set("csv", "text/csv; charset=utf-8");
+        table.set("wasm", "application/wasm");
+        table.set("pdf", "application/pdf");
+        return table;
+    }
+
+    // The addType-side charset rule (ruling 26 i): a text/* type without a
+    // declared charset gains utf-8, anything else passes through.
+    private static string withCharset(string mime) {
+        if (mime.startsWith("text/") && mime.indexOf("charset=") < 0) {
+            return mime + "; charset=utf-8";
+        }
+        return mime;
+    }
+
+    // Parses one RFC 9110 5.6.7 HTTP-date into epoch milliseconds; false is
+    // "unparseable, therefore the condition is absent" (ruling 5). The three
+    // forms are told apart by length (IMF 29, asctime 24), with the variable
+    // rfc850 form as the fallback; names compare case-sensitively (5.6.7 p10:
+    // "case-sensitive and cannot be extended"), weekday names are legal-name
+    // checked but never cross-checked against the calendar, and any
+    // substring/toInt miss lands in this catch as unparseable. The helpers
+    // report a shape failure by throwing because a reference formal cannot
+    // forward another reference formal (a binding aliases storage, not a
+    // binding slot): the epoch is written here, from the helper's result.
+    private static bool parseHttpDate(string value, long& epochMs) {
+        epochMs = 0;
+        try {
+            if (value.length() == DEFAULT_HTTP_DATE_IMF_LEN) {
+                epochMs = imfToEpochMs(value);
+                return true;
+            }
+            if (value.length() == DEFAULT_HTTP_DATE_ASCTIME_LEN) {
+                epochMs = asctimeToEpochMs(value);
+                return true;
+            }
+            epochMs = rfc850ToEpochMs(value);
+            return true;
+        } catch (Exception e) {
+            epochMs = 0;
+            return false;
+        }
+    }
+
+    // "Mon, 02 Jun 1985 08:49:37 GMT" with every separator at its offset.
+    private static long imfToEpochMs(string v) {
+        const int COMMA = 3;
+        const int DAY = 5;
+        const int MONTH = 8;
+        const int YEAR = 12;
+        const int CLOCK = 17;
+        const int GMT = 26;
+        if (v.substring(COMMA, COMMA + 2) != ", " || v.substring(DAY + 2, DAY + 3) != " "
+                || v.substring(MONTH + 3, MONTH + 4) != " "
+                || v.substring(YEAR + 4, YEAR + 5) != " "
+                || v.substring(CLOCK + DEFAULT_HTTP_DATE_CLOCK_LEN,
+                                CLOCK + DEFAULT_HTTP_DATE_CLOCK_LEN + 1) != " "
+                || v.substring(GMT) != "GMT") { throw Exception(HTTP_DATE_REJECT_MSG); }
+        if (weekdayNames3().indexOf(v.substring(0, DEFAULT_HTTP_DATE_NAME_LEN)) < 0) {
+            throw Exception(HTTP_DATE_REJECT_MSG);
+        }
+        int month = monthNames3().indexOf(v.substring(MONTH, MONTH + DEFAULT_HTTP_DATE_NAME_LEN));
+        if (month < 0) { throw Exception(HTTP_DATE_REJECT_MSG); }
+        int day = v.substring(DAY, DAY + DEFAULT_HTTP_DATE_DAY_LEN).toInt();
+        if (day < DEFAULT_MIN_MONTH_DAY || day > DEFAULT_MAX_MONTH_DAY) {
+            throw Exception(HTTP_DATE_REJECT_MSG);
+        }
+        int year = v.substring(YEAR, YEAR + DEFAULT_HTTP_DATE_YEAR4_LEN).toInt();
+        int hour = 0;
+        int minute = 0;
+        int second = 0;
+        parseClock(v.substring(CLOCK, CLOCK + DEFAULT_HTTP_DATE_CLOCK_LEN), hour, minute, second);
+        return clockEpochMs(daysFromCivil(year, month + 1, day), hour, minute, second);
+    }
+
+    // "Mon Jun  2 08:49:37 1985": the day sits right-aligned in two columns,
+    // so its slot is trimmed before it is read (5.6.7's asctime spare-space
+    // rule).
+    private static long asctimeToEpochMs(string v) {
+        const int MONTH = 4;
+        const int DAY = 8;
+        const int CLOCK = 11;
+        const int YEAR = 20;
+        if (v.substring(MONTH - 1, MONTH) != " " || v.substring(DAY - 1, DAY) != " "
+                || v.substring(DAY + 2, DAY + 3) != " " || v.substring(YEAR - 1, YEAR) != " ") {
+            throw Exception(HTTP_DATE_REJECT_MSG);
+        }
+        if (weekdayNames3().indexOf(v.substring(0, DEFAULT_HTTP_DATE_NAME_LEN)) < 0) {
+            throw Exception(HTTP_DATE_REJECT_MSG);
+        }
+        int month = monthNames3().indexOf(v.substring(MONTH, MONTH + DEFAULT_HTTP_DATE_NAME_LEN));
+        if (month < 0) { throw Exception(HTTP_DATE_REJECT_MSG); }
+        int day = v.substring(DAY, DAY + DEFAULT_HTTP_DATE_DAY_LEN).trim().toInt();
+        if (day < DEFAULT_MIN_MONTH_DAY || day > DEFAULT_MAX_MONTH_DAY) {
+            throw Exception(HTTP_DATE_REJECT_MSG);
+        }
+        int year = v.substring(YEAR, YEAR + DEFAULT_HTTP_DATE_YEAR4_LEN).toInt();
+        int hour = 0;
+        int minute = 0;
+        int second = 0;
+        parseClock(v.substring(CLOCK, CLOCK + DEFAULT_HTTP_DATE_CLOCK_LEN), hour, minute, second);
+        return clockEpochMs(daysFromCivil(year, month + 1, day), hour, minute, second);
+    }
+
+    // "Sunday, 02-Jun-85 08:49:37 GMT": the full weekday name up to the first
+    // space, then the day-Mon-2DIGIT date, the clock and GMT. The '-'
+    // separators are validated structurally by the split, so the field widths
+    // are the only shape check left.
+    private static long rfc850ToEpochMs(string v) {
+        int sp = v.indexOf(" ");
+        if (sp < 0) { throw Exception(HTTP_DATE_REJECT_MSG); }
+        string weekday = v.substring(0, sp);
+        if (weekday.length() == 0 || weekday.substring(weekday.length() - 1) != ",") {
+            throw Exception(HTTP_DATE_REJECT_MSG);
+        }
+        string name = weekday.substring(0, weekday.length() - 1);
+        if (weekdayNamesFull().indexOf(name) < 0) { throw Exception(HTTP_DATE_REJECT_MSG); }
+        string rest = v.substring(sp + 1);
+        const int CLOCK = 10;
+        const int GMT = 19;
+        if (rest.length() != DEFAULT_HTTP_DATE_RFC850_TAIL_LEN
+                || rest.substring(CLOCK - 1, CLOCK) != " "
+                || rest.substring(CLOCK + DEFAULT_HTTP_DATE_CLOCK_LEN,
+                                  CLOCK + DEFAULT_HTTP_DATE_CLOCK_LEN + 1) != " "
+                || rest.substring(GMT) != "GMT") { throw Exception(HTTP_DATE_REJECT_MSG); }
+        List<string> parts = rest.substring(0, CLOCK - 1).split("-");
+        if (parts.length() != 3
+                || parts[0].length() != DEFAULT_HTTP_DATE_DAY_LEN
+                || parts[2].length() != DEFAULT_HTTP_DATE_YEAR2_LEN) {
+            throw Exception(HTTP_DATE_REJECT_MSG);
+        }
+        int month = monthNames3().indexOf(parts[1]);
+        if (month < 0) { throw Exception(HTTP_DATE_REJECT_MSG); }
+        int day = parts[0].toInt();
+        if (day < DEFAULT_MIN_MONTH_DAY || day > DEFAULT_MAX_MONTH_DAY) {
+            throw Exception(HTTP_DATE_REJECT_MSG);
+        }
+        int hour = 0;
+        int minute = 0;
+        int second = 0;
+        parseClock(rest.substring(CLOCK, CLOCK + DEFAULT_HTTP_DATE_CLOCK_LEN), hour, minute, second);
+        int year = twoDigitYear(parts[2].toInt());
+        return clockEpochMs(daysFromCivil(year, month + 1, day), hour, minute, second);
+    }
+
+    // "HH:MM:SS" at a fixed offset. A missing separator or an out-of-range
+    // field throws, because every caller already promised the parse is best-
+    // effort: parseHttpDate turns the exception into "unparseable".
+    private static void parseClock(string slot, int& hour, int& minute, int& second) {
+        const int MINUTE = 3;
+        const int SECOND = 6;
+        if (slot.length() != DEFAULT_HTTP_DATE_CLOCK_LEN
+                || slot.substring(MINUTE - 1, MINUTE) != ":"
+                || slot.substring(SECOND - 1, SECOND) != ":") {
+            throw Exception("web.static.StaticFiles: malformed time-of-day slot.");
+        }
+        hour = slot.substring(0, MINUTE - 1).toInt();
+        minute = slot.substring(MINUTE, MINUTE + DEFAULT_HTTP_DATE_DAY_LEN).toInt();
+        second = slot.substring(SECOND).toInt();
+        if (hour > DEFAULT_MAX_HOUR || minute > DEFAULT_MAX_MINUTE || second > DEFAULT_MAX_SECOND) {
+            throw Exception("web.static.StaticFiles: time-of-day out of range.");
+        }
+    }
+
+    // The name tables of the three forms. Each is a comma-joined constant
+    // split into a List, so indexOf reads a name back as its number; the
+    // weekday tables exist only for the legal-name check (5.6.7 p10: "does
+    // not need to verify that the day-of-week matches the date").
+    private static List<string> monthNames3() {
+        const string NAMES = "Jan,Feb,Mar,Apr,May,Jun,Jul,Aug,Sep,Oct,Nov,Dec";
+        return NAMES.split(",");
+    }
+
+    private static List<string> weekdayNames3() {
+        const string NAMES = "Sun,Mon,Tue,Wed,Thu,Fri,Sat";
+        return NAMES.split(",");
+    }
+
+    private static List<string> weekdayNamesFull() {
+        const string NAMES = "Sunday,Monday,Tuesday,Wednesday,Thursday,Friday,Saturday";
+        return NAMES.split(",");
+    }
+
+    // The two-digit-year MUST of RFC 9110 5.6.7 p3: the year in the current
+    // century that shares the two digits, moved back a century when it lies
+    // in the future, and forward one when that reading is more than 50 years
+    // past (so 35 means 2035, not 1935, from 2026).
+    private static int twoDigitYear(int yy) {
+        int nowYear = DateTime.now().year;
+        int year = (nowYear / DEFAULT_CENTURY_YEARS) * DEFAULT_CENTURY_YEARS + yy;
+        if (year > nowYear) { year = year - DEFAULT_CENTURY_YEARS; }
+        if (nowYear - year > DEFAULT_TWO_DIGIT_YEAR_SLACK) { year = year + DEFAULT_CENTURY_YEARS; }
+        return year;
+    }
+
+    private static long clockEpochMs(long days, int hour, int minute, int second) {
+        long secs = days * DEFAULT_SECONDS_PER_DAY + hour * DEFAULT_SECONDS_PER_HOUR
+            + minute * DEFAULT_SECONDS_PER_MINUTE + second;
+        return secs * DEFAULT_MILLIS_PER_SECOND;
+    }
+
+    // Hinnant's days_from_civil, the exact inverse of the DateTime
+    // constructor's civil_from_days (stdlib/system.n:43-60), whose algorithm
+    // constants it mirrors cell for cell; the era guard keeps the truncating
+    // division correct for years before 0.
+    private static long daysFromCivil(long year, long month, long day) {
+        long y = year;
+        if (month <= 2) { y = y - 1; }
+        long yAdj = y;
+        if (yAdj < 0) { yAdj = yAdj - 399; }
+        long era = yAdj / 400;
+        long yoe = y - era * 400;                            // [0, 399]
+        long mp = 0;
+        if (month > 2) { mp = month - 3; } else { mp = month + 9; }
+        long doy = (153 * mp + 2) / 5 + day - 1;             // [0, 365]
+        long doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;    // [0, 146096]
+        return era * 146097 + doe - 719468;
+    }
+}

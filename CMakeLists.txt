@@ -261,18 +261,19 @@ set(NLANG_STDLIB_BUILD_DIR ${CMAKE_BINARY_DIR}/stdlib)
 file(MAKE_DIRECTORY ${NLANG_STDLIB_BUILD_DIR})
 # ONE source list drives every consumer of the file set (the generated
 # .nproj and the copy below; the install rule ships the whole stdlib/
-# directory and is list-free by construction). A new stdlib/<name>.n
-# must not depend on remembering to edit each site — a missed copy also
-# misses the package member, because the build-tree copy shadows the
-# source tree for compile-time resolution. CONFIGURE_DEPENDS: cmake
-# re-runs (and the list refreshes) whenever the glob result changes, so
-# adding or removing a stdlib source needs no manual reconfigure.
+# directory and is list-free by construction). A new stdlib/<name>.n —
+# at any depth, subpackage directories included — must not depend on
+# remembering to edit each site — a missed copy also misses the package
+# member, because the build-tree copy shadows the source tree for
+# compile-time resolution. CONFIGURE_DEPENDS: cmake re-runs (and the
+# list refreshes) whenever the glob result changes, so adding or
+# removing a stdlib source needs no manual reconfigure.
 # copy_if_different never DELETES: removing a stdlib source leaves its
 # stale copy in the build-tree dir, still shadowing the source tree
 # (consumers compile against a signature the package no longer ships)
 # — delete the stale copy from the build-tree stdlib dir by hand after
 # a source removal.
-file(GLOB NLANG_STDLIB_SOURCES CONFIGURE_DEPENDS
+file(GLOB_RECURSE NLANG_STDLIB_SOURCES CONFIGURE_DEPENDS
     ${PROJECT_SOURCE_DIR}/stdlib/*.n)
 #The prelude packages are compile-time-inline only: the compiler embeds
 #stdlib/lang.n and stdlib/containers.n at build time, so the .nproj
@@ -290,15 +291,39 @@ list(REMOVE_ITEM NLANG_STDLIB_PACKAGE_SOURCES
 #element (tinyxml2 happens to tolerate the stray text node).
 set(NLANG_STDLIB_NPROJ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Project name=\"stdlib\">\n  <Sources>\n")
 foreach(src IN LISTS NLANG_STDLIB_PACKAGE_SOURCES)
-    get_filename_component(name "${src}" NAME)
-    string(APPEND NLANG_STDLIB_NPROJ "    <File path=\"${name}\"/>\n")
+    #The <File path> rides the module path (DeriveModulePath strips the
+    #extension and maps '/' to '.'): "web/static.n" packs as module
+    #web.static, so the path is stdlib-relative, not the bare file name.
+    file(RELATIVE_PATH rel "${PROJECT_SOURCE_DIR}/stdlib" "${src}")
+    string(APPEND NLANG_STDLIB_NPROJ "    <File path=\"${rel}\"/>\n")
 endforeach()
 string(APPEND NLANG_STDLIB_NPROJ "  </Sources>\n</Project>\n")
 file(WRITE ${NLANG_STDLIB_BUILD_DIR}/stdlib.nproj "${NLANG_STDLIB_NPROJ}")
+#The build-tree copy mirrors the source tree's layout (subpackage sources
+#live under stdlib/<sub>/): the generated .nproj resolves every <File
+#path> relative to itself, and FindStdLibDir must see the same layout the
+#source tree has. cmake -E copy_if_different never creates parent
+#directories, so each subpackage directory is made first; one command
+#per file keeps the never-deletes caveat above unchanged.
+set(NLANG_STDLIB_MKDIR_CMDS "")
+set(NLANG_STDLIB_COPY_CMDS "")
+set(NLANG_STDLIB_SUBDIRS "")
+foreach(src IN LISTS NLANG_STDLIB_SOURCES)
+    file(RELATIVE_PATH rel "${PROJECT_SOURCE_DIR}/stdlib" "${src}")
+    get_filename_component(sub "${rel}" DIRECTORY)
+    if(NOT sub STREQUAL "" AND NOT sub IN_LIST NLANG_STDLIB_SUBDIRS)
+        list(APPEND NLANG_STDLIB_SUBDIRS "${sub}")
+        list(APPEND NLANG_STDLIB_MKDIR_CMDS
+            COMMAND ${CMAKE_COMMAND} -E make_directory
+                "${NLANG_STDLIB_BUILD_DIR}/${sub}")
+    endif()
+    list(APPEND NLANG_STDLIB_COPY_CMDS
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${src}" "${NLANG_STDLIB_BUILD_DIR}/${rel}")
+endforeach()
 add_custom_target(nlang_stdlib_package ALL
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        ${NLANG_STDLIB_SOURCES}
-        ${NLANG_STDLIB_BUILD_DIR}
+    ${NLANG_STDLIB_MKDIR_CMDS}
+    ${NLANG_STDLIB_COPY_CMDS}
     COMMAND $<TARGET_FILE:ncc> build -p
         ${NLANG_STDLIB_BUILD_DIR}/stdlib.nproj
         -o ${NLANG_STDLIB_BUILD_DIR}/stdlib.npkg
