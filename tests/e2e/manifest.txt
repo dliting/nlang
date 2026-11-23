@@ -2664,3 +2664,17 @@ stdlib_web_static_files 0
 # first, a feeder on another thread that outlives its handler, and one UTF-8
 # frame checked byte by byte.
 stdlib_web_sse_frames 0
+# --- v0.13.12: urlencoded forms through web.form.Form.parse — the raw '&'
+# split with the first '=' as the name/value border, '+' and %XX decoding over
+# UTF-8 bytes, same-name values in arrival order behind a first-seen name,
+# empty values and bare names as empty-value fields, empty segments skipped
+# while an explicit empty name stays a legal field; the media type gate's case,
+# blank and quoted-string spellings against five 415 refusals that quote no
+# client byte; the empty-body answer running ahead of the type check on both
+# the framing-free and the hand-written Content-Length: 0 arm; a malformed
+# percent escape as the named 400 with the request bytes unechoed; maxBytes
+# bounding the read at its exact value with the named 413; the three default
+# limits spelled from a fresh FormOptions with a null opts riding them;
+# maxParts leaving urlencoded fields uncapped; and the containers handed out
+# by names() and getAll() surviving caller edits.
+stdlib_web_form_urlencoded 0

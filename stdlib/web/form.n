@@ -1,0 +1,351 @@
+/* ------------------------------------------------------------------
+ * form.n — Form, the request-body form parser
+ * (module web.form; spec docs/dev/web_framework_design.md 6.9, D-17,
+ * D-18 and rulings 18/20).
+ * FormOptions carries D-18's three limits, each owning its side:
+ * maxBytes bounds the body bytes read by either parser, while maxParts
+ * and maxPartBytes belong to multipart parts alone — a urlencoded body
+ * is never capped by them (leg K). FormData stores field names in
+ * first-appearance order with every value of a name kept in arrival
+ * order, and hands copies out of names() and getAll() so a caller
+ * editing them cannot corrupt the form. Form.parse runs the four steps
+ * ruling 18 pins in a fixed order: an empty request body answers an
+ * empty form before the content type is consulted (i), the content
+ * type gate answers its named 415 without reading a body byte (the
+ * http layer drains the unread body and the connection stays
+ * reusable), a malformed percent escape becomes the named 400 whose
+ * text quotes no client byte (ii), and maxBytes guards the read with
+ * the named 413. The media type trio is a private static scanner of
+ * Form rather than free functions (ruling 20 keeps this module
+ * surface-class-only): it honours quoted-string parameters because a
+ * multipart boundary may legally contain ';' inside its quotes (D-17),
+ * and Task 11 reads that parameter through mediaTypeParam.
+ * ------------------------------------------------------------------ */
+import io;
+import http;
+import url;
+import web;
+
+// The three limits spec 6.9 gives a fresh options object (D-18). The
+// defaults are assigned in the constructor body because a field
+// initializer only takes literals (ruling 11); the computed 8 MiB and
+// 4 MiB spellings live in the private static consts instead.
+class FormOptions {
+    private static const long DEFAULT_MAX_FORM_BYTES = 8 * 1024 * 1024;
+    private static const int DEFAULT_MAX_FORM_PARTS = 1000;
+    private static const int DEFAULT_MAX_FORM_PART_BYTES = 4 * 1024 * 1024;
+
+    public long maxBytes;
+    public int maxParts;
+    public int maxPartBytes;
+
+    public FormOptions() {
+        maxBytes = DEFAULT_MAX_FORM_BYTES;
+        maxParts = DEFAULT_MAX_FORM_PARTS;
+        maxPartBytes = DEFAULT_MAX_FORM_PART_BYTES;
+    }
+}
+
+// One parsed form: names in first-appearance order, each name mapped to
+// its values in arrival order. names() and getAll() return copies, so
+// mutating what the caller received leaves the form untouched (leg L);
+// get() answers "" for an absent name instead of throwing (spec 6.9).
+class FormData {
+    private List<string> m_order;
+    private Dict<string, List<string>> m_values;
+
+    public FormData() {
+        m_order = {};
+        m_values = {};
+    }
+
+    // A copy of the first-appearance name list, never the storage.
+    public List<string> names() {
+        List<string> copy = {};
+        for (int i = 0; i < m_order.length(); i = i + 1) {
+            string name = m_order[i];
+            copy.add(name);
+        }
+        return copy;
+    }
+
+    public bool has(string name) {
+        return m_order.indexOf(name) >= 0;
+    }
+
+    public string get(string name) {
+        List<string> vs = this.valuesOf(name);
+        if (vs.length() == 0) {
+            return "";
+        }
+        string first = vs[0];
+        return first;
+    }
+
+    // A copy of one name's values in arrival order.
+    public List<string> getAll(string name) {
+        List<string> copy = {};
+        List<string> vs = this.valuesOf(name);
+        for (int i = 0; i < vs.length(); i = i + 1) {
+            string value = vs[i];
+            copy.add(value);
+        }
+        return copy;
+    }
+
+    public int fieldCount() {
+        int total = 0;
+        for (int i = 0; i < m_order.length(); i = i + 1) {
+            string key = m_order[i];
+            // Dict.get throws on a miss (ruling 14); the guard also
+            // keeps this sum safe if a future loader ever lags a name.
+            if (m_values.containsKey(key)) {
+                List<string> vs = m_values.get(key);
+                total = total + vs.length();
+            }
+        }
+        return total;
+    }
+
+    // Task 11 turns this into fieldCount() + fileCount(); the urlencoded
+    // side has no files, so the two counts agree until then.
+    public int partCount() {
+        return this.fieldCount();
+    }
+
+    // The value list behind one name: the storage itself (every caller
+    // copies it out), and an empty list for an unknown name so get()
+    // and getAll() share one path.
+    private List<string> valuesOf(string name) {
+        if (!m_values.containsKey(name)) {
+            return {};
+        }
+        return m_values.get(name);
+    }
+
+    // The loader of the urlencoded side (D-18): the name registers on
+    // its first value, values append in arrival order. Public because
+    // Form is a different class (cross-class privates do not reach,
+    // ruling 14) and assembling a FormData by hand is a legitimate
+    // caller move too; the cost is one public method beyond spec 6.9,
+    // recorded for the Task 17 manual pass.
+    public void addField(string name, string value) {
+        if (!m_values.containsKey(name)) {
+            m_order.add(name);
+            m_values.set(name, {});
+        }
+        List<string> vs = m_values.get(name);
+        vs.add(value);
+    }
+}
+
+// The parse entry point of spec 6.9: the one-argument shape rides the
+// default options, the two-argument shape treats a null opts the same.
+class Form {
+    // The octets the media type scanner compares (byte domain).
+    private static const int OCTET_TAB = 9;
+    private static const int OCTET_SEMICOLON = 59;
+    private static const int OCTET_EQUALS = 61;
+    private static const int OCTET_SPACE = 32;
+    private static const int OCTET_QUOTE = 34;
+
+    public static FormData parse(RequestContext ctx) {
+        return Form.parse(ctx, FormOptions());
+    }
+
+    public static FormData parse(RequestContext ctx, FormOptions opts) {
+        // Step 1: a null opts rides the defaults (spec 6.9).
+        if (opts == null) {
+            opts = FormOptions();
+        }
+
+        // Step 2 (ruling 18 i): an empty request body answers an empty
+        // form before the content type is consulted, without reading a
+        // single byte. The framing facts come from the http layer's own
+        // parse (stdlib/http.n framingOf): MODE_NONE covers GET and any
+        // bodyless request, MODE_LENGTH ∧ framingLength == 0 is the
+        // hand-written Content-Length: 0 arm the client never spells by
+        // itself for an empty body.
+        if (ctx.req.framingMode == HttpParser.MODE_NONE
+            || (ctx.req.framingMode == HttpParser.MODE_LENGTH
+                && ctx.req.framingLength == 0)) {
+            return FormData();
+        }
+
+        // Step 3: the content type gate. The first flat-table cell is
+        // bound to a local before it is compared (ruling 12). The 415
+        // is the else arm of this dispatch rather than an early return
+        // so Task 11 can insert the multipart arm in the same chain.
+        List<string> mt = Form.readMediaType(ctx.req.headers.get("Content-Type"));
+        string type = mt[0];
+        if (!type.equalsIgnoreCase("application/x-www-form-urlencoded")) {
+            throw http.HttpException(
+                "web.form.Form.parse: unsupported content type for form parsing.", 415);
+        }
+
+        // Step 4: the read, then the web-layer cap (the http layer's
+        // own body cap sits far above at 16 MiB, stdlib/http.n), then
+        // the raw '&' split with the first '=' as the name/value
+        // border. An empty segment carries no field, a segment without
+        // '=' is a bare name with an empty value (D-17).
+        byte[] raw = ctx.req.bodyReader.readAll();
+        if (raw.length() > opts.maxBytes) {
+            throw http.HttpException(
+                "web.form.Form.parse: form body exceeds maxBytes (" + opts.maxBytes + " bytes).", 413);
+        }
+        string text = io.fromBytes(raw);
+        List<string> pairs = text.split("&");
+        FormData fd = FormData();
+        for (int i = 0; i < pairs.length(); i = i + 1) {
+            string pair = pairs[i];
+            if (pair.length() == 0) {
+                continue;
+            }
+            string name = pair;
+            string value = "";
+            int eq = pair.indexOf("=");
+            if (eq >= 0) {
+                name = pair.substring(0, eq);
+                value = pair.substring(eq + 1);
+            }
+            string decodedName = Form.decodeField(name);
+            string decodedValue = Form.decodeField(value);
+            fd.addField(decodedName, decodedValue);
+        }
+        return fd;
+    }
+
+    // '+' to space and %XX with the decoded bytes taken as UTF-8 —
+    // url.formDecode's own contract. A truncated or non-hexadecimal
+    // escape raises url.UrlException, whose message echoes the
+    // offending client text; ruling 18 ii wants the 400 body to quote
+    // no request byte, so the message is replaced wholesale here.
+    private static string decodeField(string s) {
+        try {
+            return url.formDecode(s);
+        } catch (url.UrlException e) {
+            throw http.HttpException("web: malformed percent escape in form body", 400);
+        }
+    }
+
+    // The flat media type table of D-17: [type, name1, value1, name2,
+    // value2, …], parameters in order and repeated names left unmerged
+    // so a caller can count how often one appeared. A quoted-string
+    // value keeps its ';' and blanks verbatim — the spelling
+    // boundary="…;…" needs. The walk runs over bytes: the token domain
+    // is ASCII and a stray non-ASCII octet must not cut a multi-byte
+    // character mid-scan. A missing Content-Type arrives here as ""
+    // (the http header table's answer for an absent name), which
+    // simply yields the one empty type cell. The table stops at the
+    // first spelling the grammar cannot complete — a trailing ';', a
+    // parameter without '=', junk after a closing quote, an
+    // unterminated quote — because a malformed header is the client's
+    // syntax error and this scanner refuses nothing: the 415/400
+    // verdicts fall out of the dispatch anyway.
+    private static List<string> readMediaType(string header) {
+        List<string> cells = {};
+        byte[] src = io.toBytes(header);
+        int n = src.length();
+
+        // The type segment runs up to the first ';' (or to the end),
+        // then loses its surrounding blanks and folds case (media type
+        // names are ASCII, and toLower() is an ASCII-only builtin).
+        int typeEnd = n;
+        for (int k = 0; k < n; k = k + 1) {
+            if ((src[k] & 0xFF) == OCTET_SEMICOLON) {
+                typeEnd = k;
+                break;
+            }
+        }
+        string type = io.fromBytes(src[0:typeEnd]);
+        type = type.trim();
+        type = type.toLower();
+        cells.add(type);
+
+        // Parameter segments: ';' OWS name '=' value, value quoted or
+        // bare.
+        int i = typeEnd;
+        while (i < n) {
+            i = i + 1;
+            while (i < n && ((src[i] & 0xFF) == OCTET_SPACE
+                             || (src[i] & 0xFF) == OCTET_TAB)) {
+                i = i + 1;
+            }
+            if (i >= n) {
+                break;
+            }
+            int nameStart = i;
+            while (i < n && (src[i] & 0xFF) != OCTET_EQUALS
+                   && (src[i] & 0xFF) != OCTET_SEMICOLON) {
+                i = i + 1;
+            }
+            if (i >= n || (src[i] & 0xFF) != OCTET_EQUALS) {
+                break;
+            }
+            string pname = io.fromBytes(src[nameStart:i]);
+            pname = pname.trim();
+            pname = pname.toLower();
+            i = i + 1;
+            string pvalue = "";
+            if (i < n && (src[i] & 0xFF) == OCTET_QUOTE) {
+                i = i + 1;
+                int quotedStart = i;
+                bool closed = false;
+                while (i < n) {
+                    if ((src[i] & 0xFF) == OCTET_QUOTE) {
+                        closed = true;
+                        break;
+                    }
+                    i = i + 1;
+                }
+                if (!closed) {
+                    break;
+                }
+                pvalue = io.fromBytes(src[quotedStart:i]);
+                i = i + 1;
+                if (i < n && (src[i] & 0xFF) != OCTET_SEMICOLON) {
+                    break;
+                }
+            } else {
+                int bareStart = i;
+                while (i < n && (src[i] & 0xFF) != OCTET_SEMICOLON) {
+                    i = i + 1;
+                }
+                pvalue = io.fromBytes(src[bareStart:i]);
+                pvalue = pvalue.trim();
+            }
+            cells.add(pname);
+            cells.add(pvalue);
+        }
+        return cells;
+    }
+
+    // The lowercased type name of a header: cell 0 of the flat table.
+    private static string mediaTypeOf(string header) {
+        List<string> cells = Form.readMediaType(header);
+        string type = cells[0];
+        return type;
+    }
+
+    // The first value of one parameter plus how often that parameter
+    // appeared, so Task 11 can reject a header carrying more than one
+    // boundary= parameter (D-17). count is a reference formal (the out
+    // marker is retired on this toolchain), so callers bind a declared
+    // local: Form.mediaTypeParam(h, "boundary", cnt).
+    private static string mediaTypeParam(string header, string name, int& count) {
+        List<string> cells = Form.readMediaType(header);
+        string first = "";
+        count = 0;
+        for (int i = 1; i + 1 < cells.length(); i = i + 2) {
+            string pname = cells[i];
+            string pvalue = cells[i + 1];
+            if (pname == name) {
+                count = count + 1;
+                if (count == 1) {
+                    first = pvalue;
+                }
+            }
+        }
+        return first;
+    }
+}

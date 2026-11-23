@@ -16,8 +16,6 @@
  * ------------------------------------------------------------------ */
 import io;
 import http;
-import web;
-import thread;
 import concurrent;
 
 // Frames one event stream over a response's chunked channel (D-16): the
