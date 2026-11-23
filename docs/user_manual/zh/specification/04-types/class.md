@@ -44,7 +44,9 @@ class SpecialNode : Node {
 
 同样的规则跨模块边界成立：导入的类只有其`public`成员可到达，例外是子类体内的`protected`成员（§4.8.11）。不是`public`的构造器不能在类外调用。
 
-*资料性：*诊断会点名涉事成员，例如`constructor of class "C" is not accessible`。
+修饰符同样管辖顶层声明（§2.2），只是默认相反：不带修饰符书写的顶层类、结构体、接口、枚举或函数是`public`。`private`或`protected`的顶层声明只在声明它的单元内可到达，所以导入方的限定名永远找不到它；在顶层，`protected`相比`private`并不多出什么，因为一个包只含一个模块（§3.9）。
+
+*资料性：*诊断会点名涉事成员，例如`constructor of class "C" is not accessible`。在别的模块里写一个非公共类型的名字，报`Type 'Vault' is not a member of package 'lib'.`；在别的模块里调用一个非公共函数，报`The function "hiddenHelper" does not exist or is not accessible.`。
 
 ## 4.8.3 字段与字段初始化器
 
@@ -271,7 +273,7 @@ const struct Vec {
 
 - 可写窗口是声明该字段的类型自己的构造器体加上字段初始化器：字段默认值在构造期注入时照常应用（§4.8.3）。任何其他位置的写入——方法体、别的类、别的模块——都是编译期错误，诊断点名字段与其属主。子类构造器不能改写继承来的字段；补充数据经`super(...)`转发（§4.8.6）。
 - 标记不冻结变量绑定：`Note n = a; n = b;`合法——类型级const与`const`局部（绑定级，§6.1）是两回事。`static`成员不受影响。
-- 继承双向密封：const类只能被const类继承——`class D : B`中基类`B`为const而`D`未标const是编译期错误，const子类继承普通基类同样被拒绝（根类`Object`豁免：它不声明字段，§4.11）。struct没有继承，各自密封（§4.7）。const标记随编译模块的类型记录携带（§26.4），因此导入方对导入的const聚合的写入同样被拒绝（§4.8.11）。
+- 继承双向密封：const类只能被const类继承——`class D : B`中基类`B`为const而`D`未标const是编译期错误，const子类继承普通基类同样被拒绝（根类`Object`豁免：它不声明字段，§4.11）。struct没有继承，各自密封（§4.7）。const标记随编译模块的类型记录携带（§27.4），因此导入方对导入的const聚合的写入同样被拒绝（§4.8.11）。
 - const聚合上`List`或`Dict`字段的成员读取被重写为一次浅拷贝——内建`copy()`（§12.1、§12.2）：外界拿到的是快照，改动副本永远不影响聚合自身。两次读取得到不同的副本，副本之间的`==`比较没有意义。`string`字段（如`Exception.message`，§8.3）本身不可变，直接只读。
 - 字段类型面受约束，且在声明期检查，以保证密封无法穿透：字段不能是数组、非const的class类型或接口类型——可变句柄会穿透密封，接口引用也可能由可变实现类支撑——`List`与`Dict`字段的元素类型同样必须是不可变面。合法面是基元、`string`、枚举、const类与const结构体、元素合规的容器以及`func`类型。内建`Exception`家族全部是const类（§8.3），这正是自引用的`Exception cause`字段合法的原因。
 

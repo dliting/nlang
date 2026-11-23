@@ -39,15 +39,23 @@ struct MiniHost {
         table.newString = &NewString;
     }
 
-    static const char* GetString(NativeHost* self, int32_t handle) {
+    //v13 string side: the byte length carries the content.
+    static const char* GetString(NativeHost* self, int32_t handle,
+                                 int64_t* outLen) {
         auto* m = reinterpret_cast<MiniHost*>(self);
         auto it = m->strings.find(handle);
-        return it == m->strings.end() ? nullptr : it->second.c_str();
+        if (it == m->strings.end()) {
+            if (outLen) *outLen = 0;
+            return nullptr;
+        }
+        if (outLen) *outLen = static_cast<int64_t>(it->second.size());
+        return it->second.c_str();
     }
-    static int32_t NewString(NativeHost* self, const char* utf8) {
+    static int32_t NewString(NativeHost* self, const char* utf8, int64_t len) {
         auto* m = reinterpret_cast<MiniHost*>(self);
         int32_t h = m->nextHandle++;
-        m->strings[h] = utf8 ? utf8 : "";
+        m->strings[h] = (utf8 && len > 0)
+            ? std::string(utf8, static_cast<size_t>(len)) : std::string();
         return h;
     }
 };
@@ -108,11 +116,12 @@ void TestLoadAndCall(const std::string& fixtureDir) {
     CHECK(out == 5.0f, "sample.doubleFloat computes 2*2.5");
 
     // greet("bob") -> "hello bob"
-    int32_t nameHandle = host.table.newString(&host.table, "bob");
+    int32_t nameHandle =
+        host.table.newString(&host.table, "bob", std::strlen("bob"));
     PutInt(args, 0, nameHandle);
     fns["sample.greet"](&host.table, ret, args, 1);
     int32_t resultHandle = GetRetInt(ret);
-    const char* text = host.table.getString(&host.table, resultHandle);
+    const char* text = host.table.getString(&host.table, resultHandle, nullptr);
     std::string copied = text ? text : "";
     CHECK(copied == "hello bob", "sample.greet builds greeting");
 
@@ -120,7 +129,7 @@ void TestLoadAndCall(const std::string& fixtureDir) {
     PutInt(args, 0, nameHandle);
     fns["sample.blockPing"](&host.table, ret, args, 1);
     resultHandle = GetRetInt(ret);
-    text = host.table.getString(&host.table, resultHandle);
+    text = host.table.getString(&host.table, resultHandle, nullptr);
     copied = text ? text : "";
     CHECK(copied == "blocking:bob", "sample.blockPing callable");
 }

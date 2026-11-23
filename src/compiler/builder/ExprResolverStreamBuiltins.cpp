@@ -18,7 +18,7 @@
 #include "BuiltinNames.h"
 #include "ModuleRegistry.h"
 #include <nlang/compiler/TypeArgSpelling.h>  //LinkKeyOf — the row-key spelling
-#include <nlang/vm/CompiledModule.h>  //RTK_* kind constants
+#include <nlang/runtime/RuntimeTypeCodes.h>  //RTK_* kind constants
 #include <algorithm>
 #include <map>
 #include <set>

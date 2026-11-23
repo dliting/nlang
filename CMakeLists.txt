@@ -60,6 +60,14 @@ target_include_directories(nlang_version INTERFACE
 option(NLANG_ENABLE_LLVM "Enable LLVM code generation backend" OFF)
 option(NLANG_BUILD_IDE "Build the NLang IDE (requires Qt5)" OFF)
 option(NLANG_BUILD_TESTS "Build tests" OFF)
+# Timed soak fixtures (today: the regex ReDoS perf half). Registered on demand
+# only: the routine gate legs run the Debug, ASan and IDE trees and judge
+# correctness there, while a wall-clock soak belongs to the one configuration
+# whose speed the claim is about. CTest's CONFIGS test property cannot express
+# that with the Visual Studio generator (measured 2026-11-20: `ctest -C Debug`
+# ran a CONFIGS-Release entry anyway), so absence is a configure-time fact.
+option(NLANG_PERF_TESTS
+       "Register the timed perf soak fixtures (release sweep only)" OFF)
 # Full path to makensis.exe for the NSIS installer (leave empty to look it
 # up on PATH). Only needed on the machine producing the release packages.
 set(NLANG_NSIS_MAKENSIS "" CACHE FILEPATH "Path to makensis.exe for CPack NSIS")

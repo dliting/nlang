@@ -1,13 +1,64 @@
 ## [0.13.11] - 2026-11-23
 
-Lambda review-fix pass over 0.13.10: currying, catch-variable
-capture and static-field lambda initializers arrive, and a
-shadowed-capture misroute is fixed by resolving captured access
-through the bound display-field descriptor instead of the field
-name. Not backward compatible by design.
+The JSON library: a `json` package that reads, edits and writes JSON
+text, written in NLang itself and shipped in the preset package. This
+release also settles the two language-surface items the library needed
+and fixes four defects it uncovered. The lambda review-fix pass over
+0.13.10 lands with it: currying, catch-variable capture and
+static-field lambda initializers arrive, and a shadowed-capture
+misroute is fixed by resolving captured access through the bound
+display-field descriptor instead of the field name. Not backward
+compatible by design.
 
 ### Added
-
+- **The `json` package** — `json.parse(text)` turns one JSON document
+  into a tree of `JsonValue` nodes; `serialize()` writes a tree back as
+  compact one-line text and `serialize(spaces)` renders the indented
+  form (spaces per level, a value of 0 or less stays compact).
+  `toString()` shows the same text as `serialize()`.
+- **Reading a document** — `kind()` answers which of `JsonKind`'s six
+  kinds a node holds, and the typed accessors (`getString`, `getBool`,
+  `getLong`, `getInt`, `getDouble`, `getObject`, `getArray`) answer for
+  the kind that is there and raise `JsonException` naming the kind when
+  asked for another. `JsonArray` gives `add` (six value types), `get`,
+  `set`, `removeAt` and `length`; `JsonObject` gives `put` (six value
+  types), `get`, `has`, `remove`, `names` and `count`.
+- **Building a document** — the scalars are constructible directly
+  (`JsonNull()`, `JsonBool(true)`, `JsonNumber(7)`, `JsonString("s")`),
+  so a tree can be assembled without parsing anything first.
+- **A strict grammar with located errors** — the grammar is RFC 8259
+  read strictly: no comments, no trailing commas, no leading `+` or
+  leading-zero integers, no `NaN` or `Infinity`, and the literals
+  `true`, `false` and `null` only in lower case. Every violation raises
+  a catchable `JsonException` whose message carries the byte offset of
+  the offending byte, so the position still holds after re-reading the
+  file.
+- **Numbers keep their source text** — a number parsed from text
+  serializes back with the exact characters it was written with (`1.0`,
+  `1e3`, `-0`, a 30-digit integer); `getLong` and `getInt` answer exact
+  whole values inside their own range, and the `JsonException` they
+  raise names what failed — a value outside the range or a value with a
+  fraction — while `getDouble` answers for every number. An
+  exponent past `double` range (`1e999`) is rejected where it is found.
+  A `JsonNumber` built from a non-finite `double` refuses to serialize:
+  JSON has no such literal.
+- **Text round-trips through escapes** — `parse` composes a `\uXXXX`
+  surrogate pair into the character it names and turns a lone half
+  surrogate into the replacement character U+FFFD; `serialize()` escapes
+  only the double quote, the backslash and bytes below `0x20`, so every
+  other byte, UTF-8 sequences included, passes through as it came.
+- **A duplicate key keeps one place** — the last value written wins, and
+  the key keeps the position where it first appeared, so re-serializing
+  a document preserves the original key order.
+- **Depth is a catchable error in both directions** — `JsonText.MAX_DEPTH`
+  (200) bounds nesting while parsing and while serializing, so a
+  pathologically deep document fails as `JsonException` instead of
+  exhausting the VM's frames, which is a host-level error no `catch`
+  reaches.
+- **A tour example** — `examples/json_tour.n` parses a document, reads a
+  node by kind, edits the tree and writes it back in both the compact
+  and the indented form; §26.1 shows the same program with the output it
+  prints.
 - **Expression-body nesting (currying).** A lambda's expression
   body may itself be a lambda — `(x) -> (y) -> x + y` under
   `func<func<int, int>, int>` returns a closure that captures the
@@ -27,8 +78,91 @@ name. Not backward compatible by design.
   shape for a `func`-typed static field; instance field
   initializers remain constant-expression positions.
 
-### Fixed
+### Changed
+- **`as` now spells widenings as well as narrowings.** An explicit cast
+  between scalar primitives used to be accepted only when it narrowed,
+  so a `long` → `double` conversion a program genuinely intended had no
+  spelling that silenced the precision-loss warning. `as` now takes any
+  pair of scalar types whose conversion the implicit rules already
+  allow — the conversion is the same one, the cast only says it is
+  meant. An `enum` member on the left of `as` collapses to the `int` it
+  already is at runtime, so `Colour.Red as double` needs no detour
+  through an `int` variable.
+- **A native extension receives its strings by byte length (the native
+  ABI moves to 13).** Every string parameter now arrives with an
+  `int64_t` content length beside it and every string result leaves
+  with an `int64_t*` out length, and a NUL byte is ordinary string
+  content on both sides: `io.toBytes`/`io.fromBytes` and
+  `TcpStream.readLine` round-trip a string that contains a NUL, where
+  the NUL used to cut the text short. A returned buffer stays
+  NUL-terminated as a convenience only; the length is the content
+  boundary. The C++ wrappers keep taking and returning `std::string`,
+  but all native modules must be rebuilt for ABI 13. Extensions that
+  read the host function table directly must also update their callback
+  signatures; the ABI chapter lists them.
+- **An internal type name is no longer a type spelling.** The runtime's
+  internal type names — `Int32`, `UInt32`, `ULong`, `Float`, `String`,
+  `Void`, `Type` among them — are the display spellings the rendered
+  signatures print; a program could
+  also use them as types, because the mirror the compiler
+  builds of the runtime's builtin types indexed those names in the
+  global namespace. Some of them compiled into something that then
+  failed at load: `Void v;` named a type with no value representation,
+  and `Type t;` reached the generic instantiation layer, which defines
+  no spelling for a metaclass, so the module was refused only once it
+  was running. Those names now resolve like any undeclared name
+  (`Cannot resolve the field: Void.`), because the types of the language
+  are its keywords and numeric aliases (§1.4) together with the names a
+  program declares: write `int` or `int32`, write `string`, and write
+  the declared class, interface, struct or enum name. The preset
+  package's own face classes keep the messages they already had —
+  `"String" is a builtin face class; it cannot be used as a type. Use
+  the string keyword instead.` — because those names come from
+  declarations, not from the mirror.
 
+### Fixed
+- **Constructor arguments of a widened type carry the right value.** An
+  `int` actual for a `long` or `double` formal (and a `long` actual for
+  a `double` formal) was staged into the call slot at the argument's own
+  width, so the rest of the slot kept whatever the previous expression
+  left there: a `Box(42)` written just after a call returning a `double`
+  received a stale high half. Bare constructor calls, direct
+  initialization, struct spellings, `super(...)` and module-qualified
+  construction now stage every actual at the formal's declared width.
+- **A class method declared after an abstract member links again.** A
+  consumer that reads a class from source — which is how every shipped
+  package arrives — numbered the class's methods without counting its
+  abstract members, so each method declared after one came out one row
+  short: `nlink` refused the call with "provides no member with that
+  signature", and where a name and an arity coincidentally matched it
+  silently bound the wrong method. An abstract member now occupies its
+  method-table row in the consumer's count as it does in the provider's.
+- **A function type with no return value inside a type argument
+  loads.** `List<func<void, Ctx>>` — a list of functions taking a `Ctx`
+  and returning no value — compiled, and then the whole module was
+  refused at start-up with "corrupt descriptor spelling: unresolved
+  link key '?'": a type argument has to be spelled into the
+  instantiation record, and the compiler and the
+  virtual machine each kept their own list of the spellings, with
+  `void` on neither. The compiler wrote the placeholder `?` for the
+  `void` it could not name and the loader, which had never seen `?`,
+  rejected the image. The two now read one shared table, so a type
+  argument the compiler cannot spell is a compile-time contract
+  violation instead of a record the virtual machine can only refuse
+  after the image is written.
+- **An interface-typed field or local keeps its object alive.** A class
+  field, local or parameter declared with an interface type reached the
+  collector as an integer rather than as an object reference: the
+  classifier mapping a declared type to a runtime type kind answered for
+  class, struct and enum declarations and had no answer for `interface`,
+  so it fell back to the integer. The collector skipped the slot and
+  freed the receiver as soon as a collection ran, and the program then
+  died on the next call with `method not found: …` — the slot named a
+  record the allocator had already handed out again. An interface-typed
+  slot now classifies as an object reference (an interface value is an
+  instance of a class that implements it), and a declared type with no
+  answer in that classifier fails the build naming the kind instead of
+  degrading to an integer and losing the object.
 - **Shadowed captures resolve by identity.** A captured reference
   now walks the display chain by the bound display field's parent
   class, not by field name: a lambda capturing an outer `n` while

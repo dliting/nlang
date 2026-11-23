@@ -164,7 +164,7 @@ At program scope, visibility depends on what the name denotes:
   referring unit. A function declared in another directory is not
   unqualified-visible; the diagnostic names the module that declares it.
   Visibility admits the name to lookup, not the function to the caller:
-  a foreign unit's declared access still gates the use (§7.1) — a
+  a foreign unit's declared access still gates the use (§7.1, §4.8.2) — a
   `private` or `protected` foreign function is denied on the
   unqualified and the qualified path alike, with the standard
   not-found diagnostic.
@@ -174,7 +174,7 @@ At program scope, visibility depends on what the name denotes:
   unit's own same-named declaration outright; among foreign
   candidates the admitted ones compete (§3.9.3), several admitted
   candidates diagnose an ambiguity naming every owner's package,
-  and a foreign type whose declared access denies this unit is no
+  and a foreign type whose declared access denies this unit (§4.8.2) is no
   candidate at all — the lookup reports it as unresolvable.
 - if the walk finds no binding, an unqualified identifier may still resolve
   to a built-in class name; §4.11, §4.12, §8.3 and chapter 10
@@ -188,7 +188,7 @@ package `p` only through the import gate of the referring
 compilation unit (§3.3): the path `p` must be opened, by an
 explicit import or by the same-directory rule. Member lookup inside
 `p` does not continue into outer scopes. Each member's declared
-access applies on top of the gate: a `private` or `protected`
+access (§4.8.2) applies on top of the gate: a `private` or `protected`
 member of a foreign package does not resolve at all — a type
 reads as not a member of that package, a function as the standard
 not-found diagnostic (§3.9.3). §3.9 defines module

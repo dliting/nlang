@@ -59,8 +59,20 @@ only its `public` members are reachable, except `protected`
 members inside a subclass body (§4.8.11). A constructor that is
 not `public` cannot be called from outside the class.
 
+The modifiers also govern top-level declarations (§2.2), with the
+opposite default: a top-level class, struct, interface, enum or
+function written without a modifier is `public`. A `private` or
+`protected` top-level declaration is reachable only inside the unit
+that declares it, so an importer's qualified name never finds it;
+`protected` adds nothing over `private` at top level, because a
+package holds a single module (§3.9).
+
 *Informative:* the diagnostics name the offending member, for
-instance `constructor of class "C" is not accessible`.
+instance `constructor of class "C" is not accessible`. A foreign
+spelling of a non-public type reports `Type 'Vault' is not a member
+of package 'lib'.`, and a foreign call of a non-public function
+reports `The function "hiddenHelper" does not exist or is not
+accessible.`
 
 ## 4.8.3 Fields and field initializers
 
@@ -494,7 +506,7 @@ const struct Vec {
   root `Object` is exempt: it declares no fields, §4.11).
   Structs have no inheritance and are each sealed on their own
   (§4.7). The const marker rides the type record of the compiled
-  module (§26.4), so writes to an imported const aggregate are
+  module (§27.4), so writes to an imported const aggregate are
   rejected on the consumer side too (§4.8.11).
 - A member read of a `List` or `Dict` field of a const aggregate
   is rewritten to a shallow copy — the built-in `copy()` (§12.1,

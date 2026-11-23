@@ -110,8 +110,11 @@ void VmBackend::GenerateBytecodeRecursive(SnField& parent) {
     for (auto& child : members) {
         if (child.Kind() == NK_Function) {
             auto& func = static_cast<SnFunction&>(child);
-            if (func.Body() || func.ContainFlags(NF_Native)
-                || IsAbstractClassMember(func))
+            //Shared registration predicate (see RegisterFunctions): the
+            //signature-only records it admits are filled by
+            //FillAbstractFunctionRecord; a stub member passes the test but
+            //holds no registration index, so the lookup below skips it.
+            if (IsRegisteredMember(func))
             {
                 auto it = m_funcIndexMap.find(&func);
                 if (it != m_funcIndexMap.end())

@@ -17,9 +17,12 @@ using nlang::native::ArgInt;
 using nlang::native::ArgLong;
 using nlang::native::ArgString;
 using nlang::native::NewArray;
+using nlang::native::NewString;
 using nlang::native::ReturnInt;
 using nlang::native::ReturnLong;
 using nlang::native::ReturnString;
+using nlang::native::WriteError;
+using nlang::native::WriteOutput;
 
 namespace {
 
@@ -35,8 +38,8 @@ void RaiseIo(NativeHost* h, const std::string& msg) {
 // handle, so here it is read and written verbatim followed by a newline.
 void IoPrint(NativeHost* h, uint8_t*, const uint8_t* a, int) {
     const std::string text = ArgString(h, a, 0);
-    h->writeOutput(h, text.c_str());
-    h->writeOutput(h, "\n");
+    WriteOutput(h, text);
+    WriteOutput(h, "\n");
 }
 
 // write: print's prompt-building counterpart — same bytes, no newline.
@@ -45,7 +48,7 @@ void IoPrint(NativeHost* h, uint8_t*, const uint8_t* a, int) {
 void IoWrite(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     (void)ret;
     const std::string text = ArgString(h, a, 0);
-    h->writeOutput(h, text.c_str());
+    WriteOutput(h, text);
 }
 
 // eprint: print's diagnostic twin. The host routes the bytes to stderr
@@ -55,16 +58,17 @@ void IoEprint(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     (void)ret;
     const std::string text = ArgString(h, a, 0);
     //Two calls, not one concatenation: same bytes, no temp alloc.
-    h->writeError(h, text.c_str());
-    h->writeError(h, "\n");
+    WriteError(h, text);
+    WriteError(h, "\n");
 }
 
 // readLine: delegate to the host (it owns stdin and the session
 // policy). null = end of input folds to the "" sentinel — the NLang
 // level cannot distinguish them without hasInput.
 void IoReadLine(NativeHost* h, uint8_t* ret, const uint8_t*, int) {
-    const char* line = h->readLine(h);
-    ReturnInt(ret, h->newString(h, line ? line : ""));
+    int64_t len = 0;
+    const char* line = h->readLine(h, &len);
+    ReturnInt(ret, NewString(h, line, len));
 }
 
 // readToken/readChar/hasInput: thin delegations — the host owns the
@@ -72,8 +76,9 @@ void IoReadLine(NativeHost* h, uint8_t* ret, const uint8_t*, int) {
 // is raised host-side, so the folds below only defend against a host
 // that somehow returns without raising.
 void IoReadToken(NativeHost* h, uint8_t* ret, const uint8_t*, int) {
-    const char* token = h->readToken(h);
-    ReturnInt(ret, h->newString(h, token ? token : ""));
+    int64_t len = 0;
+    const char* token = h->readToken(h, &len);
+    ReturnInt(ret, NewString(h, token, len));
 }
 
 void IoReadChar(NativeHost* h, uint8_t* ret, const uint8_t*, int) {

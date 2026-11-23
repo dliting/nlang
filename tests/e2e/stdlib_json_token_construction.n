@@ -1,0 +1,17 @@
+// A direct numeric-token constructor must not create JSON that parse rejects.
+import json;
+
+bool rejectsToken(string text) {
+    try {
+        JsonNumber.fromToken(text);
+    } catch (JsonException e) {
+        return e.message == "json: invalid number";
+    }
+    return false;
+}
+
+int main() {
+    if (!rejectsToken("01") || !rejectsToken("1e+") || !rejectsToken("+1")) { return 1; }
+    if (JsonNumber.fromToken("1E+2").serialize() != "1E+2") { return 2; }
+    return 0;
+}

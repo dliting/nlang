@@ -329,10 +329,13 @@ static bool SatisfyUnboundFormals(std::vector<FormalBinding> &outBindings)
 //0.9.11 T6: the binding core takes the actual-argument list directly (not
 //an SnInvokeExpr) — constructor matching reaches it from SnNewExpr,
 //SnInvokeExpr and SnSuperCallStmt alike. The vector shape is the common
-//denominator of the three argument views (SnInvokeExpr::Params() is an
-//SnExpressionList, SnNewExpr::Args() carries the class-name child,
-//SnSuperCallStmt::Args() is a PtrList); every call site builds the
-//resolved actual pointers once per call.
+//denominator of the three argument views (all three are SnExpressionList
+//child views; SnNewExpr::Args() also carries the class-name child, which
+//its call site skips by identity); every call site builds the resolved
+//actual pointers once per call. 0.13.11: the matching side additionally
+//needs the owning node — MatchCtorAgainst passes it to
+//FixupParamTypesWithBindings, which splices the conversion wrappers into
+//that node's children.
 bool ExprResolveAccessor::TryBindArgs(const std::vector<SnExpression*> &actuals,
 	const SnFunction &callee, std::vector<FormalBinding> &outBindings)
 {

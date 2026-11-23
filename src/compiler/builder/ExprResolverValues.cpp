@@ -182,8 +182,9 @@ void ExprResolveAccessor::Access(SnCastExpr &sn)
 //Phase 8e-1.5: resolve `expr as T` runtime-checked cast.
 //Valid kinds: TCK_Same (no-op), TCK_Box (primitive→Object), TCK_Unbox
 //(Object→primitive), TCK_Downcast (ancestor→subclass), TCK_Explicit
-//(0.7.5 narrowing scalar conversion, e.g. float→int). Other kinds →
-//compile error.
+//(0.7.5 narrowing scalar conversion, e.g. float→int) and, since 0.13.11,
+//TCK_Auto for a scalar pair (the implicit widenings, spelled explicitly).
+//Other kinds → compile error.
 void ExprResolveAccessor::Access(SnAsExpr &sn)
 {
 	NLANG_ASSERT(!sn.IsResolved());
@@ -283,16 +284,14 @@ bool ExprResolveAccessor::RejectAsArrayOperand(SnAsExpr &sn)
 	return true;
 }
 
-//2026-09-26 decomposition of Access(SnAsExpr&): the cast-kind
-//adjudication middle. Returns true when the expression is consumed —
-//resolved as the func→string rendering, or rejected with a named
-//diagnostic (TCK_None / implicit-conversion kinds); false means the
-//kind is Same/Box/Unbox/Downcast and the caller finishes the binding.
-bool ExprResolveAccessor::ResolveAsCastKind(SnAsExpr &sn, SnField *pSrcType,
-	SnField *pTgtType, TypeCastKind kind)
+//0.13.11 split of ResolveAsCastKind: the two `as` verdicts the operand and
+//target shapes decide on their own, before the conversion-matrix verdict is
+//consulted. Returns true when the expression is consumed.
+bool ExprResolveAccessor::TryResolveAsShapeCase(SnAsExpr &sn,
+	SnField *pSrcType, SnField *pTgtType)
 {
 	//v0.12.7: `null as T[]` is the typed null — the null bridge gives
-	//TCK_Auto, which the gate below rejects; admit as TCK_Same (the
+	//TCK_Auto, which the cast-kind gate rejects; admit as TCK_Same (the
 	//boundary check passes null through).
 	if (sn.Operand()->ContainFlags(NF_NullLiteral)
 		&& (pTgtType->Kind() == NK_ArrayTypeToken
@@ -314,6 +313,20 @@ bool ExprResolveAccessor::ResolveAsCastKind(SnAsExpr &sn, SnField *pSrcType,
 		sn.EvalDataType(pTgtType);
 		return true;
 	}
+	return false;
+}
+
+//2026-09-26 decomposition of Access(SnAsExpr&): the cast-kind
+//adjudication middle. Returns true when the expression is consumed —
+//resolved as a shape-decided verdict, or rejected with a named diagnostic
+//(TCK_None / the implicit-conversion kinds that `as` does not spell);
+//false means the caller finishes the binding, i.e. the kind is
+//Same/Box/Unbox/Downcast/Explicit or the 0.13.11 scalar-pair TCK_Auto.
+bool ExprResolveAccessor::ResolveAsCastKind(SnAsExpr &sn, SnField *pSrcType,
+	SnField *pTgtType, TypeCastKind kind)
+{
+	if (TryResolveAsShapeCase(sn, pSrcType, pTgtType))
+		return true;
 
 	if (kind == TCK_None)
 	{
@@ -324,11 +337,21 @@ bool ExprResolveAccessor::ResolveAsCastKind(SnAsExpr &sn, SnField *pSrcType,
 		return true;
 	}
 
-	//TCK_Auto (int→float) and TCK_Dynamic are not allowed via `as` —
-	//use primitive cast syntax. Valid: TCK_Same/Box/Unbox/Downcast plus
-	//TCK_Explicit (0.7.5 narrowing scalars, the operator's purpose).
-	if (kind != TCK_Same && kind != TCK_Box && kind != TCK_Unbox
-		&& kind != TCK_Downcast && kind != TCK_Explicit)
+	//0.13.11: `as` also spells a conversion the language admits implicitly
+	//(`longValue as double`, `intValue as long`) — the bare form warns on
+	//the pairs that lose precision, and `as` is how the programmer records
+	//that the loss is intended. Restricted to scalar pairs (after the enum
+	//collapse) so the other TCK_Auto edges — the →string coercions and the
+	//null bridge — keep their existing rejection.
+	const bool scalarAuto = kind == TCK_Auto
+		&& IsScalarCastPair(pSrcType->Kind(), pTgtType->Kind());
+
+	//TCK_Dynamic and any remaining TCK_Auto/TCK_None-shaped verdict are not
+	//allowed via `as`. Valid: TCK_Same/Box/Unbox/Downcast, TCK_Explicit
+	//(0.7.5 narrowing scalars, the operator's purpose) and `scalarAuto`.
+	if (!scalarAuto && kind != TCK_Same && kind != TCK_Box
+		&& kind != TCK_Unbox && kind != TCK_Downcast
+		&& kind != TCK_Explicit)
 	{
 		m_Env.Log(CLL_Error, sn.Location(),
 			"`as` cannot perform implicit conversion `%s` → `%s`.",

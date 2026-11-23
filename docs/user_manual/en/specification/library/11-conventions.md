@@ -2,11 +2,11 @@
 
 ## 11.1 Scope and Package Surface
 
-The standard library is twelve packages — `math`, `io`, `fs`,
+The standard library is fourteen packages — `math`, `io`, `fs`,
 `thread`, `concurrent`, `tensor`, `net`, `system`, `url`, `http`,
-`gzip` and `regex`, each a set of free functions called by their
-fully qualified names — plus the `string` methods, dispatched on
-the receiver.
+`gzip`, `regex`, `json` and `web`, each a set of functions and types
+called by their fully qualified names — plus the `string` methods,
+dispatched on the receiver.
 The prelude packages sit beside them: `lang` (`stdlib/lang.n`)
 declares the `Exception` family, the hierarchy root `Object`, the
 declaration-holder class `String` and the generic array face `Array<T>`; `containers`
@@ -124,11 +124,12 @@ The standard library follows one surface convention.
   (`contains`, `startsWith`, `containsKey`); package functions
   may carry an `is` or `has` prefix (`fs.isFile`, `io.hasInput`).
 - Failures are reported by raising the built-in exception classes
-  of §8.3, plus the eight package-declared classes — `concurrent`'s
+  of §8.3, plus the nine package-declared classes — `concurrent`'s
   `ChannelClosedException`, `net`'s `SocketException` and
   `TimeoutException`, `url`'s `UrlException`, `http`'s
   `HttpException`, `gzip`'s `GzipException`, `regex`'s
-  `RegexException`, and `system`'s `DateTimeException` (§8.3).
+  `RegexException`, `json`'s `JsonException`, and `system`'s
+  `DateTimeException` (§8.3).
   Chapter 20 maps each library
   operation to the class it raises.
 - Text output renders values through `toString` (§5.3, §11.2);

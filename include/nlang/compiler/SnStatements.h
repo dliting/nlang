@@ -866,7 +866,11 @@ direct parent class constructor. Legal anywhere inside a user constructor
 (the resolver enforces this). Args are positional only. 0.9.11 T6 (D10):
 CtorFunction() records the parent ctor the resolver selected by overload
 matching (null = builtin parent or no selection); codegen and the frame
-walkers use it instead of scanning for the first parent ctor.
+walkers use it instead of scanning for the first parent ctor. 0.13.11:
+Args() is the live child-list view (the SnNewExpr::Args() shape) rather
+than a second copy of the argument pointers — the resolver's call-site
+conversion splices an SnCastExpr over a widened argument, and a cached
+list would keep handing codegen the unconverted node.
 */
 class NLANG_COMPILER_API SnSuperCallStmt : public SnStatement
 {
@@ -878,7 +882,10 @@ public:
 	SnSuperCallStmt(const PtrList<SnExpression>& args,
 		const ISourceLocation &loc);
 
-	const PtrList<SnExpression>& Args() const { return m_args; }
+	//A view over the statement's children: every child is an argument
+	//(the view type has no size(); ArgCount() answers the count).
+	SnExpressionList &Args() const { return *m_pArgs; }
+	size_t ArgCount() const { return Children().size(); }
 
 	//Non-owning: the ctor member belongs to the parent class declaration.
 	SnFunction *CtorFunction() const { return m_pCtorFunction; }
@@ -889,7 +896,7 @@ public:
 	SnField *FindField(const std::string& sName) const override;
 	void Accept(nlang::ISyntaxNodeVisitor&) override;
 private:
-	PtrList<SnExpression> m_args;
+	SnExpressionList *m_pArgs;
 	SnFunction *m_pCtorFunction = nullptr;
 };
 

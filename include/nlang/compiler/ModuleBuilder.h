@@ -127,6 +127,11 @@ private:
 	//loop body): the multi-root duplicate diagnosis, otherwise inline the
 	//single match under its root. True when a TU was added.
 	bool HandleLibraryImport(const std::string &dottedName);
+	//Discovery of one wildcard import's library union (D-29 rule 2): the
+	//package's own <root>/a/b.n plus every unit under <root>/a/b/ in each
+	//effective library dir, each through HandleLibraryImport. True when a TU
+	//was added.
+	bool DiscoverLibrarySubtree(const std::string &dottedName);
 	//HandleLibraryImport's match tail, shared with the prelude
 	//resolution: a match that IS a project source is already compiled in;
 	//anything else inlines under its root. True when a TU was added.

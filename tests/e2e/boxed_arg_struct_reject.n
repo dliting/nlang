@@ -1,0 +1,16 @@
+// 4.11: a struct has no path into Object. The argument entry point obeys the
+// same rule as initialization and assignment, so the rung that boxes scalars
+// and strings into an Object formal must not have widened to structs.
+struct Point {
+    public int x;
+    public int y;
+}
+
+void take(Object o) {
+}
+
+int main() {
+    Point p = {1, 2};
+    take(p);
+    return 0;
+}

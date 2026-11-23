@@ -211,12 +211,12 @@ void VmBackend::MaxArgsSuperCallStmt(SnStatement& stmt, uint16_t& maxArgs) {
     //to the caller-arg count — over-reserving, never under.
     SnFunction* pParentCtor = RegisteredCtor(sc.CtorFunction());
     const size_t totalFormals = pParentCtor
-        ? pParentCtor->Params().size() : sc.Args().size();
+        ? pParentCtor->Params().size() : sc.ArgCount();
     uint16_t claimSize = static_cast<uint16_t>(1 + totalFormals);
     if (claimSize > maxArgs) maxArgs = claimSize;
     CalleeDefaultMaxArgs(pParentCtor, maxArgs);
-    for (auto* arg : sc.Args())
-        MaxArgsWalkExpr(*arg, maxArgs);
+    for (auto &arg : sc.Args())
+        MaxArgsWalkExpr(arg, maxArgs);
 }
 
 //MaxArgs walker, NK_CompoundAssignStmt arm.

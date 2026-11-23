@@ -26,7 +26,7 @@ static int g_failures = 0;
 //TestLoadsRealStdLib). A surface change updates the constant AND the
 //breakdown comment; the printer turns any future drift into a
 //per-package diff instead of bare FAIL lines.
-constexpr std::size_t kStdlibSymbolPin = 335;
+constexpr std::size_t kStdlibSymbolPin = 340;
 
 static void PrintIndexShape(const SymbolIndex &index)
 {
@@ -44,10 +44,12 @@ static void PrintIndexShape(const SymbolIndex &index)
 static void TestLoadsRealStdLib() {
     SymbolIndex index;
     index.LoadLibraryDir(STDLIB_DIR);
-    // 286 functions: io 22 (13 natives + 5 typed-reader wrappers + 4
+    // 340 functions: io 22 (13 natives + 5 typed-reader wrappers + 4
     // Base64 codecs; the v11 park native and the byte helpers moved
     // from net, the monotonic clock moved to system in v0.13.4),
-    // math 25, fs 10 (the binary read pair readBytes/readFloats),
+    // math 26 (the v0.13.12 CSPRNG byte surface randomBytes),
+    // fs 12 (the binary read pair readBytes/readFloats, plus the
+    // v0.13.12 writeBytes and modifiedTimeMs),
     // thread 7 (the K3 materialized package plus the P2-2 failure
     // probes), tensor 200 (the v0.12.7 surface: broadcasting
     // elementwise with scalar arms, the view family
@@ -68,7 +70,12 @@ static void TestLoadsRealStdLib() {
     // calls get/post/put/del/request plus the lazy defaultClient; the
     // Http* class members are not free functions), regex 1 (the
     // quoteMeta escaping helper; the Regex/Match classes and the engine
-    // classes are not free functions).
+    // classes are not free functions), json 1 (the parse entry point;
+    // the JsonValue class family and the parser classes are not free
+    // functions), web 1 (hexEncode, the byte-to-hex helper behind the
+    // session id, with web/form.n's multipart boundary to come; the App,
+    // Router, Session and MemorySessionStore class members are not free
+    // functions).
     if (index.size() != kStdlibSymbolPin)
         PrintIndexShape(index);
     CHECK(index.size() == kStdlibSymbolPin);
@@ -121,23 +128,26 @@ static void TestCompletion() {
     index.LoadLibraryDir(STDLIB_DIR);
 
     const auto fsSyms = index.CompletePackage("fs");
-    CHECK(fsSyms.size() == 10);
+    CHECK(fsSyms.size() == 12);
 
     //Packages() lists free-function surfaces: the net module's free
-    //functions (ping, the internal natives) put net back in the list.
+    //functions (ping, the internal natives) put net back in the list,
+    //and web.n's hexEncode puts web in it.
     const auto namespaces = index.Packages();
-    CHECK(namespaces.size() == 11);
+    CHECK(namespaces.size() == 13);
     CHECK(namespaces[0] == "fs");
     CHECK(namespaces[1] == "gzip");
     CHECK(namespaces[2] == "http");
     CHECK(namespaces[3] == "io");
-    CHECK(namespaces[4] == "math");
-    CHECK(namespaces[5] == "net");
-    CHECK(namespaces[6] == "regex");
-    CHECK(namespaces[7] == "system");
-    CHECK(namespaces[8] == "tensor");
-    CHECK(namespaces[9] == "thread");
-    CHECK(namespaces[10] == "url");
+    CHECK(namespaces[4] == "json");
+    CHECK(namespaces[5] == "math");
+    CHECK(namespaces[6] == "net");
+    CHECK(namespaces[7] == "regex");
+    CHECK(namespaces[8] == "system");
+    CHECK(namespaces[9] == "tensor");
+    CHECK(namespaces[10] == "thread");
+    CHECK(namespaces[11] == "url");
+    CHECK(namespaces[12] == "web");
 
     //The materialized thread package indexes like any stdlib package.
     const SymbolInfo* spawn = index.Resolve("thread", "spawn");

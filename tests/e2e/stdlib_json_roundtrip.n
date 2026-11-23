@@ -1,0 +1,79 @@
+// v0.13.11 json: round-trip stability -- serialize(parse(x)) == x for
+// canonical documents (D-9), number tokens keep their original spelling
+// (D-2), and builder documents survive a parse round trip unchanged.
+import io;
+import json;
+
+// Returns 0 when parse(doc) re-serializes to doc byte for byte and a
+// second pass changes nothing.
+int checkRoundTrip(string doc) {
+    string once = json.parse(doc).serialize();
+    if (once != doc) {
+        io.print("round trip got [" + once + "] want [" + doc + "]");
+        return 1;
+    }
+    string twice = json.parse(once).serialize();
+    if (twice != once) {
+        io.print("second pass changed [" + twice + "]");
+        return 1;
+    }
+    return 0;
+}
+
+// n nested arrays, same builder as Task 7.
+string chain(int n) {
+    string acc = "";
+    int i = 0;
+    while (i < n) { acc = acc + "["; i = i + 1; }
+    i = 0;
+    while (i < n) { acc = acc + "]"; i = i + 1; }
+    return acc;
+}
+
+int main() {
+    int bad = 0;
+    // Canonical documents (compact form, minimal escapes) are fixed points.
+    if (checkRoundTrip("{\"a\":1,\"b\":[2,3],\"c\":\"x\\ny\"}") != 0) { bad = bad + 1; }
+    if (checkRoundTrip("[\"a\",\"b\"]") != 0) { bad = bad + 1; }
+    if (checkRoundTrip("{}") != 0) { bad = bad + 1; }
+    if (checkRoundTrip("[]") != 0) { bad = bad + 1; }
+    if (checkRoundTrip("{\"e\":null,\"f\":true,\"g\":false}") != 0) { bad = bad + 1; }
+    // Number tokens keep their exact original spelling -- the serializer
+    // replays the source token instead of re-rendering the value (D-2).
+    if (checkRoundTrip("1e2") != 0) { bad = bad + 1; }
+    if (checkRoundTrip("1E+2") != 0) { bad = bad + 1; }
+    if (checkRoundTrip("-0") != 0) { bad = bad + 1; }
+    if (checkRoundTrip("0.0") != 0) { bad = bad + 1; }
+    if (checkRoundTrip("0.10") != 0) { bad = bad + 1; }
+    if (checkRoundTrip("123456789012345678901234567890") != 0) { bad = bad + 1; }
+    // The same token reads as long or double per the accessor (D-2):
+    // integral doubles in range answer getLong, 1e-999 underflows to 0.0.
+    JsonValue mixed = json.parse("[1,2.5,3e2,-0,1e-999]");
+    JsonArray nums = mixed.getArray();
+    if (nums.length() != 5) { bad = bad + 1; }
+    if (nums.get(0).getLong() != 1) { bad = bad + 1; }
+    if (nums.get(1).getDouble() != 2.5) { bad = bad + 1; }
+    if (nums.get(2).getLong() != 300) { bad = bad + 1; }
+    if (nums.get(3).getLong() != 0) { bad = bad + 1; }
+    if (nums.get(4).getDouble() != 0.0) { bad = bad + 1; }
+    // Non-ASCII raw bytes survive both passes unchanged (D-6): the
+    // document holds e-acute as its two UTF-8 bytes.
+    byte[] eacute = byte[2];
+    eacute[0] = (195) as byte;
+    eacute[1] = (169) as byte;
+    string eacuteDoc = "\"" + io.fromBytes(eacute) + "\"";
+    if (checkRoundTrip(eacuteDoc) != 0) { bad = bad + 1; }
+    // A builder document round-trips byte for byte (D-9): the backslash
+    // inside the string value re-escapes identically.
+    JsonObject root = JsonObject();
+    root.put("n", 7);
+    root.put("s", "a\\b");
+    JsonArray arr = JsonArray();
+    arr.add(false);
+    root.put("arr", arr);
+    string once = root.serialize();
+    if (json.parse(once).serialize() != once) { bad = bad + 1; }
+    // The deepest accepted nesting round-trips as well (D-5 + D-9).
+    if (checkRoundTrip(chain(200)) != 0) { bad = bad + 1; }
+    return bad;
+}

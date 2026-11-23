@@ -1,0 +1,634 @@
+// stdlib_http_drain_close — the graceful-shutdown contract of http.HttpServer.
+// drain() stops accepting, overrules every response written from then on with
+// Connection: close, force-closes the connections parked in their keep-alive
+// wait, and waits only for requests actually in flight; close() drops every
+// connection at once and releases the listening socket; both entry points can
+// be called twice. Every wait here is causal — a leg either observes the state
+// face that the other side has already moved, or signals on a channel — so the
+// grace bound decides only when a forceClose starts, never what a leg asserts.
+import io;
+import net;
+import http;
+import thread;
+import concurrent;
+import system;
+
+// One server's worth of coordination state. The handler has to be a bound
+// method (the language has no function literals), so the flags a leg needs and
+// the signals it waits on live here; main sets the flags before the request
+// arrives.
+class Harness {
+    public bool hold;                   //park this request's handler until the gate opens
+    public bool streaming;              //answer with a pumped body instead of a buffer
+    public AtomicInt entered;           //requests that have reached the handler
+    public Channel<int> gate;           //release the parked handler
+    public Channel<int> go;             //release the parked body producer
+    public HttpServer srv;              //client contexts watch isServing() through it
+    public int port;
+
+    public Harness() {
+        hold = false;
+        streaming = false;
+        entered = AtomicInt(0);
+        gate = Channel(1);
+        go = Channel(1);
+    }
+
+    public HttpResponse handle(HttpRequest req) {
+        entered.getAndIncrement();
+        if (streaming) {
+            HttpResponse stream = HttpResponse();
+            stream.bodyChannel = Channel(1);
+            Streamer producer = Streamer(stream.bodyChannel, go);
+            thread.spawn(producer.run);
+            return stream;
+        }
+        if (hold) { gate.recv(); }
+        HttpResponse res = HttpResponse();
+        // A handler that names keep-alive itself still loses to the server's
+        // verdict: HttpHeaders.set replaces, so a response written while
+        // draining carries close no matter what the handler asked for.
+        res.headers.set("Connection", "keep-alive");
+        res.body = io.toBytes("ok");
+        return res;
+    }
+}
+
+// The pumped body of leg E: the first frame goes out while the server is still
+// serving, the rest waits for the go signal, which main sends only once it has
+// seen the state face move to draining. So the frames that are still owed when
+// drain starts are the observation, not a race.
+class Streamer {
+    private Channel<byte[]> m_ch;
+    private Channel<int> m_go;
+
+    public Streamer(Channel<byte[]> ch, Channel<int> go) {
+        m_ch = ch;
+        m_go = go;
+    }
+
+    public void run() {
+        try {
+            m_ch.send(io.toBytes("FRAME 1"));
+            m_go.recv();
+            m_ch.send(io.toBytes("FRAME 2"));
+            m_ch.send(io.toBytes("FRAME 3"));
+        } catch (ChannelClosedException e) {
+            //The pump gave up on a client that vanished; nothing left to send.
+        }
+        m_ch.close();
+    }
+}
+
+// drain() on its own context, so main can watch the state face and feed the
+// producer while the grace window is open. left is the residual count it returns.
+class Drauner {
+    public HttpServer srv;
+    public int left;
+    public Channel<int> finished;
+    private int m_grace;
+
+    public Drauner(HttpServer s, int graceMs) {
+        srv = s;
+        left = -1;
+        finished = Channel(1);
+        m_grace = graceMs;
+    }
+
+    public void run() {
+        left = srv.drain(m_grace);
+        finished.send(1);
+    }
+}
+
+// A client that sends its request and then reads the answer, used by the legs
+// whose response can only be written after drain() has begun: this context
+// watches isServing() and releases the handler the moment the server stops
+// serving, which is the causal point that puts the write inside the drain.
+class HeldClient {
+    public Harness h;
+    public int port;
+    public Reply done;
+    public Channel<int> finished;
+
+    public HeldClient(Harness harness, int p) {
+        h = harness;
+        port = p;
+        finished = Channel(1);
+    }
+
+    public void run() {
+        TcpStream c = TcpStream.connect("127.0.0.1", port, 5000);
+        c.write(keepAliveGet(), 5000);
+        while (h.srv.isServing()) { thread.sleep(5); }
+        h.gate.send(1);
+        done = readReply(c);
+        finished.send(1);
+        c.close();
+    }
+}
+
+// One parsed response head, plus the body when the response is buffered. A
+// chunked response leaves its bytes on the stream for the leg to decode.
+class Reply {
+    public int status;
+    public int length;
+    public string connection;
+    public string transfer;
+    public string body;
+
+    public Reply() {
+        status = -1;
+        length = -1;
+        connection = "";
+        transfer = "";
+        body = "";
+    }
+}
+
+string keepAliveGet() {
+    return "GET / HTTP/1.1\r\nHost: h\r\n\r\n";
+}
+
+int statusCodeOf(string line) {
+    if (!line.startsWith("HTTP/1.1 ")) { return -1; }
+    return line.substring(9, 12).toInt();   //exactly the three status digits
+}
+
+// Reads the status line and every header, then a Content-Length body. The
+// header names are matched case-insensitively; the values are kept as written.
+Reply readReply(TcpStream c) {
+    Reply r = Reply();
+    r.status = statusCodeOf(c.readLine(5000));
+    while (true) {
+        string line = c.readLine(5000);
+        if (line == "") { break; }
+        int colon = line.indexOf(":");
+        if (colon <= 0) { continue; }
+        string name = line.substring(0, colon).toLower();
+        string value = line.substring(colon + 1).trim();
+        if (name == "connection") { r.connection = value; }
+        if (name == "transfer-encoding") { r.transfer = value.toLower(); }
+        if (name == "content-length") { r.length = value.toInt(); }
+    }
+    if (r.length > 0) { r.body = io.fromBytes(c.readExactly(r.length, 5000)); }
+    return r;
+}
+
+// One chunk of a chunked body: the size line, that many bytes, then the CRLF the
+// encoder puts after the payload.
+string readChunk(TcpStream c) {
+    int size = c.readLine(5000).toInt(16);
+    string payload = io.fromBytes(c.readExactly(size, 5000));
+    c.readExactly(2, 5000);                 //the CRLF that closes the payload
+    return payload;
+}
+
+// The terminating 0-chunk ("0\r\n\r\n"). Reading it is what separates "the body
+// ended because its framing ended" from "the body ended because the socket did".
+bool readLastChunk(TcpStream c) {
+    if (c.readLine(5000) != "0") { return false; }
+    c.readExactly(2, 5000);
+    return true;
+}
+
+// A connection that sent one keep-alive request: the leg reads the answer and
+// the connection then sits in the server's keep-alive wait.
+TcpStream openRequest(int port) {
+    TcpStream c = TcpStream.connect("127.0.0.1", port, 5000);
+    c.write(keepAliveGet(), 5000);
+    return c;
+}
+
+// One-shot client, and the port it answered on is the proof a listener is
+// listening: connect, send one request that asks to be closed, read the status.
+int askStatus(int port) {
+    TcpStream c = TcpStream.connect("127.0.0.1", port, 5000);
+    int code = -1;
+    try {
+        c.write("GET / HTTP/1.1\r\nHost: h\r\nConnection: close\r\n\r\n", 5000);
+        code = statusCodeOf(c.readLine(5000));
+    } catch (Exception e) {
+        code = -1;
+    }
+    c.close();
+    return code;
+}
+
+// Waits until n requests have reached the handler. The count is the server's own
+// record, so this is a causal wait, not a bet on how fast the machine is.
+bool waitEntered(Harness h, int n) {
+    long deadline = system.monoMs() + 5000;
+    while (h.entered.load() < n) {
+        if (system.monoMs() > deadline) { return false; }
+        thread.sleep(5);
+    }
+    return true;
+}
+
+int main() {
+    int bad = 0;
+    bad = bad + legDrainIdleReturnsZero();
+    bad = bad + legParkedConnectionClosed();
+    bad = bad + legDrainingResponseCloses();
+    bad = bad + legGraceTimeoutReportsResidual();
+    bad = bad + legStreamFinishesInsideGrace();
+    bad = bad + legCloseDropsAndFreesPort();
+    bad = bad + legResetThenRestart();
+    bad = bad + legDoubleStartRejected();
+    bad = bad + legRepeatCallsSettle();
+    bad = bad + legNeverStartedReleasesCleanly();
+    io.print("ok");
+    return bad;
+}
+
+// Leg A: one connection that has finished its request sits in the keep-alive
+// wait, so nothing is in flight and drain() returns 0 — the connection it
+// force-closes is not a residual, because residuals are only what the grace
+// window ran out on.
+int legDrainIdleReturnsZero() {
+    int bad = 0;
+    Harness h = Harness();
+    HttpServer srv = HttpServer();
+    srv.start("127.0.0.1", 0, h.handle);
+    h.srv = srv;
+    TcpStream cli = openRequest(srv.localPort());
+    Reply r = readReply(cli);
+    if (r.status != 200) {
+        io.print("leg A the warm-up request answered " + r.status.toString());
+        bad = bad + 1;
+    }
+    if (srv.drain(5000) != 0) {
+        io.print("leg A drain() reported a residual for an idle connection");
+        bad = bad + 1;
+    }
+    if (srv.isServing()) {
+        io.print("leg A isServing() is still true after drain()");
+        bad = bad + 1;
+    }
+    cli.close();
+    srv.close();
+    return bad;
+}
+
+// Leg B: the connection parked in readRequest is the case a request-boundary
+// check alone cannot reach, so drain() closes it from the registry instead. The
+// client sees the peer side end — read answers 0 and isEof() says so, while
+// isClosed() stays false because this side never closed — and the server's state
+// face has moved. The order is the proof: drain() has already returned.
+int legParkedConnectionClosed() {
+    int bad = 0;
+    Harness h = Harness();
+    HttpServer srv = HttpServer();
+    srv.start("127.0.0.1", 0, h.handle);
+    h.srv = srv;
+    TcpStream cli = openRequest(srv.localPort());
+    readReply(cli);                     //response read: the connection is now idle
+    srv.drain(5000);
+    byte[] buf = byte[8];
+    if (cli.read(buf, 5000) != 0) {
+        io.print("leg B the parked connection did not answer 0 after drain()");
+        bad = bad + 1;
+    }
+    if (!cli.isEof()) {
+        io.print("leg B the server-side close did not put the client at EOF");
+        bad = bad + 1;
+    }
+    if (cli.isClosed()) {
+        io.print("leg B isClosed() claims this side closed, but it did not");
+        bad = bad + 1;
+    }
+    if (srv.isServing()) {
+        io.print("leg B isServing() is still true after drain()");
+        bad = bad + 1;
+    }
+    cli.close();
+    srv.close();
+    return bad;
+}
+
+// Leg C: the response that goes out during the drain carries Connection: close,
+// and it wins over a handler that asked for keep-alive by name — the server sets
+// the header after the handler returns, with replacing semantics.
+int legDrainingResponseCloses() {
+    int bad = 0;
+    Harness h = Harness();
+    h.hold = true;
+    HttpServer srv = HttpServer();
+    srv.start("127.0.0.1", 0, h.handle);
+    h.srv = srv;
+    HeldClient client = HeldClient(h, srv.localPort());
+    thread.spawn(client.run);
+    if (!waitEntered(h, 1)) {
+        io.print("leg C the handler never got the request");
+        bad = bad + 1;
+    }
+    int left = srv.drain(5000);         //the request is in flight; the client releases it
+    client.finished.recv();
+    if (left != 0) {
+        io.print("leg C drain() reported " + left.toString() + " residual, want 0");
+        bad = bad + 1;
+    }
+    if (client.done.status != 200) {
+        io.print("leg C the drained response answered " + client.done.status.toString());
+        bad = bad + 1;
+    }
+    if (client.done.connection != "close") {
+        io.print("leg C the response written while draining said Connection: "
+            + client.done.connection);
+        bad = bad + 1;
+    }
+    srv.close();
+    return bad;
+}
+
+// Leg D: the grace window is what expires here, so the residual count is exact.
+// maxConnections is 1 and the only served request is parked inside the handler,
+// so one connection is in flight when the window closes and forceClose ends it:
+// drain() must report exactly 1. A second connection is opened to hit the
+// capacity limit and is refused with 503; it has no request in flight and no
+// connection thread that could ever unregister it, so it must not appear in the
+// count either — an entry taken where the active counter is incremented would
+// raise this leg to 2 and pin the wrong registration point.
+int legGraceTimeoutReportsResidual() {
+    int bad = 0;
+    Harness h = Harness();
+    h.hold = true;
+    HttpServer srv = HttpServer();
+    srv.maxConnections = 1;
+    srv.start("127.0.0.1", 0, h.handle);
+    h.srv = srv;
+    TcpStream holder = TcpStream.connect("127.0.0.1", srv.localPort(), 5000);
+    holder.write(keepAliveGet(), 5000);
+    if (!waitEntered(h, 1)) {
+        io.print("leg D the held request never reached the handler");
+        bad = bad + 1;
+    }
+    if (askStatus(srv.localPort()) != 503) {
+        io.print("leg D the over-capacity connection was not refused with 503");
+        bad = bad + 1;
+    }
+    int left = srv.drain(1);            //a window the held request cannot fit in
+    if (left != 1) {
+        io.print("leg D the grace timeout reported " + left.toString()
+            + " residual, want exactly 1");
+        bad = bad + 1;
+    }
+    h.gate.send(1);                     //the handler returns into a closed socket
+    byte[] buf = byte[8];
+    int dropped = 0;
+    try { if (holder.read(buf, 5000) == 0) { dropped = 1; } } catch (Exception e) { dropped = 1; }
+    if (dropped != 1) {
+        io.print("leg D the timed-out connection stayed open to its client");
+        bad = bad + 1;
+    }
+    holder.close();
+    srv.close();
+    return bad;
+}
+
+// Leg E: a connection that is still streaming when drain() starts is in flight,
+// so it is not in the set drain() closes at once — it writes out the frames it
+// still owes and only then ends, and drain() returns 0 because its window covers
+// the pump and not only the handler. If the stream were force-closed, the last
+// two frames and the terminating chunk would never arrive.
+int legStreamFinishesInsideGrace() {
+    int bad = 0;
+    Harness h = Harness();
+    h.streaming = true;
+    HttpServer srv = HttpServer();
+    srv.start("127.0.0.1", 0, h.handle);
+    h.srv = srv;
+    TcpStream cli = openRequest(srv.localPort());
+    Reply head = readReply(cli);        //chunked: the body stays on the stream
+    if (head.status != 200 || head.transfer != "chunked") {
+        io.print("leg E the streaming answer is not a 200 chunked response");
+        bad = bad + 1;
+    }
+    if (readChunk(cli) != "FRAME 1") {
+        io.print("leg E the first frame did not arrive before the drain");
+        bad = bad + 1;
+    }
+    Drauner dr = Drauner(srv, 10000);
+    thread.spawn(dr.run);
+    while (srv.isServing()) { thread.sleep(5); }
+    h.go.send(1);                       //the producer may finish, now that we are draining
+    string second = readChunk(cli);
+    string third = readChunk(cli);
+    bool framed = readLastChunk(cli);
+    dr.finished.recv();
+    if (second != "FRAME 2" || third != "FRAME 3" || !framed) {
+        io.print("leg E the stream was cut before its last chunk");
+        bad = bad + 1;
+    }
+    if (dr.left != 0) {
+        io.print("leg E drain() reported " + dr.left.toString()
+            + " residual for a stream it should have waited for");
+        bad = bad + 1;
+    }
+    cli.close();
+    srv.close();
+    return bad;
+}
+
+// Leg F: close() is the blunt entry point — a connection parked in its
+// keep-alive wait is dropped at once, and the listening socket goes with it, so
+// a fresh server can take the same port and serve on it.
+int legCloseDropsAndFreesPort() {
+    int bad = 0;
+    Harness h = Harness();
+    HttpServer srv = HttpServer();
+    srv.start("127.0.0.1", 0, h.handle);
+    h.srv = srv;
+    int port = srv.localPort();
+    TcpStream cli = openRequest(port);
+    readReply(cli);
+    srv.close();
+    byte[] buf = byte[8];
+    int dropped = 0;
+    try { if (cli.read(buf, 5000) == 0) { dropped = 1; } } catch (Exception e) { dropped = 1; }
+    if (dropped != 1) {
+        io.print("leg F close() left an idle connection serving");
+        bad = bad + 1;
+    }
+    cli.close();
+    HttpServer second = HttpServer();
+    int bound = 0;
+    try {
+        second.start("127.0.0.1", port, h.handle);
+        bound = 1;
+    } catch (Exception e) {
+        io.print("leg F the port did not rebind: " + e.message);
+        bad = bad + 1;
+    }
+    if (bound == 1) {
+        if (askStatus(second.localPort()) != 200) {
+            io.print("leg F the rebound server did not serve a request");
+            bad = bad + 1;
+        }
+        if (second.localPort() != port) {
+            io.print("leg F the rebound server took a different port");
+            bad = bad + 1;
+        }
+        second.close();
+    }
+    return bad;
+}
+
+// Leg G: the reset that makes a restarted server usable. close() leaves the
+// state face at closed and the registry and the counters behind; a fresh start()
+// on the same instance has to bring all of that back, or the accept loop exits
+// at the first hiccup and the request is never answered.
+int legResetThenRestart() {
+    int bad = 0;
+    Harness h = Harness();
+    HttpServer srv = HttpServer();
+    srv.start("127.0.0.1", 0, h.handle);
+    h.srv = srv;
+    if (askStatus(srv.localPort()) != 200) {
+        io.print("leg G the first server did not serve");
+        bad = bad + 1;
+    }
+    TcpStream idle = openRequest(srv.localPort());
+    readReply(idle);                    //a registry entry for close() to clear
+    srv.close();
+    idle.close();
+    if (srv.isServing()) {
+        io.print("leg G isServing() is true after close()");
+        bad = bad + 1;
+    }
+    srv.start("127.0.0.1", 0, h.handle);
+    if (!srv.isServing()) {
+        io.print("leg G start() did not put the server back into the serving state");
+        bad = bad + 1;
+    }
+    if (askStatus(srv.localPort()) != 200) {
+        io.print("leg G the restarted server did not serve");
+        bad = bad + 1;
+    }
+    if (srv.drain(5000) != 0) {
+        io.print("leg G the restarted server still carried a connection over from before");
+        bad = bad + 1;
+    }
+    srv.close();
+    return bad;
+}
+
+// Leg H: starting twice on one instance is refused by name rather than silently
+// replacing the listener and leaving the first accept thread unreachable forever.
+int legDoubleStartRejected() {
+    int bad = 0;
+    Harness h = Harness();
+    HttpServer srv = HttpServer();
+    srv.start("127.0.0.1", 0, h.handle);
+    h.srv = srv;
+    int firstPort = srv.localPort();
+    int threw = 0;
+    string msg = "";
+    try { srv.start("127.0.0.1", 0, h.handle); } catch (Exception ex) { threw = 1; msg = ex.message; }
+    if (threw != 1) {
+        io.print("leg H the second start() was not refused");
+        bad = bad + 1;
+    }
+    if (!msg.startsWith("http.HttpServer.start: already started")) {
+        io.print("leg H the second start() said: " + msg);
+        bad = bad + 1;
+    }
+    if (askStatus(firstPort) != 200) {
+        io.print("leg H the refused start() took the first listener down");
+        bad = bad + 1;
+    }
+    srv.close();
+    return bad;
+}
+
+// Leg I: both entry points are repeatable. A second close() must not throw, and
+// drain() on a server that is already closed returns 0 at once — close() has
+// already settled what was left, so waiting out another grace window for it would
+// be waiting for nothing.
+int legRepeatCallsSettle() {
+    int bad = 0;
+    Harness h = Harness();
+    HttpServer srv = HttpServer();
+    srv.start("127.0.0.1", 0, h.handle);
+    h.srv = srv;
+    srv.close();
+    int threw = 0;
+    string msg = "";
+    try { srv.close(); } catch (Exception ex) { threw = 1; msg = ex.message; }
+    if (threw != 0) {
+        io.print("leg I the second close() threw: " + msg);
+        bad = bad + 1;
+    }
+    int left = -1;
+    try { left = srv.drain(5000); } catch (Exception ex) { msg = ex.message; }
+    if (left != 0) {
+        io.print("leg I drain() on a closed server returned " + left.toString()
+            + " (" + msg + ")");
+        bad = bad + 1;
+    }
+    if (srv.isServing()) {
+        io.print("leg I a closed server reports itself serving");
+        bad = bad + 1;
+    }
+    return bad;
+}
+
+// Leg J: an instance that never got a listener. A failed bind is an ordinary
+// outcome — the port is already taken — and a release call before any start() is
+// the natural response to it, so drain() and close() must answer "nothing is
+// running" instead of reaching for a listener that was never created, and a
+// failed start() must leave the instance able to start properly afterwards.
+int legNeverStartedReleasesCleanly() {
+    int bad = 0;
+    Harness h = Harness();
+    HttpServer fresh = HttpServer();
+    string msg = "";
+    if (fresh.isServing()) {
+        io.print("leg J a server that never started reports itself serving");
+        bad = bad + 1;
+    }
+    try { fresh.close(); } catch (Exception ex) { msg = ex.message; }
+    if (msg != "") {
+        io.print("leg J close() on a never-started server threw: " + msg);
+        bad = bad + 1;
+    }
+    int left = -1;
+    try { left = fresh.drain(5000); } catch (Exception ex) { msg = ex.message; }
+    if (left != 0) {
+        io.print("leg J drain() on a never-started server returned " + left.toString()
+            + " (" + msg + ")");
+        bad = bad + 1;
+    }
+    HttpServer owner = HttpServer();
+    owner.start("127.0.0.1", 0, h.handle);
+    h.srv = owner;
+    int busy = owner.localPort();
+    HttpServer loser = HttpServer();
+    int refused = 0;
+    msg = "";
+    try { loser.start("127.0.0.1", busy, h.handle); } catch (Exception ex) { refused = 1; msg = ex.message; }
+    if (refused != 1) {
+        io.print("leg J a second listener bound to the busy port " + busy.toString());
+        bad = bad + 1;
+    }
+    msg = "";
+    try { loser.close(); } catch (Exception ex) { msg = ex.message; }
+    if (msg != "") {
+        io.print("leg J close() after a failed bind threw: " + msg);
+        bad = bad + 1;
+    }
+    int retried = 0;
+    try { loser.start("127.0.0.1", 0, h.handle); retried = 1; } catch (Exception ex) { msg = ex.message; }
+    if (retried != 1) {
+        io.print("leg J the instance stayed unusable after the failed bind: " + msg);
+        bad = bad + 1;
+    }
+    if (retried == 1 && askStatus(loser.localPort()) != 200) {
+        io.print("leg J the instance that failed to bind did not serve after a good start");
+        bad = bad + 1;
+    }
+    loser.close();
+    owner.close();
+    return bad;
+}

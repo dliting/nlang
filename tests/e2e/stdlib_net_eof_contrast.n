@@ -1,0 +1,244 @@
+// stdlib_net_eof_contrast — the EOF/timeout contrast across the three read
+// faces, and the isEof()/isClosed() pair that keeps them apart: a read that
+// answers 0 is the peer done sending and sets the sticky isEof() flag, a read
+// that runs out its deadline throws TimeoutException with neither flag moved,
+// and readLine's empty string and readExactly's short-read throw are each read
+// against isEof() so "no line yet" cannot be mistaken for "no more bytes ever".
+// isEof() reports the peer side only, isClosed() the local side only.
+import io;
+import net;
+
+// A leg needs a fresh connection pair, and a function returns one value, so a
+// class carries both ends.
+class Pair {
+    public TcpStream cli;
+    public TcpStream srv;
+    public Pair(TcpStream c, TcpStream s) { cli = c; srv = s; }
+}
+
+Pair openPair(TcpListener lst) {
+    TcpStream cli = TcpStream.connect("127.0.0.1", lst.localPort(), 5000);
+    TcpStream srv = lst.accept(5000);
+    return Pair(cli, srv);
+}
+
+int main() {
+    TcpListener lst = TcpListener.bind("127.0.0.1", 0);
+    int bad = 0;
+    bad = bad + legReadToEof(lst);
+    bad = bad + legSilentPeerTimesOut(lst);
+    bad = bad + legReadLineAmbiguity(lst);
+    bad = bad + legReadExactlyTruncated(lst);
+    bad = bad + legBypassReportsEof(lst);
+    bad = bad + legOrthogonalQuadrants(lst);
+    lst.close();
+    io.print("ok");
+    return bad;
+}
+
+// Leg A: draining to EOF. The bytes may arrive in one read or several, so the
+// leg pins only the total, then that the read which ended the stream answered 0
+// and set isEof(), and that every later read still answers 0 (the flag and the
+// answer stay put once the peer is done).
+int legReadToEof(TcpListener lst) {
+    int bad = 0;
+    Pair p = openPair(lst);
+    p.cli.write(io.toBytes("AB"), -1, 5000);
+    p.cli.close();
+    byte[] buf = byte[200];
+    int total = 0;
+    int n = p.srv.read(buf, 5000);
+    while (n > 0) {
+        total = total + n;
+        n = p.srv.read(buf, 5000);
+    }
+    if (total != 2) {
+        io.print("leg A drained " + total.toString() + " bytes, want 2");
+        bad = bad + 1;
+    }
+    if (!p.srv.isEof()) {
+        io.print("leg A isEof() is false after a read answered 0");
+        bad = bad + 1;
+    }
+    if (p.srv.read(buf, 5000) != 0) {
+        io.print("leg A a read after EOF did not answer 0");
+        bad = bad + 1;
+    }
+    if (!p.srv.isEof()) {
+        io.print("leg A isEof() did not stay true across further reads");
+        bad = bad + 1;
+    }
+    if (p.srv.isClosed()) {
+        io.print("leg A the peer is done but isClosed() says the local side closed");
+        bad = bad + 1;
+    }
+    p.srv.close();
+    return bad;
+}
+
+// Leg B: the timeout contrast. Nothing is in flight and the peer keeps the
+// connection open, so the deadline passes: the read throws TimeoutException and
+// neither flag moves, because "no data yet" is not "no more data ever". The
+// deadline bounds the wait; the outcome itself does not depend on how fast the
+// machine runs, since no bytes can arrive at all.
+int legSilentPeerTimesOut(TcpListener lst) {
+    int bad = 0;
+    Pair p = openPair(lst);
+    byte[] buf = byte[50];
+    int threw = 0;
+    try { p.srv.read(buf, 400); } catch (TimeoutException ex) { threw = 1; }
+    if (threw != 1) {
+        io.print("leg B a silent peer did not raise TimeoutException");
+        bad = bad + 1;
+    }
+    if (p.srv.isEof()) {
+        io.print("leg B a timeout set isEof()");
+        bad = bad + 1;
+    }
+    if (p.srv.isClosed()) {
+        io.print("leg B a timeout closed the stream");
+        bad = bad + 1;
+    }
+    p.cli.close();
+    p.srv.close();
+    return bad;
+}
+
+// Leg C: readLine's empty string is ambiguous by construction (a string has no
+// null value, so an empty line and EOF both answer ""), and isEof() is what
+// disambiguates it. Both cells are pinned: an empty line from a live peer leaves
+// the flag false, EOF on an undelivered line sets it.
+int legReadLineAmbiguity(TcpListener lst) {
+    int bad = 0;
+    Pair live = openPair(lst);
+    live.cli.write(io.toBytes("\n"), -1, 5000);
+    if (live.srv.readLine(5000) != "") {
+        io.print("leg C a lone newline did not read as an empty line");
+        bad = bad + 1;
+    }
+    if (live.srv.isEof()) {
+        io.print("leg C an empty line from a live peer set isEof()");
+        bad = bad + 1;
+    }
+    live.cli.close();
+    live.srv.close();
+
+    Pair ended = openPair(lst);
+    ended.cli.shutdownWrite();            //done sending, sent no bytes
+    if (ended.srv.readLine(5000) != "") {
+        io.print("leg C EOF on an undelivered line did not read as \"\"");
+        bad = bad + 1;
+    }
+    if (!ended.srv.isEof()) {
+        io.print("leg C EOF on an undelivered line did not set isEof()");
+        bad = bad + 1;
+    }
+    ended.cli.close();
+    ended.srv.close();
+    return bad;
+}
+
+// Leg D: readExactly frames a fixed count, so a peer that stops early raises
+// SocketException naming how much arrived. The EOF that ended it is still
+// visible to isEof(), which is how a caller tells "the body was truncated" from
+// "my own deadline passed" — the exception says the count is short, the flag
+// says who stopped.
+int legReadExactlyTruncated(TcpListener lst) {
+    int bad = 0;
+    Pair p = openPair(lst);
+    p.cli.write(io.toBytes("ABC"), -1, 5000);
+    p.cli.close();
+    int threw = 0;
+    try { p.srv.readExactly(9, 5000); } catch (SocketException ex) { threw = 1; }
+    if (threw != 1) {
+        io.print("leg D a truncated body did not raise SocketException");
+        bad = bad + 1;
+    }
+    if (!p.srv.isEof()) {
+        io.print("leg D the EOF that truncated the body did not set isEof()");
+        bad = bad + 1;
+    }
+    p.srv.close();
+    return bad;
+}
+
+// Leg E: a readExactly count above the window bypasses the window and reads
+// straight into the payload (net.n:527). The flag has to follow the observation
+// rather than the path that made it: an over-cap request that met the peer's EOF
+// sets isEof() exactly as a windowed request does, or a caller that sized its
+// request to the body it expected would hold a truncated body with no EOF to
+// explain it.
+int legBypassReportsEof(TcpListener lst) {
+    int bad = 0;
+    Pair p = openPair(lst);
+    p.cli.shutdownWrite();                //done sending, sent no bytes
+    int threw = 0;
+    try { p.srv.readExactly(TcpStream.WINDOW_CAP + 1, 5000); }
+    catch (SocketException ex) { threw = 1; }
+    if (threw != 1) {
+        io.print("leg E an over-cap request met no EOF");
+        bad = bad + 1;
+    }
+    if (!p.srv.isEof()) {
+        io.print("leg E the over-cap read path did not set isEof()");
+        bad = bad + 1;
+    }
+    p.cli.close();
+    p.srv.close();
+    return bad;
+}
+
+// Leg F: the four reachable states of the two predicates, one cell each — both
+// sides live, peer done sending, local side closed, both. isEof() answers "did
+// a read see the peer stop", isClosed() answers "did I close", so neither flag
+// can carry both questions and no cell may be reached by the other flag alone.
+int legOrthogonalQuadrants(TcpListener lst) {
+    int bad = 0;
+    byte[] buf = byte[8];
+
+    Pair live = openPair(lst);            //neither side done
+    if (live.srv.isEof() || live.srv.isClosed()) {
+        io.print("leg F a live connection reports EOF or closed");
+        bad = bad + 1;
+    }
+    Pair peerDone = openPair(lst);        //peer done, local side open
+    peerDone.cli.shutdownWrite();
+    if (peerDone.srv.read(buf, 400) != 0) {
+        io.print("leg F a half-closed peer did not answer 0");
+        bad = bad + 1;
+    }
+    if (!peerDone.srv.isEof()) {
+        io.print("leg F the peer's FIN did not set isEof()");
+        bad = bad + 1;
+    }
+    if (peerDone.srv.isClosed()) {
+        io.print("leg F the peer's FIN closed the local side");
+        bad = bad + 1;
+    }
+    Pair localClosed = openPair(lst);     //local side closed, peer live
+    localClosed.srv.close();
+    if (!localClosed.srv.isClosed()) {
+        io.print("leg F close() did not set isClosed()");
+        bad = bad + 1;
+    }
+    if (localClosed.srv.isEof()) {
+        io.print("leg F close() set isEof()");
+        bad = bad + 1;
+    }
+    int threw = 0;
+    try { localClosed.srv.read(buf, 5000); } catch (SocketException ex) { threw = 1; }
+    if (threw != 1) {
+        io.print("leg F reading a locally closed stream did not raise SocketException");
+        bad = bad + 1;
+    }
+    peerDone.srv.close();                 //both sides done
+    if (!peerDone.srv.isEof() || !peerDone.srv.isClosed()) {
+        io.print("leg F a stream closed on both sides lost one of the two flags");
+        bad = bad + 1;
+    }
+    live.cli.close();
+    live.srv.close();
+    localClosed.cli.close();
+    peerDone.cli.close();
+    return bad;
+}

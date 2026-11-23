@@ -251,8 +251,8 @@ void VmBackend::EmitSuperCtorCall(SnSuperCallStmt& sc, SnClassDecl* pParent) {
     //leaves the bindings empty — EmitCtorCallBindings then falls
     //back to the pre-P3 positional shape.
     std::vector<SnExpression*> callerArgs;
-    for (auto* pArg : sc.Args())
-        callerArgs.push_back(pArg);
+    for (auto &arg : sc.Args())
+        callerArgs.push_back(&arg);
     std::vector<FormalBinding> bindings;
     const size_t totalFormals = BuildCtorBindings(pParentCtor,
                                                   callerArgs, bindings);

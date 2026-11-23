@@ -116,10 +116,16 @@ file(WRITE "${CHECK_DIR}/qt.conf" "[Paths]\nPrefix=.\n")
 #"hit the bound"; any other code is the test exe's own.
 set(RESULT_FILE "${CHECK_DIR}/deploy_check_result.txt")
 set(PROGRESS_FILE "${CHECK_DIR}/deploy_check_progress.txt")
-#The inner bound is settable from the command line so the timeout branch
-#(kill the tree, name the last completed probe) can be measured in
-#seconds instead of 150; the outer backstop keeps its margin behind
-#whatever bound is in use.
+#The inner bound is settable from the command line: when this tree's
+#reference table prices this entry, the registration in
+#tests/CMakeLists.txt passes a bound derived from the entry's configure-
+#time watchdog cap (cap - 35 s there, keeping this bound and its +25 s
+#outer backstop ahead of ctest's kill); otherwise the default 150 s
+#applies. The ownership of the nets: this inner bound owns the
+#attributable failure -- it kills the child tree and names the last
+#completed probe -- while the ctest TIMEOUT cap is the outermost
+#backstop, reached only when these script-level nets failed. A short
+#value also keeps the timeout branch measurable in seconds.
 if(NOT PROBE_TIMEOUT)
     set(PROBE_TIMEOUT 150)
 endif()

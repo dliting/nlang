@@ -3,15 +3,20 @@ TypeDesc.cpp — .ncu v1.12 type descriptors (build / serialize / parse).
 
 One grammar shared by the writer (VmBackend captures, ModuleSaver emits)
 and the reader (ModuleLoader parses + validates). Keep AppendTypeDescBytes
-and ParseOne in lockstep with the struct comment in TypeDesc.h.
+and ParseOne in lockstep with the struct comment in TypeDesc.h. The
+consumer-side index bounds check and the import-merge index rewrite are a
+different responsibility and live in TypeDescIndices.cpp.
 ---*/
 #include "nlang/vm/TypeDesc.h"
 //RTK_* kind constants (also the TypeDesc field-width contract).
 #include "nlang/vm/CompiledModule.h"
 #include <nlang/compiler/SnArrayTypeToken.h>
 #include <nlang/runtime/BuiltinGenericNames.h>
+#include <nlang/runtime/StackDump.h>
 #include <nlang/compiler/SnMisc.h>
+#include <nlang/compiler/SyntaxNodeConsts.h>
 #include <stdexcept>
+#include <string>
 
 namespace nlang {
 
@@ -234,57 +239,6 @@ TypeDesc ParseTypeDescBytes(const uint8_t* pData, size_t size)
 	return td;
 }
 
-void ValidateTypeDescIndices(const TypeDesc& td, size_t structCount,
-	size_t classCount, size_t interfaceCount)
-{
-	if (td.kind == RTK_Struct)
-	{
-		if (td.typeIdx >= structCount)
-			throw std::runtime_error(
-				"Invalid module: type descriptor struct index out of range");
-	}
-	else if (td.kind == RTK_Class)
-	{
-		if (td.typeIdx >= classCount)
-			throw std::runtime_error(
-				"Invalid module: type descriptor class index out of range");
-	}
-	//v0.13.9 Task 12 (D14): the identity tier's row names the interfaces
-	//table — validate against it (defaulted for host-built modules with
-	//no interfaces table).
-	else if (td.kind == RTK_Interface && interfaceCount != kNoInterfaceCount)
-	{
-		if (td.typeIdx >= interfaceCount)
-			throw std::runtime_error(
-				"Invalid module: type descriptor interface index out of range");
-	}
-	for (const auto& elem : td.elems)
-		ValidateTypeDescIndices(elem, structCount, classCount,
-			interfaceCount);
-}
-
-void RemapTypeDesc(TypeDesc& td,
-	const std::unordered_map<uint32_t, uint32_t>& structMap,
-	const std::unordered_map<uint32_t, uint32_t>& classMap,
-	const std::unordered_map<uint32_t, uint32_t>& interfaceMap)
-{
-	//The merge maps are total over each kind's producer indices (see the
-	//note in TypeDesc.h) — a miss is an upstream construction bug, so
-	//.at() throws instead of silently keeping a stale index.
-	if (td.kind == RTK_Struct)
-		td.typeIdx = static_cast<uint16_t>(structMap.at(td.typeIdx));
-	else if (td.kind == RTK_Class)
-		td.typeIdx = static_cast<uint16_t>(classMap.at(td.typeIdx));
-	//v0.13.9 Task 12 (D14): the identity tier remaps through the
-	//interfaces merge map when the caller provides one; an RTK_Interface
-	//leaf with no map is a caller bug only when the unit declared one —
-	//units without interface tables pass the empty default.
-	else if (td.kind == RTK_Interface && !interfaceMap.empty())
-		td.typeIdx = static_cast<uint16_t>(interfaceMap.at(td.typeIdx));
-	for (auto& elem : td.elems)
-		RemapTypeDesc(elem, structMap, classMap, interfaceMap);
-}
-
 TypeDesc BuildTypeDesc(SnField* pType, const TypeLeafSlots& slots,
 	size_t depth)
 {
@@ -484,8 +438,25 @@ TypeDesc BuildTypeDesc(SnField* pType, const TypeLeafSlots& slots,
 				return td;
 			}
 			const uint8_t rtk = RtkOfKind(pType->Kind());
-			td.kind = (rtk != 0xFF) ? rtk : RTK_NonSerialized;
-			return td;
+			if (rtk != 0xFF)
+			{
+				td.kind = rtk;
+				return td;
+			}
+			//The other NonSerialized exits above are designed degradations
+			//(no interfaces table, the nesting cap). This one is not: it is a
+			//kind with no wire code at all. Every type shape a resolved
+			//declaration can name has an arm here — the builtin leaves, the
+			//four declaration kinds, the interned array token, func handles,
+			//type parameters and the three builtin container erasures — so
+			//landing here means a declaration kind was added without its
+			//descriptor route. The silent degrade wrote a descriptor the
+			//consumer reads as "unknown type", which is how such an omission
+			//hid until a boxing or GC decision read the wrong kind.
+			NLANG_ASSERT(false && "type has no wire type kind");
+			throw std::logic_error(
+				std::string("no type descriptor for node kind ")
+					+ NodeKindDebugName(pType->Kind()));
 		}
 	}
 	td.kind = RTK_NonSerialized;   //defensive tail: every arm returns

@@ -1,6 +1,6 @@
 //Bad mode throws runtime_error; nvm exits non-zero.
 import io;
 int main() {
-    FileStream stream = FileStream("_phase8_tmp/test_bad.bin", "x");
+    FileStream stream = FileStream("../temp/fs/test_bad.bin", "x");
     return 0;
 }

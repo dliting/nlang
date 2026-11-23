@@ -2,9 +2,12 @@ r"""check_source_size.py -- repository source-size guard.
 
 Rules (spec 2026-09-25 maintainability refactor):
   * every scanned file is <= 500 lines;
-  * every function definition is <= 50 lines, where a definition starts
-    at a column-0 signature line and ends at the next column-0 "}".
+  * every C++ function definition is <= 50 lines, where a definition
+    starts at a column-0 signature line and ends at the next column-0
+    "}".
 
+Scan roots: src/ and include/ (*.cpp/*.h) plus tools/ (*.py, file
+length only -- see the documented limits below).
 Excluded from scanning: src/compiler/generated/, src/3rdparty/.
 Allowlist (allowlist.json, same directory): entries
   {"path": "src/vm/VmExecutor.cpp", "function": "ExecuteFunction", "reason": "..."}
@@ -24,7 +27,10 @@ to the next col-0 "}" (overcount), and a signature whose "{" sits more
 than 4 lines down is measured from the 4th line (short by the
 difference). The allowlist is the escape hatch for both directions,
 and reasons keep it honest. check_source_size_test.py pins the
-separator rule.
+separator rule. The heuristic is C++-shaped, so Python files are
+file-length-checked only -- a Python signature regex is out of scope,
+which check_source_size_test.py block 11 pins (a .py full of
+brace-shaped text must still yield only the file-line violation).
 
 Overloads: spans are yielded in order of appearance, so each overload
 of a repeated name (e.g. the Access family) is measured separately; an
@@ -59,6 +65,12 @@ def scanned_files(repo: Path):
             if any(d in SKIP_DIRS for d in parts):
                 continue
             yield p
+    # tools/ Python files carry the file-length rule only (check_file).
+    for p in sorted((repo / "tools").rglob("*.py")):
+        parts = p.relative_to(repo).parts
+        if any(d in SKIP_DIRS for d in parts):
+            continue
+        yield p
 
 
 def function_spans(lines):
@@ -105,6 +117,31 @@ def function_spans(lines):
             i += 1
 
 
+def check_file(p: Path, repo: Path, by_file):
+    """Violations for one scanned file: the file-length rule for every
+    scanned suffix, plus the function-span rule for C++ only (the
+    column-0 brace heuristic is not a Python parser, so .py files stop
+    after the file-length check). An allowlist entry without "function"
+    exempts both rules for that file."""
+    rel = p.relative_to(repo).as_posix()
+    entries = by_file.get(rel, [])
+    file_exempt = any("function" not in e for e in entries)
+    lines = p.read_text(encoding="utf-8", errors="replace").splitlines()
+    out = []
+    if not file_exempt and len(lines) > FILE_MAX_LINES:
+        out.append(f"{rel}: file has {len(lines)} lines (> {FILE_MAX_LINES})")
+    if file_exempt or p.suffix == ".py":
+        return out
+    exempt_funcs = {e["function"] for e in entries if "function" in e}
+    for name, start, length in function_spans(lines):
+        if name in exempt_funcs or f"{rel}::{name}" in exempt_funcs:
+            continue
+        if length > FUNC_MAX_LINES:
+            out.append(
+                f"{rel}:{start}: function {name} spans {length} lines (> {FUNC_MAX_LINES})")
+    return out
+
+
 def main():
     here = Path(__file__).resolve().parent
     repo = here.parent.parent
@@ -116,21 +153,7 @@ def main():
 
     violations = []
     for p in scanned_files(repo):
-        rel = p.relative_to(repo).as_posix()
-        entries = by_file.get(rel, [])
-        file_exempt = any("function" not in e for e in entries)
-        lines = p.read_text(encoding="utf-8", errors="replace").splitlines()
-        if not file_exempt and len(lines) > FILE_MAX_LINES:
-            violations.append(f"{rel}: file has {len(lines)} lines (> {FILE_MAX_LINES})")
-        if file_exempt:
-            continue
-        exempt_funcs = {e["function"] for e in entries if "function" in e}
-        for name, start, length in function_spans(lines):
-            if name in exempt_funcs or f"{rel}::{name}" in exempt_funcs:
-                continue
-            if length > FUNC_MAX_LINES:
-                violations.append(
-                    f"{rel}:{start}: function {name} spans {length} lines (> {FUNC_MAX_LINES})")
+        violations.extend(check_file(p, repo, by_file))
 
     if violations:
         print(f"source-size guard: {len(violations)} violation(s)")

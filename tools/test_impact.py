@@ -101,6 +101,15 @@ def compute_impact(changed_paths, families_text):
 
 
 def main():
+    # The tier captures the unit/e2e regex lines through bash command
+    # substitution, which keeps carriage returns; a CR that reaches a
+    # ctest -R argv silently changes the regex (a CR-anchored last
+    # alternative matches no entry name). The machine-readable channel
+    # answers with LF line endings whatever the platform's text mode.
+    if hasattr(sys.stdout, "reconfigure"):
+        # In-process tests swap sys.stdout for a StringIO, which
+        # normalizes line endings on its own.
+        sys.stdout.reconfigure(newline="\n")
     if len(sys.argv) < 3:
         print("usage: test_impact.py <families-file> <changed-path>...")
         return 2

@@ -366,6 +366,11 @@ object_gethashcode_override 1
 string_gethashcode 7
 string_equals 7
 box_primitive 0
+# §4.11.3 names three entry points into an Object position; the argument one
+# needs its own rung in the overload ladder, so both directions are pinned —
+# scalars/string/enum box on the way in, a struct still has no path.
+boxed_arg_object 0
+boxed_arg_struct_reject compile_error has type "struct Point"; "class Object" expected
 # --- Phase 8e-1.5: explicit unbox/downcast via `expr as T` ---
 unbox_primitive 5
 unbox_type_mismatch_throws 1
@@ -578,6 +583,13 @@ lambda_static_field 0
 # pin and the cross-module closure escape
 lambda_static_local 0
 lambda_cross_module 0
+
+err_generic_type_arg_type compile_error Cannot resolve the field: Type.
+err_generic_infer_type_arg compile_error Cannot resolve the field: Type.
+# the internal type names (§1.4) bind no type anywhere and stay free as
+# ordinary identifiers ---
+err_builtin_type_name compile_error Cannot resolve the field: Int32.;Cannot resolve the field: Type.;Cannot resolve the field: Void.
+builtin_type_name_free 0
 # --- P3.8: lock class field default values (int/float/string/class-ref) ---
 class_field_defaults 7
 # --- P3.8: cover switch on string discriminator ---
@@ -657,6 +669,8 @@ boxed_tostring 0
 boxed_field_gc 0
 boxed_struct_field_gc 0
 boxed_array_elem_gc 0
+iface_field_gc 0
+iface_local_gc 0
 object_array_null_store 7
 list_int_indexof_zero 7
 dict_float_zero_key 7
@@ -1050,6 +1064,8 @@ stdlib_math_random_deterministic 0
 stdlib_math_randomi_range 0
 stdlib_math_randomi_minmax_throws 1
 stdlib_math_clamp_lo_gt_hi_throws 1
+# --- CSPRNG byte surface (session ids and multipart boundaries) ---
+stdlib_math_random_bytes 0
 stdlib_io_print 0 hello
 stdlib_io_write 0 AB
 stdlib_io_write_prompt 0 Name: Hi Alice
@@ -1112,6 +1128,8 @@ stdlib_fs_join 0
 stdlib_fs_remove_nonempty_throws 1
 stdlib_fs_remove_nonempty_caught 0
 stdlib_fs_size_missing_caught 0
+# --- byte write/read pair and file mtime (static-file ETag, upload save) ---
+stdlib_fs_write_time 0
 switch_multi_case 40
 switch_multi_case_enum 0
 switch_multi_three 0
@@ -1222,6 +1240,7 @@ func_tostring_member 0
 func_tostring_cast 0
 func_ref_void_return 41
 func_ref_list_store 0
+func_ref_list_void 0
 func_array_subscript_store 25
 null_overload_ambiguity_reject compile_error ambiguous
 # fitted-constant overload scoring: a fitting literal reaches an
@@ -2299,10 +2318,18 @@ stdlib_http_pool 0
 stdlib_net_tcp_readline_utf8 0
 stdlib_net_tcp_read_exactly_split 0
 stdlib_net_window 0
+# --- three read faces against peer EOF vs timeout, and the isEof()/isClosed()
+#quadrants that keep the two sides apart ---
+stdlib_net_eof_contrast 0
 stdlib_http_big_head 0
 stdlib_http_single_write 0
 stdlib_http_date_cache 0
 stdlib_http_reject503 0
+# --- HttpServer graceful shutdown: drain returns 0 once its in-flight count
+#settles, force-closes an idle keep-alive wait, reports the residual count when
+#the grace window runs out, resets so the same instance can start again, refuses
+#a second start, and stays idempotent across repeated drain/close calls ---
+stdlib_http_drain_close 0
 #v0.13.6 closed-handle pin: after close() every method of a net handle
 #raises SocketException, close is idempotent, isClosed reports true, and
 #after shutdownWrite() writes raise while reads work until end of stream.
@@ -2433,6 +2460,25 @@ stabilize_array_oob 1
 xacc_fn_private compile_error The function "hiddenHelper" does not exist or is not accessible.
 xacc_type_private compile_error Type 'Vault' is not a member of package 'lib'.
 xacc_ok_public 28
+stdlib_json_parse_basic 0
+stdlib_json_parse_reject 0
+stdlib_json_token_construction 0
+stdlib_json_numbers 0
+# --- v0.13.11: a constructor call stages an implicitly widened argument at
+# the formal's width, not the argument's own (bare call, direct
+# initialization, struct spellings, super(...), module-qualified call).
+ctor_arg_implicit_widen 0
+# --- v0.13.11: `as` is the explicit spelling of a scalar conversion the
+# language admits implicitly (widening long -> double/float, int ->
+# long/double), warning-free; an enum operand of `as` collapses to the
+# int32 it is at runtime.
+scalar_widen_as 0 ok
+cast_as_enum 0 ok
+stdlib_json_unicode 0
+stdlib_json_serialize 0
+stdlib_json_depth 0
+stdlib_json_roundtrip 0
+stdlib_json_edit 0
 stabilize_list_set 42
 stabilize_dict_set 42
 stabilize_static_store 42
@@ -2571,3 +2617,33 @@ err_outret_call_marker compile_error the out argument marker is retired
 err_outret_func_mark compile_error the out type marker is retired
 err_outret_anchored compile_error
 err_outret_keyword compile_error
+# --- v0.13.12: the web middleware chain — both middleware styles in onion
+# order, the base-class default, short-circuiting, next() re-entry, exception
+# mapping and the onError boundary, per-request isolation, the attribute
+# accessors, the response helpers and cookie read/write.
+stdlib_web_middleware_styles 0
+# --- v0.13.12: name resolution per ruling 45 / spec D-29 — a qualified name
+# resolves by its longest known module path at any depth and for every member
+# kind (a qualified library class static constant, a method call on a
+# qualified library enum member, and the bare and qualified spellings of one
+# static agreeing), and `import http.*;` opens a flat library package. The
+# library-subtree face of that wildcard needs Task 8's multi-module layout,
+# so it is pinned here only by the libraryWildcardUnionsSubtree unit leg.
+stdlib_web_qualified_names 0
+# --- v0.13.12: the route table — the exact table beating an earlier parameter
+# row, path captures decoded on the way out, the trailing '*' eating the rest,
+# the method face with HEAD riding GET and an explicit head winning, the 405
+# Allow list, a mount handing its subtree over without falling back, the
+# registration-time conflict matrix, and paramInt answering an out-of-range
+# path parameter with the caller's default.
+stdlib_web_routes_matrix 0
+# --- v0.13.12: sessions — the cookie round-trip with its tri-state attributes, a
+# returning session that wrote getting no cookie of its own, the id rotating under a
+# login while the old record dies with it, destroy() dropping both record and cookie, a
+# sweep judged against an instant the test supplies, and the two refusals around a
+# store (none configured, and configured after the first request).
+stdlib_web_session_basic 0
+# --- v0.13.12: sessions under contention — eight workers each counting a session of
+# their own, eight workers writing one shared session until last-write-wins leaves a
+# value somebody actually wrote, and one middleware instance counting every request.
+stdlib_web_session_conc 0

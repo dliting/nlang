@@ -1,6 +1,8 @@
 /*--- test_recentstore.cpp - RecentStore unit tests ---*/
 #include "RecentStore.h"
+#include "nide_test_process_names.h"
 
+#include <QCoreApplication>
 #include <QFileInfo>
 #include <QSettings>
 #include <QTemporaryDir>
@@ -12,6 +14,7 @@ class TestRecentStore : public QObject {
     Q_OBJECT
 
 private slots:
+    void initTestCase();
     void pushPutsMostRecentFirst();
     void pushDedupesAnExistingSpelling();
     void pushTrimsToTheCapacityCeiling();
@@ -29,6 +32,16 @@ private:
     }
     QTemporaryDir m_dir;
 };
+
+void TestRecentStore::initTestCase() {
+    //Process-level QSettings names: any DEFAULT-constructed QSettings
+    //this process reaches lands in the test's own registry/ini segment,
+    //scoped by the per-tree token the ctest wrapper exports so
+    //concurrent build trees never share it (D-12).
+    QCoreApplication::setOrganizationName(QStringLiteral("NLang"));
+    QCoreApplication::setApplicationName(nlang::nideTestApplicationName(
+        QStringLiteral("nide-recentstore-test")));
+}
 
 void TestRecentStore::pushPutsMostRecentFirst() {
     RecentStore store;

@@ -1,18 +1,22 @@
 # check_source_size_test.py -- self-test corpus for the guard's
-# signature detection. Pins the separator rule the span heuristic
-# depends on: a pointer/reference return may bind its * or & to either
-# side ("Ret *Name(" is the repo's prevailing definition style and MUST
-# be measured; a miss here silently exempts a whole function family
-# from the <=50-line rule). Run: python check_source_size_test.py
+# signature detection and scan scope. Pins the separator rule the span
+# heuristic depends on: a pointer/reference return may bind its * or &
+# to either side ("Ret *Name(" is the repo's prevailing definition
+# style and MUST be measured; a miss here silently exempts a whole
+# function family from the <=50-line rule). Also pins the scan roots
+# (src, include and the tools/ Python files) and the documented .py
+# carve-out: a Python file is file-line-checked only. Run:
+# python check_source_size_test.py
 # Verdict line: "GATE source_size_guard_selftest: PASS" (or FAIL),
 # exit code follows. Per the ctest-override lesson the sentinel is
 # computed from the assertions themselves, never printed unconditionally.
 
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from check_source_size import function_spans, SIG_RE
+from check_source_size import check_file, function_spans, scanned_files, SIG_RE
 
 
 def make_unit(signature, body_lines):
@@ -110,6 +114,34 @@ got = [(n, s, l) for n, s, l in spans_of(overloads) if n == "Pool::Get"]
 if len(got) != 2 or [s for _, s, _ in got] != [1, 5]:
     failures.append("overloads: expected two spans starting 1 and 5, got %r"
                     % (got,))
+
+# 11. Scan scope and the documented .py carve-out: a Python file under
+# the tools/ root must be scanned (the 500-line file bound now covers
+# tools/), and must be reported for the file-line rule ONLY. The
+# column-0 brace heuristic is C++-shaped, so on this 501-line file the
+# longish() def would measure a 500-line phantom span -- a function
+# violation must never fire for .py (the guard header's
+# documented-limits paragraph keeps the Python signature regex out of
+# scope instead).
+with tempfile.TemporaryDirectory() as scratch:
+    scope_repo = Path(scratch)
+    (scope_repo / "src").mkdir()
+    (scope_repo / "tools").mkdir()
+    (scope_repo / "src" / "tiny.h").write_text("#pragma once\n",
+                                               encoding="utf-8")
+    big_py = scope_repo / "tools" / "big.py"
+    big_py.write_text("import sys\ndef longish():\n    value = {\n"
+                      + "    # pad\n" * 497 + "}\n", encoding="utf-8")
+    scanned = sorted(p.relative_to(scope_repo).as_posix()
+                     for p in scanned_files(scope_repo))
+    if "tools/big.py" not in scanned:
+        failures.append("scope: scanned_files must yield tools/big.py, "
+                        "got %r" % scanned)
+    else:
+        found = check_file(big_py, scope_repo, {})
+        if found != ["tools/big.py: file has 501 lines (> 500)"]:
+            failures.append("scope: tools/big.py must yield exactly the "
+                            "file-line violation, got %r" % (found,))
 
 if failures:
     print("source_size_guard selftest: %d failure(s)" % len(failures))

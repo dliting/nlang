@@ -1,0 +1,234 @@
+// stdlib_web_session_conc — the shared web objects under real contention (spec §七's
+// session-concurrency row, D-25, ruling 24). Phase one gives every worker its own
+// session: 8 workers x 20 requests each count their own visits, so a session that
+// crossed over to another worker or lost a write shows up as the wrong number, and a
+// Set-Cookie after the first response of a session would mean the cookie rule fired
+// twice. Phase two has all 8 workers write one shared session: last-write-wins means
+// the stored value must be one of the values that were written, and which one is not
+// asserted (no assertion reads a clock). One web.Middleware instance sits on the chain
+// and counts every request, which is what makes "a middleware instance is shared
+// across requests, so it must keep no per-request state" observable. Routes and the
+// middleware are registered before listen(), so this corpus is also a concurrency
+// proof for the route table being read while it is frozen and for one store serving
+// every request. The carrier count comes from stdlib_web_session_conc.flags.
+import io;
+import url;
+import http;
+import web;
+import thread;
+import concurrent;
+
+// The session cookie as the corpus has to spell it. The name is what the id is cut out
+// of, so the cut is measured from the name rather than from a counted literal: an app can
+// ask for the prefixed name (D-12), and this corpus would then be reading the wrong bytes.
+class SessionCookie {
+    public static const string NAME = "nlang_session";
+    public static const int ID_HEX_LEN = 32;    // 16 CSPRNG bytes written as hex (D-13)
+}
+
+// Top-level variables cannot sit next to an explicit main(), so the shared counters
+// live in static fields of a holder class.
+class ConcCounters {
+    public static AtomicInt fail = AtomicInt(0);
+    public static AtomicInt hits = AtomicInt(0);      // requests that reached the chain
+    public static string sharedId = "";               // the one session of phase two
+}
+
+// The one shared instance on the chain: stateless, and the count it keeps is a cross
+// request total rather than a per-request one (D-25).
+class Timing : web.Middleware {
+    public void process(RequestContext ctx) {
+        ConcCounters.hits.incrementAndGet();
+        ctx.next();
+    }
+}
+
+// Counts this session's own visits and echoes the number it read before the write, so
+// the worker can compare it against its own request index.
+void handleCountInc(RequestContext ctx) {
+    web.Session s = ctx.session();
+    int n = s.getInt("n", 0);
+    s.set("n", n + 1);
+    ctx.res.headers.set("X-Count", n.toString());
+    ctx.text(200, "c");
+}
+
+// Writes the tag of the request that carried it, which is how the final read of the
+// shared session can be checked against the set of values that were written.
+void handleStamp(RequestContext ctx) {
+    web.Session s = ctx.session();
+    s.set("k", ctx.paramInt("v", -1));
+    ctx.text(200, "s");
+}
+
+// The id out of a response's session cookie line.
+string sessionIdOf(http.HttpResponse res) {
+    List<string> lines = res.headers.getAll("Set-Cookie");
+    int i = 0;
+    while (i < lines.length()) {
+        string line = lines.get(i);
+        if (line.startsWith(SessionCookie.NAME + "=")) {
+            int semi = line.indexOf(";");
+            return line.substring(SessionCookie.NAME.length() + 1, semi);
+        }
+        i = i + 1;
+    }
+    return "";
+}
+
+// Phase one: one session per worker, twenty sequential requests over a client of its
+// own, which is what makes the expected counter the worker's own index.
+class CountWorker {
+    string m_base;
+    WaitGroup m_wg;
+
+    public CountWorker(string base, WaitGroup wg) {
+        m_base = base;
+        m_wg = wg;
+    }
+
+    public void run() {
+        HttpClient cli = HttpClient();
+        try {
+            string cookie = "";
+            for (int i = 0; i < 20; i = i + 1) {
+                HttpRequest req = HttpRequest();
+                req.url = Url.parse(m_base + "/count");
+                if (cookie != "") { req.headers.set("Cookie", cookie); }
+                HttpResponse res = cli.request(req);
+                if (res.statusCode != 200) {
+                    ConcCounters.fail.incrementAndGet();
+                } else if (res.headers.get("X-Count") != i.toString()) {
+                    // A counter that is not this request's own is either another
+                    // worker's session or this session losing a write.
+                    ConcCounters.fail.incrementAndGet();
+                }
+                List<string> lines = res.headers.getAll("Set-Cookie");
+                if (i == 0) {
+                    if (lines.length() != 1) { ConcCounters.fail.incrementAndGet(); }
+                    cookie = SessionCookie.NAME + "=" + sessionIdOf(res);
+                } else if (lines.length() != 0) {
+                    // The id never changed, so no cookie has to be sent again (ruling 24).
+                    ConcCounters.fail.incrementAndGet();
+                }
+            }
+        } catch (Exception e) {
+            ConcCounters.fail.incrementAndGet();
+        }
+        cli.close();
+        m_wg.done();
+    }
+}
+
+// Phase two: every worker writes the shared session, each with its own tag range.
+class StampWorker {
+    string m_base;
+    string m_cookie;
+    WaitGroup m_wg;
+    int m_tagBase;
+
+    public StampWorker(string base, string cookie, WaitGroup wg, int tagBase) {
+        m_base = base;
+        m_cookie = cookie;
+        m_wg = wg;
+        m_tagBase = tagBase;
+    }
+
+    public void run() {
+        HttpClient cli = HttpClient();
+        try {
+            for (int i = 0; i < 20; i = i + 1) {
+                HttpRequest req = HttpRequest();
+                req.url = Url.parse(m_base + "/stamp/" + (m_tagBase + i).toString());
+                req.headers.set("Cookie", m_cookie);
+                HttpResponse res = cli.request(req);
+                if (res.statusCode != 200) { ConcCounters.fail.incrementAndGet(); }
+                if (res.headers.getAll("Set-Cookie").length() != 0) {
+                    ConcCounters.fail.incrementAndGet();
+                }
+            }
+        } catch (Exception e) {
+            ConcCounters.fail.incrementAndGet();
+        }
+        cli.close();
+        m_wg.done();
+    }
+}
+
+int main() {
+    const int workers = 8;
+
+    web.App app = web.App();
+    web.MemorySessionStore store = web.MemorySessionStore();
+    app.useSessions(store);
+    app.use(Timing());
+    app.get("/count", handleCountInc);
+    app.get("/stamp/:v", handleStamp);
+    app.listen("127.0.0.1", 0);
+    string base = "http://127.0.0.1:" + app.server().localPort().toString();
+
+    WaitGroup first = WaitGroup();
+    first.add(workers);
+    for (int w = 0; w < workers; w = w + 1) {
+        CountWorker cw = CountWorker(base, first);
+        thread.spawn(cw.run);
+    }
+    first.wait();
+
+    // Phase two starts from one session every worker can see: this priming request is
+    // the session's first, so its response carries the id.
+    HttpResponse prime = http.get(base + "/stamp/0");
+    int bad = 0;
+    if (prime.statusCode != 200) {
+        io.print("the priming request answered " + prime.statusCode.toString());
+        bad = bad + 1;
+    }
+    ConcCounters.sharedId = sessionIdOf(prime);
+    if (ConcCounters.sharedId.length() != SessionCookie.ID_HEX_LEN) {
+        io.print("the priming request did not hand out a session id");
+        bad = bad + 1;
+    }
+
+    WaitGroup second = WaitGroup();
+    second.add(workers);
+    for (int w = 0; w < workers; w = w + 1) {
+        StampWorker sw = StampWorker(base, SessionCookie.NAME + "=" + ConcCounters.sharedId, second, w * 1000);
+        thread.spawn(sw.run);
+    }
+    second.wait();
+
+    if (ConcCounters.fail.load() != 0) {
+        io.print("the workers counted " + ConcCounters.fail.load().toString() + " failures");
+        bad = bad + 1;
+    }
+    // 160 + 160 requests, plus the priming request that set the shared id up: every
+    // request that reached the chain counted exactly once through one instance.
+    const int wantHits = 160 + 160 + 1;
+    if (ConcCounters.hits.load() != wantHits) {
+        io.print("the shared middleware counted " + ConcCounters.hits.load().toString()
+            + " hits, want " + (wantHits).toString());
+        bad = bad + 1;
+    }
+
+    // Last-write-wins, told without a clock: the stored value is one of the tags that
+    // were written, never a value nobody wrote and never the default.
+    web.Session rec = store.load(ConcCounters.sharedId);
+    if (rec == null) {
+        io.print("the shared session has no record left");
+        bad = bad + 1;
+    } else {
+        int v = rec.getInt("k", -1);
+        if (v < 0 || v / 1000 > workers - 1 || v % 1000 > 19) {
+            io.print("the shared session holds " + v.toString() + ", which nobody wrote");
+            bad = bad + 1;
+        }
+    }
+
+    if (app.drain(5000) != 0) {
+        io.print("the server drained with a residual connection");
+        bad = bad + 1;
+    }
+    app.close();
+    if (bad == 0) { io.print("ok"); }
+    return bad;
+}

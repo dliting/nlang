@@ -45,6 +45,12 @@ bool TryGetConstantLiteral(SnExpression* e, ConstLiteralValue& v);
 //formal for a numeric arg).
 constexpr int kDistToFloat = 4;   // > max in-category rank delta (3)
 constexpr int kDistToString = 5;  // > kDistToFloat
+//Entering an Object position by boxing outranks every conversion above, so a
+//widened or rendered formal still wins the overload sweep over a boxed
+//candidate — the phase order Java states outright: boxing is the last resort,
+//not a hop. The rung itself comes from CastInfo's TCK_Box verdict (spec
+//4.11.3), which is what keeps the kind list in one place.
+constexpr int kDistToBox = 6;     // > kDistToString
 
 //Verdict of TryConstantFit for one (constant, target-row) pair.
 enum ConstantFitVerdict

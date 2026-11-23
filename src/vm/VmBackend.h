@@ -1961,8 +1961,9 @@ private:
                                    BytecodeEmitter& emitter,
                                    uint16_t resultOffset);
 
-    //SnAsExpr arms: box / unbox / downcast / explicit narrowing, and
-    //the `f as string` render.
+    //SnAsExpr arms: box / unbox / downcast / the scalar PrimCast (both
+    //the 0.7.5 narrowing and the 0.13.11 explicit widening), and the
+    //`f as string` render.
     //v0.13.1 D6: `x as T` — the runtime kind decides (OP_As_TypeParam).
     void EmitAsTypeParamOp(BytecodeEmitter& emitter, uint16_t resultOffset,
                            uint8_t ordinal);
@@ -1976,8 +1977,8 @@ private:
                        uint16_t resultOffset);
     void EmitAsDowncastOp(SnAsExpr& asExpr, BytecodeEmitter& emitter,
                           uint16_t resultOffset);
-    bool EmitAsExplicitNarrowOp(SnAsExpr& asExpr, BytecodeEmitter& emitter,
-                                uint16_t resultOffset);
+    bool EmitAsPrimCastOp(SnAsExpr& asExpr, BytecodeEmitter& emitter,
+                          uint16_t resultOffset);
     bool EmitAsFuncToString(SnAsExpr& asExpr, BytecodeEmitter& emitter,
                             uint16_t resultOffset);
 
@@ -2678,6 +2679,28 @@ inline bool IsAbstractClassMember(const SnField& field)
     return field.ContainFlags(NF_Abstract)
         && field.Parent() != nullptr
         && field.Parent()->Kind() == NK_ClassDecl;
+}
+
+//The one definition of "owns a function record": a member occupies a row
+//of the module function table (and, for a class member, of the owner's
+//methodIndices) when it has a body, is native, is an imported stub, or is
+//an abstract class member whose signature-only record the vtable still
+//occupies. Both sides of the cross-module contract must use it — the
+//producer's registration (RegisterFunctions, the generation walk) and the
+//consumer's ownerOrdinal replay (CrossUnitOwnerMeta). The gap that makes
+//this more than HasImplementation(): the consumer of a source-shipped
+//package replays the library's declarations from source, where an abstract
+//member has neither a body nor the imported-stub flag, so filtering on the
+//implementation alone drops its row and shifts every later member's
+//ordinal — nlink then matches the wrong row and refuses (or, on a
+//coincidental name+arity match, silently binds) the call. At the
+//producer's own-unit gate an imported stub never reaches the test
+//(IsOwnUnit excludes NF_Imported), so HasImplementation()'s imported
+//arm is inert there and the predicate stays equivalent to the
+//body/native/abstract test it replaced.
+inline bool IsRegisteredMember(const SnFunction& func)
+{
+    return func.HasImplementation() || IsAbstractClassMember(func);
 }
 
 } // namespace nlang

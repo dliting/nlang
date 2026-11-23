@@ -9,8 +9,12 @@
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnData.h>
 #include <nlang/compiler/SnExpressions.h>
+#include <nlang/compiler/SyntaxNodeConsts.h>
 #include <nlang/runtime/NodeConsts.h>
 #include <nlang/runtime/RnTypes.h>
+#include <nlang/runtime/StackDump.h>
+#include <stdexcept>
+#include <string>
 
 namespace nlang {
 
@@ -52,10 +56,22 @@ uint8_t VmBackend::RuntimeTypeKind(SnField* pType) {
     //the basic-types expansion (NK_String=12 vs RTK_String=2 — the old
     //layout held a coincidental identity for int/float/string). Scalars
     //map through the registry; string is the one non-scalar builtin.
-    //Anything else keeps the null-type defensive default.
     if (k == NK_String) return RTK_String;
     const uint8_t rtk = RtkOfKind(k);
-    return rtk != 0xFF ? rtk : RTK_Int32;
+    if (rtk != 0xFF) return rtk;
+    //Nothing is left to classify: every type shape a resolved declaration can
+    //bind a slot to — the builtin leaves, the four declaration kinds, arrays
+    //through IsArrayType(), func handles and type-parameter placeholders —
+    //is answered above, and `Type`/`Void` never name a declared type (their
+    //mirrors yield no user-resolvable spelling, so the resolver rejects such
+    //a declaration before the backend sees it). The silent RTK_Int32 that
+    //used to end this function is what turned the missing interface arm into
+    //an untraced GC slot instead of a failure; a kind that lands here is a
+    //new declaration kind nobody classified, so it fails here naming the kind
+    //rather than handing out a wrong kind that GC then ignores.
+    NLANG_ASSERT(false && "declared type has no runtime type kind");
+    throw std::logic_error(std::string("no runtime type kind for node kind ")
+        + NodeKindDebugName(k));
 }
 
 //Option B Step 3: extract a constant-foldable default expression into a

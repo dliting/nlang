@@ -71,8 +71,14 @@ extern "C" {
 // receiver's runtime instantiation — typeArgCount/typeArgKind/typeArgName
 // let a native method read the type arguments its receiver was
 // instantiated with (the runtime generic type-parameter information:
-// count, per-argument RTK kind, per-argument canonical name).
-#define NLANG_HOST_ABI_VERSION 12u
+// count, per-argument RTK kind, per-argument canonical name). Version 13:
+// the string side carries byte lengths. A NLang string is a UTF-8 byte
+// sequence in which a NUL byte is ordinary content, so getString takes an
+// optional out-length and newString, newListString, writeOutput,
+// writeError, readLine and raiseException take the length explicitly
+// instead of stopping at the first NUL. The returned pointers stay
+// NUL-terminated for C readers; the length is what delimits the content.
+#define NLANG_HOST_ABI_VERSION 13u
 
 // Every NLang runtime value occupies one 8-byte frame cell (see
 // kFrameSlotBytes in CompiledModule.h). Scalars of 4 bytes or less live
@@ -162,37 +168,51 @@ typedef struct NativeArrayView {
 struct NativeHost {
     uint32_t abiVersion;
 
+    // v13 string side. A NLang string is the UTF-8 byte sequence the VM
+    // stores, so a NUL byte is ordinary content exactly like any other
+    // byte (the language's `\0` escape produces one and `length()` counts
+    // it). Every string transfer below therefore carries a byte length:
+    // readers answer it through the optional out-param (pass NULL to
+    // ignore it), producers take it explicitly. The NUL terminator the
+    // returned pointers still carry is a convenience for C readers, never
+    // the end of the content.
+    //
     // Read a string argument by heap handle. The returned pointer is
     // valid only until the next host callback; copy it immediately.
     // Handle 0 is the live empty string (ruling D26): getString(0)
-    // returns a valid pointer to "", never NULL.
-    const char* (*getString)(NativeHost* self, int32_t handle);
+    // returns a valid pointer to "", never NULL, with *outLen 0.
+    const char* (*getString)(NativeHost* self, int32_t handle,
+                             int64_t* outLen);
 
-    // Create a heap string from UTF-8; returns its handle. Never
-    // returns 0 — empty content (and a null pointer) creates a fresh
-    // non-interned empty object (handle >= 1). A declared-string
-    // native must produce its result through this call: writing 0
-    // into the result cell is a contract violation the host reports
-    // as "returned null string" (ruling D27).
-    int32_t (*newString)(NativeHost* self, const char* utf8);
+    // Create a heap string from `len` UTF-8 bytes; returns its handle.
+    // A negative length and a null pointer both mean empty content. Never
+    // returns 0 — empty content creates a fresh non-interned empty object
+    // (handle >= 1). A declared-string native must produce its result
+    // through this call: writing 0 into the result cell is a contract
+    // violation the host reports as "returned null string" (ruling D27).
+    int32_t (*newString)(NativeHost* self, const char* utf8, int64_t len);
 
     // Create a List<string> in one call; returns its heap handle. Used by
     // fs.listFiles so native code never needs the VM's list layout.
-    int32_t (*newListString)(NativeHost* self,
-                             const char* const* items, int count);
+    // lens[i] is the byte length of items[i]; a NULL lens means every item
+    // is empty. A null item pointer is empty content too.
+    int32_t (*newListString)(NativeHost* self, const char* const* items,
+                             const int64_t* lens, int count);
 
-    // Write text verbatim to the program's standard output.
-    void (*writeOutput)(NativeHost* self, const char* text);
+    // Write `len` bytes verbatim to the program's standard output.
+    void (*writeOutput)(NativeHost* self, const char* text, int64_t len);
 
-    // Write text verbatim to the program's diagnostic channel: stderr in
-    // console mode, the session's single merged output view when a host
-    // owns the streams (io.eprint's route).
-    void (*writeError)(NativeHost* self, const char* text);
+    // Write `len` bytes verbatim to the program's diagnostic channel:
+    // stderr in console mode, the session's single merged output view when
+    // a host owns the streams (io.eprint's route).
+    void (*writeError)(NativeHost* self, const char* text, int64_t len);
 
     // Read one line from standard input (trailing CR/LF stripped).
-    // Returns null at end of input — an empty input line returns "".
-    // The returned pointer is valid only until the next host callback.
-    const char* (*readLine)(NativeHost* self);
+    // Returns null at end of input — an empty input line returns "" with
+    // *outLen 0. A NUL byte inside the line is content like any other
+    // byte. The returned pointer is valid only until the next host
+    // callback.
+    const char* (*readLine)(NativeHost* self, int64_t* outLen);
 
     // v4 input side. readToken skips whitespace (across lines) and
     // returns the next token, or null at end of input — the host raises
@@ -201,13 +221,15 @@ struct NativeHost {
     // or on invalid UTF-8 the host raises before returning, so natives
     // never observe the 1. hasInput never raises: 1 = a readLine would
     // still produce a line.
-    const char* (*readToken)(NativeHost* self);
+    const char* (*readToken)(NativeHost* self, int64_t* outLen);
     int (*readChar)(NativeHost* self, uint32_t* outChar);
     int (*hasInput)(NativeHost* self);
 
-    // Raise an NLang exception and never return.
+    // Raise an NLang exception whose message is `len` bytes at `message`
+    // (a null pointer or a non-positive length is the empty message) and
+    // never return.
     void (*raiseException)(NativeHost* self, int exceptionKind,
-                           const char* message);
+                           const char* message, int64_t len);
 
     // PRNG access (state owned by the VM).
     uint32_t (*nextRandom)(NativeHost* self);

@@ -183,6 +183,49 @@ class HttpResponse {
         headers = HttpHeaders();
     }
 
+    // The description registered for a status code: RFC 9110 §15 (and §18.3,
+    // the registry it updates) for the codes that document defines, RFC 6585
+    // §4/§5 for 429 and 431. The server's own error responses and a framework
+    // rebuilding a half-written answer both read this one table, so a status
+    // line and the body sent with it never disagree; a status outside the table
+    // — one a handler invented — gets "Error" instead of an unregistered phrase.
+    public static string reasonPhraseFor(int status) {
+        if (status == 200) { return "OK"; }
+        if (status == 201) { return "Created"; }
+        if (status == 204) { return "No Content"; }
+        if (status == 301) { return "Moved Permanently"; }
+        if (status == 302) { return "Found"; }
+        if (status == 303) { return "See Other"; }
+        if (status == 304) { return "Not Modified"; }
+        if (status == 307) { return "Temporary Redirect"; }
+        if (status == 308) { return "Permanent Redirect"; }
+        if (status == 400) { return "Bad Request"; }
+        if (status == 401) { return "Unauthorized"; }
+        if (status == 403) { return "Forbidden"; }
+        if (status == 404) { return "Not Found"; }
+        if (status == 405) { return "Method Not Allowed"; }
+        if (status == 406) { return "Not Acceptable"; }
+        if (status == 408) { return "Request Timeout"; }
+        if (status == 409) { return "Conflict"; }
+        if (status == 410) { return "Gone"; }
+        if (status == 411) { return "Length Required"; }
+        if (status == 413) { return "Content Too Large"; }
+        if (status == 414) { return "URI Too Long"; }
+        if (status == 415) { return "Unsupported Media Type"; }
+        if (status == 416) { return "Range Not Satisfiable"; }
+        if (status == 417) { return "Expectation Failed"; }
+        if (status == 422) { return "Unprocessable Content"; }
+        if (status == 429) { return "Too Many Requests"; }
+        if (status == 431) { return "Request Header Fields Too Large"; }
+        if (status == 500) { return "Internal Server Error"; }
+        if (status == 501) { return "Not Implemented"; }
+        if (status == 502) { return "Bad Gateway"; }
+        if (status == 503) { return "Service Unavailable"; }
+        if (status == 504) { return "Gateway Timeout"; }
+        if (status == 505) { return "HTTP Version Not Supported"; }
+        return "Error";
+    }
+
     public string bodyText() {
         // A streaming response (open(), D16) keeps its body in the reader
         // and leaves `body` null; a buffered one is the inverse.
@@ -890,10 +933,22 @@ class HttpConn {
     private long m_dateSec = -1;
     private string m_dateText = "";
     private HttpServer m_srv;   // owning server; null for client-pool connections
+    // The server's registry key for this connection (D-22), assigned before
+    // this connection's thread is spawned and handed back on unregister.
+    // Public because HttpServer has no friend access; not part of the
+    // documented user surface.
+    public int connId;
+    // Non-zero while a request is inside serveOne on this connection, which is
+    // how drain() tells a connection parked in its keep-alive wait from one
+    // doing work. Atomic because the draining context reads it while this
+    // context writes it; serveOne opens and closes the window (D-22).
+    private AtomicInt m_inHandler;
 
     public HttpConn(TcpStream s, HttpServer srv = null) {
         stream = s;
         m_srv = srv;
+        connId = 0;
+        m_inHandler = AtomicInt(0);
         m_buf = byte[0];
         m_spill = byte[0];
         m_spillLen = 0;
@@ -1295,6 +1350,21 @@ class HttpConn {
         stream.close();
     }
 
+    // Forced teardown for the server's drain() and close() (D-22): closes the
+    // socket straight out, because the orderly close() above waits out
+    // CLOSE_GRACE_MS and a shutdown path cannot afford to. A reader parked
+    // inside fill() wakes from this with SocketException — the native layer
+    // lets the closer win (src/native/net/net_tcp.cpp) — so the drain needs no
+    // wake-up channel: the connection thread unwinds into run()'s handler and
+    // unregisters itself there.
+    public void forceClose() {
+        try { stream.close(); } catch (Exception e) { }
+    }
+
+    // True while a request is inside serveOne on this connection; drain() uses
+    // it to tell a connection parked in its keep-alive wait from one working.
+    public bool servingRequest() { return m_inHandler.load() != 0; }
+
     // Reads and throws away what the peer queued until it closes its side or
     // the deadline passes.
     private void drainSocket(long deadline) {
@@ -1364,6 +1434,11 @@ class HttpConn {
             stream.setKeepAlive(true);
             int served = 0;
             while (true) {
+                // D-22: a draining or closed server takes no new request on an
+                // established connection; a connection parked in the read below
+                // never comes back here, which is why drain() closes it from
+                // the registry instead of waiting for this check.
+                if (!m_srv.isServing()) { break; }
                 HttpRequest req = null;
                 try {
                     req = this.readRequest(m_srv.keepAliveTimeoutMs, m_srv.headerTimeoutMs,
@@ -1392,7 +1467,7 @@ class HttpConn {
             // drop the connection without an answer.
             try { this.close(); } catch (Exception e2) { }
         }
-        m_srv.connDone();
+        m_srv.connDone(connId);
     }
 
     // Answers a connection the server will not serve (over maxConnections).
@@ -1444,30 +1519,52 @@ class HttpConn {
         }
         req.bodyReader = HttpBodyReader(this, req.framingMode, req.framingLength,
             m_srv.maxBodyBytes, m_srv.bodyTimeoutMs);
-        HttpResponse res = null;
+        // D-22: the in-flight window opens here — the Expect paths above never
+        // reach a handler, so nothing before this point counts as work in
+        // flight — and closes only once the response has been written, which is
+        // what keeps a streaming connection counted while its pump is still
+        // running instead of looking idle.
+        m_inHandler.store(1);
+        m_srv.requestStarted();
         try {
-            func<HttpResponse, HttpRequest> h = m_srv.handler();
-            res = h(req);
-        } catch (HttpException e) {
-            // A handler throwing HttpException picks its own status (D15).
-            int st = e.status;
-            if (st <= 0) { st = 500; }
-            res = errorResponse(st, e.message);
-        } catch (Exception e) {
-            // Any other handler failure: 500 with no internal detail leak.
-            res = errorResponse(500, "internal error");
+            HttpResponse res = null;
+            try {
+                func<HttpResponse, HttpRequest> h = m_srv.handler();
+                res = h(req);
+            } catch (HttpException e) {
+                // A handler throwing HttpException picks its own status (D15).
+                int st = e.status;
+                if (st <= 0) { st = 500; }
+                res = errorResponse(st, e.message);
+            } catch (Exception e) {
+                // Any other handler failure: 500 with no internal detail leak.
+                res = errorResponse(500, "internal error");
+            }
+            if (res == null) { res = errorResponse(500, "handler returned no response"); }
+            res.requestUrl = req.url;
+            // Drain whatever the handler left unread so the connection can be
+            // reused; over the drain cap the stream cannot be trusted → close.
+            bool reusable = req.bodyReader.drain(DEFAULT_DRAIN_CAP);
+            // No HTTP/1.0 clause here: the parser already encoded the D7 default
+            // (bare 1.0 → connectionClose, explicit keep-alive → persist), so
+            // req.connectionClose carries it.
+            // D-22: while draining or closed, every response says close, whatever
+            // the handler asked for — the writer sets the header with replacing
+            // semantics afterwards, so an explicit keep-alive from a handler or an
+            // SSE stream loses the reuse while its own body still runs to the end.
+            res.connectionClose = res.connectionClose || lastByCap || req.connectionClose
+                || !m_srv.isServing();
+            this.writeResponse(res, req, head, m_srv.writeTimeoutMs);
+            return !res.connectionClose && reusable;
+        } finally {
+            // The count goes back on the way out whatever happened, so a socket
+            // that died mid-write cannot leave it held and burn a whole drain
+            // grace on a connection that is already gone. The count is released
+            // before the flag: a drain that finds this connection idle then also
+            // finds the in-flight total it waited for already settled.
+            m_srv.requestDone();
+            m_inHandler.store(0);
         }
-        if (res == null) { res = errorResponse(500, "handler returned no response"); }
-        res.requestUrl = req.url;
-        // Drain whatever the handler left unread so the connection can be
-        // reused; over the drain cap the stream cannot be trusted → close.
-        bool reusable = req.bodyReader.drain(DEFAULT_DRAIN_CAP);
-        // No HTTP/1.0 clause here: the parser already encoded the D7 default
-        // (bare 1.0 → connectionClose, explicit keep-alive → persist), so
-        // req.connectionClose carries it.
-        res.connectionClose = res.connectionClose || lastByCap || req.connectionClose;
-        this.writeResponse(res, req, head, m_srv.writeTimeoutMs);
-        return !res.connectionClose && reusable;
     }
 
     private static bool acceptsGzip(HttpRequest req) {
@@ -1485,31 +1582,21 @@ class HttpConn {
     private static HttpResponse errorResponse(int status, string message) {
         HttpResponse res = HttpResponse();
         res.statusCode = status;
-        res.reasonPhrase = reasonFor(status);
+        res.reasonPhrase = HttpResponse.reasonPhraseFor(status);
         res.body = io.toBytes(message);
         res.headers.set("Content-Type", "text/plain; charset=utf-8");
         res.connectionClose = true;
         return res;
     }
-
-    // Reason phrases for the statuses this library generates; the statuses a
-    // handler invents keep the default "OK" unless it sets its own.
-    private static string reasonFor(int status) {
-        if (status == 400) { return "Bad Request"; }
-        if (status == 408) { return "Request Timeout"; }
-        if (status == 413) { return "Content Too Large"; }
-        if (status == 417) { return "Expectation Failed"; }
-        if (status == 431) { return "Request Header Fields Too Large"; }
-        if (status == 500) { return "Internal Server Error"; }
-        if (status == 503) { return "Service Unavailable"; }
-        if (status == 505) { return "HTTP Version Not Supported"; }
-        return "Error";
-    }
 }
 
 // Accept thread + one thread per connection (D6). start() is non-blocking;
-// serve() runs the same loop on the calling thread. close() wakes the blocked
-// accept (D14).
+// serve() runs the same loop on the calling thread. Releasing the server is two
+// entry points, not one (D-22): drain() stops accepting, overrules every
+// response written from then on with Connection: close, force-closes the
+// connections parked in their keep-alive wait and waits only for requests still
+// in flight; close() drops everything at once. Both wake the blocked accept
+// (D14), and both can be called twice.
 class HttpServer {
     public int maxHeaderBytes = 65536;
     public int maxHeaders = 100;
@@ -1521,10 +1608,52 @@ class HttpServer {
     public int maxConnections = 0;              // 0 = unlimited
     public int maxRequestsPerConnection = 0;    // 0 = unlimited
 
+    // m_state replaces the old closing flag (D-22): "accept no new request" is
+    // exactly "not serving", so keeping both could only let them disagree. It
+    // also carries the draining state, which the flag had no way to say.
+    private static const int STATE_SERVING = 0;
+    private static const int STATE_DRAINING = 1;
+    private static const int STATE_CLOSED = 2;
+
+    // A grace long enough for a slow upload and an ordinary handler to finish,
+    // and short enough to stay under the process-exit grace an orchestrator
+    // allows by default (Kubernetes: 30 s) — drain() is meant to be called from
+    // a signal handler that then returns from main. It deliberately does not
+    // relate to keepAliveTimeoutMs: an idle connection is closed by drain(), it
+    // never gets to run its own keep-alive timeout down.
+    private static const int DEFAULT_DRAIN_GRACE_MS = 15000;
+    // close() is the blunt entry point, so its join is short: the sockets are
+    // already closed under the connection threads, and what is left is a
+    // handler that will not return. Bounded, because close() must not hang.
+    private static const int DEFAULT_CLOSE_JOIN_MS = 2000;
+    private static const int DEFAULT_JOIN_POLL_MS = 10;
+
     private TcpListener m_listener;
     private func<HttpResponse, HttpRequest> m_handler;
+    // Connections, counted at accept and released when run() returns; the
+    // maxConnections budget only. Not a shutdown measure: an idle browser
+    // connection holds its slot for the whole keepAliveTimeoutMs.
     private AtomicInt m_active;
-    private AtomicInt m_closing;
+    private AtomicInt m_state;
+    // Requests inside serveOne, server-wide — the quantity drain() waits for
+    // (D-22). Kept apart from m_active for that reason, not as a second view
+    // of the same fact.
+    private AtomicInt m_inFlight;
+
+    // Live connections by id (D-22), so drain() can reach the ones parked
+    // inside readRequest: those never come back to the isServing() check at the
+    // top of the request loop, so a state check alone would leave them waiting
+    // out keepAliveTimeoutMs and report them as residual. An id rather than a
+    // bare list because a connection ends one at a time, and unregistering must
+    // not copy the whole table. Every read and write of the table, and the
+    // idle/decision pair in drain(), happen under m_connsLock.
+    private Dict<int, HttpConn> m_conns;
+    private Mutex m_connsLock;
+    private AtomicInt m_nextConnId;
+    // When the first drain() gave up waiting. Published by the state change
+    // below, so a caller that arrives mid-drain sees it and waits the remainder
+    // instead of handing out a fresh grace.
+    private long m_drainDeadline;
 
     // A spawn-per-rejection storm is bounded only by the client's willingness
     // to connect, so the accept loop stops spawning past this many rejections
@@ -1536,32 +1665,122 @@ class HttpServer {
 
     public HttpServer() {
         m_active = AtomicInt(0);
-        m_closing = AtomicInt(0);
+        // STATE_CLOSED is the "nothing is running" baseline, so the three cases
+        // that share it behave alike without a listener check anywhere: an
+        // instance that was never started, one whose bind() threw (a busy port
+        // is an ordinary outcome a caller catches), and one already closed.
+        m_state = AtomicInt(STATE_CLOSED);
+        m_inFlight = AtomicInt(0);
+        m_conns = Dict<int, HttpConn>();
+        m_connsLock = Mutex();
+        m_nextConnId = AtomicInt(0);
+        m_drainDeadline = 0;
         m_rejecting = AtomicInt(0);
     }
 
     // Binds and starts accepting; returns as soon as the listening socket is
     // up, so a caller (or a test) can connect immediately.
     public void start(string host, int port, func<HttpResponse, HttpRequest> handler) {
-        m_handler = handler;
+        this.beginStart("start", handler);
         m_listener = TcpListener.bind(host, port);
+        // Serving only once there is a listener behind the state: bind() may
+        // throw, and everything the caller does afterwards has to see a server
+        // with nothing running, not one it believes it can drain.
+        m_state.store(STATE_SERVING);
         thread.spawn(this.acceptLoop);
     }
 
     // Binds and serves until close(), on the calling thread: the entry point
     // for a standalone server process, whose main() must not return.
     public void serve(string host, int port, func<HttpResponse, HttpRequest> handler) {
-        m_handler = handler;
+        this.beginStart("serve", handler);
         m_listener = TcpListener.bind(host, port);
+        m_state.store(STATE_SERVING);       // same reasoning as start()
         this.acceptLoop();
     }
 
     public string localAddress() { return m_listener.localAddress(); }
     public int localPort() { return m_listener.localPort(); }
 
+    // True while the server accepts new requests; false before the first
+    // start(), for the whole of drain(), and after close(), which is what a
+    // long-lived handler (SSE, long polling) polls to decide to wrap up (D-22).
+    public bool isServing() { return m_state.load() == STATE_SERVING; }
+
+    // Stops accepting and lets what is in flight finish. From the state change
+    // on, every response is written with Connection: close (serveOne adds it to
+    // the summary the writer acts on, so a handler that asked for keep-alive —
+    // or an SSE stream that asked for it — still loses the reuse while its own
+    // body runs to the end); the connections parked in their keep-alive wait
+    // are closed at once, since the only thing they were waiting for is a next
+    // request that will not come; requests in flight are waited out up to
+    // graceMs. Returns 0 when they all finished inside that window; when the
+    // window runs out it force-closes every connection still in the registry
+    // and returns how many were still there.
+    // Repeatable: on a server with nothing running — already closed, or never
+    // started — it returns 0 at once, close() having settled the same residual.
+    public int drain(int graceMs = DEFAULT_DRAIN_GRACE_MS) {
+        if (m_state.load() == STATE_CLOSED) { return 0; }
+        // Published before the state change so a caller that arrives mid-drain
+        // sees a deadline; only the caller that still finds the server serving
+        // hands one out, so a second drain() waits the first one's remainder.
+        if (m_state.load() == STATE_SERVING) { m_drainDeadline = system.monoMs() + graceMs; }
+        if (m_state.compareExchange(STATE_SERVING, STATE_DRAINING)) {
+            // Read the field once into a local: close() releases it so a later
+            // start() can bind afresh, and a close() running in another context
+            // may null it between the state change above and this line. The
+            // snapshot still names the listening socket the state change
+            // committed this drain to closing, and closing a listener twice is
+            // harmless — the same reason close() itself may be called twice.
+            TcpListener listener = m_listener;
+            if (listener != null) { listener.close(); }  // wakes accept() with SocketException
+            // Judge and close under one lock, so a parked connection cannot be
+            // handed a new request between the two steps.
+            m_connsLock.lock();
+            List<int> ids = m_conns.keys();
+            for (int i = 0; i < ids.length(); i = i + 1) {
+                HttpConn conn = m_conns.get(ids[i]);
+                if (conn != null && !conn.servingRequest()) { conn.forceClose(); }
+            }
+            m_connsLock.unlock();
+        }
+        while (m_inFlight.load() > 0) {
+            if (system.monoMs() > m_drainDeadline) { return this.forceCloseResidual(); }
+            thread.sleep(DEFAULT_JOIN_POLL_MS);
+        }
+        return 0;
+    }
+
+    // Releases the server now: the listening socket and every live connection
+    // go at once, and the connection threads are joined for up to
+    // DEFAULT_CLOSE_JOIN_MS — bounded, because close() is what a caller uses
+    // when waiting is not an option, so a handler that never returns may leave
+    // its thread behind rather than hang the caller. Repeatable — a second call,
+    // like a first one on a server that never got a listener, returns without
+    // touching anything — and because the listener field is released below, a
+    // later start() on the same instance is a fresh start, not a refusal.
     public void close() {
-        m_closing.store(1);
-        m_listener.close();   // wakes accept() with SocketException
+        if (!m_state.compareExchange(STATE_SERVING, STATE_CLOSED)
+            && !m_state.compareExchange(STATE_DRAINING, STATE_CLOSED)) {
+            return;
+        }
+        m_listener.close();           // wakes accept() with SocketException
+        m_listener = null;            // the listener is gone: start() may bind again
+        m_connsLock.lock();
+        List<int> ids = m_conns.keys();
+        m_connsLock.unlock();
+        // forceClose() does not take the lock, and a connection that finishes
+        // in the meantime unregisters itself; closing an already closed stream
+        // is harmless, so the sweep needs no protection beyond the snapshot.
+        for (int i = 0; i < ids.length(); i = i + 1) {
+            HttpConn conn = this.connById(ids[i]);
+            if (conn != null) { conn.forceClose(); }
+        }
+        long deadline = system.monoMs() + DEFAULT_CLOSE_JOIN_MS;
+        while (m_active.load() > 0) {
+            if (system.monoMs() > deadline) { return; }
+            thread.sleep(DEFAULT_JOIN_POLL_MS);
+        }
     }
 
     private void acceptLoop() {
@@ -1572,7 +1791,7 @@ class HttpServer {
             } catch (Exception e) {
                 // The listener was closed (the intended exit), or a transient
                 // accept failure worth retrying.
-                if (m_closing.load() == 1) { return; }
+                if (m_state.load() != STATE_SERVING) { return; }
                 thread.sleep(10);
                 continue;
             }
@@ -1591,16 +1810,97 @@ class HttpServer {
                     // must not happen on the accept thread (D7).
                     try { sock.close(); } catch (Exception e) { }
                 }
+                // Not registered, on either path: a rejected connection never
+                // runs run() and so never reaches connDone(), so an entry here
+                // would never leave the table and drain() would count a dead
+                // socket as residual (D-22).
                 continue;
             }
+            this.register(conn);
             thread.spawn(conn.run);
         }
+    }
+
+    // Common prologue of start() and serve(): a restart has to reset the state
+    // machine, the counters and the registry, or the new accept thread quits at
+    // the first accept failure and the old connections keep their entries. A
+    // second start on a live listener is refused rather than leave the first
+    // accept thread unreachable forever. The state goes to closed, not serving:
+    // the listener does not exist yet, and the caller below promotes the state
+    // once it does.
+    private void beginStart(string face, func<HttpResponse, HttpRequest> handler) {
+        if (m_listener != null) {
+            throw Exception("http.HttpServer." + face + ": already started by this instance.");
+        }
+        m_handler = handler;
+        m_state.store(STATE_CLOSED);
+        m_active.store(0);
+        m_inFlight.store(0);
+        m_rejecting.store(0);
+        m_nextConnId.store(0);
+        m_drainDeadline = 0;
+        m_connsLock.lock();
+        m_conns.clear();
+        m_connsLock.unlock();
+    }
+
+    // Registers a connection just before its thread is spawned, so no observed
+    // state has the thread running without the table knowing about it.
+    private void register(HttpConn conn) {
+        m_connsLock.lock();
+        int id = m_nextConnId.getAndIncrement();
+        conn.connId = id;
+        m_conns.set(id, conn);
+        m_connsLock.unlock();
+    }
+
+    // What drain() reports when the grace window runs out: every connection
+    // still registered is a request that did not finish. They are closed here,
+    // each one by the id rather than by a sweep that holds the lock across a
+    // socket close, so a connection ending concurrently still unregisters.
+    private int forceCloseResidual() {
+        m_connsLock.lock();
+        List<int> ids = m_conns.keys();
+        m_connsLock.unlock();
+        for (int i = 0; i < ids.length(); i = i + 1) {
+            HttpConn conn = this.connById(ids[i]);
+            if (conn != null) { conn.forceClose(); }
+        }
+        return ids.length();
+    }
+
+    // Looks a snapshotted id up again. Dict.get() throws on a missing key, and
+    // the entry is gone by the time a snapshot-based sweep gets here whenever
+    // the connection thread unregisters itself in between — which is the case
+    // this lookup exists to tolerate, so the key is tested first and a vanished
+    // entry reads as null: nothing left to close.
+    private HttpConn connById(int id) {
+        m_connsLock.lock();
+        HttpConn conn = null;
+        if (m_conns.containsKey(id)) { conn = m_conns.get(id); }
+        m_connsLock.unlock();
+        return conn;
     }
 
     // Internal helpers for HttpConn: nlang has no friend access, so they are
     // public but are not part of the documented user surface.
     public func<HttpResponse, HttpRequest> handler() { return m_handler; }
-    public void connDone() { m_active.addAndGet(-1); }
+    // The in-flight window (D-22): requestStarted() opens it as serveOne is
+    // about to call the handler, requestDone() closes it once the response has
+    // been written, so a streaming body is still counted while its pump runs.
+    // Each connection pairs the count with its own in-handler flag, which is
+    // what drain() reads to tell an idle keep-alive wait from work in flight;
+    // a connection that slips into a request while drain() is deciding loses
+    // it, the same accepted outcome as a client whose next request arrives
+    // during a drain (RFC 9110 §9.2.2).
+    public void requestStarted() { m_inFlight.getAndIncrement(); }
+    public void requestDone() { m_inFlight.addAndGet(-1); }
+    public void connDone(int id) {
+        m_connsLock.lock();
+        m_conns.remove(id);
+        m_connsLock.unlock();
+        m_active.addAndGet(-1);
+    }
     public void rejectDone() { m_rejecting.addAndGet(-1); }
 }
 

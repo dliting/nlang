@@ -171,8 +171,9 @@ native void parkForIo(int fd, int events, long deadlineMs);
 
 // string is a byte container; these helpers convert between text and
 // byte arrays (the raw UTF-8 byte sequence, bypassing the string method
-// surface). Moved from the net package — generic byte conversion is not
-// network-specific.
+// surface). A NUL byte is ordinary content on both sides — a string
+// carries its own length and needs no terminator. Moved from the net
+// package — generic byte conversion is not network-specific.
 native byte[] toBytes(string s);
 native string fromBytes(byte[] data);
 

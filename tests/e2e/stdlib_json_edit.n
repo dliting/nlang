@@ -1,0 +1,85 @@
+// v0.13.11 json: DOM editing -- duplicate keys keep the later value in the
+// first slot (D-4), == compares identity only (D-9), and container edits
+// plus their diagnostics behave (D-10).
+import io;
+import json;
+
+// Returns 0 when obj.get(key) raises the missing-key wording (D-10).
+int expectMissingKey(JsonObject obj, string key) {
+    string got = "";
+    try {
+        obj.get(key);
+    } catch (JsonException e) {
+        got = e.message;
+    }
+    string want = "json: object has no key \"" + key + "\"";
+    if (got == want) { return 0; }
+    io.print("missing key row [" + key + "] got [" + got + "]");
+    return 1;
+}
+
+int main() {
+    int bad = 0;
+    // Duplicate keys: count and names list the key once, the later value
+    // wins, and the slot keeps the first occurrence's position (D-4).
+    JsonObject dup = json.parse("{\"a\":1,\"b\":2,\"a\":3}").getObject();
+    if (dup.count() != 2) { bad = bad + 1; }
+    List<string> dupNames = dup.names();
+    if (dupNames.length() != 2) { bad = bad + 1; }
+    if (dupNames.get(0) != "a") { bad = bad + 1; }
+    if (dupNames.get(1) != "b") { bad = bad + 1; }
+    if (dup.get("a").getLong() != 3) { bad = bad + 1; }
+    // == compares identity, never structure (D-9): two parses of the same
+    // text are different objects, an alias equals itself, and equality
+    // never substitutes for comparing the serializations.
+    JsonValue one = json.parse("1");
+    JsonValue two = json.parse("1");
+    if (one == two) { bad = bad + 1; }
+    if (one != one) { bad = bad + 1; }
+    if (one.serialize() != two.serialize()) { bad = bad + 1; }
+    // Array editing: the six add overloads, then get/set/removeAt/length.
+    JsonArray arr = JsonArray();
+    arr.add("s");
+    arr.add(1);
+    long twoLong = 2;                        // a long-typed variable binds the add(long) overload
+    arr.add(twoLong);
+    arr.add(3.5);
+    arr.add(true);
+    arr.add(json.parse("[9]"));
+    if (arr.length() != 6) { bad = bad + 1; }
+    if (arr.get(0).getString() != "s") { bad = bad + 1; }
+    if (arr.get(1).getInt() != 1) { bad = bad + 1; }
+    if (arr.get(2).getLong() != 2) { bad = bad + 1; }
+    if (arr.get(3).getDouble() != 3.5) { bad = bad + 1; }
+    if (arr.get(4).getBool() != true) { bad = bad + 1; }
+    if (arr.get(5).getArray().get(0).getLong() != 9) { bad = bad + 1; }
+    arr.set(0, json.parse("null"));
+    if (arr.get(0).kind() != JsonKind.Null) { bad = bad + 1; }
+    arr.removeAt(0);
+    if (arr.length() != 5) { bad = bad + 1; }
+    if (arr.get(0).getInt() != 1) { bad = bad + 1; }
+    // Object editing: put overwrites in place (names order frozen), fresh
+    // keys append at the end, remove reports whether the key was there.
+    JsonObject obj = JsonObject();
+    obj.put("x", 1);
+    obj.put("y", "hello");
+    obj.put("x", 9);
+    List<string> names = obj.names();
+    if (names.length() != 2) { bad = bad + 1; }
+    if (names.get(0) != "x") { bad = bad + 1; }
+    if (obj.get("x").getInt() != 9) { bad = bad + 1; }
+    obj.put("z", false);
+    if (obj.names().get(2) != "z") { bad = bad + 1; }
+    if (obj.has("y") != true) { bad = bad + 1; }
+    if (obj.remove("y") != true) { bad = bad + 1; }
+    if (obj.remove("y") != false) { bad = bad + 1; }
+    if (obj.has("y") != false) { bad = bad + 1; }
+    if (expectMissingKey(obj, "y") != 0) { bad = bad + 1; }
+    // An explicit null value is present (has true, kind Null); an absent
+    // key is not -- the two states stay distinguishable (D-1).
+    JsonObject nullDoc = json.parse("{\"n\":null}").getObject();
+    if (nullDoc.has("n") != true) { bad = bad + 1; }
+    if (nullDoc.get("n").kind() != JsonKind.Null) { bad = bad + 1; }
+    if (nullDoc.has("absent") != false) { bad = bad + 1; }
+    return bad;
+}

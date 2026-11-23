@@ -16,7 +16,8 @@ namespace nlang {
 
 //--- List<string> construction ---------------------------------------------
 
-int32_t VmExecutor::BuildListString(const char* const* items, int count) {
+int32_t VmExecutor::BuildListString(const char* const* items,
+                                    const int64_t* lens, int count) {
     DomainGuard containerGuard(m_domainLocks, DomainId::Container);
     if (m_listClassIdx < 0)
         throw std::runtime_error("NLang VM: List class not registered");
@@ -29,8 +30,13 @@ int32_t VmExecutor::BuildListString(const char* const* items, int count) {
     if (count > 0)
         dst.reserve(static_cast<size_t>(count));
     for (int i = 0; i < count; ++i) {
-        const char* text = (items && items[i]) ? items[i] : "";
-        dst.push_back(AllocBoxedValue(RTK_String, CreateNewString(text)));
+        //v13: lens[i] bytes are the item's content (a NUL byte inside it
+        //is content); a null item or a non-positive length is "".
+        std::string content;
+        if (items && items[i] && lens && lens[i] > 0)
+            content.assign(items[i], static_cast<size_t>(lens[i]));
+        dst.push_back(
+            AllocBoxedValue(RTK_String, CreateNewString(std::move(content))));
     }
     return listHeapIdx;
 }

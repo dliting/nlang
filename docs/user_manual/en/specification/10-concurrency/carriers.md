@@ -52,7 +52,7 @@ same time:
 
 Programs that spend their time inside **blocking native calls** (file and
 network input/output) benefit as well: such calls carry a blocking
-declaration in their native signature (§28.7); while the call runs, the
+declaration in their native signature (§29.7); while the call runs, the
 calling virtual thread suspends and all its locks are released, so the
 remaining carriers keep running other virtual threads (at most as many
 native calls are in flight at once as there are carriers; beyond that

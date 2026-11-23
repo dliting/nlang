@@ -1,0 +1,30 @@
+//A void-returning function type is a spellable generic type argument: the
+//handler-container shape (a hook list and a named-handler map). void lives
+//in func's first (return) slot, so the instantiation descriptor has to
+//spell that leaf and re-parse it; the producer used to degrade it to "?"
+//and the VM refused the whole image at start-up as a corrupt descriptor.
+//Elements are called through a local bind because a call written directly
+//on a container element is not in the grammar.
+import io;
+
+class Ctx {
+    public string log;
+}
+
+void alpha(Ctx c) { c.log = c.log + "[alpha]"; }
+void beta(Ctx c) { c.log = c.log + "[beta]"; }
+void gamma(Ctx c) { c.log = c.log + "[gamma]"; }
+
+int main() {
+    List<func<void, Ctx>> hooks = [alpha, beta];
+    Dict<string, func<void, Ctx>> named = {};
+    named.set("g", gamma);
+    Ctx c = Ctx();
+    foreach (func<void, Ctx> h in hooks) { h(c); }
+    func<void, Ctx> g = named.get("g");
+    g(c);
+    if (c.log != "[alpha][beta][gamma]") { return 8; }
+    if (hooks.length() != 2 || named.count() != 1) { return 9; }
+    io.print(c.log);
+    return 0;
+}

@@ -4,7 +4,7 @@
 import io;
 int main() {
     try {
-        io.writeFile("_p11_tmp/no_such_dir/x.txt", "x");
+        io.writeFile("../temp/fs/no_such_dir/x.txt", "x");
         return 1;  //should have thrown
     } catch (IOException e) {
         if (e.message == "") return 2;

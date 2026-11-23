@@ -4,7 +4,7 @@
 
 ## 11.1 范围与包接口面
 
-标准库由`math`、`io`、`fs`、`thread`、`concurrent`、`tensor`、`net`、`system`、`url`、`http`、`gzip`与`regex`十二个包（各是一组以全限定名调用的自由函数）与`string`方法（经接收者分派）组成。两个预置包与之并列：`lang`（`stdlib/lang.n`）声明异常家族、层次根`Object`、声明持有类`String`与泛型数组面`Array<T>`；`containers`（`stdlib/containers.n`）声明基础容器`List<T>`与`Dict<K,V>`。每次构建自动导入两者，其声明无需任何import语句即可见，显式写`import lang;`或`import containers;`也合法且自动去重（§3.9.4）。两者声明的恒可见名字——`Object`、`Exception`家族、`String`、`Array`、`List<T>`、`Dict<K,V>`——即全部集合（§3.9.4）。
+标准库由`math`、`io`、`fs`、`thread`、`concurrent`、`tensor`、`net`、`system`、`url`、`http`、`gzip`、`regex`、`json`与`web`十四个包（各是一组以全限定名调用的函数与类型）与`string`方法（经接收者分派）组成。两个预置包与之并列：`lang`（`stdlib/lang.n`）声明异常家族、层次根`Object`、声明持有类`String`与泛型数组面`Array<T>`；`containers`（`stdlib/containers.n`）声明基础容器`List<T>`与`Dict<K,V>`。每次构建自动导入两者，其声明无需任何import语句即可见，显式写`import lang;`或`import containers;`也合法且自动去重（§3.9.4）。两者声明的恒可见名字——`Object`、`Exception`家族、`String`、`Array`、`List<T>`、`Dict<K,V>`——即全部集合（§3.9.4）。
 
 内建值类与容器类的每个方法都是内建的：其声明位于预置包，每次构建都自动导入，程序不能替换它——同名用户类是普通类，不会接管内建接收者。预置类中的`String`只作声明持有：它声明`string`关键字的方法面，不能实例化、不能继承、也不能用作类型，且不在类层次之内——`string`关键字就是值类型的写法。预置类`Array`则走向另一边：`Array<T>`是真实的泛型类型（§4.10.1），其值经方括号创建形式构造；类本身仍只持有数组方法声明，不能被继承。
 
@@ -49,6 +49,6 @@
 
 - 类型用PascalCase；方法、函数与变量用camelCase；枚举成员用PascalCase；类型参数是单个大写字母；`main`小写（§3.2）。
 - 纯访问器可以带`get`前缀（`getHashCode`）；主流风格是裸名（`length`、`count`、`keys`）。内建类的方法对谓词用裸名（`contains`、`startsWith`、`containsKey`）；包函数可以带`is`或`has`前缀（`fs.isFile`、`io.hasInput`）。
-- 失败经由抛出§8.3的内建异常类来报告，外加八个包声明的类——`concurrent`的`ChannelClosedException`、`net`的`SocketException`与`TimeoutException`、`url`的`UrlException`、`http`的`HttpException`、`gzip`的`GzipException`、`regex`的`RegexException`、`system`的`DateTimeException`（§8.3）。第20章把每个库操作映射到它所抛出的类。
+- 失败经由抛出§8.3的内建异常类来报告，外加九个包声明的类——`concurrent`的`ChannelClosedException`、`net`的`SocketException`与`TimeoutException`、`url`的`UrlException`、`http`的`HttpException`、`gzip`的`GzipException`、`regex`的`RegexException`、`json`的`JsonException`、`system`的`DateTimeException`（§8.3）。第20章把每个库操作映射到它所抛出的类。
 - 文本输出经由`toString`渲染值（§5.3、§11.2）；控制台函数的实参面在第14章。
 - 库调用的实参按声明的参数类型与转换规则检查——同类型直接接受，规则允许的隐式加宽自动施加（整型家族与`float`实参进入`double`形参，如`math.sqrt(4)`可编译），收窄一律显式`as`（§4.4、§7.2）。§4.5的基本类型到字符串的强制转换在包调用处不触发：库的`string`形参只接受`string`。io的三个做强制转换的函数（`write`、`print`、`eprint`）是唯一例外（§14.2）。

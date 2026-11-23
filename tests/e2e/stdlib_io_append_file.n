@@ -2,12 +2,12 @@
 // creates a missing one.
 import io;
 int main() {
-    io.writeFile("_p11_tmp/ap.txt", "one");
-    io.appendFile("_p11_tmp/ap.txt", "two");
-    string s = io.readFile("_p11_tmp/ap.txt");
+    io.writeFile("../temp/fs/ap.txt", "one");
+    io.appendFile("../temp/fs/ap.txt", "two");
+    string s = io.readFile("../temp/fs/ap.txt");
     if (s != "onetwo") return 1;
-    io.appendFile("_p11_tmp/created.txt", "fresh");
-    string t = io.readFile("_p11_tmp/created.txt");
+    io.appendFile("../temp/fs/created.txt", "fresh");
+    string t = io.readFile("../temp/fs/created.txt");
     if (t != "fresh") return 2;
     return 0;
 }

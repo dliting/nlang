@@ -312,11 +312,11 @@ uint16_t VmBackend::SuperCallStmtPeakDepth(SnStatement& stmt,
     //to the caller-arg count — over-reserving, never under.
     SnFunction* pParentCtor = RegisteredCtor(sc.CtorFunction());
     const size_t totalFormals = pParentCtor
-        ? pParentCtor->Params().size() : sc.Args().size();
+        ? pParentCtor->Params().size() : sc.ArgCount();
     uint16_t claimSize = static_cast<uint16_t>(1 + totalFormals);
     uint16_t d = 0;
-    for (auto* arg : sc.Args()) {
-        uint16_t ad = ExprPeakDepth(*arg, visited);
+    for (auto &arg : sc.Args()) {
+        uint16_t ad = ExprPeakDepth(arg, visited);
         if (ad > d) d = ad;
     }
     return claimSize + CtorDefaultExprDepth(pParentCtor, visited, d);

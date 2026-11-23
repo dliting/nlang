@@ -133,10 +133,8 @@ static bool BindingConstantFits(SnExpression &caller, SnField *pTgt)
 //fit because a same-type pair never verdicts Explicit.
 static int FittedConstantRung(NodeKind srcKind, NodeKind tgtKind)
 {
-	if (srcKind == NK_EnumDecl)
-		srcKind = NK_Int32;
-	if (tgtKind == NK_EnumDecl)
-		tgtKind = NK_Int32;
+	srcKind = CastOperandKind(srcKind);
+	tgtKind = CastOperandKind(tgtKind);
 	const int si = ScalarPrimIndexOf(srcKind);
 	const int ti = ScalarPrimIndexOf(tgtKind);
 	if (si < 0 || ti < 0)

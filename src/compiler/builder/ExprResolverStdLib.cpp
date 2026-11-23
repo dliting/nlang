@@ -79,90 +79,30 @@ bool ExprResolveAccessor::TryResolveModuleCallTarget(
 		|| IsBuiltinClassName(pathSegs.front()))
 		return false;
 
-	if (m_Env.Registry().IsKnownModule(rModulePath))
-		return true;
-	if (ClaimsExtendedModulePath(rModulePath))
-		return true;
-	//A library namespace the symbol index knows but this build did not
-	//inline (the caller never imported it, so DiscoverLibraryUnits did not
-	//pull it in) is still a library target — RejectUnimportedModuleCall
-	//names the missing import instead of a spurious field error.
-	return m_Env.IsLibraryPackage(pathSegs.front());
-}
-
-//The extended-module arm's claim walk: a chain extending a known
-//module with deeper segments addresses an unimported child package
-//(spec §6.2: a parent import does not open the child) — claim it so
-//RejectUnimportedModuleCall names the exact child path. Without this
-//arm the chain descends into mid-chain members and dies as a bogus
-//"Type not a member" claim plus follow-on noise. The claimed path is
-//the member chain MINUS the invoke tip, and it can never match the
-//TU's import gate, so a chain whose next segment after the first
-//known prefix is a TYPE in that module (lib.Mix.f, lib.Color.Blue.rank
-//— a qualified type access the normal member path owns) is vetoed out
-//of the claim; a same-named type wins over a child package per the
-//m12 priority rule in the decline tests above. Everything else
-//(gfx.color.deep in gfx.color.deep.tone, lib.sub in lib.sub.f) is
-//child-package addressing and stays claimed: an unimported child is
-//exactly an unregistered one, so existence is not checkable here.
-bool ExprResolveAccessor::ClaimsExtendedModulePath(
-	const std::string &modulePath)
-{
-	const auto &reg = m_Env.Registry();
-	for (size_t dot = modulePath.find('.');
-		dot != std::string::npos;
-		dot = modulePath.find('.', dot + 1))
-	{
-		const std::string prefix = modulePath.substr(0, dot);
-		if (!reg.IsKnownModule(prefix))
-			continue;
-		const size_t nextDot = modulePath.find('.', dot + 1);
-		const std::string nextSeg = nextDot == std::string::npos
-			? modulePath.substr(dot + 1)
-			: modulePath.substr(dot + 1, nextDot - dot - 1);
-		return reg.FindModuleType(prefix, nextSeg) == nullptr;
-	}
-	return false;
-}
-
-//Spec §7 row 1: the module is known but not imported into the current
-//TU — name the fix and consume the chain here (normal resolution would
-//only add "Cannot resolve the field" for the leftmost identifier).
-//True = rejected and consumed; false = imported, processing continues.
-bool ExprResolveAccessor::RejectUnimportedModuleCall(
-	SnMemberExpr &snMember, const std::string &modulePath)
-{
-	auto &reg = m_Env.Registry();
-	const uint32_t owner = reg.OwnerOfContext(*m_pContext);
-	//Single-point import-gate policy (ModuleRegistry::ImportGateAllows):
-	//stub-synthesized calls (external owner) bypass the consumer gate;
-	//source calls must have the module in this TU's gate.
-	if (reg.ImportGateAllows(owner, modulePath))
+	//D-29 rule 1 (ruling 45): one question decides the claim — where the
+	//module path ends. The chain addresses a module-level call when the
+	//longest known module-path prefix of it is the whole chain (a package
+	//function, `io.print`) or a strict prefix whose next segment is not a
+	//type declared in that module. The type case (`lib.Mix.f`,
+	//`http.HttpResponse.reasonPhraseFor`, `utils.helper.Widget.answer`) is a
+	//qualified type access at any depth and the type-receiver path owns it —
+	//a same-named type keeps its m12 priority over a same-named child
+	//package, and the scan has to reach every known prefix to see it (the
+	//first prefix alone let `utils.helper` claim `utils.helper.Widget`).
+	//Everything else that extends a known module addresses an unimported
+	//child package (`lib.sub.f`, spec §6.2: a parent import does not open
+	//the child) and stays claimed: an unimported project child is exactly an
+	//unregistered one, so existence is not checkable here, and
+	//RejectUnimportedModuleCall names the path instead of letting the chain
+	//descend into mid-chain members and die as follow-on noise.
+	std::string knownPrefix;
+	size_t tailStart = 0;
+	if (!LongestKnownModulePrefix(pathSegs, knownPrefix, tailStart))
 		return false;
-	if (modulePath.find('.') == std::string::npos)
-	{
-		//Single-segment path. A library package (io/math/fs or a
-		//third-party package) reads "Package"; an external .ncu reads
-		//"Module". No wildcard is suggested — it never matches a
-		//single-segment name (§3.3); the exact form always suffices.
-		const char *pKind = m_Env.IsLibraryPackage(modulePath)
-			? "Package" : "Module";
-		m_Env.Log(CLL_Error, snMember.Location(),
-			"%s '%s' is not imported. Add 'import %s;' at the top "
-			"of this file.", pKind, modulePath.c_str(), modulePath.c_str());
-	}
-	else
-	{
-		const size_t lastDot = modulePath.find_last_of('.');
-		const std::string parentPrefix =
-			modulePath.substr(0, lastDot);
-		m_Env.Log(CLL_Error, snMember.Location(),
-			"Module '%s' is not imported. Add 'import %s;' (or "
-			"'import %s.*;') at the top of this file.",
-			modulePath.c_str(), modulePath.c_str(),
-			parentPrefix.c_str());
-	}
-	FinishConsumedMember(snMember);
+	if (tailStart < pathSegs.size()
+		&& m_Env.Registry().FindModuleType(knownPrefix,
+			pathSegs[tailStart]) != nullptr)
+		return false;
 	return true;
 }
 
@@ -227,197 +167,6 @@ bool ExprResolveAccessor::TryResolveModuleQualified(SnMemberExpr &snMember)
 		return true;
 	}
 
-	FinishConsumedMember(snMember);
-	return true;
-}
-
-//Shape split of a qualified-value chain (the file-local prologue of
-//TryResolveQualifiedTypeValue): pkg[.sub].Type.member — the member is
-//the last segment, the type the second-to-last, everything before them
-//the module path. False when the chain is shorter than pkg.Type.member
-//(no shorter value shape exists).
-static bool SplitQualifiedName(std::vector<std::string> &rSegs,
-	std::string &rModulePath, std::string &rTypeName,
-	std::string &rMemberName)
-{
-	if (rSegs.size() < 3)
-		return false;
-	rMemberName = rSegs.back();
-	rTypeName = rSegs[rSegs.size() - 2];
-	for (size_t i = 0; i + 2 < rSegs.size(); ++i)
-	{
-		if (!rModulePath.empty())
-			rModulePath += ".";
-		rModulePath += rSegs[i];
-	}
-	return true;
-}
-
-//Shared prologue of the qualified VALUE routes (the enum-constant
-//chain, the free-function value and the module type reference): the
-//dotted chain with the tip pushed back, then the m12 priority probe —
-//the leftmost local/field/type wins, as for calls. False = declined,
-//the generic path keeps the expression.
-bool ExprResolveAccessor::RouteQualifiedValueChain(
-	SnMemberExpr &snMember, std::vector<std::string> &segs)
-{
-	segs = OuterIdentifierChain(snMember);
-	if (segs.empty()
-		|| !snMember.Inner()
-		|| snMember.Inner()->Kind() != NK_IdentifierExpr)
-		return false;
-	segs.push_back(
-		static_cast<SnIdentifierExpr *>(snMember.Inner())->Name());
-
-	//m12 priority: the leftmost local/field/type wins (as for calls).
-	if (ProbeNonFunctionField(segs.front())
-		|| IsBuiltinClassName(segs.front()))
-		return false;
-	return true;
-}
-
-//The type admission of the qualified VALUE routes (0.13.8 item 5,
-//Task 4): the foreign non-public arm folds into not-found — the
-//not-a-member wording covers both shapes and the member consumes on
-//the miss. Null = reported and consumed; non-null = the admitted type.
-SnField *ExprResolveAccessor::FindAdmittedModuleTypeOrReport(
-	SnMemberExpr &snMember, const std::string &modulePath,
-	const std::string &typeName)
-{
-	auto &reg = m_Env.Registry();
-	bool bDenied = false;
-	SnField *pType = FindAdmittedModuleType(reg, modulePath, typeName,
-		reg.OwnerOfContext(snMember), bDenied);
-	if (pType != nullptr)
-		return pType;
-	m_Env.Log(CLL_Error, snMember.Location(),
-		"Type '%s' is not a member of package '%s'.",
-		typeName.c_str(), modulePath.c_str());
-	FinishConsumedMember(snMember);
-	return nullptr;
-}
-
-//Phase 5: package-qualified VALUE access — the `alib.Color.Green`
-//enum-constant chain, resolved through the registry (see the header
-//declaration for the route contract). True = consumed (resolved or
-//diagnosed); false = declined, the generic path keeps the expression.
-bool ExprResolveAccessor::TryResolveQualifiedTypeValue(SnMemberExpr &snMember)
-{
-	std::vector<std::string> segs;
-	if (!RouteQualifiedValueChain(snMember, segs))
-		return false;
-
-	std::string modulePath, typeName, memberName;
-	if (!SplitQualifiedName(segs, modulePath, typeName, memberName))
-		return false;
-
-	auto &reg = m_Env.Registry();
-	if (!reg.IsKnownModule(modulePath)
-		&& !m_Env.IsLibraryPackage(segs.front()))
-		return false;
-
-	if (RejectUnimportedModuleCall(snMember, modulePath))   //import gate, call wording
-		return true;
-
-	SnField *pType = FindAdmittedModuleTypeOrReport(
-		snMember, modulePath, typeName);
-	if (pType == nullptr)
-		return true;
-	if (pType->Kind() != NK_EnumDecl)
-		return false;   //value members of other type kinds: the generic path
-
-	SnField *pMember = pType->FindField(memberName);   //miss: generic path names it
-	if (pMember == nullptr)
-		return false;
-
-	//Bind tip + member exactly like FinishResolvedMember does.
-	ResolveFieldExprAs(static_cast<SnFieldExpr &>(*snMember.Inner()),
-		pMember);
-	ResolveFieldExprAs(snMember, pMember);
-	FinishConsumedMember(snMember);
-	return true;
-}
-
-//v2.2: module-qualified free-function VALUE reference — `lib.seven`,
-//where the tip names a function of an imported module (the value form of
-//TryResolveModuleQualified's call form; signatures serialize since the
-//func TypeDesc grammar). The chain resolves into the same pending state
-//as a bound method reference, so every shared bind site (assign /
-//init-list / invoke-argument matching) lights up unchanged. True =
-//consumed (resolved or diagnosed); false = declined — the tip is no
-//function of the module and the package-value / generic paths keep the
-//chain.
-bool ExprResolveAccessor::TryResolveModuleFuncValue(SnMemberExpr &snMember)
-{
-	std::vector<std::string> segs;
-	if (!RouteQualifiedValueChain(snMember, segs))
-		return false;
-
-	const std::string funcName = segs.back();
-	segs.pop_back();
-	std::string modulePath = JoinDots(segs);
-
-	//Candidates BEFORE the import gate: a chain whose middle segment is a
-	//function, not a module (io.print.nope), finds no functions here and
-	//declines — the package-value / generic paths keep it and report the
-	//real member diagnostic. Only a resolved function reference of a
-	//registered-but-unimported module reaches the import wording below.
-	auto candidates = m_Env.Registry().ModuleFunctions(modulePath, funcName);
-	if (candidates.empty())
-		return false;
-
-	if (RejectUnimportedModuleCall(snMember, modulePath))   //import gate, call wording
-		return true;
-
-	//Bind tip + member exactly like FinishResolvedMember does — the
-	//pending state carries the function's return type until an expected
-	//func type binds the reference (TryBindStatementFuncRef, invoke
-	//argument matching). Overloads resolve like the unqualified-name form: the
-	//first declaration under the name.
-	auto *pFunc = candidates.front();
-	ResolveFieldExprAs(static_cast<SnFieldExpr &>(*snMember.Inner()), pFunc);
-	ResolveFieldExprAs(snMember, pFunc);
-	FinishConsumedMember(snMember);
-	return true;
-}
-
-//0.9.12 D4: module-qualified TYPE reference — `lib.Mix` (module path +
-//type name, any nesting depth) in expression position. The registry
-//binds the unit's type declaration (project, inline library or external
-//.ncu stub alike), so the generic type-receiver path then resolves the
-//member or static call in the type scope — the qualified spelling shares
-//the stub record and the diagnostics of the bare `Mix` form. True =
-//consumed (resolved or diagnosed); false = declined — the chain is not a
-//module path or the leftmost name belongs to something else, and the
-//generic path keeps it.
-bool ExprResolveAccessor::TryResolveModuleTypeRef(SnMemberExpr &snMember)
-{
-	std::vector<std::string> segs;
-	if (!RouteQualifiedValueChain(snMember, segs))
-		return false;
-
-	std::string typeName = segs.back();
-	segs.pop_back();
-	std::string modulePath = JoinDots(segs);
-
-	auto &reg = m_Env.Registry();
-	if (!reg.IsKnownModule(modulePath)
-		&& !m_Env.IsLibraryPackage(segs.front()))
-		return false;
-
-	if (RejectUnimportedModuleCall(snMember, modulePath))   //import gate, call wording
-		return true;
-
-	SnField *pType = FindAdmittedModuleTypeOrReport(
-		snMember, modulePath, typeName);
-	if (pType == nullptr)
-		return true;
-
-	//Bind tip + member exactly like FinishResolvedMember does — the
-	//member becomes a type expression and SwitchContextToReceiver lands
-	//the inner search in the type's scope (the bare-form route).
-	ResolveFieldExprAs(static_cast<SnFieldExpr &>(*snMember.Inner()), pType);
-	ResolveFieldExprAs(snMember, pType);
 	FinishConsumedMember(snMember);
 	return true;
 }

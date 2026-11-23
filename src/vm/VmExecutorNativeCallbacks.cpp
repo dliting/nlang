@@ -27,7 +27,13 @@ VmNativeHost* Wrap(NativeHost* self) {
 } // namespace
 
 void VmExecutor::NativeRaiseException(NativeHost* self, int exceptionKind,
-                                      const char* message) {
+                                      const char* message, int64_t len) {
+    //v13: the message is `len` bytes, so a NUL byte inside it is content
+    //like any other; a null pointer or non-positive length is the empty
+    //message.
+    const std::string text = (message != nullptr && len > 0)
+        ? std::string(message, static_cast<size_t>(len))
+        : std::string();
     VmExecutor* e = Wrap(self)->executor;
     GilEnsureGuard gil(*e);
     //K8: keeps the store lock — FireOnThrow is a scheduler-facing
@@ -57,12 +63,11 @@ void VmExecutor::NativeRaiseException(NativeHost* self, int exceptionKind,
     int32_t heapIdx = 0;
     {
         NativeCreationGate creationGate(*e);
-        heapIdx = e->BuildNlangException(
-            classIdx, message ? message : "");
+        heapIdx = e->BuildNlangException(classIdx, text);
         e->RootCreatedNativeHandle(heapIdx);
     }
     e->FireOnThrow();
-    throw NLangThrow(heapIdx, message ? message : "");
+    throw NLangThrow(heapIdx, text);
 }
 
 uint32_t VmExecutor::NativeNextRandom(NativeHost* self) {

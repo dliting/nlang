@@ -122,6 +122,7 @@ fields the library fills after receiving.
 | `HttpResponse` field | Notes |
 | --- | --- |
 | `statusCode`, `reasonPhrase` | `200` and `"OK"` at construction. The library names the phrase for the statuses it produces itself (§23.5); a status you invent keeps `"OK"` until you set the phrase, which is fine — the phrase is informational, and a client reads `statusCode`. |
+| `HttpResponse.reasonPhraseFor(status)` | The phrase registered for a status code (RFC 9110 §15 and the status registry it points to). The library reads this one table for the statuses it produces itself, so the status line and the error body sent with it agree; a status outside the table gets `"Error"`. The wire carries the `reasonPhrase` field's own value, so assign the result to that field when you pick a status and want its standard phrase. |
 | `version` | `"HTTP/1.1"` at construction; the parser stores what the peer announced. |
 | `headers` | An `HttpHeaders` map (§23.3). |
 | `body` | The buffered body, sent with a `Content-Length` the library computes. `null` means no body. A status below 200, a 204 or a 304 goes out without a body whatever this field holds, and a `HEAD` request is answered with the length but not the bytes. |

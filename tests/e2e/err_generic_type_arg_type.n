@@ -1,0 +1,16 @@
+//compile_error: the Type metaclass is not a type argument. The manual
+//closes the type-argument domain (§4.12.5: scalar primitive, string,
+//enumeration, class, interface, struct, array, or another generic
+//instantiation), and `Type` belongs to none of them. It has no keyword,
+//and the runtime's builtin-type mirror gives up the internal name the
+//runtime tables stringize for it, so the name resolves nowhere. This
+//shape used to compile and then poison the image: the producer spelled
+//the leaf "?" and the VM refused the module at start-up as a corrupt
+//descriptor.
+import io;
+
+int main() {
+    List<Type> l = List<Type>();
+    io.print(l.length());
+    return 0;
+}

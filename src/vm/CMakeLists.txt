@@ -49,6 +49,7 @@ add_library(nlang_vm
     VmExecutorFormat.cpp
     VmExecutorIntrinsics.cpp
     VmExecutorNativeHost.cpp
+    VmExecutorNativeHostText.cpp
     VmExecutorNativeLoader.cpp
     VmExecutorNativeCallbacks.cpp
     VmExecutorNativeArray.cpp
@@ -149,6 +150,7 @@ add_library(nlang_vm
     NcuLoader.cpp
     NativeLibraryLoader.cpp
     TypeDesc.cpp
+    TypeDescIndices.cpp
 )
 
 #The IO poller abstraction (IoPoller.h) is a VM facility — the net

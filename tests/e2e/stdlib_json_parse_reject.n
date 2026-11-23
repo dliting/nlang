@@ -1,0 +1,85 @@
+// v0.13.11 json: the strict grammar rejection matrix (D-3, D-10) -- every
+// violation is a JsonException whose full message carries a byte offset.
+import io;
+import json;
+
+// Returns 0 when parse(text) rejects with the exact wanted message; any
+// other outcome (accepted, or rejected with different wording) prints the
+// row and returns 1. An accepted parse leaves got empty.
+int checkRejectAt(string text, string want) {
+    string got = "";
+    try {
+        json.parse(text);
+    } catch (JsonException e) {
+        got = e.message;
+    }
+    if (got == want) { return 0; }
+    io.print("reject [" + text + "] got [" + got + "] want [" + want + "]");
+    return 1;
+}
+
+// Returns 0 when parse(text) succeeds and serializes compactly to want.
+int checkCompact(string text, string want) {
+    string got = json.parse(text).serialize();
+    if (got == want) { return 0; }
+    io.print("accept [" + text + "] got [" + got + "] want [" + want + "]");
+    return 1;
+}
+
+int main() {
+    int bad = 0;
+    // Literals and the top-level shape.
+    if (checkRejectAt("", "json: unexpected end of input at byte offset 0") != 0) { bad = bad + 1; }
+    if (checkRejectAt("   ", "json: unexpected end of input at byte offset 3") != 0) { bad = bad + 1; }
+    if (checkRejectAt("True", "json: unexpected character at byte offset 0") != 0) { bad = bad + 1; }
+    if (checkRejectAt("tRue", "json: invalid literal at byte offset 0") != 0) { bad = bad + 1; }
+    if (checkRejectAt("nul", "json: invalid literal at byte offset 0") != 0) { bad = bad + 1; }
+    if (checkRejectAt("nulll", "json: unexpected data after top-level value at byte offset 4") != 0) { bad = bad + 1; }
+    if (checkRejectAt("1 2", "json: unexpected data after top-level value at byte offset 2") != 0) { bad = bad + 1; }
+    if (checkRejectAt("false]", "json: unexpected data after top-level value at byte offset 5") != 0) { bad = bad + 1; }
+    if (checkRejectAt("{}[]", "json: unexpected data after top-level value at byte offset 2") != 0) { bad = bad + 1; }
+    // Numbers: leading plus, leading zero digits, missing digits around . and e.
+    if (checkRejectAt("+1", "json: unexpected character at byte offset 0") != 0) { bad = bad + 1; }
+    if (checkRejectAt(".5", "json: unexpected character at byte offset 0") != 0) { bad = bad + 1; }
+    if (checkRejectAt("-", "json: invalid number at byte offset 0") != 0) { bad = bad + 1; }
+    if (checkRejectAt("1.", "json: invalid number at byte offset 0") != 0) { bad = bad + 1; }
+    if (checkRejectAt("1e", "json: invalid number at byte offset 0") != 0) { bad = bad + 1; }
+    if (checkRejectAt("1e+", "json: invalid number at byte offset 0") != 0) { bad = bad + 1; }
+    if (checkRejectAt("01", "json: unexpected data after top-level value at byte offset 1") != 0) { bad = bad + 1; }
+    if (checkRejectAt("0.1.2", "json: unexpected data after top-level value at byte offset 3") != 0) { bad = bad + 1; }
+    if (checkRejectAt("1E-5x", "json: unexpected data after top-level value at byte offset 4") != 0) { bad = bad + 1; }
+    if (checkRejectAt("1e999", "json: number out of range at byte offset 0") != 0) { bad = bad + 1; }
+    // Arrays.
+    if (checkRejectAt("[1 2]", "json: expected , or ] in array at byte offset 3") != 0) { bad = bad + 1; }
+    if (checkRejectAt("[1,]", "json: unexpected character at byte offset 3") != 0) { bad = bad + 1; }
+    if (checkRejectAt("[1,2", "json: unexpected end of input at byte offset 4") != 0) { bad = bad + 1; }
+    // Objects.
+    if (checkRejectAt("{a:1}", "json: expected object key at byte offset 1") != 0) { bad = bad + 1; }
+    if (checkRejectAt("{\"a\" 1}", "json: expected : after object key at byte offset 5") != 0) { bad = bad + 1; }
+    if (checkRejectAt("{\"a\":1 \"b\":2}", "json: expected , or } in object at byte offset 7") != 0) { bad = bad + 1; }
+    if (checkRejectAt("{\"a\":1,}", "json: expected object key at byte offset 7") != 0) { bad = bad + 1; }
+    if (checkRejectAt("{\"a\"", "json: unexpected end of input at byte offset 4") != 0) { bad = bad + 1; }
+    // Strings. In the raw-LF row the LF sits at index 2.
+    if (checkRejectAt("\"abc", "json: unterminated string at byte offset 0") != 0) { bad = bad + 1; }
+    if (checkRejectAt("\"a\nb\"", "json: unescaped control character in string at byte offset 2") != 0) { bad = bad + 1; }
+    if (checkRejectAt("\"\\qb\"", "json: invalid escape at byte offset 1") != 0) { bad = bad + 1; }
+    if (checkRejectAt("\"\\u12\"", "json: invalid \\u escape at byte offset 3") != 0) { bad = bad + 1; }
+    if (checkRejectAt("\"\\u12g4\"", "json: invalid \\u escape at byte offset 5") != 0) { bad = bad + 1; }
+    // Comments and the BOM are rejected (D-3: only RFC 8259 whitespace is legal).
+    if (checkRejectAt("//x", "json: unexpected character at byte offset 0") != 0) { bad = bad + 1; }
+    if (checkRejectAt("[/*]", "json: unexpected character at byte offset 1") != 0) { bad = bad + 1; }
+    byte[] bomDoc = byte[5];            // EF BB BF 7B 7D (probe_a pinned the store form)
+    bomDoc[0] = 239 as byte;
+    bomDoc[1] = 187 as byte;
+    bomDoc[2] = 191 as byte;
+    bomDoc[3] = 123;
+    bomDoc[4] = 125;
+    if (checkRejectAt(io.fromBytes(bomDoc), "json: unexpected character at byte offset 0") != 0) { bad = bad + 1; }
+    // Whitespace around separators is legal (D-3 lists only the deviations).
+    if (checkCompact("[1 , 2]", "[1,2]") != 0) { bad = bad + 1; }
+    if (checkCompact("{ \"a\" : 1 }", "{\"a\":1}") != 0) { bad = bad + 1; }
+    if (checkCompact("[ ]", "[]") != 0) { bad = bad + 1; }
+    if (checkCompact("0", "0") != 0) { bad = bad + 1; }
+    if (checkCompact("-0", "-0") != 0) { bad = bad + 1; }
+    return bad;
+}

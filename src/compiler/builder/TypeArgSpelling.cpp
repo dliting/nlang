@@ -2,7 +2,8 @@
     TypeArgSpelling.cpp — TypeArgSpelling.h契约：规范拼写、AST侧实参
     分类与VM行键（LinkKeyOf）。行键规则随0.12.3字典模型与0.12.6预置
     成员裁定演进，自Register.cpp整块迁入（2026-11-09层界收正：解析器
-    与后端共用一份分类，编译器库不得依赖虚拟机库的符号）。
+    与后端共用一份分类；编译器库不得引用虚拟机库公共头——依赖方向是虚拟机库
+    消费编译器AST，所需类型种类常量取自运行时层）。
 ---*/
 #include <nlang/compiler/TypeArgSpelling.h>
 #include "ModuleRegistry.h"
@@ -11,7 +12,9 @@
 #include <nlang/compiler/SnExpressions.h>
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/runtime/PrimitiveTypes.h>
-#include <nlang/vm/CompiledModuleRecords.h>
+#include <nlang/runtime/RuntimeTypeCodes.h>
+#include <nlang/runtime/StackDump.h>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -278,43 +281,20 @@ TypeArgDesc InterfaceArgOf(const ModuleRegistry& reg,
 	desc.resolvedKind = RTK_Class;
 	return desc;
 }
-} //namespace
 
-namespace
-{
-//Leaf arms of BuildTypeArgOf's switch — string and the void return
-//slot are rowless keywords; struct/enum leaves carry their link key
-//(enums are int32 at runtime, spec §4; the spelling keeps the enum
-//name for typeName).
-TypeArgDesc LeafArgOf(const ModuleRegistry& reg, const SnField& arg)
+//Array-typed argument: the element argument is spelled first (it may itself
+//be an array, a declared type or a keyword leaf), then wrapped in the
+//bracket spelling of its rank. The element descriptor rides `nested` for
+//the dispatch paths, which read RTK_Array plus the rank.
+TypeArgDesc ArrayArgOf(const ModuleRegistry& reg,
+	const SnArrayTypeToken& token)
 {
 	TypeArgDesc desc;
-	switch (arg.Kind())
-	{
-	case NK_String:
-		desc.spelling = "string";
-		desc.resolvedKind = RTK_String;
-		return desc;
-	//func<void>'s return slot is an NK_Void node (the grammar's void
-	//sister productions). The leaf must round-trip as the keyword so the
-	//runtime leaf resolver admits it back — the old fall-through to the
-	//"?" degrade detonated at container-creation intern time with
-	//"unresolved link key" (0.13.10 lambda review).
-	case NK_Void:
-		desc.spelling = "void";
-		desc.resolvedKind = RTK_Void;
-		return desc;
-	case NK_StructDecl:
-		desc.spelling = LinkKeyOf(reg, arg);
-		desc.resolvedKind = RTK_Struct;
-		return desc;
-	case NK_EnumDecl:
-		desc.spelling = LinkKeyOf(reg, arg);
-		desc.resolvedKind = RTK_Int32;
-		return desc;
-	default:
-		break;
-	}
+	TypeArgDesc elem = BuildTypeArgOf(reg, *token.ElemTypeOf());
+	desc.spelling = ArraySpelling(elem.spelling, token.Rank());
+	desc.resolvedKind = RTK_Array;
+	desc.rank = token.Rank();
+	desc.nested.push_back(std::move(elem));
 	return desc;
 }
 } //namespace
@@ -322,45 +302,47 @@ TypeArgDesc LeafArgOf(const ModuleRegistry& reg, const SnField& arg)
 TypeArgDesc BuildTypeArgOf(const ModuleRegistry& reg, const SnField& arg)
 {
 	TypeArgDesc desc;
-	//Scalar family (int/float/byte../bool/char): canonical keyword name
-	//and the RTK the dispatch paths read.
-	if (int pi = ScalarPrimIndexOf(arg.Kind()); pi >= 0)
+	//Keyword-named leaves (the 12 scalars, `string`, `void`): the shared
+	//vocabulary table gives the canonical keyword and the RTK the dispatch
+	//paths read. `void` lives in the return slot of a `func` argument, so
+	//this arm is what spells it — the old fall-through to the "?" degrade
+	//below emitted an intern key the load-side parser could not resolve.
+	if (const TypeLeafKeyword* pLeaf = FindTypeLeafKeyword(arg.Kind()))
 	{
-		desc.spelling = kScalarPrims[pi].name;
-		desc.resolvedKind = kScalarPrims[pi].rtk;
+		desc.spelling = pLeaf->keyword;
+		desc.resolvedKind = pLeaf->rtk;
 		return desc;
 	}
 	switch (arg.Kind())
 	{
-	case NK_String:
-	case NK_Void:
 	case NK_StructDecl:
-	case NK_EnumDecl:
-		return LeafArgOf(reg, arg);
-	case NK_ArrayTypeToken:
-	{
-		auto& token = static_cast<const SnArrayTypeToken&>(arg);
-		TypeArgDesc elem = BuildTypeArgOf(reg, *token.ElemTypeOf());
-		desc.spelling = ArraySpelling(elem.spelling, token.Rank());
-		desc.resolvedKind = RTK_Array;
-		desc.rank = token.Rank();
-		desc.nested.push_back(std::move(elem));
+		desc.spelling = LinkKeyOf(reg, arg);
+		desc.resolvedKind = RTK_Struct;
 		return desc;
-	}
+	//Enums are int32 at runtime (spec §4); the spelling keeps the enum
+	//name for typeName.
+	case NK_EnumDecl:
+		desc.spelling = LinkKeyOf(reg, arg);
+		desc.resolvedKind = RTK_Int32;
+		return desc;
+	case NK_ArrayTypeToken:
+		return ArrayArgOf(reg, static_cast<const SnArrayTypeToken&>(arg));
 	case NK_ClassDecl:
 		return ClassArgOf(reg, static_cast<const SnClassDecl&>(arg));
 	case NK_InterfaceDecl:
 		return InterfaceArgOf(reg,
 			static_cast<const SnInterfaceDecl&>(arg));
 	default:
-		//Unreachable through resolved instantiations: func arguments
-		//arrive as SnClassDecl instantiations through ClassArgOf above
-		//(Phase 13), their void return slot through the NK_Void arm.
-		//Degrade so intern keys never collide, and loudly — the runtime
-		//leaf resolver throws on the "?" this spells.
-		desc.spelling = "?";
-		desc.resolvedKind = RTK_NonSerialized;
-		return desc;
+		//No kind the resolver can place in a type-argument position lands
+		//here: the keyword leaves are spelled by the vocabulary table above,
+		//the declared types by their link keys, and arrays/instantiations/
+		//placeholders by their own arms. The old "?" degrade looked harmless
+		//but forged an intern key the parser could not resolve, so the whole
+		//image was refused as corrupt; failing here names the missing arm
+		//instead of moving the failure to load time.
+		NLANG_ASSERT(false && "type-argument kind has no spelling");
+		throw std::logic_error("cannot spell the type argument of node kind "
+			+ std::to_string(static_cast<int>(arg.Kind())));
 	}
 }
 

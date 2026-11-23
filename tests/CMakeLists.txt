@@ -28,7 +28,11 @@ endfunction()
 # this explicit (19/20 concurrent same-test pairs failed; isolated
 # TEMP roots: all green). std::filesystem::temp_directory_path()
 # resolves TMP/TEMP on Windows, so stamping each test separates the
-# trees. The root must also stay NEUTRAL: tests walk UP from it
+# trees; the same MD5 rides the wrapper environment as
+# NLANG_TEST_TREE_TOKEN, so a test process can derive a per-tree
+# identity (the nide tests' QSettings application name, D-12) instead
+# of guessing which tree launched it. The root must also stay NEUTRAL:
+# tests walk UP from it
 # (FindStdLibDir absence cases, the docs bare-build dev-label fallback)
 # and must not hit a stdlib dir or the repo VERSION file — which rules
 # out any path inside the source or build trees. The system temp dir is
@@ -45,11 +49,85 @@ string(MD5 NLANG_TEST_SCRATCH_TOKEN "${CMAKE_BINARY_DIR}")
 set(NLANG_TEST_SCRATCH_ROOT
     "$ENV{TEMP}/nlang_test_scratch_${NLANG_TEST_SCRATCH_TOKEN}")
 file(MAKE_DIRECTORY "${NLANG_TEST_SCRATCH_ROOT}")
+
+# Merge-style ENVIRONMENT setter: every NEW test-environment write goes
+# through it, because a bare set_tests_properties(... ENVIRONMENT ...)
+# replaces the whole property and would clobber the scratch TMP/TEMP the
+# add_test wrapper below installs. It reads what is already attached, then
+# replaces a same-variable entry or appends the new VAR=value pair, so a
+# later site extends an earlier one instead of overwriting the whole list
+# (D-12 item 2). The 13 bare sites that roster named are all migrated, so
+# no bare ENVIRONMENT write remains; the env-merge probe in
+# tools/gate_time_selftest.sh re-reads this file's registrations from the
+# configured tree and keeps that count at zero (a regression arrives with
+# the offending entry named, not as a silent TMP loss).
+function(nlang_test_env name)
+    # get_property(TEST) returns an empty value for an unset property (the
+    # documented behaviour), so an entry with no ENVIRONMENT yet merges
+    # against an empty list.
+    get_property(merged TEST ${name} PROPERTY ENVIRONMENT)
+    foreach(pair IN LISTS ARGN)
+        string(FIND "${pair}" "=" sep_pos)
+        if(sep_pos LESS 0)
+            message(FATAL_ERROR
+                "nlang_test_env(${name}): ${pair} is not VAR=value")
+        endif()
+        string(SUBSTRING "${pair}" 0 ${sep_pos} pair_var)
+        foreach(item IN LISTS merged)
+            if(item MATCHES "^${pair_var}=")
+                list(REMOVE_ITEM merged "${item}")
+            endif()
+        endforeach()
+        list(APPEND merged "${pair}")
+    endforeach()
+    set_tests_properties(${name} PROPERTIES ENVIRONMENT "${merged}")
+endfunction()
 function(add_test)
     _add_test(${ARGV})
-    set_tests_properties(${ARGV1} PROPERTIES
-        ENVIRONMENT "TMP=${NLANG_TEST_SCRATCH_ROOT};TEMP=${NLANG_TEST_SCRATCH_ROOT}")
+    # Derived watchdog cap (gate timing design D-2): the generated
+    # gate_time_thresholds.cmake included below defines one
+    # GATE_TIMEOUT_<name> variable per entry that has a reference row,
+    # with names sanitizing every character outside [A-Za-z0-9_] to '_'
+    # exactly as tools/gate_time_check.py emit-cmake does. An entry with
+    # no variable here stays unmanaged and falls to the leg's ctest
+    # --timeout fallback (the ownership split stated in
+    # tools/gate_tier.sh). The same generated file defines one
+    # GATE_RESOURCE_<name> variable per entry listed in the claim roster
+    # (tools/gate_tiers.txt claim lines, D-11), holding the resource
+    # names that entry holds; ctest never runs tests sharing a
+    # RESOURCE_LOCK concurrently, so the window-launching families
+    # serialize inside one parallel ctest process (gate.sh --claim
+    # covers concurrency between legs). The sanitized key serves both
+    # lookups.
+    string(REGEX REPLACE "[^A-Za-z0-9_]" "_" nlang_gate_entry_key
+        "${ARGV1}")
+    if(DEFINED GATE_TIMEOUT_${nlang_gate_entry_key})
+        set_tests_properties(${ARGV1} PROPERTIES
+            TIMEOUT "${GATE_TIMEOUT_${nlang_gate_entry_key}}")
+    endif()
+    if(DEFINED GATE_RESOURCE_${nlang_gate_entry_key})
+        # Unquoted expansion: RESOURCE_LOCK is a list property, and the
+        # unquoted variable hands over one element per claim name.
+        set_tests_properties(${ARGV1} PROPERTIES
+            RESOURCE_LOCK ${GATE_RESOURCE_${nlang_gate_entry_key}})
+    endif()
+    nlang_test_env(${ARGV1}
+        TMP=${NLANG_TEST_SCRATCH_ROOT} TEMP=${NLANG_TEST_SCRATCH_ROOT}
+        NLANG_TEST_TREE_TOKEN=${NLANG_TEST_SCRATCH_TOKEN})
 endfunction()
+
+# Derived ctest TIMEOUT watchdog caps (gate timing design D-1/D-2): the
+# configure step runs tools/gate_time_check.py emit-cmake over the
+# committed reference table tests/gate_time_reference.txt and includes the
+# generated file, which gives the add_test wrapper above one
+# GATE_TIMEOUT_<name> variable per row-holding entry. The config-key
+# predicate and the cap generation live in gate_time_keys.cmake -- the
+# single site, shared verbatim with the gate_time_selftest.sh stub
+# fixture (R-20) -- and that file documents the design branches.
+if(Python3_FOUND)
+    set(NLANG_GATE_PYTHON "${Python3_EXECUTABLE}")
+    include("${CMAKE_CURRENT_LIST_DIR}/gate_time_keys.cmake")
+endif()
 
 
 # Shared test facilities (test_support/test_scratch.h) are reached as
@@ -67,7 +145,6 @@ add_executable(test_scratch
 )
 
 add_test(NAME scratch_tests COMMAND test_scratch)
-set_tests_properties(scratch_tests PROPERTIES TIMEOUT 60)
 
 add_executable(test_vm
     test_vm/test_vm.cpp
@@ -253,7 +330,6 @@ target_link_libraries(test_io_input
     PRIVATE nlang_vm nlang_runtime
 )
 add_test(NAME io_input_tests COMMAND test_io_input)
-set_tests_properties(io_input_tests PROPERTIES TIMEOUT 180)
 
 # Third-party native library fixture (a real DLL shipped inside a package).
 add_library(nlang_mylib SHARED
@@ -383,8 +459,7 @@ add_test(NAME ncc_thirdparty_run
         -I ${mylib_pkg_dir}
         -o ${CMAKE_BINARY_DIR}/e2e_out/use_mylib.ncu)
 set_tests_properties(ncc_thirdparty_run PROPERTIES
-    PASS_REGULAR_EXPRESSION "hello, world"
-    TIMEOUT 180)
+    PASS_REGULAR_EXPRESSION "hello, world")
 
 # --- Default / environment search-path coverage (no -I) ---
 # Base layer: the example, its mylib.n and the DLL all sit in the package
@@ -394,8 +469,7 @@ add_test(NAME ncc_thirdparty_default_run
         ${mylib_pkg_dir}/use_mylib.n
         -o ${CMAKE_BINARY_DIR}/e2e_out/default_run.ncu)
 set_tests_properties(ncc_thirdparty_default_run PROPERTIES
-    PASS_REGULAR_EXPRESSION "hello, world"
-    TIMEOUT 180)
+    PASS_REGULAR_EXPRESSION "hello, world")
 
 # Environment layer: a source copy with NO package beside it; the package is
 # reached only through NLANG_PATH (single dir — ';' is CMake's list separator;
@@ -413,9 +487,8 @@ add_test(NAME ncc_thirdparty_env_run
         -o ${CMAKE_BINARY_DIR}/e2e_out/env_run.ncu)
 set_tests_properties(ncc_thirdparty_env_run PROPERTIES
     PASS_REGULAR_EXPRESSION "hello, world"
-    ENVIRONMENT "NLANG_PATH=${mylib_pkg_dir}"
-    DEPENDS nlang_mylib_env_src
-    TIMEOUT 180)
+    DEPENDS nlang_mylib_env_src)
+nlang_test_env(ncc_thirdparty_env_run NLANG_PATH=${mylib_pkg_dir})
 
 # --- --verbose search-path observability (compile and run forms) ---
 # The (-I) attribution line proves the resolved search listing was
@@ -430,8 +503,7 @@ add_test(NAME ncc_verbose_search_path
         -o ${CMAKE_BINARY_DIR}/e2e_out/verbose_run.ncu)
 set_tests_properties(ncc_verbose_search_path PROPERTIES
     PASS_REGULAR_EXPRESSION "\\(-I\\)"
-    DEPENDS nlang_mylib_pkg
-    TIMEOUT 180)
+    DEPENDS nlang_mylib_pkg)
 
 # The `ncc run` form composes its own search path (module dir base).
 add_test(NAME ncc_run_verbose_search_path
@@ -442,8 +514,7 @@ add_test(NAME ncc_run_verbose_search_path
         --verbose)
 set_tests_properties(ncc_run_verbose_search_path PROPERTIES
     PASS_REGULAR_EXPRESSION "\\(-I\\)"
-    DEPENDS ncc_thirdparty_run
-    TIMEOUT 180)
+    DEPENDS ncc_thirdparty_run)
 
 # -v is the short form of --verbose; each tool parses its own command
 # line, so each parse site gets one pin: the e2e verbose_short_flag and
@@ -458,8 +529,7 @@ add_test(NAME ncc_run_verbose_short
         -v)
 set_tests_properties(ncc_run_verbose_short PROPERTIES
     PASS_REGULAR_EXPRESSION "\\(-I\\)"
-    DEPENDS ncc_thirdparty_run
-    TIMEOUT 180)
+    DEPENDS ncc_thirdparty_run)
 
 # The compile form parses -v in ncc's main loop (the e2e verbose_short_flag
 # entry pins nvm's parse and dbg_verbose_short pins ndb's shared one).
@@ -471,8 +541,7 @@ add_test(NAME ncc_verbose_short
         -o ${CMAKE_BINARY_DIR}/e2e_out/verbose_short.ncu)
 set_tests_properties(ncc_verbose_short PROPERTIES
     PASS_REGULAR_EXPRESSION "\\(-I\\)"
-    DEPENDS nlang_mylib_pkg
-    TIMEOUT 180)
+    DEPENDS nlang_mylib_pkg)
 
 # nvm native search: -I (DLL off-module) and the default module-dir search.
 # A Python harness builds the module first (ctest regexes cannot sequence
@@ -483,7 +552,6 @@ if(Python3_FOUND)
             ${CMAKE_CURRENT_SOURCE_DIR}/check_nvm_native.py
             $<TARGET_FILE:ncc> $<TARGET_FILE:nvm>
             ${mylib_pkg_dir} ${CMAKE_BINARY_DIR}/e2e_out)
-    set_tests_properties(nvm_native_paths PROPERTIES TIMEOUT 180)
 
     # ndb --machine: the third-party DLL reached via -I, driven by `run`.
     add_test(NAME ndb_native_machine
@@ -491,7 +559,6 @@ if(Python3_FOUND)
             ${CMAKE_CURRENT_SOURCE_DIR}/check_ndb_native.py
             $<TARGET_FILE:ncc> $<TARGET_FILE:ndb>
             ${mylib_pkg_dir} ${CMAKE_BINARY_DIR}/e2e_out)
-    set_tests_properties(ndb_native_machine PROPERTIES TIMEOUT 180)
 endif()
 
 # Phase 11 stdlib unit tests: in-process compile+run of real .n sources
@@ -872,20 +939,28 @@ target_compile_definitions(test_nd_resolve
 
 add_test(NAME nd_resolve_tests COMMAND test_nd_resolve)
 
-#The decl-comma reject soak dominates this file (141 s Debug / 766 s
-#ASan measured 2026-11-14; everything else is seconds), so it runs as
-#its own ctest entry via --stress: routine sweeps exclude it by name
-#(slow tests run at commit time only) and the full suite covers both
-#entries. --stress selects ONLY the soak — the two entries are a
-#partition, not a superset. The soak needs its own ceiling: the 180 s
-#family timeout cannot hold the ASan measurement, same shape as the
-#mnist_mlp_run ruling. The 900 s cap once hosted the ASan band, but
-#phase 3's resolver work moved it: 2026-11-19 direct measurement on an
-#idle machine — Debug 187.5 s, ASan 908 s (4.84x compile-heavy factor),
-#the cap clipped it by seconds. 1260 s hosts the measured ASan band
-#with the same ~39% oscillation slack the regex_redos_run cap carries.
+#The decl-comma reject soak dominates this file (everything else is
+#seconds), so it runs as its own ctest entry via --stress: routine
+#sweeps exclude it by name (slow tests run at commit time only) and the
+#full suite covers both entries. --stress selects ONLY the soak — the
+#two entries are a partition, not a superset. The round count follows
+#the D-8 rounds axis: the reference rows price ref_work=100 for the
+#plain trees and 30 for the ASan tree, so the registration hands the
+#test that count through NLANG_TEST_ROUNDS; the test self-reports
+#rounds=<n> on stdout and check-budget cross-checks it against the
+#row's reference work times the run's work factor, which catches a
+#registration or table that stopped steering the loop. The sanitizer
+#predicate spells fsanitize=address exactly as the config-key branch
+#in tests/gate_time_keys.cmake does. Wall clock stays priced by the
+#per-config reference columns: the watchdog cap derives from
+#tests/gate_time_reference.txt like every other entry's (the derived-caps
+#block at the top of this file), no hand-picked ceiling.
 add_test(NAME nd_resolve_stress_tests COMMAND test_nd_resolve --stress)
-set_tests_properties(nd_resolve_stress_tests PROPERTIES TIMEOUT 1260)
+if(CMAKE_CXX_FLAGS MATCHES "fsanitize=address")
+    nlang_test_env(nd_resolve_stress_tests NLANG_TEST_ROUNDS=30)
+else()
+    nlang_test_env(nd_resolve_stress_tests NLANG_TEST_ROUNDS=100)
+endif()
 
 # Stride-table integrity: every opcode resolves to an extent in
 # [1, 9] (the rewrite regression — inline-braced constexpr rows
@@ -1586,7 +1661,6 @@ target_link_libraries(test_strings
         nlang_runtime
 )
 add_test(NAME string_gc_tests COMMAND test_strings)
-set_tests_properties(string_gc_tests PROPERTIES TIMEOUT 180)
 
 # ScriptScanner location tests (compiler-mode column tracking).
 add_executable(test_scanner
@@ -1657,7 +1731,6 @@ target_compile_definitions(test_script_wrap
 )
 
 add_test(NAME script_wrap_tests COMMAND test_script_wrap)
-set_tests_properties(script_wrap_tests PROPERTIES TIMEOUT 180)
 
 # ncc .nproj loader unit tests (Phase 10 Step 0).
 add_executable(test_projectfile
@@ -1694,19 +1767,84 @@ if(NLANG_BUILD_IDE)
     # Every Qt test also writes its full log to qtest_logs/<name>.txt;
     # read that file after any failure.
     file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/qtest_logs)
+    #The qtest_progress wrapper kills its child tree this many seconds
+    #before the entry's ctest TIMEOUT fires, so ctest still records the
+    #kill as a clean timeout of the wrapper (exit 124).
+    set(QTEST_WRAPPER_HEADROOM_S 10)
     function(nlang_add_qtest name target)
-        #Optional third argument: the per-entry ceiling in seconds
-        #(default is the house 3-minute rule).
-        set(ceiling 180)
-        if(ARGC GREATER 2)
-            set(ceiling ${ARGV2})
+        #Cap ownership (gate timing design D-2): an entry with a
+        #reference row inherits its derived TIMEOUT from the add_test
+        #wrapper, and this helper only keeps its own --timeout under
+        #that cap. The hand-computed ceiling (explicit third argument,
+        #else the house 3-minute rule, else 600 s in an instrumented
+        #tree) is the fallback for a row-less entry, where the wrapper
+        #attaches no TIMEOUT and this function sets the ceiling itself.
+        string(REGEX REPLACE "[^A-Za-z0-9_]" "_" nlang_qtest_cap_key
+            "${name}")
+        if(DEFINED GATE_TIMEOUT_${nlang_qtest_cap_key})
+            set(nlang_qtest_derived TRUE)
+            set(ceiling "${GATE_TIMEOUT_${nlang_qtest_cap_key}}")
+        else()
+            set(nlang_qtest_derived FALSE)
+            #Optional third argument: the per-entry ceiling in seconds
+            #(default is the house 3-minute rule).
+            set(default_ceiling 180)
+            set(ceiling ${default_ceiling})
+            set(ceiling_given FALSE)
+            if(ARGC GREATER 2)
+                set(ceiling ${ARGV2})
+                set(ceiling_given TRUE)
+            endif()
+            #The house rule is a Debug-tree measurement. The address
+            #sanitizer multiplies these families' wall time by 2.7x-8.7x
+            #(measured on the 2026-11-20 merge batch:
+            #module_import_tests 25.6 s Debug against 183.3 s
+            #instrumented, generic_decl_tests 10.8 s against 94.5 s), so
+            #a Debug-sized fallback ceiling leaves an instrumented tree
+            #no headroom and flakes without pointing at a regression.
+            #That leg judges memory errors and timing regressions are
+            #judged in the Debug tree, so its ceiling only has to bound
+            #a hung child; 600 s is 3.3x the heaviest instrumented
+            #family measured today. A ceiling written out per family is
+            #a measurement of that family, so it stands as given. (The
+            #sanitizer test is the same predicate
+            #_nlang_sweep_asan_runtime uses to recognise an instrumented
+            #tree.)
+            if(NOT ceiling_given AND
+                    CMAKE_CXX_FLAGS MATCHES "fsanitize=address")
+                set(ceiling 600)
+            endif()
         endif()
-        math(EXPR wrapper_ceiling "${ceiling} - 10")
+        # ctest honors a fractional TIMEOUT (the derived caps carry
+        # fractional seconds) but math() parses integers only, so the
+        # wrapper headroom comes off the floor of the cap: the wrapper
+        # then leads ctest's kill by headroom..headroom+1 s, never by
+        # less. Integer fallback ceilings are unaffected.
+        string(REGEX REPLACE "\\.[0-9]*$" "" nlang_qtest_wrapper_base
+            "${ceiling}")
+        math(EXPR wrapper_ceiling
+            "${nlang_qtest_wrapper_base} - ${QTEST_WRAPPER_HEADROOM_S}")
         #Run through tools/qtest_progress.py: it mirrors the -o result
         #log with a timestamp per completed test function, so a hung
         #run shows exactly which function was in flight. The wrapper
         #kills the child tree just under the ctest ceiling (a stuck
         #nvm/ndb debug child cannot outlive the suite) and exits 124.
+        #The inline budget judgment (D-5) prices this entry from the
+        #table at run time under the tree's enumeration key (the first
+        #of the config-key set minus its ctest- prefix): the timed
+        #sweep's own reference column, matching the seconds the leg's
+        #post-hoc checker compares against. A row-less entry keeps a
+        #visible "no reference row" note from the wrapper and stays
+        #under the --timeout watchdog alone.
+        set(nlang_qtest_gate_args "")
+        if(NLANG_GATE_TIMEOUT_KEYS)
+            list(GET NLANG_GATE_TIMEOUT_KEYS 0 nlang_qtest_config_key)
+            string(REGEX REPLACE "^ctest-" "" nlang_qtest_config
+                "${nlang_qtest_config_key}")
+            set(nlang_qtest_gate_args
+                --table "${PROJECT_SOURCE_DIR}/tests/gate_time_reference.txt"
+                --config ${nlang_qtest_config} --entry ${name})
+        endif()
         add_test(NAME ${name}
             COMMAND ${Python3_EXECUTABLE}
                 ${PROJECT_SOURCE_DIR}/tools/qtest_progress.py
@@ -1714,8 +1852,11 @@ if(NLANG_BUILD_IDE)
                 --progress-log
                     ${CMAKE_CURRENT_BINARY_DIR}/qtest_logs/${name}.progress.log
                 --timeout ${wrapper_ceiling}
+                ${nlang_qtest_gate_args}
                 -- $<TARGET_FILE:${target}>)
-        set_tests_properties(${name} PROPERTIES TIMEOUT ${ceiling})
+        if(NOT nlang_qtest_derived)
+            set_tests_properties(${name} PROPERTIES TIMEOUT ${ceiling})
+        endif()
     endfunction()
 
     # Import syntax unit tests (module import visibility): grammar-level
@@ -2396,8 +2537,8 @@ if(NLANG_BUILD_IDE)
     endif()
     get_filename_component(QT_PLATFORM_PLUGINS_DIR "${Qt5_DIR}/../../../plugins/platforms" ABSOLUTE)
     nlang_add_qtest(editor_tests test_editor)
-    set_tests_properties(editor_tests PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
+    nlang_test_env(editor_tests
+        QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR})
 
     # Syntax highlighter unit tests (Phase 10 Step 3).
     add_executable(test_syntaxhighlighter
@@ -2416,8 +2557,8 @@ if(NLANG_BUILD_IDE)
                 $<TARGET_FILE_DIR:test_syntaxhighlighter>)
     endif()
     nlang_add_qtest(syntaxhighlighter_tests test_syntaxhighlighter)
-    set_tests_properties(syntaxhighlighter_tests PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
+    nlang_test_env(syntaxhighlighter_tests
+        QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR})
 
     # Compile-log browser unit tests (Phase 10 Step 5). Widget test:
     # same QApplication/QPA harness as the editor tests.
@@ -2437,8 +2578,8 @@ if(NLANG_BUILD_IDE)
                 $<TARGET_FILE_DIR:test_compilelogbrowser>)
     endif()
     nlang_add_qtest(compilelogbrowser_tests test_compilelogbrowser)
-    set_tests_properties(compilelogbrowser_tests PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
+    nlang_test_env(compilelogbrowser_tests
+        QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR})
 
     # Run-error browser unit tests (v0.8.5): same harness shape as the
     # compile-log browser tests.
@@ -2458,8 +2599,8 @@ if(NLANG_BUILD_IDE)
                 $<TARGET_FILE_DIR:test_runerrorbrowser>)
     endif()
     nlang_add_qtest(runerrorbrowser_tests test_runerrorbrowser)
-    set_tests_properties(runerrorbrowser_tests PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
+    nlang_test_env(runerrorbrowser_tests
+        QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR})
 
     # Dialog unit tests (Phase 10 Step 6). Widget tests driving modal
     # exec() loops via zero-timeout timers; same QApplication/QPA
@@ -2480,8 +2621,8 @@ if(NLANG_BUILD_IDE)
                 $<TARGET_FILE_DIR:test_dialogs>)
     endif()
     nlang_add_qtest(dialogs_tests test_dialogs)
-    set_tests_properties(dialogs_tests PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
+    nlang_test_env(dialogs_tests
+        QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR})
 
     # Main-window integration tests (Phase 10 Step 7). These drive the
     # real modal flows (file dialogs, message boxes) and run the real
@@ -2534,8 +2675,8 @@ if(NLANG_BUILD_IDE)
     # debug tests each took 88-119s and the suite blew past 470s —
     # 15 minutes leaves honest headroom for the loaded case.
     nlang_add_qtest(mainwindow_tests test_mainwindow 900)
-    set_tests_properties(mainwindow_tests PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
+    nlang_test_env(mainwindow_tests
+        QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR})
 
     # Deployment self-containment check (Phase 10 Step 9). Runs a
     # curated five-test probe subset from a scratch copy of the nide
@@ -2544,6 +2685,35 @@ if(NLANG_BUILD_IDE)
     # test per resolution class (Qt stack, stdlib, ncc/nvm, PTY, ndb)
     # must resolve purely from the copy. See nide_deploy_check.cmake
     # for the division of concerns vs the full in-tree suite.
+    # The script's inner bound must stay inside the entry's own watchdog
+    # cap: a bound sitting behind the cap can never fire, because ctest
+    # kills first and the failure then arrives with the unreadable log the
+    # script's bound exists to avoid. A static number cannot serve every
+    # tree (the ctest-IDE row prices the cap at the 120 s floor while the
+    # ctest-ASan row prices it at 164.5 s), so when this tree's table has a
+    # row for the entry, derive the bound from the generated cap: the
+    # script's outer backstop sits at PROBE_TIMEOUT + 25 and ctest needs a
+    # final 10 s of its own, hence the 35 s headroom below the cap. The
+    # floor stops a tiny reference row from producing a self-killing inner
+    # bound; it mirrors MIN_CAP_S in tools/gate_time_table.py. A tree with
+    # no row here passes no bound: the script's default applies and the
+    # entry stays under the leg's flat --timeout fallback.
+    set(NLANG_DEPLOY_PROBE_HEADROOM_S 35)
+    set(NLANG_DEPLOY_PROBE_FLOOR_S 60)
+    set(NLANG_DEPLOY_PROBE_ARGS "")
+    if(DEFINED GATE_TIMEOUT_nide_deploy_check)
+        # Floor the generated cap (its repr is a float, e.g. 164.5) before
+        # subtracting: the bound is handed to the script as an integer.
+        string(REGEX REPLACE "\\..*$" "" nlang_deploy_cap_seconds
+            "${GATE_TIMEOUT_nide_deploy_check}")
+        math(EXPR nlang_deploy_probe_timeout
+            "${nlang_deploy_cap_seconds} - ${NLANG_DEPLOY_PROBE_HEADROOM_S}")
+        if(nlang_deploy_probe_timeout LESS ${NLANG_DEPLOY_PROBE_FLOOR_S})
+            set(nlang_deploy_probe_timeout ${NLANG_DEPLOY_PROBE_FLOOR_S})
+        endif()
+        set(NLANG_DEPLOY_PROBE_ARGS
+            -DPROBE_TIMEOUT=${nlang_deploy_probe_timeout})
+    endif()
     add_test(NAME nide_deploy_check
         COMMAND ${CMAKE_COMMAND}
             -DDEPLOY_DIR=$<TARGET_FILE_DIR:nide>
@@ -2558,12 +2728,9 @@ if(NLANG_BUILD_IDE)
             -DCHECK_DIR=${CMAKE_CURRENT_BINARY_DIR}/nide_deploy_check/c1/c2/c3/c4/c5/c6/c7/c8
             -DPYTHON3_EXE=${PYTHON3_EXECUTABLE}
             -DQTEST_PROGRESS=${PROJECT_SOURCE_DIR}/tools/qtest_progress.py
+            ${NLANG_DEPLOY_PROBE_ARGS}
             -P ${CMAKE_CURRENT_SOURCE_DIR}/test_nide/nide_deploy_check.cmake)
-    set_tests_properties(nide_deploy_check PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH="
-        # 150 s inner bound (see nide_deploy_check.cmake) + the
-        # scratch-copy script overhead and the wrapper's tree kill.
-        TIMEOUT 180)
+    nlang_test_env(nide_deploy_check QT_QPA_PLATFORM_PLUGIN_PATH=)
 
     # Library search-path end-to-end tests: a global library dir is indexed
     # and offered in completion and built via -I; a project <ImportPaths>
@@ -2589,8 +2756,8 @@ if(NLANG_BUILD_IDE)
                 $<TARGET_FILE_DIR:test_searchpath_integration>)
     endif()
     nlang_add_qtest(searchpath_integration_tests test_searchpath_integration)
-    set_tests_properties(searchpath_integration_tests PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
+    nlang_test_env(searchpath_integration_tests
+        QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR})
 
     # Embedded terminal unit tests: emulator over vendored libvterm,
     # widget input/render model, pty backend with real child processes.
@@ -2610,10 +2777,11 @@ if(NLANG_BUILD_IDE)
                 $<TARGET_FILE_DIR:test_terminal>)
     endif()
     nlang_add_qtest(terminal_tests test_terminal)
-    #nlang_add_qtest already applies the house 180s TIMEOUT; only the
-    #platform plugin path is specific to this test.
-    set_tests_properties(terminal_tests PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
+    #The TIMEOUT cap comes from this entry's derived reference-row cap
+    #like every other qtest entry's; only the platform plugin path is
+    #specific to this test.
+    nlang_test_env(terminal_tests
+        QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR})
 endif()
 
 # Version single-source guard: each tool's --version must echo the
@@ -2642,23 +2810,18 @@ if(Python3_FOUND)
         COMMAND ${PYTHON3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/check_version.py
             $<TARGET_FILE:nlang> nlang ${NLANG_VERSION})
-    set_tests_properties(version_ncc version_nvm version_ndisasm version_ndb
-        version_nlang
-        PROPERTIES TIMEOUT 60)
     # nvm flag-position guard: --gc-stress=N must parse from any
     # argument position, with the module exit code unchanged.
     add_test(NAME nvm_gc_stress_position
         COMMAND ${PYTHON3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/check_nvm_gc_stress.py
             $<TARGET_FILE:nvm> $<TARGET_FILE:ncc>)
-    set_tests_properties(nvm_gc_stress_position PROPERTIES TIMEOUT 60)
     # K2 slice 6: --carriers=N is parity-neutral for a spawn-free program
     # and refuses out-of-range values with an explicit diagnostic.
     add_test(NAME nvm_carriers_flag
         COMMAND ${PYTHON3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/check_nvm_carriers.py
             $<TARGET_FILE:nvm> $<TARGET_FILE:ncc>)
-    set_tests_properties(nvm_carriers_flag PROPERTIES TIMEOUT 60)
     # nlang script runner: the three behavior faces of the tool (script
     # mode end to end incl. the D3 empty-script mapping, -c inline
     # statements incl. the non-ASCII wide-argv path, and the CLI
@@ -2669,8 +2832,6 @@ if(Python3_FOUND)
                 ${CMAKE_CURRENT_SOURCE_DIR}/check_nlang_tool.py
                 ${nlang_case} $<TARGET_FILE:nlang>)
     endforeach()
-    set_tests_properties(nlang_run_script nlang_c_inline nlang_cli_rejects
-        PROPERTIES TIMEOUT 120)
     # .ncu byte-reproducibility guard: the same compiler and source must
     # yield identical module bytes on every run (regression net for the
     # uninitialized class-field access serialization bug).
@@ -2678,13 +2839,11 @@ if(Python3_FOUND)
         COMMAND ${PYTHON3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/check_ncu_determinism.py
             $<TARGET_FILE:ncc>)
-    set_tests_properties(ncu_determinism PROPERTIES TIMEOUT 180)
     # Phase 4c guard: no hardcoded standard library may return to the VM
     # (signature table, math/io/fs intrinsic families, their id blocks).
     add_test(NAME no_builtin_stdlib
         COMMAND ${PYTHON3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/check_no_builtin_stdlib.py)
-    set_tests_properties(no_builtin_stdlib PROPERTIES TIMEOUT 60)
     # langservice: index real stdlib/*.n, resolve / complete / locate.
     add_executable(test_langservice
         test_langservice/test_symbol_index.cpp
@@ -2699,7 +2858,6 @@ if(Python3_FOUND)
             STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
     )
     add_test(NAME langservice_tests COMMAND test_langservice)
-    set_tests_properties(langservice_tests PROPERTIES TIMEOUT 60)
     # UTF-8 path guard: the CLI executables' UTF-8 active code page
     # (manifest) must survive argv ingestion, file I/O, and echo — a
     # mixed CJK+emoji directory covers both the mojibake and the
@@ -2710,7 +2868,6 @@ if(Python3_FOUND)
             $<TARGET_FILE:ncc> $<TARGET_FILE:nvm>
             $<TARGET_FILE:ndisasm> $<TARGET_FILE:ndb>
             ${CMAKE_BINARY_DIR})
-    set_tests_properties(cli_utf8_paths PROPERTIES TIMEOUT 120)
     # .nproj UTF-8 contract guard: legacy-encoded project files are
     # rejected with a named UTF-8 error (UTF-8 BOM accepted and
     # skipped; UTF-16 gets a dedicated hint).
@@ -2718,14 +2875,12 @@ if(Python3_FOUND)
         COMMAND ${PYTHON3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/check_nproj_utf8.py
             $<TARGET_FILE:ncc> ${CMAKE_BINARY_DIR})
-    set_tests_properties(nproj_utf8 PROPERTIES TIMEOUT 120)
     # Source-size guard: hand-written sources stay <=500 lines per file
     # and <=50 lines per function; registered exceptions live in
     # tools/source_size_guard/allowlist.json, each with a reason.
     add_test(NAME source_size_guard
         COMMAND ${PYTHON3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/../tools/source_size_guard/check_source_size.py)
-    set_tests_properties(source_size_guard PROPERTIES TIMEOUT 60)
 endif()
 
 # End-to-end test: compile-only (exits 0)
@@ -2766,14 +2921,13 @@ add_test(NAME project_run
 add_test(NAME libdemo_compile
     COMMAND ncc build ${PROJECT_SOURCE_DIR}/examples/libdemo/mylib.n
         -o ${CMAKE_CURRENT_BINARY_DIR}/mylib.ncu)
-set_tests_properties(libdemo_compile PROPERTIES TIMEOUT 180)
 add_test(NAME libdemo_run
     COMMAND ncc ${PROJECT_SOURCE_DIR}/examples/libdemo/main.n
         -I ${CMAKE_CURRENT_BINARY_DIR}
         -I ${PROJECT_SOURCE_DIR}/examples/libdemo
         -o ${CMAKE_CURRENT_BINARY_DIR}/main_run.ncu)
 set_tests_properties(libdemo_run
-    PROPERTIES DEPENDS libdemo_compile TIMEOUT 180)
+    PROPERTIES DEPENDS libdemo_compile)
 
 #--- Module import visibility matrix (module import visibility Task 10) --
 #Project-mode fixtures in tests/e2e/proj_*: the e2e runner gates only
@@ -2889,15 +3043,11 @@ add_test(NAME proj_generic_sourceless_compile
 add_test(NAME proj_generic_sourceless_run
     COMMAND nvm ${CMAKE_BINARY_DIR}/e2e_out/proj_generic_sourceless.npkg
         -I ${CMAKE_BINARY_DIR}/e2e_out)
-set_tests_properties(proj_generic_sourceless_lib_compile PROPERTIES
-    TIMEOUT 180)
 set_tests_properties(proj_generic_sourceless_compile PROPERTIES
-    DEPENDS proj_generic_sourceless_lib_compile
-    TIMEOUT 180)
+    DEPENDS proj_generic_sourceless_lib_compile)
 set_tests_properties(proj_generic_sourceless_run PROPERTIES
     DEPENDS proj_generic_sourceless_compile
-    PASS_REGULAR_EXPRESSION "4"
-    TIMEOUT 180)
+    PASS_REGULAR_EXPRESSION "4")
 
 #Concurrency import redesign F11: the Channel init-list arm must find
 #the template row through the alias (ClassSlotFor), not the current
@@ -3142,34 +3292,48 @@ set_tests_properties(mnist_mlp_run PROPERTIES
     WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/examples/mnist_mlp)
 
 #Project-mode entries are fixture compiles/runs; the FAQ CWD pin runs a
-#real compile too. Keep each well under the 3-minute unit-test ceiling.
-set_tests_properties(proj_import_visibility_compile proj_import_visibility_run
-    proj_same_dir_compile proj_same_dir_run ndisasm_qualified_func_name
-    proj_dup_import_compile
-    proj_wildcard_exact_union_compile proj_wildcard_exact_union_run
-    proj_pkg_run_compile proj_pkg_run_run
-    proj_not_imported_compile proj_bare_cross_dir_compile
-    duplicate_package_path_compile ncc_no_o_output_cwd
-    proj_two_scripts_compile proj_imports_script_lib
-    proj_imports_script_compile proj_imports_script_run
-    proj_imports_lib_stmts_compile
-    mnist_mlp_compile
-    PROPERTIES TIMEOUT 180)
+#real compile too. Their watchdog caps derive from the reference rows
+#like every other entry's (the derived-caps block at the top of this
+#file).
 
-#mnist_mlp_run needs its own ceiling: under the address-sanitizer tree
-#the training run measures 165-192 s on this machine (minute-scale
-#machine oscillation, not a regression band), so the shared 180 s family
-#timeout produced false TIMEOUT flakes at the pre-commit sweep. Raised
-#to 300 s by user ruling on 2026-11-12.
-set_tests_properties(mnist_mlp_run PROPERTIES TIMEOUT 300)
+#mnist_mlp_run is the heaviest routine entry: under the address-
+#sanitizer tree the training run measures 165-192 s on this machine
+#(minute-scale machine oscillation, not a regression band), which is
+#what the per-config reference columns price -- each tree's watchdog cap
+#follows its own measured seconds instead of one hand-picked family
+#ceiling (the old shared 180 s produced false TIMEOUT flakes at the
+#pre-commit sweep, hence the 2026-11-12 ruling for a 300 s hand ceiling;
+#the table carries that margin now).
 
-#regex_redos pins the D9 linear bound (v0.13.7). Its own ceiling: the run
-#is timing-sensitive and the e2e runner's shared 30 s per-test cap cannot
-#host it; 300 s mirrors the mnist_mlp_run ruling (five 20 s caps worst
-#case total 100 s plus harness slack, inside the ceiling). The ASan tree
-#runs ~1.76x the Debug time (2026-11-14: Debug 171.9 s, ASan 302.7 s,
-#direct run on an idle machine) and clipped the 300 s cap, so 420 s hosts
-#the measured ASan band with oscillation slack.
+#regex_redos pins the D9 linear bound (v0.13.7), in two halves so each one is
+#judged where it is meaningful:
+#  regex_redos_{compile,run} — the correctness half, in every tree and config
+#    (Debug, ASan, IDE). No wall-clock assertion inside the program: the same
+#    wall-capped fixture in three trees is a bet on machine load, and the ASan
+#    tree measures ~1.76x the Debug time on this workload (2026-11-14 idle
+#    machine: Debug 171.9 s, ASan 302.7 s), so caps set from Debug readings
+#    left ASan no headroom (2026-11-20: 47584 ms against the 45000 ms cap).
+#    The derived caps are what settled that: each tree's watchdog cap comes
+#    from its own reference column in tests/gate_time_reference.txt, so an
+#    engine that went exponential again on these shapes still sits past its
+#    tree's cap, while the inputs are a quarter of the perf half's so the
+#    routine legs pay for correctness only.
+#  regex_redos_perf_{compile,run} — the timed half, registered only when
+#    NLANG_PERF_TESTS=ON, i.e. on the tree the release sweep builds. The
+#    bounded-time claim belongs there: it is about a wall-clock budget, and the
+#    routine legs (Debug, ASan, IDE) would each pay minutes for it while their
+#    own speed is not what the claim measures. The ctest CONFIGS test property
+#    looked like the cheaper way to say "Release only", but it does not filter
+#    for this generator — measured 2026-11-20, `ctest -C Debug` ran the
+#    CONFIGS-Release entry and took 221.42 s — so the entries are simply absent
+#    unless asked for, and the run command names the configuration:
+#      cmake -S . -B <tree> -DNLANG_PERF_TESTS=ON …
+#      ctest --test-dir <tree> -C Release -R "^regex_redos_perf"
+#    Its caps are calibrated on the Release readings (see the fixture header:
+#    1203 ms worst shape, 3096 ms scan, caps ~6.5x above), so the whole entry is
+#    bounded by ~52 s of asserted work; an engine that ignores those caps
+#    entirely is still killed, because the entry's watchdog cap derives from
+#    its Release-column reference seconds in tests/gate_time_reference.txt.
 add_test(NAME regex_redos_compile
     COMMAND ncc build
         ${PROJECT_SOURCE_DIR}/tests/e2e/stdlib_regex_redos.n
@@ -3177,7 +3341,17 @@ add_test(NAME regex_redos_compile
 add_test(NAME regex_redos_run
     COMMAND nvm ${CMAKE_BINARY_DIR}/e2e_out/regex_redos.ncu)
 set_tests_properties(regex_redos_run PROPERTIES
-    DEPENDS regex_redos_compile TIMEOUT 420)
+    DEPENDS regex_redos_compile)
+if(NLANG_PERF_TESTS)
+    add_test(NAME regex_redos_perf_compile
+        COMMAND ncc build
+            ${PROJECT_SOURCE_DIR}/tests/e2e/stdlib_regex_redos_perf.n
+            -o ${CMAKE_BINARY_DIR}/e2e_out/regex_redos_perf.ncu)
+    add_test(NAME regex_redos_perf_run
+        COMMAND nvm ${CMAKE_BINARY_DIR}/e2e_out/regex_redos_perf.ncu)
+    set_tests_properties(regex_redos_perf_run PROPERTIES
+        DEPENDS regex_redos_perf_compile)
+endif()
 
 #--- Docs-pipeline unit tests (pytest) ---------------------------------------
 #The nlang-docs subproject's pytest suite pins the linkcheck and offline-
@@ -3203,11 +3377,116 @@ if(NLANG_BUILD_DOCS)
                 NLANG_NVM=$<TARGET_FILE:nvm>
                 ${NLANG_DOCS_PYTHON} -m pytest ${NLANG_DOCS_DIR}/tests -q
             WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
-        set_tests_properties(nlang_docs_pytest PROPERTIES TIMEOUT 180)
     else()
         message(STATUS "nlang_docs_pytest skipped: pytest is not importable "
             "via '${NLANG_DOCS_PYTHON}' (pip install pytest to enable)")
     endif()
+endif()
+
+#--- gate.sh selftest (bash) -------------------------------------------------
+#The write-directory lock is a shell mechanism, so its pin is a shell test.
+#bash is not a build requirement, so a machine without it loses one gate
+#entry -- but the skip must say so, exactly like the pytest block above
+#reports a missing pytest instead of silently dropping the entry.
+#A file named "bash" in PATH is not yet a bash that can run this script:
+#PATH may resolve to WSL's bash, or to a shell without the digest tool the
+#lock key needs. Probe it with the print mode, which takes no lock and
+#writes no file, so asking at configure time is cheap and side-effect free.
+find_program(BASH_PROGRAM bash)
+if(BASH_PROGRAM)
+    execute_process(
+        COMMAND ${BASH_PROGRAM} ${PROJECT_SOURCE_DIR}/tools/gate.sh
+                --print-write-dirs --build ${PROJECT_SOURCE_DIR}
+        RESULT_VARIABLE NLANG_GATE_BASH_PROBE
+        OUTPUT_VARIABLE NLANG_GATE_BASH_OUT
+        ERROR_QUIET OUTPUT_STRIP_TRAILING_WHITESPACE)
+    #An absent sha256sum leaves the key empty ("key  path ..." with two
+    #spaces), so a non-empty hex run is what proves the tool is there.
+    #[0-9a-f]+ rather than {16}: CMake's MATCHES does not support bounded
+    #repetition at all (measured on CMake 3.25.2 -- the {16} form never
+    #matches), and the exact 16-hex shape is A7's assertion to make.
+    if(NLANG_GATE_BASH_PROBE EQUAL 0
+            AND NLANG_GATE_BASH_OUT MATCHES "^key [0-9a-f]+ path ")
+        add_test(NAME nlang_gate_selftest
+            COMMAND ${BASH_PROGRAM} ${PROJECT_SOURCE_DIR}/tools/gate_selftest.sh
+            WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+    else()
+        message(STATUS "nlang_gate_selftest skipped: '${BASH_PROGRAM}' cannot "
+            "print a write-directory key (needs bash with sha256sum and "
+            "cygpath or realpath)")
+    endif()
+else()
+    message(STATUS "nlang_gate_selftest skipped: bash not found in PATH")
+endif()
+
+# gate_time_check selftest: hermetic corpus for the reference timing
+# guards (tools/gate_time_check.py). Stdlib only, so plain Python3
+# suffices -- registering it through the pytest probe would drop the
+# entry wherever pytest is absent (build-dev registers zero pytest
+# entries), and the corpus must run in every configured tree.
+if(Python3_FOUND)
+    add_test(NAME gate_time_check_selftest
+        COMMAND ${PYTHON3_EXECUTABLE}
+            ${PROJECT_SOURCE_DIR}/tools/gate_time_check_test.py
+        WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+else()
+    message(STATUS "gate_time_check_selftest skipped: Python3 not found")
+endif()
+
+# gate_tier.sh assembly smoke (tools/gate_tier_test.py): drives the leg
+# dispatch against a stub gate.sh in a sandbox, so it needs bash but no
+# build tree and no lock to wait on (the stub replaces gate.sh). The probe
+# variables come from the gate selftest block above: a bash that cannot
+# print a write-directory key is not one this script can drive either.
+# No ENVIRONMENT property here: the test pins its own child environment
+# (the machine scale stays off the suite configuration, D-4).
+if(Python3_FOUND)
+    if(BASH_PROGRAM AND NLANG_GATE_BASH_PROBE EQUAL 0
+            AND NLANG_GATE_BASH_OUT MATCHES "^key [0-9a-f]+ path ")
+        add_test(NAME gate_tier_smoke
+            COMMAND ${PYTHON3_EXECUTABLE}
+                ${PROJECT_SOURCE_DIR}/tools/gate_tier_test.py
+            WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+    else()
+        message(STATUS "gate_tier_smoke skipped: bash missing or unable to "
+            "print a write-directory key (the gate selftest message above "
+            "names the cause)")
+    endif()
+else()
+    message(STATUS "gate_tier_smoke skipped: Python3 not found")
+endif()
+
+# Derived-caps selftest (tools/gate_time_selftest.sh): reconfigures a scratch
+# stub project over a stub reference table with the real emit-cmake generator
+# and audits every stub entry's TIMEOUT from `ctest --show-only=json-v1`, so
+# nothing compiles and the audit is independent of this tree's build state.
+# The fixture configures nested CMake runs, so it must drive the same
+# cmake/ctest/python trio this configure resolved rather than whatever PATH a
+# later ctest invocation carries: the three paths ride the test environment
+# (through the merge helper, keeping the wrapper's scratch TMP/TEMP intact).
+# The bash probe guard mirrors the gate selftest block: PATH may resolve
+# "bash" to WSL's bash, which cannot exec the Windows-path cmake/ctest pair
+# handed to it here any more than it can drive gate.sh.
+if(BASH_PROGRAM AND Python3_FOUND
+        AND NLANG_GATE_BASH_PROBE EQUAL 0
+        AND NLANG_GATE_BASH_OUT MATCHES "^key [0-9a-f]+ path ")
+    add_test(NAME nlang_gate_time_selftest
+        COMMAND ${BASH_PROGRAM}
+            ${PROJECT_SOURCE_DIR}/tools/gate_time_selftest.sh
+        WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+    # The env-merge probe audits the registrations of THIS configure's
+    # tree (D-12 item 2), so the tree path and its scratch root ride the
+    # same channel as the toolchain trio: the probe's expectation is the
+    # very string this configure stamped into every entry, not a guess.
+    nlang_test_env(nlang_gate_time_selftest
+        NLANG_GATE_CMAKE=${CMAKE_COMMAND}
+        NLANG_GATE_CTEST=${CMAKE_CTEST_COMMAND}
+        NLANG_GATE_PYTHON=${Python3_EXECUTABLE}
+        NLANG_GATE_PROD_TREE=${CMAKE_BINARY_DIR}
+        NLANG_GATE_SCRATCH_ROOT=${NLANG_TEST_SCRATCH_ROOT})
+else()
+    message(STATUS "nlang_gate_time_selftest skipped: bash or Python3 "
+        "unavailable (the gate selftest messages above name the bash cause)")
 endif()
 
 # In-process VM tests resolve the stdlib native modules through the
@@ -3351,9 +3630,6 @@ target_compile_definitions(test_embed_source
         EMBED_IO_NCU="${embed_fixture_dir}/io_demo.ncu")
 add_dependencies(test_embed_source nlang_embed_fixtures nlang_embed_deploy)
 add_test(NAME embed_source_tests COMMAND test_embed_source)
-#House rule: every test stays under a 3-minute ceiling (a hang must not
-#block the full gate for 25 minutes).
-set_tests_properties(embed_source_tests PROPERTIES TIMEOUT 180)
 
 #Embedding example smoke: run a stdlib-importing script through
 #examples/embed_host and assert the redirected output (Task 11).
@@ -3367,7 +3643,6 @@ if(Python3_FOUND)
             $<TARGET_FILE:nlang_io>
             $<TARGET_FILE:nlang_system>
             $<TARGET_FILE:nlang_gzip>)
-    set_tests_properties(embed_host_smoke PROPERTIES TIMEOUT 120)
 endif()
 
 
@@ -3405,14 +3680,26 @@ target_include_directories(test_native_tensor PRIVATE
     ${PROJECT_SOURCE_DIR}/include
     ${PROJECT_SOURCE_DIR}/src/native/tensor)
 add_test(NAME native_tensor_scalar COMMAND test_native_tensor)
-set_tests_properties(native_tensor_scalar PROPERTIES
-    ENVIRONMENT "NLANG_TENSOR_TIER=scalar")
+nlang_test_env(native_tensor_scalar NLANG_TENSOR_TIER=scalar)
 add_test(NAME native_tensor_sse2 COMMAND test_native_tensor)
-set_tests_properties(native_tensor_sse2 PROPERTIES
-    ENVIRONMENT "NLANG_TENSOR_TIER=sse2")
+nlang_test_env(native_tensor_sse2 NLANG_TENSOR_TIER=sse2)
 add_test(NAME native_tensor_avx2 COMMAND test_native_tensor)
-set_tests_properties(native_tensor_avx2 PROPERTIES
-    ENVIRONMENT "NLANG_TENSOR_TIER=avx2")
+nlang_test_env(native_tensor_avx2 NLANG_TENSOR_TIER=avx2)
+
+# fs native unit tests: the bridge from a <filesystem> timestamp to Unix epoch
+# milliseconds (src/native/fs/FileTimeEpoch.h) that fs.modifiedTimeMs answers
+# with. Both clock samples are injected, so the millisecond arithmetic is
+# pinned to one right answer on any machine — the property an e2e corpus
+# cannot pin, because a real file's timestamp granularity is not its own to
+# control.
+add_executable(test_native_fs
+    test_native_fs/test_file_time_epoch.cpp
+)
+target_include_directories(test_native_fs PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
+    ${PROJECT_SOURCE_DIR}/src/native/fs
+)
+add_test(NAME native_fs_tests COMMAND test_native_fs)
 
 #--- e2e runner unit tests (pytest) ------------------------------------------
 #The runner's environment-gating logic (env_gates.txt parse + the pure
@@ -3437,4 +3724,31 @@ if(NLANG_RUNNER_PYTEST_PROBE EQUAL 0)
 else()
     message(STATUS "e2e_runner_env_gate skipped: pytest is not importable "
         "via '${NLANG_DOCS_PYTHON}' (pip install pytest to enable)")
+endif()
+
+#The runner's scratch namespace (NLANG_E2E_SCRATCH_TAG): the path geometry
+#that keeps concurrent shards out of each other's scratch dirs, plus the
+#teardown containment check (one real subprocess per tagged run).
+if(NLANG_RUNNER_PYTEST_PROBE EQUAL 0)
+    add_test(NAME e2e_runner_scratch_isolation
+        COMMAND ${NLANG_DOCS_PYTHON} -m pytest
+            ${PROJECT_SOURCE_DIR}/tests/e2e/test_runner_scratch_isolation.py -q
+        WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/tests/e2e)
+else()
+    message(STATUS "e2e_runner_scratch_isolation skipped: pytest is not "
+        "importable via '${NLANG_DOCS_PYTHON}' (pip install pytest to enable)")
+endif()
+
+#The runner's per-entry timing rows: a TIME row after every PASS/FAIL
+#verdict line plus the --record-out MEASURE rows (the gate-time reference
+#recorder's only e2e input). One real runner subprocess over stub .cmd
+#tools laid out like a build root pins the row shapes end to end.
+if(NLANG_RUNNER_PYTEST_PROBE EQUAL 0)
+    add_test(NAME e2e_runner_timing_gate
+        COMMAND ${NLANG_DOCS_PYTHON} -m pytest
+            ${PROJECT_SOURCE_DIR}/tests/e2e/test_runner_timing_gate.py -q
+        WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/tests/e2e)
+else()
+    message(STATUS "e2e_runner_timing_gate skipped: pytest is not "
+        "importable via '${NLANG_DOCS_PYTHON}' (pip install pytest to enable)")
 endif()

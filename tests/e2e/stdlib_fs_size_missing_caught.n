@@ -5,14 +5,14 @@
 import fs;
 int main() {
     try {
-        int s = fs.size("_p11_tmp/fs_missing/nope.txt");
+        int s = fs.size("../temp/fs/fs_missing/nope.txt");
         return 1;  //should have thrown
     } catch (IOException e) {
         if (e.message == "") return 2;
     }
-    fs.makeDirs("_p11_tmp/fs_missing/dir");
+    fs.makeDirs("../temp/fs/fs_missing/dir");
     try {
-        int s = fs.size("_p11_tmp/fs_missing/dir");
+        int s = fs.size("../temp/fs/fs_missing/dir");
         return 3;  //should have thrown (not a regular file)
     } catch (IOException e) {
         if (e.message == "") return 4;

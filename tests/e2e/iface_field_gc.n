@@ -1,0 +1,36 @@
+//iface_field_gc.n — an object held in an interface-typed class field must
+//survive garbage collection. The field's declared type is an interface, and
+//its runtime kind used to fall back to RTK_Int32, so neither the class-field
+//mark phase nor the sweep's root set traced the slot: the collector freed
+//the receiver while the field still pointed at it, and the next call landed
+//on whatever record the allocator handed out next.
+interface IGreeter
+{
+    string greet();
+}
+
+class Impl implements IGreeter
+{
+    public string greet() { return "hello"; }
+}
+
+class Cell
+{
+    public int v;
+    public Cell(int x) { v = x; }
+}
+
+class Holder
+{
+    public IGreeter g;
+    public Holder(IGreeter v) { g = v; }
+}
+
+int main() {
+    Holder h = Holder(Impl());
+    for (int i = 0; i < 5000; i = i + 1) {
+        Cell c = Cell(i);
+    }
+    if (h.g.greet() != "hello") { return 1; }
+    return 0;
+}

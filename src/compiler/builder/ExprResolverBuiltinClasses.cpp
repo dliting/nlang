@@ -92,8 +92,7 @@ SnClassDecl *FindPreludeClassDecl(const ModuleRegistry &reg,
 //PropagateVirtualOverrides matches by name + param COUNT, so a based
 //String would collide with Object.equals(Object) (the
 //ovsig_equals_mismatch probe pins that rejection for user classes).
-//The unqualified-name predicate is inline in BuiltinNames.h (shared with the
-//mirror name-yield pass).
+//The unqualified-name predicate is inline in BuiltinNames.h.
 bool IsPreludeFaceClass(const ModuleRegistry &reg, const SnClassDecl &sn)
 {
 	//v0.12.7: Array<E> instantiations are real types (the single array

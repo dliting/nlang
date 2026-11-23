@@ -1,0 +1,109 @@
+// v0.13.11 json: number discriminant rules (D-2) -- the long and int
+// windows, exactness for doubles, rawText fidelity, builder rendering.
+import io;
+import json;
+
+// Returns 0 when node.getLong() rejects with exactly want; else prints.
+int expectThrowLong(JsonValue node, string want) {
+    string got = "";
+    try {
+        got = node.getLong().toString();
+    } catch (JsonException e) {
+        got = e.message;
+    }
+    if (got == want) { return 0; }
+    io.print("long row got [" + got + "] want [" + want + "]");
+    return 1;
+}
+
+// Returns 0 when node.getInt() rejects with exactly want; else prints.
+int expectThrowInt(JsonValue node, string want) {
+    string got = "";
+    try {
+        got = node.getInt().toString();
+    } catch (JsonException e) {
+        got = e.message;
+    }
+    if (got == want) { return 0; }
+    io.print("int row got [" + got + "] want [" + want + "]");
+    return 1;
+}
+
+// Returns 0 when parse(text) raises the exact wanted message.
+int checkParseMessage(string text, string want) {
+    string got = "";
+    try {
+        json.parse(text);
+    } catch (JsonException e) {
+        got = e.message;
+    }
+    if (got == want) { return 0; }
+    io.print("parse row [" + text + "] got [" + got + "] want [" + want + "]");
+    return 1;
+}
+
+int main() {
+    int bad = 0;
+    long lMax = 9223372036854775807;
+    long lMin = -9223372036854775808;
+    string longRange = "json: number out of long range";
+    string intRange = "json: number out of int range";
+    string fracPart = "json: number has a fractional part";
+    // Integral tokens at the long extremes stay exact longs (D-2).
+    JsonValue vMax = json.parse("9223372036854775807");
+    if (vMax.getLong() != lMax) { bad = bad + 1; }
+    JsonValue vMin = json.parse("-9223372036854775808");
+    if (vMin.getLong() != lMin) { bad = bad + 1; }
+    // 2^63 does not fit a long: double arm, getLong rejects, token kept.
+    JsonValue vOver = json.parse("9223372036854775808");
+    if (expectThrowLong(vOver, longRange) != 0) { bad = bad + 1; }
+    if (vOver.serialize() != "9223372036854775808") { bad = bad + 1; }
+    if (vOver.getDouble() != 9223372036854775808.0) { bad = bad + 1; }
+    // -2^63-1 rounds to -2^63 as a double, which is inside the window, so
+    // getLong yields the rounded value while serialize keeps the token.
+    JsonValue vUnder = json.parse("-9223372036854775809");
+    if (vUnder.getLong() != lMin) { bad = bad + 1; }
+    if (vUnder.serialize() != "-9223372036854775809") { bad = bad + 1; }
+    // A 30-digit token: double arm + rejection + fidelity.
+    JsonValue vBig = json.parse("123456789012345678901234567890");
+    if (expectThrowLong(vBig, longRange) != 0) { bad = bad + 1; }
+    if (vBig.serialize() != "123456789012345678901234567890") { bad = bad + 1; }
+    if (vBig.getDouble() != "123456789012345678901234567890".toDouble()) { bad = bad + 1; }
+    // Integral doubles pass getLong/getInt exactly (D-2 exactness).
+    JsonValue vDotZero = json.parse("3.0");
+    if (vDotZero.getLong() != 3) { bad = bad + 1; }
+    if (vDotZero.getInt() != 3) { bad = bad + 1; }
+    if (vDotZero.serialize() != "3.0") { bad = bad + 1; }
+    // A fractional double rejects both readers, and the message names
+    // the gate that failed: the fractional part, not a range (§26.4).
+    JsonValue vFrac = json.parse("2.5");
+    if (expectThrowLong(vFrac, fracPart) != 0) { bad = bad + 1; }
+    if (expectThrowInt(vFrac, fracPart) != 0) { bad = bad + 1; }
+    if (vFrac.getDouble() != 2.5) { bad = bad + 1; }
+    // The int window is checked after getLong narrows (D-2).
+    if (json.parse("2147483647").getInt() != 2147483647) { bad = bad + 1; }
+    if (expectThrowInt(json.parse("2147483648"), intRange) != 0) { bad = bad + 1; }
+    if (json.parse("-2147483648").getInt() != -2147483648) { bad = bad + 1; }
+    if (expectThrowInt(json.parse("-2147483649"), intRange) != 0) { bad = bad + 1; }
+    // Underflow: 1e-999 parses to 0.0 with the token kept (D-2, probe_b P6).
+    JsonValue vTiny = json.parse("1e-999");
+    if (vTiny.getDouble() != 0.0) { bad = bad + 1; }
+    if (vTiny.getLong() != 0) { bad = bad + 1; }
+    if (vTiny.getInt() != 0) { bad = bad + 1; }
+    if (vTiny.serialize() != "1e-999") { bad = bad + 1; }
+    // Overflow is rejected at parse time, with the offset (D-10).
+    if (checkParseMessage("1e999", "json: number out of range at byte offset 0") != 0) { bad = bad + 1; }
+    // Exponent forms keep their token text for serialize (D-2 fidelity).
+    if (json.parse("1e2").serialize() != "1e2") { bad = bad + 1; }
+    if (json.parse("1E+2").serialize() != "1E+2") { bad = bad + 1; }
+    if (json.parse("1e2").getDouble() != 100.0) { bad = bad + 1; }
+    // Builder rendering: long exact decimal; double through the
+    // language's shortest round-trip formatting
+    // (FormatFloatShortest, src/runtime/RnTypes.cpp).
+    if (JsonNumber(42).serialize() != "42") { bad = bad + 1; }
+    if (JsonNumber(3.0).serialize() != "3") { bad = bad + 1; }
+    if (JsonNumber(0.1 + 0.2).serialize() != "0.30000000000000004") { bad = bad + 1; }
+    if (expectThrowLong(JsonNumber(1.5), fracPart) != 0) { bad = bad + 1; }
+    if (JsonNumber(2.0).getInt() != 2) { bad = bad + 1; }
+    return bad;
+}

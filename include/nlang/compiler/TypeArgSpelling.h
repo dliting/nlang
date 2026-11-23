@@ -6,6 +6,8 @@
     （转型比较、intern键、typeName显示随之失配）。
 ---*/
 #pragma once
+#include <nlang/runtime/PrimitiveTypes.h>
+#include <nlang/runtime/RuntimeTypeCodes.h>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -18,6 +20,56 @@ class SnInterfaceDecl;
 class SnField;
 class ModuleRegistry;
 class SyntaxNode;
+
+//The keyword leaves of the spelling layer: the 12 scalar keywords (the
+//scalar-primitive table's keyword column is the authority there) plus
+//`string` and `void`. The AST-side builder and the load-side parser used to
+//each keep a private copy of this word set, and the copies drifted — `void`
+//degraded to "?" on the producer side while the parser knew neither the word
+//nor the degrade, so a `func<void,int>` argument emitted a row the image
+//loader refused as corrupt. The table is read in both directions, which is
+//what keeps the two sides a pair.
+//`Type` needs no row: it has no keyword and names no value, so it never
+//reaches the spelling layer (its mirror gives up its name in
+//ImportedNodeBuilder, and the type-argument gate sees no other route to it).
+struct TypeLeafKeyword
+{
+	NodeKind kind;
+	const char* keyword;
+	uint8_t rtk;
+};
+
+#define MACRO_TYPE_LEAF_SCALAR(Name, Keyword, Width, Carrier, Category, Rank) \
+	{ NK_##Name, Keyword, RTK_##Name },
+inline constexpr TypeLeafKeyword kTypeLeafKeywords[] = {
+	SCALAR_PRIMITIVE_DECL(MACRO_TYPE_LEAF_SCALAR)
+	{ NK_String, "string", RTK_String },
+	{ NK_Void,   "void",   RTK_Void   },
+};
+#undef MACRO_TYPE_LEAF_SCALAR
+
+//Keyword leaf of a builtin type node kind — the producer's direction: the
+//canonical spelling plus the runtime type kind the dispatch paths read.
+//nullptr when the kind is not keyword-named (a declared type, an array token,
+//an instantiation, a type-parameter placeholder, or `Type`).
+inline const TypeLeafKeyword* FindTypeLeafKeyword(NodeKind kind)
+{
+	for (const TypeLeafKeyword& row : kTypeLeafKeywords)
+		if (row.kind == kind)
+			return &row;
+	return nullptr;
+}
+
+//The parser's direction: a keyword leaf resolves to its runtime type kind
+//without consulting any module table. nullptr for every other leaf spelling —
+//those resolve through the linked module's struct/class/enum/interface tables.
+inline const TypeLeafKeyword* FindTypeLeafKeyword(const std::string& keyword)
+{
+	for (const TypeLeafKeyword& row : kTypeLeafKeywords)
+		if (keyword == row.keyword)
+			return &row;
+	return nullptr;
+}
 
 //True when the node's parent is a type declaration (class/struct/
 //interface/enum) — the shared "type member" predicate of the key
@@ -96,8 +148,8 @@ std::string DescriptorSpellingOf(const ModuleRegistry& reg,
 	const SnField& field);
 
 //Build the descriptor argument list of an instantiation node: each
-//element of GenericTypeArgs() maps to one TypeArgDesc — scalars by
-//canonical keyword, string as "string", class/interface/struct/enum by
+//element of GenericTypeArgs() maps to one TypeArgDesc — keyword leaves
+//(the scalars, `string`, `void`) by their keyword, class/interface/struct/enum by
 //their descriptor spelling (module-path qualified outside the prelude,
 //bare for prelude and ownerless nodes), arrays as element spelling +
 //rank marks with the
@@ -115,8 +167,11 @@ std::vector<TypeArgDesc> BuildTypeArgsOf(const ModuleRegistry& reg,
 
 //One resolved type's descriptor argument — the shared per-type spelling
 //and dispatch structure. Exported for the resolver's typeName fold
-//decisions (scalar/string/link-key/array/instantiation/placeholder
-//classification in one place).
+//decisions (keyword-leaf/link-key/array/instantiation/placeholder
+//classification in one place). Every kind a resolved type argument can
+//have is spelled here; a kind outside that set throws instead of
+//degrading, because an unspellable leaf is an intern key the load side
+//cannot resolve (the image is then refused as corrupt).
 TypeArgDesc BuildTypeArgOf(const ModuleRegistry& reg, const SnField& type);
 
 //True when any argument is a type parameter — the instantiation's

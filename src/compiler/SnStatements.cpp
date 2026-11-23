@@ -435,10 +435,13 @@ SnField *SnSubscriptAssignStmt::FindField(const std::string& sName) const
 
 SnSuperCallStmt::SnSuperCallStmt(const PtrList<SnExpression>& args,
 	const ISourceLocation &loc) :
-	Super_(s_Kind, loc), m_args(args)
+	Super_(s_Kind, loc), m_pArgs(new SnExpressionList(this)),
+	m_pCtorFunction(nullptr)
 {
-	for (auto* pArg : m_args)
-		AddChild(pArg);
+	//push_back goes through Node::AddChild, so the statement owns the
+	//arguments and Args() stays a live view over them.
+	for (auto* pArg : args)
+		m_pArgs->push_back(pArg);
 }
 
 std::string SnSuperCallStmt::ToString() const
@@ -446,10 +449,10 @@ std::string SnSuperCallStmt::ToString() const
 	std::stringstream ss;
 	ss << "super(";
 	bool first = true;
-	for (auto* pArg : m_args) {
+	for (auto &arg : Args()) {
 		if (!first) ss << ", ";
 		first = false;
-		ss << pArg->ToString();
+		ss << arg.ToString();
 	}
 	ss << ");";
 	return ss.str();

@@ -52,5 +52,39 @@ family capture src src/compiler/builder/LambdaDisplaySynthesis.cpp
 family capture unit lambda|display_capture|promote_local
 family capture e2e ^lambda_|^err_for_head_|^err_lambda
 
+family stdlib_math src stdlib/math.n
+family stdlib_math src src/native/math/math_native.cpp
+family stdlib_math unit library_index|langservice|library_source|stdlib_tests|ncu_package
+family stdlib_math e2e ^stdlib_math_
+
+family stdlib_fs src stdlib/fs.n
+family stdlib_fs src src/native/fs/fs_native.cpp
+family stdlib_fs src src/native/fs/FileTimeEpoch.h
+family stdlib_fs unit library_index|langservice|library_source|stdlib_tests|ncu_package|native_fs
+family stdlib_fs e2e ^(stdlib_fs_|fs_read_bytes)
+
+family stdlib_net src stdlib/net.n
+family stdlib_net unit library_index|langservice|library_source|stdlib_tests|ncu_package
+family stdlib_net e2e ^(stdlib_net_|net_)
+
+# stdlib_web_ belongs to this family: web builds on http, so a change to
+# http.n has to re-run the whole web corpus as well.
+family stdlib_http src stdlib/http.n
+family stdlib_http unit library_index|langservice|library_source|stdlib_tests|ncu_package
+family stdlib_http e2e ^(stdlib_http_|stdlib_web_|http_)
+
+family stdlib_web src stdlib/web.n
+family stdlib_web unit library_index|langservice|library_source|stdlib_tests|ncu_package
+family stdlib_web e2e ^stdlib_web_
+
+# The tensor kernels, their stdlib surface and the mnist example move
+# together: the family's unit rule is also guard six's claim (甲) for
+# the mnist demo-acceptance entries, whose runs T1 skips and T0 maps
+# back in on exactly these paths.
+family tensor src src/native/tensor/**
+family tensor src stdlib/tensor.n
+family tensor src examples/mnist_mlp/**
+family tensor unit native_tensor|mnist_mlp
+
 ignore docs/**
 ignore temp/**

@@ -91,12 +91,13 @@ before they land here.
 - [23. The http Package](library/23-http.md)
 - [24. The gzip Package](library/24-gzip.md)
 - [25. The regex Package](library/25-regex.md)
+- [26. The json Package](library/26-json.md)
 
 ### Part III — Binary Formats
 
-- [26. The `.ncu` Unit Image](formats/26-ncu.md)
-- [27. The `.npkg` Package Archive](formats/27-npkg.md)
-- [28. The Native Application Binary Interface (ABI)](formats/28-abi.md)
+- [27. The `.ncu` Unit Image](formats/27-ncu.md)
+- [28. The `.npkg` Package Archive](formats/28-npkg.md)
+- [29. The Native Application Binary Interface (ABI)](formats/29-abi.md)
 
 ### Reference
 

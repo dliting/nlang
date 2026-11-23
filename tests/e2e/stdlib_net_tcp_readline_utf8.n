@@ -12,9 +12,10 @@ import net;
 // a coalesced segment was split wrong, 6 = the long line lost or changed bytes,
 // 7 = the text received before the peer closed was dropped, 8 = a character
 // split across two segments came back mangled, 9 = readLine raised
-// instead of returning, 10 = a NUL byte inside the line did not end the text
-// the way the same bytes do in io.fromBytes, 11 = past the end of the stream
-// readLine returned something other than the empty string.
+// instead of returning, 10 = a NUL byte inside the line was not kept as a
+// content byte (readLine and io.fromBytes must answer the same for those
+// bytes), 11 = past the end of the stream readLine returned something other
+// than the empty string.
 class LineReader {
     public TcpStream c;
     public string line = "";
@@ -70,10 +71,11 @@ int main() {
     if (r.code != 0) { return r.code; }
     if (r.line != "caf\u00e9") { return 8; }     //same text, assembled in two halves
 
-    // A NUL byte inside a line: a string cannot hold one, so the line ends where
-    // the NUL ends it -- the same rule the caller gets from io.fromBytes on those
-    // bytes. Decoding byte by byte instead drops the NUL and keeps the bytes
-    // behind it, which makes the two paths disagree about the same input.
+    // A NUL byte inside a line is an ordinary content byte, so the line still
+    // ends at the line feed and the text keeps the NUL -- exactly what
+    // io.fromBytes answers for the same bytes. Decoding byte by byte instead of
+    // collecting them drops the NUL and keeps the bytes behind it, which makes
+    // the two paths disagree about one input.
     byte[] nulLine = byte[5];
     nulLine[0] = 65;                   //'A'
     nulLine[1] = 0;                    //NUL
@@ -82,7 +84,10 @@ int main() {
     nulLine[4] = 10;                   //'\n'
     cli.write(nulLine, 5, 5000);
     string got = c.readLine(5000);
-    if (got.length() != 1 || got[0] != 65) { return 10; }
+    if (got.length() != 3 || got[0] != 65 || got[1] != 0 || got[2] != 66) {
+        return 10;
+    }
+    if (got != io.fromBytes(nulLine[0:3])) { return 10; }
 
     // The peer closes before the line ends: the text received so far still has
     // to be returned (an unterminated final line is not lost).

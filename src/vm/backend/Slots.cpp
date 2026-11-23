@@ -120,15 +120,18 @@ void VmBackend::ReplayNamespaceBranchOrdinal(OwnerMemberMeta &meta,
 //carries this). Overloaded members share name+paramCount (Vec(int) vs
 //Vec(float), f(int) vs f(string)), so every member carries its ordinal
 //— 0.9.12 D-new-8 generalized the ctor-only ordinal to all members.
-//The producer registers every body-or-native member into methodIndices
-//in declaration order (constructors additionally into the parallel
-//constructorIndices), so the scan below replays that fill order and
-//counts within the list the callee belongs to: constructors index the
-//ctor list, methods and statics index the method list with ctor
-//entries skipped. IsRegisteredCtor (= SnFunction::HasImplementation)
-//is the producer's registration filter and the stub rebuild replays it
-//in order, so the ordinal computed here addresses the right record on
-//the wire in both .nproj and .ncu modes.
+//The producer registers every implemented member plus every abstract
+//class member (signature-only record) into methodIndices in declaration
+//order (constructors additionally into the parallel constructorIndices),
+//so the scan below replays that fill order and counts within the list the
+//callee belongs to: constructors index the ctor list, methods and statics
+//index the method list with ctor entries skipped. IsRegisteredMember is
+//the producer's registration filter (RegisterFunctions) shared verbatim,
+//and the stub rebuild replays it in order, so the ordinal computed here
+//addresses the right record on the wire in both .nproj and .ncu modes —
+//and in the source-shipped-package mode, where the member declarations
+//come from the library source and only this predicate keeps an abstract
+//member's row counted.
 VmBackend::OwnerMemberMeta VmBackend::CrossUnitOwnerMeta(
         const SnFunction& callee) const {
     OwnerMemberMeta meta;
@@ -160,10 +163,11 @@ VmBackend::OwnerMemberMeta VmBackend::CrossUnitOwnerMeta(
         //into the wrong record.
         if (IsStaticInitName(fn.Name()))
             continue;
-        //Unregistered members have no table record at all (the
-        //producer's filter skips bodyless non-native decls; stub
-        //members pass by construction).
-        if (!IsRegisteredCtor(fn))
+        //Unregistered members have no table record at all (the producer's
+        //filter skips bodyless non-native non-abstract decls; stub members
+        //pass by construction). An abstract class member owns a
+        //signature-only record, so it occupies a row here too.
+        if (!IsRegisteredMember(fn))
             continue;
         const bool memberIsCtor = fn.Name() == owner.Name()
             && !fn.ContainFlags(NF_Static);

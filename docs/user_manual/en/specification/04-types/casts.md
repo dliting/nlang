@@ -4,11 +4,11 @@ The normative rules for cast expressions are §5.5; the implicit
 conversion rules are §4.4.
 
 There are two ways to convert a value between types: the explicit `as`
-operator (scalar narrowing, numeric↔char, unboxing, class downcast), and
-implicit coercion to `string`. Which conversions between scalar-family
-members are implicitly legal (widening, range containment, integer→float)
-is decided by the conversion matrix — see
-§4.4.
+operator (scalar widening and narrowing, numeric↔char, unboxing, class
+downcast, array target), and implicit coercion to `string`. Which
+conversions between scalar-family members are implicitly legal
+(widening, range containment, integer→float) is decided by the
+conversion matrix — see §4.4.
 
 ### Explicit cast (`as`)
 
@@ -23,12 +23,17 @@ distinguish `(foo) + bar` from `(foo + bar)`; the keyword operator has
 no such ambiguity, matching C#, TypeScript, and Kotlin. Five classes of
 conversion are supported:
 
-- **Scalar narrowing and cross-sign** (bit-truncating, the C# unchecked
-  equivalent): `d as int` (double→int), `d as float` (double→float),
-  `l as int` (long→int), `s as ubyte` (reverse cross-sign) — any scalar
-  pair the implicit matrix does not admit can be made explicit with `as`.
-  Explicit means user-acknowledged: **no lossy-conversion warning is
-  emitted**.
+- **Scalar conversions** (a narrowing or cross-sign pair truncates the
+  bits, the C# unchecked equivalent): `d as int` (double→int), `d as
+  float` (double→float), `l as int` (long→int), `s as ubyte` (reverse
+  cross-sign). The other direction is legal too — `l as double`
+  (long→double), `i as float` (int→float), `b as int` (ubyte→int)
+  spells a widening the matrix already admits, for a program that wants
+  to state the conversion instead of relying on it. An enumeration
+  operand or target is the `int` it is at run time (§4.6), so `c as byte`
+  and `c as double` are the `int` conversions they read as. Explicit
+  means user-acknowledged: **no lossy-conversion warning is emitted**, in
+  either direction.
 - **Numeric ↔ char**: `c as int` reads the code point; `65 as char`
   constructs a char explicitly, validating the scalar value at run time
   (a surrogate or a value above U+10FFFF throws the runtime error
@@ -55,12 +60,20 @@ conversion are supported:
   `x` is `int[]` — is rejected at compile time: both sides have
   already promised their rank (§4.10.7).
 
-`as` is reserved for pairs the matrix does not admit — using `as` on a
-conversion that is **already implicit** is also a compile error
-(`` `as` cannot perform implicit conversion `UByte` → `Int32` ``):
-`ubyte`→`int` is implicit widening anyway; writing `b as int` is
-redundant — plain `int x = b;` works. The implicit matrix is in
-§4.4.
+`as` covers the pairs the matrix does not admit, and it is also the
+explicit spelling of a conversion between two scalar primitives that the
+matrix admits implicitly — `l as double`, `i as float`, `b as int`
+(§4.4). The operator is the warning-free form of those: the bare form of
+the two lossy ones reports `implicit conversion from 'Long' to 'Double'
+loses precision` (§4.4), and `as` is how the program says the loss is
+intended.
+
+What `as` still refuses is an implicit edge that reaches a non-scalar
+type: `n as string` is a compile error (`` `as` cannot perform implicit
+conversion `Int32` → `String` ``) — those conversions render text
+(§4.4), they do not convert the value, and the only ways into `string`
+through `as` stay the unboxing of a boxed string and the function-value
+render of §5.5.
 
 **Forbidden `as`**:
 

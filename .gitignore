@@ -14,11 +14,19 @@ release/
 # Temp dirs (one-off scripts and artifacts)
 temp/
 
+# Test scratch and captured run logs, kept out of git
+tests/temp/
+tests/log/
+
+# Qt/ctest logs captured by running `ctest -o qtest_logs/` at the repo root
+qtest_logs/
+
 # Blog articles (published externally, local only)
 blog/
+
+# Third-party reference inputs kept under docs/ (not shipped documentation)
+docs/ref/
 scratch/
-tests/e2e/_examples_tmp/
-tests/e2e/_imports_tmp/
 
 # IDE files
 .vs/

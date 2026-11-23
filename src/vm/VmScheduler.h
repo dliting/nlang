@@ -165,6 +165,12 @@ enum class ContextState {
     Failed,          //根帧异常逃逸
 };
 
+//Which harvest branch woke a ParkedIo context (WakeForIo records it,
+//LastIoWakeReasonForTests reads it): the Ready and Deadline wakes leave
+//the same state, so a test that must tell readiness from timeout reads
+//this recorded fact instead of the clock (D-12).
+enum class IoWakeReason { None, Ready, Deadline, Closed };
+
 //一个调度上下文（main 或后续 spawned 线程/协程）。frames 见文件头
 //「停泊即窃取」约定；其余字段由各生产者切片填充，本片恒零值。
 struct ExecutionContext {
@@ -186,6 +192,11 @@ struct ExecutionContext {
     //the syscall). A stale armed is harmless by contract (NativeHost.h).
     bool ioParkPending = false;
     bool ioParkArmed = false;
+    //v0.13.x D-12: which branch woke the last IO park (recorded by the
+    //WakeForIo transition, read by LastIoWakeReasonForTests). The ready
+    //and deadline wakes end in the same state, so the distinction has
+    //to be a recorded fact, not a clock reading.
+    IoWakeReason ioWakeReason = IoWakeReason::None;
     //P2-4 nested pump: 0 = dispatchable by anyone; nonzero = only the
     //pump holding this token may dispatch (PopAffinity skips it for
     //every other dispatcher — its owner serves it by id, never by
@@ -449,8 +460,9 @@ public:
                    std::chrono::steady_clock::time_point deadline,
                    bool hasDeadline);
     //Moves a ParkedIo context back to Runnable (enqueued under the
-    //framesParked handshake, WakeForMutex shape).
-    void WakeForIo(int id);
+    //framesParked handshake, WakeForMutex shape) and records which
+    //branch woke it (ctx->ioWakeReason, D-12).
+    void WakeForIo(int id, IoWakeReason reason);
     //v11 R13: drop every interest entry for fd AND wake the parked
     //contexts (the net module's socket-close path — it cannot reach
     //the VM poller directly). Callable without the GIL (self-guarded).
@@ -915,15 +927,13 @@ private:
     //IoPollerCreate call return null. Read only at the park's handle
     //creation site — park and probe both run under the GIL, no race.
     bool m_ioPollerCreateFailsForTests = false;
-    //Last interest set registered with the poller (fd → events). The
-    //park-site registration (RegisterIoInterestLocked) unions into it,
-    //the harvest round narrows it (del vanished, mod shrunk), and the
-    //close-side wake drops the fd's row. Hashed — the 10k-connection
-    //benchmark showed the vector form made each round O(fds²). Touched
-    //under the GIL only. Contract (D1): the table may only UNDER-report
-    //the kernel set — a stale row makes the equal-mask shortcut skip a
-    //needed Add and strands the park on its deadline, while a missing
-    //row self-heals through the Mod/Add pair.
+    //Last interest set registered with the poller (fd → events): the
+    //narrowing sweep's candidate list, not an authority a park may trust
+    //(every park re-declares its interest — RegisterIoInterestLocked). The
+    //park-site registration unions into it, the harvest round narrows it (del
+    //vanished, mod shrunk), and the close-side wake drops the fd's row along
+    //with its kernel entry. Hashed — the 10k-connection benchmark showed the
+    //vector form made each round O(fds²). Touched under the GIL only.
     std::unordered_map<int, uint32_t> m_ioPollerRegistered;
     bool m_ioThreadStarted = false;
     bool m_ioThreadShutdown = false;
@@ -955,12 +965,25 @@ public:
     //consumer). Public because the test drives a live scheduler instance.
     int IoPollerRegisteredForTests(int fd);      //0 = not registered
     int IoPollerRegistrationCountForTests();     //set size: "registered nothing" at all
+    //The kernel set itself, as opposed to the table that mirrors it: a row can
+    //outlive the registration it claims, and an entry can outlive the row that
+    //claimed it (wepoll removes an entry only once it dequeues that socket's
+    //close completion) — either skew is only visible from the kernel side.
+    bool IoPollerKernelInterestForTests(int fd, uint32_t events);   //fd still watched by the kernel set
+    //Makes the kernel set forget the fd while the table row stays: the reap of a
+    //closed socket, without waiting for the poller thread to run it.
+    void IoPollerDropKernelInterestForTests(int fd);
     bool IoPollerActiveForTests();               //poller handle exists
     bool IoThreadStartedForTests();
     void BeginShutdownForTests();                //the destructor's flag+notify half
     //Startup-order failure side (spec 七): makes the park's IoPollerCreate
     //call return null so the "no handle, no thread" branch is reachable.
     void SetIoPollerCreateFailsForTests(bool fails);
+    //Which branch ended this context's last IO park (the reason the
+    //wake recorded; None = never IO-woken). The IO-park tests'
+    //readiness-versus-deadline contract reads this instead of the
+    //clock (D-12; test_net_scheduler.cpp TestStaleRegistrationOnFdReuse).
+    IoWakeReason LastIoWakeReasonForTests(int contextId);
 
 private:
     std::mutex m_gil;

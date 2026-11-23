@@ -1,24 +1,22 @@
-// v0.13.7 regex: the linear-bound acceptance (D9) -- shapes that destroy
-// backtracking engines finish in bounded time on fixed-length input. The
-// caps guard against order-of-magnitude regressions, not millisecond
-// drift, and are calibrated against the DEBUG tree -- the slowest routine
-// gate tree (unoptimized + asserts makes it ~2.2-2.5x the Release+ASan
-// tree on this allocation-heavy workload), not the ASan tree the original
-// 45 s single cap assumed. On 2026-11-13 a machine-wide 1.50-1.53x
-// slowdown broke the old 20 s cap (ASan needle baseline 17733 ms, only
-// 1.13x of headroom there); the single 45 s cap then left the Debug tree
-// ~1.5% under the line, and on 2026-11-14 a ~1.8x idle-machine slowdown
-// (same downclocked state on both sides of a same-day A/B: pre-merge
-// aab51585 79910 ms vs post-merge 80280 ms -- parity, no code regression;
-// subsystem probes all within 1.02-1.07x) pushed the Debug-tree needle
-// miss to ~80 s and broke the cap. The needle case therefore carries its
-// own 160 s cap (~2x the slowed reading; any slower and the fixture's
-// ~120 s total hits the 300 s ctest ceiling anyway, which stays the
-// backstop). This test runs through ctest with its own
-// 300 s ceiling, not the e2e runner (30 s per-test cap), following the
-// mnist_mlp_run precedent.
+// v0.13.7 regex: the D9 shapes that destroy backtracking engines must still
+// answer correctly on the thread-set engine. This entry carries no wall-clock
+// assertion: the routine gate trees run it in Debug, ASan and IDE flavours at
+// once, and a time-capped fixture in three trees is a bet on machine load
+// rather than a test (2026-11-13 and 2026-11-14 both saw a machine-wide
+// 1.5-1.8x slowdown move readings across a cap, and the ASan tree measures
+// ~1.76x the Debug time on this workload -- tests/CMakeLists.txt). The
+// bounded-time half of D9 is asserted by the opt-in perf twin
+// (stdlib_regex_redos_perf.n, registered under NLANG_PERF_TESTS), and an
+// engine that went exponential again on
+// these shapes would sit past the ctest ceiling below, which is a harness
+// backstop rather than an assertion inside the program.
+//
+// The input sizes are a quarter of the perf twin's: they stay far above the
+// point where a backtracking engine explodes ((a*)*b and ((a|aa)+)+b over
+// thousands of 'a' are the classic killers), while keeping this entry inside
+// about a minute per run so every routine gate leg pays for correctness, not
+// for a soak.
 import io;
-import system;
 import regex;
 
 string nTimes(string unit, int n) {
@@ -29,42 +27,23 @@ string nTimes(string unit, int n) {
 
 int main() {
     int bad = 0;
-    int n = 16000;
-    //Per-shape wall caps: redos cases sit ~2.5x over the slowed Debug-tree
-    //readings of 2026-11-14; the needle case is ~4.4x costlier per run and
-    //carries its own proportionally larger cap (see the header note).
-    const int perCaseCapMs = 45000;
-    const int needleCapMs = 160000;
+    int n = 4000;
     string hay = nTimes("a", n) + "c";
-    long t0 = system.monoMs();
+    // Each shape must answer "no match" -- the trailing b is absent -- and
+    // must do so without the engine falling off the linear bound.
     if (Regex("(a|a)*b").isMatch(hay)) { bad = bad + 1; }
-    long d1 = system.monoMs() - t0;
-    t0 = system.monoMs();
     if (Regex("(a*)*b").isMatch(hay)) { bad = bad + 1; }
-    long d2 = system.monoMs() - t0;
-    t0 = system.monoMs();
     if (Regex("((a|aa)+)+b").isMatch(hay)) { bad = bad + 1; }
-    long d3 = system.monoMs() - t0;
-    t0 = system.monoMs();
     if (Regex("a*a*a*a*b").isMatch(hay)) { bad = bad + 1; }
-    long d4 = system.monoMs() - t0;
-    io.print("redos ms: " + d1.toString() + " " + d2.toString() + " " + d3.toString() + " " + d4.toString() + "\n");
-    if (d1 > perCaseCapMs) { bad = bad + 1; }
-    if (d2 > perCaseCapMs) { bad = bad + 1; }
-    if (d3 > perCaseCapMs) { bad = bad + 1; }
-    if (d4 > perCaseCapMs) { bad = bad + 1; }
-    // unanchored scan over 64k of text (D9 linearity: the thread-set
-    // simulation is linear by construction — there is no fast path):
-    // a miss must finish inside the same wall and a hit keeps byte offsets
-    string longHay = nTimes("x", 32000) + nTimes("y", 32000);
-    t0 = system.monoMs();
+    // unanchored scan over 32k of text: the thread-set simulation has no fast
+    // path, so a miss is the same linear walk as a hit and must say so
+    string longHay = nTimes("x", 16000) + nTimes("y", 16000);
     if (Regex("needle").isMatch(longHay)) { bad = bad + 1; }
-    long d5 = system.monoMs() - t0;
-    io.print("needle miss ms: " + d5.toString() + "\n");
-    if (d5 > needleCapMs) { bad = bad + 1; }
-    string hitHay = nTimes("x", 32000) + "needle";
+    // a hit keeps its byte offsets across the same scan
+    string hitHay = nTimes("x", 16000) + "needle";
     Match mh = Regex("needle").match(hitHay);
     if (mh == null) { return bad + 1; }
-    if (mh.start != 32000 || mh.end != 32006) { bad = bad + 1; }
+    if (mh.start != 16000 || mh.end != 16006) { bad = bad + 1; }
+    io.print("redos shapes ok, bad=" + bad.toString() + "\n");
     return bad;
 }
