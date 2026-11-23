@@ -126,6 +126,7 @@ NLang 是一门面向嵌入与自动化场景的类型安全语言，配有字�
 - **门禁参考计时的跨机补录**（2026-11-21登记，docs/dev/gate_timing_design.md）——参考计时表`tests/gate_time_reference.txt`已并入本机录制轮七个构型的实测读数（ctest-Debug/ctest-IDE/ctest-ASan/ctest-Release四构型与e2e-Debug/e2e-Release/e2e-ASan三构型）；D-1的安全倍率（预算×2、看门狗×10）与D-4的机器标量校准都以本机倍率分布为实测依据，跨机倍率分布对比至少需两台机器：第二台机器按表头录制命令序列补录，读数先写`gate_time_reference.local.txt`、不直接覆盖在仓表，比对后按spec风险表「机型差异超出标量带，且跨机倍率分布尚未实测」一行的处置决定是否把参考表按机型分列；在那之前机型差异只由标量自校准与带内上限承接，不外推（D-4）。
 - **门禁性能环境的系数长跑**（2026-11-23登记，docs/dev/gate_timing_design.md）——性能趋势判定归性能环境（独占、系数≥1、同一机型重录参考，D-8强度轴），`T2-perf`腿的运行期系数由人按环境给`NLANG_TEST_WORK_FACTOR`（缺省1）；系数>1的长跑校准与由此重录的性能参考行本轮未跑，递延给性能环境的专项轮，收口腿不背长跑成本（守卫十一只核载体不核跑多久）。
 - **Release构型参考行的补齐**（2026-11-23登记，docs/dev/gate_timing_design.md D-16）——排期门限与慢集判定只读非AddressSanitizer读数，`e2e-Release`等Release判定构型里按D-16改判慢、当轮无价目的条目（如`stdlib_regex_size`）缺该构型的参考行；补齐手段是收口录制轮的`record`重录（D-17的录制命令），本轮登记为挂账而非每轮覆盖。
+- **ctest单元腿的陈旧二进制守卫**（2026-11-23登记，门禁计时计划收官评审建议）——改工具后忘重建时ctest跑旧二进制：e2e跑器已有三工具mtime陈旧守卫（`tools/e2e_examples_runner.py`的stale-tool检查），单元腿没有对等物，手工切树执行照样踩。2026-11-23批D事故即此形态（build-dev陈旧哨兵校准二进制rc=2被gate.sh当stub吞掉，e2e-Debug整链翻红，事后取证约40分钟）。修法不另造跑器，用ctest自带的fixture机制：门禁所属ctest套件条目挂`FIXTURES_PRE`，fixture条目以`FIXTURES_DEFINE`＋`PROCESSORS 1`携带构建工具拥有目标的命令（`cmake --build <tree> --target ncc;nvm;ndb`），并行调度自会阻塞在fixture上；覆盖整树改`--target ALL`即可。ctest外直跑的既有路径保留跑器侧守卫双保险。仅测试注册面，无语言面，归门禁硬化项，并入下一个触碰门禁的版本。
 
 ## 远期特性
 
