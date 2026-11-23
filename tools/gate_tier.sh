@@ -69,6 +69,12 @@ TIER=""
 MASTER_TREE=""
 ASAN_TREE=""
 IDE_TREE=""
+# R-101: t2() raises this before calling t1_legs so the shared assembly
+# skips the ASan e2e subset leg -- the close-out's T2-asan-e2e-full
+# sweeps the same tree under the same config, and the subset manifest is
+# a grep filter of the same manifest file, so the subset leg's every
+# second is contained in the full sweep's.
+ASAN_SUBSET_ABSORBED=0
 GIT_BASE=""
 DOCS=0
 DRY=0
@@ -310,8 +316,11 @@ ctest_leg() { # ctest_leg <name> <tree> <config-key> [-R <regex>] [-E <regex>]
   # The work directory is reused across batches, and ctest only writes the
   # junit once it has started: clearing the old file first means the
   # checker either judges this round's timings or reports a missing file
-  # (rc=1), never last round's numbers.
-  rm -f "$junit"
+  # (rc=1), never last round's numbers. The clear belongs to the executed
+  # round only (R-106): a --dry-run assembles the same legs but runs
+  # none, and clearing here would destroy the junit evidence a record
+  # round still owes in a reused work directory.
+  [ "$DRY" = 1 ] || rm -f "$junit"
   # --output-on-failure (R-59): the junit hands the checkers the
   # timings and the per-entry verdict but never the failing test's own
   # output, so without this flag a red ctest leg forces a manual
@@ -591,9 +600,17 @@ t1_legs() { # t1_legs <slow-e on|off>
       "$REPO/tests/e2e/manifest.txt" 120
   ctest_leg T1-ide-ctest "$IDE_TREE" ctest-IDE "" "$slow_ide"
   ctest_leg T1-asan-unit "$ASAN_TREE" ctest-ASan "" "$slow_asan"
-  derive_asan_subset || return 2
-  e2e_leg T1-asan-e2e-subset "$ASAN_TREE" Debug e2e-ASan \
-      "$WORK/asan_subset_derived.txt" 180
+  # R-101 subset absorption: with the close-out's T2-asan-e2e-full leg
+  # riding the batch (t2 sets the flag), the subset manifest -- the
+  # selector's grep filter of the same manifest file, fail-closed on a
+  # zero match -- is time-contained in the full sweep: same ASan-tree
+  # binaries, same --config=ASan column, same cap. T1 rounds have no
+  # full sweep there, so the subset leg stays.
+  if [ "$ASAN_SUBSET_ABSORBED" != 1 ]; then
+    derive_asan_subset || return 2
+    e2e_leg T1-asan-e2e-subset "$ASAN_TREE" Debug e2e-ASan \
+        "$WORK/asan_subset_derived.txt" 180
+  fi
   # The coverage/schedule guard legs ride every full round too (the T2
   # close-out inherits them through this function): with no fast round
   # there is no backfill to judge, so the schedule guard runs with no
@@ -719,6 +736,7 @@ t1() { t1_legs on; docs_legs; }
 
 t2() {
   DOCS=1  #version close always includes the docs five legs
+  ASAN_SUBSET_ABSORBED=1  # R-101: the full ASan sweep below carries the subset
   t1_legs off  # the close-out sweep runs the slow entries itself (D-7)
   e2e_leg T2-asan-e2e-full "$ASAN_TREE" Debug e2e-ASan \
       "$REPO/tests/e2e/manifest.txt" 180
@@ -747,7 +765,10 @@ t2() {
     scale=$(leg_scale ctest-Release --tree "$MASTER_TREE") \
         || leg_uncalibrated T2-perf
     if [ -n "$scale" ]; then
-      rm -f "$LOGS/T2-perf.xml"
+      # R-106: same rule as ctest_leg's clear -- leg_scale returns the
+      # dry placeholder, so this branch is reached by dry listings too,
+      # and only an executed round may clear the junit.
+      [ "$DRY" = 1 ] || rm -f "$LOGS/T2-perf.xml"
       leg T2-perf --gate-env "NLANG_GATE_WRITE_DIR=$MASTER_TREE" \
         env "NLANG_GATE_MACHINE_SCALE=$scale" "$PY_IO_ENCODING" \
         bash -c \

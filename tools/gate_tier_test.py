@@ -21,9 +21,9 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from gate_tier_sandbox import (EXPECTED_LEGS, build_sandbox, check,
+from gate_tier_sandbox import (EXPECTED_LEGS, build_sandbox, check,  # pyright: ignore[reportMissingImports]
                                failures, find_git_bash, run_tier)
-from gate_tier_scenarios import (run_conservative_round,
+from gate_tier_scenarios import (run_conservative_round,  # pyright: ignore[reportMissingImports]
                                  run_listing_rounds, run_mapped_round)
 
 

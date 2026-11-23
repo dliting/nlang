@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from gate_tier_sandbox import check, run_tier
+from gate_tier_sandbox import check, run_tier  # pyright: ignore[reportMissingImports]
 
 
 def run_mapped_round(bash, sandbox):
@@ -174,12 +174,30 @@ def run_listing_rounds(bash, sandbox):
     # while T1's own assembly does (t1_legs' slow_e parameter). The
     # perf names join EVERY ctest leg's -E either way (D-6: a
     # scheduled round may only run under the OFF-cache registration).
+    # A dry run assembles the batch; it must not clear the work
+    # directory the way an executed round does (R-106): a listing pass
+    # over a work directory that still owes a record round would
+    # otherwise destroy that round's junit evidence. Pre-place one
+    # sentinel per clear site (ctest_leg's junit for every ctest leg,
+    # the perf branch's T2-perf.xml) and require both to survive both
+    # listings.
+    gates_dir.mkdir(parents=True, exist_ok=True)
+    pending = (gates_dir / "T1-ide-ctest.xml", gates_dir / "T2-perf.xml")
+    for stale in pending:
+        stale.write_text("pending-evidence\n", encoding="utf-8")
     dry1 = run_tier(bash, sandbox, "T1", *trees, "--dry-run")
     dry2 = run_tier(bash, sandbox, "T2", *trees, "--dry-run")
     for name, proc_dry in (("T1", dry1), ("T2", dry2)):
         check(proc_dry.returncode == 0,
               f"{name} --dry-run exited rc={proc_dry.returncode}; "
               f"output:\n{proc_dry.stdout + proc_dry.stderr}")
+    for stale in pending:
+        check(stale.exists() and stale.read_text(encoding="utf-8")
+              == "pending-evidence\n",
+              f"a --dry-run round destroyed the pending junit "
+              f"{stale.name} in the work directory: the listing pass "
+              "must assemble without clearing an executed round's "
+              "evidence (R-106)")
     check("-E 'e2e_runner_timing_gate|mainwindow_tests|"
           "mnist_mlp_compile|perf_stub_compile|perf_stub_run'"
           in dry1.stdout,
@@ -249,6 +267,21 @@ def run_listing_rounds(bash, sandbox):
           "T2 must reuse the shared legs without the slow-set -E "
           "but with the perf-set -E: "
           f"{reuse!r}")
+    # R-101 subset absorption: the close-out adds T2-asan-e2e-full, a
+    # sweep of the same ASan tree over the whole e2e manifest, and the
+    # subset manifest is a grep filter of that same file, so running
+    # the subset leg too would repeat a time-contained part of the
+    # full leg. The assembly drops it exactly when the full leg rides
+    # the batch; the plain T1 round has no full sweep there and keeps
+    # the subset leg.
+    t2_subset = dry_leg_line_from(dry2, "T1-asan-e2e-subset")
+    check(t2_subset == "",
+          "T2 absorbed nothing: the ASan e2e subset leg still rides "
+          f"the close-out listing: {t2_subset!r}")
+    t1_subset = dry_leg_line_from(dry1, "T1-asan-e2e-subset")
+    check(t1_subset != "" and "T2-asan-e2e-full" not in dry1.stdout,
+          "T1 keeps the ASan e2e subset leg (no full sweep there): "
+          f"{t1_subset!r}")
 
     # The perf class (D-6): its own T2 leg, the registration cache
     # flipped ON for the run, judged under -C Release, no -E of its
@@ -330,4 +363,7 @@ def run_listing_rounds(bash, sandbox):
               + tree_abs["master"] in body,
               "leg_commands.tsv lost the declaration head of the "
               f"sweep legs: {body!r}")
+        check("T1-asan-e2e-subset\t" not in body,
+              "the absorbed close-out batch must not record a "
+              f"command for the subset leg either: {body!r}")
 
