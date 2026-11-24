@@ -1,46 +1,46 @@
-# 27. The `.ncu` Unit Image
+# 28. The `.ncu` Unit Image
 
 A *unit image* is the compiled artifact of one package: `ncc`
 writes it, and the loader of every tool reads it back (§3.9.3).
 This chapter fixes the image byte layout — the container, the
 record tables, the type descriptors, the default values and the
 import slots — and the validation a loader performs before an
-image runs. §27.1 sets the scope and the format version; §27.2
-fixes the container; §27.3–§27.7 define the records; §27.8
+image runs. §28.1 sets the scope and the format version; §28.2
+fixes the container; §28.3–§28.7 define the records; §28.8
 states the loading contract.
 
-## 27.1 Scope and Version
+## 28.1 Scope and Version
 
 **Format version.** This chapter describes format version
 **2.23**, recorded in the header as major `2`, minor `23`
-(§27.2). A conforming loader accepts exactly this version and
+(§28.2). A conforming loader accepts exactly this version and
 rejects every other: an older image with a "recompile"
 diagnostic, a newer image with an "upgrade the toolchain"
-diagnostic (§27.8). There is no migration and no partial
+diagnostic (§28.8). There is no migration and no partial
 acceptance. A format change bumps the version and replaces this
 chapter wholesale; the specification describes only the current
 version.
 
-**What this chapter fixes.** The container layout (§27.2), the
-template table (§27.2.1), the function records (§27.3), the type
-records (§27.4), the type descriptors (§27.5), the default values
-and default expressions (§27.6), the import slots (§27.7) and the
-loading contract (§27.8).
+**What this chapter fixes.** The container layout (§28.2), the
+template table (§28.2.1), the function records (§28.3), the type
+records (§28.4), the type descriptors (§28.5), the default values
+and default expressions (§28.6), the import slots (§28.7) and the
+loading contract (§28.8).
 
 **What it does not fix.** The encoding of the instructions
 inside a function's bytecode array: the array is an opaque byte
 string here. It is pinned to the same format version — a 2.23
 image carries the instruction set of the 2.23 toolchain — but
 the opcode values and instruction forms are not part of this
-specification. The native calling convention is §29.4; the
-archive that packs images is chapter 28.
+specification. The native calling convention is §30.4; the
+archive that packs images is chapter 29.
 
 **Determinism.** Compiling the same source program twice with
 the same `ncc` produces byte-identical images: the writer
 records no timestamps, and every table follows declaration
 order.
 
-## 27.2 Container Layout
+## 28.2 Container Layout
 
 **Conventions.** Every integer is written little-endian, least
 significant byte first, in two's-complement form. A
@@ -69,19 +69,19 @@ many records:
 | # | Section | Record |
 |---|---|---|
 | 1 | string constants | u32 length + bytes |
-| 2 | template table | §27.2.1 |
-| 3 | functions | §27.3 |
-| 4 | structs | §27.4 |
-| 5 | classes | §27.4 |
-| 6 | interfaces | §27.4 |
-| 7 | array types | §27.4 |
-| 8 | enums | §27.4 |
-| 9 | static slots | §27.4 |
-| 10 | function imports | §27.7 |
-| 11 | class imports | §27.7 |
-| 12 | struct imports | §27.7 |
-| 13 | enum imports | §27.7 |
-| 14 | static-slot imports | §27.7 |
+| 2 | template table | §28.2.1 |
+| 3 | functions | §28.3 |
+| 4 | structs | §28.4 |
+| 5 | classes | §28.4 |
+| 6 | interfaces | §28.4 |
+| 7 | array types | §28.4 |
+| 8 | enums | §28.4 |
+| 9 | static slots | §28.4 |
+| 10 | function imports | §28.7 |
+| 11 | class imports | §28.7 |
+| 12 | struct imports | §28.7 |
+| 13 | enum imports | §28.7 |
+| 14 | static-slot imports | §28.7 |
 
 **Names.** Every function, class, struct, interface and
 enumeration is recorded under its qualified key
@@ -91,10 +91,10 @@ single-segment package path (§3.9.2), so its images carry
 single-segment module paths.
 
 **String constants.** The pool holds the unit's string
-literals; the bytecode and the default values of §27.6
+literals; the bytecode and the default values of §28.6
 reference it by index.
 
-### 27.2.1 The Template Table
+### 28.2.1 The Template Table
 
 The template table records the generic-instantiation descriptors
 the unit registers (§4.12.9), one row each:
@@ -142,7 +142,7 @@ means a corrupt image: the run aborts with a `corrupt descriptor
 spelling` diagnostic instead of landing on the same-named row of
 another package (§4.12.9).
 
-## 27.3 Function Records
+## 28.3 Function Records
 
 The function section holds one record per function, method and
 constructor of the unit, in registration order. Each record:
@@ -152,30 +152,30 @@ constructor of the unit, in registration order. Each record:
 | name | u32 length + bytes | the qualified key (§3.6) |
 | frame size | u16 | the frame size in bytes, eight bytes per slot: parameters (the receiver included), locals and scratch (§9.2) |
 | parameter count | u16 | the formal count, including the implicit receiver slot of a method or constructor (§4.8.7) |
-| return kind | u16 | the type-kind code of the return type (§27.5); `0xFE` for `void` |
+| return kind | u16 | the type-kind code of the return type (§28.5); `0xFE` for `void` |
 | intrinsic id | u16 | `0xFFFF` for an ordinary function; otherwise an engine-internal identifier of a built-in intrinsic |
 | native flag | u8 | `1` for a body-less `native` declaration (§7.5) |
 | static flag | u8 | `1` for a static member (§4.8.8) |
-| instance-method flag | u8 | `1` for a non-static member of a class, struct or enum (instance methods and constructors, §4.8.7); its frame carries the slot-0 receiver, and the native call bridge locates the receiver handle through it (§29.5) |
+| instance-method flag | u8 | `1` for a non-static member of a class, struct or enum (instance methods and constructors, §4.8.7); its frame carries the slot-0 receiver, and the native call bridge locates the receiver handle through it (§30.5) |
 | abstract flag | u8 | `1` for a body-less abstract method declaration (§4.8.10); the record then carries the signature only, so consumer stubs see the obligation |
 | generic flag | u8 | `1` for a generic record; a generic record then also carries a u16 type-parameter count followed by that many length-prefixed type-parameter names (§4.12.3) |
 | lambda flag | u8 | `1` for a function synthesized from a lambda expression; `toString` renders such a closure as `"lambda"` off this flag (§7.4), not off the synthetic name shape |
-| default count | u16 | followed by that many default value records (§27.6) |
+| default count | u16 | followed by that many default value records (§28.6) |
 | bytecode size | u32 | followed by that many instruction bytes |
 | try block count | u16 | followed by five u16 values per entry |
 | local count | u16 | followed by one local descriptor per entry |
 | source file | u32 length + bytes | the source path the function was compiled from |
 | parameter descriptor count | u16 | followed by one parameter descriptor per entry |
-| return descriptor | u16 length + descriptor | the return type descriptor (§27.5); present only when the return kind is not `0xFE` |
+| return descriptor | u16 length + descriptor | the return type descriptor (§28.5); present only when the return kind is not `0xFE` |
 | handle mask size | u32 | followed by that many mask bytes |
-| declared access | u8 | the record's trailing field: the declared access of this function, method or constructor (§4.8.2) — `1` `private`, `2` `protected`, `3` `public`. A free function's access rides nowhere else, while a member's access also appears in its owner's access tables (§27.4) |
+| declared access | u8 | the record's trailing field: the declared access of this function, method or constructor (§4.8.2) — `1` `private`, `2` `protected`, `3` `public`. A free function's access rides nowhere else, while a member's access also appears in its owner's access tables (§28.4) |
 
 **Defaults.** The default count is one entry per written
 formal: for a free function it equals the parameter count; for
 a method or constructor it is one less, because the receiver
 carries no default (§7.2).
 
-**Bytecode.** The instruction array is opaque here (§27.1). A
+**Bytecode.** The instruction array is opaque here (§28.1). A
 `native` record carries an empty array: the declaration is
 body-less by contract (§7.5).
 
@@ -187,14 +187,14 @@ byte offset of the local that receives the exception (§8.2).
 **Local descriptors.** Each entry is the frame byte offset
 (u16), the byte size (u16), a parameter flag (u8, `1` for a
 formal or the receiver), the declared type's kind code (u8,
-§27.5), the bytecode offset at which the local becomes visible
+§28.5), the bytecode offset at which the local becomes visible
 (u16; `0` for entry — parameters and the receiver), and the
 name (u32 length + bytes).
 
 **Parameter descriptors.** One per written formal — a method's
 receiver is not described: a flags byte (bit `1` set marks a `&`
 formal, bit `2` a `const` formal; the other bits carry no meaning,
-§7.2, §4.7.9) followed by a length-prefixed type descriptor (§27.5).
+§7.2, §4.7.9) followed by a length-prefixed type descriptor (§28.5).
 
 **Handle mask.** The field before the declared access byte tells
 the garbage collector which frame slots to trace (§9.2). It covers the slots from
@@ -207,15 +207,15 @@ size is the band slot count divided by four, rounded up; a
 record with an empty band — a `native` or intrinsic record —
 writes size `0`.
 
-## 27.4 Type Records
+## 28.4 Type Records
 
 **Access bytes.** A member's declared access is one byte: `0`
 default, `1` `private`, `2` `protected`, `3` `public` (§4.8.2). The
 type-level access byte of a class, struct, interface or enum record, and
-the declared access byte of a function record (§27.3), never carry `0`:
+the declared access byte of a function record (§28.3), never carry `0`:
 the writer resolves the default level at registration, and a loader
 takes `0` or a value above `3` in one of them as a corrupt image
-(§27.8).
+(§28.8).
 
 **Structs.** One record per struct, in declaration order:
 
@@ -225,16 +225,16 @@ takes `0` or a value above `3` in one of them as a corrupt image
 | field count | u16 | |
 | const marker | u8 | `1` for a const struct (§4.8.12), `0` otherwise |
 | field names | u32 length + bytes each | declaration order |
-| field kinds | u16 each | the field type's kind code (§27.5) |
+| field kinds | u16 each | the field type's kind code (§28.5) |
 | field struct indices | u16 each | the struct-table index for a struct-typed field; `0xFFFF` otherwise |
 | field class indices | u16 each | the class-table index for a class-typed field; `0xFFFF` otherwise |
-| field descriptors | u16 length + descriptor each | §27.5 |
+| field descriptors | u16 length + descriptor each | §28.5 |
 | constructor count | u16 | followed by that many u16 function-table indices, declaration order |
-| field default count | u16 | equals the field count; followed by one default value record per field (§27.6) |
+| field default count | u16 | equals the field count; followed by one default value record per field (§28.6) |
 | constructor access | u8 each | |
 | struct access | u8 | the declared access of the struct type itself (§4.8.2), the record's trailing field |
 
-A field default of *no default* (§27.6) leaves the field at
+A field default of *no default* (§28.6) leaves the field at
 its type's zero value; the others are applied at every
 allocation (§4.7.2).
 
@@ -257,7 +257,7 @@ allocation (§4.7.2).
 | method virtual flags | u8 each | `1` for a `virtual` method (§4.8.9) |
 | constructor count | u16 | followed by that many u16 function-table indices |
 | constructor access | u8 each | |
-| static field count | u16 | each entry: a u32-length name, a length-prefixed type descriptor, an access byte, a const flag (`1` = `const`), and a u16 slot index into the static slot table — `0xFFFF` marks a compile-time-folded constant, which carries its folded value as a default value record (§27.6) instead |
+| static field count | u16 | each entry: a u32-length name, a length-prefixed type descriptor, an access byte, a const flag (`1` = `const`), and a u16 slot index into the static slot table — `0xFFFF` marks a compile-time-folded constant, which carries its folded value as a default value record (§28.6) instead |
 | static-initializer index | u16 | the function-table index of the class's static initializer (§4.8.8); `0xFFFF` = none |
 | generic declaration tail | u8 + u16 + names | a u8 template flag (`1` marks the template declaration) followed, for a template class, by a u16 type-parameter count and that many u32-length-prefixed type-parameter names (§4.12.3) |
 | class access | u8 | the declared access of the class type itself (§4.8.2), the record's trailing field |
@@ -273,8 +273,8 @@ in the method list; the constructor table selects them.
 |---|---|---|
 | name | u16 length + bytes | the qualified key (§3.6) |
 | static method count | u16 | followed by that many u16 function-table indices |
-| constant count | u16 | each entry: a u16-length name, a length-prefixed type descriptor, a default value record (§27.6), and a u16 slot index into the static slot table — `0xFFFF` marks a compile-time-folded constant (the value record carries it), anything else is a runtime-initialized constant (§4.9.3) |
-| signature count | u16 | each entry: a u16-length name, a u16 parameter count, per formal a flags byte (the parameter-descriptor flag encoding of §27.3) and a length-prefixed type descriptor, a length-prefixed return descriptor, and a u16 default count followed by that many default value records |
+| constant count | u16 | each entry: a u16-length name, a length-prefixed type descriptor, a default value record (§28.6), and a u16 slot index into the static slot table — `0xFFFF` marks a compile-time-folded constant (the value record carries it), anything else is a runtime-initialized constant (§4.9.3) |
+| signature count | u16 | each entry: a u16-length name, a u16 parameter count, per formal a flags byte (the parameter-descriptor flag encoding of §28.3) and a length-prefixed type descriptor, a length-prefixed return descriptor, and a u16 default count followed by that many default value records |
 | static-initializer index | u16 | the function-table index of the interface's static initializer; `0xFFFF` = none |
 | generic declaration tail | u8 + u16 + names | the generic-interface template marker, the class-record shape: a u8 template flag (`1` marks the template declaration) followed, for template interfaces, by a u16 type-parameter count and that many length-prefixed type-parameter names (§4.12.11) |
 | interface access | u8 | the declared access of the interface type itself (§4.8.2), the record's trailing field; its members stay implicitly public, so this byte gates the type name alone |
@@ -290,7 +290,7 @@ virtual bytes are recorded; the type's own access byte is still the
 record's trailing field.
 
 **Array types.** One record per distinct array type the unit
-uses: the element kind (u8, §27.5), the element type index
+uses: the element kind (u8, §28.5), the element type index
 (u16; `0xFFFF` for a primitive element), and the rank (u8,
 §4.10).
 
@@ -317,14 +317,14 @@ addresses a slot by its index into this table:
 | owner kind | u8 | `0` class owner, `1` interface owner |
 | runtime-const flag | u8 | `1` for a runtime-initialized constant |
 | initializer flag | u8 | `1` when a static-initializer function assigns the slot |
-| type | u16 length + descriptor | §27.5 |
+| type | u16 length + descriptor | §28.5 |
 
-## 27.5 Type Descriptors
+## 28.5 Type Descriptors
 
 A *type descriptor* is the recursive encoding of one declared
 type. Descriptors appear as field descriptors, parameter
 descriptors, return descriptors, interface constant types and
-interface instance-method signatures (§27.3, §27.4). On the
+interface instance-method signatures (§28.3, §28.4). On the
 wire a descriptor is a u16 byte count followed by that many
 descriptor bytes; a count of `0` records
 a type not expressible in this grammar, and a consumer
@@ -356,13 +356,13 @@ descriptor would exceed the nesting or size ceiling as *not
 serializable*; a reader rejects a descriptor that exceeds
 either.
 
-## 27.6 Default Values and Default Expressions
+## 28.6 Default Values and Default Expressions
 
 A *default value record* is a fixed-layout record: every
 channel is always present, and the tag selects which one is
-meaningful. It appears as a formal's default (§27.3), a struct
-field's default (§27.4) and an interface constant's value
-(§27.4).
+meaningful. It appears as a formal's default (§28.3), a struct
+field's default (§28.4) and an interface constant's value
+(§28.4).
 
 | Field | Width |
 |---|---|
@@ -380,7 +380,7 @@ field's default (§27.4) and an interface constant's value
 | `0xFD` | the `null` literal, for any reference type |
 | `0` | an `int` in the int channel; also `bool` (`0` or `1`) and `char` (the code point) |
 | `1` | a `float` in the float channel |
-| `2` | a `string`: the string index names the producer's string-constant pool (§27.2); the import merge remaps it into the consumer's pool (§27.7) |
+| `2` | a `string`: the string index names the producer's string-constant pool (§28.2); the import merge remaps it into the consumer's pool (§28.7) |
 | `15` / `16` | a `long` or `ulong` in the long channel (the `ulong` bit pattern) |
 | `17` | a `double` in the double channel |
 | `0xFB` | a default expression: the expression bytes hold the tree below |
@@ -409,14 +409,14 @@ most 4096 bytes; the writer records a default whose expression
 would exceed either ceiling as `0xFC`, and a reader rejects a
 tree that exceeds either.
 
-## 27.7 Import Slots
+## 28.7 Import Slots
 
 A reference to a declaration of another package is recorded as
 an *import slot* appended to the table it belongs to: the
 table's own entries occupy indices `0..n-1` and its imports
 occupy `n..n+m`, so a compile-time reference to an external
 declaration is a table index above the own-entry count. The
-five import sections follow the table order of §27.2.
+five import sections follow the table order of §28.2.
 
 Every entry:
 
@@ -440,12 +440,12 @@ owner ordinal single-selects the target. The loader binds each
 slot by loading the target package and locating the member
 (§3.9.3).
 
-The static-slot import section (§27.2) uses the function
+The static-slot import section (§28.2) uses the function
 section's record shape with its own owner-kind domain: `0`
 class owner, `1` interface owner — an external static slot
 reference names the owning type, never a member position.
 
-## 27.8 Loading and Validation
+## 28.8 Loading and Validation
 
 A loader reads the image strictly and rejects it whole: a
 rejected image never runs in part. The rejection sites:
@@ -454,9 +454,9 @@ rejected image never runs in part. The rejection sites:
 - **truncation.** A stream that ends mid-record → reject.
 - **version.** Below 2.23 → reject with a "recompile with the
   current compiler" diagnostic; above 2.23 → reject with an
-  "upgrade the toolchain" diagnostic (§27.1).
+  "upgrade the toolchain" diagnostic (§28.1).
 - **access bytes.** A function-record or type-level access byte
-  of `0` or above `3` → reject as a corrupt image (§27.4).
+  of `0` or above `3` → reject as a corrupt image (§28.4).
 - **count and length caps.** Counts and lengths are bounded
   before allocation. Capped at 2^24: the unit name, the string
   constant count and each constant length, the array type
@@ -477,11 +477,11 @@ rejected image never runs in part. The rejection sites:
 - **import tails.** An import count larger than its table's own
   entry count → reject.
 - **handle mask.** A mask byte count other than the band size
-  of §27.3 — the frame slot count (the frame size divided by
+  of §28.3 — the frame slot count (the frame size divided by
   eight) minus the parameter count, one code per four slots
   rounded up; zero for an empty band — → reject.
 - **access bytes.** A type-level access byte, or a function record's
-  declared access byte, of `0` or above `3` → reject (§27.3, §27.4).
+  declared access byte, of `0` or above `3` → reject (§28.3, §28.4).
 - **entry key.** An empty key means no entry (a library image);
   a non-empty key must name a function of the image, or the
   image is rejected.

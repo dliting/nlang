@@ -87,6 +87,30 @@ its write side with `shutdownWrite` — the classic request/response
 shape, where the client signals "request complete" while still
 reading the reply.
 
+The three reading members — `read`, `readLine` and `readExactly` —
+answer the three ways a wait can end, and `isEof()` and `isClosed()`
+keep the answers apart:
+
+- **The deadline passes.** Each raises `TimeoutException` and
+  leaves both flags alone: "no bytes yet" is not "no more bytes
+  ever". Bytes already sitting in the receive window stay in the
+  window for the next read.
+- **The peer ends the stream.** Each records the observation, so
+  `isEof()` answers `true` from then on. `read` answers `0`, and
+  later reads answer `0` too; `readLine` returns the partial line
+  exactly as it arrived — a trailing `\r` with no `\n` behind it
+  stays ordinary content — or the empty string when the line was
+  never started, where `isEof()` is what separates that empty
+  string from an empty line off a live peer; `readExactly` raises
+  `SocketException` naming how much of the count arrived
+  (`net: connection closed after 3 of 9 bytes`).
+- **The connection is closed locally.** `close()` voids the window
+  residue, so all three raise `SocketException`
+  (`net: socket closed`) even while buffered bytes remain;
+  `isClosed()` turns `true`, while an end of stream no read has
+  observed stays `false` — closing your own side says nothing
+  about what the peer sent.
+
 The echo round trip in one process — bind, connect, accept, one
 line each way, half-close, self-exit:
 

@@ -293,7 +293,11 @@ instead of silently sending an empty body (§23.6).
 `start(host, port, handler)` returns once the socket is listening;
 `serve(host, port, handler)` runs the same accept loop on the calling
 thread and is the entry point for a standalone server, whose `main`
-must not return (§10.9).
+must not return (§10.9). A second start on a live listener raises the
+base `Exception` naming the face used —
+`http.HttpServer.start: already started by this instance.` through
+`start`, `http.HttpServer.serve: ...` through `serve` — because a
+doubled accept loop would leave the first one unreachable forever.
 
 Two switches stop the accept loop. `drain(graceMs = 15000)` is the
 graceful one: it stops accepting new connections, answers from then
@@ -308,7 +312,11 @@ repeatable, and a server stopped this way can start again — a later
 `start()` binds the address anew. `isServing()` reports whether the
 accept loop is up: `false` before the first `start()`, while a drain
 runs, and after `close()` — the flag a handler-polling shutdown loop
-watches, in the shape §21.2 describes for `accept` timeouts.
+watches, in the shape §21.2 describes for `accept` timeouts. The two
+`drain`s are different tools: the server's `drain(graceMs)` is the
+shutdown switch described here, while `HttpBodyReader.drain(maxBytes)`
+(§23.4) consumes one response's leftover body bytes so that one
+connection can be reused.
 
 The accept loop spawns one thread per connection (§10), and each
 thread serves its connection's requests in order. A handler therefore

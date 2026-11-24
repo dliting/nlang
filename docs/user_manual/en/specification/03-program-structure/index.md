@@ -77,12 +77,16 @@ them. A library unit inlined through the search path opens nothing
 automatically: it sees only what it imports explicitly.
 
 The wildcard form `import p.*;` opens `p` and every module path
-below `p`, recursively, among the project's own units. It is a
-compile-time error if the wildcard matches no project unit, and a
-compile-time error if `p` names a library package — a library
-package is a single unit, so `import p;` is its only meaningful
-form. The wildcard never reaches external compiled modules, whose
-names are single-segment (§3.9).
+below `p`, recursively, among project units and library packages
+alike, at any depth. For a library package that has no submodules,
+`import p.*;` is equivalent to `import p;`. It is a compile-time
+error if the wildcard matches no module (`No modules matched
+import '<path>.*'. Check the project Sources list or -I import
+path.`); external compiled modules never count as matches, because
+their names are single-segment (§3.9). A module path may also name
+a segment with a reserved word: after `import` and after each `.`
+of a path, a reserved word reads as a segment name, so
+`import web.static;` opens the `static` submodule of `web`.
 
 An import of a path that resolves to neither a project unit, a
 library package nor an external module is a compile-time error.
@@ -187,8 +191,13 @@ A *qualified name* `p.m` reaches the members of the module or
 package `p` only through the import gate of the referring
 compilation unit (§3.3): the path `p` must be opened, by an
 explicit import or by the same-directory rule. Member lookup inside
-`p` does not continue into outer scopes. Each member's declared
-access (§4.8.2) applies on top of the gate: a `private` or `protected`
+`p` does not continue into outer scopes. A qualified name resolves
+by the longest module path the gate opens first, and the remainder
+is then taken member by member through the types it names — static
+methods, static constants and enum members alike, at any depth, a
+library path behaving exactly like a project path. Each member's
+declared access (§4.8.2) applies on top of the gate: a `private` or
+`protected`
 member of a foreign package does not resolve at all — a type
 reads as not a member of that package, a function as the standard
 not-found diagnostic (§3.9.3). §3.9 defines module

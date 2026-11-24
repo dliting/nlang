@@ -169,7 +169,8 @@ classes are `Exception` and its seven direct subclasses:
 
 The `concurrent` package (§3.9.4) declares one further direct
 subclass, `ChannelClosedException`, raised by operations on a
-closed channel (§10.4); it reaches scope through
+closed channel (§10.4; chapter 27's server-sent-events push
+after the client left is one such site); it reaches scope through
 `import concurrent;` like any package class, and `catch` treats
 it like every other subclass. The `net` package (§3.9.4) declares
 two subclasses of `IOException`, `SocketException` and
@@ -183,7 +184,7 @@ raised by `DateTime.parse` (§15.2); both reach scope through their
 `import` like any package class, and `catch` treats them like
 every other subclass. The `http` package (§3.9.4) declares
 `HttpException`, a subclass of `IOException` raised by the
-operations of chapter 23, and the `gzip` package (§3.9.4) declares
+operations of chapters 23 and 27, and the `gzip` package (§3.9.4) declares
 `GzipException`, a subclass of `IOException` raised by the
 operations of chapter 24, the `regex` package (§3.9.4)
 declares `RegexException`, a subclass of `IOException` raised by

@@ -53,6 +53,12 @@
 
 `read`返回`0`就是字节流的有序结束：对端调用了`shutdownWrite`或`close`。任何一边都可以只用`shutdownWrite`关掉自己这一侧的写——经典的请求/应答形态：客户端宣告"请求写完"，同时还在读应答。
 
+三个读取成员——`read`、`readLine`与`readExactly`——各自回答等待结束的三种方式，`isEof()`与`isClosed()`负责把这些回答区分开：
+
+- **截止时刻到来。**三者都抛`TimeoutException`，两面旗标都不动："暂时还没有字节"不是"永远不会再有字节"。已经躺在接收窗口里的字节留在窗口中，留给下一次读取。
+- **对端结束流。**三者都记下这次观测，`isEof()`从此回答`true`。`read`回答`0`，其后的读取也回答`0`；`readLine`按原样返回残缺的行——行尾没有`\n`跟随时的那个`\r`仍是普通内容——行尚未开始时返回空串，此时把这个空串与活对端送来的空行区分开正是`isEof()`的职责；`readExactly`抛出点名已到字节数的`SocketException`（`net: connection closed after 3 of 9 bytes`）。
+- **本端关闭连接。**`close()`作废窗口残余，于是三者即使缓冲区里还有字节也一律抛`SocketException`（`net: socket closed`）；`isClosed()`变为`true`，而从未被读取观测到的流结束仍保持`false`——关闭自己这一侧，说明不了对端发送过什么。
+
 单进程里的echo往返——绑定、连接、接受、各一行、半关闭、自退出：
 
 ```nlang

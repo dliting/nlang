@@ -80,12 +80,13 @@
 - [24. gzip包](library/24-gzip.md)
 - [25. regex包](library/25-regex.md)
 - [26. json包](library/26-json.md)
+- [27. web包](library/27-web.md)
 
 ### 第三部分 — 二进制格式
 
-- [27. `.ncu`单元映像](formats/27-ncu.md)
-- [28. `.npkg`包档案](formats/28-npkg.md)
-- [29. 原生应用二进制接口（ABI）](formats/29-abi.md)
+- [28. `.ncu`单元映像](formats/28-ncu.md)
+- [29. `.npkg`包档案](formats/29-npkg.md)
+- [30. 原生应用二进制接口（ABI）](formats/30-abi.md)
 
 ### 参考
 
