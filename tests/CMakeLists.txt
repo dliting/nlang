@@ -588,6 +588,25 @@ target_compile_definitions(test_stdlib
 
 add_test(NAME stdlib_tests COMMAND test_stdlib)
 
+# stdlib distribution layout: one package per domain, read through the
+# real NcuPackageReader (member tables = the domain's unit lists).
+add_executable(test_stdlib_layout
+    test_vm/test_stdlib_layout.cpp
+)
+
+target_link_libraries(test_stdlib_layout
+    PRIVATE
+        nlang_vm
+        nlang_runtime
+)
+nlang_stdlib_test(test_stdlib_layout)
+target_compile_definitions(test_stdlib_layout
+    PRIVATE
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+)
+
+add_test(NAME stdlib_layout COMMAND test_stdlib_layout)
+
 # NativeHost ABI v7 array-access tests: real VmExecutor + bare-name
 # in-process natives exercising getArrayView/newArray end to end
 # (test_native_abi covers the mock-table face, this the real-VM face).

@@ -244,67 +244,119 @@ endif()
 # deploy each module into every host tool's output directory.
 add_subdirectory(src/native)
 
-# --- Standard library package (phase 6) --------------------------------------
-# Bootstrap the stdlib package with the just-built ncc: the library sources
+# --- Standard library packages (phase 6) -------------------------------------
+# Bootstrap the stdlib packages with the just-built ncc: the library sources
 # are copied into the build tree's stdlib dir — which doubles as the
 # compile-time stdlib source dir every tool resolves via FindStdLibDir
 # (walk-up from the executable directory finds this copy first in every
-# build-tree layout) — and the generated .nproj builds them project-mode,
-# so stdlib.npkg carries one member per unit. Executors resolve stdlib
-# symbol imports from that package at load time (nloader -> nlink; design
-# section 5). The target is ALWAYS-run on purpose: no stamp means no
-# staleness hole when only ncc changed (the pack is cheap and
-# byte-deterministic). Targeted builds of a single tool skip it — run a
-# full build (or this target) before running anything that imports the
-# standard library.
+# build-tree layout) — and one generated .nproj per domain builds its units
+# project-mode, so each <domain>.npkg carries one member per unit
+# (docs/dev/package_artifact_design.md, D4). A unit importing another
+# domain's unit resolves it from this same dir as a library module: the
+# import stays a slot in the importing member and the run-time search path
+# finds the callee in its own package (nloader -> nlink; design section 5).
+# The target is ALWAYS-run on purpose: no stamp means no staleness hole when
+# only ncc changed (the packs are cheap and byte-deterministic). Targeted
+# builds of a single tool skip it — run a full build (or this target) before
+# running anything that imports the standard library.
 set(NLANG_STDLIB_BUILD_DIR ${CMAKE_BINARY_DIR}/stdlib)
 file(MAKE_DIRECTORY ${NLANG_STDLIB_BUILD_DIR})
-# ONE source list drives every consumer of the file set (the generated
-# .nproj and the copy below; the install rule ships the whole stdlib/
-# directory and is list-free by construction). A new stdlib/<name>.n
-# must not depend on remembering to edit each site — a missed copy also
-# misses the package member, because the build-tree copy shadows the
-# source tree for compile-time resolution. CONFIGURE_DEPENDS: cmake
-# re-runs (and the list refreshes) whenever the glob result changes, so
-# adding or removing a stdlib source needs no manual reconfigure.
-# copy_if_different never DELETES: removing a stdlib source leaves its
-# stale copy in the build-tree dir, still shadowing the source tree
-# (consumers compile against a signature the package no longer ships)
-# — delete the stale copy from the build-tree stdlib dir by hand after
-# a source removal.
-file(GLOB NLANG_STDLIB_SOURCES CONFIGURE_DEPENDS
+# ONE source list drives the build-tree copy (the install rule ships the
+# whole stdlib/ directory and is list-free by construction): a new
+# stdlib/<name>.n lands in the build tree without remembering the copy
+# site — compile-time resolution reads this copy, and it shadows the
+# source tree. Which package a unit rides in is the domain table below.
+# CONFIGURE_DEPENDS: cmake re-runs (and the list
+# refreshes) whenever the glob result changes, so adding or removing a
+# stdlib source needs no manual reconfigure. copy_if_different never
+# DELETES: removing a stdlib source leaves its stale copy in the build-tree
+# dir, still shadowing the source tree (consumers compile against a
+# signature the packages no longer ship) — delete the stale copy from the
+# build-tree stdlib dir by hand after a source removal.
+#The prelude sources (lang.n, containers.n) are compile-time-inline only —
+#the compiler embeds them — and ride in no package; the build-tree COPY
+#keeps both files: the stdlib dir is the FindStdLibDir hit and the disk
+#copy is the canonical prelude source for compile-time resolution.
+file(GLOB NLANG_STDLIB_UNIT_SOURCES CONFIGURE_DEPENDS
     ${PROJECT_SOURCE_DIR}/stdlib/*.n)
-#The prelude packages are compile-time-inline only: the compiler embeds
-#stdlib/lang.n and stdlib/containers.n at build time, so the .nproj
-#pack list excludes them — a prelude member in the package would be a
-#member no import can reach. The build-tree COPY keeps both files: the
-#stdlib dir is the FindStdLibDir hit and the disk copy is the canonical
-#prelude source for compile-time resolution (edit-and-rebuild
-#iteration).
-set(NLANG_STDLIB_PACKAGE_SOURCES ${NLANG_STDLIB_SOURCES})
-list(REMOVE_ITEM NLANG_STDLIB_PACKAGE_SOURCES
-    ${PROJECT_SOURCE_DIR}/stdlib/lang.n
-    ${PROJECT_SOURCE_DIR}/stdlib/containers.n)
-#One string argument, not two: a multi-value set() joins with ";" and
-#the separator would land between the XML declaration and the root
-#element (tinyxml2 happens to tolerate the stray text node).
-set(NLANG_STDLIB_NPROJ "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Project name=\"stdlib\">\n  <Sources>\n")
-foreach(src IN LISTS NLANG_STDLIB_PACKAGE_SOURCES)
-    get_filename_component(name "${src}" NAME)
-    string(APPEND NLANG_STDLIB_NPROJ "    <File path=\"${name}\"/>\n")
-endforeach()
-string(APPEND NLANG_STDLIB_NPROJ "  </Sources>\n</Project>\n")
-file(WRITE ${NLANG_STDLIB_BUILD_DIR}/stdlib.nproj "${NLANG_STDLIB_NPROJ}")
-add_custom_target(nlang_stdlib_package ALL
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        ${NLANG_STDLIB_SOURCES}
-        ${NLANG_STDLIB_BUILD_DIR}
-    COMMAND $<TARGET_FILE:ncc> build -p
+#Dotted sub-modules of a unit: stdlib/web/<name>.n is module "web.<name>"
+#(a module path is the source path relative to the project root, dotted),
+#so their copy keeps the relative path. Globbed: web.npkg picks a
+#sub-module up without touching this file.
+file(GLOB NLANG_STDLIB_WEB_SOURCES CONFIGURE_DEPENDS
+    ${PROJECT_SOURCE_DIR}/stdlib/web/*.n)
+#<domain>.npkg -> the units making up its member table (spec D4). Named,
+#not globbed: this table is where a unit's package is decided, and it maps
+#one-to-one onto the spec's.
+set(NLANG_STDLIB_DOMAINS
+    concurrent io math fs tensor net http url system gzip regex json web)
+set(NLANG_STDLIB_CONCURRENT_UNITS concurrent thread)
+set(NLANG_STDLIB_IO_UNITS io)
+set(NLANG_STDLIB_MATH_UNITS math)
+set(NLANG_STDLIB_FS_UNITS fs)
+set(NLANG_STDLIB_TENSOR_UNITS tensor)
+set(NLANG_STDLIB_NET_UNITS net)
+set(NLANG_STDLIB_HTTP_UNITS http)
+set(NLANG_STDLIB_URL_UNITS url)
+set(NLANG_STDLIB_SYSTEM_UNITS system)
+set(NLANG_STDLIB_GZIP_UNITS gzip)
+set(NLANG_STDLIB_REGEX_UNITS regex)
+set(NLANG_STDLIB_JSON_UNITS json)
+set(NLANG_STDLIB_WEB_UNITS web)
+set(NLANG_STDLIB_PACKAGES "")
+set(NLANG_STDLIB_PACKAGE_COMMANDS
+    #A build tree that predates the split still holds the monolithic
+    #package and project; cmake never deletes old outputs, so the
+    #always-run target clears both (idempotent).
+    COMMAND ${CMAKE_COMMAND} -E remove
+        ${NLANG_STDLIB_BUILD_DIR}/stdlib.npkg
         ${NLANG_STDLIB_BUILD_DIR}/stdlib.nproj
-        -o ${NLANG_STDLIB_BUILD_DIR}/stdlib.npkg
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${NLANG_STDLIB_UNIT_SOURCES}
+        ${NLANG_STDLIB_BUILD_DIR})
+if(NLANG_STDLIB_WEB_SOURCES)
+    list(APPEND NLANG_STDLIB_PACKAGE_COMMANDS
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            ${NLANG_STDLIB_BUILD_DIR}/web)
+    foreach(submodule IN LISTS NLANG_STDLIB_WEB_SOURCES)
+        get_filename_component(name "${submodule}" NAME)
+        list(APPEND NLANG_STDLIB_PACKAGE_COMMANDS
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                ${submodule} ${NLANG_STDLIB_BUILD_DIR}/web/${name})
+    endforeach()
+endif()
+foreach(domain IN LISTS NLANG_STDLIB_DOMAINS)
+    string(TOUPPER ${domain} DOMAIN)
+    #One string argument, not two: a multi-value set() joins with ";" and
+    #the separator would land between the XML declaration and the root
+    #element (tinyxml2 happens to tolerate the stray text node).
+    set(nproj "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<Project name=\"${domain}\">\n  <Sources>\n")
+    foreach(unit IN LISTS NLANG_STDLIB_${DOMAIN}_UNITS)
+        string(APPEND nproj "    <File path=\"${unit}.n\"/>\n")
+    endforeach()
+    #The web package's sources are the explicit unit plus the globbed
+    #sub-module arm: today web is the flat stdlib/web.n, so a sub-module
+    #glob alone would pack an empty package and drop the unit.
+    if(domain STREQUAL "web")
+        foreach(submodule IN LISTS NLANG_STDLIB_WEB_SOURCES)
+            get_filename_component(name "${submodule}" NAME)
+            string(APPEND nproj "    <File path=\"web/${name}\"/>\n")
+        endforeach()
+    endif()
+    string(APPEND nproj "  </Sources>\n</Project>\n")
+    file(WRITE ${NLANG_STDLIB_BUILD_DIR}/${domain}.nproj "${nproj}")
+    list(APPEND NLANG_STDLIB_PACKAGES ${NLANG_STDLIB_BUILD_DIR}/${domain}.npkg)
+    list(APPEND NLANG_STDLIB_PACKAGE_COMMANDS
+        COMMAND $<TARGET_FILE:ncc> build -p
+            ${NLANG_STDLIB_BUILD_DIR}/${domain}.nproj
+            -o ${NLANG_STDLIB_BUILD_DIR}/${domain}.npkg)
+endforeach()
+add_custom_target(nlang_stdlib_package ALL
+    ${NLANG_STDLIB_PACKAGE_COMMANDS}
     DEPENDS ncc
-    COMMENT "Packing stdlib.npkg (per-unit members)"
+    COMMENT "Packing the stdlib domain packages"
     VERBATIM)
+
 
 # --- Documentation site (nlang-docs subproject) -----------------------------
 # Defined BEFORE add_subdirectory(tests): test targets hook a dependency on
@@ -434,7 +486,7 @@ install(DIRECTORY stdlib/ DESTINATION stdlib
 # The packed standard library (built into the build tree's stdlib dir by
 # the nlang_stdlib_package bootstrap) ships beside the .n declarations —
 # executors resolve stdlib unit imports from it at load time (phase 6).
-install(FILES ${CMAKE_BINARY_DIR}/stdlib/stdlib.npkg DESTINATION stdlib)
+install(FILES ${NLANG_STDLIB_PACKAGES} DESTINATION stdlib)
 
 if(NLANG_BUILD_IDE)
     install(TARGETS nide RUNTIME DESTINATION bin)
@@ -481,6 +533,11 @@ if(WIN32)
     set(CPACK_NSIS_INSTALL_ROOT "$PROGRAMFILES64")
     set(CPACK_NSIS_DISPLAY_NAME "NLang ${NLANG_VERSION}")
     set(CPACK_NSIS_PACKAGE_NAME "NLang ${NLANG_VERSION}")
+    # A release before the per-domain split installed the monolithic
+    # stdlib/stdlib.npkg; beside the domain packages it would offer every
+    # stdlib unit twice, so an in-place upgrade removes it.
+    set(CPACK_NSIS_EXTRA_INSTALL_COMMANDS
+        "Delete \"$INSTDIR\\stdlib\\stdlib.npkg\"")
     if(NLANG_NSIS_MAKENSIS)
         # CPACK_NSIS_EXECUTABLE exists since CMake 3.21; on older CMake the
         # option would silently fall back to a PATH lookup of makensis.
@@ -494,6 +551,10 @@ if(WIN32)
         # Start Menu shortcut; executables are in the default bin/ dir.
         set(CPACK_PACKAGE_EXECUTABLES "nide;NLang IDE")
     endif()
+    # Values with quotes (the NSIS extra install commands) must reach cpack
+    # verbatim: without this the config file writes them unescaped and the
+    # CMake parser reading it back eats the quotes.
+    set(CPACK_VERBATIM_VARIABLES ON)
 endif()
 
 include(CPack)

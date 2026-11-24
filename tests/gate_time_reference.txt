@@ -641,3 +641,4 @@ ctest-ASan lambda_param_tests 0.71 1 ctest-junit-serial
 ctest-ASan lambda_typing_tests 2.27 1 ctest-junit-serial
 ctest-ASan e2e_runner_scratch_isolation 2.10 1 ctest-junit-serial
 ctest-ASan e2e_runner_timing_gate 35.82 1 ctest-junit-serial
+ctest-Debug stdlib_layout 0.04 1 ctest-junit-serial
