@@ -1,8 +1,0 @@
-# Temporary performance trim, ctest leg side (user ruling 2026-11-20):
-# unit-suite entries slower than a minute are excluded via ctest -E
-# until the test-time rework lands on the dev line and merges back.
-# Deleting this file restores the full ctest suite in every gate.
-# Each line is one ctest test name (identifiers only, no regex).
-nd_resolve_stress_tests
-regex_redos_run
-threads_tests

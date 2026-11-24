@@ -412,39 +412,6 @@ def probe_env(keys_needed):
     reference; probes run at most once per invocation."""
     return {key: ENV_PROBES[key]() for key in sorted(keys_needed)}
 
-#Performance defer list (NLANG_E2E_EXCLUDE, a user-ruled temporary trim):
-#performance-family entries slower than a minute are deferred until the
-#test-time rework lands; the file's removal restores the full suite.
-PERF_DEFER_ENV = 'NLANG_E2E_EXCLUDE'
-
-def parse_perf_defer(path):
-    """Deferred manifest names, one per line ('#' comments and blank
-    lines ignored). The env var naming this file is an explicit trim
-    intent — a missing file would silently restore the full suite, so
-    it fails loud."""
-    if not os.path.isfile(path):
-        raise ValueError(f"perf defer file not found: {path}")
-    names = set()
-    with open(path, encoding='utf-8') as df:
-        for line in df:
-            stripped = line.strip()
-            if stripped and not stripped.startswith('#'):
-                names.add(stripped.split()[0])
-    return names
-
-def validate_perf_defer(names, all_names):
-    """A listed name matching no e2e entry anywhere is a stale entry (a
-    rename since the trim was written) — silently carrying it hides the
-    drift, so it fails loud."""
-    unknown = sorted(names - set(all_names))
-    if unknown:
-        raise ValueError(
-            "perf defer names match no e2e entry: " + ", ".join(unknown))
-
-def perf_defer_reason(name, deferred):
-    """The pure defer decision, mirroring env_skip_reason's shape."""
-    return "perf defer" if name in deferred else None
-
 def env_skip_reason(name, gates, env_state):
     """Skip reason for a gated entry whose capabilities are absent,
     else None. env_state is injected so tests never subprocess."""
@@ -825,9 +792,14 @@ def main():
     if not scale_env:
         band = (scalar * max(work_factor, 1.0)
                 * gate_table.SAFETY_MULTIPLIER)
+        #The old flat cap priced back through this band is the reference
+        #the startup line quotes (11.25 s at the default band: 90 / (4*2);
+        #a work factor above 1 widens the band and shrinks it further)
+        #— derived, so a custom work factor keeps the arithmetic honest.
+        short_ref = DEFAULT_TIMEOUT_FALLBACK_S / band
         print(f"TIMEOUT budget: 未做本机校准（缺标量NLANG_GATE_MACHINE_SCALE，"
-              f"按SCALE_BAND_MAX计价）: 预算=参考秒数×{band:g}，参考秒数11.25"
-              f"对应旧Debug平帽90s；处置是经门禁跑完成校准，"
+              f"按SCALE_BAND_MAX计价）: 预算=参考秒数×{band:g}，"
+              f"参考秒数{short_ref:g}对应旧Debug平帽90s；处置是经门禁跑完成校准，"
               f"或导出NLANG_GATE_MACHINE_SCALE")
 
     if not os.path.isfile(MANIFEST):
@@ -848,7 +820,6 @@ def main():
     passed = 0
     failed = 0
     skipped = 0
-    deferred = 0
     warnings = []
     errors = []
 
@@ -873,28 +844,6 @@ def main():
             failed += 1
             errors.append(
                 f"  {orphan}: run.stderr sidecar matches no manifest entry")
-
-    #Perf defer: the user-ruled temporary trim holds slower-than-a-minute
-    #entries out of every tour until the test-time rework lands. The
-    #defer file is suite-wide config, so validation spans every e2e entry
-    #anywhere (both manifests), never just a subset leg's override.
-    perf_defer = set()
-    defer_path = os.environ.get(PERF_DEFER_ENV)
-    if defer_path:
-        all_names = set()
-        for manifest_file in (MANIFEST, EXAMPLES_MANIFEST):
-            if os.path.isfile(manifest_file):
-                with open(manifest_file, encoding='utf-8') as mf:
-                    for line in mf:
-                        line = line.strip()
-                        if line and not line.startswith('#'):
-                            all_names.add(line.split(None, 1)[0])
-        try:
-            perf_defer = parse_perf_defer(defer_path)
-            validate_perf_defer(perf_defer, all_names)
-        except ValueError as exc:
-            print(f"ERROR: {exc}")
-            sys.exit(2)
 
     #Scratch for this run (per-tag namespace when NLANG_E2E_SCRATCH_TAG is
     #set): created before the first entry, dropped in teardown_scratch.
@@ -931,14 +880,6 @@ def main():
             if len(parts) < 2:
                 continue
             name = parts[0]
-            #Perf defer: a listed entry is held out before any gating
-            #or tooling runs (the trim is time-based, orthogonal to the
-            #env oracle).
-            defer_reason = perf_defer_reason(name, perf_defer)
-            if defer_reason:
-                print(f"DEFER {name} (perf defer list)")
-                deferred += 1
-                continue
             #Environment gate: a gated entry whose capability the OS
             #oracle says is absent is skipped before any tooling runs
             #(the reason is authoritative — the machine cannot perform
@@ -1493,8 +1434,6 @@ def main():
     print()
     summary = (f"Results: {passed} passed, {failed} failed, "
                f"{skipped} skipped (env-gated)")
-    if perf_defer:
-        summary += f", {deferred} deferred (perf defer list)"
     print(summary)
     if warnings:
         print(f"Warnings ({len(warnings)} — possible masked bugs):")

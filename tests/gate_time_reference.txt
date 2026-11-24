@@ -619,3 +619,25 @@ ctest-IDE gate_tier_smoke 0.84 1 ctest-junit-serial - R-19:IDE树重配刷新枚
 ctest-IDE nlang_gate_time_selftest 3.91 1 ctest-junit-serial - R-19:IDE树重配刷新枚举后补行,秒数出自build-ide单条目junit实测record
 ctest-ASan gate_tier_smoke 9.42 1 ctest-junit-serial
 ctest-ASan nlang_gate_time_selftest 9.56 1 ctest-junit-serial
+ctest-Debug display_capture_kinds_tests 0.65 1 ctest-junit-serial
+ctest-Debug e2e_runner_env_gate 1.80 1 ctest-junit-serial
+ctest-Debug e2e_runner_scratch_isolation 1.91 1 ctest-junit-serial
+ctest-Debug e2e_runner_timing_gate 35.90 1 ctest-junit-serial
+ctest-Debug func_records_tests 1.19 1 ctest-junit-serial
+ctest-Debug lambda_parse_tests 0.10 1 ctest-junit-serial
+ctest-IDE display_capture_kinds_tests 0.70 1 ctest-junit-serial
+ctest-IDE func_records_tests 1.43 1 ctest-junit-serial
+ctest-IDE lambda_capture_tests 0.77 1 ctest-junit-serial
+ctest-IDE lambda_param_tests 0.51 1 ctest-junit-serial
+ctest-IDE lambda_parse_tests 0.12 1 ctest-junit-serial
+ctest-IDE lambda_typing_tests 1.02 1 ctest-junit-serial
+ctest-ASan display_capture_kinds_tests 3.02 1 ctest-junit-serial
+ctest-ASan e2e_runner_env_gate 1.80 1 ctest-junit-serial
+ctest-ASan func_records_tests 6.50 1 ctest-junit-serial
+ctest-ASan lambda_parse_tests 0.27 1 ctest-junit-serial
+ctest-ASan nlang_docs_pytest 31.89 1 ctest-junit-serial
+ctest-ASan lambda_capture_tests 1.80 1 ctest-junit-serial
+ctest-ASan lambda_param_tests 0.71 1 ctest-junit-serial
+ctest-ASan lambda_typing_tests 2.27 1 ctest-junit-serial
+ctest-ASan e2e_runner_scratch_isolation 2.10 1 ctest-junit-serial
+ctest-ASan e2e_runner_timing_gate 35.82 1 ctest-junit-serial

@@ -36,16 +36,11 @@ Release构建与Release e2e维持「仅发布时点」裁定不变，不因分�
 
 部分条目的活成功前提依赖机器能力（环回ICMP回声、保留TLD的NXDOMAIN诚实性），而环境软件可静默吊销之（VPN过滤驱动吞ICMP、DNS劫持应答保留域名——2026-11-16实证：OrayBoxVpnEnt隧道激活后OS级`ping 127.0.0.1`全丢，同一批二进制晨绿午红）。这类条目由带外OS先知（oracle）门控：`tests/e2e/env_gates.txt`登记「条目→能力键」，运行器每轮先知一次，能力缺失即打印SKIP行并计入skipped（不算失败，也绝不静默绿）。纯契约断言永不门控——门控只承认「机器根本做不了」，不承认「做得慢、想跳过」。先知只在入口采一次，而门控条目排在长串之后，采样的新鲜度由「能力缺失是分钟级以上的状态」这一前提担保；本轮实测中翻转窗宽约两分钟，落在同一前提之内，若日后复现「采到在场、跑到已缺席」再改为逐条目复检。分片对拍另有其害：`tools/e2e_shard.py`的`parse_runner_output`只认PASS行与Failures清单，SKIP两边都进不了判决集合，于是串行腿与分片腿之间若跨过翻转窗，同一条目会显示成「串行PASS、分片不算」的假差分——A/B对拍撞上时先核两跑时刻的OS ping，别按回归处置。单测侧同型（`test_net_platform.cpp`的活回声以OS ping出口码门控：OS自己不应答即打印可见SKIP，能力在场时仍钉「环回必须应答」）。
 
-先知逻辑自身的pytest语料挂在ctest条目`e2e_runner_env_gate`上，而该条目与既有的`nlang_docs_pytest`共用configure期解释器探针（`NLANG_DOCS_PYTHON`探`import pytest`），因此它只在配置期解释器能导入pytest的树里注册：本机`build-ide`缓存了py313路径故注册，`build-dev`与`build-asan`缓存裸`python`（无pytest）故不注册——这两棵树在配置时打印跳过说明而不是静默丢条目，这条差异在两个条目上早已存在，不是本设施新引入的。改动`tests/CMakeLists.txt`后必须重新configure，条目才出现在`tests/CTestTestfile.cmake`里；核对注册的口径是三树各自的`tests/CTestTestfile.cmake`而非顶层文件。
+先知逻辑自身的pytest语料挂在ctest条目`e2e_runner_env_gate`上，而该条目与既有的`nlang_docs_pytest`共用configure期解释器探针（`NLANG_DOCS_PYTHON`探`import pytest`），因此它只在配置期解释器能导入pytest的树里注册——带DOCS选项配好py313的树注册，解释器缺pytest的树在配置时打印跳过说明而不是静默丢条目（早年本机旧树两种情形都出现过；核对时按各树当下的探针结果判，别沿用旧枚举）。改动`tests/CMakeLists.txt`后必须重新configure，条目才出现在`tests/CTestTestfile.cmake`里；核对注册的口径是各树自己的`tests/CTestTestfile.cmake`而非顶层文件。
 
-## 性能递延（临时裁剪，等dev测试改造回收）
+## 性能递延（已撤销——计时重设计接管）
 
-用户裁定（2026-11-20）：耗时超过1分钟的性能测试暂时砍出所有层，先快速推进版本；dev线测试耗时改造合入后删除递延文件即恢复全量，完整测试套件由该改造后的版本统一承载，本分支不重复做。这区分于环境门控：环境门控承认「机器做不了」，递延承认的是「用户明令暂时不跑」。
-
-- 递延文件即开关，按消费方分两个：`tools/gate_perf_defer_ctest.txt`（ctest腿经`ctest -E`锚定排除，文件存在即裁剪）；`tools/gate_perf_defer_e2e.txt`（e2e腿经`NLANG_E2E_EXCLUDE`递延，运行器逐条打印DEFER行并计入deferred汇总——不静默绿）。删除文件即恢复全量。
-- e2e侧运行器对递延名单做两道响亮校验：环境变量指向的文件缺失即退出2（防「文件丢了、静默恢复全量」的假裁剪）；名单里的名字不在全部e2e清单并集内（改名漂移）即退出2。ctest侧无校验（陈旧名只是多跑一条，不产生假绿）。
-- 裁剪范围＝纯性能族：ctest三件（nd_resolve_stress_tests 911s、regex_redos_run 354s、threads_tests 258s，ASan实测）＋e2e五件（stdlib_net_ping_stress、concurrent_gate_hammer、str_concat_stress、http_conc_bench、net_conc_bench）。内存风险正确性族（gc_stress、byte_stream_gc_stress、concurrent_churn_gc、func_gc_stress、stdlib_http_conc、stdlib_regex_conc）不裁——ASan e2e腿的存在目的正是它们，且各条均低于1分钟线。
-- `tier_coverage_check.py`接受可选递延文件参数，名单内条目豁免「至少被一层选中」不变量（裁剪是用户明令不是分层漏洞）；文件删除后不变量自动收回全覆盖。
+2026-11-20用户裁定曾以「递延文件即开关」的形态临时裁剪纯性能条目：ctest三件经`ctest -E`锚定排除，e2e五件经`NLANG_E2E_EXCLUDE`传递给运行器（逐条打印DEFER行并计入deferred汇总），`tier_coverage_check.py`收可选递延文件参数豁免「至少被一层选中」不变量。2026-11-23计时重设计（`docs/dev/gate_timing_design.md`）落地后整套撤销，替代机制各归其位：慢集（print-slow按参考秒数行派生）把慢ctest成员排除出T1常规腿而T2收口腿不带排除地全量重跑（D-7）；e2e侧的条目选择统一走`NLANG_E2E_MANIFEST`子集（T0影响子集、ASan风险子集都由它承载）；每条目的时长上限由参考表的条目级TIMEOUT帽在configure期安装（守卫五校验registered与表推导一致）。递延文件、运行器的递延机器（环境变量、解析与两道响亮校验、DEFER行与deferred计数）与覆盖守卫的豁免参数随之删除。环境门控（`env_gates.txt`）不受影响——它承载「机器做不了」，与耗时无关。
 
 ## 落地物
 
@@ -53,7 +48,6 @@ Release构建与Release e2e维持「仅发布时点」裁定不变，不因分�
 - tools/e2e_shard.py：manifest按族切K片、各自输出目录、汇总判决。
 - tools/test_families.txt＋tools/test_impact.py：测试族清单与src目录→族的保守映射。
 - tools/tier_coverage_check.py：覆盖不变量守卫（清单条目↔层选择器）。
-- tools/gate_perf_defer_ctest.txt＋tools/gate_perf_defer_e2e.txt：临时性能递延名单（见「性能递延」节，删除即恢复全量）。
 - AGENTS.md门禁段与CONTRIBUTING同步改写（三树表述→三层表述）。
 
 ## 实施顺序
