@@ -14,9 +14,17 @@ class so the over-approximation stays where it was paid for. The
 three tools compile the whole product, so their input set is the full
 src/ + include/ sweep (the runner's rule verbatim, its lessons
 included: a false alarm costs one build, a miss a misdiagnosed gate).
-Native DLLs compile src/native/ only -- folding the full sweep onto
-them would redden every tree after any compiler edit and teach people
-to ignore the preflight. Test executables are presence-only: their
+Native DLLs compile their own units and the headers those units
+reach through #include lines -- folding the full sweep, or even every
+public header, onto them reddens every tree after an edit to a header
+no unit includes, and no build refreshes a DLL for a file it does not
+depend on (2026-11-24: one compiler header staled seven DLLs in every
+tree). Two limits of that rule remain, both older than it: the bound is
+one for the whole class although the build relinks per module, so an
+edit to one module's own file stales its siblings; and the two inputs
+src/native/CMakeLists.txt lists from outside that directory
+(StackDump.cpp for nlang_net, the vendored zlib for nlang_gzip) are
+judged by no rule. Test executables are presence-only: their
 per-target input graph is the build system's, which no mtime sweep
 replicates, and an over-approximation there is unactionable -- the
 rebuild the finding demands is the one the build system just judged
@@ -39,6 +47,7 @@ one.
 import argparse
 import glob
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -87,13 +96,56 @@ def repo_inputs(repo):
             for path in glob.glob(str(repo / pattern), recursive=True)]
 
 
-def native_inputs(repo):
-    """The native DLLs' own sources plus the public headers."""
+#The units the native DLLs compile. Two inputs src/native/CMakeLists.txt
+#lists from outside that directory are not among them and are judged by
+#no rule: StackDump.cpp in nlang_net's target_sources and the vendored
+#zlib in nlang_gzip's.
+NATIVE_SOURCE_PATTERNS = ("src/native/**/*.cpp", "src/native/**/*.h",
+                          "src/native/**/*.hpp")
+INCLUDE_LINE = re.compile(r'^\s*#\s*include\s*([<"])([^>"]+)[>"]', re.M)
+
+
+def native_sources(repo):
+    """The units the native DLLs compile."""
     return [path
-            for pattern in ("src/native/**/*.cpp", "src/native/**/*.h",
-                            "src/native/**/*.hpp",
-                            "include/**/*.h", "include/**/*.hpp")
+            for pattern in NATIVE_SOURCE_PATTERNS
             for path in glob.glob(str(repo / pattern), recursive=True)]
+
+
+def include_closure(repo, roots):
+    """(files, unresolved): the roots and every file they reach through
+    #include lines; unresolved names the includes that resolve to
+    neither include/ nor the including file's directory -- system
+    headers, and for a project header reached through some other
+    include directory a hole the self-test guards. A quoted name is
+    searched beside its includer first, an angled one under include/
+    only -- the compiler's search for this tree's conventions; the
+    self-test trips on anything the two rules cannot resolve."""
+    repo = Path(repo)
+    files, unresolved, pending, seen = [], [], list(roots), set()
+    while pending:
+        path = Path(pending.pop())
+        if path in seen:
+            continue
+        seen.add(path)
+        files.append(str(path))
+        text = path.read_text(encoding="latin-1")
+        for quote, name in INCLUDE_LINE.findall(text):
+            public = repo / "include" / name
+            candidates = ([path.parent / name, public]
+                          if quote == '"' else [public])
+            target = next((one for one in candidates if one.is_file()),
+                          None)
+            if target is not None:
+                pending.append(target)
+            elif quote == '"' or name.startswith("nlang/"):
+                unresolved.append(name)
+    return files, sorted(set(unresolved))
+
+
+def native_inputs(repo):
+    """The native DLLs' own units plus the headers those units reach."""
+    return include_closure(repo, native_sources(repo))[0]
 
 
 #The sources the stdlib packages compile: the packing target's own globs
@@ -142,6 +194,11 @@ def check(repo, specs):
         raise UsageError(
             "no stdlib modules under %s -- the package rule has "
             "nothing to judge" % (repo / "stdlib"))
+    native_files = native_inputs(repo)
+    if not native_files:
+        raise UsageError(
+            "no native units under %s -- the native DLL rule has "
+            "nothing to judge" % (repo / "src" / "native"))
     #A VERSION bump rides the version/ABI every tool and native DLL
     #embeds, with or without a source edit accompanying it: the file
     #bounds both classes, closing the bump-without-reconfigure channel
@@ -150,7 +207,7 @@ def check(repo, specs):
     version_file = repo / "VERSION"
     version_paths = [version_file] if version_file.is_file() else []
     tool_newest = _newest(input_files + version_paths)
-    native_newest = _newest(native_inputs(repo) + version_paths)
+    native_newest = _newest(native_files + version_paths)
     stdlib_newest = _newest(stdlib_modules)
     findings = []
     for spec in specs:
