@@ -178,8 +178,10 @@ class StaticFiles {
     }
 
     // Condition evaluation per ruling 26 ii/viii: the ETag chain gates itself
-    // on useETag, If-None-Match wins over If-Modified-Since, and every
-    // malformed or multi-member spelling makes the condition absent (200).
+    // on useETag and If-None-Match wins over If-Modified-Since. The headers
+    // degrade differently: on If-None-Match a malformed member is skipped and
+    // any surviving member still answers 304 (matchesEtag below), while a
+    // malformed or repeated If-Modified-Since makes the condition absent (200).
     private bool notModified(RequestContext ctx, string tag, long ms) {
         if (useETag && ctx.req.headers.has("If-None-Match")) {
             return matchesEtag(ctx.req.headers.getAll("If-None-Match"), tag);
