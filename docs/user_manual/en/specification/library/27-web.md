@@ -251,8 +251,8 @@ the transcript, the legs show the whole framework at work:
   the exit code is computed from `ok` (`0` on a clean run), which is
   the self-check shape the other examples use too (§9).
 
-The comments carry letter-number tags (D-3, D-10, D-12, D-22) naming
-the design decisions behind this package; each comment states the rule
+The comments carry letter-number tags (D-10, D-12, D-22) naming the
+design decisions behind this package; each comment states the rule
 its decision settled, so the tags only trace a rule back to it.
 
 ## 27.2 App

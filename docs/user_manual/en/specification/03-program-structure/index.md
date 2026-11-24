@@ -197,9 +197,8 @@ is then taken member by member through the types it names — static
 methods, static constants and enum members alike, at any depth, a
 library path behaving exactly like a project path. Each member's
 declared access (§4.8.2) applies on top of the gate: a `private` or
-`protected`
-member of a foreign package does not resolve at all — a type
-reads as not a member of that package, a function as the standard
+`protected` member of a foreign package does not resolve at all — a
+type reads as not a member of that package, a function as the standard
 not-found diagnostic (§3.9.3). §3.9 defines module
 naming, path resolution and the gate in full.
 
