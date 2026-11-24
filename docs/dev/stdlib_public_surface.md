@@ -121,6 +121,25 @@ Verdict: all 17 top-level declarations public; nothing to hide.
 
 Verdict: all 24 top-level declarations public; nothing to hide.
 
+## json.n
+
+| Kind | Name | Effective access |
+|------|------|------------------|
+| const class | JsonException | public |
+| enum | JsonKind | public |
+| class | JsonText | public |
+| class | JsonValue | public |
+| class | JsonNull | public |
+| class | JsonBool | public |
+| class | JsonNumber | public |
+| class | JsonString | public |
+| class | JsonArray | public |
+| class | JsonObject | public |
+| class | JsonParser | public |
+| function | parse | public |
+
+Verdict: all 12 top-level declarations public; nothing to hide.
+
 ## lang.n (prelude)
 
 | Kind | Name | Effective access |
@@ -249,8 +268,12 @@ Verdict: all 60 top-level declarations public; nothing to hide.
 | class | REBuilder | public |
 | const class | REProg | public |
 | class | REParser | public |
+| class | RECompile | public |
+| class | RESim | public |
+| const class | Regex | public |
+| const class | Match | public |
 
-Verdict: all 6 top-level declarations public; nothing to hide.
+Verdict: all 10 top-level declarations public; nothing to hide.
 
 ## system.n
 
@@ -500,4 +523,36 @@ Verdict: all 10 top-level declarations public; nothing to hide.
 
 Verdict: all 6 top-level declarations public; nothing to hide.
 
-Total: 390 top-level declarations across 14 modules; verdict: the stdlib is a fully public curated face, matching D5.6's expectation (no hidden members, no cross-module denial risk introduced by the access gate).
+## web.n
+
+| Kind | Name | Effective access |
+|------|------|------------------|
+| class | Middleware | public |
+| class | FuncMiddleware | public |
+| class | RequestContext | public |
+| class | Route | public |
+| class | Router | public |
+| function | hexEncode | public |
+| class | ValueBag | public |
+| class | Session | public |
+| class | SessionStore | public |
+| class | MemorySessionStore | public |
+| class | App | public |
+| class | FormOptions | public |
+| class | FormFile | public |
+| class | FormData | public |
+| class | Form | public |
+| class | MultipartBody | public |
+| class | Sse | public |
+| class | StaticFiles | public |
+
+The section covers the whole `web` package family: `web.n` plus the
+subpackage sources `web/form.n`, `web/sse.n` and `web/static.n`
+(their top-level declarations are listed in file order, `web.n`
+first). All 18 entries are plain classes (17) plus the
+framework-internal `hexEncode` free function; none carries an
+explicit access prefix.
+
+Verdict: all 18 top-level declarations public; nothing to hide.
+
+Total: 424 top-level declarations across 16 modules; verdict: the stdlib is a fully public curated face, matching D5.6's expectation (no hidden members, no cross-module denial risk introduced by the access gate).
