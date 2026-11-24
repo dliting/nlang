@@ -2275,6 +2275,8 @@ private:
         uint8_t elemKind, int32_t rank, const int32_t* dims);
     static void NativeSnapshotRngForDevice(NativeHost* self,
         uint32_t* out624, uint32_t* outPosition, int64_t n);
+    static void NativeSnapshotWindowRng(NativeHost* self,
+        uint32_t* outWords, int64_t n, int64_t offset);
     //v13 helpers (definitions in VmExecutorNativeCallbacks.cpp): the
     //fill arm shared by getArrayView's owner and view paths — sets
     //reserved[0] from the owner record's residency side vector.

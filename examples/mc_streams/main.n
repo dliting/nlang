@@ -1,0 +1,87 @@
+// mc_streams — Monte Carlo π over four device streams (v0.14.9): the
+// embarrassment-of-parallel shape the stream orchestration exists for.
+// Each stream draws its own disjoint PRNG window (4 × 1,000,000 points
+// total), computes the inside mask on-device, and the main stream joins
+// all four chunk streams before reading their outputs. Everything is
+// deterministic: seed(7) pins the global engine (seed also resets the
+// chunk-window cursor), and each chunk's window is fixed at enqueue
+// time (host-thread order), so the printed estimate is identical on
+// every run of the same build.
+//
+// Build and run from this directory (see README.md):
+//   ncc build -p mc_streams.nproj -o mc_streams.npkg
+//   nvm mc_streams.npkg
+//
+// Exit 0 only when the estimate lands within ±0.01 of π (~12 standard
+// errors at 4,000,000 points — a wrong-window bug breaks the statistics
+// and fails the check deterministically).
+import io;
+import tensor;
+
+int main() {
+    int perStream = 1000000;
+    int total = 4 * perStream;
+    tensor.seed(7);
+
+    int s1 = tensor.streamCreate();
+    int s2 = tensor.streamCreate();
+    int s3 = tensor.streamCreate();
+    int s4 = tensor.streamCreate();
+
+    //Each chunk stream draws uniforms from its own disjoint PRNG
+    //window and keeps the inside mask device-resident (the window is
+    //snapshotted at enqueue time, so execution order never matters).
+    tensor.streamPush(s1);
+    Array<float> x1 = tensor.uniform([1000000], 0.0f, 1.0f);
+    Array<float> y1 = tensor.uniform([1000000], 0.0f, 1.0f);
+    Array<int> in1 = (x1 * x1 + y1 * y1) <= 1.0f;
+    tensor.streamPop();
+
+    tensor.streamPush(s2);
+    Array<float> x2 = tensor.uniform([1000000], 0.0f, 1.0f);
+    Array<float> y2 = tensor.uniform([1000000], 0.0f, 1.0f);
+    Array<int> in2 = (x2 * x2 + y2 * y2) <= 1.0f;
+    tensor.streamPop();
+
+    tensor.streamPush(s3);
+    Array<float> x3 = tensor.uniform([1000000], 0.0f, 1.0f);
+    Array<float> y3 = tensor.uniform([1000000], 0.0f, 1.0f);
+    Array<int> in3 = (x3 * x3 + y3 * y3) <= 1.0f;
+    tensor.streamPop();
+
+    tensor.streamPush(s4);
+    Array<float> x4 = tensor.uniform([1000000], 0.0f, 1.0f);
+    Array<float> y4 = tensor.uniform([1000000], 0.0f, 1.0f);
+    Array<int> in4 = (x4 * x4 + y4 * y4) <= 1.0f;
+    tensor.streamPop();
+
+    //The main stream joins all four chunk streams before reading their
+    //outputs — the join fixes the cross-stream visibility of the
+    //stream-ordered allocations.
+    tensor.streamJoin(s1);
+    tensor.streamJoin(s2);
+    tensor.streamJoin(s3);
+    tensor.streamJoin(s4);
+
+    int inside = tensor.sum(in1) + tensor.sum(in2)
+        + tensor.sum(in3) + tensor.sum(in4);
+    //The int→float conversions are exact here (4e6 < 2^24); the
+    //double arithmetic keeps the estimate honest past float's 24-bit
+    //mantissa, and the final narrowing is explicit.
+    float estimate = (4.0 * inside / total) as float;
+    io.write("pi estimate: ");
+    io.write(estimate);
+    io.write("  (inside ");
+    io.write(inside);
+    io.write(" of ");
+    io.write(total);
+    io.print(")");
+
+    tensor.streamDestroy(s1);
+    tensor.streamDestroy(s2);
+    tensor.streamDestroy(s3);
+    tensor.streamDestroy(s4);
+
+    if (estimate < 3.13f || estimate > 3.15f) return 1;
+    return 0;
+}

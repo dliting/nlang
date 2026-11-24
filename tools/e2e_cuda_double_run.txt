@@ -246,3 +246,9 @@ op_tensor_scatter_add
 op_tensor_scatter_add
 op_tensor_scatter_add_throw
 op_tensor_scatter_add_empty
+op_stream_smoke
+op_stream_smoke
+op_stream_prng_window
+op_stream_join_order
+op_stream_pop_reject
+op_rng_seed

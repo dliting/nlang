@@ -30,8 +30,9 @@ struct Grads {
 
 // Xavier-style uniform init: every weight drawn from (-scale, scale)
 // with scale = sqrt(6 / (fanIn + fanOut)) — one tensor.uniform call per
-// weight matrix, riding the seeded host PRNG (the same stream
-// math.random draws), so the whole run is deterministic.
+// weight matrix, riding the global engine (the same engine math.random
+// draws; tensor.seed/math.srand reseed it). main.n seeds a fixed value
+// before init, so the whole run is deterministic.
 Params initParams(int inDim, int hidden, int outDim) {
     float scale1 = math.sqrt(6.0 / (inDim + hidden)) as float;
     float scale2 = math.sqrt(6.0 / (hidden + outDim)) as float;

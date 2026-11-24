@@ -1,0 +1,45 @@
+// tensor.seed (v0.14.9): reseeding replays the same draw sequence —
+// main-stream and chunk windows alike — and resets the window cursor,
+// so a seeded program is reproducible run to run. Exit 0 when every
+// check holds.
+import tensor;
+
+int main() {
+    int s = tensor.streamCreate();
+    tensor.seed(42);
+    Array<float> w1 = tensor.uniform([4], 0.0f, 1.0f);
+    tensor.seed(42);
+    Array<float> w2 = tensor.uniform([4], 0.0f, 1.0f);
+    for (int i = 0; i < 4; i = i + 1)
+        if (w1[i] != w2[i]) return 1;
+    //A different seed produces a different first draw (a 32-bit
+    //collision would fold the sequences).
+    tensor.seed(43);
+    Array<float> w3 = tensor.uniform([4], 0.0f, 1.0f);
+    if (w3[0] == w1[0]) return 2;
+    //The chunk windows reset with the seed: the same seed replays the
+    //same window in a push scope.
+    tensor.seed(42);
+    tensor.streamPush(s);
+    Array<float> c1 = tensor.uniform([4], 0.0f, 1.0f);
+    tensor.streamPop();
+    tensor.seed(42);
+    tensor.streamPush(s);
+    Array<float> c2 = tensor.uniform([4], 0.0f, 1.0f);
+    tensor.streamPop();
+    for (int i = 0; i < 4; i = i + 1)
+        if (c1[i] != c2[i]) return 3;
+    //The window is a private slice: the main stream's next draws do
+    //not jump by the window's length (they continue from where the
+    //sequence stood when the window was taken).
+    tensor.seed(42);
+    Array<float> m1 = tensor.uniform([4], 0.0f, 1.0f);
+    tensor.streamPush(s);
+    Array<float> ignored = tensor.uniform([8], 0.0f, 1.0f);
+    tensor.streamPop();
+    Array<float> m2 = tensor.uniform([4], 0.0f, 1.0f);
+    for (int i = 0; i < 4; i = i + 1)
+        if (m1[i] == m2[i]) return 4;
+    tensor.streamDestroy(s);
+    return 0;
+}

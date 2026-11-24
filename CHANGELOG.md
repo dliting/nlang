@@ -8,6 +8,58 @@ All notable changes to NLang are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.14.9]
+
+Stream orchestration — scoped multi-stream execution with event
+join and deterministic per-chunk PRNG windows.
+
+### Added
+
+- **Stream primitives** — `tensor.streamCreate() → int`,
+  `tensor.streamDestroy(int)`, `tensor.streamPush(int)`,
+  `tensor.streamPop()`, `tensor.streamJoin(int)`. Everything
+  enqueued between a `streamPush`/`streamPop` pair lands on the
+  pushed stream (nesting like braces; the nesting bottom is the
+  main stream; an unbalanced `streamPop` raises). `streamJoin`
+  orders the handoff — the main stream's subsequent operations
+  see everything the joined stream wrote.
+- **Deterministic PRNG windows** — `tensor.uniform` inside a push
+  scope takes a private, non-overlapping window of the global
+  random sequence, fixed at enqueue time (program order), so
+  concurrent chunks never draw each other's numbers. Main-stream
+  draws ride the sequence directly.
+- **`tensor.seed(s)`** — reseed the global random engine the
+  creation family draws from. The engine starts from an arbitrary
+  seed each run; after `tensor.seed(s)` the whole draw sequence —
+  main-stream and per-stream windows alike — replays identically
+  on every run (the seed also resets the chunk-window cursor).
+  Negative seeds raise.
+- **Backend neutrality** — on the `cpu` and `mirror` backends
+  every stream call succeeds as a no-op: the same program text,
+  draws and results on every backend, only the wall clock differs.
+- **`examples/mc_streams`** — four-stream Monte Carlo π
+  estimation (the embarrassment-of-parallel driver shape),
+  deterministic by construction;
+  `tests/bench/mc_streams_torch_bench.py` compares its
+  whole-program wall time against a PyTorch spelling of the same
+  workload (manual tool, intentionally not gated).
+
+### Fixed
+
+- The per-axis CPU walks (`tensor.sort`/`argsort`,
+  `tensor.scatter`, `tensor.scatterAdd`, `tensor.unique`/
+  `uniqueCounts`, `tensor.takeAlongAxis`) wrote their results
+  through a landing view whose stride pointer pointed into a
+  destroyed temporary — silently wrong output (all of a sorted
+  line collapsing into its first cell) on builds where the freed
+  memory was not reused benignly. The landing is now filled in
+  place and the landing record can no longer be copied, so the
+  defect class is a compile-time rejection.
+
+Gate: Debug unit 145/145, ASan unit 145/145, full cpu e2e 2218
+passed + 0 failed, CUDA double-run 206/206. mnist guardrail: acc
+0.896.
+
 ## [0.14.8]
 
 Slice assignment — the write half of the slice surface. The

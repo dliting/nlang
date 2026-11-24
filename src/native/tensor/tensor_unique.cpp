@@ -85,8 +85,8 @@ int32_t UniqueLand(NativeHost* host, const NativeArrayView& va,
                    const std::vector<T>& values)
 {
     const int32_t count = static_cast<int32_t>(values.size());
-    StagedWalkOut land = PrepareStagedWalkOut(host, va.elemKind, 1,
-        &count, va);
+    StagedWalkOut land;
+    PrepareStagedWalkOut(host, va.elemKind, 1, &count, va, &land);
     T* cells = static_cast<T*>(land.fill.data);
     for (int32_t i = 0; i < count; ++i)
         cells[land.fill.offset + i] = values[static_cast<size_t>(i)];
@@ -112,8 +112,8 @@ void UniqueRun(NativeHost* host, uint8_t* ret, const uint8_t* args,
     int32_t handle;
     if (withCounts) {
         const int32_t count = static_cast<int32_t>(counts.size());
-        StagedWalkOut land = PrepareStagedWalkOut(host, NEK_Int32, 1,
-            &count, va);
+        StagedWalkOut land;
+        PrepareStagedWalkOut(host, NEK_Int32, 1, &count, va, &land);
         int32_t* cells = static_cast<int32_t*>(land.fill.data);
         for (int32_t i = 0; i < count; ++i)
             cells[land.fill.offset + i] = counts[static_cast<size_t>(i)];

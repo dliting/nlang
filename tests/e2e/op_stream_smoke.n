@@ -1,0 +1,28 @@
+// Stream orchestration smoke (v0.14.9): create/push/pop/join walk the
+// full API; the ops inside a push scope land on the pushed stream (the
+// sequence stays deterministic — the enqueue order is the program
+// order). Exit 0 when every check holds.
+import tensor;
+
+int main() {
+    int s = tensor.streamCreate();
+    if (s < 0) return 1;
+    tensor.streamPush(s);
+    float[] chunk = tensor.full(1000, 0.5f);
+    tensor.streamPop();
+    //After Pop the next mint is back on the main stream; the chunk's
+    //sum is visible without a Join (the enqueue order is program
+    //order on the same thread).
+    if (tensor.sum(chunk) != 500) return 2;
+    //A second stream + join: the main stream waits for the chunk's
+    //completion before consuming its data.
+    int s2 = tensor.streamCreate();
+    tensor.streamPush(s2);
+    float[] chunk2 = tensor.full(500, 1.0f);
+    tensor.streamPop();
+    tensor.streamJoin(s2);
+    if (tensor.sum(chunk2) != 500) return 3;
+    tensor.streamDestroy(s);
+    tensor.streamDestroy(s2);
+    return 0;
+}

@@ -213,7 +213,7 @@ int main() {
 
 ### 选择
 
-`nvm`用`--tensor-backend`指定后端（§CLI，`nvm`）：
+`nvm`用`--tensor-backend`指定后端（见[nvm页](../../cli-tools/nvm.md)）：
 
 ```
 nvm --tensor-backend cuda app.npkg
@@ -248,11 +248,30 @@ tensor: operands on different devices (cuda vs host);
 
 语言层面抛出的设备错误——整数除零、负的`gather`下标、越界的`oneHot`标签——都在操作当场抛出，与宿主路径一致。设备运行内核期间发现的故障（例如非法访问）在下一个观察点浮出，而不是在引发它的操作处——设备后端把失败保存在粘性寄存器里，每个观察点先以数据形式排空它再做自己的工作，故障不会丢失；见下方已知限制。同一契约覆盖设备自身的资源失败：设备内存耗尽在分配位点抛出；垃圾回收的释放路径从不抛异常——释放失败进入粘性寄存器，在下一个观察点浮出。
 
+### 流编排
+
+上面的执行模型把操作在一条设备流上流水线化。相互独立的任务块还能更进一步、并发运行：流编排原语让程序显式地、按作用域地控制每个操作落在哪条流上。
+
+```nlang
+int s = tensor.streamCreate();   //新流句柄
+tensor.streamPush(s);            //此后操作排入s
+//……任务块的工作排入这条流……
+tensor.streamPop();              //回到外层流
+tensor.streamJoin(s);            //主流等待s
+tensor.streamDestroy(s);         //释放句柄
+```
+
+`streamPush`/`streamPop`像花括号一样嵌套：两者之间的所有操作都落在被推入的流上，嵌套的底层是主流。没有配对`streamPush`的`streamPop`抛出异常。`streamJoin`固定交接顺序：join之后，主流的操作能看到被汇合流写入的一切，因此join后再消费该流的产出没有数据竞争。
+
+并发之下随机数依然协调：push作用域内的`tensor.uniform`取到全局随机序列中一段私有、互不重叠的窗口，窗口在调用发生的时刻固定（按程序顺序，与执行顺序无关）——各任务块不会取到彼此的数。主流上（任何push作用域之外）取的uniform直接沿这条序列走。引擎每次运行从任意种子出发；`tensor.seed(s)`把它钉住——种子化的程序每一次运行都重放同样的取值，主流与每个push作用域皆然。
+
+在`cpu`与`mirror`后端上，每个流调用都成功且不做任何事：同样的程序文本、同样的取值、同样的结果——只有墙钟不同。`examples/mc_streams`用四条并发流在这个表面上估计π；`tests/bench/mc_streams_torch_bench.py`把它的墙钟与同一负载的PyTorch写法做对比。
+
 ### 部署
 
 CUDA后端是一个插件：`nlang_tensor_cuda.dll`与`nlang_tensor.dll`同在原生目录里。两个文件一起拷贝，GPU路径即可用；省略该插件，`auto`落回`cpu`且无需其他配置。宿主运行时从不链接GPU驱动，所以没有插件的构建在没有GPU的机器上照常运行。
 
-后端契约与设备无关：将来的加速器（例如ROCm/HIP）只需按同一契约发布一个同目录的插件DLL，核心零改动。
+后端契约与设备无关：将来的加速器（例如ROCm/HIP）只需按同一契约发布一个同目录的插件DLL（动态链接库），核心零改动。
 
 ### 跨后端一致性
 

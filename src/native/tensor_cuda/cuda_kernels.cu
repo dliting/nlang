@@ -114,11 +114,73 @@ cudaEvent_t g_stagingDone = nullptr;
 int32_t* g_error = nullptr;
 bool g_ready = false;
 
-cudaError_t Finish() {
-    return cudaStreamSynchronize(g_stream);
-}
+//--- the stream pool (v0.14.9: the multi-stream orchestration) ----------
+//K independent chunk streams for embarrassingly parallel workloads
+//(Monte Carlo batches, ensembles). Push/Pop swap the compute stream
+//(the stack saves the previous stream — nestable); Join makes the
+//current stream wait for a chunk stream's completion (event record +
+//stream-wait). The pool slots are handed out round-robin and reused.
+constexpr int kMaxStreams = 16;
+cudaStream_t g_streamPool[kMaxStreams] = {};
+bool g_streamSlotUsed[kMaxStreams] = {};
+int g_streamNextSlot = 0;
+cudaStream_t g_streamStack[kMaxStreams] = {};
+int g_streamStackDepth = 0;
+
+
 
 } // namespace
+
+int CudaStreamCreate() {
+    for (int probe = 0; probe < kMaxStreams; ++probe) {
+        const int slot = (g_streamNextSlot + probe) % kMaxStreams;
+        if (g_streamSlotUsed[slot])
+            continue;
+        g_streamNextSlot = (slot + 1) % kMaxStreams;
+        if (cudaStreamCreate(&g_streamPool[slot]) != cudaSuccess)
+            return -1;
+        g_streamSlotUsed[slot] = true;
+        return slot;
+    }
+    return -1;   //the pool is exhausted (16 concurrent chunk streams)
+}
+
+void CudaStreamDestroy(int slot) {
+    if (slot < 0 || slot >= kMaxStreams || !g_streamSlotUsed[slot])
+        return;
+    cudaStreamDestroy(g_streamPool[slot]);
+    g_streamPool[slot] = nullptr;
+    g_streamSlotUsed[slot] = false;
+}
+
+void CudaStreamPush(int slot) {
+    if (slot < 0 || slot >= kMaxStreams || !g_streamSlotUsed[slot])
+        return;
+    g_streamStack[g_streamStackDepth++] = g_stream;
+    g_stream = g_streamPool[slot];
+}
+
+void CudaStreamPop() {
+    if (g_streamStackDepth == 0)
+        return;   //the imbalance surfaces as the language-level
+                  //unbalanced-Pop rejection (the caller's gate)
+    g_stream = g_streamStack[--g_streamStackDepth];
+}
+
+void CudaStreamJoin(int slot) {
+    if (slot < 0 || slot >= kMaxStreams || !g_streamSlotUsed[slot])
+        return;
+    //The current stream waits for the chunk stream: an event record on
+    //the chunk stream + a stream-wait on the current stream (the join
+    //is stream-ordered — everything the chunk enqueued is visible to
+    //the current stream's subsequent ops).
+    cudaEvent_t done = nullptr;
+    if (cudaEventCreate(&done) != cudaSuccess)
+        return;
+    cudaEventRecord(done, g_streamPool[slot]);
+    cudaStreamWaitEvent(g_stream, done, 0);
+    cudaEventDestroy(done);
+}
 
 bool CudaReady() { return g_ready; }
 

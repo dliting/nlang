@@ -124,6 +124,7 @@ void VmExecutor::InitNativeHost(VmNativeHost& host) {
     host.c.setTensorDeviceHooks = &VmExecutor::NativeSetTensorDeviceHooks;
     host.c.newArrayResident = &VmExecutor::NativeNewArrayResident;
     host.c.snapshotRngForDevice = &VmExecutor::NativeSnapshotRngForDevice;
+    host.c.snapshotWindowRng = &VmExecutor::NativeSnapshotWindowRng;
 }
 
 //--- NativeHost callbacks ---------------------------------------------------

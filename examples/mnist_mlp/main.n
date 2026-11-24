@@ -54,6 +54,10 @@ int main() {
     test.labels = tensor.toDevice(test.labels);
 
     math.srand(42);
+    //Seed the draw engine before the weight init: the Xavier uniforms
+    //replay identically on every run (the run is reproducible end to
+    //end — losses, accuracy, printed digits).
+    tensor.seed(7);
     Params p = layers.initParams(pixels, hidden, classes);
 
     double firstLoss = 0.0;

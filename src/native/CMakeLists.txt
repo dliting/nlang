@@ -25,7 +25,7 @@ set(NLANG_TENSOR_KERNEL_SOURCES
     tensor/tensor_binary.cpp
     tensor/tensor_where.cpp
     tensor/tensor_scatter.cpp
-tensor/tensor_scatter_add.cpp
+    tensor/tensor_scatter_add.cpp
     tensor/tensor_sort.cpp
     tensor/tensor_take_along.cpp
     tensor/tensor_unique.cpp
@@ -38,6 +38,7 @@ tensor/tensor_scatter_add.cpp
     tensor/tensor_gather.cpp
     tensor/tensor_ops_cpu.cpp
     tensor/backend_registry.cpp
+    tensor/backend_stream.cpp
     tensor/tensor_random.cpp)
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "(AMD64|x86_64|amd64)")
     list(APPEND NLANG_TENSOR_KERNEL_SOURCES

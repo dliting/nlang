@@ -89,7 +89,9 @@ extern "C" {
 // mapping table living once next to the record). alloc writes its
 // pointer through an out parameter (a failed allocation has no
 // pointer to return).
-#define NLANG_HOST_ABI_VERSION 14u
+// v15: snapshotWindowRng — the multi-stream PRNG window draw (a private
+// engine-state copy advanced by an offset, WITHOUT advancing the live engine).
+#define NLANG_HOST_ABI_VERSION 15u
 
 // Every NLang runtime value occupies one 8-byte frame cell (see
 // kFrameSlotBytes in CompiledModule.h). Scalars of 4 bytes or less live
@@ -266,8 +268,7 @@ struct NativeHost {
 
     // Create a List<string> in one call; returns its heap handle. Used by
     // fs.listFiles so native code never needs the VM's list layout.
-    int32_t (*newListString)(NativeHost* self,
-                             const char* const* items, int count);
+    int32_t (*newListString)(NativeHost* self, const char* const* items, int count);
 
     // Write text verbatim to the program's standard output.
     void (*writeOutput)(NativeHost* self, const char* text);
@@ -294,8 +295,7 @@ struct NativeHost {
     int (*hasInput)(NativeHost* self);
 
     // Raise an NLang exception and never return.
-    void (*raiseException)(NativeHost* self, int exceptionKind,
-                           const char* message);
+    void (*raiseException)(NativeHost* self, int exceptionKind, const char* message);
 
     // PRNG access (state owned by the VM).
     uint32_t (*nextRandom)(NativeHost* self);
@@ -307,8 +307,7 @@ struct NativeHost {
     // on return the view is fully populated (returns 1 — errors raise,
     // there is no non-raising outcome). The view is valid only for the
     // duration of this native call.
-    int (*getArrayView)(NativeHost* self, int32_t handle,
-                        NativeArrayView* out);
+    int (*getArrayView)(NativeHost* self, int32_t handle, NativeArrayView* out);
 
     // Create a new array of a scalar element kind with `length` elements,
     // zero-initialized; returns its heap handle. A negative length raises
@@ -323,8 +322,7 @@ struct NativeHost {
     // cap raise in the shared sized-creation choke point (OutOfBounds
     // family). The handle is rooted until the native writes it into its
     // return cell. (v9)
-    int32_t (*newArrayShaped)(NativeHost* self, uint8_t elemKind,
-                              int32_t rank, const int32_t* dims);
+    int32_t (*newArrayShaped)(NativeHost* self, uint8_t elemKind, int32_t rank, const int32_t* dims);
 
     // Create a view over the array (or view) behind targetHandle: the given
     // rank/dims/strides/offset (offset in ELEMENT units) with the same
@@ -333,9 +331,7 @@ struct NativeHost {
     // range-exceeds-bounds all raise (the OutOfBounds family). Returns the
     // view's heap handle; the handle is rooted until the native writes it
     // into its return cell. (v10)
-    int32_t (*newArrayView)(NativeHost* self, int32_t targetHandle,
-                            int32_t rank, const int32_t* dims,
-                            const int32_t* strides, int64_t offset);
+    int32_t (*newArrayView)(NativeHost* self, int32_t targetHandle, int32_t rank, const int32_t* dims, const int32_t* strides, int64_t offset);
 
     //v11: monotonic milliseconds, same clock domain as the VM IO poller
     //deadlines (steady_clock epoch; not wall time).
@@ -360,14 +356,12 @@ struct NativeHost {
     //parkForIo return 1 (one extra retry). Harmless by contract — the
     //caller re-checks its condition on every return — do not "fix" it
     //by clearing armed on other wake paths.
-    int (*parkForIo)(NativeHost* self, int fd, unsigned events,
-        long long deadlineMs, int hasDeadline);
+    int (*parkForIo)(NativeHost* self, int fd, unsigned events, long long deadlineMs, int hasDeadline);
     //v11: per-executor host-managed module state slot keyed by tag. The
     //host calls ctor() once per executor, stores the pointer with dtor,
     //and runs dtor at executor teardown (before the module unloads —
     //modules never unload). Later calls return the stored pointer.
-    void* (*moduleState)(NativeHost* self, const char* tag,
-        void* (*ctor)(void), void (*dtor)(void*));
+    void* (*moduleState)(NativeHost* self, const char* tag, void* (*ctor)(void), void (*dtor)(void*));
     //v11: unregister poller interest for fd and wake every context parked
     //on it (socket close path — the module cannot reach the VM poller
     //directly). Callable without the GIL; the host takes it internally.
@@ -385,8 +379,7 @@ struct NativeHost {
     //jobs; libuv uv_queue_work precedent). The pool starts lazily and
     //is joined at scheduler teardown (after all carriers stop, the R8
     //precondition). Callable from any channel; returns 0.
-    int (*submitWork)(NativeHost* self, void (*fn)(void*), void* arg,
-        int ackFd, int priority);
+    int (*submitWork)(NativeHost* self, void (*fn)(void*), void* arg, int ackFd, int priority);
     //v12: the current call's receiver type arguments (the runtime
     //generic type-parameter information). All three read the
     //instantiation descriptor of the object the native method call in
@@ -400,8 +393,7 @@ struct NativeHost {
     uint8_t (*typeArgKind)(NativeHost* self, uint32_t i);
     const char* (*typeArgName)(NativeHost* self, uint32_t i);
 
-    void (*setTensorDeviceHooks)(NativeHost* self,
-                                 const TensorDeviceHooks* hooks);
+    void (*setTensorDeviceHooks)(NativeHost* self, const TensorDeviceHooks* hooks);
 
     //v13: mint a device-resident array record of a scalar element kind
     //with the given rank and dims, zero-initialized through the hooks;
@@ -410,8 +402,7 @@ struct NativeHost {
     //kinds raise the Base family (I/O buffers stay host-resident —
     //io/net read and write those payloads directly). No hooks active
     //raises the Base family (backend=cpu calling toDevice's path).
-    int32_t (*newArrayResident)(NativeHost* self, uint8_t elemKind,
-                                int32_t rank, const int32_t* dims);
+    int32_t (*newArrayResident)(NativeHost* self, uint8_t elemKind, int32_t rank, const int32_t* dims);
 
     //v13: ATOMIC "snapshot the PRNG state, then discard n" — copies the
     //engine's 624-word state into out624 and its block position into
@@ -419,8 +410,12 @@ struct NativeHost {
     //engine mutex. One callback, not a read/discard pair: two calls
     //would race between concurrent carriers and hand two uniform draws
     //the same snapshot (duplicate sequences). n may be 0 (snapshot only).
-    void (*snapshotRngForDevice)(NativeHost* self, uint32_t* out624,
-                                 uint32_t* outPosition, int64_t n);
+    void (*snapshotRngForDevice)(NativeHost* self, uint32_t* out624, uint32_t* outPosition, int64_t n);
+
+    //v15: draw n words at (position + offset) WITHOUT advancing the live
+    //engine — the multi-stream PRNG window; a private state copy keeps the
+    //main stream coherent, and host-thread enqueue order fixes the offset.
+    void (*snapshotWindowRng)(NativeHost* self, uint32_t* outWords, int64_t n, int64_t offset);
 };
 
 // Version probe. The host resolves this export first and rejects the

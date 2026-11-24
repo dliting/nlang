@@ -198,8 +198,8 @@ void SortRun(NativeHost* host, uint8_t* ret, const uint8_t* args,
     //fills the twin and lands H2D.
     std::vector<uint8_t> aStage;
     NativeArrayView srcHost = StageOperandToHost(host, va, &aStage);
-    StagedWalkOut land = PrepareStagedWalkOut(host, outKind, va.rank,
-        outDims, va);
+    StagedWalkOut land;
+    PrepareStagedWalkOut(host, outKind, va.rank, outDims, va, &land);
     SortDispatch<T>(OpsForResidency(0), host, srcHost, axis, withIndices,
         land.fill);
     LandStagedWalkOut(host, &land);

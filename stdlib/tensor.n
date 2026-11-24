@@ -464,6 +464,24 @@ native void assignIntoS(Array<double> view, double value);
 native void assignIntoS(Array<int> view, int value);
 native void assignIntoS(Array<long> view, long value);
 
+// Stream orchestration (v0.14.9): the multi-stream pool for
+// embarrassingly parallel workloads (Monte Carlo batches, model
+// ensembles). Push/Pop are a stack — the ops between them launch on
+// the pushed stream; Join makes the current stream wait for a chunk
+// stream's completion. No-ops on cpu/mirror (host memory, no streams).
+native int streamCreate();
+native void streamDestroy(int handle);
+native void streamPush(int handle);
+native void streamPop();
+native void streamJoin(int handle);
+
+// Reseed the global random engine the creation family draws from
+// (uniform and friends). The engine starts from an arbitrary seed
+// each run; after seed(s) the whole draw sequence — main-stream and
+// per-stream windows alike — replays identically on every run, so a
+// seeded program is reproducible. Negative seeds raise.
+native void seed(int s);
+
 // The scalar overload at the base spelling.
 Array<float> scatter(Array<float> a, int axis, Array<int> indices,
     float value) {

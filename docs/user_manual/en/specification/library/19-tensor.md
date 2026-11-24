@@ -524,7 +524,7 @@ which arrays live on it, and what a deployment ships.
 ### Selection
 
 `nvm` names the backend with `--tensor-backend`
-(§CLI, `nvm`):
+(documented on the [nvm page](../../cli-tools/nvm.md)):
 
 ```
 nvm --tensor-backend cuda app.npkg
@@ -629,6 +629,48 @@ condition raises at the allocation, and the garbage collector's
 release path never throws — a release failure parks sticky and
 surfaces at the next observation point.
 
+### Stream orchestration
+
+The execution model above pipelines operations on one device
+stream. Independent chunks of work can go further and run
+concurrently: the stream orchestration primitives give a program
+explicit, scoped control over which stream each operation lands
+on.
+
+```nlang
+int s = tensor.streamCreate();   // a new stream handle
+tensor.streamPush(s);            // ops enqueue on s from here
+//...work enqueued on the chunk stream...
+tensor.streamPop();              // back to the surrounding stream
+tensor.streamJoin(s);            // the main stream waits for s
+tensor.streamDestroy(s);         // release the handle
+```
+
+`streamPush`/`streamPop` nest like braces: everything enqueued
+between them lands on the pushed stream, and the bottom of the
+nesting is the main stream. A `streamPop` without a matching
+`streamPush` raises. `streamJoin` orders the handoff: after it,
+the main stream's operations see everything the joined stream
+wrote, so consuming a chunk's output after joining is race-free.
+
+Random draws stay coherent under concurrency: inside a push
+scope, `tensor.uniform` takes a private, non-overlapping window
+of the global random sequence, fixed at the moment the call is
+made (program order, not execution order) — chunks never draw
+each other's numbers. Uniforms drawn on the main stream (outside
+any push scope) ride that sequence directly. The engine starts
+from an arbitrary seed each run; `tensor.seed(s)` pins it — a
+seeded program replays the same draws, on the main stream and in
+every push scope alike, on every run.
+
+On the `cpu` and `mirror` backends every stream call succeeds
+and does nothing: the same program text, the same draws, the
+same result on every backend — only the wall clock differs.
+`examples/mc_streams` estimates π with four concurrent streams
+on this surface, and `tests/bench/mc_streams_torch_bench.py`
+compares its wall time against a PyTorch spelling of the same
+workload.
+
 ### Deployment
 
 The CUDA backend is a plugin: `nlang_tensor_cuda.dll` beside
@@ -640,7 +682,8 @@ plugin runs identically on a machine without a GPU.
 
 The backend contract is device-agnostic: a future accelerator
 (ROCm/HIP, for example) plugs in by shipping a sibling plugin
-DLL against the same contract, with no change to the core.
+DLL — a dynamic-link library — against the same contract, with no
+change to the core.
 
 ### Cross-backend agreement
 

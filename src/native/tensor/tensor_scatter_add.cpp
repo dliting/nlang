@@ -173,8 +173,8 @@ void ScatterAddRun(NativeHost* host, uint8_t* ret, const uint8_t* args,
     //The CPU walk landing (the shared StagedWalkOut form).
     std::vector<uint8_t> aStage;
     NativeArrayView srcHost = StageOperandToHost(host, va, &aStage);
-    StagedWalkOut land = PrepareStagedWalkOut(host, va.elemKind, va.rank,
-        outDims, va);
+    StagedWalkOut land;
+    PrepareStagedWalkOut(host, va.elemKind, va.rank, outDims, va, &land);
     CallScatterAddSlot<T>(OpsForResidency(0), host, srcHost, axis, vIdx,
         vals.values, land.fill, vals, nullptr);
     LandStagedWalkOut(host, &land);

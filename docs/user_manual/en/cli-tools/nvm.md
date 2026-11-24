@@ -24,7 +24,7 @@ defaults to at most four (capped by the machine's parallelism), and
 `--carriers=1` pins a single carrier for deterministic interleaving
 (see [the GIL and multiple carriers](../specification/10-concurrency/carriers.md)).
 A value outside the range is rejected before the program starts.
-`--tensor-backend=NAME` selects the [tensor device backend](../specification/library/18-tensor.md)
+`--tensor-backend=NAME` selects the [tensor device backend](../specification/library/19-tensor.md)
 (`cpu`, `cuda`, `auto`, or `mirror`); it overrides the
 `NLANG_TENSOR_BACKEND` environment variable, which takes the same
 values. The default is `auto`: use an installed device backend when

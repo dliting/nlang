@@ -34,6 +34,7 @@ using nlang::native::NewArrayView;
 using nlang::native::Raise;
 using nlang::native::ReturnInt;
 
+
 namespace tensor {
 
 namespace {
@@ -252,6 +253,62 @@ void ViewSumI(NativeHost* host, uint8_t* ret, const uint8_t* args,
     ReturnInt(ret, static_cast<int32_t>(sum));
 }
 
+//--- v0.14.9: the stream orchestration — thin wrappers over the
+//registry's backend dispatch (no-op on cpu/mirror; the plugin's pool
+//on cuda) ---------------------------------------------------------------
+
+void TensorStreamCreate(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                        int argc) {
+    (void)host;
+    (void)args;
+    (void)argc;
+    ReturnInt(ret, BackendStreamCreate());
+}
+
+void TensorStreamDestroy(NativeHost* host, uint8_t* ret,
+                         const uint8_t* args, int argc) {
+    (void)host;
+    (void)ret;
+    BackendStreamDestroy(ArgInt(args, 0));
+}
+
+void TensorStreamPush(NativeHost* host, uint8_t* ret,
+                      const uint8_t* args, int argc) {
+    (void)host;
+    (void)ret;
+    BackendStreamPush(ArgInt(args, 0));
+}
+
+void TensorStreamPop(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                     int argc) {
+    (void)ret;
+    (void)args;
+    (void)argc;
+    BackendStreamPop(host);
+}
+
+void TensorStreamJoin(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                      int argc) {
+    (void)host;
+    (void)ret;
+    BackendStreamJoin(ArgInt(args, 0));
+}
+
+//tensor.seed: reseed the global engine (the seedRandom callback the
+//math package's srand shares). The engine is entropy-seeded at VM
+//start; a seeded program reproduces its draws run to run. The seed
+//also resets the chunk-window cursor — the state math.srand cannot
+//see — so the stream windows replay with the engine.
+void TensorSeed(NativeHost* host, uint8_t* ret, const uint8_t* args,
+                int argc) {
+    (void)ret;
+    (void)argc;
+    const int64_t seed = ArgInt(args, 0);
+    if (seed < 0)
+        Raise(host, NEXC_Base, "tensor.seed: seed is negative");
+    host->seedRandom(host, static_cast<int32_t>(seed));
+    ResetChunkPrngCursor();
+}
 } // namespace tensor
 
 NLANG_DEFINE_NATIVE_INIT {
@@ -348,6 +405,16 @@ NLANG_DEFINE_NATIVE_INIT {
         &tensor::TensorAssignInto);
     regBlocking(registry, "tensor", "assignIntoS",
         &tensor::TensorAssignIntoS);
+    regBlocking(registry, "tensor", "streamCreate",
+        &tensor::TensorStreamCreate);
+    regBlocking(registry, "tensor", "streamDestroy",
+        &tensor::TensorStreamDestroy);
+    regBlocking(registry, "tensor", "streamPush",
+        &tensor::TensorStreamPush);
+    regBlocking(registry, "tensor", "streamPop", &tensor::TensorStreamPop);
+    regBlocking(registry, "tensor", "streamJoin",
+        &tensor::TensorStreamJoin);
+    regBlocking(registry, "tensor", "seed", &tensor::TensorSeed);
     regBlocking(registry, "tensor", "sort", &tensor::TensorSort);
     regBlocking(registry, "tensor", "argsort", &tensor::TensorArgSort);
     regBlocking(registry, "tensor", "takeAlongAxis",

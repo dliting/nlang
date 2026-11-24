@@ -1,0 +1,34 @@
+// Per-chunk PRNG windows (v0.14.9): the uniforms enqueued on two
+// chunk streams draw DISJOINT windows of the global MT19937 sequence
+// (the snapshot+discard is atomic at enqueue time, host-thread order)
+// — no chunk sees another's draws, and the union reproduces the
+// single-stream sequence. Exit 0 when every check holds.
+import tensor;
+
+int main() {
+    int s1 = tensor.streamCreate();
+    int s2 = tensor.streamCreate();
+    tensor.streamPush(s1);
+    Array<float> chunk1 = tensor.uniform([4], 0.0f, 1.0f);
+    tensor.streamPop();
+    tensor.streamPush(s2);
+    Array<float> chunk2 = tensor.uniform([4], 0.0f, 1.0f);
+    tensor.streamPop();
+    tensor.streamJoin(s1);
+    tensor.streamJoin(s2);
+    //The two windows are disjoint: no cell of chunk1 equals any cell
+    //of chunk2 (4 draws each — a collision would fold the windows).
+    for (int i = 0; i < 4; i = i + 1) {
+        for (int j = 0; j < 4; j = j + 1) {
+            if (chunk1[i] == chunk2[j]) return 1;
+        }
+    }
+    //The union reproduces the single-stream sequence: the same 8 draws
+    //on the main stream match the two chunks concatenated.
+    Array<float> single = tensor.uniform([8], 0.0f, 1.0f);
+    for (int i = 0; i < 4; i = i + 1) {
+        if (single[i] != chunk1[i]) return 2;
+        if (single[4 + i] != chunk2[i]) return 3;
+    }
+    return 0;
+}

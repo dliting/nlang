@@ -156,8 +156,8 @@ void ScatterRun(NativeHost* host, uint8_t* ret, const uint8_t* args,
     //pattern's shared form).
     std::vector<uint8_t> aStage;
     NativeArrayView srcHost = StageOperandToHost(host, va, &aStage);
-    StagedWalkOut land = PrepareStagedWalkOut(host, va.elemKind, va.rank,
-        outDims, va);
+    StagedWalkOut land;
+    PrepareStagedWalkOut(host, va.elemKind, va.rank, outDims, va, &land);
     CallScatterSlot<T>(OpsForResidency(0), host, srcHost, axis, vIdx,
         vals.values, land.fill, vals, nullptr);
     LandStagedWalkOut(host, &land);

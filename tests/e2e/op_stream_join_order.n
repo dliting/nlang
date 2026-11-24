@@ -1,0 +1,22 @@
+// Join data-visibility (v0.14.9): a chunk stream computes a buffer;
+// Join makes the main stream's subsequent ops see the completed data
+// (the stream-ordered handoff). Exit 0 when every check holds.
+import tensor;
+
+int main() {
+    int s = tensor.streamCreate();
+    tensor.streamPush(s);
+    Array<float> buf = tensor.full([100], 2.0f);
+    tensor.streamPop();
+    //Without a Join the main stream's read of buf would race the
+    //chunk's writes; Join orders the handoff.
+    tensor.streamJoin(s);
+    Array<float> outArr = tensor.full([100], 0.0f);
+    tensor.assignInto(outArr, buf);
+    for (int i = 0; i < 100; i = i + 1) {
+        if (outArr[i] != 2.0f) return 1;
+    }
+    //The assignInto write lands: outArr mirrors buf through the join.
+    tensor.streamDestroy(s);
+    return 0;
+}

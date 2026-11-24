@@ -168,6 +168,11 @@ void ActivateCudaOrFallBack(NativeHost* host, bool explicitCuda) {
     g_backend.device = true;
     g_backend.name = "cuda";
     g_backend.ops = probe.desc->ops;
+    g_backend.streamCreate = probe.desc->streamCreate;
+    g_backend.streamDestroy = probe.desc->streamDestroy;
+    g_backend.streamPush = probe.desc->streamPush;
+    g_backend.streamPop = probe.desc->streamPop;
+    g_backend.streamJoin = probe.desc->streamJoin;
     host->setTensorDeviceHooks(host, &g_backend.hooks);
 }
 
@@ -447,26 +452,26 @@ void AssertSameResidency(NativeHost* host, const NativeArrayView* operands,
     }
 }
 
-StagedWalkOut PrepareStagedWalkOut(NativeHost* host, uint8_t elemKind,
-                                   int32_t rank, const int32_t* dims,
-                                   const NativeArrayView& srcLike) {
-    StagedWalkOut landing;
+void PrepareStagedWalkOut(NativeHost* host, uint8_t elemKind, int32_t rank,
+                          const int32_t* dims, const NativeArrayView& srcLike,
+                          StagedWalkOut* landing) {
+    //Filled in place: a returned copy would leave fill.strides dangling
+    //into the destroyed temporary (NativeHost.h's view-copy warning).
     if (srcLike.reserved[0] == 1 && g_backend.device) {
         //Device-resident source: the walk fills a HOST twin mint and
         //Land copies it into the device mint (the twin order keeps the
         //walk's target a plain host buffer).
         const int32_t twinHandle = host->newArrayShaped(host, elemKind,
             rank, dims);
-        host->getArrayView(host, twinHandle, &landing.fill);
-        landing.handle = host->newArrayResident(host, elemKind, rank,
+        host->getArrayView(host, twinHandle, &landing->fill);
+        landing->handle = host->newArrayResident(host, elemKind, rank,
             dims);
-        host->getArrayView(host, landing.handle, &landing.device);
-        landing.deviceIs = true;
-        return landing;
+        host->getArrayView(host, landing->handle, &landing->device);
+        landing->deviceIs = true;
+        return;
     }
-    landing.handle = host->newArrayShaped(host, elemKind, rank, dims);
-    host->getArrayView(host, landing.handle, &landing.fill);
-    return landing;
+    landing->handle = host->newArrayShaped(host, elemKind, rank, dims);
+    host->getArrayView(host, landing->handle, &landing->fill);
 }
 
 void LandStagedWalkOut(NativeHost* host, StagedWalkOut* landing) {

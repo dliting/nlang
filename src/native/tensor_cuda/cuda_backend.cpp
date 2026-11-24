@@ -829,6 +829,11 @@ nlang_device_backend_init(void) {
         desc.name = "cuda";
         desc.description = "NVIDIA CUDA (sm_86, CUDA 12.6)";
         desc.deviceCount = deviceCount;
+        desc.streamCreate = &tensor_cuda::CudaStreamCreate;
+        desc.streamDestroy = &tensor_cuda::CudaStreamDestroy;
+        desc.streamPush = &tensor_cuda::CudaStreamPush;
+        desc.streamPop = &tensor_cuda::CudaStreamPop;
+        desc.streamJoin = &tensor_cuda::CudaStreamJoin;
         built = true;
     }
     return &desc;

@@ -8,6 +8,24 @@
 
 ## [未发布]
 
+## [0.14.9]
+
+流编排——按作用域的多流执行、事件汇合与确定性的逐chunk随机数窗口。
+
+### 新增
+
+- **流原语**——`tensor.streamCreate() → int`、`tensor.streamDestroy(int)`、`tensor.streamPush(int)`、`tensor.streamPop()`、`tensor.streamJoin(int)`。一对`streamPush`/`streamPop`之间排队的所有操作都落在被推入的流上（像花括号一样嵌套；嵌套底层是主流；不配对的`streamPop`抛出异常）。`streamJoin`固定交接顺序——主流的后续操作能看到被汇合流写入的一切。
+- **确定性PRNG窗口**——push作用域内的`tensor.uniform`取到全局随机序列中一段私有、互不重叠的窗口，在入队时刻固定（按程序顺序），并发的任务块不会取到彼此的数。主流上的取值直接沿序列走。
+- **`tensor.seed(s)`**——重置创建家族所依赖的全局随机引擎。引擎每次运行从任意种子出发；`tensor.seed(s)`之后整条取值序列——主流与各流窗口一样——在每次运行上完全一致地重放（seed同时重置chunk窗口游标）。负数种子抛出异常。
+- **后端中立**——在`cpu`与`mirror`后端上每个流调用都是成功no-op：每个后端同样的程序文本、同样的取值与结果，只有墙钟不同。
+- **`examples/mc_streams`**——四流蒙特卡洛π估计（尴尬并行的驱动形态），种子化后完全确定；`tests/bench/mc_streams_torch_bench.py`把它的整程序墙钟与同一负载的PyTorch写法对比（手动工具，有意不入门禁）。
+
+### 修复
+
+- 按轴CPU遍历（`tensor.sort`/`argsort`、`tensor.scatter`、`tensor.scatterAdd`、`tensor.unique`/`uniqueCounts`、`tensor.takeAlongAxis`）经一个着陆视图写出结果，而该视图的步长指针指向已销毁的临时对象——在被释放内存未被良性复用的构建上产出静默错误（排序行全体塌进第一格）。着陆点现改为原地填充，且着陆记录不再可拷贝，整类缺陷成为编译期拒绝。
+
+Gate: Debug单元145/145，ASan单元145/145，全量cpu e2e 2218通过+0失败，CUDA双跑206/206。mnist护栏：acc 0.896。
+
 ## [0.14.8]
 
 切片赋值——切片表面的写半边。下标赋值语句接受slice项并降低到slice视图上的tensor.assignInto。

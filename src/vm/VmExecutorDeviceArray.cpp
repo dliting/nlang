@@ -326,4 +326,21 @@ void VmExecutor::NativeSnapshotRngForDevice(NativeHost* self,
     e->m_rng.discard(n);
 }
 
+void VmExecutor::NativeSnapshotWindowRng(NativeHost* self,
+    uint32_t* outWords, int64_t n, int64_t offset) {
+    VmExecutor* e = Wrap(self)->executor;
+    std::lock_guard<std::mutex> rngGuard(e->m_rngMutex);
+    //Draw from a private copy advanced by offset: the live engine is
+    //untouched, so main-stream draws stay coherent with the chunk
+    //windows (the multi-stream PRNG contract).
+    uint32_t state624[624];
+    uint32_t position;
+    e->m_rng.Snapshot(state624, &position);
+    VmMt19937 window;
+    window.Restore(state624, position);
+    window.discard(offset);
+    for (int64_t i = 0; i < n; ++i)
+        outWords[i] = window.next();
+}
+
 } // namespace nlang

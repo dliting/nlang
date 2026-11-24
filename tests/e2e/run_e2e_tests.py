@@ -450,7 +450,10 @@ def main():
     #per-test cap; the full-suite regression net stays with the cpu
     #mode. A name in the file that keys no manifest entry fails the
     #run — a stale list would otherwise shrink the net silently.
-    filter_path = sys.argv[4] if len(sys.argv) > 4 else None
+    #Read from the filtered `args`, not the raw argv: a '--timeout=SEC'
+    #flag after the three tool paths would otherwise occupy the filter
+    #slot (sys.argv[4]) and be mistaken for a filter file.
+    filter_path = args[3] if len(args) > 3 else None
     _fail_on_stale_tools(ncc, nvm, ndb)
     #Debug (and ASan, which builds the Debug config) runs several times
     #slower than Release: asserts on, no optimization, gc-stress

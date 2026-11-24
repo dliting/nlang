@@ -55,6 +55,13 @@ struct DeviceBackendState {
     bool device = false;      //hooks registered into the VM
     std::string name = "cpu"; //"cpu" / "mirror" / "cuda"
     const void* ops = nullptr; //the device TensorOps table (cuda)
+    //--- v0.14.9: the multi-stream orchestration (the plugin's pool;
+    //null = no stream pool — the registry's stream natives no-op).
+    int (*streamCreate)() = nullptr;
+    void (*streamDestroy)(int handle) = nullptr;
+    void (*streamPush)(int handle) = nullptr;
+    void (*streamPop)() = nullptr;
+    void (*streamJoin)(int handle) = nullptr;
 };
 
 //Resolved once at module init; immutable afterwards (the hooks
@@ -158,11 +165,24 @@ struct StagedWalkOut {
     NativeArrayView fill;   //the view the CPU walk writes
     bool deviceIs = false;  //the device-side landing is pending
     NativeArrayView device; //the landing target (deviceIs only)
+    //Non-copyable by design: fill/device hold NativeArrayView whose
+    //strides self-reference their own stridesInline. A copy would leave
+    //the copy's strides pointing at the source's inline array (the
+    //v0.14.6 sort defect — silent wrong output in Debug, UB-masked in
+    //Release). Copying is impossible now, not merely discouraged.
+    StagedWalkOut() = default;
+    StagedWalkOut(const StagedWalkOut&) = delete;
+    StagedWalkOut& operator=(const StagedWalkOut&) = delete;
 };
 
-StagedWalkOut PrepareStagedWalkOut(NativeHost* host, uint8_t elemKind,
-                                   int32_t rank, const int32_t* dims,
-                                   const NativeArrayView& srcLike);
+//Filled in place (out-param, not return-by-value): a returned
+//StagedWalkOut copy would leave fill.strides dangling into the callee's
+//stack (the NativeHost.h view-copy warning). The caller's landing object
+//outlives the walk's reads, so its fill.stridesInline is live.
+void PrepareStagedWalkOut(NativeHost* host, uint8_t elemKind, int32_t rank,
+                          const int32_t* dims,
+                          const NativeArrayView& srcLike,
+                          StagedWalkOut* landing);
 void LandStagedWalkOut(NativeHost* host, StagedWalkOut* landing);
 
 //--- the axis family's shared validations --------------------------------
@@ -185,5 +205,25 @@ void RejectZeroSizeSource(NativeHost* host, const std::string& who,
 //operands disagree on residency.
 void AssertSameResidency(NativeHost* host, const NativeArrayView* operands,
                          size_t count);
+
+//--- the stream orchestration (v0.14.9) ----------------------------------
+//The registry-level dispatch over the backend's stream pool. Without
+//a pool (cpu/mirror) every op is a no-op that keeps the language
+//program identical across backends.
+int32_t BackendStreamCreate();
+void BackendStreamDestroy(int32_t handle);
+void BackendStreamPush(int32_t handle);
+void BackendStreamPop(NativeHost* host);
+void BackendStreamJoin(int32_t handle);
+
+//The push depth: 0 on the main stream, >0 inside a Push/Pop scope (a
+//chunk stream). Read by the PRNG window dispatch to pick the chunk
+//snapshot over the live engine.
+int32_t StreamPushDepth();
+
+//tensor.seed's companion reset: reseeding the engine zeroes the chunk
+//window cursor, so the seeded run's chunk windows tile from the start
+//of the new sequence (the reproducibility contract).
+void ResetChunkPrngCursor();
 
 } // namespace tensor

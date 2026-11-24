@@ -2564,3 +2564,9 @@ err_outret_call_marker compile_error the out argument marker is retired
 err_outret_func_mark compile_error the out type marker is retired
 err_outret_anchored compile_error
 err_outret_keyword compile_error
+op_stream_smoke 0
+op_stream_smoke 0
+op_stream_prng_window 0
+op_stream_join_order 0
+op_stream_pop_reject 1
+op_rng_seed 0

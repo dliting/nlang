@@ -1,0 +1,10 @@
+// Pop without a matching Push: uncaught Exception, exit 1 by design —
+// the stack discipline is part of the orchestration contract (an
+// unbalanced Pop would silently misroute subsequent ops to the wrong
+// stream).
+import tensor;
+
+int main() {
+    tensor.streamPop();
+    return 0;
+}

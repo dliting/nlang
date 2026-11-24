@@ -54,6 +54,17 @@ struct LaunchView {
 //True when the CUDA context is initialized (lazy — spec D4).
 bool CudaReady();
 
+//--- the stream pool (v0.14.9: the multi-stream orchestration) ----------
+//Create/destroy pool streams; Push/Pop swap the compute stream (the
+//launchers read the swapped-in stream); Join makes the current stream
+//wait for a chunk stream's completion (event + stream-wait). Handles
+//are pool slot indices; the pool is bounded (16 slots).
+int CudaStreamCreate();
+void CudaStreamDestroy(int slot);
+void CudaStreamPush(int slot);
+void CudaStreamPop();
+void CudaStreamJoin(int slot);
+
 //Lazy init: device 0 + the stream + the error flags. Returns false + a
 //message on failure (the caller raises the NLang exception with it).
 bool CudaLazyInit(std::string* error);
