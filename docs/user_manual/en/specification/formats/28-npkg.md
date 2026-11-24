@@ -4,7 +4,7 @@ A *package archive* is the distribution form of a build: it
 packs one *member* — a unit image of chapter 27 — per package
 of the build, each member named by its package path (§3.9.1). A
 program archive carries an *entry record*; a library archive
-omits one, and the standard library ships as `stdlib.npkg`
+omits one, as the standard library's thirteen domain packages do
 (§3.9.4). §28.1 sets the scope and the format version; §28.2
 fixes the container; §28.3 defines the entry record and the
 member identity; §28.4 fixes the member checksums; §28.5

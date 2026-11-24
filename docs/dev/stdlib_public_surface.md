@@ -9,8 +9,9 @@ FA_Public. No declaration in any stdlib module carries an explicit
 `private`/`protected` prefix (verified mechanically on this walk).
 
 Prelude files (`lang.n`, `containers.n`) are compile-time-inline
-and excluded from stdlib.npkg; they are audited here for
-completeness but their members are not importable package surface.
+and excluded from the standard library's packages; they are audited
+here for completeness but their members are not importable package
+surface.
 
 ## concurrent.n
 

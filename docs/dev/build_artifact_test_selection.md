@@ -6,6 +6,8 @@
 `vm`的测试不必重跑，发布前也一样）。本文用实测回答三件事：这张依赖图长什么样、
 按产物选测在哪些地方真能省下时间、要让它在集成测试层成立还缺什么。
 
+补注（2026-11-25）：标准库包其后按领域拆分（`docs/dev/package_artifact_design.md`的D4），一个领域一个`<domain>.npkg`、共十三个。本文中的`stdlib.npkg`是分析当时的单包形态，相关行保持原样。
+
 探针与原始输出：`temp/dag_probe.py`（读全部`CMakeLists.txt`，抽目标定义与
 `target_link_libraries`/`add_dependencies`边，算传递闭包与扇入）、
 `temp/dag_entries.py`（再把ctest条目名接到可执行目标、把可执行目标接到其闭包、

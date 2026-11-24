@@ -108,7 +108,7 @@ entry member's module path plus the function name), a member table
 determinism), and the embedded `.ncu` unit images. Each member carries
 an FNV-1a 64 checksum (against accidental corruption — not a security
 mechanism). A library package is the same container without an entry
-record — the standard library's `stdlib.npkg` is a library package
-whose members are `io`/`math`/`fs`. The loader requires each member
+record — the standard library's `io.npkg` is a library package whose
+single member is `io`. The loader requires each member
 image's header module path to match its member-table entry: a
 mislabeled artifact is refused, not silently accepted.

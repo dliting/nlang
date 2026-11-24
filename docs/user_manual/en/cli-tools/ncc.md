@@ -50,8 +50,9 @@ NLang artifacts **do not embed library code**: every participating source
 file yields its own **unit image**, and cross-package symbols
 (`io.print`, `utils.helper.answer`) are recorded in the image as **import
 references**. At load time the loader discovers every dependency along the
-library search path — library archives such as `stdlib.npkg`, external
-`.ncu` files — and links them with the artifact into one runtime module.
+library search path — library archives such as the standard library's
+domain packages (`io.npkg`, `math.npkg`), external `.ncu` files — and
+links them with the artifact into one runtime module.
 nvm, `ncc run`, and ncc's compile-and-execute all go through this same
 load-and-link path and behave identically.
 
@@ -63,8 +64,8 @@ load-and-link path and behave identically.
 - **`.npkg` (package archive)** — the artifact of a project build: one
   member per unit in the project (the member name is the module path),
   plus an entry record. The same format serves pure library
-  distribution (`stdlib.npkg` is a library package whose members are
-  `io`/`math`/`fs`/`thread`/`concurrent`).
+  distribution (`io.npkg` is a library package whose only member is
+  `io`; `concurrent.npkg` holds `thread` and `concurrent`).
 
 A missing dependency is reported in one shot, listing every directory
 searched:

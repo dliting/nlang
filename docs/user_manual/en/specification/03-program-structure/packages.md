@@ -17,8 +17,8 @@ NLang moves code in four kinds of file.
   member per package, each member named by its package path. A
   project build produces one with an *entry record* naming the
   entry unit (§3.2); a library archive omits the record — the
-  standard library ships as `stdlib.npkg` (§3.9.4). The format is
-  chapter 28.
+  standard library ships as thirteen domain packages, `io.npkg`
+  and `math.npkg` among them (§3.9.4). The format is chapter 28.
 - **Native host library.** The host dynamic library that carries
   `native` implementations, named from the declaring package,
   which is necessarily single-segment (§7.5).
@@ -256,11 +256,11 @@ parser rejects the shape with a syntax error.
 
 The standard library ships with the toolchain in two forms: `.n`
 sources, discovered through the standard-library directory and
-inlined at compile time, and `stdlib.npkg`, one member per
-library unit, loaded at run time from the executable's
-directory. Both directories are system-default search entries
-(§3.9.2), so an ordinary build finds the standard library without
-configuration.
+inlined at compile time, and thirteen domain packages (`io.npkg`,
+`math.npkg`, ...), one member per library unit, loaded at run time
+from the standard-library directory. The standard-library directory
+is a system-default search entry (§3.9.2), so an ordinary build
+finds the standard library without configuration.
 
 One rule decides what is visible without an import: the language
 core and the base containers are always in scope, everything

@@ -129,7 +129,8 @@ Single-source builds produce a `.ncu` unit image; project builds pack a
 `.npkg` program archive (one member per source unit plus an entry record).
 Artifacts do not embed library code: at load time the executor discovers the
 whole import closure along the search path and links it into one runtime
-module (the standard library ships as `stdlib.npkg` beside the tools).
+module (the standard library ships with the toolchain as domain packages,
+`io.npkg` among them).
 
 ### Debugging
 
@@ -223,8 +224,10 @@ is in `CHANGELOG.md`.
 `math`, `io`, `fs`, `thread`, `concurrent`, `tensor`, `net`, `system`,
 `url`, `http`, `gzip`, `regex`, `json` and `web` are the standard fourteen packages — sources
 shipped with the toolchain (`stdlib/*.n`),
-provided at run time by `stdlib.npkg` through the same mechanism as any
-library package; their qualified calls still need an explicit `import`
+provided at run time by thirteen domain packages (`io.npkg`, ...) —
+`thread` and `concurrent` share `concurrent.npkg` — through the same
+mechanism as any library package; their qualified calls still need an
+explicit `import`
 (`thread` carries the virtual-thread spawn and suspension primitives;
 `concurrent` adds `WaitGroup` on top of the kernel
 concurrency primitives). Strings carry built-in
@@ -417,9 +420,9 @@ This produces `release/NLang-<version>-win64.zip` (portable) and
 either on `PATH` or passed via `-DNLANG_NSIS_MAKENSIS`). Both contain the
 same layout: `bin/` with `nide`, `ncc`, `nvm`, `ndisasm`, `ndb`, the Qt runtime
 and the native stdlib libraries, `stdlib/` with the declarations and the
-compiled `stdlib.npkg` package, plus `examples/`, the generated documentation
-site (`docs/site/`), `LICENSE`, `CHANGELOG.md` and `README.md`. The installer
-defaults to
+compiled domain packages (`io.npkg`, `math.npkg`, ...), plus `examples/`,
+the generated documentation site (`docs/site/`), `LICENSE`, `CHANGELOG.md`
+and `README.md`. The installer defaults to
 `C:\Program Files\NLang` and adds a Start Menu shortcut for the IDE.
 
 Notes:
