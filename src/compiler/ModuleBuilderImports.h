@@ -4,6 +4,8 @@ translation units: declarations shared between ModuleBuilderImports.cpp
 and the split external-artifact TU (ModuleBuilderExternalImports.cpp).
 ---*/
 #pragma once
+#include <nlang/vm/CompiledModule.h>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -12,13 +14,16 @@ namespace nlang
 {
 
 struct BuildParams;
+//One build's view of the package artifacts on the library search path.
+//Opaque here: the type is private to ModuleBuilderExternalImports.cpp.
+struct ArtifactPackageCache;
 
 //Effective library search directories: explicit/configured import dirs
 //first, then the stdlib dir, so the standard library is discoverable even
 //when a direct BuildParams caller did not list it (the tool layer normally
 //prepends it through BuildLibrarySearchPath). Shared by the library-source
-//discovery and the external .ncu/.npkg lookup; definitions in
-//BuildEnvironment.cpp (see there for why not in the import TUs).
+//discovery and the artifact lookup; definitions in BuildEnvironment.cpp
+//(see there for why not in the import TUs).
 std::vector<std::string> EffectiveLibraryDirs(const BuildParams &params);
 
 //Every (file, root) match for a dotted package name across the effective
@@ -30,5 +35,33 @@ std::vector<std::string> EffectiveLibraryDirs(const BuildParams &params);
 std::vector<std::pair<std::string, std::string>>
 FindLibrarySourceMatches(const BuildParams &params,
 	const std::string &dottedName);
+
+//Outcome of one import name's artifact lookup.
+//  found        an artifact answered for the name and its image was read
+//  image        the unit's compiled module (valid when found)
+//  artifactPath the unit file, or the package carrying the member
+//  error        an artifact answered but was refused (unreadable bytes,
+//               a header naming another module): the lookup's caller
+//               reports it. Not found is found == false with no error.
+struct ArtifactUnit
+{
+	bool found = false;
+	CompiledModule image;
+	std::string artifactPath;
+	std::string error;
+};
+
+//A fresh artifact cache; one belongs to one build.
+//Definition in ModuleBuilderExternalImports.cpp.
+std::shared_ptr<ArtifactPackageCache> MakeArtifactPackageCache();
+
+//Locate the artifact of one import name across the effective library
+//dirs, in order: the unit file <dir>/<name>.ncu first, then the member
+//tables of the dir's packages (*.npkg, file name order). The first dir
+//that answers ends the search. The cache keeps the packages opened and
+//the names nothing answers for between lookups. Definition in
+//ModuleBuilderExternalImports.cpp.
+ArtifactUnit FindArtifactUnit(const BuildParams &params,
+	ArtifactPackageCache &cache, const std::string &name);
 
 } //namespace nlang

@@ -15,7 +15,7 @@ namespace nlang
 
 namespace {
 
-//Directory sentinel for external .ncu entries: no reasonable directory
+//Directory sentinel for external unit entries: no reasonable directory
 //name contains '$', so this never equals a TU directory.
 const char EXTERNAL_DIR_SENTINEL[] = "$external$";
 
@@ -152,8 +152,13 @@ void ModuleRegistry::Reset()
 	m_upSyntheticBuiltins = std::make_unique<SyntheticBuiltinRegistry>();
 }
 
+//The path is carried by no other entry (ModuleFunctions and
+//FindModuleType return the first entry matching a path): discovery
+//queues a module path once, and never for a name a compiled-in unit
+//carries.
 uint32_t ModuleRegistry::AddExternalModule(const std::string& name)
 {
+	NLANG_ASSERT(!IsKnownModule(name));
 	ModuleEntry entry;
 	entry.path = name;
 	entry.isExternal = true;
@@ -303,9 +308,10 @@ std::vector<SnFunction*> ModuleRegistry::CompiledInFunctions(
 std::vector<SnFunction*> ModuleRegistry::ModuleFunctions(
 	const std::string& path, const std::string& calleeName) const
 {
-	//First path hit returns — a registered name is either a project module
-	//or an external .ncu, never both: the import gate resolves project
-	//names before the external load (don't "fix" this into a full scan).
+	//First path hit returns — a registered path belongs to exactly one
+	//entry (compiled in or external; AddExternalModule asserts it): the
+	//artifact discovery never queues a name a compiled-in unit carries
+	//(don't "fix" this into a full scan).
 	for (uint32_t i = 0; i < m_modules.size(); ++i)
 	{
 		if (m_modules[i].path != path)
@@ -350,7 +356,7 @@ SnField* ModuleRegistry::FindModuleType(const std::string& path,
 	const std::string& typeName) const
 {
 	//Find the registered unit for path — project, inline library, or
-	//external .ncu. External entries own the type stubs created by
+	//external unit. External entries own the type stubs created by
 	//CompiledModuleNodeBuilder and tagged in RegisterExternalStubs, so
 	//the same owner-filtered scan serves all three: `path.Type` binds
 	//the declaration that unit owns, never a same-name type another

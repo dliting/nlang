@@ -34,10 +34,13 @@ on every merged TU member (top-level and container members).
 #include "NcuLoader.h"
 #include "NcuLinker.h"
 #include "VmExecutor.h"
+#include <nlang/vm/NcuPackage.h>
 #include <cstdio>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <functional>
+#include <iterator>
 #include <memory>
 #include <set>
 #include <string>
@@ -196,6 +199,112 @@ const SnField* findMember(
     return nullptr;
 }
 
+//Write szBody to a source file (binary mode); false when the file
+//could not be written.
+bool writeSourceFile(const std::filesystem::path& file, const char* szBody)
+{
+    std::ofstream stream(file, std::ios::binary);
+    if (!stream)
+        return false;
+    stream << szBody;
+    return stream.good();
+}
+
+//Compile one standalone source into <outDir>/<name>.ncu (single-file
+//mode): stage 1 of the gate scaffold below, and the unit-file fixtures.
+//Returns the build's errors (empty on success).
+std::vector<std::string> compileUnit(const std::filesystem::path& source,
+    const std::string& name, const std::filesystem::path& outDir,
+    const std::string& stdlibDir)
+{
+    BuildParams params;
+    //Drop the working-directory entry BuildParams seeds by default:
+    //the gate resolves every name through absolute paths only, so a
+    //stray same-named .n in the process CWD can never shadow the
+    //external artifact under test.
+    params.m_ImportDirs.clear();
+    params.m_SourceFiles.push_back(source.string());
+    params.m_sOutputModule = name;
+    params.m_sOutputDir = outDir.string();
+    params.m_sTempDir = outDir.string();
+    params.m_sStdLibDir = stdlibDir;
+    MemLogger logger;
+    ModuleBuilder builder(params, logger);
+    bool ok = false;
+    try { ok = builder.BuildArtifacts(); }
+    catch (const std::exception&) { ok = false; }
+    return ok ? std::vector<std::string>() : logger.errorsText();
+}
+
+//The third-party package under test in artifact form: pkgsrc/tp.n and
+//pkgsrc/tp/helper.n (package tp; tp calls its helper) compile in
+//project mode into <pkgOut>/<szPackageFile> — one member per unit, no
+//entry record. No tp source stays on a search path, so a consumer
+//reaches tp through a member table only. False when the build failed
+//or the package is missing.
+bool buildThirdPartyPackage(const std::filesystem::path& pkgOut,
+    const char* szPackageFile)
+{
+    namespace fs = std::filesystem;
+    const fs::path src =
+        nlang::test::ScratchDir("nlang_import_gate") / "pkgsrc";
+    std::error_code fsError;
+    fs::remove_all(src, fsError);
+    fs::create_directories(src / "tp", fsError);
+    if (!writeSourceFile(src / "tp.n",
+            "import tp.helper;\n"
+            "public int top() { return tp.helper.Fn.f(); }\n") ||
+        !writeSourceFile(src / "tp" / "helper.n",
+            "public class Fn { public static int f() { return 42; } }\n"))
+    {
+        return false;
+    }
+    BuildParams params;
+    params.m_bProjectMode = true;
+    params.m_sProjectDir = src.string();
+    params.m_SourceFiles.push_back((src / "tp.n").string());
+    params.m_SourceFiles.push_back((src / "tp" / "helper.n").string());
+    //Same hermeticity rule as compileUnit: absolute paths only.
+    params.m_ImportDirs.clear();
+    params.m_sOutputModule = "tp";
+    params.m_sOutputDir = pkgOut.string();
+    params.m_sTempDir = pkgOut.string();
+    params.m_sStdLibDir = STDLIB_DIR;
+    MemLogger logger;
+    ModuleBuilder builder(params, logger);
+    bool ok = false;
+    try { ok = builder.BuildArtifacts(); }
+    catch (const std::exception&) { ok = false; }
+    if (!ok)
+        return false;
+    const fs::path built = pkgOut / "tp.npkg";
+    if (std::string(szPackageFile) != "tp.npkg")
+        fs::rename(built, pkgOut / szPackageFile, fsError);
+    return !fsError && fs::exists(pkgOut / szPackageFile);
+}
+
+//Damage the first member's image inside the package. The writer packs
+//the members sorted by module path (tp ahead of tp.helper) back to
+//back, so the byte before the second image's magic is the last byte of
+//the first member: the container stays readable and tp fails its
+//checksum. False when the second image was not found.
+bool corruptFirstMember(const std::filesystem::path& package)
+{
+    std::ifstream stream(package, std::ios::binary);
+    std::string bytes((std::istreambuf_iterator<char>(stream)),
+        std::istreambuf_iterator<char>());
+    const std::string magic(NCU_MAGIC, 8);
+    const size_t first = bytes.find(magic);
+    const size_t second = first == std::string::npos
+        ? std::string::npos : bytes.find(magic, first + magic.size());
+    if (second == std::string::npos || second == 0)
+        return false;
+    bytes[second - 1] = static_cast<char>(bytes[second - 1] ^ 0x7F);
+    std::ofstream out(package, std::ios::binary | std::ios::trunc);
+    out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    return out.good();
+}
+
 //Shared scaffold of the import-gate tests: a two-stage build. Stage 1
 //compiles the external lib(s) into out/; stage 2 compiles the main
 //project that reaches them through m_ImportDirs. An infrastructure
@@ -207,12 +316,16 @@ const SnField* findMember(
 //  libsrc/lib2.n          twin lib exporting the same name (opt-in)
 //  libsrc/rlib.n          rich lib: class/struct/interface surface (opt-in)
 //  out/lib.ncu           external lib artifact (stage 1)
+//  dist/gate_test_N.npkg this call's project package (stage 2; never on
+//                         the import path — see the dist declaration)
 //  proj/main.n            main project (content injected)
 //  proj/utils/helper.n    cross-directory module
 //  proj/utils/sub/deep.n  recursive wildcard target
 //  proj/extra.n           root-directory peer (same-dir auto-import)
 //  proj/utils.n           root module named "utils" (D11 opt-in)
 //  proj/utils2/MyClass.n  module sharing a class name (Task 5 opt-in)
+//  pkgout/                third-party package artifacts (opt-in; filled
+//                         by preparePackageDir per test)
 struct GateResult
 {
     bool ok = false;
@@ -251,6 +364,12 @@ struct GateProjectOptions
     //imports selectively — the never-inlined submodule is exactly the
     //package no knowability table held before.
     bool withThirdPartySource = false;
+    //Package artifacts: pkgout/ joins the import path after out/ and
+    //preparePackageDir fills it (a package, a unit file, a damaged
+    //member) — the artifact-form counterpart of the source root above.
+    //It runs after the per-call cleanup and before stage 2.
+    bool withThirdPartyPackage = false;
+    std::function<void(const std::filesystem::path& pkgOut)> preparePackageDir;
 };
 
 GateResult buildGateProject(const GateProjectOptions& opts)
@@ -263,6 +382,14 @@ GateResult buildGateProject(const GateProjectOptions& opts)
     const fs::path proj = root / "proj";
     const fs::path libTree = root / "libtree";
     const fs::path tplib = root / "tplib";
+    const fs::path pkgOut = root / "pkgout";
+    //Stage 2's output package lands here, NOT in out/: the import dirs
+    //below carry out/ (shared, reused across calls of this process), and
+    //the artifact lookup consults package MEMBER tables — an earlier
+    //call's project package left in out/ would answer for its members
+    //(utils, extra) in every later build, turning a not-found test into
+    //a silent success. out/ keeps only the stage-1 external .ncu libs.
+    const fs::path dist = root / "dist";
     //A mirrored library tree replaces the test stdlib dir everywhere, so
     //the gate under test differs from every other gate test only by the
     //extra subtree package written below.
@@ -271,11 +398,9 @@ GateResult buildGateProject(const GateProjectOptions& opts)
     const std::string stdlibDir =
         useLibraryTree ? libTree.string() : STDLIB_DIR;
     std::error_code fsError;
-    //ModuleManager is process-global and refuses a second Create of the
-    //same module name, so the external libs are built once per process
-    //and later calls reuse their .ncu artifacts on disk. Only the
-    //project subtree is refreshed per call; a fresh process starts
-    //from a clean root.
+    //A fresh process starts from a clean root; later calls refresh the
+    //per-call subtrees only. The external libs are built once per
+    //process and their .ncu artifacts reused from disk.
     static bool firstCall = true;
     if (firstCall)
     {
@@ -283,13 +408,21 @@ GateResult buildGateProject(const GateProjectOptions& opts)
         firstCall = false;
     }
     fs::remove_all(proj, fsError);
+    fs::remove_all(pkgOut, fsError);
     fs::create_directories(libSrc, fsError);
     fs::create_directories(out, fsError);
+    fs::create_directories(dist, fsError);
     fs::create_directories(proj / "utils" / "sub", fsError);
     fs::create_directories(proj / "utils2", fsError);
     fs::create_directories(proj / "core", fsError);
     if (opts.withThirdPartySource)
         fs::create_directories(tplib / "tp", fsError);
+    if (opts.withThirdPartyPackage)
+    {
+        fs::create_directories(pkgOut, fsError);
+        if (opts.preparePackageDir)
+            opts.preparePackageDir(pkgOut);
+    }
     if (useLibraryTree)
     {
         //One mirror per process (the scratch root is wiped on the first
@@ -313,14 +446,7 @@ GateResult buildGateProject(const GateProjectOptions& opts)
             }
         }
     }
-    auto writeFile = [](const fs::path& file, const char* szBody)
-    {
-        std::ofstream stream(file, std::ios::binary);
-        if (!stream)
-            return false;
-        stream << szBody;
-        return stream.good();
-    };
+    const auto writeFile = writeSourceFile;
     //Explicit helper body wins (owner-tag tests need a custom one);
     //otherwise the lib-importing variant or the default body.
     const char* szHelper = opts.szHelperBody;
@@ -406,38 +532,21 @@ GateResult buildGateProject(const GateProjectOptions& opts)
         libNames[libCount++] = "xlib";
     for (int i = 0; i < libCount; ++i)
     {
-        const fs::path ncu =
-            out / (std::string(libNames[i]) + ".ncu");
-        if (fs::exists(ncu))
+        if (fs::exists(out / (std::string(libNames[i]) + ".ncu")))
             continue;
-        BuildParams libParams;
-        //Drop the working-directory entry BuildParams seeds by default:
-        //the gate resolves every name through absolute paths only, so a
-        //stray same-named .n in the process CWD can never shadow the
-        //external artifact under test.
-        libParams.m_ImportDirs.clear();
-        libParams.m_SourceFiles.push_back(
-            (libSrc / (std::string(libNames[i]) + ".n")).string());
-        libParams.m_sOutputModule = libNames[i];
-        libParams.m_sOutputDir = out.string();
-        libParams.m_sTempDir = out.string();
-        libParams.m_sStdLibDir = stdlibDir;
-        MemLogger libLogger;
-        ModuleBuilder libBuilder(libParams, libLogger);
-        bool libOk = false;
-        try { libOk = libBuilder.BuildArtifacts(); }
-        catch (const std::exception&) { libOk = false; }
-        if (!libOk)
-        {
-            failure.errors = libLogger.errorsText();
+        failure.errors = compileUnit(
+            libSrc / (std::string(libNames[i]) + ".n"), libNames[i],
+            out, stdlibDir);
+        if (!failure.errors.empty())
             return failure;
-        }
     }
 
-    //Stage 2: compile the main project with out/ importable. The output
-    //module name must be unique per call (ModuleManager, see above).
+    //Stage 2: compile the main project with out/ importable. The
+    //output module name carries a per-call counter (its package never
+    //collides with an earlier call's in dist/), and the package itself
+    //goes to dist/, which no import dir lists (see the dist declaration).
     //Project mode: the multi-source build packs one member per unit into
-    //out/<gate_test_N>.npkg (single-file mode would refuse a multi-unit
+    //dist/<gate_test_N>.npkg (single-file mode would refuse a multi-unit
     //image); runGateProject links that package at load time.
     static uint32_t gateRunCount = 0;
     GateResult res;
@@ -465,10 +574,14 @@ GateResult buildGateProject(const GateProjectOptions& opts)
     //library under test, and out/ holds no same-named artifact.
     if (opts.withThirdPartySource)
         res.params->m_ImportDirs.push_back(tplib.string());
+    //The package dir is last: the artifacts under test are found only
+    //when no source and no unit file of the name precedes them.
+    if (opts.withThirdPartyPackage)
+        res.params->m_ImportDirs.push_back(pkgOut.string());
     res.params->m_sOutputModule =
         "gate_test_" + std::to_string(++gateRunCount);
-    res.params->m_sOutputDir = out.string();
-    res.params->m_sTempDir = out.string();
+    res.params->m_sOutputDir = dist.string();
+    res.params->m_sTempDir = dist.string();
     res.params->m_sStdLibDir = stdlibDir;
     res.logger = std::make_unique<MemLogger>();
     res.builder = std::make_unique<ModuleBuilder>(*res.params, *res.logger);
@@ -522,10 +635,10 @@ std::string runFailureText(const GateRunResult& run, const char* szWhat)
 //main(): the review demanded executed (not compile-only) coverage for
 //the qualified paths, because the C1 bug compiled cleanly and only
 //crashed at runtime. The load-time path mirrors nvm — NcuLoader over
-//the output dir (external libs) and the stdlib package, NcuLinker
-//merges the images. VmExecutor::Execute throws on runtime errors, so
-//the call is wrapped and the message surfaced instead of aborting the
-//test binary.
+//the output dir, the stdlib package and the opt-in extra dirs (all of
+//the build's import dirs, in order), NcuLinker merges the images.
+//VmExecutor::Execute throws on runtime errors, so the call is wrapped
+//and the message surfaced instead of aborting the test binary.
 GateRunResult runGateProject(const GateProjectOptions& opts)
 {
     GateRunResult run;
@@ -541,8 +654,9 @@ GateRunResult runGateProject(const GateProjectOptions& opts)
     try
     {
         NcuLoader::Options loaderOpts;
-        loaderOpts.searchDirs = {res.params->m_sOutputDir,
-            res.params->m_sStdLibDir};
+        loaderOpts.searchDirs.assign(res.params->m_ImportDirs.begin(),
+            res.params->m_ImportDirs.end());
+        loaderOpts.searchDirs.push_back(res.params->m_sStdLibDir);
         NcuLoader::Result loaded =
             NcuLoader::LoadClosure(pkg.string(), loaderOpts);
         CompiledModule mod = NcuLinker::Link(std::move(loaded.units),
@@ -3346,6 +3460,124 @@ private slots:
             && containsError(res.errors, "core.helper"),
             ("the ambiguity diagnostic must name both packages; errors: "
              + joinErrors(res.errors)).c_str());
+    }
+
+    //Package artifacts: a package is addressed by its member table, and
+    //each member is an importable unit. The third-party package tp
+    //ships as tp.npkg with two members — tp, which calls its helper,
+    //and tp.helper — and no source of it is on the search path.
+    //`import tp;` compiles against the tp member, and the load-time
+    //closure walk finds tp.helper in the same package: 42 + 11.
+    void multiMemberPackageUnitImportsAndRuns()
+    {
+        bool fixtureOk = true;
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import tp;\n"
+            "int main() { return tp.top() + 11; }\n";
+        opts.withThirdPartyPackage = true;
+        opts.preparePackageDir = [&fixtureOk](const std::filesystem::path& pkgOut)
+        {
+            fixtureOk = fixtureOk
+                && buildThirdPartyPackage(pkgOut, "tp.npkg");
+        };
+        const GateRunResult run = runGateProject(opts);
+        QVERIFY2(fixtureOk, "the third-party package fixture could not be built");
+        QVERIFY2(run.ok, runFailureText(run,
+            "a member of a multi-member package must import, build and "
+            "execute").c_str());
+        QVERIFY2(run.runtimeError.empty(), runFailureText(run,
+            "execution must be clean").c_str());
+        QVERIFY2(run.exitValue == 53, "tp.top() must return 42 here, plus 11");
+    }
+
+    //The member table addresses a member, not the package file's name:
+    //the same two members packed as other.npkg still satisfy
+    //`import tp;`.
+    void unitImportMatchesMemberTableNotPackageFileName()
+    {
+        bool fixtureOk = true;
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import tp;\n"
+            "int main() { return tp.top(); }\n";
+        opts.withThirdPartyPackage = true;
+        opts.preparePackageDir = [&fixtureOk](const std::filesystem::path& pkgOut)
+        {
+            fixtureOk = fixtureOk
+                && buildThirdPartyPackage(pkgOut, "other.npkg");
+        };
+        const GateRunResult run = runGateProject(opts);
+        QVERIFY2(fixtureOk, "the third-party package fixture could not be built");
+        QVERIFY2(run.ok, runFailureText(run,
+            "a member must import whatever its package file is called").c_str());
+        QVERIFY2(run.runtimeError.empty(), runFailureText(run,
+            "execution must be clean").c_str());
+        QVERIFY2(run.exitValue == 42, "tp.top() must return 42");
+    }
+
+    //A unit file named for the import must carry that module's image:
+    //<dir>/tp.ncu holding module other is refused at compile time in
+    //the failed-load family. This is the identity rule the run-time
+    //loader applies to package members, moved ahead of a build that
+    //would otherwise pass and fail only when the program runs.
+    void unitFileWithForeignModulePathRejected()
+    {
+        bool fixtureOk = true;
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import tp;\n"
+            "int main() { return tp.top(); }\n";
+        opts.withThirdPartyPackage = true;
+        opts.preparePackageDir = [&fixtureOk](const std::filesystem::path& pkgOut)
+        {
+            //A unit's module path is its source's name under the project
+            //root, so the image header names other — not the import.
+            const std::filesystem::path source =
+                nlang::test::ScratchDir("nlang_import_gate") / "other.n";
+            std::error_code fsError;
+            fixtureOk = fixtureOk
+                && writeSourceFile(source, "int top() { return 1; }\n")
+                && compileUnit(source, "other", pkgOut, STDLIB_DIR).empty();
+            std::filesystem::rename(pkgOut / "other.ncu",
+                pkgOut / "tp.ncu", fsError);
+            fixtureOk = fixtureOk && !fsError;
+        };
+        const GateResult res = buildGateProject(opts);
+        QVERIFY2(fixtureOk, "the foreign unit file fixture could not be built");
+        QVERIFY2(!res.ok,
+            "a unit file naming another module in its header must fail "
+            "the build");
+        QVERIFY2(containsError(res.errors, "Failed to load module 'tp'"),
+            joinErrors(res.errors).c_str());
+        QVERIFY2(containsError(res.errors, "names module 'other'"),
+            joinErrors(res.errors).c_str());
+    }
+
+    //A member whose bytes no longer match their checksum is refused at
+    //compile time in the failed-load family, naming package and member.
+    void corruptMemberImageRejected()
+    {
+        bool fixtureOk = true;
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import tp;\n"
+            "int main() { return tp.top(); }\n";
+        opts.withThirdPartyPackage = true;
+        opts.preparePackageDir = [&fixtureOk](const std::filesystem::path& pkgOut)
+        {
+            fixtureOk = fixtureOk
+                && buildThirdPartyPackage(pkgOut, "tp.npkg")
+                && corruptFirstMember(pkgOut / "tp.npkg");
+        };
+        const GateResult res = buildGateProject(opts);
+        QVERIFY2(fixtureOk, "the damaged package fixture could not be built");
+        QVERIFY2(!res.ok,
+            "a member that fails its checksum must fail the build");
+        QVERIFY2(containsError(res.errors, "Failed to load module 'tp'"),
+            joinErrors(res.errors).c_str());
+        QVERIFY2(containsError(res.errors, "member 'tp' failed its checksum"),
+            joinErrors(res.errors).c_str());
     }
 };
 

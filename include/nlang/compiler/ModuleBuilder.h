@@ -105,13 +105,16 @@ private:
 	//Register every TU's module path in the registry. False after
 	//logging the registration errors.
 	bool RegisterUnits();
-	//Load imported symbols to a rebuilt AST.
+	//Register the artifact units found at discovery, build the per-TU
+	//import gates against the complete module set, then give the
+	//artifact units their stubs.
 	bool LoadImports();
-	//Discover every import-reachable library <pkg>.n source (imports
-	//iterated to a fixed point so a library can depend on a library):
-	//index its signatures and parse it fully as an inline library
-	//translation unit. Dotted names map to <root>/<a/b/c.n>; idempotent
-	//per file.
+	//Discover every import-reachable library unit (imports iterated to
+	//a fixed point so a library can depend on a library). A name with a
+	//library source is indexed and parsed as an inline library
+	//translation unit (dotted names map to <root>/<a/b/c.n>; idempotent
+	//per file); a name no source answers for is looked up as an artifact
+	//(DiscoverArtifactUnit) and queued for the load phase.
 	void DiscoverLibraryUnits();
 	//Locate the library source for a dotted package name:
 	//`a.b.c` is <root>/a/b/c.n on the first matching search dir. Returns
@@ -120,8 +123,24 @@ private:
 		const std::string& dottedName) const;
 	//One import's library-source handling (DiscoverLibraryUnits' inner
 	//loop body): the multi-root duplicate diagnosis, otherwise inline the
-	//single match under its root. True when a TU was added.
+	//single match under its root. A name no source answers for goes to
+	//the artifact arm, unless a project source derives to it (that unit
+	//registers under the name; no artifact may answer for it). True
+	//when a TU was added.
 	bool HandleLibraryImport(const std::string &dottedName);
+	//True when a project source of this build derives to the module
+	//path (the registry is not built yet at discovery).
+	bool IsProjectModuleName(const std::string& moduleName) const;
+	//The artifact arm of one import name: the unit file
+	//<dir>/<name>.ncu, else the member tables of the dir's packages,
+	//across the effective library dirs in order. A found unit is queued
+	//once however many units import the name; a refused one (unreadable
+	//bytes, a header naming another module) is reported here.
+	void DiscoverArtifactUnit(const std::string& name);
+	//Register the registry entry of every queued artifact unit. Runs
+	//before the import gates are built, so a gate finds an artifact unit
+	//as a registered name.
+	void MaterializeArtifacts();
 	//Discovery of one wildcard import's library union (D-29 rule 2): the
 	//package's own <root>/a/b.n plus every unit under <root>/a/b/ in each
 	//effective library dir, each through HandleLibraryImport. True when a TU
@@ -152,10 +171,9 @@ private:
 	bool ParseLibraryUnit(const std::string& path,
 		const std::string& packageRoot,
 		const char* pSourceText = nullptr);
-	//Build the per-TU import gates (D1: imports are file-scoped) and
-	//collect the single-segment external .ncu candidates into
-	//rExternalNames. False after logging the gate errors.
-	bool BuildImportGates(std::vector<std::string> &rExternalNames);
+	//Build the per-TU import gates (D1: imports are file-scoped). False
+	//after logging the gate errors.
+	bool BuildImportGates();
 	//v0.12.6 Task 8 (D13) workers (ModuleBuilderImportCycles.cpp):
 	//CollectImportGraphEdges builds the dependency edge table (compiled
 	//units with wildcard expansion + loaded images' import records);
@@ -164,17 +182,14 @@ private:
 	std::map<std::string, std::vector<std::string>>
 		CollectImportGraphEdges();
 	bool RejectImportCycles();
-	//Load one external .ncu candidate: parse it, create the stub nodes,
-	//register their owners and keep the detached stubs alive. False
+	//Load phase of the queued artifact units: build the stub nodes from
+	//the images read at discovery and fill their registry entries. False
 	//after logging the failure.
-	bool LoadExternalModule(const std::string &name);
-	//Register a loaded module's stub functions in the registry's
-	//external entry; detached stubs (name clashes) stay owned by the
-	//builder.
+	bool LoadExternalModules();
+	//Register a loaded unit's stub functions in its registry entry;
+	//detached stubs (name clashes) stay owned by the builder.
 	void RegisterExternalStubs(CompiledModuleNodeBuilder &builder,
-		const std::string &name);
-	//Find .ncu file for a module name in m_ImportDirs. Returns empty if not found.
-	std::string FindModuleFile(const std::string& name) const;
+		uint32_t extIdx);
 	//Pack every unit image as a member of the .npkg distribution
 	//archive (project-mode builds; BuildArtifacts). Member names are
 	//the units' own module paths; the entry record names the
@@ -267,11 +282,11 @@ private:
 
 	std::unique_ptr<BuildEnvironment> m_upEnv;
 	std::unique_ptr<PtrList<TranslationUnit>> m_upTransUnits;
-	//Cross-module import infrastructure (Phase 9c follow-up): compiled
-	//modules loaded from .ncu/.npkg files during LoadImports. Kept whole
-	//— never merged into the build's units; BuildUnitImages moves them
-	//into UnitImages.external so the load-time linker resolves them as
-	//peer images.
+	//Cross-module import infrastructure (Phase 9c follow-up): external
+	//units read from unit files and packages during the import pipeline.
+	//Kept whole — never merged into the build's units; BuildUnitImages
+	//moves them into UnitImages.external so the load-time linker
+	//resolves them as peer images.
 	//Absolute paths of library .n files already parsed inline this build,
 	//so each is fully parsed at most once (independent of the signature
 	//index, which loads the standard library at construction).
@@ -281,8 +296,25 @@ private:
 	std::unordered_map<std::string, std::string> m_librarySourceRoots;
 	//The project source files, normalized: discovery must not re-inline
 	//a <root>/<pkg>.n candidate that is already a project TU (it would
-	//register the same package twice).
+	//register the same package twice), and no artifact may answer for a
+	//name one of them derives to.
 	std::unordered_set<std::string> m_projectSourceFiles;
+	//An artifact unit (a unit file or a package member) found at
+	//discovery: its image is read, its registry entry is not built yet.
+	//name is the unit's module path.
+	struct PendingArtifactLoad
+	{
+		std::string name;
+		CompiledModule image;
+		//The unit file, or the package carrying the member.
+		std::string artifactPath;
+		//The unit's registry entry; MaterializeArtifacts sets it.
+		uint32_t extIdx = 0;
+	};
+	std::vector<PendingArtifactLoad> m_pendingArtifacts;
+	//The artifact units after their load phase — never merged into the
+	//build's units; BuildUnitImages moves them into UnitImages.external
+	//so the load-time linker resolves them as peer images.
 	std::vector<CompiledModule> m_loadedImports;
 	//External function stubs whose name already existed in the root
 	//(e.g. two .ncu modules exporting the same function). They are

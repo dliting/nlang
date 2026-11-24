@@ -92,6 +92,9 @@ class SnArrayTypeToken;
 //Library declaration index (nlang_langservice); opaque here so this
 //public header does not depend on the langservice headers.
 namespace langservice { class SymbolIndex; }
+//The import pipeline's view of the package artifacts on the search path
+//(src/compiler/ModuleBuilderImports.h); opaque here for the same reason.
+struct ArtifactPackageCache;
 
 //The context during building a nlang module.
 class NLANG_COMPILER_API BuildEnvironment : public Flagable<ModuleBuildFlagBits>
@@ -128,6 +131,20 @@ public:
 	//index entry's package is the path relative to THAT root.
 	void LoadLibrarySource(const std::string& path,
 		const std::string& packageRoot);
+	//The artifact discovery's view of the search path's packages (opened
+	//member tables and lookups memoized). Null until the import
+	//pipeline's discovery phase starts one: a consumer that runs no
+	//pipeline holds nothing.
+	const std::shared_ptr<ArtifactPackageCache>& ArtifactPackages() const
+	{
+		return m_spArtifactPackages;
+	}
+	//Start a fresh view; the discovery phase calls it once per build.
+	void ResetArtifactPackages(
+		std::shared_ptr<ArtifactPackageCache> spPackages)
+	{
+		m_spArtifactPackages = std::move(spPackages);
+	}
 
 	//Get the current module been compiled.
 	Module* CurrModule() const
@@ -205,6 +222,9 @@ private:
 	std::unique_ptr<ICodeBackend> m_upBackend;
 	std::unique_ptr<ModuleRegistry> m_upRegistry;
 	std::unique_ptr<langservice::SymbolIndex> m_upLibraryIndex;
+	//Owned through shared_ptr so the incomplete cache type needs no
+	//destructor here; only the import pipeline creates it.
+	std::shared_ptr<ArtifactPackageCache> m_spArtifactPackages;
 	//Memoized existence probes of HasLibrarySource: mutable so the const
 	//probe can cache (a legal deep chain asks each prefix once per build).
 	mutable std::unordered_map<std::string, bool> m_LibrarySourceProbes;

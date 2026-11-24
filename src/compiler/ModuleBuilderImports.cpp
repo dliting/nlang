@@ -4,7 +4,8 @@
 	.n discovery (including a wildcard import's package subtree), prelude
 	resolution and the per-TU import gates. Split from ModuleBuilder.cpp
 	(2026-09-27 maintainability refactor, zero behavior change); the
-	external .ncu/.npkg arm split out to ModuleBuilderExternalImports.cpp.
+	artifact arm (unit files and package members) split out to
+	ModuleBuilderExternalImports.cpp.
 -----------------------------------------------------------------------------*/
 
 #include "ModuleBuilder.h"
@@ -12,14 +13,10 @@
 #include "SyntaxTree.h"
 #include "TranslationUnit.h"
 #include "builder/ModuleRegistry.h"
-#include "builder/CompiledModuleNodeBuilder.hpp"
-#include "ModuleLoader.h"
 #include "ModuleBuilderImports.h"
-#include "nlang/vm/NcuPackage.h"
 #include "ScriptParser.h"
 #include <algorithm>
 #include <filesystem>
-#include <fstream>
 #include <string>
 #include <vector>
 
@@ -37,20 +34,15 @@ bool ModuleBuilder::LoadImports()
 		m_upEnv->Log(CLL_Info, "Loading the import modules ...");
 	}
 
-	//Library <name>.n sources were already discovered and fully parsed
-	//(DiscoverLibraryUnits, before registration); here only per-TU gates
-	//and .ncu external modules remain.
-	std::vector<std::string> externalNames;
-	if (!BuildImportGates(externalNames))
+	//Library sources were inlined and artifact units found (both at
+	//DiscoverLibraryUnits, before registration). The artifact units join
+	//the registry first, so every gate below sees the complete module
+	//set; their stubs follow once the gates are built.
+	MaterializeArtifacts();
+	if (!BuildImportGates())
 		return false;
-
-	//Load the external .ncu candidates once each (LOADING is global;
-	//VISIBILITY stays per-TU via the gates built above).
-	for (const auto &name : externalNames)
-	{
-		if (!LoadExternalModule(name))
-			return false;
-	}
+	if (!LoadExternalModules())
+		return false;
 
 	//v0.12.6 Task 8 (D13): reject cyclic import graphs before codegen
 	//(ModuleBuilderImportCycles.cpp).
@@ -61,12 +53,11 @@ bool ModuleBuilder::LoadImports()
 }
 
 //Per-TU gates (D1: imports are file-scoped — one file's import must
-//not leak visibility to other files). Builtin / project names land
-//in the gate; single-segment non-project names are external .ncu
-//candidates collected below. PtrList is a std::list (no operator[]),
-//so the module index travels with a local counter.
-bool ModuleBuilder::BuildImportGates(
-	std::vector<std::string> &rExternalNames)
+//not leak visibility to other files). Every module the gate may name is
+//registered by now: compiled-in units and artifact units alike. PtrList
+//is a std::list (no operator[]), so the module index travels with a
+//local counter.
+bool ModuleBuilder::BuildImportGates()
 {
 	ModuleRegistry &reg = m_upEnv->Registry();
 	std::vector<std::string> gateErrors;
@@ -74,7 +65,7 @@ bool ModuleBuilder::BuildImportGates(
 	for (auto pTransUnit : *m_upTransUnits)
 	{
 		if (!reg.BuildGate(gateModuleIndex++, pTransUnit->Imports(),
-				rExternalNames, gateErrors,
+				gateErrors,
 				[this](const std::string &ns) {
 					return m_upEnv->IsLibraryPackage(ns);
 				}))
@@ -171,12 +162,8 @@ bool ModuleBuilder::EnsurePreludePackageImported(
 	//implicit import respects it instead of guarding the name. Success,
 	//not failure — EnsurePreludeImported must still reach the remaining
 	//packages.
-	const std::string &projectDir = m_upEnv->Params().m_sProjectDir;
-	for (const auto &sourceFile : m_projectSourceFiles)
-	{
-		if (DeriveModulePath(sourceFile, projectDir) == pkg.name)
-			return true;
-	}
+	if (IsProjectModuleName(pkg.name))
+		return true;
 	const auto matches = FindLibrarySourceMatches(m_upEnv->Params(),
 		pkg.name);
 	if (matches.size() > 1)
@@ -207,8 +194,12 @@ bool ModuleBuilder::EnsurePreludeImported()
 //bare stem is the same rule at one segment). More than one root offering
 //the same package is the duplicate-package error — the reserved-name
 //table's replacement — naming both source paths instead of silently
-//binding the import to whichever root searched first. True when a TU
-//was added (drives the fixed-point iteration).
+//binding the import to whichever root searched first. A name no source
+//answers for goes to the artifact arm, unless a project source derives
+//to it: that unit registers under the name, and a package member of the
+//same name (an earlier build's output left on the search path, say)
+//must not answer for it. True when a TU was added (drives the fixed-point
+//iteration; the artifact arm adds none).
 bool ModuleBuilder::HandleLibraryImport(const std::string &dottedName)
 {
 	//The reserved prelude packages never resolve through the disk scan
@@ -230,9 +221,22 @@ bool ModuleBuilder::HandleLibraryImport(const std::string &dottedName)
 		m_upEnv->Log(CLL_Error, "%s", message.c_str());
 		return false;
 	}
-	if (matches.empty())
-		return false;
-	return ImportLibraryMatch(matches.front());
+	if (!matches.empty())
+		return ImportLibraryMatch(matches.front());
+	if (!IsProjectModuleName(dottedName))
+		DiscoverArtifactUnit(dottedName);
+	return false;
+}
+
+bool ModuleBuilder::IsProjectModuleName(const std::string& moduleName) const
+{
+	const std::string &projectDir = m_upEnv->Params().m_sProjectDir;
+	for (const auto &sourceFile : m_projectSourceFiles)
+	{
+		if (DeriveModulePath(sourceFile, projectDir) == moduleName)
+			return true;
+	}
+	return false;
 }
 
 //Module path of a file found under a wildcard's package directory:
@@ -319,21 +323,26 @@ bool ModuleBuilder::DiscoverLibrarySubtree(const std::string &dottedName)
 	return changed;
 }
 
-//Discover every import-reachable library <pkg>.n source. Iterate the
-//imports of all known TUs to a fixed point so a library can depend on a
-//library: each pass may add library TUs whose imports are scanned on the
-//next pass. A non-wildcard import is one candidate (a dotted name maps to
+//Discover every import-reachable library unit. Iterate the imports of
+//all known TUs to a fixed point so a library can depend on a library:
+//each pass may add library TUs whose imports are scanned on the next
+//pass. A non-wildcard import is one candidate (a dotted name maps to
 //<root>/a/b/c.n under the matched root; a bare stem is the same rule at
 //one segment) and a wildcard is the package plus its subtree
 //(DiscoverLibrarySubtree), whether or not the signature index already
 //knows the package, so the standard library is inlined exactly like a
-//third-party source library.
+//third-party source library. A candidate no source answers for is looked
+//up as an artifact instead (HandleLibraryImport's tail).
 void ModuleBuilder::DiscoverLibraryUnits()
 {
+	//Per-run state: a second build starts from an empty queue and a fresh view.
+	m_pendingArtifacts.clear();
+	m_upEnv->ResetArtifactPackages(MakeArtifactPackageCache());
+
 	if (m_upEnv->ContainFlags(MBF_ShowBuildingSteps))
 	{
 		m_upEnv->Log(CLL_Info, BAR_STR);
-		m_upEnv->Log(CLL_Info, "Discovering library sources ...");
+		m_upEnv->Log(CLL_Info, "Discovering library units ...");
 	}
 
 	size_t scanned = 0;  //TUs already inspected (TUs only ever append)
@@ -361,13 +370,12 @@ void ModuleBuilder::DiscoverLibraryUnits()
 					continue;
 				}
 				//D-29 rule 2 (ruling 45): a library wildcard opens the package
-				//AND its subtree, so discovery has to walk the subtree — the
-				//units inside it import only their own dependencies, never
-				//their siblings. A project package's wildcard finds nothing
-				//here (its sources are project files, compiled in already, and
-				//ImportLibraryMatch refuses to inline a project source a second
-				//time), so the union needs no project-versus-library special
-				//case.
+				//AND its subtree — the units inside it import only their own
+				//dependencies, never their siblings. A project package's
+				//wildcard finds nothing here (its sources are project files,
+				//compiled in already; ImportLibraryMatch refuses to inline a
+				//project source twice), so no project-versus-library case is
+				//needed.
 				if (DiscoverLibrarySubtree(spec.DottedName()))
 					changed = true;
 			}

@@ -67,52 +67,42 @@ void ModuleRegistry::ApplyWildcardImport(const std::string& name,
 		gate.wildcards.push_back(prefix);
 }
 
-//Non-wildcard arm of ApplyImportSpec: compiled-in module, signature-only
-//library fallback, external .ncu candidate, or an unresolvable dotted path.
+//Non-wildcard arm of ApplyImportSpec: a registered module (compiled in,
+//or an artifact unit the discovery phase registered), a signature-only
+//library fallback, or an unresolvable path.
 void ModuleRegistry::ApplyNonWildcardImport(const std::string& name,
-	ImportGate& gate, std::vector<std::string>& externalOut,
-	std::vector<std::string>& outErrors,
+	ImportGate& gate, std::vector<std::string>& outErrors,
 	const LibraryNamespacePredicate& isLibraryNamespace) const
 {
-	//A TU compiled into this build (a project module or an inlined library
-	//TU) opens one exact gate — libraries and project modules share it.
-	if (IsCompiledInModule(name))
+	//A module compiled into this build (a project module or an inlined
+	//library TU) and an external unit found at discovery (a unit file or
+	//a package member) alike are registered names — one exact gate.
+	if (IsKnownModule(name))
 	{
 		if (!ContainsValue(gate.exact, name))
 			gate.exact.push_back(name);
 		return;
 	}
-	//A library package known to the index but not inlined this build —
-	//its .n source was not found in the effective library dirs (a
-	//search-path problem). Report it instead of silently gating a package
-	//whose call path no longer exists (the legacy builtin codegen was removed).
+	//A library package known to the index but neither inlined nor found
+	//as an artifact — neither its .n source nor its package was found in
+	//the effective library dirs (a search-path problem). Report it
+	//instead of silently gating a package whose call path no longer
+	//exists (the legacy builtin codegen was removed). The registered
+	//check comes first: a package that shipped as an artifact is found.
 	if (isLibraryNamespace(name))
 	{
 		outErrors.push_back("Library package '" + name
-			+ "' is indexed but its source was not found in the library "
-			"search path; check the configured search paths.");
+			+ "' is indexed but its source or package was not found in "
+			"the library search path; check the configured search paths.");
 		return;
 	}
-	//External .ncu names are single-segment: record the candidate for the
-	//loader and open the gate optimistically.
-	if (name.find('.') == std::string::npos)
-	{
-		if (!ContainsValue(gate.exact, name))
-			gate.exact.push_back(name);
-		if (!ContainsValue(externalOut, name))
-			externalOut.push_back(name);
-		return;
-	}
-	//A dotted path that is no project module can never resolve (external
-	//names are single-segment).
 	outErrors.push_back(ModuleNotFoundText(name));
 }
 
 //BuildGate's per-spec arm: §5.1 priority (builtin → project module →
-//external .ncu), delegating the wildcard union to ApplyWildcardImport.
+//external unit), delegating the wildcard union to ApplyWildcardImport.
 void ModuleRegistry::ApplyImportSpec(const ImportSpec& spec,
-	ImportGate& gate, std::vector<std::string>& externalOut,
-	std::vector<std::string>& outErrors,
+	ImportGate& gate, std::vector<std::string>& outErrors,
 	const LibraryNamespacePredicate& isLibraryNamespace) const
 {
 	const std::string name = spec.DottedName();
@@ -127,13 +117,11 @@ void ModuleRegistry::ApplyImportSpec(const ImportSpec& spec,
 		ApplyWildcardImport(name, gate, outErrors);
 		return;
 	}
-	ApplyNonWildcardImport(name, gate, externalOut, outErrors,
-		isLibraryNamespace);
+	ApplyNonWildcardImport(name, gate, outErrors, isLibraryNamespace);
 }
 
 bool ModuleRegistry::BuildGate(uint32_t moduleIndex,
 	const std::vector<ImportSpec>& specs,
-	std::vector<std::string>& externalOut,
 	std::vector<std::string>& outErrors,
 	const LibraryNamespacePredicate& isLibraryNamespace)
 {
@@ -161,8 +149,7 @@ bool ModuleRegistry::BuildGate(uint32_t moduleIndex,
 	}
 
 	for (const ImportSpec& spec : specs)
-		ApplyImportSpec(spec, gate, externalOut, outErrors,
-			isLibraryNamespace);
+		ApplyImportSpec(spec, gate, outErrors, isLibraryNamespace);
 
 	if (!outErrors.empty())
 		return false;
