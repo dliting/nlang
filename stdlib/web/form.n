@@ -1,25 +1,38 @@
 /* ------------------------------------------------------------------
  * form.n — Form, the request-body form parser
  * (module web.form; spec docs/dev/web_framework_design.md 6.9, D-17,
- * D-18 and rulings 18/20).
+ * D-18, D-19, D-20 and rulings 18/20).
  * FormOptions carries D-18's three limits, each owning its side:
  * maxBytes bounds the body bytes read by either parser, while maxParts
  * and maxPartBytes belong to multipart parts alone — a urlencoded body
- * is never capped by them (leg K). FormData stores field names in
- * first-appearance order with every value of a name kept in arrival
- * order, and hands copies out of names() and getAll() so a caller
- * editing them cannot corrupt the form. Form.parse runs the four steps
- * ruling 18 pins in a fixed order: an empty request body answers an
- * empty form before the content type is consulted (i), the content
- * type gate answers its named 415 without reading a body byte (the
- * http layer drains the unread body and the connection stays
- * reusable), a malformed percent escape becomes the named 400 whose
- * text quotes no client byte (ii), and maxBytes guards the read with
- * the named 413. The media type trio is a private static scanner of
- * Form rather than free functions (ruling 20 keeps this module
- * surface-class-only): it honours quoted-string parameters because a
- * multipart boundary may legally contain ';' inside its quotes (D-17),
- * and Task 11 reads that parameter through mediaTypeParam.
+ * is never capped by them (leg K). FormData stores names in
+ * first-appearance order across both channels: every field value of a
+ * name in arrival order, and its file parts — FormFile objects whose
+ * data is a view onto the body bytes (D-18) — in arrival order too;
+ * names(), getAll(), getFiles() and files() hand out copies so a
+ * caller editing them cannot corrupt the form. Form.parse runs the
+ * five steps ruling 18 pins in a fixed order: an empty request body
+ * answers an empty form before the content type is consulted (i), the
+ * content type gate answers its named 415 without reading a body byte
+ * (the http layer drains the unread body and the connection stays
+ * reusable), a multipart content type also yields its boundary
+ * parameter — a missing or empty one is the named 400 — maxBytes
+ * guards the read with the named 413, and the urlencoded split or the
+ * multipart walk runs last. On the multipart side the delimiter
+ * matching is anchored to line starts and tolerates the shapes D-19
+ * lists (preamble and epilogue ignored, trailing horizontal whitespace
+ * on delimiter lines, quoted boundaries, all-LF and all-CR bodies,
+ * obs-fold continuation lines, case-sensitive boundary compare),
+ * nested multipart stays opaque and binary part bytes stay bytes, a
+ * missing part Content-Type registers the bare "text/plain", and the
+ * client's directory path is stripped off the filename on both
+ * separators with nothing else touched (D-20). A body with no
+ * delimiter line at all is the second named 400. The media type trio
+ * is a private static scanner of Form rather than free functions
+ * (ruling 20 keeps this module surface-class-only): it honours
+ * quoted-string parameters because a multipart boundary may legally
+ * contain ';' inside its quotes (D-17), and both arms read parameters
+ * through mediaTypeParam.
  * ------------------------------------------------------------------ */
 import io;
 import http;
@@ -46,17 +59,43 @@ class FormOptions {
     }
 }
 
-// One parsed form: names in first-appearance order, each name mapped to
-// its values in arrival order. names() and getAll() return copies, so
-// mutating what the caller received leaves the form untouched (leg L);
-// get() answers "" for an absent name instead of throwing (spec 6.9).
+// One file part of a parsed multipart form (spec 6.9): the name the
+// part arrived under, its filename with the client's directory path
+// stripped and otherwise verbatim — an empty string is a real answer
+// (D-19, D-20), the part's registered Content-Type (the bare
+// "text/plain" when the part spelled none, D-19), and data, a view
+// onto the body bytes rather than a copy (D-18). The class is not
+// const because it holds a byte[] field (spec 3.1) and declares no
+// constructor: the parser assigns all four fields before handing the
+// object to FormData.addFile, and a hand-built instance rides the same
+// loader. safeName()/saveTo()/saveAs() arrive with the save-to-disk
+// face (Task 14, ruling 29 ii).
+class FormFile {
+    public string field;
+    public string filename;
+    public string contentType;
+    public byte[] data;
+
+    public int size() { return data.length(); }
+    public string text() { return io.fromBytes(data); }
+}
+
+// One parsed form: names in first-appearance order across both
+// channels, each name mapped to its field values in arrival order and,
+// on the file side, to its file parts in arrival order — same-name
+// parts are never coalesced (D-19). names(), getAll(), getFiles() and
+// files() return copies, so mutating what the caller received leaves
+// the form untouched (leg L, leg H); get() answers "" for an absent
+// name instead of throwing (spec 6.9).
 class FormData {
     private List<string> m_order;
     private Dict<string, List<string>> m_values;
+    private List<FormFile> m_files;
 
     public FormData() {
         m_order = {};
         m_values = {};
+        m_files = {};
     }
 
     // A copy of the first-appearance name list, never the storage.
@@ -93,6 +132,43 @@ class FormData {
         return copy;
     }
 
+    // The first file part registered under one name in appearance
+    // order, or null when the name carries no files (spec 6.9).
+    public FormFile getFile(string name) {
+        for (int i = 0; i < m_files.length(); i = i + 1) {
+            FormFile f = m_files[i];
+            if (f.field == name) {
+                return f;
+            }
+        }
+        return null;
+    }
+
+    // A copy of one name's file parts in arrival order.
+    public List<FormFile> getFiles(string name) {
+        List<FormFile> copy = {};
+        for (int i = 0; i < m_files.length(); i = i + 1) {
+            FormFile f = m_files[i];
+            if (f.field == name) {
+                copy.add(f);
+            }
+        }
+        return copy;
+    }
+
+    // A copy of every file part in global appearance order.
+    public List<FormFile> files() {
+        List<FormFile> copy = {};
+        for (int i = 0; i < m_files.length(); i = i + 1) {
+            FormFile f = m_files[i];
+            copy.add(f);
+        }
+        return copy;
+    }
+
+    // The field-channel sum: a name that only registered file parts
+    // owns an empty value list and contributes nothing here (leg H's
+    // fc/filec pair).
     public int fieldCount() {
         int total = 0;
         for (int i = 0; i < m_order.length(); i = i + 1) {
@@ -107,10 +183,17 @@ class FormData {
         return total;
     }
 
-    // Task 11 turns this into fieldCount() + fileCount(); the urlencoded
-    // side has no files, so the two counts agree until then.
+    // The file-channel count: every file part counts once, even when
+    // several share a name (spec 6.9).
+    public int fileCount() {
+        return m_files.length();
+    }
+
+    // The two channels' sum: names() dedupes while the counts do not,
+    // so a name carrying both fields and files enters names() once and
+    // contributes one unit per value and per file part (spec 6.9).
     public int partCount() {
-        return this.fieldCount();
+        return this.fieldCount() + this.fileCount();
     }
 
     // The value list behind one name: the storage itself (every caller
@@ -123,19 +206,36 @@ class FormData {
         return m_values.get(name);
     }
 
-    // The loader of the urlencoded side (D-18): the name registers on
-    // its first value, values append in arrival order. Public because
-    // Form is a different class (cross-class privates do not reach,
-    // ruling 14) and assembling a FormData by hand is a legitimate
-    // caller move too; the cost is one public method beyond spec 6.9,
-    // recorded for the Task 17 manual pass.
+    // The loader of the field channel (D-18): the name registers on
+    // its first appearance, values append in arrival order. The guard
+    // reads m_order so addFile shares this one registration path: a
+    // name first seen on a file part enters names() through the same
+    // move, and its m_values entry stays an empty list that
+    // fieldCount() never sums (D-19). Public because Form is a
+    // different class (cross-class privates do not reach, ruling 14)
+    // and assembling a FormData by hand is a legitimate caller move
+    // too; the cost is one public method beyond spec 6.9, recorded for
+    // the Task 17 manual pass.
     public void addField(string name, string value) {
-        if (!m_values.containsKey(name)) {
+        if (m_order.indexOf(name) < 0) {
             m_order.add(name);
             m_values.set(name, {});
         }
         List<string> vs = m_values.get(name);
         vs.add(value);
+    }
+
+    // The loader of the file channel: the name registers through the
+    // same path as addField, then the part appends to m_files in
+    // arrival order so getFile(), getFiles() and files() see every part
+    // in appearance order. Public for the same reasons as addField.
+    public void addFile(FormFile f) {
+        string name = f.field;
+        if (m_order.indexOf(name) < 0) {
+            m_order.add(name);
+            m_values.set(name, {});
+        }
+        m_files.add(f);
     }
 }
 
@@ -174,45 +274,70 @@ class Form {
 
         // Step 3: the content type gate. The first flat-table cell is
         // bound to a local before it is compared (ruling 12). The 415
-        // is the else arm of this dispatch rather than an early return
-        // so Task 11 can insert the multipart arm in the same chain.
-        List<string> mt = Form.readMediaType(ctx.req.headers.get("Content-Type"));
+        // stays the else arm of the dispatch rather than an early
+        // return so the verdict lands before a single body byte is
+        // read (the http layer drains the unread body and the
+        // connection stays reusable). A multipart header also carries
+        // the boundary parameter, taken here before the body is
+        // touched: a missing or empty value is the named 400 (D-19),
+        // while a header spelling boundary twice still rides its first
+        // value until Task 12 gives that count its own 400
+        // (ruling 29 i).
+        string header = ctx.req.headers.get("Content-Type");
+        List<string> mt = Form.readMediaType(header);
         string type = mt[0];
-        if (!type.equalsIgnoreCase("application/x-www-form-urlencoded")) {
+        bool isUrl = type.equalsIgnoreCase("application/x-www-form-urlencoded");
+        bool isMultipart = type.equalsIgnoreCase("multipart/form-data");
+        if (!isUrl && !isMultipart) {
             throw http.HttpException(
                 "web.form.Form.parse: unsupported content type for form parsing.", 415);
         }
+        string boundary = "";
+        if (isMultipart) {
+            int bndCount = 0;
+            boundary = Form.mediaTypeParam(header, "boundary", bndCount);
+            if (bndCount == 0 || boundary.length() == 0) {
+                throw http.HttpException(
+                    "web.form.Form.parse: missing boundary parameter.", 400);
+            }
+        }
 
         // Step 4: the read, then the web-layer cap (the http layer's
-        // own body cap sits far above at 16 MiB, stdlib/http.n), then
-        // the raw '&' split with the first '=' as the name/value
-        // border. An empty segment carries no field, a segment without
-        // '=' is a bare name with an empty value (D-17).
+        // own body cap sits far above at 16 MiB, stdlib/http.n),
+        // shared by both arms.
         byte[] raw = ctx.req.bodyReader.readAll();
         if (raw.length() > opts.maxBytes) {
             throw http.HttpException(
                 "web.form.Form.parse: form body exceeds maxBytes (" + opts.maxBytes + " bytes).", 413);
         }
-        string text = io.fromBytes(raw);
-        List<string> pairs = text.split("&");
-        FormData fd = FormData();
-        for (int i = 0; i < pairs.length(); i = i + 1) {
-            string pair = pairs[i];
-            if (pair.length() == 0) {
-                continue;
+
+        // Step 5: the arm dispatch. The urlencoded side keeps the raw
+        // '&' split with the first '=' as the name/value border: an
+        // empty segment carries no field, a segment without '=' is a
+        // bare name with an empty value (D-17).
+        if (isUrl) {
+            string text = io.fromBytes(raw);
+            List<string> pairs = text.split("&");
+            FormData fd = FormData();
+            for (int i = 0; i < pairs.length(); i = i + 1) {
+                string pair = pairs[i];
+                if (pair.length() == 0) {
+                    continue;
+                }
+                string name = pair;
+                string value = "";
+                int eq = pair.indexOf("=");
+                if (eq >= 0) {
+                    name = pair.substring(0, eq);
+                    value = pair.substring(eq + 1);
+                }
+                string decodedName = Form.decodeField(name);
+                string decodedValue = Form.decodeField(value);
+                fd.addField(decodedName, decodedValue);
             }
-            string name = pair;
-            string value = "";
-            int eq = pair.indexOf("=");
-            if (eq >= 0) {
-                name = pair.substring(0, eq);
-                value = pair.substring(eq + 1);
-            }
-            string decodedName = Form.decodeField(name);
-            string decodedValue = Form.decodeField(value);
-            fd.addField(decodedName, decodedValue);
+            return fd;
         }
-        return fd;
+        return Form.parseMultipart(raw, boundary, opts);
     }
 
     // '+' to space and %XX with the decoded bytes taken as UTF-8 —
@@ -226,6 +351,288 @@ class Form {
         } catch (url.UrlException e) {
             throw http.HttpException("web: malformed percent escape in form body", 400);
         }
+    }
+
+    // The multipart arm (D-19): the body is walked as bytes with the
+    // delimiter anchored to line starts, preamble and epilogue fall out
+    // of that scan for free, and every part between two delimiter lines
+    // registers through the shared FormData loaders. opts stays unread
+    // in this task (maxParts and maxPartBytes arrive with Task 13). A
+    // body whose first delimiter line already closes the form is the
+    // empty form (leg I); when the scan runs out of candidates before a
+    // closing line, the trailing bytes are silently dropped until
+    // Task 12 turns that into the named 400 (ruling 29 i). The byte
+    // values compared inside the scanners (13, 10, 45 …) are protocol
+    // constants inlined in the stdlib/http.n style, and every byte
+    // read goes through & 0xFF because HttpParser.byteAt is a private
+    // static of another class (ruling 14).
+    private static FormData parseMultipart(byte[] raw, string boundary, FormOptions opts) {
+        byte[] bnd = io.toBytes(boundary);
+        bool firstClosing = false;
+        int start = Form.findDelimiter(raw, 0, bnd, firstClosing);
+        if (start < 0) {
+            throw http.HttpException(
+                "web.form.Form.parse: no boundary delimiter in multipart body.", 400);
+        }
+        int lineEnd = Form.matchDelimiter(raw, start, bnd, firstClosing);
+        if (firstClosing) {
+            return FormData();
+        }
+        FormData fd = FormData();
+        while (true) {
+            bool closing = false;
+            int next = Form.findDelimiter(raw, lineEnd, bnd, closing);
+            if (next < 0) {
+                break;
+            }
+            int nextEnd = Form.matchDelimiter(raw, next, bnd, closing);
+            // The break before the delimiter line belongs to the
+            // delimiter line, not to the span above it (D-19: leg A's
+            // value carries no \r\n), and floor stops a zero-length
+            // body from eating the previous part's bytes (legs C, F).
+            int spanEnd = Form.trimPrecedingBreak(raw, next, lineEnd);
+            http.HttpHeaders hd = http.HttpHeaders();
+            int bodyStart = lineEnd;
+            Form.scanPartHeaders(raw, lineEnd, spanEnd, hd, bodyStart);
+            if (bodyStart > spanEnd) {
+                bodyStart = spanEnd;
+            }
+            byte[] body = raw[bodyStart:spanEnd];
+            // Part registration: a part whose content-disposition is
+            // absent, is not form-data or has no name parameter is
+            // skipped here — Task 12 replaces each skip with its named
+            // 400 (ruling 29 i). readMediaType lowercases the
+            // disposition type so the form-data check is
+            // case-insensitive, while the name parameter keeps the
+            // client's spelling (leg D).
+            string cd = hd.get("content-disposition");
+            List<string> cdt = Form.readMediaType(cd);
+            int nameCount = 0;
+            string name = Form.mediaTypeParam(cd, "name", nameCount);
+            bool named = cd.length() > 0 && cdt.length() > 0
+                && cdt[0] == "form-data" && name.length() > 0;
+            if (named) {
+                int fnCount = 0;
+                string filename = Form.mediaTypeParam(cd, "filename", fnCount);
+                if (fnCount > 0) {
+                    // A filename parameter that exists is a file part
+                    // even with an empty value (D-19: the channel split
+                    // rides the parameter's existence, not its
+                    // content); the data field keeps the view slice,
+                    // never a string roundtrip.
+                    FormFile f = FormFile();
+                    f.field = name;
+                    f.filename = Form.stripPath(filename);
+                    string ct = hd.get("content-type");
+                    if (ct.length() == 0) {
+                        ct = "text/plain";
+                    }
+                    f.contentType = ct;
+                    f.data = body;
+                    fd.addFile(f);
+                } else {
+                    // The field channel decodes the body as UTF-8 and
+                    // does nothing else — percent escapes stay as
+                    // written, unlike the urlencoded arm (D-19).
+                    fd.addField(name, io.fromBytes(body));
+                }
+            }
+            if (closing) {
+                break;
+            }
+            // Without this advance the scan would match the very same
+            // delimiter line forever.
+            lineEnd = nextEnd;
+        }
+        return fd;
+    }
+
+    // Whether p opens a delimiter line, answered with the index after
+    // that line or -1. The two dashes and, for the closing shape, the
+    // trailing "--" must hug the boundary — Go's match likewise, so
+    // "--Bx --" stays body text while "--Bx-- " matches — and after
+    // optional horizontal whitespace only CR, LF, CRLF or the body end
+    // may follow, which is what drops the lookalikes "--Bx-" and
+    // "--BxY" back into the body (D-19, leg E6). The boundary bytes
+    // compare case-sensitively: only the media type name and parameter
+    // names fold case, never a parameter value (leg K3). closing
+    // reports the "--boundary--" spelling.
+    private static int matchDelimiter(byte[] raw, int p, byte[] bnd, bool& closing) {
+        closing = false;
+        int n = raw.length();
+        if (p + 2 + bnd.length() > n) {
+            return -1;
+        }
+        if ((raw[p] & 0xFF) != 45 || (raw[p + 1] & 0xFF) != 45) {
+            return -1;
+        }
+        for (int i = 0; i < bnd.length(); i = i + 1) {
+            if ((raw[p + 2 + i] & 0xFF) != (bnd[i] & 0xFF)) {
+                return -1;
+            }
+        }
+        int j = p + 2 + bnd.length();
+        if (j + 1 < n && (raw[j] & 0xFF) == 45 && (raw[j + 1] & 0xFF) == 45) {
+            closing = true;
+            j = j + 2;
+        }
+        while (j < n && ((raw[j] & 0xFF) == 32 || (raw[j] & 0xFF) == 9)) {
+            j = j + 1;
+        }
+        if (j >= n) {
+            return j;
+        }
+        int v = raw[j] & 0xFF;
+        if (v == 13) {
+            if (j + 1 < n && (raw[j + 1] & 0xFF) == 10) {
+                return j + 2;
+            }
+            return j + 1;
+        }
+        if (v == 10) {
+            return j + 1;
+        }
+        return -1;
+    }
+
+    // The next delimiter line at or after from, reported by its line
+    // start; closing is the successful match's answer. A candidate is
+    // any line start: index 0 (only reachable when from == 0) or any
+    // position whose previous byte is CR or LF. The preamble is
+    // therefore ignored without special casing (D-19), and neither an
+    // indented delimiter line nor a boundary string mid-line ever
+    // matches (legs K2, E9). The match's answer travels through a
+    // local because a reference formal cannot be handed straight to
+    // another reference formal (this toolchain rejects the binding).
+    private static int findDelimiter(byte[] raw, int from, byte[] bnd, bool& closing) {
+        closing = false;
+        int n = raw.length();
+        for (int i = from; i < n; i = i + 1) {
+            bool lineStart = (i == 0) || ((raw[i - 1] & 0xFF) == 13)
+                || ((raw[i - 1] & 0xFF) == 10);
+            if (!lineStart) {
+                continue;
+            }
+            bool hitClosing = false;
+            int lineEnd = Form.matchDelimiter(raw, i, bnd, hitClosing);
+            if (lineEnd >= 0) {
+                closing = hitClosing;
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    // The header block of one part, scanned from up to the span's end:
+    // a blank (zero-length) line ends the block and bodyStart opens the
+    // body right after that line, while a block that reaches spanEnd
+    // with no blank line leaves bodyStart == spanEnd — the header eats
+    // the whole span and the body is empty, never the next part's
+    // bytes. Line breaks tolerate all three shapes (D-19). A line
+    // starting with a space or tab is an obs-fold continuation: its
+    // leading horizontal whitespace is stripped and it joins the
+    // previous logical header's value with one space (RFC 7230 3.2.4,
+    // D-19, leg E5). Every other line splits on its first colon — a
+    // line without one is ignored (ruling 29 iii, leg D) — with the
+    // name and the value each losing their surrounding horizontal
+    // whitespace (RFC 7230 OWS); the header table's own lowercased
+    // keys take care of the name's case (D-19) and a repeated name
+    // overwrites (HttpHeaders.set). Scanning apart from registering
+    // keeps Task 12's 16 KiB header cap inside this method alone.
+    private static void scanPartHeaders(byte[] raw, int from, int spanEnd,
+                                        http.HttpHeaders hd, int& bodyStart) {
+        string prev = "";
+        int i = from;
+        while (i < spanEnd) {
+            int e = i;
+            while (e < spanEnd && (raw[e] & 0xFF) != 13 && (raw[e] & 0xFF) != 10) {
+                e = e + 1;
+            }
+            int after = e;
+            if (e < spanEnd) {
+                after = e + 1;
+                if ((raw[e] & 0xFF) == 13 && e + 1 < spanEnd
+                    && (raw[e + 1] & 0xFF) == 10) {
+                    after = e + 2;
+                }
+            }
+            if (e == i) {
+                bodyStart = after;
+                return;
+            }
+            if ((raw[i] & 0xFF) == 32 || (raw[i] & 0xFF) == 9) {
+                // obs-fold: nothing to fold into before the first
+                // logical header line, so such a stray is dropped.
+                if (prev.length() > 0) {
+                    int t = i;
+                    while (t < e && ((raw[t] & 0xFF) == 32 || (raw[t] & 0xFF) == 9)) {
+                        t = t + 1;
+                    }
+                    string tail = io.fromBytes(raw[t:e]);
+                    string joined = hd.get(prev) + " " + tail;
+                    hd.set(prev, joined);
+                }
+                i = after;
+                continue;
+            }
+            int colon = -1;
+            for (int k = i; k < e; k = k + 1) {
+                if ((raw[k] & 0xFF) == 58) {
+                    colon = k;
+                    break;
+                }
+            }
+            if (colon >= 0) {
+                string name = io.fromBytes(raw[i:colon]);
+                name = name.trim();
+                string value = io.fromBytes(raw[colon + 1:e]);
+                value = value.trim();
+                hd.set(name, value);
+                prev = name;
+            }
+            i = after;
+        }
+        bodyStart = spanEnd;
+    }
+
+    // Backs one line-break shape off the delimiter line at p so the
+    // break the delimiter line owns is not counted as the end of the
+    // span above it (D-19: the CRLF before a delimiter line belongs to
+    // the delimiter line). floor is the span's start: a zero-length
+    // body starts at the span's end and has nothing to give back.
+    private static int trimPrecedingBreak(byte[] raw, int p, int floor) {
+        int q = p;
+        if (q > floor && (raw[q - 1] & 0xFF) == 10) {
+            q = q - 1;
+            if (q > floor && (raw[q - 1] & 0xFF) == 13) {
+                q = q - 1;
+            }
+        } else if (q > floor && (raw[q - 1] & 0xFF) == 13) {
+            q = q - 1;
+        }
+        return q;
+    }
+
+    // The filename parameter's last path segment: browsers send a full
+    // path and both separators count (D-20 quotes the browser's
+    // "C:\fakepath\x.png"), while everything else stays untouched — no
+    // percent decoding, no dot-segment handling, duties of
+    // FormFile.safeName() (Task 14, and that method carries its own
+    // tailOf because cross-class privates do not reach, ruling 31).
+    // The walk runs over bytes because charAt throws when an index
+    // lands inside a UTF-8 sequence, which a backwards charAt scan
+    // would hit on a non-ASCII filename such as "报告.txt" (probes
+    // pf19, pf22); substring takes byte indexes and both separators
+    // are ASCII, so the cut always lands on a character boundary.
+    private static string stripPath(string name) {
+        byte[] b = io.toBytes(name);
+        for (int i = b.length() - 1; i >= 0; i = i - 1) {
+            int v = b[i] & 0xFF;
+            if (v == 47 || v == 92) {
+                return name.substring(i + 1);
+            }
+        }
+        return name;
     }
 
     // The flat media type table of D-17: [type, name1, value1, name2,
@@ -328,12 +735,13 @@ class Form {
     }
 
     // The first value of one parameter plus how often that parameter
-    // appeared, so Task 11 can reject a header carrying more than one
-    // boundary= parameter (D-17). count is a reference formal (the out
-    // marker is retired on this toolchain), so callers bind a declared
-    // local: Form.mediaTypeParam(h, "boundary", cnt). The name compare is
-    // case-sensitive and readMediaType lowercases the stored parameter
-    // names, so callers pass lowercase spellings.
+    // appeared: the multipart arm rejects a missing or empty boundary
+    // through the count, and Task 12 adds the named 400 for a boundary
+    // spelled more than once (D-17, ruling 29 i). count is a reference
+    // formal (the out marker is retired on this toolchain), so callers
+    // bind a declared local: Form.mediaTypeParam(h, "boundary", cnt).
+    // The name compare is case-sensitive and readMediaType lowercases
+    // the stored parameter names, so callers pass lowercase spellings.
     private static string mediaTypeParam(string header, string name, int& count) {
         List<string> cells = Form.readMediaType(header);
         string first = "";
