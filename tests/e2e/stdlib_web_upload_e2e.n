@@ -1,0 +1,304 @@
+// stdlib_web_upload_e2e — the save-to-disk face of web.form.FormFile
+// (spec 6.9, D-20, rulings 29 ii, 31, 33): safeName() cleaning in the
+// pinned six-step order (control bytes dropped with the whitespace band
+// kept, whitespace runs folded and the ends trimmed, bare dot segments
+// dropped, the client path stripped on both separators before the
+// Windows reserved-name verdict, a reserved stem prefixed with "_", and
+// a UTF-8-boundary-safe truncation at 120 bytes — ten matrix rows plus a
+// control-character name and a 121-byte Chinese name, all idempotent),
+// saveTo() splicing a fresh 8-hex suffix before the extension so two
+// uploads that clean to the same name never collide in one directory,
+// a missing directory failing through fs.writeBytes' named IOException
+// with nothing created, saveAs() writing an exact path verbatim and
+// overwriting on a repeat, and the FormFile.data view reaching native
+// bytes through fs.writeBytes then back through fs.readBytes cell for
+// cell. Every leg uploads with the Task 14 builder over a real socket;
+// the wire spelling is pinned by the roundtrip corpus, not here.
+import io;
+import url;
+import http;
+import fs;
+import web.*;
+
+// One checked expectation: the leg reads as a list of them, and the failure
+// line quotes what was expected against what arrived.
+int want(bool ok, string what, string detail) {
+    if (!ok) {
+        io.print(what + " -- " + detail);
+        return 1;
+    }
+    return 0;
+}
+
+// No top-level variable declaration exists, so the three scratch dirs
+// travel through functions (the runner pins the CWD to tests/e2e, and the
+// corpus-owned scratch dir under ../temp/fs is reused across runs).
+string upRoot() { return fs.join("../temp/fs", "stdlib_web_upload_e2e"); }
+string upAs() { return fs.join(upRoot(), "as"); }
+string upGone() { return fs.join(upRoot(), "gone"); }
+
+// A stale run's leftovers cannot be told from this run's single expected
+// file, so the two created dirs are emptied once at start. upGone() is
+// never created and never cleaned: its absence is part of leg B.
+void clearDir(string dir) {
+    List<string> stale = fs.listFiles(dir);
+    for (int i = 0; i < stale.length(); i = i + 1) { fs.remove(fs.join(dir, stale[i])); }
+}
+
+// A hand-built FormFile answers the cleaned name for a raw filename — the
+// matrix needs no upload for the string face (an unassigned filename
+// reads as the empty string, and the empty name falls to "upload").
+string safeOf(string raw) {
+    web.form.FormFile f = web.form.FormFile();
+    f.filename = raw;
+    return f.safeName();
+}
+
+// A POST carrying a hand-built byte body: the file octets (0x00 included)
+// must travel as bytes, never through a string roundtrip (D-19).
+http.HttpResponse askMp(string urlText, string contentType, byte[] body) {
+    http.HttpRequest req = http.HttpRequest();
+    req.method = "POST";
+    req.url = Url.parse(urlText);
+    req.headers.set("Content-Type", contentType);
+    req.body = body;
+    return http.request(req);
+}
+
+// One file-part upload under field "doc", message built by MultipartBody.
+http.HttpResponse uploadFile(string urlText, string filename, byte[] data) {
+    web.form.MultipartBody mp = web.form.MultipartBody();
+    mp.addFile("doc", filename, "application/octet-stream", data);
+    return askMp(urlText, mp.contentType(), mp.toBytes());
+}
+
+// Save under the cleaned name and answer it; a missing "doc" is a shape
+// bug, answered loud.
+void saveHandler(web.RequestContext ctx) {
+    web.form.FormData f = Form.parse(ctx);
+    web.form.FormFile doc = f.getFile("doc");
+    if (doc == null) { ctx.text(400, "no doc"); return; }
+    doc.saveTo(upRoot());
+    ctx.text(200, doc.safeName());
+}
+
+// saveTo into a directory that does not exist: the verdict is the
+// IOException fs.writeBytes raises, caught as an answer for the leg.
+void saveGoneHandler(web.RequestContext ctx) {
+    web.form.FormData f = Form.parse(ctx);
+    web.form.FormFile doc = f.getFile("doc");
+    if (doc == null) { ctx.text(400, "no doc"); return; }
+    try {
+        doc.saveTo(upGone());
+    } catch (IOException ex) {
+        ctx.text(200, ex.message);
+        return;
+    }
+    ctx.text(500, "saved anyway");
+}
+
+// Save under the raw filename verbatim, in the corpus-owned "as" dir.
+void saveAsHandler(web.RequestContext ctx) {
+    web.form.FormData f = Form.parse(ctx);
+    web.form.FormFile doc = f.getFile("doc");
+    if (doc == null) { ctx.text(400, "no doc"); return; }
+    doc.saveAs(fs.join(upAs(), doc.filename));
+    ctx.text(200, doc.filename);
+}
+
+// The six seeded octets used by legs A and B (0x00 rides byte requests
+// only, D-19).
+byte[] seededBytes() {
+    int[] seeds = [0x41, 0xFF, 0x00, 0x80, 0x7F, 0x0A];
+    byte[] raw = byte[seeds.length()];
+    for (int i = 0; i < seeds.length(); i = i + 1) { raw[i] = seeds[i] as byte; }
+    return raw;
+}
+
+// Is every cell of s[start, start + 8) a lower-case hex digit? (The
+// random suffix, Task 7 pinned the 32-char spelling, this leg pins the
+// 8-char one.)
+int hexRunAt(string s, int start, string what) {
+    int bad = 0;
+    for (int i = start; i < start + 8; i = i + 1) {
+        int c = s.charAt(i) as int;
+        bool ok = (c >= 48 && c <= 57) || (c >= 97 && c <= 102);
+        bad = bad | want(ok, what + " cell " + i.toString() + " is lower-case hex",
+            "code " + c.toString());
+    }
+    return bad;
+}
+
+// Leg A: saveTo's three shapes. A1: the browser's full fakepath is
+// stripped to the cleaned name, one suffixed file lands in the dir with
+// its bytes intact; A2: a repeat gets a different suffix, not a second
+// name; A3: a dotfile takes its suffix appended, the leading dot is not
+// an extension dot.
+int legA(string base) {
+    int f = 0;
+    byte[] raw = seededBytes();
+    http.HttpResponse res = uploadFile(base + "/save", "C:\\fakepath\\report.txt", raw);
+    f = f | want(res.statusCode == 200, "leg A1 must answer 200",
+        "answered " + res.statusCode.toString());
+    f = f | want(res.bodyText() == "report.txt", "leg A1 answers the cleaned name",
+        "body was [" + res.bodyText() + "]");
+    List<string> ns = fs.listFiles(upRoot());
+    f = f | want(ns.length() == 1, "leg A1 leaves exactly one file in the dir",
+        "count=" + ns.length().toString());
+    string n1 = ns[0];
+    f = f | want(n1.startsWith("report-") && n1.endsWith(".txt") && n1.length() == 19,
+        "leg A1 the suffixed name report-<8hex>.txt", "got [" + n1 + "]");
+    f = f | hexRunAt(n1, 7, "leg A1");
+    byte[] got = fs.readBytes(fs.join(upRoot(), n1));
+    int[] seeds = [0x41, 0xFF, 0x00, 0x80, 0x7F, 0x0A];
+    f = f | want(got.length() == seeds.length(), "leg A1 the saved byte count",
+        "got " + got.length().toString());
+    for (int i = 0; i < seeds.length(); i = i + 1) {
+        int v = got[i] & 0xFF;
+        f = f | want(v == seeds[i], "leg A1 saved byte " + i.toString(),
+            "got " + v.toString() + " want " + seeds[i].toString());
+    }
+    res = uploadFile(base + "/save", "C:\\fakepath\\report.txt", raw);
+    f = f | want(res.statusCode == 200 && res.bodyText() == "report.txt",
+        "leg A2 the repeat answers the same cleaned name",
+        "answered " + res.statusCode.toString() + " [" + res.bodyText() + "]");
+    ns = fs.listFiles(upRoot());
+    f = f | want(ns.length() == 2, "leg A2 the repeat adds a second file",
+        "count=" + ns.length().toString());
+    string n2 = "";
+    for (int i = 0; i < ns.length(); i = i + 1) {
+        if (ns[i] != n1) { n2 = ns[i]; }
+    }
+    f = f | want(n2 != "" && n2.length() == 19 && n2 != n1,
+        "leg A2 the two suffixed names differ", "n1=[" + n1 + "] n2=[" + n2 + "]");
+    res = uploadFile(base + "/save", ".gitignore", byte[1]);
+    f = f | want(res.bodyText() == ".gitignore", "leg A3 the dotfile name is kept",
+        "body was [" + res.bodyText() + "]");
+    ns = fs.listFiles(upRoot());
+    f = f | want(ns.length() == 3, "leg A3 adds a third file",
+        "count=" + ns.length().toString());
+    string added = "";
+    for (int i = 0; i < ns.length(); i = i + 1) {
+        if (ns[i] != n1 && ns[i] != n2) { added = ns[i]; }
+    }
+    f = f | want(added.startsWith(".gitignore-") && added.length() == 19,
+        "leg A3 the dotfile takes its suffix appended", "got [" + added + "]");
+    return f;
+}
+
+// Leg B: a missing directory is not created — the write fails through the
+// named fs.writeBytes verdict whose path brackets the suffix-before-
+// extension spelling (report-<8hex>.txt), and the directory still
+// does not exist afterwards.
+int legB(string base) {
+    int f = 0;
+    http.HttpResponse res = uploadFile(base + "/saveGone", "C:\\fakepath\\report.txt", seededBytes());
+    f = f | want(res.statusCode == 200, "leg B the verdict must reach the client",
+        "answered " + res.statusCode.toString() + " [" + res.bodyText() + "]");
+    string msg = res.bodyText();
+    f = f | want(msg.startsWith("fs.writeBytes: cannot open \"" + fs.join(upGone(), "report-")),
+        "leg B the verdict path starts at the dir and the cleaned stem", "got [" + msg + "]");
+    f = f | want(msg.endsWith(".txt\"."),
+        "leg B the suffix lands before the extension", "got [" + msg + "]");
+    f = f | want(fs.exists(upGone()) == false, "leg B saveTo creates no directory",
+        "the dir exists");
+    return f;
+}
+
+// Leg C: saveAs is verbatim — the raw "Notes.TXT" reaches disk with its
+// case, no suffix and no cleaning (CON.TXT stays out of this leg on
+// purpose: Windows treats CON as a device and fs.listFiles would not see
+// the file), and a repeat on the same target overwrites.
+int legC(string base) {
+    int f = 0;
+    http.HttpResponse res = uploadFile(base + "/saveAs", "Notes.TXT", io.toBytes("first"));
+    f = f | want(res.statusCode == 200 && res.bodyText() == "Notes.TXT",
+        "leg C1 saveAs answers the raw filename",
+        "answered " + res.statusCode.toString() + " [" + res.bodyText() + "]");
+    List<string> ns = fs.listFiles(upAs());
+    f = f | want(ns.length() == 1, "leg C1 exactly one file in the as dir",
+        "count=" + ns.length().toString());
+    f = f | want(ns[0] == "Notes.TXT", "leg C1 the name is neither cleaned nor suffixed",
+        "got [" + ns[0] + "]");
+    res = uploadFile(base + "/saveAs", "Notes.TXT", io.toBytes("second"));
+    f = f | want(res.statusCode == 200, "leg C2 the repeat must answer 200",
+        "answered " + res.statusCode.toString());
+    ns = fs.listFiles(upAs());
+    f = f | want(ns.length() == 1, "leg C2 the repeat overwrites, not accumulates",
+        "count=" + ns.length().toString());
+    byte[] got = fs.readBytes(fs.join(upAs(), "Notes.TXT"));
+    byte[] want2 = io.toBytes("second");
+    f = f | want(got.length() == want2.length(), "leg C2 the overwritten length",
+        "got " + got.length().toString());
+    for (int i = 0; i < want2.length(); i = i + 1) {
+        f = f | want(got[i] == want2[i], "leg C2 overwritten byte " + i.toString(),
+            "got " + (got[i] & 0xFF).toString());
+    }
+    return f;
+}
+
+// Leg D: the cleaning matrix (ruling 33 i — the order is the contract:
+// path first, then the reserved-name verdict), each row also checked
+// idempotent and within the 120-byte cap, plus the two shapes whose
+// inputs must be computed rather than spelled in a literal table.
+int legD(string base) {
+    int f = 0;
+    string[] raws = [
+        "C:\\fakepath\\CON.txt", "nul.txt", "..", ".", "  a   b  ",
+        "../../etc/passwd", ".gitignore", "a%2Fb.txt", "", "   "];
+    string[] wants = [
+        "_CON.txt", "_nul.txt", "upload", "upload", "a b",
+        "passwd", ".gitignore", "a%2Fb.txt", "upload", "upload"];
+    for (int i = 0; i < raws.length(); i = i + 1) {
+        string cleaned = safeOf(raws[i]);
+        f = f | want(cleaned == wants[i], "leg D row " + i.toString() + " cleaning",
+            "got [" + cleaned + "] want [" + wants[i] + "]");
+        string twice = safeOf(wants[i]);
+        f = f | want(twice == wants[i], "leg D row " + i.toString() + " cleaning is idempotent",
+            "got [" + twice + "]");
+        f = f | want(io.toBytes(cleaned).length() <= 120,
+            "leg D row " + i.toString() + " within the byte cap",
+            "length " + io.toBytes(cleaned).length().toString());
+    }
+    int[] cs = [97, 0, 98, 1, 99, 46, 116, 120, 116];
+    byte[] ctrl = byte[cs.length()];
+    for (int i = 0; i < cs.length(); i = i + 1) { ctrl[i] = cs[i] as byte; }
+    string ctrlName = safeOf(io.fromBytes(ctrl));
+    f = f | want(ctrlName == "abc.txt",
+        "leg D NUL and SOH drop without splitting anything",
+        "got [" + ctrlName + "]");
+    string long1 = "a";
+    for (int i = 0; i < 40; i = i + 1) { long1 = long1 + "中"; }
+    string cleaned = safeOf(long1);
+    f = f | want(cleaned.length() == 118, "leg D the 121-byte name truncates to 118",
+        "length " + cleaned.length().toString());
+    f = f | want(cleaned == long1.substring(0, 118),
+        "leg D the cut backs off to a UTF-8 lead byte",
+        "got [" + cleaned + "]");
+    f = f | want(!cleaned.contains("�"),
+        "leg D the truncated name holds no replacement half-character",
+        "got [" + cleaned + "]");
+    return f;
+}
+
+int main() {
+    int bad = 0;
+    fs.makeDirs(upRoot());
+    fs.makeDirs(upAs());
+    clearDir(upRoot());
+    clearDir(upAs());
+    web.App app = web.App();
+    app.post("/save", saveHandler);
+    app.post("/saveGone", saveGoneHandler);
+    app.post("/saveAs", saveAsHandler);
+    app.listen("127.0.0.1", 0);
+    string base = "http://127.0.0.1:" + app.server().localPort().toString();
+    if (legA(base) != 0) { io.print("legA"); bad = bad | 1; }
+    if (legB(base) != 0) { io.print("legB"); bad = bad | 2; }
+    if (legC(base) != 0) { io.print("legC"); bad = bad | 4; }
+    if (legD(base) != 0) { io.print("legD"); bad = bad | 8; }
+    app.drain(5000);
+    app.close();
+    if (bad == 0) { io.print("ok"); }
+    return bad;
+}

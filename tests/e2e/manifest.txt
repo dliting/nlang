@@ -2717,3 +2717,29 @@ stdlib_web_multipart_reject 0
 # and the default trio 8388608/1000/4194304 passes a mid-sized three-part
 # form through the multipart arm.
 stdlib_web_multipart_limits 0
+# multipart builder roundtrip (rulings 37/38/39, D-21): the byte-exact CRLF
+# wire the builder writes, no break before the first part, a break before
+# every later part and the closing line, a blank line after each head block
+# and a lone closing line for the zero-part body; the part shapes; the
+# boundary's 40-lower-case-hex spelling and its per-object uniqueness; the
+# %22/%0D/%0A escape subset on name and filename with the Content-Type
+# value passed through unescaped; the empty contentType filled to
+# text/plain; the three named precondition verdicts raised before anything
+# registers and addFile copying the caller's array (ruling 39); and the
+# boundary scan rejecting a part body that carries the delimiter at a line
+# start, contentType() and toBytes() resolving to the same boundary.
+stdlib_web_multipart_roundtrip 0
+# upload save-to-disk (D-20, rulings 29 ii, 31, 33): safeName()'s ten-row
+# cleaning matrix in the pinned order, control bytes dropped with the tab
+# band kept, whitespace runs folded and the ends trimmed, dot segments
+# dropped, the client path stripped on both separators before the Windows
+# reserved-name verdict, reserved stems prefixed with "_", and the 120-byte
+# cap cut at a UTF-8 boundary, plus the control-character and 121-byte
+# Chinese shapes, every row checked idempotent; saveTo() splicing a fresh
+# 8-hex suffix before the extension so repeats never collide in one
+# directory; nothing created when the target directory is missing, the
+# named fs.writeBytes IOException answering instead; saveAs() writing the
+# exact path verbatim and overwriting on a repeat; and the FormFile.data
+# view reaching native bytes through fs.writeBytes then back through
+# fs.readBytes cell for cell.
+stdlib_web_upload_e2e 0
