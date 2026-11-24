@@ -2702,3 +2702,18 @@ stdlib_web_multipart_parse 0
 # with controls for the repeated charset parameter, FORM-DATA case folding,
 # filename="", the closing-only body and an epilogue after the closing line.
 stdlib_web_multipart_reject 0
+# multipart budget 413s (D-18, ruling 30 i): the three caps each answer their
+# own named 413 with exact-boundary controls — maxBytes rejects a 9-byte body
+# under a cap of 8 while the exact 9 bytes parse, maxParts rejects a third
+# part under a cap of 2 while exactly 3 parts parse and a cap of 0 keeps a
+# closing-only body the empty form, maxPartBytes rejects a 9-byte part body
+# under a cap of 8 while the exact 8 bytes parse and a 9-byte file body
+# answers the same verdict — the count check outranks the part-level 400
+# verdicts, maxPartBytes measures the part body only (a 200-byte header block
+# over a 1-byte body parses, the block belonging to the grammar budget), the
+# two body caps compose as a min from both sides (the http cap answers first
+# and carries no trailing period, the web cap answers under its own tighter
+# cap with its period, and the http field assignment reaches later requests),
+# and the default trio 8388608/1000/4194304 passes a mid-sized three-part
+# form through the multipart arm.
+stdlib_web_multipart_limits 0

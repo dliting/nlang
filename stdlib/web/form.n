@@ -19,7 +19,10 @@
  * parameter — a repeated one and a missing or empty one are their own
  * named 400s — maxBytes
  * guards the read with the named 413, and the urlencoded split or the
- * multipart walk runs last. On the multipart side the delimiter
+ * multipart walk runs last, the walk enforcing the maxParts and
+ * maxPartBytes budgets with their own named 413s as ruling 30 i pins
+ * (the count check before a part's headers, the body check right after
+ * the scan). On the multipart side the delimiter
  * matching is anchored to line starts and tolerates the shapes D-19
  * lists (preamble and epilogue ignored, trailing horizontal whitespace
  * on delimiter lines, quoted boundaries, all-LF and all-CR bodies,
@@ -376,8 +379,10 @@ class Form {
     // The multipart arm (D-19): the body is walked as bytes with the
     // delimiter anchored to line starts, preamble and epilogue fall out
     // of that scan for free, and every part between two delimiter lines
-    // registers through the shared FormData loaders. opts stays unread
-    // (maxParts and maxPartBytes arrive with Task 13). A
+    // registers through the shared FormData loaders. The opts budgets
+    // gate the walk: maxParts is checked before each part's headers are
+    // scanned, maxPartBytes right after the scan (ruling 30 i), so the
+    // count verdict outranks every part-level verdict. A
     // body whose first delimiter line already closes the form is the
     // empty form (leg I); a scan that runs out of delimiter candidates
     // before a closing line is the named 400 (D-19, ruling 30 i: the
@@ -414,11 +419,31 @@ class Form {
             // value carries no \r\n), and floor stops a zero-length
             // body from eating the previous part's bytes (legs C, F).
             int spanEnd = Form.trimPrecedingBreak(raw, next, lineEnd);
+            // The count budget judges the next part before its headers
+            // are even scanned (ruling 30 i): a part over the cap
+            // answers the named 413 even when its own headers would
+            // also fail a 400. The compare is >= because partCount is
+            // what has registered so far — a cap of n allows exactly n
+            // parts, and the closing-only body never reaches here.
+            if (fd.partCount() >= opts.maxParts) {
+                throw http.HttpException(
+                    "web.form.Form.parse: form exceeds maxParts (" + opts.maxParts + " parts).", 413);
+            }
             http.HttpHeaders hd = http.HttpHeaders();
             int bodyStart = lineEnd;
             Form.scanPartHeaders(raw, lineEnd, spanEnd, hd, bodyStart);
             if (bodyStart > spanEnd) {
                 bodyStart = spanEnd;
+            }
+            // The single-part body budget (ruling 30 i): the clamp
+            // above pins the span, so the subtraction cannot go
+            // negative; the header block is not counted here — it
+            // belongs to scanPartHeaders' grammar budget — and a body
+            // of exactly maxPartBytes bytes still parses (the compare
+            // is >).
+            if (spanEnd - bodyStart > opts.maxPartBytes) {
+                throw http.HttpException(
+                    "web.form.Form.parse: part exceeds maxPartBytes (" + opts.maxPartBytes + " bytes).", 413);
             }
             byte[] body = raw[bodyStart:spanEnd];
             // Part registration: a part without a form-data content-
