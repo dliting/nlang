@@ -44,11 +44,17 @@ http_conc_bench 0 done
 http_sse 0 stopped
 regex_tour 0 ok
 json_tour 0 ok
-# web框架的两枚在树示例，均为自终止姿态（listen起服务→自带客户端逐腿断言→drain后退出）。
-# web_hello钉两风格中间件（函数式短路401、类式洋葱尾加头）、`:id`路由与原始query串、
-# 会话往返（rotate后新id仍命中同一份数据、只读会话不再发cookie、匿名访客各自新会话）、
-# SSE两帧由helper分帧、挂载的静态handler回退index与子树自写404。
+# Two shipped web-framework examples, both self-terminating: listen on an
+# ephemeral port, a built-in client asserts every leg, drain, then exit.
+# web_hello pins the two middleware styles (the functional short-circuit 401
+# and the class wrapper that adds a trailing header), the `:id` route with
+# the raw query string, the session round trip (data follows the rotated id,
+# a read-only session sets no cookie, anonymous visitors get their own
+# session), SSE frames framed by the helper, and the mounted static handler's
+# index fallback plus the sub-tree's own 404.
 web_hello 0 ok
-# web_upload钉multipart往返：浏览器C:\fakepath\文件名剥路径回显、落盘名清洗＋随机后缀插在扩展名前、
-# 正文按字节回读一致；另一腿只有字段无文件部件→handler的400分支。
+# web_upload pins the multipart round trip: a browser C:\fakepath\ filename
+# echoed with its path stripped, the saved name sanitized with a random
+# suffix spliced before the extension, the body read back byte-identical;
+# the other leg carries a field but no file part, hitting the 400 branch.
 web_upload 0 ok
