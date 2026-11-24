@@ -16,7 +16,8 @@
  * content type gate answers its named 415 without reading a body byte
  * (the http layer drains the unread body and the connection stays
  * reusable), a multipart content type also yields its boundary
- * parameter — a missing or empty one is the named 400 — maxBytes
+ * parameter — a repeated one and a missing or empty one are their own
+ * named 400s — maxBytes
  * guards the read with the named 413, and the urlencoded split or the
  * multipart walk runs last. On the multipart side the delimiter
  * matching is anchored to line starts and tolerates the shapes D-19
@@ -27,7 +28,12 @@
  * missing part Content-Type registers the bare "text/plain", and the
  * client's directory path is stripped off the filename on both
  * separators with nothing else touched (D-20). A body with no
- * delimiter line at all is the second named 400. The media type trio
+ * delimiter line at all, a body that never closes with a delimiter
+ * line, and the malformed parts D-19 lists — a missing or non-form-data
+ * content-disposition, a missing or empty name parameter, a name past
+ * its byte budget, a header block past its byte budget — each answer
+ * their own named 400, judged in the fixed order ruling 30 pins. The
+ * media type trio
  * is a private static scanner of Form rather than free functions
  * (ruling 20 keeps this module surface-class-only): it honours
  * quoted-string parameters because a multipart boundary may legally
@@ -242,6 +248,15 @@ class FormData {
 // The parse entry point of spec 6.9: the one-argument shape rides the
 // default options, the two-argument shape treats a null opts the same.
 class Form {
+    // D-19's two grammar budgets (ruling 30 ii): a part's header block
+    // never runs past DEFAULT_MAX_PART_HEADER_BYTES bytes, and a
+    // disposition name parameter never past DEFAULT_MAX_FIELD_NAME_BYTES
+    // bytes. Both overruns are named 400s whose texts compose their
+    // number from the constant, so each limit is written exactly once in
+    // this module.
+    private static const int DEFAULT_MAX_PART_HEADER_BYTES = 16384;
+    private static const int DEFAULT_MAX_FIELD_NAME_BYTES = 100;
+
     // The octets the media type scanner compares (byte domain).
     private static const int OCTET_TAB = 9;
     private static const int OCTET_SEMICOLON = 59;
@@ -279,10 +294,11 @@ class Form {
         // read (the http layer drains the unread body and the
         // connection stays reusable). A multipart header also carries
         // the boundary parameter, taken here before the body is
-        // touched: a missing or empty value is the named 400 (D-19),
-        // while a header spelling boundary twice still rides its first
-        // value until Task 12 gives that count its own 400
-        // (ruling 29 i).
+        // touched: a header spelling the boundary parameter more than
+        // once is a named 400, judged before the missing-or-empty
+        // verdict (D-19, ruling 30 i: leg B4 pins that a second empty
+        // value still answers multiple-boundary, and leg H4 the count
+        // check before any body byte is read).
         string header = ctx.req.headers.get("Content-Type");
         List<string> mt = Form.readMediaType(header);
         string type = mt[0];
@@ -296,6 +312,10 @@ class Form {
         if (isMultipart) {
             int bndCount = 0;
             boundary = Form.mediaTypeParam(header, "boundary", bndCount);
+            if (bndCount > 1) {
+                throw http.HttpException(
+                    "web.form.Form.parse: multiple boundary parameters in content type.", 400);
+            }
             if (bndCount == 0 || boundary.length() == 0) {
                 throw http.HttpException(
                     "web.form.Form.parse: missing boundary parameter.", 400);
@@ -357,11 +377,13 @@ class Form {
     // delimiter anchored to line starts, preamble and epilogue fall out
     // of that scan for free, and every part between two delimiter lines
     // registers through the shared FormData loaders. opts stays unread
-    // in this task (maxParts and maxPartBytes arrive with Task 13). A
+    // (maxParts and maxPartBytes arrive with Task 13). A
     // body whose first delimiter line already closes the form is the
-    // empty form (leg I); when the scan runs out of candidates before a
-    // closing line, the trailing bytes are silently dropped until
-    // Task 12 turns that into the named 400 (ruling 29 i). The byte
+    // empty form (leg I); a scan that runs out of delimiter candidates
+    // before a closing line is the named 400 (D-19, ruling 30 i: the
+    // early-return arm in front of the loop keeps the closing-only body
+    // the empty form, while the loop's missing-closing verdict judges
+    // every other part first). The byte
     // values compared inside the scanners (13, 10, 45 …) are protocol
     // constants inlined in the stdlib/http.n style, and every byte
     // read goes through & 0xFF because HttpParser.byteAt is a private
@@ -383,7 +405,8 @@ class Form {
             bool closing = false;
             int next = Form.findDelimiter(raw, lineEnd, bnd, closing);
             if (next < 0) {
-                break;
+                throw http.HttpException(
+                    "web.form.Form.parse: missing closing boundary delimiter.", 400);
             }
             int nextEnd = Form.matchDelimiter(raw, next, bnd, closing);
             // The break before the delimiter line belongs to the
@@ -398,44 +421,58 @@ class Form {
                 bodyStart = spanEnd;
             }
             byte[] body = raw[bodyStart:spanEnd];
-            // Part registration: a part whose content-disposition is
-            // absent, is not form-data or has no name parameter is
-            // skipped here — Task 12 replaces each skip with its named
-            // 400 (ruling 29 i). readMediaType lowercases the
+            // Part registration: a part without a form-data content-
+            // disposition, without a name parameter or with a name past
+            // the byte budget raises its own named 400 here, before
+            // anything registers — one violation rejects the whole form
+            // (D-19; ruling 30 i: the header budget already ran inside
+            // scanPartHeaders, and the closing-line verdict only judges
+            // the part after this one). readMediaType lowercases the
             // disposition type so the form-data check is
             // case-insensitive, while the name parameter keeps the
             // client's spelling (leg D).
             string cd = hd.get("content-disposition");
             List<string> cdt = Form.readMediaType(cd);
+            if (cd.length() == 0 || cdt.length() == 0 || cdt[0] != "form-data") {
+                throw http.HttpException(
+                    "web.form.Form.parse: part missing form-data content-disposition.", 400);
+            }
             int nameCount = 0;
             string name = Form.mediaTypeParam(cd, "name", nameCount);
-            bool named = cd.length() > 0 && cdt.length() > 0
-                && cdt[0] == "form-data" && name.length() > 0;
-            if (named) {
-                int fnCount = 0;
-                string filename = Form.mediaTypeParam(cd, "filename", fnCount);
-                if (fnCount > 0) {
-                    // A filename parameter that exists is a file part
-                    // even with an empty value (D-19: the channel split
-                    // rides the parameter's existence, not its
-                    // content); the data field keeps the view slice,
-                    // never a string roundtrip.
-                    FormFile f = FormFile();
-                    f.field = name;
-                    f.filename = Form.stripPath(filename);
-                    string ct = hd.get("content-type");
-                    if (ct.length() == 0) {
-                        ct = "text/plain";
-                    }
-                    f.contentType = ct;
-                    f.data = body;
-                    fd.addFile(f);
-                } else {
-                    // The field channel decodes the body as UTF-8 and
-                    // does nothing else — percent escapes stay as
-                    // written, unlike the urlencoded arm (D-19).
-                    fd.addField(name, io.fromBytes(body));
+            if (name.length() == 0) {
+                // A missing parameter and an empty value share this arm:
+                // mediaTypeParam answers "" when it finds no value.
+                throw http.HttpException(
+                    "web.form.Form.parse: part content-disposition has no name parameter.", 400);
+            }
+            if (name.length() > DEFAULT_MAX_FIELD_NAME_BYTES) {
+                // string.length() is the byte count (temp/pf19.n), so
+                // the budget measures bytes, not characters (leg G).
+                throw http.HttpException("web.form.Form.parse: field name exceeds "
+                    + DEFAULT_MAX_FIELD_NAME_BYTES.toString() + " bytes.", 400);
+            }
+            int fnCount = 0;
+            string filename = Form.mediaTypeParam(cd, "filename", fnCount);
+            if (fnCount > 0) {
+                // A filename parameter that exists is a file part even
+                // with an empty value (D-19: the channel split rides the
+                // parameter's existence, not its content); the data
+                // field keeps the view slice, never a string roundtrip.
+                FormFile f = FormFile();
+                f.field = name;
+                f.filename = Form.stripPath(filename);
+                string ct = hd.get("content-type");
+                if (ct.length() == 0) {
+                    ct = "text/plain";
                 }
+                f.contentType = ct;
+                f.data = body;
+                fd.addFile(f);
+            } else {
+                // The field channel decodes the body as UTF-8 and does
+                // nothing else — percent escapes stay as written, unlike
+                // the urlencoded arm (D-19).
+                fd.addField(name, io.fromBytes(body));
             }
             if (closing) {
                 break;
@@ -537,11 +574,18 @@ class Form {
     // name and the value each losing their surrounding horizontal
     // whitespace (RFC 7230 OWS); the header table's own lowercased
     // keys take care of the name's case (D-19) and a repeated name
-    // overwrites (HttpHeaders.set). Scanning apart from registering
-    // keeps Task 12's 16 KiB header cap inside this method alone.
+    // overwrites (HttpHeaders.set). D-19's header budget lives in this
+    // method alone: the block runs from (the first delimiter line's own
+    // break is behind from and is not counted), and every line — the
+    // obs-fold continuations and the terminating blank line included —
+    // adds its content bytes and its line break to the running total
+    // before the blank-line exit can fire, so a block cannot escape the
+    // budget through its closing line (ruling 30 ii; leg F2 is that
+    // order's witness).
     private static void scanPartHeaders(byte[] raw, int from, int spanEnd,
                                         http.HttpHeaders hd, int& bodyStart) {
         string prev = "";
+        int consumed = 0;
         int i = from;
         while (i < spanEnd) {
             int e = i;
@@ -555,6 +599,11 @@ class Form {
                     && (raw[e + 1] & 0xFF) == 10) {
                     after = e + 2;
                 }
+            }
+            consumed = consumed + (e - i) + (after - e);
+            if (consumed > DEFAULT_MAX_PART_HEADER_BYTES) {
+                throw http.HttpException("web.form.Form.parse: part headers exceed "
+                    + DEFAULT_MAX_PART_HEADER_BYTES.toString() + " bytes.", 400);
             }
             if (e == i) {
                 bodyStart = after;
@@ -747,10 +796,10 @@ class Form {
     }
 
     // The first value of one parameter plus how often that parameter
-    // appeared: the multipart arm rejects a missing or empty boundary
-    // through the count, and Task 12 adds the named 400 for a boundary
-    // spelled more than once (D-17, ruling 29 i). count is a reference
-    // formal (the out marker is retired on this toolchain), so callers
+    // appeared: the multipart arm reads its boundary through it and
+    // rejects a repeated, missing or empty parameter through the count,
+    // the repeated verdict first (D-17, D-19, ruling 30 i). count is a
+    // reference formal (the out marker is retired on this toolchain), so callers
     // bind a declared local: Form.mediaTypeParam(h, "boundary", cnt).
     // The name compare is case-sensitive and readMediaType lowercases
     // the stored parameter names, so callers pass lowercase spellings.

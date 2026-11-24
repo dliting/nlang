@@ -2690,3 +2690,15 @@ stdlib_web_form_urlencoded 0
 # nested multipart kept opaque bytes; and the missing-or-empty boundary and
 # no-delimiter-line shapes answered with the two fixed 400 texts.
 stdlib_web_multipart_parse 0
+# multipart 400 rejection matrix (D-19, ruling 30): five boundary spellings
+# read as missing or empty, more than one boundary parameter with the count
+# check before the empty-value verdict and before the body is read, a part
+# missing a form-data content-disposition, a disposition with a missing or
+# empty name parameter, a field name over 100 bytes on the byte measure
+# (CJK pairs pin bytes over characters), four bodies without a closing
+# boundary delimiter, a part header block over 16384 bytes (exact boundary
+# accepted, one over rejected, never accumulated across parts, the cap
+# judged before the disposition verdict) and the six check-order witnesses,
+# with controls for the repeated charset parameter, FORM-DATA case folding,
+# filename="", the closing-only body and an epilogue after the closing line.
+stdlib_web_multipart_reject 0
