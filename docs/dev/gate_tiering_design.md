@@ -38,6 +38,14 @@ Release构建与Release e2e维持「仅发布时点」裁定不变，不因分�
 
 先知逻辑自身的pytest语料挂在ctest条目`e2e_runner_env_gate`上，而该条目与既有的`nlang_docs_pytest`共用configure期解释器探针（`NLANG_DOCS_PYTHON`探`import pytest`），因此它只在配置期解释器能导入pytest的树里注册——带DOCS选项配好py313的树注册，解释器缺pytest的树在配置时打印跳过说明而不是静默丢条目（早年本机旧树两种情形都出现过；核对时按各树当下的探针结果判，别沿用旧枚举）。改动`tests/CMakeLists.txt`后必须重新configure，条目才出现在`tests/CTestTestfile.cmake`里；核对注册的口径是各树自己的`tests/CTestTestfile.cmake`而非顶层文件。
 
+## 新鲜度前置检查
+
+一个批次跨多棵（树，配置）消费预构建产物，而产物过期在批中途才现形会作废整轮扫描——0.13.11收口批实测三连：同一段手册snippet审计得到三个判决，根因是三处ncc来源各异（master Debug、IDE Debug、master Release）；master树Release工具链落后两个版本到docs腿才暴露；Release重链又撞上native动态库ABI落后于宿主。每案都是几小时的重扫换一次本可前置的重建。为此每层（T0/T1/T2）的第一条腿固定为`T-preflight-fresh`：`tools/gate_freshness.py check --repo <仓库> [--tree 路径:配置] [--ctest-tree 路径:配置]…`，任何被消费产物早于其对应输入即拒绝判决（测试可执行文件仅查在场），退出码1并逐条打印过期对；且红的前置腿直接中止组批——腿包装如实传回gate.sh的退出码，前置位点显式携带该红，否则批次会在本该被拦下的时刻照跑完全程（包装曾吞掉退出码恒返回0、使携带形同虚设，自测条目a19以非空洞形态钉住此语义）。这把过期树的代价从一次重扫压回一次重建。空输入扫描（src＋include为空或stdlib为空）拒绝裁决而不是空转放行。语料`tools/gate_freshness_test.py`（20例，裸Python3可跑，经ctest条目`gate_freshness_selftest`注册）与自测条目`a18-preflight-first-leg`、`a19-preflight-red-aborts`分别钉住接线与中止语义。
+
+层映射只登记该层消费而不自建的产物：T0消费master树Debug（ctest树）；T1另加master树Release（docs五腿消费）与IDE、ASan两树Debug（ctest树）；T2自身批内构建Release，前置只查三棵ctest树。自测条目`a18-preflight-first-leg`钉住三件事：各层第一条腿是前置检查、T1的前置确实审master树Release、T2的不审。
+
+判旧规则按产物类别取输入集，总纲是「不可行动的假阳性会教人无视前置检查」（2026-11-08的伪造时间戳touch事故即先例）：三工具（ncc/nvm/ndb）编译整个产品，输入集取全量src/＋include/扫描（e2e运行器守卫的规则原文照搬，含其教训：假警报付一次构建、漏报付一次误诊）；native动态库只编src/native/，若叠全量扫描则任何编译器改动都染红所有树；测试可执行文件仅查在场（逐目标输入图是构建系统的，任何mtime扫描都复现不了）；标准库按包复制规则逐文件比对（工具把stdlib当数据编译，混进工具输入集曾逼出空转重建）；编译出的`stdlib.npkg`按运行器陈旧包规则上提前置——必须同时不旧于最新stdlib源码与旁边的ncc（旧于ncc即被已过期的编译器打过包，2026-10-31实测整轮绿跑在陈旧包上）；仓库的VERSION文件同样约束工具与动态库——版本提升随带它们内嵌的版本号/ABI而无需伴随源码改动，未重配置的树否则会带着旧字符串假绿（既有裁定「版本提升重建每个腿执行的配置」由它落地）。另有树内configure期生成的`nlang_version.h`约束工具与动态库——它只在重配置后更新，而CMAKE_CONFIGURE_DEPENDS要到下一次构建才触发重配置、T0/T1批次不构建，故VERSION文件是主通道、生成头文件是重配置已发生时的补强。必需工具三件按「树配置内的工具链类别」整体要求：docs腿只吃ncc/nvm，但缺ndb的配置是工具链的不完整构建而非可消费状态。
+
 ## 性能递延（已撤销——计时重设计接管）
 
 2026-11-20用户裁定曾以「递延文件即开关」的形态临时裁剪纯性能条目：ctest三件经`ctest -E`锚定排除，e2e五件经`NLANG_E2E_EXCLUDE`传递给运行器（逐条打印DEFER行并计入deferred汇总），`tier_coverage_check.py`收可选递延文件参数豁免「至少被一层选中」不变量。2026-11-23计时重设计（`docs/dev/gate_timing_design.md`）落地后整套撤销，替代机制各归其位：慢集（print-slow按参考秒数行派生）把慢ctest成员排除出T1常规腿而T2收口腿不带排除地全量重跑（D-7）；e2e侧的条目选择统一走`NLANG_E2E_MANIFEST`子集（T0影响子集、ASan风险子集都由它承载）；每条目的时长上限由参考表的条目级TIMEOUT帽在configure期安装（守卫五校验registered与表推导一致）。递延文件、运行器的递延机器（环境变量、解析与两道响亮校验、DEFER行与deferred计数）与覆盖守卫的豁免参数随之删除。环境门控（`env_gates.txt`）不受影响——它承载「机器做不了」，与耗时无关。
@@ -48,6 +56,7 @@ Release构建与Release e2e维持「仅发布时点」裁定不变，不因分�
 - tools/e2e_shard.py：manifest按族切K片、各自输出目录、汇总判决。
 - tools/test_families.txt＋tools/test_impact.py：测试族清单与src目录→族的保守映射。
 - tools/tier_coverage_check.py：覆盖不变量守卫（清单条目↔层选择器）。
+- tools/gate_freshness.py：批次新鲜度前置检查（各层第一腿，见「新鲜度前置检查」节）。
 - AGENTS.md门禁段与CONTRIBUTING同步改写（三树表述→三层表述）。
 
 ## 实施顺序

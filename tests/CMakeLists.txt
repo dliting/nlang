@@ -3433,6 +3433,19 @@ else()
     message(STATUS "gate_time_check_selftest skipped: Python3 not found")
 endif()
 
+# gate_freshness selftest: hermetic corpus for the batch freshness
+# preflight (tools/gate_freshness.py), registered the same way as the
+# timing corpus -- plain Python3, every configured tree, no pytest
+# probe to depend on.
+if(Python3_FOUND)
+    add_test(NAME gate_freshness_selftest
+        COMMAND ${PYTHON3_EXECUTABLE}
+            ${PROJECT_SOURCE_DIR}/tools/gate_freshness_test.py
+        WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+else()
+    message(STATUS "gate_freshness_selftest skipped: Python3 not found")
+endif()
+
 # gate_tier.sh assembly smoke (tools/gate_tier_test.py): drives the leg
 # dispatch against a stub gate.sh in a sandbox, so it needs bash but no
 # build tree and no lock to wait on (the stub replaces gate.sh). The probe

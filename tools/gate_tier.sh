@@ -178,7 +178,14 @@ leg() { # leg <name> [--gate-env NAME=VAL]... [--claim <resource>]... <command..
   env "${env_pairs[@]}" bash "$REPO/tools/gate.sh" \
       "${claim_args[@]}" "$name" "$LOGS/$name" "${rest[@]}" \
       > "$LOGS/$name.gate" 2>&1
-  echo "leg $name rc=$?"
+  # gate.sh's exit code is the leg's own: a wrapper that swallowed it
+  # (returning the trailing echo's 0) made every abort consumer at a
+  # producer site dead code once already -- the wrapper tells the truth,
+  # and the policy of which reds abort the assembly stays explicit at
+  # the call sites that consume the failed producer's output.
+  local gate_rc=$?
+  echo "leg $name rc=$gate_rc"
+  return "$gate_rc"
 }
 
 # Machine scale per leg (D-4, guard four): calibrated fresh, in the load
@@ -601,9 +608,42 @@ t1_legs() { # t1_legs <slow-e on|off>
   guard_legs
 }
 
+freshness_legs() { # freshness_legs <T0|T1|T2>
+  # The batch's first leg, before any test runs: every (tree, config)
+  # whose artifacts this batch consumes must postdate the repo's
+  # compiled inputs. Staleness discovered mid-batch voids the whole
+  # sweep (the 2026-11-23/24 sessions paid for a predates-the-
+  # regenerated-lexer Debug tool, a two-versions-old Release toolchain
+  # and an ABI-12 native DLL set that way); here it is leg one and
+  # costs a rebuild. T1's docs legs eat the master tree's Release
+  # tools, T2 additionally runs Release ctest/e2e -- the maps encode
+  # what each tier actually consumes, never a fixed tree list.
+  local args=(--repo "$REPO" --ctest-tree "$MASTER_TREE:Debug")
+  case "$1" in
+    T1) #The docs legs eat the master tree's Release tools, and T1
+        #builds nothing -- the r5 lesson: that toolchain goes stale
+        #unnoticed until leg fourteen voids the batch.
+        args+=(--tree "$MASTER_TREE:Release"
+               --ctest-tree "$IDE_TREE:Debug"
+               --ctest-tree "$ASAN_TREE:Debug") ;;
+    T2) #The Release config is excluded: T2-release-build produces it
+        #inside the batch, before the legs that consume it.
+        args+=(--ctest-tree "$IDE_TREE:Debug"
+               --ctest-tree "$ASAN_TREE:Debug") ;;
+  esac
+  leg T-preflight-fresh env "$PY_IO_ENCODING" \
+      "$PY" "$REPO/tools/gate_freshness.py" check "${args[@]}"
+  # leg() returns gate.sh's exit code, so the carried red above is the
+  # abort contract the other producer sites (perf_names, slow_regex,
+  # derive_asan_subset) already honor: a red preflight stops the
+  # assembly before any test runs, while the verdict loop still prints
+  # the preflight's own FAIL from its .gate log.
+}
+
 t0() {
   # Same per-round perf set as t1_legs() (the T0 unit leg's -E carries
   # the union too; D-6 says no scheduled round runs the perf class).
+  freshness_legs T0 || return 2
   PERF_E=$(perf_names) || { leg T-perf-names false; return 2; }
   local impact_args=()
   if [ -n "$GIT_BASE" ]; then
@@ -715,10 +755,11 @@ t0() {
   guard_legs ${sched_extra[@]+"${sched_extra[@]}"}
 }
 
-t1() { t1_legs on; docs_legs; }
+t1() { freshness_legs T1 || return 2; t1_legs on; docs_legs; }
 
 t2() {
   DOCS=1  #version close always includes the docs five legs
+  freshness_legs T2 || return 2
   t1_legs off  # the close-out sweep runs the slow entries itself (D-7)
   e2e_leg T2-asan-e2e-full "$ASAN_TREE" Debug e2e-ASan \
       "$REPO/tests/e2e/manifest.txt" 180

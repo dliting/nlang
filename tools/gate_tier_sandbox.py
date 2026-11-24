@@ -194,6 +194,11 @@ TOOLS_MODULES = [
 ]
 
 EXPECTED_LEGS = [
+    # The freshness preflight is leg one of every tier; the stub
+    # gate.sh PASSes it without executing the checker (the abort
+    # semantics live in gate_selftest a19), so this pins only the
+    # wiring.
+    "T-preflight-fresh",
     "T1-debug-unit",
     "T1-debug-unit-budget",
     "T1-debug-unit-timeouts",

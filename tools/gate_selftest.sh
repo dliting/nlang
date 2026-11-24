@@ -1073,19 +1073,9 @@ case_a17_removed_option_rejected() {
 # the moment the shell tries to enter it. The tier work directory is redirected
 # into this workspace so the leg's logs cannot collide with a real batch's, and
 # the legs inherit the private NLANG_GATE_LOCK_DIR exported above.
-case_a10_gate_tier_batch() {
-    local out=a10-tier.out rc
-    # T-perf-names (D-6) repeats the master tree's cache shape in two
-    # scratch configures to learn the perf class, so this batch needs a
-    # seed cache on disk, and its sampling passes through the cmake/ctest
-    # door stubs (the same isolation the tier smoke pins). The unit leg's
-    # failure is the uncalibrated path: the tree holds no suite to
-    # sample. The ambient machine scale is dropped because a scale
-    # inherited from a surrounding batch would skip that sampling and
-    # leave bare ctest reporting an empty success on the cache-only tree.
-    mkdir -p "$WS/a10-tree"
-    printf 'CMAKE_GENERATOR:INTERNAL=Stub\n' > "$WS/a10-tree/CMakeCache.txt"
-    cat > "$WS/a10-stub-cmake.py" <<'STUB'
+make_stub_doors() { # make_stub_doors <prefix> -- cmake/ctest stub doors in $WS
+  local p="$1"
+  cat > "$WS/$p-stub-cmake.py" <<'STUB'
 import os, sys
 a = sys.argv[1:]
 b = a[a.index("-B") + 1]
@@ -1097,26 +1087,95 @@ for t in a:
 with open(os.path.join(b, "perf.flag"), "w") as fh:
     fh.write(flag)
 STUB
-    cat > "$WS/a10-stub-ctest.py" <<'STUB'
+  cat > "$WS/$p-stub-ctest.py" <<'STUB'
 import json
 print(json.dumps({"tests": []}))
 STUB
-    # .bat doors because CreateProcess spawns no script; the interpreter
-    # matches the tier's own pin and %~dp0 anchors beside the .bat.
-    printf '@echo off\r\n"D:/dev/miniconda3/envs/py313/python.exe" -I "%%~dp0a10-stub-cmake.py" %%*\r\n' > "$WS/a10-stub-cmake.bat"
-    printf '@echo off\r\n"D:/dev/miniconda3/envs/py313/python.exe" -I "%%~dp0a10-stub-ctest.py" %%*\r\n' > "$WS/a10-stub-ctest.bat"
+  # .bat doors because CreateProcess spawns no script; the interpreter
+  # matches the tier's own pin and %~dp0 anchors beside the .bat.
+  printf '@echo off\r\n"D:/dev/miniconda3/envs/py313/python.exe" -I "%%~dp0%s-stub-cmake.py" %%*\r\n' "$1" > "$WS/$1-stub-cmake.bat"
+  printf '@echo off\r\n"D:/dev/miniconda3/envs/py313/python.exe" -I "%%~dp0%s-stub-ctest.py" %%*\r\n' "$1" > "$WS/$1-stub-ctest.bat"
+}
+
+seed_fresh_stub_tree() { # seed_fresh_stub_tree <tree>
+  # The cache seed plus every artifact class the freshness preflight
+  # judges, all created now so their mtimes clear the real repo's
+  # input sweep: a batch on this tree survives leg one and its own
+  # red comes later (the uncalibrated unit leg).
+  local tree="$1" t
+  mkdir -p "$tree/src/tools/ncc/Debug" "$tree/src/tools/nvm/Debug" \
+           "$tree/src/tools/ndb/Debug" "$tree/native/Debug" \
+           "$tree/tests/Debug" "$tree/stdlib"
+  printf 'CMAKE_GENERATOR:INTERNAL=Stub\n' > "$tree/CMakeCache.txt"
+  for t in ncc nvm ndb; do
+    : > "$tree/src/tools/$t/Debug/$t.exe"
+  done
+  : > "$tree/native/Debug/nlang_io.dll"
+  : > "$tree/tests/Debug/test_stub.exe"
+  cp "$REPO"/stdlib/*.n "$tree/stdlib/"
+}
+
+case_a10_gate_tier_batch() {
+    local out=a10-tier.out rc
+    # T-perf-names (D-6) repeats the master tree's cache shape in two
+    # scratch configures to learn the perf class, so this batch needs a
+    # seed cache on disk, and its sampling passes through the cmake/ctest
+    # door stubs (the same isolation the tier smoke pins). The unit leg's
+    # failure is the uncalibrated path: the tree holds no suite to
+    # sample. The ambient machine scale is dropped because a scale
+    # inherited from a surrounding batch would skip that sampling and
+    # leave bare ctest reporting an empty success on the cache-only tree.
+    make_stub_doors a10
+    seed_fresh_stub_tree "$WS/a10-tree"
     NLANG_GATE_TIER_WORK="$WS/a10" NLANG_GATE_CMAKE="$WS/a10-stub-cmake.bat" \
         NLANG_GATE_CTEST="$WS/a10-stub-ctest.bat" \
         env -u NLANG_GATE_MACHINE_SCALE \
         bash "$TIER_SH" T0 --master-tree "$WS/a10-tree" \
         --paths src/__selftest_unmapped__.cpp > "$out" 2>&1
     rc=$?
+    if ! grep -F -q -- "GATE T-preflight-fresh: PASS" "$out" 2>/dev/null; then
+        fail "$case_name" "the preflight did not pass on the fresh stub tree (rc=$rc): [$(tr '\n' ';' < "$out" 2>/dev/null)]"
+        return
+    fi
     if ! grep -F -q -- "GATE T0-unit: FAIL" "$out" 2>/dev/null; then
         fail "$case_name" "the batch printed no FAIL verdict for its leg (rc=$rc): [$(tr '\n' ';' < "$out" 2>/dev/null)]"
         return
     fi
     if [ "$rc" -eq 0 ]; then
         fail "$case_name" "a batch with a failing leg exited 0: [$(tr '\n' ';' < "$out" 2>/dev/null)]"
+        return
+    fi
+    pass "$case_name"
+}
+
+case_a19_preflight_red_aborts() {
+    #Finding 1 of the preflight review, round two: leg() used to
+    #return the trailing echo's status (always 0), so the carried red
+    #was dead code and the batch swept on past a red preflight. The
+    #case must be non-vacuous: everything after leg one is viable
+    #(stub doors, seed cache, fresh artifacts -- the a10 recipe), so
+    #the only red is the one artifact deliberately touched stale
+    #below, and any later leg line means the guard is dead again.
+    local out=a19-preflight-abort.out rc
+    make_stub_doors a19
+    seed_fresh_stub_tree "$WS/a19-tree"
+    touch -d 2020-01-01 "$WS/a19-tree/src/tools/ncc/Debug/ncc.exe"
+    NLANG_GATE_TIER_WORK="$WS/a19" NLANG_GATE_CMAKE="$WS/a19-stub-cmake.bat" \
+        NLANG_GATE_CTEST="$WS/a19-stub-ctest.bat" \
+        env -u NLANG_GATE_MACHINE_SCALE \
+        bash "$TIER_SH" T0 --master-tree "$WS/a19-tree" \
+        --paths src/__selftest_unmapped__.cpp > "$out" 2>&1
+    rc=$?
+    if ! grep -F -q -- "GATE T-preflight-fresh: FAIL" "$out" 2>/dev/null; then
+        fail "$case_name" "the stale tool did not red the preflight (rc=$rc): [$(tr '\n' ';' < "$out" 2>/dev/null)]"
+        return
+    fi
+    if grep -F -q -- "T0-unit" "$out" 2>/dev/null; then
+        fail "$case_name" "the batch assembled legs after a red preflight (the carried red is dead again)"
+        return
+    fi
+    if [ "$rc" -eq 0 ]; then
+        fail "$case_name" "a batch aborted by the preflight exited 0"
         return
     fi
     pass "$case_name"
@@ -1172,6 +1231,59 @@ case_a12_docs_site_dir_absolute() {
     pass "$case_name"
 }
 
+# The freshness preflight must be the first leg of every tier assembly:
+# staleness discovered at leg one costs a rebuild, the same discovery at
+# leg fourteen costs the batch. The tier maps also differ on purpose --
+# T1 judges the master tree's Release tools (the docs legs consume what
+# no leg builds), while T2 excludes them because T2-release-build
+# produces that config inside the batch before anything consumes it. A
+# dry run turns both properties into string comparisons.
+case_a18_preflight_first_leg() {
+    local out=a18-preflight.out rc first t1_release t2_release
+    #The tier script prints tree flags in the Windows forward-slash spelling
+    #(cygpath -m of what it was given), not the POSIX form $WS carries.
+    local ws_win
+    ws_win=$(cygpath -m "$WS")
+    NLANG_GATE_TIER_WORK="$WS/a18" bash "$TIER_SH" T1 --docs --dry-run \
+        --master-tree "$WS/no-such-tree" --asan-tree "$WS/no-such-tree" \
+        --ide-tree "$WS/no-such-tree" > "$out" 2>&1
+    rc=$?
+    first=$(sed -n 's/^LEG \([T0-9a-z-]*\):.*/\1/p' "$out" | head -1)
+    t1_release=$(grep -c -- "--tree $ws_win/no-such-tree:Release" "$out")
+    if [ "$first" != "T-preflight-fresh" ] || [ "$rc" -ne 0 ]; then
+        fail "$case_name" "T1's first leg is not the preflight (rc=$rc): [$first]"
+        return
+    fi
+    if [ "$t1_release" -ne 1 ]; then
+        fail "$case_name" "T1's preflight does not judge the master Release tools"
+        return
+    fi
+    NLANG_GATE_TIER_WORK="$WS/a18" bash "$TIER_SH" T2 --dry-run \
+        --master-tree "$WS/no-such-tree" --asan-tree "$WS/no-such-tree" \
+        --ide-tree "$WS/no-such-tree" > "$out" 2>&1
+    rc=$?
+    first=$(sed -n 's/^LEG \([T0-9a-z-]*\):.*/\1/p' "$out" | head -1)
+    t2_release=$(grep -c -- "--tree $ws_win/no-such-tree:Release" "$out")
+    if [ "$first" != "T-preflight-fresh" ] || [ "$rc" -ne 0 ]; then
+        fail "$case_name" "T2's first leg is not the preflight (rc=$rc): [$first]"
+        return
+    fi
+    if [ "$t2_release" -ne 0 ]; then
+        fail "$case_name" "T2's preflight judges the Release config its own batch builds"
+        return
+    fi
+    NLANG_GATE_TIER_WORK="$WS/a18" bash "$TIER_SH" T0 --dry-run \
+        --master-tree "$WS/no-such-tree" --paths src/__selftest_unmapped__.cpp \
+        > "$out" 2>&1
+    rc=$?
+    first=$(sed -n 's/^LEG \([T0-9a-z-]*\):.*/\1/p' "$out" | head -1)
+    if [ "$first" != "T-preflight-fresh" ] || [ "$rc" -ne 0 ]; then
+        fail "$case_name" "T0's first leg is not the preflight (rc=$rc): [$first]"
+        return
+    fi
+    pass "$case_name"
+}
+
 run_case() { # run_case <name> <function>: no case runs once the budget is gone
     local case_name="$1"   # visible to the case body through bash's dynamic scope
     if [ "$(deadline)" -eq 0 ]; then
@@ -1205,6 +1317,8 @@ run_case a17-removed-option-rejected case_a17_removed_option_rejected
 run_case a10-gate-tier-batch case_a10_gate_tier_batch
 run_case a11-docs-leg-order case_a11_docs_leg_order
 run_case a12-docs-site-dir-absolute case_a12_docs_site_dir_absolute
+run_case a18-preflight-first-leg case_a18_preflight_first_leg
+run_case a19-preflight-red-aborts case_a19_preflight_red_aborts
 
 verdict() {
     if [ "$failures" -eq 0 ]; then
