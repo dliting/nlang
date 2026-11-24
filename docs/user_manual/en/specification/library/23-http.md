@@ -90,7 +90,8 @@ exits 23 only when both answers are right (the self-check idiom of
   on a shared client. A request body is a `byte[]`; `io.toBytes`
   encodes text as Unicode Transformation Format (UTF-8) (§14.5), and
   `bodyText()` decodes it back.
-- `srv.close()` releases the listening socket. A server meant for
+- `srv.close()` releases the listening socket and ends the server —
+  the graceful form is `srv.drain(...)` (§23.5). A server meant for
   other machines binds `0.0.0.0` instead of `127.0.0.1`; a standalone
   server process calls `serve(...)` instead of `start(...)`, because
   `main` returning ends the process (§10.9).
@@ -293,9 +294,26 @@ instead of silently sending an empty body (§23.6).
 `start(host, port, handler)` returns once the socket is listening;
 `serve(host, port, handler)` runs the same accept loop on the calling
 thread and is the entry point for a standalone server, whose `main`
-must not return (§10.9). `close()` stops accepting and wakes the
-blocked `accept` call; connections already in flight finish the
-requests of their own keep-alive loop.
+must not return (§10.9). `isServing()` answers `true` only while the
+server accepts new requests — `false` before the first `start`, for
+the whole of `drain()`, and after `close()` — which is what a
+long-lived handler (server-sent events, long polling) polls to
+decide to wrap up.
+
+Shutdown comes in two shapes. `drain(graceMs = 15000)` is the
+graceful one: it stops accepting, closes at once the connections
+parked in their keep-alive wait, and lets requests in flight finish
+inside `graceMs` — every response written from the state change on
+carries `Connection: close`, so a keep-alive loop does not restart.
+It returns how many connections had to be force-closed when the
+window ran out, `0` when everything finished in time; it is
+repeatable, and a drain of a server with nothing running returns
+`0` at once. `close()` is the immediate one: the listening socket
+and every live connection go now, and the connection threads are
+joined for up to two seconds — a handler that never returns may
+leave its thread behind rather than hang the caller. `close()` is
+repeatable too, and because it releases the listener, a later
+`start()` on the same instance is a fresh start, not a refusal.
 
 The accept loop spawns one thread per connection (§10), and each
 thread serves its connection's requests in order. A handler therefore

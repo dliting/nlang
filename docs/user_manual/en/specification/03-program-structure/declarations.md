@@ -50,7 +50,8 @@ Visibility:
   path space: every path starting with `utils.` is importable
   (`utils.helper`, `utils.sub.x`, ...). It only abbreviates the import
   list — calls still write the full path. Wildcards match project files
-  only; external `.ncu` names are single-segment and never match.
+  and library packages alike; external `.ncu` names are single-segment
+  and never match.
 - `import utils;` matches only the root file `utils.n`; to reach the
   `utils/` directory use the full path or a wildcard.
 - Duplicate imports are idempotent; exact + wildcard overlap takes the

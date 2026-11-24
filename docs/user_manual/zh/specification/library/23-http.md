@@ -56,7 +56,7 @@ int main() {
 - 处理器是一个接收`HttpRequest`、返回`HttpResponse`的函数——类型`func<HttpResponse, HttpRequest>`。如上文的顶层函数`handle`、绑定方法、或该类型的变量，都是处理器。
 - `start(host, port, handler)`绑定监听套接字、启动accept线程后返回，于是同一进程还能当客户端。端口`0`请求任意空闲端口，随后`localPort()`（连同`localAddress()`）报出实际选定的端口——本例因此无需占用固定端口。
 - `http.get`与`http.post`是§23.7的自由函数，跑在共享客户端上。请求正文是`byte[]`；`io.toBytes`按Unicode转换格式（UTF-8）把文本编成字节（§14.5），`bodyText()`再解码回来。
-- `srv.close()`释放监听套接字。要给别的机器用的服务器绑定`0.0.0.0`而非`127.0.0.1`；独立服务器进程调用`serve(...)`而非`start(...)`，因为`main`返回即进程结束（§10.9）。
+- `srv.close()`释放监听套接字并终结服务器——温和形式是`srv.drain(...)`（§23.5）。要给别的机器用的服务器绑定`0.0.0.0`而非`127.0.0.1`；独立服务器进程调用`serve(...)`而非`start(...)`，因为`main`返回即进程结束（§10.9）。
 
 随附示例在同一形态上展开：`examples/http_hello.n`跨多个请求保持连接存活，`examples/http_conc_bench.n`用一个客户端驱动一千个并发工作者，`examples/http_sse.n`推送事件流并在客户端挂断时停止生产者。
 
@@ -213,7 +213,9 @@ int main() {
 | `maxConnections` | 0 | `0`为不限。超过上限时新连接得到503并被关闭；这样的作答最多并发64个，再多出的连接直接关闭而不作答，客户端读到空响应。 |
 | `maxRequestsPerConnection` | 0 | `0`为不限。第N条响应之后同时关闭连接。 |
 
-`start(host, port, handler)`在套接字开始监听后即返回；`serve(host, port, handler)`在调用线程上跑同一条accept循环，是独立服务器的入口，其`main`不得返回（§10.9）。`close()`停止接受并唤醒阻塞中的`accept`；已在处理的连接在自己的keep-alive循环里把手头的请求做完。
+`start(host, port, handler)`在套接字开始监听后即返回；`serve(host, port, handler)`在调用线程上跑同一条accept循环，是独立服务器的入口，其`main`不得返回（§10.9）。`isServing()`只在服务器还在接受新请求时回答`true`——第一次`start`之前、整个`drain()`期间、`close()`之后都是`false`——长寿命处理器（服务器推送事件、长轮询）靠轮询它决定收尾。
+
+关闭有两种形态。`drain(graceMs = 15000)`是温和的那种：停止接受，立即关闭停泊在keep-alive等待中的连接，让在途请求在`graceMs`内做完——从状态改变那一刻起写出的每个响应都带`Connection: close`，keep-alive循环不会重启。窗口耗尽时它强关仍在的连接并返回有多少条，全部按时做完则返回`0`；它可重复，对没有在跑的服务器drain立即返回`0`。`close()`是立即的那种：监听套接字与每条活连接立刻释放，连接线程的汇合至多等两秒——永不返回的处理器可能留下自己的线程，而不是挂住调用方。`close()`同样可重复，且因为监听器被释放，同一实例上稍后的`start()`是全新的一次启动，不是拒绝。
 
 accept循环每连接派生一条线程（§10），每条线程按顺序服务自己那条连接上的请求。处理器因此与其他处理器并发运行，且可以阻塞——等慢客户端、等`Channel`、等`Mutex`——而不会拖住整个服务器。没有线程池需要调大小：连接数即并发度，`maxConnections`就是封顶的旋钮。
 

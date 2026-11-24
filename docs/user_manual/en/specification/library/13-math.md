@@ -21,7 +21,7 @@ explicit `as` conversion (§5.5).
 
 ## 13.3 Functions
 
-The package declares 25 functions.
+The package declares 26 functions.
 
 | Function | Signature | Effect |
 | --- | --- | --- |
@@ -45,6 +45,7 @@ The package declares 25 functions.
 | `random()` | () → `double` | the next generator value, in `[0, 1)` (§13.5) |
 | `srand(seed)` | (`int seed`) → `void` | re-seeds the generator (§13.5) |
 | `randomi(min, max)` | (`int min`, `int max`) → `int` | a value drawn from the closed range `[min, max]` (§13.5) |
+| `randomBytes(count)` | (`int count`) → `byte[]` | `count` bytes from the operating system's cryptographic generator — a different source than §13.5's `random()`; `count` below `0` or above `16777216` raises `Exception`, `0` yields the empty array |
 
 ## 13.4 Error Behavior
 
@@ -57,7 +58,8 @@ Failures split into two models.
   through further arithmetic.
 - An argument error raises `Exception` (§8.3): `absi` of the
   most negative `int`, `clampi` or `clampf` with `lo > hi`,
-  `randomi` with `min > max`, and `floor`, `ceil` or `round`
+  `randomi` with `min > max`, `randomBytes` with a `count`
+  below `0` or above `16777216`, and `floor`, `ceil` or `round`
   when `x` is NaN or the rounded value lies outside the `long`
   range.
 
@@ -78,6 +80,8 @@ The package draws from one generator per program run.
 > Twister `std::mt19937`, seeded from `std::random_device` at
 > program start; no `std::uniform_*_distribution` is used —
 > those are implementation-defined and not portable.
+> `randomBytes` is not drawn from this generator: it forwards
+> to the operating system's cryptographic source.
 
 The two scalings, in pseudocode:
 

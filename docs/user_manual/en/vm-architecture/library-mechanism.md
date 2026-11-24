@@ -112,7 +112,9 @@ Consequences of one shared model:
 A library TU is compiled in but is deliberately *not* a project module:
 
 - it does not join the same-directory auto-visibility pool (that rule applies to project files only), and it does not inject its directory's other files;
-- wildcards never pull library TUs in as project modules;
+- a wildcard can open a library package's whole subtree, yet library
+  TUs still never become project modules (they gain no same-directory
+  visibility, and the package keeps its dotted name);
 - a library never sees the consuming project's modules; it only sees
   what it itself imports;
 - one build may contain only one package of each dotted name: two roots

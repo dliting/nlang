@@ -77,21 +77,37 @@ int main() {
 
 ### Lambda表达式
 
-*资料性：*`->`引入lambda表达式——就地写出的函数值。参数表允许三种条目：裸标识符（`(x, y)`——类型与`&`标记取自期望函数类型的对应位置）、带类型的标识符（`(int& x)`——必须与期望类型逐位置精确一致，无变异性），以及空表（`()`——零参lambda）。体有两种：表达式体的值即返回值；块体是花括号内的语句序列，经`return`返回，`func<void>`期望下的块体无需`return`，其余期望下块体不返回值是编译错误。
+*资料性：*`->`引入lambda表达式——就地写出的函数值。lambda与函数引用共享同一组使用方位置：声明、赋值、返回、实参、数组元素、花括号条目。每个lambda都对照期望函数类型检查；没有期望函数类型的lambda是编译期错误。
+
+**初识lambda。**参数表点名参数；箭头`->`把它与体分开。表达式体的值即返回值；块体是花括号内的语句序列，经`return`返回。
 
 ```nlang
 import io;
 
 int main() {
-    func<int, int> add = (x) -> x + 1;
+    func<int> seven = () -> 7;
+    func<int, int> addOne = (x) -> x + 1;
+    func<int, int, int> add = (x, y) -> x + y;
     func<void> hello = () -> { io.print("hello"); };
-    func<int&, int&> id = (int& x) -> x;
-    hello();                  // hello
-    return add(41);           // 42
+    hello();                     // hello
+    return add(20, addOne(1));   // 22
 }
 ```
 
-lambda与函数引用共享同一组使用方位置：声明、赋值、返回、实参、数组元素、花括号条目。没有期望函数类型的lambda是编译期错误；参数个数或显式参数类型与期望不一致同样是编译错误。
+**参数表。**条目要么是裸标识符——类型与`&`标记取自期望函数类型的对应位置——要么是带类型的标识符——必须与期望类型逐位置精确一致，无变异性。裸条目与带类型条目可以混用。空表`()`写出零参lambda。
+
+```nlang
+int main() {
+    func<int, int, int> add = (int x, int y) -> x + y;
+    func<string, string> shout = (string s) -> s + "!";
+    func<int, int> doubled = (x) -> x * 2;           // 裸条目
+    func<int, int, int> mixed = (x, int y) -> x + y; // 混用条目
+    if (shout("go") != "go!") { return 1; }
+    return add(2, 3) * 100 + doubled(21) * 10 + mixed(5, 6);  // 931
+}
+```
+
+参数个数与期望不符被拒绝（"the lambda takes 2 parameters; the expected type … expects 1"），显式参数类型与期望不符同样被拒绝（"lambda parameter … does not match the expected type …"）。lambda参数不能带默认值，lambda也没有泛型参数表。
 
 **捕获。**lambda体内可见的外层局部变量（含形参）被引用即捕获：该变量的存储移入堆上，lambda内外共享同一存储，一边的写入对另一边可见。同一变量的多个捕获点与外层读写都落在同一存储上。
 
@@ -110,7 +126,30 @@ int main() {
 
 **循环头新鲜。**`for`与`foreach`头部声明的变量，每次迭代是一个新变量：捕获时各迭代的lambda各自持有当次值，不共享循环结束后的尾值。
 
+```nlang
+int main() {
+    List<func<int>> funcs = List<func<int>>();
+    for (int i = 0; i < 3; i = i + 1) {
+        funcs.add(() -> i);
+    }
+    func<int> second = funcs.get(1);
+    return second();          // 1——每次迭代捕获自己的i
+}
+```
+
 **引用形参与引用返回。**`func<int&, int&>`期望下的lambda可声明`&`形参、`&`返回：`&`形参的写入穿透到调用方存储；返回被捕获变量的引用合法——其存储已在堆上，调用结束后依然有效。
+
+```nlang
+int main() {
+    func<void, int&> setter = (int& x) -> { x = 42; };
+    int v = 0;
+    setter(v);                // 写入穿透到v
+    func<int&, int&> id = (int& x) -> x;
+    int& r = id(v);           // r是v的别名
+    r = 8;
+    return v;                 // 8
+}
+```
 
 **递归。**lambda可经它绑定的局部递归调用自己：该局部在lambda创建前已捕获，体内读取它即读取被捕获存储。
 
@@ -121,9 +160,49 @@ int main() {
 }
 ```
 
+**返回函数的函数。**表达式体本身可以是lambda，于是一个字面量写出柯里化函数：外层lambda返回内层，内层捕获外层的参数。
+
+```nlang
+int main() {
+    func<func<int, int>, int> add = (x) -> (y) -> x + y;
+    func<int, int> add3 = add(3);   // 内层lambda持有x = 3
+    return add3(4);                 // 7
+}
+```
+
+调用返回的函数值要经名字进行：`add(3)(4)`这样的链式调用不在表达式文法内。返回lambda的函数让每次调用获得自己的捕获存储——相互独立的计数器工厂：
+
+```nlang
+func<int> makeCounter() {
+    int n = 0;
+    return () -> { n = n + 1; return n; };
+}
+
+int main() {
+    func<int> c = makeCounter();
+    c();                      // 1
+    c();                      // 2
+    return c();               // 3
+}
+```
+
 **泛型上下文。**泛型函数或泛型类方法体内的lambda可捕获类型参数类型的变量：捕获的存储携带真实的运行期实例化，lambda体内的`T`操作按实际类型分派——`typeName(T)`与`==`比较与泛型函数体外行为一致。
 
 **闭包身份。**闭包值由lambda方法与其捕获存储构成。同一次作用域激活内对同一lambda字面量求值两次得到**相等**的函数值；重新激活作用域——再次调用包含它的函数、进入循环的下一迭代——得到**不相等**的闭包。零捕获lambda同规。因此「不相等」断言要用两次激活的闭包，同激活的两次求值恒相等。
+
+```nlang
+func<int> makeTick() {
+    int n = 0;
+    return () -> { n = n + 1; return n; };
+}
+
+int main() {
+    func<int> p = makeTick();
+    func<int> q = makeTick();
+    if (p != q) { return 5; }  // 两次激活：闭包不相等
+    return 1;                  // 两次激活仍相等即断言失败
+}
+```
 
 闭包的`toString`渲染为`"lambda"`；`==`/`!=`与`null`规则同函数引用（见下文）。`thread.spawn`接受零参lambda作为派生目标（§10.1）。
 

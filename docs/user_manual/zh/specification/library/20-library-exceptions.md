@@ -12,14 +12,14 @@
 | `string`（§17.2） | `Exception` | 空实参的`split`或`replace`；对格式不当的字符串调用`toInt`、`toLong`、`toFloat`、`toDouble`、`toBool`或`toChar`；`charAt`落在延续字节上；`charCount`落在无效的Unicode转换格式（UTF-8）序列上 |
 | `List`（§12.1） | `IndexOutOfBoundsException` | `get`、`set`或`removeAt`越界 |
 | `Dict`（§12.2） | `Exception` | `get`没有该键的条目 |
-| `math`（§13.4） | `Exception` | 对最负的`int`调用`absi`；`lo > hi`时的`clampi`或`clampf`；`min > max`时的`randomi`；对NaN或落在`long`值域之外的值调用`floor`、`ceil`或`round` |
+| `math`（§13.4） | `Exception` | 对最负的`int`调用`absi`；`lo > hi`时的`clampi`或`clampf`；`min > max`时的`randomi`；`count`低于`0`或高于`16777216`时的`randomBytes`；对NaN或落在`long`值域之外的值调用`floor`、`ceil`或`round` |
 | `io`（§14.3，§14.4） | `IOException` | 没有输入通道的`readLine`；输入结束时或没有输入通道（会话没有stdin）的`readToken`或`readChar`；输入结束时或没有输入通道的带类型读取器；`readFile`、`writeFile`或`appendFile`失败 |
 | `io`（§14.3） | `Exception` | `readChar`落在不是有效Unicode转换格式（UTF-8）的字节序列上；带类型读取器落在格式不当的记号上（即该字符串方法的失败，§17.2） |
 | 流（§14.6） | `NullPointerException` | 经由null流句柄的方法调用 |
 | `system`（§15.2） | `DateTimeException` | `DateTime.parse`的畸形文本或越界日历字段 |
 | `fs`（§16.3） | `IOException` | `size`、`listFiles`、`makeDirs`或`remove`失败 |
-| `fs`（§16.4） | `NullPointerException` | 对`readBytes`或`readFloats`传null路径 |
-| `fs`（§16.4） | `IOException` | `readBytes`或`readFloats`的打开或读取失败（含超过16 MiB上限的文件） |
+| `fs`（§16.4） | `NullPointerException` | 对`readBytes`、`writeBytes`或`readFloats`传null路径；对`writeBytes`传null `data` |
+| `fs`（§16.4） | `IOException` | `readBytes`或`readFloats`的打开或读取失败（含超过16 MiB上限的文件）；`writeBytes`的打开失败 |
 | `fs`（§16.4） | `Exception` | `readFloats`遇到非4倍数的字节数 |
 | `concurrent`（§10.4） | `ChannelClosedException` | 已关闭通道上的发送或接收 |
 | `concurrent`（§10.4） | `Exception` | 负容量的构造 |

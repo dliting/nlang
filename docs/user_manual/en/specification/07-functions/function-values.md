@@ -149,35 +149,54 @@ with no expected function type is a compile error naming the reference.
 
 ### Lambda expressions
 
-*Informative:* `->` introduces a lambda expression — a function
-value written in place. The parameter list admits three kinds of
-entry: bare identifiers (`(x, y)` — the type and `&` marker come from
-the corresponding position of the expected function type), typed
-identifiers (`(int& x)` — must match the expected type exactly
-position by position, no variance), and the empty list (`()` — a
-zero-parameter lambda). The body takes two forms: an expression body
-whose value is the return value; a block body is a brace-wrapped
-statement sequence returning through `return` — no `return` is
-needed under a `func<void>` expectation, and a block body that
-returns no value under any other expectation is a compile error.
+*Informative:* `->` introduces a lambda expression — a function value
+written in place. A lambda shares the consumer positions of a function
+reference: declarations, assignments, return positions, call
+arguments, array elements, and brace entries. Every lambda is checked
+against an expected function type; a lambda with no expected function
+type is a compile-time error.
+
+**First lambdas.** The parameter list names the parameters; the arrow
+`->` separates it from the body. An expression body's value is the
+return value; a block body is a brace-wrapped statement sequence that
+returns through `return`.
 
 ```nlang
 import io;
 
 int main() {
-    func<int, int> add = (x) -> x + 1;
+    func<int> seven = () -> 7;
+    func<int, int> addOne = (x) -> x + 1;
+    func<int, int, int> add = (x, y) -> x + y;
     func<void> hello = () -> { io.print("hello"); };
-    func<int&, int&> id = (int& x) -> x;
-    hello();                  // hello
-    return add(41);           // 42
+    hello();                     // hello
+    return add(20, addOne(1));   // 22
 }
 ```
 
-A lambda shares the same consumer positions as a function reference:
-declarations, assignments, returns, arguments, array elements, brace
-entries. A lambda with no expected function type is a compile-time
-error; so is a parameter count or an explicit parameter type that
-disagrees with the expectation.
+**Parameter lists.** An entry is either a bare identifier — its type
+and `&` marker come from the corresponding position of the expected
+function type — or a typed identifier, which must match the expected
+type exactly, position by position, no variance. Bare and typed
+entries may be mixed. The empty list `()` writes a zero-parameter
+lambda.
+
+```nlang
+int main() {
+    func<int, int, int> add = (int x, int y) -> x + y;
+    func<string, string> shout = (string s) -> s + "!";
+    func<int, int> doubled = (x) -> x * 2;           // bare entry
+    func<int, int, int> mixed = (x, int y) -> x + y; // mixed entries
+    if (shout("go") != "go!") { return 1; }
+    return add(2, 3) * 100 + doubled(21) * 10 + mixed(5, 6);  // 931
+}
+```
+
+A parameter count that disagrees with the expectation is rejected
+("the lambda takes 2 parameters; the expected type … expects 1"), and
+so is an explicit parameter type that disagrees ("lambda parameter …
+does not match the expected type …"). A lambda parameter cannot carry
+a default value, and a lambda has no generic parameter list.
 
 **Capture.** An outer local visible in the lambda body (parameters
 included) is captured when referenced: the variable's storage moves
@@ -219,11 +238,34 @@ head is a new variable on each iteration: lambdas captured in
 different iterations each hold that iteration's value, not a shared
 tail value after the loop ends.
 
+```nlang
+int main() {
+    List<func<int>> funcs = List<func<int>>();
+    for (int i = 0; i < 3; i = i + 1) {
+        funcs.add(() -> i);
+    }
+    func<int> second = funcs.get(1);
+    return second();          // 1 — each iteration captured its own i
+}
+```
+
 **Reference parameters and reference returns.** A lambda under a
 `func<int&, int&>` expectation may declare `&` parameters and an `&`
 return: writes through a `&` parameter land in the caller's storage;
 returning a reference to a captured variable is legal — its storage
 is already on the heap and stays valid after the call.
+
+```nlang
+int main() {
+    func<void, int&> setter = (int& x) -> { x = 42; };
+    int v = 0;
+    setter(v);                // writes through to v
+    func<int&, int&> id = (int& x) -> x;
+    int& r = id(v);           // r aliases v
+    r = 8;
+    return v;                 // 8
+}
+```
 
 **Recursion.** A lambda can call itself recursively through the
 local it is bound to: that local is captured before the lambda is
@@ -233,6 +275,38 @@ created, and reading it in the body reads the captured storage.
 int main() {
     func<int, int> fact = (n) -> { if (n <= 1) { return 1; } return n * fact(n - 1); };
     return fact(5);           // 120
+}
+```
+
+**Functions returning functions.** An expression body may itself be a
+lambda, which writes a curried function in one literal: the outer
+lambda returns the inner one, and the inner captures the outer's
+parameters.
+
+```nlang
+int main() {
+    func<func<int, int>, int> add = (x) -> (y) -> x + y;
+    func<int, int> add3 = add(3);   // the inner lambda holds x = 3
+    return add3(4);                 // 7
+}
+```
+
+Invoking the returned function value goes through a name: a chained
+call like `add(3)(4)` is not part of the expression grammar. A
+function that returns a lambda gives every call its own captured
+storage — a factory of independent counters:
+
+```nlang
+func<int> makeCounter() {
+    int n = 0;
+    return () -> { n = n + 1; return n; };
+}
+
+int main() {
+    func<int> c = makeCounter();
+    c();                      // 1
+    c();                      // 2
+    return c();               // 3
 }
 ```
 
@@ -251,6 +325,20 @@ entering the next loop iteration — yields **unequal** closures. A
 zero-capture lambda follows the same rule. An "unequal" assertion
 therefore wants closures from two activations; two evaluations in
 one activation are always equal.
+
+```nlang
+func<int> makeTick() {
+    int n = 0;
+    return () -> { n = n + 1; return n; };
+}
+
+int main() {
+    func<int> p = makeTick();
+    func<int> q = makeTick();
+    if (p != q) { return 5; }  // two activations: unequal closures
+    return 1;                  // still equal after two activations fails the check
+}
+```
 
 A closure's `toString` renders as `"lambda"`; the `==`/`!=` and
 `null` rules are those of function references (see below).

@@ -16,14 +16,14 @@ operation; this chapter adds no failure behavior of its own.
 | `string` (§17.2) | `Exception` | `split` or `replace` with an empty argument; `toInt`, `toLong`, `toFloat`, `toDouble`, `toBool` or `toChar` on a malformed string; `charAt` on a continuation byte; `charCount` on an invalid Unicode Transformation Format (UTF-8) sequence |
 | `List` (§12.1) | `IndexOutOfBoundsException` | `get`, `set` or `removeAt` out of range |
 | `Dict` (§12.2) | `Exception` | `get` with no entry for the key |
-| `math` (§13.4) | `Exception` | `absi` of the most negative `int`; `clampi` or `clampf` with `lo > hi`; `randomi` with `min > max`; `floor`, `ceil` or `round` on a NaN or a value outside the `long` range |
+| `math` (§13.4) | `Exception` | `absi` of the most negative `int`; `clampi` or `clampf` with `lo > hi`; `randomi` with `min > max`; `randomBytes` with a count below `0` or above `16777216`; `floor`, `ceil` or `round` on a NaN or a value outside the `long` range |
 | `io` (§14.3, §14.4) | `IOException` | `readLine` with no input channel; `readToken` or `readChar` at end of input or with no input channel (a session without stdin); the typed readers at end of input or with no input channel; `readFile`, `writeFile` or `appendFile` failure |
 | `io` (§14.3) | `Exception` | `readChar` on a byte sequence that is not valid Unicode Transformation Format (UTF-8); a typed reader on a malformed token (the string method's failure, §17.2) |
 | streams (§14.6) | `NullPointerException` | a method call through a null stream handle |
 | `system` (§15.2) | `DateTimeException` | `DateTime.parse` on malformed text or an out-of-range calendar field |
 | `fs` (§16.3) | `IOException` | `size`, `listFiles`, `makeDirs` or `remove` failure |
-| `fs` (§16.4) | `NullPointerException` | a null path to `readBytes` or `readFloats` |
-| `fs` (§16.4) | `IOException` | a `readBytes` or `readFloats` open or read failure (a file above the 16 MiB bound included) |
+| `fs` (§16.4) | `NullPointerException` | a null path to `readBytes`, `writeBytes` or `readFloats`; a null `data` to `writeBytes` |
+| `fs` (§16.4) | `IOException` | a `readBytes` or `readFloats` open or read failure (a file above the 16 MiB bound included); a `writeBytes` open failure |
 | `fs` (§16.4) | `Exception` | `readFloats` on a byte count that is not a multiple of four |
 | `concurrent` (§10.4) | `ChannelClosedException` | a send or receive on a closed channel |
 | `concurrent` (§10.4) | `Exception` | construction with a negative capacity |

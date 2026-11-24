@@ -188,7 +188,11 @@ to it inside the class denotes it directly. A static method and an
 instance member may share a name when their parameter lists
 differ; an exact same-signature collision is a compile-time error.
 Statics take no part in virtual dispatch (§4.8.9); a subclass
-inherits its parent's statics.
+inherits its parent's statics. A class declared in a package may also
+be reached through its module-qualified name: once the package's path
+is open (§3.3), `p.K.member` names the same member as the bare
+`K.member` — the rule holds for static methods, static fields and
+enum members alike (§3.6).
 
 ```nlang
 class Util {

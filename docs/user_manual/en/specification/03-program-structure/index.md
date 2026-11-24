@@ -77,12 +77,12 @@ them. A library unit inlined through the search path opens nothing
 automatically: it sees only what it imports explicitly.
 
 The wildcard form `import p.*;` opens `p` and every module path
-below `p`, recursively, among the project's own units. It is a
-compile-time error if the wildcard matches no project unit, and a
-compile-time error if `p` names a library package — a library
-package is a single unit, so `import p;` is its only meaningful
-form. The wildcard never reaches external compiled modules, whose
-names are single-segment (§3.9).
+below `p`, recursively — among the project's own units and in library
+packages alike: for a flat library package the wildcard is equivalent
+to the exact `import p;`, and a library package with submodules opens
+them all in one stroke. It is a compile-time error if the wildcard
+matches no unit. The wildcard never reaches external compiled modules,
+whose names are single-segment (§3.9).
 
 An import of a path that resolves to neither a project unit, a
 library package nor an external module is a compile-time error.
@@ -187,7 +187,12 @@ A *qualified name* `p.m` reaches the members of the module or
 package `p` only through the import gate of the referring
 compilation unit (§3.3): the path `p` must be opened, by an
 explicit import or by the same-directory rule. Member lookup inside
-`p` does not continue into outer scopes. Each member's declared
+`p` does not continue into outer scopes. Longer chains resolve
+segment by segment: when a segment after an open module path names a
+type, the segments beyond it resolve inside that type — a static method, a static field or an
+enum member, at any depth — so `p.K.m` and deeper chains such as
+`p.E.v.method()` name the same member as the bare type-name
+spelling (§4.8.8). Each member's declared
 access (§4.8.2) applies on top of the gate: a `private` or `protected`
 member of a foreign package does not resolve at all — a type
 reads as not a member of that package, a function as the standard

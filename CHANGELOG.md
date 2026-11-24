@@ -7,7 +7,17 @@ and fixes four defects it uncovered. The lambda review-fix pass over
 0.13.10 lands with it: currying, catch-variable capture and
 static-field lambda initializers arrive, and a shadowed-capture
 misroute is fixed by resolving captured access through the bound
-display-field descriptor instead of the field name. Not backward
+display-field descriptor instead of the field name. Name resolution
+through library packages now matches its project-module twin:
+`import p.*;` opens a library package's submodule subtree the way it
+opens a project directory's, and a module-qualified chain reaches the
+static methods, static fields and enum members of a library class at
+any depth — spellings the compiler used to reject while accepting the
+same shapes written against a project module. The web framework's
+first construction tasks (the middleware chain, the request context
+and the App facade over `http`) are in the tree as a 0.13.12 preview:
+`web` is not a released interface yet and its surface changes as the
+framework closes. Not backward
 compatible by design.
 
 ### Added
@@ -168,6 +178,26 @@ compatible by design.
   class, not by field name: a lambda capturing an outer `n` while
   an inner scope redeclares `n` reads and writes the declaring
   scope's storage for both value and `&` captures.
+- **Qualified names and wildcard imports behave the same through
+  library packages as through project modules.** A chain such as
+  `http.HttpResponse.reasonPhraseFor(404)` — an opened module path,
+  then a type, then its member — compiled when the class lived in a
+  project module and failed when the very same class lived in a
+  library package: the resolver's library arm claimed the whole
+  chain as a module path (`Module 'http.HttpResponse' is not
+  imported`), and every remedy it suggested the compiler itself then
+  rejected — the class is not a module, and `import http.*;` was
+  refused outright for library packages. Enum members worked one
+  segment deep while class statics did not work at all. Both sides
+  now walk the chain by one rule: after an opened module path, a
+  segment that names a type hands the rest of the chain to that
+  type's scope — static methods, static fields and enum members, at
+  any depth — and `import p.*;` opens `p` with its whole submodule
+  subtree for library packages as it does for project units, so a
+  flat library package's wildcard is equivalent to its exact import.
+  Only a name that genuinely is a module path is told `is not
+  imported` now; a missing member of a reached type reads as a
+  missing member.
 
 ## [0.13.10] - 2026-11-22
 
