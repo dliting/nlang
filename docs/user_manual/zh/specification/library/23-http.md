@@ -243,7 +243,7 @@ accept循环每连接派生一条线程（§10），每条线程按顺序服务�
 | 字段 | 默认值 | 含义 |
 | --- | --- | --- |
 | `connectTimeoutMs` | 10000 | 建立连接的期限。 |
-| `readTimeoutMs` | 10000 | 读取头部与流式正文时每次读取的期限。 |
+| `readTimeoutMs` | 30000 | 读取头部与流式正文时每次读取的期限。 |
 | `callTimeoutMs` | 0 | 整次调用的时限，含等待连接与重定向；`0`表示只受各操作自身时限约束。用尽：抛`TimeoutException`。 |
 | `maxRedirects` | 10 | 为`0`时返回`3xx`响应本身而不跟随。 |
 | `maxConnsPerHost` | 0 | 同一源站并发连接数的上限；`0`为不限。在`callTimeoutMs`内拿不到连接的调用者得到`TimeoutException`。 |

@@ -366,7 +366,7 @@ the answer the client had not read yet.
 | Field | Default | Meaning |
 | --- | --- | --- |
 | `connectTimeoutMs` | 10000 | Deadline for establishing the connection. |
-| `readTimeoutMs` | 10000 | Deadline for each read of the head and of a streaming body. |
+| `readTimeoutMs` | 30000 | Deadline for each read of the head and of a streaming body. |
 | `callTimeoutMs` | 0 | Budget for the whole call, pool wait and redirects included; `0` waits as long as the per-operation timeouts allow. Exhausted: `TimeoutException`. |
 | `maxRedirects` | 10 | `0` returns the `3xx` response itself instead of following it. |
 | `maxConnsPerHost` | 0 | Cap on simultaneous connections to one origin; `0` is unlimited. A borrower that cannot get a connection within `callTimeoutMs` gets `TimeoutException`. |

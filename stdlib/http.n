@@ -2080,7 +2080,9 @@ class HttpClient {
     private static const int DEFAULT_HTTP_PORT = 80;
 
     public int connectTimeoutMs = 10000;
-    public int readTimeoutMs = 10000;
+    public int readTimeoutMs = 30000;        // slow handler reads must pass;
+                                             // 30 s bounds hangs (mainstream
+                                             // clients: unbounded or 30-60 s)
     public int callTimeoutMs = 0;            // 0 = wait forever (D8)
     public int maxRedirects = 10;            // D12
     public int maxConnsPerHost = 0;          // 0 = unlimited

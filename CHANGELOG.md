@@ -93,6 +93,12 @@ alongside this one.
   `byte[]`, the shape `fs.writeBytes` takes. Not backward
   compatible by design: call sites that indexed the `int[]` re-read
   them as `byte[]`.
+- **The default client read timeout is 30 seconds.** The `http`
+  client's default `readTimeoutMs` grew from 10000 ms to 30000 ms,
+  so a slow server-handler read on an otherwise healthy machine no
+  longer raises a spurious `TimeoutException`. The budget stays
+  bounded to catch hung connections, and each client still sets the
+  field itself.
 
 ### Fixed
 
