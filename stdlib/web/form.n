@@ -331,7 +331,9 @@ class Form {
     // appeared, so Task 11 can reject a header carrying more than one
     // boundary= parameter (D-17). count is a reference formal (the out
     // marker is retired on this toolchain), so callers bind a declared
-    // local: Form.mediaTypeParam(h, "boundary", cnt).
+    // local: Form.mediaTypeParam(h, "boundary", cnt). The name compare is
+    // case-sensitive and readMediaType lowercases the stored parameter
+    // names, so callers pass lowercase spellings.
     private static string mediaTypeParam(string header, string name, int& count) {
         List<string> cells = Form.readMediaType(header);
         string first = "";

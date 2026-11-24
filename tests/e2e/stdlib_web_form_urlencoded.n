@@ -116,8 +116,10 @@ int want415(http.HttpResponse res, string what) {
 }
 
 // A POST with a hand-built request (the free post() cannot omit or hand-set
-// the headers these legs need); empty contentType and null body mean "do
-// not touch that header".
+// the headers these legs need); an empty contentType skips the Content-Type
+// header and an empty contentLength skips the Content-Length header, and
+// the body always travels with the request (an empty string is a
+// zero-length body).
 http.HttpResponse askForm(string urlText, string contentType, string body, string contentLength) {
     http.HttpRequest req = http.HttpRequest();
     req.method = "POST";
