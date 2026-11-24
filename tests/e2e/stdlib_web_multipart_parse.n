@@ -1,18 +1,20 @@
 // stdlib_web_multipart_parse — the multipart half of web.form.Form.parse
 // (spec 6.9, D-19, D-20): line-anchored delimiter matching (preamble and
 // epilogue ignored, trailing horizontal whitespace on delimiter lines
-// tolerated, quoted boundaries, "\n" and "\r" line endings, obs-fold
+// tolerated, quoted boundaries, horizontal whitespace around a media
+// type parameter value stripped, "\n" and "\r" line endings, obs-fold
 // continuation lines, prefix-lookalike body lines kept in the body, 70- and
 // 71-character boundaries accepted, boundary compare case-sensitive), parts
 // with the same name uncoalesced behind one first-seen name in appearance
 // order, filename="" still a file part, a missing part Content-Type
-// registered as the bare "text/plain", binary part bytes passed through
-// unechoed by any string roundtrip, the read-method surface with files()
-// and getFiles() handing out copies, a closing-delimiter-only body as the
-// empty form, filename directory paths stripped on both separators with no
-// percent decoding, nested multipart kept opaque, and the two fixed 400s
-// for a missing or empty boundary and a body with no delimiter line. Every
-// leg drives one shared App over a real socket.
+// registered as the bare "text/plain", binary part bytes carried byte-exact
+// through the whole parse with no string roundtrip, the read-method
+// surface with files() and getFiles() handing out copies, a closing-
+// delimiter-only body as the empty form, filename directory paths stripped
+// on both separators with no percent decoding, nested multipart kept
+// opaque, and the two fixed 400s for a missing or empty boundary and a
+// body with no delimiter line. Every leg drives one shared App over a real
+// socket.
 import io;
 import url;
 import http;
@@ -569,6 +571,31 @@ int legM(string base) {
     return bad;
 }
 
+// Leg N: horizontal whitespace padding the boundary parameter value (D-19;
+// RFC 2046 §5.1 tells recipients to ignore whitespace around a boundary):
+// one space between '=' and the quoted "Bx" must be accepted, the padding
+// and the quotes staying out of the boundary value, and must parse to
+// exactly the parts the whitespace-free spelling parses to.
+int legN(string base) {
+    int bad = 0;
+    ByteBuf b = ByteBuf();
+    putPart(b, "\r\n", "Bx", "Content-Disposition: form-data; name=\"title\"\r\n\r\n",
+        io.toBytes("中文"), true);
+    putFinal(b, "\r\n", "Bx", "");
+    http.HttpResponse plain = http.post(base + "/mp", io.fromBytes(b.toBytes()),
+        "multipart/form-data; boundary=Bx");
+    http.HttpResponse spaced = http.post(base + "/mp", io.fromBytes(b.toBytes()),
+        "multipart/form-data; boundary= \"Bx\"");
+    bad = bad + want(plain.statusCode == 200, "leg N the plain spelling must be accepted",
+        "answered " + plain.statusCode.toString());
+    bad = bad + want(spaced.statusCode == 200, "leg N the spaced quoted spelling must be accepted",
+        "answered " + spaced.statusCode.toString() + " body [" + spaced.bodyText() + "]");
+    bad = bad + want(spaced.bodyText() == plain.bodyText(),
+        "leg N the spaced spelling parses to the same parts",
+        "plain [" + plain.bodyText() + "] vs spaced [" + spaced.bodyText() + "]");
+    return bad;
+}
+
 int main() {
     int bad = 0;
     web.App app = web.App();
@@ -590,6 +617,7 @@ int main() {
     if (legK(base) != 0) { bad = bad + 1; }
     if (legL(base) != 0) { bad = bad + 1; }
     if (legM(base) != 0) { bad = bad + 1; }
+    if (legN(base) != 0) { bad = bad + 1; }
     app.drain(5000);
     app.close();
     if (bad == 0) { io.print("ok"); }

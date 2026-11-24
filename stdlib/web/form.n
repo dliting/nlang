@@ -669,8 +669,12 @@ class Form {
         type = type.toLower();
         cells.add(type);
 
-        // Parameter segments: ';' OWS name '=' value, value quoted or
-        // bare.
+        // Parameter segments: ';' OWS name '=' OWS value OWS, value
+        // quoted or bare. D-19 (RFC 2046 §5.1) strips the horizontal
+        // whitespace padding a value on both sides: here before the
+        // quoted-versus-bare decision, and after a closing quote
+        // before the ';' requirement (the bare arm's trim() already
+        // covers its trailing side).
         int i = typeEnd;
         while (i < n) {
             i = i + 1;
@@ -693,6 +697,10 @@ class Form {
             pname = pname.trim();
             pname = pname.toLower();
             i = i + 1;
+            while (i < n && ((src[i] & 0xFF) == OCTET_SPACE
+                             || (src[i] & 0xFF) == OCTET_TAB)) {
+                i = i + 1;
+            }
             string pvalue = "";
             if (i < n && (src[i] & 0xFF) == OCTET_QUOTE) {
                 i = i + 1;
@@ -710,6 +718,10 @@ class Form {
                 }
                 pvalue = io.fromBytes(src[quotedStart:i]);
                 i = i + 1;
+                while (i < n && ((src[i] & 0xFF) == OCTET_SPACE
+                                 || (src[i] & 0xFF) == OCTET_TAB)) {
+                    i = i + 1;
+                }
                 if (i < n && (src[i] & 0xFF) != OCTET_SEMICOLON) {
                     break;
                 }
