@@ -2724,8 +2724,9 @@ stdlib_web_multipart_limits 0
 # boundary's 40-lower-case-hex spelling and its per-object uniqueness; the
 # %22/%0D/%0A escape subset on name and filename with the Content-Type
 # value passed through unescaped; the empty contentType filled to
-# text/plain; the three named precondition verdicts raised before anything
-# registers and addFile copying the caller's array (ruling 39); and the
+# application/octet-stream; the three named precondition verdicts raised
+# before anything registers and addFile copying the caller's array
+# (ruling 39); and the
 # boundary scan rejecting a part body that carries the delimiter at a line
 # start, contentType() and toBytes() resolving to the same boundary.
 stdlib_web_multipart_roundtrip 0
