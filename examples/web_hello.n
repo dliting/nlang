@@ -1,0 +1,161 @@
+// Example: a small web app that runs itself. Two middleware styles, a `:id`
+// route, a session that survives a login rotation, an SSE feed, a mounted
+// static handler, and a client that walks every route and checks the reply.
+// `listen` starts the server on a throwaway port and returns, so main() keeps
+// going and the process ends by itself — no serve() loop, no dangling thread.
+// The manual's web chapter reproduces this file verbatim as its tour.
+import fs;
+import http;
+import io;
+import system;
+import url;
+import web.*;
+
+// Function-style middleware: answers before the router ever sees the request.
+void requireKey(web.RequestContext ctx) {
+    if (ctx.req.headers.get("X-Key") != "demo") {
+        ctx.text(401, "missing key");
+        return;
+    }
+    ctx.next();
+}
+
+// Class-style middleware: wraps the rest of the chain.
+class Timing : web.Middleware {
+    public void process(web.RequestContext ctx) {
+        long started = system.monoMs();
+        ctx.next();
+        ctx.res.headers.set("X-Elapsed-Ms", (system.monoMs() - started).toString());
+    }
+}
+
+void showItem(web.RequestContext ctx) {
+    ctx.text(200, "item " + ctx.param("id") + " query " + ctx.query);
+}
+
+void login(web.RequestContext ctx) {
+    web.Session s = ctx.session();
+    s.set("user", "dlite");
+    s.rotate();                       // a privilege change needs a new id (D-12)
+    ctx.text(200, "logged in");
+}
+
+void whoami(web.RequestContext ctx) {
+    ctx.text(200, "user " + ctx.session().getString("user", "-"));
+}
+
+void feed(web.RequestContext ctx) {
+    web.sse.Sse sse = web.sse.Sse(ctx.res);   // the helper sets the event-stream headers
+    sse.send("one");
+    sse.send("tick", "two");
+    sse.close();
+}
+
+// One client-side builder for every leg: they differ only by method, path,
+// key and session cookie.
+http.HttpResponse ask(http.HttpServer srv, string method, string path,
+                      string key, string cookie) {
+    http.HttpRequest req = http.HttpRequest();
+    req.method = method;
+    req.url = Url.parse("http://127.0.0.1:" + srv.localPort().toString() + path);
+    if (key != "") {
+        req.headers.set("X-Key", key);
+    }
+    if (cookie != "") {
+        req.headers.set("Cookie", cookie);
+    }
+    return http.request(req);
+}
+
+// The first name=value pair of a Set-Cookie header: attributes end at ';'.
+string sessionCookie(http.HttpResponse res) {
+    string line = res.headers.get("Set-Cookie");
+    int semi = line.indexOf(";");
+    if (semi < 0) {
+        return line;
+    }
+    return line.substring(0, semi);
+}
+
+int main() {
+    fs.makeDirs("public");
+    io.writeFile(fs.join("public", "index.html"), "<h1>hello web</h1>");
+
+    web.App app = web.App();
+    app.use(Timing());
+    app.use(requireKey);
+    app.useSessions(web.MemorySessionStore());
+    app.get("/items/:id", showItem);
+    app.post("/login", login);
+    app.get("/whoami", whoami);
+    app.get("/feed", feed);
+    web.static.StaticFiles assets = web.static.StaticFiles("public");
+    app.mount("/static", assets.serve);
+    app.listen("127.0.0.1", 0);                    // port 0 = an ephemeral one
+    http.HttpServer srv = app.server();
+
+    bool ok = true;
+
+    // Middleware short-circuit: no key, so no route lookup happened at all.
+    http.HttpResponse res = ask(srv, "GET", "/items/7?v=list", "", "");
+    io.print("nokey=" + res.statusCode.toString());
+    ok = ok && (res.statusCode == 401);
+
+    // The `:id` route, the raw query string, and the wrapping middleware.
+    res = ask(srv, "GET", "/items/7?v=list", "demo", "");
+    io.print("item=" + res.bodyText());
+    io.print("elapsed=" + res.headers.has("X-Elapsed-Ms").toString());
+    ok = ok && (res.bodyText() == "item 7 query v=list");
+    ok = ok && res.headers.has("X-Elapsed-Ms");
+
+    // A login writes the session, so this reply carries the session cookie.
+    res = ask(srv, "POST", "/login", "demo", "");
+    string cookie = sessionCookie(res);
+    io.print("login=" + res.statusCode.toString());
+    io.print("issued=" + cookie.startsWith("nlang_session=").toString());
+    ok = ok && (res.statusCode == 200);
+    ok = ok && cookie.startsWith("nlang_session=");
+
+    // The same request with that cookie reads the session back, and a reply
+    // that only read the session sets no cookie again (D-12).
+    res = ask(srv, "GET", "/whoami", "demo", cookie);
+    io.print("whoami=" + res.bodyText());
+    io.print("reissued=" + res.headers.has("Set-Cookie").toString());
+    ok = ok && (res.bodyText() == "user dlite");
+    ok = ok && (res.headers.has("Set-Cookie") == false);
+
+    // An anonymous visit gets its own empty session, not somebody else's.
+    res = ask(srv, "GET", "/whoami", "demo", "");
+    io.print("anon=" + res.bodyText());
+    ok = ok && (res.bodyText() == "user -");
+
+    // Server-sent events, framed by the helper rather than by hand.
+    res = ask(srv, "GET", "/feed", "demo", "");
+    string frames = res.bodyText();
+    io.print("feed=" + (frames.indexOf("data: one") == 0).toString()
+             + " tail=" + frames.endsWith("\r\n\r\n").toString());
+    ok = ok && (frames.indexOf("data: one") == 0);
+    ok = ok && frames.endsWith("\r\n\r\n");
+
+    // The mounted handler serves the directory index; anything else under that
+    // prefix is a 404 written by the sub-tree's own serve() (D-10).
+    res = ask(srv, "GET", "/static/", "demo", "");
+    io.print("static=" + res.statusCode.toString() + " " + res.bodyText());
+    ok = ok && (res.statusCode == 200);
+    ok = ok && (res.bodyText() == "<h1>hello web</h1>");
+    res = ask(srv, "GET", "/static/absent.css", "demo", "");
+    io.print("missing=" + res.statusCode.toString());
+    ok = ok && (res.statusCode == 404);
+
+    app.drain(5000);                    // let in-flight requests finish (D-22)
+    app.close();
+
+    int rc = 0;
+    if (ok == false) {
+        io.print("mismatch");
+        rc = 1;
+    } else {
+        io.print("ok");
+    }
+    return rc;
+}
