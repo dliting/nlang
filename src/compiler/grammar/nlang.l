@@ -61,6 +61,28 @@ do {																		\
     }																		\
 } while(0)
 
+/*Module-path segment position: a '.' (or the `import` keyword) arms the
+ *one-shot flag on ScriptScanner; the next keyword lands here and, with
+ *the flag set, re-reads as the very identifier the Name rule would
+ *produce, so `web.static`, `import web.static;` and every other dot-
+ *joined segment may spell a reserved word. The body mirrors the Name
+ *rule token for token (text capture, built-in generic name flag,
+ *spelling probe), so a soft-read segment leaves the scanner state
+ *identical to an ordinary identifier's — and skips the arming side
+ *effects of `class`/`func`, which a name position never triggers. */
+#define PATH_SEGMENT_SOFT()                                       \
+do {                                                              \
+    if (scanner.TakePendingPathSegment())                         \
+    {                                                             \
+        SET_TEXT(yytext);                                         \
+        scanner.PendingGenericOpen(                               \
+            !scanner.TakePendingClassDeclName()                   \
+            && nlang::IsBuiltinGenericTypeName(yytext));          \
+        scanner.ProbeTypeArgumentOpener(yylineno, yycolumn);      \
+        return TT_Identifier;                                     \
+    }                                                             \
+} while(0)
+
 #define FREE_TEXT()															\
 do {																		\
     if (scanner.ScanType() == nlang::ScriptScanner::CT_Compiler)							\
@@ -215,92 +237,95 @@ LineComment	\/\/[^\n]*
 {Blanks}    /* skip blanks and tabs */
 
             /* keywords */
-"bool"      { return KT_Bool; }
-"as"        { return KT_As; }
-"assert"    { return KT_Assert; }
-"break"     { return KT_Break; }
-"byte"      { return KT_Byte; }
-"case"      { return KT_Case; }
-"catch"     { return KT_Catch; }
-"char"      { return KT_Char; }
+"bool"      { PATH_SEGMENT_SOFT(); return KT_Bool; }
+"as"        { PATH_SEGMENT_SOFT(); return KT_As; }
+"assert"    { PATH_SEGMENT_SOFT(); return KT_Assert; }
+"break"     { PATH_SEGMENT_SOFT(); return KT_Break; }
+"byte"      { PATH_SEGMENT_SOFT(); return KT_Byte; }
+"case"      { PATH_SEGMENT_SOFT(); return KT_Case; }
+"catch"     { PATH_SEGMENT_SOFT(); return KT_Catch; }
+"char"      { PATH_SEGMENT_SOFT(); return KT_Char; }
 "class"     {
                 /* The class NAME follows: the identifier rule must not
                  * arm the generic-open flag there, or a prelude
                  * declaration like `class List<T>` would lex its
                  * parameter brackets as the OT_TypeLt type-argument
                  * opener. See MarkClassDeclHead(). */
+                PATH_SEGMENT_SOFT();
                 scanner.MarkClassDeclHead();
                 return KT_Class;
             }
-"const"     { return KT_Const; }
-"continue"  { return KT_Continue; }
-"do"        { return KT_Do; }
-"default"   { return KT_Default; }
-"double"    { return KT_Double; }
-"else"      { return KT_Else; }
-"enum"      { return KT_Enum; }
-"false"     { return KT_False; }
-"finally"   { return KT_Finally; }
-"float"     { return KT_Float; }
-"for"       { return KT_For; }
-"foreach"   { return KT_Foreach; }
+"const"     { PATH_SEGMENT_SOFT(); return KT_Const; }
+"continue"  { PATH_SEGMENT_SOFT(); return KT_Continue; }
+"do"        { PATH_SEGMENT_SOFT(); return KT_Do; }
+"default"   { PATH_SEGMENT_SOFT(); return KT_Default; }
+"double"    { PATH_SEGMENT_SOFT(); return KT_Double; }
+"else"      { PATH_SEGMENT_SOFT(); return KT_Else; }
+"enum"      { PATH_SEGMENT_SOFT(); return KT_Enum; }
+"false"     { PATH_SEGMENT_SOFT(); return KT_False; }
+"finally"   { PATH_SEGMENT_SOFT(); return KT_Finally; }
+"float"     { PATH_SEGMENT_SOFT(); return KT_Float; }
+"for"       { PATH_SEGMENT_SOFT(); return KT_For; }
+"foreach"   { PATH_SEGMENT_SOFT(); return KT_Foreach; }
 "fp32"      {
                 /*0.13.1c primitive type aliases: a pure spelling layer
                  * mapping to the primitive tokens (fp64 below); AST and
                  * descriptor spellings stay canonical. */
+                PATH_SEGMENT_SOFT();
                 return KT_Float;
             }
-"fp64"      { return KT_Double; }
+"fp64"      { PATH_SEGMENT_SOFT(); return KT_Double; }
 "func"      {
                 /* 0.8.3: keyword form of the function type. Same
                  * pending-open flag as the List/Dict identifier rule
                  * so `func<...>` opens a type-argument list (the '<'
                  * rule consumes the flag; ">>" splits rely on the
                  * depth staying balanced). */
+                PATH_SEGMENT_SOFT();
                 scanner.PendingGenericOpen(true);
                 return KT_Func;
             }
-"if"        { return KT_If; }
-"implements" { return KT_Implements; }
-"import"    { return KT_Import; }
-"in"        { return KT_In; }
-"int"       { return KT_Int; }
-"int8"      { return KT_Byte; }
-"int16"     { return KT_Short; }
-"int32"     { return KT_Int; }
-"int64"     { return KT_Long; }
-"interface" { return KT_Interface; }
-"long"      { return KT_Long; }
-"native"    { return KT_Native; }
-"null"      { return KT_Null; }
-"out"       { return KT_Out; }
-"private"   { return KT_Private; }
-"protected" { return KT_Protected; }
-"public"    { return KT_Public; }
-"return"    { return KT_Return; }
-"short"     { return KT_Short; }
-"static"    { return KT_Static; }
-"string"    { return KT_String; }
-"struct"    { return KT_Struct; }
-"super"     { return KT_Super; }
-"switch"    { return KT_Switch; }
-"this"      { return KT_This; }
-"throw"     { return KT_Throw; }
-"true"      { return KT_True; }
-"try"       { return KT_Try; }
-"typeName"  { return KT_TypeName; }
-"ubyte"     { return KT_Ubyte; }
-"uint"      { return KT_Uint; }
-"uint8"     { return KT_Ubyte; }
-"uint16"    { return KT_Ushort; }
-"uint32"    { return KT_Uint; }
-"uint64"    { return KT_ULong; }
-"ulong"     { return KT_ULong; }
-"ushort"    { return KT_Ushort; }
-"using"     { return KT_Using; }
-"virtual"   { return KT_Virtual; }
-"void"      { return KT_Void; }
-"while"     { return KT_While; }
+"if"        { PATH_SEGMENT_SOFT(); return KT_If; }
+"implements" { PATH_SEGMENT_SOFT(); return KT_Implements; }
+"import"    { PATH_SEGMENT_SOFT(); scanner.ArmPathSegment(); return KT_Import; }
+"in"        { PATH_SEGMENT_SOFT(); return KT_In; }
+"int"       { PATH_SEGMENT_SOFT(); return KT_Int; }
+"int8"      { PATH_SEGMENT_SOFT(); return KT_Byte; }
+"int16"     { PATH_SEGMENT_SOFT(); return KT_Short; }
+"int32"     { PATH_SEGMENT_SOFT(); return KT_Int; }
+"int64"     { PATH_SEGMENT_SOFT(); return KT_Long; }
+"interface" { PATH_SEGMENT_SOFT(); return KT_Interface; }
+"long"      { PATH_SEGMENT_SOFT(); return KT_Long; }
+"native"    { PATH_SEGMENT_SOFT(); return KT_Native; }
+"null"      { PATH_SEGMENT_SOFT(); return KT_Null; }
+"out"       { PATH_SEGMENT_SOFT(); return KT_Out; }
+"private"   { PATH_SEGMENT_SOFT(); return KT_Private; }
+"protected" { PATH_SEGMENT_SOFT(); return KT_Protected; }
+"public"    { PATH_SEGMENT_SOFT(); return KT_Public; }
+"return"    { PATH_SEGMENT_SOFT(); return KT_Return; }
+"short"     { PATH_SEGMENT_SOFT(); return KT_Short; }
+"static"    { PATH_SEGMENT_SOFT(); return KT_Static; }
+"string"    { PATH_SEGMENT_SOFT(); return KT_String; }
+"struct"    { PATH_SEGMENT_SOFT(); return KT_Struct; }
+"super"     { PATH_SEGMENT_SOFT(); return KT_Super; }
+"switch"    { PATH_SEGMENT_SOFT(); return KT_Switch; }
+"this"      { PATH_SEGMENT_SOFT(); return KT_This; }
+"throw"     { PATH_SEGMENT_SOFT(); return KT_Throw; }
+"true"      { PATH_SEGMENT_SOFT(); return KT_True; }
+"try"       { PATH_SEGMENT_SOFT(); return KT_Try; }
+"typeName"  { PATH_SEGMENT_SOFT(); return KT_TypeName; }
+"ubyte"     { PATH_SEGMENT_SOFT(); return KT_Ubyte; }
+"uint"      { PATH_SEGMENT_SOFT(); return KT_Uint; }
+"uint8"     { PATH_SEGMENT_SOFT(); return KT_Ubyte; }
+"uint16"    { PATH_SEGMENT_SOFT(); return KT_Ushort; }
+"uint32"    { PATH_SEGMENT_SOFT(); return KT_Uint; }
+"uint64"    { PATH_SEGMENT_SOFT(); return KT_ULong; }
+"ulong"     { PATH_SEGMENT_SOFT(); return KT_ULong; }
+"ushort"    { PATH_SEGMENT_SOFT(); return KT_Ushort; }
+"using"     { PATH_SEGMENT_SOFT(); return KT_Using; }
+"virtual"   { PATH_SEGMENT_SOFT(); return KT_Virtual; }
+"void"      { PATH_SEGMENT_SOFT(); return KT_Void; }
+"while"     { PATH_SEGMENT_SOFT(); return KT_While; }
 
             /* double-character operators */
 "<<"        { return OT_LSH; }
@@ -403,6 +428,10 @@ LineComment	\/\/[^\n]*
 \[,+\]      { yylval->v_Int = static_cast<nlang::int32>(yyleng) - 2; return OT_BracketsND; }
 
 {Name}      {
+                /*The arm from a '.' or `import` ends at this
+                 *identifier: consume the flag so the next token
+                 *reads as a keyword again (see PATH_SEGMENT_SOFT). */
+                scanner.TakePendingPathSegment();
                 SET_TEXT(yytext);
                 /* Flag the built-in generic names so a following '<'
                  * opens a type-argument list (see the '<' rule); the
@@ -503,7 +532,19 @@ LineComment	\/\/[^\n]*
                 return 0;
             }
 
+<INITIAL>"." {
+                /*The dot arms the module-path segment position for the
+                 *token right after it (see PATH_SEGMENT_SOFT); this
+                 *rule must stay above the single-char catch-all, which
+                 *would otherwise win the same-length match. */
+                scanner.ArmPathSegment();
+                return yytext[0];
+            }
+
 <INITIAL>.  {
+                /*Every other single-char token ('*', ';', brackets,
+                 *...) ends the path-segment position. */
+                scanner.TakePendingPathSegment();
                 return yytext[0];
             }
 

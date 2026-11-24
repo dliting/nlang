@@ -193,6 +193,70 @@ private slots:
         QVERIFY2(anyErrorMentions(outcome.second, "syntax error"),
             "namespace keyword must be a syntax error, not an internal assert");
     }
+
+    void parseKeywordSegmentImport()
+    {
+        const auto path = writeTempSource("kw_mid.n",
+            "import utils.static;\n"
+            "int main() { return 0; }\n");
+        const auto outcome = compileSource("import_parse_kwm", path);
+        QVERIFY2(!anyErrorMentions(outcome.second, "syntax error"),
+            "import utils.static; must parse");
+    }
+
+    void parseKeywordSegmentFirst()
+    {
+        const auto path = writeTempSource("kw_first.n",
+            "import static;\n"
+            "int main() { return 0; }\n");
+        const auto outcome = compileSource("import_parse_kw1", path);
+        QVERIFY2(!anyErrorMentions(outcome.second, "syntax error"),
+            "import static; must parse");
+    }
+
+    void parseKeywordSegmentWildcard()
+    {
+        const auto path = writeTempSource("kw_wild.n",
+            "import utils.static.*;\n"
+            "int main() { return 0; }\n");
+        const auto outcome = compileSource("import_parse_kww", path);
+        QVERIFY2(!anyErrorMentions(outcome.second, "syntax error"),
+            "import utils.static.*; must parse");
+    }
+
+    void parseKeywordMemberChain()
+    {
+        const auto path = writeTempSource("kw_chain.n",
+            "int main() { return x.static.class.y; }\n");
+        const auto outcome = compileSource("import_parse_kwc", path);
+        //x undeclared: resolution errors are expected, syntax is not.
+        QVERIFY2(!anyErrorMentions(outcome.second, "syntax error"),
+            "x.static.class.y must parse");
+    }
+
+    void parseKeywordQualifiedType()
+    {
+        const auto path = writeTempSource("kw_type.n",
+            "utils.static.Widget w = utils.static.Widget();\n"
+            "int main() { return 0; }\n");
+        const auto outcome = compileSource("import_parse_kwq", path);
+        QVERIFY2(!anyErrorMentions(outcome.second, "syntax error"),
+            "utils.static.Widget declaration must parse");
+    }
+
+    void keywordAfterWildcardImportStillKeyword()
+    {
+        const auto path = writeTempSource("kw_after_wild.n",
+            "import io.*;\n"
+            "int main() { return 0; }\n");
+        const auto outcome = compileSource("import_parse_kwn", path);
+        //The segment arm from `io.*` must be dead before `int`: a leak
+        //past the soft-read window would re-read `int` as an identifier
+        //and turn this source into a syntax error.
+        QVERIFY2(!anyErrorMentions(outcome.second, "syntax error"),
+            "int after a wildcard import must stay a keyword");
+        QVERIFY2(outcome.first, "the source must build clean");
+    }
 };
 
 QTEST_GUILESS_MAIN(TestImportParse)

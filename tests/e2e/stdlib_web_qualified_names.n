@@ -8,8 +8,11 @@
 // already in the preset package), so this corpus does not wait for the
 // multi-module layout of Task 8 — the library-subtree face of the wildcard
 // is pinned there and meanwhile by the libraryWildcardUnionsSubtree unit leg.
+// Legs 5 and 6 add the two promised spellings that use a reserved word as a
+// module-path segment (Task 21).
 import http.*;
 import json;
+import web.static;
 
 int main() {
     // 1. Qualified access to a static constant of a library class.
@@ -26,5 +29,20 @@ int main() {
     // 4. The qualified spelling reaches the same static, not a sibling.
     string qual = http.HttpResponse.reasonPhraseFor(404);
     if (qual != bare) { return 4; }
+
+    // 5. A reserved word survives a module-path segment: the promised
+    //    `import web.static;` and the qualified spelling reach the class,
+    //    its root-validating constructor and its public field face.
+    web.static.StaticFiles sf = web.static.StaticFiles(".");
+    if (sf.index != "index.html") { return 5; }
+
+    // 6. The same spelling reaches the class's own validation: addType
+    //    refuses an empty extension, proving the call really binds
+    //    StaticFiles.addType and no sibling.
+    try {
+        sf.addType("", "text/plain");
+        return 6;
+    } catch (Exception e) {
+    }
     return 0;
 }

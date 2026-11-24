@@ -26,7 +26,8 @@ ScriptScanner::ScriptScanner(ContextType ct):
 	m_ContextType(ct), m_nStartState(0), m_pTransUnit(nullptr),
 	m_pScanInfo(nullptr), m_pBuffer(nullptr), m_bDeferEof(false),
 	m_nGenericDepth(0), m_bPendingGenericOpen(false),
-	m_bPendingClassDeclName(false), m_bPendingReceiverLt(false)
+	m_bPendingClassDeclName(false), m_bPendingPathSegment(false),
+	m_bPendingReceiverLt(false)
 {
 }
 
@@ -288,6 +289,9 @@ void ScriptScanner::InitScanInfo()
 	m_nGenericDepth = 0;
 	m_bPendingGenericOpen = false;
 	m_bPendingClassDeclName = false;
+	//Per-file clear: an illegal file ending on a bare '.' must not let
+	//the segment arm leak into the next translation unit.
+	m_bPendingPathSegment = false;
 	if(yylex_init_extra(this, &m_pScanInfo))
 		throw std::logic_error("yylex_init_extra() failed");
 }
