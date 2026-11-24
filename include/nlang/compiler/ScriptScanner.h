@@ -213,9 +213,12 @@ public:
 	//rule would produce), by the Name rule, and by the single-char
 	//catch-all. Comments and blanks leave it — exactly the reach of the
 	//class-name flag above — so `import /*c*/ web.static;` and a '.' at
-	//end of line keep the segment reading. Inert in editor mode (the arm
-	//self-gates), so the IDE token stream and its highlighting are
-	//untouched.
+	//end of line keep the segment reading. Tokens with their own actions
+	//that never claim (e.g. `>`) also leave it, but such a token can only
+	//occur where the parse is already a syntax error, which stays a
+	//syntax error, so the soft reading never widens valid programs. Inert
+	//in editor mode (the arm self-gates), so the IDE token stream and its
+	//highlighting are untouched.
 	void ArmPathSegment()
 	{
 		if (ScanType() == CT_Compiler)
