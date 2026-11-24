@@ -1128,16 +1128,19 @@ class MultipartBody {
 
     // RFC 2046's line-start delimiter rule: a body line beginning with
     // "--boundary" would end the message early. A line starts at index 0
-    // or right after an LF (10, the protocol constant Task 11 inlines
-    // too); bodies are compared byte-wise, and header blocks are exempt
-    // because their only line starts are the two fixed prefixes, their
-    // parameter values escape-clean and the candidate is 40 hex.
+    // or right after a CR (13) or an LF (10) — the same pair findDelimiter
+    // above accepts, so a part body cannot dodge this precheck by spelling
+    // its collision after a bare CR; bodies are compared byte-wise, and
+    // header blocks are exempt because their only line starts are the two
+    // fixed prefixes, their parameter values escape-clean and the candidate
+    // is 40 hex.
     private static bool bodiesContainAtLineStart(List<byte[]> bodies, string bnd) {
         byte[] line = io.toBytes("--" + bnd);
         for (int p = 0; p < bodies.length(); p = p + 1) {
             byte[] body = bodies[p];
             for (int i = 0; i + line.length() <= body.length(); i = i + 1) {
-                if (i > 0 && (body[i - 1] & 0xFF) != 10) { continue; }
+                if (i > 0 && (body[i - 1] & 0xFF) != 13
+                    && (body[i - 1] & 0xFF) != 10) { continue; }
                 bool hit = true;
                 for (int k = 0; k < line.length(); k = k + 1) {
                     if (body[i + k] != line[k]) { hit = false; break; }

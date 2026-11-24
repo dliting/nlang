@@ -338,12 +338,15 @@ int legG(string base) {
     return f;
 }
 
-// Leg H: the boundary self-check, three shapes each on a fresh object. H1:
+// Leg H: the boundary self-check, four shapes each on a fresh object. H1:
 // no conflict, no churn. H2: a body line starting with "--bndA" forces the
 // re-roll inside toBytes(), and both the wire bytes and the later
 // contentType() answer carry the new value. H3: the reverse call order —
 // the boundary inside the first wire line is exactly the one contentType()
-// later hands out (one shared boundary field, ruling 37).
+// later hands out (one shared boundary field, ruling 37). H4: the collision
+// spelled after a bare CR (no LF) — findDelimiter starts a line at CR or
+// LF, so the preflight must re-roll on CR exactly as it does on LF, or the
+// reparse silently truncates the part at that CR.
 int legH(string base) {
     int f = 0;
     web.form.MultipartBody c1m = web.form.MultipartBody();
@@ -378,6 +381,25 @@ int legH(string base) {
     f = f | want(msg3.substring(2, msg3.indexOf("\r\n")) == boundaryOf(m3.contentType()),
         "leg H the wire and contentType() share one boundary field",
         "wire [" + msg3.substring(2, msg3.indexOf("\r\n")) + "]");
+    web.form.MultipartBody m4 = web.form.MultipartBody();
+    string bndC = boundaryOf(m4.contentType());
+    m4.addField("crsneak", "\r--" + bndC + "\r\n");
+    string msg4 = io.fromBytes(m4.toBytes());
+    string bndD = boundaryOf(m4.contentType());
+    f = f | want(bndD != bndC, "leg H a CR-preceded colliding boundary re-rolls",
+        "both were " + bndC);
+    f = f | want(msg4.startsWith("--" + bndD),
+        "leg H the wire opens on the CR-case re-rolled boundary",
+        "got [" + msg4.substring(0, 44) + "]");
+    f = f | want(countOf(msg4, "\r--" + bndC) == 1,
+        "leg H the CR-colliding line survives inside the body",
+        "count=" + countOf(msg4, "\r--" + bndC).toString());
+    http.HttpResponse res4 = http.post(base + "/rt", msg4, m4.contentType());
+    f = f | want(res4.statusCode == 200,
+        "leg H the CR-case re-rolled message must answer 200",
+        "answered " + res4.statusCode.toString());
+    f = f | want(res4.bodyText() == "parts=1/fields=1/files=0|crsneak=<\r--" + bndC + "\r\n>",
+        "leg H the CR-colliding body roundtrips intact", "body was [" + res4.bodyText() + "]");
     return f;
 }
 
