@@ -1,14 +1,30 @@
 ## [0.13.12] - 2026-11-23
 
+基于`http`包的web框架：`web`包带来路由（`:name`段捕获与尾部`*`兜底）、中间件链、cookie承载的会话、挂载目录的静态文件服务（`ETag`/`Last-Modified`复核）、server-sent events（SSE）helper，以及浏览器两种编码的表单解析——另有`MultipartBody`构建器与按净化名落盘的上传保存。
+
 lambda审查修复批次（0.13.10后续）：柯里化、catch变量捕获与静态字段lambda初始化器到位，被遮蔽捕获的错路由「按绑定的display字段描述符」取代「按字段名」解析来根治。按设计不做向下兼容。
 
 本版同时收编master线的0.13.9与0.13.10两个版本：那条线上全部用户可见变更都落在这里——值引用与退役的`out`参数机制（0.13.9）、lambda闭包与循环头逐次捕获（0.13.10），含NCU格式v2.23。这些条目排在0.13.11之下，日期各按所在线的发布日，可与本条一并阅读。
 
 ### 新增
 
+- **`web`包。**`http`之上的应用层：`App`持有服务器与中间件链，路由经`on`及动词简写注册（`:name`捕获段、尾部`*`兜底），`mount`把前缀下的子树交给处理器或另一张路由表，`useSessions`打开cookie承载的会话，`setNotFound`与`onError`分别改写未命中与失败。
+- **静态文件服务。**`web.static.StaticFiles`服务挂载目录：`index`首页、`Cache-Control`的max-age、`ETag`与`Last-Modified`复核、点文件拒绝。
+- **server-sent events。**`web.sse.Sse`把成帧的SSE事件写进一条挂开的响应——正是第23章留给应用的SSE语义。
+- **表单解析。**`web.form.Form.parse`在`FormOptions`预算内把`application/x-www-form-urlencoded`与`multipart/form-data`的请求体解成`FormData`：外来content type答`415`，文法畸形答具名`400`诊断，预算耗尽答具名`413`。
+- **`web.form.MultipartBody`。**同一消息的客户端侧：`addField`与`addFile`登记各部分（`addFile`在登记时拷贝数据），登记携带CR或LF的`Content-Type`会被拒绝。
+- **上传落盘。**`FormFile.safeName()`把客户端名字净化到可存储：剥掉客户端路径、去控制字节、保留设备名加前缀、在UTF-8边界截断；`saveTo`以该名加随机十六进制后缀写盘，`saveAs`按原样写。
+- **`math.randomBytes(count)`。**从操作系统的密码学安全随机源取新字节；计数为负、超过16 MiB上限或随机源不可用都答具名诊断。会话id与multipart边界由它取数。
+- **`fs.writeBytes(path, data)`与`fs.modifiedTimeMs(path)`。**整文件字节写入，以及文件自Unix纪元起的毫秒级最后修改时间——与`http.HttpDate`同一个时钟，静态文件复核正吃它。
+- **`net.TcpStream.isEof()`。**是否已观察到对端的流末尾：粘滞，且超时永不置位，调用方由此分开「对端说完了」与「还没到」。
+- **`http.HttpServer.drain(graceMs)`与`isServing()`。**优雅关闭状态机：`drain`停止接收、在宽限窗口内服务在途请求并报出被迫关闭的连接数；`isServing`报告接收循环是否在位。`web.App`转发`drain`与`close`。
 - **表达式体嵌套（柯里化）。**lambda的表达式体本身可以是lambda——`func<func<int, int>, int>`下的`(x) -> (y) -> x + y`返回一个捕获外层形参的闭包。表达式体在捕获分析之前归一化为单return块，因此每条捕获规则（值形式与`&`形式、循环头新鲜性、遮蔽）对两种体形状一视同仁。
 - **catch变量捕获。**`catch`处理器内写出的lambda像捕获任意外层局部一样捕获处理器的变量——`func<string> msg = () -> e.message;`读取子句绑定的异常对象。
 - **lambda作静态字段初始化器。**函数类型的静态字段可用lambda初始化——`public static func<int, int> dbl = (x) -> x * 2;`——由类的静态初始化器在首次使用时求值一次。经类型名调用（`Cfg.dbl(21)`）是`func`类型静态字段的无接收者调用形态；实例字段初始化器仍是常量表达式位置。
+
+### 变更
+
+- **`fs.readBytes`返回`byte[]`。**整文件读取原先返回逐元素一字节的`int[]`，现在字节以`byte[]`到位，正是`fs.writeBytes`接受的形状。按设计不做向下兼容：按下标读`int[]`的调用点改按`byte[]`读。
 
 ### 修复
 

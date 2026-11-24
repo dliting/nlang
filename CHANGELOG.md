@@ -1,5 +1,13 @@
 ## [0.13.12] - 2026-11-23
 
+Web framework on top of the `http` package: the `web` package brings
+routing with `:name` captures and a trailing `*` catch-all, a
+middleware chain, cookie-backed
+sessions, mounted static-file serving with `ETag`/`Last-Modified`
+revalidation, a server-sent events helper, and form parsing for both
+browser encodings — with a `MultipartBody` builder and uploads saved
+under sanitized names.
+
 Lambda review-fix pass over 0.13.10: currying, catch-variable
 capture and static-field lambda initializers arrive, and a
 shadowed-capture misroute is fixed by resolving captured access
@@ -16,6 +24,49 @@ alongside this one.
 
 ### Added
 
+- **The `web` package.** An application layer over `http`: `App`
+  owns the server and the middleware chain, routes register through
+  `on` and its verb shorthands with `:name` captures and a trailing
+  `*` catch-all, `mount` hands a prefix's subtree to a handler or a
+  second route table, `useSessions` turns on cookie-backed sessions,
+  and `setNotFound`/`onError` reshape misses and failures.
+- **Static file serving.** `web.static.StaticFiles` serves a mounted
+  directory: index file, `Cache-Control` max-age, `ETag` and
+  `Last-Modified` revalidation, dot-file refusal.
+- **Server-sent events.** `web.sse.Sse` writes framed SSE events
+  onto a response held open — the SSE semantics chapter 23 leaves
+  to the application.
+- **Form parsing.** `web.form.Form.parse` decodes
+  `application/x-www-form-urlencoded` and `multipart/form-data`
+  bodies into `FormData` under `FormOptions` budgets: a foreign
+  content type answers `415`, malformed grammar answers named `400`
+  diagnostics, an exhausted budget answers a named `413`.
+- **`web.form.MultipartBody`.** The client side of the same
+  message: `addField` and `addFile` register parts — `addFile`
+  copies its data at registration — and a registered `Content-Type`
+  carrying CR or LF is refused.
+- **Upload saving.** `FormFile.safeName()` cleans a client name for
+  storage: the client path stripped, control bytes out, reserved
+  device names prefixed, truncation at a UTF-8 boundary. `saveTo`
+  writes under that name plus a random hex suffix, `saveAs` writes
+  verbatim.
+- **`math.randomBytes(count)`.** Fresh bytes from the operating
+  system's cryptographically secure random source; a negative
+  count, a count over the 16 MiB ceiling or an unavailable source
+  answer named diagnostics. Session ids and multipart boundaries
+  draw from it.
+- **`fs.writeBytes(path, data)` and `fs.modifiedTimeMs(path)`.**
+  Whole-file byte writes, and a file's last-modified time in
+  milliseconds since the Unix epoch, on the clock `http.HttpDate`
+  reads — the static-file revalidation feeds on it.
+- **`net.TcpStream.isEof()`.** Whether the peer's end-of-stream has
+  been observed: sticky, and never set by a timeout, so a caller
+  separates "the peer is done" from "nothing has arrived yet".
+- **`http.HttpServer.drain(graceMs)` and `isServing()`.** The
+  graceful shutdown state machine: `drain` stops accepting, serves
+  the in-flight requests within the grace window and reports the
+  connections it forced closed; `isServing` reports whether the
+  accept loop is up. `web.App` forwards `drain` and `close`.
 - **Expression-body nesting (currying).** A lambda's expression
   body may itself be a lambda — `(x) -> (y) -> x + y` under
   `func<func<int, int>, int>` returns a closure that captures the
@@ -34,6 +85,14 @@ alongside this one.
   through the type name (`Cfg.dbl(21)`) is the receiverless call
   shape for a `func`-typed static field; instance field
   initializers remain constant-expression positions.
+
+### Changed
+
+- **`fs.readBytes` returns `byte[]`.** The whole-file read answered
+  `int[]` with one octet per element; the octets now arrive as a
+  `byte[]`, the shape `fs.writeBytes` takes. Not backward
+  compatible by design: call sites that indexed the `int[]` re-read
+  them as `byte[]`.
 
 ### Fixed
 
