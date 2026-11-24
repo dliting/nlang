@@ -1,9 +1,12 @@
 """gate_freshness_test.py -- self-test corpus for the batch freshness
 preflight (tools/gate_freshness.py): the per-class input rules (tools
 carry the full src/include sweep, native DLLs only src/native, test
-executables presence-only), the stdlib package-copy rule, the compiled
-stdlib.npkg bounds, the VERSION-file bound, the empty-sweep refusal,
-the exact-filename required-tool check and the tree-spec parsing.
+executables presence-only), the stdlib package-copy rule (dotted
+sub-modules by relative path), the per-domain stdlib package rules (a
+generated <domain>.nproj must have its package, and the package must be
+as new as source and ncc), the VERSION-file bound, the empty-sweep
+refusal, the exact-filename required-tool check and the tree-spec
+parsing.
 Stub repos and trees with pinned mtimes keep the corpus hermetic: no
 third-party imports, no build, no network. Run either way:
     python gate_freshness_test.py
@@ -60,6 +63,24 @@ def make_tree(root, tools=("ncc", "nvm", "ndb"), native=True,
     if tests:
         set_mtime(write(root / "tests" / "Debug" / "test_vm.exe"), 200)
     return root
+
+
+PACKAGE_DOMAIN = "io"
+
+
+def write_package(tree, domain=PACKAGE_DOMAIN, mtime=250):
+    """A generated per-domain project with its compiled package: cmake
+    writes the <domain>.nproj at configure time, the build writes the
+    package stamped at `mtime` (250 = fresh: newer than the tools at
+    200 and the stdlib copy at 150)."""
+    set_mtime(write(tree / "stdlib" / ("%s.nproj" % domain)), 150)
+    set_mtime(write(tree / "stdlib" / ("%s.npkg" % domain)), mtime)
+
+
+def write_package_project(tree, domain=PACKAGE_DOMAIN):
+    """The generated project alone: a tree configured for the package
+    whose packing target has not run since."""
+    set_mtime(write(tree / "stdlib" / ("%s.nproj" % domain)), 150)
 
 
 def run_check(repo, specs):
@@ -224,9 +245,9 @@ def test_stale_stdlib_package_vs_source_is_flagged():
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
         repo, tree = make_repo(tmp / "repo"), make_tree(tmp / "tree")
-        set_mtime(write(tree / "stdlib" / "stdlib.npkg"), 50)
+        write_package(tree, mtime=50)
         findings = run_check(repo, ["%s:Debug" % tree])
-        check(any("stdlib.npkg" in f and "util.n" in f for f in findings),
+        check(any("io.npkg" in f and "util.n" in f for f in findings),
               "no finding names the package and its source: %r" % findings)
 
 
@@ -236,10 +257,10 @@ def test_stdlib_package_older_than_ncc_is_flagged():
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
         repo, tree = make_repo(tmp / "repo"), make_tree(tmp / "tree")
-        set_mtime(write(tree / "stdlib" / "stdlib.npkg"), 150)
+        write_package(tree, mtime=150)
         set_mtime(tree / "src" / "tools" / "ncc" / "Debug" / "ncc.exe", 300)
         findings = run_check(repo, ["%s:Debug" % tree])
-        check(any("stdlib.npkg" in f and "ncc.exe" in f for f in findings),
+        check(any("io.npkg" in f and "ncc.exe" in f for f in findings),
               "no finding names the package and the ncc: %r" % findings)
 
 
@@ -247,10 +268,68 @@ def test_fresh_stdlib_package_is_not_flagged():
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
         repo, tree = make_repo(tmp / "repo"), make_tree(tmp / "tree")
-        set_mtime(write(tree / "stdlib" / "stdlib.npkg"), 400)
+        write_package(tree, mtime=400)
         findings = run_check(repo, ["%s:Debug" % tree])
-        check([f for f in findings if "stdlib.npkg" in f] == [],
+        check([f for f in findings if ".npkg" in f] == [],
               "a fresh package must not be flagged: %r" % findings)
+
+
+def test_missing_stdlib_package_is_flagged():
+    #The tree's generated projects name its package set: a project
+    #without its package means the packing target has not run since the
+    #configure, and every import of that domain would fail at load time.
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        repo, tree = make_repo(tmp / "repo"), make_tree(tmp / "tree")
+        write_package_project(tree)
+        findings = run_check(repo, ["%s:Debug" % tree])
+        check(any("MISSING" in f and "io.npkg" in f for f in findings),
+              "no finding names the missing package: %r" % findings)
+
+
+def test_one_stale_domain_package_is_flagged_on_its_own():
+    #The packages are always rebuilt together, but each is judged on
+    #its own stamp: a fresh one must not cover for a stale sibling.
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        repo, tree = make_repo(tmp / "repo"), make_tree(tmp / "tree")
+        write_package(tree, "io", mtime=400)
+        write_package(tree, "web", mtime=50)
+        findings = run_check(repo, ["%s:Debug" % tree])
+        check(any("web.npkg" in f and "util.n" in f for f in findings),
+              "no finding names the stale package: %r" % findings)
+        check([f for f in findings if "io.npkg" in f] == [],
+              "the fresh package must not be flagged: %r" % findings)
+
+
+def test_submodule_stdlib_copy_keeps_its_relative_path():
+    #A dotted sub-module (stdlib/web/static.n = module "web.static")
+    #lives under its unit's directory; the tree's copy is judged at the
+    #same relative path, not flattened next to the top-level units.
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        repo, tree = make_repo(tmp / "repo"), make_tree(tmp / "tree")
+        set_mtime(write(repo / "stdlib" / "web" / "static.n"), 150)
+        findings = run_check(repo, ["%s:Debug" % tree])
+        missing = [f for f in findings
+                   if "MISSING" in f and "static.n" in f
+                   and "web" in f]
+        check(missing != [],
+              "no finding names the missing sub-module copy: %r" % findings)
+
+
+def test_submodule_stdlib_edit_stales_the_packages():
+    #A sub-module source is a package input like any other unit: the
+    #newest stdlib source bounds the packages with it included.
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        repo, tree = make_repo(tmp / "repo"), make_tree(tmp / "tree")
+        set_mtime(write(repo / "stdlib" / "web" / "static.n"), 500)
+        write_package(tree, mtime=250)
+        findings = run_check(repo, ["%s:Debug" % tree])
+        check(any("io.npkg" in f and "static.n" in f for f in findings),
+              "no finding names the package and the sub-module: %r"
+              % findings)
 
 
 def test_version_file_binds_tools_and_native_dlls():
@@ -356,6 +435,10 @@ TESTS = [
     test_stale_stdlib_package_vs_source_is_flagged,
     test_stdlib_package_older_than_ncc_is_flagged,
     test_fresh_stdlib_package_is_not_flagged,
+    test_missing_stdlib_package_is_flagged,
+    test_one_stale_domain_package_is_flagged_on_its_own,
+    test_submodule_stdlib_copy_keeps_its_relative_path,
+    test_submodule_stdlib_edit_stales_the_packages,
     test_version_file_binds_tools_and_native_dlls,
     test_empty_input_sweep_is_a_usage_error,
     test_empty_stdlib_sweep_is_a_usage_error,

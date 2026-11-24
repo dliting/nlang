@@ -204,7 +204,7 @@ void TestPackageMemberFromSearchDir() {
     }
     CHECK(pkg.AddMember(std::move(member)), "member added");
     std::string pkgError;
-    CHECK(pkg.Write((libDir / "stdlib.npkg").string(), "stdlib",
+    CHECK(pkg.Write((libDir / "lib.npkg").string(), "lib",
                     nullptr, &pkgError),
           "package written");
 
@@ -354,12 +354,12 @@ void TestChecksumMismatchReported() {
     }
     pkg.AddMember(std::move(member));
     std::string pkgError;
-    CHECK(pkg.Write((libDir / "stdlib.npkg").string(), "stdlib",
+    CHECK(pkg.Write((libDir / "lib.npkg").string(), "lib",
                     nullptr, &pkgError),
           "package written");
 
     //Flip one byte of the marker inside the archive file.
-    const fs::path pkgFile = libDir / "stdlib.npkg";
+    const fs::path pkgFile = libDir / "lib.npkg";
     std::string image;
     {
         std::ifstream in(pkgFile, std::ios::binary);

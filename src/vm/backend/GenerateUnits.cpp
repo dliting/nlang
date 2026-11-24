@@ -158,7 +158,7 @@ uint32_t VmBackend::IntrinsicChannelOwnerOf(const SnFunction& func) const
 //OWNING unit's package has binding-table rows flips onto the intrinsic
 //channel — isNative=false + intrinsicId, signature metadata kept
 //(cross-module stubs rebuild from it). Identity is the owning unit's
-//module path alone, never the library flag (K3: stdlib.nproj packs
+//module path alone, never the library flag (K3: the concurrent project packs
 //thread.n as a project unit). Two arms: package-level free functions
 //key "pkg.func" (the thread channel as today); type members key
 //"Class.method" / constructors "Class" — declared methods must stamp

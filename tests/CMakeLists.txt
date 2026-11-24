@@ -1,9 +1,10 @@
 # Stdlib dir every STDLIB_DIR-defining test compiles and loads against:
 # the BUILD-TREE copy (root CMakeLists "Standard library package") — the
 # same dir the tools resolve via FindStdLibDir. It carries the library
-# sources for compile-time signature resolution AND stdlib.npkg for the
-# load-time closure (NcuLoader search dirs), so tests resolve stdlib
-# exactly like production instead of half source-tree, half nowhere.
+# sources for compile-time signature resolution AND the per-domain
+# packages (<domain>.npkg) for the load-time closure (NcuLoader search
+# dirs), so tests resolve stdlib exactly like production instead of half
+# source-tree, half nowhere.
 # Each such test calls nlang_stdlib_test() at its definition site,
 # ordering it after the package producer so targeted builds work on a
 # fresh build tree too.
@@ -11,11 +12,11 @@ set(NLANG_TEST_STDLIB_DIR ${CMAKE_BINARY_DIR}/stdlib)
 
 # Tests that compile or load against NLANG_TEST_STDLIB_DIR call this
 # helper right after their target definition: it orders the build after
-# nlang_stdlib_package, the producer of the dir's sources and
-# stdlib.npkg, so a targeted build of just the test still sees a
-# populated dir on a fresh tree (full builds always pack first). Kept as
-# a per-test call at the definition site -- the former centralized list
-# at the end of this file kept drifting when new tests were added.
+# nlang_stdlib_package, the producer of the dir's sources and packages,
+# so a targeted build of just the test still sees a populated dir on a
+# fresh tree (full builds always pack first). Kept as a per-test call at
+# the definition site -- the former centralized list at the end of this
+# file kept drifting when new tests were added.
 function(nlang_stdlib_test target)
     add_dependencies(${target} nlang_stdlib_package)
 endfunction()
@@ -3621,17 +3622,25 @@ add_test(NAME embed_api_tests COMMAND test_embed_api)
 
 #Embedding source-entry tests (spec: 2026-10-15-embedding-source-entry).
 #Deployed-stdlib fixture: one host-specified directory in the full
-#deployment shape -- stdlib declaration sources + stdlib.npkg + native
-#DLLs -- so import discovery, closure loading and native resolution all
-#resolve from addImportDir dirs (the ONE-list contract). No DLL copies
-#land next to the test exes anymore (the copy target is gone), but the
-#loader's build-tree fallback still rescues a load if the
-#AddNativeSearchDir wiring regresses -- the wiring is exercised (the
-#happy path proves host dirs resolve first), not absence-probed.
+#deployment shape -- stdlib declaration sources + the per-domain stdlib
+#packages + native DLLs -- so import discovery, closure loading and
+#native resolution all resolve from addImportDir dirs (the ONE-list
+#contract). No DLL copies land next to the test exes anymore (the copy
+#target is gone), but the loader's build-tree fallback still rescues a
+#load if the AddNativeSearchDir wiring regresses -- the wiring is
+#exercised (the happy path proves host dirs resolve first), not
+#absence-probed.
 set(embed_deploy_dir ${CMAKE_BINARY_DIR}/embed_deploy)
+#copy_directory never deletes: the monolithic package an older build
+#left here outlives its removal from the stdlib dir, and in the loader's
+#filename order it shadows the domain packages sorting after it (system,
+#tensor, url, web). The build-tree target clears the same two files.
 add_custom_target(nlang_embed_deploy ALL
     COMMAND ${CMAKE_COMMAND} -E copy_directory
                 ${NLANG_TEST_STDLIB_DIR} ${embed_deploy_dir}
+    COMMAND ${CMAKE_COMMAND} -E remove
+                ${embed_deploy_dir}/stdlib.npkg
+                ${embed_deploy_dir}/stdlib.nproj
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 $<TARGET_FILE:nlang_io>
                 $<TARGET_FILE:nlang_math>
@@ -3672,7 +3681,7 @@ if(Python3_FOUND)
             ${PROJECT_SOURCE_DIR}/tests/e2e/run_embed_host.py
             $<TARGET_FILE:embed_host>
             $<TARGET_FILE:ncc>
-            ${NLANG_TEST_STDLIB_DIR}/stdlib.npkg
+            ${NLANG_TEST_STDLIB_DIR}
             $<TARGET_FILE:nlang_io>
             $<TARGET_FILE:nlang_system>
             $<TARGET_FILE:nlang_gzip>)
@@ -3775,5 +3784,19 @@ if(NLANG_RUNNER_PYTEST_PROBE EQUAL 0)
         WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/tests/e2e)
 else()
     message(STATUS "e2e_runner_timing_gate skipped: pytest is not "
+        "importable via '${NLANG_DOCS_PYTHON}' (pip install pytest to enable)")
+endif()
+
+#The runner's stale-artifact refusal, package half: the generated
+#projects name the package set, and a missing or stale package refuses
+#the run by name. In-process over placeholder files (the guard only
+#stats the tools) with stamps pinned -- no runner subprocess, no sleeping.
+if(NLANG_RUNNER_PYTEST_PROBE EQUAL 0)
+    add_test(NAME e2e_runner_package_guard
+        COMMAND ${NLANG_DOCS_PYTHON} -m pytest
+            ${PROJECT_SOURCE_DIR}/tests/e2e/test_runner_package_guard.py -q
+        WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/tests/e2e)
+else()
+    message(STATUS "e2e_runner_package_guard skipped: pytest is not "
         "importable via '${NLANG_DOCS_PYTHON}' (pip install pytest to enable)")
 endif()

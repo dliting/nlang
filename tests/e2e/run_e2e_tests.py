@@ -299,37 +299,54 @@ def _fail_on_stale_tools(ncc, nvm, ndb):
                   f"meaningless)")
             sys.exit(2)
     #Load-time closure hazard: any .npkg in the tests directory is on
-    #the module-local search path and shadows the system stdlib package
+    #the module-local search path and shadows the system stdlib packages
     #for every module run from here (an experiment leftover here once
     #made manual runs pass while the harness failed).
     for pkg in glob.glob(os.path.join(SCRIPT_DIR, '*.npkg')):
         print(f"ERROR: {pkg} shadows the system stdlib for modules run "
               f"from tests/e2e; remove it")
         sys.exit(2)
-    #Stale-package hazard: stdlib.npkg is compiled by ncc from the
-    #stdlib/*.n sources (the nlang_stdlib_package step), so the package
-    #must be at least as new as BOTH of its inputs — a package older
-    #than the newest source misses the edit (the 2026-10-31 redesign ran
-    #green against a pre-flip npkg for a full task), and a package older
-    #than ncc was built by a superseded compiler. Derived from the ncc
-    #path (<build>/src/tools/ncc/<cfg>/ncc.exe); skipped when no npkg
-    #sits at that layout (an installed tool tree ships its package
-    #beside the binaries, not under a build root).
+    #Stale-package hazard: the stdlib packages are compiled by ncc from
+    #the stdlib sources (the nlang_stdlib_package step), so each must be
+    #at least as new as BOTH of its inputs — a package older than the
+    #newest source misses the edit (the 2026-10-31 redesign ran green
+    #against a pre-flip npkg for a full task), and a package older than
+    #ncc was built by a superseded compiler. The tree's generated
+    #projects name the package set (<build>/stdlib/<domain>.nproj, one
+    #per domain): a project without its package means the packing step
+    #has not run, and every import of that domain would fail at load
+    #time. Derived from the ncc path (<build>/src/tools/ncc/<cfg>/
+    #ncc.exe); skipped when no project sits at that layout (an installed
+    #tool tree ships its packages beside the binaries, not under a build
+    #root).
     build_root = os.path.dirname(os.path.dirname(os.path.dirname(
         os.path.dirname(os.path.dirname(ncc)))))
-    npkg = os.path.join(build_root, 'stdlib', 'stdlib.npkg')
-    if os.path.isfile(npkg):
+    projects = sorted(glob.glob(os.path.join(
+        build_root, 'stdlib', '*.nproj')))
+    if projects:
+        #The packing step's own source globs: the top-level units and the
+        #web package's dotted sub-module arm.
         newest_n, newest_n_name = _newest_file(
-            glob.glob(os.path.join(REPO_ROOT, 'stdlib', '*.n')))
-        for bound, bound_name in (
-                (os.path.getmtime(ncc), _display_path(ncc)),
-                (newest_n, newest_n_name)):
-            if os.path.getmtime(npkg) < bound:
-                print(f"ERROR: {_display_path(npkg)} is "
-                      f"older than {bound_name} - rebuild the "
-                      f"nlang_stdlib_package target before running the "
-                      f"suite (stale-package results are meaningless)")
+            [path
+             for pattern in ('stdlib/*.n', 'stdlib/web/*.n')
+             for path in glob.glob(os.path.join(REPO_ROOT, pattern))])
+        for project in projects:
+            npkg = os.path.splitext(project)[0] + '.npkg'
+            if not os.path.isfile(npkg):
+                print(f"ERROR: {_display_path(npkg)} is missing - build "
+                      f"the nlang_stdlib_package target before running "
+                      f"the suite (a missing package fails every import "
+                      f"of its domain at load time)")
                 sys.exit(2)
+            for bound, bound_name in (
+                    (os.path.getmtime(ncc), _display_path(ncc)),
+                    (newest_n, newest_n_name)):
+                if os.path.getmtime(npkg) < bound:
+                    print(f"ERROR: {_display_path(npkg)} is "
+                          f"older than {bound_name} - rebuild the "
+                          f"nlang_stdlib_package target before running the "
+                          f"suite (stale-package results are meaningless)")
+                    sys.exit(2)
 
 
 def _manifest_configs():

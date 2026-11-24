@@ -223,7 +223,7 @@ inline std::vector<std::string> ResolveSearchDirs(
 }
 
 //Run tail, the ncc compile-and-run sequence after the artifact exists:
-//the loader completes the closure from the search dirs (stdlib.npkg
+//the loader completes the closure from the search dirs (stdlib package
 //members, third-party .ncu packages, -I source library packages), the
 //linker resolves the import slots, the executor runs the entry point.
 //An empty script links without an entry point and maps to exit 0

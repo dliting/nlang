@@ -97,7 +97,7 @@ static BuildOutcome buildSource(const std::string& tag,
     //exception aborts the whole test binary. BuildArtifacts is the
     //production path: single-file mode writes the entry-unit .ncu with
     //import slots naming io/math/fs (the library code itself ships in
-    //stdlib.npkg and joins the closure at load time).
+    //the stdlib packages and joins the closure at load time).
     bool built = false;
     try {
         built = builder.BuildArtifacts();

@@ -77,7 +77,7 @@ BuildOutcome buildConsumer(const std::string& tag, const std::string& source);
 nlang::CompiledModule loadBuilt(const std::string& tag);
 
 //加载并链接一个带导入的刚构建产物：闭包从 scratch 目录与 stdlib 包
-//目录解析（外部 .ncu 与产物同目录；io/math/fs 单元在 stdlib.npkg 里），
+//目录解析（外部 .ncu 与产物同目录；io/math/fs 单元在各自的领域包里），
 //nlink 合并为唯一运行期模块。加载期链接是导入形态的唯一执行路径
 //（产物自身不含库代码）。
 nlang::CompiledModule loadLinked(const std::string& tag);

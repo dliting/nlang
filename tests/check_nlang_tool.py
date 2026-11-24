@@ -9,7 +9,7 @@ Cases (one ctest entry each):
                runner's D3 mapping — linked but no entry point); an
                uncaught top-level throw exits 1 with the message; a
                standard-library import resolves through the load-time
-               closure (stdlib.npkg member discovery) and prints.
+               closure (stdlib package member discovery) and prints.
   c_inline     -c statements run in process; a non-ASCII payload must
                survive the wide-argv decode (byte-count exit code).
   cli_rejects  usage, script+-c conflict, missing file and compile

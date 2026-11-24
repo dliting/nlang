@@ -289,7 +289,7 @@ static std::filesystem::path scratchDir()
 //Compile + execute; returns main()'s value, or -1 when the build failed
 //(same harness shape as test_stdlib — real sources, real execution).
 //BuildArtifacts writes the entry-unit .ncu with import slots naming io;
-//the io code itself ships in stdlib.npkg and joins the closure at load
+//the io code itself ships in io.npkg and joins the closure at load
 //time (NcuLoader discovers it, NcuLinker merges the images), mirroring
 //nvm's load path.
 static int runSource(const std::string& tag, const std::string& source)

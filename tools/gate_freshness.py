@@ -23,12 +23,12 @@ rebuild the finding demands is the one the build system just judged
 unnecessary. stdlib/*.n is NOT a tool input (the tools compile it as
 data -- mixing it in pressured no-op tool rebuilds and once invited a
 timestamp-forging touch); it belongs to the per-tree package-copy
-check, and the compiled stdlib.npkg is judged by the runner's stale-
-package rule hoisted here: at least as new as BOTH the newest stdlib
-source and the ncc beside it. The repo's VERSION file bounds tools
-and native DLLs alike -- a bump rides the version/ABI they embed and
-needs no source edit to be real (a tree not reconfigured since a bump
-otherwise greens while shipping the old strings). An empty input
+check, and the compiled stdlib packages are judged by the runner's
+stale-package rule hoisted here: each at least as new as BOTH the
+newest stdlib source and the ncc beside it. The repo's VERSION file
+bounds tools and native DLLs alike -- a bump rides the version/ABI they
+embed and needs no source edit to be real (a tree not reconfigured since
+a bump otherwise greens while shipping the old strings). An empty input
 sweep or an empty stdlib refuses to judge at all (nothing could ever
 be stale); a file vanishing mid-check is a clean usage error, not a
 traceback. The required-tool trio (ncc/nvm/ndb) is judged as a class
@@ -96,6 +96,20 @@ def native_inputs(repo):
             for path in glob.glob(str(repo / pattern), recursive=True)]
 
 
+#The sources the stdlib packages compile: the packing target's own globs
+#(CMakeLists.txt, nlang_stdlib_package), mirrored into the tree at the
+#same relative path -- the top-level units and the web package's dotted
+#sub-module arm.
+STDLIB_SOURCE_PATTERNS = ("stdlib/*.n", "stdlib/web/*.n")
+
+
+def stdlib_sources(repo):
+    """Every stdlib source the tree's packages compile."""
+    return [path
+            for pattern in STDLIB_SOURCE_PATTERNS
+            for path in glob.glob(str(repo / pattern))]
+
+
 def _stale(findings, newest, artifacts):
     for artifact in artifacts:
         if os.path.getmtime(artifact) < newest[0]:
@@ -123,7 +137,7 @@ def check(repo, specs):
         raise UsageError(
             "no compiled inputs under %s -- the src/ + include/ sweep "
             "is empty, so nothing could ever be judged stale" % repo)
-    stdlib_modules = sorted(glob.glob(str(repo / "stdlib" / "*.n")))
+    stdlib_modules = sorted(stdlib_sources(repo))
     if not stdlib_modules:
         raise UsageError(
             "no stdlib modules under %s -- the package rule has "
@@ -159,7 +173,7 @@ def check(repo, specs):
         #The package rule: each repo stdlib module must exist as a
         #same-or-newer copy in the tree (data, not compiled input).
         for module in stdlib_modules:
-            copy = spec.path / "stdlib" / Path(module).name
+            copy = spec.path / Path(module).relative_to(repo)
             if not copy.is_file():
                 findings.append(
                     "MISSING %s (the tree's stdlib package predates it)"
@@ -167,12 +181,22 @@ def check(repo, specs):
             elif os.path.getmtime(copy) < os.path.getmtime(module):
                 findings.append(
                     "STALE %s is older than %s" % (copy, module))
-        #The compiled package: the runner's stale-package rule hoisted
-        #to leg one -- at least as new as BOTH the newest stdlib
-        #source and the ncc that packs it (older than ncc = packed by
-        #a superseded compiler). Judged only when the tree has one.
-        npkg = spec.path / "stdlib" / "stdlib.npkg"
-        if npkg.is_file():
+        #The compiled packages: the runner's stale-package rule hoisted
+        #to leg one -- each at least as new as BOTH the newest stdlib
+        #source and the ncc that packs it (older than ncc = packed by a
+        #superseded compiler). The tree's generated projects name the
+        #package set (the configure writes one <domain>.nproj per domain
+        #from the same table as the packing commands), so the set is read
+        #rather than duplicated here; a tree without projects (an
+        #installed tool tree ships the packages only) is not judged.
+        for project in sorted(glob.glob(
+                str(spec.path / "stdlib" / "*.nproj"))):
+            npkg = os.path.splitext(project)[0] + ".npkg"
+            if not os.path.isfile(npkg):
+                findings.append(
+                    "MISSING %s (the tree's configure expects it; build "
+                    "the nlang_stdlib_package target)" % npkg)
+                continue
             npkg_mtime = os.path.getmtime(npkg)
             bounds = [(stdlib_newest[0], stdlib_newest[1])]
             if ncc_exe is not None:
@@ -225,7 +249,7 @@ def main(argv=None):
     p_check.add_argument("--tree", action="append", default=[],
                          metavar="PATH:CONFIG",
                          help="a consumed tree config: tools + native DLLs "
-                              "+ stdlib package are judged")
+                              "+ stdlib packages are judged")
     p_check.add_argument("--ctest-tree", action="append", default=[],
                          metavar="PATH:CONFIG",
                          help="like --tree, and the test executables the "

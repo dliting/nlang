@@ -25,7 +25,7 @@ void test_hostio_output_capture()
         "int main() { io.print(\"hi\"); return 0; }\n");
     CHECK(b.ok, "build should succeed: " + b.diagnostics);
     //io joins at load time: the entry-unit artifact carries only the
-    //import slot, so the closure (stdlib.npkg via STDLIB_DIR) must be
+    //import slot, so the closure (io.npkg via STDLIB_DIR) must be
     //linked before execution.
     CompiledModule mod = loadLinked("hostio_print");
     VmExecutor exec;
@@ -47,7 +47,7 @@ void test_hostio_readline_rejected()
         "int main() { string s = io.readLine(); return 0; }\n");
     CHECK(b.ok, "build should succeed: " + b.diagnostics);
     //Same load-time closure as test_hostio_output_capture: io's unit
-    //rides in from stdlib.npkg, linked here.
+    //rides in from io.npkg, linked here.
     CompiledModule mod = loadLinked("hostio_readline");
     VmExecutor exec;
     CapturingHostIo io;
@@ -182,7 +182,7 @@ void test_machine_bfunc_and_output()
         "    return helper() + 4;\n"   //9
         "}\n");                        //10
     CHECK(b.ok, "build should succeed: " + b.diagnostics);
-    //io joins the closure at load time (stdlib.npkg via STDLIB_DIR), so
+    //io joins the closure at load time (io.npkg via STDLIB_DIR), so
     //the session runs the linked module, not the bare entry unit.
     CompiledModule mod = loadLinked("mach_bfunc");
     const std::string src = (scratchDir() / "mach_bfunc.n").string();
@@ -251,7 +251,7 @@ void test_machine_stdin_roundtrip()
         "    return 0;\n"                       //10
         "}\n");                                 //11
     CHECK(b.ok, "build should succeed: " + b.diagnostics);
-        //io joins the closure at load time (stdlib.npkg via STDLIB_DIR):
+        //io joins the closure at load time (io.npkg via STDLIB_DIR):
     //the entry-unit artifact carries only the import slot.
     CompiledModule mod = loadLinked("mach_stdin");
 
@@ -511,7 +511,7 @@ void test_machine_contexts_and_focus()
         "    return x;\n"                         //16
         "}\n");                                   //17
     CHECK(b.ok, "build should succeed: " + b.diagnostics);
-    //thread joins the closure at load time (stdlib.npkg via STDLIB_DIR).
+    //thread joins the closure at load time (concurrent.npkg, via STDLIB_DIR).
     CompiledModule mod = loadLinked("mach_ctx");
     const std::string src = (scratchDir() / "mach_ctx.n").string();
     const std::string escaped = protocol::EncodeField(src);

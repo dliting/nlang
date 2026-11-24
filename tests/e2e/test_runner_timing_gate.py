@@ -11,11 +11,11 @@
 #in-process with the timing-table floors shrunk on the loaded module
 #(the real floor values stay pinned in tools/gate_time_table_test.py),
 #so a kill costs seconds instead of minutes. The stale-binary guard
-#demands tool mtimes newer than src/, and
-#the package guard demands <build-root>/stdlib/stdlib.npkg newer than
-#both ncc and stdlib/*.n, so the stubs are written fresh and the npkg
-#last. Seconds are machine state: rows are pinned by shape and only
-#bounded by >= 0, never by a magnitude.
+#demands tool mtimes newer than src/, and the package guard demands a
+#package for every generated <build-root>/stdlib/<domain>.nproj, newer
+#than both ncc and the stdlib sources, so the stubs are written fresh
+#and the package last. Seconds are machine state: rows are pinned by
+#shape and only bounded by >= 0, never by a magnitude.
 import os
 import re
 import shutil
@@ -90,10 +90,10 @@ _SECONDS = r'\d+(?:\.\d+)?'
 
 
 def _make_stub_tools(root, nvm_body=_NVM_STUB):
-    """Stub tool tree in the build-root layout the package guard derives
-    its stdlib.npkg path from (<root>/src/tools/<tool>/Release/...); the
-    npkg is written last, so it is newer than both the tools and the
-    repo's newest stdlib source."""
+    """Stub tool tree in the build-root layout the package guard reads
+    (<root>/src/tools/<tool>/Release/... and <root>/stdlib/<domain>.nproj
+    with its package); the package is written last, so it is newer than
+    both the tools and the repo's newest stdlib source."""
     tools = {}
     for tool, body in (('ncc', _NCC_STUB), ('nvm', nvm_body),
                        ('ndb', _NDB_STUB)):
@@ -101,9 +101,11 @@ def _make_stub_tools(root, nvm_body=_NVM_STUB):
         path.parent.mkdir(parents=True)
         path.write_text(body, encoding='utf-8')
         tools[tool] = str(path)
-    npkg = root / 'stdlib' / 'stdlib.npkg'
-    npkg.parent.mkdir(parents=True)
-    npkg.write_text('stub package', encoding='utf-8')
+    project = root / 'stdlib' / 'io.nproj'
+    project.parent.mkdir(parents=True)
+    project.write_text('<Project name="io"/>', encoding='utf-8')
+    project.with_suffix('.npkg').write_text('stub package',
+                                            encoding='utf-8')
     return tools
 
 

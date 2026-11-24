@@ -1,5 +1,5 @@
 // Standard-library import through the whole pipeline: io's signatures
-// are inlined at compile time, but its unit ships inside stdlib.npkg
+// are inlined at compile time, but its unit ships inside io.npkg
 // and joins the link closure at load time (NcuLoader member
 // discovery). This pins that seam end to end: exit 3 plus the printed
 // line on stdout.

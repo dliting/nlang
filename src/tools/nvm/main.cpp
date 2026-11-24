@@ -208,9 +208,9 @@ int main(int argc, char* argv[]) {
         };
         //Unified library search: CLI -I > module dir > NLANG_PATH >
         //exe dir/cwd (native DLLs may ship beside the module or in -I
-        //dirs), plus the system stdlib directory (where stdlib.npkg
-        // lives) last. ONE list serves both the native search dirs and
-        //the closure loader (ndb composes the same way). The layered
+        //dirs), plus the system stdlib directory (where the stdlib
+        //packages live) last. ONE list serves both the native search dirs
+        //and the closure loader (ndb composes the same way). The layered
         //build keeps per-directory attribution for --verbose.
         std::vector<SearchDirEntry> tracedDirs =
             BuildLibrarySearchPathLayered(search);
