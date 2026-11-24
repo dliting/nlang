@@ -117,12 +117,19 @@ docs_legs() {
   leg "T-docs-pytest" env PYTHONPATH="$REPO/tools/nlang-docs/src" \
     "NLANG_NCC=$ncc" "NLANG_NVM=$nvm" \
     "$PY" -m pytest "$REPO/tools/nlang-docs/tests" -q
+  #Build both language sites before checking either: each site's language
+  #switcher links to the other site's pages (e.g. en -> zh/index.html), so a
+  #check that runs before the other site is built would report every
+  #cross-language link as missing.
   for lang in en zh; do
     local config="$REPO/docs/mkdocs.$lang.yml"
     leg "T-docs-build-$lang" env PYTHONPATH="$REPO/tools/nlang-docs/src" \
       "$PY" -m nlang_docs build --config "$config" \
       --site-dir "$WORK/docs-site/$lang" --ncc "$ncc" --nvm "$nvm" \
       --defer-site-audit
+  done
+  for lang in en zh; do
+    local config="$REPO/docs/mkdocs.$lang.yml"
     leg "T-docs-check-$lang" env PYTHONPATH="$REPO/tools/nlang-docs/src" \
       "$PY" -m nlang_docs check --site-dir "$WORK/docs-site/$lang" \
       --config "$config"

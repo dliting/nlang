@@ -12,7 +12,7 @@
 # orphan a test family.
 
 tier T1-debug-e2e selector .
-tier T1-asan-subset selector stabilize|concurren|carrier|thread|mutex|channel|atomic|sync|list|dict|container|collect|gc|exception|throw|catch|serial|stream|struct|boxing|array|slice|view|tearing|race|refbind|const_ref|op_tensor_sort|op_tensor_scatter|op_tensor_take|op_tensor_unique
+tier T1-asan-subset selector stabilize|concurren|carrier|thread|mutex|channel|atomic|sync|list|dict|container|collect|gc|exception|throw|catch|serial|stream|struct|boxing|array|slice|view|tearing|race|refbind|const_ref|op_tensor_sort|op_tensor_scatter|op_tensor_take|op_tensor_unique|op_rng_seed
 tier T2-debug-e2e selector .
 tier T2-asan-e2e selector .
 tier T2-release-e2e selector .
