@@ -655,6 +655,19 @@ answers `report.png` with no other cleaning. Multipart field values
 stay exactly as sent (no percent decoding, unlike the urlencoded arm,
 whose `+` and `%XX` decode as in chapter 22).
 
+The two `add` methods of `FormData` are public too, so a caller can
+assemble a form by hand: handler code written around the accessors
+then runs unchanged over a parsed wire message and over a form the
+program built itself. `addField(name, value)` appends a field value
+under `name`; the name joins the name list at its first appearance,
+exactly as parsing would. `addFile(file)` registers a `FormFile`
+under the field name the file itself carries, appending it to that
+name's file parts in arrival order. Neither makes a copy: `addField`
+keeps the value as given, and `addFile` registers the `FormFile`
+handle as given, so its `data` keeps whatever posture the caller
+handed it (the copy-at-registration posture belongs to
+`MultipartBody.addFile`, below).
+
 A file part is a `FormFile`: `field`, `filename`, `contentType` and
 `data` — a view onto the buffered body rather than a copy — with
 `size()` and `text()`. Its save face is three members:

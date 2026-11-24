@@ -405,6 +405,8 @@ void feed(web.RequestContext ctx) {
 
 解析完的表单是一个`FormData`：名字按首现顺序，每个名字映射到按到达顺序的字段值与按到达顺序的文件部件（`names`、`get`、`getAll`、`getFile`、`getFiles`、`files`，外加`has`、`fieldCount`、`fileCount`与`partCount`）。读取访问器交出的都是副本，处理器改拿到手的东西动不了表单本身。一个名字同时带字段与文件时只进名字表一次。频道归属跟着`filename`参数的存在与否走：写了`filename=""`的部件是个无名文件部件，不是字段。部件申报的`Content-Type`原样登记（部件没写则登记裸的`text/plain`）；filename保留最后一段路径且仅此而已——浏览器发的是`C:\fakepath\report.png`，`filename`回答`report.png`，此外不作任何清洗。multipart字段值一字不变（不做百分号解码，与urlencoded分支不同——那一侧的`+`与`%XX`如第22章所述解码）。
 
+`FormData`的两个add方法也是公开的，调用方可以手工拼装表单——围着访问器写的处理器代码因此不改一字，既能读解析来的消息，也能读程序自己攒出的表单。`addField(name, value)`向`name`追加一个字段值，名字首次出现时进入名字表，与解析的行为一致；`addFile(file)`按文件自身携带的字段名登记一枚`FormFile`，把它按到达顺序追加进该名字的文件部件。两者都不拷贝：`addField`原样保留传入的值，`addFile`原样登记传入的`FormFile`句柄，其`data`保持调用方交付时的姿态（登记即拷贝的姿态属于下文`MultipartBody.addFile`）。
+
 一个文件部件是`FormFile`：`field`、`filename`、`contentType`与`data`——已缓冲正文上的一个视图而非拷贝——外加`size()`与`text()`。它的落盘面有三个成员：
 
 | 成员 | 说明 |

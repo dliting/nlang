@@ -541,6 +541,8 @@ Verdict: all 6 top-level declarations public; nothing to hide.
 | class | FormOptions | public |
 | class | FormFile | public |
 | class | FormData | public |
+| method | FormData.addField | public |
+| method | FormData.addFile | public |
 | class | Form | public |
 | class | MultipartBody | public |
 | class | Sse | public |
@@ -551,7 +553,10 @@ subpackage sources `web/form.n`, `web/sse.n` and `web/static.n`
 (their top-level declarations are listed in file order, `web.n`
 first). All 18 entries are plain classes (17) plus the
 framework-internal `hexEncode` free function; none carries an
-explicit access prefix.
+explicit access prefix. The two `FormData` add-method rows are
+member-level rather than top-level: they record the hand-assembly
+face the user manual documents (27-web, §27.9), and they do not
+count toward the section's 18 or the file's 424.
 
 Verdict: all 18 top-level declarations public; nothing to hide.
 
