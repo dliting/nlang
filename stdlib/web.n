@@ -4,7 +4,8 @@
  * request carrying the response helpers a handler needs, and the App facade
  * that owns the HttpServer and maps failures to responses. Routing and
  * sessions add their classes to this same file; the static-file class lives
- * in the web/static.n submodule, where the SSE and form classes will join it.
+ * in the web/static.n submodule, joined by the SSE class in web/sse.n and
+ * the form classes in web/form.n.
  * ------------------------------------------------------------------ */
 import io;
 import http;
