@@ -76,13 +76,15 @@ void ExprResolveAccessor::Access(SnQualifiedTypeExpr &qtype)
 		return;
 	}
 
-	//D-29 rules 1 and 3 (ruling 45): the module path of a qualified type ends
-	//at the longest known module prefix, and a chain overshooting a known
-	//library module is blamed on that module — `web.static.StaticFiles
-	//v;` with `import web;` has to hear about `web.static`, not about a module
-	//named `web.static.StaticFiles` that no import can name. The type name is
-	//the last segment, so the path is everything before it.
+	//D-29 rules 1 and 3 (ruling 45): the module path of a qualified type
+	//ends at the longest known module prefix, and a chain overshooting a
+	//known library module is blamed on that module — `web.static
+	//.StaticFiles v;` with `import web;` hears about `web.static`, not a
+	//module named `web.static.StaticFiles` that no import can name. The
+	//type name is the last segment, so the path is everything before it.
 	std::vector<std::string> moduleSegs(segs.begin(), segs.end() - 1);
+	if (RejectQualifiedTypeThroughType(qtype, moduleSegs))
+		return;
 	const std::string nsPath = BlameModulePath(moduleSegs);
 	auto &reg = m_Env.Registry();
 	const uint32_t curModule = reg.OwnerOfContext(qtype);
@@ -95,9 +97,16 @@ void ExprResolveAccessor::Access(SnQualifiedTypeExpr &qtype)
 		return;
 	}
 
-	//0.13.8 item 5 (Task 4): the foreign non-public admission folds into
-	//not-found — the arm below already logs the exact not-a-member
-	//wording for both shapes.
+	BindModuleQualifiedType(qtype, reg, nsPath, curModule);
+}
+
+//Access(SnQualifiedTypeExpr&)'s tail. 0.13.8 item 5 (Task 4): the
+//foreign non-public admission folds into not-found — the lookup arm
+//already logs the exact not-a-member wording for both shapes.
+void ExprResolveAccessor::BindModuleQualifiedType(
+	SnQualifiedTypeExpr &qtype, ModuleRegistry &reg,
+	const std::string &nsPath, uint32_t curModule)
+{
 	bool bDenied = false;
 	SnField *pType = FindAdmittedModuleType(reg, nsPath, qtype.TypeName(),
 		curModule, bDenied);
@@ -128,6 +137,27 @@ void ExprResolveAccessor::RejectUnimportedQualifiedType(
 		"file before using type '%s'.",
 		pKind, nsPath.c_str(), nsPath.c_str(),
 		qtype.TypeName().c_str());
+}
+
+//Rule 1's m12 tie (ruling 45) reaches the declaration position as a hard
+//boundary: a middle segment that names a type leaves module space — a
+//type cannot be declared inside a type — so the overshoot is named for
+//what it is instead of an import remedy for a path that is not a module
+//(rule 3: every remedy must itself be applicable). True = diagnosed.
+bool ExprResolveAccessor::RejectQualifiedTypeThroughType(
+	SnQualifiedTypeExpr &qtype,
+	const std::vector<std::string> &moduleSegs) const
+{
+	std::string anchorModule;
+	std::string anchorType;
+	if (!TypeAnchorCapturesChain(moduleSegs, moduleSegs.size(),
+		&anchorModule, &anchorType))
+		return false;
+	m_Env.Log(CLL_Error, qtype.Location(),
+		"'%s' is a type in module '%s'; a type name cannot be "
+		"qualified through it.",
+		anchorType.c_str(), anchorModule.c_str());
+	return true;
 }
 
 //The not-found fallback of Access(SnIdentifierExpr&): a built-in class

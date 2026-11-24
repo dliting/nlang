@@ -73,6 +73,12 @@ family stdlib_http src stdlib/http.n
 family stdlib_http unit library_index|langservice|library_source|stdlib_tests|ncu_package
 family stdlib_http e2e ^(stdlib_http_|stdlib_web_|http_)
 
+# web builds on json too (sessions and form data ride it), so json.n
+# changes select the web corpus alongside the json corpus.
+family stdlib_json src stdlib/json.n
+family stdlib_json unit library_index|langservice|library_source|stdlib_tests|ncu_package
+family stdlib_json e2e ^(stdlib_json_|stdlib_web_)
+
 family stdlib_web src stdlib/web.n
 family stdlib_web unit library_index|langservice|library_source|stdlib_tests|ncu_package
 family stdlib_web e2e ^stdlib_web_

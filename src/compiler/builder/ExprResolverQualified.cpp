@@ -79,6 +79,46 @@ std::string ExprResolveAccessor::BlameModulePath(
 	return prefix;
 }
 
+//D-29 rule 1 (ruling 45), the m12 tie: a known module-path prefix whose
+//next segment names a type declared in that module captures the chain —
+//a same-named type outranks a same-named child package at ANY depth, so
+//a module claim must decline wherever the anchor sits (probing only the
+//longest prefix let a depth-2 namesake claim what the type reading owns:
+//with class helper in utils beside the submodule utils.helper, the chain
+//utils.helper.answer has its type anchor at the SHALLOWER prefix). The
+//scan stops at the first anchor, shallowest first — that is the boundary
+//m12 has always decided. probeLimit bounds the segments that may
+//capture: the call, function-value and type-reference routes pass their
+//chain's end (any segment before the payload may end the path), the
+//qualified type-value route passes its claim boundary so the Type.member
+//tail it exists to bind is not a capture, and the declaration position
+//passes its whole module path. FindModuleType reads this build's
+//declarations, so an anchor in a never-imported library module captures
+//nothing — that chain stays claimed and is reported as unimported, the
+//same honesty LongestKnownModulePrefix documents above.
+bool ExprResolveAccessor::TypeAnchorCapturesChain(
+	const std::vector<std::string> &segs, size_t probeLimit,
+	std::string *rpAnchorModule, std::string *rpAnchorType) const
+{
+	auto &reg = m_Env.Registry();
+	std::string prefix;
+	for (size_t len = 1; len < probeLimit && len < segs.size(); ++len)
+	{
+		prefix = len == 1 ? segs[0] : prefix + "." + segs[len - 1];
+		if (!reg.IsKnownModule(prefix)
+			&& !m_Env.IsLibraryPackage(prefix))
+			continue;
+		if (reg.FindModuleType(prefix, segs[len]) == nullptr)
+			continue;
+		if (rpAnchorModule != nullptr)
+			*rpAnchorModule = prefix;
+		if (rpAnchorType != nullptr)
+			*rpAnchorType = segs[len];
+		return true;
+	}
+	return false;
+}
+
 //Spec §7 row 1: the module is known but not imported into the current
 //TU — name the fix and consume the chain here (normal resolution would
 //only add "Cannot resolve the field" for the leftmost identifier).
@@ -208,6 +248,14 @@ bool ExprResolveAccessor::TryResolveQualifiedTypeValue(SnMemberExpr &snMember)
 	if (!LongestKnownModulePrefix(segs, modulePath, tailStart)
 		|| segs.size() - tailStart != 2)
 		return false;
+	//The m12 tie (ruling 45): a type anchored at a shallower known prefix
+	//captures the chain before this route's claim prefix — utils.helper
+	//the class shadows utils.helper the submodule, so the Type.member tail
+	//binds in the class's scope through the generic path, not the
+	//submodule's here. The tail itself never captures: its head IS the
+	//type this route exists to bind.
+	if (TypeAnchorCapturesChain(segs, tailStart))
+		return false;
 	const std::string &typeName = segs[tailStart];
 	const std::string &memberName = segs.back();
 
@@ -254,6 +302,12 @@ bool ExprResolveAccessor::TryResolveModuleFuncValue(SnMemberExpr &snMember)
 {
 	std::vector<std::string> segs;
 	if (!RouteQualifiedValueChain(snMember, segs))
+		return false;
+
+	//The m12 tie (ruling 45): a type anchored anywhere before the
+	//function tip captures the chain, so the value spelling cannot reach
+	//a submodule function the call form would shadow.
+	if (TypeAnchorCapturesChain(segs, segs.size()))
 		return false;
 
 	const std::string funcName = segs.back();
@@ -319,9 +373,15 @@ bool ExprResolveAccessor::TryResolveModuleTypeRef(SnMemberExpr &snMember)
 	//fails that (its prefix stops at `json`), so the route declines, the
 	//recursion binds the shorter chain, and the member resolves in the
 	//type's scope instead of this arm claiming the whole chain as a module.
+	//The m12 tie reaches the middle segments the same way: a namesake type
+	//before the module path captures the chain and the generic path binds
+	//the shorter head. The type tip is never probed — a type can only live
+	//in a module, so the module reading of the tip has no type-reading
+	//rival to lose to.
 	std::string modulePath;
 	size_t tailStart = 0;
-	if (!LongestKnownModulePrefix(segs, modulePath, tailStart)
+	if (TypeAnchorCapturesChain(segs, segs.size())
+		|| !LongestKnownModulePrefix(segs, modulePath, tailStart)
 		|| tailStart != segs.size())
 		return false;
 

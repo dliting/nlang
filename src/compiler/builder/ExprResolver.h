@@ -1725,6 +1725,16 @@ private:
 	//RejectUnimportedModuleCall).
 	void RejectUnimportedQualifiedType(SnQualifiedTypeExpr &qtype,
 		const std::string &nsPath);
+	//D-29 rule 1's m12 tie at the declaration position: a middle segment
+	//that names a type leaves module space, so the overshoot is named for
+	//what it is. True = diagnosed.
+	bool RejectQualifiedTypeThroughType(SnQualifiedTypeExpr &qtype,
+		const std::vector<std::string> &moduleSegs) const;
+	//Access(SnQualifiedTypeExpr&)'s tail: look the type up inside the
+	//opened module and bind the qualified node to its declaration.
+	void BindModuleQualifiedType(SnQualifiedTypeExpr &qtype,
+		ModuleRegistry &reg, const std::string &nsPath,
+		uint32_t curModule);
 
 	/*
 	2026-09-27 decomposition of the module-qualified resolution
@@ -1743,6 +1753,16 @@ private:
 	//value and the declaration position (ExprResolverTypes.cpp).
 	bool LongestKnownModulePrefix(const std::vector<std::string> &segs,
 		std::string &rPrefix, size_t &rTailStart) const;
+	//D-29 rule 1 (ruling 45), the m12 tie: true when a known module-path
+	//prefix's next segment names a type declared in that module — the
+	//type captures the chain wherever the anchor sits, at any depth, so
+	//the module-claim routes decline and the type reading owns it. The
+	//optional outs name the anchor (its module and the type segment) for
+	//the declaration position's diagnostic. probeLimit bounds which
+	//segments may capture; see the definition.
+	bool TypeAnchorCapturesChain(const std::vector<std::string> &segs,
+		size_t probeLimit, std::string *rpAnchorModule = nullptr,
+		std::string *rpAnchorType = nullptr) const;
 	//D-29 rule 3 (ruling 45): fold a chain that overshoots a known library
 	//module onto that module, so an "is not imported" diagnostic only ever
 	//suggests an import that exists; see the definition.

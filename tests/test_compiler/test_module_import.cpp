@@ -1004,6 +1004,94 @@ private slots:
             "the field initializer value must arrive").c_str());
     }
 
+    //m12 at a mid-chain namesake (D-29 ruling 45's tie rule): utils.n
+    //declares class helper, the depth-2 module utils.helper sits beside
+    //it, and both spellings of utils.helper offer an `answer` — a class
+    //static (42) and a module-level function (7). The same-named type
+    //keeps its priority over the same-named child package, so the
+    //qualified call must reach the class static, exactly as the bare
+    //class-member spelling would.
+    void qualifiedNamesakeTypeShadowsSubmoduleCall()
+    {
+        GateProjectOptions opts;
+        opts.withRootUtils = true;
+        opts.szRootUtilsBody =
+            "public class helper { public static int answer() { return 42; } }\n";
+        opts.szHelperBody =
+            "int answer() { return 7; }\n"
+            "int helperFn() { return 5; }\n";
+        opts.szMainBody =
+            "import utils.*;\n"
+            "int main()\n"
+            "{\n"
+            "    int v = utils.helper.answer();\n"
+            "    return v;\n"
+            "}\n";
+        auto run = runGateProject(opts);
+        QVERIFY2(run.ok, runFailureText(run,
+            "the namesake-qualified call must build and execute").c_str());
+        QVERIFY2(run.runtimeError.empty(),
+            runFailureText(run, "execution must be clean").c_str());
+        QVERIFY2(run.exitValue == 42, runFailureText(run,
+            "the class static must win the tie, not the module function")
+            .c_str());
+    }
+
+    //The tie decides the reading of utils.helper wholesale: a member
+    //that exists only in the shadowed submodule reads as missing from
+    //the class through the qualified spelling — the collision is the
+    //user's to resolve, not the resolver's to guess around.
+    void qualifiedNamesakeCapturesSubmoduleOnlyMember()
+    {
+        GateProjectOptions opts;
+        opts.withRootUtils = true;
+        opts.szRootUtilsBody =
+            "public class helper { public static int answer() { return 42; } }\n";
+        opts.szHelperBody =
+            "int answer() { return 7; }\n"
+            "int helperFn() { return 5; }\n";
+        opts.szMainBody =
+            "import utils.*;\n"
+            "int main()\n"
+            "{\n"
+            "    return utils.helper.helperFn();\n"
+            "}\n";
+        auto res = buildGateProject(opts);
+        QVERIFY2(!res.ok, ("the qualified spelling must read the tie as "
+            "the class; errors: " + joinErrors(res.errors)).c_str());
+        QVERIFY2(containsError(res.errors, "helperFn"),
+            ("the diagnostic must name the missing member; errors: "
+             + joinErrors(res.errors)).c_str());
+    }
+
+    //Declaring face of the capture rule: a qualified type whose module
+    //path overshoots into a type (utils.helper.Widget names the class
+    //Widget of the module, so a further segment leaves module space)
+    //must fail on that fact, not on an import remedy for a path that is
+    //not a module.
+    void qualifiedTypeThroughTypeRejected()
+    {
+        GateProjectOptions opts;
+        opts.withRootUtils = true;
+        opts.szRootUtilsBody = "class Root { public int r() { return 1; } }\n";
+        opts.szHelperBody =
+            "class Widget { public static int wv() { return 9; } }\n";
+        opts.szMainBody =
+            "import utils.*;\n"
+            "int main()\n"
+            "{\n"
+            "    utils.helper.Widget.Deep v;\n"
+            "    return 0;\n"
+            "}\n";
+        auto res = buildGateProject(opts);
+        QVERIFY2(!res.ok, ("a type qualified through a type must fail; "
+            "errors: " + joinErrors(res.errors)).c_str());
+        QVERIFY2(containsError(res.errors, "cannot be qualified through"),
+            ("the diagnostic must say the segment leaves module space as "
+             "a type, not offer an import remedy; errors: "
+             + joinErrors(res.errors)).c_str());
+    }
+
     //D7: files of the TU's own directory are implicitly imported.
     void sameDirectoryAutoImported()
     {

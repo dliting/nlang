@@ -83,6 +83,8 @@
 
 **D-M1 Array(dims)内联字面量**（同机器缺陷修复）：`Array([2, 3])`的括号字面量是延迟init-list实参，构造拦截门因「无形参可推断」而整体拒绝。Array的dims形参已知为int[]（spec），拦截前给字面量喂int[]目标再走常规流程（TryInferArrayDimsDeferredArgs，镜像ResolveDeferredBraceArgs模式）。
 
+**修订（2026-11-19 D-29，随2026-11-23的dev→master合并落地）**：V3的「库包禁通配」撤销。其自陈理由是分工「显式＝逐模块点名、通配＝子树路径准入」——扁平库包没有子树，通配相较精确import无可增益，故禁；D-28（docs/dev/web_framework_design.md）让库包真实拥有点分子模块后该前提消失。`import p.*;`改为一律并入`p`及其全部子模块，库包与项目包同等，`Wildcard import cannot target library package`诊断随之移除，空并集报错保留（联合改为项目单元∪库单元）。V2的限定名准入同步扩展：限定链按D-29规则1解析——已知模块路径之后的段若指名类型，后续段在该类型作用域内解析，静态方法、静态常量与枚举成员同等、任意嵌套深度同等；同名类型优先于同名子模块的m12规则不变。诊断只对确实是模块路径的名字说「is not imported」，指向类型的成员缺失按成员不存在表述（D-29规则3）。
+
 ## 6 诊断契约
 
 | 场景 | 文案要点 |

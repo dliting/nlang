@@ -2,8 +2,11 @@
  * web.n — the web framework layer (spec docs/dev/web_framework_design.md).
  * Pure nlang on top of http.n: an onion middleware chain, one context per
  * request carrying the response helpers a handler needs, and the App facade
- * that owns the HttpServer and maps failures to responses. Routing, sessions,
- * static files, SSE and form parsing add their classes to this same file.
+ * that owns the HttpServer and maps failures to responses. Routing and
+ * sessions live in this package module; static files, SSE and form parsing
+ * arrive as the submodules web/static.n, web/sse.n and web/form.n (D-28's
+ * layering) as the framework's remaining tasks land — until 0.13.12 closes,
+ * this surface is a preview that may still change.
  * ------------------------------------------------------------------ */
 import io;
 import http;

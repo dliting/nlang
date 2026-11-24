@@ -6,8 +6,10 @@
 // Go-scanner strictness: no comments, no trailing commas, no Infinity
 // or NaN, no leading plus or leading-zero integers, and every rejection
 // carries the byte offset. The DOM is a JsonValue class family visited
-// through kind(); numbers keep their source token (rawText) so parse
-// then serialize reproduces the input byte for byte. Nesting is capped
+// through kind(); numbers keep their source token (rawText), so a
+// number's parse-then-serialize reproduces its input bytes, while
+// strings re-serialize under the writer's escaping, not their source
+// spelling. Nesting is capped
 // at JsonText.MAX_DEPTH on both sides so deep documents fail as a
 // catchable JsonException, long before the VM's call-depth fault.
 import io;
@@ -435,13 +437,14 @@ class JsonParser {
 
     private byte[] m_src;
     private int m_pos = 0;
-    private byte[] m_buf;          // decode buffer for the string token in flight
+    private byte[] m_buf;          // decode scratch, sized once per parse in run()
     private int m_bufLen = 0;
 
     // Parses one complete document (exactly one top-level value).
     public static JsonValue run(string text) {
         JsonParser p = JsonParser();
         p.m_src = io.toBytes(text);
+        p.m_buf = byte[p.m_src.length()];   // one scratch for every string token
         p.skipSpace();
         if (p.atEnd()) { p.failHere("unexpected end of input"); }
         JsonValue doc = p.parseValue(0);
@@ -553,8 +556,7 @@ class JsonParser {
     // exactly. Raw bytes at or above 0x80 are copied unchecked (D-6).
     private string parseString() {
         int start = m_pos;
-        m_buf = byte[m_src.length()];
-        m_bufLen = 0;
+        m_bufLen = 0;                  // scratch comes from run(), reused per token
         m_pos = m_pos + 1;                 // consume the opening quote
         while (true) {
             if (this.atEnd()) { this.failAt(start, "unterminated string"); }
@@ -702,6 +704,10 @@ class JsonParser {
         int i = this.scanNumber();
         string token = io.fromBytes(m_src[start:i]);
         m_pos = i;
+        //fromToken range-checks without knowing the token's byte offset;
+        //failAt re-raises under this parser's offset-carrying convention
+        //(the trailing return only satisfies the flow analysis — failAt
+        //never returns).
         try {
             return JsonNumber.fromToken(token);
         } catch (JsonException e) {
