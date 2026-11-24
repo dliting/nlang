@@ -80,23 +80,20 @@ bool ExprResolveAccessor::TryResolveModuleCallTarget(
 		return false;
 
 	//D-29 rule 1 (ruling 45): one question decides the claim — where the
-	//module path ends. The chain addresses a module-level call when the
-	//longest known module-path prefix of it is the whole chain (a package
-	//function, `io.print`) and no type is anchored anywhere along the way:
-	//a type at any known prefix (`lib.Mix.f`, `http.HttpResponse
-	//.reasonPhraseFor`, `utils.helper.Widget.answer`, and the m12 tie —
-	//with class helper in utils beside the submodule utils.helper, the
-	//shallow anchor captures `utils.helper.answer()` too) is a qualified
-	//type access at any depth, and the type-receiver path owns it — a
-	//same-named type keeps its m12 priority over a same-named child
-	//package, so the capture scan reaches every known prefix, shallowest
-	//first. Everything else that extends a known module addresses an
-	//unimported child package (`lib.sub.f`, spec §6.2: a parent import
-	//does not open the child) and stays claimed: an unimported project
-	//child is exactly an unregistered one, so existence is not checkable
-	//here, and RejectUnimportedModuleCall names the path instead of
-	//letting the chain descend into mid-chain members and die as
-	//follow-on noise.
+	//module path ends. The chain addresses a module-level call when its
+	//longest known module-path prefix is the whole chain (a package
+	//function, `io.print`) and no type is anchored anywhere along the way.
+	//A type at any known prefix (`lib.Mix.f`, `utils.helper.Widget.answer`,
+	//`http.HttpResponse.reasonPhraseFor`) is a qualified type access at any
+	//depth and the type-receiver path owns it; the m12 tie is its shallowest
+	//case — with class helper in utils beside the submodule utils.helper, the
+	//anchor at `utils` captures `utils.helper.answer()` too. Everything else
+	//that extends a known module addresses an unimported child package
+	//(`lib.sub.f`, spec §6.2: a parent import does not open the child) and
+	//stays claimed: an unimported project child is exactly an unregistered
+	//one, so existence is not checkable here, and RejectUnimportedModuleCall
+	//names the path instead of letting the chain descend into mid-chain
+	//members and die as follow-on noise.
 	std::string knownPrefix;
 	size_t tailStart = 0;
 	if (!LongestKnownModulePrefix(pathSegs, knownPrefix, tailStart))

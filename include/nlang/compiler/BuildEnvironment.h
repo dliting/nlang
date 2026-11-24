@@ -12,6 +12,7 @@
 #include <list>
 #include <map>
 #include <memory>
+#include <unordered_map>
 
 //Forward declarations.
 #ifdef NLANG_ENABLE_LLVM
@@ -117,6 +118,11 @@ public:
 	//party). Thin wrapper over the library index so internal passes need
 	//not depend on the langservice headers.
 	bool IsLibraryPackage(const std::string& name) const;
+	//True when some effective library dir offers the dotted name as a .n
+	//source (existence probe over the same <dir>/<a/b/c>.n mapping the
+	//import discovery uses, memoized per build): a third-party package is
+	//knowable to diagnostics before any import inlines it.
+	bool HasLibrarySource(const std::string& name) const;
 	//Load one library declaration file into the index (idempotent).
 	//packageRoot: the matched search root the file was found under — the
 	//index entry's package is the path relative to THAT root.
@@ -199,6 +205,9 @@ private:
 	std::unique_ptr<ICodeBackend> m_upBackend;
 	std::unique_ptr<ModuleRegistry> m_upRegistry;
 	std::unique_ptr<langservice::SymbolIndex> m_upLibraryIndex;
+	//Memoized existence probes of HasLibrarySource: mutable so the const
+	//probe can cache (a legal deep chain asks each prefix once per build).
+	mutable std::unordered_map<std::string, bool> m_LibrarySourceProbes;
 	//0.7.3 B: interned array tokens, keyed by element field. Owns the
 	//tokens for this environment's lifetime.
 	//Key = (element type, rank): T[] and T[,] are distinct identities.

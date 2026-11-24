@@ -8,9 +8,13 @@
 #include "ScriptLocation.h"
 #include "SnExtraTypes.h"
 #include "builder/ModuleRegistry.h"
+#include "ModuleBuilderImports.h"
 #include <nlang/langservice/SymbolIndex.h>
+#include <algorithm>
 #include <cassert>
 #include <cstdarg>
+#include <fstream>
+#include <vector>
 
 #ifdef NLANG_ENABLE_LLVM
 #include <llvm/IR/Module.h>
@@ -53,15 +57,76 @@ langservice::SymbolIndex& BuildEnvironment::LibraryIndex()
 	return *m_upLibraryIndex;
 }
 
+//Definitions of the seam declarations in ModuleBuilderImports.h. They
+//live here, not in the import TUs, so referencing them pulls no builder
+//machinery: a consumer linking only the environment (the langservice
+//tests, IDE indexer) stays linkable without the loader libraries, and
+//BuildEnvironment::HasLibrarySource shares the discovery rule by calling
+//the same functions the import walk uses.
+
+//Effective library search directories: explicit/configured import dirs
+//first, then the stdlib dir, so the standard library is discoverable even
+//when a direct BuildParams caller did not list it (the tool layer normally
+//prepends it through BuildLibrarySearchPath).
+std::vector<std::string> EffectiveLibraryDirs(const BuildParams &params)
+{
+	std::vector<std::string> dirs;
+	dirs.assign(params.m_ImportDirs.begin(), params.m_ImportDirs.end());
+	if (!params.m_sStdLibDir.empty()
+		&& std::find(dirs.begin(), dirs.end(), params.m_sStdLibDir)
+			== dirs.end())
+		dirs.push_back(params.m_sStdLibDir);
+	return dirs;
+}
+
+//Every (file, root) match across the effective library dirs: the
+//duplicate-package diagnosis must see the second root too, so the scan
+//does not stop at the first hit.
+std::vector<std::pair<std::string, std::string>>
+FindLibrarySourceMatches(const BuildParams &params,
+	const std::string& dottedName)
+{
+	std::string rel = dottedName;
+	std::replace(rel.begin(), rel.end(), '.', '/');
+	std::vector<std::pair<std::string, std::string>> matches;
+	for (const auto &dir : EffectiveLibraryDirs(params))
+	{
+		const std::string path = dir + "/" + rel + ".n";
+		std::ifstream test(path, std::ios::binary);
+		if (test.good())
+			matches.push_back({ path, dir });
+	}
+	return matches;
+}
+
 bool BuildEnvironment::IsLibraryPackage(const std::string& name) const
 {
 	return m_upLibraryIndex && m_upLibraryIndex->HasPackage(name);
 }
 
+bool BuildEnvironment::HasLibrarySource(const std::string& name) const
+{
+	const auto iFound = m_LibrarySourceProbes.find(name);
+	if (iFound != m_LibrarySourceProbes.end())
+		return iFound->second;
+	//Existence only: the resolver asks knowability per chain segment, so
+	//a legal deep chain (web.form.Form.post) probes each prefix once per
+	//build instead of once per use.
+	const bool present =
+		!FindLibrarySourceMatches(m_Params, name).empty();
+	m_LibrarySourceProbes.emplace(name, present);
+	return present;
+}
+
 void BuildEnvironment::LoadLibrarySource(const std::string& path,
 	const std::string& packageRoot)
 {
-	m_upLibraryIndex->LoadFileOnce(path, packageRoot);
+	//The package is the path relative to the matched root — the same rule
+	//LoadLibraryDir applies — not the root itself: a lazily inlined
+	//third-party source must index under the package name its consumers
+	//spell (vendor/graphics.n under R is "vendor.graphics").
+	m_upLibraryIndex->LoadFileOnce(path,
+		langservice::SymbolIndex::PackageUnderRoot(path, packageRoot));
 }
 
 SnArrayTypeToken* BuildEnvironment::InternArrayTypeToken(SnField *pElemType,

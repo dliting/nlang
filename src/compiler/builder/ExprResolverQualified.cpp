@@ -28,9 +28,10 @@ namespace nlang
 //is how one spelling resolved for one kind of member and not for another.
 //Known means a registered unit (a project module, an inlined library TU or
 //an external .ncu, ModuleRegistry::IsKnownModule) or a library module the
-//symbol index knows (BuildEnvironment::IsLibraryPackage answers dotted names
-//as well: the index records every <root>/a/b/c.n under its full package
-//name). m12's type probe still only sees registered units — FindModuleType
+//build can still name: one the symbol index knows or a search dir offers as
+//a source (KnowsLibraryModule — the source arm is what makes a never-imported
+//third-party submodule claimable, 0.13.12 Low 2). m12's type probe still
+//only sees registered units — FindModuleType
 //reads the declarations this build owns — so a library module that was never
 //imported (hence never inlined) vetoes nothing: its chain is claimed and
 //reported as unimported, which is the honest advice now that the wildcard
@@ -47,7 +48,7 @@ bool ExprResolveAccessor::LongestKnownModulePrefix(
 			segs.begin() + len);
 		const std::string prefix = JoinDots(head);
 		if (!reg.IsKnownModule(prefix)
-			&& !m_Env.IsLibraryPackage(prefix))
+			&& !KnowsLibraryModule(prefix))
 			continue;
 		rPrefix = prefix;
 		rTailStart = len;
@@ -57,7 +58,7 @@ bool ExprResolveAccessor::LongestKnownModulePrefix(
 }
 
 //D-29 rule 3 (ruling 45): the module path a diagnostic may blame as
-//unimported. A chain that overshoots a LIBRARY module the index knows
+//unimported. A chain that overshoots a LIBRARY module the build knows
 //(`web.form.Form.f` with only `import web;`) is blamed on that deepest
 //importable prefix — `import web.form.Form;` would itself be refused, and a
 //remedy the user cannot apply is worse than none. A project child path that
@@ -74,7 +75,7 @@ std::string ExprResolveAccessor::BlameModulePath(
 	size_t tailStart = 0;
 	if (!LongestKnownModulePrefix(segs, prefix, tailStart)
 		|| tailStart == segs.size()
-		|| !m_Env.IsLibraryPackage(prefix))
+		|| !KnowsLibraryModule(prefix))
 		return JoinDots(segs);
 	return prefix;
 }
@@ -106,7 +107,7 @@ bool ExprResolveAccessor::TypeAnchorCapturesChain(
 	{
 		prefix = len == 1 ? segs[0] : prefix + "." + segs[len - 1];
 		if (!reg.IsKnownModule(prefix)
-			&& !m_Env.IsLibraryPackage(prefix))
+			&& !KnowsLibraryModule(prefix))
 			continue;
 		if (reg.FindModuleType(prefix, segs[len]) == nullptr)
 			continue;
@@ -146,7 +147,7 @@ bool ExprResolveAccessor::RejectUnimportedModuleCall(
 		//third-party package) reads "Package"; an external .ncu reads
 		//"Module". No wildcard is suggested — it never matches a
 		//single-segment name (§3.3); the exact form always suffices.
-		const char *pKind = m_Env.IsLibraryPackage(blamed)
+		const char *pKind = KnowsLibraryModule(blamed)
 			? "Package" : "Module";
 		m_Env.Log(CLL_Error, snMember.Location(),
 			"%s '%s' is not imported. Add 'import %s;' at the top "

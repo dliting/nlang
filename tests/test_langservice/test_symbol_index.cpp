@@ -445,9 +445,8 @@ static void TestResolveDottedPackage() {
     // package "gfx.color", name "draw"). This pins the documented
     // LoadFileOnce(path, package) contract: the CALLER supplies the
     // dotted package, and under a matched root the bare file stem is
-    // not the package. (No in-tree caller feeds a dotted package yet;
-    // the compiler's LoadLibrarySource forwards the raw matched root
-    // today.)
+    // not the package. (The compiler's LoadLibrarySource derives that
+    // package through SymbolIndex::PackageUnderRoot.)
     fs::path tmp = nlang::test::ScratchDir("nlang_ls_dotted");
     fs::remove_all(tmp);
     fs::create_directories(tmp / "gfx");

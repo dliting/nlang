@@ -4,6 +4,7 @@
 #include "SyntaxNodeVisitor.h"
 #include "BuiltinNames.h"
 #include "SnArrayTypeToken.h"
+#include <nlang/compiler/BuildEnvironment.h>
 #include <nlang/compiler/TypeArgInference.h>
 #include <nlang/runtime/BuiltinGenericNames.h>
 #include <nlang/runtime/Flagable.h>
@@ -1753,6 +1754,16 @@ private:
 	//value and the declaration position (ExprResolverTypes.cpp).
 	bool LongestKnownModulePrefix(const std::vector<std::string> &segs,
 		std::string &rPrefix, size_t &rTailStart) const;
+	//D-29 rule 1's knowability, extended (0.13.12 Low 2): a module path is
+	//known when the build registered it, the symbol index knows it, or an
+	//effective library dir offers its source. The source arm keeps a
+	//never-imported third-party package claimable — folded onto an import
+	//remedy that exists — instead of dying as a generic field error.
+	bool KnowsLibraryModule(const std::string &name) const
+	{
+		return m_Env.IsLibraryPackage(name)
+			|| m_Env.HasLibrarySource(name);
+	}
 	//D-29 rule 1 (ruling 45), the m12 tie: true when a known module-path
 	//prefix's next segment names a type declared in that module — the
 	//type captures the chain wherever the anchor sits, at any depth, so

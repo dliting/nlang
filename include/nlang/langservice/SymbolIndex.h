@@ -86,6 +86,15 @@ public:
     // "vendor.graphics", not the bare stem).
     void LoadFileOnce(const std::string& path, const std::string& package);
 
+    // The package a file declares under a library root: the relative path
+    // dotted with the extension dropped ("vendor/graphics.n" under root R
+    // is "vendor.graphics"), falling back to the stem outside the root.
+    // The index's own unit rule, shared with the compiler's lazy
+    // single-file loads so both derive the same package from the same
+    // (file, root) pair.
+    static std::string PackageUnderRoot(const std::string& path,
+                                        const std::string& root);
+
     // Resolve a qualified name, e.g. Resolve("io", "print").
     // Returns nullptr when unknown.
     const SymbolInfo* Resolve(const std::string& ns,

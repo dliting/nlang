@@ -118,11 +118,6 @@ private:
 	//(file, matched root); the file is empty when no root has it.
 	std::pair<std::string, std::string> FindLibrarySourceFile(
 		const std::string& dottedName) const;
-	//Every (file, root) match across the effective library dirs — the
-	//duplicate-package diagnosis scans the full set instead of stopping
-	//at the first hit.
-	std::vector<std::pair<std::string, std::string>>
-	FindLibrarySourceMatches(const std::string& dottedName) const;
 	//One import's library-source handling (DiscoverLibraryUnits' inner
 	//loop body): the multi-root duplicate diagnosis, otherwise inline the
 	//single match under its root. True when a TU was added.

@@ -76,12 +76,9 @@ void ExprResolveAccessor::Access(SnQualifiedTypeExpr &qtype)
 		return;
 	}
 
-	//D-29 rules 1 and 3 (ruling 45): the module path of a qualified type
-	//ends at the longest known module prefix, and a chain overshooting a
-	//known library module is blamed on that module — `web.static
-	//.StaticFiles v;` with `import web;` hears about `web.static`, not a
-	//module named `web.static.StaticFiles` that no import can name. The
-	//type name is the last segment, so the path is everything before it.
+	//D-29 rules 1 and 3 (ruling 45): the path before the type name ends at
+	//the longest known module prefix, and a chain overshooting a known
+	//library module is blamed on that module (see BlameModulePath).
 	std::vector<std::string> moduleSegs(segs.begin(), segs.end() - 1);
 	if (RejectQualifiedTypeThroughType(qtype, moduleSegs))
 		return;
@@ -130,7 +127,7 @@ void ExprResolveAccessor::RejectUnimportedQualifiedType(
 	//external .ncu; a dotted (nested) path is always a module.
 	const char *pKind = "Module";
 	if (nsPath.find('.') == std::string::npos
-		&& m_Env.IsLibraryPackage(nsPath))
+		&& KnowsLibraryModule(nsPath))
 		pKind = "Package";
 	m_Env.Log(CLL_Error, qtype.Location(),
 		"%s '%s' is not imported. Add 'import %s;' at the top of this "

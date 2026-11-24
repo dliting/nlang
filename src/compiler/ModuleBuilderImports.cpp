@@ -28,17 +28,6 @@ static const char *BAR_STR =
 
 namespace nlang
 {
-//Definition of the seam declaration in ModuleBuilderImports.h.
-std::vector<std::string> EffectiveLibraryDirs(const BuildParams &params)
-{
-	std::vector<std::string> dirs;
-	dirs.assign(params.m_ImportDirs.begin(), params.m_ImportDirs.end());
-	if (!params.m_sStdLibDir.empty()
-		&& std::find(dirs.begin(), dirs.end(), params.m_sStdLibDir)
-			== dirs.end())
-		dirs.push_back(params.m_sStdLibDir);
-	return dirs;
-}
 
 bool ModuleBuilder::LoadImports()
 {
@@ -98,25 +87,6 @@ bool ModuleBuilder::BuildImportGates(
 	return true;
 }
 
-//Every (file, root) match across the effective library dirs: the
-//duplicate-package diagnosis must see the second root too, so the scan
-//does not stop at the first hit.
-std::vector<std::pair<std::string, std::string>>
-ModuleBuilder::FindLibrarySourceMatches(const std::string& dottedName) const
-{
-	std::string rel = dottedName;
-	std::replace(rel.begin(), rel.end(), '.', '/');
-	std::vector<std::pair<std::string, std::string>> matches;
-	for (const auto &dir : EffectiveLibraryDirs(m_upEnv->Params()))
-	{
-		const std::string path = dir + "/" + rel + ".n";
-		std::ifstream test(path, std::ios::binary);
-		if (test.good())
-			matches.push_back({ path, dir });
-	}
-	return matches;
-}
-
 //Locate a library source for a dotted package name: `a.b.c` is
 //<root>/a/b/c.n on the first matching search dir. Returns the file and the
 //root it was found under, because the package name is the path RELATIVE TO
@@ -125,7 +95,8 @@ ModuleBuilder::FindLibrarySourceMatches(const std::string& dottedName) const
 std::pair<std::string, std::string> ModuleBuilder::FindLibrarySourceFile(
 	const std::string& dottedName) const
 {
-	const auto matches = FindLibrarySourceMatches(dottedName);
+	const auto matches = FindLibrarySourceMatches(m_upEnv->Params(),
+		dottedName);
 	if (matches.empty())
 		return { };
 	return matches.front();
@@ -206,7 +177,8 @@ bool ModuleBuilder::EnsurePreludePackageImported(
 		if (DeriveModulePath(sourceFile, projectDir) == pkg.name)
 			return true;
 	}
-	const auto matches = FindLibrarySourceMatches(pkg.name);
+	const auto matches = FindLibrarySourceMatches(m_upEnv->Params(),
+		pkg.name);
 	if (matches.size() > 1)
 	{
 		m_upEnv->Log(CLL_Error, "Duplicate package '%s': '%s' and '%s'.",
@@ -248,7 +220,8 @@ bool ModuleBuilder::HandleLibraryImport(const std::string &dottedName)
 		if (dottedName == pkg.name)
 			return EnsurePreludePackageImported(pkg);
 	}
-	const auto matches = FindLibrarySourceMatches(dottedName);
+	const auto matches = FindLibrarySourceMatches(m_upEnv->Params(),
+		dottedName);
 	if (matches.size() > 1)
 	{
 		std::string message = "Duplicate package '" + dottedName

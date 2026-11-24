@@ -9,7 +9,10 @@ Console-style suite (same shape as test_array_token).
 #include <nlang/compiler/BuildEnvironment.h>
 #include <nlang/compiler/Logger.h>
 #include <nlang/langservice/SymbolIndex.h>
+#include "test_support/test_scratch.h"
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <string>
 
 using namespace nlang;
@@ -121,10 +124,43 @@ static void TestEmptyDirLeavesIndexEmpty()
     CHECK(env.LibraryIndex().Resolve("io", "print") == nullptr);
 }
 
+//Low 2 defect A: the lazy single-file index load must derive the package
+//from the matched root (vendor/graphics.n under root R is
+//"vendor.graphics"), the same rule LoadLibraryDir applies — forwarding
+//the raw root indexed the file under a directory path no package name
+//can equal, leaving the package invisible to every IsLibraryPackage
+//consumer.
+static void TestLoadLibrarySourceDerivesPackage()
+{
+    namespace fs = std::filesystem;
+    const fs::path root =
+        nlang::test::ScratchDir("nlang_library_index_tests");
+    const fs::path vendor = root / "vendor";
+    std::error_code fsError;
+    fs::create_directories(vendor, fsError);
+    {
+        std::ofstream out(vendor / "graphics.n", std::ios::binary);
+        //The index's declaration regex reads lines that end with ';' or
+        //'{' (brace on the declaration line, stdlib formatting) — a
+        //brace on its own line or a one-liner body is skipped.
+        out << "int shade() {\n    return 1;\n}\n";
+    }
+    BuildParams params;  // stdlib left empty: a pure third-party load
+    NullLogger logger;
+    BuildEnvironment env(params, logger);
+    env.LoadLibrarySource((vendor / "graphics.n").string(), root.string());
+    CHECK(env.IsLibraryPackage("vendor.graphics"));
+    CHECK(!env.IsLibraryPackage("graphics"));
+    const langservice::SymbolInfo* shade =
+        env.LibraryIndex().Resolve("vendor.graphics", "shade");
+    CHECK(shade != nullptr);
+}
+
 int main()
 {
     TestLoadsStdLib();
     TestEmptyDirLeavesIndexEmpty();
+    TestLoadLibrarySourceDerivesPackage();
     if (g_failures > 0) {
         std::printf("%d failure(s)\n", g_failures);
         return 1;

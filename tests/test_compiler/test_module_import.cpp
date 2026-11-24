@@ -246,6 +246,11 @@ struct GateProjectOptions
     //shipped package has yet — mirror the test stdlib dir and add package k
     //(k.n) with module k/inner.n on top of it.
     bool withLibraryTree = false;
+    //Low 2: a third-party SOURCE root on the import path (tplib/tp.n +
+    //tplib/tp/sub.n, package tp with submodule tp.sub) that the project
+    //imports selectively — the never-inlined submodule is exactly the
+    //package no knowability table held before.
+    bool withThirdPartySource = false;
 };
 
 GateResult buildGateProject(const GateProjectOptions& opts)
@@ -257,6 +262,7 @@ GateResult buildGateProject(const GateProjectOptions& opts)
     const fs::path out = root / "out";
     const fs::path proj = root / "proj";
     const fs::path libTree = root / "libtree";
+    const fs::path tplib = root / "tplib";
     //A mirrored library tree replaces the test stdlib dir everywhere, so
     //the gate under test differs from every other gate test only by the
     //extra subtree package written below.
@@ -282,6 +288,8 @@ GateResult buildGateProject(const GateProjectOptions& opts)
     fs::create_directories(proj / "utils" / "sub", fsError);
     fs::create_directories(proj / "utils2", fsError);
     fs::create_directories(proj / "core", fsError);
+    if (opts.withThirdPartySource)
+        fs::create_directories(tplib / "tp", fsError);
     if (useLibraryTree)
     {
         //One mirror per process (the scratch root is wiped on the first
@@ -375,6 +383,11 @@ GateResult buildGateProject(const GateProjectOptions& opts)
                 "int top() { return 1; }\n") &&
              writeFile(libTree / "k" / "inner.n",
                 "int deepTwo() { return 2; }\n"))) &&
+        (!opts.withThirdPartySource ||
+            (writeFile(tplib / "tp.n",
+                "int top() { return 11; }\n") &&
+             writeFile(tplib / "tp" / "sub.n",
+                "public class Fn { public static int f() { return 42; } }\n"))) &&
         writeFile(proj / "main.n", opts.szMainBody);
     if (!written)
     {
@@ -448,6 +461,10 @@ GateResult buildGateProject(const GateProjectOptions& opts)
     //library dir, never the process CWD.
     res.params->m_ImportDirs.clear();
     res.params->m_ImportDirs.push_back(out.string());
+    //The third-party source root joins AFTER out/: its .n sources are the
+    //library under test, and out/ holds no same-named artifact.
+    if (opts.withThirdPartySource)
+        res.params->m_ImportDirs.push_back(tplib.string());
     res.params->m_sOutputModule =
         "gate_test_" + std::to_string(++gateRunCount);
     res.params->m_sOutputDir = out.string();
@@ -1090,6 +1107,174 @@ private slots:
             ("the diagnostic must say the segment leaves module space as "
              "a type, not offer an import remedy; errors: "
              + joinErrors(res.errors)).c_str());
+    }
+
+    //=== Low 2 (0.13.12): knowability of a third-party source package ===
+    //A package whose .n sits on an import dir is knowable even when no
+    //import ever inlined it (the symbol index learns only the stdlib dir
+    //at construction). Rule 3 demands a remedy the user can apply, so a
+    //chain reaching into the submodule must fold onto tp.sub — never name
+    //the class segment Fn as a module (import tp.sub.Fn is itself
+    //refused: the dotted source lookup finds no tp/sub/Fn.n).
+
+    //The call form with the parent imported: the fold is what changes —
+    //the chain tp.sub.Fn.f is claimed at tp.sub, not at tp.
+    void thirdPartySubmoduleCallFoldsToPackage()
+    {
+        GateProjectOptions opts;
+        opts.withThirdPartySource = true;
+        opts.szMainBody =
+            "import tp;\n"
+            "int main()\n"
+            "{\n"
+            "    return tp.sub.Fn.f();\n"
+            "}\n";
+        auto res = buildGateProject(opts);
+        QVERIFY2(res.builder != nullptr,
+            ("gate scaffold failed before the gate stage; errors: "
+             + joinErrors(res.errors)).c_str());
+        QVERIFY2(!res.ok, "an unimported third-party submodule must fail");
+        QVERIFY2(containsError(res.errors,
+            "Module 'tp.sub' is not imported. Add 'import tp.sub;' "
+            "(or 'import tp.*;')"),
+            ("the diagnostic must fold to the importable submodule; "
+             "errors: " + joinErrors(res.errors)).c_str());
+        QVERIFY2(!containsError(res.errors, "'tp.sub.Fn' is not imported"),
+            ("the class segment must not be named as a module; errors: "
+             + joinErrors(res.errors)).c_str());
+    }
+
+    //The same chain with no import at all: knowability from the search
+    //dir alone must still claim the chain — the generic field diagnostic
+    //names nothing the user can act on.
+    void thirdPartySubmoduleWithoutImportFolds()
+    {
+        GateProjectOptions opts;
+        opts.withThirdPartySource = true;
+        opts.szMainBody =
+            "int main()\n"
+            "{\n"
+            "    return tp.sub.Fn.f();\n"
+            "}\n";
+        auto res = buildGateProject(opts);
+        QVERIFY2(res.builder != nullptr,
+            ("gate scaffold failed before the gate stage; errors: "
+             + joinErrors(res.errors)).c_str());
+        QVERIFY2(!res.ok, "the unimported submodule chain must fail");
+        QVERIFY2(containsError(res.errors,
+            "Module 'tp.sub' is not imported. Add 'import tp.sub;' "
+            "(or 'import tp.*;')"),
+            ("the diagnostic must name the submodule, not the field; "
+             "errors: " + joinErrors(res.errors)).c_str());
+    }
+
+    //A single-segment third-party package reads "Package" (an external
+    //.ncu reads "Module"): the kind test shares the knowability rule the
+    //fold uses.
+    void thirdPartySingleSegmentReadsPackage()
+    {
+        GateProjectOptions opts;
+        opts.withThirdPartySource = true;
+        opts.szMainBody =
+            "int main()\n"
+            "{\n"
+            "    return tp.top();\n"
+            "}\n";
+        auto res = buildGateProject(opts);
+        QVERIFY2(res.builder != nullptr,
+            ("gate scaffold failed before the gate stage; errors: "
+             + joinErrors(res.errors)).c_str());
+        QVERIFY2(!res.ok, "the unimported package call must fail");
+        QVERIFY2(containsError(res.errors,
+            "Package 'tp' is not imported. Add 'import tp;'"),
+            ("a source-provided package must read Package, not Module; "
+             "errors: " + joinErrors(res.errors)).c_str());
+    }
+
+    //A misspelled child under an imported parent: nothing importable
+    //ends at subb, so the chain is the parent's member problem — not an
+    //import remedy for a package that does not exist.
+    void thirdPartyTypoChildNamesTheMember()
+    {
+        GateProjectOptions opts;
+        opts.withThirdPartySource = true;
+        opts.szMainBody =
+            "import tp;\n"
+            "int main()\n"
+            "{\n"
+            "    return tp.subb.Fn.f();\n"
+            "}\n";
+        auto res = buildGateProject(opts);
+        QVERIFY2(res.builder != nullptr,
+            ("gate scaffold failed before the gate stage; errors: "
+             + joinErrors(res.errors)).c_str());
+        QVERIFY2(!res.ok, "the typo'd child chain must fail");
+        QVERIFY2(!containsError(res.errors, "is not imported"),
+            ("with the parent imported, a typo'd child is a member "
+             "problem, not an import problem; errors: "
+             + joinErrors(res.errors)).c_str());
+        //The first error is the callee miss (a call-position miss fires
+        //the invoke channel, not the member channel); the incompatible
+        //type line carries the full chain, so the misspelled segment is
+        //visible and the fold kept it out of import remedies.
+        QVERIFY2(containsError(res.errors,
+            "Incompatible type \"tp.subb.Fn.f()\"."),
+            ("the diagnostic must carry the chain through the "
+             "misspelled segment; errors: " + joinErrors(res.errors))
+                .c_str());
+    }
+
+    //The declaration position through a class: the qualified type's
+    //module path overshoots into Fn, and the fold must stop at tp.sub
+    //(the exact-name advice import tp.sub.Fn is refused by the compiler
+    //itself). Whether Fn is a type stays unknowable until the package is
+    //imported, so the import remedy is the honest first answer.
+    void thirdPartyTypeThroughClassFoldsToPackage()
+    {
+        GateProjectOptions opts;
+        opts.withThirdPartySource = true;
+        opts.szMainBody =
+            "import tp;\n"
+            "int main()\n"
+            "{\n"
+            "    tp.sub.Fn.Inner v;\n"
+            "    return 0;\n"
+            "}\n";
+        auto res = buildGateProject(opts);
+        QVERIFY2(res.builder != nullptr,
+            ("gate scaffold failed before the gate stage; errors: "
+             + joinErrors(res.errors)).c_str());
+        QVERIFY2(!res.ok, "the through-class qualified type must fail");
+        QVERIFY2(containsError(res.errors,
+            "Module 'tp.sub' is not imported. Add 'import tp.sub;'"),
+            ("the type-position diagnostic must fold to the submodule; "
+             "errors: " + joinErrors(res.errors)).c_str());
+        QVERIFY2(!containsError(res.errors, "'tp.sub.Fn' is not imported"),
+            ("the class segment must not be named as a module; errors: "
+             + joinErrors(res.errors)).c_str());
+    }
+
+    //The remedy the fold suggests must itself work: the wildcard opens
+    //the submodule subtree (discovery inlines tp/sub.n) and the class
+    //static resolves through the qualified chain (compile-level pin; the
+    //execute-level leg is the artifact packaging story, not this fix).
+    void thirdPartySubmoduleWildcardRemedyBuilds()
+    {
+        GateProjectOptions opts;
+        opts.withThirdPartySource = true;
+        opts.szMainBody =
+            "import tp;\n"
+            "import tp.sub.*;\n"
+            "int main()\n"
+            "{\n"
+            "    return tp.sub.Fn.f();\n"
+            "}\n";
+        auto res = buildGateProject(opts);
+        QVERIFY2(res.builder != nullptr,
+            ("gate scaffold failed before the gate stage; errors: "
+             + joinErrors(res.errors)).c_str());
+        QVERIFY2(res.ok, ("the wildcard remedy must build; errors: "
+            + joinErrors(res.errors)).c_str());
     }
 
     //D7: files of the TU's own directory are implicitly imported.
