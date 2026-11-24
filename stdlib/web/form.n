@@ -575,9 +575,10 @@ class Form {
     // whitespace (RFC 7230 OWS); the header table's own lowercased
     // keys take care of the name's case (D-19) and a repeated name
     // overwrites (HttpHeaders.set). D-19's header budget lives in this
-    // method alone: the block runs from (the first delimiter line's own
-    // break is behind from and is not counted), and every line — the
-    // obs-fold continuations and the terminating blank line included —
+    // method alone: the block runs from the from index, past the
+    // first delimiter line and its own break (neither is counted), and
+    // every line — the obs-fold continuations and the terminating
+    // blank line included —
     // adds its content bytes and its line break to the running total
     // before the blank-line exit can fire, so a block cannot escape the
     // budget through its closing line (ruling 30 ii; leg F2 is that
