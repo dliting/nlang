@@ -241,12 +241,10 @@ void NetPing(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
         //the ack byte is only a hint and a co-waiter's drain can eat
         //it, so separate sections could park this waiter past a
         //record that was already done (R9 lost-wakeup closure, the
-        //NetTcpResolveWait shape). An unlimited deadline parks in
-        //bounded slices (external review M9): a lost ack byte or a
-        //dead poller thread delays the wake by one slice, never
-        //forever.
-        const long long parkBy = (deadline > 0) ? deadline
-            : h->nowMs(h) + kJobParkSliceMs;
+        //NetTcpResolveWait shape). The park is slice-capped either way
+        //(M9, NetJobParkDeadline).
+        const long long parkBy =
+            NetJobParkDeadline(deadline, h->nowMs(h));
         if (h->parkForIo(h, readFd, NLANG_EV_READ, parkBy, true) == 0)
             return;   //unwound; re-entry adopts the job (FindOwn)
     }

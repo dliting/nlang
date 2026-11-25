@@ -45,6 +45,19 @@ constexpr int kNetJobIcmp = 1;
 //path's cost.
 constexpr long long kJobParkSliceMs = 100;
 
+//The slice-capped park deadline shared by the resolve and the ping
+//wait (NetJobParkDeadline): every job wait parks in slices, not
+//straight to its deadline. A deadline-bounded wait that slept to its
+//whole budget would swallow it on one stolen ack: the ack byte can be
+//lost even after the registration — a co-waiter's drain on the shared
+//self-pipe can eat it between the wake write and this waiter's epoll
+//dequeue, and a level-triggered event does not survive drained bytes
+//(external review M9). The slice bounds that loss for both deadline
+//shapes; a healthy wake still arrives through the poller inside the
+//slice, so normal waits never pay it. A deadline below the slice end
+//still ends the wait there.
+long long NetJobParkDeadline(long long deadline, long long nowMs);
+
 struct NetJobRecord {
     int kind = 0;
     int owner = 0;           //requesting context id (ping re-entry adoption)

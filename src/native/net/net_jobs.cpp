@@ -153,6 +153,13 @@ void ResolveWorker(void* arg) {
 
 }  //namespace
 
+//Declared in net_jobs.h: the slice-capped park deadline shared by the
+//resolve and the ping wait.
+long long NetJobParkDeadline(long long deadline, long long nowMs) {
+    const long long sliceEnd = nowMs + kJobParkSliceMs;
+    return (deadline > 0 && deadline < sliceEnd) ? deadline : sliceEnd;
+}
+
 //Declared in net_jobs.h: shared by the resolve wait and the ping wait.
 void NetDrainPipe(int readFd) {
     if (readFd < 0)
@@ -259,13 +266,10 @@ void NetTcpResolveWait(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
         }
         //The first-entry registration shares the mutex with the
         //worker's fill: either done is visible now, or the ack byte
-        //lands after the registration (R9 lost-wakeup closure). An
-        //unlimited deadline parks in bounded slices (external review
-        //M9): the ack write can be lost (a co-waiter's drain, a full
-        //pipe, a dead poller thread), and the slice re-check bounds
-        //the delay instead of sleeping forever.
-        const long long parkBy = (deadline > 0) ? deadline
-            : h->nowMs(h) + kJobParkSliceMs;
+        //lands after the registration (R9 lost-wakeup closure). The
+        //park is slice-capped either way (M9, NetJobParkDeadline).
+        const long long parkBy =
+            NetJobParkDeadline(deadline, h->nowMs(h));
         if (h->parkForIo(h, readFd, NLANG_EV_READ, parkBy, true) == 0)
             return;   //unwound; the re-entry re-checks
     }
