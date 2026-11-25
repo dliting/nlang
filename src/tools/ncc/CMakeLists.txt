@@ -13,7 +13,7 @@ target_include_directories(ncc
         ${PROJECT_SOURCE_DIR}/src/vm
 )
 
-target_link_libraries(ncc PRIVATE $<LINK_GROUP:START> nlang_compiler nlang_runtime nlang_vm nlang_langservice nlang_version $<LINK_GROUP:END> tinyxml2)
+target_link_libraries(ncc PRIVATE ${NLANG_CORE_LINK} nlang_langservice nlang_version tinyxml2)
 
 # ASan runtime provisioning (see the root CMakeLists): one sweep covers
 # this directory's executable targets.

@@ -18,4 +18,4 @@ target_include_directories(nlang_embed
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
 )
-target_link_libraries(nlang_embed PRIVATE $<LINK_GROUP:START> nlang_vm nlang_runtime nlang_compiler $<LINK_GROUP:END>)
+target_link_libraries(nlang_embed PRIVATE ${NLANG_CORE_LINK})

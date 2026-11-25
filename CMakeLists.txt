@@ -1,4 +1,6 @@
-cmake_minimum_required(VERSION 3.16)
+#3.24 for $<LINK_GROUP:RESCAN> (the nlang_vm<->nlang_compiler static-library
+#cycle, see NLANG_CORE_LINK below).
+cmake_minimum_required(VERSION 3.24)
 
 #Single version source: the VERSION file feeds project()/CPack, the
 #generated nlang_version.h and the docs site. file(READ) does not watch
@@ -209,6 +211,20 @@ function(_nlang_sweep_asan_runtime dir)
     endforeach()
 
 endfunction()
+
+# The nlang_vm<->nlang_compiler static-library cycle: ModuleBuilder
+# (compiler) drives VmBackend (the vm's bytecode emitter), which in turn
+# consumes the compiler's BuildEnvironment/ModuleRegistry/IsTypeMember.
+# MSVC's multi-pass linker resolves such a cycle natively and rejects the
+# RESCAN group at generate time; GNU ld is single-pass and needs the group
+# rescan. Link the plain archives on MSVC, the rescan group elsewhere.
+# (CMake 3.24+ for $<LINK_GROUP:RESCAN>.)
+if(MSVC)
+    set(NLANG_CORE_LINK nlang_vm nlang_compiler nlang_runtime)
+else()
+    set(NLANG_CORE_LINK
+        $<LINK_GROUP:RESCAN,nlang_vm;nlang_compiler;nlang_runtime>)
+endif()
 
 # Subdirectories
 add_subdirectory(src/runtime)
