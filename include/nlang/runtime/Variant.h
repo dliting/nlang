@@ -1,6 +1,7 @@
 #pragma once
 #include "TypeDef.h"
 #include <string>
+#include <typeinfo>   // typeid (the Get<T> assert) + std::type_info (m_pCppType member)
 #include "StackDump.h"
 
 namespace nlang
@@ -31,7 +32,7 @@ public:
 	//Construct by a specified type and a value.
 	template<typename FIELD_T>
 	Variant(FIELD_T& type, typename FIELD_T::CppType value) :
-		m_pType(&type)
+		m_pType(&type), m_pCppType(type.CppTypeIdPtr())
 	{
 		type.InitValue(&m_Data, &value);
 	}
@@ -54,11 +55,16 @@ public:
 	//Copy assignment.
 	Variant& operator=(const Variant& rhs);
 
-	//Get a cast value.
+	//Get a cast value. m_pCppType holds the stored value's C++ type_info
+	//address (set in the ctor from m_pType); comparing it here avoids
+	//dereferencing m_pType->CppTypeId() in this template body, which needs
+	//RnDataType complete at the definition point. This header forward-declares
+	//RnDataType to stay light, and MSVC tolerates the incomplete access in a
+	//template body where GCC does not.
 	template<typename T>
 	T Get() const
 	{
-		NLANG_ASSERT(&typeid(T) == m_pType->CppTypeId());
+		NLANG_ASSERT(&typeid(T) == m_pCppType);
 		return static_cast<T>(m_Data.m_Memory);
 	}
 
@@ -86,6 +92,7 @@ public:
 	std::string ToString() const;
 private:
 	RnDataType* m_pType;
+	const std::type_info* m_pCppType;   // m_pType's C++ type_info (see Get<T>)
 	VariantData m_Data;
 };
 

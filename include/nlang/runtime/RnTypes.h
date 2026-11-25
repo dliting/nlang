@@ -29,6 +29,14 @@ public:
 
 	virtual std::string ValueToString(const void *pValue) const = 0;
 
+	//C++ type_info of a value of this type, or null when the type has no
+	//builtin C++ carrier. Variant records this in its ctor so Get<T> can
+	//assert the requested cast matches the stored value's C++ type.
+	virtual const std::type_info* CppTypeIdPtr() const
+	{
+		return nullptr;
+	}
+
 	bool operator==(const RnDataType &rhs) const
 	{
 		return &rhs == this;
@@ -54,6 +62,12 @@ public:
 	const std::type_info &CppTypeId() const
 	{
 		return m_CppTypeId;
+	}
+
+	//Pointer form of the above (see RnDataType::CppTypeIdPtr).
+	const std::type_info* CppTypeIdPtr() const override
+	{
+		return &m_CppTypeId;
 	}
 
 	void InitValue(void *pDst, const void *pSrc) const override;
