@@ -30,6 +30,7 @@ on every merged TU member (top-level and container members).
 //below link and run the built package (same pattern as test_stdlib).
 #include <nlang/vm/CompiledModule.h>
 #include <nlang/vm/Intrinsics.h>
+#include <nlang/vm/NcuPackage.h>
 #include "ModuleLoader.h"
 #include "NcuLoader.h"
 #include "NcuLinker.h"
@@ -236,12 +237,13 @@ std::vector<std::string> compileUnit(const std::filesystem::path& source,
     return ok ? std::vector<std::string>() : logger.errorsText();
 }
 
-//The third-party package under test in artifact form: pkgsrc/tp.n and
-//pkgsrc/tp/helper.n (package tp; tp calls its helper) compile in
-//project mode into <pkgOut>/<szPackageFile> — one member per unit, no
-//entry record. No tp source stays on a search path, so a consumer
-//reaches tp through a member table only. False when the build failed
-//or the package is missing.
+//The third-party package under test in artifact form: pkgsrc/tp.n,
+//pkgsrc/tp/helper.n and pkgsrc/tp/sub.n (package tp; tp calls its
+//helper; sub is the dotted-import surface) compile in project mode
+//into <pkgOut>/<szPackageFile> — one member per unit, no entry record.
+//No tp source stays on a search path, so a consumer reaches tp through
+//a member table only. False when the build failed or the package is
+//missing.
 bool buildThirdPartyPackage(const std::filesystem::path& pkgOut,
     const char* szPackageFile)
 {
@@ -255,7 +257,9 @@ bool buildThirdPartyPackage(const std::filesystem::path& pkgOut,
             "import tp.helper;\n"
             "public int top() { return tp.helper.Fn.f(); }\n") ||
         !writeSourceFile(src / "tp" / "helper.n",
-            "public class Fn { public static int f() { return 42; } }\n"))
+            "public class Fn { public static int f() { return 42; } }\n") ||
+        !writeSourceFile(src / "tp" / "sub.n",
+            "public int x() { return 7; }\n"))
     {
         return false;
     }
@@ -264,6 +268,7 @@ bool buildThirdPartyPackage(const std::filesystem::path& pkgOut,
     params.m_sProjectDir = src.string();
     params.m_SourceFiles.push_back((src / "tp.n").string());
     params.m_SourceFiles.push_back((src / "tp" / "helper.n").string());
+    params.m_SourceFiles.push_back((src / "tp" / "sub.n").string());
     //Same hermeticity rule as compileUnit: absolute paths only.
     params.m_ImportDirs.clear();
     params.m_sOutputModule = "tp";
@@ -3464,10 +3469,11 @@ private slots:
 
     //Package artifacts: a package is addressed by its member table, and
     //each member is an importable unit. The third-party package tp
-    //ships as tp.npkg with two members — tp, which calls its helper,
-    //and tp.helper — and no source of it is on the search path.
-    //`import tp;` compiles against the tp member, and the load-time
-    //closure walk finds tp.helper in the same package: 42 + 11.
+    //ships as tp.npkg with three members — tp, which calls its helper,
+    //tp.helper, and tp.sub (dotted-import surface for the tests below)
+    //— and no source of it is on the search path. `import tp;` compiles
+    //against the tp member, and the load-time closure walk finds
+    //tp.helper in the same package: 42 + 11.
     void multiMemberPackageUnitImportsAndRuns()
     {
         bool fixtureOk = true;
@@ -3492,8 +3498,7 @@ private slots:
     }
 
     //The member table addresses a member, not the package file's name:
-    //the same two members packed as other.npkg still satisfy
-    //`import tp;`.
+    //the same members packed as other.npkg still satisfy `import tp;`.
     void unitImportMatchesMemberTableNotPackageFileName()
     {
         bool fixtureOk = true;
@@ -3578,6 +3583,106 @@ private slots:
             joinErrors(res.errors).c_str());
         QVERIFY2(containsError(res.errors, "member 'tp' failed its checksum"),
             joinErrors(res.errors).c_str());
+    }
+
+    //Dotted submodule imports resolve through the same member table:
+    //`import tp.sub;` queues the tp.sub member of tp.npkg, the gate
+    //records the member's module path, and the qualified call runs
+    //through the load-time closure: 7 + 1.
+    void dottedSubmoduleImportQualified()
+    {
+        bool fixtureOk = true;
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import tp.sub;\n"
+            "int main() { return tp.sub.x() + 1; }\n";
+        opts.withThirdPartyPackage = true;
+        opts.preparePackageDir = [&fixtureOk](const std::filesystem::path& pkgOut)
+        {
+            fixtureOk = fixtureOk
+                && buildThirdPartyPackage(pkgOut, "tp.npkg");
+        };
+        const GateRunResult run = runGateProject(opts);
+        QVERIFY2(fixtureOk, "the third-party package fixture could not be built");
+        QVERIFY2(run.ok, runFailureText(run,
+            "a dotted submodule member must import, build and execute").c_str());
+        QVERIFY2(run.runtimeError.empty(), runFailureText(run,
+            "execution must be clean").c_str());
+        QVERIFY2(run.exitValue == 8, "tp.sub.x() must return 7 here, plus 1");
+    }
+
+    //The exact dotted import admits the member's BARE use too (V1
+    //continuation, the dotted sibling of the single-segment positive):
+    //the importer's gate.exact carries the member's module path, which
+    //is the external stub owner's path.
+    void dottedSubmoduleBareContinuation()
+    {
+        bool fixtureOk = true;
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import tp.sub;\n"
+            "int main() { return x() + 1; }\n";
+        opts.withThirdPartyPackage = true;
+        opts.preparePackageDir = [&fixtureOk](const std::filesystem::path& pkgOut)
+        {
+            fixtureOk = fixtureOk
+                && buildThirdPartyPackage(pkgOut, "tp.npkg");
+        };
+        const GateRunResult run = runGateProject(opts);
+        QVERIFY2(fixtureOk, "the third-party package fixture could not be built");
+        QVERIFY2(run.ok, runFailureText(run,
+            "an exact dotted import must admit the member's bare use").c_str());
+        QVERIFY2(run.runtimeError.empty(), runFailureText(run,
+            "execution must be clean").c_str());
+        QVERIFY2(run.exitValue == 8, "x() must return 7 here, plus 1");
+    }
+
+    //The dotted direct unit file: <dir>/tp.sub.ncu. A source stem cannot
+    //carry a dot (the registry rejects the shape), so the fixture builds
+    //the package in a staging dir OUTSIDE the search path and offers only
+    //the extracted member image as the unit file — the file arm answers,
+    //the package never sits on the path.
+    void dottedUnitFileImport()
+    {
+        bool fixtureOk = true;
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import tp.sub;\n"
+            "int main() { return tp.sub.x() + 1; }\n";
+        opts.withThirdPartyPackage = true;
+        opts.preparePackageDir = [&fixtureOk](const std::filesystem::path& pkgOut)
+        {
+            namespace fs = std::filesystem;
+            const fs::path staging =
+                nlang::test::ScratchDir("nlang_import_gate") / "stage_pkg";
+            std::error_code fsError;
+            fs::remove_all(staging, fsError);
+            fs::create_directories(staging, fsError);
+            fixtureOk = fixtureOk
+                && buildThirdPartyPackage(staging, "tp.npkg");
+            std::string bytes;
+            std::string error;
+            nlang::NcuPackageReader reader;
+            if (fixtureOk && reader.Open(staging.string() + "/tp.npkg", &error))
+                fixtureOk = reader.ExtractMember("tp.sub", &bytes, &error);
+            else
+                fixtureOk = false;
+            if (fixtureOk)
+            {
+                std::ofstream out(pkgOut / "tp.sub.ncu",
+                    std::ios::binary | std::ios::trunc);
+                out.write(bytes.data(),
+                    static_cast<std::streamsize>(bytes.size()));
+                fixtureOk = out.good();
+            }
+        };
+        const GateRunResult run = runGateProject(opts);
+        QVERIFY2(fixtureOk, "the dotted unit file fixture could not be built");
+        QVERIFY2(run.ok, runFailureText(run,
+            "a dotted unit file must import, build and execute").c_str());
+        QVERIFY2(run.runtimeError.empty(), runFailureText(run,
+            "execution must be clean").c_str());
+        QVERIFY2(run.exitValue == 8, "tp.sub.x() must return 7 here, plus 1");
     }
 };
 
