@@ -325,7 +325,10 @@ public:
 		//the same child-list insertion the node controller uses (the
 		//positional insert was never instantiated before v0.13.7's
 		//array-operator lowering needed it).
-		auto iNode = InsertChildInto(iPos.Source(), pNode, *m_pParent);
+		//this->: m_pParent is a non-type member of the dependent base
+		//TypedNodeListBase; the bare name is not found by unqualified lookup
+		//in a template (GCC is strict; MSVC resolves it).
+		auto iNode = InsertChildInto(iPos.Source(), pNode, *this->m_pParent);
 		return iterator(iNode);
 	}
 
