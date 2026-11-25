@@ -10,6 +10,7 @@
 ---*/
 #pragma once
 
+#include <cstddef>  //size_t (MSVC pulls it in transitively; GCC does not)
 #include <cstdint>
 #include <vector>
 

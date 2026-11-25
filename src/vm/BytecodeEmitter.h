@@ -1,6 +1,7 @@
 #pragma once
 #include "BytecodeOps.h"
 #include <cstdint>
+#include <cstring>  //std::memcpy (EmitFloat/EmitDouble bit copies)
 #include <string>
 #include <vector>
 
