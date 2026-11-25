@@ -127,6 +127,7 @@ add_library(nlang_compiler
     builder/ExprResolverLambda.cpp
     builder/ExprResolverValues.cpp
     builder/TypeArgSpelling.cpp
+    builder/CanonicalArgSpelling.cpp
     builder/TypeArgInference.cpp
     builder/ExprResolverSubscript.cpp
     builder/ExprResolverAlias.cpp

@@ -150,6 +150,7 @@ add_library(nlang_vm
     NcuLoader.cpp
     NativeLibraryLoader.cpp
     TypeDesc.cpp
+    TypeDescBuild.cpp
     TypeDescIndices.cpp
 )
 
