@@ -2,8 +2,10 @@
 	ModuleBuilderExternalImports.cpp
 	The external-artifact arm of the import pipeline: the discovery-phase
 	lookup of an import name's artifact (a unit file or a package member on
-	the library search path), and the load-phase registration of the found
-	units — their stub nodes, registry entries and stub tables — and the
+	the library search path, through the artifact cache the pipeline
+	installs - ModuleBuilderArtifactCache.cpp), and the load-phase
+	registration of the found units — their stub nodes, registry entries
+	and stub tables — and the
 	mirror-record arm: resolving the import-record names a queued image
 	carries (the discovery fixed point's second driver). Split from
 	ModuleBuilderImports.cpp (2026-11-19 maintainability refactor).
@@ -30,92 +32,7 @@
 namespace nlang
 {
 
-//One build's view of the package artifacts on the library search path
-//(declared in ModuleBuilderImports.h). A package opens at most once, a
-//search dir's package list is read at most once, and a name that no
-//artifact answers for is not looked up again.
-struct ArtifactPackageCache
-{
-	//A package met during the build: its reader, or the text Open failed
-	//with (such a package stays unusable for the build).
-	struct Package
-	{
-		std::unique_ptr<NcuPackageReader> upReader;
-		std::string openError;
-	};
-	//Search dir -> its packages (*.npkg), file name order.
-	std::map<std::string, std::vector<std::string>> packagesInDir;
-	//Every package opened, by path.
-	std::map<std::string, Package> packages;
-	//Packages that failed to open, in the order the lookups met them.
-	std::vector<std::string> unreadable;
-	//Import names no usable artifact answers for (absent, or refused —
-	//the lookup that met the refusal already reported it).
-	std::set<std::string> absent;
-	//Import name -> every file answering for it in the first search dir
-	//that answered. More than one entry is a duplicate member.
-	std::map<std::string, std::vector<std::string>> providers;
-};
-
-//Seam declaration in ModuleBuilderImports.h. Defined here, where the
-//cache type is complete: the environment layer only passes the pointer.
-std::shared_ptr<ArtifactPackageCache> MakeArtifactPackageCache()
-{
-	return std::make_shared<ArtifactPackageCache>();
-}
-
 namespace {
-
-bool IsMember(const std::vector<std::string> &memberPaths,
-	const std::string &name)
-{
-	return std::find(memberPaths.begin(), memberPaths.end(), name)
-		!= memberPaths.end();
-}
-
-//The packages of one search dir, *.npkg in file name order (the
-//directory is read on the first lookup only).
-const std::vector<std::string> &PackagesInDir(const std::string &dir,
-	ArtifactPackageCache &cache)
-{
-	const auto inserted = cache.packagesInDir.emplace(dir,
-		std::vector<std::string>());
-	std::vector<std::string> &packages = inserted.first->second;
-	if (!inserted.second)
-		return packages;
-	std::error_code fsError;
-	for (std::filesystem::directory_iterator it(dir, fsError), end;
-		!fsError && it != end; it.increment(fsError))
-	{
-		if (it->is_regular_file(fsError)
-			&& it->path().extension() == NPKG_EXTENSION)
-			packages.push_back(it->path().string());
-	}
-	std::sort(packages.begin(), packages.end());
-	return packages;
-}
-
-//Open one package at most once per build: its record keeps the reader,
-//or the failure (which also joins the unreadable list).
-const ArtifactPackageCache::Package &OpenPackage(const std::string &path,
-	ArtifactPackageCache &cache)
-{
-	const auto inserted = cache.packages.emplace(path,
-		ArtifactPackageCache::Package());
-	ArtifactPackageCache::Package &package = inserted.first->second;
-	if (!inserted.second)
-		return package;
-	auto upReader = std::make_unique<NcuPackageReader>();
-	std::string error;
-	if (upReader->Open(path, &error))
-		package.upReader = std::move(upReader);
-	else
-	{
-		package.openError = error;
-		cache.unreadable.push_back(path);
-	}
-	return package;
-}
 
 //Make image the unit found for name. The run-time loader's identity
 //rule (NcuLoader::AcceptUnit) applies at compile time too: whatever
@@ -200,7 +117,7 @@ bool FindArtifactInDir(const std::string &dir, const std::string &name,
 	{
 		const ArtifactPackageCache::Package &package = OpenPackage(path, cache);
 		if (!package.upReader
-			|| !IsMember(package.upReader->MemberPaths(), name))
+			|| !CarriesMember(package.upReader->MemberPaths(), name))
 			continue;
 		providers.push_back(path);
 		//The first provider answering is the one adopted.

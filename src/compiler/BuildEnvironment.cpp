@@ -118,6 +118,16 @@ bool BuildEnvironment::HasLibrarySource(const std::string& name) const
 	return present;
 }
 
+//Knowability through the installed probe - a consumer that ran no
+//import pipeline holds no pair, so nothing is known.
+bool BuildEnvironment::ArtifactKnowability(
+	const std::string& name) const
+{
+	if (!m_spArtifactPackages || !m_fnArtifactKnowability)
+		return false;
+	return m_fnArtifactKnowability(*this, *m_spArtifactPackages, name);
+}
+
 void BuildEnvironment::LoadLibrarySource(const std::string& path,
 	const std::string& packageRoot)
 {

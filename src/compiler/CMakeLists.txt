@@ -78,6 +78,7 @@ add_library(nlang_compiler
     ModuleBuilder.cpp
     ModuleBuilderImports.cpp
     ModuleBuilderExternalImports.cpp
+    ModuleBuilderArtifactCache.cpp
     ModuleBuilderImportCycles.cpp
     ModuleBuilderChecks.cpp
     ModuleBuilderMethodContracts.cpp

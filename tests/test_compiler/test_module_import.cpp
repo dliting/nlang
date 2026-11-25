@@ -1372,6 +1372,110 @@ private slots:
              "errors: " + joinErrors(res.errors)).c_str());
     }
 
+    //=== 0.13.12 package line: the knowability fold's artifact arm ===
+    //The same fold with the third party present only as a package: a
+    //member the package lists is knowable the same way a source on a
+    //search dir is, so the fold claims the chain at the importable
+    //member instead of dying as a generic field error on the whole
+    //chain. The source arm's shape (thirdPartySubmoduleWithoutImportFolds)
+    //and the artifact arm must agree.
+
+    //No import at all: the chain tp.sub.x() folds onto tp.sub from the
+    //member table alone.
+    void artifactFormSubmoduleWithoutImportFolds()
+    {
+        bool fixtureOk = true;
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "int main()\n"
+            "{\n"
+            "    return tp.sub.x();\n"
+            "}\n";
+        opts.withThirdPartyPackage = true;
+        opts.preparePackageDir = [&fixtureOk](const std::filesystem::path& pkgOut)
+        {
+            fixtureOk = fixtureOk
+                && buildThirdPartyPackage(pkgOut, "tp.npkg");
+        };
+        auto res = buildGateProject(opts);
+        QVERIFY2(fixtureOk, "the third-party package fixture could not be built");
+        QVERIFY2(res.builder != nullptr,
+            ("gate scaffold failed before the gate stage; errors: "
+             + joinErrors(res.errors)).c_str());
+        QVERIFY2(!res.ok, "the unimported submodule chain must fail");
+        QVERIFY2(containsError(res.errors,
+            "Module 'tp.sub' is not imported. Add 'import tp.sub;' "
+            "(or 'import tp.*;')"),
+            ("the diagnostic must name the submodule, not the field; "
+             "errors: " + joinErrors(res.errors)).c_str());
+    }
+
+    //The parent imported, the child not: tp is a member too, so the
+    //chain claims at tp.sub (the artifact sibling of
+    //thirdPartySubmoduleCallFoldsToPackage).
+    void artifactFormSubmoduleWithParentImportFolds()
+    {
+        bool fixtureOk = true;
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import tp;\n"
+            "int main()\n"
+            "{\n"
+            "    return tp.sub.x();\n"
+            "}\n";
+        opts.withThirdPartyPackage = true;
+        opts.preparePackageDir = [&fixtureOk](const std::filesystem::path& pkgOut)
+        {
+            fixtureOk = fixtureOk
+                && buildThirdPartyPackage(pkgOut, "tp.npkg");
+        };
+        auto res = buildGateProject(opts);
+        QVERIFY2(fixtureOk, "the third-party package fixture could not be built");
+        QVERIFY2(res.builder != nullptr,
+            ("gate scaffold failed before the gate stage; errors: "
+             + joinErrors(res.errors)).c_str());
+        QVERIFY2(!res.ok, "an unimported submodule call must fail");
+        QVERIFY2(containsError(res.errors,
+            "Module 'tp.sub' is not imported. Add 'import tp.sub;' "
+            "(or 'import tp.*;')"),
+            ("the diagnostic must fold to the importable submodule; "
+             "errors: " + joinErrors(res.errors)).c_str());
+        QVERIFY2(!containsError(res.errors, "Package 'tp' is not imported"),
+            ("the imported parent is not the remedy for the child chain; "
+             "errors: " + joinErrors(res.errors)).c_str());
+    }
+
+    //A single-segment artifact package reads "Package" through the
+    //artifact arm — the kind test the source form pins
+    //(thirdPartySingleSegmentReadsPackage) must hold for the package
+    //shape too: tp is knowable, so the blame is tp's own.
+    void artifactFormSingleSegmentReadsPackage()
+    {
+        bool fixtureOk = true;
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "int main()\n"
+            "{\n"
+            "    return tp.top();\n"
+            "}\n";
+        opts.withThirdPartyPackage = true;
+        opts.preparePackageDir = [&fixtureOk](const std::filesystem::path& pkgOut)
+        {
+            fixtureOk = fixtureOk
+                && buildThirdPartyPackage(pkgOut, "tp.npkg");
+        };
+        auto res = buildGateProject(opts);
+        QVERIFY2(fixtureOk, "the third-party package fixture could not be built");
+        QVERIFY2(res.builder != nullptr,
+            ("gate scaffold failed before the gate stage; errors: "
+             + joinErrors(res.errors)).c_str());
+        QVERIFY2(!res.ok, "the unimported package call must fail");
+        QVERIFY2(containsError(res.errors,
+            "Package 'tp' is not imported. Add 'import tp;'"),
+            ("a knowable single-segment package must read Package; "
+             "errors: " + joinErrors(res.errors)).c_str());
+    }
+
     //A single-segment third-party package reads "Package" (an external
     //.ncu reads "Module"): the kind test shares the knowability rule the
     //fold uses.

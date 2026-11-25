@@ -57,6 +57,13 @@ bool ExprResolveAccessor::LongestKnownModulePrefix(
 	return false;
 }
 
+bool ExprResolveAccessor::KnowsLibraryModule(const std::string &name) const
+{
+	return m_Env.IsLibraryPackage(name)
+		|| m_Env.HasLibrarySource(name)
+		|| m_Env.ArtifactKnowability(name);
+}
+
 //D-29 rule 3 (ruling 45): the module path a diagnostic may blame as
 //unimported. A chain that overshoots a LIBRARY module the build knows
 //(`web.form.Form.f` with only `import web;`) is blamed on that deepest

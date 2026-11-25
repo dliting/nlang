@@ -5,7 +5,10 @@ and the split external-artifact TU (ModuleBuilderExternalImports.cpp).
 ---*/
 #pragma once
 #include <nlang/vm/CompiledModule.h>
+#include <nlang/vm/NcuPackage.h>
+#include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -14,9 +17,52 @@ namespace nlang
 {
 
 struct BuildParams;
-//One build's view of the package artifacts on the library search path.
-//Opaque here: the type is private to ModuleBuilderExternalImports.cpp.
-struct ArtifactPackageCache;
+class BuildEnvironment;
+//One build's view of the package artifacts on the library search path
+//(the cache TU - ModuleBuilderArtifactCache.cpp - owns its lazy
+//enumeration and knowability probe; the external-artifact TU looks
+//units up through it). A package opens at most once, a search dir's
+//package list is read at most once, and a name that no artifact
+//answers for is not looked up again.
+struct ArtifactPackageCache
+{
+	//A package met during the build: its reader, or the text Open failed
+	//with (such a package stays unusable for the build).
+	struct Package
+	{
+		std::unique_ptr<NcuPackageReader> upReader;
+		std::string openError;
+	};
+	//Search dir -> its packages (*.npkg), file name order.
+	std::map<std::string, std::vector<std::string>> packagesInDir;
+	//Every package opened, by path.
+	std::map<std::string, Package> packages;
+	//Packages that failed to open, in the order the lookups met them.
+	std::vector<std::string> unreadable;
+	//Import names no usable artifact answers for (absent, or refused —
+	//the lookup that met the refusal already reported it).
+	std::set<std::string> absent;
+	//Import name -> every file answering for it in the first search dir
+	//that answered. More than one entry is a duplicate member.
+	std::map<std::string, std::vector<std::string>> providers;
+};
+
+//True when the member paths carry the module path verbatim. Definition
+//in ModuleBuilderArtifactCache.cpp.
+bool CarriesMember(const std::vector<std::string> &memberPaths,
+	const std::string &name);
+
+//The packages of one search dir, *.npkg in file name order. Lazy: the
+//directory is read on the first call only. Definition in
+//ModuleBuilderArtifactCache.cpp.
+const std::vector<std::string> &PackagesInDir(const std::string &dir,
+	ArtifactPackageCache &cache);
+
+//Open one package at most once per build: its record keeps the reader,
+//or the failure (which also joins the unreadable list). Definition in
+//ModuleBuilderArtifactCache.cpp.
+const ArtifactPackageCache::Package &OpenPackage(const std::string &path,
+	ArtifactPackageCache &cache);
 
 //Effective library search directories: explicit/configured import dirs
 //first, then the stdlib dir, so the standard library is discoverable even
@@ -51,9 +97,11 @@ struct ArtifactUnit
 	std::string error;
 };
 
-//A fresh artifact cache; one belongs to one build.
-//Definition in ModuleBuilderExternalImports.cpp.
-std::shared_ptr<ArtifactPackageCache> MakeArtifactPackageCache();
+//Install a fresh artifact cache and the knowability probe that reads
+//it into the environment, as one step: the pair is meaningless apart.
+//One cache belongs to one build. Definition in
+//ModuleBuilderArtifactCache.cpp.
+void InstallArtifactCache(BuildEnvironment &env);
 
 //Locate the artifact of one import name across the effective library
 //dirs, in order: the unit file <dir>/<name>.ncu first, then the member

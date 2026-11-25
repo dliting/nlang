@@ -421,7 +421,7 @@ void ModuleBuilder::DiscoverLibraryUnits()
 {
 	//Per-run state: a second build starts from an empty queue and a fresh view.
 	m_pendingArtifacts.clear();
-	m_upEnv->ResetArtifactPackages(MakeArtifactPackageCache());
+	InstallArtifactCache(*m_upEnv);
 
 	if (m_upEnv->ContainFlags(MBF_ShowBuildingSteps))
 	{

@@ -95,6 +95,16 @@ namespace langservice { class SymbolIndex; }
 //The import pipeline's view of the package artifacts on the search path
 //(src/compiler/ModuleBuilderImports.h); opaque here for the same reason.
 struct ArtifactPackageCache;
+class BuildEnvironment;
+//The artifact arm's knowability probe (the import pipeline installs it
+//together with the cache it reads): true when an artifact answers for
+//an import name on the effective library dirs. The environment layer
+//itself never opens a package - the reader lives with the pipeline - so
+//link targets that use only the environment stay free of the artifact
+//implementation.
+using ArtifactKnowabilityProbe = bool (*)(
+	const BuildEnvironment &env, ArtifactPackageCache &cache,
+	const std::string &name);
 
 //The context during building a nlang module.
 class NLANG_COMPILER_API BuildEnvironment : public Flagable<ModuleBuildFlagBits>
@@ -144,6 +154,18 @@ public:
 		std::shared_ptr<ArtifactPackageCache> spPackages)
 	{
 		m_spArtifactPackages = std::move(spPackages);
+	}
+
+	//True when an artifact answers for the import name on the effective
+	//library dirs (the unit file, or a package member listing) -
+	//knowability only, nothing is read or adopted. False until the
+	//import pipeline installed its probe with the cache: a consumer
+	//that ran no pipeline knows no search-path view.
+	bool ArtifactKnowability(const std::string& name) const;
+	//The probe's install pairs with ResetArtifactPackages above.
+	void SetArtifactKnowabilityProbe(ArtifactKnowabilityProbe fnProbe)
+	{
+		m_fnArtifactKnowability = fnProbe;
 	}
 
 	//Get the current module been compiled.
@@ -225,6 +247,9 @@ private:
 	//Owned through shared_ptr so the incomplete cache type needs no
 	//destructor here; only the import pipeline creates it.
 	std::shared_ptr<ArtifactPackageCache> m_spArtifactPackages;
+	//The probe reading m_spArtifactPackages above; installed with the
+	//cache by the import pipeline (InstallArtifactCache).
+	ArtifactKnowabilityProbe m_fnArtifactKnowability = nullptr;
 	//Memoized existence probes of HasLibrarySource: mutable so the const
 	//probe can cache (a legal deep chain asks each prefix once per build).
 	mutable std::unordered_map<std::string, bool> m_LibrarySourceProbes;
