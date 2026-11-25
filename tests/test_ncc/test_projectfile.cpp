@@ -239,6 +239,55 @@ int main() {
         CHECK(!err.empty());
     }
 
+    // 16. <Natives> entries resolve against the project dir, in order:
+    //     native library files packed into the distribution archive.
+    {
+        WriteFixture(tmp, "main.n", "");
+        auto proj = WriteFixture(tmp, "natives.nproj",
+            "<?xml version=\"1.0\"?>\n"
+            "<Project name=\"Nat\">\n"
+            "  <Sources><File path=\"main.n\"/></Sources>\n"
+            "  <Natives>\n"
+            "    <Native path=\"libs/nlang_net.dll\"/>\n"
+            "    <Native path=\"vendor/zlib.dll\"/>\n"
+            "  </Natives>\n"
+            "</Project>\n");
+        nlang::ProjectFile pf;
+        std::string err;
+        CHECK(nlang::ProjectFile::Load(proj.string(), pf, err));
+        CHECK(pf.nativeMembers.size() == 2);
+        CHECK(pf.nativeMembers[0] ==
+            (tmp / "libs/nlang_net.dll").lexically_normal().string());
+        CHECK(pf.nativeMembers[1] ==
+            (tmp / "vendor/zlib.dll").lexically_normal().string());
+    }
+
+    // 17. <Native/> without a path attribute -> error naming the entry.
+    {
+        auto proj = WriteFixture(tmp, "nat_nopath.nproj",
+            "<?xml version=\"1.0\"?>\n<Project name=\"X\">\n"
+            "  <Sources><File path=\"main.n\"/></Sources>\n"
+            "  <Natives><Native/></Natives>\n</Project>\n");
+        nlang::ProjectFile pf;
+        std::string err;
+        CHECK(!nlang::ProjectFile::Load(proj.string(), pf, err));
+        CHECK(!err.empty());
+    }
+
+    // 18. A second <Natives> block is a schema violation (its members
+    //     would be silently dropped), like the other list blocks.
+    {
+        auto proj = WriteFixture(tmp, "nat_two.nproj",
+            "<?xml version=\"1.0\"?>\n<Project name=\"X\">\n"
+            "  <Sources><File path=\"main.n\"/></Sources>\n"
+            "  <Natives><Native path=\"a.dll\"/></Natives>\n"
+            "  <Natives><Native path=\"b.dll\"/></Natives>\n</Project>\n");
+        nlang::ProjectFile pf;
+        std::string err;
+        CHECK(!nlang::ProjectFile::Load(proj.string(), pf, err));
+        CHECK(!err.empty());
+    }
+
     std::printf("\n=== Results: %s (%d failure%s) ===\n",
         g_failures == 0 ? "all passed" : "FAILURES",
         g_failures, g_failures == 1 ? "" : "s");

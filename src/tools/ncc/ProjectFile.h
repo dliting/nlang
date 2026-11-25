@@ -13,10 +13,13 @@ namespace nlang {
 //    <Sources>
 //      <File path="main.n"/>
 //    </Sources>
+//    <Natives>
+//      <Native path="libs/nlang_net.dll"/>
+//    </Natives>
 //  </Project>
 //Paths are relative to the .nproj's directory and resolved to absolute on
 //load. intermediateDir is IDE-facing (Step 1+) and ignored by ncc, which
-//only consumes name/outputDir/sources.
+//only consumes name/outputDir/sources/importPaths/nativeMembers.
 struct ProjectFile {
     std::string name;        //module/output name; defaults to the file stem
     std::string projectDir;  //absolute directory of the .nproj file
@@ -26,6 +29,11 @@ struct ProjectFile {
     //and native DLLs; absolute, project-file order (de-duplicated later by
     //the search-path builder).
     std::vector<std::string> importPaths;
+    //Optional <Natives>: native library files packed into the
+    //distribution archive beside the unit images; absolute, project-file
+    //order. The package member key is the file name and no import name
+    //ever resolves to them.
+    std::vector<std::string> nativeMembers;
 
     //Parses and validates. Returns false with a user-facing errorMessage
     //(missing file, XML error, wrong root, empty Sources, missing path attr).

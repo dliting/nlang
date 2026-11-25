@@ -142,7 +142,9 @@ add_library(nlang_vm
     ModuleSaverRecordsClasses.cpp
     ModuleSaverRecordsInterfaces.cpp
     ModuleSaverRecordsEnums.cpp
-    NcuPackage.cpp
+    NcuPackageFormat.cpp
+    NcuPackageWriter.cpp
+    NcuPackageReader.cpp
     NcuLinker.cpp
     NcuLinkerRemap.cpp
     NcuLinkerSlots.cpp

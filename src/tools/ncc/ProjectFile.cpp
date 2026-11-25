@@ -96,6 +96,50 @@ static bool CollectImportDirs(const tinyxml2::XMLElement* importPaths,
     return true;
 }
 
+//<Natives> half of Load: each <Native path=...> resolved absolute against
+//the project dir. A missing/empty path is an error; a duplicate entry is a
+//user mistake (the archive keys members by file name, so the same file
+//cannot ride twice). The block is optional.
+static bool CollectNativeMembers(const tinyxml2::XMLElement* natives,
+    const std::string& projectPath, ProjectFile& out,
+    std::string& errorMessage) {
+    std::set<std::string> seen;
+    for (const tinyxml2::XMLElement* native =
+             natives->FirstChildElement("Native");
+         native; native = native->NextSiblingElement("Native")) {
+        const char* path = native->Attribute("path");
+        if (!path || !*path) {
+            errorMessage = "<Native> entry without a path attribute in "
+                + projectPath;
+            return false;
+        }
+        fs::path abs = fs::absolute(fs::path(out.projectDir) / path)
+            .lexically_normal();
+        if (!seen.insert(SourceKey(abs)).second) {
+            errorMessage = "duplicate native member entry: " + abs.string();
+            return false;
+        }
+        out.nativeMembers.push_back(abs.string());
+    }
+    return true;
+}
+
+//Validate the optional single <Natives> block and collect its files.
+static bool CollectNativesBlock(const tinyxml2::XMLElement* root,
+                                 const std::string& projectPath,
+                                 ProjectFile& out, std::string& error) {
+    const tinyxml2::XMLElement* natives =
+        root->FirstChildElement("Natives");
+    if (!natives)
+        return true;   // optional
+    if (natives->NextSiblingElement("Natives")) {
+        error = "project file has more than one <Natives> element: "
+            + projectPath;
+        return false;
+    }
+    return CollectNativeMembers(natives, projectPath, out, error);
+}
+
 //Validate the single <Sources> block and collect its files.
 static bool CollectSourcesBlock(const tinyxml2::XMLElement* root,
                                 const std::string& projectPath,
@@ -191,6 +235,8 @@ bool ProjectFile::Load(const std::string& projectPath, ProjectFile& out,
     if (!CollectSourcesBlock(root, projectPath, out, errorMessage))
         return false;
     if (!CollectImportPathsBlock(root, projectPath, out, errorMessage))
+        return false;
+    if (!CollectNativesBlock(root, projectPath, out, errorMessage))
         return false;
     return true;
 }

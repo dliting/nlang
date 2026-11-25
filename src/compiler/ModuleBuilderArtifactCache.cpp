@@ -29,11 +29,10 @@ static std::shared_ptr<ArtifactPackageCache> MakeArtifactPackageCache()
 }
 
 //Seam declaration in ModuleBuilderImports.h.
-bool CarriesMember(const std::vector<std::string> &memberPaths,
+bool CarriesUnitMember(const NcuPackageReader &package,
 	const std::string &name)
 {
-	return std::find(memberPaths.begin(), memberPaths.end(), name)
-		!= memberPaths.end();
+	return package.HasUnitMember(name);
 }
 
 //Seam declaration in ModuleBuilderImports.h.
@@ -57,9 +56,13 @@ const std::vector<std::string> &PackagesInDir(const std::string &dir,
 	return packages;
 }
 
-//Cache-internal open primitive. OpenImportablePackage below is the
-//only seam exposed to artifact discovery, so program packages cannot
-//accidentally join one compiler scan while another correctly skips them.
+//Cache-internal open primitive. Table level (D5): the compile-time
+//consumer reads the member table and extracts unit stubs on demand, so
+//a package carrying multi-megabyte native libraries costs table IO
+//only; the run-time loader keeps the full Open. OpenImportablePackage
+//below is the only seam exposed to artifact discovery, so program
+//packages cannot accidentally join one compiler scan while another
+//correctly skips them.
 static const ArtifactPackageCache::Package &OpenPackage(
 	const std::string &path, ArtifactPackageCache &cache)
 {
@@ -70,7 +73,7 @@ static const ArtifactPackageCache::Package &OpenPackage(
 		return package;
 	auto upReader = std::make_unique<NcuPackageReader>();
 	std::string error;
-	if (upReader->Open(path, &error))
+	if (upReader->OpenTable(path, &error))
 		package.upReader = std::move(upReader);
 	else
 	{
@@ -111,8 +114,7 @@ static bool ArtifactAnswersFor(const BuildEnvironment &env,
 		{
 			const NcuPackageReader *pPackage =
 				OpenImportablePackage(path, cache);
-			if (pPackage
-				&& CarriesMember(pPackage->MemberPaths(), name))
+			if (pPackage && CarriesUnitMember(*pPackage, name))
 				return true;
 		}
 	}

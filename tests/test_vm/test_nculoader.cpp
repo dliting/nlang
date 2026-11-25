@@ -977,6 +977,124 @@ void TestStaticSlotImportDiscoversDependency() {
           "static-slot dependency follows the entry unit");
 }
 
+// --- shape 17: native members never answer at load time (format 1.1) ---
+// A native library member rides the archive under its file name, but no
+// module resolution may see it: a record-less package's entry fallback
+// takes the first UNIT member, and neither the entry package's own table
+// nor a search-dir package answers an import target that only a native
+// member carries. Every case pins the honest diagnostic: the module is
+// not found — never a unit-image parse failure out of the native bytes.
+
+void TestNativeMembersNeverAnswer() {
+    const std::string dllBytes = "MZ fake native library payload";
+
+    // (a) Record-less package whose native member sorts FIRST: the entry
+    // is the first unit member, not the native file name.
+    {
+        const auto dir = scenarioDir("pkg_native_first");
+        NcuPackageWriter pkg;
+        {
+            NcuMember native;
+            native.modulePath = "0native.dll";   // sorts before "app.main"
+            native.kind = NcuMemberKind::Native;
+            native.bytes = dllBytes;
+            CHECK(pkg.AddMember(std::move(native)), "native member packed");
+        }
+        {
+            NcuMember member;
+            member.modulePath = "app.main";
+            CompiledModule u = MakeUnit("app.main");
+            AddFunc(u, "app.main.main", 0);
+            std::ostringstream out;
+            WriteCompiledModule(out, u, "app.main.main");
+            member.bytes = out.str();
+            CHECK(pkg.AddMember(std::move(member)), "entry member packed");
+        }
+        std::string pkgError;
+        CHECK(pkg.Write((dir / "anon.npkg").string(), "anon", nullptr,
+                        &pkgError),
+              "record-less package with a leading native member written");
+
+        NcuLoader::Options opts;
+        try {
+            const NcuLoader::Result r =
+                NcuLoader::LoadClosure((dir / "anon.npkg").string(), opts);
+            CHECK(r.units.size() == 1
+                      && r.units[0].modulePath == "app.main",
+                  "first UNIT member is the entry unit");
+            CHECK(r.entryKey == "app.main.main",
+                  "the unit's own serialized entry key is used");
+        } catch (const std::exception& e) {
+            CHECK(false, (std::string("native-first entry load failed: ")
+                + e.what()).c_str());
+        }
+    }
+
+    // (b) The entry package's own native member must not answer an import
+    // target: "dep.dll" rides as a native file, the import wants a unit.
+    {
+        const auto dir = scenarioDir("pkg_native_member");
+        NcuPackageWriter pkg;
+        {
+            CompiledModule u = MakeUnit("main");
+            AddFunc(u, "main.main", 0);
+            AddFuncImport(u, "dep.dll", "dep.dll.f", 0);
+            NcuMember member;
+            member.modulePath = "main";
+            std::ostringstream out;
+            WriteCompiledModule(out, u, "main.main");
+            member.bytes = out.str();
+            CHECK(pkg.AddMember(std::move(member)), "entry unit packed");
+        }
+        {
+            NcuMember native;
+            native.modulePath = "dep.dll";
+            native.kind = NcuMemberKind::Native;
+            native.bytes = dllBytes;
+            CHECK(pkg.AddMember(std::move(native)), "native member packed");
+        }
+        NcuEntryRecord entry;
+        entry.modulePath = "main";
+        entry.functionName = "main";
+        std::string pkgError;
+        CHECK(pkg.Write((dir / "prog.npkg").string(), "prog", &entry,
+                        &pkgError),
+              "entry package carrying a native member written");
+
+        const FailResult fr = MustFail((dir / "prog.npkg").string(), {});
+        CHECK(fr.failed, "the native-member import target fails the load");
+        CHECK(Contains(fr.msg, "module 'dep.dll' not found"),
+              "reported as not found, not as a broken unit image");
+    }
+
+    // (c) A search-dir package whose only member is native: same report.
+    {
+        const auto entryDir = scenarioDir("native_search_entry");
+        const auto libDir = scenarioDir("native_search_lib");
+        CompiledModule main = MakeUnit("main");
+        AddFunc(main, "main.main", 0);
+        AddFuncImport(main, "ghost.dll", "ghost.dll.f", 0);
+        WriteUnit(entryDir, main, "main.main");
+
+        NcuPackageWriter pkg;
+        NcuMember native;
+        native.modulePath = "ghost.dll";
+        native.kind = NcuMemberKind::Native;
+        native.bytes = dllBytes;
+        CHECK(pkg.AddMember(std::move(native)), "native-only member packed");
+        std::string pkgError;
+        CHECK(pkg.Write((libDir / "ghost.npkg").string(), "ghost", nullptr,
+                        &pkgError),
+              "native-only package written");
+
+        const FailResult fr = MustFail((entryDir / "main.ncu").string(),
+                                       { libDir.string() });
+        CHECK(fr.failed, "the native-only package fails the target");
+        CHECK(Contains(fr.msg, "module 'ghost.dll' not found"),
+              "native-only member reported as not found");
+    }
+}
+
 } // namespace
 
 int main() {
@@ -1006,6 +1124,7 @@ int main() {
     TestEntryPackageNoRecordFirstMember();
     TestEntryMemberFailureOneShot();
     TestMalformedModulePathRefused();
+    TestNativeMembersNeverAnswer();
     std::fprintf(stderr, "=== Results: %d passed, %d failed ===\n",
                  g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;

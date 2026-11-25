@@ -65,6 +65,32 @@ bool appendImportDirEntry(QXmlStreamReader& xml,
     return true;
 }
 
+//One <Native> entry under <Natives>: path resolved against projectDir,
+//duplicate-checked (same key rules as sources; ncc's loader would
+//reject the same duplicate, so the written file must stay loadable
+//there too). False fills error.
+bool appendNativeEntry(QXmlStreamReader& xml,
+                       const QString& projectDir,
+                       std::vector<QString>& nativeMembers,
+                       QSet<QString>& seenKeys, QString* error) {
+    const QString path = xml.attributes().value("path").toString();
+    if (path.isEmpty()) {
+        if (error)
+            *error = "<Native> entry without a path attribute";
+        return false;
+    }
+    const QString absPath = resolvedPath(path, projectDir);
+    const QString key = dedupKey(absPath);
+    if (seenKeys.contains(key)) {
+        if (error)
+            *error = QString("duplicate native member entry: %1").arg(absPath);
+        return false;
+    }
+    seenKeys.insert(key);
+    nativeMembers.push_back(absPath);
+    return true;
+}
+
 //Walk state under <Project>: wrapper flags, one-block markers, the open
 //element depth (root open means children sit at open==1), seen keys and
 //the staged compiler options. The caller commits members only on full
@@ -72,13 +98,16 @@ bool appendImportDirEntry(QXmlStreamReader& xml,
 struct ProjectWalkState {
     bool inSources = false;
     bool inImportPaths = false;
+    bool inNatives = false;
     bool sawSources = false;
     bool sawImportPaths = false;
+    bool sawNatives = false;
     bool sawCompilerOptions = false;
     bool noWarn = false;
     int open = 1;
     QSet<QString> seenSourceKeys;
     QSet<QString> seenImportKeys;
+    QSet<QString> seenNativeKeys;
 };
 
 //The <CompilerOptions> start element: duplicate-reject (a second
@@ -105,6 +134,7 @@ bool handleProjectStart(QXmlStreamReader& xml, const QString& projectDir,
                         ProjectNode* owner,
                         std::vector<std::unique_ptr<FileNode>>& files,
                         std::vector<QString>& importPaths,
+                        std::vector<QString>& nativeMembers,
                         ProjectWalkState& st, QString* error) {
     const int depth = st.open;
     if (depth == 1 && xml.name() == "Sources") {
@@ -122,6 +152,13 @@ bool handleProjectStart(QXmlStreamReader& xml, const QString& projectDir,
             return false;
         }
         st.sawImportPaths = st.inImportPaths = true;
+    } else if (depth == 1 && xml.name() == "Natives") {
+        if (st.sawNatives) {
+            if (error)
+                *error = "project file has more than one <Natives> element";
+            return false;
+        }
+        st.sawNatives = st.inNatives = true;
     } else if (depth == 1 && xml.name() == "CompilerOptions") {
         if (!readCompilerOptions(xml, st, error))
             return false;
@@ -132,6 +169,10 @@ bool handleProjectStart(QXmlStreamReader& xml, const QString& projectDir,
     } else if (depth == 2 && xml.name() == "Dir" && st.inImportPaths) {
         if (!appendImportDirEntry(xml, projectDir, importPaths,
                                   st.seenImportKeys, error))
+            return false;
+    } else if (depth == 2 && xml.name() == "Native" && st.inNatives) {
+        if (!appendNativeEntry(xml, projectDir, nativeMembers,
+                               st.seenNativeKeys, error))
             return false;
     }
     ++st.open;
@@ -147,6 +188,8 @@ bool handleProjectEnd(QXmlStreamReader& xml, ProjectWalkState& st) {
         st.inSources = false;
     else if (st.open == 1 && xml.name() == "ImportPaths")
         st.inImportPaths = false;
+    else if (st.open == 1 && xml.name() == "Natives")
+        st.inNatives = false;
     else if (st.open == 0 && xml.name() == "Project")
         return false;
     return true;
@@ -161,12 +204,13 @@ bool readProjectElements(QXmlStreamReader& xml, const QString& projectDir,
                          ProjectNode* owner,
                          std::vector<std::unique_ptr<FileNode>>& files,
                          std::vector<QString>& importPaths,
+                         std::vector<QString>& nativeMembers,
                          ProjectWalkState& st, QString* error) {
     while (!xml.atEnd()) {
         const QXmlStreamReader::TokenType token = xml.readNext();
         if (token == QXmlStreamReader::StartElement) {
             if (!handleProjectStart(xml, projectDir, owner, files,
-                                    importPaths, st, error))
+                                    importPaths, nativeMembers, st, error))
                 return false;
         } else if (token == QXmlStreamReader::EndElement) {
             if (!handleProjectEnd(xml, st))
@@ -178,6 +222,21 @@ bool readProjectElements(QXmlStreamReader& xml, const QString& projectDir,
         }
     }
     return true;
+}
+
+//One path-list block (<Sources>/<File>, <ImportPaths>/<Dir>,
+//<Natives>/<Native>): entries written relative to base. The caller
+//decides emptiness - Sources is mandatory (save() refuses an empty
+//project), the other blocks are omitted when empty.
+void writePathBlock(QXmlStreamWriter& xml, const char* wrapper,
+                    const char* entry, const QDir& base,
+                    const std::vector<QString>& absPaths) {
+    xml.writeStartElement(wrapper);
+    for (const QString& abs : absPaths) {
+        xml.writeEmptyElement(entry);
+        xml.writeAttribute("path", base.relativeFilePath(abs));
+    }
+    xml.writeEndElement();
 }
 
 } // namespace
@@ -268,24 +327,18 @@ void ProjectNode::writeToXml(QXmlStreamWriter& xml, const QString& baseDir,
     if (!m_intermediateDir.isEmpty())
         xml.writeAttribute("intermediateDir", m_intermediateDir);
 
-    xml.writeStartElement("Sources");
     QDir base(baseDir);
-    for (const QString& abs : absPaths) {
-        xml.writeEmptyElement("File");
-        xml.writeAttribute("path", base.relativeFilePath(abs));
-    }
-    xml.writeEndElement(); // Sources
+    writePathBlock(xml, "Sources", "File", base, absPaths);
 
     //Library search dirs are optional and written relative to the project
     //file (Save As relocates them along with it).
-    if (!m_importPaths.empty()) {
-        xml.writeStartElement("ImportPaths");
-        for (const QString& dir : m_importPaths) {
-            xml.writeEmptyElement("Dir");
-            xml.writeAttribute("path", base.relativeFilePath(dir));
-        }
-        xml.writeEndElement(); // ImportPaths
-    }
+    if (!m_importPaths.empty())
+        writePathBlock(xml, "ImportPaths", "Dir", base, m_importPaths);
+
+    //Native library members are a read-only carry (see ProjectModel.h):
+    //written back exactly as loaded, relative to the project file.
+    if (!m_nativeMembers.empty())
+        writePathBlock(xml, "Natives", "Native", base, m_nativeMembers);
 
     //0.7.5: compiler options persist as an explicit opt-in -- the
     //element is written only when set, and its absence loads false.
@@ -312,10 +365,11 @@ bool ProjectNode::readFromXml(QXmlStreamReader& xml, const QString& projectDir,
     QString intermediateDir = attrs.value("intermediateDir").toString();
     std::vector<std::unique_ptr<FileNode>> files;
     std::vector<QString> importPaths;
+    std::vector<QString> nativeMembers;
     ProjectWalkState st;
 
     if (!readProjectElements(xml, projectDir, this, files, importPaths,
-                             st, error))
+                             nativeMembers, st, error))
         return false;
 
     if (!st.sawSources) {
@@ -334,6 +388,7 @@ bool ProjectNode::readFromXml(QXmlStreamReader& xml, const QString& projectDir,
     m_intermediateDir = intermediateDir;
     m_files = std::move(files);
     m_importPaths = std::move(importPaths);
+    m_nativeMembers = std::move(nativeMembers);
     m_noWarn = st.noWarn;
     return true;
 }

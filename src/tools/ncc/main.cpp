@@ -321,9 +321,12 @@ int main(int argc, char* argv[]) {
             params.m_SourceFiles.push_back(s);
         //Project mode: module paths are computed relative to the
         //.nproj directory (utils/helper.n -> "utils.helper"), and the
-        //build also packs the .npkg distribution archive.
+        //build also packs the .npkg distribution archive. The
+        //<Natives> files ride the archive unchanged (key = file name).
         params.m_sProjectDir = project.projectDir;
         params.m_bProjectMode = true;
+        for (const auto& n : project.nativeMembers)
+            params.m_nativeMembers.push_back(n);
     } else {
         params.m_SourceFiles.push_back(sourceFile);
     }

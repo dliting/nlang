@@ -263,6 +263,114 @@ private slots:
         }
     }
 
+    void testProjectNodeNativeMembersCarryRoundTrip() {
+        //Format 1.1: hand-authored <Natives> ride the model untouched —
+        //the IDE has no editor for them, but an open+save rewrites the
+        //whole file and must not drop what the user wrote (the build
+        //re-reads the saved file via ncc -p, which packs the natives
+        //into the .npkg).
+        QDir d(m_tmpDir.path());
+        const QString projPath = writeFixture("natives.nproj",
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+            "<Project name=\"App\">\n"
+            "  <Sources><File path=\"main.n\"/></Sources>\n"
+            "  <Natives>\n"
+            "    <Native path=\"libs/nlang_net.dll\"/>\n"
+            "    <Native path=\"vendor/zlib.dll\"/>\n"
+            "  </Natives>\n"
+            "</Project>\n");
+        QString error;
+        ProjectNode proj("", d.absolutePath());
+        QVERIFY(proj.load(projPath, &error));
+        QCOMPARE(proj.nativeMemberCount(), 2);
+        QCOMPARE(proj.nativeMemberAt(0),
+                 d.absoluteFilePath("libs/nlang_net.dll"));
+        QCOMPARE(proj.nativeMemberAt(1),
+                 d.absoluteFilePath("vendor/zlib.dll"));
+
+        //Save rewrites the file: the block must survive with the same
+        //entries and relative form.
+        QVERIFY(proj.save(projPath, &error));
+        {
+            QFile f(projPath);
+            QVERIFY(f.open(QIODevice::ReadOnly | QIODevice::Text));
+            const QString content = QTextStream(&f).readAll();
+            QVERIFY(content.contains("<Natives>"));
+            QVERIFY(content.contains("<Native path=\"libs/nlang_net.dll\"/>"));
+            QVERIFY(content.contains("<Native path=\"vendor/zlib.dll\"/>"));
+        }
+        //And a fresh load sees them again (the true round trip).
+        ProjectNode reloaded("", d.absolutePath());
+        QVERIFY(reloaded.load(projPath, &error));
+        QCOMPARE(reloaded.nativeMemberCount(), 2);
+        QCOMPARE(reloaded.nativeMemberAt(0),
+                 d.absoluteFilePath("libs/nlang_net.dll"));
+
+        //No <Natives> block: an ordinary project stays zero, and saves
+        //without the element.
+        const QString plainPath = writeFixture("plainnatives.nproj",
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+            "<Project name=\"Plain\">\n"
+            "  <Sources><File path=\"main.n\"/></Sources>\n"
+            "</Project>\n");
+        ProjectNode plain("", d.absolutePath());
+        QVERIFY(plain.load(plainPath, &error));
+        QCOMPARE(plain.nativeMemberCount(), 0);
+        QVERIFY(plain.save(plainPath, &error));
+        {
+            QFile f(plainPath);
+            QVERIFY(f.open(QIODevice::ReadOnly | QIODevice::Text));
+            QVERIFY(!QTextStream(&f).readAll().contains("Natives"));
+        }
+    }
+
+    void testProjectNodeNativesLoadRejects() {
+        //Same rejects as ncc's loader: a duplicate entry, a second
+        //<Natives> block, and a pathless <Native> all fail the load —
+        //the IDE must not accept a file ncc would refuse.
+        QString error;
+        {
+            ProjectNode proj("", m_tmpDir.path());
+            const QString path = writeFixture("dupnative.nproj",
+                "<?xml version=\"1.0\"?>\n"
+                "<Project name=\"Dup\">\n"
+                "  <Sources><File path=\"main.n\"/></Sources>\n"
+                "  <Natives>\n"
+                "    <Native path=\"libs/a.dll\"/>\n"
+                "    <Native path=\"libs/a.dll\"/>\n"
+                "  </Natives>\n"
+                "</Project>\n");
+            QVERIFY(!proj.load(path, &error));
+            QVERIFY2(error.contains("duplicate native member"),
+                     qPrintable(error));
+        }
+        {
+            ProjectNode proj("", m_tmpDir.path());
+            const QString path = writeFixture("twonatives.nproj",
+                "<?xml version=\"1.0\"?>\n"
+                "<Project name=\"Two\">\n"
+                "  <Sources><File path=\"main.n\"/></Sources>\n"
+                "  <Natives><Native path=\"libs/a.dll\"/></Natives>\n"
+                "  <Natives><Native path=\"libs/b.dll\"/></Natives>\n"
+                "</Project>\n");
+            QVERIFY(!proj.load(path, &error));
+            QVERIFY2(error.contains("more than one <Natives>"),
+                     qPrintable(error));
+        }
+        {
+            ProjectNode proj("", m_tmpDir.path());
+            const QString path = writeFixture("nopathnative.nproj",
+                "<?xml version=\"1.0\"?>\n"
+                "<Project name=\"NoPath\">\n"
+                "  <Sources><File path=\"main.n\"/></Sources>\n"
+                "  <Natives><Native/></Natives>\n"
+                "</Project>\n");
+            QVERIFY(!proj.load(path, &error));
+            QVERIFY2(error.contains("<Native> entry without a path"),
+                     qPrintable(error));
+        }
+    }
+
     void testProjectNodeImportPathsXmlFormat() {
         QString projPath = m_tmpDir.path() + "/fmt_imports.nproj";
         ProjectNode proj("Hello", m_tmpDir.path());

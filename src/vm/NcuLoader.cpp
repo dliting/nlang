@@ -43,9 +43,16 @@ public:
 	explicit ClosureWalk(std::vector<std::string> searchDirs)
 		: m_searchDirs(std::move(searchDirs)) {}
 
-	//Entry artifact: .npkg (entry record member, else first member) or
-	//.ncu (direct load). Returns the effective entry key.
+	//Entry artifact: .npkg (entry record member, else first unit member)
+	//or .ncu (direct load). Returns the effective entry key.
 	std::string LoadEntry(const std::string& artifact);
+
+	//The .npkg half of LoadEntry: open the package, pick the entry
+	//member (the entry record's, else the first unit member - format
+	//1.1 native members never answer), load it, and keep the package
+	//as the walk's entry package (its members outrank the search path).
+	//Throws on failure. Returns the effective entry key.
+	std::string LoadPackageEntry(const std::string& artifact);
 
 	//Walks every loaded unit's import tables (units grow while walking).
 	void DiscoverClosure();
@@ -90,27 +97,7 @@ std::string ClosureWalk::LoadEntry(const std::string& artifact)
 	std::string entryKey;
 	if (fs::path(artifact).extension() == NPKG_EXTENSION)
 	{
-		auto pkg = std::make_unique<NcuPackageReader>();
-		std::string error;
-		if (!pkg->Open(artifact, &error))
-			throw std::runtime_error("nloader failed:\n  " + error);
-		std::string memberPath;
-		const NcuEntryRecord* rec = pkg->EntryRecord();
-		if (rec)
-			memberPath = rec->modulePath;
-		else if (!pkg->MemberPaths().empty())
-			memberPath = pkg->MemberPaths().front();
-		else
-			throw std::runtime_error("nloader failed:\n  package '"
-				+ artifact + "' has no members");
-		LoadPackageMember(*pkg, memberPath, &entryKey);
-		if (m_units.empty())
-			ThrowReport(m_problems);   //entry member failed — nowhere to walk from
-		//The entry record overrides the member's serialized key (the
-		//.nproj names the entry unit; design section 3).
-		if (rec)
-			entryKey = rec->modulePath + "." + rec->functionName;
-		m_entryPackage = std::move(pkg);
+		entryKey = LoadPackageEntry(artifact);
 	}
 	else
 	{
@@ -125,6 +112,47 @@ std::string ClosureWalk::LoadEntry(const std::string& artifact)
 		}
 	}
 	m_resolvedPaths.insert(m_units.front().modulePath);
+	return entryKey;
+}
+
+std::string ClosureWalk::LoadPackageEntry(const std::string& artifact)
+{
+	auto pkg = std::make_unique<NcuPackageReader>();
+	std::string error;
+	if (!pkg->Open(artifact, &error))
+		throw std::runtime_error("nloader failed:\n  " + error);
+	std::string memberPath;
+	const NcuEntryRecord* rec = pkg->EntryRecord();
+	if (rec)
+		memberPath = rec->modulePath;
+	else
+	{
+		//Format 1.1: the fallback is the first UNIT member - a
+		//native library member can sort ahead of every unit, and
+		//its file name is never a module path.
+		const auto& paths = pkg->MemberPaths();
+		const auto& kinds = pkg->MemberKinds();
+		for (size_t i = 0; i < paths.size(); ++i)
+		{
+			if (kinds[i] == NcuMemberKind::Unit)
+			{
+				memberPath = paths[i];
+				break;
+			}
+		}
+		if (memberPath.empty())
+			throw std::runtime_error("nloader failed:\n  package '"
+				+ artifact + "' has no unit members");
+	}
+	std::string entryKey;
+	LoadPackageMember(*pkg, memberPath, &entryKey);
+	if (m_units.empty())
+		ThrowReport(m_problems);   //entry member failed — nowhere to walk from
+	//The entry record overrides the member's serialized key (the
+	//.nproj names the entry unit; design section 3).
+	if (rec)
+		entryKey = rec->modulePath + "." + rec->functionName;
+	m_entryPackage = std::move(pkg);
 	return entryKey;
 }
 
@@ -191,14 +219,12 @@ void ClosureWalk::ResolveTarget(const std::string& target)
 {
 	if (!m_resolvedPaths.insert(target).second)
 		return;   //already loaded or already reported
-	if (m_entryPackage)
+	//Format 1.1: a native library member answers no import target, so
+	//the entry package's own table matches units only.
+	if (m_entryPackage && m_entryPackage->HasUnitMember(target))
 	{
-		const auto& paths = m_entryPackage->MemberPaths();
-		if (std::find(paths.begin(), paths.end(), target) != paths.end())
-		{
-			LoadPackageMember(*m_entryPackage, target, nullptr);
-			return;
-		}
+		LoadPackageMember(*m_entryPackage, target, nullptr);
+		return;
 	}
 	for (const auto& dir : m_searchDirs)
 	{
@@ -298,8 +324,9 @@ const NcuPackageReader* ClosureWalk::FindPackageWithMember(
 		const NcuPackageReader* pkg = OpenPackage(path);
 		if (!pkg)
 			continue;
-		const auto& paths = pkg->MemberPaths();
-		if (std::find(paths.begin(), paths.end(), target) != paths.end())
+		//Format 1.1: only a UNIT member answers an import target - a
+		//native library's file-name key is never a module path.
+		if (pkg->HasUnitMember(target))
 			return pkg;
 	}
 	return nullptr;

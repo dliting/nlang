@@ -56,6 +56,11 @@ struct BuildParams
 	//from m_sProjectDir, which callers also set as the package root
 	//for multi-source single builds (tests).
 	bool m_bProjectMode = false;
+	//Native library files packed into the .npkg as non-unit members
+	//(.nproj <Natives>). Member key is the file name; no import name
+	//resolves to them and the run-time loader consumes them via its
+	//own extraction seam. Absolute paths, project-file order.
+	std::vector<std::string> m_nativeMembers;
 	//Directory holding the standard library declaration files
 	//(stdlib/io.n, ...). Located by the host tool (ncc/nide via
 	//langservice::FindStdLibDir) and passed in; empty means no

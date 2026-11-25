@@ -13,6 +13,7 @@
 #include <nlang/vm/CompiledModule.h>
 #include <nlang/vm/NcuPackage.h>
 #include <filesystem>
+#include <fstream>
 #include <sstream>
 #include <utility>
 
@@ -200,12 +201,48 @@ bool ModuleBuilder::BuildArtifacts()
 	return WritePackageArtifact(images.units, images.entryKey);
 }
 
+//The <Natives> half of WritePackageArtifact (see its comment): read
+//each file at pack time and add it as a native member keyed by file
+//name. False after logging - an unreadable file fails the build rather
+//than silently shipping without the library.
+bool PackNativeMembers(BuildEnvironment& env, NcuPackageWriter& packer)
+{
+	namespace fs = std::filesystem;
+	for (const std::string& native : env.Params().m_nativeMembers)
+	{
+		std::ifstream stream(native, std::ios::in | std::ios::binary);
+		if (!stream)
+		{
+			env.Log(CLL_Fatal, "Failed to read native library '%s'.",
+				native.c_str());
+			return false;
+		}
+		NcuMember member;
+		member.modulePath = fs::path(native).filename().string();
+		member.bytes = std::string(
+			std::istreambuf_iterator<char>(stream),
+			std::istreambuf_iterator<char>());
+		member.kind = NcuMemberKind::Native;
+		if (!packer.AddMember(std::move(member)))
+		{
+			env.Log(CLL_Fatal, "Failed to pack native library '%s'.",
+				native.c_str());
+			return false;
+		}
+	}
+	return true;
+}
+
 //Project-mode builds pack the distribution archive: one member per
 //unit image, the member name being the unit's own module path (the
 //loader's identity rule refuses a member whose header names anything
 //else — each image IS its own header). The entry record names the
 //entry-owning unit and function (the "<module>.<function>" override
 //the loader applies); libraries (no entry) pack without a record.
+//The .nproj's <Natives> files ride the archive as format-1.1 native
+//members, keyed by file name: no import name ever resolves to the key,
+//and the run-time loader consumes them through its own extraction
+//seam.
 bool ModuleBuilder::WritePackageArtifact(
 	const std::vector<CompiledModule>& units,
 	const std::string& entryKey) const
@@ -232,6 +269,8 @@ bool ModuleBuilder::WritePackageArtifact(
 			return false;
 		}
 	}
+	if (!PackNativeMembers(*m_upEnv, packer))
+		return false;
 	return WritePackageFile(*m_upEnv, packer, entry);
 }
 

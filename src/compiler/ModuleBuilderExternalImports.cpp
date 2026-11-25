@@ -117,7 +117,7 @@ bool FindArtifactInDir(const std::string &dir, const std::string &name,
 	{
 		const NcuPackageReader *pPackage =
 			OpenImportablePackage(path, cache);
-		if (!pPackage || !CarriesMember(pPackage->MemberPaths(), name))
+		if (!pPackage || !CarriesUnitMember(*pPackage, name))
 			continue;
 		providers.push_back(path);
 		//The first provider answering is the one adopted.
@@ -170,11 +170,17 @@ std::vector<std::string> CollectPackageMemberUnion(
 				OpenImportablePackage(path, cache);
 			if (!pPackage)
 				continue;
-			for (const std::string &member : pPackage->MemberPaths())
+			//Unit members only: a native library's key is a file name,
+			//not a module path, and never joins a wildcard union.
+			const std::vector<std::string> &paths = pPackage->MemberPaths();
+			const std::vector<NcuMemberKind> &kinds = pPackage->MemberKinds();
+			for (size_t i = 0; i < paths.size(); ++i)
 			{
-				if (member == dottedName
-					|| member.compare(0, prefix.size(), prefix) == 0)
-					members.insert(member);
+				if (kinds[i] != NcuMemberKind::Unit)
+					continue;
+				if (paths[i] == dottedName
+					|| paths[i].compare(0, prefix.size(), prefix) == 0)
+					members.insert(paths[i]);
 			}
 		}
 	}

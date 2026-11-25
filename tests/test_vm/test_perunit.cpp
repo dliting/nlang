@@ -16,6 +16,7 @@
 #include "nlang/compiler/Logger.h"
 #include "nlang/runtime/Runtime.h"
 #include "nlang/vm/CompiledModule.h"
+#include "nlang/vm/NcuPackage.h"
 #include "VmExecutor.h"
 #include "NcuLinker.h"
 #include "NcuLoader.h"
@@ -1082,6 +1083,93 @@ void TestAbstractMemberMethodOrdinal() {
     CHECK(r.rc == 8, "the final method runs the producer's body (8)");
 }
 
+// --- shape 20: project package carries native library members (1.1) ---
+//
+// The .nproj's native members ride the packed .npkg beside the unit
+// images: keyed by FILE NAME, kind Native, bytes read at pack time —
+// and invisible to module resolution (the closure below still sees
+// only the two units). Pinned end to end: pack, reopen the archive,
+// then load, link and execute the program package exactly as nvm
+// runs it from the command line.
+void TestProjectPackageNativeMembers() {
+    const auto dir = scenarioDir("pkg_native_member");
+    writeFiles(dir, {
+        { "helper.n",
+          "int helper(int x) {\n"
+          "  return x * 2;\n"
+          "}\n" },
+        { "main.n",
+          "import helper;\n"
+          "int main() {\n"
+          "  return helper.helper(21);\n"
+          "}\n" } });
+    const fs::path nativeFile = dir / "nlang_net.dll";
+    const std::string nativeBytes = "MZ fake native payload 0123456789";
+    {
+        std::ofstream out(nativeFile, std::ios::binary);
+        out << nativeBytes;
+    }
+    BuildParams params;
+    params.m_SourceFiles.push_back((dir / "helper.n").string());
+    params.m_SourceFiles.push_back((dir / "main.n").string());
+    params.m_sProjectDir = dir.string();
+    params.m_bProjectMode = true;   //project mode ships the package
+    params.m_sOutputModule = "natprog";
+    params.m_sOutputDir = dir.string();
+    params.m_sTempDir = dir.string();
+    params.m_sStdLibDir = STDLIB_DIR;
+    params.m_ImportDirs = { dir.string(), STDLIB_DIR };
+    params.m_nativeMembers.push_back(nativeFile.string());
+    ListCompileLogger logger;
+    ModuleBuilder builder(params, logger);
+    CHECK(builder.BuildArtifacts(), "project packs the package");
+    const fs::path pkg = dir / "natprog.npkg";
+    CHECK(fs::exists(pkg), "package artifact written");
+
+    //The archive carries the native member under its file name, marked
+    //Native, byte-identical — and the unit members keep their own kind.
+    {
+        NcuPackageReader reader;
+        std::string error;
+        CHECK(reader.Open(pkg.string(), &error), "package reopens");
+        const auto& paths = reader.MemberPaths();
+        const auto& kinds = reader.MemberKinds();
+        CHECK(paths.size() == 3 && kinds.size() == 3
+                  && paths[0] == "helper" && kinds[0] == NcuMemberKind::Unit
+                  && paths[1] == "main" && kinds[1] == NcuMemberKind::Unit
+                  && paths[2] == "nlang_net.dll"
+                  && kinds[2] == NcuMemberKind::Native,
+              "native member keyed by file name, kind Native");
+        std::string bytes;
+        CHECK(reader.ExtractMember("nlang_net.dll", &bytes, &error),
+              "native member extracts");
+        CHECK(bytes == nativeBytes, "native bytes are the file's own");
+    }
+
+    //The run-time closure sees only the units; the program still runs.
+    NcuLoader::Options loaderOpts;
+    NcuLoader::Result loaded;
+    try {
+        loaded = NcuLoader::LoadClosure(pkg.string(), loaderOpts);
+    } catch (const std::exception& e) {
+        CHECK(false, (std::string("package load failed: ") + e.what()).c_str());
+        return;
+    }
+    CHECK(loaded.units.size() == 2,
+          "native member does not join the closure");
+    CompiledModule linked;
+    try {
+        linked = NcuLinker::Link(std::move(loaded.units), loaded.entryKey);
+    } catch (const std::exception& e) {
+        CHECK(false, (std::string("link failed: ") + e.what()).c_str());
+        return;
+    }
+    CapturingIo cap;
+    VmExecutor exec;
+    exec.SetHostIo(&cap);
+    CHECK(exec.Execute(linked) == 42, "package entry runs (21*2)");
+}
+
 } // namespace
 
 int main() {
@@ -1108,6 +1196,7 @@ int main() {
     TestClassStaticOverloadCrossUnit();
     TestMemberOrdinalRecordShape();
     TestAbstractMemberMethodOrdinal();
+    TestProjectPackageNativeMembers();
     std::fprintf(stderr, "=== Results: %d passed, %d failed ===\n",
                  g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;

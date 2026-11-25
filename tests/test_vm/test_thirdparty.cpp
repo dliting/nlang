@@ -726,6 +726,66 @@ static void TestLibraryPackageWithoutSources() {
           "the diagnostic is the module-not-found family");
 }
 
+//(9) Format 1.1: a native library member is invisible to imports. A
+//package whose only member is a native file keyed like a dotted module
+//path must answer neither the exact import (module-not-found wording)
+//nor the wildcard arm (no-modules-matched wording) — the native bytes
+//are never adopted as a unit image, which would fail the build as a
+//load failure instead.
+static void TestNativeMemberInvisibleToImports() {
+    const fs::path root = packageDir();
+    const std::string dllBytes = "MZ not a unit image";
+
+    //The package: one native member keyed like a dotted module path.
+    const fs::path libDir = root / "native_only";
+    fs::create_directories(libDir);
+    {
+        NcuPackageWriter packer;
+        NcuMember native;
+        native.modulePath = "netx.dll";   //a plausible file name AND a
+        native.kind = NcuMemberKind::Native;   //dotted module path
+        native.bytes = dllBytes;
+        CHECK(packer.AddMember(std::move(native)), "native member packed");
+        std::string error;
+        CHECK(packer.Write((libDir / "netx.npkg").string(), "netx",
+                          nullptr, &error),
+              "native-only package written");
+    }
+
+    //Exact import: the name is not a module — not-found wording, never
+    //a unit-image load failure.
+    {
+        const fs::path app = root / "native_exact";
+        fs::create_directories(app);
+        std::ofstream(app / "prog.n", std::ios::binary)
+            << "import netx.dll;\n"
+               "int main() { return 0; }\n";
+        ScenarioBuild nat = compileScenario(app, { libDir.string() });
+        CHECK(!nat.ok, "exact import of a native-only member fails");
+        CHECK(nat.log.find("Module 'netx.dll' not found")
+                  != std::string::npos,
+              "reported as module-not-found");
+        CHECK(nat.log.find("Failed to load module") == std::string::npos,
+              "native bytes are never adopted as a unit image");
+    }
+
+    //Wildcard: the native key lies under the prefix but matches nothing.
+    {
+        const fs::path app = root / "native_wild";
+        fs::create_directories(app);
+        std::ofstream(app / "prog.n", std::ios::binary)
+            << "import netx.*;\n"
+               "int main() { return 0; }\n";
+        ScenarioBuild nat = compileScenario(app, { libDir.string() });
+        CHECK(!nat.ok, "wildcard over a native-only member fails");
+        CHECK(nat.log.find("No modules matched import 'netx.*'")
+                  != std::string::npos,
+              "wildcard arm reports no matches");
+        CHECK(nat.log.find("Failed to load module") == std::string::npos,
+              "wildcard never queues the native member");
+    }
+}
+
 //(8) K5 / GIL removal batch 1 (§7.2): the native registry is pre-warmed
 //at run init. (8a) a program that references a native library but calls
 //no native still finds every declared native registered — the prewarm
@@ -837,6 +897,7 @@ int main() {
     TestNativeInMultiSegmentPackageRejected();
     TestSameLastSegmentPackagesCoexist();
     TestLibraryPackageWithoutSources();
+    TestNativeMemberInvisibleToImports();
     TestNativePrewarm();
     std::fprintf(stderr, "=== Results: %d passed, %d failed ===\n",
                  g_pass, g_fail);

@@ -47,9 +47,12 @@ struct ArtifactPackageCache
 	std::map<std::string, std::vector<std::string>> providers;
 };
 
-//True when the member paths carry the module path verbatim. Definition
-//in ModuleBuilderArtifactCache.cpp.
-bool CarriesMember(const std::vector<std::string> &memberPaths,
+//True when the package carries name as a UNIT member. Native library
+//members answer no module path (their key is a file name), so import
+//discovery, the wildcard union and the knowability probe all pass
+//through this one unit-only view. Definition in
+//ModuleBuilderArtifactCache.cpp.
+bool CarriesUnitMember(const NcuPackageReader &package,
 	const std::string &name);
 
 //The packages of one search dir, *.npkg in file name order. Lazy: the
