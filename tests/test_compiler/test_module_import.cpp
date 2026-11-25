@@ -947,24 +947,26 @@ private slots:
             "zero-match wildcard must get the dedicated diagnostic");
     }
 
-    //D11 regression: a wildcard never reaches an external .ncu name.
-    //'lib' exists only as an external module, so the D11 union surface
-    //(exact compiled-in module OR 'lib.'-prefixed compiled-in module) is
-    //empty and the import fails loud instead of building with a closed
-    //gate.
-    void wildcardNeverMatchesExternalRejected()
+    //The D11 union's exact face reaches an external .ncu name too:
+    //'lib' exists only as an external module, and a wildcard over the
+    //base name imports that member exactly, as a compiled-in package
+    //root would be imported (D7.2: the two shapes agree — the retired
+    //pre-package rule had this wildcard fail with a zero-match error).
+    //'lib' has no subtree, so the prefix face adds nothing here.
+    void wildcardMatchesExternalExactMember()
     {
         auto res = buildGateProject({
             "import lib.*;\n"
-            "int main() { return 0; }\n"});
+            "int main() { return add(2, 3); }\n"});
         QVERIFY2(res.builder != nullptr,
             "gate scaffold failed before the gate stage");
-        QVERIFY2(!res.ok,
-            "wildcard on an external-only name must fail the build");
-        QVERIFY2(containsError(res.errors,
-            "No modules matched import 'lib.*'. Check the project "
-            "Sources list or -I import path."),
-            "external-only wildcard must get the zero-match diagnostic");
+        QVERIFY2(res.ok, "the union's exact face must import the external "
+            "module (the zero-match rule was pre-package and is retired)");
+        const ModuleRegistry& reg = res.builder->Registry();
+        QVERIFY2(reg.IsModuleImported(0, "lib"),
+            "the external module must be imported through the wildcard");
+        QVERIFY2(!reg.IsModuleImported(0, "lib.something"),
+            "a single external member has no subtree for the prefix face");
     }
 
     //D11: 'import utils.*;' is a union — the exact module "utils"
@@ -3881,6 +3883,82 @@ private slots:
             "a mutual package pair must fail the build").c_str());
         QVERIFY2(containsError(run.errors,
                 "import cycle detected: pa.m -> pb.m -> pa.m"),
+            joinErrors(run.errors).c_str());
+    }
+
+    //A wildcard over an artifact-only package: the union is the
+    //package's member table (the exact member tp plus the prefix
+    //members under tp.), not a disk subtree. Discovery queues every
+    //union member, the gate's wildcard surface counts the registered
+    //external entries, and both the package's own call and the
+    //submodule call resolve — 42 + 7.
+    void wildcardArtifactUnionImportsAndRuns()
+    {
+        bool fixtureOk = true;
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import tp.*;\n"
+            "int main() { return tp.top() + tp.sub.x(); }\n";
+        opts.withThirdPartyPackage = true;
+        opts.preparePackageDir = [&fixtureOk](const std::filesystem::path& pkgOut)
+        {
+            fixtureOk = fixtureOk
+                && buildThirdPartyPackage(pkgOut, "tp.npkg");
+        };
+        const GateRunResult run = runGateProject(opts);
+        QVERIFY2(fixtureOk, "the third-party package fixture could not be built");
+        QVERIFY2(run.ok, runFailureText(run,
+            "a wildcard must import, build and execute through the "
+            "package's member table").c_str());
+        QVERIFY2(run.runtimeError.empty(), runFailureText(run,
+            "execution must be clean").c_str());
+        QVERIFY2(run.exitValue == 49, "tp.top() is 42 and tp.sub.x() is 7");
+    }
+
+    //The exact face of a wildcard union: the base name tp is itself a
+    //member, so it joins gate.exact exactly as a compiled-in package
+    //root would (IsCompiledInModule for the source shape) — the bare
+    //name top() is visible without qualification. A prefix-only face
+    //would leave the two shapes silently disagreeing about unqualified
+    //visibility.
+    void wildcardArtifactExactMemberGrantsBareVisibility()
+    {
+        bool fixtureOk = true;
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import tp.*;\n"
+            "int main() { return top() + 1; }\n";
+        opts.withThirdPartyPackage = true;
+        opts.preparePackageDir = [&fixtureOk](const std::filesystem::path& pkgOut)
+        {
+            fixtureOk = fixtureOk
+                && buildThirdPartyPackage(pkgOut, "tp.npkg");
+        };
+        const GateRunResult run = runGateProject(opts);
+        QVERIFY2(fixtureOk, "the third-party package fixture could not be built");
+        QVERIFY2(run.ok, runFailureText(run,
+            "the exact member of a wildcard union must grant bare "
+            "visibility, as the compiled-in shape does").c_str());
+        QVERIFY2(run.runtimeError.empty(), runFailureText(run,
+            "execution must be clean").c_str());
+        QVERIFY2(run.exitValue == 43, "top() is 42 here, plus 1");
+    }
+
+    //The empty-union advice must survive the artifact arm joining the
+    //match surface: a name nothing compiled-in, nothing on disk and no
+    //package member answers for is still a typo, with the same advice
+    //naming both places a module path comes from.
+    void wildcardEmptyUnionAdviceUnchanged()
+    {
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import nosuchpkg.*;\n"
+            "int main() { return 0; }\n";
+        const GateRunResult run = runGateProject(opts);
+        QVERIFY2(!run.ok, "an empty union must fail the build");
+        QVERIFY2(containsError(run.errors,
+            "No modules matched import 'nosuchpkg.*'. Check the project "
+            "Sources list or -I import path."),
             joinErrors(run.errors).c_str());
     }
 };

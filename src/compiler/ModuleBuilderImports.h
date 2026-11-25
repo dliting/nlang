@@ -64,4 +64,15 @@ std::shared_ptr<ArtifactPackageCache> MakeArtifactPackageCache();
 ArtifactUnit FindArtifactUnit(const BuildParams &params,
 	ArtifactPackageCache &cache, const std::string &name);
 
+//Every package member across the effective library dirs whose module
+//path is the dotted name itself or lies under it - a wildcard union's
+//artifact arm (the source arm is the disk subtree walk). All dirs
+//contribute: the union only names candidates, and the per-name
+//first-dir-wins rule stays the resolver's (HandleLibraryImport).
+//Sorted and deduped so the queue order is deterministic. Definition in
+//ModuleBuilderExternalImports.cpp.
+std::vector<std::string> CollectPackageMemberUnion(
+	const BuildParams &params, ArtifactPackageCache &cache,
+	const std::string &dottedName);
+
 } //namespace nlang

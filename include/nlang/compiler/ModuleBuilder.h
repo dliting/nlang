@@ -189,6 +189,11 @@ private:
 	//effective library dir, each through HandleLibraryImport. True when a TU
 	//was added.
 	bool DiscoverLibrarySubtree(const std::string &dottedName);
+	//The same union's artifact arm (ModuleBuilderExternalImports.cpp):
+	//every package member whose path is the name itself or lies under it
+	//joins the build through HandleLibraryImport, which decides what a
+	//member answers as (a source wins, a project name is skipped).
+	bool DiscoverMemberTableSubtree(const std::string &dottedName);
 	//HandleLibraryImport's match tail, shared with the prelude
 	//resolution: a match that IS a project source is already compiled in;
 	//anything else inlines under its root. True when a TU was added.

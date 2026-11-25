@@ -3,11 +3,15 @@
 	The external-artifact arm of the import pipeline: the discovery-phase
 	lookup of an import name's artifact (a unit file or a package member on
 	the library search path), and the load-phase registration of the found
-	units — their stub nodes, registry entries and stub tables. Split from
+	units — their stub nodes, registry entries and stub tables — and the
+	mirror-record arm: resolving the import-record names a queued image
+	carries (the discovery fixed point's second driver). Split from
 	ModuleBuilderImports.cpp (2026-11-19 maintainability refactor).
 -----------------------------------------------------------------------------*/
 
 #include "ModuleBuilder.h"
+#include "BuiltinPrelude.h"
+#include "ModuleBuilderImportCycles.h"
 #include "ModuleBuilderImports.h"
 #include "ModuleLoader.h"
 #include "builder/CompiledModuleNodeBuilder.hpp"
@@ -227,6 +231,128 @@ ArtifactUnit FindArtifactUnit(const BuildParams &params,
 	}
 	cache.absent.insert(name);
 	return unit;
+}
+
+//Seam declaration in ModuleBuilderImports.h. One wildcard union's
+//artifact arm: every package member across the effective library dirs
+//whose path is the name itself or lies under it. All dirs contribute
+//(the per-name first-dir-wins rule is the resolver's, not the
+//collector's - the union only names candidates). Sorted and deduped
+//so the fixed point's queue order is deterministic.
+std::vector<std::string> CollectPackageMemberUnion(
+	const BuildParams &params, ArtifactPackageCache &cache,
+	const std::string &dottedName)
+{
+	const std::string prefix = dottedName + '.';
+	std::set<std::string> members;
+	for (const std::string &dir : EffectiveLibraryDirs(params))
+	{
+		for (const std::string &path : PackagesInDir(dir, cache))
+		{
+			const ArtifactPackageCache::Package &package =
+				OpenPackage(path, cache);
+			if (!package.upReader)
+				continue;
+			for (const std::string &member :
+				package.upReader->MemberPaths())
+			{
+				if (member == dottedName
+					|| member.compare(0, prefix.size(), prefix) == 0)
+					members.insert(member);
+			}
+		}
+	}
+	return { members.begin(), members.end() };
+}
+
+//The wildcard union's artifact arm (ModuleBuilder.h). True when a TU
+//was added; a pass that only queues members still iterates - the
+//pending set's growth is the fixed point's other signal.
+bool ModuleBuilder::DiscoverMemberTableSubtree(
+	const std::string &dottedName)
+{
+	bool changed = false;
+	for (const std::string &member : CollectPackageMemberUnion(
+			m_upEnv->Params(), *m_upEnv->ArtifactPackages(), dottedName))
+	{
+		if (HandleLibraryImport(member))
+			changed = true;
+	}
+	return changed;
+}
+
+//One import-record name read from a loaded mirror image, resolved in
+//the import order (D2). The prelude packages are inlined by the
+//implicit import before discovery, and a project unit owns its own
+//name (no artifact may answer for it); otherwise the library-source
+//arm runs first — a TU was added, or a source answering for the name
+//is already inlined — then the artifact arm's outcome separates a
+//queued unit, a refused one (its diagnosis is already logged) and an
+//absent one. False only when nothing answers for the name.
+bool ModuleBuilder::ResolveMirrorImportName(const std::string &name)
+{
+	for (const PreludePackage &pkg : kPreludePackages)
+	{
+		if (name == pkg.name)
+			return true;
+	}
+	if (IsProjectModuleName(name))
+		return true;
+	if (HandleLibraryImport(name, /*discoverArtifact=*/false))
+		return true;
+	//A false return also covers the deduped re-import of an
+	//already-inlined source (and the duplicate-package diagnosis —
+	//matches non-empty, the error already logged): both are homes.
+	if (!FindLibrarySourceMatches(m_upEnv->Params(), name).empty())
+		return true;
+	return DiscoverArtifactUnit(name) != ArtifactOutcome::Absent;
+}
+
+//The fixed point's closing report: a record name nothing answered for
+//has no gate to report it (no TU spec names it), so discovery reports
+//it itself — except a name a TU spec also carries: the import gate's
+//report owns that one (one diagnostic per name, not two).
+void ModuleBuilder::ReportHomelessMirrorNames(
+	const std::set<std::string> &specNames,
+	const std::vector<std::string> &homelessNames) const
+{
+	for (const std::string &name : homelessNames)
+	{
+		if (specNames.count(name) == 0)
+			m_upEnv->Log(CLL_Error, "%s", ModuleNotFoundText(name).c_str());
+	}
+}
+
+//One fixed-point pass's mirror half: every artifact image queued since
+//scannedArtifacts was set has its import-record names resolved, each
+//name once, in record order (deterministic: the five tables serialize
+//in a fixed order). A name that resolves to nothing joins
+//homelessNames for the closing report. True when the pass grew the TU
+//set or the pending set — the fixed point iterates on growth.
+bool ModuleBuilder::ScanMirrorImportRecords(size_t &scannedArtifacts,
+	std::set<std::string> &mirrorNames,
+	std::vector<std::string> &homelessNames)
+{
+	const size_t unitsBefore = m_upTransUnits->size();
+	const size_t totalArtifacts = m_pendingArtifacts.size();
+	for (size_t i = scannedArtifacts; i < totalArtifacts; ++i)
+	{
+		const PendingArtifactLoad &pending = m_pendingArtifacts[i];
+		for (const std::string &name : ImageImportTargets(pending.image))
+		{
+			//A unit's record of its own path is a self-reference, not a
+			//dependency (the cycle check drops the same shape).
+			if (name == pending.name)
+				continue;
+			if (!mirrorNames.insert(name).second)
+				continue;
+			if (!ResolveMirrorImportName(name))
+				homelessNames.push_back(name);
+		}
+	}
+	scannedArtifacts = totalArtifacts;
+	return m_pendingArtifacts.size() != totalArtifacts
+		|| m_upTransUnits->size() != unitsBefore;
 }
 
 //Discovery arm for a name that no library source answers for: look its

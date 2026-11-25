@@ -32,18 +32,22 @@ bool ContainsValue(const std::vector<std::string>& list,
 void ModuleRegistry::ApplyWildcardImport(const std::string& name,
 	ImportGate& gate, std::vector<std::string>& outErrors) const
 {
-	//Recursive prefix over the compiled-in module paths (D5): project
-	//modules and inlined library units alike — D-29 rule 2 (ruling 45) makes
-	//a library package's wildcard the package itself plus its whole subtree
-	//(`web` and `web.static`), which is what a dotted library layout needs.
-	//External .ncu names are single-segment, so a wildcard never reaches one
-	//(§3.3). The importing TU's own path counts toward the match surface.
+	//Recursive prefix over the registered module paths (D5): project
+	//modules, inlined library units and artifact units alike — D-29 rule 2
+	//(ruling 45) makes a library package's wildcard the package itself plus
+	//its whole subtree (`web` and `web.static`), which is what a dotted
+	//library layout needs, and a package's member table offers exactly that
+	//shape for an artifact package (discovery queues the union before the
+	//gates are built). The exact face is the same union: a base name that
+	//exists as an external member joins gate.exact exactly as a compiled-in
+	//package root would (D7.2, the two shapes agree on bare visibility).
+	//The importing TU's own path counts toward the match surface.
 	const std::string prefix = name + '.';
-	const bool exactExists = IsCompiledInModule(name);
+	const bool exactExists = IsKnownModule(name);
 	bool prefixMatched = false;
 	for (const ModuleEntry& entry : m_modules)
 	{
-		if (!entry.isExternal && entry.path.rfind(prefix, 0) == 0)
+		if (entry.path.rfind(prefix, 0) == 0)
 		{
 			prefixMatched = true;
 			break;

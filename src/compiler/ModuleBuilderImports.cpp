@@ -4,8 +4,9 @@
 	.n discovery (including a wildcard import's package subtree), prelude
 	resolution and the per-TU import gates. Split from ModuleBuilder.cpp
 	(2026-09-27 maintainability refactor, zero behavior change); the
-	artifact arm (unit files and package members) split out to
-	ModuleBuilderExternalImports.cpp.
+	artifact arm (unit files and package members) and the mirror-record
+	arm (the fixed point's reading of artifact images' import records)
+	split out to ModuleBuilderExternalImports.cpp.
 -----------------------------------------------------------------------------*/
 
 #include "ModuleBuilder.h"
@@ -268,28 +269,24 @@ static std::string LibraryUnitModulePath(const std::string &dottedName,
 	return name + "." + file.stem().string();
 }
 
-//Discovery half of D-29 rule 2's wildcard union (ruling 45): `import a.b.*;`
-//inlines <root>/a/b.n — the package itself — plus every unit under
-//<root>/a/b/ in each effective library dir. Which candidates exist is decided
-//by the files on disk, never by BuildEnvironment::IsLibraryPackage: that index
-//loads only the standard library directory while third-party packages arrive
-//through -I dirs, and a union whose size depended on the search dir would be
-//unpredictable. The walk mirrors the index's own unit rules
-//(SymbolIndex::LoadLibraryDir) — a dot directory holds no units, and neither
-//does a file whose stem carries a dot — so discovery and the index cannot
-//disagree about what a package contains. Files are sorted before being
-//handed over: directory order is filesystem-dependent, and both the
-//fixed-point iteration and the duplicate-package diagnosis must not inherit
-//it. True when a TU was added (drives the iteration).
-bool ModuleBuilder::DiscoverLibrarySubtree(const std::string &dottedName)
+//The disk half of the wildcard union's source arm: every unit under
+//<root>/<a/b>/ in each effective library dir, as module paths. The walk
+//mirrors the index's own unit rules (SymbolIndex::LoadLibraryDir) - a
+//dot directory holds no units, and neither does a file whose stem
+//carries a dot - so discovery and the index cannot disagree about what
+//a package contains. Each dir's units are sorted before joining the
+//list: directory order is filesystem-dependent, and both the
+//fixed-point iteration and the duplicate-package diagnosis must not
+//inherit it.
+static std::vector<std::string> SubtreeUnitModulePaths(
+	const BuildParams &params, const std::string &dottedName)
 {
-	bool changed = HandleLibraryImport(dottedName);   //the package file itself
-
 	std::string rel = dottedName;
 	std::replace(rel.begin(), rel.end(), '.', '/');
 	const auto walkOptions =
 		std::filesystem::directory_options::skip_permission_denied;
-	for (const auto &dir : EffectiveLibraryDirs(m_upEnv->Params()))
+	std::vector<std::string> modulePaths;
+	for (const auto &dir : EffectiveLibraryDirs(params))
 	{
 		const std::filesystem::path pkgDir =
 			std::filesystem::path(dir) / rel;
@@ -311,7 +308,8 @@ bool ModuleBuilder::DiscoverLibrarySubtree(const std::string &dottedName)
 			if (!entry.is_regular_file()
 				|| entry.path().extension() != ".n")
 				continue;
-			if (entry.path().stem().string().find('.') != std::string::npos)
+			if (entry.path().stem().string().find('.')
+				!= std::string::npos)
 				continue;   //a dotted stem stands for a directory: not a unit
 			units.push_back(entry.path());
 		}
@@ -320,87 +318,35 @@ bool ModuleBuilder::DiscoverLibrarySubtree(const std::string &dottedName)
 		{
 			const std::string modulePath =
 				LibraryUnitModulePath(dottedName, unit, pkgDir);
-			if (modulePath.empty())
-				continue;
-			if (HandleLibraryImport(modulePath))
-				changed = true;
+			if (!modulePath.empty())
+				modulePaths.push_back(modulePath);
 		}
 	}
+	return modulePaths;
+}
+
+//Discovery half of D-29 rule 2's wildcard union (ruling 45): `import
+//a.b.*;` inlines <root>/a/b.n - the package itself - plus every unit
+//under <root>/a/b/ in each effective library dir. Which candidates
+//exist is decided by the files on disk, never by
+//BuildEnvironment::IsLibraryPackage: that index loads only the standard
+//library directory while third-party packages arrive through -I dirs,
+//and a union whose size depended on the search dir would be
+//unpredictable. The union's other arm is the package member tables
+//(DiscoverMemberTableSubtree, the artifact arm). True when a TU was
+//added (drives the iteration).
+bool ModuleBuilder::DiscoverLibrarySubtree(const std::string &dottedName)
+{
+	bool changed = HandleLibraryImport(dottedName);   //the package file itself
+	for (const std::string &modulePath :
+		SubtreeUnitModulePaths(m_upEnv->Params(), dottedName))
+	{
+		if (HandleLibraryImport(modulePath))
+			changed = true;
+	}
+	if (DiscoverMemberTableSubtree(dottedName))
+		changed = true;
 	return changed;
-}
-
-//One import-record name read from a loaded mirror image, resolved in
-//the import order (D2). The prelude packages are inlined by the
-//implicit import before discovery, and a project unit owns its own
-//name (no artifact may answer for it); otherwise the library-source
-//arm runs first — a TU was added, or a source answering for the name
-//is already inlined — then the artifact arm's outcome separates a
-//queued unit, a refused one (its diagnosis is already logged) and an
-//absent one. False only when nothing answers for the name.
-bool ModuleBuilder::ResolveMirrorImportName(const std::string &name)
-{
-	for (const PreludePackage &pkg : kPreludePackages)
-	{
-		if (name == pkg.name)
-			return true;
-	}
-	if (IsProjectModuleName(name))
-		return true;
-	if (HandleLibraryImport(name, /*discoverArtifact=*/false))
-		return true;
-	//A false return also covers the deduped re-import of an
-	//already-inlined source (and the duplicate-package diagnosis —
-	//matches non-empty, the error already logged): both are homes.
-	if (!FindLibrarySourceMatches(m_upEnv->Params(), name).empty())
-		return true;
-	return DiscoverArtifactUnit(name) != ArtifactOutcome::Absent;
-}
-
-//The fixed point's closing report: a record name nothing answered for
-//has no gate to report it (no TU spec names it), so discovery reports
-//it itself — except a name a TU spec also carries: the import gate's
-//report owns that one (one diagnostic per name, not two).
-void ModuleBuilder::ReportHomelessMirrorNames(
-	const std::set<std::string> &specNames,
-	const std::vector<std::string> &homelessNames) const
-{
-	for (const std::string &name : homelessNames)
-	{
-		if (specNames.count(name) == 0)
-			m_upEnv->Log(CLL_Error, "%s", ModuleNotFoundText(name).c_str());
-	}
-}
-
-//One fixed-point pass's mirror half: every artifact image queued since
-//scannedArtifacts was set has its import-record names resolved, each
-//name once, in record order (deterministic: the five tables serialize
-//in a fixed order). A name that resolves to nothing joins
-//homelessNames for the closing report. True when the pass grew the TU
-//set or the pending set — the fixed point iterates on growth.
-bool ModuleBuilder::ScanMirrorImportRecords(size_t &scannedArtifacts,
-	std::set<std::string> &mirrorNames,
-	std::vector<std::string> &homelessNames)
-{
-	const size_t unitsBefore = m_upTransUnits->size();
-	const size_t totalArtifacts = m_pendingArtifacts.size();
-	for (size_t i = scannedArtifacts; i < totalArtifacts; ++i)
-	{
-		const PendingArtifactLoad &pending = m_pendingArtifacts[i];
-		for (const std::string &name : ImageImportTargets(pending.image))
-		{
-			//A unit's record of its own path is a self-reference, not a
-			//dependency (the cycle check drops the same shape).
-			if (name == pending.name)
-				continue;
-			if (!mirrorNames.insert(name).second)
-				continue;
-			if (!ResolveMirrorImportName(name))
-				homelessNames.push_back(name);
-		}
-	}
-	scannedArtifacts = totalArtifacts;
-	return m_pendingArtifacts.size() != totalArtifacts
-		|| m_upTransUnits->size() != unitsBefore;
 }
 
 //DiscoverLibraryUnits' iteration. The TU half keeps its own scan
