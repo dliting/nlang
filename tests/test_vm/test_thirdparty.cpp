@@ -653,13 +653,16 @@ static void TestProgramPackageWithoutSources() {
     CHECK(missing.log.find("'lib'") != std::string::npos,
           "the diagnostic names the missing module");
 
-    //Phase 6 flip guard: a multi-member package without an entry record
-    //(the project-mode library distribution form) must be REFUSED for
-    //import. Silently taking the alphabetically-first member would let
-    //the consumer compile against half a surface and defer the failure
-    //to run time; single-member library packages stay the import
-    //contract (per-member surfaces need dotted-path import gates —
-    //deferred design decision, phase6_loader_design.md section 9).
+    //Package addressing (artifact imports): a package is addressed
+    //through its member table — each member is an importable unit — and
+    //the package FILE's own name addresses nothing. This scenario packs
+    //a two-member package without an entry record: the mma member
+    //imports through the member table (the packing intermediates are
+    //removed first so no unit file shadows the package), while a
+    //program importing the package file's stem names no member and
+    //fails in the module-not-found family. The executed end-to-end form
+    //(a multi-member package's member running through the load-time
+    //closure) is pinned in test_module_import.
     const fs::path multi = root / "pkg_multi";
     fs::create_directories(multi);
     {
@@ -694,7 +697,25 @@ static void TestProgramPackageWithoutSources() {
         CHECK(packer.Write((multi / "multi.npkg").string(), "multi",
                            nullptr, &packError),
               "two-member package written without an entry record");
+        //A unit file of a member's name would answer ahead of the
+        //package's member table and hide the arm under test.
+        fs::remove(multi / "mma.ncu");
+        fs::remove(multi / "mmb.ncu");
     }
+    //Positive: the member imports through the package's member table.
+    const fs::path mmaApp = root / "pkg_mma_app";
+    fs::create_directories(mmaApp);
+    {
+        std::ofstream out(mmaApp / "prog.n", std::ios::binary);
+        out << "import mma;\n"
+               "int main() { return 0; }\n";
+    }
+    ScenarioBuild member = compileScenario(mmaApp, { multi.string() });
+    if (!member.ok)
+        std::fprintf(stderr, "member import build log: %s\n",
+                     member.log.c_str());
+    CHECK(member.ok, "a member of an entry-record-less package imports");
+    //Negative: the package file's stem names no member — not-found.
     const fs::path multiApp = root / "pkg_multi_app";
     fs::create_directories(multiApp);
     {
@@ -703,9 +724,9 @@ static void TestProgramPackageWithoutSources() {
                "int main() { return 0; }\n";
     }
     ScenarioBuild refused = compileScenario(multiApp, { multi.string() });
-    CHECK(!refused.ok, "multi-member import is refused at compile time");
-    CHECK(refused.log.find("no entry record") != std::string::npos,
-          "the diagnostic names the multi-member refusal");
+    CHECK(!refused.ok, "importing the package file's stem fails the build");
+    CHECK(refused.log.find("Module 'multi' not found") != std::string::npos,
+          "the diagnostic is the module-not-found family");
 }
 
 //(8) K5 / GIL removal batch 1 (§7.2): the native registry is pre-warmed
