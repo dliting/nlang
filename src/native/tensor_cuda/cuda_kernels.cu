@@ -445,7 +445,11 @@ cudaError_t LaunchBinary(int op, const LaunchView& a,
     cudaError_t err = cudaStreamSynchronize(g_stream);
     if (err != cudaSuccess)
         return err;
-    int32_t flags[2] = {kErrNone, 0};
+    //Explicit cast: kErrNone is uint32 0xFFFFFFFF, narrowed to the int32
+    //sentinel; the value is fully overwritten by the device copy below, so
+    //this only needs to be well-formed (GCC enforces the narrowing constraint
+    //that MSVC only warns about).
+    int32_t flags[2] = {static_cast<int32_t>(kErrNone), 0};
     cudaMemcpy(flags, g_error, 2 * sizeof(int32_t), cudaMemcpyDeviceToHost);
     if (flags[0] != kErrNone)
         *errorOut = flags[1];
@@ -477,7 +481,11 @@ cudaError_t LaunchBinaryScalar(int op, const LaunchView& a,
     cudaError_t err = cudaStreamSynchronize(g_stream);
     if (err != cudaSuccess)
         return err;
-    int32_t flags[2] = {kErrNone, 0};
+    //Explicit cast: kErrNone is uint32 0xFFFFFFFF, narrowed to the int32
+    //sentinel; the value is fully overwritten by the device copy below, so
+    //this only needs to be well-formed (GCC enforces the narrowing constraint
+    //that MSVC only warns about).
+    int32_t flags[2] = {static_cast<int32_t>(kErrNone), 0};
     cudaMemcpy(flags, g_error, 2 * sizeof(int32_t), cudaMemcpyDeviceToHost);
     if (flags[0] != kErrNone)
         *errorOut = flags[1];
@@ -2367,7 +2375,11 @@ cudaError_t LaunchOneHot(const LaunchView& labels, int32_t n,
     PoolFree(dLabels, g_stream);
     if (err != cudaSuccess)
         return err;
-    int32_t flags[2] = {kErrNone, 0};
+    //Explicit cast: kErrNone is uint32 0xFFFFFFFF, narrowed to the int32
+    //sentinel; the value is fully overwritten by the device copy below, so
+    //this only needs to be well-formed (GCC enforces the narrowing constraint
+    //that MSVC only warns about).
+    int32_t flags[2] = {static_cast<int32_t>(kErrNone), 0};
     cudaMemcpy(flags, g_error, 2 * sizeof(int32_t), cudaMemcpyDeviceToHost);
     if (flags[0] != kErrNone)
         *errorOut = flags[1];
@@ -2589,7 +2601,11 @@ cudaError_t LaunchScatter(const LaunchView& a, const LaunchView& indices,
     PoolFree(dIdx, g_stream);
     if (err != cudaSuccess)
         return err;
-    int32_t flags[2] = {kErrNone, 0};
+    //Explicit cast: kErrNone is uint32 0xFFFFFFFF, narrowed to the int32
+    //sentinel; the value is fully overwritten by the device copy below, so
+    //this only needs to be well-formed (GCC enforces the narrowing constraint
+    //that MSVC only warns about).
+    int32_t flags[2] = {static_cast<int32_t>(kErrNone), 0};
     cudaMemcpy(flags, g_error, 2 * sizeof(int32_t), cudaMemcpyDeviceToHost);
     if (flags[0] != kErrNone)
         *errorOut = flags[1];
@@ -2676,7 +2692,11 @@ cudaError_t LaunchScatterAdd(const LaunchView& a, const LaunchView& indices,
     PoolFree(dIdx, g_stream);
     if (err != cudaSuccess)
         return err;
-    int32_t flags[2] = {kErrNone, 0};
+    //Explicit cast: kErrNone is uint32 0xFFFFFFFF, narrowed to the int32
+    //sentinel; the value is fully overwritten by the device copy below, so
+    //this only needs to be well-formed (GCC enforces the narrowing constraint
+    //that MSVC only warns about).
+    int32_t flags[2] = {static_cast<int32_t>(kErrNone), 0};
     cudaMemcpy(flags, g_error, 2 * sizeof(int32_t), cudaMemcpyDeviceToHost);
     if (flags[0] != kErrNone)
         *errorOut = flags[1];
