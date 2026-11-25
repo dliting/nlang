@@ -8,6 +8,7 @@
 #include "PrimitiveTypes.h"
 #include <string>
 #include <list>
+#include <typeinfo>
 #include "StackDump.h"
 
 namespace nlang
@@ -46,11 +47,11 @@ class NLANG_RUNTIME_API RnBuiltinDataType : public RnDataType
 public:
 	static const NodeBits s_DefaultFlags = NF_Type | NF_Field | NF_Plain | NF_DontDelete;
 public:
-	RnBuiltinDataType(NodeKind kind, const char* szName, 
-		const type_info &cppTypeId);
+	RnBuiltinDataType(NodeKind kind, const char* szName,
+		const std::type_info &cppTypeId);
 
 	//Get the c++ typeid of this type.
-	const type_info &CppTypeId() const
+	const std::type_info &CppTypeId() const
 	{
 		return m_CppTypeId;
 	}
@@ -73,7 +74,7 @@ protected:
 
 	static const char *NameOf(NodeKind);
 private:
-	const type_info &m_CppTypeId;
+	const std::type_info &m_CppTypeId;
 };
 
 template<NodeKind KIND, class CPP_T>

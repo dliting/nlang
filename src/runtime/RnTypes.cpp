@@ -25,8 +25,8 @@ RnDataType::RnDataType(NodeKind kind, FieldAccessType at,
 {
 }
 
-RnBuiltinDataType::RnBuiltinDataType(NodeKind kind, const char* szName, 
-	const type_info& cppTypeId) :
+RnBuiltinDataType::RnBuiltinDataType(NodeKind kind, const char* szName,
+	const std::type_info& cppTypeId) :
 	Super_(kind, FA_Public, szName), m_CppTypeId(cppTypeId)
 {
 }
