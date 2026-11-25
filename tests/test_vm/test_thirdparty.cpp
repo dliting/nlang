@@ -526,13 +526,13 @@ static void TestSameLastSegmentPackagesCoexist() {
           "two packages sharing a last segment coexist; functions and types stay separate");
 }
 
-//(7) Phase 6 Task 3 Step 1: a third-party package ships as .npkg ONLY
-//(no source, no loose .ncu). The consumer's build consumes the package's
-//embedded compile unit for signatures, and the run resolves the unit
-//from the package at load time (the consumer artifact embeds no library
-//code — asserted below). Negative: removing the package makes the
-//consumer build fail with the module-not-found diagnostic.
-static void TestProgramPackageWithoutSources() {
+//(7) Phase 6 Task 3 Step 1: a third-party library package ships as .npkg
+//ONLY (no source, no loose .ncu). The consumer's build consumes the
+//package's embedded compile unit for signatures, and the run resolves the
+//unit from the package at load time (the consumer artifact embeds no library
+//code — asserted below). Negative: removing the package makes the consumer
+//build fail with the module-not-found diagnostic.
+static void TestLibraryPackageWithoutSources() {
     //One packageDir() call: every later call remove_all's the whole
     //shared root (established rule), so all scenario dirs derive from a
     //single root and no scenario touches another's directory.
@@ -570,11 +570,8 @@ static void TestProgramPackageWithoutSources() {
     {
         NcuPackageWriter packer;
         CHECK(packer.AddMember({"lib", libBytes}), "member packed");
-        NcuEntryRecord entry;
-        entry.modulePath = "lib";
-        entry.functionName = "main";
         std::string error;
-        CHECK(packer.Write((pkg / "lib.npkg").string(), "lib", &entry,
+        CHECK(packer.Write((pkg / "lib.npkg").string(), "lib", nullptr,
                            &error),
               "lib.npkg written");
     }
@@ -839,7 +836,7 @@ int main() {
     TestThreeSegmentPackageAndSiblingInvisibility();
     TestNativeInMultiSegmentPackageRejected();
     TestSameLastSegmentPackagesCoexist();
-    TestProgramPackageWithoutSources();
+    TestLibraryPackageWithoutSources();
     TestNativePrewarm();
     std::fprintf(stderr, "=== Results: %d passed, %d failed ===\n",
                  g_pass, g_fail);
