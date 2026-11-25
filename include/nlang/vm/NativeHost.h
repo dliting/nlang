@@ -18,6 +18,7 @@
 // The core declarations below are C-compatible. The C++ convenience
 // wrappers live in the `#ifdef __cplusplus` section at the end.
 
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
