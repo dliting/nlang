@@ -41,14 +41,31 @@ endfunction()
 # multi-path -D with \; — hand the test script a single directory or
 # file instead (the nide_deploy_check native-DLL loss made this
 # explicit: only the first of four paths reached the probe).
+#Per-tree scratch root: the Windows temp var is TEMP, the POSIX one is
+#TMPDIR (what std::filesystem::temp_directory_path() consults); fall
+#back to /tmp when it is unset.
 string(MD5 NLANG_TEST_SCRATCH_TOKEN "${CMAKE_BINARY_DIR}")
-set(NLANG_TEST_SCRATCH_ROOT
-    "$ENV{TEMP}/nlang_test_scratch_${NLANG_TEST_SCRATCH_TOKEN}")
+if(WIN32)
+    set(NLANG_TEST_SCRATCH_ROOT
+        "$ENV{TEMP}/nlang_test_scratch_${NLANG_TEST_SCRATCH_TOKEN}")
+    set(NLANG_TEST_SCRATCH_ENV
+        "TMP=${NLANG_TEST_SCRATCH_ROOT};TEMP=${NLANG_TEST_SCRATCH_ROOT}")
+else()
+    if(DEFINED ENV{TMPDIR})
+        set(NLANG_TEST_SCRATCH_ROOT
+            "$ENV{TMPDIR}/nlang_test_scratch_${NLANG_TEST_SCRATCH_TOKEN}")
+    else()
+        set(NLANG_TEST_SCRATCH_ROOT
+            "/tmp/nlang_test_scratch_${NLANG_TEST_SCRATCH_TOKEN}")
+    endif()
+    set(NLANG_TEST_SCRATCH_ENV
+        "TMPDIR=${NLANG_TEST_SCRATCH_ROOT}")
+endif()
 file(MAKE_DIRECTORY "${NLANG_TEST_SCRATCH_ROOT}")
 function(add_test)
     _add_test(${ARGV})
     set_tests_properties(${ARGV1} PROPERTIES
-        ENVIRONMENT "TMP=${NLANG_TEST_SCRATCH_ROOT};TEMP=${NLANG_TEST_SCRATCH_ROOT}")
+        ENVIRONMENT "${NLANG_TEST_SCRATCH_ENV}")
 endfunction()
 
 
