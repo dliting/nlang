@@ -12,21 +12,21 @@ declarations: imports, variables, and type aliases.
 ### Import Declaration
 
 ```nlang
-import io;                 // standard library package
-import lib;                // external module lib.ncu / lib.npkg
-import utils.helper;       // project file utils/helper.n
+import io;                 // standard-library module
+import lib;                // source, lib.ncu, or a library-package member
+import utils.helper;       // dotted module path
 import utils.*;            // recursive wildcard
 ```
 
 An `import` declares which modules this **file** may reference — the
 import set belongs to the translation unit and never leaks to other
-files. Three sources share one syntax:
+files. The provider forms share one syntax:
 
 | Source | Module path | Example |
 |---|---|---|
-| Project file | dotted path relative to the `.nproj` root: directory path + file stem | `utils/helper.n` → `utils.helper`; root `main.n` → `main` |
-| External module | file stem (single segment): a `.ncu` file, or a `.npkg` exposing exactly one module | `lib.ncu` / `lib.npkg` → `lib` |
-| Standard library package | `io` / `math` / `fs` / `thread` / `concurrent` (library sources shipped with the toolchain) | `io` |
+| Project or library source | dotted path relative to the project or search root: directory path + file stem | `utils/helper.n` → `utils.helper`; root `lib.n` → `lib` |
+| Compiled library | a loose `.ncu` whose file name is the full module path, or an identically named member in any library `.npkg`; the archive file name is irrelevant | `utils.helper.ncu` or member `utils.helper` → `utils.helper` |
+| Standard library | the same source-or-package rule, with its directory on the default search path | `io.n` or member `io` → `io` |
 
 Visibility:
 
@@ -47,29 +47,28 @@ Visibility:
   `Exception` class family, native host bindings) stay globally
   unqualified-visible.
 - Wildcard `import utils.*;` is a **recursive prefix match** in module
-  path space: every path starting with `utils.` is importable
-  (`utils.helper`, `utils.sub.x`, ...). It only abbreviates the import
-  list — calls still write the full path. Wildcards match project files
-  and library packages alike; external `.ncu` names are single-segment
-  and never match.
-- `import utils;` matches only the root file `utils.n`; to reach the
-  `utils/` directory use the full path or a wildcard.
+  path space: every available path equal to `utils` or starting with
+  `utils.` joins the import surface (`utils`, `utils.helper`,
+  `utils.sub.x`, ...). It only abbreviates the import list — calls still
+  write the full path. Source units and library-package members
+  contribute to the same union.
+- `import utils;` matches the root module `utils`; to reach modules
+  beneath `utils/`, use the full path or a wildcard.
 - Duplicate imports are idempotent; exact + wildcard overlap takes the
   union; importing the own module path or a same-directory file is a
   harmless redundancy.
-- Resolution order for an import target: modules compiled into the build
-  (project files or library sources on a search root — the standard
-  library uses the same mechanism as a third-party source library) →
-  external modules (`.ncu`/`.npkg`, via `-I`). No implicit fallback.
-- Two units resolving to the same dotted package in one build are a
-  compile error naming both source paths. A project directory named
-  `io`/`math`/`fs` is an ordinary directory; only one package of each
-  name may exist. Dotted imports resolve library sources under the
-  matched search root (`-I <root>` + `<root>/a/b/c.n` addresses
-  `import a.b.c;`); precompiled dotted packages are currently searched
-  by their single last segment.
-- An external module's code does not enter the artifact: the consumer
-  image only records import references, and the loader relocates the module
+- Resolution considers source across the whole search path first. With
+  no source match, it searches loose `.ncu` images and library-package
+  member tables in directory order. Source therefore wins even when an
+  artifact appears in an earlier directory; within the artifact arm the
+  first directory wins.
+- Two source units resolving to the same dotted module path are a compile
+  error naming both paths. Two library packages in the winning artifact
+  directory that carry the same member are likewise an error naming both
+  archives. A program package with an entry record is executable, not a
+  compile-time import provider.
+- Imported library code does not enter the consumer's unit image: the
+  image records import references, and the loader relocates each module
   at run time along the same search path (the mechanism is in
   [Command-line Tools / ncc](../../cli-tools/ncc.md), "Artifacts and
   load-time linking").

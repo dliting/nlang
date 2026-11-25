@@ -62,10 +62,15 @@ load-and-link path and behave identically.
   with the toolchain and is found automatically; third-party libraries
   need `-I` or `NLANG_PATH`).
 - **`.npkg` (package archive)** — the artifact of a project build: one
-  member per unit in the project (the member name is the module path),
-  plus an entry record. The same format serves pure library
-  distribution (`io.npkg` is a library package whose only member is
-  `io`; `concurrent.npkg` holds `thread` and `concurrent`).
+  member per project unit (the member name is the module path), plus an
+  entry record. A library package uses the same container without an
+  entry record; its member table is its compile-time import surface. A
+  program package is executable and is not a compile-time import
+  provider. The standard library's thirteen packages are
+  `concurrent.npkg` (`thread` and `concurrent`), followed by the
+  single-module packages `io.npkg`, `math.npkg`, `fs.npkg`,
+  `tensor.npkg`, `net.npkg`, `http.npkg`, `url.npkg`, `system.npkg`,
+  `gzip.npkg`, `regex.npkg`, `json.npkg`, and `web.npkg`.
 
 A missing dependency is reported in one shot, listing every directory
 searched:
@@ -114,15 +119,19 @@ See `examples/hello_project/` for a complete example.
 
 ## Library search paths
 
-Imported `.n` files are looked up across an ordered set of directories:
-those given with `-I` first, then the `.nproj`'s `<ImportPaths>`, the
-source/project directory, the `NLANG_PATH` environment variable (`;` on
-Windows, `:` on POSIX), and finally system defaults such as the
-standard-library directory. Earlier directories win; duplicates keep only
-the first occurrence. The same directory set keeps serving the run time:
-dependency loading (`.ncu`/`.npkg` member lookup) and native dynamic
-library loading. `--verbose` (short form `-v`) makes ncc print this
-resolved ordering (each line annotated with its layer, e.g. `(-I)`,
+Imported modules are looked up across an ordered set of directories.
+At compile time, all source matches are considered first; when no source
+supplies the module, ncc searches loose `.ncu` images and library-package
+member tables. The directory order is: `-I` entries, the `.nproj`'s
+`<ImportPaths>`, the source or project directory, `NLANG_PATH` (`;` on
+Windows and `:` on POSIX), and finally system defaults such as the
+standard-library directory. Duplicate directories keep their first
+occurrence. Within the artifact arm, earlier directories win; source
+still has priority over artifacts across the whole path. The same
+directory set keeps serving the run time for dependency loading
+(`.ncu` files and `.npkg` members) and native dynamic-library loading.
+`--verbose` (short form `-v`) makes ncc print this resolved ordering
+(each line annotated with its layer, e.g. `(-I)`,
 `(project import paths)`, `(local directory)`, `(NLANG_PATH)`,
 `(system)`) before compiling.
 
