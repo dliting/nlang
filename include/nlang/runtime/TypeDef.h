@@ -7,6 +7,7 @@
 #include "Config.h"
 #include "Flagable.h"
 #include <cstdint>
+#include <stddef.h> //size_t: MSVC pulls it in via windows.h; GCC does not.
 
 namespace nlang
 {
