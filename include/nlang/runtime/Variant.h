@@ -62,34 +62,6 @@ public:
 		return static_cast<T>(m_Data.m_Memory);
 	}
 
-	template<>
-	int32 Get<int32>() const
-	{
-		return m_Data.m_Int;
-	}
-		template<>
-		float Get<float>() const
-		{
-			return m_Data.m_Float;
-		}
-	//0.7.5: 8-byte scalar channels. Kind-exact reads only — an int32
-	//write touches the low 4 bytes and leaves the upper half stale.
-	template<>
-	int64 Get<int64>() const
-	{
-		return m_Data.m_Long;
-	}
-	template<>
-	uint64 Get<uint64>() const
-	{
-		return m_Data.m_ULong;
-	}
-	template<>
-	double Get<double>() const
-	{
-		return m_Data.m_Double;
-	}
-
 	VariantData& Data()
 	{
 		return m_Data;
@@ -116,5 +88,32 @@ private:
 	RnDataType* m_pType;
 	VariantData m_Data;
 };
+
+//Explicit specializations of Get<T> for the union scalar channels.
+//Defined out of class (GCC rejects in-class explicit member template
+//specialization as ill-formed; MSVC accepts it), and inline because this
+//header is included by multiple TUs.
+template<> inline int32 Variant::Get<int32>() const
+{
+	return m_Data.m_Int;
+}
+template<> inline float Variant::Get<float>() const
+{
+	return m_Data.m_Float;
+}
+//0.7.5: 8-byte scalar channels. Kind-exact reads only — an int32
+//write touches the low 4 bytes and leaves the upper half stale.
+template<> inline int64 Variant::Get<int64>() const
+{
+	return m_Data.m_Long;
+}
+template<> inline uint64 Variant::Get<uint64>() const
+{
+	return m_Data.m_ULong;
+}
+template<> inline double Variant::Get<double>() const
+{
+	return m_Data.m_Double;
+}
 
 } // namespace nlang
