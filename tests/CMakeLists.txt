@@ -114,7 +114,11 @@ function(add_test)
     endif()
     nlang_test_env(${ARGV1}
         TMP=${NLANG_TEST_SCRATCH_ROOT} TEMP=${NLANG_TEST_SCRATCH_ROOT}
-        NLANG_TEST_TREE_TOKEN=${NLANG_TEST_SCRATCH_TOKEN})
+        NLANG_TEST_TREE_TOKEN=${NLANG_TEST_SCRATCH_TOKEN}
+        # Native-member extraction cache root (NcuPackageCache.cpp): every
+        # test process that opens a package with native members extracts
+        # there — never into the real per-user cache.
+        NLANG_PKG_CACHE_ROOT=${NLANG_TEST_SCRATCH_ROOT}/pkg-cache)
 endfunction()
 
 # Derived ctest TIMEOUT watchdog caps (gate timing design D-1/D-2): the

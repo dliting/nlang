@@ -150,6 +150,7 @@ add_library(nlang_vm
     NcuLinkerSlots.cpp
     NcuLinkerInterfaces.cpp
     NcuLoader.cpp
+    NcuPackageCache.cpp
     NativeLibraryLoader.cpp
     TypeDesc.cpp
     TypeDescIndices.cpp

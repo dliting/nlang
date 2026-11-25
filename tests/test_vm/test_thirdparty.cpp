@@ -786,6 +786,245 @@ static void TestNativeMemberInvisibleToImports() {
     }
 }
 
+//(9) F1 Task 14, native-member extraction cache. Opening a package
+//that carries a native member writes the library to a per-package
+//cache directory under the cache root, before any bytecode runs —
+//the closure walk always opens the entry package, so extraction rides
+//the open (the laziness boundary is module LOADING, which stays in
+//NativeLibraryLoader at Execute initialization). The tests pin the
+//disk side here; the executor-wiring half (the receipt) is the third
+//case below.
+
+//Runtime environment write paired with the std::getenv the cache
+//root reads: the Win32 SetEnvironmentVariable family writes a
+//separate block that std::getenv never sees.
+void SetEnvironmentValue(const char* name, const std::string& value) {
+#if defined(_WIN32)
+    _putenv((std::string(name) + "=" + value).c_str());
+#else
+    setenv(name, value.c_str(), 1);
+#endif
+}
+
+//One fresh cache root per scenario: the test owns the whole cache
+//tree, so the single-extraction locator below is unambiguous. The
+//ctest wrapper already points NLANG_PKG_CACHE_ROOT at the per-tree
+//scratch; this narrows it to a per-scenario root. ScratchDir, not
+//packageDir(): the latter wipes the whole scratch tree and would take
+//the scenario directory built just before it down too.
+std::string freshCacheRoot(const char* scenario) {
+    const fs::path root =
+        nlang::test::ScratchDir("nlang_test_thirdparty") / scenario
+        / "pkg-cache";
+    fs::remove_all(root);
+    fs::create_directories(root);
+    SetEnvironmentValue("NLANG_PKG_CACHE_ROOT", root.string());
+    return root.string();
+}
+
+//Builds one program package whose native half is the real mylib
+//fixture DLL: mylib.n and main.n compile into unit members (the
+//same project-mode shape as test_perunit's package tests), the DLL
+//rides as a native member keyed by file name. extraUnits packs
+//further unit sources into the same package. Returns the package
+//path; the build log is dumped on failure.
+fs::path buildNativePackage(const fs::path& dir, const char* mainSource,
+    const std::vector<std::pair<std::string, std::string>>& extraUnits = {})
+{
+    std::ofstream(dir / "mylib.n", std::ios::binary)
+        << "native int add(int a, int b);\n"
+           "native int mul(int a, int b);\n"
+           "native string greet(string who);\n"
+           "native string where();\n";
+    std::ofstream(dir / "main.n", std::ios::binary) << mainSource;
+    BuildParams params;
+    params.m_SourceFiles.push_back((dir / "mylib.n").string());
+    params.m_SourceFiles.push_back((dir / "main.n").string());
+    for (const auto& unit : extraUnits)
+    {
+        std::ofstream(dir / unit.first, std::ios::binary) << unit.second;
+        params.m_SourceFiles.push_back((dir / unit.first).string());
+    }
+    params.m_sProjectDir = dir.string();
+    params.m_bProjectMode = true;   //project mode ships the package
+    params.m_sOutputModule = dir.filename().string();
+    params.m_sOutputDir = dir.string();
+    params.m_sTempDir = dir.string();
+    params.m_sStdLibDir = STDLIB_DIR;
+    params.m_ImportDirs = { dir.string(), STDLIB_DIR };
+    params.m_nativeMembers.push_back(
+        (fs::path(FIXTURE_DIR) / kNativeDllName).string());
+    ListCompileLogger logger;
+    ModuleBuilder builder(params, logger);
+    if (!builder.BuildArtifacts())
+        for (auto it = logger.cbegin(); it != logger.cend(); ++it)
+            std::fprintf(stderr, "%s\n", (*it)->Message().c_str());
+    return dir / (dir.filename().string() + ".npkg");
+}
+
+//The cached DLL under a per-scenario cache root: exactly one package
+//is ever extracted there, so root/<one directory>/<DLL name> names
+//it without pinning the hash key format.
+fs::path cachedDllPath(const std::string& cacheRoot) {
+    std::error_code ec;
+    int dirCount = 0;
+    fs::path found;
+    for (fs::directory_iterator it(cacheRoot, ec), end; !ec && it != end;
+         it.increment(ec)) {
+        if (!it->is_directory(ec))
+            continue;
+        ++dirCount;
+        found = it->path() / kNativeDllName;
+    }
+    return dirCount == 1 ? found : fs::path();
+}
+
+//The reference bytes of the fixture DLL, for byte-identity checks.
+std::string fixtureDllBytes() {
+    std::ifstream in(fs::path(FIXTURE_DIR) / kNativeDllName, std::ios::binary);
+    return std::string(std::istreambuf_iterator<char>(in),
+                       std::istreambuf_iterator<char>());
+}
+
+//(9a) extraction at open: loading the package (the closure walk opens
+//it; no executor, no bytecode) already puts the native member on disk
+//under the cache root, byte-identical to the packed member.
+void TestPackageNativeMemberExtractsAtOpen() {
+    const fs::path dir = packageDir() / "pkgcache_open";
+    fs::create_directories(dir);
+    const std::string cacheRoot = freshCacheRoot("pkgcache_open");
+    const fs::path pkg = buildNativePackage(
+        dir, "import mylib;\n"
+             "int main() { if (mylib.add(2, 3) != 5) return 1; return 0; }\n");
+    try {
+        NcuLoader::Options loaderOpts;   //the package carries its closure
+        NcuLoader::Result loaded =
+            NcuLoader::LoadClosure(pkg.string(), loaderOpts);
+        (void)loaded;
+    } catch (const std::exception& e) {
+        CHECK(false, (std::string("load failed: ") + e.what()).c_str());
+        return;
+    }
+    const fs::path cached = cachedDllPath(cacheRoot);
+    CHECK(!cached.empty() && fs::is_regular_file(cached),
+          "opening the package extracts the native member to the cache");
+    std::ifstream in(cached, std::ios::binary);
+    std::string onDisk;
+    onDisk.assign(std::istreambuf_iterator<char>(in),
+                  std::istreambuf_iterator<char>());
+    CHECK(!onDisk.empty() && onDisk == fixtureDllBytes(),
+          "the cached copy is byte-identical to the packed member");
+}
+
+//(9b) landing check: a corrupted cached copy is re-extracted by the
+//next open — the walk never hands a stale byte onward. Nothing has
+//executed yet, so the file is not mapped and can be rewritten.
+void TestPackageNativeCacheReextractsOnCorruption() {
+    const fs::path dir = packageDir() / "pkgcache_reextract";
+    fs::create_directories(dir);
+    const std::string cacheRoot = freshCacheRoot("pkgcache_reextract");
+    const fs::path pkg = buildNativePackage(
+        dir, "import mylib;\n"
+             "int main() { if (mylib.add(2, 3) != 5) return 1; return 0; }\n");
+    NcuLoader::Options loaderOpts;
+    auto open = [&]() -> bool {
+        try {
+            NcuLoader::Result loaded =
+                NcuLoader::LoadClosure(pkg.string(), loaderOpts);
+            (void)loaded;
+            return true;
+        } catch (const std::exception& e) {
+            std::fprintf(stderr, "load failed: %s\n", e.what());
+            return false;
+        }
+    };
+    if (!open())
+        return;
+    const fs::path cached = cachedDllPath(cacheRoot);
+    if (cached.empty()) {
+        CHECK(false, "first open extracted the native member");
+        return;
+    }
+    {
+        std::ofstream out(cached, std::ios::binary | std::ios::trunc);
+        out << "corrupted bytes, not a DLL";
+    }
+    if (!open())
+        return;
+    std::ifstream in(cached, std::ios::binary);
+    std::string onDisk;
+    onDisk.assign(std::istreambuf_iterator<char>(in),
+                  std::istreambuf_iterator<char>());
+    CHECK(onDisk == fixtureDllBytes(),
+          "a mismatching cached copy is overwritten by the re-open");
+}
+
+//(9c) the receipt: the load result names the cache directory, the host
+//appends it to the executor's native search path, and the loader's own
+//diagnostic proves it got there — a unit declaring a native whose DLL
+//exists nowhere (the 8c shape) makes the first call throw the
+//searched-dirs report, and the report must list the cache directory.
+//The where() self-path probe is deliberately NOT asserted here: this
+//process's own executable directory holds the fixture DLL and the
+//loader searches it first (the loose copy beats the packed one by
+//design), so the loaded copy cannot discriminate in-process. The
+//real-tool e2e (Task 15) owns that assertion — no fixture copy sits
+//beside nvm, so where() answers with the cached copy there.
+void TestPackageNativeCacheFeedsTheExecutor() {
+    const fs::path dir = packageDir() / "pkgcache_run";
+    fs::create_directories(dir);
+    const std::string cacheRoot = freshCacheRoot("pkgcache_run");
+    const fs::path pkg = buildNativePackage(
+        dir,
+        "import mylib;\n"
+        "import ghostcache;\n"
+        "int main() {\n"
+        "  if (mylib.add(2, 3) != 5) return 1;\n"
+        "  return ghostcache.nope(1);\n"
+        "}\n",
+        { { "ghostcache.n", "native int nope(int a);\n" } });
+    NcuLoader::Result loaded;
+    try {
+        //mylib, ghostcache and the program ride the package; io rides
+        //the stdlib package, so the walk needs the stdlib dir only if
+        //the program imports it — this one does not.
+        NcuLoader::Options loaderOpts;
+        loaded = NcuLoader::LoadClosure(pkg.string(), loaderOpts);
+    } catch (const std::exception& e) {
+        CHECK(false, (std::string("load failed: ") + e.what()).c_str());
+        return;
+    }
+    CompiledModule linked;
+    try {
+        linked = NcuLinker::Link(std::move(loaded.units),
+                                 loaded.entryKey);
+    } catch (const std::exception& e) {
+        CHECK(false, (std::string("link failed: ") + e.what()).c_str());
+        return;
+    }
+    CapturingIo io;
+    VmExecutor exec;
+    exec.SetHostIo(&io);
+    for (const auto& cacheDir : loaded.nativeCacheDirs)
+        exec.AddNativeSearchDir(cacheDir);
+    std::string runError;
+    try {
+        exec.Execute(linked);
+    } catch (const std::exception& e) {
+        runError = e.what();
+    }
+    CHECK(!runError.empty()
+              && runError.find("cannot find native module")
+                     != std::string::npos
+              && runError.find("nlang_ghostcache") != std::string::npos,
+          "the unavailable native keeps its loader diagnostic");
+    const fs::path cached = cachedDllPath(cacheRoot);
+    CHECK(!cached.empty()
+              && runError.find(cached.parent_path().string())
+                     != std::string::npos,
+          "the loader searched the cache directory (the receipt is wired)");
+}
+
 //(8) K5 / GIL removal batch 1 (§7.2): the native registry is pre-warmed
 //at run init. (8a) a program that references a native library but calls
 //no native still finds every declared native registered — the prewarm
@@ -898,6 +1137,9 @@ int main() {
     TestSameLastSegmentPackagesCoexist();
     TestLibraryPackageWithoutSources();
     TestNativeMemberInvisibleToImports();
+    TestPackageNativeMemberExtractsAtOpen();
+    TestPackageNativeCacheReextractsOnCorruption();
+    TestPackageNativeCacheFeedsTheExecutor();
     TestNativePrewarm();
     std::fprintf(stderr, "=== Results: %d passed, %d failed ===\n",
                  g_pass, g_fail);

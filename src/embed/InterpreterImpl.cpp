@@ -274,6 +274,8 @@ void Interpreter::Impl::Load(const std::filesystem::path& artifact) {
     try {
         const NcuLoader::Result loaded =
             NcuLoader::LoadClosure(artifact.string(), opts);
+        for (const auto& cacheDir : loaded.nativeCacheDirs)
+            executor.AddNativeSearchDir(cacheDir);
         module = NcuLinker::Link(loaded.units, loaded.entryKey);
     } catch (const std::runtime_error& e) {
         //装载器契约：全部失败抛 runtime_error（NcuLoader.h:37-39）

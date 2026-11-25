@@ -244,6 +244,8 @@ inline RunOutcome ExecuteArtifact(const std::filesystem::path& artifact,
     try {
         const NcuLoader::Result loaded =
             NcuLoader::LoadClosure(artifact.string(), loaderOpts);
+        for (const auto& cacheDir : loaded.nativeCacheDirs)
+            executor.AddNativeSearchDir(cacheDir);
         const CompiledModule linked =
             NcuLinker::Link(loaded.units, loaded.entryKey);
         //Empty script (D3): linked but no entry point. Executing anyway

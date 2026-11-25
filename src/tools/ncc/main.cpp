@@ -16,6 +16,7 @@
 #endif
 #include <nlang_version.h>  // generated from the repo VERSION file
 #include "ProjectFile.h"
+#include "RunProgram.h"
 #ifdef _WIN32
 #include <crtdbg.h>
 #endif
@@ -131,56 +132,14 @@ int main(int argc, char* argv[]) {
                 return 1;
             }
         }
-        CompiledModule mod;
-        VmExecutor executor;
-        //Phase 9f: host-provided natives (e2e test surface).
-        RegisterTestNatives(executor);
-        try {
-            //Phase 6: run the artifact through the closure loader and the
-            //load-time linker (same call sequence as nvm; see the note
-            //there). The layered build keeps per-directory attribution
-            //for --verbose.
-            fs::path modPath(argv[2]);
-            SearchPathInput search;
-            search.explicitDirs = runDirs;
-            search.baseDirs.push_back(modPath.parent_path().string());
-            if (const char* env = std::getenv("NLANG_PATH"))
-                search.pathEnv = env;
-            search.systemDirs = {
-                NativeLibraryLoader::ExecutableDir(), "."
-            };
-            std::vector<SearchDirEntry> tracedDirs =
-                BuildLibrarySearchPathLayered(search);
-            const std::string stdlibDir = langservice::FindStdLibDir(
-                NativeLibraryLoader::ExecutableDir());
-            if (!stdlibDir.empty())
-                tracedDirs.push_back({stdlibDir, SearchLayer::System});
-            if (runVerbose)
-                std::cout << FormatSearchDirs(tracedDirs) << "\n";
-            std::vector<std::string> allDirs;
-            allDirs.reserve(tracedDirs.size());
-            for (const auto& e : tracedDirs)
-                allDirs.push_back(e.dir);
-            for (const auto& d : allDirs)
-                executor.AddNativeSearchDir(d);
-            NcuLoader::Options loaderOpts;
-            loaderOpts.searchDirs = std::move(allDirs);
-            const NcuLoader::Result loaded =
-                NcuLoader::LoadClosure(argv[2], loaderOpts);
-            mod = NcuLinker::Link(loaded.units, loaded.entryKey);
-            int result = executor.Execute(mod);
+        //The execution path (layered search assembly, closure load with
+        //the native-member cache wiring, link, run) lives in RunProgram.h.
+        const int result = RunProgramArtifact(argv[2], runDirs, runVerbose);
 #ifdef _WIN32
-            ExitProcessFlushed(static_cast<UINT>(result));
+        ExitProcessFlushed(static_cast<UINT>(result));
 #else
-            return result;
+        return result;
 #endif
-        } catch (const std::exception& e) {
-            std::cerr << "Runtime error: " << e.what() << "\n";
-            const auto& bt = executor.Backtrace();
-            if (!bt.empty())
-                std::cerr << "Backtrace:\n" << bt;
-            return 1;
-        }
     }
 
     // ncc build <source.n> [-o out.ncu] [-I <dir>...]
@@ -481,6 +440,8 @@ int main(int argc, char* argv[]) {
                 executor.AddNativeSearchDir(dir);
         const NcuLoader::Result loaded =
             NcuLoader::LoadClosure(outputFile, loaderOpts);
+        for (const auto& cacheDir : loaded.nativeCacheDirs)
+            executor.AddNativeSearchDir(cacheDir);
         mod = NcuLinker::Link(loaded.units, loaded.entryKey);
         int result = executor.Execute(mod);
         //On Windows, static destructors from Runtime::StaticInit() can

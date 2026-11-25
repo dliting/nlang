@@ -230,6 +230,8 @@ int main(int argc, char* argv[]) {
         loaderOpts.searchDirs = std::move(allDirs);
         const NcuLoader::Result loaded =
             NcuLoader::LoadClosure(argv[moduleArg], loaderOpts);
+        for (const auto& cacheDir : loaded.nativeCacheDirs)
+            executor.AddNativeSearchDir(cacheDir);
         module = NcuLinker::Link(loaded.units, loaded.entryKey);
         result = executor.Execute(module);
     } catch (const std::exception& e) {

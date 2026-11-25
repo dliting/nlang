@@ -32,6 +32,12 @@ public:
 		//入口函数限定名（空＝无入口）。.npkg 入口记录优先于单元内
 		//序列化的 entryKey（设计 §3：nproj 可指定入口单元）。
 		std::string entryKey;
+		//Cache directories the walk extracted native members into
+		//(empty when no opened package carries any). Hosts append
+		//these to the executor's native search path AFTER the load:
+		//extraction rides the open, so an injection before LoadClosure
+		//would only ever see the empty set.
+		std::vector<std::string> nativeCacheDirs;
 	};
 
 	//装载失败（缺包/版本不符/校验和不符/身份错标/容器损坏）抛

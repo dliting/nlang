@@ -1,6 +1,7 @@
 add_executable(ncc
     main.cpp
     ProjectFile.cpp
+    RunProgram.cpp
 )
 
 #UTF-8 active code page (full-Unicode argv and paths; see the manifest).

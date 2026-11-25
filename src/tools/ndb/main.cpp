@@ -91,6 +91,8 @@ static CompiledModule LoadLinkedProgram(VmExecutor& executor,
         loaderOpts.searchDirs.push_back(e.dir);
     const NcuLoader::Result loaded =
         NcuLoader::LoadClosure(modulePath, loaderOpts);
+    for (const auto& cacheDir : loaded.nativeCacheDirs)
+        executor.AddNativeSearchDir(cacheDir);
     return NcuLinker::Link(loaded.units, loaded.entryKey);
 }
 

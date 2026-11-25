@@ -6,6 +6,7 @@
 ---*/
 #include "NcuLoader.h"
 #include "ModuleLoader.h"
+#include "NcuPackageCache.h"
 #include "nlang/vm/NcuPackage.h"
 #include <algorithm>
 #include <filesystem>
@@ -61,6 +62,9 @@ public:
 	{ return std::move(m_units); }
 	[[nodiscard]] const std::vector<std::string>& Problems() const
 	{ return m_problems; }
+	//Cache directories the walk extracted native members into (D5.2).
+	[[nodiscard]] std::vector<std::string> TakeNativeCacheDirs()
+	{ return std::move(m_nativeCacheDirs); }
 
 private:
 	std::vector<std::string> m_searchDirs;
@@ -68,6 +72,11 @@ private:
 	//Loaded OR already-reported targets — either way one resolution each.
 	std::set<std::string> m_resolvedPaths;
 	std::vector<std::string> m_problems;
+	//Cache directories for opened packages carrying native members.
+	std::vector<std::string> m_nativeCacheDirs;
+	//Packages whose cache extraction already reported a problem — the
+	//walk opens every archive while probing, so one line per package.
+	std::set<std::string> m_nativeCacheReported;
 	//Set only when the entry artifact is a package.
 	std::unique_ptr<NcuPackageReader> m_entryPackage;
 	//Open-package cache by file path.
@@ -121,6 +130,14 @@ std::string ClosureWalk::LoadPackageEntry(const std::string& artifact)
 	std::string error;
 	if (!pkg->Open(artifact, &error))
 		throw std::runtime_error("nloader failed:\n  " + error);
+	//The entry package is always consumed: extraction rides the open
+	//(D5.2), and a package whose natives cannot land on disk is a
+	//load failure, not a deferred run-time mystery.
+	std::string cacheError;
+	ExtractNativeMembersToCache(*pkg, artifact, m_nativeCacheDirs,
+		&cacheError);
+	if (!cacheError.empty())
+		throw std::runtime_error("nloader failed:\n  " + cacheError);
 	std::string memberPath;
 	const NcuEntryRecord* rec = pkg->EntryRecord();
 	if (rec)
@@ -342,6 +359,18 @@ const NcuPackageReader* ClosureWalk::OpenPackage(const fs::path& path)
 	std::string error;
 	if (reader->Open(key, &error))
 	{
+		//Extraction rides the open here too: a probe may still adopt a
+		//member from this package later, and the eager Open already
+		//holds every member blob in memory, so the disk write is the
+		//only cost. A cache failure is collected once per package —
+		//the walk's one-shot report says why a native-carrying package
+		//on the search path is unusable.
+		std::string cacheError;
+		ExtractNativeMembersToCache(*reader, key, m_nativeCacheDirs,
+			&cacheError);
+		if (!cacheError.empty()
+			&& m_nativeCacheReported.insert(key).second)
+			m_problems.push_back(cacheError);
 		const NcuPackageReader* raw = reader.get();
 		m_pkgCache[key] = std::move(reader);
 		return raw;
@@ -376,6 +405,7 @@ NcuLoader::Result NcuLoader::LoadClosure(const std::string& entryArtifact,
 	if (!walk.Problems().empty())
 		ThrowReport(walk.Problems());
 	out.units = walk.TakeUnits();
+	out.nativeCacheDirs = walk.TakeNativeCacheDirs();
 	return out;
 }
 
