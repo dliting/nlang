@@ -541,9 +541,6 @@ private:
     //take the emission context (emitter + resultOffset) as parameters:
     //m_pCurrEmitter/m_resultOffset are overwritten by nested emission
     //and must never be read inside a helper.
-    //Forward-declared here; defined below with the Phase 9c call
-    //machinery (the helpers only pass them by reference).
-    struct ArgBoxPlan;
 
     //Access(SnMemberExpr&) dispatch phases, in evaluation order; each
     //bool phase returns true when it emitted the expression.
