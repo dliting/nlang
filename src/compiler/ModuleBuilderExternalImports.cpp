@@ -264,12 +264,19 @@ bool ModuleBuilder::ScanMirrorImportRecords(size_t &scannedArtifacts,
 	const size_t totalArtifacts = m_pendingArtifacts.size();
 	for (size_t i = scannedArtifacts; i < totalArtifacts; ++i)
 	{
-		const PendingArtifactLoad &pending = m_pendingArtifacts[i];
-		for (const std::string &name : ImageImportTargets(pending.image))
+		//Resolving a record name below can queue another artifact unit,
+		//and the pending vector reallocates when it grows: an element
+		//reference does not survive that, so the self-reference check
+		//reads the name through a copy and the record names live in a
+		//local vector, both taken before any resolution runs.
+		const std::string selfModulePath = m_pendingArtifacts[i].name;
+		const std::vector<std::string> recordNames =
+			ImageImportTargets(m_pendingArtifacts[i].image);
+		for (const std::string &name : recordNames)
 		{
 			//A unit's record of its own path is a self-reference, not a
 			//dependency (the cycle check drops the same shape).
-			if (name == pending.name)
+			if (name == selfModulePath)
 				continue;
 			if (!mirrorNames.insert(name).second)
 				continue;
