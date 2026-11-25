@@ -105,8 +105,8 @@ public:
 	//specs may name is registered by now — compiled-in units and external
 	//units alike, the artifact units' registration preceding the gates.
 	//Same-directory project modules auto-added (D7). Wildcard matches
-	//compiled-in module paths only. Unresolved names land in outErrors
-	//(spec §7 wording).
+	//compiled-in and external module paths alike. Unresolved names land
+	//in outErrors (spec §7 wording).
 	bool BuildGate(uint32_t moduleIndex,
 		const std::vector<ImportSpec>& specs,
 		std::vector<std::string>& outErrors,
@@ -295,8 +295,9 @@ private:
 		const std::string& calleeName) const;
 
 	//Wildcard arm of ApplyImportSpec (D11 union semantics): the exact
-	//module "X" plus every "X."-prefixed compiled-in module. An empty
-	//union is reported as an error (D10) instead of a silent no-op.
+	//module "X" plus every "X."-prefixed module, compiled-in and
+	//external alike. An empty union is reported as an error (D10)
+	//instead of a silent no-op.
 	void ApplyWildcardImport(const std::string& name, ImportGate& gate,
 		std::vector<std::string>& outErrors) const;
 
