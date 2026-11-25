@@ -23,9 +23,10 @@ class CancelCounters {
 // to cancel — the vector would then pass or fail on a race instead of on D18.
 class SseProducer {
     // A few tens of events is enough: the client disconnects after two, so the
-    // rest is the window in which the cancellation has to show up. The count
-    // stays small because thread.sleep() rounds up to the platform timer
-    // resolution (~15 ms), which is what paces the feed.
+    // rest is the window in which the cancellation has to show up. The pace
+    // keeps the producer mid-stream when the disconnect lands — it must not
+    // depend on the platform timer granularity, only on staying slower than
+    // the disconnect round trip.
     private static const int EVENTS = 60;
     private static const int EVENT_PACE_MS = 3;
 

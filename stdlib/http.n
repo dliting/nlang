@@ -1295,6 +1295,17 @@ class HttpConn {
         stream.close();
     }
 
+    // Cancellation close (D18/D19): drops the connection at once so the
+    // peer's next write fails and a streaming producer is unblocked through
+    // ChannelClosedException. The orderly close() above would shutdownWrite
+    // and then keep READING the peer's stream for CLOSE_GRACE_MS — for a
+    // cancel that is exactly backwards: it consumes the very bytes whose
+    // write-failure is the cancellation signal and lets a mid-stream producer
+    // run to completion. Kill paths use this instead.
+    public void abort() {
+        stream.close();
+    }
+
     // Reads and throws away what the peer queued until it closes its side or
     // the deadline passes.
     private void drainSocket(long deadline) {
@@ -1724,7 +1735,7 @@ class HttpPool {
         }
         m_total = m_total - 1;
         m_mu.unlock();
-        conn.close();
+        conn.abort();
     }
 
     public void close() {
