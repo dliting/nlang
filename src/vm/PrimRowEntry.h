@@ -55,13 +55,20 @@ struct ArithEntry
     //applies, so answer it directly for signed rows.
     static void ModInt(PrimSlot d, PrimConst s)
     {
-        if constexpr (std::is_signed_v<T>) {
-            if (*reinterpret_cast<const T*>(s) == T(-1)) {
-                *reinterpret_cast<T*>(d) = 0;
-                return;
+        //Integer rows only: % is undefined for the floating-point
+        //instantiations, and the constexpr selector below still takes
+        //this address for every T, so the body must parse for
+        //float/double too — guard it empty there (kInt gates the
+        //selector, so this path is never dispatched for those rows).
+        if constexpr (kInt) {
+            if constexpr (std::is_signed_v<T>) {
+                if (*reinterpret_cast<const T*>(s) == T(-1)) {
+                    *reinterpret_cast<T*>(d) = 0;
+                    return;
+                }
             }
+            *reinterpret_cast<T*>(d) %= *reinterpret_cast<const T*>(s);
         }
-        *reinterpret_cast<T*>(d) %= *reinterpret_cast<const T*>(s);
     }
     static void ModFloat(PrimSlot d, PrimConst s)
     {
@@ -100,29 +107,53 @@ struct ArithEntry
     //and logical (zero-fill) on unsigned rows. Both flavors are pinned
     //by e2e (shift_types.n: -8 >> 1 == -4, 4294967288u >> 1 ==
     //2147483644), so a compiler flavor change cannot pass silently.
+    //The shift and bitwise impls below are integer rows only. Each body is
+    //if-constexpr-guarded on kInt: the constexpr selector takes every
+    //address for every T, so an unguarded body would be instantiated for
+    //the float/double rows too, where these operators are invalid (GCC
+    //instantiates the body on address-take; MSVC checks only the
+    //signature). The kInt gate on the selector means the guarded-empty
+    //body is never dispatched for those rows.
     static void ShlImpl(PrimSlot d, PrimConst s)
     {
-        using U = std::make_unsigned_t<T>;
-        T cnt = *reinterpret_cast<const T*>(s);
-        *reinterpret_cast<T*>(d) = static_cast<T>(
-            static_cast<U>(*reinterpret_cast<const T*>(d)) << cnt);
+        if constexpr (kInt) {
+            using U = std::make_unsigned_t<T>;
+            T cnt = *reinterpret_cast<const T*>(s);
+            *reinterpret_cast<T*>(d) = static_cast<T>(
+                static_cast<U>(*reinterpret_cast<const T*>(d)) << cnt);
+        }
     }
     static void ShrImpl(PrimSlot d, PrimConst s)
-    { *reinterpret_cast<T*>(d) >>= *reinterpret_cast<const T*>(s); }
+    {
+        if constexpr (kInt)
+            *reinterpret_cast<T*>(d) >>= *reinterpret_cast<const T*>(s);
+    }
 
     //0.13.7 bitwise ops, integer rows only (same kInt gate as the
     //shifts; the resolver rejects every other kind at compile time).
     //Unlike shl, bit ops on the signed carrier have no overflow corner:
     //plain operators directly, no unsigned routing.
     static void BitAndImpl(PrimSlot d, PrimConst s)
-    { *reinterpret_cast<T*>(d) &= *reinterpret_cast<const T*>(s); }
+    {
+        if constexpr (kInt)
+            *reinterpret_cast<T*>(d) &= *reinterpret_cast<const T*>(s);
+    }
     static void BitOrImpl(PrimSlot d, PrimConst s)
-    { *reinterpret_cast<T*>(d) |= *reinterpret_cast<const T*>(s); }
+    {
+        if constexpr (kInt)
+            *reinterpret_cast<T*>(d) |= *reinterpret_cast<const T*>(s);
+    }
     static void BitXorImpl(PrimSlot d, PrimConst s)
-    { *reinterpret_cast<T*>(d) ^= *reinterpret_cast<const T*>(s); }
+    {
+        if constexpr (kInt)
+            *reinterpret_cast<T*>(d) ^= *reinterpret_cast<const T*>(s);
+    }
     static void BitNotImpl(PrimSlot d)
-    { *reinterpret_cast<T*>(d) =
-        static_cast<T>(~*reinterpret_cast<const T*>(d)); }
+    {
+        if constexpr (kInt)
+            *reinterpret_cast<T*>(d) =
+                static_cast<T>(~*reinterpret_cast<const T*>(d));
+    }
 
     static constexpr PrimBinFn Add = kNumeric ? &AddImpl : nullptr;
     static constexpr PrimBinFn Sub = kNumeric ? &SubImpl : nullptr;
