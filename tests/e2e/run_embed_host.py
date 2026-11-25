@@ -63,8 +63,12 @@ def main():
         #and, in an ASan tree, the sanitizer runtime the build ships beside
         #it: once the host lives in the scratch dir, that dir is the exe
         #directory the loader searches, so the runtime moves with it.
-        host_exe = os.path.join(tmp, 'embed_host.exe')
-        shutil.copyfile(embed_host, host_exe)
+        #Keep the host's real name (embed_host on Linux, embed_host.exe
+        #on Windows) and preserve its executable bit — copyfile would
+        #strip it, so the relocated host would be PermissionError.
+        host_name = os.path.basename(embed_host)
+        host_exe = os.path.join(tmp, host_name)
+        shutil.copy(embed_host, host_exe)
         for dll in native_dlls:
             shutil.copyfile(dll, os.path.join(tmp, os.path.basename(dll)))
         asan_runtime = os.path.join(

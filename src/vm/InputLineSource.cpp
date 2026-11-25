@@ -140,11 +140,16 @@ bool InputLineSource::StreamHasMore() {
         pfd.fd = fileno(m_stream);
         pfd.events = POLLIN;
         pfd.revents = 0;
-        if (poll(&pfd, 1, 0) <= 0 || !(pfd.revents & POLLIN))
+        //A read answers without blocking when any of these is set:
+        //POLLIN means data is available (or pipe EOF — read answers 0),
+        //and POLLHUP/POLLERR mean the read ends immediately too (a
+        //closed pipe reports hangup, not readability, on some kernels).
+        //Resolve the ambiguity by actually reading — bytes land in our
+        //buffer, EOF latches m_streamEof and answers false here, and the
+        //latch is what keeps the wait-cue silent for an EOF-bound pull.
+        if (poll(&pfd, 1, 0) <= 0
+            || !(pfd.revents & (POLLIN | POLLHUP | POLLERR)))
             return false;
-        //POLLIN also fires at pipe EOF (read answers 0): resolve the
-        //ambiguity by actually reading — bytes land in our buffer, EOF
-        //latches m_streamEof and answers false here.
         return FillBuffer();
     }
     return false;   //tty: only our buffer is visible

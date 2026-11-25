@@ -118,6 +118,38 @@ int IcmpEchoSocket(NetFamily family, int timeoutMs) {
     return fd;
 }
 
+//Build the ICMP echo request message: header + payload as data. DGRAM
+//ICMP sockets take the full message — a bare payload shorter than the
+//8-byte header is rejected by sendto (EINVAL) — so the payload is
+//appended after the header. The kernel rewrites id/sequence and matches
+//the reply to this socket; the checksum (bytes 2..3) is computed here
+//(RFC 1071, the same fill as IcmpFillChecksum in net_icmp.cpp).
+std::vector<uint8_t> BuildIcmpEchoRequest(NetFamily family,
+                                           const uint8_t* payload,
+                                           int len) {
+    std::vector<uint8_t> msg;
+    msg.reserve(8 + len);
+    msg.push_back(family == NetFamily::Inet ? 8 : 128);  //echo request
+    msg.push_back(0);   //code
+    msg.push_back(0); msg.push_back(0);   //checksum placeholder
+    msg.push_back(0); msg.push_back(0);   //id (kernel rewrites)
+    msg.push_back(1); msg.push_back(0);   //sequence = 1 (kernel rewrites)
+    for (int i = 0; i < len; ++i)
+        msg.push_back(payload[i]);
+    uint32_t sum = 0;
+    const size_t n = msg.size();
+    for (size_t i = 0; i + 1 < n; i += 2)
+        sum += (static_cast<uint32_t>(msg[i]) << 8) | msg[i + 1];
+    if (n & 1)
+        sum += static_cast<uint32_t>(msg[n - 1]) << 8;
+    while (sum >> 16)
+        sum = (sum & 0xFFFF) + (sum >> 16);
+    const uint16_t chk = static_cast<uint16_t>(~sum);
+    msg[2] = static_cast<uint8_t>(chk >> 8);
+    msg[3] = static_cast<uint8_t>(chk & 0xFF);
+    return msg;
+}
+
 }  //namespace
 
 int NetIcmpStatusVerdict(int err) {
@@ -138,9 +170,11 @@ int NetIcmpEcho(const std::string& host, const uint8_t* payload, int len,
     if (!ep) return -2;
     const int fd = IcmpEchoSocket(ep->family, timeoutMs);
     if (fd < 0) return -2;
+    const std::vector<uint8_t> msg =
+        BuildIcmpEchoRequest(ep->family, payload, len);
     const auto start = std::chrono::steady_clock::now();
     int rtt = -1;
-    if (NetSendTo(fd, payload, len, ep->address, 0) >= 0) {
+    if (NetSendTo(fd, msg.data(), msg.size(), ep->address, 0) >= 0) {
         uint8_t reply[1536];
         std::string from;
         int port = 0;

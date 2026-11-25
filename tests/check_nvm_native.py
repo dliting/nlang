@@ -22,7 +22,10 @@ def main() -> int:
     os.makedirs(out_dir, exist_ok=True)
     work = tempfile.mkdtemp(prefix="nvm_native_", dir=out_dir)
     src = os.path.join(pkg, "use_mylib.n")
-    dll = glob.glob(os.path.join(pkg, "nlang_mylib.*"))
+    #Native module naming differs by platform (nlang_mylib.dll on
+    #Windows, libnlang_mylib.so elsewhere) — match both.
+    dll = sorted(glob.glob(os.path.join(pkg, "nlang_mylib.*"))
+                 + glob.glob(os.path.join(pkg, "libnlang_mylib.*")))
     assert dll, "nlang_mylib shared library missing from package"
 
     # 1. -I: compile (package on -I), run with the DLL off-module.

@@ -287,8 +287,14 @@ void TestExplicitDirsWinOverFallback() {
     std::error_code ec;
     fs::remove_all(decoyDir, ec);
     fs::create_directories(decoyDir, ec);
-    fs::copy_file(fs::path(FIXTURE_DIR) / "nlang_badabi.dll",
-                  decoyDir / "nlang_io.dll",
+#if defined(_WIN32)
+    const fs::path badAbi = fs::path(FIXTURE_DIR) / "nlang_badabi.dll";
+    const fs::path ioDecoy = "nlang_io.dll";
+#else
+    const fs::path badAbi = fs::path(FIXTURE_DIR) / "libnlang_badabi.so";
+    const fs::path ioDecoy = "libnlang_io.so";
+#endif
+    fs::copy_file(badAbi, decoyDir / ioDecoy,
                   fs::copy_options::overwrite_existing, ec);
     CHECK(!ec, "decoy copy must succeed");
 

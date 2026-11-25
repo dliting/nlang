@@ -231,12 +231,19 @@ void test_sourcecache_resolution()
         std::ofstream out(scratchDir() / "sibling.n", std::ios::binary);
         out << "line one\nline two\n";
     }
-    const auto& sib = cache.Lines("D:\\gone\\away\\sibling.n");
+    //A stale recorded path: nonexistent as recorded, but its basename
+    //exists next to the .ncu. The separators are platform-native so
+    //the basename the fallback extracts is `sibling.n` on every OS.
+    const std::string staleSib =
+        (std::filesystem::path("gone") / "away" / "sibling.n").string();
+    const auto& sib = cache.Lines(staleSib);
     CHECK(sib.size() == 2 && sib[1] == "line two",
         "stale recorded path falls back to the .ncu directory");
-    const auto& none = cache.Lines("Z:\\no\\such\\file.n");
+    const std::string staleNone =
+        (std::filesystem::path("gone") / "away" / "file.n").string();
+    const auto& none = cache.Lines(staleNone);
     CHECK(none.empty(), "unresolvable file degrades to empty");
-    CHECK(&cache.Lines("Z:\\no\\such\\file.n") == &none,
+    CHECK(&cache.Lines(staleNone) == &none,
         "negative result is cached (stable reference)");
     PASS();
 }
