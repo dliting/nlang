@@ -62,8 +62,17 @@ inline char ListSeparator() {
 }
 
 // Absolute + lexically normalized spelling (the value handed to consumers).
+// lexically_normal keeps a trailing directory separator ("dir/." normalizes
+// to "dir/"), which would make the same directory distinct under the string
+// dedup below and then under the duplicate-package check ("dir/name" vs
+// "dir//name") — strip it; the root "/" keeps its separator.
 inline std::string Normalized(const std::string& dir) {
-    return std::filesystem::absolute(dir).lexically_normal().string();
+    std::string path =
+        std::filesystem::absolute(dir).lexically_normal().string();
+    while (path.size() > 1
+        && (path.back() == '/' || path.back() == '\\'))
+        path.pop_back();
+    return path;
 }
 
 // De-duplication key: case-insensitive on Windows to match NTFS semantics.

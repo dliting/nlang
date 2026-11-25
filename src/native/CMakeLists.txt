@@ -200,7 +200,7 @@ if(NLANG_CUDA_ROOT)
         set(NLANG_CUDA_ARCH "sm_86" CACHE STRING
             "CUDA arch (sm_86 = RTX 30-class, sm_89 = RTX 40-class)")
         set(NLANG_TENSOR_CUDA_OBJ
-            "${CMAKE_CURRENT_BINARY_DIR}/tensor_cuda/cuda_kernels${CMAKE_CXX_COMPILER_RECOGNIZED_OBJECT_SUFFIX}")
+            "${CMAKE_CURRENT_BINARY_DIR}/tensor_cuda/cuda_kernels${CMAKE_CXX_OUTPUT_EXTENSION}")
         file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/tensor_cuda")
         if(WIN32)
             set(NLANG_CUDA_NVCC_HOST_FLAGS
