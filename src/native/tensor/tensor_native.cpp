@@ -40,8 +40,15 @@ namespace tensor {
 namespace {
 
 //Element-count guard for arange: an absurd range with a tiny step must
-//fail by name, not by attempting a multi-GB create.
+//fail by name, not by attempting to a multi-GB create.
 constexpr int64_t kArangeMaxElems = 100 * 1000 * 1000;
+
+//Forward declaration: FillKernel (the template below) calls FillThroughSlot
+//with non-dependent arguments, so the declaration must be available at the
+//point of definition (GCC's two-phase lookup; MSVC's single-phase lookup
+//finds the later definition).
+void FillThroughSlot(NativeHost* host, NativeArrayView& v, double fValue,
+                     int64_t iValue);
 
 //full family: create then fill with a constant (the fill rides the slot).
 template <typename T>
