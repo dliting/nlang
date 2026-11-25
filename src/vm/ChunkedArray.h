@@ -63,8 +63,10 @@ public:
     }
 
     void clear() {
-        const size_t n = size();
-        for (size_t i = 0; i < n; ++i) At(i).~T();
+        //Deleting a Tier destroys its unique_ptr<T[]> chunks, whose
+        //delete[] runs every element's destructor — so there is no
+        //separate element-destroy pass here. A second ~T() per element
+        //would double-destroy (the string-store double-free on teardown).
         for (size_t t = 0; t < kRootEntries; ++t) {
             Tier* tier = m_tiers[t].load(std::memory_order_relaxed);
             if (!tier) continue;
