@@ -157,7 +157,7 @@ ctest-Debug net_scheduler_tests 0.70 1 ctest-junit-serial
 ctest-Debug net_slots_tests 0.05 1 ctest-junit-serial
 ctest-Debug nlang_c_inline 0.45 1 ctest-junit-serial
 ctest-Debug nlang_cli_rejects 0.25 1 ctest-junit-serial
-ctest-Debug nlang_gate_selftest 30.59 1 ctest-junit-serial
+ctest-Debug nlang_gate_selftest 64.28 1 ctest-junit-serial - 慢集成员(基线行参考秒数越过SLOW_MIN_REF_S):门禁自测逐用例构造场景、驱动真实门禁脚本并轮询等待腿终态,累计分钟级;不进每轮判定腿,由收口前慢集腿承接
 ctest-Debug nlang_run_script 0.92 1 ctest-junit-serial
 ctest-Debug no_builtin_stdlib 1.40 1 ctest-junit-serial
 ctest-Debug nproj_utf8 0.29 1 ctest-junit-serial
@@ -322,7 +322,7 @@ ctest-IDE nide_deploy_check 6.09 1 ctest-junit-serial
 ctest-IDE nlang_c_inline 0.46 1 ctest-junit-serial
 ctest-IDE nlang_cli_rejects 0.26 1 ctest-junit-serial
 ctest-IDE nlang_docs_pytest 16.68 1 ctest-junit-serial
-ctest-IDE nlang_gate_selftest 32.76 1 ctest-junit-serial
+ctest-IDE nlang_gate_selftest 32.76 1 ctest-junit-serial - 慢集成员(基线行参考秒数越过SLOW_MIN_REF_S):门禁自测逐用例构造场景、驱动真实门禁脚本并轮询等待腿终态,累计分钟级;不进每轮判定腿,由收口前慢集腿承接
 ctest-IDE nlang_run_script 0.94 1 ctest-junit-serial
 ctest-IDE no_builtin_stdlib 1.44 1 ctest-junit-serial
 ctest-IDE nproj_utf8 0.29 1 ctest-junit-serial
@@ -495,7 +495,7 @@ ctest-ASan net_slots_tests 0.09 1 ctest-junit-serial
 ctest-ASan nide_deploy_check 16.45 1 ctest-junit-serial
 ctest-ASan nlang_c_inline 1.98 1 ctest-junit-serial
 ctest-ASan nlang_cli_rejects 0.95 1 ctest-junit-serial
-ctest-ASan nlang_gate_selftest 27.83 1 ctest-junit-serial
+ctest-ASan nlang_gate_selftest 27.83 1 ctest-junit-serial - 慢集成员(基线行参考秒数越过SLOW_MIN_REF_S):门禁自测逐用例构造场景、驱动真实门禁脚本并轮询等待腿终态,累计分钟级;不进每轮判定腿,由收口前慢集腿承接
 ctest-ASan nlang_run_script 4.11 1 ctest-junit-serial
 ctest-ASan no_builtin_stdlib 1.40 1 ctest-junit-serial
 ctest-ASan nproj_utf8 1.14 1 ctest-junit-serial
@@ -641,5 +641,15 @@ ctest-ASan lambda_param_tests 0.71 1 ctest-junit-serial
 ctest-ASan lambda_typing_tests 2.27 1 ctest-junit-serial
 ctest-ASan e2e_runner_scratch_isolation 2.10 1 ctest-junit-serial
 ctest-ASan e2e_runner_timing_gate 35.82 1 ctest-junit-serial
+ctest-Debug gate_freshness_selftest 0.28 1 ctest-junit-serial
 ctest-Debug stdlib_layout 0.04 1 ctest-junit-serial
 ctest-Debug e2e_runner_package_guard 1.85 1 ctest-junit-serial
+ctest-Debug pkg_artifact_imports 4.60 1 ctest-junit-serial
+ctest-IDE e2e_runner_package_guard 2.04 1 ctest-junit-serial
+ctest-IDE gate_freshness_selftest 0.65 1 ctest-junit-serial
+ctest-IDE pkg_artifact_imports 4.53 1 ctest-junit-serial
+ctest-IDE stdlib_layout 0.12 1 ctest-junit-serial
+ctest-ASan e2e_runner_package_guard 1.98 1 ctest-junit-serial
+ctest-ASan gate_freshness_selftest 0.65 1 ctest-junit-serial
+ctest-ASan pkg_artifact_imports 20.76 1 ctest-junit-serial
+ctest-ASan stdlib_layout 0.17 1 ctest-junit-serial
