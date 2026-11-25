@@ -52,6 +52,15 @@ family capture src src/compiler/builder/LambdaDisplaySynthesis.cpp
 family capture unit lambda|display_capture|promote_local
 family capture e2e ^lambda_|^err_for_head_|^err_lambda
 
+# F1: compile-time package member discovery and run-time package closure.
+# The shared ModuleBuilderImports.h seam stays unmapped: edits there can reach
+# the broader import pipeline and must conservatively run the full unit suite.
+family package_artifact src src/compiler/ModuleBuilderArtifactCache.cpp
+family package_artifact src src/compiler/ModuleBuilderExternalImports.cpp
+family package_artifact src src/vm/NcuLoader.cpp
+family package_artifact src tests/e2e/pkg_artifact_imports/**
+family package_artifact unit module_import|nculoader|thirdparty|pkg_artifact_imports
+
 family stdlib_math src stdlib/math.n
 family stdlib_math src src/native/math/math_native.cpp
 family stdlib_math unit library_index|langservice|library_source|stdlib_tests|ncu_package

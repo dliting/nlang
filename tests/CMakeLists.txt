@@ -3070,6 +3070,21 @@ set_tests_properties(proj_generic_sourceless_run PROPERTIES
     DEPENDS proj_generic_sourceless_compile
     PASS_REGULAR_EXPRESSION "4")
 
+#F1 package-artifact corpus: a Python driver uses the real ncc/nvm tools
+#inside one isolated scratch tree. It covers a multi-member library package,
+#dotted and wildcard imports, transitive closure, source-before-artifact
+#selection across directories, source/artifact behavior and diagnostic parity,
+#and first-artifact-directory precedence.
+if(Python3_FOUND)
+    add_test(NAME pkg_artifact_imports
+        COMMAND ${NLANG_DOCS_PYTHON}
+            ${PROJECT_SOURCE_DIR}/tests/e2e/pkg_artifact_imports/run.py
+            $<TARGET_FILE:ncc>
+            $<TARGET_FILE:nvm>
+            ${CMAKE_BINARY_DIR}/e2e_out)
+    set_tests_properties(pkg_artifact_imports PROPERTIES TIMEOUT 180)
+endif()
+
 #Concurrency import redesign F11: the Channel init-list arm must find
 #the template row through the alias (ClassSlotFor), not the current
 #unit's image — in a .nproj build the row lives in the owning unit's
