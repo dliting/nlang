@@ -6,7 +6,7 @@
 #pragma once
 #include "BuildEnvironment.h"
 #include "SyntaxTree.h"
-#include "nlang/vm/CompiledModule.h"
+#include "nlang/core/CompiledModule.h"
 #include <list>
 #include <map>
 #include <memory>

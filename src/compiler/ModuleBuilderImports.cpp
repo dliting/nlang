@@ -13,9 +13,9 @@
 #include "TranslationUnit.h"
 #include "builder/ModuleRegistry.h"
 #include "builder/CompiledModuleNodeBuilder.hpp"
-#include "ModuleLoader.h"
+#include <nlang/core/ModuleLoader.h>
 #include "ModuleBuilderImports.h"
-#include "nlang/vm/NcuPackage.h"
+#include "nlang/core/NcuPackage.h"
 #include "ScriptParser.h"
 #include <algorithm>
 #include <filesystem>

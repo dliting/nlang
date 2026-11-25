@@ -5,7 +5,7 @@
     与后端共用一份分类；编译器库不得引用虚拟机库公共头——依赖方向是虚拟机库
     消费编译器AST，所需类型种类常量取自运行时层）。
 ---*/
-#include <nlang/compiler/TypeArgSpelling.h>
+#include <nlang/core/TypeArgSpelling.h>
 #include "ModuleRegistry.h"
 #include <nlang/compiler/GenericInstanceRegistry.h>
 #include <nlang/compiler/SnArrayTypeToken.h>

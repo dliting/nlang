@@ -1,7 +1,7 @@
 /*---
 ModuleSaverRecordsFuncs.cpp — 函数表写入（从ModuleSaver.cpp一表一TU抽出，0.13.10）。
 ---*/
-#include "nlang/vm/CompiledModule.h"
+#include "nlang/core/CompiledModule.h"
 #include "ModuleSaverRecords.h"
 
 namespace nlang {

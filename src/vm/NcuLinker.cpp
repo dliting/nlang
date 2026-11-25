@@ -8,7 +8,7 @@
 #include "NcuLinkerRemap.h"
 #include "NcuLinkerSlots.h"
 #include "NcuLinkerInterfaces.h"
-#include <nlang/vm/ExprDesc.h>
+#include <nlang/core/ExprDesc.h>
 #include <map>
 #include <stdexcept>
 #include <string>

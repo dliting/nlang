@@ -7,9 +7,9 @@ and ParseOne in lockstep with the struct comment in TypeDesc.h. The
 consumer-side index bounds check and the import-merge index rewrite are a
 different responsibility and live in TypeDescIndices.cpp.
 ---*/
-#include "nlang/vm/TypeDesc.h"
+#include "nlang/core/TypeDesc.h"
 //RTK_* kind constants (also the TypeDesc field-width contract).
-#include "nlang/vm/CompiledModule.h"
+#include "nlang/core/CompiledModule.h"
 #include <nlang/compiler/SnArrayTypeToken.h>
 #include <nlang/runtime/BuiltinGenericNames.h>
 #include <nlang/runtime/StackDump.h>

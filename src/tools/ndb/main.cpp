@@ -6,7 +6,7 @@
 #include "DebugSessionController.h"
 #include "MachineFrontEnd.h"
 #include "TestNatives.h"
-#include "Disassembler.h"
+#include <nlang/core/Disassembler.h>
 #include "CrashReporter.h"
 #include "nlang/common/LibrarySearchPath.h"
 #include "nlang/langservice/SymbolIndex.h"

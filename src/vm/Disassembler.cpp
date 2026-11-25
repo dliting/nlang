@@ -1,8 +1,8 @@
 // --- shared disassembler (ndisasm CLI + ndb `x`): per-opcode switches split
 // into operand-domain functions; Emit* helpers printf-format one shape.
 
-#include "Disassembler.h"
-#include "BytecodeReader.h"
+#include <nlang/core/Disassembler.h>
+#include <nlang/core/BytecodeReader.h>
 #include "DisassemblerPrim.h"
 #include "DisassemblerFormat.h"
 #include "DisassemblerCalls.h"

@@ -21,7 +21,7 @@ test_stdlib); the e2e suite pins the end-to-end compile/run behavior.
 #include <nlang/compiler/SyntaxNode.h>
 #include "builder/ModuleRegistry.h"
 #include "VmExecutor.h"
-#include "ModuleLoader.h"
+#include <nlang/core/ModuleLoader.h>
 #include <algorithm>
 #include <filesystem>
 #include <fstream>

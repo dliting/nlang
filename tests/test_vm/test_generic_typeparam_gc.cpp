@@ -15,11 +15,11 @@ registration flip.
 //member of that name.
 #include "test_support/test_scratch.h"
 #include "VmBackend.h"
-#include "ModuleLoader.h"
-#include "BytecodeEmitter.h"
-#include "BytecodeOps.h"
-#include <nlang/vm/CompiledModuleRecords.h>
-#include <nlang/vm/CompiledModule.h>
+#include <nlang/core/ModuleLoader.h>
+#include <nlang/core/BytecodeEmitter.h>
+#include <nlang/core/BytecodeOps.h>
+#include <nlang/core/CompiledModuleRecords.h>
+#include <nlang/core/CompiledModule.h>
 #include <nlang/compiler/GenericInstanceRegistry.h>
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/ScriptLocation.h>

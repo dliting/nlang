@@ -9,7 +9,7 @@
     0.9.12 (v2.7)：结构记录尾部读构造器访问。
 ---*/
 #include "ModuleLoaderRecords.h"
-#include <nlang/vm/ExprDesc.h>
+#include <nlang/core/ExprDesc.h>
 #include <nlang/runtime/NodeConsts.h>
 #include <stdexcept>
 #include <vector>

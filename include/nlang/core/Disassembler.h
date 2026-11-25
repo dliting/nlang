@@ -1,5 +1,5 @@
 #pragma once
-#include "nlang/vm/CompiledModule.h"
+#include "CompiledModule.h"
 #include "BytecodeOps.h"
 #include "BytecodeStrides.h"
 #include <cstdint>

@@ -1,11 +1,11 @@
 /*--- GenericInstDescriptor.cpp — 泛型实例化描述符实现：规范拼写拼接与
     按拼写的进程级intern池（类契约见同目录头文件）。
 ---*/
-#include "GenericInstDescriptor.h"
-#include <nlang/vm/CompiledModule.h>
-#include <nlang/vm/CompiledModuleRecords.h>
+#include <nlang/core/GenericInstDescriptor.h>
+#include <nlang/core/CompiledModule.h>
+#include <nlang/core/CompiledModuleRecords.h>
 #include <nlang/runtime/PrimitiveTypes.h>
-#include <nlang/compiler/TypeArgSpelling.h>
+#include <nlang/core/TypeArgSpelling.h>
 #include <map>
 #include <memory>
 #include <stdexcept>

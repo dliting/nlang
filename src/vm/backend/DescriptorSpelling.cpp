@@ -5,12 +5,12 @@
     本文件只负责编码与表去重。
 ---*/
 #include "VmBackend.h"
-#include <nlang/compiler/TypeArgSpelling.h>
-#include "GenericInstDescriptor.h"
+#include <nlang/core/TypeArgSpelling.h>
+#include <nlang/core/GenericInstDescriptor.h>
 #include "builder/ModuleRegistry.h"
 #include <nlang/compiler/BuildEnvironment.h>
 #include <nlang/compiler/Logger.h>
-#include <nlang/vm/CompiledModuleRecords.h>
+#include <nlang/core/CompiledModuleRecords.h>
 #include <nlang/compiler/SnExpressions.h>
 #include <nlang/compiler/SnMisc.h>
 #include <string>

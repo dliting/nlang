@@ -18,12 +18,12 @@ identical while the descriptor rows diverge by producing package.
 #include <nlang/compiler/BuildEnvironment.h>
 #include <nlang/compiler/Logger.h>
 #include <nlang/compiler/CastInfo.h>
-#include <nlang/compiler/TypeArgSpelling.h>
+#include <nlang/core/TypeArgSpelling.h>
 #include <nlang/compiler/SyntaxNode.h>
 #include <nlang/compiler/SyntaxTree.h>
-#include <nlang/vm/CompiledModule.h>
-#include <nlang/vm/CompiledModuleRecords.h>
-#include "GenericInstDescriptor.h"
+#include <nlang/core/CompiledModule.h>
+#include <nlang/core/CompiledModuleRecords.h>
+#include <nlang/core/GenericInstDescriptor.h>
 #include "NcuLinker.h"
 #include "NcuLoader.h"
 #include "VmExecutor.h"

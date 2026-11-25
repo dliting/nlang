@@ -1,5 +1,5 @@
 #pragma once
-#include "nlang/vm/CompiledModule.h"
+#include "CompiledModule.h"
 #include <string>
 
 namespace nlang {

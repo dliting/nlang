@@ -1,4 +1,4 @@
-#include "BytecodeOps.h"
+#include <nlang/core/BytecodeOps.h>
 #include <iterator>  //std::size for the positional-table static_assert
 
 namespace nlang {

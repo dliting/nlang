@@ -2193,8 +2193,8 @@ if(NLANG_BUILD_IDE)
         test_compiler/test_module_import.cpp
     )
     #ModuleRegistry.h lives in the compiler's internal builder dir and
-    #VmExecutor.h/ModuleLoader.h in the vm's src dir (both are opaque in
-    #the public headers).
+    #VmExecutor.h in the vm's src dir (opaque in the public headers);
+    #ModuleLoader.h is a public core header.
     target_include_directories(test_module_import
         PRIVATE
             ${PROJECT_SOURCE_DIR}/src/compiler

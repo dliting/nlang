@@ -10,8 +10,8 @@
 #include "VmBackend.h"
 #include "builder/LambdaCaptureAnalysis.h"
 #include "builder/ModuleRegistry.h"
-#include <nlang/vm/CompiledModule.h>
-#include <nlang/vm/NcuPackage.h>
+#include <nlang/core/CompiledModule.h>
+#include <nlang/core/NcuPackage.h>
 #include <filesystem>
 #include <sstream>
 #include <utility>

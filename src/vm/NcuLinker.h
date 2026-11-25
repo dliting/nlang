@@ -7,7 +7,7 @@
     次报清。
 ---*/
 #pragma once
-#include "nlang/vm/CompiledModule.h"
+#include "nlang/core/CompiledModule.h"
 #include <string>
 #include <vector>
 

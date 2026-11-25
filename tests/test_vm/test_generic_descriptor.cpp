@@ -6,13 +6,13 @@ no-space spelling, intern identity by full spelling (nested arguments
 included), structure passthrough, and array-argument rank marks.
 ---*/
 #include <QtTest/QtTest>
-#include "GenericInstDescriptor.h"
-#include <nlang/compiler/TypeArgSpelling.h>
+#include <nlang/core/GenericInstDescriptor.h>
+#include <nlang/core/TypeArgSpelling.h>
 #include <nlang/runtime/PrimitiveTypes.h>
 #include <nlang/runtime/Runtime.h>
 #include <nlang/compiler/SnTypes.h>
-#include <nlang/vm/CompiledModuleRecords.h>
-#include <nlang/vm/CompiledModule.h>
+#include <nlang/core/CompiledModuleRecords.h>
+#include <nlang/core/CompiledModule.h>
 #include <nlang/compiler/GenericInstanceRegistry.h>
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnExpressions.h>

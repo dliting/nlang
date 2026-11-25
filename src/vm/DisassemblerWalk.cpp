@@ -5,7 +5,7 @@
 // InstructionStride (BytecodeOps.h) — the single table shared with the
 // .ncu linker remap.
 
-#include "Disassembler.h"
+#include <nlang/core/Disassembler.h>
 #include <cstdint>
 #include <vector>
 

@@ -3,7 +3,7 @@
 // CompiledClass records (NCU v2.7 — the wire no longer flattens the
 // inherited surface). Hand-built records — no codegen, no linking.
 #include "VmClassLayout.h"
-#include "nlang/vm/CompiledModule.h"
+#include "nlang/core/CompiledModule.h"
 #include "nlang/runtime/Runtime.h"
 
 #include <cstdio>

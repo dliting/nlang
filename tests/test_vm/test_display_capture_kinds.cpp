@@ -26,8 +26,8 @@
 #include "nlang/compiler/Logger.h"
 #include "nlang/compiler/CastInfo.h"
 #include "nlang/runtime/Runtime.h"
-#include "nlang/vm/CompiledModule.h"
-#include "nlang/vm/CompiledModuleRecords.h"
+#include "nlang/core/CompiledModule.h"
+#include "nlang/core/CompiledModuleRecords.h"
 #include "NcuLoader.h"
 #include "NcuLinker.h"
 #include <cstdint>

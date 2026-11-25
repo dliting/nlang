@@ -6,8 +6,8 @@
     descriptor surfaces (DisasmTypeKindName: i8/u8/... style).
 ---*/
 #include "DisassemblerPrim.h"
-#include "Disassembler.h"
-#include "BytecodeReader.h"
+#include <nlang/core/Disassembler.h>
+#include <nlang/core/BytecodeReader.h>
 #include <nlang/runtime/PrimitiveTypes.h>
 
 namespace nlang {

@@ -7,7 +7,7 @@
 #include "BuildEnvironment.h"
 #include "BuiltinNames.h"
 #include "ModuleRegistry.h"
-#include <nlang/vm/CompiledModule.h>
+#include <nlang/core/CompiledModule.h>
 #include <algorithm>
 #include <map>
 #include <set>

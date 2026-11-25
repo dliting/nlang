@@ -4,7 +4,7 @@
     single .ncu writer call, separate from the bytecode-generation TU).
 ---*/
 #include <nlang/compiler/BuildEnvironment.h>
-#include <nlang/vm/CompiledModule.h>
+#include <nlang/core/CompiledModule.h>
 #include "VmBackend.h"
 #include <filesystem>
 #include <fstream>

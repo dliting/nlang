@@ -6,7 +6,7 @@
     budget; both handlers raise the catchable InvalidCastException.
 ---*/
 #include "VmExecutor.h"
-#include "GenericInstDescriptor.h"
+#include <nlang/core/GenericInstDescriptor.h>
 #include <nlang/runtime/PrimitiveTypes.h>
 #include <cstring>
 #include <stdexcept>

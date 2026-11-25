@@ -7,8 +7,8 @@
 //braced rows of a constexpr aggregate holding initializer_list members
 //silently failed to match under MSVC (OP_ConstInt32 walked to the miss
 //on every module).
-#include "BytecodeOps.h"
-#include "BytecodeStrides.h"
+#include <nlang/core/BytecodeOps.h>
+#include <nlang/core/BytecodeStrides.h>
 #include <iostream>
 #include <iterator>
 

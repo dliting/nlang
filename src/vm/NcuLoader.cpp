@@ -5,8 +5,8 @@
     `<路径>.ncu` 文件、再按文件名序扫 .npkg 成员表）。
 ---*/
 #include "NcuLoader.h"
-#include "ModuleLoader.h"
-#include "nlang/vm/NcuPackage.h"
+#include <nlang/core/ModuleLoader.h>
+#include "nlang/core/NcuPackage.h"
 #include <algorithm>
 #include <filesystem>
 #include <map>

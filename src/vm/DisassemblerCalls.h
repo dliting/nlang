@@ -3,9 +3,9 @@
 //Disassembler.cpp): direct static/bound calls, by-name calls, and the
 //MakeFunc/MakeVFunc/func-equality shapes.
 
-#include "BytecodeOps.h"
-#include "BytecodeReader.h"
-#include "nlang/vm/CompiledModule.h"
+#include <nlang/core/BytecodeOps.h>
+#include <nlang/core/BytecodeReader.h>
+#include "nlang/core/CompiledModule.h"
 #include <sstream>
 #include <string>
 

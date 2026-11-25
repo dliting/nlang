@@ -6,7 +6,7 @@
 #pragma once
 #include "nlang/embed/NLang.h"
 #include "nlang/runtime/PrimitiveTypes.h"
-#include "nlang/vm/CompiledModule.h"
+#include "nlang/core/CompiledModule.h"
 #include <cstdint>
 
 namespace nlang::embed {

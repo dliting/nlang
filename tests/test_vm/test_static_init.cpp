@@ -17,9 +17,9 @@ emitter shapes the probes cannot see.
 #include <nlang/compiler/BuildEnvironment.h>
 #include <nlang/compiler/CastInfo.h>
 #include <nlang/compiler/Logger.h>
-#include "BytecodeOps.h"
-#include "BytecodeStrides.h"
-#include "ModuleLoader.h"
+#include <nlang/core/BytecodeOps.h>
+#include <nlang/core/BytecodeStrides.h>
+#include <nlang/core/ModuleLoader.h>
 #include "VmExecutor.h"
 #include <algorithm>
 #include <filesystem>

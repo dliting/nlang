@@ -7,7 +7,7 @@
 // the NLang try/catch boundary (IDebugHooks.h contract).
 
 #include "DebugSession.h"
-#include "Disassembler.h"
+#include <nlang/core/Disassembler.h>
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>

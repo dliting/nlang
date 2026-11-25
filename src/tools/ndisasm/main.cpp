@@ -1,6 +1,6 @@
-#include "ModuleLoader.h"
-#include "Disassembler.h"
-#include <nlang/vm/NcuPackage.h>
+#include <nlang/core/ModuleLoader.h>
+#include <nlang/core/Disassembler.h>
+#include <nlang/core/NcuPackage.h>
 #include <nlang_version.h>  // generated from the repo VERSION file
 #include <filesystem>
 #ifdef _WIN32

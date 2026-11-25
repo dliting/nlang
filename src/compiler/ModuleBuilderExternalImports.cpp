@@ -9,11 +9,11 @@
 
 #include "ModuleBuilder.h"
 #include "ModuleBuilderImports.h"
-#include "ModuleLoader.h"
+#include <nlang/core/ModuleLoader.h>
 #include "builder/CompiledModuleNodeBuilder.hpp"
 #include "builder/ModuleRegistry.h"
-#include "nlang/vm/CompiledModule.h"
-#include "nlang/vm/NcuPackage.h"
+#include "nlang/core/CompiledModule.h"
+#include "nlang/core/NcuPackage.h"
 #include <filesystem>
 #include <fstream>
 #include <stdexcept>

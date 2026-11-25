@@ -5,9 +5,9 @@ module's declaration tables, and the import-merge rewrite of table indices
 from producer to consumer numbering. The descriptor grammar itself
 (append / parse / build) stays in TypeDesc.cpp.
 ---*/
-#include "nlang/vm/TypeDesc.h"
+#include "nlang/core/TypeDesc.h"
 //RTK_* kind constants (the same family the field-type kind bytes use).
-#include "nlang/vm/CompiledModule.h"
+#include "nlang/core/CompiledModule.h"
 #include <stdexcept>
 
 namespace nlang {

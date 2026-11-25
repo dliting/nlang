@@ -14,7 +14,7 @@ SymbolSlots.hpp — 跨单元引用的槽位解析（Phase 6 Task 3 核心）。
 #pragma once
 #include "ModuleRegistry.h"
 #include "nlang/compiler/SnMisc.h"
-#include "nlang/vm/CompiledModule.h"
+#include "nlang/core/CompiledModule.h"
 #include <cstdint>
 #include <string>
 #include <utility>

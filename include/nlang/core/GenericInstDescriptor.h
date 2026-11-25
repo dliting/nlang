@@ -5,7 +5,7 @@
     CanonicalArgSpelling）随v0.13.1层界收正迁入编译器侧共享头。
 ---*/
 #pragma once
-#include <nlang/compiler/TypeArgSpelling.h>
+#include <nlang/core/TypeArgSpelling.h>
 
 namespace nlang
 {

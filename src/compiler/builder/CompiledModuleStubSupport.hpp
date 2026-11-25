@@ -1,7 +1,7 @@
 #pragma once
 #include "SnExpressions.h"
 #include "SyntaxTree.h"
-#include "nlang/vm/CompiledModule.h"
+#include "nlang/core/CompiledModule.h"
 #include <nlang/runtime/BuiltinGenericNames.h>
 #include <memory>
 #include <string>
@@ -43,7 +43,7 @@ private:
 	std::string m_moduleName;
 };
 
-//LeafNameOfKey lives in nlang/vm/CompiledModule.h (shared with the VM
+//LeafNameOfKey lives in nlang/core/CompiledModule.h (shared with the VM
 //render sites).
 
 //The parser's canonical shape for a named type leaf: SnNameExpr wrapping

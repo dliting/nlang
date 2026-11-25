@@ -1,4 +1,4 @@
-#include "ModuleLoader.h"
+#include <nlang/core/ModuleLoader.h>
 #include "ModuleLoaderRecords.h"
 #include <nlang/runtime/NodeConsts.h>
 #include <fstream>

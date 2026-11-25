@@ -2,12 +2,12 @@
 //linker (peer merge by qualified name, placeholder-slot resolution,
 //uniform operand remap) with no codegen and no I/O — the design's
 //"先立后切" isolation (docs/dev/phase6_loader_design.md §7).
-#include "BytecodeEmitter.h"
-#include "BytecodeOps.h"
-#include "BytecodeReader.h"
+#include <nlang/core/BytecodeEmitter.h>
+#include <nlang/core/BytecodeOps.h>
+#include <nlang/core/BytecodeReader.h>
 #include "NcuLinker.h"
 #include "builder/SymbolSlots.hpp"
-#include "nlang/vm/CompiledModule.h"
+#include "nlang/core/CompiledModule.h"
 #include <iostream>
 #include <stdexcept>
 #include <string>

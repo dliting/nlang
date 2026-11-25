@@ -15,7 +15,7 @@
 #include "TranslationUnit.h"
 #include "builder/ImportCycleCheck.h"
 #include "builder/ModuleRegistry.h"
-#include "nlang/vm/CompiledModule.h"
+#include "nlang/core/CompiledModule.h"
 #include <algorithm>
 #include <map>
 #include <string>

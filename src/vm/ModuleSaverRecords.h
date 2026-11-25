@@ -9,7 +9,7 @@
     include/。
 ---*/
 #pragma once
-#include "nlang/vm/CompiledModule.h"
+#include "nlang/core/CompiledModule.h"
 #include <ostream>
 
 namespace nlang {

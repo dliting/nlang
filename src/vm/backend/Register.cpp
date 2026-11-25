@@ -5,7 +5,7 @@
     从 VmBackend.cpp 抽取（2026-09-25 可维护性重构，零行为变化）。
 ---*/
 #include "VmBackend.h"
-#include <nlang/compiler/TypeArgSpelling.h>
+#include <nlang/core/TypeArgSpelling.h>
 #include "builder/SymbolSlots.hpp"
 #include <string>
 #include <nlang/compiler/SyntaxTree.h>

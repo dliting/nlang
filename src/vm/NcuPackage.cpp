@@ -2,7 +2,7 @@
 NcuPackage.cpp - .npkg archive writer/reader (format 1.0).
 Writer and reader live in one file so the container layout cannot drift.
 ---*/
-#include "nlang/vm/NcuPackage.h"
+#include "nlang/core/NcuPackage.h"
 
 #include <algorithm>
 #include <cstring>

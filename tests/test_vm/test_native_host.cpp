@@ -10,7 +10,7 @@
 #include "nlang/compiler/Logger.h"
 #include "nlang/runtime/Runtime.h"
 #include "nlang/runtime/PrimitiveTypes.h"
-#include "nlang/vm/CompiledModule.h"
+#include "nlang/core/CompiledModule.h"
 #include "nlang/langservice/SymbolIndex.h"
 #include "VmExecutor.h"
 #include "IHostFunctions.h"

@@ -8,7 +8,7 @@
     之前完成，全部问题一次报清。表合并与槽位解析归 nlink（NcuLinker）。
 ---*/
 #pragma once
-#include "nlang/vm/CompiledModule.h"
+#include "nlang/core/CompiledModule.h"
 #include <string>
 #include <vector>
 

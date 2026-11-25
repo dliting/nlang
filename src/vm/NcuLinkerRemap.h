@@ -5,8 +5,8 @@
     该内核的唯一存续副本（设计 §5「Import.cpp 的归宿」）。
 ---*/
 #pragma once
-#include "BytecodeOps.h"
-#include "BytecodeStrides.h"
+#include <nlang/core/BytecodeOps.h>
+#include <nlang/core/BytecodeStrides.h>
 #include <cstdint>
 #include <functional>
 #include <unordered_map>

@@ -12,7 +12,7 @@
 #include "BindingTable.h"
 #include "BuiltinNames.h"
 #include "ModuleRegistry.h"
-#include <nlang/vm/Intrinsics.h>
+#include <nlang/core/Intrinsics.h>
 #include <string>
 #include <vector>
 

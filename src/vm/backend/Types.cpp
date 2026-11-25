@@ -5,7 +5,7 @@
 ---*/
 #include "VmBackend.h"
 #include "EmitPrimOps.h"
-#include <nlang/vm/ExprDesc.h>
+#include <nlang/core/ExprDesc.h>
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnData.h>
 #include <nlang/compiler/SnExpressions.h>

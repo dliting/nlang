@@ -8,7 +8,7 @@
     （2026-10-22 并发线合并后拆分）。仅 vm 模块内部使用，不安装到 include/。
 ---*/
 #pragma once
-#include "nlang/vm/CompiledModule.h"
+#include "nlang/core/CompiledModule.h"
 #include <istream>
 
 namespace nlang {

@@ -5,7 +5,7 @@
 ---*/
 #pragma once
 #include "NcuLinkerRemap.h"
-#include "nlang/vm/CompiledModule.h"
+#include "nlang/core/CompiledModule.h"
 #include <cstdint>
 #include <vector>
 

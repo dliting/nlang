@@ -10,7 +10,7 @@ negatives. Pure container tests: no compiler, no VM.
 #include <fstream>
 #include <filesystem>
 
-#include "nlang/vm/NcuPackage.h"
+#include "nlang/core/NcuPackage.h"
 
 using namespace nlang;
 

@@ -10,7 +10,7 @@ resolve the output path and delegate here. The reader side is
 ModuleLoader.cpp — keep the two in lockstep via NCU_FORMAT_* in
 CompiledModule.h.
 ---*/
-#include "nlang/vm/CompiledModule.h"
+#include "nlang/core/CompiledModule.h"
 #include "ModuleSaverRecords.h"
 
 namespace nlang {

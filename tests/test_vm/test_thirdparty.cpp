@@ -11,11 +11,11 @@
 #include "nlang/compiler/BuildEnvironment.h"
 #include "nlang/compiler/Logger.h"
 #include "nlang/runtime/Runtime.h"
-#include "nlang/vm/CompiledModule.h"
-#include "nlang/vm/NcuPackage.h"
+#include "nlang/core/CompiledModule.h"
+#include "nlang/core/NcuPackage.h"
 #include "VmExecutor.h"
 #include "IHostIo.h"
-#include "ModuleLoader.h"
+#include <nlang/core/ModuleLoader.h>
 #include "NcuLoader.h"
 #include "NcuLinker.h"
 

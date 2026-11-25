@@ -4,7 +4,7 @@
 //the vocabulary they share). Owns the operand-count formatter and the
 //two degenerate printers.
 
-#include "BytecodeReader.h"
+#include <nlang/core/BytecodeReader.h>
 #include <sstream>
 #include <string>
 

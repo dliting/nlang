@@ -1,8 +1,8 @@
 #pragma once
 #include <nlang/compiler/ICodeBackend.h>
-#include "nlang/vm/CompiledModule.h"
-#include "nlang/vm/TypeDesc.h"
-#include "BytecodeEmitter.h"
+#include "nlang/core/CompiledModule.h"
+#include "nlang/core/TypeDesc.h"
+#include <nlang/core/BytecodeEmitter.h>
 //Kind-immediate opcode encodings incl. BoxTypeTagOfKind (the promoted-
 //storage emitters key their box tags through it; v0.13.9 phase 3).
 #include "backend/EmitPrimOps.h"
@@ -16,7 +16,7 @@
 #include <nlang/compiler/SnArrayTypeToken.h>
 //TypeArgDesc — the shared type-argument vocabulary the descriptor
 //spelling reads (0.13.1c Task 8: the interface descriptor twin).
-#include <nlang/compiler/TypeArgSpelling.h>
+#include <nlang/core/TypeArgSpelling.h>
 #include <unordered_map>
 #include <unordered_set>
 #include <map>
