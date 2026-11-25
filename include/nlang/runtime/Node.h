@@ -23,7 +23,7 @@ struct NodeTraits
 //The interface of a node visitor.
 struct INodeVisitor
 {
-	virtual ~INodeVisitor() = 0 {}
+	virtual ~INodeVisitor() = 0;
 };
 
 /*
@@ -36,7 +36,7 @@ class NLANG_RUNTIME_API Node : private CopyDisabled
 public:
 	Node(NodeKind k, FieldAccessType at, NodeBits flags);
 
-	virtual ~Node() = 0 {};
+	virtual ~Node() = 0;
 
 	NodeKind Kind() const
 	{

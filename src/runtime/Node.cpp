@@ -10,6 +10,14 @@ This file define the implementation of basic node classes in nlang.
 namespace nlang
 {
 
+//Definitions of the pure virtual destructors: a pure virtual function cannot
+//carry a body in its class definition ([class.pure]), and base-subobject
+//destruction in derived destructors calls them, so the definitions must
+//exist.
+INodeVisitor::~INodeVisitor() {}
+
+Node::~Node() {}
+
 Node::Node(NodeKind k, FieldAccessType at, NodeBits flags) :
 	m_Kind(k), m_AccessType(at), m_Flags(flags), m_pParent(nullptr), 
 	m_pNext(nullptr)

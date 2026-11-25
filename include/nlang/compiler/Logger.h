@@ -22,7 +22,7 @@ public:
 	{
 	}
 
-	virtual ~CompileLogger() = 0 {}
+	virtual ~CompileLogger() = 0;
 
 	inline size_t Fatals() const
 	{

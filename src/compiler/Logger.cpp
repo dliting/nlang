@@ -53,6 +53,11 @@ const char* CompileLogger::LOG_LEVEL_NAMES[CLL_COUNT] =
 	"" //more
 };
 
+//Definition of the pure virtual destructor: a pure virtual function cannot
+//carry a body in its class definition ([class.pure]), and base-subobject
+//destruction in derived destructors calls it, so the definition must exist.
+CompileLogger::~CompileLogger() {}
+
 void CompileLogger::Log(CompileLogLevel level, const char* szFormat, ...)
 {
 	va_list ap;
