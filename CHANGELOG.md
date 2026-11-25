@@ -1,3 +1,69 @@
+## [0.13.12] - 2026-11-23
+
+Package archives as a distribution unit: a third-party library can now
+ship as one `.npkg` archive that the compiler and the runtime both
+consume directly — imports resolve through its member table at compile
+time, unit images link at load time, and a mixed library's native DLL
+rides the same archive, extracted to the user package cache before
+loading. The standard library itself is repackaged into thirteen
+domain packages on the same container. Not backward compatible by
+design.
+
+### Added
+- **Library archives as an import surface.** With no source supplying a
+  module, the compiler checks `<name>.ncu` in a directory and then the
+  member tables of its `.npkg` files in file-name order; the first
+  directory with a provider wins. A matched artifact contributes
+  declaration stubs, never bodies; source keeps priority over artifacts
+  across the whole search path, so shipping sources next to an archive
+  stays deterministic. A wildcard `import a.b.*;` takes the union of
+  source modules and package members, and an artifact-only module feeds
+  the unimported-name diagnosis the way a source module does: writing
+  `tp.sub.Fn.f()` without an import still suggests `import tp.sub;`. A
+  program package — one with an entry record — is an executable
+  closure, not a compile-time import provider; at run time the entry
+  archive's own members load first, then the search path serves the
+  rest of the closure.
+- **The standard library in thirteen domain packages.** The runtime
+  standard library ships as `concurrent.npkg` (`thread` and
+  `concurrent`) plus the single-module packages `io.npkg`, `math.npkg`,
+  `fs.npkg`, `tensor.npkg`, `net.npkg`, `http.npkg`, `url.npkg`,
+  `system.npkg`, `gzip.npkg`, `regex.npkg`, `json.npkg` and
+  `web.npkg`. Archive file names describe distribution domains; imports
+  resolve the member module paths. The preset modules `lang` and
+  `containers` stay embedded at compile time with no runtime members.
+- **Native members in a package archive.** A mixed library's host DLL
+  packs into its archive through the project file's `<Natives>` block.
+  The operating system cannot map a library straight out of an
+  archive, so opening a package also extracts each native member to a
+  per-package directory under the user package cache —
+  `NLANG_PKG_CACHE_ROOT` relocates the root — and loading appends that
+  directory to the native search path. A loose library beside the
+  executable or on an earlier layer still outranks the packed copy; a
+  cached copy matching the member is left alone, one that differs is
+  replaced. A package whose declarations stay outside a program's
+  closure is extracted but never loaded, and consumers need neither
+  the library file itself nor a dedicated search-dir entry for it.
+
+### Changed
+- **Container format 1.1.** `.npkg` member-table rows now carry a kind —
+  `0` a unit image, `1` a native host library — with native members
+  keyed by file name (`nlang_<ns>.dll`) and no import ever resolving to
+  them. Members are written sorted by name and the header records no
+  timestamps, so packing the same set twice produces byte-identical
+  archives. A reader accepts major `1` with a minor not above its own:
+  an older tool rejects 1.1 archives, and the current reader still
+  reads 1.0.
+- **Two new diagnostics around packages.** Two library packages in the
+  winning directory both containing the same module are a compile-time
+  error naming both archives (`Duplicate package 'a.b.c':
+  '<first>.npkg' and '<second>.npkg'.`), so a leftover package from a
+  repackaging cannot silently shadow its replacement. The
+  module-not-found diagnostic appends a note for every package that
+  could not be opened during the scan, and a package whose member table
+  names the module but whose member image is invalid is reported as a
+  failed module load, not as missing.
+
 ## [0.13.11] - 2026-11-23
 
 The JSON library: a `json` package that reads, edits and writes JSON
