@@ -18,6 +18,18 @@ INodeVisitor::~INodeVisitor() {}
 
 Node::~Node() {}
 
+//Defined here (not inline in Node.h) because the deref of ChildrenPtr()
+//needs ImmutableNodeList complete; Node.h only forward-declares it.
+ImmutableNodeList &Node::Children()
+{
+	return *ChildrenPtr();
+}
+
+const ImmutableNodeList &Node::Children() const
+{
+	return *ChildrenPtr();
+}
+
 Node::Node(NodeKind k, FieldAccessType at, NodeBits flags) :
 	m_Kind(k), m_AccessType(at), m_Flags(flags), m_pParent(nullptr), 
 	m_pNext(nullptr)

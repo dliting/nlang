@@ -12,6 +12,11 @@ This file define the interface of basic node classes in nlang.
 namespace nlang
 {
 
+//Forward declaration (NodeContainers.h defines it; Node.h must name it before
+//that header is parsed — the friend-class declaration in NodeIterators.h does
+//not provide a usable name in GCC, unlike MSVC).
+class ImmutableNodeList;
+
 //Static trait information of node.
 struct NodeTraits
 {
@@ -118,17 +123,13 @@ public:
 		return m_pParent;
 	}
 
-	//Get the children nodes list.
+	//Get the children nodes list. The bodies live in Node.cpp: the
+	//deref of ChildrenPtr() needs ImmutableNodeList complete, and it is
+	//defined in NodeContainers.h (parsed after this header).
 	//@{
-	ImmutableNodeList &Children()
-	{
-		return *ChildrenPtr();
-	}
+	ImmutableNodeList &Children();
 
-	const ImmutableNodeList &Children() const
-	{
-		return *ChildrenPtr();
-	}
+	const ImmutableNodeList &Children() const;
 	//@}
 
 	virtual std::string ToString() const = 0;
