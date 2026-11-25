@@ -3433,6 +3433,29 @@ else()
     message(STATUS "gate_time_check_selftest skipped: Python3 not found")
 endif()
 
+# Layering guard (tools/layering_guard.py): the library DAG's include/CMake
+# face per docs/dev/library_layering_design.md section 6. While the core
+# split is in flight the tree legitimately violates assertions 1 and 4, so
+# the entry is pinned WILL_FAIL and passes by failing; task 6 of
+# docs/dev/library_layering_plan.md lifts the property once nlang_core
+# seals the boundaries. The selftest entry judges the fixture corpus under
+# tests/fixtures/layering and is green from the start. Stdlib only, like
+# the gate_time_check selftest above.
+if(Python3_FOUND)
+    add_test(NAME layering_guard
+        COMMAND ${PYTHON3_EXECUTABLE}
+            ${PROJECT_SOURCE_DIR}/tools/layering_guard.py
+        WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+    set_tests_properties(layering_guard PROPERTIES WILL_FAIL TRUE)
+    add_test(NAME layering_guard_selftest
+        COMMAND ${PYTHON3_EXECUTABLE}
+            ${PROJECT_SOURCE_DIR}/tools/layering_guard.py
+            --selftest
+        WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+else()
+    message(STATUS "layering_guard skipped: Python3 not found")
+endif()
+
 # gate_tier.sh assembly smoke (tools/gate_tier_test.py): drives the leg
 # dispatch against a stub gate.sh in a sandbox, so it needs bash but no
 # build tree and no lock to wait on (the stub replaces gate.sh). The probe
