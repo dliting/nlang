@@ -16,6 +16,7 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <poll.h>
+#include <signal.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <system_error>
@@ -121,7 +122,13 @@ bool MulticastGroupOp(int fd, const std::string& group, bool join) {
 }  //namespace
 
 bool NetPlatformInit() {
-    return true;   //no process-level socket subsystem on POSIX
+    //A write to a broken socket raises SIGPIPE, which by default
+    //terminates the process — a peer that dropped mid-stream would kill
+    //the host instead of surfacing a catchable SocketException. Ignore it
+    //so the send answers EPIPE (the R10 path names the failure) rather
+    //than signalling; idempotent, and set once before any socket I/O.
+    signal(SIGPIPE, SIG_IGN);
+    return true;
 }
 
 int NetOpenTcpStream(NetFamily family) {
