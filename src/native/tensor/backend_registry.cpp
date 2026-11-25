@@ -5,16 +5,12 @@
 ---*/
 #include "backend_registry.h"
 #include "../tensor_cuda/backend_descriptor.h"
+#include "plugin_loader.h"
 
 #include <cstdlib>
 #include <cstring>
 #include <string>
 #include <vector>
-#if defined(_WIN32)
-#  include <windows.h>
-#else
-#  include <dlfcn.h>
-#endif
 
 namespace tensor {
 
@@ -96,63 +92,6 @@ int64_t AffineElementAt(const NativeArrayView& v, int64_t flat) {
     }
     return addr;
 }
-
-//The native dir of this module, resolved from a function address inside
-//it (no search-path games). Windows: GetModuleHandleEx FROM_ADDRESS;
-//POSIX: dladdr maps the address to its containing object (.so). Taking
-//the address of this function pins its code location in the module even
-//under inlining.
-std::string OwnModuleDirectory() {
-#if defined(_WIN32)
-    HMODULE self = nullptr;
-    GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS
-        | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-        (LPCSTR)&OwnModuleDirectory, &self);
-    char selfPath[MAX_PATH] = {};
-    GetModuleFileNameA(self, selfPath, MAX_PATH);
-    std::string path = selfPath;
-#else
-    Dl_info info = {};
-    if (dladdr(reinterpret_cast<void*>(&OwnModuleDirectory), &info) == 0
-        || info.dli_fname == nullptr)
-        return std::string();
-    std::string path = info.dli_fname;
-#endif
-    const size_t slash = path.find_last_of("\\/");
-    return slash == std::string::npos ? std::string()
-         : path.substr(0, slash + 1);
-}
-
-#if defined(_WIN32)
-void* OpenSharedPlugin(const std::string& path) {
-    return reinterpret_cast<void*>(LoadLibraryA(path.c_str()));
-}
-void* ResolvePluginSymbol(void* handle, const char* name) {
-    return reinterpret_cast<void*>(
-        GetProcAddress(static_cast<HMODULE>(handle), name));
-}
-void CloseSharedPlugin(void* handle) {
-    FreeLibrary(static_cast<HMODULE>(handle));
-}
-#else
-void* OpenSharedPlugin(const std::string& path) {
-    //RTLD_LOCAL keeps the plugin's CUDA runtime symbols from interposing
-    //any other object in the process.
-    return dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
-}
-void* ResolvePluginSymbol(void* handle, const char* name) {
-    return dlsym(handle, name);
-}
-void CloseSharedPlugin(void* handle) {
-    dlclose(handle);
-}
-#endif
-
-#if defined(_WIN32)
-constexpr const char* kCudaPluginName = "nlang_tensor_cuda.dll";
-#else
-constexpr const char* kCudaPluginName = "libnlang_tensor_cuda.so";
-#endif
 
 //The CUDA plugin probe: the plugin sits next to this module (the tensor
 //native module). pluginError means the plugin is absent (auto stays

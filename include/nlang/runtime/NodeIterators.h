@@ -33,7 +33,9 @@ struct NodeIteratorBase
 //Definition of the pure virtual destructor: a pure virtual function cannot
 //carry a body in its class definition ([class.pure]), and base-subobject
 //destruction in derived destructors calls it, so the definition must exist.
-inline NodeIteratorBase::~NodeIteratorBase() {}
+inline NodeIteratorBase::~NodeIteratorBase()
+{
+}
 
 //The base class of node iterator.
 class NodeIterator : public NodeIteratorBase
