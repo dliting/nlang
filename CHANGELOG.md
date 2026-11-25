@@ -1,3 +1,20 @@
+## [0.13.12a] - 2026-11-25
+
+Library-layering refactor with no user-visible surface changes: a
+new internal static library `nlang_core` carries the shared
+compiled-module vocabulary — module wire format, bytecode
+spelling, disassembler, loader and linker — and the bytecode
+backend moves from `nlang_vm` into `nlang_compiler` under
+`src/compiler/codegen`. The shared vocabulary's public headers now
+live under `include/nlang/core`. This severs the former
+`nlang_vm ↔ nlang_compiler` link-time cycle: the compiler builds
+on `nlang_core` alone, and the VM stays pure execution.
+
+Language, standard library, diagnostics, exit codes and the NCU
+wire format are unchanged — byte-for-byte, verified by a
+path-normalized diff over every stdlib and example artifact built
+before and after the split.
+
 ## [0.13.12] - 2026-11-23
 
 Web framework on top of the `http` package: the `web` package brings

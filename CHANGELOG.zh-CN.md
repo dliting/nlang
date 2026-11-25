@@ -1,3 +1,9 @@
+## [0.13.12a] - 2026-11-25
+
+库分层重构，无用户可见面变化：新增内部静态库`nlang_core`承载编译产物的共同词汇——模块字节格式、字节码拼写、反汇编器、加载器与链接器；字节码后端从`nlang_vm`迁入`nlang_compiler`（`src/compiler/codegen`）；共同词汇的公开头文件改到`include/nlang/core`之下。此举斩断原先`nlang_vm ↔ nlang_compiler`的链接期环：编译器只建在`nlang_core`上，虚拟机回归纯执行。
+
+语言、标准库、诊断文案、退出码与NCU字节格式逐字节不变——已按路径归一，对拆分前后构建的全部stdlib与示例产物做了字节对拍验证。
+
 ## [0.13.12] - 2026-11-23
 
 基于`http`包的web框架：`web`包带来路由（`:name`段捕获与尾部`*`兜底）、中间件链、cookie承载的会话、挂载目录的静态文件服务（`ETag`/`Last-Modified`复核）、server-sent events（SSE）helper，以及浏览器两种编码的表单解析——另有`MultipartBody`构建器与按净化名落盘的上传保存。

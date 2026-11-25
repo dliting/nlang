@@ -129,7 +129,7 @@ same way several project files are.
 
 Generated code contains no library code, so execution begins by
 gathering the import closure and linking it into one runtime module
-(`src/vm/NcuLoader.cpp`, `src/vm/NcuLinker.cpp`):
+(`src/core/NcuLoader.cpp`, `src/core/NcuLinker.cpp`):
 
 1. **Loading** (nloader) — starting from the entry artifact: members of
    a `.npkg` resolve inside the package first; an import slot's target

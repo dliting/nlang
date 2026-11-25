@@ -28,7 +28,7 @@
 
 ### `Dict.keys()`内建函数
 
-`INTR_Dict_Keys = 60`（include/nlang/vm/Intrinsics.h）。以名为`keys`的方法注册在Dict类上，`paramCount=1, returnTypeKind=RTK_Class`。VmExecutor处理器：
+`INTR_Dict_Keys = 60`（include/nlang/core/Intrinsics.h）。以名为`keys`的方法注册在Dict类上，`paramCount=1, returnTypeKind=RTK_Class`。VmExecutor处理器：
 
 1. 经`ReadDictHandle`读取dict句柄（统一的null/stale/uninit校验）。
 2. `AllocClassOnHeap(m_listClassIdx)`——新的List类实例。
