@@ -86,4 +86,15 @@ Runtime error: nloader failed:
 </Project>
 ```
 
+混合库的宿主原生库（§7.5）经`<Natives>`打包进档案：
+
+```xml
+<Project name="mylib">
+  <Sources><File path="mylib.n"/></Sources>
+  <Natives><Native path="nlang_mylib.dll"/></Natives>
+</Project>
+```
+
+`Native`路径与`File`路径一样相对项目文件所在目录解析。库以原生成员身份随`.npkg`分发（§28.3）：没有导入会解析到它——导入只见单元成员——运行期先把它抽取到包缓存再装载（§28.5），使用方既不需要库文件本体，也不需要为它单列搜索目录。
+
 完整的五层顺序、`native`库以及在nide中的图形配置，见[包与导入查找](../specification/03-program-structure/packages.md)。

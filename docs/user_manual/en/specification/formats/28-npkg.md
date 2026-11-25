@@ -1,19 +1,21 @@
 # 28. The `.npkg` Package Archive
 
-A *package archive* is the distribution form of a build: it
-packs one *member* — a unit image of chapter 27 — per package
-of the build, each member named by its package path (§3.9.1). A
-program archive carries an *entry record*; a library archive
-omits one, as the standard library's thirteen domain packages do
-(§3.9.4). §28.1 sets the scope and the format version; §28.2
-fixes the container; §28.3 defines the entry record and the
-member identity; §28.4 fixes the member checksums; §28.5
-states the reading and consumption contract.
+A *package archive* is the distribution form of a build: it packs
+the build's members — a unit image of chapter 27 for each package
+of the build (§3.9.1), plus the native host libraries the build
+ships. A unit member is named by its package path; a native
+member by its file name (§28.3). A program archive carries an
+*entry record*; a library archive omits one, as the standard
+library's thirteen domain packages do (§3.9.4). §28.1 sets the
+scope and the format version; §28.2 fixes the container; §28.3
+defines the entry record and the member identity; §28.4 fixes the
+member checksums; §28.5 states the reading and consumption
+contract.
 
 ## 28.1 Scope and Version
 
 **Format version.** This chapter describes format version
-**1.0**, recorded in the header as major `1`, minor `0`
+**1.1**, recorded in the header as major `1`, minor `1`
 (§28.2). The reader accepts major `1` with a minor not above
 its own — a newer reader reads an older minor, never the
 reverse — and rejects every other version (§28.5). A format
@@ -29,8 +31,8 @@ member — chapter 27 — and the link-closure semantics that
 consume the extracted images (§3.9.3).
 
 **Determinism.** Packing the same set of members twice
-produces byte-identical archives: members are sorted by module
-path and the header records no timestamps.
+produces byte-identical archives: members are sorted by name
+and the header records no timestamps.
 
 ## 28.2 Container Layout
 
@@ -44,7 +46,7 @@ integers and length-prefixed byte strings; the width notation
 |---|---|---|
 | magic | 8 bytes | `NLANGPKG` |
 | version major | u16 | `1` |
-| version minor | u16 | `0` |
+| version minor | u16 | `1` |
 | package name | u16 length + bytes | the artifact name recorded by the build (the output module name); it names the archive in diagnostics |
 | flags | u32 | written `0`; no flag is defined and the reader ignores the field |
 | signature algorithm | u16 | `0` = unsigned; the signature block is reserved |
@@ -54,11 +56,12 @@ integers and length-prefixed byte strings; the width notation
 | entry | — | a zero byte marks a library (no entry record); otherwise the entry record: a u16 length and the entry unit's package path, then a u16 length and the entry function's name (§28.3) |
 
 **Member table.** Immediately after the header, one entry per
-member, in ascending byte-wise module-path order:
+member, in ascending byte-wise order of the member's name:
 
 | Field | Width | Content |
 |---|---|---|
-| module path | u16 length + bytes | the package path of the member (§3.9.1) |
+| module path | u16 length + bytes | the member's name: the package path of the unit a unit member holds (§3.9.1), or the file name of a native member (§28.3) |
+| kind | u8 | `0` = a unit image; `1` = a native host library |
 | offset | u64 | the absolute file offset of the member's image bytes |
 | length | u64 | the image byte count |
 | checksum | u64 | §28.4 |
@@ -66,8 +69,9 @@ member, in ascending byte-wise module-path order:
 **Blobs.** The writer lays the member images out after the
 table in table order, each beginning at its recorded offset; a
 reader follows the recorded offsets and does not require the
-images to be adjacent. A member's bytes are a complete unit
-image (chapter 27).
+images to be adjacent. A unit member's bytes are a complete unit
+image (chapter 27); a native member's bytes are the library file
+exactly as the build shipped it.
 
 ## 28.3 Entry Record and Member Identity
 
@@ -78,10 +82,12 @@ instead. Within the archive, only the entry-owning member image
 keeps a non-empty entry key (§27.2); the archive's entry record
 is the authoritative entry.
 
-**Member identity.** One member per package path: the packer
-rejects a duplicate path. A member's module path is the package
-path of the unit it holds, so a reference to a package path
-resolves to exactly one member.
+**Member identity.** One member per name: the packer rejects a
+duplicate name. A unit member's name is the package path of the
+unit it holds, so a reference to a package path resolves to
+exactly one member. A native member's name is its library file
+name — the name the host platform maps the library under — and
+no import resolves to it (§28.5).
 
 ## 28.4 Member Checksums
 
@@ -109,13 +115,21 @@ A reader validates the container before using it:
 Extraction of a member verifies its checksum (§28.4); a module
 path that is not a member of the archive is an error.
 
-At compile time, importing an archive as an external artifact
-(§3.9.2) takes the member that supplies the declarations: the
-entry-record member for a program archive, or the sole member
-for a library archive. An archive with several members and no
-entry record is refused rather than silently reduced to one
-member — the consumer would compile against part of the
-surface and miss the rest only at run time.
+At compile time, an import resolves against a package's unit
+members exactly as §3.9.2 describes: a module path takes the
+member of that name, and a wildcard takes the union of matching
+members. A native member answers no import — its name is a file
+name, not a module path, and the compiler never reads its bytes.
 
-At run time, the loader extracts member images by module path
-as the import closure demands them (§3.9.3).
+At run time, the loader takes unit member images by module path
+as the import closure demands them (§3.9.3). The operating
+system cannot map a library straight out of an archive, so
+opening a package also extracts each native member to a
+per-package directory under the per-user package cache (the
+`NLANG_PKG_CACHE_ROOT` environment variable relocates the
+root), and the load appends that directory to the native search
+path (§7.5) — a loose library beside the executable or on an
+earlier layer still outranks the packed copy. A cached copy
+whose bytes already match the member is left alone; one that
+differs is replaced. A package whose declarations stay outside
+a program's closure is therefore extracted but never loaded.

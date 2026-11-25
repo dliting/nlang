@@ -145,6 +145,23 @@ relative to the project file):
 </Project>
 ```
 
+A mixed library's native host library (§7.5) packs into the archive
+under `<Natives>`:
+
+```xml
+<Project name="mylib">
+  <Sources><File path="mylib.n"/></Sources>
+  <Natives><Native path="nlang_mylib.dll"/></Natives>
+</Project>
+```
+
+`Native` paths resolve relative to the project file's directory,
+like `File` paths. The library rides the `.npkg` as a native member
+(§28.3): no import resolves to it — imports see the unit members
+only — and at run time it is extracted to the package cache before
+loading (§28.5), so consumers need neither the library file nor a
+search-dir entry for it.
+
 For the full five-level order, `native` libraries and graphical
 configuration in nide, see
 ["Packages and Import Search"](../specification/03-program-structure/packages.md).

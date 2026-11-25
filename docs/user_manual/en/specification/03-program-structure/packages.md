@@ -332,8 +332,8 @@ The concurrency modules split by what they answer:
 | `thread` | who runs and where the result is fetched: `Thread`, `Future<T>`, `Promise<T>`, and the `thread.*` functions (§10.1, §10.5) |
 | `concurrent` | how running computations coordinate: `Mutex`, `Semaphore`, `ReentrantMutex`, `AtomicInt`, `Channel<T>`, `ChannelClosedException`, `WaitGroup` (§10.2–§10.4, §10.6) |
 
-Standard-library modules are imported like any other (§3.3); chapters
-13–26 describe them. The declarations in the `.n` sources are the
+Standard-library modules are imported like any other (§3.3);
+chapters 13–26 describe them. The declarations in the `.n` sources are the
 source of truth for every module, preset modules included; the
 implementation binds their declared native members to built-in
 implementations.
