@@ -349,6 +349,15 @@ add_library(nlang_mixlib SHARED
 )
 target_include_directories(nlang_mixlib PRIVATE ${PROJECT_SOURCE_DIR}/include)
 
+# Package-native probe fixture: records its own load into a mark file
+# (PKGPROBE_ATTACH_MARK) at attach and answers a self-path probe, so the
+# e2e corpus can tell "the module mapped into the process" apart from
+# "the file merely extracted to the package cache".
+add_library(nlang_pkgprobe SHARED
+    fixtures/native/pkgprobe/pkgprobe_native.cpp
+)
+target_include_directories(nlang_pkgprobe PRIVATE ${PROJECT_SOURCE_DIR}/include)
+
 # Third-party library integration tests: a package dir holding mylib.n and
 # the nlang_mylib.dll fixture, imported and run through the same path as the
 # standard library (real compile + real run).
@@ -3085,6 +3094,7 @@ if(Python3_FOUND)
             ${PROJECT_SOURCE_DIR}/tests/e2e/pkg_artifact_imports/run.py
             $<TARGET_FILE:ncc>
             $<TARGET_FILE:nvm>
+            $<TARGET_FILE:nlang_pkgprobe>
             ${CMAKE_BINARY_DIR}/e2e_out)
 endif()
 

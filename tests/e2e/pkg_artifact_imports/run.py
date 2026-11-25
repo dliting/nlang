@@ -6,6 +6,8 @@ lives below one isolated scratch directory; no package is written beside the
 e2e corpus, where it could shadow unrelated tests.
 """
 
+import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -27,9 +29,15 @@ def write_text(path, text):
     path.write_text(text, encoding='utf-8', newline='\n')
 
 
-def write_project(root, name, sources):
+def write_project(root, name, sources, natives=()):
     source_rows = ''.join(
         f'    <File path="{source}"/>\n' for source in sources)
+    native_rows = ''.join(
+        f'    <Native path="{native}"/>\n' for native in natives)
+    natives_block = (
+        '  <Natives>\n'
+        f'{native_rows}'
+        '  </Natives>\n') if natives else ''
     write_text(
         root / f'{name}.nproj',
         '<?xml version="1.0" encoding="UTF-8"?>\n'
@@ -37,17 +45,26 @@ def write_project(root, name, sources):
         '  <Sources>\n'
         f'{source_rows}'
         '  </Sources>\n'
+        f'{natives_block}'
         '</Project>\n')
     return root / f'{name}.nproj'
 
 
-def invoke(args, expected=0):
+def invoke(args, expected=0, env_extra=None):
+    environment = None
+    if env_extra:
+        #Explicit overrides on top of the inherited environment: the
+        #corpus must never fall back to the real per-user cache, even
+        #when it is driven directly instead of through ctest.
+        environment = dict(os.environ)
+        environment.update(env_extra)
     result = subprocess.run(
         [normalized_path(arg) if isinstance(arg, Path) else str(arg)
          for arg in args],
         capture_output=True,
         text=True,
-        timeout=COMMAND_TIMEOUT_SECONDS)
+        timeout=COMMAND_TIMEOUT_SECONDS,
+        env=environment)
     if result.returncode != expected:
         raise CorpusFailure(
             f"command returned {result.returncode}, expected {expected}:\n"
@@ -246,13 +263,143 @@ def test_first_artifact_directory_wins(ncc, nvm, root):
             f'first artifact directory did not win: {result.stdout!r}')
 
 
+def test_native_member_cache(ncc, nvm, pkgprobe_dll, root):
+    case_root = root / 'native_member_cache'
+
+    # Library: pkgprobe declares the natives, plain is a plain NLang
+    # unit, and the DLL rides the archive as a native member. The
+    # directory copy of the DLL is deleted after packing, so every run
+    # below must find the cache copy — no loose neighbor can answer.
+    library_root = case_root / 'library'
+    write_text(
+        library_root / 'pkgprobe.n',
+        '// Declarations for the package-native probe; the bodies live\n'
+        '// in nlang_pkgprobe.dll, which this package ships as a native\n'
+        '// archive member.\n'
+        'native int value();\n'
+        'native string where();\n')
+    write_text(
+        library_root / 'plain.n',
+        'int triple(int x) {\n'
+        '    return x * 3;\n'
+        '}\n')
+    shutil.copy(pkgprobe_dll, library_root / 'nlang_pkgprobe.dll')
+    library_project = write_project(
+        library_root, 'probelib', ['pkgprobe.n', 'plain.n'],
+        ['nlang_pkgprobe.dll'])
+    package_dir = case_root / 'packages'
+    library_package = package_dir / 'probelib.npkg'
+    build_package(ncc, library_project, library_package)
+    (library_root / 'nlang_pkgprobe.dll').unlink()
+
+    marks_root = case_root / 'marks'
+    runs_root = case_root / 'runs'
+    #The attach mark is written by the DLL itself (kernel32 file calls
+    #from DllMain cannot create directories); the corpus owns the mark
+    #directory, the runtime owns the cache directories.
+    marks_root.mkdir(parents=True, exist_ok=True)
+    runs_root.mkdir(parents=True, exist_ok=True)
+
+    def run_program(nvm_program, cache_root, mark_path):
+        return invoke(
+            [nvm, nvm_program, '-I', package_dir],
+            env_extra={
+                'NLANG_PKG_CACHE_ROOT': str(cache_root),
+                'PKGPROBE_ATTACH_MARK': str(mark_path),
+            })
+
+    # Arm one — load and call: the caller imports the declaration unit
+    # and calls the natives. where() must answer a path under the
+    # cache root (the packed copy answered, not some shadow elsewhere)
+    # and the attach mark must exist (the module mapped in).
+    caller_app = make_app(
+        case_root / 'app', 'probe_caller',
+        'import io;\n'
+        'import pkgprobe;\n'
+        'int main() {\n'
+        '    io.print(pkgprobe.value());\n'
+        '    io.print(pkgprobe.where());\n'
+        '    return 0;\n'
+        '}\n')
+    caller_package = case_root / 'output' / 'probe_caller.npkg'
+    build_package(ncc, caller_app, caller_package, [package_dir])
+    cache_caller = runs_root / 'cache_caller'
+    result = run_program(caller_package, cache_caller,
+                         marks_root / 'attach_caller.mark')
+    lines = result.stdout.splitlines()
+    cache_text = normalized_path(cache_caller)
+    if len(lines) < 2 or lines[0] != '7341':
+        raise CorpusFailure(
+            f'native call through the cache printed {result.stdout!r}, '
+            'expected 7341 then a path')
+    if (not lines[1].replace('\\', '/').startswith(cache_text + '/')
+            or Path(lines[1]).name != 'nlang_pkgprobe.dll'):
+        raise CorpusFailure(
+            f'where() answered outside the package cache: {lines[1]!r}')
+    if not (marks_root / 'attach_caller.mark').exists():
+        raise CorpusFailure(
+            'attach mark missing: the probe DLL never mapped into the '
+            'calling process')
+
+    # Arm two — extracted, not loaded: this program imports only the
+    # plain unit, so the package's native declarations never enter the
+    # closure and the probe must stay out of the process (mark absent)
+    # even though opening the package extracted its native member to
+    # the cache (cache copy present).
+    plain_app = make_app(
+        case_root / 'app_plain', 'probe_plain',
+        'import io;\n'
+        'import plain;\n'
+        'int main() { io.print(plain.triple(3)); return 0; }\n')
+    plain_package = case_root / 'output' / 'probe_plain.npkg'
+    build_package(ncc, plain_app, plain_package, [package_dir])
+    cache_plain = runs_root / 'cache_plain'
+    mark_plain = marks_root / 'attach_plain.mark'
+    result = run_program(plain_package, cache_plain, mark_plain)
+    if result.stdout.strip() != '9':
+        raise CorpusFailure(
+            f'plain unit through the package printed {result.stdout!r}, '
+            'expected 9')
+    if mark_plain.exists():
+        raise CorpusFailure(
+            'attach mark present: the probe DLL mapped in although its '
+            'declarations are outside the closure')
+    if not list(cache_plain.glob('*/nlang_pkgprobe.dll')):
+        raise CorpusFailure(
+            'cache copy missing: opening the package must extract its '
+            'native members even when no arm of the program loads them')
+
+    # Arm three — re-extraction on corruption: a corrupted cache copy
+    # must not survive; the next open re-extracts it and the run
+    # behaves as if nothing happened.
+    cached = list(cache_caller.glob('*/nlang_pkgprobe.dll'))
+    if len(cached) != 1:
+        raise CorpusFailure(
+            f'expected exactly one cached probe copy, found {len(cached)}')
+    cached[0].write_bytes(b'corrupted')
+    result = run_program(caller_package, cache_caller,
+                         marks_root / 'attach_caller_again.mark')
+    lines = result.stdout.splitlines()
+    if (len(lines) < 2 or lines[0] != '7341'
+            or not lines[1].replace('\\', '/').startswith(cache_text + '/')):
+        raise CorpusFailure(
+            f'run after corrupting the cached copy printed '
+            f'{result.stdout!r}: the re-extraction did not restore it')
+    if not (marks_root / 'attach_caller_again.mark').exists():
+        raise CorpusFailure(
+            'attach mark missing after re-extraction: the restored copy '
+            'never mapped into the calling process')
+
+
 def main():
-    if len(sys.argv) != 4:
-        print(f'usage: {Path(sys.argv[0]).name} <ncc> <nvm> <scratch-root>')
+    if len(sys.argv) != 5:
+        print(f'usage: {Path(sys.argv[0]).name} <ncc> <nvm> '
+              f'<pkgprobe-dll> <scratch-root>')
         return 2
     ncc = normalized_path(sys.argv[1])
     nvm = normalized_path(sys.argv[2])
-    scratch_root = Path(sys.argv[3]).resolve()
+    pkgprobe_dll = Path(sys.argv[3]).resolve()
+    scratch_root = Path(sys.argv[4]).resolve()
     scratch_root.mkdir(parents=True, exist_ok=True)
     try:
         with tempfile.TemporaryDirectory(
@@ -262,6 +409,7 @@ def main():
             test_source_precedes_earlier_artifact(ncc, nvm, root)
             test_source_artifact_parity(ncc, nvm, root)
             test_first_artifact_directory_wins(ncc, nvm, root)
+            test_native_member_cache(ncc, nvm, pkgprobe_dll, root)
     except (CorpusFailure, subprocess.TimeoutExpired) as error:
         print(f'pkg_artifact_imports FAILED:\n{error}')
         return 1
