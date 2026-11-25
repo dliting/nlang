@@ -58,10 +58,13 @@ bool CarriesMember(const std::vector<std::string> &memberPaths,
 const std::vector<std::string> &PackagesInDir(const std::string &dir,
 	ArtifactPackageCache &cache);
 
-//Open one package at most once per build: its record keeps the reader,
-//or the failure (which also joins the unreadable list). Definition in
-//ModuleBuilderArtifactCache.cpp.
-const ArtifactPackageCache::Package &OpenPackage(const std::string &path,
+//Open one package at most once per build, then classify its role:
+//returns the reader only for a library package (no entry record).
+//A program package's member table is its executable closure, not a
+//compile-time import surface; dependencies carried there must never
+//compete with library providers. An open failure joins unreadable.
+//Definition in ModuleBuilderArtifactCache.cpp.
+const NcuPackageReader *OpenImportablePackage(const std::string &path,
 	ArtifactPackageCache &cache);
 
 //Effective library search directories: explicit/configured import dirs

@@ -57,9 +57,11 @@ const std::vector<std::string> &PackagesInDir(const std::string &dir,
 	return packages;
 }
 
-//Seam declaration in ModuleBuilderImports.h.
-const ArtifactPackageCache::Package &OpenPackage(const std::string &path,
-	ArtifactPackageCache &cache)
+//Cache-internal open primitive. OpenImportablePackage below is the
+//only seam exposed to artifact discovery, so program packages cannot
+//accidentally join one compiler scan while another correctly skips them.
+static const ArtifactPackageCache::Package &OpenPackage(
+	const std::string &path, ArtifactPackageCache &cache)
 {
 	const auto inserted = cache.packages.emplace(path,
 		ArtifactPackageCache::Package());
@@ -76,6 +78,18 @@ const ArtifactPackageCache::Package &OpenPackage(const std::string &path,
 		cache.unreadable.push_back(path);
 	}
 	return package;
+}
+
+//Seam declaration in ModuleBuilderImports.h. Program packages carry
+//an entry record and a complete executable closure; only entry-less
+//library packages expose their members to compile-time imports.
+const NcuPackageReader *OpenImportablePackage(const std::string &path,
+	ArtifactPackageCache &cache)
+{
+	const ArtifactPackageCache::Package &package = OpenPackage(path, cache);
+	if (!package.upReader || package.upReader->EntryRecord())
+		return nullptr;
+	return package.upReader.get();
 }
 
 //The artifact arm's knowability probe (BuildEnvironment's
@@ -95,10 +109,10 @@ static bool ArtifactAnswersFor(const BuildEnvironment &env,
 			return true;
 		for (const std::string &path : PackagesInDir(dir, cache))
 		{
-			const ArtifactPackageCache::Package &package =
-				OpenPackage(path, cache);
-			if (package.upReader
-				&& CarriesMember(package.upReader->MemberPaths(), name))
+			const NcuPackageReader *pPackage =
+				OpenImportablePackage(path, cache);
+			if (pPackage
+				&& CarriesMember(pPackage->MemberPaths(), name))
 				return true;
 		}
 	}

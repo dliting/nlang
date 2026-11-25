@@ -115,14 +115,14 @@ bool FindArtifactInDir(const std::string &dir, const std::string &name,
 	}
 	for (const std::string &path : PackagesInDir(dir, cache))
 	{
-		const ArtifactPackageCache::Package &package = OpenPackage(path, cache);
-		if (!package.upReader
-			|| !CarriesMember(package.upReader->MemberPaths(), name))
+		const NcuPackageReader *pPackage =
+			OpenImportablePackage(path, cache);
+		if (!pPackage || !CarriesMember(pPackage->MemberPaths(), name))
 			continue;
 		providers.push_back(path);
 		//The first provider answering is the one adopted.
 		if (providers.size() == 1)
-			ReadPackageMember(*package.upReader, path, name, unit);
+			ReadPackageMember(*pPackage, path, name, unit);
 	}
 	return !providers.empty();
 }
@@ -166,12 +166,11 @@ std::vector<std::string> CollectPackageMemberUnion(
 	{
 		for (const std::string &path : PackagesInDir(dir, cache))
 		{
-			const ArtifactPackageCache::Package &package =
-				OpenPackage(path, cache);
-			if (!package.upReader)
+			const NcuPackageReader *pPackage =
+				OpenImportablePackage(path, cache);
+			if (!pPackage)
 				continue;
-			for (const std::string &member :
-				package.upReader->MemberPaths())
+			for (const std::string &member : pPackage->MemberPaths())
 			{
 				if (member == dottedName
 					|| member.compare(0, prefix.size(), prefix) == 0)

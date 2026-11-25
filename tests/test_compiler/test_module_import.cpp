@@ -299,6 +299,52 @@ bool buildThirdPartyPackage(const std::filesystem::path& pkgOut,
     return !fsError && fs::exists(pkgOut / szPackageFile);
 }
 
+//A PROGRAM package whose run-time closure carries tp.sub. Program
+//packages have an entry record and are not a compile-time import
+//surface: their member table is the executable closure, so dependencies
+//may duplicate members of real library packages in the same directory.
+//False when the package failed to build or carries no entry record.
+bool buildProgramPackageCarryingTpSub(const std::filesystem::path& pkgOut,
+    const char* szPackageFile)
+{
+    namespace fs = std::filesystem;
+    const fs::path src =
+        nlang::test::ScratchDir("nlang_import_gate") / "program_pkg_src";
+    std::error_code fsError;
+    fs::remove_all(src, fsError);
+    fs::create_directories(src / "tp", fsError);
+    if (!writeSourceFile(src / "main.n",
+            "int main() { return 0; }\n") ||
+        !writeSourceFile(src / "tp" / "sub.n",
+            "public int x() { return 99; }\n"))
+    {
+        return false;
+    }
+    BuildParams params;
+    params.m_bProjectMode = true;
+    params.m_sProjectDir = src.string();
+    params.m_SourceFiles.push_back((src / "main.n").string());
+    params.m_SourceFiles.push_back((src / "tp" / "sub.n").string());
+    params.m_ImportDirs.clear();
+    params.m_sOutputModule = "carrier";
+    params.m_sOutputDir = pkgOut.string();
+    params.m_sTempDir = pkgOut.string();
+    params.m_sStdLibDir = STDLIB_DIR;
+    MemLogger logger;
+    ModuleBuilder builder(params, logger);
+    bool ok = false;
+    try { ok = builder.BuildArtifacts(); }
+    catch (const std::exception&) { ok = false; }
+    const fs::path built = pkgOut / "carrier.npkg";
+    if (ok && std::string(szPackageFile) != "carrier.npkg")
+        fs::rename(built, pkgOut / szPackageFile, fsError);
+    NcuPackageReader reader;
+    std::string error;
+    return ok && !fsError
+        && reader.Open((pkgOut / szPackageFile).string(), &error)
+        && reader.EntryRecord() != nullptr;
+}
+
 //Damage the first member's image inside the package. The writer packs
 //the members sorted by module path (tp first, ahead of tp.core) back
 //to back, so the byte before the second image's magic is the last byte
@@ -1548,6 +1594,105 @@ private slots:
             joinErrors(res.errors).c_str());
         QVERIFY2(containsError(res.errors, "bbb.npkg'."),
             joinErrors(res.errors).c_str());
+    }
+
+    //A program package is a run-time closure, not a library import
+    //surface. It may carry a copy of tp.sub beside the real library
+    //package; compile-time discovery must ignore that copy rather than
+    //diagnosing two independent providers.
+    void programPackageDoesNotDuplicateLibraryMembers()
+    {
+        bool fixtureOk = true;
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import tp.sub;\n"
+            "int main() { return tp.sub.x(); }\n";
+        opts.withThirdPartyPackage = true;
+        opts.preparePackageDir = [&fixtureOk](const std::filesystem::path& pkgOut)
+        {
+            fixtureOk = fixtureOk
+                && buildThirdPartyPackage(pkgOut, "aaa-library.npkg")
+                && buildProgramPackageCarryingTpSub(
+                    pkgOut, "zzz-program.npkg");
+        };
+        const GateRunResult run = runGateProject(opts);
+        QVERIFY2(fixtureOk, "the library/program package fixture could not be built");
+        QVERIFY2(run.ok, runFailureText(run,
+            "a program closure must not duplicate a library provider").c_str());
+        QVERIFY2(run.runtimeError.empty(), runFailureText(run,
+            "the library-backed program must execute cleanly").c_str());
+        QVERIFY2(run.exitValue == 7, "the real library provider returns 7");
+    }
+
+    //Without a library package, the same member inside a program
+    //package does not satisfy an import. This pins the classification
+    //itself, rather than merely suppressing the duplicate diagnostic.
+    void programPackageIsNotAnImportProvider()
+    {
+        bool fixtureOk = true;
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import tp.sub;\n"
+            "int main() { return tp.sub.x(); }\n";
+        opts.withThirdPartyPackage = true;
+        opts.preparePackageDir = [&fixtureOk](const std::filesystem::path& pkgOut)
+        {
+            fixtureOk = fixtureOk
+                && buildProgramPackageCarryingTpSub(pkgOut, "program.npkg");
+        };
+        const GateResult res = buildGateProject(opts);
+        QVERIFY2(fixtureOk, "the program package fixture could not be built");
+        QVERIFY2(!res.ok, "a program closure must not satisfy an import");
+        QVERIFY2(containsError(res.errors, "Module 'tp.sub' not found"),
+            joinErrors(res.errors).c_str());
+    }
+
+    //The wildcard collector shares the same role boundary. A program
+    //closure carrying tp.sub contributes no candidates, so the wildcard
+    //keeps the ordinary zero-match diagnosis.
+    void programPackageDoesNotSatisfyWildcardImport()
+    {
+        bool fixtureOk = true;
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import tp.*;\n"
+            "int main() { return 0; }\n";
+        opts.withThirdPartyPackage = true;
+        opts.preparePackageDir = [&fixtureOk](const std::filesystem::path& pkgOut)
+        {
+            fixtureOk = fixtureOk
+                && buildProgramPackageCarryingTpSub(pkgOut, "program.npkg");
+        };
+        const GateResult res = buildGateProject(opts);
+        QVERIFY2(fixtureOk, "the program package fixture could not be built");
+        QVERIFY2(!res.ok, "a program closure must not satisfy a wildcard import");
+        QVERIFY2(containsError(res.errors,
+            "No modules matched import 'tp.*'."), joinErrors(res.errors).c_str());
+    }
+
+    //The diagnostic-fold probe also sees only library packages. Without an
+    //import, a member copied into a program closure must not make tp.sub
+    //look like an importable module and offer an unusable import remedy.
+    void programPackageDoesNotMakeModuleKnowable()
+    {
+        bool fixtureOk = true;
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "int main()\n"
+            "{\n"
+            "    return tp.sub.x();\n"
+            "}\n";
+        opts.withThirdPartyPackage = true;
+        opts.preparePackageDir = [&fixtureOk](const std::filesystem::path& pkgOut)
+        {
+            fixtureOk = fixtureOk
+                && buildProgramPackageCarryingTpSub(pkgOut, "program.npkg");
+        };
+        const GateResult res = buildGateProject(opts);
+        QVERIFY2(fixtureOk, "the program package fixture could not be built");
+        QVERIFY2(!res.ok, "an unknown unimported chain must fail");
+        QVERIFY2(!containsError(res.errors,
+            "Module 'tp.sub' is not imported."), joinErrors(res.errors).c_str());
     }
 
     //A package on the search path that failed to open is the likeliest
