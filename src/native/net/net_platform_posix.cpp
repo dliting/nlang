@@ -449,4 +449,15 @@ std::string NetResolveErrorText(int resolveErr) {
     }
 }
 
+int NetErrAddrInUseCode() {
+    return EADDRINUSE;
+}
+
+int NetErrHostNotFoundCode() {
+    //EAI_NONAME: the AF_UNSPEC resolver's "no such host" code. The ping
+    //and the host-taking natives all resolve through the same
+    //AF_UNSPEC path, so this is the code their failures carry.
+    return EAI_NONAME;
+}
+
 }  //namespace nlang

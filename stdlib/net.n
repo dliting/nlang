@@ -13,6 +13,13 @@
 // the text follows the OS locale.
 const class SocketException : IOException {
     public int errorCode;
+    //Named error codes: the OS number for the two failure modes programs
+    //branch on by name (see the header comment). Platform-specific — the
+    //natives resolve them to the current OS's value, so a program that
+    //branches on these stays correct on any platform without a platform
+    //probe in the script layer.
+    public static const int AddrInUse = _errAddrInUse();
+    public static const int HostNotFound = _errHostNotFound();
     public SocketException(string message, Exception cause = null) {
         super(message, cause);
         errorCode = 0;
@@ -41,6 +48,12 @@ native long _nowMs();
 // per-context and consumed on read.
 native string _lastErrorText();
 native int _lastErrorCode();
+// The OS error number for the two named failure modes (SocketException
+// .AddrInUse / .HostNotFound). Pure constant reads — no state, no channel —
+// so the named constants stay platform-correct without a platform probe in
+// the script layer.
+native int _errAddrInUse();
+native int _errHostNotFound();
 // Internal UTF-8 byte conversion (registered by the nlang_net module;
 // the public surface is io.toBytes/fromBytes — builtin packages never
 // import each other, so the script convenience surface uses internal

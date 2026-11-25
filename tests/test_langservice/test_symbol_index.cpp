@@ -26,7 +26,7 @@ static int g_failures = 0;
 //TestLoadsRealStdLib). A surface change updates the constant AND the
 //breakdown comment; the printer turns any future drift into a
 //per-package diff instead of bare FAIL lines.
-constexpr std::size_t kStdlibSymbolPin = 498;
+constexpr std::size_t kStdlibSymbolPin = 500;
 
 static void PrintIndexShape(const SymbolIndex &index)
 {
@@ -61,8 +61,9 @@ static void TestLoadsRealStdLib() {
     // the activation additions reluGrad/tanh; the v0.14.0 device line:
     // toDevice/toHost overloads for the four numeric kinds and
     // backend()),
-    // net 54 (the script ping plus the internal _nowMs/_lastErrorText/
-    // _lastErrorCode/_throwNet/_ping/resolveList, the _tcp* natives
+    // net 56 (the script ping plus the internal _nowMs/_lastErrorText/
+    // _lastErrorCode/_throwNet/_ping/resolveList, the _errAddrInUse/
+    // _errHostNotFound constant reads, the _tcp* natives
     // incl. the option setters and the internal _toBytes/_fromBytes,
     // the 20 _udp* natives and the 5 _icmp* natives; class methods
     // are not free functions), system 2 (the wall and monotonic clocks),

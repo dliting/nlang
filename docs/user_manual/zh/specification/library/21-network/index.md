@@ -30,7 +30,7 @@
 
 ### 异常
 
-`SocketException`与`TimeoutException`由包源码声明为派生自`IOException`的`const`类（§8.3、§20）：每个net失败都是一个`IOException`，所以`catch (IOException e)`把网络错误与文件错误一起覆盖，`catch (SocketException e)`或`catch (TimeoutException e)`收窄到网络。TCP接收窗口的调用遵循同样的规则——`peekFilled`在截止时刻抛`TimeoutException`；流关闭之后`peekFilled`与`consume`抛`SocketException`，即使窗口里还有缓冲的字节（§21.2）。两者都带通常的`message`与`cause`字段（§8.3）；平台级失败会把操作系统的错误文本追加进消息。`SocketException`还带一个`errorCode`字段：失败来自操作系统时是它的错误号（Windows上是Winsock错误码——`10061`连接被拒、`10048`地址已被占用、`11001`主机名未找到），没有时为`0`（参数错误、内部状态）。程序按号码分支——消息文本随操作系统语言，号码不随。
+`SocketException`与`TimeoutException`由包源码声明为派生自`IOException`的`const`类（§8.3、§20）：每个net失败都是一个`IOException`，所以`catch (IOException e)`把网络错误与文件错误一起覆盖，`catch (SocketException e)`或`catch (TimeoutException e)`收窄到网络。TCP接收窗口的调用遵循同样的规则——`peekFilled`在截止时刻抛`TimeoutException`；流关闭之后`peekFilled`与`consume`抛`SocketException`，即使窗口里还有缓冲的字节（§21.2）。两者都带通常的`message`与`cause`字段（§8.3）；平台级失败会把操作系统的错误文本追加进消息。`SocketException`还带一个`errorCode`字段：失败来自操作系统时是它的错误号（Windows上是Winsock错误码——`10061`连接被拒、`10048`地址已被占用、`11001`主机名未找到），没有时为`0`（参数错误、内部状态）。程序按号码分支——消息文本随操作系统语言，号码不随。程序需要点名比较的两种失败模式以常量提供：`SocketException.AddrInUse`与`SocketException.HostNotFound`持有当前平台的号码（Windows上是Winsock错误码，POSIX上是`EADDRINUSE`与解析器的"名字不存在"错误码）；`errorCode`与常量比较，在任何操作系统上都保持正确。
 
 ### 字节与字符串
 

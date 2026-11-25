@@ -30,7 +30,7 @@ static int g_failures = 0;
 //Pin for the stdlib free-function surface (per-package breakdown in
 //TestLoadsStdLib); the printer turns any future drift into a
 //per-package diff instead of a bare FAIL line.
-constexpr std::size_t kStdlibSymbolPin = 498;
+constexpr std::size_t kStdlibSymbolPin = 500;
 
 static void PrintIndexShape(const langservice::SymbolIndex &index)
 {
@@ -71,8 +71,9 @@ static void TestLoadsStdLib()
     // the activation additions reluGrad/tanh; the v0.14.0 device line:
     // toDevice/toHost overloads for the four numeric kinds and
     // backend()),
-    // net 54 (the script ping plus the internal _nowMs/_lastErrorText/_lastErrorCode/
-    // _throwNet/_ping/resolveList, the _tcp* natives incl. the option
+    // net 56 (the script ping plus the internal _nowMs/_lastErrorText/_lastErrorCode/
+    // _throwNet/_ping/resolveList, the _errAddrInUse/_errHostNotFound
+    // constant reads, the _tcp* natives incl. the option
     // setters and the internal _toBytes/_fromBytes, the 20 _udp*
     // natives and the 5 _icmp* natives; class methods are not free
     // functions), system 2 (the wall and monotonic clocks), url 4 (the

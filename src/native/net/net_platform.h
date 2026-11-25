@@ -174,5 +174,13 @@ std::string NetTakeLastErrorOverride();
 //store is out of reach; the wait native splices this in on the
 //caller's context — 0.12.9 review M-2).
 std::string NetResolveErrorText(int resolveErr);
+//The OS error number for the two failure modes programs branch on by
+//name (a bind collision, an unresolvable host). The script layer
+//exposes these as the named constants SocketException.AddrInUse and
+//SocketException.HostNotFound): the values are platform
+//specific, so the natives resolve them here to the current OS's number
+//instead of probing the platform in the script layer.
+int NetErrAddrInUseCode();
+int NetErrHostNotFoundCode();
 
 }  //namespace nlang

@@ -8,6 +8,14 @@
 
 ## [未发布]
 
+### 新增
+
+- **套接字错误码常量**——`SocketException.AddrInUse`与`SocketException.HostNotFound`持有当前平台的操作系统错误号（Windows上是Winsock错误码，POSIX上是`EADDRINUSE`与解析器的"名字不存在"错误码），`errorCode`与常量比较在任何操作系统上都保持正确。
+
+### 修复
+
+- **HTTP取消在所有平台上即时生效**——在正文读完之前关闭body reader（即取消）现在立即断开连接，不再以有序排空拖延至多200毫秒，服务端的流式producer因此立刻观察到`ChannelClosedException`，而不是可能先把事件全部发完。
+
 ## [0.14.9]
 
 流编排——按作用域的多流执行、事件汇合与确定性的逐chunk随机数窗口。

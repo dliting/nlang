@@ -8,6 +8,23 @@ All notable changes to NLang are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Socket error constants** — `SocketException.AddrInUse` and
+  `SocketException.HostNotFound` hold the running platform's OS
+  error numbers (the Winsock codes on Windows, `EADDRINUSE` and the
+  resolver's no-such-name code on POSIX), so an `errorCode`
+  comparison stays correct on every operating system.
+
+### Fixed
+
+- **HTTP cancellation is prompt on every platform** — closing a
+  body reader before the body ends (a cancel) now drops the
+  connection immediately instead of lingering in an orderly drain
+  for up to 200 ms, so a server-side streaming producer observes
+  `ChannelClosedException` right away instead of possibly running
+  to completion first.
+
 ## [0.14.9]
 
 Stream orchestration — scoped multi-stream execution with event

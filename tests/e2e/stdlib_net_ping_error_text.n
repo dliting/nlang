@@ -11,8 +11,9 @@ int main() {
     string text = "";
     try { net.ping("nlang-no-such-host.invalid", 2000); return 1; }
     catch (SocketException e) { code = e.errorCode; text = e.message; }
-    //11001 = WSAHOST_NOT_FOUND; the phrase names the cause.
-    if (code != 11001) { return 2; }
+    //The resolver's "not found" code (SocketException.HostNotFound,
+    //platform-specific) and the phrase name the cause.
+    if (code != SocketException.HostNotFound) { return 2; }
     if (text.indexOf("host not found") < 0) { return 3; }
 
     io.print("ok");

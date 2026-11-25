@@ -462,4 +462,12 @@ std::string NetResolveErrorText(int resolveErr) {
     }
 }
 
+int NetErrAddrInUseCode() {
+    return WSAEADDRINUSE;
+}
+
+int NetErrHostNotFoundCode() {
+    return WSAHOST_NOT_FOUND;
+}
+
 }  //namespace nlang

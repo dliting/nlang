@@ -105,7 +105,13 @@ number when the failure came from the OS (Windows: the Winsock
 code — `10061` connection refused, `10048` address in use, `11001`
 host not found), `0` when there is none (an argument error, an
 internal condition). Branch on the number — the message text
-follows the OS locale, the number does not.
+follows the OS locale, the number does not. The two failure modes
+a program names are exposed as the constants
+`SocketException.AddrInUse` and `SocketException.HostNotFound`,
+which hold the running platform's numbers (the Winsock codes on
+Windows, `EADDRINUSE` and the resolver's no-such-name code on
+POSIX); comparing `errorCode` against the constant stays correct
+on every operating system.
 
 ### Bytes and strings
 

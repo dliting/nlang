@@ -43,6 +43,8 @@ using nlang::NetClose;
 using nlang::NetEndpoint;
 using nlang::NetExecState;
 using nlang::NetIsNumericAddress;
+using nlang::NetErrAddrInUseCode;
+using nlang::NetErrHostNotFoundCode;
 using nlang::NetLastErrorInfo;
 using nlang::NetLastErrorText;
 using nlang::NetSetErrorLocked;
@@ -148,6 +150,23 @@ void LastErrorCode(NativeHost* h, uint8_t* ret, const uint8_t*, int) {
     const int code = it->second;
     st->m_lastErrorCode.erase(it);   //consumed on read (M10)
     ReturnInt(ret, code);
+}
+
+// Named error codes: the OS error number for the two failure
+// modes programs branch on by name — a bind collision (AddrInUse) and
+// an unresolvable host (HostNotFound). The script layer exposes these
+// as the static constants SocketException.AddrInUse and
+// SocketException.HostNotFound; the natives resolve them to the
+// current OS's value so the named constants stay platform-correct
+// without a platform probe in the script layer. Pure constant reads:
+// no state, no channel (a const initializer may run before any net
+// operation, so they must not touch the per-context error store).
+void ErrAddrInUse(NativeHost* h, uint8_t* ret, const uint8_t*, int) {
+    ReturnInt(ret, NetErrAddrInUseCode());
+}
+
+void ErrHostNotFound(NativeHost* h, uint8_t* ret, const uint8_t*, int) {
+    ReturnInt(ret, NetErrHostNotFoundCode());
 }
 
 // toBytes/fromBytes: the module-internal UTF-8 converters (r1 note 5:
@@ -331,6 +350,8 @@ NLANG_DEFINE_NATIVE_INIT {
     regBlocking(registry, "net", "_tcpSetRecvBufferSize", &NetTcpSetRecvBufferSize);
     reg(registry, "net", "_toBytes", &NetToBytes);
     reg(registry, "net", "_fromBytes", &NetFromBytes);
+    reg(registry, "net", "_errAddrInUse", &ErrAddrInUse);
+    reg(registry, "net", "_errHostNotFound", &ErrHostNotFound);
     //The 20 datagram natives live in net_udp.cpp (registration hook:
     //net_udp.h) — kept out of this TCP-centric entry TU. The 6 ICMP
     //natives likewise live in net_icmp.cpp (hook: net_icmp.h).
