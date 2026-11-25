@@ -125,10 +125,13 @@ private:
 template <typename T, class COLLECTION_T>
 class UniquePtrCollection
 {
-public:	
-	typedef UniquePtrCollection<T, COLLECTION_T>	collection;
-	typedef typename COLLECTION_T					inner_collection;
-	typedef typename std::function<void(T*)>		item_deleter;
+	public:
+		typedef UniquePtrCollection<T, COLLECTION_T>	collection;
+		//No 'typename': COLLECTION_T is a template parameter (a plain type),
+		//not a dependent nested-name-specifier, so 'typename' is ill-formed
+		//(GCC rejects it; MSVC tolerates it).
+		typedef COLLECTION_T					inner_collection;
+		typedef typename std::function<void(T*)>		item_deleter;
 	typedef typename COLLECTION_T::iterator			iterator;
 	typedef typename COLLECTION_T::const_iterator	const_iterator;
 public:
