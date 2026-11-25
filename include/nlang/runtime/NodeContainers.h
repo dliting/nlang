@@ -294,6 +294,12 @@ class MutableChildNodeList : public TypedNodeListBase<NODE_T, FILTER_T>
 {
 	typedef TypedNodeListBase<NODE_T, FILTER_T> Super_;
 public:
+	//Local aliases for the base's dependent typedefs: a typedef inherited
+	//from a dependent base must be qualified with typename to be a type
+	//(GCC is strict; MSVC resolves the unqualified name).
+	typedef typename Super_::NodeType	NodeType;
+	typedef typename Super_::iterator	iterator;
+
 	explicit MutableChildNodeList(Node *pParent) : Super_(pParent)
 	{
 	}
@@ -347,6 +353,11 @@ class ChildFieldList : public TypedNodeListBase<FIELD_T, FILTER_T>
 {
 	typedef TypedNodeListBase<FIELD_T, FILTER_T> Super_;
 public:
+	//Local aliases for the base's dependent typedefs (see
+	//MutableChildNodeList above).
+	typedef typename Super_::NodeType	NodeType;
+	typedef typename Super_::iterator	iterator;
+
 	typedef std::list<FIELD_T *> field_list;
 	typedef std::list<const FIELD_T *> const_field_list;
 	typedef typename FIELD_T::NameType NameType;
