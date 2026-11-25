@@ -714,7 +714,7 @@ private:
 	bool RejectBareGenericTypeUse(SnFieldExpr &fieldExpr,
 		const ISourceLocation *pLoc);
 
-	SnField *FindFieldInUsings(std::string &sName, const UsingList &usings,
+	SnField *FindFieldInUsings(const std::string &sName, const UsingList &usings,
 		const SnField & accessor);
 
 	/*

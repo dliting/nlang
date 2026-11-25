@@ -358,7 +358,7 @@ bool ExprResolveAccessor::IsBareVisible(SnFunction &func, uint32_t curModule)
 	return reg.ShareBarePool(owner, curModule);
 }
 
-SnField *ExprResolveAccessor::FindFieldInUsings(std::string &sName,
+SnField *ExprResolveAccessor::FindFieldInUsings(const std::string &sName,
 	const UsingList &usings, const SnField & accessor)
 {
 	for (auto pUsing : usings)
