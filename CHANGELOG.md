@@ -6,10 +6,19 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.14.10]
+
+The Linux port — the core toolchain (compiler, VM, debugger, the
+ncc/nvm/ndb tools, the standard library and the tensor package with
+the cpu backend and the CUDA device plugin) builds and runs on Linux
+alongside Windows, verified end to end on a 2×RTX 4090 machine (unit
+suites, the full e2e corpus, the tensor e2e subset on the CUDA
+backend and single-GPU mnist training).
 
 ### Added
 
+- **Linux support** — the core toolchain builds and runs on Linux
+  (GCC, single-config CMake; flex/bison as on Windows).
 - **Socket error constants** — `SocketException.AddrInUse` and
   `SocketException.HostNotFound` hold the running platform's OS
   error numbers (the Winsock codes on Windows, `EADDRINUSE` and the
@@ -24,6 +33,14 @@ All notable changes to NLang are documented here. The format follows
   for up to 200 ms, so a server-side streaming producer observes
   `ChannelClosedException` right away instead of possibly running
   to completion first.
+- **Concurrent ping and resolve wakeups no longer stall to the
+  deadline** — a co-waiter draining the shared wakeup pipe could
+  swallow another waiter's ack, parking a deadline-bounded wait for
+  its whole budget over a result that was already done; every job
+  wait now re-checks on a 100 ms slice capped at the deadline.
+- **Broken-stream writes surface as catchable errors on Linux** —
+  SIGPIPE is ignored so a write to a dropped peer answers EPIPE
+  through `SocketException` instead of terminating the process.
 
 ## [0.14.9]
 

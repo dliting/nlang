@@ -6,15 +6,20 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本
 遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [未发布]
+## [0.14.10]
+
+Linux移植——核心工具链（编译器、VM、调试器、ncc/nvm/ndb工具、标准库与tensor包（cpu后端与CUDA设备插件））在Linux上与Windows并列构建并运行，已在2×RTX 4090机器上端到端验证（单元测试、全量e2e、CUDA后端的tensor e2e子集、单GPU mnist训练）。
 
 ### 新增
 
+- **Linux支持**——核心工具链在Linux上构建并运行（GCC、单配置CMake；flex/bison与Windows相同）。
 - **套接字错误码常量**——`SocketException.AddrInUse`与`SocketException.HostNotFound`持有当前平台的操作系统错误号（Windows上是Winsock错误码，POSIX上是`EADDRINUSE`与解析器的"名字不存在"错误码），`errorCode`与常量比较在任何操作系统上都保持正确。
 
 ### 修复
 
 - **HTTP取消在所有平台上即时生效**——在正文读完之前关闭body reader（即取消）现在立即断开连接，不再以有序排空拖延至多200毫秒，服务端的流式producer因此立刻观察到`ChannelClosedException`，而不是可能先把事件全部发完。
+- **并发ping与解析唤醒不再睡满截止时刻**——共享唤醒管道上co-waiter的排空可能吞掉别的等待者的ack，使有截止时刻的等待为早已完成的结果睡满全部预算；所有job等待现在按100毫秒切片（以截止时刻封顶）重查记录。
+- **Linux上断流写入呈现为可捕获错误**——SIGPIPE改为忽略，向已断开的对端写入返回EPIPE并走`SocketException`路径，而不是终止进程。
 
 ## [0.14.9]
 
