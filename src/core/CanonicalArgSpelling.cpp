@@ -1,7 +1,8 @@
 /*---
-    CanonicalArgSpelling.cpp — TypeArgSpelling.h契约的AST无关半：
-    规范拼写与类型参数可组合性判定（层界拆分自TypeArgSpelling.cpp，
-    拆分裁定见docs/dev/library_layering_design.md §6）。
+    CanonicalArgSpelling.cpp — the AST-independent half of the
+    TypeArgSpelling.h contract: canonical argument spelling and
+    type-argument composability. Split at the layer boundary out of
+    TypeArgSpelling.cpp (ruling in docs/dev/library_layering_design.md §6).
 ---*/
 #include <nlang/core/TypeArgSpelling.h>
 //RTK_Array (the array arm of the canonical render).

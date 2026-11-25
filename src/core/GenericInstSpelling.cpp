@@ -1,12 +1,11 @@
 /*--- GenericInstSpelling.cpp — CanonicalSpelling: the canonical
     instantiation-spelling join (class contract see
     include/nlang/core/GenericInstDescriptor.h). Split out of
-    src/vm/GenericInstDescriptor.cpp with the library layering split
-    (docs/dev/library_layering_design.md §6): the compile backend keys
-    descriptor table rows through it, so the pure join lives on the
-    compiler side of the residual vm -> compiler link edge and stays
-    reachable from compiler-only link targets. Moves to src/core with
-    GenericInstDescriptor.cpp in the core split (task 6).
+    src/vm/GenericInstDescriptor.cpp and moved to src/core with it in
+    the library layering split (docs/dev/library_layering_design.md §6):
+    the compile backend keys descriptor table rows through the join,
+    which now reaches the compiler and the vm through nlang_core — no
+    vm -> compiler link edge remains.
 ---*/
 #include <nlang/core/GenericInstDescriptor.h>
 #include <nlang/core/TypeArgSpelling.h>

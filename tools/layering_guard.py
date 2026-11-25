@@ -12,8 +12,13 @@ stay silent. Stdlib only.
 """
 
 import argparse
+import re
 import sys
 from pathlib import Path
+
+# Spec 6: include-face assertions anchor on #include directive lines only;
+# library names in comments and string literals do not count as hits.
+INCLUDE_DIRECTIVE = re.compile(r"^\s*#\s*include\b")
 
 # Include-face assertions: (number, ((dir, filename patterns), ...), forbidden
 # substrings). Quoted and angle-bracket spellings are listed apart because
@@ -52,11 +57,18 @@ FIXTURE_PAIRS = (
 )
 
 
-def _hit_lines(num, rel, path, patterns):
-    """Lines of path containing any forbidden pattern, guard-formatted."""
+def _hit_lines(num, rel, path, patterns, include_only):
+    """Lines of path containing any forbidden pattern, guard-formatted.
+
+    include_only skips every line that is not an #include directive (spec 6
+    anchoring); the CMake face passes False, where a bare mention of the
+    forbidden target name is itself the risk, comments included.
+    """
     hits = []
     text = path.read_text(encoding="utf-8-sig", errors="replace")
     for n, line in enumerate(text.splitlines(), 1):
+        if include_only and not INCLUDE_DIRECTIVE.match(line):
+            continue
         for pattern in patterns:
             if pattern in line:
                 hits.append(f"ASSERT{num} {rel}:{n} {line.strip()}")
@@ -74,12 +86,13 @@ def scan(root):
                 continue
             files = {f for g in globs for f in base.rglob(g) if f.is_file()}
             for f in sorted(files):
-                hits += _hit_lines(num, f.relative_to(root).as_posix(), f, patterns)
+                hits += _hit_lines(num, f.relative_to(root).as_posix(), f,
+                                   patterns, include_only=True)
     for num, targets in CMAKE_ASSERTIONS:
         for rel, patterns in targets:
             path = root / rel
             if path.is_file():
-                hits += _hit_lines(num, rel, path, patterns)
+                hits += _hit_lines(num, rel, path, patterns, include_only=False)
     return hits
 
 
