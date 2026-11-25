@@ -3082,7 +3082,6 @@ if(Python3_FOUND)
             $<TARGET_FILE:ncc>
             $<TARGET_FILE:nvm>
             ${CMAKE_BINARY_DIR}/e2e_out)
-    set_tests_properties(pkg_artifact_imports PROPERTIES TIMEOUT 180)
 endif()
 
 #Concurrency import redesign F11: the Channel init-list arm must find
