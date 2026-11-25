@@ -2,13 +2,15 @@ import io;
 import net;
 
 int main() {
-    // Dual-stack listener: "localhost" resolves ::1 first, and a v4-only
-    // bind would starve the connect behind a black-holed v6 attempt on
-    // machines that swallow the closed-port RST (no Happy Eyeballs yet).
-    // The listener binds the v6 loopback, not the "::" wildcard — a
+    // Named-connect semantics: "localhost" is resolved and connected.
+    // The listener binds the IPv4 loopback, not the "::" wildcard — a
     // wildcard listen is a Windows firewall prompt source (the M4
-    // ruling); the named-connect semantics under test are unaffected.
-    TcpListener srv = TcpListener.bind("[::1]", 0);
+    // ruling). The v6 loopback is covered by stdlib_net_tcp_ipv6; this
+    // test pins only that a host name is resolved and connected.
+    // "localhost" resolves to the v4 loopback on POSIX and to the v6
+    // then v4 loopback on Windows; the connect falls back to v4 in
+    // either case, so the v4 bind is reached on both platforms.
+    TcpListener srv = TcpListener.bind("127.0.0.1", 0);
     TcpStream cli = TcpStream.connect("localhost", srv.localPort(), 5000);
     TcpStream c = srv.accept(5000);
     cli.write(io.toBytes("hi"));

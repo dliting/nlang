@@ -19,6 +19,15 @@ void worker() {
 
 int main() {
     Thread t = thread.spawn(worker);
+    //A multi-carrier executor may hand the freshly spawned worker to
+    //another carrier before main reaches the yield; then no worker sits
+    //in the pump queue at the park, the window resumes at once, and the
+    //two writes race on separate threads (observed as "[slow-ok]w|done").
+    //The P2-4 semantics under test hold in both schedules; the sleep
+    //collapses them into one: a carrier-stolen worker finishes its write
+    //inside the sleep, a still-queued one is served by the pump before
+    //the window resumes — so "w" deterministically lands first either way.
+    thread.sleep(15);
     Slow[] arr = [Slow()];
     io.write(arr);
     thread.join(t);

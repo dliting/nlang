@@ -2,21 +2,36 @@ import io;
 import net;
 
 int main() {
-    //Bind loopback: joinMulticast takes the socket's bound address as
-    //the interface, and the loop copy of the self-sent multicast is
-    //delivered back on it (verified equivalent to the wildcard bind —
-    //M-4: the wildcard form is the one bind in the suite that trips
-    //the Windows firewall prompt on a fresh machine).
-    UdpSocket s = UdpSocket.bind("127.0.0.1", 0);
-    s.setMulticastTtl(1);
-    s.joinMulticast("239.255.255.250");
-    s.sendTo(io.toBytes("m"), "239.255.255.250", s.localPort());
+    //Two-socket multicast, both sockets on the wildcard address — the
+    //only portable bind pairing (verified per platform). The former
+    //single-socket loop-copy form is not portable (Linux hands the loop
+    //copy only to a wildcard-bound socket; Windows to a loopback-bound
+    //one), and a mixed pairing is not either: with the sender on
+    //loopback, a wildcard receiver joins the DEFAULT interface while
+    //the datagram goes out on the loopback one (Windows), and a
+    //specific-address receiver receives no group datagrams at all
+    //(Linux, kernel 6.8). Wildcard on both sides puts the sender, the
+    //receiver and the group membership on one interface everywhere.
+    //The wildcard binds are the suite's one Windows firewall prompt
+    //source on a fresh machine (M-4) — kept, because no portable
+    //multicast shape avoids them.
+    UdpSocket rx = UdpSocket.bind("0.0.0.0", 0);
+    rx.joinMulticast("239.255.255.250");
+    int rport = rx.localPort();
+
+    UdpSocket tx = UdpSocket.bind("0.0.0.0", 0);
+    tx.setMulticastTtl(1);
+    tx.joinMulticast("239.255.255.250");
+    tx.sendTo(io.toBytes("m"), "239.255.255.250", rport);
+
     byte[] buf = byte[8];
     string from;
     int port = 0;
-    int n = s.recvFrom(buf, from, port, 3000);
-    s.leaveMulticast("239.255.255.250");
-    s.close();
+    int n = rx.recvFrom(buf, from, port, 3000);
+    tx.leaveMulticast("239.255.255.250");
+    rx.leaveMulticast("239.255.255.250");
+    tx.close();
+    rx.close();
     if (n != 1) { return 1; }
     io.print("ok");
     return 0;
