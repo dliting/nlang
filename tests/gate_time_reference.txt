@@ -607,7 +607,7 @@ ctest-ASan nlang_gate_time_selftest 20.58 1 ctest-junit-serial
 ctest-ASan e2e_runner_env_gate 1.76 1 ctest-junit-serial
 ctest-ASan e2e_runner_scratch_isolation 1.88 1 ctest-junit-serial
 ctest-ASan nlang_docs_pytest 33.09 1 ctest-junit-serial
-ctest-ASan e2e_runner_timing_gate 164.64 1 ctest-junit-serial - ICMP v4 loopback pathological window measured seconds (as-logged, not a healthy-clock reference); recalibrate this row's watchdog cap once the pathology clears (repair-deferred obligation covers it); twin refs: ctest-Debug 35.79, ctest-IDE 36.04
+ctest-ASan e2e_runner_timing_gate 164.64 1 ctest-junit-serial - ICMP v4 loopback pathological window measured seconds (as-logged, not a healthy-clock reference); the recalibration obligation for this row was closed by the 2026-11-26 user ruling (no thaw; the exemption is the steady-state verdict); twin refs: ctest-Debug 35.79, ctest-IDE 36.04
 ctest-Debug layering_guard 0.22 1 ctest-junit-serial
 ctest-Debug layering_guard_selftest 0.13 1 ctest-junit-serial
 ctest-IDE layering_guard 0.23 1 ctest-junit-serial
