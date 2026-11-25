@@ -151,7 +151,11 @@ int main(int argc, char* argv[]) {
                           << value << "' (cpu|mirror|cuda|auto)\n";
                 return 2;
             }
+#ifdef _WIN32
             _putenv(("NLANG_TENSOR_BACKEND=" + value).c_str());
+#else
+            setenv("NLANG_TENSOR_BACKEND", value.c_str(), 1);
+#endif
         } else if (a.rfind("--carriers=", 0) == 0) {
             //Refuse bad values up front: a silently ignored knob could
             //green a carrier matrix for the wrong reason (same rationale
