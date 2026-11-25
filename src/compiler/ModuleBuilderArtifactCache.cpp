@@ -114,4 +114,14 @@ void InstallArtifactCache(BuildEnvironment &env)
 	env.SetArtifactKnowabilityProbe(&ArtifactAnswersFor);
 }
 
+//Seam declaration in ModuleBuilderImports.h.
+const std::vector<std::string> &UnreadablePackagesOf(
+	const BuildEnvironment &env)
+{
+	static const std::vector<std::string> kEmpty;
+	const std::shared_ptr<ArtifactPackageCache> &spCache =
+		env.ArtifactPackages();
+	return spCache ? spCache->unreadable : kEmpty;
+}
+
 } //namespace nlang

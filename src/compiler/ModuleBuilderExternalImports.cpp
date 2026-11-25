@@ -233,10 +233,15 @@ void ModuleBuilder::ReportHomelessMirrorNames(
 	const std::set<std::string> &specNames,
 	const std::vector<std::string> &homelessNames) const
 {
+	//Same note as the gate's not-found report: the unreadable packages
+	//of the discovery cache join the text, one line each.
+	const std::vector<std::string> &unreadable =
+		UnreadablePackagesOf(*m_upEnv);
 	for (const std::string &name : homelessNames)
 	{
 		if (specNames.count(name) == 0)
-			m_upEnv->Log(CLL_Error, "%s", ModuleNotFoundText(name).c_str());
+			m_upEnv->Log(CLL_Error, "%s",
+				ModuleNotFoundText(name, unreadable).c_str());
 	}
 }
 
@@ -283,8 +288,25 @@ ModuleBuilder::ArtifactOutcome ModuleBuilder::DiscoverArtifactUnit(
 {
 	if (HasPendingArtifact(name))
 		return ArtifactOutcome::Queued;
-	ArtifactUnit unit = FindArtifactUnit(m_upEnv->Params(),
-		*m_upEnv->ArtifactPackages(), name);
+	ArtifactPackageCache &cache = *m_upEnv->ArtifactPackages();
+	ArtifactUnit unit = FindArtifactUnit(m_upEnv->Params(), cache, name);
+	//Two packages in one search dir offering the same member is the
+	//artifact twin of the registry's duplicate-package rule: a silent
+	//first-wins would bind the import to whichever package the sorted
+	//scan hit first, so both package files are named and the unit is
+	//refused. The absent mark keeps a later lookup (a mirror record
+	//naming the refused name) from re-diagnosing — the failed-load
+	//family's dedup shape.
+	const auto recorded = cache.providers.find(name);
+	if (unit.found && recorded != cache.providers.end()
+		&& recorded->second.size() > 1)
+	{
+		m_upEnv->Log(CLL_Error, "Duplicate package '%s': '%s' and '%s'.",
+			name.c_str(), recorded->second[0].c_str(),
+			recorded->second[1].c_str());
+		cache.absent.insert(name);
+		return ArtifactOutcome::Refused;
+	}
 	if (!unit.error.empty())
 	{
 		m_upEnv->Log(CLL_Error, "Failed to load module '%s': %s",

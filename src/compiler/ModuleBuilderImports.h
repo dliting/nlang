@@ -103,6 +103,12 @@ struct ArtifactUnit
 //ModuleBuilderArtifactCache.cpp.
 void InstallArtifactCache(BuildEnvironment &env);
 
+//The cache's unreadable-package list for the not-found report's Note
+//lines; a build that ran no import pipeline installed no cache, so
+//nothing is unreadable. Definition in ModuleBuilderArtifactCache.cpp.
+const std::vector<std::string> &UnreadablePackagesOf(
+	const BuildEnvironment &env);
+
 //Locate the artifact of one import name across the effective library
 //dirs, in order: the unit file <dir>/<name>.ncu first, then the member
 //tables of the dir's packages (*.npkg, file name order). The first dir

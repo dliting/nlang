@@ -76,6 +76,7 @@ void ModuleRegistry::ApplyWildcardImport(const std::string& name,
 //library fallback, or an unresolvable path.
 void ModuleRegistry::ApplyNonWildcardImport(const std::string& name,
 	ImportGate& gate, std::vector<std::string>& outErrors,
+	const std::vector<std::string>& unreadablePackages,
 	const LibraryNamespacePredicate& isLibraryNamespace) const
 {
 	//A module compiled into this build (a project module or an inlined
@@ -100,13 +101,14 @@ void ModuleRegistry::ApplyNonWildcardImport(const std::string& name,
 			"the library search path; check the configured search paths.");
 		return;
 	}
-	outErrors.push_back(ModuleNotFoundText(name));
+	outErrors.push_back(ModuleNotFoundText(name, unreadablePackages));
 }
 
 //BuildGate's per-spec arm: §5.1 priority (builtin → project module →
 //external unit), delegating the wildcard union to ApplyWildcardImport.
 void ModuleRegistry::ApplyImportSpec(const ImportSpec& spec,
 	ImportGate& gate, std::vector<std::string>& outErrors,
+	const std::vector<std::string>& unreadablePackages,
 	const LibraryNamespacePredicate& isLibraryNamespace) const
 {
 	const std::string name = spec.DottedName();
@@ -121,12 +123,14 @@ void ModuleRegistry::ApplyImportSpec(const ImportSpec& spec,
 		ApplyWildcardImport(name, gate, outErrors);
 		return;
 	}
-	ApplyNonWildcardImport(name, gate, outErrors, isLibraryNamespace);
+	ApplyNonWildcardImport(name, gate, outErrors, unreadablePackages,
+		isLibraryNamespace);
 }
 
 bool ModuleRegistry::BuildGate(uint32_t moduleIndex,
 	const std::vector<ImportSpec>& specs,
 	std::vector<std::string>& outErrors,
+	const std::vector<std::string>& unreadablePackages,
 	const LibraryNamespacePredicate& isLibraryNamespace)
 {
 	NLANG_ASSERT(moduleIndex < m_modules.size()
@@ -153,7 +157,8 @@ bool ModuleRegistry::BuildGate(uint32_t moduleIndex,
 	}
 
 	for (const ImportSpec& spec : specs)
-		ApplyImportSpec(spec, gate, outErrors, isLibraryNamespace);
+		ApplyImportSpec(spec, gate, outErrors, unreadablePackages,
+			isLibraryNamespace);
 
 	if (!outErrors.empty())
 		return false;

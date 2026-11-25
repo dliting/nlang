@@ -63,12 +63,16 @@ bool ModuleBuilder::LoadImports()
 bool ModuleBuilder::BuildImportGates()
 {
 	ModuleRegistry &reg = m_upEnv->Registry();
+	//The not-found report names every package on the search path that
+	//failed to open (the discovery cache's unreadable list).
+	const std::vector<std::string> &unreadablePackages =
+		UnreadablePackagesOf(*m_upEnv);
 	std::vector<std::string> gateErrors;
 	uint32_t gateModuleIndex = 0;
 	for (auto pTransUnit : *m_upTransUnits)
 	{
 		if (!reg.BuildGate(gateModuleIndex++, pTransUnit->Imports(),
-				gateErrors,
+				gateErrors, unreadablePackages,
 				[this](const std::string &ns) {
 					return m_upEnv->IsLibraryPackage(ns);
 				}))

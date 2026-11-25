@@ -70,11 +70,15 @@ std::string DeriveModulePath(const std::filesystem::path &filePath,
 	return modulePath;
 }
 
-std::string ModuleNotFoundText(const std::string& moduleName)
+std::string ModuleNotFoundText(const std::string& moduleName,
+	const std::vector<std::string>& unreadablePackages)
 {
-	return "Module '" + moduleName +
+	std::string text = "Module '" + moduleName +
 		"' not found. Check the project Sources list or -I import "
 		"path.";
+	for (const std::string& package : unreadablePackages)
+		text += "\nNote: package '" + package + "' could not be opened.";
+	return text;
 }
 
 //RegisterUnit's validation half: the two module-path gates, in

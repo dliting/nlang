@@ -393,6 +393,49 @@ bool buildMutualPackages(const std::filesystem::path& pkgOut)
                "pb", stubA);
 }
 
+//A package whose one member imports an absent module by record: the
+//member compiles against a stub source of "ghost" that ships nowhere,
+//so the produced image names ghost in its import records while no
+//artifact answers for it (the homeless-mirror shape). False when the
+//stage build failed.
+bool buildGhostImportPackage(const std::filesystem::path& pkgOut)
+{
+    namespace fs = std::filesystem;
+    const fs::path root = nlang::test::ScratchDir("nlang_import_gate");
+    const fs::path srcs = root / "ghosty_src";
+    const fs::path stub = root / "ghost_stub";
+    std::error_code fsError;
+    fs::remove_all(srcs, fsError);
+    fs::remove_all(stub, fsError);
+    fs::create_directories(srcs, fsError);
+    fs::create_directories(stub, fsError);
+    if (!writeSourceFile(srcs / "ghosty.n",
+            "import ghost;\n"
+            "public int g() { return ghost.gstub(); }\n") ||
+        !writeSourceFile(stub / "ghost.n",
+            "public int gstub() { return 0; }\n"))
+    {
+        return false;
+    }
+    BuildParams params;
+    params.m_bProjectMode = true;
+    params.m_sProjectDir = srcs.string();
+    params.m_SourceFiles.push_back((srcs / "ghosty.n").string());
+    params.m_ImportDirs.clear();
+    params.m_ImportDirs.push_back(stub.string());
+    params.m_sOutputModule = "ghosty";
+    params.m_sOutputDir = pkgOut.string();
+    params.m_sTempDir = pkgOut.string();
+    params.m_sStdLibDir = STDLIB_DIR;
+    MemLogger logger;
+    ModuleBuilder builder(params, logger);
+    bool ok = false;
+    try { ok = builder.BuildArtifacts(); }
+    catch (const std::exception&) { ok = false; }
+    std::error_code fsError2;
+    return ok && fs::exists(pkgOut / "ghosty.npkg", fsError2);
+}
+
 //Shared scaffold of the import-gate tests: a two-stage build. Stage 1
 //compiles the external lib(s) into out/; stage 2 compiles the main
 //project that reaches them through m_ImportDirs. An infrastructure
@@ -1474,6 +1517,97 @@ private slots:
             "Package 'tp' is not imported. Add 'import tp;'"),
             ("a knowable single-segment package must read Package; "
              "errors: " + joinErrors(res.errors)).c_str());
+    }
+
+    //Two packages in one search dir whose member tables both carry the
+    //same name: a silent first-wins pick would bind the import to
+    //whichever package the sorted scan hit first. The artifact form
+    //gets the source form's duplicate-package rule (RejectsModulePath):
+    //both package files named.
+    void duplicatePackageMemberIsAHardError()
+    {
+        bool fixtureOk = true;
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import tp.sub;\n"
+            "int main() { return tp.sub.x(); }\n";
+        opts.withThirdPartyPackage = true;
+        opts.preparePackageDir = [&fixtureOk](const std::filesystem::path& pkgOut)
+        {
+            fixtureOk = fixtureOk
+                && buildThirdPartyPackage(pkgOut, "aaa.npkg")
+                && buildThirdPartyPackage(pkgOut, "bbb.npkg");
+        };
+        const GateResult res = buildGateProject(opts);
+        QVERIFY2(fixtureOk, "the duplicate-package fixture could not be built");
+        QVERIFY2(!res.ok,
+            "two packages offering the same member must fail the build");
+        QVERIFY2(containsError(res.errors, "Duplicate package 'tp.sub'"),
+            joinErrors(res.errors).c_str());
+        QVERIFY2(containsError(res.errors, "aaa.npkg' and"),
+            joinErrors(res.errors).c_str());
+        QVERIFY2(containsError(res.errors, "bbb.npkg'."),
+            joinErrors(res.errors).c_str());
+    }
+
+    //A package on the search path that failed to open is the likeliest
+    //reason a name has no home, so the not-found report names it: the
+    //compile-time mirror of the run-time closure walk's unreadable-
+    //package note (NoteTargetNotFound).
+    void notFoundNotesUnreadablePackages()
+    {
+        bool fixtureOk = true;
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import nosuch;\n"
+            "int main() { return 0; }\n";
+        opts.withThirdPartyPackage = true;
+        opts.preparePackageDir = [&fixtureOk](const std::filesystem::path& pkgOut)
+        {
+            std::ofstream out(pkgOut / "bad.npkg",
+                std::ios::binary | std::ios::trunc);
+            out << "not a package";
+            fixtureOk = out.good();
+        };
+        const GateResult res = buildGateProject(opts);
+        QVERIFY2(fixtureOk, "the unreadable package fixture could not be built");
+        QVERIFY2(!res.ok, "an import nothing answers for must fail the build");
+        QVERIFY2(containsError(res.errors, "Module 'nosuch' not found"),
+            joinErrors(res.errors).c_str());
+        QVERIFY2(containsError(res.errors, "Note: package"),
+            joinErrors(res.errors).c_str());
+        QVERIFY2(containsError(res.errors, "bad.npkg' could not be opened."),
+            joinErrors(res.errors).c_str());
+    }
+
+    //The same note on the discovery phase's homeless-mirror report: a
+    //package member's records name a module no artifact answers for
+    //(it compiled against a stub that ships nowhere), and the search
+    //dir's other package failed to open — the report says so instead
+    //of leaving the missing module unexplained.
+    void homelessMirrorNameNotesUnreadablePackages()
+    {
+        bool fixtureOk = true;
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import ghosty;\n"
+            "int main() { return ghosty.g(); }\n";
+        opts.withThirdPartyPackage = true;
+        opts.preparePackageDir = [&fixtureOk](const std::filesystem::path& pkgOut)
+        {
+            std::ofstream out(pkgOut / "bad.npkg",
+                std::ios::binary | std::ios::trunc);
+            out << "not a package";
+            fixtureOk = out.good() && buildGhostImportPackage(pkgOut);
+        };
+        const GateResult res = buildGateProject(opts);
+        QVERIFY2(fixtureOk, "the ghost-import fixture could not be built");
+        QVERIFY2(!res.ok,
+            "a mirror name nothing answers for must fail the build");
+        QVERIFY2(containsError(res.errors, "Module 'ghost' not found"),
+            joinErrors(res.errors).c_str());
+        QVERIFY2(containsError(res.errors, "bad.npkg' could not be opened."),
+            joinErrors(res.errors).c_str());
     }
 
     //A single-segment third-party package reads "Package" (an external

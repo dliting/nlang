@@ -34,8 +34,12 @@ using LibraryNamespacePredicate =
 
 //Spec §7 module-not-found wording — one text for every reporter of an
 //import name nothing answers for: the gate resolver (BuildGate) and the
-//artifact discovery (ModuleBuilder's import pipeline).
-std::string ModuleNotFoundText(const std::string& moduleName);
+//artifact discovery (ModuleBuilder's import pipeline). A package on the
+//search path that failed to open is a likely reason a name has no home,
+//so each unreadable package joins the report as a Note line (the
+//run-time closure walk's NoteTargetNotFound carries the same list).
+std::string ModuleNotFoundText(const std::string& moduleName,
+	const std::vector<std::string>& unreadablePackages);
 
 //Module path = the source path made relative to the project root and
 //dotted ("utils/helper.n" -> "utils.helper"). Outside the root (or no
@@ -106,6 +110,7 @@ public:
 	bool BuildGate(uint32_t moduleIndex,
 		const std::vector<ImportSpec>& specs,
 		std::vector<std::string>& outErrors,
+		const std::vector<std::string>& unreadablePackages,
 		const LibraryNamespacePredicate& isLibraryNamespace);
 
 	//"utils.helper" / "main"; empty before RegisterUnit.
@@ -274,11 +279,13 @@ private:
 	//outErrors entry. See BuildGate for the contract.
 	void ApplyImportSpec(const ImportSpec& spec, ImportGate& gate,
 		std::vector<std::string>& outErrors,
+		const std::vector<std::string>& unreadablePackages,
 		const LibraryNamespacePredicate& isLibraryNamespace) const;
 	//Non-wildcard arm of ApplyImportSpec: a registered module, a
 	//signature-only library fallback, or an unresolvable dotted path.
 	void ApplyNonWildcardImport(const std::string& name, ImportGate& gate,
 		std::vector<std::string>& outErrors,
+		const std::vector<std::string>& unreadablePackages,
 		const LibraryNamespacePredicate& isLibraryNamespace) const;
 
 	//Same-name functions of a compiled-in module owned by moduleIndex.
