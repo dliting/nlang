@@ -188,23 +188,48 @@ endforeach()
 #the plugin target skips; the cpu/mirror backends are unaffected).
 set(NLANG_CUDA_ROOT "" CACHE PATH "CUDA toolkit root (enables the cuda device plugin)")
 if(NLANG_CUDA_ROOT)
-    set(NLANG_CUDA_NVCC "${NLANG_CUDA_ROOT}/bin/nvcc.exe")
-    if(NOT EXISTS "${NLANG_CUDA_NVCC}")
-        message(WARNING "NLANG_CUDA_ROOT set but nvcc.exe not found — the cuda plugin is skipped")
+    if(WIN32)
+        set(NLANG_CUDA_NVCC "${NLANG_CUDA_ROOT}/bin/nvcc.exe")
     else()
-        set(NLANG_CUDA_ARCH "sm_86" CACHE STRING "CUDA arch (sm_86 = RTX 30-class)")
-        set(NLANG_TENSOR_CUDA_OBJ "${CMAKE_CURRENT_BINARY_DIR}/tensor_cuda/cuda_kernels.obj")
+        set(NLANG_CUDA_NVCC "${NLANG_CUDA_ROOT}/bin/nvcc")
+    endif()
+    if(NOT EXISTS "${NLANG_CUDA_NVCC}")
+        message(WARNING "NLANG_CUDA_ROOT set but nvcc not found — the cuda plugin is skipped")
+    else()
+        set(NLANG_CUDA_ARCH "sm_86" CACHE STRING
+            "CUDA arch (sm_86 = RTX 30-class, sm_89 = RTX 40-class)")
+        set(NLANG_TENSOR_CUDA_OBJ
+            "${CMAKE_CURRENT_BINARY_DIR}/tensor_cuda/cuda_kernels${CMAKE_CXX_COMPILER_RECOGNIZED_OBJECT_SUFFIX}")
         file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/tensor_cuda")
+        if(WIN32)
+            set(NLANG_CUDA_NVCC_HOST_FLAGS
+                -ccbin "D:/dev/VS2022/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/cl.exe"
+                -Xcompiler "/EHsc /GR /std:c++17 /wd4819 /MD")
+            set(NLANG_CUDA_LINK_LIBS
+                "${NLANG_CUDA_ROOT}/lib/x64/cudart_static.lib")
+            set(NLANG_CUDA_LINK_FLAGS "/NODEFAULTLIB:LIBCMT")
+        else()
+            #g++ is nvcc's default host compiler: no -ccbin. -fPIC because
+            #the kernel object lands in a shared library; -fmad=false
+            #matches the Windows host flags so kernel numerics are
+            #identical across platforms.
+            set(NLANG_CUDA_NVCC_HOST_FLAGS
+                -Xcompiler "-fPIC,-O3,-std=c++17")
+            #Dynamic cudart: the CUDA runtime loads with the plugin .so
+            #(RTLD_LOCAL, no interposing into the host).
+            set(NLANG_CUDA_LINK_LIBS
+                "${NLANG_CUDA_ROOT}/lib64/libcudart.so" cuda)
+            set(NLANG_CUDA_LINK_FLAGS "")
+        endif()
         add_custom_command(
             OUTPUT "${NLANG_TENSOR_CUDA_OBJ}"
             COMMAND "${NLANG_CUDA_NVCC}" -arch=${NLANG_CUDA_ARCH}
-                -ccbin "D:/dev/VS2022/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/cl.exe"
+                ${NLANG_CUDA_NVCC_HOST_FLAGS}
                 -I"${NLANG_CUDA_ROOT}/include"
                 -I"${PROJECT_SOURCE_DIR}/include"
                 -I"${PROJECT_SOURCE_DIR}/src/vm"
                 -I"${CMAKE_CURRENT_SOURCE_DIR}/tensor"
-                "-std=c++17" -Xcompiler "/EHsc /GR /std:c++17 /wd4819 /MD"
-                -fmad=false
+                "-std=c++17" -fmad=false
                 -c "${CMAKE_CURRENT_SOURCE_DIR}/tensor_cuda/cuda_kernels.cu"
                 -o "${NLANG_TENSOR_CUDA_OBJ}"
             DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tensor_cuda/cuda_kernels.cu"
@@ -223,9 +248,9 @@ if(NLANG_CUDA_ROOT)
         set_target_properties(nlang_tensor_cuda PROPERTIES
             CXX_STANDARD 17
             CXX_STANDARD_REQUIRED ON
-            LINK_FLAGS "/NODEFAULTLIB:LIBCMT")
+            LINK_FLAGS "${NLANG_CUDA_LINK_FLAGS}")
         target_link_libraries(nlang_tensor_cuda PRIVATE
-            "${NLANG_CUDA_ROOT}/lib/x64/cudart_static.lib")
+            ${NLANG_CUDA_LINK_LIBS})
         set_target_properties(nlang_tensor_cuda PROPERTIES
             LIBRARY_OUTPUT_DIRECTORY "${NLANG_NATIVE_OUTPUT_DIR}"
             RUNTIME_OUTPUT_DIRECTORY "${NLANG_NATIVE_OUTPUT_DIR}")
