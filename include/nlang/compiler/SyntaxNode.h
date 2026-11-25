@@ -348,18 +348,11 @@ private:
 	std::unique_ptr<ImmutableNodeList> m_upChildren;
 };
 
-/*
-Create a mutable child node list from an auto pointer list and delete the source
-list.
-*/
-template <class NODE_T>
-MutableChildNodeList<NODE_T> *CreateChildNodes(
-	UniquePtrList<NODE_T> &upSrcNodes, Node *pParent)
-{
-	return CreateChildList<MutableChildNodeList<NODE_T>>(upSrcNodes, pParent);
-}
-
 //Create a child node list from an auto pointer list and delete the source list.
+//Defined before the CreateChildNodes/CreateChildFields wrappers below: they
+//call it through a non-dependent name, so the declaration must precede the
+//call (GCC's two-phase lookup; MSVC's single-phase lookup finds the later
+//definition).
 template <class LIST_T>
 LIST_T *CreateChildList(UniquePtrList<typename LIST_T::NodeType> &upSrcNodes,
 	Node *pParent)
@@ -370,6 +363,17 @@ LIST_T *CreateChildList(UniquePtrList<typename LIST_T::NodeType> &upSrcNodes,
 		pFields->push_back(pNode);
 	upSrcNodes.Release();
 	return pFields;
+}
+
+/*
+Create a mutable child node list from an auto pointer list and delete the source
+list.
+*/
+template <class NODE_T>
+MutableChildNodeList<NODE_T> *CreateChildNodes(
+	UniquePtrList<NODE_T> &upSrcNodes, Node *pParent)
+{
+	return CreateChildList<MutableChildNodeList<NODE_T>>(upSrcNodes, pParent);
 }
 
 /*
