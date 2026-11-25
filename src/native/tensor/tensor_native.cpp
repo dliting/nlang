@@ -120,10 +120,13 @@ void ArangeKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
     const long double span = static_cast<long double>(stop)
         - static_cast<long double>(start);
     const long double advance = static_cast<long double>(step);
-    const long double ratio = std::fabsl(span / advance);
+    //std::fabs with a long double arg selects the long double overload
+    //(std::fabsl is not a member of std on libstdc++; the overload exists on
+    //both MSVC and GCC and returns the same value).
+    const long double ratio = std::fabs(span / advance);
     if (ratio > static_cast<long double>(kArangeMaxElems))
         Raise(host, NEXC_Base, "tensor.arange: range too large");
-    const int64_t n = static_cast<int64_t>(std::ceill(ratio));
+    const int64_t n = static_cast<int64_t>(std::ceil(ratio));
     const int32_t handle = MintArray1(host, kind, static_cast<int32_t>(n));
     NativeArrayView v;
     host->getArrayView(host, handle, &v);
