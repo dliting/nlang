@@ -300,7 +300,10 @@ public:
 protected:
 	void DoAdd(T* pItem) override
 	{
-		m_Items.push_back(pItem);
+		//this->: m_Items is a member of the dependent base UniquePtrCollection;
+		//the bare name is not found by unqualified lookup in a template
+		//(GCC is strict; MSVC resolves it).
+		this->m_Items.push_back(pItem);
 	}
 };
 
@@ -339,17 +342,20 @@ public:
 
 	T* operator[](size_t index)
 	{
-		return m_Items[index];
+		return this->m_Items[index];
 	}
 
 	const T* operator[](size_t index) const
 	{
-		return m_Items[index];
+		return this->m_Items[index];
 	}
 protected:
 	void DoAdd(T* pItem) override
 	{
-		m_Items.push_back(pItem);
+		//this->: m_Items is a member of the dependent base UniquePtrCollection;
+		//the bare name is not found by unqualified lookup in a template
+		//(GCC is strict; MSVC resolves it).
+		this->m_Items.push_back(pItem);
 	}
 };
 
