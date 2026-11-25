@@ -1,5 +1,4 @@
 add_library(nlang_vm
-    OpCodeTable.cpp
     VmScheduler.cpp
     GcWorldStop.cpp
     VmSchedulerTimer.cpp
@@ -69,31 +68,8 @@ add_library(nlang_vm
     IntrinsicsMutex.cpp
     IntrinsicsSemaphore.cpp
     IntrinsicsAtomic.cpp
-    GenericInstDescriptor.cpp
     CrashReporter.cpp
-    Disassembler.cpp
-    DisassemblerPrim.cpp
-    DisassemblerWalk.cpp
-    DisassemblerFormat.cpp
-    DisassemblerCalls.cpp
-    ModuleLoader.cpp
-    ModuleLoaderRecords.cpp
-    ModuleLoaderRecordsInterfaces.cpp
-    ModuleLoaderRecordsClasses.cpp
-    ModuleSaver.cpp
-    ModuleSaverRecordsFuncs.cpp
-    ModuleSaverRecordsClasses.cpp
-    ModuleSaverRecordsInterfaces.cpp
-    ModuleSaverRecordsEnums.cpp
-    NcuPackage.cpp
-    NcuLinker.cpp
-    NcuLinkerRemap.cpp
-    NcuLinkerSlots.cpp
-    NcuLinkerInterfaces.cpp
-    NcuLoader.cpp
     NativeLibraryLoader.cpp
-    TypeDesc.cpp
-    TypeDescIndices.cpp
 )
 
 #The IO poller abstraction (IoPoller.h) is a VM facility — the net
@@ -114,17 +90,11 @@ target_include_directories(nlang_vm
         $<INSTALL_INTERFACE:include>
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
-        #Residual edge of the pre-split vm <-> compiler cycle (library
-        #layering split, docs/dev/library_layering_design.md §6): no vm
-        #source includes compiler headers anymore; kept until the core
-        #split rules on the link edge. Its twin: src/compiler/CMakeLists.txt
-        #lists src/vm.
-        ${PROJECT_SOURCE_DIR}/src/compiler
 )
 
 target_link_libraries(nlang_vm
-    PUBLIC nlang_runtime
-    PRIVATE nlang_compiler ${CMAKE_DL_LIBS}
+    PUBLIC nlang_core
+    PRIVATE ${CMAKE_DL_LIBS}
 )
 
 if(WIN32)

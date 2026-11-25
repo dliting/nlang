@@ -81,37 +81,37 @@
     "reason": "one per-intrinsic switch family kept in one TU (the switch itself is allowlisted above); file length tracks the String face's growth, arms stay short handlers"
   },
   {
-    "path": "src/vm/ModuleLoader.cpp",
+    "path": "src/core/ModuleLoader.cpp",
     "function": "ModuleLoader::Load",
     "reason": "section-tag dispatch reader; one short arm per tag"
   },
   {
-    "path": "src/vm/ModuleLoader.cpp",
+    "path": "src/core/ModuleLoader.cpp",
     "function": "ModuleLoader::LoadFromBytes",
     "reason": "section-tag dispatch reader; same body as ModuleLoader::Load, which delegates here"
   },
   {
-    "path": "src/vm/ModuleLoaderRecords.cpp",
+    "path": "src/core/ModuleLoaderRecords.cpp",
     "function": "ReadFunctionRecords",
     "reason": "field-by-field wire-format record parser in on-disk order; the layout is the spec"
   },
   {
-    "path": "src/vm/ModuleLoaderRecords.cpp",
+    "path": "src/core/ModuleLoaderRecords.cpp",
     "function": "ReadStructRecords",
     "reason": "field-by-field wire-format record parser in on-disk order; the layout is the spec"
   },
   {
-    "path": "src/vm/ModuleLoaderRecordsClasses.cpp",
+    "path": "src/core/ModuleLoaderRecordsClasses.cpp",
     "function": "ReadClassRecords",
     "reason": "field-by-field wire-format record parser in on-disk order; the layout is the spec"
   },
   {
-    "path": "src/vm/ModuleSaver.cpp",
+    "path": "src/core/ModuleSaver.cpp",
     "function": "WriteCompiledModule",
     "reason": "sequential field-group writer in on-disk-format order"
   },
   {
-    "path": "src/vm/ModuleSaverRecordsClasses.cpp",
+    "path": "src/core/ModuleSaverRecordsClasses.cpp",
     "function": "WriteClassRecords",
     "reason": "field-by-field wire-format record writer in on-disk order; the layout is the spec"
   },
@@ -151,7 +151,7 @@
     "reason": "recursive serialization template; lambda type parameters force single-header instantiation"
   },
   {
-    "path": "src/vm/DisassemblerWalk.cpp",
+    "path": "src/core/DisassemblerWalk.cpp",
     "function": "InstructionStride",
     "reason": "table-driven opcode stride switch (one case label per opcode, data table in switch form)"
   },
@@ -231,7 +231,7 @@
     "reason": "statement-resolver class pair (accessor + visitor) and their declaration surface; C++ has no partial class, splitting would fragment the pair (the same shape as the allowlisted ExprResolver.h)"
   },
   {
-    "path": "src/vm/ModuleSaverRecordsFuncs.cpp",
+    "path": "src/core/ModuleSaverRecordsFuncs.cpp",
     "function": "WriteFunctionRecords",
     "reason": "sequential field-group writer in on-disk-format order (the function table's twin of the allowlisted WriteCompiledModule)"
   }

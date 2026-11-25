@@ -127,8 +127,6 @@ add_library(nlang_compiler
     builder/ExprResolverLambda.cpp
     builder/ExprResolverValues.cpp
     builder/TypeArgSpelling.cpp
-    builder/CanonicalArgSpelling.cpp
-    builder/GenericInstSpelling.cpp
     builder/TypeArgInference.cpp
     builder/ExprResolverSubscript.cpp
     builder/ExprResolverAlias.cpp
@@ -256,11 +254,14 @@ target_include_directories(nlang_compiler
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/builder
         ${CMAKE_CURRENT_SOURCE_DIR}/codegen
-        ${PROJECT_SOURCE_DIR}/src/vm
 )
 
 target_link_libraries(nlang_compiler
-    PUBLIC nlang_runtime
+    #nlang_runtime arrives transitively through nlang_core (library
+    #layering split, docs/dev/library_layering_design.md §6): the module
+    #image / bytecode vocabulary lives in core, so the compiler's public
+    #edge is core, not the runtime it wraps.
+    PUBLIC nlang_core
     PRIVATE nlang_langservice
 )
 

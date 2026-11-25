@@ -11,6 +11,7 @@ endif()
 target_include_directories(ncc
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
 )
 
 target_link_libraries(ncc

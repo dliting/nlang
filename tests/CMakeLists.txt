@@ -159,6 +159,7 @@ target_include_directories(test_vm
 target_link_libraries(test_vm
     PRIVATE
         nlang_vm
+        nlang_core
         nlang_compiler
         nlang_runtime
 )
@@ -180,6 +181,7 @@ target_include_directories(test_static_init
 target_link_libraries(test_static_init
     PRIVATE
         nlang_vm
+        nlang_core
         nlang_compiler
         nlang_runtime
 )
@@ -196,6 +198,7 @@ add_executable(test_nculinker
 target_include_directories(test_nculinker
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/src/compiler
         ${PROJECT_SOURCE_DIR}/include
         #ModuleRegistry.h includes public compiler headers by bare name
@@ -205,6 +208,7 @@ target_include_directories(test_nculinker
 target_link_libraries(test_nculinker
     PRIVATE
         nlang_vm
+        nlang_core
         nlang_runtime
 )
 add_test(NAME nculinker_tests COMMAND test_nculinker)
@@ -219,11 +223,13 @@ add_executable(test_nculoader
 target_include_directories(test_nculoader
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/include
 )
 target_link_libraries(test_nculoader
     PRIVATE
         nlang_vm
+        nlang_core
         nlang_runtime
 )
 add_test(NAME nculoader_tests COMMAND test_nculoader)
@@ -275,7 +281,7 @@ target_include_directories(test_native_loader
         ${PROJECT_SOURCE_DIR}/include
 )
 target_link_libraries(test_native_loader
-    PRIVATE nlang_vm
+    PRIVATE nlang_vm nlang_core
 )
 target_compile_definitions(test_native_loader
     PRIVATE
@@ -303,11 +309,12 @@ add_executable(test_native_host
 target_include_directories(test_native_host
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/include
 )
 target_link_libraries(test_native_host
     PRIVATE
-        nlang_vm nlang_compiler nlang_runtime nlang_langservice
+        nlang_vm nlang_core nlang_compiler nlang_runtime nlang_langservice
 )
 nlang_stdlib_test(test_native_host)
 target_compile_definitions(test_native_host
@@ -327,7 +334,7 @@ target_include_directories(test_io_input
         ${PROJECT_SOURCE_DIR}/include
 )
 target_link_libraries(test_io_input
-    PRIVATE nlang_vm nlang_runtime
+    PRIVATE nlang_vm nlang_core nlang_runtime
 )
 add_test(NAME io_input_tests COMMAND test_io_input)
 
@@ -353,11 +360,12 @@ add_executable(test_thirdparty
 target_include_directories(test_thirdparty
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/include
 )
 target_link_libraries(test_thirdparty
     PRIVATE
-        nlang_vm nlang_compiler nlang_runtime nlang_langservice
+        nlang_vm nlang_core nlang_compiler nlang_runtime nlang_langservice
 )
 nlang_stdlib_test(test_thirdparty)
 target_compile_definitions(test_thirdparty
@@ -380,17 +388,18 @@ add_executable(test_ncu_package
 )
 target_link_libraries(test_ncu_package
     PRIVATE
-        nlang_vm nlang_runtime
+        nlang_vm nlang_core nlang_runtime
 )
 add_test(NAME ncu_package_tests COMMAND test_ncu_package)
 target_include_directories(test_library_source
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/include
 )
 target_link_libraries(test_library_source
     PRIVATE
-        nlang_vm nlang_compiler nlang_runtime nlang_langservice
+        nlang_vm nlang_core nlang_compiler nlang_runtime nlang_langservice
 )
 nlang_stdlib_test(test_library_source)
 target_compile_definitions(test_library_source
@@ -409,11 +418,12 @@ add_executable(test_perunit
 target_include_directories(test_perunit
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/include
 )
 target_link_libraries(test_perunit
     PRIVATE
-        nlang_vm nlang_compiler nlang_runtime nlang_langservice
+        nlang_vm nlang_core nlang_compiler nlang_runtime nlang_langservice
 )
 nlang_stdlib_test(test_perunit)
 target_compile_definitions(test_perunit
@@ -570,12 +580,14 @@ add_executable(test_stdlib
 target_include_directories(test_stdlib
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/include
 )
 
 target_link_libraries(test_stdlib
     PRIVATE
         nlang_vm
+        nlang_core
         nlang_compiler
         nlang_runtime
         nlang_langservice
@@ -598,12 +610,14 @@ add_executable(test_native_array_abi
 target_include_directories(test_native_array_abi
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/include
 )
 
 target_link_libraries(test_native_array_abi
     PRIVATE
         nlang_vm
+        nlang_core
         nlang_compiler
         nlang_runtime
         nlang_langservice
@@ -632,12 +646,14 @@ add_executable(test_generic_runtime_info
 target_include_directories(test_generic_runtime_info
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/include
 )
 
 target_link_libraries(test_generic_runtime_info
     PRIVATE
         nlang_vm
+        nlang_core
         nlang_compiler
         nlang_runtime
         nlang_langservice
@@ -660,12 +676,14 @@ add_executable(test_func_records
 target_include_directories(test_func_records
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/include
 )
 
 target_link_libraries(test_func_records
     PRIVATE
         nlang_vm
+        nlang_core
         nlang_compiler
         nlang_runtime
         nlang_langservice
@@ -688,12 +706,14 @@ add_executable(test_stabilize_copy
 target_include_directories(test_stabilize_copy
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/include
 )
 
 target_link_libraries(test_stabilize_copy
     PRIVATE
         nlang_vm
+        nlang_core
         nlang_compiler
         nlang_runtime
         nlang_langservice
@@ -717,6 +737,7 @@ add_executable(test_ref_ops
 target_include_directories(test_ref_ops
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         #VmBackend.h (the EvalSlotClassOfKind pin) lives in
         #src/compiler/codegen since the layering split; its private
         #builder/ includes resolve inside that tree.
@@ -728,6 +749,7 @@ target_include_directories(test_ref_ops
 target_link_libraries(test_ref_ops
     PRIVATE
         nlang_vm
+        nlang_core
         nlang_compiler
         nlang_runtime
         nlang_langservice
@@ -753,6 +775,7 @@ add_executable(test_interface_rtk_gc
 target_include_directories(test_interface_rtk_gc
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         #VmBackend.h (the RuntimeTypeKind/EvalSlotClassOfKind pins) lives
         #in src/compiler/codegen since the layering split — same as
         #test_ref_ops.
@@ -764,6 +787,7 @@ target_include_directories(test_interface_rtk_gc
 target_link_libraries(test_interface_rtk_gc
     PRIVATE
         nlang_vm
+        nlang_core
         nlang_compiler
         nlang_runtime
         nlang_langservice
@@ -788,6 +812,7 @@ add_executable(test_display_capture_kinds
 target_include_directories(test_display_capture_kinds
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/src/compiler
         ${PROJECT_SOURCE_DIR}/include
 )
@@ -795,6 +820,7 @@ target_include_directories(test_display_capture_kinds
 target_link_libraries(test_display_capture_kinds
     PRIVATE
         nlang_vm
+        nlang_core
         nlang_compiler
         nlang_runtime
         nlang_langservice
@@ -818,6 +844,7 @@ add_executable(test_promote_local
 target_include_directories(test_promote_local
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         #VmExecutor's build chain pulls compiler-side headers, same as
         #test_ref_ops above.
         ${PROJECT_SOURCE_DIR}/src/compiler
@@ -827,6 +854,7 @@ target_include_directories(test_promote_local
 target_link_libraries(test_promote_local
     PRIVATE
         nlang_vm
+        nlang_core
         nlang_compiler
         nlang_runtime
         nlang_langservice
@@ -850,6 +878,7 @@ add_executable(test_ref_params
 target_include_directories(test_ref_params
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/src/compiler
         ${PROJECT_SOURCE_DIR}/include
 )
@@ -857,6 +886,7 @@ target_include_directories(test_ref_params
 target_link_libraries(test_ref_params
     PRIVATE
         nlang_vm
+        nlang_core
         nlang_compiler
         nlang_runtime
         nlang_langservice
@@ -872,12 +902,14 @@ add_test(NAME ref_params_tests COMMAND test_ref_params)
 target_include_directories(test_array_view_record
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/include
 )
 
 target_link_libraries(test_array_view_record
     PRIVATE
         nlang_vm
+        nlang_core
         nlang_compiler
         nlang_runtime
         nlang_langservice
@@ -899,12 +931,14 @@ add_executable(test_nd_tokens
 target_include_directories(test_nd_tokens
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/include
 )
 
 target_link_libraries(test_nd_tokens
     PRIVATE
         nlang_vm
+        nlang_core
         nlang_compiler
         nlang_runtime
         nlang_langservice
@@ -925,12 +959,14 @@ add_executable(test_nd_resolve
 target_include_directories(test_nd_resolve
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/include
 )
 
 target_link_libraries(test_nd_resolve
     PRIVATE
         nlang_vm
+        nlang_core
         nlang_compiler
         nlang_runtime
         nlang_langservice
@@ -982,6 +1018,7 @@ target_include_directories(test_stride_table
 target_link_libraries(test_stride_table
     PRIVATE
         nlang_vm
+        nlang_core
         nlang_runtime
 )
 
@@ -997,12 +1034,14 @@ add_executable(test_struct_ctor
 target_include_directories(test_struct_ctor
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/include
 )
 
 target_link_libraries(test_struct_ctor
     PRIVATE
         nlang_vm
+        nlang_core
         nlang_compiler
         nlang_runtime
 )
@@ -1027,12 +1066,14 @@ add_executable(test_struct_field_init
 target_include_directories(test_struct_field_init
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/include
 )
 
 target_link_libraries(test_struct_field_init
     PRIVATE
         nlang_vm
+        nlang_core
         nlang_compiler
         nlang_runtime
 )
@@ -1062,6 +1103,7 @@ target_include_directories(test_class_layout
 target_link_libraries(test_class_layout
     PRIVATE
         nlang_vm
+        nlang_core
         nlang_runtime
 )
 
@@ -1085,6 +1127,7 @@ target_include_directories(test_array_flags
 target_link_libraries(test_array_flags
     PRIVATE
         nlang_vm
+        nlang_core
         nlang_compiler
         nlang_runtime
 )
@@ -1109,6 +1152,7 @@ target_include_directories(test_function_size
 target_link_libraries(test_function_size
     PRIVATE
         nlang_vm
+        nlang_core
         nlang_compiler
         nlang_runtime
 )
@@ -1133,6 +1177,7 @@ target_include_directories(test_import_cycle
 target_link_libraries(test_import_cycle
     PRIVATE
         nlang_vm
+        nlang_core
         nlang_compiler
         nlang_runtime
 )
@@ -1160,6 +1205,7 @@ target_include_directories(test_default_exprdesc
 target_link_libraries(test_default_exprdesc
     PRIVATE
         nlang_vm
+        nlang_core
         nlang_compiler
         nlang_runtime
 )
@@ -1182,6 +1228,7 @@ target_include_directories(test_array_token
 target_link_libraries(test_array_token
     PRIVATE
         nlang_vm
+        nlang_core
         nlang_compiler
         nlang_runtime
 )
@@ -1227,6 +1274,7 @@ target_link_libraries(test_primitivetypes
         nlang_runtime
         nlang_compiler
         nlang_vm
+        nlang_core
 )
 
 add_test(NAME primitivetypes_tests COMMAND test_primitivetypes)
@@ -1243,12 +1291,14 @@ add_executable(test_primops
 target_include_directories(test_primops
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/include
 )
 
 target_link_libraries(test_primops
     PRIVATE
         nlang_vm
+        nlang_core
         nlang_compiler
         nlang_runtime
 )
@@ -1268,11 +1318,13 @@ add_executable(test_threads
 target_include_directories(test_threads
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/include
 )
 target_link_libraries(test_threads
     PRIVATE
         nlang_vm
+        nlang_core
         nlang_compiler
         nlang_runtime
 )
@@ -1297,6 +1349,7 @@ target_include_directories(test_gcworldstop
 target_link_libraries(test_gcworldstop
     PRIVATE
         nlang_vm
+        nlang_core
 )
 
 add_test(NAME gcworldstop_tests COMMAND test_gcworldstop)
@@ -1314,6 +1367,7 @@ target_include_directories(test_domainlocks
 target_link_libraries(test_domainlocks
     PRIVATE
         nlang_vm
+        nlang_core
 )
 
 add_test(NAME domainlocks_tests COMMAND test_domainlocks)
@@ -1385,6 +1439,7 @@ target_include_directories(test_net_scheduler
 target_link_libraries(test_net_scheduler
     PRIVATE
         nlang_vm
+        nlang_core
 )
 if(WIN32)
     target_link_libraries(test_net_scheduler PRIVATE ws2_32 iphlpapi)
@@ -1412,6 +1467,7 @@ target_include_directories(test_net_adopt
 target_link_libraries(test_net_adopt
     PRIVATE
         nlang_vm
+        nlang_core
 )
 if(WIN32)
     target_link_libraries(test_net_adopt PRIVATE ws2_32 iphlpapi)
@@ -1437,6 +1493,7 @@ target_include_directories(test_net_jobs
 target_link_libraries(test_net_jobs
     PRIVATE
         nlang_vm
+        nlang_core
 )
 if(WIN32)
     target_link_libraries(test_net_jobs PRIVATE ws2_32 iphlpapi)
@@ -1465,6 +1522,7 @@ target_include_directories(test_net_icmp
 target_link_libraries(test_net_icmp
     PRIVATE
         nlang_vm
+        nlang_core
 )
 if(WIN32)
     target_link_libraries(test_net_icmp PRIVATE ws2_32 iphlpapi)
@@ -1481,11 +1539,12 @@ add_executable(test_module_state
 target_include_directories(test_module_state
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/include
 )
 target_link_libraries(test_module_state
     PRIVATE
-        nlang_vm nlang_compiler nlang_runtime nlang_langservice
+        nlang_vm nlang_core nlang_compiler nlang_runtime nlang_langservice
 )
 nlang_stdlib_test(test_module_state)
 add_dependencies(test_module_state nlang_net)
@@ -1509,6 +1568,7 @@ target_include_directories(test_work_pool
 target_link_libraries(test_work_pool
     PRIVATE
         nlang_vm
+        nlang_core
 )
 
 add_test(NAME work_pool_tests COMMAND test_work_pool)
@@ -1526,6 +1586,7 @@ target_include_directories(test_chunkedarray
 target_link_libraries(test_chunkedarray
     PRIVATE
         nlang_vm
+        nlang_core
 )
 
 add_test(NAME chunkedarray_tests COMMAND test_chunkedarray)
@@ -1543,6 +1604,7 @@ target_include_directories(test_shardalloc
 target_link_libraries(test_shardalloc
     PRIVATE
         nlang_vm
+        nlang_core
 )
 
 add_test(NAME shardalloc_tests COMMAND test_shardalloc)
@@ -1555,11 +1617,13 @@ add_executable(test_stdlib_concurrency
 target_include_directories(test_stdlib_concurrency
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/include
 )
 target_link_libraries(test_stdlib_concurrency
     PRIVATE
         nlang_vm
+        nlang_core
         nlang_compiler
         nlang_runtime
 )
@@ -1581,6 +1645,7 @@ add_executable(test_builtin_binding
 target_include_directories(test_builtin_binding
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/src/compiler
         #VmBackend.h moved to src/compiler/codegen with the layering split.
         ${PROJECT_SOURCE_DIR}/src/compiler/codegen
@@ -1589,6 +1654,7 @@ target_include_directories(test_builtin_binding
 target_link_libraries(test_builtin_binding
     PRIVATE
         nlang_vm
+        nlang_core
         nlang_compiler
         nlang_runtime
 )
@@ -1631,6 +1697,7 @@ add_executable(test_debugger
 target_include_directories(test_debugger
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/src/tools/ndb
         ${PROJECT_SOURCE_DIR}/include
 )
@@ -1638,6 +1705,7 @@ target_include_directories(test_debugger
 target_link_libraries(test_debugger
     PRIVATE
         nlang_vm
+        nlang_core
         nlang_compiler
         nlang_runtime
 )
@@ -1663,6 +1731,7 @@ target_include_directories(test_strings
 target_link_libraries(test_strings
     PRIVATE
         nlang_vm
+        nlang_core
         nlang_compiler
         nlang_runtime
 )
@@ -1721,12 +1790,14 @@ add_executable(test_script_wrap
 target_include_directories(test_script_wrap
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/include
 )
 
 target_link_libraries(test_script_wrap
     PRIVATE
         nlang_vm
+        nlang_core
         nlang_compiler
         nlang_runtime
 )
@@ -1877,6 +1948,7 @@ if(NLANG_BUILD_IDE)
             nlang_compiler
             nlang_runtime
             nlang_vm
+            nlang_core
             Qt5::Test
     )
     nlang_stdlib_test(test_import_parse)
@@ -1909,6 +1981,7 @@ if(NLANG_BUILD_IDE)
             nlang_compiler
             nlang_runtime
             nlang_vm
+            nlang_core
             Qt5::Test
     )
     nlang_stdlib_test(test_generic_decl)
@@ -1941,6 +2014,7 @@ if(NLANG_BUILD_IDE)
             nlang_compiler
             nlang_runtime
             nlang_vm
+            nlang_core
             Qt5::Test
     )
     nlang_stdlib_test(test_type_access_prefix)
@@ -1973,6 +2047,7 @@ if(NLANG_BUILD_IDE)
             nlang_compiler
             nlang_runtime
             nlang_vm
+            nlang_core
             Qt5::Test
     )
     nlang_stdlib_test(test_ref_declarator)
@@ -2003,6 +2078,7 @@ if(NLANG_BUILD_IDE)
             nlang_compiler
             nlang_runtime
             nlang_vm
+            nlang_core
             Qt5::Test
     )
     nlang_stdlib_test(test_ref_binding)
@@ -2029,6 +2105,7 @@ if(NLANG_BUILD_IDE)
             nlang_compiler
             nlang_runtime
             nlang_vm
+            nlang_core
             Qt5::Test
     )
     nlang_stdlib_test(test_const_decl)
@@ -2059,6 +2136,7 @@ if(NLANG_BUILD_IDE)
     target_link_libraries(test_generic_descriptor
         PRIVATE
             nlang_vm
+            nlang_core
             nlang_compiler
             nlang_runtime
             Qt5::Test
@@ -2075,6 +2153,7 @@ if(NLANG_BUILD_IDE)
     target_include_directories(test_descriptor_spelling
         PRIVATE
             ${PROJECT_SOURCE_DIR}/src/vm
+            ${PROJECT_SOURCE_DIR}/src/core
             ${PROJECT_SOURCE_DIR}/src/compiler
     )
     target_link_libraries(test_descriptor_spelling
@@ -2082,6 +2161,7 @@ if(NLANG_BUILD_IDE)
             nlang_compiler
             nlang_runtime
             nlang_vm
+            nlang_core
             Qt5::Test
     )
     nlang_stdlib_test(test_descriptor_spelling)
@@ -2119,6 +2199,7 @@ if(NLANG_BUILD_IDE)
             nlang_compiler
             nlang_runtime
             nlang_vm
+            nlang_core
             Qt5::Test
     )
     nlang_add_qtest(generic_typeparam_gc_tests test_generic_typeparam_gc)
@@ -2141,6 +2222,7 @@ if(NLANG_BUILD_IDE)
             nlang_compiler
             nlang_runtime
             nlang_vm
+            nlang_core
             Qt5::Test
     )
     nlang_stdlib_test(test_prelude_faces)
@@ -2174,6 +2256,7 @@ if(NLANG_BUILD_IDE)
             nlang_compiler
             nlang_runtime
             nlang_vm
+            nlang_core
             Qt5::Test
     )
     nlang_stdlib_test(test_builtin_surface_coverage)
@@ -2205,12 +2288,14 @@ if(NLANG_BUILD_IDE)
         PRIVATE
             ${PROJECT_SOURCE_DIR}/src/compiler
             ${PROJECT_SOURCE_DIR}/src/vm
+            ${PROJECT_SOURCE_DIR}/src/core
     )
     target_link_libraries(test_module_import
         PRIVATE
             nlang_compiler
             nlang_runtime
             nlang_vm
+            nlang_core
             Qt5::Test
     )
     nlang_stdlib_test(test_module_import)
@@ -2241,12 +2326,14 @@ if(NLANG_BUILD_IDE)
         PRIVATE
             ${PROJECT_SOURCE_DIR}/src/compiler
             ${PROJECT_SOURCE_DIR}/src/vm
+            ${PROJECT_SOURCE_DIR}/src/core
     )
     target_link_libraries(test_array_property
         PRIVATE
             nlang_compiler
             nlang_runtime
             nlang_vm
+            nlang_core
             Qt5::Test
     )
     nlang_stdlib_test(test_array_property)
@@ -2272,14 +2359,15 @@ if(NLANG_BUILD_IDE)
     add_executable(test_statement_diag
         test_compiler/test_statement_diag.cpp
     )
-    #nlang_vm is required at link time (nlang_compiler references the VM
-    #backend/module-loader symbols in the build path) — same shape as
-    #test_array_property.
+    #nlang_core is required at link time (nlang_compiler references the
+    #core module-loader / bytecode-spelling symbols in the build path) —
+    #same shape as test_array_property.
     target_link_libraries(test_statement_diag
         PRIVATE
             nlang_compiler
             nlang_runtime
             nlang_vm
+            nlang_core
             Qt5::Test
     )
     if(WIN32)
@@ -2303,6 +2391,7 @@ if(NLANG_BUILD_IDE)
             nlang_compiler
             nlang_runtime
             nlang_vm
+            nlang_core
             Qt5::Test
     )
     if(WIN32)
@@ -2327,6 +2416,7 @@ if(NLANG_BUILD_IDE)
             nlang_compiler
             nlang_runtime
             nlang_vm
+            nlang_core
             Qt5::Test
     )
     if(WIN32)
@@ -2351,6 +2441,7 @@ if(NLANG_BUILD_IDE)
             nlang_compiler
             nlang_runtime
             nlang_vm
+            nlang_core
             Qt5::Test
     )
     if(WIN32)
@@ -2372,6 +2463,7 @@ if(NLANG_BUILD_IDE)
             nlang_compiler
             nlang_runtime
             nlang_vm
+            nlang_core
             Qt5::Test
     )
     if(WIN32)
@@ -3440,19 +3532,17 @@ else()
 endif()
 
 # Layering guard (tools/layering_guard.py): the library DAG's include/CMake
-# face per docs/dev/library_layering_design.md section 6. While the core
-# split is in flight the tree legitimately violates assertions 1 and 4, so
-# the entry is pinned WILL_FAIL and passes by failing; task 6 of
-# docs/dev/library_layering_plan.md lifts the property once nlang_core
-# seals the boundaries. The selftest entry judges the fixture corpus under
-# tests/fixtures/layering and is green from the start. Stdlib only, like
-# the gate_time_check selftest above.
+# face per docs/dev/library_layering_design.md section 6, green ever since
+# the nlang_core split sealed the compiler/vm boundary (task 6 of
+# docs/dev/library_layering_plan.md); the entry ran pinned WILL_FAIL while
+# the split was in flight. The selftest entry judges the fixture corpus
+# under tests/fixtures/layering and is green from the start. Stdlib only,
+# like the gate_time_check selftest above.
 if(Python3_FOUND)
     add_test(NAME layering_guard
         COMMAND ${PYTHON3_EXECUTABLE}
             ${PROJECT_SOURCE_DIR}/tools/layering_guard.py
         WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
-    set_tests_properties(layering_guard PROPERTIES WILL_FAIL TRUE)
     add_test(NAME layering_guard_selftest
         COMMAND ${PYTHON3_EXECUTABLE}
             ${PROJECT_SOURCE_DIR}/tools/layering_guard.py
@@ -3583,12 +3673,14 @@ add_executable(test_embed_vm
 target_include_directories(test_embed_vm
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/src/embed
         ${PROJECT_SOURCE_DIR}/include
 )
 target_link_libraries(test_embed_vm
     PRIVATE
         nlang_vm
+        nlang_core
         nlang_runtime
         nlang_embed
 )

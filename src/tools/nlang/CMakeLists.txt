@@ -5,6 +5,7 @@ if(MSVC)
 endif()
 target_include_directories(nlang PRIVATE
     ${PROJECT_SOURCE_DIR}/src/vm
+    ${PROJECT_SOURCE_DIR}/src/core
     ${PROJECT_SOURCE_DIR}/include)
 target_link_libraries(nlang PRIVATE
     nlang_compiler nlang_runtime nlang_vm nlang_langservice nlang_version)
