@@ -66,6 +66,21 @@ void AddFuncImport(CompiledModule& u, const std::string& targetModule,
     AddFunc(u, qualifiedName, paramCount);
 }
 
+//One cross-unit static-slot import with its required placeholder tail.
+//No class/function import names the target: closure discovery must read
+//the static-slot table itself rather than relying on a companion edge.
+void AddStaticSlotImport(CompiledModule& u,
+                         const std::string& targetModule) {
+    CompiledStaticSlot placeholder;
+    placeholder.name = "value";
+    placeholder.ownerKey = targetModule + ".Box";
+    placeholder.ownerKind = 0;
+    placeholder.type = TypeDesc{RTK_Int32};
+    u.staticSlots.push_back(std::move(placeholder));
+    u.staticSlotImports.push_back(
+        {targetModule, "value", 0, targetModule + ".Box", false, 0, 0});
+}
+
 // Serialize a unit as <dir>/<modulePath>.ncu (the location convention the
 // loader probes). entryKey round-trips through the file.
 void WriteUnit(const fs::path& dir, const CompiledModule& u,
@@ -934,6 +949,34 @@ void TestStaticSlotRoundTripAndVersionFloor() {
     CHECK(Contains(fr.msg, "outdated"), "floor diagnostic names the cause");
 }
 
+// --- shape 16: the fifth import table independently grows the closure ---
+
+void TestStaticSlotImportDiscoversDependency() {
+    const auto dir = scenarioDir("static_slot_closure");
+    CompiledModule main = MakeUnit("main");
+    AddFunc(main, "main.main", 0);
+    AddStaticSlotImport(main, "dep");
+    WriteUnit(dir, main, "main.main");
+
+    CompiledModule dep = MakeUnit("dep");
+    CompiledStaticSlot ownSlot;
+    ownSlot.name = "value";
+    ownSlot.ownerKey = "dep.Box";
+    ownSlot.ownerKind = 0;
+    ownSlot.type = TypeDesc{RTK_Int32};
+    dep.staticSlots.push_back(std::move(ownSlot));
+    WriteUnit(dir, dep);
+
+    NcuLoader::Options opts;
+    opts.searchDirs = {dir.string()};
+    const NcuLoader::Result r =
+        NcuLoader::LoadClosure((dir / "main.ncu").string(), opts);
+    CHECK(r.units.size() == 2,
+          "static-slot import alone grows the closure");
+    CHECK(r.units.size() > 1 && r.units[1].modulePath == "dep",
+          "static-slot dependency follows the entry unit");
+}
+
 } // namespace
 
 int main() {
@@ -955,6 +998,7 @@ int main() {
     TestAccessByteOutOfRangeRejected();
     TestEnumAccessParallelGuard();
     TestStaticSlotRoundTripAndVersionFloor();
+    TestStaticSlotImportDiscoversDependency();
     TestDescriptorTableRoundTrip();
     TestMislabeledUnitRejected();
     TestDuplicateTargetLoadedOnce();

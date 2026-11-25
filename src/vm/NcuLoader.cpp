@@ -169,6 +169,7 @@ void ClosureWalk::DiscoverClosure()
 		collect(m_units[i].classImports);
 		collect(m_units[i].structImports);
 		collect(m_units[i].enumImports);
+		collect(m_units[i].staticSlotImports);
 		for (const auto& target : targets)
 		{
 			if (!IsValidModulePath(target))
