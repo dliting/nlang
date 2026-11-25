@@ -14,26 +14,9 @@
 namespace nlang
 {
 
-//Canonical no-space join: "Base<Arg1,Arg2>". Distinct from the
-//diagnostic render (ExprResolverGenerics.cpp joins with ", ") — the
-//canonical form is the intern/serialization key, so it never carries
-//presentation spaces. Arguments spell through CanonicalArgSpelling so
-//nested instantiations stay distinguishable (the raw spelling field of
-//a nested argument is only its bare template name).
-std::string CanonicalSpelling(const std::string& templateName,
-	const std::vector<TypeArgDesc>& typeArgs)
-{
-	std::string spelling = templateName;
-	spelling += "<";
-	for (size_t i = 0; i < typeArgs.size(); ++i)
-	{
-		if (i)
-			spelling += ",";
-		spelling += CanonicalArgSpelling(typeArgs[i]);
-	}
-	spelling += ">";
-	return spelling;
-}
+//CanonicalSpelling (the join) moved to src/compiler/builder/
+//GenericInstSpelling.cpp with the library layering split; the pool
+//below and the load-side parser key through it via the header.
 
 //--- Load-side residency: canonical-spelling parser -----------------------
 //Reversibility per Rust RFC 2603 — the structure defines the spelling,

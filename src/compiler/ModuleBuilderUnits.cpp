@@ -134,7 +134,7 @@ ModuleBuilder::UnitImages ModuleBuilder::BuildUnitImages()
 		return none;
 	if (!RunCapturePromotion())
 		return none;
-	auto* vmBackend = dynamic_cast<VmBackend*>(m_upEnv->Backend());
+	auto* vmBackend = m_upEnv->Backend();
 	if (!vmBackend)
 	{
 		m_upEnv->Log(CLL_Fatal, "Per-unit builds need the VM backend.");
@@ -176,7 +176,7 @@ bool ModuleBuilder::BuildArtifacts()
 	UnitImages images = BuildUnitImages();
 	if (images.units.empty())
 		return false;   //front-end/codegen errors are already logged
-	auto* vmBackend = dynamic_cast<VmBackend*>(m_upEnv->Backend());
+	auto* vmBackend = m_upEnv->Backend();
 	if (!vmBackend)
 	{
 		m_upEnv->Log(CLL_Fatal, "Per-unit builds need the VM backend.");

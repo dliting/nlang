@@ -189,7 +189,7 @@ bool ModuleBuilder::CreateModule()
 
 	// Set up default VmBackend if none configured
 	if (!m_upEnv->Backend()) {
-		ICodeBackend* backend = new VmBackend();
+		VmBackend* backend = new VmBackend();
 		m_upEnv->Backend(backend);
 		backend->OnModuleCreate(*pModule);
 	}

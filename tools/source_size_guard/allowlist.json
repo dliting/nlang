@@ -20,7 +20,7 @@
     "reason": "resolver class pair plus the shared helper-declaration surface of the resolver TU family; C++ has no partial class, splitting would fragment the pair"
   },
   {
-    "path": "src/vm/VmBackend.h",
+    "path": "src/compiler/codegen/VmBackend.h",
     "reason": "single-class VmBackend declaration; C++ has no partial class, splitting would fragment the class"
   },
   {
@@ -116,7 +116,7 @@
     "reason": "field-by-field wire-format record writer in on-disk order; the layout is the spec"
   },
   {
-    "path": "src/vm/TypeDescBuild.cpp",
+    "path": "src/compiler/codegen/TypeDescBuild.cpp",
     "function": "BuildTypeDesc",
     "reason": "recursive type-descriptor builder over declaration forms"
   },
@@ -173,7 +173,7 @@
     "reason": "one container-family header: the node-child list class templates over the shared dual-storage invariants; C++ has no partial class, splitting would fragment the family"
   },
   {
-    "path": "src/vm/backend/WalkersMaxArgs.cpp",
+    "path": "src/compiler/codegen/WalkersMaxArgs.cpp",
     "function": "VmBackend::MaxArgsWalkExpr",
     "reason": "kind-dispatch walker chain: one arm per expression node kind (same shape as the DebugClient wire-event dispatch and InstructionStride)"
   },

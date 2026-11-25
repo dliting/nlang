@@ -25,10 +25,10 @@ family serialization e2e ^(bs_|file_|stdlib_)
 family stabilizer src src/vm/VmExecutorAlloc.cpp
 family stabilizer src src/vm/VmExecutorOpsObjects.cpp
 family stabilizer src src/vm/VmExecutorContainers.cpp
-family stabilizer src src/vm/backend/EmitStmtAssign.cpp
-family stabilizer src src/vm/backend/EmitStmtStore.cpp
-family stabilizer src src/vm/backend/EmitStmtCompound.cpp
-family stabilizer src src/vm/backend/EmitCall.cpp
+family stabilizer src src/compiler/codegen/EmitStmtAssign.cpp
+family stabilizer src src/compiler/codegen/EmitStmtStore.cpp
+family stabilizer src src/compiler/codegen/EmitStmtCompound.cpp
+family stabilizer src src/compiler/codegen/EmitCall.cpp
 family stabilizer unit stabilize|struct|array|boxing|chunkedarray|generic
 family stabilizer e2e ^(stabilize_|bs_|struct|array|compound_)
 
@@ -44,8 +44,8 @@ family concurrency e2e ^(conc_|carrier|thread|atomic|sync|selectany)
 # captured-storage emission). The loop-head activation twins live in
 # EmitStmtForeach/EmitStmtFlow — those files stay unmapped so their
 # edits fall back to the conservative full Debug unit suite.
-family capture src src/vm/backend/EmitCapture.cpp
-family capture src src/vm/backend/EmitCaptureStorage.cpp
+family capture src src/compiler/codegen/EmitCapture.cpp
+family capture src src/compiler/codegen/EmitCaptureStorage.cpp
 family capture src src/compiler/builder/LambdaCaptureAnalysis.cpp
 family capture src src/compiler/builder/LambdaCaptureClassify.cpp
 family capture src src/compiler/builder/LambdaDisplaySynthesis.cpp

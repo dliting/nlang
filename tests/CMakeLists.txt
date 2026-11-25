@@ -717,9 +717,11 @@ add_executable(test_ref_ops
 target_include_directories(test_ref_ops
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
-        #VmBackend.h (the EvalSlotClassOfKind pin) privately includes
-        #compiler-side headers — the same reverse precedent nlang_vm lists.
+        #VmBackend.h (the EvalSlotClassOfKind pin) lives in
+        #src/compiler/codegen since the layering split; its private
+        #builder/ includes resolve inside that tree.
         ${PROJECT_SOURCE_DIR}/src/compiler
+        ${PROJECT_SOURCE_DIR}/src/compiler/codegen
         ${PROJECT_SOURCE_DIR}/include
 )
 
@@ -751,9 +753,11 @@ add_executable(test_interface_rtk_gc
 target_include_directories(test_interface_rtk_gc
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
-        #VmBackend.h (the RuntimeTypeKind/EvalSlotClassOfKind pins)
-        #privately includes compiler-side headers — same as test_ref_ops.
+        #VmBackend.h (the RuntimeTypeKind/EvalSlotClassOfKind pins) lives
+        #in src/compiler/codegen since the layering split — same as
+        #test_ref_ops.
         ${PROJECT_SOURCE_DIR}/src/compiler
+        ${PROJECT_SOURCE_DIR}/src/compiler/codegen
         ${PROJECT_SOURCE_DIR}/include
 )
 
@@ -1578,6 +1582,8 @@ target_include_directories(test_builtin_binding
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
         ${PROJECT_SOURCE_DIR}/src/compiler
+        #VmBackend.h moved to src/compiler/codegen with the layering split.
+        ${PROJECT_SOURCE_DIR}/src/compiler/codegen
         ${PROJECT_SOURCE_DIR}/include
 )
 target_link_libraries(test_builtin_binding
@@ -2102,11 +2108,11 @@ if(NLANG_BUILD_IDE)
     target_include_directories(test_generic_typeparam_gc
         PRIVATE
             ${PROJECT_SOURCE_DIR}/src/vm
-            #VmBackend.h includes builder/BindingTable.h (the intrinsic
-            #binding table lives compiler-side since the concurrency
-            #import redesign) — same internal-header reach as
-            #test_builtin_binding.
+            #VmBackend.h (incl. its builder/BindingTable.h reach) lives
+            #in src/compiler/codegen since the layering split — same
+            #internal-header reach as test_builtin_binding.
             ${PROJECT_SOURCE_DIR}/src/compiler
+            ${PROJECT_SOURCE_DIR}/src/compiler/codegen
     )
     target_link_libraries(test_generic_typeparam_gc
         PRIVATE

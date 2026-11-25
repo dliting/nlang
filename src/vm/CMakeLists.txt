@@ -70,63 +70,6 @@ add_library(nlang_vm
     IntrinsicsSemaphore.cpp
     IntrinsicsAtomic.cpp
     GenericInstDescriptor.cpp
-    backend/DescriptorSpelling.cpp
-    backend/VmBackend.cpp
-    backend/VmBackendSignatures.cpp
-    backend/WriteModuleArtifact.cpp
-    backend/DeclPredicates.cpp
-    backend/GenerateUnits.cpp
-    backend/Register.cpp
-    backend/RegisterStructs.cpp
-    backend/Slots.cpp
-    backend/RegisterArrayTypes.cpp
-    backend/RegisterClass.cpp
-    backend/ResolveBareIdentifier.cpp
-    backend/EmitStaticInit.cpp
-    backend/RegisterInterfaces.cpp
-    backend/RegisterEnums.cpp
-    backend/RegisterStructs.cpp
-    backend/BuiltinClasses.cpp
-    backend/Types.cpp
-    backend/EmitCall.cpp
-    backend/EmitCtorCall.cpp
-    backend/WalkersExpr.cpp
-    backend/WalkersExprRef.cpp
-    backend/WalkersStmt.cpp
-    backend/WalkersMaxArgs.cpp
-    backend/EmitExprCore.cpp
-    backend/EmitExprIdent.cpp
-    backend/EmitExprCast.cpp
-    backend/EmitExprSubscript.cpp
-    backend/EmitExprBinary.cpp
-    backend/EmitExprNew.cpp
-    backend/EmitExprInitList.cpp
-    backend/EmitExprInitListND.cpp
-    backend/EmitInitListAggregate.cpp
-    backend/EmitExprMember.cpp
-    backend/EmitExprMemberFieldLoad.cpp
-    backend/FieldOffsets.cpp
-    backend/EmitExprMemberCall.cpp
-    backend/EmitExprMemberStatic.cpp
-    backend/EmitExprMemberString.cpp
-    backend/EmitGenericBoxing.cpp
-    backend/EmitExprMemberArray.cpp
-    backend/EmitArrayBoundary.cpp
-    backend/EmitArrayOpcodes.cpp
-    backend/EmitStmtDecl.cpp
-    backend/EmitStmtAssign.cpp
-    backend/EmitStmtRef.cpp
-    backend/EmitExprRef.cpp
-    backend/EmitCapture.cpp
-    backend/EmitCaptureStorage.cpp
-    backend/EmitCaptureFrame.cpp
-    backend/EmitStmtCompound.cpp
-    backend/EmitStmtStore.cpp
-    backend/EmitStmtFlow.cpp
-    backend/EmitStmtForeach.cpp
-    backend/EmitStmtForeachString.cpp
-    backend/EmitStmtSwitch.cpp
-    backend/EmitStmtTry.cpp
     CrashReporter.cpp
     Disassembler.cpp
     DisassemblerPrim.cpp
@@ -150,7 +93,6 @@ add_library(nlang_vm
     NcuLoader.cpp
     NativeLibraryLoader.cpp
     TypeDesc.cpp
-    TypeDescBuild.cpp
     TypeDescIndices.cpp
 )
 
@@ -172,15 +114,17 @@ target_include_directories(nlang_vm
         $<INSTALL_INTERFACE:include>
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
-        #Phase 5: codegen spells table keys through the compile-time
-        #registry (VmBackend::KeyOf -> ModuleRegistry::QualifiedName).
-        #Reverse precedent: src/compiler/CMakeLists.txt lists src/vm.
+        #Residual edge of the pre-split vm <-> compiler cycle (library
+        #layering split, docs/dev/library_layering_design.md §6): no vm
+        #source includes compiler headers anymore; kept until the core
+        #split rules on the link edge. Its twin: src/compiler/CMakeLists.txt
+        #lists src/vm.
         ${PROJECT_SOURCE_DIR}/src/compiler
 )
 
 target_link_libraries(nlang_vm
     PUBLIC nlang_runtime
-    PRIVATE nlang_compiler nlang_langservice ${CMAKE_DL_LIBS}
+    PRIVATE nlang_compiler ${CMAKE_DL_LIBS}
 )
 
 if(WIN32)

@@ -21,7 +21,7 @@ function.
 prelude face class `String` (`stdlib/lang.n`) — the resolver validates
 the member call against that declaration, and emission reads the intrinsic
 identifier (ID) from the binding table (`src/compiler/builder/BindingTable.cpp`,
-key `String.<method>`) in `src/vm/backend/EmitExprMemberString.cpp`. An
+key `String.<method>`) in `src/compiler/codegen/EmitExprMemberString.cpp`. An
 intrinsic's ID is module-local — the linker's operand
 remap (`NcuRemapBytecodeOperands`, `src/vm/NcuLinkerRemap.cpp`) never
 rewrites it — so cross-module imports have no ID problems.

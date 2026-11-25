@@ -8,6 +8,7 @@
 #include "ScriptLocation.h"
 #include "SnExtraTypes.h"
 #include "builder/ModuleRegistry.h"
+#include "codegen/VmBackend.h"   //complete type for ~unique_ptr<VmBackend>
 #include <nlang/langservice/SymbolIndex.h>
 #include <cassert>
 #include <cstdarg>
@@ -41,6 +42,11 @@ BuildEnvironment::~BuildEnvironment()
 #ifdef NLANG_ENABLE_LLVM
 	delete m_pCurrMetaModule;
 #endif
+}
+
+void BuildEnvironment::Backend(VmBackend* p)
+{
+	m_upBackend.reset(p);
 }
 
 ModuleRegistry& BuildEnvironment::Registry()

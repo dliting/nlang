@@ -1,11 +1,10 @@
 #pragma once
-#include <nlang/compiler/ICodeBackend.h>
 #include "nlang/core/CompiledModule.h"
 #include "nlang/core/TypeDesc.h"
 #include <nlang/core/BytecodeEmitter.h>
 //Kind-immediate opcode encodings incl. BoxTypeTagOfKind (the promoted-
 //storage emitters key their box tags through it; v0.13.9 phase 3).
-#include "backend/EmitPrimOps.h"
+#include "EmitPrimOps.h"
 //Intrinsic binding table + package/name projections (compile-time
 //declaration metadata; moved compiler-side with the concurrency import
 //redesign so pure-compiler link targets resolve).
@@ -50,6 +49,7 @@ class SnIdentifierExpr;
 class SnAssignStmt;
 class SnCompoundAssignStmt;
 class SnCatchClause;
+class Module;
 
 //Phase 9c: forward-declared so EmitBinding/EmitCallArgs can take
 //references without including SnExpressions.h (heavy header dep). Full
@@ -70,7 +70,7 @@ class ModuleRegistry;
 //placeholder and instance tables; nlang/compiler/GenericInstanceRegistry.h).
 class GenericInstanceRegistry;
 
-class VmBackend : public ICodeBackend {
+class VmBackend {
 public:
     //0.13.1a Task 5: one erased-container boundary slot's plan — a box
     //crosses the boundary either statically (the receiver's type
@@ -95,9 +95,9 @@ public:
     };
 
     VmBackend();
-    ~VmBackend() override;
+    ~VmBackend();
 
-    void OnModuleCreate(Module& module) override;
+    void OnModuleCreate(Module& module);
 
     //Write an arbitrary compiled module as this build's .ncu artifact.
     //Phase 6: BuildArtifacts single-file mode saves the ENTRY UNIT IMAGE
