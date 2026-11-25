@@ -10,7 +10,11 @@
 #include <cstring>
 #include <string>
 #include <vector>
-#include <windows.h>
+#if defined(_WIN32)
+#  include <windows.h>
+#else
+#  include <dlfcn.h>
+#endif
 
 namespace tensor {
 
@@ -93,11 +97,67 @@ int64_t AffineElementAt(const NativeArrayView& v, int64_t flat) {
     return addr;
 }
 
-//The CUDA plugin probe: nlang_tensor_cuda.dll sits next to
-//nlang_tensor.dll (GetModuleHandleEx from this DLL's address resolves
-//the native dir without search-path games). pluginError means the
-//plugin is absent (auto stays silent there); probeError means the
-//plugin is present but the probe failed (auto says so on stderr).
+//The native dir of this module, resolved from a function address inside
+//it (no search-path games). Windows: GetModuleHandleEx FROM_ADDRESS;
+//POSIX: dladdr maps the address to its containing object (.so). Taking
+//the address of this function pins its code location in the module even
+//under inlining.
+std::string OwnModuleDirectory() {
+#if defined(_WIN32)
+    HMODULE self = nullptr;
+    GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS
+        | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+        (LPCSTR)&OwnModuleDirectory, &self);
+    char selfPath[MAX_PATH] = {};
+    GetModuleFileNameA(self, selfPath, MAX_PATH);
+    std::string path = selfPath;
+#else
+    Dl_info info = {};
+    if (dladdr(reinterpret_cast<void*>(&OwnModuleDirectory), &info) == 0
+        || info.dli_fname == nullptr)
+        return std::string();
+    std::string path = info.dli_fname;
+#endif
+    const size_t slash = path.find_last_of("\\/");
+    return slash == std::string::npos ? std::string()
+         : path.substr(0, slash + 1);
+}
+
+#if defined(_WIN32)
+void* OpenSharedPlugin(const std::string& path) {
+    return reinterpret_cast<void*>(LoadLibraryA(path.c_str()));
+}
+void* ResolvePluginSymbol(void* handle, const char* name) {
+    return reinterpret_cast<void*>(
+        GetProcAddress(static_cast<HMODULE>(handle), name));
+}
+void CloseSharedPlugin(void* handle) {
+    FreeLibrary(static_cast<HMODULE>(handle));
+}
+#else
+void* OpenSharedPlugin(const std::string& path) {
+    //RTLD_LOCAL keeps the plugin's CUDA runtime symbols from interposing
+    //any other object in the process.
+    return dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
+}
+void* ResolvePluginSymbol(void* handle, const char* name) {
+    return dlsym(handle, name);
+}
+void CloseSharedPlugin(void* handle) {
+    dlclose(handle);
+}
+#endif
+
+#if defined(_WIN32)
+constexpr const char* kCudaPluginName = "nlang_tensor_cuda.dll";
+#else
+constexpr const char* kCudaPluginName = "libnlang_tensor_cuda.so";
+#endif
+
+//The CUDA plugin probe: the plugin sits next to this module (the tensor
+//native module). pluginError means the plugin is absent (auto stays
+//silent there); probeError means the plugin is present but the probe
+//failed (auto says so on stderr).
 struct CudaProbe {
     const DeviceBackendDescriptor* desc = nullptr;
     const char* pluginError = nullptr;
@@ -105,25 +165,17 @@ struct CudaProbe {
 };
 
 CudaProbe ProbeCudaPlugin() {
-    HMODULE self = nullptr;
-    GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS
-        | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-        (LPCSTR)&ProbeCudaPlugin, &self);
-    char selfPath[MAX_PATH] = {};
-    GetModuleFileNameA(self, selfPath, MAX_PATH);
-    std::string dir = selfPath;
-    const size_t slash = dir.find_last_of("\\/");
-    dir = slash == std::string::npos ? "" : dir.substr(0, slash + 1);
-    const std::string pluginPath = dir + "nlang_tensor_cuda.dll";
+    const std::string pluginPath = OwnModuleDirectory() + kCudaPluginName;
     CudaProbe probe;
-    HMODULE plugin = LoadLibraryA(pluginPath.c_str());
+    void* plugin = OpenSharedPlugin(pluginPath);
     if (plugin == nullptr) {
-        probe.pluginError = "the plugin DLL is not in the native directory";
+        probe.pluginError = "the plugin is not in the native directory";
         return probe;
     }
-    auto* initFn = (const void* (*)(void))GetProcAddress(
+    auto* initFn = (const void* (*)(void))ResolvePluginSymbol(
         plugin, "nlang_device_backend_init");
     if (initFn == nullptr) {
+        CloseSharedPlugin(plugin);
         probe.probeError = "the plugin does not export "
             "nlang_device_backend_init";
         return probe;
