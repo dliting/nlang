@@ -10,6 +10,7 @@
 #include <list>
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -114,8 +115,33 @@ private:
 	//library source is indexed and parsed as an inline library
 	//translation unit (dotted names map to <root>/<a/b/c.n>; idempotent
 	//per file); a name no source answers for is looked up as an artifact
-	//(DiscoverArtifactUnit) and queued for the load phase.
+	//(DiscoverArtifactUnit) and queued for the load phase. The fixed
+	//point also reads each queued image's import records (a mirror's
+	//dependency chain joins the build without any TU naming it), and
+	//names whose records nothing answers for are reported here.
 	void DiscoverLibraryUnits();
+	//DiscoverLibraryUnits' iteration: scan each TU's import specs, then
+	//each artifact image queued since the last pass (its import-record
+	//names resolve through ResolveMirrorImportName), until a pass adds
+	//no TU and queues no artifact. specNames collects every non-wildcard
+	//spec name (the import gate owns their not-found reports);
+	//homelessNames collects record names nothing answered for, in
+	//first-seen order.
+	void RunDiscoveryFixedPoint(std::set<std::string> &specNames,
+		std::vector<std::string> &homelessNames);
+	//One fixed-point pass's mirror half: the artifact images queued
+	//since scannedArtifacts was set have their import-record names
+	//resolved, each name once. True when the pass grew the TU set or
+	//the pending set (the fixed point iterates on growth).
+	bool ScanMirrorImportRecords(size_t &scannedArtifacts,
+		std::set<std::string> &mirrorNames,
+		std::vector<std::string> &homelessNames);
+	//The fixed point's closing report: every homeless record name gets
+	//the module-not-found diagnostic (no gate sees it — no TU spec
+	//names it), except names a TU spec carries, whose report the gate
+	//already owns.
+	void ReportHomelessMirrorNames(const std::set<std::string> &specNames,
+		const std::vector<std::string> &homelessNames) const;
 	//Locate the library source for a dotted package name:
 	//`a.b.c` is <root>/a/b/c.n on the first matching search dir. Returns
 	//(file, matched root); the file is empty when no root has it.
@@ -126,17 +152,34 @@ private:
 	//single match under its root. A name no source answers for goes to
 	//the artifact arm, unless a project source derives to it (that unit
 	//registers under the name; no artifact may answer for it). True
-	//when a TU was added.
-	bool HandleLibraryImport(const std::string &dottedName);
+	//when a TU was added. discoverArtifact=false runs the source arm
+	//alone: the mirror-record resolver (ResolveMirrorImportName) calls
+	//the artifact arm itself so it can read the outcome.
+	bool HandleLibraryImport(const std::string &dottedName,
+		bool discoverArtifact = true);
+	//Resolve one import-record name read from a loaded mirror image,
+	//in the import order (D2): prelude and project units own their
+	//names outright; otherwise the library-source arm (a TU was added,
+	//or a source answering for the name is already inlined), then the
+	//artifact arm's outcome. True when the name found a home; false
+	//means nothing answers for it (the caller reports it).
+	bool ResolveMirrorImportName(const std::string &name);
 	//True when a project source of this build derives to the module
 	//path (the registry is not built yet at discovery).
 	bool IsProjectModuleName(const std::string& moduleName) const;
+	//Outcome of one name's artifact discovery (DiscoverArtifactUnit):
+	//Queued — the unit was queued now or earlier; Refused — an artifact
+	//answered but was rejected (the diagnosis is already logged);
+	//Absent — nothing answers for the name.
+	enum class ArtifactOutcome { Queued, Refused, Absent };
 	//The artifact arm of one import name: the unit file
 	//<dir>/<name>.ncu, else the member tables of the dir's packages,
 	//across the effective library dirs in order. A found unit is queued
 	//once however many units import the name; a refused one (unreadable
 	//bytes, a header naming another module) is reported here.
-	void DiscoverArtifactUnit(const std::string& name);
+	ArtifactOutcome DiscoverArtifactUnit(const std::string& name);
+	//True when an artifact unit of that module path is already queued.
+	bool HasPendingArtifact(const std::string& name) const;
 	//Register the registry entry of every queued artifact unit. Runs
 	//before the import gates are built, so a gate finds an artifact unit
 	//as a registered name.

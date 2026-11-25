@@ -238,12 +238,13 @@ std::vector<std::string> compileUnit(const std::filesystem::path& source,
 }
 
 //The third-party package under test in artifact form: pkgsrc/tp.n,
-//pkgsrc/tp/helper.n and pkgsrc/tp/sub.n (package tp; tp calls its
-//helper; sub is the dotted-import surface) compile in project mode
-//into <pkgOut>/<szPackageFile> — one member per unit, no entry record.
-//No tp source stays on a search path, so a consumer reaches tp through
-//a member table only. False when the build failed or the package is
-//missing.
+//pkgsrc/tp/core.n, pkgsrc/tp/helper.n and pkgsrc/tp/sub.n (package tp;
+//tp calls its helper; core is the transitive surface — sub's
+//signatures use its Marker — and sub is the dotted-import surface)
+//compile in project mode into <pkgOut>/<szPackageFile> — one member
+//per unit, no entry record. No tp source stays on a search path, so a
+//consumer reaches tp through a member table only. False when the
+//build failed or the package is missing.
 bool buildThirdPartyPackage(const std::filesystem::path& pkgOut,
     const char* szPackageFile)
 {
@@ -256,9 +257,18 @@ bool buildThirdPartyPackage(const std::filesystem::path& pkgOut,
     if (!writeSourceFile(src / "tp.n",
             "import tp.helper;\n"
             "public int top() { return tp.helper.Fn.f(); }\n") ||
+        !writeSourceFile(src / "tp" / "core.n",
+            "public class Marker\n"
+            "{\n"
+            "    public Marker() {}\n"
+            "    public int tag() { return 1; }\n"
+            "}\n") ||
         !writeSourceFile(src / "tp" / "helper.n",
             "public class Fn { public static int f() { return 42; } }\n") ||
         !writeSourceFile(src / "tp" / "sub.n",
+            "import tp.core;\n"
+            "public Marker make() { return Marker(); }\n"
+            "public int use(Marker m) { return m.tag(); }\n"
             "public int x() { return 7; }\n"))
     {
         return false;
@@ -267,6 +277,7 @@ bool buildThirdPartyPackage(const std::filesystem::path& pkgOut,
     params.m_bProjectMode = true;
     params.m_sProjectDir = src.string();
     params.m_SourceFiles.push_back((src / "tp.n").string());
+    params.m_SourceFiles.push_back((src / "tp" / "core.n").string());
     params.m_SourceFiles.push_back((src / "tp" / "helper.n").string());
     params.m_SourceFiles.push_back((src / "tp" / "sub.n").string());
     //Same hermeticity rule as compileUnit: absolute paths only.
@@ -289,9 +300,9 @@ bool buildThirdPartyPackage(const std::filesystem::path& pkgOut,
 }
 
 //Damage the first member's image inside the package. The writer packs
-//the members sorted by module path (tp ahead of tp.helper) back to
-//back, so the byte before the second image's magic is the last byte of
-//the first member: the container stays readable and tp fails its
+//the members sorted by module path (tp first, ahead of tp.core) back
+//to back, so the byte before the second image's magic is the last byte
+//of the first member: the container stays readable and tp fails its
 //checksum. False when the second image was not found.
 bool corruptFirstMember(const std::filesystem::path& package)
 {
@@ -308,6 +319,78 @@ bool corruptFirstMember(const std::filesystem::path& package)
     std::ofstream out(package, std::ios::binary | std::ios::trunc);
     out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
     return out.good();
+}
+
+//Two packages whose members name each other in their import records —
+//the delivery shape of a mutual dependency built in versions: each
+//producer compiled against an acyclic stub source of the other side
+//(a source-level mutual pair could never compile — the cycle ban
+//rejects it), so no producing build saw a cycle. cyc_pa builds with
+//the pb.m stub on its search path, cyc_pb with the pa.m stub; the
+//stub sources ship nowhere. False when a stage build failed or a
+//package is missing.
+bool buildMutualPackages(const std::filesystem::path& pkgOut)
+{
+    namespace fs = std::filesystem;
+    const fs::path root = nlang::test::ScratchDir("nlang_import_gate");
+    const fs::path srcsA = root / "cyc_pa";
+    const fs::path srcsB = root / "cyc_pb";
+    const fs::path stubA = root / "cyc_stub_pa";
+    const fs::path stubB = root / "cyc_stub_pb";
+    std::error_code fsError;
+    for (const fs::path* dir : {&srcsA, &srcsB, &stubA, &stubB})
+    {
+        fs::remove_all(*dir, fsError);
+        fs::create_directories(*dir / "pa", fsError);
+        fs::create_directories(*dir / "pb", fsError);
+    }
+    if (!writeSourceFile(srcsA / "pa.n",
+            "public int aroot() { return 1; }\n") ||
+        !writeSourceFile(srcsA / "pa" / "m.n",
+            "import pb.m;\n"
+            "public int a() { return pb.m.b(); }\n") ||
+        !writeSourceFile(stubB / "pb" / "m.n",
+            "public int b() { return 0; }\n") ||
+        !writeSourceFile(srcsB / "pb.n",
+            "public int broot() { return 2; }\n") ||
+        !writeSourceFile(srcsB / "pb" / "m.n",
+            "import pa.m;\n"
+            "public int b() { return pa.m.a(); }\n") ||
+        !writeSourceFile(stubA / "pa" / "m.n",
+            "public int a() { return 0; }\n"))
+    {
+        return false;
+    }
+    //One stage build: a project tree plus the other side's stub on the
+    //search path (the stub stays a library TU — excluded from codegen,
+    //so the package carries only the project's own members).
+    const auto buildStage = [&pkgOut](const fs::path& project,
+        const std::vector<fs::path>& sources,
+        const std::string& outputModule, const fs::path& importDir)
+    {
+        BuildParams params;
+        params.m_bProjectMode = true;
+        params.m_sProjectDir = project.string();
+        for (const fs::path& source : sources)
+            params.m_SourceFiles.push_back(source.string());
+        params.m_ImportDirs.clear();
+        params.m_ImportDirs.push_back(importDir.string());
+        params.m_sOutputModule = outputModule;
+        params.m_sOutputDir = pkgOut.string();
+        params.m_sTempDir = pkgOut.string();
+        params.m_sStdLibDir = STDLIB_DIR;
+        MemLogger logger;
+        ModuleBuilder builder(params, logger);
+        bool ok = false;
+        try { ok = builder.BuildArtifacts(); }
+        catch (const std::exception&) { ok = false; }
+        std::error_code fsError;
+        return ok && fs::exists(pkgOut / (outputModule + ".npkg"), fsError);
+    };
+    return buildStage(srcsA, {srcsA / "pa.n", srcsA / "pa" / "m.n"},
+               "pa", stubB)
+        && buildStage(srcsB, {srcsB / "pb.n", srcsB / "pb" / "m.n"},
+               "pb", stubA);
 }
 
 //Shared scaffold of the import-gate tests: a two-stage build. Stage 1
@@ -3469,9 +3552,10 @@ private slots:
 
     //Package artifacts: a package is addressed by its member table, and
     //each member is an importable unit. The third-party package tp
-    //ships as tp.npkg with three members — tp, which calls its helper,
-    //tp.helper, and tp.sub (dotted-import surface for the tests below)
-    //— and no source of it is on the search path. `import tp;` compiles
+    //ships as tp.npkg with four members — tp, which calls its helper,
+    //tp.helper, tp.core (the transitive surface sub's signatures use)
+    //and tp.sub (the dotted-import surface for the tests below) — and
+    //no source of it is on the search path. `import tp;` compiles
     //against the tp member, and the load-time closure walk finds
     //tp.helper in the same package: 42 + 11.
     void multiMemberPackageUnitImportsAndRuns()
@@ -3639,10 +3723,96 @@ private slots:
 
     //The dotted direct unit file: <dir>/tp.sub.ncu. A source stem cannot
     //carry a dot (the registry rejects the shape), so the fixture builds
-    //the package in a staging dir OUTSIDE the search path and offers only
-    //the extracted member image as the unit file — the file arm answers,
-    //the package never sits on the path.
+    //the package in a staging dir OUTSIDE the search path and offers
+    //only the extracted member images as unit files — tp.sub and the
+    //tp.core member its records name (sub's signatures use its Marker,
+    //so the file arm must serve the transitive member too) — the file
+    //arm answers, the package never sits on the path.
     void dottedUnitFileImport()
+    {
+        bool fixtureOk = true;
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import tp.sub;\n"
+            "int main() { return tp.sub.x() + 1; }\n";
+        opts.withThirdPartyPackage = true;
+        opts.preparePackageDir = [&fixtureOk](const std::filesystem::path& pkgOut)
+        {
+            namespace fs = std::filesystem;
+            const fs::path staging =
+                nlang::test::ScratchDir("nlang_import_gate") / "stage_pkg";
+            std::error_code fsError;
+            fs::remove_all(staging, fsError);
+            fs::create_directories(staging, fsError);
+            fixtureOk = fixtureOk
+                && buildThirdPartyPackage(staging, "tp.npkg");
+            const std::pair<const char*, const char*> members[] =
+                {{"tp.core", "tp.core.ncu"}, {"tp.sub", "tp.sub.ncu"}};
+            for (const auto& member : members)
+            {
+                std::string bytes;
+                std::string error;
+                nlang::NcuPackageReader reader;
+                if (fixtureOk
+                    && reader.Open(staging.string() + "/tp.npkg", &error))
+                    fixtureOk = reader.ExtractMember(
+                        member.first, &bytes, &error);
+                else
+                    fixtureOk = false;
+                if (fixtureOk)
+                {
+                    std::ofstream out(pkgOut / member.second,
+                        std::ios::binary | std::ios::trunc);
+                    out.write(bytes.data(),
+                        static_cast<std::streamsize>(bytes.size()));
+                    fixtureOk = out.good();
+                }
+            }
+        };
+        const GateRunResult run = runGateProject(opts);
+        QVERIFY2(fixtureOk, "the dotted unit file fixture could not be built");
+        QVERIFY2(run.ok, runFailureText(run,
+            "a dotted unit file must import, build and execute").c_str());
+        QVERIFY2(run.runtimeError.empty(), runFailureText(run,
+            "execution must be clean").c_str());
+        QVERIFY2(run.exitValue == 8, "tp.sub.x() must return 7 here, plus 1");
+    }
+
+    //Transitive closure through a mirror's import records: nothing but
+    //tp.sub's own records name tp.core (main imports one member), so the
+    //discovery fixed point must read the loaded image's import records,
+    //queue the tp.core member, and let sub's Marker-typed signatures
+    //resolve — the transitive value crosses main's frame opaquely:
+    //7 + 1.
+    void transitiveSubmoduleImport()
+    {
+        bool fixtureOk = true;
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import tp.sub;\n"
+            "int main() { return tp.sub.x() + tp.sub.use(tp.sub.make()); }\n";
+        opts.withThirdPartyPackage = true;
+        opts.preparePackageDir = [&fixtureOk](const std::filesystem::path& pkgOut)
+        {
+            fixtureOk = fixtureOk
+                && buildThirdPartyPackage(pkgOut, "tp.npkg");
+        };
+        const GateRunResult run = runGateProject(opts);
+        QVERIFY2(fixtureOk, "the third-party package fixture could not be built");
+        QVERIFY2(run.ok, runFailureText(run,
+            "a transitive member must resolve through the importer's"
+            " image records").c_str());
+        QVERIFY2(run.runtimeError.empty(), runFailureText(run,
+            "execution must be clean").c_str());
+        QVERIFY2(run.exitValue == 8, "x() is 7 and use(make()) is 1 here");
+    }
+
+    //The same records with no provider: only the extracted tp.sub unit
+    //file sits on the search path (the package and its tp.core member
+    //are staged away). The fixed point must report the module-not-found
+    //family for the transitive name — one clean diagnostic, no
+    //signature-resolution cascade behind it.
+    void transitiveSubmoduleNotFound()
     {
         bool fixtureOk = true;
         GateProjectOptions opts;
@@ -3677,12 +3847,41 @@ private slots:
             }
         };
         const GateRunResult run = runGateProject(opts);
-        QVERIFY2(fixtureOk, "the dotted unit file fixture could not be built");
-        QVERIFY2(run.ok, runFailureText(run,
-            "a dotted unit file must import, build and execute").c_str());
-        QVERIFY2(run.runtimeError.empty(), runFailureText(run,
-            "execution must be clean").c_str());
-        QVERIFY2(run.exitValue == 8, "tp.sub.x() must return 7 here, plus 1");
+        QVERIFY2(fixtureOk, "the transitive unit file fixture could not be built");
+        QVERIFY2(!run.ok, runFailureText(run,
+            "a transitive name with no provider must fail the build").c_str());
+        QVERIFY2(containsError(run.errors, "Module 'tp.core' not found"),
+            joinErrors(run.errors).c_str());
+        //One clean diagnostic: the pre-fix shape cascaded into
+        //signature resolution ("Type 'Marker' is not a member of
+        //package 'tp.core'" and worse).
+        QVERIFY2(run.errors.size() == 1, joinErrors(run.errors).c_str());
+    }
+
+    //A mutual package pair: each member's records name the other side's
+    //member (the versioned delivery shape — no producing build saw the
+    //cycle). The fixed point loads the second member through the
+    //first's records, and the compile-time cycle ban reports what the
+    //delivery shape could not.
+    void mutualPackagesImportCycle()
+    {
+        bool fixtureOk = true;
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import pa.m;\n"
+            "int main() { return 0; }\n";
+        opts.withThirdPartyPackage = true;
+        opts.preparePackageDir = [&fixtureOk](const std::filesystem::path& pkgOut)
+        {
+            fixtureOk = fixtureOk && buildMutualPackages(pkgOut);
+        };
+        const GateRunResult run = runGateProject(opts);
+        QVERIFY2(fixtureOk, "the mutual package fixture could not be built");
+        QVERIFY2(!run.ok, runFailureText(run,
+            "a mutual package pair must fail the build").c_str());
+        QVERIFY2(containsError(run.errors,
+                "import cycle detected: pa.m -> pb.m -> pa.m"),
+            joinErrors(run.errors).c_str());
     }
 };
 

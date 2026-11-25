@@ -13,10 +13,12 @@
 #include "SyntaxTree.h"
 #include "TranslationUnit.h"
 #include "builder/ModuleRegistry.h"
+#include "ModuleBuilderImportCycles.h"
 #include "ModuleBuilderImports.h"
 #include "ScriptParser.h"
 #include <algorithm>
 #include <filesystem>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -198,9 +200,13 @@ bool ModuleBuilder::EnsurePreludeImported()
 //answers for goes to the artifact arm, unless a project source derives
 //to it: that unit registers under the name, and a package member of the
 //same name (an earlier build's output left on the search path, say)
-//must not answer for it. True when a TU was added (drives the fixed-point
-//iteration; the artifact arm adds none).
-bool ModuleBuilder::HandleLibraryImport(const std::string &dottedName)
+//must not answer for it. True when a TU was added (one fixed-point
+//driver; the artifact arm adds no TU but grows the pending set, the
+//other driver). discoverArtifact=false runs the source arm alone — the
+//mirror-record resolver calls the artifact arm itself to read its
+//outcome.
+bool ModuleBuilder::HandleLibraryImport(const std::string &dottedName,
+	bool discoverArtifact)
 {
 	//The reserved prelude packages never resolve through the disk scan
 	//alone: their registration belongs to the implicit import (embedded
@@ -223,7 +229,7 @@ bool ModuleBuilder::HandleLibraryImport(const std::string &dottedName)
 	}
 	if (!matches.empty())
 		return ImportLibraryMatch(matches.front());
-	if (!IsProjectModuleName(dottedName))
+	if (discoverArtifact && !IsProjectModuleName(dottedName))
 		DiscoverArtifactUnit(dottedName);
 	return false;
 }
@@ -323,29 +329,92 @@ bool ModuleBuilder::DiscoverLibrarySubtree(const std::string &dottedName)
 	return changed;
 }
 
-//Discover every import-reachable library unit. Iterate the imports of
-//all known TUs to a fixed point so a library can depend on a library:
-//each pass may add library TUs whose imports are scanned on the next
-//pass. A non-wildcard import is one candidate (a dotted name maps to
-//<root>/a/b/c.n under the matched root; a bare stem is the same rule at
-//one segment) and a wildcard is the package plus its subtree
-//(DiscoverLibrarySubtree), whether or not the signature index already
-//knows the package, so the standard library is inlined exactly like a
-//third-party source library. A candidate no source answers for is looked
-//up as an artifact instead (HandleLibraryImport's tail).
-void ModuleBuilder::DiscoverLibraryUnits()
+//One import-record name read from a loaded mirror image, resolved in
+//the import order (D2). The prelude packages are inlined by the
+//implicit import before discovery, and a project unit owns its own
+//name (no artifact may answer for it); otherwise the library-source
+//arm runs first — a TU was added, or a source answering for the name
+//is already inlined — then the artifact arm's outcome separates a
+//queued unit, a refused one (its diagnosis is already logged) and an
+//absent one. False only when nothing answers for the name.
+bool ModuleBuilder::ResolveMirrorImportName(const std::string &name)
 {
-	//Per-run state: a second build starts from an empty queue and a fresh view.
-	m_pendingArtifacts.clear();
-	m_upEnv->ResetArtifactPackages(MakeArtifactPackageCache());
-
-	if (m_upEnv->ContainFlags(MBF_ShowBuildingSteps))
+	for (const PreludePackage &pkg : kPreludePackages)
 	{
-		m_upEnv->Log(CLL_Info, BAR_STR);
-		m_upEnv->Log(CLL_Info, "Discovering library units ...");
+		if (name == pkg.name)
+			return true;
 	}
+	if (IsProjectModuleName(name))
+		return true;
+	if (HandleLibraryImport(name, /*discoverArtifact=*/false))
+		return true;
+	//A false return also covers the deduped re-import of an
+	//already-inlined source (and the duplicate-package diagnosis —
+	//matches non-empty, the error already logged): both are homes.
+	if (!FindLibrarySourceMatches(m_upEnv->Params(), name).empty())
+		return true;
+	return DiscoverArtifactUnit(name) != ArtifactOutcome::Absent;
+}
 
-	size_t scanned = 0;  //TUs already inspected (TUs only ever append)
+//The fixed point's closing report: a record name nothing answered for
+//has no gate to report it (no TU spec names it), so discovery reports
+//it itself — except a name a TU spec also carries: the import gate's
+//report owns that one (one diagnostic per name, not two).
+void ModuleBuilder::ReportHomelessMirrorNames(
+	const std::set<std::string> &specNames,
+	const std::vector<std::string> &homelessNames) const
+{
+	for (const std::string &name : homelessNames)
+	{
+		if (specNames.count(name) == 0)
+			m_upEnv->Log(CLL_Error, "%s", ModuleNotFoundText(name).c_str());
+	}
+}
+
+//One fixed-point pass's mirror half: every artifact image queued since
+//scannedArtifacts was set has its import-record names resolved, each
+//name once, in record order (deterministic: the five tables serialize
+//in a fixed order). A name that resolves to nothing joins
+//homelessNames for the closing report. True when the pass grew the TU
+//set or the pending set — the fixed point iterates on growth.
+bool ModuleBuilder::ScanMirrorImportRecords(size_t &scannedArtifacts,
+	std::set<std::string> &mirrorNames,
+	std::vector<std::string> &homelessNames)
+{
+	const size_t unitsBefore = m_upTransUnits->size();
+	const size_t totalArtifacts = m_pendingArtifacts.size();
+	for (size_t i = scannedArtifacts; i < totalArtifacts; ++i)
+	{
+		const PendingArtifactLoad &pending = m_pendingArtifacts[i];
+		for (const std::string &name : ImageImportTargets(pending.image))
+		{
+			//A unit's record of its own path is a self-reference, not a
+			//dependency (the cycle check drops the same shape).
+			if (name == pending.name)
+				continue;
+			if (!mirrorNames.insert(name).second)
+				continue;
+			if (!ResolveMirrorImportName(name))
+				homelessNames.push_back(name);
+		}
+	}
+	scannedArtifacts = totalArtifacts;
+	return m_pendingArtifacts.size() != totalArtifacts
+		|| m_upTransUnits->size() != unitsBefore;
+}
+
+//DiscoverLibraryUnits' iteration. The TU half keeps its own scan
+//cursor (TUs only ever append); the mirror half starts where the
+//previous pass's artifact scan stopped. A pass that adds a TU or
+//queues an artifact changes the world, so the loop runs again; a pass
+//that changes nothing is the fixed point.
+void ModuleBuilder::RunDiscoveryFixedPoint(
+	std::set<std::string> &specNames,
+	std::vector<std::string> &homelessNames)
+{
+	size_t scanned = 0;               //TUs already inspected
+	size_t scannedArtifacts = 0;      //artifact images already inspected
+	std::set<std::string> mirrorNames;  //record names already resolved
 	bool changed = true;
 	while (changed)
 	{
@@ -365,6 +434,7 @@ void ModuleBuilder::DiscoverLibraryUnits()
 			{
 				if (!spec.wildcard)
 				{
+					specNames.insert(spec.DottedName());
 					if (HandleLibraryImport(spec.DottedName()))
 						changed = true;
 					continue;
@@ -381,7 +451,42 @@ void ModuleBuilder::DiscoverLibraryUnits()
 			}
 		}
 		scanned = total;
+		if (ScanMirrorImportRecords(scannedArtifacts, mirrorNames,
+				homelessNames))
+			changed = true;
 	}
+}
+
+//Discover every import-reachable library unit. Iterate the imports of
+//all known TUs to a fixed point so a library can depend on a library:
+//each pass may add library TUs whose imports are scanned on the next
+//pass. A non-wildcard import is one candidate (a dotted name maps to
+//<root>/a/b/c.n under the matched root; a bare stem is the same rule at
+//one segment) and a wildcard is the package plus its subtree
+//(DiscoverLibrarySubtree), whether or not the signature index already
+//knows the package, so the standard library is inlined exactly like a
+//third-party source library. A candidate no source answers for is
+//looked up as an artifact instead (HandleLibraryImport's tail). The
+//fixed point also reads every queued artifact image's import records:
+//a mirror's dependency chain joins the build without any TU naming
+//it, and a record name nothing answers for is reported here — no
+//import gate would see it.
+void ModuleBuilder::DiscoverLibraryUnits()
+{
+	//Per-run state: a second build starts from an empty queue and a fresh view.
+	m_pendingArtifacts.clear();
+	m_upEnv->ResetArtifactPackages(MakeArtifactPackageCache());
+
+	if (m_upEnv->ContainFlags(MBF_ShowBuildingSteps))
+	{
+		m_upEnv->Log(CLL_Info, BAR_STR);
+		m_upEnv->Log(CLL_Info, "Discovering library units ...");
+	}
+
+	std::set<std::string> specNames;
+	std::vector<std::string> homelessNames;
+	RunDiscoveryFixedPoint(specNames, homelessNames);
+	ReportHomelessMirrorNames(specNames, homelessNames);
 }
 
 } //namespace nlang

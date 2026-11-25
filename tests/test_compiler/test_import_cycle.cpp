@@ -4,13 +4,12 @@ test_import_cycle.cpp - v0.12.6 Task 8 (D13) import-cycle detection.
 The compiler's import prelude must reject a cyclic import graph before
 codegen: with lazy static initialization a cycle deadlocks at runtime
 (each unit's $staticInit gate can park on a peer whose own initializer
-parks back). Both spec §8 forms are unit-level because a direct cycle
-cannot be produced by two ordinary compilations — compiling b against
-a requires a's image to exist, while a imports b's image, so building
-one needs a stale-image bootstrap no e2e row can express. The unit
-test feeds the edge graph directly (the same graph the production
-wiring extracts: the root unit's direct imports plus every loaded
-image's SymbolImport module paths).
+parks back). Both spec §8 forms are unit-level: the edge graph is fed
+directly here (the same graph the production wiring extracts: the root
+unit's direct imports plus every loaded image's SymbolImport module
+paths). The end-to-end shape — two packages whose delivered records
+import each other, each built against the peer's acyclic stub source —
+is pinned by mutualPackagesImportCycle in test_module_import.cpp.
 ---*/
 #include "builder/ImportCycleCheck.h"
 #include <iostream>

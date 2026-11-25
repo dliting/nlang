@@ -232,22 +232,21 @@ ArtifactUnit FindArtifactUnit(const BuildParams &params,
 //Discovery arm for a name that no library source answers for: look its
 //artifact up and queue it for the load phase. A name is queued once
 //however many units import it. A refusal is reported here, by the
-//lookup that met it; a name nothing answers for is left to the import
-//gate's not-found diagnostic.
-void ModuleBuilder::DiscoverArtifactUnit(const std::string &name)
+//lookup that met it; an absent name (nothing answers for it) is the
+//CALLER's report — the mirror-record resolver emits the module-not-
+//found diagnostic, the import gate owns a TU spec's name.
+ModuleBuilder::ArtifactOutcome ModuleBuilder::DiscoverArtifactUnit(
+	const std::string &name)
 {
-	for (const PendingArtifactLoad &pending : m_pendingArtifacts)
-	{
-		if (pending.name == name)
-			return;
-	}
+	if (HasPendingArtifact(name))
+		return ArtifactOutcome::Queued;
 	ArtifactUnit unit = FindArtifactUnit(m_upEnv->Params(),
 		*m_upEnv->ArtifactPackages(), name);
 	if (!unit.error.empty())
 	{
 		m_upEnv->Log(CLL_Error, "Failed to load module '%s': %s",
 			name.c_str(), unit.error.c_str());
-		return;
+		return ArtifactOutcome::Refused;
 	}
 	if (unit.found)
 	{
@@ -256,7 +255,21 @@ void ModuleBuilder::DiscoverArtifactUnit(const std::string &name)
 		pending.image = std::move(unit.image);
 		pending.artifactPath = unit.artifactPath;
 		m_pendingArtifacts.push_back(std::move(pending));
+		return ArtifactOutcome::Queued;
 	}
+	return ArtifactOutcome::Absent;
+}
+
+//True when an artifact unit of that module path is already queued
+//(the pending set only ever appends, so this is the queue's dedup).
+bool ModuleBuilder::HasPendingArtifact(const std::string &name) const
+{
+	for (const PendingArtifactLoad &pending : m_pendingArtifacts)
+	{
+		if (pending.name == name)
+			return true;
+	}
+	return false;
 }
 
 //Register a registry entry for every artifact unit the discovery phase
