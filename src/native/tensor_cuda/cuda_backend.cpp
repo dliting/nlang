@@ -807,15 +807,15 @@ void BuildOnce() {
 
 extern "C" {
 
-__declspec(dllexport) unsigned nlang_device_abi_version(void) {
+NLANG_DEVICE_EXPORT unsigned nlang_device_abi_version(void) {
     return 1u;
 }
 
-__declspec(dllexport) const char* nlang_device_backend_name(void) {
+NLANG_DEVICE_EXPORT const char* nlang_device_backend_name(void) {
     return "cuda";
 }
 
-__declspec(dllexport) const tensor::DeviceBackendDescriptor*
+NLANG_DEVICE_EXPORT const tensor::DeviceBackendDescriptor*
 nlang_device_backend_init(void) {
     static tensor::DeviceBackendDescriptor desc;
     static bool built = false;

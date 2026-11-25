@@ -34,4 +34,13 @@ struct DeviceBackendDescriptor {
 #define NLANG_DEVICE_NAME_SYMBOL nlang_device_backend_name
 #define NLANG_DEVICE_INIT_SYMBOL nlang_device_backend_init
 
+//Export decorator for the three C symbols: dllexport on Windows; default
+//visibility elsewhere (matches the NLANG_NATIVE_EXPORT pattern in
+//NativeHost.h; the symbols are already C-linked via the extern "C" block).
+#if defined(_WIN32)
+#  define NLANG_DEVICE_EXPORT __declspec(dllexport)
+#else
+#  define NLANG_DEVICE_EXPORT __attribute__((visibility("default")))
+#endif
+
 } // namespace tensor
