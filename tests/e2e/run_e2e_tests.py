@@ -127,13 +127,31 @@ def _fail_on_stale_tools(ncc, nvm, ndb):
     set pressured a no-op tool rebuild on every stdlib edit and tempted
     the timestamp-forging `touch` that once let a pre-merge nvm.exe
     pass this guard for a full task (2026-11-08).
+
+    The native modules (src/native) are dlopen'd shared libraries the
+    tools load at runtime, not statically linked into them, so a native
+    source change rebuilds only that module's .so, not the tools. The
+    tool check below therefore excludes src/native — including it would
+    alarm on a native edit, and the no-op tool rebuild the alarm demands
+    never clears it because the tools' mtime does not advance. A stale
+    .so is caught by its own check below.
     """
+    def _is_native_module_source(path):
+        # True when path lies under <repo>/src/native (the dlopen'd
+        # modules). The glob below is anchored at REPO_ROOT, so the
+        # repo-relative components are the tool's own inputs (src/*)
+        # versus the dlopen'd modules (src/native/*).
+        parts = os.path.relpath(path, REPO_ROOT).split(os.sep)
+        return (len(parts) >= 2 and parts[0] == 'src'
+                and parts[1] == 'native')
+
     newest_src, newest_name = _newest_file(
         path
         for pattern in ('src/**/*.cpp', 'src/**/*.hpp', 'src/**/*.h',
                         'include/**/*.h', 'include/**/*.hpp')
         for path in glob.glob(os.path.join(REPO_ROOT, pattern),
-                              recursive=True))
+                              recursive=True)
+        if not _is_native_module_source(path))
     for tool in (ncc, nvm, ndb):
         if not os.path.isfile(tool):
             print(f"ERROR: tool not found: {tool}")
@@ -144,6 +162,27 @@ def _fail_on_stale_tools(ncc, nvm, ndb):
                   f"running the suite (stale-binary results are "
                   f"meaningless)")
             sys.exit(2)
+    #Native-module staleness: each module is a dlopen'd shared library
+    #the tools load at runtime, so it must be at least as new as its own
+    #sources — a stale .so would be loaded by a fresh tool and misreport
+    #module behavior as a test bug. The newest .so is bound against the
+    #newest native source (over-approximation, as above: a false alarm
+    #costs one native-module rebuild, which clears it). The .so live in
+    #the build's native/ directory, three levels up from ncc's own dir.
+    native_dir = os.path.normpath(os.path.join(
+        os.path.dirname(ncc), '..', '..', '..', 'native'))
+    newest_so, newest_so_name = _newest_file(
+        glob.glob(os.path.join(native_dir, 'libnlang_*.so')) +
+        glob.glob(os.path.join(native_dir, 'nlang_*.dll')))
+    newest_native_src, newest_native_name = _newest_file(
+        glob.glob(os.path.join(REPO_ROOT, 'src', 'native', '**', '*.cpp'),
+                  recursive=True))
+    if newest_so_name and newest_so < newest_native_src:
+        print(f"ERROR: {_display_path(newest_so_name)} is older "
+              f"than {newest_native_name} - rebuild the native module "
+              f"before running the suite (a stale .so is loaded by a "
+              f"fresh tool)")
+        sys.exit(2)
     #Load-time closure hazard: any .npkg in the tests directory is on
     #the module-local search path and shadows the system stdlib package
     #for every module run from here (an experiment leftover here once
@@ -426,8 +465,68 @@ def _split_timeout_arg(argv):
     return rest, timeout
 
 
+def _is_debug_config(ncc):
+    """True when the tools were built in the Debug config.
+
+    Windows multi-config generators put the config in the tool path
+    (build/src/tools/ncc/Release/ncc.exe). Single-config generators
+    (Linux Makefiles/Ninja) record it in CMakeCache.txt instead — the
+    tool path there carries no config component, so a path-shape check
+    alone would silently never fire the Debug scaling on them.
+    """
+    if '/Debug/' in ncc.replace(os.sep, '/'):
+        return True
+    cache_path = os.path.normpath(os.path.join(
+        os.path.dirname(ncc), '..', '..', '..', 'CMakeCache.txt'))
+    try:
+        with open(cache_path, encoding='utf-8') as cache:
+            for line in cache:
+                if line.startswith('CMAKE_BUILD_TYPE'):
+                    return 'Debug' in line.split('=', 1)[1]
+    except OSError:
+        pass    #no cache readable: assume the path shape said enough
+    return False
+
+
+def _test_runtime_cap(name, sources_dir, effective_timeout):
+    """Runtime subprocess cap for one test: <name>.timeout raises it.
+
+    Same sibling-file discovery shape as .stdin/.flags. The file holds
+    the test's needed budget in seconds and may only RAISE the cap —
+    the effective value (the 30s default, the invocation's
+    --timeout=SEC, scaled x3 under Debug) is the floor, so an
+    invocation-explicit calibration (the gate's --timeout=120) is
+    never silently reduced by a test-side file.
+    """
+    timeout_path = os.path.join(sources_dir, f"{name}.timeout")
+    if not os.path.isfile(timeout_path):
+        return effective_timeout
+    try:
+        with open(timeout_path, encoding='utf-8') as tf:
+            requested = int(tf.read().strip())
+    except (OSError, ValueError):
+        return effective_timeout
+    return max(requested, effective_timeout)
+
+
 def main():
     global TIMEOUT_SEC
+    # POSIX: raise the per-process file-descriptor limit before the suite.
+    # A test that opens many concurrent connections in one process
+    # (net_conc_bench: 1000 clients + 1000 server accepts) needs more than
+    # the default 1024. The limit is inherited by every child the harness
+    # spawns, so raising it once here covers the whole run. Best-effort:
+    # a container may cap the hard limit below the target, in which case
+    # the raise is refused and the default limit still applies.
+    if os.name == 'posix':
+        import resource
+        try:
+            soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+            resource.setrlimit(
+                resource.RLIMIT_NOFILE,
+                (min(max(soft, 4096), hard), hard))
+        except (ValueError, OSError):
+            pass
     args, timeout = _split_timeout_arg(sys.argv[1:])
     if timeout is not None:
         TIMEOUT_SEC = timeout
@@ -462,7 +561,7 @@ def main():
     #any concurrent machine load into timeout flakes. Scale the
     #per-test cap by config, read off the tool path; x3 keeps every
     #test far from its limit and stays under the 3-minute project cap.
-    if '/Debug/' in ncc.replace(os.sep, '/'):
+    if _is_debug_config(ncc):
         TIMEOUT_SEC *= 3
 
     if not os.path.isfile(MANIFEST):
@@ -558,6 +657,14 @@ def main():
                 expected = "compile_error"
             else:
                 expected = int(parts[1])
+                #A process exit status is only 8 bits on POSIX (the kernel
+                #reports result & 0xFF to the parent), so a full-value
+                #expectation (exit_code_full_passthrough's 300) is reachable
+                #on Windows but not on Linux. Mask to the platform's visible
+                #range so the assertion stays meaningful; the low byte still
+                #discriminates correct logic from a wrong value.
+                if os.name != 'nt':
+                    expected &= 0xFF
             expected_stdout = parts[2] if len(parts) > 2 else ""
 
             test_file = os.path.join(sources_dir, f"{name}.n")
@@ -715,7 +822,9 @@ def main():
                 try:
                     result = subprocess.run(
                         _runner_argv(name, ndb, nvm) + [main_nmod],
-                        capture_output=True, timeout=TIMEOUT_SEC,
+                        capture_output=True,
+                        timeout=_test_runtime_cap(name, test_dir,
+                                                  TIMEOUT_SEC),
                         input=stdin_bytes, env=_run_env(name, test_dir))
                     actual = result.returncode
                     stderr_text = _matchable_stderr(result.stderr)
@@ -909,7 +1018,9 @@ def main():
             try:
                 result = subprocess.run(
                     _runner_argv(name, ndb, nvm) + [nmod_file] + extra_flags,
-                    capture_output=True, timeout=TIMEOUT_SEC,
+                    capture_output=True,
+                    timeout=_test_runtime_cap(name, sources_dir,
+                                              TIMEOUT_SEC),
                     cwd=run_cwd, input=stdin_bytes,
                     env=_run_env(name, sources_dir))
                 actual = result.returncode
