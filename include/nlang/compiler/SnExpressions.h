@@ -279,7 +279,7 @@ public:
 	SnLiteralExpr(NodeKind valueKind, CPP_T value, const ISourceLocation &loc) :
 		Super_(s_Kind, loc), m_Value(valueKind, value)
 	{
-		NLANG_ASSERT(m_Value->Type());
+		NLANG_ASSERT(m_Value.Type());
 	}
 
 	SnLiteralExpr(RnDataType &, void *pValue);
