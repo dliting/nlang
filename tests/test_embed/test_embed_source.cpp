@@ -12,7 +12,14 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
-#include <io.h>
+#ifdef _WIN32
+#include <io.h>   //_dup/_dup2/_close (Windows CRT)
+#else
+#include <unistd.h>  //dup/dup2/close (POSIX)
+#define _dup   dup
+#define _dup2  dup2
+#define _close close
+#endif
 #include <iostream>
 #include <stdexcept>
 #include <string>

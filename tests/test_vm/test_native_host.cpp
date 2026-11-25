@@ -34,12 +34,14 @@
 #define TEST_DUP _dup
 #define TEST_DUP2 _dup2
 #define TEST_CLOSE _close
+#define TEST_FILENO _fileno
 #define TEST_BINARY_OUT(fd) _setmode(fd, _O_BINARY)
 #else
 #include <unistd.h>
 #define TEST_DUP dup
 #define TEST_DUP2 dup2
 #define TEST_CLOSE close
+#define TEST_FILENO fileno
 #define TEST_BINARY_OUT(fd) ((void)(fd))
 #endif
 
@@ -434,7 +436,7 @@ void TestInputPromptSilentOnRedirectedStdout() {
     const char* const nullDevice = "/dev/null";
 #endif
 
-    const int savedStdout = TEST_DUP(_fileno(stdout));
+    const int savedStdout = TEST_DUP(TEST_FILENO(stdout));
     if (!std::freopen(outFile.string().c_str(), "w", stdout)
         || !std::freopen(nullDevice, "r", stdin)
         || savedStdout < 0) {
@@ -443,7 +445,7 @@ void TestInputPromptSilentOnRedirectedStdout() {
         return;
     }
     //Byte-exact comparison: no CRLF translation of the program's output.
-    TEST_BINARY_OUT(_fileno(stdout));
+    TEST_BINARY_OUT(TEST_FILENO(stdout));
 
     const std::string source =
         "int main() {\n"
@@ -460,7 +462,7 @@ void TestInputPromptSilentOnRedirectedStdout() {
                         std::istreambuf_iterator<char>());
     }
     std::fflush(stdout);
-    TEST_DUP2(savedStdout, _fileno(stdout));   //restore the real stdout
+    TEST_DUP2(savedStdout, TEST_FILENO(stdout));   //restore the real stdout
     TEST_CLOSE(savedStdout);
 
     CHECK(rc == 0, "program over null-device stdin runs to exit 0");
