@@ -171,8 +171,20 @@ def _stale(findings, newest, artifacts):
 
 def _spec_artifacts(spec):
     """(tools, dlls, test exes) globbed for one tree config."""
-    tools = sorted(glob.glob(
-        str(spec.path / "src" / "tools" / "*" / spec.config / "*.exe")))
+    tools = sorted(
+        path for path in glob.glob(
+            str(spec.path / "src" / "tools" / "*" / spec.config / "*.exe"))
+        #The Qt WebEngine helper process deploys beside nide through the
+        #same POST_BUILD that lays the tool chain there. Unlike the
+        #deployed tools -- whose bytes change with every rebuild, so
+        #copy_if_different refreshes them -- the helper is Qt install
+        #data whose content cannot change with a repo edit, and
+        #copy_if_different therefore never refreshes its mtime: the
+        #rebuild the sweep demands is one the build system has already
+        #judged unnecessary (the test-exe class's unactionable
+        #over-approximation). Both spellings (Debug's trailing d and
+        #the bare Release name) are excluded by the name prefix.
+        if not os.path.basename(path).startswith("QtWebEngineProcess"))
     dlls = sorted(glob.glob(
         str(spec.path / "native" / spec.config / "*.dll")))
     tests = (sorted(glob.glob(

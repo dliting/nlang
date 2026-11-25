@@ -332,6 +332,39 @@ def test_vanished_artifact_is_a_clean_error():
               "the error must say what happened: %r" % captured.getvalue())
 
 
+def test_deployed_qt_helper_is_not_judged_against_repo_sources():
+    #The Qt WebEngine helper process deployed beside nide is runtime
+    #data from the Qt installation: copy_if_different never refreshes
+    #its mtime for content that cannot change with a repo edit, so the
+    #sweep's demanded rebuild is unactionable -- the same reasoning
+    #that makes test executables presence-only. Both spellings (the
+    #Debug trailing d and the Release bare name) ride the exclusion.
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        repo, tree = make_repo(tmp / "repo"), make_tree(tmp / "tree")
+        nide = tree / "src" / "tools" / "nide" / "Debug"
+        set_mtime(write(nide / "nide.exe"), 200)
+        set_mtime(write(nide / "QtWebEngineProcessd.exe"), 50)
+        set_mtime(write(nide / "QtWebEngineProcess.exe"), 50)
+        findings = run_check(repo, ["%s:Debug" % tree])
+        check(not any("QtWebEngineProcess" in f for f in findings),
+              "the deployed helper is Qt install data, not a product: %r"
+              % findings)
+
+
+def test_stale_product_nide_is_still_flagged():
+    #The exclusion is name-precise: the product nide.exe deployed from
+    #this repo's own sources keeps its full-sweep judgment.
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        repo, tree = make_repo(tmp / "repo"), make_tree(tmp / "tree")
+        nide = tree / "src" / "tools" / "nide" / "Debug"
+        set_mtime(write(nide / "nide.exe"), 50)
+        findings = run_check(repo, ["%s:Debug" % tree])
+        check(any("nide.exe" in f for f in findings),
+              "a stale product nide must stay flagged: %r" % findings)
+
+
 TESTS = [
     test_fresh_tree_passes,
     test_stale_tool_exe_is_flagged_with_the_input_named,
@@ -362,6 +395,8 @@ TESTS = [
     test_empty_stdlib_sweep_is_a_usage_error,
     test_repo_without_native_units_is_a_usage_error,
     test_required_tool_needs_the_exact_binary,
+    test_deployed_qt_helper_is_not_judged_against_repo_sources,
+    test_stale_product_nide_is_still_flagged,
     test_vanished_artifact_is_a_clean_error,
 ]
 
