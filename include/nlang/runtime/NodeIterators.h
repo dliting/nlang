@@ -219,7 +219,10 @@ public:
 	//End of position.
 	iterator nop()
 	{
-		return iterator(m_Items, m_Iter.end());
+		//The container's end, not the iterator's (std::list::iterator has
+		//no end(); MSVC never instantiated this template member, so the
+		//bug was latent until GCC compiled it).
+		return iterator(m_Items, m_Items.end());
 	}
 private:
 	//Goto the nearest filtered node.
@@ -275,7 +278,8 @@ public:
 	//End of position.
 	const_iterator nop()
 	{
-		return const_iterator(*m_pItems, m_Iter.end());
+		//The container's end, not the iterator's (see FiteredNodeIterator::nop).
+		return const_iterator(*m_pItems, m_pItems->end());
 	}
 private:
 	//Goto the nearest filtered node.
