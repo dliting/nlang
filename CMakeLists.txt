@@ -114,14 +114,25 @@ if(NLANG_BUILD_IDE)
     set(NLANG_QTWEBENGINE_DLLS
         $<TARGET_FILE:Qt5::WebEngineWidgets>
         $<TARGET_FILE:Qt5::WebEngineCore>
-        $<TARGET_FILE:Qt5::WebChannel>
         $<TARGET_FILE:Qt5::Qml>
         $<TARGET_FILE:Qt5::QmlModels>
         $<TARGET_FILE:Qt5::Quick>
         $<TARGET_FILE:Qt5::QuickWidgets>
         $<TARGET_FILE:Qt5::Network>
-        $<TARGET_FILE:Qt5::Positioning>
         $<TARGET_FILE:Qt5::PrintSupport>)
+    #WebChannel and Positioning ride the windeployqt WebEngine closure,
+    #but a Qt build may omit the modules entirely (the acceptance box's
+    #self-built Qt does); their targets then do not exist and even a
+    #variable mention of $<TARGET_FILE:...> for them breaks the generate
+    #step wherever the list is expanded. Guard by target existence so
+    #any conforming Qt configures — a Qt without them ships a
+    #WebEngineCore that does not link them either.
+    foreach(NLANG_QTWEBENGINE_OPTIONAL WebChannel Positioning)
+        if(TARGET Qt5::${NLANG_QTWEBENGINE_OPTIONAL})
+            list(APPEND NLANG_QTWEBENGINE_DLLS
+                "$<TARGET_FILE:Qt5::${NLANG_QTWEBENGINE_OPTIONAL}>")
+        endif()
+    endforeach()
     get_filename_component(NLANG_QTWEBENGINE_BIN
         "${Qt5_DIR}/../../../bin" ABSOLUTE)
     get_filename_component(NLANG_QTWEBENGINE_RESOURCES
@@ -446,28 +457,69 @@ install(FILES ${CMAKE_BINARY_DIR}/stdlib/stdlib.npkg DESTINATION stdlib)
 
 if(NLANG_BUILD_IDE)
     install(TARGETS nide RUNTIME DESTINATION bin)
-    # install(TARGETS) cannot carry imported Qt DLLs; $<TARGET_FILE:...> is
-    # the documented idiom for shipping prebuilt runtime dependencies.
-    install(FILES
-        $<TARGET_FILE:Qt5::Core>
-        $<TARGET_FILE:Qt5::Gui>
-        $<TARGET_FILE:Qt5::Widgets>
-        DESTINATION bin)
-    # Ship only the default platform plugin — the Qt plugins dir also
-    # carries debug variants (qwindowsd.dll etc.) that don't belong in a
-    # release package. "*d.dll"-style excludes are unsafe (qdirect2d.dll
-    # is a release name), so whitelist the one file we need.
-    install(DIRECTORY "${Qt5_DIR}/../../../plugins/platforms/"
-        DESTINATION bin/platforms
-        FILES_MATCHING PATTERN "qwindows.dll")
-    # QtWebEngine runtime for the embedded help browser (closure
-    # defined next to find_package(Qt5) above).
-    install(FILES ${NLANG_QTWEBENGINE_DLLS} "${NLANG_QTWEBENGINE_PROCESS}"
-        DESTINATION bin)
-    install(FILES ${NLANG_QTWEBENGINE_RESOURCE_FILES}
-        DESTINATION bin/resources)
-    install(FILES ${NLANG_QTWEBENGINE_LOCALE_FILES}
-        DESTINATION bin/translations/qtwebengine_locales)
+    if(WIN32)
+        # install(TARGETS) cannot carry imported Qt DLLs; $<TARGET_FILE:...> is
+        # the documented idiom for shipping prebuilt runtime dependencies.
+        # The whole Qt runtime closure below is the Windows deploy shape.
+        install(FILES
+            $<TARGET_FILE:Qt5::Core>
+            $<TARGET_FILE:Qt5::Gui>
+            $<TARGET_FILE:Qt5::Widgets>
+            DESTINATION bin)
+        # Ship only the default platform plugin — the Qt plugins dir also
+        # carries debug variants (qwindowsd.dll etc.) that don't belong in a
+        # release package. "*d.dll"-style excludes are unsafe (qdirect2d.dll
+        # is a release name), so whitelist the one file we need.
+        install(DIRECTORY "${Qt5_DIR}/../../../plugins/platforms/"
+            DESTINATION bin/platforms
+            FILES_MATCHING PATTERN "qwindows.dll")
+        # QtWebEngine runtime for the embedded help browser (closure
+        # defined next to find_package(Qt5) above).
+        install(FILES ${NLANG_QTWEBENGINE_DLLS} "${NLANG_QTWEBENGINE_PROCESS}"
+            DESTINATION bin)
+        install(FILES ${NLANG_QTWEBENGINE_RESOURCE_FILES}
+            DESTINATION bin/resources)
+        install(FILES ${NLANG_QTWEBENGINE_LOCALE_FILES}
+            DESTINATION bin/translations/qtwebengine_locales)
+    elseif(UNIX)
+        #The Linux deploy shape: same beside-exe layout as Windows (the
+        #IDE resolves ncc/nvm/ndb from its own directory), with the
+        #shared-library names and Qt paths of a prefix-installed Qt —
+        #the helper process lives in libexec/ and Chromium's paks in
+        #resources/ (self-built Qt prefix layout; apt puts them under
+        #share/qt5 instead). The tools themselves install through the
+        #unconditional install(TARGETS) above.
+        install(FILES
+            $<TARGET_FILE:Qt5::Core>
+            $<TARGET_FILE:Qt5::Gui>
+            $<TARGET_FILE:Qt5::Widgets>
+            DESTINATION bin)
+        install(FILES ${NLANG_QTWEBENGINE_DLLS}
+            DESTINATION bin)
+        get_filename_component(NLANG_QT_PREFIX
+            "${Qt5_DIR}/../../.." ABSOLUTE)
+        install(FILES "${NLANG_QT_PREFIX}/libexec/QtWebEngineProcess"
+            DESTINATION libexec)
+        install(FILES ${NLANG_QTWEBENGINE_RESOURCE_FILES}
+            DESTINATION resources)
+        install(FILES ${NLANG_QTWEBENGINE_LOCALE_FILES}
+            DESTINATION translations/qtwebengine_locales)
+        #The whole platforms directory (offscreen + xcb): the offscreen
+        #plugin is what the deployment check's probes run under.
+        install(DIRECTORY "${NLANG_QT_PREFIX}/plugins/platforms"
+            DESTINATION plugins)
+        #The dlopen'd native modules ride beside the executables in the
+        #deployed layout (same reason the Windows check hand-assembles
+        #them from NATIVE_DLL_DIR).
+        install(DIRECTORY "${CMAKE_BINARY_DIR}/native/"
+            DESTINATION bin
+            FILES_MATCHING PATTERN "libnlang_*.so*")
+        #Qt resolves a prefix-relative qt.conf beside the executable;
+        #pin plugins/resources to the layout instead of the dev Qt.
+        install(CODE
+            "file(WRITE \"\${CMAKE_INSTALL_PREFIX}/bin/qt.conf\"
+                \"[Paths]\\nPrefix=..\\n\")")
+    endif()
 endif()
 
 install(DIRECTORY examples/ DESTINATION examples)

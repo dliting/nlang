@@ -241,19 +241,26 @@ target_sources(nide_mainwindow
         "${NIDE_TRANSLATIONS_QRC}")
 
 #--- IDE executable ---
-add_executable(nide WIN32
-    main.cpp
-    nide.rc
-)
+#nide.rc (window icon) is a Windows resource script — the resource
+#compiler is MSVC-only, so it rides the platform condition. The WIN32
+#executable attribute is ignored on other platforms.
+set(NIDE_EXE_SOURCES main.cpp)
+if(WIN32)
+    list(APPEND NIDE_EXE_SOURCES nide.rc)
+endif()
+add_executable(nide WIN32 ${NIDE_EXE_SOURCES})
 
 target_link_libraries(nide
     PRIVATE
         nide_mainwindow
 )
 
-#A runnable developer build: the Qt runtime DLLs and the ncc/nvm tools
-#must sit next to nide.exe (MainWindow runs them from its own
-#directory). Self-containment of this layout is verified by the
+#A runnable developer build: the ncc/nvm/ndb tools must sit next to the
+#nide executable (MainWindow runs them from its own directory —
+#toolPath()). On Windows the Qt runtime DLLs, the platform plugin and
+#the WebEngine closure join them; on Linux a prefix-installed Qt
+#resolves its own plugins and resources at runtime, so only the tools
+#are copied. Self-containment of the Windows layout is verified by the
 #nide_deploy_check test (tests/test_nide/).
 add_dependencies(nide ncc nvm ndb)
 if(WIN32)
@@ -273,6 +280,15 @@ if(WIN32)
             "$<TARGET_FILE_DIR:nide>/platforms")
     #QtWebEngine runtime beside the exe (embedded help browser).
     nlang_copy_qtwebengine_runtime(nide)
+elseif(UNIX)
+    #Developer build: the Qt runtime resolves through the install
+    #prefix its cmake config came from (plugins compiled into
+    #libQt5Core, libraries through the build tree's link rpath), so
+    #only the tools need to sit beside the executable.
+    add_custom_command(TARGET nide POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_FILE:ncc> $<TARGET_FILE:nvm> $<TARGET_FILE:ndb>
+            $<TARGET_FILE_DIR:nide>)
 endif()
 
 # ASan runtime provisioning (see the root CMakeLists): one sweep covers

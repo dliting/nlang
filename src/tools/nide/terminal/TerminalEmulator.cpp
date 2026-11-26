@@ -297,12 +297,12 @@ TermCell TerminalEmulator::ConvertCell(
     VTermColor background = cell.bg;
     vterm_screen_convert_color_to_rgb(m_screen, &foreground);
     vterm_screen_convert_color_to_rgb(m_screen, &background);
-    out.foreground = (unsigned int(foreground.rgb.red) << 16)
-                   | (unsigned int(foreground.rgb.green) << 8)
-                   | unsigned int(foreground.rgb.blue);
-    out.background = (unsigned int(background.rgb.red) << 16)
-                   | (unsigned int(background.rgb.green) << 8)
-                   | unsigned int(background.rgb.blue);
+    out.foreground = (static_cast<unsigned int>(foreground.rgb.red) << 16)
+                   | (static_cast<unsigned int>(foreground.rgb.green) << 8)
+                   | static_cast<unsigned int>(foreground.rgb.blue);
+    out.background = (static_cast<unsigned int>(background.rgb.red) << 16)
+                   | (static_cast<unsigned int>(background.rgb.green) << 8)
+                   | static_cast<unsigned int>(background.rgb.blue);
     return out;
 }
 

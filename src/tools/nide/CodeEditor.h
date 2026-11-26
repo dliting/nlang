@@ -45,12 +45,12 @@ class CodeEditor : public QPlainTextEdit {
 
 public:
     //Width of the leading breakpoint column of the gutter.
-    static const int kBreakpointColumnWidth = 16;
+    static constexpr int kBreakpointColumnWidth = 16;
     //Completion popup geometry: fixed width, one row per candidate and
     //the height cap that turns it into a scrolling list.
-    static const int kCompletionPopupWidth = 260;
-    static const int kCompletionItemHeight = 18;
-    static const int kCompletionPopupMaxHeight = 180;
+    static constexpr int kCompletionPopupWidth = 260;
+    static constexpr int kCompletionItemHeight = 18;
+    static constexpr int kCompletionPopupMaxHeight = 180;
 
     explicit CodeEditor(QWidget* parent = nullptr);
     ~CodeEditor() override;

@@ -26,6 +26,7 @@ handle ownership are documented at WaiterMain).
 #define PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE 0x00020016
 #endif
 #else
+#include <cerrno>
 #include <fcntl.h>
 #include <signal.h>
 #include <sys/ioctl.h>
@@ -154,7 +155,8 @@ struct PtyProcess::Impl {
                             const QString& workingDirectory);
 #else
     bool SpawnPosix(const QString& program, const QStringList& arguments,
-                    int columns, int rows, StartError* error);
+                    const QString& workingDirectory, int columns, int rows,
+                    StartError* error);
 #endif
 };
 
@@ -180,7 +182,8 @@ bool PtyProcess::Start(const QString& program, const QStringList& arguments,
                            columns, rows, error))
         return false;
 #else
-    if (!impl.SpawnPosix(program, arguments, columns, rows, error))
+    if (!impl.SpawnPosix(program, arguments, workingDirectory,
+                         columns, rows, error))
         return false;
 #endif
     impl.started = true;
@@ -299,9 +302,11 @@ bool PtyProcess::Impl::LaunchChildWindows(const QString& program,
 
 #else
 
-//POSIX branch — written to spec, not compiled or run on Windows.
+//POSIX branch — first compiled during the IDE's Linux port; the
+//behavioral contract is exercised by terminal_tests and the run flow.
 bool PtyProcess::Impl::SpawnPosix(const QString& program,
                                   const QStringList& arguments,
+                                  const QString& workingDirectory,
                                   int columns, int rows,
                                   StartError* error) {
     const auto fail = [error](StartError value) {
@@ -312,6 +317,9 @@ bool PtyProcess::Impl::SpawnPosix(const QString& program,
     int fdSlave = -1;
     if (openpty(&fdMaster, &fdSlave, nullptr, nullptr, nullptr) != 0)
         return fail(StartError::SpawnFailed);
+    //Never leak the master end into other child processes (ncc/ndb run
+    //through QProcess from this same process, the WebEngine helper too).
+    fcntl(fdMaster, F_SETFD, FD_CLOEXEC);
     winsize window{static_cast<unsigned short>(columns),
                    static_cast<unsigned short>(rows), 0, 0};
     ioctl(fdMaster, TIOCSWINSZ, &window);
@@ -329,6 +337,11 @@ bool PtyProcess::Impl::SpawnPosix(const QString& program,
         dup2(fdSlave, STDERR_FILENO);
         if (fdSlave > STDERR_FILENO) close(fdSlave);
         close(fdMaster);
+        //The run flow relies on the child's cwd: project builds expect
+        //artifacts (and sample-written files) next to the project.
+        if (!workingDirectory.isEmpty()
+            && chdir(workingDirectory.toStdString().c_str()) != 0)
+            _exit(126);   //cannot enter the working directory
         const std::string utf8Program = program.toStdString();
         std::vector<std::string> utf8Arguments;
         for (const QString& argument : arguments)
@@ -363,7 +376,21 @@ void PtyProcess::Write(const QByteArray& bytes) {
               DWORD(bytes.size()), &written, nullptr);   //best effort
 #else
     if (m_upImpl->masterFd < 0 || bytes.isEmpty()) return;
-    write(m_upImpl->masterFd, bytes.constData(), bytes.size());
+    //The pty input buffer is small (~4 KB): a single write silently
+    //truncates large pastes, so loop until everything is in. EINTR
+    //retries; EIO and friends mean the session is gone — best effort.
+    const char* cursor = bytes.constData();
+    int remaining = bytes.size();
+    while (remaining > 0) {
+        const ssize_t written = ::write(m_upImpl->masterFd,
+                                        cursor, size_t(remaining));
+        if (written < 0) {
+            if (errno == EINTR) continue;
+            break;
+        }
+        cursor += written;
+        remaining -= int(written);
+    }
 #endif
 }
 
@@ -421,7 +448,12 @@ void PtyProcess::Kill() {
         impl.hProcess = nullptr;
     }
 #else
-    kill(impl.childPid, SIGKILL);
+    //A stale childPid must never be signaled: after a natural exit the
+    //reader has reaped it (and invalidated it — the -1 reset lives in
+    //the reaper alone, so Kill never races the reader's waitpid), and
+    //a recycled pid may belong to an unrelated process. Start()
+    //re-enters Kill() on every restart, so this guard is hot.
+    if (impl.childPid > 0) kill(impl.childPid, SIGKILL);
     close(impl.masterFd);   //reader sees EOF and reaps the child
     impl.masterFd = -1;
     if (impl.reader.joinable()) impl.reader.join();
@@ -457,6 +489,7 @@ void PtyProcess::Impl::ReaderMain(PtyProcess* owner) {
     }
     int status = 0;
     waitpid(childPid, &status, 0);
+    childPid = -1;   //invalidated before anything can signal it again
     close(masterFd);
     masterFd = -1;
     if (!finishedEmitted.exchange(true)) {
