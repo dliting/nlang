@@ -46,9 +46,10 @@ SMOKE_EXIT_CODE = 42
 TIMEOUT_SEC = 60
 # .ncu format floor asserted in the smoke: magic "NLANGCU" (NUL-padded) +
 # u16 major + u16 minor. Parsed from CompiledModule.h (the single source)
-# so this check cannot drift when NCU_FORMAT_MINOR bumps.
+# so this check cannot drift when NCU_FORMAT_MINOR bumps. The header lives
+# in include/nlang/core since the library-layering refactor.
 NCU_MAGIC = b'NLANGCU\x00'
-with open(os.path.join(REPO_ROOT, 'include', 'nlang', 'vm',
+with open(os.path.join(REPO_ROOT, 'include', 'nlang', 'core',
                        'CompiledModule.h'), encoding='utf-8') as hdr:
     _hdr_text = hdr.read()
 _major_m = re.search(r'NCU_FORMAT_MAJOR\s*=\s*(\d+)', _hdr_text)
