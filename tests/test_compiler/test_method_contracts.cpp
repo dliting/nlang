@@ -965,6 +965,20 @@ private slots:
             auto out = compileOne(src.c_str());
             QVERIFY(out.ok);
         }
+        //Generic-class ctor host resolves static spellings the same way
+        //(the instance-access reject leg lives in
+        //TestCtorDefaultRejectsThisAndInstanceMembers). A generic class
+        //cannot declare static fields, and a bare Box.tick() call needs a
+        //T the static method never uses, so the only spellable static
+        //spelling carries the explicit instantiation.
+        auto outGeneric = compileOne(
+            "class Box<T> {\n"
+            "    public static int tick() { return 5; }\n"
+            "    public int m_seed;\n"
+            "    public Box(int seed = Box<int>.tick()) { }\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        QVERIFY(outGeneric.ok);
     }
 
     //D-5 (0.13.13a): the rejection keeps the two spellings apart — a bare
@@ -984,6 +998,8 @@ private slots:
             "default value for parameter \"seed\" of constructor \"Cfg\" "
             "cannot reference 'this'; constructor defaults evaluate at "
             "the call site, where no valid 'this' exists."), 1);
+        QCOMPARE(countErrorsContaining(out,
+            "cannot access instance member"), 0);
         auto out2 = compileOne(
             "class Cfg {\n"
             "    public int m_seed;\n"
@@ -1014,6 +1030,36 @@ private slots:
         QCOMPARE(countErrorsContaining(out4,
             "cannot access instance member \"Cfg.nextId\""), 1);
         QCOMPARE(countErrorsContaining(out4,
+            "cannot reference 'this'"), 0);
+        //An instance-method binding through a formal's receiver (no `this`
+        //anywhere): the receiver-insensitive face of the rule, method
+        //spelling (the e2e Seed.v leg covers the field spelling).
+        auto out5 = compileOne(
+            "class Seed {\n"
+            "    public int nextId() { return 1; }\n"
+            "}\n"
+            "class Cfg {\n"
+            "    public int m_seed;\n"
+            "    public Cfg(Seed s, int seed = s.nextId()) { }\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        QCOMPARE(countErrorsContaining(out5,
+            "cannot access instance member \"Seed.nextId\""), 1);
+        QCOMPARE(countErrorsContaining(out5,
+            "cannot reference 'this'"), 0);
+        //Generic-class ctor host: same resolution. The member-wording check
+        //stops at the diagnostic prefix — the owner segment of a generic
+        //type declaration's name is not pinned elsewhere and must not bind
+        //this leg to its spelling.
+        auto outGeneric = compileOne(
+            "class Box<T> {\n"
+            "    public int m_seed;\n"
+            "    public Box(int seed = m_seed) { }\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        QCOMPARE(countErrorsContaining(outGeneric,
+            "cannot access instance member"), 1);
+        QCOMPARE(countErrorsContaining(outGeneric,
             "cannot reference 'this'"), 0);
     }
 
