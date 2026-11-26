@@ -35,7 +35,6 @@ on every merged TU member (top-level and container members).
 #include "NcuLoader.h"
 #include "NcuLinker.h"
 #include "VmExecutor.h"
-#include <nlang/vm/NcuPackage.h>
 #include <cstdio>
 #include <cstdint>
 #include <filesystem>
