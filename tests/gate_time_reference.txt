@@ -17,13 +17,14 @@
 #   ref_work    参考工作量的轮数(soak类按构型给轮数, 其余为1)。
 #   form        读数随录的测量形态(并行度与机器独占与否), 如ctest-junit-serial、
 #               e2e-serial; 形态一变即须重跑录制轮刷新本表。
-#   sentinel    `yes`=校准哨兵(D-4: 快、稳定、无时间断言), 其余值或省略=非哨兵;
-#               每个参与构型须有5-8条yes(守卫一)。
+#   sentinel    `yes`=校准哨兵(D-4: 快、稳定、无时间断言), `samples`=仅作samples的排期类别(2026-11-26用户裁定,
+#               每轮判定腿按排除集跳过,收口批排除关闭时承接), `-`或省略=普通行;
+#               词表由解析器校验; 每个参与构型须有5-8条yes(守卫一)。
 #   reason      取至行尾的自由文本。两处必填: e2e构型中偏离default行的例外行;
 #               慢集成员的行未被守卫六的甲路径(族)认领时的理由(乙路径,
 #               Task 8起为硬校验)。
 
-# 慢集不是列, 按参考秒数一处推导(D-16/D-17): 条目的基线行ref_s超过
+# 排除集=慢集∪samples名册(2026-11-26裁定): 慢集不是列, 按参考秒数一处推导(D-16/D-17): 条目的基线行ref_s超过
 # SLOW_MIN_REF_S即入慢集, 不进每轮判定腿, 由收口前的慢集腿承接。基线行按
 # ctest-Debug、ctest-IDE、e2e-Debug取首个存在的行, default与清单行不参与
 # 判定; ASan与Release行只是更贵构型的代价读数, 永不参与判定。慢集全仓一份,
@@ -73,12 +74,12 @@
 ctest-Debug nd_resolve_stress_tests 78.28 100 ctest-junit-serial - soak:轮数按构型给(D-8),Debug与IDE各100轮
 ctest-IDE nd_resolve_stress_tests 77.07 100 ctest-junit-serial - soak:轮数按构型给(D-8),Debug与IDE各100轮
 ctest-ASan nd_resolve_stress_tests 140.31 30 ctest-junit-serial - soak:轮数按构型给(D-8),ASan构型30轮当场即报
-ctest-Debug mnist_mlp_compile 0.44 1 ctest-junit-serial - 基线行参考秒数低于SLOW_MIN_REF_S不入慢集,每轮随常规判定腿跑;演示验收用例(D-9第3类只述条目性质,不作排期依据);功能面仍由全量腿与tensor族承接
-ctest-IDE mnist_mlp_compile 0.42 1 ctest-junit-serial - 基线行参考秒数低于SLOW_MIN_REF_S不入慢集,每轮随常规判定腿跑;演示验收用例(D-9第3类只述条目性质,不作排期依据);功能面仍由全量腿与tensor族承接
-ctest-ASan mnist_mlp_compile 2.09 1 ctest-junit-serial - 基线行参考秒数低于SLOW_MIN_REF_S不入慢集,每轮随常规判定腿跑;演示验收用例(D-9第3类只述条目性质,不作排期依据);功能面仍由全量腿与tensor族承接
-ctest-Debug mnist_mlp_run 10.01 1 ctest-junit-serial - 基线行参考秒数低于SLOW_MIN_REF_S不入慢集,每轮随常规判定腿跑;演示验收用例(D-9第3类只述条目性质,不作排期依据);功能面仍由全量腿与tensor族承接
-ctest-IDE mnist_mlp_run 9.67 1 ctest-junit-serial - 基线行参考秒数低于SLOW_MIN_REF_S不入慢集,每轮随常规判定腿跑;演示验收用例(D-9第3类只述条目性质,不作排期依据);功能面仍由全量腿与tensor族承接
-ctest-ASan mnist_mlp_run 36.56 1 ctest-junit-serial - 基线行参考秒数低于SLOW_MIN_REF_S不入慢集,每轮随常规判定腿跑;演示验收用例(D-9第3类只述条目性质,不作排期依据);功能面仍由全量腿与tensor族承接
+ctest-Debug mnist_mlp_compile 0.44 1 ctest-junit-serial samples 演示验收:仅作samples(2026-11-26用户裁定恢复D-9排期类别),每轮判定腿按排除集跳过,收口批排除关闭时承接;功能面仍由tensor族承接
+ctest-IDE mnist_mlp_compile 0.42 1 ctest-junit-serial samples 演示验收:仅作samples(2026-11-26用户裁定恢复D-9排期类别),每轮判定腿按排除集跳过,收口批排除关闭时承接;功能面仍由tensor族承接
+ctest-ASan mnist_mlp_compile 2.09 1 ctest-junit-serial samples 演示验收:仅作samples(2026-11-26用户裁定恢复D-9排期类别),每轮判定腿按排除集跳过,收口批排除关闭时承接;功能面仍由tensor族承接
+ctest-Debug mnist_mlp_run 10.01 1 ctest-junit-serial samples 演示验收:仅作samples(2026-11-26用户裁定恢复D-9排期类别),每轮判定腿按排除集跳过,收口批排除关闭时承接;功能面仍由tensor族承接
+ctest-IDE mnist_mlp_run 9.67 1 ctest-junit-serial samples 演示验收:仅作samples(2026-11-26用户裁定恢复D-9排期类别),每轮判定腿按排除集跳过,收口批排除关闭时承接;功能面仍由tensor族承接
+ctest-ASan mnist_mlp_run 36.56 1 ctest-junit-serial samples 演示验收:仅作samples(2026-11-26用户裁定恢复D-9排期类别),每轮判定腿按排除集跳过,收口批排除关闭时承接;功能面仍由tensor族承接
 ctest-Debug threads_tests 62.09 1 ctest-junit-serial - 时序敏感例外(D-12第4条):判据依赖激励窗口与静默窗口的相对比例而非绝对秒数,登记带理由的例外行;基线行参考秒数越过SLOW_MIN_REF_S入慢集,不进每轮判定腿,由收口前慢集腿承接
 ctest-IDE threads_tests 62.55 1 ctest-junit-serial - 时序敏感例外(D-12第4条):判据依赖激励窗口与静默窗口的相对比例而非绝对秒数,登记带理由的例外行;基线行参考秒数越过SLOW_MIN_REF_S入慢集,不进每轮判定腿,由收口前慢集腿承接
 ctest-ASan threads_tests 258.23 1 ctest-junit-serial - 时序敏感例外(D-12第4条):判据依赖激励窗口与静默窗口的相对比例而非绝对秒数,登记带理由的例外行;基线行参考秒数越过SLOW_MIN_REF_S入慢集,不进每轮判定腿,由收口前慢集腿承接

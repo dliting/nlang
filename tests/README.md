@@ -96,7 +96,7 @@ tools/gate_tier.sh T1 --master-tree build --asan-tree build-asan --ide-tree buil
 ## 新增测试
 
 - 走测试驱动开发,用真实组件:编译器真实编译`.n`,虚拟机真实执行字节码,不用mock。
-- 单元测试:源码放进对应的`test_*/`子目录,在`CMakeLists.txt`注册条目;然后给`gate_time_reference.txt`补上该条目在每个构型的参考行——先真实跑一遍,再用`tools/gate_time_check.py record --config <构型> --from-junit <junit文件>`回填,`check-complete`守卫要求每个条目都有行。
+- 单元测试:源码放进对应的`test_*/`子目录,在`CMakeLists.txt`注册条目;然后给`gate_time_reference.txt`补上该条目在每个构型的参考行——先真实跑一遍,再用`tools/gate_time_check.py record --config <构型> --from-junit <junit文件>`回填,`check-complete`守卫要求每个条目都有行。演示验收类条目(如`mnist_mlp_*`)在`哨兵`列标`samples`——按性质退出每轮判定腿,收口批承接,详见`docs/dev/gate_timing_design.md`的D-20。
 - e2e测试:语料`.n`放进`tests/e2e/`,在`manifest.txt`加一行`<名称> <预期退出码>`;每条清单行都必须至少被一个分层选择器选中(`tools/gate_tiers.txt`的覆盖守卫会检查)。
 - 断言不得依赖挂钟时间;确定性结论归单元测试,e2e只断言无条件成立的性质。
 - 单项超过30秒的慢测试只在提交前的门禁批次里跑,开发轮次用`ctest -E <名称正则>`排除。

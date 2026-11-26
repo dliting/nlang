@@ -48,7 +48,7 @@ Release构建与Release e2e维持「仅发布时点」裁定不变，不因分�
 
 ## 性能递延（已撤销——计时重设计接管）
 
-2026-11-20用户裁定曾以「递延文件即开关」的形态临时裁剪纯性能条目：ctest三件经`ctest -E`锚定排除，e2e五件经`NLANG_E2E_EXCLUDE`传递给运行器（逐条打印DEFER行并计入deferred汇总），`tier_coverage_check.py`收可选递延文件参数豁免「至少被一层选中」不变量。2026-11-23计时重设计（`docs/dev/gate_timing_design.md`）落地后整套撤销，替代机制各归其位：慢集（print-slow按参考秒数行派生）把慢ctest成员排除出T1常规腿而T2收口腿不带排除地全量重跑（D-7）；e2e侧的条目选择统一走`NLANG_E2E_MANIFEST`子集（T0影响子集、ASan风险子集都由它承载）；每条目的时长上限由参考表的条目级TIMEOUT帽在configure期安装（守卫五校验registered与表推导一致）。递延文件、运行器的递延机器（环境变量、解析与两道响亮校验、DEFER行与deferred计数）与覆盖守卫的豁免参数随之删除。环境门控（`env_gates.txt`）不受影响——它承载「机器做不了」，与耗时无关。
+2026-11-20用户裁定曾以「递延文件即开关」的形态临时裁剪纯性能条目：ctest三件经`ctest -E`锚定排除，e2e五件经`NLANG_E2E_EXCLUDE`传递给运行器（逐条打印DEFER行并计入deferred汇总），`tier_coverage_check.py`收可选递延文件参数豁免「至少被一层选中」不变量。2026-11-23计时重设计（`docs/dev/gate_timing_design.md`）落地后整套撤销，替代机制各归其位：排除集（慢集∪samples名册，print-slow按参考表派生，samples类见gate_timing_design.md D-20）把慢成员与仅作samples的演示验收条目排除出T1常规腿而T2收口腿不带排除地全量重跑（D-7）；e2e侧的条目选择统一走`NLANG_E2E_MANIFEST`子集（T0影响子集、ASan风险子集都由它承载）；每条目的时长上限由参考表的条目级TIMEOUT帽在configure期安装（守卫五校验registered与表推导一致）。递延文件、运行器的递延机器（环境变量、解析与两道响亮校验、DEFER行与deferred计数）与覆盖守卫的豁免参数随之删除。环境门控（`env_gates.txt`）不受影响——它承载「机器做不了」，与耗时无关。
 
 ## 落地物
 

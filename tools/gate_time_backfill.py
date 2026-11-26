@@ -140,10 +140,12 @@ def _backfill_findings(args, rows):
     entry the pair does not exclude)."""
     if not args.mapping:
         return []
-    # Membership is the schedule axis' single judgment (see run).
-    from gate_time_schedule import slow_names
-    required = [name for name in slow_names(rows)
-                if re.search(args.mapping, name)]
+    # Membership is the schedule axis' single judgment (see run); both
+    # exclusion classes share the swallow risk, so the replay demands
+    # the union's members the mapping hits, not the slow set's alone.
+    from gate_time_schedule import excluded_names
+    required = sorted(name for name in excluded_names(rows)
+                      if re.search(args.mapping, name))
     if not required:
         return []
     if args.show_only:
@@ -153,11 +155,11 @@ def _backfill_findings(args, rows):
     else:
         return []
     return [
-        "SCHEDULE %s: %s hits the mapping AND sits in the slow set; ctest "
-        "-E beats -R (F-12), so print-slow must subtract it from the -E "
-        "regex -- it is missing from the --show-only run"
+        "SCHEDULE %s: %s hits the mapping AND sits in the exclusion set; "
+        "ctest -E beats -R (F-12), so print-slow must subtract it from "
+        "the -E regex -- it is missing from the --show-only run"
         % (args.config, name)
-        for name in sorted(required) if name not in names]
+        for name in required if name not in names]
 
 
 def _e2e_findings(args, rows):

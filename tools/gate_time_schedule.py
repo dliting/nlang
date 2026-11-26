@@ -1,12 +1,15 @@
 # gate_time_schedule.py -- the schedule axis (docs/dev/
-# gate_timing_design.md D-7 as re-derived by D-16/D-17): an entry's
+# gate_timing_design.md D-7 as re-derived by D-16/D-17/D-20): an entry's
 # reference seconds on its baseline row are the single source for which
-# entries a scheduled round skips (slow_names/baseline_rows here derive
-# the one global slow set from the SLOW_MIN_REF_S threshold -- this
-# module is the only fast/slow judgment site, D-17). print-slow
-# builds a leg's -E regex from that set and subtracts whatever the leg's
+# entries a scheduled round skips on the slow axis (slow_names/
+# baseline_rows here derive the one global slow set from the
+# SLOW_MIN_REF_S threshold -- this module is the only fast/slow
+# judgment site, D-17), and the sentinel column's samples class rides
+# the same axis as a named roster (sample_names, D-20). print-slow
+# builds a leg's -E regex from the union of the two sets and subtracts
+# whatever the leg's
 # own -R regex re.search-hits first (ctest -E beats -R, F-12: an entry
-# both mapped and slow must not be silently swallowed); check-schedule
+# both mapped and excluded must not be silently swallowed); check-schedule
 # enforces guard six (every row of a slow member owns a recovery claim
 # -- 甲 a family whose unit/e2e fragment hits the entry over a live src
 # rule, or 乙 a filled reason column -- with the backfill equivalence
@@ -37,7 +40,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gate_time_backfill
 import gate_time_carrier
 from gate_time_table import (CONFIG_KEYS, MANIFEST_SCOPES, REPO_ROOT,
-                             SLOW_MIN_REF_S, load_table)
+                             SAMPLES_MARK, SENTINEL_MARK, SLOW_MIN_REF_S,
+                             load_table)
 from gate_time_timeouts import cmake_tools, read_timeouts, show_only_json
 
 # The subcommands this module owns; the entry maps these names here.
@@ -89,23 +93,40 @@ def slow_names(rows):
             if row.ref_s > SLOW_MIN_REF_S]
 
 
-def slow_regex(rows, config, keep_matched=None):
-    """The joined -E regex for a leg (sorted, so one reference table
-    yields one byte-stable exclusion). The membership is the one global
-    slow set (D-16) -- every config's regular legs subtract the same
-    names -- so `config` is the leg's label in the CLI shape, not a
-    filter. keep_matched is the leg's -R regex VERBATIM (the t0()
-    mapping, not a name list: passing the regex keeps the filtering
-    logic in this one place): every slow member it re.search-hits --
-    ctest's partial-match semantics, the same F-12 measures -- is
-    subtracted before joining, because ctest requires "hits -R and
-    misses -E" and an unsubtracted mapped entry would vanish from the
-    round silently."""
-    names = set(slow_names(rows))
+def sample_names(rows):
+    """The samples roster (2026-11-26 user ruling): the entry names whose
+    baseline row carries the samples class mark. Members are scheduled
+    out of every round by class -- a demo-acceptance entry is teaching
+    material shipped with the release, not a regression probe, so its
+    seconds never schedule it; the closeout batch runs it with the
+    exclusions off, exactly as it re-runs the slow set. The roster is one
+    per repo and reads the baseline row, mirroring the slow set's shape
+    (D-16), so the two exclusion classes share every consumer below."""
+    return [row.entry for row in baseline_rows(rows).values()
+            if row.sentinel == SAMPLES_MARK]
+
+
+def excluded_names(rows, keep_matched=None):
+    """Every round's exclusion union: the slow set plus the samples
+    roster (2026-11-26 ruling). keep_matched is the leg's -R regex
+    VERBATIM (the t0() mapping): every excluded member it re.search-hits
+    -- ctest's partial-match semantics, the same F-12 measures -- is
+    subtracted, because ctest requires "hits -R and misses -E" and an
+    unsubtracted mapped entry would vanish from the round silently."""
+    names = set(slow_names(rows)) | set(sample_names(rows))
     if keep_matched:
         names = {name for name in names
                  if not re.search(keep_matched, name)}
-    return "|".join(sorted(names))
+    return names
+
+
+def exclusion_regex(rows, config, keep_matched=None):
+    """The joined -E regex for a leg (sorted, so one reference table
+    yields one byte-stable exclusion) over the exclusion union above.
+    The membership is one global union per repo -- every config's
+    regular legs subtract the same names -- so `config` is the leg's
+    label in the CLI shape, not a filter."""
+    return "|".join(sorted(excluded_names(rows, keep_matched)))
 
 
 def derive_e2e_subset(lines, rows, config, mapping):
@@ -114,14 +135,15 @@ def derive_e2e_subset(lines, rows, config, mapping):
     (non-`default`) row under the leg's config (the candidate face: the
     `default` row prices budgets for unlisted lines but never joins the
     subset, that would pull the full manifest into every T0 round), and
-    its name is not in the one global slow set (the fast/slow face, read
+    its name is in neither exclusion class (the fast/slow face, read
     from the baseline row per D-16 -- never from this leg's own config
-    row, or an ASan or Release reading would decide membership). The set
-    is unioned with the lines the mapping's e2e regex re.search-hits, in
-    manifest order, deduped. Comments and blank lines are skipped; each
-    line is emitted verbatim (entry and expected-exit columns), so the
-    wiring can feed the file straight to the runner."""
-    slow = set(slow_names(rows))
+    row, or an ASan or Release reading would decide membership; the
+    samples class reads the same baseline row, 2026-11-26 ruling). The
+    set is unioned with the lines the mapping's e2e regex re.search-hits,
+    in manifest order, deduped. Comments and blank lines are skipped;
+    each line is emitted verbatim (entry and expected-exit columns), so
+    the wiring can feed the file straight to the runner."""
+    excluded = set(slow_names(rows)) | set(sample_names(rows))
     explicit = {row.entry for row in rows
                 if row.config == config and row.entry != "default"}
     subset = []
@@ -132,7 +154,7 @@ def derive_e2e_subset(lines, rows, config, mapping):
             continue
         entry = line.split()[0]
         hit = mapping and re.search(mapping, entry)
-        if (entry in explicit and entry not in slow) or hit:
+        if (entry in explicit and entry not in excluded) or hit:
             if entry not in seen:
                 seen.add(entry)
                 subset.append(line)
@@ -143,7 +165,7 @@ def _cmd_print_slow(args, table, verdict):
     if args.config not in CONFIG_KEYS:
         return verdict(["PRINT-SLOW %s: unknown config key (want one of "
                         "%s)" % (args.config, ", ".join(CONFIG_KEYS))])
-    regex = slow_regex(load_table(table), args.config, args.keep_matched)
+    regex = exclusion_regex(load_table(table), args.config, args.keep_matched)
     print(regex)
     # The leg log has to name the members the regex excludes (D-17): a
     # bare pattern is unreadable in a log line. The roster rides on
@@ -151,7 +173,7 @@ def _cmd_print_slow(args, table, verdict):
     # and the GATE verdict glyphs also print on stdout -- a roster line
     # there would be concatenated into the captured pattern.
     members = regex.split("|") if regex else []
-    sys.stderr.write("PRINT-SLOW %s excludes %d slow members: %s\n"
+    sys.stderr.write("PRINT-SLOW %s excludes %d members: %s\n"
                      % (args.config, len(members),
                         ", ".join(members) if members else "(none)"))
     return verdict([])

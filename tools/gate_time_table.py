@@ -35,6 +35,13 @@ DEFAULT_WORK_FACTOR = 1
 SLOW_MIN_REF_S = 60
 
 SENTINEL_MARK = "yes"
+# The samples scheduling class (2026-11-26 user ruling): a demo-
+# acceptance entry marked here is excluded from every scheduled round
+# by class, not by seconds, and re-runs in the closeout batch.
+SAMPLES_MARK = "samples"
+# Every token the sentinel column accepts. Anything else is a typo away
+# from silently scheduling nothing, so the parser owns the vocabulary.
+SENTINEL_VOCAB = (SENTINEL_MARK, SAMPLES_MARK)
 SENTINELS_PER_CONFIG = (5, 8)
 CTEST_CONFIGS = ("ctest-Debug", "ctest-IDE", "ctest-ASan")
 E2E_CONFIGS = ("e2e-Debug", "e2e-ASan", "e2e-Release")
@@ -107,6 +114,13 @@ def load_table(path):
         if ref_s < 0.0 or ref_work < 1:
             raise ValueError("%s line %d: ref_s must be >= 0 and ref_work "
                              ">= 1" % (path, lineno))
+        # The sentinel vocabulary check runs after the column-shape
+        # checks above: a stale pre-D-17 row must keep reporting its
+        # deleted category column, not a misleading token complaint.
+        if sentinel and sentinel not in SENTINEL_VOCAB and sentinel != "-":
+            raise ValueError("%s line %d: unknown sentinel token %r (want "
+                             "one of yes/samples, or - for a plain row)"
+                             % (path, lineno, sentinel))
         rows.append(Row(config, entry, ref_s, ref_work, form, sentinel,
                         reason, lineno))
     return rows

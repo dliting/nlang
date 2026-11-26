@@ -274,9 +274,11 @@ REF_TABLE="$REPO/tests/gate_time_reference.txt"
 # The config's slow set as one -E regex (D-7): print-slow owns the
 # membership AND the -R backfill subtraction (ctest -E beats -R, F-12),
 # so the filter exists in exactly one place -- the mapping regex goes to
-# it verbatim, never as a name list. A red print-slow must fail the
-# assembly, not silently run the slow entries: the caller checks rc.
-slow_regex() { # slow_regex <config-key> [<mapped -R regex>]
+# it verbatim, never as a name list. The union is the slow set plus
+# the samples class (2026-11-26 ruling), one roster per repo. A red
+# print-slow must fail the assembly, not silently run the excluded
+# entries: the caller checks rc.
+exclusion_regex() { # exclusion_regex <config-key> [<mapped -R regex>]
   local out
   if [ $# -gt 1 ] && [ -n "$2" ]; then
     out=$("$PY" -I "$REPO/tools/gate_time_check.py" print-slow "$1" \
@@ -610,20 +612,20 @@ t1_legs() { # t1_legs <slow-e on|off>
   # carrier clause and guard eleven lean on exactly this. A red
   # print-slow aborts the assembly rather than silently sweeping the
   # slow entries.
-  local slow_unit="" slow_ide="" slow_asan=""
+  local excl_unit="" excl_ide="" excl_asan=""
   if [ "$1" = on ]; then
-    slow_unit=$(slow_regex ctest-Debug) || return 2
-    slow_ide=$(slow_regex ctest-IDE) || return 2
-    slow_asan=$(slow_regex ctest-ASan) || return 2
+    excl_unit=$(exclusion_regex ctest-Debug) || return 2
+    excl_ide=$(exclusion_regex ctest-IDE) || return 2
+    excl_asan=$(exclusion_regex ctest-ASan) || return 2
   fi
-  ctest_leg T1-debug-unit "$MASTER_TREE" ctest-Debug "" "$slow_unit"
+  ctest_leg T1-debug-unit "$MASTER_TREE" ctest-Debug "" "$excl_unit"
   # T1's e2e legs are the full scan: the whole manifest, examples pass
   # included (the manifest default is spelled out for the pin), and the
   # slow e2e entries are excluded from T0 rounds only.
   e2e_leg T1-debug-e2e "$MASTER_TREE" Debug e2e-Debug \
       "$REPO/tests/e2e/manifest.txt" 120
-  ctest_leg T1-ide-ctest "$IDE_TREE" ctest-IDE "" "$slow_ide"
-  ctest_leg T1-asan-unit "$ASAN_TREE" ctest-ASan "" "$slow_asan"
+  ctest_leg T1-ide-ctest "$IDE_TREE" ctest-IDE "" "$excl_ide"
+  ctest_leg T1-asan-unit "$ASAN_TREE" ctest-ASan "" "$excl_asan"
   # R-101 subset absorption: with the close-out's T2-asan-e2e-full leg
   # riding the batch (t2 sets the flag), the subset manifest -- the
   # selector's grep filter of the same manifest file, fail-closed on a
@@ -668,7 +670,7 @@ freshness_legs() { # freshness_legs <T0|T1|T2>
   leg T-preflight-fresh env "$PY_IO_ENCODING" \
       "$PY" "$REPO/tools/gate_freshness.py" check "${args[@]}"
   # leg() returns gate.sh's exit code, so the carried red above is the
-  # abort contract the other producer sites (perf_names, slow_regex,
+  # abort contract the other producer sites (perf_names, exclusion_regex,
   # derive_asan_subset) already honor: a red preflight stops the
   # assembly before any test runs, while the verdict loop still prints
   # the preflight's own FAIL from its .gate log.
@@ -713,10 +715,10 @@ t0() {
     # fast round (the 466 s timing gate with its load-induced false
     # red). Without the flag print-slow keeps the whole slow set, the
     # same exclusion the full-scan T1 unit legs carry.
-    local slow_unit
-    slow_unit=$(slow_regex ctest-Debug "$keep_regex") \
+    local excl_unit
+    excl_unit=$(exclusion_regex ctest-Debug "$keep_regex") \
         || { echo "T0: print-slow failed"; return 2; }
-    ctest_leg T0-unit "$MASTER_TREE" ctest-Debug "$unit_regex" "$slow_unit"
+    ctest_leg T0-unit "$MASTER_TREE" ctest-Debug "$unit_regex" "$excl_unit"
     # Guard six's run-set channel (Task 12, R-91-C1): the mapped round
     # hands the schedule guard its own --mapping regex plus a --show-only
     # enumeration taken with this leg's EXACT selectors (same -R, same
@@ -740,7 +742,7 @@ t0() {
         sched_extra+=(--tree "$MASTER_TREE")
       else
         local runset_e
-        runset_e=$(join_regex "$PERF_E" "$slow_unit")
+        runset_e=$(join_regex "$PERF_E" "$excl_unit")
         local runset_args=(--test-dir "$MASTER_TREE" -C Debug
                            --show-only=json-v1 -R "$unit_regex")
         [ -n "$runset_e" ] && runset_args+=(-E "$runset_e")
