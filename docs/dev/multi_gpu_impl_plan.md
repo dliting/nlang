@@ -114,6 +114,50 @@ take it from the device-side view's `reserved[1]`
 backend_registry.cpp:326/334) or from the transfer's new target
 argument (`TransferToDevice` :254, M-G3).
 
+**Test skip contract** (user ruling 2026-11-26: device-dependent
+tests must RUN everywhere — no GPU and one GPU included — and what
+cannot be tested must REPORT itself; "all green" is not the
+requirement, "runs + visible, reasoned skip" is). One rule, three
+layers:
+
+- The test program checks its own capability at runtime, against
+  the authority for exactly what it asserts: `tensor.deviceCount()`
+  through the active backend (cpu 0 / mirror 1 / cuda N). A
+  harness-side GPU oracle is rejected deliberately: it would itself
+  run nvm and must pick the same backend as the run — the
+  program-side check IS that authority; `env_gates.txt` keeps its
+  stated scope (true out-of-band OS capabilities: icmp/dns).
+- Insufficient capability: print one reasoned line on stderr —
+  `skip: deviceCount() = 1 < 2`, carrying the observed value (the
+  same channel the corpus's runtime diagnostics use) — and return
+  the reserved skip exit code `90` (`E2E_SKIP_EXIT = 90` in the
+  runner, mirrored at the program's return site; distinct from the
+  explicit-cuda fail-fast `3` and every expectation the manifests
+  use today). The exit code is THE signal — classification never
+  scrapes stdout.
+- e2e runner (`run_e2e_tests.py`): an exit of `E2E_SKIP_EXIT`
+  classifies as a skip — printed `SKIP {name} (reported: <reason
+  line>)` and counted in the existing skipped tally (widening its
+  `(env-gated)` label to cover reported skips; the runner already
+  promises "counted, never silently green"). A reason line is
+  MANDATORY: skip code without one = FAIL, so the reporting duty is
+  enforced, not encouraged. Manifest expectations stay `0` — no
+  opt-in marker: a stray `90` from a test that cannot legitimately
+  skip still surfaces (with its reason, or as an unreported FAIL).
+- ctest (`mnist_ddp_run`, M-G4): the same sentinel through the
+  `SKIP_RETURN_CODE` property (ctest 3.8+, the project floor is
+  3.16) — the entry lands in ctest's native Skipped state, visible
+  in the summary, never failing the suite.
+- Gate legs stay green across skips: the coverage invariant stays
+  per-leg (`tools/tier_coverage_check.py` — the net is held by the
+  legs that DO have the capability: the box cuda runs), and
+  visibility rides the SKIP lines and counts. `gate_cuda_tree.sh`
+  keeps its probe-level `SKIP (reason)` for the no-plugin/no-driver/
+  no-device case — a whole-leg skip of the same shape.
+- Never assert an exact device count (`>= 1`/`>= 2` guards only);
+  no new e2e/ctest entry may require a device to exist except
+  through this contract.
+
 ## 2. M-G1 — ABI + boundaries (device-invisible)
 
 TDD order; each step's test lands before its implementation:
@@ -158,23 +202,34 @@ TDD order; each step's test lands before its implementation:
    `CurrentScopeDevice()` = decode(stack top) or 0;
    `BackendStreamCreate(int device)` routes to the widened
    descriptor entry; Pop keeps raising on imbalance as today.
-6. Plugin (cuda): `CudaStreamCreate(device)` range-checks against
-   the probe count, reserves slot 0, encodes handles; push/join/
-   destroy decode (a foreign decode mismatch is a plugin invariant
-   raise); the push stack entries carry (device, saved current) so
-   interleaved cross-device Push/Pop restore correctly;
+6. Plugin (cuda): `CudaStreamCreate(device)` gates the device against
+   the probed census (the single `CudaDeviceAccepted` authority —
+   the payload hooks gate there too), reserves slot 0, encodes
+   handles; push/join/destroy decode (a stale or foreign handle
+   takes the sentinel-shaped path: Push still saves its frame
+   without swapping — the plugin stack stays in lockstep with the
+   registry's — and destroy/join no-op; the descriptor's stream
+   entries return void, there is no raise channel — amendment at
+   M-G1 landing, the first draft's "invariant raise" has nowhere
+   to raise); the push stack entries carry (device, saved current)
+   so interleaved cross-device Push/Pop restore correctly;
    per-device `g_currentStream[d]` (still one device deep in M-G1,
    the table shape lands now so M-G2 only fills it).
-7. Manual: nothing (the first draft's `formats/30-abi.md` does not
-   exist on this branch — round-1 finding). M-G1 adds no
-   user-visible surface, and no user-manual chapter documents the
-   device-plugin contract: its authority is the
+7. Manual: one line moves — the quoted mixed-device diagnostic in
+   `library/19-tensor.md` §19.7 gains the device id
+   ("cuda vs host" → "cuda:0 vs host") with the message change, so
+   both locales update in this batch (amendment at M-G1 landing: the
+   plan first said "nothing"; the step-5 rename makes M-G1 a
+   user-visible diagnostic change, and the five-category check
+   counts it). Everything else stays header-comment authority: the
+   first draft's `formats/30-abi.md` does not exist on this branch
+   — round-1 finding — no user-manual chapter documents the
+   device-plugin contract, and its authority is the
    `backend_descriptor.h` header comments (the handle encoding,
-   `reserved[1]`, v16 entries land there). The manual's device
-   chapter is `library/19-tensor.md` §19.7, first changed at
-   M-G2. `formats/28-abi.md` is the native-module ABI — a
-   different contract this line does not touch (its "version 12"
-   stamp is pre-existing drift on this branch).
+   `reserved[1]`, v16 entries land there). `formats/28-abi.md` is
+   the native-module ABI — a different contract this line does not
+   touch (its "version 12" stamp is pre-existing drift on this
+   branch).
 8. Full rebuild (both configs), Windows four legs, box cuda build +
    the cuda double-run subset (`tools/e2e_cuda_double_run.txt`,
    205 rows at branch state) + single-GPU mnist. Expected:
@@ -183,6 +238,34 @@ TDD order; each step's test lands before its implementation:
 
 Exit: corpus bit-identical behavior; every boundary carries the id;
 the only files M-G2+ will rework are the plugin internals.
+
+Landing rulings recorded at M-G1 (review round-1, 2026-11-26):
+VERSION stays 0.14.10 — the step-7 diagnostic-wording change ships
+with the line's next checkpoint (M-G2's 0.14.11), whose CHANGELOG
+entry covers it (the milestone model, spec §9 — not drift); the
+negative-handle decode contract (C++ truncating division: −1 →
+(0, −1)) lands as `backend_descriptor.h`'s contract comment instead
+of a unit test — every consumer gates `handle <= 0` before
+decoding, so pinning the truncating value would freeze a detail no
+reachable path observes.
+
+Review round-2 rulings (2026-11-26): the `CudaStreamPush` pre-init
+frame-capture fix (N1) carries no dedicated unit test — it is
+value-preserving and plugin-internal (no host-observable seam before
+or after), so the cuda double-run is its verification, following the
+negative-handle precedent's reasoning; the step-1 device round-trip
+gap (Low 5) and the guard-config coverage gap (N4) landed as the
+`test_native_array_abi` resident-mint test and the guard selftest's
+config-validation cases.
+
+Cross-platform duty (user ruling, 2026-11-26): device-dependent
+tests must run on machines without a GPU and on single-GPU
+machines, and untested cases must report themselves — the binding
+formulation lives as the skip contract in §1. M-G1's own surface
+needed no gating to meet it: the default cpu backend runs the whole
+device/stream family on the 0-GPU Windows trees, and
+`gate_cuda_tree.sh` already reports `SKIP (reason)` when the probe
+finds no plugin/driver/device.
 
 ## 3. M-G2 — per-device pools + deviceCount()
 
@@ -260,9 +343,10 @@ unchanged.
 Tests:
 
 - e2e `op_tensor_cross_device.n` (the `op_tensor_*` family the
-  manifest keys on, `manifest.txt:2370+`; skips unless
-  `deviceCount() >= 2`,
-  prints "skip"): create a on the default device, `b =
+  manifest keys on, `manifest.txt:2370+`; on
+  `deviceCount() < 2` prints the reasoned skip line and returns the
+  skip sentinel — §1's skip contract): create a on the default
+  device, `b =
   tensor.toDevice(a, 1)`, `add(b, b)` equals the host-computed
   result after `toHost`; `add(a, b)` raises naming `cuda:0` and
   `cuda:1`; run-twice byte-identical output (determinism).
@@ -274,11 +358,16 @@ Tests:
   query-only coverage is spec §6's stated unreachable branch).
 
 Landing duties: VERSION 0.14.12; the device-ABI bump to `3u` with
-the `copyD2D` entry (§1); manual `19-tensor.md` §19.7 toDevice
-overload (en/zh) + the known-limitations line review; CHANGELOG;
-manifest row + double-run line for `op_tensor_cross_device.n`
-(subset 208 rows); pins 502→506; SYNC_BASELINE. Box: cross-device
-e2e green both runs; Windows/CI: the skip and guard paths.
+the `copyD2D` entry (§1); the runner side of the skip contract
+(`E2E_SKIP_EXIT` classification + mandatory-reason enforcement +
+tally widening in `run_e2e_tests.py`, pinned with pure-injection
+cases in `test_runner_env_gate.py` — M-G3 is the first consumer);
+manual `19-tensor.md` §19.7 toDevice overload (en/zh) + the
+known-limitations line review; CHANGELOG; manifest row +
+double-run line for `op_tensor_cross_device.n` (subset 208 rows);
+pins 502→506; SYNC_BASELINE. Box: cross-device e2e green both
+runs; Windows/single-GPU legs: the reported skips (SKIP lines +
+tally) and guard paths.
 
 ## 5. M-G4 — mnist_ddp.n acceptance
 
@@ -319,9 +408,11 @@ the module pair is reused in place; `main()` lives in
 `mnist_ddp_run` following `mnist_mlp`'s compile+run DEPENDS pair
 beside `mnist_mlp_run` (`tests/CMakeLists.txt:2692`; `TIMEOUT 300`
 mirrors that entry's calibrated ruling), and their timing rows land
-through `gate_time_check.py record` (the new-entry duty). On cpu/mirror legs the
-program prints its skip line and exits 0 (`deviceCount() < 2`);
-the box's cuda leg is the real run.
+through `gate_time_check.py record` (the new-entry duty), the run
+entry carrying `SKIP_RETURN_CODE 90` so the skip lands in ctest's
+native Skipped state. On cpu/single-GPU legs the program prints the
+reasoned skip line and returns the sentinel — §1's skip contract;
+the box's two-GPU cuda leg is the real run.
 
 Acceptance (box):
 
@@ -370,16 +461,32 @@ Acceptance (box):
 
 ## 7. Verification matrix
 
+Docking policy (user ruling 2026-11-26: intermediate milestones
+must not sit under the full gates — they cost hours and slow the
+line down; heavy legs run ONCE, at the line's single convergence):
+M-G2/M-G3 dock at the T0 shape (Debug unit suites of the touched
+trees + the targeted e2e families + the new entries themselves)
+plus the device net on the box; the full Windows T1 (all five
+legs), the asan legs and the T2 additions run at M-G4 with the
+release convergence. M-G1 is exempt from the relaxation — its
+full dock already ran (the line's riskiest layer is ABI/VM
+surgery, already docked before the feature stages start).
+
 | leg | M-G1 | M-G2 | M-G3 | M-G4 |
 | --- | --- | --- | --- | --- |
-| Windows dbg build+unit, asan build+unit | yes | yes | yes | yes |
-| Windows cpu e2e | yes | yes | yes | yes |
-| Windows cuda build+tree+double-run | yes | yes | yes | yes |
-| box cuda build + double-run subset | yes | yes | yes | yes |
-| box new e2e (count/guards/cross) | — | yes | yes | yes |
+| Windows dbg build+unit (M-G2/3: touched trees + new entries) | full | targeted | targeted | full |
+| Windows cpu e2e (M-G2/3: tensor/device/stream families) | full | targeted | targeted | full |
+| Windows asan build+unit, asan e2e subset | yes | — | — | yes |
+| Windows cuda bench build (tree/double-run only at M-G4) | tree+double | build | build | tree+double |
+| Windows full T1 (five legs, one batch) | yes | — | — | yes |
+| box cuda build + double-run subset + new e2e | yes | yes | yes | yes |
 | box mnist single-GPU regression | yes | yes | yes | yes |
 | box gate_multigpu.sh (ddp, twice) | — | — | — | yes |
+| T2 (Release build/e2e, docs five legs) | — | — | — | yes |
 
-Every shared-source commit re-runs the Windows four legs; every
-milestone ends with a full box rescan (build + subsets + new
-entries) per the standing gate discipline.
+The box stays per-milestone: it is the only machine where the
+line's subject matter (devices) executes at all, and its legs run
+fast on 64 cores. Intermediate commits iterate at T0 (impact
+mapping, minutes); nothing that could hide a device regression
+is dropped — cpu-e2e targeting follows the impact map, and the
+tier coverage invariant still binds the final T1/T2 selections.
