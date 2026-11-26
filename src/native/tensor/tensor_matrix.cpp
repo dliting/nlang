@@ -48,10 +48,10 @@ int32_t ContiguousOperand(NativeHost* host, const uint8_t* args, int slot,
                           NativeArrayView* view) {
     ArgArray(host, args, slot, view);
     //R8 (design 2026-11-16): device-resident operands pass through even
-    //when strided — the cuda table (OpsForResidency(1) is the plugin
-    //table exactly when g_backend.ops != nullptr; under mirror it is the
-    //cpu table, which still needs the dense materialization) serves the
-    //strided-aware slot.
+    //when strided — the cuda table (OpsForResidency's device arm is the
+    //plugin table exactly when g_backend.ops != nullptr; under mirror it
+    //is the cpu table, which still needs the dense materialization)
+    //serves the strided-aware slot.
     if (view->reserved[0] == 1 && ActiveDeviceBackend().ops != nullptr)
         return ArgInt(args, slot);
     return MaterializeByResidency(host, ArgInt(args, slot), view);
@@ -93,7 +93,7 @@ void ConcatKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
     const int32_t handle = MintOutputLike(host, a.elemKind, a.rank, outDims, a);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
-    const TensorOps& ops = OpsForResidency(a.reserved[0]);
+    const TensorOps& ops = OpsForResidency(host, a);
     switch (a.elemKind) {
         case NEK_Int32:
             ops.concatI32(host, a, b, axis, out); break;
@@ -142,7 +142,7 @@ void MatMulTyped(NativeHost* host, uint8_t* ret, NativeArrayView& a,
     const int32_t handle = MintOutputLike(host, a.elemKind, 2, outDims, a);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
-    const TensorOps& ops = OpsForResidency(a.reserved[0]);
+    const TensorOps& ops = OpsForResidency(host, a);
     if constexpr (std::is_same_v<T, float>) {
         ops.matmulF32(host, a, b, out);
     } else if constexpr (std::is_same_v<T, double>) {

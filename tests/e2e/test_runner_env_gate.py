@@ -69,6 +69,31 @@ def test_skip_decision_multi_key_reports_only_missing():
         "env icmp unavailable"
 
 
+def test_sentinel_exit_with_reason_is_skip():
+    assert runner._skip_sentinel(
+        runner.E2E_SKIP_EXIT, 0, "tensor: deviceCount() = 1 < 2") == \
+        "tensor: deviceCount() = 1 < 2"
+
+
+def test_sentinel_reason_is_first_nonblank_line():
+    assert runner._skip_sentinel(
+        runner.E2E_SKIP_EXIT, 0, "\nthe reason\ntrailing noise\n") == \
+        "the reason"
+
+
+def test_sentinel_without_reason_returns_empty_string():
+    assert runner._skip_sentinel(runner.E2E_SKIP_EXIT, 0, "  \n") == ""
+
+
+def test_non_sentinel_exit_is_not_the_sentinel_path():
+    assert runner._skip_sentinel(1, 0, "some crash") is None
+
+
+def test_manifest_that_expects_the_sentinel_verdicts_normally():
+    assert runner._skip_sentinel(runner.E2E_SKIP_EXIT,
+                                 runner.E2E_SKIP_EXIT, "x") is None
+
+
 def test_probe_env_dispatches_once_per_key():
     calls = []
 

@@ -132,7 +132,7 @@ void GatherKernel(NativeHost* host, uint8_t* ret, const uint8_t* args)
         MintOutputLike(host, va.elemKind, outRank, outDims, va);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
-    const TensorOps& ops = OpsForResidency(va.reserved[0]);
+    const TensorOps& ops = OpsForResidency(host, va);
     if constexpr (std::is_same_v<T, float>) {
         ops.gatherF32(host, va, axis, vIdx, out);
     } else if constexpr (std::is_same_v<T, int32_t>) {
@@ -172,7 +172,7 @@ void ExtremeAxisIndicesKernel(NativeHost* host, uint8_t* ret,
                                           outDims, va);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
-    OpsForResidency(va.reserved[0]).argmaxI32(host, isMax, va, axis,
+    OpsForResidency(host, va).argmaxI32(host, isMax, va, axis,
                                                out);
     ReturnInt(ret, handle);
 }
@@ -196,7 +196,7 @@ void EqKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
                                           outDims, va);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
-    const TensorOps& ops = OpsForResidency(va.reserved[0]);
+    const TensorOps& ops = OpsForResidency(host, va);
     if constexpr (std::is_same_v<T, float>) {
         ops.compareF32(host, op, va, vb, out);
     } else if constexpr (std::is_same_v<T, double>) {
@@ -231,7 +231,7 @@ void OneHotKernel(NativeHost* host, uint8_t* ret, const uint8_t* args)
     const int32_t handle = MintArray(host, NEK_Float32, 2, outDims);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
-    OpsForResidency(out.reserved[0]).oneHotI32(host, v, n, out);
+    OpsForResidency(host, out).oneHotI32(host, v, n, out);
     ReturnInt(ret, handle);
 }
 
@@ -360,7 +360,7 @@ void CmpScalarKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
         va.dims, va);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
-    const TensorOps& ops = OpsForResidency(va.reserved[0]);
+    const TensorOps& ops = OpsForResidency(host, va);
     if constexpr (std::is_same_v<T, float>) {
         ops.compareScalarF32(host, op, va, ArgFloat(args, 1), out);
     } else if constexpr (std::is_same_v<T, double>) {

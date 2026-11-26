@@ -40,6 +40,10 @@ entry behind a machine capability (icmp: OS loopback echo answers; dns:
 reserved-TLD NXDOMAIN honesty). When the out-of-band OS oracle says the
 capability is absent (VPN filter drivers, DNS hijacks), the entry is
 skipped with a printed SKIP line — counted, never silently green.
+Skip sentinel: a fixture whose case the machine cannot serve (e.g. a
+two-device test on a single-GPU box) exits E2E_SKIP_EXIT naming the
+reason on stderr; the runner reports SKIP with that reason (a sentinel
+without a reason is a FAIL — see E2E_SKIP_EXIT).
 """
 
 import os
@@ -60,6 +64,24 @@ MANIFEST = os.path.join(SCRIPT_DIR, 'manifest.txt')
 #Flat per-test subprocess cap (compile and run), overridable per invocation
 #with --timeout=SEC (see the module docstring).
 TIMEOUT_SEC = 30
+#Skip sentinel (multi-GPU spec's cross-platform ruling): a fixture that
+#cannot run its case on this machine — a device census too small, a
+#capability absent — prints the reason to stderr and exits this code;
+#the manifest still expects the ordinary success (0). The runner turns
+#it into a visible SKIP with the reason (the case ran nothing, but the
+#compile ran and the contract held); a sentinel without a reason is a
+#FAIL — a silent skip could mask a real breakage.
+E2E_SKIP_EXIT = 90
+
+
+def _skip_sentinel(actual, expected, stderr_text):
+    """Skip-sentinel verdict for one finished run: None when the entry
+    is not on the sentinel path, else the reason string ('' when the
+    sentinel arrived without naming one)."""
+    if actual != E2E_SKIP_EXIT or expected == E2E_SKIP_EXIT:
+        return None
+    return next((ln.strip() for ln in stderr_text.splitlines()
+                 if ln.strip()), '')
 #Tensor-backend pinning for the run phase. The product default is `auto`
 #(spec D3a — use an installed device backend, fall back to cpu), so a
 #machine with a GPU would otherwise move this whole suite's float paths
@@ -836,6 +858,19 @@ def main():
                                   f"{_describe_run_error(e)}")
                     continue
 
+                sentinel = _skip_sentinel(actual, expected, stderr_text)
+                if sentinel is not None:
+                    if sentinel:
+                        print(f"SKIP {name} ({sentinel})")
+                        skipped += 1
+                    else:
+                        print(f"FAIL {name} (skip sentinel without a "
+                              f"reason)")
+                        failed += 1
+                        errors.append(f"  {name}: skip sentinel "
+                                      f"without a reason")
+                    continue
+
                 if actual == expected:
                     #dbg_/dbgm_ tests: optional stdout-substring
                     #assertion (manifest column 3), mirroring the
@@ -1039,6 +1074,18 @@ def main():
             if os.path.isfile(nmod_file):
                 os.remove(nmod_file)
 
+            sentinel = _skip_sentinel(actual, expected, stderr_text)
+            if sentinel is not None:
+                if sentinel:
+                    print(f"SKIP {name} ({sentinel})")
+                    skipped += 1
+                else:
+                    print(f"FAIL {name} (skip sentinel without a reason)")
+                    failed += 1
+                    errors.append(f"  {name}: skip sentinel "
+                                  f"without a reason")
+                continue
+
             if actual == expected:
                 #Phase 11: optional stdout-substring assertion (manifest
                 #column 3). Checked before declaring the pass so a wrong
@@ -1123,7 +1170,7 @@ def main():
 
     print()
     print(f"Results: {passed} passed, {failed} failed, "
-          f"{skipped} skipped (env-gated)")
+          f"{skipped} skipped (env-gated or skip sentinel)")
     if warnings:
         print(f"Warnings ({len(warnings)} — possible masked bugs):")
         for w in warnings:

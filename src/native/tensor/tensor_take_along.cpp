@@ -110,7 +110,7 @@ void TakeAlongDeviceSlot(NativeHost* host, NativeArrayView& va,
                          int32_t axis, const int32_t* indices,
                          NativeArrayView& out)
 {
-    const TensorOps& ops = OpsForResidency(1);
+    const TensorOps& ops = OpsForResidency(host, va);
     switch (va.elemKind)
     {
         case NEK_Int32:

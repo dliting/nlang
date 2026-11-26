@@ -1,0 +1,41 @@
+// Multi-GPU M-G3: tensor.toDevice(a, device) guards the target against
+// the device census at the registry — the target must live in
+// [0, deviceCount()). cpu's census is EMPTY, so every device-named call
+// there raises (unlike streamCreate, where device 0 names the implicit
+// main stream). One fixture, backend-conditional branches: the cpu leg
+// is the dev-tree default, the cuda legs ride the box double-run, and
+// mirror runs everywhere through the op_device_transfer_guard_mirror
+// twin.
+import tensor;
+
+int main() {
+    string b = tensor.backend();
+    if (b != "cpu" && b != "mirror" && b != "cuda") return 100;
+
+    float[] a = [1.5f, 2.5f, 3.5f, 4.5f];
+
+    //The first absent device id: the census size itself — device 0 is
+    //NOT a reserved main-device spelling here, so cpu's census of 0
+    //refuses device 0 as well.
+    int count = tensor.deviceCount();
+    int foreign = count;
+    try {
+        float[] moved = tensor.toDevice(a, foreign);
+        return 2;
+    } catch (Exception e) {
+        string want = "tensor.toDevice: device " + foreign
+            + " beyond the device count " + count;
+        if (e.message != want) return 10;
+    }
+
+    //Negative ids refuse too: the census is [0, deviceCount).
+    try {
+        float[] moved = tensor.toDevice(a, -1);
+        return 3;
+    } catch (Exception e) {
+        string want =
+            "tensor.toDevice: device -1 beyond the device count " + count;
+        if (e.message != want) return 11;
+    }
+    return 0;
+}

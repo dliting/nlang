@@ -171,6 +171,7 @@ void ActivateCudaOrFallBack(NativeHost* host, bool explicitCuda) {
     g_backend.streamPush = probe.desc->streamPush;
     g_backend.streamPop = probe.desc->streamPop;
     g_backend.streamJoin = probe.desc->streamJoin;
+    g_backend.copyD2D = probe.desc->copyD2D;
     host->setTensorDeviceHooks(host, &g_backend.hooks);
 }
 
@@ -205,51 +206,117 @@ void InitBackendSelection(NativeHost* host) {
 
 //--- CLASS 1: compute routing -------------------------------------------
 
-const TensorOps& OpsForResidency(uint8_t residency) {
-    if (residency == 1 && g_backend.device && g_backend.ops != nullptr)
+//The source-routed table with no scope gate: a device operand takes
+//the device table, a host operand the cpu table, in any scope. The
+//gated spelling is OpsForResidency; the transfer family's internal
+//materialization (MaterializeForTransfer) is this spelling's only
+//caller — a transfer is the documented way to CROSS a scope and its
+//ordering is owned by the hooks (CLASS 2), so the gate must not
+//refuse the very move that satisfies it.
+namespace {
+const TensorOps& OpsForSourceTable(const NativeArrayView& primary) {
+    if (primary.reserved[0] == 1 && g_backend.device
+        && g_backend.ops != nullptr)
         return *(const TensorOps*)g_backend.ops;
     //Host operands run the cpu table DIRECTLY — never the env-selected
     //table (a staged host walk routed through the cuda table was the
     //gather illegal-address; the mirror backend masked it).
     return CpuTensorOps();
 }
+} // namespace
+
+const TensorOps& OpsForResidency(NativeHost* host,
+                                 const NativeArrayView& primary) {
+    if (primary.reserved[0] == 1) {
+        //The scope gate (spec §4, multi-GPU M-G3): inside a Push
+        //scope a device operand living on another device is refused
+        //by name — the join contract lives on the scope's stream,
+        //and launching the foreign operand on its own device's
+        //stream would under-wait the join. Host operands keep
+        //running the cpu table in any scope: nothing launches on a
+        //stream there.
+        if (StreamPushDepth() > 0
+            && primary.reserved[1] != CurrentScopeDevice()) {
+            Raise(host, NEXC_Base,
+                  "tensor: " + g_backend.name + ":"
+                  + std::to_string(primary.reserved[1])
+                  + " operands inside a " + g_backend.name + ":"
+                  + std::to_string(CurrentScopeDevice())
+                  + " stream scope; move them with tensor.toDevice");
+        }
+    }
+    return OpsForSourceTable(primary);
+}
 
 //--- materialization by residency ---------------------------------------
+
+namespace {
+
+//The DEVICE arm of both materializers: a device-dense mint on the
+//source's device + the given table's copy (D2D). StrideCopy would
+//read the descriptor cells, and a host landing would break the
+//sibling operands' residency. The mint lands on the SOURCE's device
+//— same-table D2D, never a cross-device copy. Refills *view with the
+//dense view; returns the handle backing it.
+int32_t DensifyDeviceResident(NativeHost* host, NativeArrayView* view,
+                              const TensorOps& ops) {
+    const int32_t dense = host->newArrayResident(host,
+        view->elemKind, view->rank, view->dims, view->reserved[1]);
+    NativeArrayView dst;
+    host->getArrayView(host, dense, &dst);
+    switch (view->elemKind) {
+        case NEK_Int32:  ops.copyI32(host, *view, dst); break;
+        case NEK_Int64:  ops.copyI64(host, *view, dst); break;
+        case NEK_Float32: ops.copyF32(host, *view, dst); break;
+        case NEK_Float64: ops.copyF64(host, *view, dst); break;
+        default:
+            Raise(host, NEXC_Base, "tensor: unsupported element kind");
+    }
+    view->elemKind = 0xEE;
+    host->getArrayView(host, dense, view);
+    return dense;
+}
+
+//The HOST arm of both materializers: the existing host materialization
+//(host memory walks — safe under every backend).
+int32_t DensifyHostResident(NativeHost* host, NativeArrayView* view) {
+    const int32_t dense = Materialize(host, *view);
+    view->elemKind = 0xEE;
+    host->getArrayView(host, dense, view);
+    return dense;
+}
+
+} // namespace
 
 int32_t MaterializeByResidency(NativeHost* host, int32_t handle,
                                NativeArrayView* view) {
     if (IsContiguous(*view))
         return handle;
     if (view->reserved[0] == 1 && g_backend.device) {
-        //A strided DEVICE source materializes on-device: a device-dense
-        //mint + the device table's copy (D2D). StrideCopy would read
-        //the descriptor cells, and a host landing would break the
-        //sibling operands' residency. The mint lands on the SOURCE's
-        //device — same-table D2D, never a cross-device copy.
-        const int32_t dense = host->newArrayResident(host,
-            view->elemKind, view->rank, view->dims, view->reserved[1]);
-        NativeArrayView dst;
-        host->getArrayView(host, dense, &dst);
-        const TensorOps& ops = OpsForResidency(1);
-        switch (view->elemKind) {
-            case NEK_Int32:  ops.copyI32(host, *view, dst); break;
-            case NEK_Int64:  ops.copyI64(host, *view, dst); break;
-            case NEK_Float32: ops.copyF32(host, *view, dst); break;
-            case NEK_Float64: ops.copyF64(host, *view, dst); break;
-            default:
-                Raise(host, NEXC_Base,
-                      "tensor: unsupported element kind");
-        }
-        view->elemKind = 0xEE;
-        host->getArrayView(host, dense, view);
-        return dense;
+        //A strided DEVICE source materializes on-device through the
+        //GATED router (CLASS 1): the device table is reached only by
+        //the same-scope check OpsForResidency runs first.
+        return DensifyDeviceResident(host, view,
+            OpsForResidency(host, *view));
     }
-    //A strided HOST source: the existing host materialization (host
-    //memory walks — safe under every backend).
-    const int32_t dense = Materialize(host, *view);
-    view->elemKind = 0xEE;
-    host->getArrayView(host, dense, view);
-    return dense;
+    return DensifyHostResident(host, view);
+}
+
+//The transfer family's materializer (CLASS 2): the same arms, but the
+//device arm runs the source's table UNGATED — the scope gate keeps
+//compute on the scope's stream, while a transfer is the documented
+//way to cross a scope and its ordering is owned by the ordered
+//copyD2D hook (spec §6). Without this exemption,
+//toDevice(stridedForeign, d) inside a Push on d would be refused by
+//the very gate the transfer exists to cross, with advice to do
+//exactly that move.
+int32_t MaterializeForTransfer(NativeHost* host, int32_t handle,
+                               NativeArrayView* view) {
+    if (IsContiguous(*view))
+        return handle;
+    if (view->reserved[0] == 1 && g_backend.device)
+        return DensifyDeviceResident(host, view, OpsForSourceTable(*view));
+    return DensifyHostResident(host, view);
 }
 
 //--- creation mints ------------------------------------------------------

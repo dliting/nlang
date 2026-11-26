@@ -51,7 +51,7 @@ void ReluGradKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
                                           vd.dims, vd);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
-    const TensorOps& ops = OpsForResidency(vd.reserved[0]);
+    const TensorOps& ops = OpsForResidency(host, vd);
     if constexpr (std::is_same_v<T, float>) {
         ops.binaryF32(host, BinaryKernelOp::ReLUGrad, vd, vz, out);
     } else {
@@ -68,7 +68,7 @@ void TanhKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
                                           v.dims, v);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
-    const TensorOps& ops = OpsForResidency(v.reserved[0]);
+    const TensorOps& ops = OpsForResidency(host, v);
     if constexpr (std::is_same_v<T, float>) {
         ops.unaryF32(host, UnaryKernelOp::Tanh, v, out);
     } else {

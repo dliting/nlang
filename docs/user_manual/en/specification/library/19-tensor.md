@@ -570,7 +570,13 @@ pointer there would be a foreign dereference.
 Arrays move on request, not on accident. `tensor.toDevice(a)`
 lands a copy on the active device and `tensor.toHost(a)` lands
 one back; an operand already on the target is returned as-is, so
-both are safe to call unconditionally. A view's `toDevice`
+both are safe to call unconditionally. Inside a stream scope the
+spelling that omits the device follows that scope's device. The
+device-spelled `tensor.toDevice(a, device)` lands the copy on a
+named device: a host operand uploads, a device operand crosses
+devices — a direct peer copy where the hardware allows it, staged
+through pinned memory otherwise — and the device id must stay
+below `deviceCount()`, a foreign one raising. A view's `toDevice`
 materializes the view's elements into the device copy. A kernel
 whose operands disagree on residency raises `Exception`, naming
 both sides — the device side carries its id — and the fix:
@@ -659,16 +665,17 @@ wrote, so consuming a chunk's output after joining is race-free.
 On a backend with more than one device, the creation can name the
 device the stream is taken on: `tensor.streamCreate(device)`. The
 handle carries that device, and pushing it routes the arrays the
-scope creates to that device. Kernels and transfers still land on
-device 0, so a pushed-scope creation and a `toDevice` result cannot
-mix in one expression yet — the `tensor: operands on different
-devices` fault names the sides until cross-device routing lands.
+scope creates to that device. Computation follows the operands:
+inside a pushed scope, operands living on that device carry the
+kernel to it, and an operand still living on a foreign device
+raises `Exception` on the spot, naming the sides and the fix —
+`tensor.toDevice(a, device)` moves it across.
 `tensor.deviceCount()` reports the bound — `0` on `cpu`, `1` on
 `mirror`, the CUDA count on `cuda` — and a foreign device raises;
 device `0`, the main stream, is nameable on every backend, `cpu`
-included. The zero-argument spelling keeps its meaning: the stream
-is created on the device of the scope it is created from, which is
-device 0 on the main stream.
+included. The spelling that omits the device keeps its meaning: the
+stream is created on the device of the scope it is created from,
+which is device 0 on the main stream.
 
 Random draws stay coherent under concurrency: inside a push
 scope, `tensor.uniform` takes a private, non-overlapping window
@@ -717,11 +724,6 @@ across backends is asserting on an implementation detail.
 
 ### Known limitations
 
-The device concat covers only the outermost axis.
-
-* `tensor.concat` along any axis but the outermost (axis 0) raises
-  `Exception` — the device kernel implements the axis-0 join
-  only; the host path handles every axis.
 * A fault detected while the device runs its kernels (an illegal
   access, for example) is reported at the next observation point,
   not at the operation that caused it — deferred attribution, the

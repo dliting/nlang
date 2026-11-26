@@ -2,9 +2,12 @@
     cuda_kernels.h — the host-side launch entry points of the CUDA
     backend's device kernels (P3 T3.3-T3.7). The TensorOps slot
     implementations in cuda_backend.cpp call these; each launcher
-    builds the operand geometry and enqueues on the device's current
-    compute stream (row 0 of the per-device table until M-G2 routes
-    kernels by operand device).
+    builds the operand geometry and enqueues on the compute stream of
+    its operands' device (device ABI v3's operand-driven routing: the
+    LaunchView's device entry — folded from the view's reserved[1] —
+    pins the thread's context and selects the stream row; the registry
+    has agreed the operands onto one device and refused device-foreign
+    operands inside a Push scope).
 
     Differentiated sync discipline (spec 2026-11-16 §3): launchers
     whose kernels raise no cell errors are asynchronous — they return
@@ -50,6 +53,11 @@ struct LaunchView {
     int64_t offset = 0;
     void* data = nullptr;
     uint8_t elemKind = 0;
+    //The owning device (device ABI v3, operand-driven routing): the
+    //launcher pins this device for the whole op and enqueues on its
+    //current stream. The registry agreed the operands on one device
+    //before the table call, so every view of one launch agrees.
+    int32_t device = 0;
     int32_t dims[kMaxRank] = {};
     int32_t strides[kMaxRank] = {};
 };
@@ -73,13 +81,17 @@ void CudaStreamPush(int handle);
 void CudaStreamPop();
 void CudaStreamJoin(int handle);
 
-//RAII device-context pin (host ABI v16's device selectors): CUDA calls
-//act on the thread's CURRENT device, so every entry point handed a
-//device selector pins it for the call and restores the thread's previous
-//device on the way out. This guard is the only spelling that changes the
-//thread's device (it replaces the boot-time cudaSetDevice(0) habit);
-//callers run it only after CudaLazyInit succeeded, so the device ids
-//they pin are valid contexts.
+//RAII device-context pin AND device-row selection (device ABI v3):
+//CUDA calls act on the thread's CURRENT device, so every entry point
+//handed a device selector pins it for the call and restores the
+//thread's previous device on the way out. The pin also selects the
+//per-device row the stream/staging/error primitives read (the current
+//compute stream, the staging stream and event, the cell-error flags),
+//so one pin makes the whole entry body device-correct — launchers pin
+//from the primary LaunchView's device, the hooks from their device
+//argument. This guard is the only spelling that changes the thread's
+//device or the selected row; callers run it only after the device was
+//accepted, so the ids they pin address live contexts.
 class SetDeviceForCall {
 public:
     explicit SetDeviceForCall(int device);
@@ -89,7 +101,37 @@ public:
 
 private:
     int m_savedDevice = 0;
+    int m_savedRow = 0;
 };
+
+//The currently selected device's compute stream (the row the last
+//SetDeviceForCall chose; device ABI v3's operand-driven routing).
+//Entry bodies read the stream through this — never a row-0 alias.
+cudaStream_t CurrentStream();
+//The selected row's staging stream / cell-error flags (the same
+//selection; the bulk-transfer and error-drain paths read these — the
+//handshake events those paths pair with are per-call, created and
+//destroyed inside the transfer).
+cudaStream_t CurrentStagingStream();
+int32_t* CurrentErrorFlags();
+
+//True when srcDevice can reach dstDevice over the peer fabric (the
+//row-init capability matrix; CudaDeviceAccepted gates both ids).
+bool CudaPeerReady(int32_t srcDevice, int32_t dstDevice);
+//The two cross-device copy paths (the copyD2D entry's body, spec §6),
+//each blocking — the payload is resident on the target when the call
+//returns (the transfer's observation contract). Both order after the
+//SOURCE device's current stream's work; the caller (the backend's
+//status wrapper) attributes the returned code to a row.
+//Peer: cudaMemcpyPeerAsync enqueued on the source's current stream,
+//handing off into the destination's current stream through an event.
+cudaError_t CopyPeer(int32_t dstDevice, void* dst, int32_t srcDevice,
+                     const void* src, size_t bytes);
+//Staging: a pinned host bounce (thread-local, grown by doubling on
+//demand and kept for the thread — the same per-thread contract as the
+//row pin), D2H on the source row then H2D on the destination row.
+cudaError_t CopyStaged(int32_t dstDevice, void* dst, int32_t srcDevice,
+                       const void* src, size_t bytes);
 
 //Lazy init: the device table + device 0's main stream + the error
 //flags. On failure a non-null error receives the message (the caller

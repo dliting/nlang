@@ -153,14 +153,40 @@ TensorDeviceStatus HookCopyD2H(int32_t device, void* dst, const void* src,
     return StatusOf(device, CopyBytes(dst, src, bytes, false));
 }
 
+//The cross-device copy (device ABI v3's copyD2D): the payload moves
+//between two rows, so both ids gate; a sticky fault on either row
+//involves this copy's hardware and drains first. New faults attribute
+//to the destination's row (the caller's handle lands there — the
+//status the registry folds names the device the caller holds).
+TensorDeviceStatus HookCopyD2D(int32_t dstDevice, void* dst,
+                               int32_t srcDevice, const void* src,
+                               size_t bytes) {
+    if (!tensor_cuda::CudaDeviceAccepted(dstDevice)
+        || !tensor_cuda::CudaDeviceAccepted(srcDevice))
+        return {DEVICE_FAULT, 0, "cuda: payload on unknown device"};
+    TensorDeviceStatus sticky = DrainSticky(srcDevice);
+    if (sticky.category != DEVICE_OK)
+        return sticky;
+    sticky = DrainSticky(dstDevice);
+    if (sticky.category != DEVICE_OK)
+        return sticky;
+    const bool peer = CudaPeerReady(srcDevice, dstDevice);
+    return StatusOf(dstDevice,
+        peer ? CopyPeer(dstDevice, dst, srcDevice, src, bytes)
+             : CopyStaged(dstDevice, dst, srcDevice, src, bytes));
+}
+
 TensorDeviceStatus HookSync() {
     //The stream sync: the authoritative observation point for the
-    //async group's execution faults. It syncs the row-0 stream (every
-    //enqueue still rides device 0 until M-G3's operand routing), so
-    //the record it consults is row 0's.
+    //async group's execution faults. It syncs device 0's main stream
+    //(the VM never routes here under operand routing — each compute
+    //op observes its own row at its own boundary — this hook keeps
+    //the pre-M-G3 whole-device spelling, pinned explicitly now that
+    //the stream reads are selection-dependent).
     TensorDeviceStatus sticky = DrainSticky(0);
     if (sticky.category != DEVICE_OK)
         return sticky;
+    SetDeviceForCall pin(0);
     return StatusOf(0, SyncStream());
 }
 
@@ -191,7 +217,9 @@ cudaError_t LastCudaError = cudaSuccess;
     } while (0)
 
 //The LaunchView builder from a pinned view (data = the device pointer,
-//reserved[0] = 1 — the dispatcher's residency routing guaranteed it).
+//reserved[0] = 1 — the dispatcher's residency routing guaranteed it;
+//reserved[1] = the owning device, folded into the launcher's pin —
+//device ABI v3's operand-driven routing).
 LaunchView ToLaunch(const NativeArrayView& v) {
     LaunchView lv;
     lv.rank = v.rank;
@@ -199,6 +227,7 @@ LaunchView ToLaunch(const NativeArrayView& v) {
     lv.offset = v.offset;
     lv.data = v.data;
     lv.elemKind = v.elemKind;
+    lv.device = v.reserved[1];
     for (int32_t i = 0; i < v.rank && i < kMaxRank; ++i) {
         lv.dims[i] = v.dims[i];
         lv.strides[i] = v.strides[i];
@@ -227,10 +256,10 @@ TensorOps MakeCudaTable() {
     TensorOps t;
     std::memset(&t, 0, sizeof(t));
 
-    //M2 (design 2026-11-15 §R6): every slot the P3 kernels do not
-    //implement yet carries a named NotSupported raise — a null slot
-    //would be a null function-pointer call once the per-call routing
-    //directs device operands here. The uniform stub is the spelling.
+    //Design 2026-11-15 §R6: an unimplemented slot must carry a named
+    //raise, never a null pointer (a null slot is a null function-
+    //pointer call once per-call routing directs device operands here).
+    //The table is now fully populated.
     //extreme (full reduction): the launcher branches on IsDense — a dense
     //view takes the flat dense kernel (offset folded into the base), a
     //strided view takes the strided-aware kernel (FlatAddress per
@@ -755,24 +784,21 @@ TensorOps MakeCudaTable() {
             "tensor (cuda copy)");
     };
 
-    //The REAL axis reaches the launcher's geometry gate: rank-2 axis-1
-    //raises NotSupported (the slot used to hardcode 0 — silently wrong).
-    t.concatF32 = [](NativeHost* host, NativeArrayView& a,
-                     NativeArrayView& b, int32_t axis,
-                     NativeArrayView& dst) {
+    //The REAL axis reaches the launcher (the join kernel folds any
+    //axis; the slot used to hardcode 0 — silently wrong, and the
+    //launcher's axis-0-only gate then raised where the host path had
+    //results). One body for all four kinds, the cell width riding the
+    //operand view (a.elemKind — the matmul/assignInto convention): the
+    //old per-family hardcoding handed the f64/i64 slots the f32/i32
+    //codes, copying and reading half the cells' bytes (silent, zeros
+    //at the tail).
+    t.concatF32 = t.concatF64 = t.concatI32 = t.concatI64 =
+        [](NativeHost* host, NativeArrayView& a, NativeArrayView& b,
+           int32_t axis, NativeArrayView& dst) {
         RequireCuda(host);
         CUDA_CHECK(LaunchConcat(ToLaunch(a), ToLaunch(b), axis,
-            ToLaunch(dst), 1), "tensor (cuda concat)");
+            ToLaunch(dst), a.elemKind), "tensor (cuda concat)");
     };
-    t.concatF64 = t.concatF32;
-    t.concatI32 = [](NativeHost* host, NativeArrayView& a,
-                     NativeArrayView& b, int32_t axis,
-                     NativeArrayView& dst) {
-        RequireCuda(host);
-        CUDA_CHECK(LaunchConcat(ToLaunch(a), ToLaunch(b), axis,
-            ToLaunch(dst), 0), "tensor (cuda concat)");
-    };
-    t.concatI64 = t.concatI32;
 
     t.reduceAxisF32 = [](NativeHost* host, ReduceAxisOp op,
                          NativeArrayView& src, int32_t axis,
@@ -871,6 +897,7 @@ nlang_device_backend_init(void) {
         desc.streamPush = &tensor_cuda::CudaStreamPush;
         desc.streamPop = &tensor_cuda::CudaStreamPop;
         desc.streamJoin = &tensor_cuda::CudaStreamJoin;
+        desc.copyD2D = &tensor_cuda::HookCopyD2D;
         built = true;
     }
     return &desc;

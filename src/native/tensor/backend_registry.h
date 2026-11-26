@@ -19,15 +19,22 @@
     1. COMPUTE — same-residency operands. Route PER CALL by the primary
        operand's residency: host operands run the cpu table even under
        a device backend (PyTorch's discipline — CPU tensors run CPU
-       kernels), device operands run the active device table.
-       → OpsForResidency(residency).
+       kernels), device operands run the active device table. Inside a
+       Push scope the router also refuses a device operand that lives
+       on another device (the join contract lives on the scope's
+       stream — spec §4).
+       → OpsForResidency(host, primary).
 
-    2. TRANSFER — host↔device (toDevice/toHost/uniform's landing).
-       Never a compute slot (either table dereferences the wrong side);
-       the hooks' byte copies are the mechanism. Strided sources
-       materialize by SOURCE residency first (MaterializeByResidency).
+    2. TRANSFER — host↔device (toDevice/toHost/uniform's landing) and
+       device↔device (toDevice naming a foreign target, through the
+       plugin's copyD2D). Never a compute slot (either table
+       dereferences the wrong side); the hooks' byte copies are the
+       mechanism. Strided sources materialize by SOURCE residency
+       first (MaterializeForTransfer — ungated: the scope gate keeps
+       compute on the scope's stream, and a transfer is the way to
+       cross one).
        → CopyHostToDevice / CopyDeviceToHost / TransferToDevice /
-         TransferToHost.
+         TransferToDeviceD / TransferToHost.
 
     3. METADATA — shape-determining reads (dims/indices/labels/axes).
        A device-resident operand stages to host FIRST (single-block
@@ -69,6 +76,12 @@ struct DeviceBackendState {
     void (*streamPush)(int handle) = nullptr;
     void (*streamPop)() = nullptr;
     void (*streamJoin)(int handle) = nullptr;
+    //--- device ABI v3: the plugin's cross-device copy (multi-GPU
+    //M-G3). Null = the backend cannot cross devices (mirror never
+    //meets a cross: its census is 1); the registry's device-named
+    //toDevice raises by name when it needs a null entry.
+    TensorDeviceStatus (*copyD2D)(int32_t dstDevice, void* dst,
+        int32_t srcDevice, const void* src, size_t bytes) = nullptr;
 };
 
 //Resolved once at module init; immutable afterwards (the hooks
@@ -84,12 +97,15 @@ void InitBackendSelection(NativeHost* host);
 
 //--- CLASS 1: compute routing -------------------------------------------
 
-//Per-call table routing by the primary operand's residency (the
-//operands agreed — AssertSameDevice ran): 0 = host → the cpu table
-//(even under a device backend), 1 = device → the active device table
-//(the cpu table under mirror — its ops stay null — the plugin table
-//under cuda).
-const TensorOps& OpsForResidency(uint8_t residency);
+//Per-call table routing by the primary operand (the operands agreed
+//— AssertSameDevice ran): host → the cpu table (even under a device
+//backend), device → the active device table (the cpu table under
+//mirror — its ops stay null — the plugin table under cuda). Inside a
+//Push scope a device operand on another device raises by name (the
+//join would under-wait it — spec §4); host operands keep running the
+//cpu table in any scope (nothing launches on a stream).
+const TensorOps& OpsForResidency(NativeHost* host,
+                                 const NativeArrayView& primary);
 
 //--- CLASS 2: transfers --------------------------------------------------
 
@@ -104,9 +120,17 @@ void CopyDeviceToHost(NativeHost* host, int32_t device, void* hostDst,
 //toDevice/toHost bodies: same-residency operands return the original
 //handle (the array API to_device contract; toDevice is a no-op under
 //backend=cpu). Strided sources materialize by SOURCE residency
-//(MaterializeByResidency), then the hooks transfer lands the payload.
+//(MaterializeForTransfer), then the hooks transfer lands the payload.
 int32_t TransferToDevice(NativeHost* host, uint8_t* ret,
                          const uint8_t* args);
+//The device-named toDevice(a, device) (multi-GPU M-G3): the target is
+//guarded against the census (every cpu call raises — the range is
+//empty), a same-device operand returns the handle unchanged, a host
+//operand lands through the widened H2D path on the target, and a
+//foreign-device operand crosses through one copyD2D call (the plugin
+//raises by name when its entry is null).
+int32_t TransferToDeviceD(NativeHost* host, uint8_t* ret,
+                          const uint8_t* args);
 int32_t TransferToHost(NativeHost* host, uint8_t* ret,
                        const uint8_t* args);
 
@@ -135,9 +159,18 @@ void ReadIntListStaged(NativeHost* host, const uint8_t* args, int slot,
 ///FlattenMaterialized/reshape's copy arm): contiguous views pass
 //through unchanged; a strided HOST source materializes via the cpu
 //table (host memory); a strided DEVICE source materializes on-device
-//(newArrayResident + the device table's copy — D2D). Returns the
-//handle backing the computation and refills *view.
+//(newArrayResident + the device table's copy — D2D), reached only
+//through the scope gate (CLASS 1). Returns the handle backing the
+//computation and refills *view.
 int32_t MaterializeByResidency(NativeHost* host, int32_t handle,
+                               NativeArrayView* view);
+
+//The transfer family's router (CLASS 2): the same arms, but the
+//device arm runs the source's table ungated — a transfer is the
+//sanctioned way to cross a Push scope and its ordering is owned by
+//the ordered copyD2D hook, so the scope gate (CLASS 1) must not
+//refuse the transfer's internal densification.
+int32_t MaterializeForTransfer(NativeHost* host, int32_t handle,
                                NativeArrayView* view);
 
 //--- creation mints ------------------------------------------------------

@@ -1,0 +1,24 @@
+// The rank-1 (fancy) scatter with an empty index set: the count gate
+// guards only the axis form (rank >= 2), so writing nothing is legal —
+// both backends must hand back a copy of `a`. The device launcher has
+// to skip the zero-block index kernel (invalid configuration) but
+// still owes the dense span copy that seeds the value-semantics
+// result; skipping that copy leaves the minted output unseeded.
+// (scatterAdd keeps the same shape: empty `a` raises by the family's
+// convention, an empty index set returns the copy unmodified.)
+import tensor;
+
+int main() {
+    string b = tensor.backend();
+    if (b != "cpu" && b != "cuda") return 1;
+    float[] a = [1.5f, 2.5f, 3.5f, 4.5f];
+    int[] idx = int[0];
+    float[] v = float[0];
+    float[] s = tensor.scatter(a, 0, idx, v);
+    float[] t = tensor.scatterAdd(a, 0, idx, v);
+    for (int i = 0; i < 4; i = i + 1) {
+        if (s[i] != a[i]) return 2;
+        if (t[i] != a[i]) return 3;
+    }
+    return 0;
+}

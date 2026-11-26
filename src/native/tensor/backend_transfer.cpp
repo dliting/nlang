@@ -2,8 +2,10 @@
 backend_transfer.cpp — the payload-transfer choke points (CLASS 2) and
 the metadata staging (CLASS 3) over the active backend's device hooks:
 the toDevice/toHost transfers, the staged host walks and the staged
-int-list reads (design 2026-11-15-p3-routing-design). Device ABI v2:
-every transfer names the payload's device (the view's reserved[1]).
+int-list reads (design 2026-11-15-p3-routing-design). Device ABI v3:
+every transfer names the payload's device (the view's reserved[1]),
+and the device-to-device crossing rides the v3 copyD2D entry
+(multi-GPU M-G3).
 Split from backend_registry.cpp for the source-size guard (the
 registry file caps at 500 lines).
 ---*/
@@ -72,6 +74,58 @@ void CopyDeviceToHost(NativeHost* host, int32_t device, void* hostDst,
         bytes));
 }
 
+namespace {
+
+//Mint a device-resident array shaped like `v` and upload its payload —
+//the shared tail of both toDevice spellings. The mint pins the record's
+//device entry, so the upload target and the record always agree.
+int32_t MintAndUpload(NativeHost* host, const NativeArrayView& v,
+                      int32_t device) {
+    const int32_t handle = host->newArrayResident(host, v.elemKind,
+        v.rank, v.dims, device);
+    NativeArrayView dst;
+    host->getArrayView(host, handle, &dst);
+    CopyHostToDevice(host, device, dst.data,
+        static_cast<const uint8_t*>(v.data)
+            + static_cast<size_t>(v.offset) * v.elemCellBytes,
+        static_cast<size_t>(v.elemCount) * v.elemCellBytes);
+    return handle;
+}
+
+//Mint on `device` and cross the payload once from the operand's device
+//(the foreign-residency arm of the device-spelled toDevice): dense by
+//SOURCE residency first — a stride walk is not copyD2D's domain — then
+//one crossing through the plugin entry. `v` is the operand's view and
+//comes back refilled with the dense source view.
+int32_t MintCrossCopy(NativeHost* host, int32_t operand,
+                      NativeArrayView& v,
+                      const DeviceBackendState& backend, int32_t device) {
+    //No cross-device entry on this backend (mirror never reaches this
+    //arm — its census is 1); name the backend that cannot cross.
+    if (backend.copyD2D == nullptr)
+        Raise(host, NEXC_Base, "tensor.toDevice: backend '"
+            + backend.name + "' cannot copy between devices");
+    const int32_t source = static_cast<int32_t>(v.reserved[1]);
+    //refills v with a dense view on the source device (a contiguous
+    //operand passes through; GC owns any minted temporary). The
+    //transfer-internal densification is ungated (CLASS 2): inside a
+    //Push on the TARGET device this very call is the sanctioned move,
+    //so the compute scope gate must not refuse it; the ordering is
+    //owned by the copyD2D hook below (spec §6).
+    MaterializeForTransfer(host, operand, &v);
+    const int32_t handle = host->newArrayResident(host, v.elemKind,
+        v.rank, v.dims, device);
+    NativeArrayView dst;
+    host->getArrayView(host, handle, &dst);
+    RaiseStatus(host, backend.copyD2D(device, dst.data, source,
+        static_cast<const uint8_t*>(v.data)
+            + static_cast<size_t>(v.offset) * v.elemCellBytes,
+        static_cast<size_t>(v.elemCount) * v.elemCellBytes));
+    return handle;
+}
+
+} // namespace
+
 int32_t TransferToDevice(NativeHost* host, uint8_t* ret,
                          const uint8_t* args) {
     NativeArrayView v;
@@ -91,17 +145,56 @@ int32_t TransferToDevice(NativeHost* host, uint8_t* ret,
         v.elemKind = 0xEE;
         host->getArrayView(host, dense, &v);
     }
-    //toDevice lands on the ACTIVE device — device 0 until the surface
-    //names a target (the device argument lands with cross-device
-    //copies); the mint pins the record's device entry to match.
-    const int32_t handle = host->newArrayResident(host, v.elemKind,
-        v.rank, v.dims, 0);
-    NativeArrayView dst;
-    host->getArrayView(host, handle, &dst);
-    CopyHostToDevice(host, 0, dst.data,
-        static_cast<const uint8_t*>(v.data)
-            + static_cast<size_t>(v.offset) * v.elemCellBytes,
-        static_cast<size_t>(v.elemCount) * v.elemCellBytes);
+    //toDevice lands on the CURRENT scope's device (M-G3: the half-
+    //routing of the stream scopes closes here — inside a Push on
+    //device d the copy lands on d; outside any scope d is 0, today's
+    //behavior). The mint pins the record's device entry to match.
+    const int32_t handle = MintAndUpload(host, v, CurrentScopeDevice());
+    nlang::native::ReturnInt(ret, handle);
+    return handle;
+}
+
+int32_t TransferToDeviceD(NativeHost* host, uint8_t* ret,
+                          const uint8_t* args) {
+    const int32_t device = static_cast<int32_t>(ArgInt(args, 1));
+    const DeviceBackendState& backend = ActiveDeviceBackend();
+    //The census guard (the toDevice twin of the streamCreate one,
+    //M-G3): the target must live in [0, deviceCount). cpu's census is
+    //EMPTY — the device arg would name a device the process never
+    //has — so every cpu call raises (unlike streamCreate, where
+    //device 0 names the implicit main stream).
+    if (!backend.device || device < 0 || device >= backend.deviceCount)
+        Raise(host, NEXC_Base,
+              "tensor.toDevice: device " + std::to_string(device)
+              + " beyond the device count "
+              + std::to_string(backend.deviceCount));
+    const int32_t operand = ArgInt(args, 0);
+    NativeArrayView v;
+    host->getArrayView(host, operand, &v);
+    //The same-residency contract: an operand already resident on the
+    //named device returns as-is (the array API to_device reading —
+    //the device-named spelling keeps it device-scoped).
+    if (v.reserved[0] == 1 && v.reserved[1] == device) {
+        nlang::native::ReturnInt(ret, operand);
+        return operand;
+    }
+    //Device-resident but foreign: one crossing through the plugin's
+    //copyD2D, dense by source residency, ordered handoffs inside the
+    //hook (spec §6).
+    if (v.reserved[0] == 1) {
+        const int32_t handle = MintCrossCopy(host, operand, v, backend,
+            device);
+        nlang::native::ReturnInt(ret, handle);
+        return handle;
+    }
+    //A HOST operand: the plain H2D path with the named target (the
+    //mint pins the record's device entry to the target).
+    if (!IsContiguous(v)) {
+        const int32_t dense = Materialize(host, v);
+        v.elemKind = 0xEE;
+        host->getArrayView(host, dense, &v);
+    }
+    const int32_t handle = MintAndUpload(host, v, device);
     nlang::native::ReturnInt(ret, handle);
     return handle;
 }

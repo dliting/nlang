@@ -448,6 +448,268 @@ pins 502→506; SYNC_BASELINE. Box: cross-device e2e green both
 runs; Windows/single-GPU legs: the reported skips (SKIP lines +
 tally) and guard paths.
 
+M-G3 landing (2026-11-26), rulings and deviations:
+
+- The one-argument `toDevice` follows the stream scope (it mints on
+  `CurrentScopeDevice()`), closing the half-routing M-G2 recorded:
+  computation follows the operands everywhere — every op file selects
+  the ops table through `OpsForResidency(host, view)` from the view's
+  residency, never from device 0. The manual (en/zh), the stdlib
+  declaration comments and the CHANGELOG (en/zh) state full routing;
+  the "kernels and transfers still land on device 0" sentences and the
+  concat-axis known-limitations line are deleted.
+- `toDevice(a, device)` is a registry class-2 entry with the census
+  guard (the streamCreate twin): the raise names selector and census
+  ("tensor.toDevice: device <d> beyond the device count <c>"), and
+  every cpu call is refused — cpu's census is empty, unlike
+  `streamCreate`, where device 0 names the implicit main stream. The
+  same-residency contract stays device-scoped (an operand already on
+  the named device returns as-is); a foreign operand materializes by
+  SOURCE residency (dense on d0 — never a stride walk through
+  `copyD2D`), mints on the target, crosses once.
+- Device ABI `3u`: `copyD2D` lands at the descriptor's tail (an old
+  plugin lacks the field — the exported version is the layout guard).
+  The ordering contract (spec §6) is implemented inside the plugin:
+  ordered after the source's current stream, event handoff into the
+  destination's current stream, peer vs pinned-staging per the
+  capability matrix. `HookCopyD2D` gates BOTH ids — a sticky fault on
+  either row involves this copy's hardware and drains first — and a
+  new fault attributes to the DESTINATION row, because the caller's
+  handle and the folded status name the device the caller holds.
+- `SetDeviceForCall` is the only spelling that changes the thread's
+  device or the selected per-device row, and one pin makes an entry
+  body device-correct (stream, staging, error-flag reads follow the
+  pin): launchers pin from the primary `LaunchView`'s device, hooks
+  from their device argument, and the row-0 aliases are gone from
+  entry bodies. `HookSync` keeps the pre-M-G3 whole-device spelling
+  pinned to device 0 explicitly — under operand routing the VM never
+  routes there, each compute op observes its own row.
+- cuda table audit: all 104 `TensorOps` slots are populated (the §R6
+  "null-slot stub" comment was stale — unimplemented slots carry named
+  raises, never nulls; comment corrected) and the per-family element-
+  kind literals were verified, catching one real defect: the f64/i64
+  concat slots aliased the f32/i32 lambda with the 32-bit kind code
+  hardcoded, so the 64-bit joins copied half the bytes of each cell
+  (wrong values, zeros at the tail — creation-era, surfaced by the
+  merged dev corpus, not an M-G3 regression). Ruling: a kind-shared
+  slot body carries the kind on the operand view (`a.elemKind`, the
+  matmul/assignInto convention), never a hardcoded literal.
+- Device `concat` generalizes to every axis: the join kernel folds
+  each destination cell through its join-axis coordinate (the dense
+  axis-0 two-span memcpy stays as the fast path). The old
+  `cudaErrorNotSupported` gate raised where the host path had results
+  and existed only while the parity fixture had not landed; the
+  fixture landed and the throw-shaped one was renamed —
+  `op_tensor_concat_axis_throw.n` → `op_tensor_concat_axis_inner.n`
+  (manifest row follows) — asserting device/host agreement on axis 1.
+- Zero-cell launch defect class: a zero-block grid is an invalid CUDA
+  configuration; 17 launchers faulted on empty inputs/outputs. Every
+  grid source (element count, line count, index count, matmul's
+  row×column product) is audited and guarded — launch nothing, the
+  already-correct empty result stands. The empty-raise symmetry is
+  untouched: sort/arange/gather/takeAlong/scatterAdd/max raise
+  "empty array" host-side on both backends by design; the guards cover
+  only the launch paths that legitimately carry empties
+  (full/compare/clamp/reshape/concat/matmul).
+- Skip contract (runner side, M-G3 is its first consumer): an
+  unserviceable fixture exits `E2E_SKIP_EXIT` (90) naming its reason
+  on stderr; both runner verdict passes classify `SKIP <name>
+  (<reason>)`, the tally widens, and a sentinel without a reason is a
+  FAIL. The classification is pinned with pure-injection cases in
+  `test_runner_env_gate.py` (5 new, 14 total green) and was verified
+  live on all three arms (cuda 1<2, cpu 0<2, reasonless probe FAIL).
+  `op_tensor_cross_device.n` registered with expectation 0 — no
+  timing rows (e2e configs ride the `default` range rows); the
+  double-run roster (`tools/e2e_cuda_double_run.txt`) carries the
+  renamed row and the new one. The bench cuda leg runs the roster
+  green on this machine. Counting note: the runner issues verdicts
+  per MANIFEST entry and scans BOTH `manifest.txt` and
+  `examples_manifest.txt`, so the roster's line count and the
+  verdict count are not interchangeable — the six fixtures
+  double-listed in `manifest.txt` are double-listed in the roster
+  too (they cancel), and this tree's one extra verdict is
+  `class_basic`, listed in both manifests (round-2/round-3 review;
+  verified against the log: 213 verdict lines over 212 roster
+  lines). The single skip is
+  `SKIP op_tensor_cross_device (skip: deviceCount() = 1 < 2)`, the
+  exact reported-skip shape the user's cross-platform ruling asks
+  for. The mixed-raise and scope-gate message texts were verified
+  word-for-word against the fixture's expected strings
+  (`AssertSameDevice`, the `OpsForResidency` scope gate).
+- Scheduling: no full T1 at this intermediate milestone (user ruling
+  "中间阶段的测试不要太多"): the local check was the touched 65-row
+  cuda/cpu subset double-run plus targeted probes, all green. The
+  corpus double-runs happen on the acceptance box (2×4090 — the
+  single-GPU laptop adds no cuda coverage the box will not repeat),
+  and the full T1/T2 shape runs once at closeout on the committed
+  tree. The T1 batch started before today's cuda-table fixes closed
+  informational, every red diagnosed: `source_size_guard` in
+  debug-unit and ide-ctest (both since refactored away), both e2e
+  legs rc=2 from the runner's stdlib-freshness guard (the accepted
+  in-batch stdlib edit — zero cases actually ran), and asan-unit's
+  single failure `nd_resolve_stress_tests (Timeout)` — an
+  environment-slow DNS stress case under ASan, watch item for the
+  closeout run, not an M-G3 surface.
+- Pin-lag finding (the stale-binary mask, again): the post-milestone
+  full Debug rebuild — the first to compile the whole uncommitted
+  M-G3 tree — surfaced two pins that lagged work already in the
+  tree: the `TestStreamHandle` device-ABI pin (still 2 while the
+  header had moved to 3 — updated, with the v2-refusal probe arm
+  replacing the old "future version" arm) and the stdlib symbol
+  pins (the planned 502→506). Lesson for every future ABI bump:
+  the version pin in `TestStreamHandle.cpp` moves in the same edit
+  as `NLANG_DEVICE_ABI_VERSION` — the load-time probe and the pin
+  are the two eyes of the same contract.
+- Third-party review round 1 (6 Medium, 4 Low, 0 High) and their
+  dispositions — every finding verified against the code before
+  acceptance, all fixed:
+  - `LaunchOneHot` pinned its launch row from the LABELS, which the
+    dispatcher stages to host, while the minted output lives on the
+    scope's device — under a Push(d≠0) scope the kernel ran on device
+    0 writing device-1 memory (the illegal-address class, exactly
+    the mnist_ddp shape). Now pinned from `dst.device`; audited the
+    whole 26-launcher pin table — oneHot was the only row read from a
+    staged operand. Cross-device legs (in-scope oneHot, in-scope
+    strided toDevice) added to the cross-device fixture; they run on
+    the box (locally the fixture skips with the census reason).
+  - The scatter/scatterAdd empty-index guards skipped the whole body,
+    but the rank-1 value form still owes the dense span copy that
+    seeds the result (the count gate guards only the axis form, so
+    the empty index set is legal and the host path returns a copy of
+    `a`): the device mint came back unseeded. Red fixture
+    `op_tensor_scatter_empty_index` (cuda actual=2, cpu green) →
+    guards narrowed to "skip the index work, not the copy".
+  - `g_launchDevice` (the per-entry row selector) was process-global
+    while tensor natives run on the VM's blocking channel without the
+    VM lock — two carriers inside entries raced the pin. Now
+    `thread_local`; the Push/Pop scope stack stays process-global by
+    design (the registry/plugin lockstep and spec §7's single-carrier
+    enqueue contract — the stream layer's own concurrency contract,
+    not a per-op accident; the audit found no other shared state the
+    CUDA stream/pool APIs do not already serialize).
+  - `toDevice(stridedForeign, d)` inside a Push(d) scope raised the
+    COMPUTE scope gate from its own internal densification — the
+    advice in the message ("move them with tensor.toDevice") named
+    the very call being made. Ruling: the gate guards CLASS 1 compute;
+    a transfer is CLASS 2, owns its ordering through the hook, and is
+    the sanctioned way to CROSS a scope — its internal densification
+    is source-routed and ungated. Implemented as
+    `MaterializeForTransfer` (the ungated source table) beside
+    `MaterializeByResidency` (gated, for compute callers); box leg
+    added (transpose view → in-scope toDevice → values arrive
+    transposed).
+  - Missing plan-mandated guards: the toDevice(a, device) census
+    e2e (`op_device_transfer_guard` + mirror twin, .flags-pinned —
+    first-absent-id and negative-id raises naming the count, runs on
+    every machine) and the copyD2D peer-vs-staging branch pin
+    (`CrossCopyUsesPeer` extracted to the shared header, table pinned
+    in `test_native_tensor`).
+  - Lows: the design doc's stale pre-M-G3 `toDevice(a)` sentences
+    (§1/§3 now carry the scope-following ruling and the shipped
+    census-raise wording), the 1 MiB staging magic number (now
+    `DEFAULT_STAGE_CAPACITY_BYTES`), the transfer file header's ABI
+    v2 wording (v3 with the copyD2D entry named).
+  - Post-fix verification: bench Release full-tree rebuild, debug
+    `test_native_tensor` 3/3 (the new branch pin included),
+    `source_size_guard` green, the guard batch 6/6 on the cpu corpus
+    leg (both twins, mirror via .flags), and the 212-line cuda
+    double-run roster green (the two new census rows included, the
+    cross-device fixture skipping with its census reason).
+- Third-party review round 2 (the same delta re-audited: all ten
+  round-1 dispositions individually verified fixed; 1 new Medium,
+  3 new Low, 0 High) and their dispositions — every finding
+  verified against the code before acceptance, all fixed:
+  - `g_stageBuffer`/`g_stageCapacity` — the staging path's pinned
+    host bounce — were process-wide and unsynchronized. Verified
+    new in this delta (`git log -S` empty), and the M-G3
+    cross-device path made it the ORDINARY route: the acceptance
+    box reports `canAccessPeer = 0` both directions (design §6), so
+    every `toDevice(a, device)` crosses through `CopyStaged`. The
+    race is the same class the thread-local row pin exists for —
+    two carriers inside transfer entries interleave their payloads
+    in one bounce, and one carrier's doubling growth can
+    `cudaFreeHost` a buffer the other's D2H has not drained. Now
+    `thread_local`, the same model as the row pin: within one
+    thread the copies are blocking (growth never races a drain) and
+    the per-thread buffer is kept under the same keep-resources
+    discipline as the row handles.
+  - `CopyPeer` reused the destination row's `stagingDone` event for
+    its cross-device handoff — the same row-shared event the
+    M-G2-era bulk `CopyBytes` path records, so two concurrent
+    transfers interleave handoffs (one carrier's
+    `cudaEventSynchronize` observes the other's copy). Disposition
+    covers both users: the bulk `CopyBytes` handshake and the
+    `CopyPeer` handoff each create a PER-CALL event, ride it
+    record/wait/destroy in the `CudaStreamJoin` join-event pattern
+    (destroying after both streams have consumed its records is
+    safe — the wait keeps the fence without the handle), and the
+    row-shared `stagingDone` is deleted outright (state field,
+    `CurrentStagingEvent` accessor, header declaration, row-init
+    creation). `stagingStream` stays shared: its FIFO ordering IS
+    the overlap contract; the event was per-transfer state
+    misfiled into the row.
+  - Terminology drift on the same interface pair: the manual's
+    "zero-argument spelling"/「零参写法」 against CHANGELOG and
+    `tensor.n`'s "one-argument spelling" — both names wrong in
+    opposite directions (`toDevice(a)` takes one argument; only
+    `streamCreate()` is argument-less). Unified to "the spelling
+    that omits the device"/「省略设备的写法」 across the current
+    feature text: both manual languages (two sites each), the
+    CHANGELOG pair, the `tensor.n` native-declaration comments.
+    The historical CHANGELOG entries about zero-argument
+    CONSTRUCTION stay as they are — there "zero-argument" is the
+    standard term.
+  - The roster tally bullet conflated the runner's verdict count
+    with the roster's line count (verdicts are per manifest entry,
+    across both the main manifest and the examples manifest the
+    runner scans); reworded to keep the two counts separate — the
+    stated mechanism was itself wrong and re-corrected in round 3.
+  - Post-fix verification: tensor_cuda plugin rebuild (the delta is
+    plugin-internal), the 212-row cuda double-run roster re-run
+    green on the same tally as the pre-fix run, and the guard
+    batch re-checked.
+- Third-party review round 3 (the round-2 fix round re-audited: all
+  four dispositions verified fixed — the thread-local bounce, the
+  per-call handoff events with the row-shared event deleted
+  (leak-free return paths and the safe destroy-after-consumption
+  lifetime confirmed against the `CudaStreamJoin` precedent), the
+  terminology unification, and the ledger; 0 Medium-or-above, 3
+  new Low, 1 Info — the loop closes here per the "某轮仅Low/Info
+  级、修正后测试全过即可进入下一阶段" rule) and their
+  dispositions, all verified against the code before acceptance:
+  - the `CopyStaged` header comment still promised the
+    process-wide bounce the fix had retired; reworded to the
+    per-thread contract (a missed site — the neighboring
+    `CurrentStagingStream` comment had been updated).
+  - the zh manual's new stream-scope sentence used the colloquial
+    「别个设备」; standardized to 「别的设备」 (the only such site
+    in docs/, grep-verified).
+  - the tally note's MECHANISM was misattributed (the round-2
+    correction replaced the conflation with a wrong causality):
+    the six fixtures double-listed in `manifest.txt` are
+    double-listed in the roster too and cancel; the +1 verdict
+    over roster lines is `class_basic`, listed in both
+    `manifest.txt` and `examples_manifest.txt` (the runner scans
+    both — verified against the log: `class_basic` carries two
+    verdicts). Reworded above.
+  - Info, ACCEPTED as-is: `CopyPeer` returns before the
+    destination-stream wait when the per-call event cannot be
+    created, leaving the already-enqueued peer copy unordered into
+    the destination row. The pre-existing `CudaStreamJoin` accepts
+    the same shape for the same effectively-unreachable handle
+    OOM, and the anti-over-defense rule keeps the plain status
+    raise over a source-row-sync-plus-blocking-copy fallback.
+  - Residual-risk note, carried to the P1-g box acceptance: the
+    fixed cross-device paths (staging bounce, peer handoff,
+    census/gate legs, the 64 KiB-threshold handshake) execute on
+    no single-GPU machine — the 2×4090 box is their first real
+    run, and the box steps (corpus double-runs, the cross-device
+    fixture with the oneHot/strided legs) are their acceptance.
+  - Post-fix state: comment/wording-only since the round-2
+    verification (header comment, one zh word, two ledger notes);
+    the plugin is rebuilt for binary consistency while the
+    functional gates stay as verified in the round-2 round.
+
 ## 5. M-G4 — mnist_ddp.n acceptance
 
 Program shape (examples/mnist_mlp/mnist_ddp.n, the spec §8 split):

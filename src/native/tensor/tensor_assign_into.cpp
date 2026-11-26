@@ -193,7 +193,7 @@ void AssignIntoRun(NativeHost* host, uint8_t* ret, const uint8_t* args,
             default: scalar.sv = ArgDouble(args, 1); break;
         }
     }
-    const TensorOps& ops = OpsForResidency(view.reserved[0]);
+    const TensorOps& ops = OpsForResidency(host, view);
     RouteAssignInto(ops, host, view, values, scalar, valuesScalar);
 }
 

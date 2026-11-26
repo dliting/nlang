@@ -26,7 +26,7 @@ static int g_failures = 0;
 //TestLoadsRealStdLib). A surface change updates the constant AND the
 //breakdown comment; the printer turns any future drift into a
 //per-package diff instead of bare FAIL lines.
-constexpr std::size_t kStdlibSymbolPin = 502;
+constexpr std::size_t kStdlibSymbolPin = 506;
 
 static void PrintIndexShape(const SymbolIndex &index)
 {
@@ -51,7 +51,7 @@ static void TestLoadsRealStdLib() {
     // from net, the monotonic clock moved to system in v0.13.4),
     // math 25, fs 10 (the binary read pair readBytes/readFloats),
     // thread 7 (the K3 materialized package plus the P2-2 failure
-    // probes), tensor 211 (the v0.12.7 surface: broadcasting
+    // probes), tensor 215 (the v0.12.7 surface: broadcasting
     // elementwise with scalar arms, the view family
     // transpose(+axes)/flatten/slice/broadcastTo, axis sums, generic
     // reshape with -1 inference, elementwise exp/log/clamp, concat,
@@ -61,7 +61,9 @@ static void TestLoadsRealStdLib() {
     // the activation additions reluGrad/tanh; the v0.14.0 device line:
     // toDevice/toHost overloads for the four numeric kinds and
     // backend(); the v0.14.11 census and device-spelled stream:
-    // deviceCount and streamCreate(int device)),
+    // deviceCount and streamCreate(int device); the v0.14.12
+    // device-spelled transfer: toDevice(a, device) for the four
+    // numeric kinds),
     // net 56 (the script ping plus the internal _nowMs/_lastErrorText/
     // _lastErrorCode/_throwNet/_ping/resolveList, the _errAddrInUse/
     // _errHostNotFound constant reads, the _tcp* natives

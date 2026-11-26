@@ -6,6 +6,41 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.14.12]
+
+### Added
+
+- **`tensor.toDevice(a, device)`** — the device-spelled transfer: the
+  copy lands on the named device; a host operand uploads, a device
+  operand crosses devices — a direct peer copy where the hardware
+  allows point-to-point access, staged through pinned memory
+  otherwise. The id must stay below `tensor.deviceCount()`; a foreign
+  one raises. Inside a stream scope the spelling that omits the
+  device follows the scope's device.
+- **Cross-device operand routing** — computation follows the operands:
+  a kernel over operands living on one device runs on that device,
+  including inside a pushed stream scope. The limitation recorded for
+  0.14.11 lifts: a pushed-scope creation and a `toDevice` result now
+  combine freely in one expression, and only genuinely foreign operands
+  raise, naming both sides and the transfer that fixes it.
+
+### Fixed
+
+- **`tensor.concat` along an inner axis on the device** — the device
+  kernel joined along axis 0 only and raised `Exception` for every other
+  axis, where the host path had a result. A general join kernel folds
+  any axis, so both paths agree at every rank.
+- **`tensor.concat` of `double` and `long` arrays on `cuda` produced
+  wrong values** — the 64-bit joins launched with the 32-bit element
+  kind, so the copy moved half the bytes of each cell: results carried
+  the wrong numbers with zeros at the tail.
+- **Empty arrays faulted on the device** — operations that legitimately
+  carry or mint an empty value (elementwise ops over empty operands,
+  zero-cell joins, empty index sets, zero-size fills and copies)
+  enqueued a grid of zero blocks — an invalid CUDA configuration — and
+  faulted on `cuda`. A zero-cell launch now enqueues nothing and the
+  already-correct empty result stands, matching the host path.
+
 ## [0.14.11]
 
 ### Added

@@ -58,7 +58,7 @@ void BinaryKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
     const int32_t handle = MintOutputLike(host, kind, outRank, outDims, va);
     NativeArrayView vout;
     host->getArrayView(host, handle, &vout);
-    const TensorOps& ops = OpsForResidency(va.reserved[0]);
+    const TensorOps& ops = OpsForResidency(host, va);
     if constexpr (std::is_same_v<T, float>) {
         ops.binaryF32(host, ToBin(op), va, vb, vout);
     } else if constexpr (std::is_same_v<T, double>) {
@@ -89,7 +89,7 @@ void ScalarKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
     const int32_t handle = MintOutputLike(host, kind, v.rank, v.dims, v);
     NativeArrayView vout;
     host->getArrayView(host, handle, &vout);
-    const TensorOps& ops = OpsForResidency(v.reserved[0]);
+    const TensorOps& ops = OpsForResidency(host, v);
     if constexpr (std::is_same_v<T, float>) {
         ops.binaryScalarF32(host, ToBin(op), v, scalar, vout);
     } else if constexpr (std::is_same_v<T, double>) {
@@ -165,7 +165,7 @@ void UnaryMathKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
     const int32_t handle = MintOutputLike(host, kind, v.rank, v.dims, v);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
-    const TensorOps& ops = OpsForResidency(v.reserved[0]);
+    const TensorOps& ops = OpsForResidency(host, v);
     if constexpr (std::is_same_v<T, float>) {
         ops.unaryF32(host, op == UnaryOp::Exp ? UnaryKernelOp::Exp
                                               : UnaryKernelOp::Log,
@@ -235,7 +235,7 @@ void NegKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
     const int32_t handle = MintOutputLike(host, kind, v.rank, v.dims, v);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
-    const TensorOps& ops = OpsForResidency(v.reserved[0]);
+    const TensorOps& ops = OpsForResidency(host, v);
     if constexpr (std::is_same_v<T, float>) {
         ops.unaryF32(host, UnaryKernelOp::Neg, v, out);
     } else if constexpr (std::is_same_v<T, double>) {
@@ -289,7 +289,7 @@ void ReversedScalarKernel(NativeHost* host, uint8_t* ret,
     host->getArrayView(host, handle, &vout);
     const BinaryKernelOp binOp = op == BinOp::Sub
         ? BinaryKernelOp::Rsub : BinaryKernelOp::Rdiv;
-    const TensorOps& ops = OpsForResidency(v.reserved[0]);
+    const TensorOps& ops = OpsForResidency(host, v);
     if constexpr (std::is_same_v<T, float>) {
         ops.binaryScalarF32(host, binOp, v, scalar, vout);
     } else if constexpr (std::is_same_v<T, double>) {

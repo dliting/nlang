@@ -472,11 +472,12 @@ native void assignIntoS(Array<long> view, long value);
 native int streamCreate();
 // The device-spelled creation: the pool slot is taken on the named
 // device and the handle encodes it; streamPush routes the arrays the
-// scope creates to that device. Kernels and transfers still land on
-// device 0, so such an array and a toDevice result cannot share one
-// expression until cross-device routing lands. Device 0 — the main
-// stream — is nameable on every backend; otherwise the device must
-// exist (deviceCount() reports how many) and a foreign id raises.
+// scope creates — and the toDevice results that omit the device —
+// to that device, and an operand living on another device raises
+// inside the scope (move it with the device-spelled toDevice).
+// Device 0 — the main stream — is nameable on every backend;
+// otherwise the device must exist (deviceCount() reports how many)
+// and a foreign id raises.
 native int streamCreate(int device);
 native void streamDestroy(int handle);
 native void streamPush(int handle);
@@ -521,6 +522,17 @@ native Array<float> toDevice(Array<float> a);
 native Array<double> toDevice(Array<double> a);
 native Array<int> toDevice(Array<int> a);
 native Array<long> toDevice(Array<long> a);
+// The device-spelled transfer (the device-mirroring
+// streamCreate(int device)): the copy lands on the named device. A
+// host operand moves host-to-device; a device operand crosses devices
+// (peer copy where the hardware allows, staged through pinned memory
+// otherwise). The id must exist — deviceCount() reports how many —
+// and a foreign id raises. Inside a stream scope, the spelling above
+// (the one that omits the device) follows the scope's device.
+native Array<float> toDevice(Array<float> a, int device);
+native Array<double> toDevice(Array<double> a, int device);
+native Array<int> toDevice(Array<int> a, int device);
+native Array<long> toDevice(Array<long> a, int device);
 native Array<float> toHost(Array<float> a);
 native Array<double> toHost(Array<double> a);
 native Array<int> toHost(Array<int> a);

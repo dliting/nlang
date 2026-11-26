@@ -131,7 +131,7 @@ int32_t FlattenMaterialized(NativeHost* host, NativeArrayView& src,
         MintOutputLike(host, src.elemKind, 1, &flat, src);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
-    const TensorOps& ops = OpsForResidency(src.reserved[0]);
+    const TensorOps& ops = OpsForResidency(host, src);
     switch (src.elemKind) {
         case NEK_Int32:  ops.copyI32(host, src, out); break;
         case NEK_Int64:  ops.copyI64(host, src, out); break;
@@ -234,7 +234,7 @@ void TensorReshape(NativeHost* host, uint8_t* ret, const uint8_t* args,
         MintOutputLike(host, dense.elemKind, shapeLen, dims, dense);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
-    const TensorOps& ops = OpsForResidency(dense.reserved[0]);
+    const TensorOps& ops = OpsForResidency(host, dense);
     switch (dense.elemKind) {
         case NEK_Int32:  ops.copyI32(host, dense, out); break;
         case NEK_Int64:  ops.copyI64(host, dense, out); break;

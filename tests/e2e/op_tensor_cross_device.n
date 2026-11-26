@@ -1,0 +1,111 @@
+// Multi-GPU M-G3: cross-device transfers. toDevice(a, device) lands
+// a copy on the named device, compute routes by the operand's device,
+// and a pushed scope on one device refuses operands from another
+// (the join contract lives on the scope's stream). Device-dependent,
+// so it runs the skip contract (plan §1): on machines with fewer
+// than two devices it reports the shortfall on stderr and returns
+// the skip sentinel 90 — the cpu corpus leg and single-GPU cuda legs
+// SKIP with the reason, the box's cuda legs run the full checks.
+import io;
+import tensor;
+
+int main() {
+    int count = tensor.deviceCount();
+    if (count < 2) {
+        io.eprint("skip: deviceCount() = " + count + " < 2");
+        return 90;
+    }
+    if (tensor.backend() != "cuda") return 100;
+
+    //a: the default device. arange creates device-resident (device 0
+    //outside any scope), and toDevice names the residency explicitly
+    //— the same handle comes back (the same-residency contract).
+    float[] a = tensor.toDevice(tensor.arangeF(0, 64, 1), 0);
+    //b: the cross-device copy, landing on device 1 through the
+    //staging (or peer) path of the plugin's copyD2D.
+    float[] b = tensor.toDevice(a, 1);
+
+    //Compute on b runs on device 1; running it twice must be
+    //byte-identical (no ordering race in the cross-device path), and
+    //the values must match the host-computed doubling exactly.
+    float[] bb1 = tensor.toHost(tensor.add(b, b));
+    float[] bb2 = tensor.toHost(tensor.add(b, b));
+    for (int i = 0; i < 64; i = i + 1) {
+        if (bb1[i] != bb2[i]) return 1;
+        if (bb1[i] != 2.0 * i) return 2;
+    }
+
+    //Mixed-device compute raises, naming both devices.
+    try {
+        float[] m = tensor.add(a, b);
+        return 3;
+    } catch (Exception e) {
+        if (e.message !=
+            "tensor: operands on different devices (cuda:0 vs cuda:1); "
+            + "move them with tensor.toDevice/toHost") return 10;
+    }
+
+    //x0 on device 0 plus a zero-copy strided re-view: the source for
+    //the scope-crossing transfer leg below (built outside the scope so
+    //it lands on device 0, the foreign side).
+    float[,] x0 = [[1.0, 2.0, 3.0, 4.0], [5.0, 6.0, 7.0, 8.0]];
+    float[,] strided = tensor.transpose(x0);
+
+    //A pushed scope on device 1: creations mint there, the op rides
+    //the scope's stream, and the result comes back byte-true.
+    int h = tensor.streamCreate(1);
+    tensor.streamPush(h);
+    float[] d = tensor.toDevice(tensor.arangeF(100, 164, 1), 1);
+    float[] dd = tensor.toHost(tensor.add(d, d));
+
+    //Inside the same scope a device-0 operand cannot launch: the join
+    //would under-wait work enqueued on another device's stream.
+    try {
+        float[] m = tensor.add(a, a);
+        return 4;
+    } catch (Exception e) {
+        if (e.message !=
+            "tensor: cuda:0 operands inside a cuda:1 stream scope; "
+            + "move them with tensor.toDevice") return 11;
+    }
+
+    //oneHot inside the device-1 scope: the labels stage to host
+    //memory while the minted output lives on the scope's device, so
+    //the kernel must launch on the destination's row — pinning the
+    //launch from the staged labels runs it on device 0 while it writes
+    //the device-1 output (an illegal address on that row).
+    int[] labels = [0, 1, 2, 3];
+    float[,] hot = tensor.oneHot(labels, 4);
+    for (int i = 0; i < 4; i = i + 1) {
+        for (int j = 0; j < 4; j = j + 1) {
+            float w = 0.0;
+            if (j == i) {
+                w = 1.0;
+            }
+            if (hot[i, j] != w) return 6;
+        }
+    }
+
+    //toDevice of a STRIDED foreign operand inside the target's scope:
+    //the densification is the transfer's own materialization — the
+    //transfer is the sanctioned move across a scope, so the compute
+    //scope gate must not refuse it. The strided source lands dense on
+    //the SOURCE device and crosses once: the values arrive transposed.
+    try {
+        float[,] crossed = tensor.toDevice(strided, 1);
+        for (int i = 0; i < 4; i = i + 1) {
+            for (int j = 0; j < 2; j = j + 1) {
+                if (crossed[i, j] != x0[j, i]) return 7;
+            }
+        }
+    } catch (Exception e) {
+        return 8;
+    }
+    tensor.streamPop();
+    tensor.streamJoin(h);
+    tensor.streamDestroy(h);
+    for (int i = 0; i < 64; i = i + 1) {
+        if (dd[i] != 2.0 * (100 + i)) return 5;
+    }
+    return 0;
+}

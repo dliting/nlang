@@ -159,7 +159,7 @@ template <typename T>
 void SortDeviceSlot(NativeHost* host, NativeArrayView& va,
                     int32_t axis, bool withIndices, NativeArrayView& out)
 {
-    SortDispatch<T>(OpsForResidency(va.reserved[0]), host, va, axis,
+    SortDispatch<T>(OpsForResidency(host, va), host, va, axis,
         withIndices, out);
 }
 
@@ -200,8 +200,8 @@ void SortRun(NativeHost* host, uint8_t* ret, const uint8_t* args,
     NativeArrayView srcHost = StageOperandToHost(host, va, &aStage);
     StagedWalkOut land;
     PrepareStagedWalkOut(host, outKind, va.rank, outDims, va, &land);
-    SortDispatch<T>(OpsForResidency(0), host, srcHost, axis, withIndices,
-        land.fill);
+    SortDispatch<T>(OpsForResidency(host, srcHost), host, srcHost, axis,
+        withIndices, land.fill);
     LandStagedWalkOut(host, &land);
     ReturnInt(ret, land.handle);
 }

@@ -110,17 +110,24 @@ __host__ __device__ bool IsDense(const DevView& v) {
 }
 
 //The per-device compute streams (device ABI v2: one row per device;
-//row 0 = device 0's main stream). The launchers read g_stream — an
-//alias for row 0: operand-driven stream selection is M-G3's work (the
-//milestone whose payloads first live on a second device), and while
-//every enqueue rides device 0 the alias keeps the launch sites
-//untouched. The cell-error flags ([0] = kind, [1] = cell) are row
-//state read through the row-0 alias until that routing lands.
+//row 0 = device 0's main stream). Device ABI v3 routes by the
+//operands' device: the entry's SetDeviceForCall pin selects the row
+//whose stream, staging handles and cell-error flags ([0] = kind,
+//[1] = cell) the entry body reads (CurrentStream() and friends).
 //Devices at or above the shared census bound (the descriptor's
 //kNativeMaxDevices) are rejected at selection — a plugin limit, not
 //a CUDA one; no host today has 16.
 cudaStream_t g_currentStream[tensor::kNativeMaxDevices] = {};
-cudaStream_t& g_stream = g_currentStream[0];
+
+//The selected row index: the device the last SetDeviceForCall pinned,
+//0 until the first pin (every boot path — the lazy init, the census —
+//names device 0 first). Thread-local by contract: tensor natives run
+//on the VM's blocking channel without the VM lock, so two carriers
+//can be inside entries at once — each pin selects its own row, and
+//the RAII save/restore nests per thread. Only the row tables (the
+//streams, staging and cell-error flags) are shared across threads;
+//CUDA's stream and memory-pool APIs serialize those.
+thread_local int g_launchDevice = 0;
 
 //The per-device state table (M-G2): the one-off singletons joined a
 //row per device, addressed by the selector every device-selected
@@ -130,7 +137,6 @@ cudaStream_t& g_stream = g_currentStream[0];
 //enablement) before that device serves anything.
 struct CudaDeviceState {
     cudaStream_t stagingStream = nullptr; //the bulk-transfer overlap
-    cudaEvent_t stagingDone = nullptr;    //the staging handshake
     int32_t* error = nullptr;             //the kernel cell-error flags
     cudaMemPool_t memPool = nullptr;      //the device's default pool
     bool peerEnabled[tensor::kNativeMaxDevices] = {}; //the peer row
@@ -138,12 +144,6 @@ struct CudaDeviceState {
 };
 CudaDeviceState g_dev[tensor::kNativeMaxDevices] = {};
 
-//The row-0 aliases: every transfer and flag read routes by operand
-//device at M-G3; until then every payload op names device 0, and the
-//aliases keep those call sites untouched.
-cudaStream_t& g_stagingStream = g_dev[0].stagingStream;
-cudaEvent_t& g_stagingDone = g_dev[0].stagingDone;
-int32_t*& g_error = g_dev[0].error;
 bool g_ready = false;
 int g_deviceCount = 0;   //the lazy-init probe's result (0 before init)
 
@@ -172,18 +172,31 @@ int g_streamStackDepth = 0;
 
 } // namespace
 
-//The RAII context pin (the header's contract: CUDA calls act on the
-//thread's current device, so every device-selected entry point pins it
-//here and restores the previous device on the way out). Callers run it
-//only after CudaLazyInit succeeded, so the ids they pin address real
-//contexts; failures here are the sticky-error discipline's job.
+//The selected row's handles (the header's contract: the entry's
+//SetDeviceForCall pin chose the row; the stream, staging and error
+//primitives read these). Defined outside the anonymous namespace so
+//the header's declarations resolve to these definitions.
+cudaStream_t CurrentStream() { return g_currentStream[g_launchDevice]; }
+cudaStream_t CurrentStagingStream() { return g_dev[g_launchDevice].stagingStream; }
+int32_t* CurrentErrorFlags() { return g_dev[g_launchDevice].error; }
+
+//The RAII context pin AND row selection (the header's contract: CUDA
+//calls act on the thread's current device, so every device-selected
+//entry point pins it here, selects the row the entry body reads, and
+//restores both on the way out). Callers run it only after
+//CudaLazyInit succeeded and CudaDeviceAccepted gated the id, so the
+//ids they pin address real contexts and rows inside the census;
+//failures here are the sticky-error discipline's job.
 SetDeviceForCall::SetDeviceForCall(int device) {
     cudaGetDevice(&m_savedDevice);
+    m_savedRow = g_launchDevice;
     cudaSetDevice(device);
+    g_launchDevice = device;
 }
 
 SetDeviceForCall::~SetDeviceForCall() {
     cudaSetDevice(m_savedDevice);
+    g_launchDevice = m_savedRow;
 }
 
 int CudaStreamCreate(int device) {
@@ -315,9 +328,8 @@ static bool CudaDeviceReady(int device, std::string& error) {
         error = "cudaFree(0) failed on device " + std::to_string(device);
         return false;
     }
-    //The row's main stream — device 0's is the row-0 alias g_stream;
-    //handle 0 names it everywhere (the other rows' cells become real
-    //once M-G3 routes the enqueues by operand device).
+    //The row's main stream — handle 0 names it everywhere; the launchers
+    //and transfers reach it through the pin-selected CurrentStream().
     if (g_currentStream[device] == nullptr
         && cudaStreamCreate(&g_currentStream[device]) != cudaSuccess) {
         (void)cudaGetLastError(); //the reason rides `error`; the flag isn't ours
@@ -339,19 +351,14 @@ static bool CudaDeviceReady(int device, std::string& error) {
             cudaMemcpyHostToDevice);
     }
     //The staging stream (bulk transfers overlap the compute stream's
-    //already-enqueued kernels) and its handshake event.
+    //already-enqueued kernels). The handshake events it pairs with are
+    //per-call (the CopyBytes/CopyPeer pattern, like the stream pool's
+    //join events), so the row carries no shared event state.
     if (g_dev[device].stagingStream == nullptr
         && cudaStreamCreate(&g_dev[device].stagingStream)
         != cudaSuccess) {
         (void)cudaGetLastError(); //the reason rides `error`; the flag isn't ours
         error = "cudaStreamCreate failed (staging) on device "
-            + std::to_string(device);
-        return false;
-    }
-    if (g_dev[device].stagingDone == nullptr
-        && cudaEventCreate(&g_dev[device].stagingDone) != cudaSuccess) {
-        (void)cudaGetLastError(); //the reason rides `error`; the flag isn't ours
-        error = "cudaEventCreate failed (staging handshake) on device "
             + std::to_string(device);
         return false;
     }
@@ -466,8 +473,8 @@ cudaError_t CopyBytes(void* dst, const void* src, size_t bytes,
     if (bytes < kStagingOverlapBytes) {
         cudaMemcpyAsync(dst, src, bytes,
             toDevice ? cudaMemcpyHostToDevice : cudaMemcpyDeviceToHost,
-            g_stream);
-        return cudaStreamSynchronize(g_stream);
+            CurrentStream());
+        return cudaStreamSynchronize(CurrentStream());
     }
     //The bulk path: the staging stream waits for the compute stream's
     //prior work (the event recorded on the compute stream after the
@@ -476,21 +483,149 @@ cudaError_t CopyBytes(void* dst, const void* src, size_t bytes,
     //compute stream waits on the staging event before any consumer
     //kernel of the subsequent enqueue runs. The hook stays blocking —
     //the staging stream syncs before the status returns (the
-    //observable-point contract).
-    cudaEventRecord(g_stagingDone, g_stream);
-    cudaStreamWaitEvent(g_stagingStream, g_stagingDone, 0);
+    //observable-point contract). The handshake event is per-call (the
+    //join-event pattern in the stream pool): entries can run
+    //concurrently, and a row-shared event would interleave two
+    //transfers' handoffs; an event costs microseconds against a bulk
+    //copy, and destroying it once both streams have consumed its
+    //records is safe (the wait keeps the fence without the handle).
+    cudaEvent_t handoff = nullptr;
+    if (cudaEventCreate(&handoff) != cudaSuccess) {
+        (void)cudaGetLastError(); //fall back: a plain blocking copy
+        cudaMemcpyAsync(dst, src, bytes,
+            toDevice ? cudaMemcpyHostToDevice : cudaMemcpyDeviceToHost,
+            CurrentStream());
+        return cudaStreamSynchronize(CurrentStream());
+    }
+    cudaEventRecord(handoff, CurrentStream());
+    cudaStreamWaitEvent(CurrentStagingStream(), handoff, 0);
     cudaMemcpyAsync(dst, src, bytes,
         toDevice ? cudaMemcpyHostToDevice : cudaMemcpyDeviceToHost,
-        g_stagingStream);
-    cudaEventRecord(g_stagingDone, g_stagingStream);
-    cudaStreamWaitEvent(g_stream, g_stagingDone, 0);
-    return cudaStreamSynchronize(g_stagingStream);
+        CurrentStagingStream());
+    cudaEventRecord(handoff, CurrentStagingStream());
+    cudaStreamWaitEvent(CurrentStream(), handoff, 0);
+    const cudaError_t status = cudaStreamSynchronize(CurrentStagingStream());
+    cudaEventDestroy(handoff);
+    return status;
 }
 
 //The full-stream observation point (the sync hook's body): the
 //async group's execution faults surface here.
 cudaError_t SyncStream() {
-    return cudaStreamSynchronize(g_stream);
+    return cudaStreamSynchronize(CurrentStream());
+}
+
+//--- cross-device copies (device ABI v3's copyD2D, spec §6) --------------
+//Both paths block — the transfer's observation contract: the payload is
+//resident on the destination when the call returns — and both order
+//after the work enqueued on the SOURCE device's current stream, then
+//hand the payload into the destination's current stream so a consumer
+//enqueued there afterwards sees it. The backend's status wrapper
+//(cuda_backend.cpp) picks peer or staging by the row capability
+//matrix; the same-device case never reaches here (the registry hands
+//back the handle).
+
+bool CudaPeerReady(int32_t srcDevice, int32_t dstDevice) {
+    return tensor::CrossCopyUsesPeer(
+        g_dev[srcDevice].peerEnabled[dstDevice]);
+}
+
+namespace {
+
+//The staging path's pinned host bounce: THREAD-LOCAL, the same model as
+//the thread-local row pin — tensor natives can be entered from two
+//carriers at once, and this is raw host state the CUDA stream APIs do
+//not serialize: two threads sharing one bounce would interleave their
+//payloads, and one thread's growth could cudaFreeHost a buffer the
+//other's transfer has not drained. Grown by doubling on demand, kept
+//for the thread (the same keep-resources discipline as the row
+//handles; within one thread the copies are blocking, so replacing a
+//smaller buffer never races a drained one).
+thread_local void* g_stageBuffer = nullptr;
+thread_local size_t g_stageCapacity = 0;
+
+//The pinned host bounce's first allocation: doubled from here until it
+//covers the requested transfer.
+constexpr size_t DEFAULT_STAGE_CAPACITY_BYTES = 1024 * 1024;
+
+bool EnsureStageBuffer(size_t bytes) {
+    if (g_stageCapacity >= bytes)
+        return true;
+    size_t capacity = g_stageCapacity != 0
+        ? g_stageCapacity : DEFAULT_STAGE_CAPACITY_BYTES;
+    while (capacity < bytes)
+        capacity *= 2;
+    void* buffer = nullptr;
+    if (cudaMallocHost(&buffer, capacity) != cudaSuccess) {
+        (void)cudaGetLastError();   //the failure rides the returned status
+        return false;
+    }
+    if (g_stageBuffer != nullptr)
+        cudaFreeHost(g_stageBuffer);
+    g_stageBuffer = buffer;
+    g_stageCapacity = capacity;
+    return true;
+}
+
+} // namespace
+
+cudaError_t CopyPeer(int32_t dstDevice, void* dst, int32_t srcDevice,
+                     const void* src, size_t bytes) {
+    //The copy rides the source's current stream (ordered after the
+    //source kernels that wrote the payload), hands off through an
+    //event into the destination's current stream, and blocks on that
+    //event. The handoff event is per-call (the join-event pattern in
+    //the stream pool): entries can run concurrently, so no row-shared
+    //event is safe to reuse, and an event costs microseconds against a
+    //peer copy.
+    SetDeviceForCall sourceRow(srcDevice);
+    cudaError_t err = cudaMemcpyPeerAsync(dst, dstDevice, src, srcDevice,
+        bytes, CurrentStream());
+    if (err != cudaSuccess)
+        return err;
+    cudaEvent_t handoff = nullptr;
+    if (cudaEventCreate(&handoff) != cudaSuccess) {
+        (void)cudaGetLastError(); //the failure rides the returned status
+        return cudaErrorMemoryAllocation;
+    }
+    err = cudaEventRecord(handoff, CurrentStream());
+    if (err != cudaSuccess) {
+        cudaEventDestroy(handoff);
+        return err;
+    }
+    {
+        SetDeviceForCall destRow(dstDevice);
+        err = cudaStreamWaitEvent(CurrentStream(), handoff, 0);
+    }
+    if (err != cudaSuccess) {
+        cudaEventDestroy(handoff);
+        return err;
+    }
+    err = cudaEventSynchronize(handoff);
+    cudaEventDestroy(handoff);
+    return err;
+}
+
+cudaError_t CopyStaged(int32_t dstDevice, void* dst, int32_t srcDevice,
+                       const void* src, size_t bytes) {
+    if (!EnsureStageBuffer(bytes))
+        return cudaErrorMemoryAllocation;
+    //D2H on the source's row (ordered after the source's enqueued
+    //work), block; then H2D on the destination's row, block — the
+    //payload is resident when the call returns.
+    SetDeviceForCall sourceRow(srcDevice);
+    cudaError_t err = cudaMemcpyAsync(g_stageBuffer, src, bytes,
+        cudaMemcpyDeviceToHost, CurrentStream());
+    if (err == cudaSuccess)
+        err = cudaStreamSynchronize(CurrentStream());
+    if (err != cudaSuccess)
+        return err;
+    SetDeviceForCall destRow(dstDevice);
+    err = cudaMemcpyAsync(dst, g_stageBuffer, bytes, cudaMemcpyHostToDevice,
+        CurrentStream());
+    if (err == cudaSuccess)
+        err = cudaStreamSynchronize(CurrentStream());
+    return err;
 }
 
 //--- the device-record hooks (stream-ordered memory + the transfers) ----
@@ -518,17 +653,17 @@ void* PoolAlloc(size_t bytes, cudaStream_t stream) {
 }
 
 void* PoolAllocOnStream(size_t bytes) {
-    return PoolAlloc(bytes, g_stream);
+    return PoolAlloc(bytes, CurrentStream());
 }
 
 void PoolFreeOnStream(void* ptr) {
-    PoolFree(ptr, g_stream);
+    PoolFree(ptr, CurrentStream());
 }
 
 void PoolZero(void* ptr, size_t bytes) {
     //Stream-ordered: subsequent kernels and the host-boundary copies
     //(CopyBytes) observe the zeroed cells; no per-op sync.
-    cudaMemsetAsync(ptr, 0, bytes, g_stream);
+    cudaMemsetAsync(ptr, 0, bytes, CurrentStream());
 }
 
 void PoolFree(void* ptr, cudaStream_t stream) {
@@ -642,6 +777,12 @@ __global__ void BinaryKernelInt(int op, DevView a, DevView b, DevView dst,
 cudaError_t LaunchBinary(int op, const LaunchView& a,
                          const LaunchView& b, const LaunchView& dst,
                          int32_t* errorOut) {
+    SetDeviceForCall launchRow(a.device);
+    //Zero cells to launch: a zero-block grid is an invalid
+    //configuration, and the minted output (or the no-op write) is
+    //already correct — launch nothing.
+    if (dst.elemCount == 0)
+        return cudaSuccess;
     //Differentiated sync (spec 2026-11-16 §3): the float arms raise no
     //cell errors — enqueue and go; the int arms write the per-cell
     //division-by-zero flag, so they keep the clear-launch-sync-read
@@ -651,20 +792,20 @@ cudaError_t LaunchBinary(int op, const LaunchView& a,
     const DevView dd = ToDevView(dst);
     const int64_t blocks = (dst.elemCount + kThreads - 1) / kThreads;
     if (dst.elemKind == 1 || dst.elemKind == 17) {
-        BinaryKernel<<<(int)blocks, kThreads, 0, g_stream>>>(
+        BinaryKernel<<<(int)blocks, kThreads, 0, CurrentStream()>>>(
             op, da, db, dd, 0.0, false, false);
         return cudaGetLastError();
     }
     const uint32_t none[2] = {kErrNone, 0};
-    cudaMemcpy(g_error, none, 2 * sizeof(int32_t), cudaMemcpyHostToDevice);
+    cudaMemcpy(CurrentErrorFlags(), none, 2 * sizeof(int32_t), cudaMemcpyHostToDevice);
     if (dst.elemKind == 0) {
-        BinaryKernelInt<int32_t><<<(int)blocks, kThreads, 0, g_stream>>>(
-            op, da, db, dd, 0, false, false, g_error);
+        BinaryKernelInt<int32_t><<<(int)blocks, kThreads, 0, CurrentStream()>>>(
+            op, da, db, dd, 0, false, false, CurrentErrorFlags());
     } else {
-        BinaryKernelInt<int64_t><<<(int)blocks, kThreads, 0, g_stream>>>(
-            op, da, db, dd, 0, false, false, g_error);
+        BinaryKernelInt<int64_t><<<(int)blocks, kThreads, 0, CurrentStream()>>>(
+            op, da, db, dd, 0, false, false, CurrentErrorFlags());
     }
-    cudaError_t err = cudaStreamSynchronize(g_stream);
+    cudaError_t err = cudaStreamSynchronize(CurrentStream());
     if (err != cudaSuccess)
         return err;
     //Explicit cast: kErrNone is uint32 0xFFFFFFFF, narrowed to the int32
@@ -672,7 +813,7 @@ cudaError_t LaunchBinary(int op, const LaunchView& a,
     //this only needs to be well-formed (GCC enforces the narrowing constraint
     //that MSVC only warns about).
     int32_t flags[2] = {static_cast<int32_t>(kErrNone), 0};
-    cudaMemcpy(flags, g_error, 2 * sizeof(int32_t), cudaMemcpyDeviceToHost);
+    cudaMemcpy(flags, CurrentErrorFlags(), 2 * sizeof(int32_t), cudaMemcpyDeviceToHost);
     if (flags[0] != kErrNone)
         *errorOut = flags[1];
     return cudaSuccess;
@@ -681,26 +822,32 @@ cudaError_t LaunchBinary(int op, const LaunchView& a,
 cudaError_t LaunchBinaryScalar(int op, const LaunchView& a,
                                double scalar, bool scalarLeft,
                                const LaunchView& dst, int32_t* errorOut) {
+    SetDeviceForCall launchRow(a.device);
+    //Zero cells to launch: a zero-block grid is an invalid
+    //configuration, and the minted output (or the no-op write) is
+    //already correct — launch nothing.
+    if (dst.elemCount == 0)
+        return cudaSuccess;
     //Differentiated sync (see LaunchBinary): the reverse-division arm
     //divides by array cells, so the int arms drain the flag at this op.
     const DevView da = ToDevView(a);
     const DevView dd = ToDevView(dst);
     const int64_t blocks = (dst.elemCount + kThreads - 1) / kThreads;
     if (dst.elemKind == 1 || dst.elemKind == 17) {
-        BinaryKernel<<<(int)blocks, kThreads, 0, g_stream>>>(
+        BinaryKernel<<<(int)blocks, kThreads, 0, CurrentStream()>>>(
             op, da, dd, dd, scalar, scalarLeft, true);
         return cudaGetLastError();
     }
     const uint32_t none[2] = {kErrNone, 0};
-    cudaMemcpy(g_error, none, 2 * sizeof(int32_t), cudaMemcpyHostToDevice);
+    cudaMemcpy(CurrentErrorFlags(), none, 2 * sizeof(int32_t), cudaMemcpyHostToDevice);
     if (dst.elemKind == 0) {
-        BinaryKernelInt<int32_t><<<(int)blocks, kThreads, 0, g_stream>>>(
-            op, da, dd, dd, (int64_t)scalar, scalarLeft, true, g_error);
+        BinaryKernelInt<int32_t><<<(int)blocks, kThreads, 0, CurrentStream()>>>(
+            op, da, dd, dd, (int64_t)scalar, scalarLeft, true, CurrentErrorFlags());
     } else {
-        BinaryKernelInt<int64_t><<<(int)blocks, kThreads, 0, g_stream>>>(
-            op, da, dd, dd, (int64_t)scalar, scalarLeft, true, g_error);
+        BinaryKernelInt<int64_t><<<(int)blocks, kThreads, 0, CurrentStream()>>>(
+            op, da, dd, dd, (int64_t)scalar, scalarLeft, true, CurrentErrorFlags());
     }
-    cudaError_t err = cudaStreamSynchronize(g_stream);
+    cudaError_t err = cudaStreamSynchronize(CurrentStream());
     if (err != cudaSuccess)
         return err;
     //Explicit cast: kErrNone is uint32 0xFFFFFFFF, narrowed to the int32
@@ -708,7 +855,7 @@ cudaError_t LaunchBinaryScalar(int op, const LaunchView& a,
     //this only needs to be well-formed (GCC enforces the narrowing constraint
     //that MSVC only warns about).
     int32_t flags[2] = {static_cast<int32_t>(kErrNone), 0};
-    cudaMemcpy(flags, g_error, 2 * sizeof(int32_t), cudaMemcpyDeviceToHost);
+    cudaMemcpy(flags, CurrentErrorFlags(), 2 * sizeof(int32_t), cudaMemcpyDeviceToHost);
     if (flags[0] != kErrNone)
         *errorOut = flags[1];
     return cudaSuccess;
@@ -770,17 +917,23 @@ __global__ void UnaryKernelI64(int op, DevView src, DevView dst) {
 
 cudaError_t LaunchUnary(int op, const LaunchView& src,
                         const LaunchView& dst) {
+    SetDeviceForCall launchRow(src.device);
+    //Zero cells to launch: a zero-block grid is an invalid
+    //configuration, and the minted output (or the no-op write) is
+    //already correct — launch nothing.
+    if (dst.elemCount == 0)
+        return cudaSuccess;
     const DevView ds = ToDevView(src);
     const DevView dd = ToDevView(dst);
     const int64_t blocks = (dst.elemCount + kThreads - 1) / kThreads;
     if (dst.elemKind == 1)
-        UnaryKernelF<<<(int)blocks, kThreads, 0, g_stream>>>(op, ds, dd);
+        UnaryKernelF<<<(int)blocks, kThreads, 0, CurrentStream()>>>(op, ds, dd);
     else if (dst.elemKind == 17)
-        UnaryKernel<<<(int)blocks, kThreads, 0, g_stream>>>(op, ds, dd);
+        UnaryKernel<<<(int)blocks, kThreads, 0, CurrentStream()>>>(op, ds, dd);
     else if (dst.elemKind == 0)
-        UnaryKernelI32<<<(int)blocks, kThreads, 0, g_stream>>>(op, ds, dd);
+        UnaryKernelI32<<<(int)blocks, kThreads, 0, CurrentStream()>>>(op, ds, dd);
     else
-        UnaryKernelI64<<<(int)blocks, kThreads, 0, g_stream>>>(op, ds, dd);
+        UnaryKernelI64<<<(int)blocks, kThreads, 0, CurrentStream()>>>(op, ds, dd);
     return cudaGetLastError();
 }
 
@@ -828,22 +981,28 @@ __global__ void ClampKernelInt(bool isMax, DevView src, T bound,
 
 cudaError_t LaunchClamp(bool isMax, const LaunchView& src, double bound,
                         int64_t iBound, const LaunchView& dst) {
+    SetDeviceForCall launchRow(src.device);
+    //Zero cells to launch: a zero-block grid is an invalid
+    //configuration, and the minted output (or the no-op write) is
+    //already correct — launch nothing.
+    if (dst.elemCount == 0)
+        return cudaSuccess;
     //Async (no cell errors). The float kinds read the double bound; the
     //int kinds the exact int64 twin.
     const DevView ds = ToDevView(src);
     const DevView dd = ToDevView(dst);
     const int64_t blocks = (dst.elemCount + kThreads - 1) / kThreads;
     if (dst.elemKind == 1)
-        ClampKernelF<<<(int)blocks, kThreads, 0, g_stream>>>(
+        ClampKernelF<<<(int)blocks, kThreads, 0, CurrentStream()>>>(
             isMax, ds, (float)bound, dd);
     else if (dst.elemKind == 17)
-        ClampKernel<<<(int)blocks, kThreads, 0, g_stream>>>(
+        ClampKernel<<<(int)blocks, kThreads, 0, CurrentStream()>>>(
             isMax, ds, bound, dd);
     else if (dst.elemKind == 0)
-        ClampKernelInt<int32_t><<<(int)blocks, kThreads, 0, g_stream>>>(
+        ClampKernelInt<int32_t><<<(int)blocks, kThreads, 0, CurrentStream()>>>(
             isMax, ds, static_cast<int32_t>(iBound), dd);
     else
-        ClampKernelInt<int64_t><<<(int)blocks, kThreads, 0, g_stream>>>(
+        ClampKernelInt<int64_t><<<(int)blocks, kThreads, 0, CurrentStream()>>>(
             isMax, ds, iBound, dd);
     return cudaGetLastError();
 }
@@ -993,17 +1152,18 @@ __global__ void SumStridedKernelInt(DevView v, int64_t count,
 static cudaError_t ReadPartials(void* dPartial, void* dst, size_t bytes) {
     const cudaError_t launchErr = cudaGetLastError();
     if (launchErr != cudaSuccess) {
-        PoolFree(dPartial, g_stream);
+        PoolFree(dPartial, CurrentStream());
         return launchErr;
     }
     const cudaError_t copyErr = cudaMemcpy(dst, dPartial, bytes,
         cudaMemcpyDeviceToHost);
-    PoolFree(dPartial, g_stream);
+    PoolFree(dPartial, CurrentStream());
     return copyErr;
 }
 
 cudaError_t LaunchSumAll(const LaunchView& src, double* out,
                          int64_t* outI, bool isInt) {
+    SetDeviceForCall launchRow(src.device);
     //The empty identity (the CPU walk's contract — the suite pins
     //sum(empty) == 0): no launch, no scratch. A zero-block scratch
     //request must not reach PoolAlloc — cudaMalloc(0) succeeds with a
@@ -1030,27 +1190,27 @@ cudaError_t LaunchSumAll(const LaunchView& src, double* out,
         //static_cast<T>(acc) exactly). The int32/int64 cells ride their
         //own partial kernel (reading them as doubles would corrupt).
         int64_t* dPartial = static_cast<int64_t*>(
-            PoolAlloc(blocks * sizeof(int64_t), g_stream));
+            PoolAlloc(blocks * sizeof(int64_t), CurrentStream()));
         if (dPartial == nullptr)
             return cudaErrorMemoryAllocation;
         if (dense) {
             //The base pointer folds the offset (element units).
             if (src.elemKind == 0) {
                 SumPartialKernelI32<<<(int)blocks, kThreads, 0,
-                    g_stream>>>((const int32_t*)src.data + src.offset, count,
+                    CurrentStream()>>>((const int32_t*)src.data + src.offset, count,
                     dPartial);
             } else {
                 SumPartialKernelI64<<<(int)blocks, kThreads, 0,
-                    g_stream>>>((const int64_t*)src.data + src.offset, count,
+                    CurrentStream()>>>((const int64_t*)src.data + src.offset, count,
                     dPartial);
             }
         } else {
             if (src.elemKind == 0) {
                 SumStridedKernelInt<int32_t><<<(int)blocks, kThreads, 0,
-                    g_stream>>>(v, count, dPartial);
+                    CurrentStream()>>>(v, count, dPartial);
             } else {
                 SumStridedKernelInt<int64_t><<<(int)blocks, kThreads, 0,
-                    g_stream>>>(v, count, dPartial);
+                    CurrentStream()>>>(v, count, dPartial);
             }
         }
         std::vector<int64_t> partials(blocks);
@@ -1065,7 +1225,7 @@ cudaError_t LaunchSumAll(const LaunchView& src, double* out,
         return cudaSuccess;
     }
     double* dPartial = static_cast<double*>(
-        PoolAlloc(blocks * sizeof(double), g_stream));
+        PoolAlloc(blocks * sizeof(double), CurrentStream()));
     if (dPartial == nullptr)
         return cudaErrorMemoryAllocation;
     //The float kinds branch by cell width: an f32 array read as
@@ -1073,20 +1233,20 @@ cudaError_t LaunchSumAll(const LaunchView& src, double* out,
     if (dense) {
         if (src.elemKind == 1) {
             SumPartialKernelF32<<<(int)blocks, kThreads, 0,
-                g_stream>>>((const float*)src.data + src.offset, count,
+                CurrentStream()>>>((const float*)src.data + src.offset, count,
                 dPartial);
         } else {
             SumPartialKernel<<<(int)blocks, kThreads, 0,
-                g_stream>>>((const double*)src.data + src.offset, count,
+                CurrentStream()>>>((const double*)src.data + src.offset, count,
                 dPartial);
         }
     } else {
         if (src.elemKind == 1) {
             SumStridedKernel<float><<<(int)blocks, kThreads, 0,
-                g_stream>>>(v, count, dPartial);
+                CurrentStream()>>>(v, count, dPartial);
         } else {
             SumStridedKernel<double><<<(int)blocks, kThreads, 0,
-                g_stream>>>(v, count, dPartial);
+                CurrentStream()>>>(v, count, dPartial);
         }
     }
     std::vector<double> partials(blocks);
@@ -1179,6 +1339,12 @@ __global__ void ArgExtremeScanKernel(DevView src, int32_t axis,
 
 cudaError_t LaunchReduceAxis(int op, const LaunchView& src, int axis,
                              const LaunchView& dst) {
+    SetDeviceForCall launchRow(src.device);
+    //Zero cells to launch: a zero-block grid is an invalid
+    //configuration, and the minted output (or the no-op write) is
+    //already correct — launch nothing.
+    if (dst.elemCount == 0)
+        return cudaSuccess;
     //ReduceAxisOp: Sum=0, Max=1, Min=2 (the enum order). Async (no
     //cell errors); all kinds and axes (v0.14.3 — the f32-only scope
     //and the specialized axis kernels retired).
@@ -1189,16 +1355,16 @@ cudaError_t LaunchReduceAxis(int op, const LaunchView& src, int axis,
     const int64_t blocks = (dst.elemCount + kThreads - 1) / kThreads;
     if (src.elemKind == 1) {
         ReduceAxisScanKernel<float, double><<<(int)blocks, kThreads, 0,
-            g_stream>>>(ds, axis, op, dd);
+            CurrentStream()>>>(ds, axis, op, dd);
     } else if (src.elemKind == 17) {
         ReduceAxisScanKernel<double, double><<<(int)blocks, kThreads, 0,
-            g_stream>>>(ds, axis, op, dd);
+            CurrentStream()>>>(ds, axis, op, dd);
     } else if (src.elemKind == 0) {
         ReduceAxisScanKernel<int32_t, int64_t><<<(int)blocks, kThreads,
-            0, g_stream>>>(ds, axis, op, dd);
+            0, CurrentStream()>>>(ds, axis, op, dd);
     } else {
         ReduceAxisScanKernel<int64_t, int64_t><<<(int)blocks, kThreads,
-            0, g_stream>>>(ds, axis, op, dd);
+            0, CurrentStream()>>>(ds, axis, op, dd);
     }
     return cudaGetLastError();
 }
@@ -1207,22 +1373,28 @@ cudaError_t LaunchReduceAxis(int op, const LaunchView& src, int axis,
 //the kind gate retired with the f32-only scan kernel.
 cudaError_t LaunchArgExtreme(bool isMax, const LaunchView& src,
                              int axis, const LaunchView& dst) {
+    SetDeviceForCall launchRow(src.device);
+    //Zero cells to launch: a zero-block grid is an invalid
+    //configuration, and the minted output (or the no-op write) is
+    //already correct — launch nothing.
+    if (dst.elemCount == 0)
+        return cudaSuccess;
     //Async (no cell errors).
     const DevView ds = ToDevView(src);
     const DevView dd = ToDevView(dst);
     const int64_t blocks = (dst.elemCount + kThreads - 1) / kThreads;
     if (src.elemKind == 1) {
         ArgExtremeScanKernel<float><<<(int)blocks, kThreads, 0,
-            g_stream>>>(ds, axis, isMax, dd);
+            CurrentStream()>>>(ds, axis, isMax, dd);
     } else if (src.elemKind == 17) {
         ArgExtremeScanKernel<double><<<(int)blocks, kThreads, 0,
-            g_stream>>>(ds, axis, isMax, dd);
+            CurrentStream()>>>(ds, axis, isMax, dd);
     } else if (src.elemKind == 0) {
         ArgExtremeScanKernel<int32_t><<<(int)blocks, kThreads, 0,
-            g_stream>>>(ds, axis, isMax, dd);
+            CurrentStream()>>>(ds, axis, isMax, dd);
     } else {
         ArgExtremeScanKernel<int64_t><<<(int)blocks, kThreads, 0,
-            g_stream>>>(ds, axis, isMax, dd);
+            CurrentStream()>>>(ds, axis, isMax, dd);
     }
     return cudaGetLastError();
 }
@@ -1357,6 +1529,7 @@ __global__ void DotStridedKernelInt(DevView va, DevView vb, int64_t count,
 
 cudaError_t LaunchDot(const LaunchView& a, const LaunchView& b,
                       double* out, int64_t* outI, bool isInt) {
+    SetDeviceForCall launchRow(a.device);
     (void)isInt;
     const int64_t count = a.elemCount;
     //The empty identity (the CPU walk's contract — dot(empty) == 0);
@@ -1383,16 +1556,16 @@ cudaError_t LaunchDot(const LaunchView& a, const LaunchView& b,
     //kernel mis-read every other kind's cells.
     if (a.elemKind == 1) {
         float* dPartial = static_cast<float*>(
-            PoolAlloc(blocks * sizeof(float), g_stream));
+            PoolAlloc(blocks * sizeof(float), CurrentStream()));
         if (dPartial == nullptr)
             return cudaErrorMemoryAllocation;
         if (dense) {
-            DotPartialKernelF32<<<(int)blocks, kThreads, 0, g_stream>>>(
+            DotPartialKernelF32<<<(int)blocks, kThreads, 0, CurrentStream()>>>(
                 (const float*)a.data + a.offset,
                 (const float*)b.data + b.offset, count, dPartial);
         } else {
             DotStridedKernel<float><<<(int)blocks, kThreads, 0,
-                g_stream>>>(va, vb, count, dPartial);
+                CurrentStream()>>>(va, vb, count, dPartial);
         }
         std::vector<float> partials(blocks);
         const cudaError_t readErr = ReadPartials(
@@ -1410,27 +1583,27 @@ cudaError_t LaunchDot(const LaunchView& a, const LaunchView& b,
     }
     if (a.elemKind == 0 || a.elemKind == 15) {
         int64_t* dPartial = static_cast<int64_t*>(
-            PoolAlloc(blocks * sizeof(int64_t), g_stream));
+            PoolAlloc(blocks * sizeof(int64_t), CurrentStream()));
         if (dPartial == nullptr)
             return cudaErrorMemoryAllocation;
         if (dense) {
             if (a.elemKind == 0)
                 DotPartialKernelI32<<<(int)blocks, kThreads, 0,
-                    g_stream>>>(
+                    CurrentStream()>>>(
                     (const int32_t*)a.data + a.offset,
                     (const int32_t*)b.data + b.offset, count, dPartial);
             else
                 DotPartialKernelI64<<<(int)blocks, kThreads, 0,
-                    g_stream>>>(
+                    CurrentStream()>>>(
                     (const int64_t*)a.data + a.offset,
                     (const int64_t*)b.data + b.offset, count, dPartial);
         } else {
             if (a.elemKind == 0)
                 DotStridedKernelInt<int32_t><<<(int)blocks, kThreads, 0,
-                    g_stream>>>(va, vb, count, dPartial);
+                    CurrentStream()>>>(va, vb, count, dPartial);
             else
                 DotStridedKernelInt<int64_t><<<(int)blocks, kThreads, 0,
-                    g_stream>>>(va, vb, count, dPartial);
+                    CurrentStream()>>>(va, vb, count, dPartial);
         }
         std::vector<int64_t> partials(blocks);
         const cudaError_t readErr = ReadPartials(
@@ -1444,16 +1617,16 @@ cudaError_t LaunchDot(const LaunchView& a, const LaunchView& b,
         return cudaSuccess;
     }
     double* dPartial = static_cast<double*>(
-        PoolAlloc(blocks * sizeof(double), g_stream));
+        PoolAlloc(blocks * sizeof(double), CurrentStream()));
     if (dPartial == nullptr)
         return cudaErrorMemoryAllocation;
     if (dense) {
-        DotPartialKernel<<<(int)blocks, kThreads, 0, g_stream>>>(
+        DotPartialKernel<<<(int)blocks, kThreads, 0, CurrentStream()>>>(
             (const double*)a.data + a.offset,
             (const double*)b.data + b.offset, count, dPartial);
     } else {
         DotStridedKernel<double><<<(int)blocks, kThreads, 0,
-            g_stream>>>(va, vb, count, dPartial);
+            CurrentStream()>>>(va, vb, count, dPartial);
     }
     std::vector<double> partials(blocks);
     const cudaError_t readErr = ReadPartials(
@@ -1712,6 +1885,7 @@ __global__ void ExtremeStridedKernelI64(DevView v, int64_t count, bool isMax,
 
 cudaError_t LaunchExtreme(bool isMax, const LaunchView& src,
                           double* outF, int64_t* outI, bool isInt) {
+    SetDeviceForCall launchRow(src.device);
     const int64_t count = src.elemCount;
     if (count == 0) {
         //Match the CPU reduction's empty behavior (extreme → 0).
@@ -1729,16 +1903,16 @@ cudaError_t LaunchExtreme(bool isMax, const LaunchView& src,
     const bool dense = IsDense(v);
     if (src.elemKind == 1) {
         float* dPartial = static_cast<float*>(
-            PoolAlloc(blocks * sizeof(float), g_stream));
+            PoolAlloc(blocks * sizeof(float), CurrentStream()));
         if (dPartial == nullptr)
             return cudaErrorMemoryAllocation;
         if (dense) {
             ExtremePartialKernelF32<<<(int)blocks, kThreads, 0,
-                g_stream>>>((const float*)src.data + src.offset, count,
+                CurrentStream()>>>((const float*)src.data + src.offset, count,
                 isMax, dPartial);
         } else {
             ExtremeStridedKernelF32<<<(int)blocks, kThreads, 0,
-                g_stream>>>(v, count, isMax, dPartial);
+                CurrentStream()>>>(v, count, isMax, dPartial);
         }
         std::vector<float> partials(blocks);
         const cudaError_t readErr = ReadPartials(
@@ -1755,16 +1929,16 @@ cudaError_t LaunchExtreme(bool isMax, const LaunchView& src,
     }
     if (src.elemKind == 0) {
         int32_t* dPartial = static_cast<int32_t*>(
-            PoolAlloc(blocks * sizeof(int32_t), g_stream));
+            PoolAlloc(blocks * sizeof(int32_t), CurrentStream()));
         if (dPartial == nullptr)
             return cudaErrorMemoryAllocation;
         if (dense) {
             ExtremePartialKernelI32<<<(int)blocks, kThreads, 0,
-                g_stream>>>((const int32_t*)src.data + src.offset, count,
+                CurrentStream()>>>((const int32_t*)src.data + src.offset, count,
                 isMax, dPartial);
         } else {
             ExtremeStridedKernelI32<<<(int)blocks, kThreads, 0,
-                g_stream>>>(v, count, isMax, dPartial);
+                CurrentStream()>>>(v, count, isMax, dPartial);
         }
         std::vector<int32_t> partials(blocks);
         const cudaError_t readErr = ReadPartials(
@@ -1782,16 +1956,16 @@ cudaError_t LaunchExtreme(bool isMax, const LaunchView& src,
     }
     if (src.elemKind == 15) {
         int64_t* dPartial = static_cast<int64_t*>(
-            PoolAlloc(blocks * sizeof(int64_t), g_stream));
+            PoolAlloc(blocks * sizeof(int64_t), CurrentStream()));
         if (dPartial == nullptr)
             return cudaErrorMemoryAllocation;
         if (dense) {
             ExtremePartialKernelI64<<<(int)blocks, kThreads, 0,
-                g_stream>>>((const int64_t*)src.data + src.offset, count,
+                CurrentStream()>>>((const int64_t*)src.data + src.offset, count,
                 isMax, dPartial);
         } else {
             ExtremeStridedKernelI64<<<(int)blocks, kThreads, 0,
-                g_stream>>>(v, count, isMax, dPartial);
+                CurrentStream()>>>(v, count, isMax, dPartial);
         }
         std::vector<int64_t> partials(blocks);
         const cudaError_t readErr = ReadPartials(
@@ -1807,16 +1981,16 @@ cudaError_t LaunchExtreme(bool isMax, const LaunchView& src,
         return cudaSuccess;
     }
     double* dPartial = static_cast<double*>(
-        PoolAlloc(blocks * sizeof(double), g_stream));
+        PoolAlloc(blocks * sizeof(double), CurrentStream()));
     if (dPartial == nullptr)
         return cudaErrorMemoryAllocation;
     if (dense) {
         ExtremePartialKernel<<<(int)blocks, kThreads, 0,
-            g_stream>>>((const double*)src.data + src.offset, count, isMax,
+            CurrentStream()>>>((const double*)src.data + src.offset, count, isMax,
             dPartial);
     } else {
         ExtremeStridedKernelF64<<<(int)blocks, kThreads, 0,
-            g_stream>>>(v, count, isMax, dPartial);
+            CurrentStream()>>>(v, count, isMax, dPartial);
     }
     std::vector<double> partials(blocks);
     const cudaError_t readErr = ReadPartials(
@@ -1985,6 +2159,12 @@ __global__ void MatmulKernelStrided(DevView a, DevView b, DevView dst,
 //index is exact there).
 cudaError_t LaunchMatmul(const LaunchView& a, const LaunchView& b,
                          const LaunchView& dst, int elemKindCode) {
+    SetDeviceForCall launchRow(a.device);
+    //Zero cells to launch: a zero-block grid is an invalid
+    //configuration, and the minted output (or the no-op write) is
+    //already correct — launch nothing.
+    if (dst.elemCount == 0)
+        return cudaSuccess;
     const DevView va = ToDevView(a);
     const DevView vb = ToDevView(b);
     const DevView vd = ToDevView(dst);
@@ -1996,22 +2176,22 @@ cudaError_t LaunchMatmul(const LaunchView& a, const LaunchView& b,
     dim3 block(16, 16);
     if (dense) {
         if (elemKindCode == 1)
-            MatmulKernelF<<<grid, block, 0, g_stream>>>(
+            MatmulKernelF<<<grid, block, 0, CurrentStream()>>>(
                 (const float*)a.data + a.offset,
                 (const float*)b.data + b.offset,
                 (float*)dst.data + dst.offset, rows, inner, cols);
         else if (elemKindCode == 17)
-            MatmulKernelF64<<<grid, block, 0, g_stream>>>(
+            MatmulKernelF64<<<grid, block, 0, CurrentStream()>>>(
                 (const double*)a.data + a.offset,
                 (const double*)b.data + b.offset,
                 (double*)dst.data + dst.offset, rows, inner, cols);
         else if (elemKindCode == 0)
-            MatmulKernelI32<<<grid, block, 0, g_stream>>>(
+            MatmulKernelI32<<<grid, block, 0, CurrentStream()>>>(
                 (const int32_t*)a.data + a.offset,
                 (const int32_t*)b.data + b.offset,
                 (int32_t*)dst.data + dst.offset, rows, inner, cols);
         else if (elemKindCode == 15)
-            MatmulKernelI64<<<grid, block, 0, g_stream>>>(
+            MatmulKernelI64<<<grid, block, 0, CurrentStream()>>>(
                 (const int64_t*)a.data + a.offset,
                 (const int64_t*)b.data + b.offset,
                 (int64_t*)dst.data + dst.offset, rows, inner, cols);
@@ -2019,16 +2199,16 @@ cudaError_t LaunchMatmul(const LaunchView& a, const LaunchView& b,
             return cudaErrorNotSupported;
     } else {
         if (elemKindCode == 1)
-            MatmulKernelStrided<float><<<grid, block, 0, g_stream>>>(
+            MatmulKernelStrided<float><<<grid, block, 0, CurrentStream()>>>(
                 va, vb, vd, rows, inner, cols);
         else if (elemKindCode == 17)
-            MatmulKernelStrided<double><<<grid, block, 0, g_stream>>>(
+            MatmulKernelStrided<double><<<grid, block, 0, CurrentStream()>>>(
                 va, vb, vd, rows, inner, cols);
         else if (elemKindCode == 0)
-            MatmulKernelStrided<int32_t><<<grid, block, 0, g_stream>>>(
+            MatmulKernelStrided<int32_t><<<grid, block, 0, CurrentStream()>>>(
                 va, vb, vd, rows, inner, cols);
         else if (elemKindCode == 15)
-            MatmulKernelStrided<int64_t><<<grid, block, 0, g_stream>>>(
+            MatmulKernelStrided<int64_t><<<grid, block, 0, CurrentStream()>>>(
                 va, vb, vd, rows, inner, cols);
         else
             return cudaErrorNotSupported;
@@ -2072,6 +2252,12 @@ cudaError_t LaunchWhere(const LaunchView& mask, const LaunchView& x,
                         int elemKindCode, bool maskLong, bool xScalar,
                         bool yScalar, double sx, double sy, int64_t isx,
                         int64_t isy) {
+    SetDeviceForCall launchRow(mask.device);
+    //Zero cells to launch: a zero-block grid is an invalid
+    //configuration, and the minted output (or the no-op write) is
+    //already correct — launch nothing.
+    if (dst.elemCount == 0)
+        return cudaSuccess;
     //Async (no cell errors) — see LaunchCompare. The kind rides the
     //explicit code: a scalar arm's view is empty and cannot carry it.
     const DevView dm = ToDevView(mask);
@@ -2080,7 +2266,7 @@ cudaError_t LaunchWhere(const LaunchView& mask, const LaunchView& x,
     const DevView dd = ToDevView(dst);
     const int64_t blocks = (dst.elemCount + kThreads - 1) / kThreads;
     #define NLANG_WHERE_LAUNCH(T, M) \
-        WhereKernel<T, M><<<(int)blocks, kThreads, 0, g_stream>>>(\
+        WhereKernel<T, M><<<(int)blocks, kThreads, 0, CurrentStream()>>>(\
             dm, dx, dy, dd, xScalar, yScalar, sx, sy, isx, isy)
     if (elemKindCode == 1) {
         if (maskLong) NLANG_WHERE_LAUNCH(float, int64_t);
@@ -2183,6 +2369,7 @@ __global__ void AssignIntoKernel(DevView view, const T* values,
 
 cudaError_t LaunchAssignInto(const LaunchView& view,
                              const void* values, int elemKindCode) {
+    SetDeviceForCall launchRow(view.device);
     //ASYNC (no cell errors — the writeability gate rode the host
     //validation). Empty view: no cells — no launch, no scratch.
     if (view.elemCount == 0)
@@ -2190,26 +2377,26 @@ cudaError_t LaunchAssignInto(const LaunchView& view,
     const int64_t count = view.elemCount;
     const int cellBytes = elemKindCode == 17 || elemKindCode == 15 ? 8 : 4;
     void* dVals = PoolAlloc(static_cast<size_t>(count) * cellBytes,
-        g_stream);
+        CurrentStream());
     if (dVals == nullptr)
         return cudaErrorMemoryAllocation;
     cudaMemcpyAsync(dVals, values, static_cast<size_t>(count) * cellBytes,
-        cudaMemcpyHostToDevice, g_stream);
+        cudaMemcpyHostToDevice, CurrentStream());
     const DevView dv = ToDevView(view);
     const int64_t blocks = (count + kThreads - 1) / kThreads;
     if (elemKindCode == 1)
-        AssignIntoKernel<float><<<(int)blocks, kThreads, 0, g_stream>>>(
+        AssignIntoKernel<float><<<(int)blocks, kThreads, 0, CurrentStream()>>>(
             dv, static_cast<const float*>(dVals), count);
     else if (elemKindCode == 17)
-        AssignIntoKernel<double><<<(int)blocks, kThreads, 0, g_stream>>>(
+        AssignIntoKernel<double><<<(int)blocks, kThreads, 0, CurrentStream()>>>(
             dv, static_cast<const double*>(dVals), count);
     else if (elemKindCode == 0)
-        AssignIntoKernel<int32_t><<<(int)blocks, kThreads, 0, g_stream>>>(
+        AssignIntoKernel<int32_t><<<(int)blocks, kThreads, 0, CurrentStream()>>>(
             dv, static_cast<const int32_t*>(dVals), count);
     else
-        AssignIntoKernel<int64_t><<<(int)blocks, kThreads, 0, g_stream>>>(
+        AssignIntoKernel<int64_t><<<(int)blocks, kThreads, 0, CurrentStream()>>>(
             dv, static_cast<const int64_t*>(dVals), count);
-    PoolFree(dVals, g_stream);
+    PoolFree(dVals, CurrentStream());
     return cudaGetLastError();
 }
 
@@ -2235,6 +2422,7 @@ __global__ void AssignIntoScalarKernel(DevView view, T value,
 
 cudaError_t LaunchAssignIntoScalar(const LaunchView& view, double sv,
                                    int64_t isv, int elemKindCode) {
+    SetDeviceForCall launchRow(view.device);
     if (view.elemCount == 0)
         return cudaSuccess;
     const DevView dv = ToDevView(view);
@@ -2242,22 +2430,23 @@ cudaError_t LaunchAssignIntoScalar(const LaunchView& view, double sv,
     const int64_t blocks = (count + kThreads - 1) / kThreads;
     if (elemKindCode == 1)
         AssignIntoScalarKernel<float><<<(int)blocks, kThreads, 0,
-            g_stream>>>(dv, static_cast<float>(sv), count);
+            CurrentStream()>>>(dv, static_cast<float>(sv), count);
     else if (elemKindCode == 17)
         AssignIntoScalarKernel<double><<<(int)blocks, kThreads, 0,
-            g_stream>>>(dv, sv, count);
+            CurrentStream()>>>(dv, sv, count);
     else if (elemKindCode == 0)
         AssignIntoScalarKernel<int32_t><<<(int)blocks, kThreads, 0,
-            g_stream>>>(dv, static_cast<int32_t>(isv), count);
+            CurrentStream()>>>(dv, static_cast<int32_t>(isv), count);
     else
         AssignIntoScalarKernel<int64_t><<<(int)blocks, kThreads, 0,
-            g_stream>>>(dv, isv, count);
+            CurrentStream()>>>(dv, isv, count);
     return cudaGetLastError();
 }
 
 cudaError_t LaunchTakeAlong(const LaunchView& src, int axis,
                             const int32_t* indices,
                             const LaunchView& dst) {
+    SetDeviceForCall launchRow(src.device);
     //Async (no cell errors — the bounds rode the host validation).
     //Empty index set: the out has no cells — no launch, no scratch (a
     //zero-byte PoolAlloc would misread cudaMalloc(0)'s NULL as OOM).
@@ -2265,33 +2454,34 @@ cudaError_t LaunchTakeAlong(const LaunchView& src, int axis,
         return cudaSuccess;
     const int64_t count = dst.elemCount;
     int32_t* dIdx = static_cast<int32_t*>(
-        PoolAlloc(count * sizeof(int32_t), g_stream));
+        PoolAlloc(count * sizeof(int32_t), CurrentStream()));
     if (dIdx == nullptr)
         return cudaErrorMemoryAllocation;
     cudaMemcpyAsync(dIdx, indices, count * sizeof(int32_t),
-        cudaMemcpyHostToDevice, g_stream);
+        cudaMemcpyHostToDevice, CurrentStream());
     const DevView ds = ToDevView(src);
     const DevView dd = ToDevView(dst);
     const int64_t blocks = (count + kThreads - 1) / kThreads;
     if (src.elemKind == 1)
-        TakeAlongKernel<float><<<(int)blocks, kThreads, 0, g_stream>>>(
+        TakeAlongKernel<float><<<(int)blocks, kThreads, 0, CurrentStream()>>>(
             ds, axis, dIdx, dd);
     else if (src.elemKind == 17)
-        TakeAlongKernel<double><<<(int)blocks, kThreads, 0, g_stream>>>(
+        TakeAlongKernel<double><<<(int)blocks, kThreads, 0, CurrentStream()>>>(
             ds, axis, dIdx, dd);
     else if (src.elemKind == 0)
-        TakeAlongKernel<int32_t><<<(int)blocks, kThreads, 0, g_stream>>>(
+        TakeAlongKernel<int32_t><<<(int)blocks, kThreads, 0, CurrentStream()>>>(
             ds, axis, dIdx, dd);
     else
-        TakeAlongKernel<int64_t><<<(int)blocks, kThreads, 0, g_stream>>>(
+        TakeAlongKernel<int64_t><<<(int)blocks, kThreads, 0, CurrentStream()>>>(
             ds, axis, dIdx, dd);
-    PoolFree(dIdx, g_stream);
+    PoolFree(dIdx, CurrentStream());
     return cudaGetLastError();
 }
 
 cudaError_t LaunchGather(const LaunchView& src, int axis,
                          const LaunchView& indices,
                          const LaunchView& dst) {
+    SetDeviceForCall launchRow(src.device);
     //Async (no cell errors — the bounds rode the host validation).
     //Empty index set: the out has no cells — no launch, no scratch (a
     //zero-byte PoolAlloc would misread cudaMalloc(0)'s NULL as OOM).
@@ -2301,7 +2491,7 @@ cudaError_t LaunchGather(const LaunchView& src, int axis,
     //int32 to int64 and H2D via the pool scratch.
     const int64_t count = indices.elemCount;
     int64_t* dIdx = static_cast<int64_t*>(
-        PoolAlloc(count * sizeof(int64_t), g_stream));
+        PoolAlloc(count * sizeof(int64_t), CurrentStream()));
     if (dIdx == nullptr)
         return cudaErrorMemoryAllocation;
     std::vector<int64_t> wide(count);
@@ -2310,23 +2500,23 @@ cudaError_t LaunchGather(const LaunchView& src, int axis,
     for (int64_t i = 0; i < count; ++i)
         wide[i] = cells[addr0 + i];
     cudaMemcpyAsync(dIdx, wide.data(), count * sizeof(int64_t),
-        cudaMemcpyHostToDevice, g_stream);
+        cudaMemcpyHostToDevice, CurrentStream());
     const DevView ds = ToDevView(src);
     const DevView dd = ToDevView(dst);
     const int64_t blocks = (dst.elemCount + kThreads - 1) / kThreads;
     if (src.elemKind == 1)
-        GatherKernel<float><<<(int)blocks, kThreads, 0, g_stream>>>(
+        GatherKernel<float><<<(int)blocks, kThreads, 0, CurrentStream()>>>(
             ds, dIdx, axis, dd);
     else if (src.elemKind == 17)
-        GatherKernel<double><<<(int)blocks, kThreads, 0, g_stream>>>(
+        GatherKernel<double><<<(int)blocks, kThreads, 0, CurrentStream()>>>(
             ds, dIdx, axis, dd);
     else if (src.elemKind == 0)
-        GatherKernel<int32_t><<<(int)blocks, kThreads, 0, g_stream>>>(
+        GatherKernel<int32_t><<<(int)blocks, kThreads, 0, CurrentStream()>>>(
             ds, dIdx, axis, dd);
     else
-        GatherKernel<int64_t><<<(int)blocks, kThreads, 0, g_stream>>>(
+        GatherKernel<int64_t><<<(int)blocks, kThreads, 0, CurrentStream()>>>(
             ds, dIdx, axis, dd);
-    PoolFree(dIdx, g_stream);
+    PoolFree(dIdx, CurrentStream());
     return cudaGetLastError();
 }
 
@@ -2410,6 +2600,12 @@ __global__ void SortAxisKernel(DevView src, int32_t axis, DevView dst,
 
 cudaError_t LaunchSort(bool withIndices, const LaunchView& src,
                        int axis, const LaunchView& dst) {
+    SetDeviceForCall launchRow(src.device);
+    //Zero cells to launch: a zero-block grid is an invalid
+    //configuration, and the minted output (or the no-op write) is
+    //already correct — launch nothing.
+    if (src.elemCount == 0)
+        return cudaSuccess;
     //Async (no cell errors). One thread per line; the line count is
     //the output's element count over the line length.
     const DevView ds = ToDevView(src);
@@ -2417,16 +2613,16 @@ cudaError_t LaunchSort(bool withIndices, const LaunchView& src,
     const int64_t lineCount = dst.elemCount / ds.dims[axis];
     const int64_t blocks = (lineCount + kThreads - 1) / kThreads;
     if (src.elemKind == 1)
-        SortAxisKernel<float><<<(int)blocks, kThreads, 0, g_stream>>>(
+        SortAxisKernel<float><<<(int)blocks, kThreads, 0, CurrentStream()>>>(
             ds, axis, dd, withIndices);
     else if (src.elemKind == 17)
-        SortAxisKernel<double><<<(int)blocks, kThreads, 0, g_stream>>>(
+        SortAxisKernel<double><<<(int)blocks, kThreads, 0, CurrentStream()>>>(
             ds, axis, dd, withIndices);
     else if (src.elemKind == 0)
-        SortAxisKernel<int32_t><<<(int)blocks, kThreads, 0, g_stream>>>(
+        SortAxisKernel<int32_t><<<(int)blocks, kThreads, 0, CurrentStream()>>>(
             ds, axis, dd, withIndices);
     else
-        SortAxisKernel<int64_t><<<(int)blocks, kThreads, 0, g_stream>>>(
+        SortAxisKernel<int64_t><<<(int)blocks, kThreads, 0, CurrentStream()>>>(
             ds, axis, dd, withIndices);
     return cudaGetLastError();
 }
@@ -2498,6 +2694,12 @@ __global__ void CompareKernel(CompareOp op, DevView a, DevView b,
 
 cudaError_t LaunchCompare(CompareOp op, const LaunchView& a,
                           const LaunchView& b, const LaunchView& dst) {
+    SetDeviceForCall launchRow(a.device);
+    //Zero cells to launch: a zero-block grid is an invalid
+    //configuration, and the minted output (or the no-op write) is
+    //already correct — launch nothing.
+    if (dst.elemCount == 0)
+        return cudaSuccess;
     //Differentiated sync (spec 2026-11-16 §3): comparisons raise no
     //cell errors — enqueue and go.
     const DevView da = ToDevView(a);
@@ -2505,16 +2707,16 @@ cudaError_t LaunchCompare(CompareOp op, const LaunchView& a,
     const DevView dd = ToDevView(dst);
     const int64_t blocks = (dst.elemCount + kThreads - 1) / kThreads;
     if (a.elemKind == 1)
-        CompareKernel<float><<<(int)blocks, kThreads, 0, g_stream>>>(
+        CompareKernel<float><<<(int)blocks, kThreads, 0, CurrentStream()>>>(
             op, da, db, dd);
     else if (a.elemKind == 17)
-        CompareKernel<double><<<(int)blocks, kThreads, 0, g_stream>>>(
+        CompareKernel<double><<<(int)blocks, kThreads, 0, CurrentStream()>>>(
             op, da, db, dd);
     else if (a.elemKind == 0)
-        CompareKernel<int32_t><<<(int)blocks, kThreads, 0, g_stream>>>(
+        CompareKernel<int32_t><<<(int)blocks, kThreads, 0, CurrentStream()>>>(
             op, da, db, dd);
     else
-        CompareKernel<int64_t><<<(int)blocks, kThreads, 0, g_stream>>>(
+        CompareKernel<int64_t><<<(int)blocks, kThreads, 0, CurrentStream()>>>(
             op, da, db, dd);
     return cudaGetLastError();
 }
@@ -2540,21 +2742,27 @@ __global__ void CompareScalarKernel(CompareOp op, DevView a, double scalar,
 cudaError_t LaunchCompareScalar(CompareOp op, const LaunchView& a,
                                 double scalar, int64_t iScalar,
                                 const LaunchView& dst) {
+    SetDeviceForCall launchRow(a.device);
+    //Zero cells to launch: a zero-block grid is an invalid
+    //configuration, and the minted output (or the no-op write) is
+    //already correct — launch nothing.
+    if (dst.elemCount == 0)
+        return cudaSuccess;
     //Async (no cell errors) — see LaunchCompare.
     const DevView da = ToDevView(a);
     const DevView dd = ToDevView(dst);
     const int64_t blocks = (dst.elemCount + kThreads - 1) / kThreads;
     if (a.elemKind == 1)
-        CompareScalarKernel<float><<<(int)blocks, kThreads, 0, g_stream>>>(
+        CompareScalarKernel<float><<<(int)blocks, kThreads, 0, CurrentStream()>>>(
             op, da, scalar, iScalar, dd);
     else if (a.elemKind == 17)
-        CompareScalarKernel<double><<<(int)blocks, kThreads, 0, g_stream>>>(
+        CompareScalarKernel<double><<<(int)blocks, kThreads, 0, CurrentStream()>>>(
             op, da, scalar, iScalar, dd);
     else if (a.elemKind == 0)
-        CompareScalarKernel<int32_t><<<(int)blocks, kThreads, 0, g_stream>>>(
+        CompareScalarKernel<int32_t><<<(int)blocks, kThreads, 0, CurrentStream()>>>(
             op, da, scalar, iScalar, dd);
     else
-        CompareScalarKernel<int64_t><<<(int)blocks, kThreads, 0, g_stream>>>(
+        CompareScalarKernel<int64_t><<<(int)blocks, kThreads, 0, CurrentStream()>>>(
             op, da, scalar, iScalar, dd);
     return cudaGetLastError();
 }
@@ -2576,25 +2784,31 @@ __global__ void OneHotKernel(const int32_t* labels, int64_t count,
 
 cudaError_t LaunchOneHot(const LaunchView& labels, int32_t n,
                          const LaunchView& dst, int32_t* errorOut) {
+    //Pin from the destination, not the labels: the dispatcher stages the
+    //labels to host memory, so their device id names the staging side,
+    //never the launch target. The minted output's residency is the
+    //device that must run the kernel — it writes that output, and the
+    //host-to-device label copy feeds it from host memory.
+    SetDeviceForCall launchRow(dst.device);
     const int64_t count = labels.elemCount;
     //Empty labels: the [0, n) output has no cells — no launch, no
     //scratch (see LaunchSumAll for the zero-block rationale).
     if (count == 0)
         return cudaSuccess;
     int32_t* dLabels = static_cast<int32_t*>(
-        PoolAlloc(count * sizeof(int32_t), g_stream));
+        PoolAlloc(count * sizeof(int32_t), CurrentStream()));
     if (dLabels == nullptr)
         return cudaErrorMemoryAllocation;
     cudaMemcpyAsync(dLabels, (const int32_t*)labels.data,
-        count * sizeof(int32_t), cudaMemcpyHostToDevice, g_stream);
+        count * sizeof(int32_t), cudaMemcpyHostToDevice, CurrentStream());
     const uint32_t none[2] = {kErrNone, 0};
-    cudaMemcpyAsync(g_error, none, 2 * sizeof(int32_t),
-        cudaMemcpyHostToDevice, g_stream);
+    cudaMemcpyAsync(CurrentErrorFlags(), none, 2 * sizeof(int32_t),
+        cudaMemcpyHostToDevice, CurrentStream());
     const int64_t blocks = (count + kThreads - 1) / kThreads;
-    OneHotKernel<<<(int)blocks, kThreads, 0, g_stream>>>(
-        dLabels, count, n, (float*)dst.data, g_error);
-    cudaError_t err = cudaStreamSynchronize(g_stream);
-    PoolFree(dLabels, g_stream);
+    OneHotKernel<<<(int)blocks, kThreads, 0, CurrentStream()>>>(
+        dLabels, count, n, (float*)dst.data, CurrentErrorFlags());
+    cudaError_t err = cudaStreamSynchronize(CurrentStream());
+    PoolFree(dLabels, CurrentStream());
     if (err != cudaSuccess)
         return err;
     //Explicit cast: kErrNone is uint32 0xFFFFFFFF, narrowed to the int32
@@ -2602,7 +2816,7 @@ cudaError_t LaunchOneHot(const LaunchView& labels, int32_t n,
     //this only needs to be well-formed (GCC enforces the narrowing constraint
     //that MSVC only warns about).
     int32_t flags[2] = {static_cast<int32_t>(kErrNone), 0};
-    cudaMemcpy(flags, g_error, 2 * sizeof(int32_t), cudaMemcpyDeviceToHost);
+    cudaMemcpy(flags, CurrentErrorFlags(), 2 * sizeof(int32_t), cudaMemcpyDeviceToHost);
     if (flags[0] != kErrNone)
         *errorOut = flags[1];
     return cudaSuccess;
@@ -2642,29 +2856,30 @@ __global__ void UniformKernelF(float* dst, int64_t count, float low,
 cudaError_t LaunchUniform(const LaunchView& dst, double low,
                           double high, const uint32_t* mt624,
                           uint32_t position, bool isDouble) {
+    SetDeviceForCall launchRow(dst.device);
     const int64_t count = dst.elemCount;
     //Empty draw: no cells to fill — no launch, no scratch (see
     //LaunchSumAll for the zero-block rationale).
     if (count == 0)
         return cudaSuccess;
     uint32_t* dState = static_cast<uint32_t*>(
-        PoolAlloc(624 * sizeof(uint32_t), g_stream));
+        PoolAlloc(624 * sizeof(uint32_t), CurrentStream()));
     if (dState == nullptr)
         return cudaErrorMemoryAllocation;
     cudaMemcpyAsync(dState, mt624, 624 * sizeof(uint32_t),
-        cudaMemcpyHostToDevice, g_stream);
+        cudaMemcpyHostToDevice, CurrentStream());
     const int64_t blocks = (count + kThreads - 1) / kThreads;
     double* dOut = (double*)dst.data;
     if (isDouble) {
-        UniformKernel<<<(int)blocks, kThreads, 0, g_stream>>>(
+        UniformKernel<<<(int)blocks, kThreads, 0, CurrentStream()>>>(
             dOut, count, low, high - low, dState, position);
     } else {
-        UniformKernelF<<<(int)blocks, kThreads, 0, g_stream>>>(
+        UniformKernelF<<<(int)blocks, kThreads, 0, CurrentStream()>>>(
             (float*)dst.data, count, (float)low, (float)(high - low),
             dState, position);
     }
     const cudaError_t err = cudaGetLastError();
-    PoolFree(dState, g_stream);
+    PoolFree(dState, CurrentStream());
     return err;
 }
 
@@ -2749,12 +2964,29 @@ cudaError_t LaunchScatter(const LaunchView& a, const LaunchView& indices,
                           const LaunchView& values, const LaunchView& dst,
                           bool valuesScalar, double sv, int64_t isv,
                           int32_t* errorOut) {
+    SetDeviceForCall launchRow(a.device);
+    const int cellBytes = a.elemKind == 17 || a.elemKind == 15 ? 8 : 4;
+    //Zero indices: no index kernel (a zero-block grid is an invalid
+    //configuration) and no index/values scratch — but the rank-1
+    //value form still owes the dense span copy that seeds the result
+    //(the host path returns a copy of `a`; the into form's copy is
+    //the self-copy no-op). Skip the index work, not the copy.
+    if (indices.elemCount == 0) {
+        cudaMemcpyAsync(
+            static_cast<uint8_t*>(dst.data)
+                + static_cast<size_t>(dst.offset) * cellBytes,
+            static_cast<const uint8_t*>(a.data)
+                + static_cast<size_t>(a.offset) * cellBytes,
+            static_cast<size_t>(a.elemCount) * cellBytes,
+            cudaMemcpyDeviceToDevice, CurrentStream());
+        return cudaSuccess;
+    }
     //SYNC-GROUP (spec 2026-11-16 §3): scatter writes the per-cell
     //out-of-range flag — clear-launch-sync-read drains at this op.
     const int64_t count = indices.elemCount;
     const int64_t along = a.dims[0];
     int64_t* dIdx = static_cast<int64_t*>(
-        PoolAlloc(count * sizeof(int64_t), g_stream));
+        PoolAlloc(count * sizeof(int64_t), CurrentStream()));
     if (dIdx == nullptr)
         return cudaErrorMemoryAllocation;
     //The indices view is int32 — read on the host and widen.
@@ -2764,24 +2996,23 @@ cudaError_t LaunchScatter(const LaunchView& a, const LaunchView& indices,
     for (int64_t i = 0; i < count; ++i)
         wide[i] = cells[addr0 + i];
     cudaMemcpyAsync(dIdx, wide.data(), count * sizeof(int64_t),
-        cudaMemcpyHostToDevice, g_stream);
+        cudaMemcpyHostToDevice, CurrentStream());
     //The values arm: the dispatcher stages a non-scalar values view to
     //HOST (the metadata pattern) — H2D it here so the kernel reads a
     //device pointer; a scalar arm carries the value in the parameter
     //and the view stays empty.
-    const int cellBytes = a.elemKind == 17 || a.elemKind == 15 ? 8 : 4;
     void* dVals = nullptr;
     if (!valuesScalar) {
-        dVals = PoolAlloc(static_cast<size_t>(count) * cellBytes, g_stream);
+        dVals = PoolAlloc(static_cast<size_t>(count) * cellBytes, CurrentStream());
         if (dVals == nullptr) {
-            PoolFree(dIdx, g_stream);
+            PoolFree(dIdx, CurrentStream());
             return cudaErrorMemoryAllocation;
         }
         cudaMemcpyAsync(dVals,
             static_cast<const uint8_t*>(values.data)
                 + static_cast<size_t>(values.offset) * cellBytes,
             static_cast<size_t>(count) * cellBytes,
-            cudaMemcpyHostToDevice, g_stream);
+            cudaMemcpyHostToDevice, CurrentStream());
     }
     //The copy phase: a dense rank-1 span copy (the dispatcher gates
     //rank-1; the offset folds into the base pointers).
@@ -2791,9 +3022,9 @@ cudaError_t LaunchScatter(const LaunchView& a, const LaunchView& indices,
         static_cast<const uint8_t*>(a.data)
             + static_cast<size_t>(a.offset) * cellBytes,
         static_cast<size_t>(a.elemCount) * cellBytes,
-        cudaMemcpyDeviceToDevice, g_stream);
+        cudaMemcpyDeviceToDevice, CurrentStream());
     const uint32_t none[2] = {kErrNone, 0};
-    cudaMemcpy(g_error, none, 2 * sizeof(int32_t), cudaMemcpyHostToDevice);
+    cudaMemcpy(CurrentErrorFlags(), none, 2 * sizeof(int32_t), cudaMemcpyHostToDevice);
     const int64_t blocks = (count + kThreads - 1) / kThreads;
     //The kernel's values operand: the H2D scratch (array arm) or an
     //empty view (the scalar arm never reads it).
@@ -2802,25 +3033,25 @@ cudaError_t LaunchScatter(const LaunchView& a, const LaunchView& indices,
         valuesDev.data = dVals;
     valuesDev.offset = 0;
     if (a.elemKind == 1)
-        ScatterKernel<float><<<(int)blocks, kThreads, 0, g_stream>>>(
+        ScatterKernel<float><<<(int)blocks, kThreads, 0, CurrentStream()>>>(
             ToDevView(a), dIdx, count, ToDevView(dst),
-            ToDevView(valuesDev), sv, isv, valuesScalar, along, g_error);
+            ToDevView(valuesDev), sv, isv, valuesScalar, along, CurrentErrorFlags());
     else if (a.elemKind == 17)
-        ScatterKernel<double><<<(int)blocks, kThreads, 0, g_stream>>>(
+        ScatterKernel<double><<<(int)blocks, kThreads, 0, CurrentStream()>>>(
             ToDevView(a), dIdx, count, ToDevView(dst),
-            ToDevView(valuesDev), sv, isv, valuesScalar, along, g_error);
+            ToDevView(valuesDev), sv, isv, valuesScalar, along, CurrentErrorFlags());
     else if (a.elemKind == 0)
-        ScatterKernel<int32_t><<<(int)blocks, kThreads, 0, g_stream>>>(
+        ScatterKernel<int32_t><<<(int)blocks, kThreads, 0, CurrentStream()>>>(
             ToDevView(a), dIdx, count, ToDevView(dst),
-            ToDevView(valuesDev), sv, isv, valuesScalar, along, g_error);
+            ToDevView(valuesDev), sv, isv, valuesScalar, along, CurrentErrorFlags());
     else
-        ScatterKernel<int64_t><<<(int)blocks, kThreads, 0, g_stream>>>(
+        ScatterKernel<int64_t><<<(int)blocks, kThreads, 0, CurrentStream()>>>(
             ToDevView(a), dIdx, count, ToDevView(dst),
-            ToDevView(valuesDev), sv, isv, valuesScalar, along, g_error);
-    cudaError_t err = cudaStreamSynchronize(g_stream);
+            ToDevView(valuesDev), sv, isv, valuesScalar, along, CurrentErrorFlags());
+    cudaError_t err = cudaStreamSynchronize(CurrentStream());
     if (dVals != nullptr)
-        PoolFree(dVals, g_stream);
-    PoolFree(dIdx, g_stream);
+        PoolFree(dVals, CurrentStream());
+    PoolFree(dIdx, CurrentStream());
     if (err != cudaSuccess)
         return err;
     //Explicit cast: kErrNone is uint32 0xFFFFFFFF, narrowed to the int32
@@ -2828,7 +3059,7 @@ cudaError_t LaunchScatter(const LaunchView& a, const LaunchView& indices,
     //this only needs to be well-formed (GCC enforces the narrowing constraint
     //that MSVC only warns about).
     int32_t flags[2] = {static_cast<int32_t>(kErrNone), 0};
-    cudaMemcpy(flags, g_error, 2 * sizeof(int32_t), cudaMemcpyDeviceToHost);
+    cudaMemcpy(flags, CurrentErrorFlags(), 2 * sizeof(int32_t), cudaMemcpyDeviceToHost);
     if (flags[0] != kErrNone)
         *errorOut = flags[1];
     return cudaSuccess;
@@ -2838,12 +3069,29 @@ cudaError_t LaunchScatterAdd(const LaunchView& a, const LaunchView& indices,
                              const LaunchView& values, const LaunchView& dst,
                              bool valuesScalar, double sv, int64_t isv,
                              int32_t* errorOut) {
+    SetDeviceForCall launchRow(a.device);
+    const int cellBytes = a.elemKind == 17 || a.elemKind == 15 ? 8 : 4;
+    //Zero indices: no index kernel (a zero-block grid is an invalid
+    //configuration) and no index/values scratch — but the rank-1
+    //value form still owes the dense span copy that seeds the result
+    //(the host path returns a copy of `a`; the into form's copy is
+    //the self-copy no-op). Skip the index work, not the copy.
+    if (indices.elemCount == 0) {
+        cudaMemcpyAsync(
+            static_cast<uint8_t*>(dst.data)
+                + static_cast<size_t>(dst.offset) * cellBytes,
+            static_cast<const uint8_t*>(a.data)
+                + static_cast<size_t>(a.offset) * cellBytes,
+            static_cast<size_t>(a.elemCount) * cellBytes,
+            cudaMemcpyDeviceToDevice, CurrentStream());
+        return cudaSuccess;
+    }
     //SYNC-GROUP (the scatter shape): scatterAdd writes the per-cell
     //out-of-range flag — clear-launch-sync-read drains at this op.
     const int64_t count = indices.elemCount;
     const int64_t along = a.dims[0];
     int64_t* dIdx = static_cast<int64_t*>(
-        PoolAlloc(count * sizeof(int64_t), g_stream));
+        PoolAlloc(count * sizeof(int64_t), CurrentStream()));
     if (dIdx == nullptr)
         return cudaErrorMemoryAllocation;
     //The indices view is int32 — read on the host and widen.
@@ -2853,24 +3101,23 @@ cudaError_t LaunchScatterAdd(const LaunchView& a, const LaunchView& indices,
     for (int64_t i = 0; i < count; ++i)
         wide[i] = cells[addr0 + i];
     cudaMemcpyAsync(dIdx, wide.data(), count * sizeof(int64_t),
-        cudaMemcpyHostToDevice, g_stream);
+        cudaMemcpyHostToDevice, CurrentStream());
     //The values arm: the dispatcher stages a non-scalar values view to
     //HOST (the metadata pattern) — H2D it here so the kernel reads a
     //device pointer; a scalar arm carries the value in the parameter
     //and the view stays empty.
-    const int cellBytes = a.elemKind == 17 || a.elemKind == 15 ? 8 : 4;
     void* dVals = nullptr;
     if (!valuesScalar) {
-        dVals = PoolAlloc(static_cast<size_t>(count) * cellBytes, g_stream);
+        dVals = PoolAlloc(static_cast<size_t>(count) * cellBytes, CurrentStream());
         if (dVals == nullptr) {
-            PoolFree(dIdx, g_stream);
+            PoolFree(dIdx, CurrentStream());
             return cudaErrorMemoryAllocation;
         }
         cudaMemcpyAsync(dVals,
             static_cast<const uint8_t*>(values.data)
                 + static_cast<size_t>(values.offset) * cellBytes,
             static_cast<size_t>(count) * cellBytes,
-            cudaMemcpyHostToDevice, g_stream);
+            cudaMemcpyHostToDevice, CurrentStream());
     }
     //The copy phase: a dense rank-1 span copy (the value-semantics
     //form fills the rest of the payload; the into form's dispatcher
@@ -2882,9 +3129,9 @@ cudaError_t LaunchScatterAdd(const LaunchView& a, const LaunchView& indices,
         static_cast<const uint8_t*>(a.data)
             + static_cast<size_t>(a.offset) * cellBytes,
         static_cast<size_t>(a.elemCount) * cellBytes,
-        cudaMemcpyDeviceToDevice, g_stream);
+        cudaMemcpyDeviceToDevice, CurrentStream());
     const uint32_t none[2] = {kErrNone, 0};
-    cudaMemcpy(g_error, none, 2 * sizeof(int32_t), cudaMemcpyHostToDevice);
+    cudaMemcpy(CurrentErrorFlags(), none, 2 * sizeof(int32_t), cudaMemcpyHostToDevice);
     const int64_t blocks = (count + kThreads - 1) / kThreads;
     //The kernel's values operand: the H2D scratch (array arm) or an
     //empty view (the scalar arm never reads it).
@@ -2893,25 +3140,25 @@ cudaError_t LaunchScatterAdd(const LaunchView& a, const LaunchView& indices,
         valuesDev.data = dVals;
     valuesDev.offset = 0;
     if (a.elemKind == 1)
-        ScatterAddKernel<float><<<(int)blocks, kThreads, 0, g_stream>>>(
+        ScatterAddKernel<float><<<(int)blocks, kThreads, 0, CurrentStream()>>>(
             ToDevView(a), dIdx, count, ToDevView(dst),
-            ToDevView(valuesDev), sv, isv, valuesScalar, along, g_error);
+            ToDevView(valuesDev), sv, isv, valuesScalar, along, CurrentErrorFlags());
     else if (a.elemKind == 17)
-        ScatterAddKernel<double><<<(int)blocks, kThreads, 0, g_stream>>>(
+        ScatterAddKernel<double><<<(int)blocks, kThreads, 0, CurrentStream()>>>(
             ToDevView(a), dIdx, count, ToDevView(dst),
-            ToDevView(valuesDev), sv, isv, valuesScalar, along, g_error);
+            ToDevView(valuesDev), sv, isv, valuesScalar, along, CurrentErrorFlags());
     else if (a.elemKind == 0)
-        ScatterAddKernel<int32_t><<<(int)blocks, kThreads, 0, g_stream>>>(
+        ScatterAddKernel<int32_t><<<(int)blocks, kThreads, 0, CurrentStream()>>>(
             ToDevView(a), dIdx, count, ToDevView(dst),
-            ToDevView(valuesDev), sv, isv, valuesScalar, along, g_error);
+            ToDevView(valuesDev), sv, isv, valuesScalar, along, CurrentErrorFlags());
     else
-        ScatterAddKernel<int64_t><<<(int)blocks, kThreads, 0, g_stream>>>(
+        ScatterAddKernel<int64_t><<<(int)blocks, kThreads, 0, CurrentStream()>>>(
             ToDevView(a), dIdx, count, ToDevView(dst),
-            ToDevView(valuesDev), sv, isv, valuesScalar, along, g_error);
-    cudaError_t err = cudaStreamSynchronize(g_stream);
+            ToDevView(valuesDev), sv, isv, valuesScalar, along, CurrentErrorFlags());
+    cudaError_t err = cudaStreamSynchronize(CurrentStream());
     if (dVals != nullptr)
-        PoolFree(dVals, g_stream);
-    PoolFree(dIdx, g_stream);
+        PoolFree(dVals, CurrentStream());
+    PoolFree(dIdx, CurrentStream());
     if (err != cudaSuccess)
         return err;
     //Explicit cast: kErrNone is uint32 0xFFFFFFFF, narrowed to the int32
@@ -2919,7 +3166,7 @@ cudaError_t LaunchScatterAdd(const LaunchView& a, const LaunchView& indices,
     //this only needs to be well-formed (GCC enforces the narrowing constraint
     //that MSVC only warns about).
     int32_t flags[2] = {static_cast<int32_t>(kErrNone), 0};
-    cudaMemcpy(flags, g_error, 2 * sizeof(int32_t), cudaMemcpyDeviceToHost);
+    cudaMemcpy(flags, CurrentErrorFlags(), 2 * sizeof(int32_t), cudaMemcpyDeviceToHost);
     if (flags[0] != kErrNone)
         *errorOut = flags[1];
     return cudaSuccess;
@@ -2943,9 +3190,15 @@ __global__ void FillKernel(int elemKindCode, DevView dst,
 
 cudaError_t LaunchFill(const LaunchView& dst, double value,
                        int64_t iValue, int elemKindCode) {
+    SetDeviceForCall launchRow(dst.device);
+    //Zero cells to launch: a zero-block grid is an invalid
+    //configuration, and the minted output (or the no-op write) is
+    //already correct — launch nothing.
+    if (dst.elemCount == 0)
+        return cudaSuccess;
     const DevView dd = ToDevView(dst);
     const int64_t blocks = (dst.elemCount + kThreads - 1) / kThreads;
-    FillKernel<<<(int)blocks, kThreads, 0, g_stream>>>(
+    FillKernel<<<(int)blocks, kThreads, 0, CurrentStream()>>>(
         elemKindCode, dd, value, iValue);
     return cudaGetLastError();
 }
@@ -2987,22 +3240,28 @@ __global__ void ArangeKernelI64(int64_t* dst, int64_t count,
 
 cudaError_t LaunchArange(const LaunchView& dst, double start,
                          double step, bool isInt) {
+    SetDeviceForCall launchRow(dst.device);
+    //Zero cells to launch: a zero-block grid is an invalid
+    //configuration, and the minted output is already correct — launch
+    //nothing.
+    if (dst.elemCount == 0)
+        return cudaSuccess;
     const int64_t blocks = (dst.elemCount + kThreads - 1) / kThreads;
     if (isInt) {
         if (dst.elemKind == 0)
-            ArangeKernelI32<<<(int)blocks, kThreads, 0, g_stream>>>(
+            ArangeKernelI32<<<(int)blocks, kThreads, 0, CurrentStream()>>>(
                 (int32_t*)dst.data, dst.elemCount, (int64_t)start,
                 (int64_t)step);
         else
-            ArangeKernelI64<<<(int)blocks, kThreads, 0, g_stream>>>(
+            ArangeKernelI64<<<(int)blocks, kThreads, 0, CurrentStream()>>>(
                 (int64_t*)dst.data, dst.elemCount, (int64_t)start,
                 (int64_t)step);
     } else {
         if (dst.elemKind == 1)
-            ArangeKernelF<<<(int)blocks, kThreads, 0, g_stream>>>(
+            ArangeKernelF<<<(int)blocks, kThreads, 0, CurrentStream()>>>(
                 (float*)dst.data, dst.elemCount, (float)start, (float)step);
         else
-            ArangeKernelD<<<(int)blocks, kThreads, 0, g_stream>>>(
+            ArangeKernelD<<<(int)blocks, kThreads, 0, CurrentStream()>>>(
                 (double*)dst.data, dst.elemCount, start, step);
     }
     return cudaGetLastError();
@@ -3026,57 +3285,95 @@ __global__ void CopyKernel(int elemKindCode, DevView src, DevView dst) {
 
 cudaError_t LaunchCopy(const LaunchView& src, const LaunchView& dst,
                        int elemKindCode) {
+    SetDeviceForCall launchRow(src.device);
+    //Zero cells to launch: a zero-block grid is an invalid
+    //configuration, and the minted output (or the no-op write) is
+    //already correct — launch nothing.
+    if (dst.elemCount == 0)
+        return cudaSuccess;
     const DevView ds = ToDevView(src);
     const DevView dd = ToDevView(dst);
     const int64_t blocks = (dst.elemCount + kThreads - 1) / kThreads;
-    CopyKernel<<<(int)blocks, kThreads, 0, g_stream>>>(
+    CopyKernel<<<(int)blocks, kThreads, 0, CurrentStream()>>>(
         elemKindCode, ds, dd);
     return cudaGetLastError();
 }
 
-//The strided concat: one element per thread, the source half chosen by
-//the destination's flat index (i < aCount reads a at flat i, else b at
-//flat i - aCount — exact for the gate's layouts, rank-1 and rank-2
-//axis-0, where the flat ordinal maps onto the source's row-major
-//ordinal), the write dense (the dispatcher mints dst). A dense operand
-//folds to flat i + offset, so either operand strided takes this kernel.
-__global__ void ConcatStridedKernel(int elemKindCode, DevView a, DevView b,
-                                   DevView dst, int64_t aCount) {
+//The per-cell kind write shared by the concat paths: both views arrive
+//already folded to flat element addresses.
+__device__ void WriteConcatCell(int elemKindCode, void* dstData,
+                                int64_t sd, const void* srcData,
+                                int64_t sa) {
+    if (elemKindCode == 1)
+        ((float*)dstData)[sd] = ((const float*)srcData)[sa];
+    else if (elemKindCode == 17)
+        ((double*)dstData)[sd] = ((const double*)srcData)[sa];
+    else if (elemKindCode == 0)
+        ((int32_t*)dstData)[sd] = ((const int32_t*)srcData)[sa];
+    else
+        ((int64_t*)dstData)[sd] = ((const int64_t*)srcData)[sa];
+}
+
+//The join kernel (one element per thread, any axis, any rank): the
+//destination flat folds to logical coordinates (row-major over the
+//destination dims); the join-axis coordinate picks the operand and
+//re-bases into that operand's dims (the dispatcher checked that the
+//dims agree everywhere but at the join axis); the coordinates then
+//fold row-major into the source's flat ordinal and through the
+//source's strides (FlatAddress), so strided arms ride their own
+//layouts. The write is dense (the dispatcher mints dst). Axis 0 falls
+//out as the degenerate case: the fold reproduces the flat halves.
+__global__ void ConcatJoinKernel(int elemKindCode, DevView a, DevView b,
+                                 DevView dst, int axis,
+                                 int64_t aAxisDim) {
     const int64_t i = blockIdx.x * (int64_t)blockDim.x + threadIdx.x;
     if (i >= dst.elemCount)
         return;
-    const DevView src = i < aCount ? a : b;
-    const int64_t sa = FlatAddress(src, i < aCount ? i : i - aCount);
-    const int64_t sd = dst.offset + i;
-    if (elemKindCode == 1)
-        ((float*)dst.data)[sd] = ((const float*)src.data)[sa];
-    else if (elemKindCode == 17)
-        ((double*)dst.data)[sd] = ((const double*)src.data)[sa];
-    else if (elemKindCode == 0)
-        ((int32_t*)dst.data)[sd] = ((const int32_t*)src.data)[sa];
-    else
-        ((int64_t*)dst.data)[sd] = ((const int64_t*)src.data)[sa];
+    int64_t coord[kMaxRank];
+    int64_t rem = i;
+    for (int32_t d = dst.rank - 1; d >= 0; --d) {
+        const int64_t dim = dst.dims[d];
+        coord[d] = dim > 0 ? rem % dim : 0;
+        rem /= (dim > 0 ? dim : 1);
+    }
+    const bool fromA = coord[axis] < aAxisDim;
+    const DevView& src = fromA ? a : b;
+    if (!fromA)
+        coord[axis] -= aAxisDim;
+    int64_t ord = 0;
+    int64_t fold = 1;
+    for (int32_t d = src.rank - 1; d >= 0; --d) {
+        ord += coord[d] * fold;
+        fold *= (src.dims[d] > 0 ? src.dims[d] : 1);
+    }
+    WriteConcatCell(elemKindCode, dst.data, dst.offset + i, src.data,
+                    FlatAddress(src, ord));
 }
 
-//concat: dense operands take the two D2D span copies (the offset folded
-//into the base — a dense view's logical cells are a contiguous run from
-//its offset); either strided takes the strided kernel. The flat two-half
-//copy is valid ONLY along the outermost axis (axis 0, any rank): any
-//other axis interleaves the halves inside dst and needs an interleaved
-//kernel (NotSupported until the parity suite lands it — the old
-//hardcoded axis-0 was silently wrong there).
+//concat: dense operands joined along the outermost axis take the two
+//D2D span copies (the offset folded into the base — a dense view's
+//logical cells are a contiguous run from its offset); every other join
+//— any axis, either operand strided — takes the join kernel. The host
+//dispatcher gated the axis range and the non-join dims, so the kernel
+//sees only well-shaped joins (the old axis-0-only gate raised
+//NotSupported on inner axes the host path handles).
 cudaError_t LaunchConcat(const LaunchView& a, const LaunchView& b,
                          int axis, const LaunchView& dst,
                          int elemKindCode) {
-    if (axis != 0)
-        return cudaErrorNotSupported;
+    SetDeviceForCall launchRow(a.device);
     const int64_t aCount = a.elemCount;
     const int64_t bCount = b.elemCount;
+    //Empty join: the output is minted, no cells to write (a zero-block
+    //launch would be an invalid configuration).
+    if (dst.elemCount == 0)
+        return cudaSuccess;
     //Cell width by KIND (the old 1/0 hard-coding copied half the
     //bytes for f64/i64).
     const int cellBytes = (elemKindCode == 17 || elemKindCode == 15)
         ? 8 : 4;
-    if (IsDense(ToDevView(a)) && IsDense(ToDevView(b))) {
+    const DevView da = ToDevView(a);
+    const DevView db = ToDevView(b);
+    if (axis == 0 && IsDense(da) && IsDense(db)) {
         const uint8_t* aBase =
             static_cast<const uint8_t*>(a.data)
             + static_cast<size_t>(a.offset) * cellBytes;
@@ -3084,18 +3381,16 @@ cudaError_t LaunchConcat(const LaunchView& a, const LaunchView& b,
             static_cast<const uint8_t*>(b.data)
             + static_cast<size_t>(b.offset) * cellBytes;
         cudaMemcpyAsync(dst.data, aBase, aCount * cellBytes,
-            cudaMemcpyDeviceToDevice, g_stream);
+            cudaMemcpyDeviceToDevice, CurrentStream());
         cudaMemcpyAsync((uint8_t*)dst.data + aCount * cellBytes,
             bBase, bCount * cellBytes, cudaMemcpyDeviceToDevice,
-            g_stream);
+            CurrentStream());
     } else {
-        const DevView da = ToDevView(a);
-        const DevView db = ToDevView(b);
         const DevView dd = ToDevView(dst);
         const int64_t blocks =
             (dst.elemCount + kThreads - 1) / kThreads;
-        ConcatStridedKernel<<<(int)blocks, kThreads, 0, g_stream>>>(
-            elemKindCode, da, db, dd, aCount);
+        ConcatJoinKernel<<<(int)blocks, kThreads, 0, CurrentStream()>>>(
+            elemKindCode, da, db, dd, axis, da.dims[axis]);
     }
     return cudaGetLastError();
 }

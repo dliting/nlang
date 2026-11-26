@@ -21,8 +21,9 @@
 
 - A program addresses the machine's GPUs by index and moves arrays
   between them explicitly; the existing single-GPU programs run
-  unchanged (the default device stays device 0 and `toDevice(a)`
-  keeps its meaning).
+  unchanged (the default device stays device 0 and outside any
+  stream scope `toDevice(a)` keeps its meaning; section 3 carries
+  the in-scope refinement).
 - All compute stays same-device (PyTorch's discipline, and the
   registry's existing same-residency rule generalized): operands on
   different devices raise by name — co-locating is an explicit
@@ -67,7 +68,8 @@ Three new entries, no reshaping of the existing ones:
   - same device: returns the operand itself, the same handle (the
     existing same-residency contract);
   - `device` outside `0 .. deviceCount()-1` raises by name
-    ("tensor.toDevice: device index out of range"); on cpu the new
+    ("tensor.toDevice: device <d> beyond the device count <c>");
+    on cpu the new
     arity raises for every index (the range is empty) while the
     old-arity `toDevice(a)` keeps its cpu no-op return — the
     standing to_device contract: on cpu every array is already on
@@ -80,13 +82,16 @@ Three new entries, no reshaping of the existing ones:
   works) and only device 0 is accepted; mirror follows its
   `deviceCount() == 1`.
 
-The old-arity `toDevice(a)` keeps today's shape exactly: a host
-operand lands on device 0 — even inside a Push scope on another
-device — and an operand already resident on any device returns
-itself (the same handle): its contract is "ensure device
-residency", not "go to device 0". That is both what keeps existing
-programs' meaning unchanged under multi-device and what the code
-already does.
+The old-arity `toDevice(a)` keeps its ensure-residency contract and
+follows the stream scope: a host operand lands on the CURRENT
+scope's device — device 0 outside any Push scope, exactly today's
+behavior, and the scope's device inside one, so a scope owns both
+the compute and the uploads that feed it (the M-G3 landing: a scope
+that uploaded on another device could never consume its own upload
+inside that scope); an operand already resident on any device
+returns itself (the same handle). Single-scope code sees device 0
+either way, which keeps existing programs' meaning unchanged under
+multi-device.
 
 `tensor.backend()` is unchanged (the backend name, not a device).
 

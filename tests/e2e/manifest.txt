@@ -2391,6 +2391,12 @@ op_device_count 0
 op_device_count_mirror 0
 op_stream_device_guard 0
 op_stream_device_guard_mirror 0
+# Multi-GPU M-G3: the toDevice(a, device) census guard (plan §4) — the
+# first absent device id (and on cpu, whose census is empty, every id)
+# raises naming the count. The _mirror twin pins mirror via .flags, so
+# both legs run on every machine, GPU present or not.
+op_device_transfer_guard 0
+op_device_transfer_guard_mirror 0
 # Debugger display of device-resident arrays (mirror pinned via .env, so
 # these run on every machine): the record and a view over a device owner
 # both show staged element values, never pointer fragments.
@@ -2400,7 +2406,7 @@ op_tensor_extreme_inf 0
 op_tensor_strided_reduce 0
 op_tensor_strided_matmul 0
 op_tensor_contiguous 0
-op_tensor_concat_axis_throw 0
+op_tensor_concat_axis_inner 0
 op_tensor_scalar_divzero_throw 1
 op_tensor_onehot_throw 1
 op_tensor_gather_negative_throw 1
@@ -2584,3 +2590,5 @@ op_stream_prng_window 0
 op_stream_join_order 0
 op_stream_pop_reject 1
 op_rng_seed 0
+op_tensor_cross_device 0
+op_tensor_scatter_empty_index 0

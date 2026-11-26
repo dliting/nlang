@@ -1,0 +1,37 @@
+// The mirror-pinned twin of op_device_transfer_guard (the .flags leg):
+// the mirror census is 1, so toDevice(a, 0) answers the operand back
+// (same residency — mirror operands live on device 0) and
+// toDevice(a, 1) raises with the census spelled in the message — on
+// every machine, GPU present or not.
+import tensor;
+
+int main() {
+    if (tensor.backend() != "mirror") return 100;
+    float[] a = [1.5f, 2.5f, 3.5f, 4.5f];
+
+    //device 0 is inside the census: the operand already lives there,
+    //and the device-named spelling keeps the same-residency contract.
+    float[] same = tensor.toDevice(a, 0);
+    if (same[1] != 2.5f) return 1;
+
+    //device 1 is the first absent id: raise with the census named.
+    try {
+        float[] moved = tensor.toDevice(a, 1);
+        return 2;
+    } catch (Exception e) {
+        if (e.message !=
+            "tensor.toDevice: device 1 beyond the device count 1")
+            return 10;
+    }
+
+    //Negative ids refuse too.
+    try {
+        float[] moved = tensor.toDevice(a, -1);
+        return 3;
+    } catch (Exception e) {
+        if (e.message !=
+            "tensor.toDevice: device -1 beyond the device count 1")
+            return 11;
+    }
+    return 0;
+}

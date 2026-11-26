@@ -162,7 +162,7 @@ void ScatterAddRun(NativeHost* host, uint8_t* ret, const uint8_t* args,
         NativeArrayView out;
         host->getArrayView(host, handle, &out);
         int32_t errCell = -1;
-        CallScatterAddSlot<T>(OpsForResidency(1), host, va, axis, vIdx,
+        CallScatterAddSlot<T>(OpsForResidency(host, va), host, va, axis, vIdx,
             vals.values, out, vals, &errCell);
         if (errCell >= 0)
             RaiseScatterIndexFromCell(host, vIdx, errCell, axis,
@@ -175,7 +175,7 @@ void ScatterAddRun(NativeHost* host, uint8_t* ret, const uint8_t* args,
     NativeArrayView srcHost = StageOperandToHost(host, va, &aStage);
     StagedWalkOut land;
     PrepareStagedWalkOut(host, va.elemKind, va.rank, outDims, va, &land);
-    CallScatterAddSlot<T>(OpsForResidency(0), host, srcHost, axis, vIdx,
+    CallScatterAddSlot<T>(OpsForResidency(host, srcHost), host, srcHost, axis, vIdx,
         vals.values, land.fill, vals, nullptr);
     LandStagedWalkOut(host, &land);
     ReturnInt(ret, land.handle);
@@ -273,7 +273,7 @@ void ScatterAddIntoDispatch(NativeHost* host, NativeArrayView& va,
                             int32_t axis, NativeArrayView& vIdx,
                             ScatterValues& vals, int32_t* errCell)
 {
-    const TensorOps& ops = OpsForResidency(va.reserved[0]);
+    const TensorOps& ops = OpsForResidency(host, va);
     switch (va.elemKind)
     {
         case NEK_Int32:

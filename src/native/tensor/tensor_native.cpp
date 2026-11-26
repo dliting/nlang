@@ -67,7 +67,7 @@ void FillKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
 //carries int64/double values; the T narrowing is the kernel's).
 void FillThroughSlot(NativeHost* host, NativeArrayView& v, double fValue,
                      int64_t iValue) {
-    const TensorOps& ops = OpsForResidency(v.reserved[0]);
+    const TensorOps& ops = OpsForResidency(host, v);
     switch (v.elemKind) {
         case NEK_Int32:  ops.fillI32(host, v, iValue); break;
         case NEK_Int64:  ops.fillI64(host, v, iValue); break;
@@ -137,7 +137,7 @@ void ArangeKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
     const int32_t handle = MintArray1(host, kind, static_cast<int32_t>(n));
     NativeArrayView v;
     host->getArrayView(host, handle, &v);
-    const TensorOps& ops = OpsForResidency(v.reserved[0]);
+    const TensorOps& ops = OpsForResidency(host, v);
     if constexpr (std::is_same_v<T, float>) {
         ops.arangeF32(host, v, static_cast<double>(start),
                       static_cast<double>(step));
@@ -157,10 +157,16 @@ void ArangeKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
 //v0.14.x device surface: toDevice/toHost/backend (spec D6). The
 //transfers ride the registry's CLASS-2 entry points — a mixed-
 //residency copy through a compute slot would dereference the wrong
-//side under cuda (the mirror backend masked this).
+//side under cuda (the mirror backend masked this). The arity decides:
+//the one-argument spelling lands on the current scope's device, the
+//device-named spelling (multi-GPU M-G3) routes through the census
+//guard and the cross-device copy.
 void TensorToDevice(NativeHost* host, uint8_t* ret, const uint8_t* args,
                     int argc) {
-    (void)argc;
+    if (argc >= 2) {
+        TransferToDeviceD(host, ret, args);
+        return;
+    }
     TransferToDevice(host, ret, args);
 }
 

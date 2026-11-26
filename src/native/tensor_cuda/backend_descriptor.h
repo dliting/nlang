@@ -14,10 +14,13 @@ struct TensorOps;   //TensorOps.h (the registry side includes it)
 
 //The device-ABI contract version, owned once by this header (both
 //sides include it; the probe compares against it). v2: streamCreate
-//takes the device selector (the multi-GPU line, M-G1). The plugin's
-//nlang_device_abi_version export must return this exact value — a
-//mismatch means the descriptor layout or the stream contract moved.
-inline constexpr unsigned NLANG_DEVICE_ABI_VERSION = 2u;
+//takes the device selector (the multi-GPU line, M-G1). v3: the
+//copyD2D entry lands at the struct's tail (M-G3 — an old plugin's
+//descriptor has no such field, so the version bump is the guard).
+//The plugin's nlang_device_abi_version export must return this exact
+//value — a mismatch means the descriptor layout or the stream
+//contract moved.
+inline constexpr unsigned NLANG_DEVICE_ABI_VERSION = 3u;
 
 //The pure side of the load-time probe: true = the plugin's reported
 //version is exactly the one this registry speaks. Kept header-inline
@@ -77,7 +80,29 @@ struct DeviceBackendDescriptor {
     void (*streamPush)(int handle);   //the ops after this launch there
     void (*streamPop)();
     void (*streamJoin)(int handle);   //the current stream waits for it
+    //--- device ABI v3: the cross-device transfer (the multi-GPU
+    //line, M-G3). It implements the whole ordering contract (spec
+    //§6): ordered after the source device's current stream's work,
+    //an event handoff into the destination device's current stream,
+    //peer copy or pinned-host staging per the capability matrix.
+    //Null = the backend cannot cross devices; the registry's
+    //toDevice(a, device) raises by name when it meets a foreign
+    //device with a null entry.
+    TensorDeviceStatus (*copyD2D)(int32_t dstDevice, void* dst,
+        int32_t srcDevice, const void* src, size_t bytes);
 };
+
+//The cross-copy branch selection (the copyD2D ordering contract, spec
+//§6): the peer copy launches from the SOURCE row's current stream, so
+//the direct path needs exactly one direction of the pair — the source
+//row enabled to dereference the destination. The reverse direction is
+//the opposite crossing's own decision (each row's peer matrix is
+//one-directional), so a half-enabled pair still serves its enabled
+//direction by peer and the other by pinned-host staging. Pure, so
+//the branch table is pinned without a device.
+inline bool CrossCopyUsesPeer(bool sourceRowEnablesDestination) {
+    return sourceRowEnablesDestination;
+}
 
 //The plugin's exported symbol set (the spec D5 three symbols).
 #define NLANG_DEVICE_ABI_SYMBOL nlang_device_abi_version

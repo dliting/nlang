@@ -116,8 +116,8 @@ void WhereRun(NativeHost* host, uint8_t* ret, const uint8_t* args,
         outDims, ops.xScalar ? ops.y : ops.x);
     NativeArrayView out;
     host->getArrayView(host, handle, &out);
-    const TensorOps& slotOps = OpsForResidency(
-        (ops.xScalar ? ops.y : ops.x).reserved[0]);
+    const TensorOps& slotOps = OpsForResidency(host,
+        ops.xScalar ? ops.y : ops.x);
     const bool maskLong = ops.mask.elemKind == NEK_Int64;
     if constexpr (std::is_same_v<T, float>) {
         slotOps.whereF32(host, ops.mask, ops.x, ops.y, out, maskLong,
@@ -181,6 +181,22 @@ uint8_t WhereReadArmOperands(NativeHost* host, const uint8_t* args,
     return anchorKind;
 }
 
+//Device agreement of the array operands: one launch reads the mask and
+//both array arms through one device's pointers, so they must share the
+//(residency, device) pair (the scalar arms carry no view).
+void WhereAssertOperandDevice(NativeHost* host, const WhereOperands& ops,
+                              bool xScalar, bool yScalar)
+{
+    NativeArrayView present[3] = {};
+    int32_t n = 0;
+    present[n++] = ops.mask;
+    if (!xScalar)
+        present[n++] = ops.x;
+    if (!yScalar)
+        present[n++] = ops.y;
+    AssertSameDevice(host, present, static_cast<size_t>(n));
+}
+
 //The shared entry: gather the operands (x/y array-or-scalar), gate the
 //kinds, dispatch. arg0=mask, arg1=x, arg2=y. xIsScalar/yIsScalar select
 //the arm; the scalar reader matches the OTHER arm's array kind.
@@ -202,6 +218,7 @@ void WhereEntry(NativeHost* host, uint8_t* ret, const uint8_t* args,
     //twins; the anchor kind (the shared element kind) comes back.
     const uint8_t anchorKind = WhereReadArmOperands(host, args, xScalar,
         yScalar, ops);
+    WhereAssertOperandDevice(host, ops, xScalar, yScalar);
     //Empty mask: the output has no cells — mint and return (no launch,
     //no scratch; the zero-block rationale of the reduction family).
     if (ops.mask.elemCount == 0) {
