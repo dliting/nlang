@@ -1,7 +1,9 @@
 //P3 review Important-2 (implicit form): a bare field name in a ctor
 //default is an implicit this-field reference and is rejected for the
 //same reason as an explicit `this` — the default evaluates at the call
-//site, outside the object under construction.
+//site, outside the object under construction. 0.13.13a D-5: the wording
+//names the bound member (Vec.a) instead of claiming a 'this' reference
+//this spelling never contained.
 class Vec {
     public int a;
     public int b;

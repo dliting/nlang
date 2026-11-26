@@ -1,0 +1,22 @@
+//0.13.13a D-5: a member access whose binding is an instance field is
+//rejected even when it goes through a formal's object rather than `this`
+//— the wording names the bound member (Seed.v). A default argument
+//cannot read instance state: it evaluates at the call site, where no
+//object of this constructor exists (and reading another object's state
+//would depend on which instance the caller passes).
+class Seed {
+    public int v;
+}
+
+class Vec {
+    public int a;
+    public Vec(Seed s, int y = s.v) {
+        this.a = y;
+    }
+}
+
+int main() {
+    Seed s = Seed();
+    Vec v = Vec(s);
+    return v.a;
+}

@@ -1,0 +1,45 @@
+//0.13.13a D-5: constructor parameter defaults may reference static
+//members — one object per allowed spelling, each proving the static
+//value actually reached the constructor at the call site.
+class Knob {
+    public static const int K = 3;
+    public static int tick() { return 7; }
+}
+
+class Cfg {
+    public static const int K = 5;
+    public int m_seed;
+    //Declaring-class bare spelling: the name resolves at the declaration.
+    public Cfg(int seed = K) { this.m_seed = seed; }
+}
+
+class CfgQual {
+    public static const int Q = 11;
+    public int m_seed;
+    //Declaring-class qualified spelling.
+    public CfgQual(int seed = CfgQual.Q) { this.m_seed = seed; }
+}
+
+class CfgOther {
+    public int m_seed;
+    //Other-class qualified static field.
+    public CfgOther(int seed = Knob.K) { this.m_seed = seed; }
+}
+
+class CfgCall {
+    public int m_seed;
+    //Other-class static method call.
+    public CfgCall(int seed = Knob.tick()) { this.m_seed = seed; }
+}
+
+int main() {
+    Cfg a = Cfg();
+    CfgQual b = CfgQual();
+    CfgOther c = CfgOther();
+    CfgCall d = CfgCall();
+    if (a.m_seed != 5) { return 1; }
+    if (b.m_seed != 11) { return 2; }
+    if (c.m_seed != 3) { return 3; }
+    if (d.m_seed != 7) { return 4; }
+    return 0;
+}

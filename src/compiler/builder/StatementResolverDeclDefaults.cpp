@@ -37,32 +37,99 @@ static bool ReferencesFormal(SnExpression& expr, SnField* pTarget)
 	return false;
 }
 
-//P3 review: walk an expression subtree looking for a `this` reference —
-//an explicit SnThisExpr, or a bare identifier that resolved to a class
-//or struct field (the implicit this.field binding; NK_ClassField/
-//NK_StructField distinguishes it from formals/locals, and unqualified names
-//cannot reach another type's fields). Same traversal contract as
-//ReferencesFormal above. 0.9.11 D2: struct constructor defaults join
-//the rejection surface.
-static bool ReferencesThis(SnExpression& expr)
+//D-5 (0.13.13a): an instance member is a NON-STATIC field of a class or
+//struct, or a NON-STATIC method declared in one — every other binding
+//(static member, formal, local, free function, type name) is reachable
+//without an instance. 0.9.11 D2 lineage: struct members joined the
+//rejection surface alongside class members.
+static bool IsInstanceMember(const SnField& field)
+{
+	auto kind = field.Kind();
+	if (kind != NK_ClassField && kind != NK_StructField
+		&& kind != NK_Function)
+		return false;
+	if (field.ContainFlags(NF_Static))
+		return false;
+	if (kind == NK_Function) {
+		auto* pParent = field.Parent();
+		return pParent && (pParent->Kind() == NK_ClassDecl
+			|| pParent->Kind() == NK_StructDecl);
+	}
+	return true;
+}
+
+//P3 review, refined by D-5 (0.13.13a): walk an expression subtree looking
+//for a field-expression (identifier, member access, or call) whose
+//binding names an instance member — the bare spelling is the implicit
+//this.field binding, and a qualified spelling resolves to the same member
+//node (NK_ClassField/NK_StructField/NK_Function-under-a-type distinguishes
+//these from formals/locals/free functions; unqualified names cannot reach
+//another type's members). The pre-D-5 predicate
+//stopped at ANY field binding and falsely rejected static spellings.
+//pOffenderField optionally receives the first instance-member binding so
+//the diagnostic can name it. Same traversal contract as ReferencesFormal
+//above; lambda bodies walk through the same children (D-5: an instance
+//dependency penetrates the lambda body).
+static bool FindInstanceMember(SnExpression& expr, SnField*& pOffenderField)
+{
+	//The field-expr family (identifier, member access, invoke) all expose
+	//the resolved binding through SnFieldExpr::Field() — a call node
+	//carries its callee there (SnInvokeExpr::Callee() reads the same
+	//slot), while the member path deliberately leaves the inner name
+	//unbound for method spellings (ExprResolverMember skips the function
+	//binding so chained access survives IsDataExpr()). The delegate-invoke
+	//shape binds Field() to a func-typed value declaration, which
+	//IsInstanceMember correctly answers false for.
+	auto kind = expr.Kind();
+	if (kind == NK_IdentifierExpr || kind == NK_MemberExpr
+		|| kind == NK_InvokeExpr) {
+		auto* pField = static_cast<SnFieldExpr&>(expr).Field();
+		if (pField && IsInstanceMember(*pField)) {
+			if (!pOffenderField)
+				pOffenderField = pField;
+			return true;
+		}
+	}
+	for (auto& child : expr.Children()) {
+		//Children of an SnExpression are always SyntaxNode subclasses
+		//(SnExpression or SnFieldExpr in our case). IsExpression is on
+		//SyntaxNode, not Node — cast then check.
+		auto& synChild = static_cast<SyntaxNode&>(child);
+		if (!synChild.IsExpression())
+			continue;
+		if (FindInstanceMember(static_cast<SnExpression&>(synChild),
+			pOffenderField))
+			return true;
+	}
+	return false;
+}
+
+//The explicit-`this` half of the D-5 surface: an SnThisExpr anywhere in
+//the subtree (used only when no member binding explains the dependency).
+static bool ReferencesExplicitThis(SnExpression& expr)
 {
 	if (expr.Kind() == NK_ThisExpr)
 		return true;
-	if (expr.Kind() == NK_IdentifierExpr) {
-		auto& id = static_cast<SnIdentifierExpr&>(expr);
-		auto* pField = id.Field();
-		if (pField && (pField->Kind() == NK_ClassField
-			|| pField->Kind() == NK_StructField))
-			return true;
-	}
 	for (auto& child : expr.Children()) {
 		auto& synChild = static_cast<SyntaxNode&>(child);
 		if (!synChild.IsExpression())
 			continue;
-		if (ReferencesThis(static_cast<SnExpression&>(synChild)))
+		if (ReferencesExplicitThis(static_cast<SnExpression&>(synChild)))
 			return true;
 	}
 	return false;
+}
+
+//The D-5 predicate, renamed/refined from ReferencesThis: the subtree
+//depends on the enclosing instance only when it holds an instance-member
+//binding or an explicit `this`; static members answer false. Consumed by
+//the ctor-default guard below; the lambda pass-through reuses this shape
+//once the expected-type channel (0.13.13a D-1) resolves lambda defaults.
+static bool ReferencesInstance(SnExpression& expr)
+{
+	SnField* pOffender = nullptr;
+	return FindInstanceMember(expr, pOffender)
+		|| ReferencesExplicitThis(expr);
 }
 
 //Phase 9c round 5: detect forward references in default expressions.
@@ -89,27 +156,57 @@ void StatementResolveAccessor::CheckDefaultForwardRefs(
 	}
 }
 
-//P3 review: reject a ctor default that references `this` (explicitly, or
-//implicitly through a bare field). Defaults are emitted and evaluated at
-//the CALL SITE: a construction call stages them before the object exists
-//(thisSlot is UINT16_MAX there — NK_ThisExpr would fall back to the
-//caller's local 0), and a super() call binds the derived object whose
-//fields are not initialized yet. Either way the default reads the wrong
-//object or crashes, so the declaration is the rejection point. Method
-//and free-function defaults keep their existing behavior.
+//P3 review + D-5 (0.13.13a): reject a ctor default that depends on the
+//instance — an explicit `this`, or access bound to a non-static
+//class/struct member. Defaults are emitted and evaluated at the CALL
+//SITE: a construction call stages them before the object exists (thisSlot
+//is UINT16_MAX there — NK_ThisExpr would fall back to the caller's local
+//0), and a super() call binds the derived object whose fields are not
+//initialized yet. Either way the default reads the wrong object or
+//crashes, so the declaration is the rejection point. D-5 narrowed the
+//surface from "any field binding" to instance bindings: static members
+//resolve without an instance and are allowed (the C++/Kotlin
+//ctor-default rule). The diagnostic follows the actual spelling — a
+//member access names <declaring type>.<member>, a bare explicit `this`
+//says 'this'; the pre-D-5 text claimed a 'this' reference even for
+//spellings containing none. Method and free-function defaults keep their
+//existing behavior (intentional asymmetry, spec D-5).
 void StatementResolveAccessor::CheckCtorDefaultThisRefs(SnFunction &sn,
 	SnFormalParam &param)
 {
 	if (!IsConstructorFunction(sn))
 		return;
-	if (!ReferencesThis(*param.Value()))
+	if (!ReferencesInstance(*param.Value()))
 		return;
+	//Classify after the gate so the wording matches the spelling: an
+	//instance member access (wording two) must win over a `this` that is
+	//merely its receiver (e.g. `= this.m_seed`).
+	SnField *pMember = nullptr;
+	if (FindInstanceMember(*param.Value(), pMember))
+	{
+		NLANG_ASSERT(pMember);
+		//The owner of a class/struct member is always a named
+		//declaration (SnClassDecl/SnStructDecl are themselves SnFields)
+		//— same upcast-to-named-base as RejectBareInterfaceConstant.
+		auto *pOwner = static_cast<SnField *>(pMember->Parent());
+		NLANG_ASSERT(pOwner);
+		m_Env.Log(CLL_Error,
+			param.Value()->Location(),
+			"default value for parameter \"%s\" of constructor \"%s\" "
+			"cannot access instance member \"%s.%s\"; constructor "
+			"defaults evaluate at the call site, where no valid 'this' "
+			"exists.",
+			param.Name().c_str(),
+			sn.Name().c_str(),
+			pOwner->Name().c_str(),
+			pMember->Name().c_str());
+		return;
+	}
 	m_Env.Log(CLL_Error,
 		param.Value()->Location(),
 		"default value for parameter \"%s\" of constructor \"%s\" "
-		"cannot reference 'this' (explicitly or through a bare "
-		"field); constructor defaults evaluate at the call site, "
-		"where no valid 'this' exists.",
+		"cannot reference 'this'; constructor defaults evaluate at "
+		"the call site, where no valid 'this' exists.",
 		param.Name().c_str(),
 		sn.Name().c_str());
 }
@@ -202,8 +299,9 @@ bool StatementResolveAccessor::RejectTypeParamDefault(SnFunction &fn,
 }
 
 //v0.13.9 phase 3 split (source-size guard): the default-value contract
-//for one formal — resolution, the forward-ref check, the ctor `this`
-//check and type compat (the walkers above are this contract's arms).
+//for one formal — resolution, the forward-ref check, the ctor
+//instance-dependency check and type compat (the walkers above are this
+//contract's arms).
 void StatementResolveAccessor::ResolveFormalDefault(SnFunction &sn,
 	std::vector<SnFormalParam *> &formals, size_t i)
 {
@@ -220,9 +318,10 @@ void StatementResolveAccessor::ResolveFormalDefault(SnFunction &sn,
 	if (param->Value()->IsResolved())
 		CheckDefaultForwardRefs(formals, i);
 
-	//P3 review: a ctor default cannot touch `this` — imported stubs
-	//skip like CheckDefaultTypeCompat (the producer unit already
-	//validated its own defaults).
+	//P3 review: a ctor default cannot depend on the instance
+	//(D-5: static members are fine) — imported stubs skip like
+	//CheckDefaultTypeCompat (the producer unit already validated its
+	//own defaults).
 	if (param->Value()->IsResolved() && !sn.IsImported())
 		CheckCtorDefaultThisRefs(sn, *param);
 

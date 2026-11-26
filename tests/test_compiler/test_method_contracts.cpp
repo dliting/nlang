@@ -912,9 +912,11 @@ private slots:
             "constructor \"S\" cannot return a value"), 1);
     }
 
-    //sc10/sc11: a struct constructor default that references this —
-    //explicitly or through a bare field — is rejected at the declaration
-    //like the class form (T2.8).
+    //sc10/sc11: a struct constructor default that references the instance
+    //field x — through an explicit `this.` or the bare spelling — is
+    //rejected at the declaration like the class form (T2.8). D-5
+    //(0.13.13a): both spellings bind the non-static field x, so both get
+    //the member wording naming S.x, never the misleading this-wording.
     void TestStructCtorDefaultRejectsThis() {
         auto out = compileOne(
             "struct S {\n"
@@ -923,7 +925,9 @@ private slots:
             "}\n"
             "int main() { return 0; }\n");
         QCOMPARE(countErrorsContaining(out,
-            "cannot reference 'this'"), 1);
+            "cannot access instance member \"S.x\""), 1);
+        QCOMPARE(countErrorsContaining(out,
+            "cannot reference 'this'"), 0);
         auto out2 = compileOne(
             "struct S {\n"
             "    public S(int v = x) { }\n"
@@ -931,7 +935,86 @@ private slots:
             "}\n"
             "int main() { return 0; }\n");
         QCOMPARE(countErrorsContaining(out2,
-            "cannot reference 'this'"), 1);
+            "cannot access instance member \"S.x\""), 1);
+        QCOMPARE(countErrorsContaining(out2,
+            "cannot reference 'this'"), 0);
+    }
+
+    //D-5 (0.13.13a): a ctor default evaluates at the call site, but its
+    //names resolve in the declaring context — static members bind without
+    //an instance, so every static spelling compiles: own-class bare,
+    //own-class qualified, other-class qualified, other-class static call.
+    void TestCtorDefaultAllowsStaticMembers() {
+        const char *spellings[] = {
+            "    public Cfg(int seed = K) { }\n",
+            "    public Cfg(int seed = Cfg.K) { }\n",
+            "    public Cfg(int seed = Knob.K) { }\n",
+            "    public Cfg(int seed = Knob.tick()) { }\n",
+        };
+        for (auto spelling : spellings) {
+            std::string src = std::string(
+                "class Knob {\n"
+                "    public static const int K = 3;\n"
+                "    public static int tick() { return 7; }\n"
+                "}\n"
+                "class Cfg {\n"
+                "    public static const int K = 5;\n"
+                "    public int m_seed;\n") + spelling +
+                "}\n"
+                "int main() { return 0; }\n";
+            auto out = compileOne(src.c_str());
+            QVERIFY(out.ok);
+        }
+    }
+
+    //D-5 (0.13.13a): the rejection keeps the two spellings apart — a bare
+    //explicit `this` gets the this-wording; an instance member access
+    //(_qualified or bare, field or method) gets the member wording naming
+    //the fully qualified <class>.<member>. The this-wording must never
+    //fire for a member access (diagnostic honesty: the old text claimed
+    //a 'this' reference for spellings that contain none).
+    void TestCtorDefaultRejectsThisAndInstanceMembers() {
+        auto out = compileOne(
+            "class Cfg {\n"
+            "    public int m_seed;\n"
+            "    public Cfg(int seed = this) { }\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        QCOMPARE(countErrorsContaining(out,
+            "default value for parameter \"seed\" of constructor \"Cfg\" "
+            "cannot reference 'this'; constructor defaults evaluate at "
+            "the call site, where no valid 'this' exists."), 1);
+        auto out2 = compileOne(
+            "class Cfg {\n"
+            "    public int m_seed;\n"
+            "    public Cfg(int seed = this.m_seed) { }\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        QCOMPARE(countErrorsContaining(out2,
+            "cannot access instance member \"Cfg.m_seed\""), 1);
+        QCOMPARE(countErrorsContaining(out2,
+            "cannot reference 'this'"), 0);
+        auto out3 = compileOne(
+            "class Cfg {\n"
+            "    public int m_seed;\n"
+            "    public Cfg(int seed = m_seed) { }\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        QCOMPARE(countErrorsContaining(out3,
+            "cannot access instance member \"Cfg.m_seed\""), 1);
+        QCOMPARE(countErrorsContaining(out3,
+            "cannot reference 'this'"), 0);
+        auto out4 = compileOne(
+            "class Cfg {\n"
+            "    public int m_seed;\n"
+            "    public int nextId() { return 1; }\n"
+            "    public Cfg(int seed = this.nextId()) { }\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        QCOMPARE(countErrorsContaining(out4,
+            "cannot access instance member \"Cfg.nextId\""), 1);
+        QCOMPARE(countErrorsContaining(out4,
+            "cannot reference 'this'"), 0);
     }
 
     //sc12: super(...) inside a struct constructor — structs have no

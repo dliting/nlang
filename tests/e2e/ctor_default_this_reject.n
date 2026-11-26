@@ -1,12 +1,13 @@
-//P3 review Important-2 (explicit form): a ctor default cannot reference
-//`this`. Defaults evaluate at the call site, where the object under
-//construction does not exist yet — the reference used to fall back to
-//the caller's local 0 and silently read the caller's object (or crash
-//with a null reference from main).
+//P3 review Important-2 (explicit form): a bare `this` in a ctor default is
+//rejected. Defaults evaluate at the call site, where the object under
+//construction does not exist yet — the reference used to fall back to the
+//caller's local 0 and silently read the caller's object (or crash with a
+//null reference from main). 0.13.13a D-5: the wording says 'this' because
+//this spelling holds an explicit this and no member binding to name.
 class Vec {
     public int a;
     public int b;
-    public Vec(int x, int y = this.a) {
+    public Vec(int x, int y = this) {
         this.a = x; this.b = y;    }
 }
 

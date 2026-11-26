@@ -865,7 +865,12 @@ ctor_default_zero_args 0
 # --- P3 review fixes: MaxArgs default descent + this-reference rejection ---
 ctor_default_bigcall 7
 ctor_default_this_reject compile_error cannot reference 'this'
-ctor_default_field_reject compile_error cannot reference 'this'
+ctor_default_field_reject compile_error cannot access instance member "Vec.a"
+# --- 0.13.13a D-5: ctor defaults may reference static members (all four
+# spellings assert the static value reaches the constructor); instance
+# member accesses get the member-naming wording ---
+lang_ctor_default_statics 0
+ctor_default_instance_member_reject compile_error cannot access instance member "Seed.v"
 # --- 0.9.8: MaxArgs default descent for the function and method arms ---
 fn_default_bigcall 0
 method_default_bigcall 0
