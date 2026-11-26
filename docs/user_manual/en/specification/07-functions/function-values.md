@@ -45,8 +45,11 @@ interface method late-bound at each call — are §5.9.
 
 A function reference is formed only where a function type is
 expected: in a local declaration, an initializer, an assignment, a
-return, an argument, an array element or a brace entry (§5.8).
-With no expected type the reference is a compile-time error. The
+return, an argument, an array element or a brace entry (§5.8). A
+constructor-call argument is the exception: a reference formed
+directly there is a compile-time error, so bind the reference to a
+`func` local first and pass the local (see Restrictions). With no
+expected type the reference is a compile-time error. The
 denoted signature must match the expected function type exactly:
 no variance, no conversion of the parameters or the result. A
 function whose parameters carry defaults cannot be referenced:
@@ -144,22 +147,28 @@ int main() {
 Binding happens at **consumer sites** where an expected function type
 exists: declaration/assignment right-hand sides (including fields and
 subscript stores), return positions, call arguments, container-method
-arguments (`l.add(bar)`), and init-list entries (`[bar]`). A reference
-with no expected function type is a compile error naming the reference.
+arguments (`l.add(bar)`), and init-list entries (`[bar]`). A
+constructor-call argument is the exception: pass a `func` local
+there, not the bare name (see Restrictions). A reference with no
+expected function type is a compile error naming the reference.
 
 ### Lambda expressions
 
 *Informative:* `->` introduces a lambda expression — a function value
 written in place. A lambda shares the consumer positions of a function
 reference: declarations, assignments, return positions, call
-arguments, array elements, and brace entries. Every lambda is checked
-against an expected function type; a lambda with no expected function
-type is a compile-time error.
+arguments, array elements, and brace entries — a constructor-call
+argument is again the exception: the lambda must land in a `func`
+local first (see Restrictions). Every lambda is checked against an
+expected function type; a lambda with no expected function type is a
+compile-time error.
 
 **First lambdas.** The parameter list names the parameters; the arrow
 `->` separates it from the body. An expression body's value is the
 return value; a block body is a brace-wrapped statement sequence that
-returns through `return`.
+returns through `return` — no `return` is needed under a `func<void>`
+expectation, and a block body that returns no value under any other
+expectation is a compile error.
 
 ```nlang
 import io;
@@ -176,10 +185,13 @@ int main() {
 
 **Parameter lists.** An entry is either a bare identifier — its type
 and `&` marker come from the corresponding position of the expected
-function type — or a typed identifier, which must match the expected
-type exactly, position by position, no variance. Bare and typed
-entries may be mixed. The empty list `()` writes a zero-parameter
-lambda.
+function type — or a typed identifier (`(int x)`, `(Point p)`,
+`(int& x)`): the annotation is written as an ordinary type — a
+primitive, a class name, a builtin generic instance such as
+`List<int>`, or an array type such as `int[]` — with or without the
+`&` marker, and it must match the expected type exactly, position by
+position, no variance. Bare and typed entries may be mixed. The empty
+list `()` writes a zero-parameter lambda.
 
 ```nlang
 int main() {
@@ -347,7 +359,7 @@ A closure's `toString` renders as `"lambda"`; the `==`/`!=` and
 
 ### Invocation
 
-*Informative:* two call shapes:
+*Informative:* three call shapes:
 
 - **Bare identifier** — `f(x)`. A `func`-typed local/parameter/field
   **shadows** any same-named function.
@@ -387,6 +399,10 @@ comparisons with non-`func` operands are compile errors.
   the expected `func` type.
 - Referencing functions or methods with **default parameters** —
   defaults are filled only on the direct-call path.
+- A **`func`-typed formal parameter with a default value**
+  (`void apply(func<int, int> g = plus1)`) — rejected outright: the
+  declaration-side default expression has no expected function type
+  in that position, so no function can declare such a default.
 - **Static method references** — a static method binds as a function
   value through the type name (`Util.twice`), including inherited
   statics, interface statics, native statics, and the unqualified form inside
@@ -417,6 +433,11 @@ comparisons with non-`func` operands are compile errors.
   error (chapter 14).
 - **A lambda with no expected function type** — a lambda literal in no
   consumer position.
+- **A lambda literal or bare function reference as a constructor-call
+  argument** (`Handler((x) -> x + 1)`, `Handler(plus1)`) — the
+  constructor-call position carries no expected function type, so
+  bind the value to a `func` local first and pass the local. The fix
+  is scheduled in the future-features list of `docs/roadmap.md`.
 - **A lambda parameter-list entry that is not a parameter shape**
   (`invalid lambda parameter list` — a bare expression mixed into the
   parameter list).

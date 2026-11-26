@@ -15,7 +15,10 @@
 #include "TranslationUnit.h"
 #include "builder/ModuleRegistry.h"
 #include "ModuleBuilderImportCycles.h"
+#include "builder/CompiledModuleNodeBuilder.hpp"
+#include <nlang/core/ModuleLoader.h>
 #include "ModuleBuilderImports.h"
+#include "nlang/core/NcuPackage.h"
 #include "ScriptParser.h"
 #include <algorithm>
 #include <filesystem>

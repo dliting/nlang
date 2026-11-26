@@ -8,8 +8,8 @@
 #include "SnMisc.h"
 #include "SnData.h"
 #include "SnExpressions.h"
-#include "nlang/vm/CompiledModule.h"
-#include "nlang/vm/ExprDesc.h"
+#include "nlang/core/CompiledModule.h"
+#include "nlang/core/ExprDesc.h"
 #include <nlang/runtime/RnTypes.h>
 #include <stdexcept>
 #include <string>

@@ -11,15 +11,15 @@ NLang moves code in four kinds of file.
 - **`.ncu` — unit image.** The compiled artifact of one module.
   Cross-module references inside it are *import slots* — a target
   module path and a qualified name — never bodies (§3.9.3). The
-  format is chapter 27.
+  format is chapter 28.
 - **`.npkg` — package archive.** A self-describing container of the
   build's members: a unit image for each module, named by its module
   path, plus the native host libraries the build ships, each named
-  by its file name (§28.3). A project build produces a program
+  by its file name (§29.3). A project build produces a program
   package with an *entry record* naming the entry unit (§3.2); an
   importable library package omits the record. The standard library
   ships as thirteen domain packages, including `io.npkg` and
-  `math.npkg` (§3.9.4). The format is chapter 28.
+  `math.npkg` (§3.9.4). The format is chapter 29.
 - **Native host library.** The host dynamic library that carries
   `native` implementations, named from the declaring module, which
   is necessarily single-segment (§7.5).
@@ -334,7 +334,7 @@ The concurrency modules split by what they answer:
 | `concurrent` | how running computations coordinate: `Mutex`, `Semaphore`, `ReentrantMutex`, `AtomicInt`, `Channel<T>`, `ChannelClosedException`, `WaitGroup` (§10.2–§10.4, §10.6) |
 
 Standard-library modules are imported like any other (§3.3);
-chapters 13–26 describe them. The declarations in the `.n` sources are the
+chapters 13–27 describe them. The declarations in the `.n` sources are the
 source of truth for every module, preset modules included; the
 implementation binds their declared native members to built-in
 implementations.
@@ -342,7 +342,7 @@ implementations.
 *Informative:* a third-party library may be distributed either as a
 directory of `.n` source files or as one or more library `.npkg`
 archives; native dynamic libraries are carried either loose
-alongside or as archive members (§28.3). Both forms are addressed
+alongside or as archive members (§29.3). Both forms are addressed
 by the same module paths. A function implemented
 outside NLang is declared with the `native` keyword
 (`native void print(string s);`) — such a declaration carries only

@@ -12,7 +12,7 @@
 #include "SnData.h"
 #include "SnExpressions.h"
 #include "SnStatements.h"
-#include "nlang/vm/CompiledModule.h"
+#include "nlang/core/CompiledModule.h"
 #include <stdexcept>
 #include <string>
 #include <vector>

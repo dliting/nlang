@@ -12,7 +12,7 @@
 #include "BuiltinNames.h"
 #include "ModuleRegistry.h"
 #include <nlang/runtime/BuiltinGenericNames.h>
-#include <nlang/vm/Intrinsics.h>
+#include <nlang/core/Intrinsics.h>
 #include <map>
 
 namespace nlang

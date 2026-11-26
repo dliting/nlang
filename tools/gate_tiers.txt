@@ -25,7 +25,7 @@
 claim nide-gui mainwindow_tests editor_tests dialogs_tests syntaxhighlighter_tests compilelogbrowser_tests runerrorbrowser_tests terminal_tests searchpath_integration_tests nide_deploy_check
 
 tier T1-debug-e2e selector .
-tier T1-asan-subset selector stabilize|concurren|carrier|thread|mutex|channel|atomic|sync|list|dict|container|collect|gc|exception|throw|catch|serial|stream|struct|boxing|array|slice|view|tearing|race|drain_close|session_conc|refbind|const_ref|lambda|capture
+tier T1-asan-subset selector stabilize|concurren|carrier|thread|mutex|channel|atomic|sync|list|dict|container|collect|gc|exception|throw|catch|serial|stream|struct|boxing|array|slice|view|tearing|race|drain_close|session_conc|refbind|const_ref|lambda|capture|sse|multipart
 tier T2-debug-e2e selector .
 tier T2-asan-e2e selector .
 tier T2-release-e2e selector .

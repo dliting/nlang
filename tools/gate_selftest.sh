@@ -1058,6 +1058,69 @@ case_a17_removed_option_rejected() {
     fi
 }
 
+# The coordination variables belong to the gate instance that was handed
+# them (gate timing R-100): gate.sh strips every inherited NLANG_GATE_*
+# name at the single point where it dispatches the wrapped command, so a
+# consumer that nests another gate behind a leg derives its claims from
+# its own argv instead of from the outer batch's environment. The census
+# probes dump one surviving NLANG_GATE_* name per line: the a-leg hands
+# gate.sh five coordination variables through its process environment
+# (the tier --gate-env channel), and both the wrapped command's census
+# and the nested gate's own wrapped census must then come back empty,
+# with the nested gate's lock line naming the directory its own --build
+# token gave. The b-leg is the regression guard for the opposite side of
+# that same line: a gate's own claim still resolves from its process
+# environment (the leg_env channel, spec D-3), because the strip sits
+# downstream of the claim step.
+case_a18_nested_namespace_strip() {
+    local inner="$WS/a18-inner" outer="$WS/a18-outer" norm
+    mkdir -p "$inner" "$outer"
+    local probe="$WS/a18-probe.sh" census="$WS/a18-census.sh"
+    printf '%s\n' \
+        '#!/bin/bash' \
+        'compgen -e | grep "^NLANG_GATE_" > "$1" || true' \
+        'bash "$2" a18nest "$3" bash "$6" "$5" --build "$4"' \
+        > "$probe"
+    printf '%s\n' \
+        '#!/bin/bash' \
+        'compgen -e | grep "^NLANG_GATE_" > "$1" || true' \
+        > "$census"
+    local c1="$WS/a18.c1" c2="$WS/a18.c2"
+    env NLANG_GATE_MACHINE_SCALE=0.5 NLANG_GATE_TIER_WORK="$WS/a18-work" \
+        NLANG_GATE_CMAKE="$WS/a18-cmake.bat" \
+        NLANG_GATE_CTEST="$WS/a18-ctest.bat" \
+        NLANG_GATE_SH="$WS/a18-candidate.sh" \
+        bash "$GATE_SH" a18a a18a \
+        bash "$probe" "$c1" "$GATE_SH" "$WS/a18nest" "$inner" "$c2" \
+        "$census" > a18a.console 2>&1 &
+    if ! await a18a.console "GATE a18a:"; then
+        fail "$case_name" "the census leg never finished: console=[$(tr '\n' ';' < a18a.console 2>/dev/null)]"
+        return
+    fi
+    if [ ! -f "$c1" ] || [ -s "$c1" ]; then
+        fail "$case_name" "the wrapped command still sees inherited coordination variables: census1=[$(tr '\n' ';' < "$c1" 2>/dev/null)]"
+        return
+    fi
+    norm=$(cygpath -ma "$inner" 2>/dev/null | tr 'A-Z' 'a-z')
+    [ -n "$norm" ] || norm=$(realpath -m "$inner" 2>/dev/null)
+    if ! grep -F -q "($norm)" a18a.out 2>/dev/null \
+       || ! grep -F -q "GATE a18nest: PASS" a18a.out 2>/dev/null; then
+        fail "$case_name" "the nested gate lost its own argv-derived lock: out=[$(tr '\n' ';' < a18a.out 2>/dev/null)]"
+        return
+    fi
+    if [ ! -f "$c2" ] || [ -s "$c2" ]; then
+        fail "$case_name" "the nested command still sees inherited coordination variables: census2=[$(tr '\n' ';' < "$c2" 2>/dev/null)]"
+        return
+    fi
+    leg_env a18b a18b "" "$outer" bash -c "echo b-ran"
+    if ! await a18b.console "GATE a18b: PASS" \
+       || ! grep -F -q "write-directory lock acquired" a18b.console; then
+        fail "$case_name" "the environment channel of a gate's own claim regressed: console=[$(tr '\n' ';' < a18b.console 2>/dev/null)]"
+    else
+        pass "$case_name"
+    fi
+}
+
 # gate_tier.sh is the assembler: it works out which legs a change needs and hands
 # each one to gate.sh. Two properties have to hold for a batch to mean anything,
 # and neither is visible from inside gate.sh:
@@ -1312,6 +1375,7 @@ run_case a14-claim-distinct-resources case_a14_claim_distinct_resources
 run_case a15-claim-stale-takeover case_a15_claim_stale_takeover
 run_case a16-env-vs-build-token case_a16_env_vs_build_token
 run_case a17-removed-option-rejected case_a17_removed_option_rejected
+run_case a18-nested-namespace-strip case_a18_nested_namespace_strip
 # A10 drives the batch assembler rather than gate.sh itself, so it comes after the
 # locking cases, which own the run order spec 八.3 fixes for gate.sh.
 run_case a10-gate-tier-batch case_a10_gate_tier_batch

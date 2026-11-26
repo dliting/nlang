@@ -3,10 +3,9 @@
  * Pure nlang on top of http.n: an onion middleware chain, one context per
  * request carrying the response helpers a handler needs, and the App facade
  * that owns the HttpServer and maps failures to responses. Routing and
- * sessions live in this package module; static files, SSE and form parsing
- * arrive as the submodules web/static.n, web/sse.n and web/form.n (D-28's
- * layering) as the framework's remaining tasks land — until 0.13.12 closes,
- * this surface is a preview that may still change.
+ * sessions add their classes to this same file; the static-file class lives
+ * in the web/static.n submodule, joined by the SSE class in web/sse.n and
+ * the form classes in web/form.n.
  * ------------------------------------------------------------------ */
 import io;
 import http;
@@ -208,7 +207,7 @@ class RequestContext {
 
     // The same segment read as a number. A name that was never captured and a value
     // that is no number both answer the caller's default, which is the shape getInt
-    // above already has (裁决10): an out-of-range path parameter is a request the
+    // above already has (ruling 10): an out-of-range path parameter is a request the
     // handler judges for itself, not an error the framework raises.
     public int paramInt(string name, int def = 0) {
         if (!params.containsKey(name)) { return def; }

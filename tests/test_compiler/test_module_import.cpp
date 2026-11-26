@@ -28,10 +28,10 @@ on every merged TU member (top-level and container members).
 //Execute-level coverage (review C1): qualifying a call that returns a
 //func<...> must not be emitted as a bound method reference, so the tests
 //below link and run the built package (same pattern as test_stdlib).
-#include <nlang/vm/CompiledModule.h>
-#include <nlang/vm/Intrinsics.h>
-#include <nlang/vm/NcuPackage.h>
-#include "ModuleLoader.h"
+#include <nlang/core/CompiledModule.h>
+#include <nlang/core/Intrinsics.h>
+#include <nlang/core/NcuPackage.h>
+#include <nlang/core/ModuleLoader.h>
 #include "NcuLoader.h"
 #include "NcuLinker.h"
 #include "VmExecutor.h"

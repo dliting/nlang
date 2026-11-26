@@ -6,7 +6,7 @@ discovery fixed point (ModuleBuilderImports.cpp), so both walk the
 same five slot tables and cannot disagree about what a mirror imports.
 ---*/
 #pragma once
-#include "nlang/vm/CompiledModule.h"
+#include "nlang/core/CompiledModule.h"
 #include <string>
 #include <vector>
 

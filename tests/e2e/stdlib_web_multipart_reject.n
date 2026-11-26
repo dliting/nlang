@@ -1,0 +1,495 @@
+// stdlib_web_multipart_reject — the 400 rejection matrix of
+// web.form.Form.parse on multipart bodies (spec 6.9, D-19, ruling 30): the
+// five Content-Type spellings that leave the boundary parameter missing or
+// empty (re-pinned to complete the D-19 list), more than one boundary
+// parameter, a part without a form-data content-disposition, a disposition
+// with a missing or empty name parameter, a field name over the 100-byte
+// grammar budget (byte length, not character length), a body that never
+// closes with a boundary delimiter (four lookalike or missing closing
+// spellings), and a part header block over the 16384-byte budget (the exact
+// budget accepted, one byte over rejected, the budget never accumulating
+// across parts). Four order witnesses pin the fixed check sequence: the
+// media type gate before every multipart verdict, the boundary count before
+// the body is read and before the empty-value verdict, the header budget
+// before the disposition verdict, and the part-level verdicts before the
+// closing-line verdict. Controls pin what stays legal: a repeated charset
+// parameter, FORM-DATA case folding, filename="", a closing-delimiter-only
+// body, trailing whitespace plus an epilogue after the closing line, and
+// header padding inside both budgets. The handler is the corpus's only
+// observation channel: a valid body answers 200 "parsed", every rejection
+// answers through App.handle's HttpException mapping with the status code
+// plus the named message as the body, and the parse result itself never
+// echoes back (Task 11's corpus is what pins the parts of a valid body).
+import io;
+import http;
+import web.*;
+
+// The multipart fixture's byte accumulator (shared corpus shape):
+// List<byte> is the language's only growable byte sequence, and the two
+// public statics below run io.toBytes per element (stdlib/http.n), so put
+// carries UTF-8 text while putByte/putBytes carry raw octets (a 0xFF cell
+// stores as -128 and stays 0xFF on the wire; every unsigned compare uses
+// & 0xFF).
+class ByteBuf {
+    private List<byte> m_v;
+    public ByteBuf() { m_v = {}; }
+    public void put(string ascii) { HttpParser.appendAscii(m_v, ascii); }
+    public void putByte(int v) { m_v.add(v as byte); }
+    public void putBytes(byte[] src) { for (int i = 0; i < src.length(); i = i + 1) { m_v.add(src[i]); } }
+    public byte[] toBytes() { return HttpParser.toByteArray(m_v); }
+}
+
+// The delimiter's own line break belongs to the delimiter line (D-19), so
+// putPart writes it before the part instead of after the previous body;
+// skipping it before the first part is the no-preamble spelling where the
+// body opens on "--boundary" (D-19). Each header arrives with its own eol
+// already spelled by the leg, and the headers argument carries the trailing
+// blank line that separates headers from the body.
+void putPart(ByteBuf b, string eol, string bnd, string headers, byte[] body, bool firstPart) {
+    if (!firstPart) { b.put(eol); }
+    b.put("--" + bnd + eol);
+    b.put(headers);
+    b.putBytes(body);
+}
+
+void putFinal(ByteBuf b, string eol, string bnd, string epilogue) {
+    b.put(eol + "--" + bnd + "--" + eol + epilogue);
+}
+
+// A fixed 400 checked as one unit: status, reason phrase and the byte-exact
+// named message. A leg that only compared the status code would count
+// leg B1's other 400 as green.
+bool ok400(http.HttpResponse res, string wantBody) {
+    if (res.statusCode != 400) { return false; }
+    if (res.reasonPhrase != "Bad Request") { return false; }
+    return res.bodyText() == wantBody;
+}
+
+// The accepted answer of every control shape.
+bool okParsed(http.HttpResponse res) {
+    return res.statusCode == 200 && res.bodyText() == "parsed";
+}
+
+// Ruling 30 ii: the header block runs from the end of the first delimiter
+// line through the end of the terminating blank line. The pad spaces are
+// trailing horizontal whitespace on the first line (OWS), which the parser
+// strips, so the part itself stays legal — the budget and the grammar are
+// pinned apart.
+string headBlock(string firstLine, int total) {
+    string base = firstLine + "\r\n\r\n";
+    int pad = total - io.toBytes(base).length();
+    ByteBuf b = ByteBuf();
+    b.put(firstLine);
+    for (int i = 0; i < pad; i = i + 1) { b.putByte(0x20); }
+    b.put("\r\n\r\n");
+    return io.fromBytes(b.toBytes());
+}
+
+// Exactly n bytes (ASCII, so the byte count is the character count).
+string nameOf(int n) {
+    string s = "n";
+    for (int i = 1; i < n; i = i + 1) { s = s + "x"; }
+    return s;
+}
+
+// n CJK characters, three bytes each (3n bytes total).
+string cjkName(int n) {
+    string s = "";
+    for (int i = 0; i < n; i = i + 1) { s = s + "中"; }
+    return s;
+}
+
+// One field part (body "1") under the header block headers, closed by the
+// standard final delimiter.
+string onePart(string headers) {
+    ByteBuf b = ByteBuf();
+    putPart(b, "\r\n", "Bx", headers, io.toBytes("1"), true);
+    putFinal(b, "\r\n", "Bx", "");
+    return io.fromBytes(b.toBytes());
+}
+
+// One field part (body "1") with no delimiter line after it.
+string partNoFinal(string headers) {
+    ByteBuf b = ByteBuf();
+    putPart(b, "\r\n", "Bx", headers, io.toBytes("1"), true);
+    return io.fromBytes(b.toBytes());
+}
+
+// The corpus's only entry: parse, or let the rejection surface through
+// App.handle's HttpException mapping (D-11). The parsed form f is never
+// echoed — this corpus judges what got rejected and by which message.
+void rjHandler(web.RequestContext ctx) {
+    web.form.FormData f = Form.parse(ctx);
+    ctx.text(200, "parsed");
+}
+
+// Leg A: five boundary spellings that read as missing or empty — no
+// parameter at all, an empty bare value, an empty quoted value, a value of
+// only trailing blanks (OWS-stripped to empty, D-19) and a parameter name
+// with no '=' — every one the named 400 over a non-empty body so the
+// empty-body short circuit cannot shadow it. Already green; re-pinned to
+// complete the D-19 list.
+int legA(string base) {
+    int bad = 0;
+    string wantText = "web.form.Form.parse: missing boundary parameter.";
+    string[] cts = [
+        "multipart/form-data",
+        "multipart/form-data; boundary=",
+        "multipart/form-data; boundary=\"\"",
+        "multipart/form-data; boundary=  ",
+        "multipart/form-data; boundary"
+    ];
+    for (int i = 0; i < cts.length(); i = i + 1) {
+        string ct = cts[i];
+        http.HttpResponse res = http.post(base + "/rj", "x=1", ct);
+        if (!ok400(res, wantText)) {
+            io.print("A [" + ct + "] answered " + res.statusCode.toString()
+                + " body [" + res.bodyText() + "]");
+            bad = bad + 1;
+        }
+    }
+    return bad;
+}
+
+// Leg B: more than one boundary parameter — B1 two bare values (the body
+// closes under the second one, so riding the first value answers a
+// different 400 and the body compare catches it), B2 the second spelled
+// BOUNDARY (parameter names fold case, so both parameters carry the name
+// boundary), B3 a quoted first value holding ';' (the ';' is part of the
+// value, so the second boundary parameter really is a second parameter)
+// and B4 a second empty value: the count check precedes the empty-value
+// verdict, so B4 names the multiple-boundary 400, not the missing one.
+// B5 controls the count: only the boundary parameter's own occurrences are
+// counted, and a repeated charset is the media type's legal redundancy.
+int legB(string base) {
+    int bad = 0;
+    string wantText =
+        "web.form.Form.parse: multiple boundary parameters in content type.";
+    string msg = onePart("Content-Disposition: form-data; name=\"k\"\r\n\r\n");
+    string[] cts = [
+        "multipart/form-data; boundary=A; boundary=Bx",
+        "multipart/form-data; BOUNDARY=Bx; boundary=Bx",
+        "multipart/form-data; boundary=\"A;B\"; boundary=Bx",
+        "multipart/form-data; boundary=Bx; boundary="
+    ];
+    for (int i = 0; i < cts.length(); i = i + 1) {
+        string ct = cts[i];
+        http.HttpResponse res = http.post(base + "/rj", msg, ct);
+        if (!ok400(res, wantText)) {
+            io.print("B [" + ct + "] answered " + res.statusCode.toString()
+                + " body [" + res.bodyText() + "]");
+            bad = bad + 1;
+        }
+    }
+    http.HttpResponse ctrl = http.post(base + "/rj", msg,
+        "multipart/form-data; boundary=Bx; charset=utf-8; charset=utf-8");
+    if (!okParsed(ctrl)) {
+        io.print("B5 a repeated charset must parse, answered "
+            + ctrl.statusCode.toString() + " body [" + ctrl.bodyText() + "]");
+        bad = bad + 1;
+    }
+    return bad;
+}
+
+// Leg C: a part whose content-disposition is absent or is not form-data —
+// a header block carrying only a Content-Type, an entirely empty header
+// block, and an inline disposition. C4 controls the case rule: FORM-DATA
+// folds onto form-data (readMediaType lowercases the type, Task 10).
+int legC(string base) {
+    int bad = 0;
+    string wantText =
+        "web.form.Form.parse: part missing form-data content-disposition.";
+    string[] labels = [
+        "only a Content-Type header",
+        "an empty header block",
+        "an inline disposition"
+    ];
+    string[] headers = [
+        "Content-Type: text/plain\r\n\r\n",
+        "\r\n",
+        "Content-Disposition: inline; name=\"k\"\r\n\r\n"
+    ];
+    for (int i = 0; i < labels.length(); i = i + 1) {
+        http.HttpResponse res = http.post(base + "/rj", onePart(headers[i]),
+            "multipart/form-data; boundary=Bx");
+        if (!ok400(res, wantText)) {
+            io.print("C [" + labels[i] + "] answered "
+                + res.statusCode.toString() + " body [" + res.bodyText() + "]");
+            bad = bad + 1;
+        }
+    }
+    http.HttpResponse ctrl = http.post(base + "/rj",
+        onePart("Content-Disposition: FORM-DATA; name=\"k\"\r\n\r\n"),
+        "multipart/form-data; boundary=Bx");
+    if (!okParsed(ctrl)) {
+        io.print("C4 FORM-DATA case folding must parse, answered "
+            + ctrl.statusCode.toString() + " body [" + ctrl.bodyText() + "]");
+        bad = bad + 1;
+    }
+    return bad;
+}
+
+// Leg D: a disposition with no name parameter or an empty one — no
+// parameters at all, an empty bare value, and an empty quoted value on a
+// would-be file part (a file part demands a name just as a field does).
+// D4 controls the other empty parameter: filename="" stays a legal file
+// part (Task 11 leg C pinned its receiving semantics).
+int legD(string base) {
+    int bad = 0;
+    string wantText =
+        "web.form.Form.parse: part content-disposition has no name parameter.";
+    string[] labels = [
+        "no disposition parameters",
+        "name=",
+        "name=\"\" with a filename"
+    ];
+    string[] headers = [
+        "Content-Disposition: form-data\r\n\r\n",
+        "Content-Disposition: form-data; name=\r\n\r\n",
+        "Content-Disposition: form-data; name=\"\"; filename=\"d.txt\"\r\n\r\n"
+    ];
+    for (int i = 0; i < labels.length(); i = i + 1) {
+        http.HttpResponse res = http.post(base + "/rj", onePart(headers[i]),
+            "multipart/form-data; boundary=Bx");
+        if (!ok400(res, wantText)) {
+            io.print("D [" + labels[i] + "] answered "
+                + res.statusCode.toString() + " body [" + res.bodyText() + "]");
+            bad = bad + 1;
+        }
+    }
+    http.HttpResponse ctrl = http.post(base + "/rj",
+        onePart("Content-Disposition: form-data; name=\"k\"; filename=\"\"\r\n\r\n"),
+        "multipart/form-data; boundary=Bx");
+    if (!okParsed(ctrl)) {
+        io.print("D4 an empty filename must parse, answered "
+            + ctrl.statusCode.toString() + " body [" + ctrl.bodyText() + "]");
+        bad = bad + 1;
+    }
+    return bad;
+}
+
+// Leg E: no closing boundary delimiter — the final line written as --Bx--x
+// (a plain character after the -- disqualifies the line), as --Bx -- (a
+// space between the boundary and the -- breaks the tight -- rule), a body
+// that simply ends after the part body, and a closing line indented one
+// space (line-start anchoring). E5 controls the early-return arm in front
+// of the loop: a body that is only the closing line stays the empty form
+// (Task 11 leg I); E6 controls the tolerance that stays: trailing
+// horizontal whitespace and an epilogue after the closing line still parse
+// (the guard against the new 400 overreaching).
+int legE(string base) {
+    int bad = 0;
+    string wantText = "web.form.Form.parse: missing closing boundary delimiter.";
+    string open = partNoFinal("Content-Disposition: form-data; name=\"k\"\r\n\r\n");
+    string e1 = open + "\r\n--Bx--x";
+    string e2 = open + "\r\n--Bx --\r\n";
+    string e3 = open;
+    string e4 = open + "\r\n --Bx--\r\n";
+    string[] bodies = [e1, e2, e3, e4];
+    string[] labels = [
+        "final line --Bx--x",
+        "final line --Bx --",
+        "no second delimiter at all",
+        "final line with a leading space"
+    ];
+    for (int i = 0; i < bodies.length(); i = i + 1) {
+        http.HttpResponse res = http.post(base + "/rj", bodies[i],
+            "multipart/form-data; boundary=Bx");
+        if (!ok400(res, wantText)) {
+            io.print("E [" + labels[i] + "] answered " + res.statusCode.toString()
+                + " body [" + res.bodyText() + "]");
+            bad = bad + 1;
+        }
+    }
+    http.HttpResponse r5 = http.post(base + "/rj", "--Bx--\r\n",
+        "multipart/form-data; boundary=Bx");
+    if (!okParsed(r5)) {
+        io.print("E5 a closing-delimiter-only body must parse, answered "
+            + r5.statusCode.toString() + " body [" + r5.bodyText() + "]");
+        bad = bad + 1;
+    }
+    http.HttpResponse r6 = http.post(base + "/rj",
+        open + "\r\n--Bx--  \r\nepilogue\r\n", "multipart/form-data; boundary=Bx");
+    if (!okParsed(r6)) {
+        io.print("E6 trailing whitespace and an epilogue must parse, answered "
+            + r6.statusCode.toString() + " body [" + r6.bodyText() + "]");
+        bad = bad + 1;
+    }
+    return bad;
+}
+
+// Leg F: the 16384-byte part header budget (D-19, ruling 30 ii) — the
+// exact budget accepted (the compare is >), one byte over rejected with the
+// named 400, the budget never accumulating across parts, and F4 pinning
+// the order: an over-budget block that also lacks the disposition names the
+// header budget, not the disposition (ruling 30 i: ② before ③). The pad
+// inside headBlock is trailing OWS, so the grammar still accepts every one
+// of these parts.
+int legF(string base) {
+    int bad = 0;
+    string wantText = "web.form.Form.parse: part headers exceed 16384 bytes.";
+    string cdLine = "Content-Disposition: form-data; name=\"k\"";
+    http.HttpResponse r1 = http.post(base + "/rj", onePart(headBlock(cdLine, 16384)),
+        "multipart/form-data; boundary=Bx");
+    if (!okParsed(r1)) {
+        io.print("F1 an exact 16384-byte header block must parse, answered "
+            + r1.statusCode.toString() + " body [" + r1.bodyText() + "]");
+        bad = bad + 1;
+    }
+    http.HttpResponse r2 = http.post(base + "/rj", onePart(headBlock(cdLine, 16385)),
+        "multipart/form-data; boundary=Bx");
+    if (!ok400(r2, wantText)) {
+        io.print("F2 one byte over must name the header budget, answered "
+            + r2.statusCode.toString() + " body [" + r2.bodyText() + "]");
+        bad = bad + 1;
+    }
+    string padded = headBlock(cdLine, 16384);
+    ByteBuf b3 = ByteBuf();
+    putPart(b3, "\r\n", "Bx", padded, io.toBytes("1"), true);
+    putPart(b3, "\r\n", "Bx", padded, io.toBytes("2"), false);
+    putPart(b3, "\r\n", "Bx", padded, io.toBytes("3"), false);
+    putFinal(b3, "\r\n", "Bx", "");
+    http.HttpResponse r3 = http.post(base + "/rj", io.fromBytes(b3.toBytes()),
+        "multipart/form-data; boundary=Bx");
+    if (!okParsed(r3)) {
+        io.print("F3 three parts at the exact budget must parse, answered "
+            + r3.statusCode.toString() + " body [" + r3.bodyText() + "]");
+        bad = bad + 1;
+    }
+    http.HttpResponse r4 = http.post(base + "/rj",
+        onePart(headBlock("Content-Type: text/plain", 16385)),
+        "multipart/form-data; boundary=Bx");
+    if (!ok400(r4, wantText)) {
+        io.print("F4 an over-budget disposition-less block must name the header "
+            + "budget, answered " + r4.statusCode.toString()
+            + " body [" + r4.bodyText() + "]");
+        bad = bad + 1;
+    }
+    return bad;
+}
+
+// Leg G: the 100-byte field-name budget (D-19) on the byte measure pinned
+// by temp/pf19.n (string.length() returns bytes) — nameOf(100) accepted at
+// the exact budget, nameOf(101) rejected, and 34 CJK characters (102
+// bytes) rejected while 25 of them (75 bytes) stay accepted: the pair pins
+// bytes over characters. G5 pins that fields and files share this one
+// gate: the message says field name because it measures the disposition's
+// name parameter, whether the part carries a field or a file.
+int legG(string base) {
+    int bad = 0;
+    string wantText = "web.form.Form.parse: field name exceeds 100 bytes.";
+    string g1 = "Content-Disposition: form-data; name=\"" + nameOf(100) + "\"\r\n\r\n";
+    string g2 = "Content-Disposition: form-data; name=\"" + nameOf(101) + "\"\r\n\r\n";
+    string g3 = "Content-Disposition: form-data; name=\"" + cjkName(34) + "\"\r\n\r\n";
+    string g4 = "Content-Disposition: form-data; name=\"" + cjkName(25) + "\"\r\n\r\n";
+    string g5 = "Content-Disposition: form-data; name=\"" + nameOf(101)
+        + "\"; filename=\"d.bin\"\r\n\r\n";
+    http.HttpResponse r1 = http.post(base + "/rj", onePart(g1),
+        "multipart/form-data; boundary=Bx");
+    if (!okParsed(r1)) {
+        io.print("G1 an exact 100-byte name must parse, answered "
+            + r1.statusCode.toString() + " body [" + r1.bodyText() + "]");
+        bad = bad + 1;
+    }
+    http.HttpResponse r2 = http.post(base + "/rj", onePart(g2),
+        "multipart/form-data; boundary=Bx");
+    if (!ok400(r2, wantText)) {
+        io.print("G2 101 bytes must name the field-name budget, answered "
+            + r2.statusCode.toString() + " body [" + r2.bodyText() + "]");
+        bad = bad + 1;
+    }
+    http.HttpResponse r3 = http.post(base + "/rj", onePart(g3),
+        "multipart/form-data; boundary=Bx");
+    if (!ok400(r3, wantText)) {
+        io.print("G3 34 CJK characters (102 bytes) must name the budget, answered "
+            + r3.statusCode.toString() + " body [" + r3.bodyText() + "]");
+        bad = bad + 1;
+    }
+    http.HttpResponse r4 = http.post(base + "/rj", onePart(g4),
+        "multipart/form-data; boundary=Bx");
+    if (!okParsed(r4)) {
+        io.print("G4 25 CJK characters (75 bytes) must parse, answered "
+            + r4.statusCode.toString() + " body [" + r4.bodyText() + "]");
+        bad = bad + 1;
+    }
+    http.HttpResponse r5 = http.post(base + "/rj", onePart(g5),
+        "multipart/form-data; boundary=Bx");
+    if (!ok400(r5, wantText)) {
+        io.print("G5 an over-budget file part must name the same budget, answered "
+            + r5.statusCode.toString() + " body [" + r5.bodyText() + "]");
+        bad = bad + 1;
+    }
+    return bad;
+}
+
+// Leg H: the four check-order witnesses — the media type gate answers 415
+// before any multipart verdict (H1), a missing boundary parameter answers
+// before the body is read at all (H2), the first part's missing disposition
+// outranks the body's missing closing line (H3, a two-part body with no
+// closing line anywhere: the closing verdict could only fire on the second
+// iteration, after part one is judged), and H4 demands the boundary count
+// really be a count: the body closes under --A, so an implementation that
+// only rode the first parameter value would answer 200 and this witness
+// would catch it.
+int legH(string base) {
+    int bad = 0;
+    http.HttpResponse r1 = http.post(base + "/rj", "x=1", "text/plain");
+    if (r1.statusCode != 415
+        || r1.bodyText() != "web.form.Form.parse: unsupported content type for form parsing.") {
+        io.print("H1 the media type gate must answer 415, answered "
+            + r1.statusCode.toString() + " body [" + r1.bodyText() + "]");
+        bad = bad + 1;
+    }
+    http.HttpResponse r2 = http.post(base + "/rj", "no delimiter here",
+        "multipart/form-data");
+    if (!ok400(r2, "web.form.Form.parse: missing boundary parameter.")) {
+        io.print("H2 a missing boundary must answer before the body is read, "
+            + "answered " + r2.statusCode.toString() + " body ["
+            + r2.bodyText() + "]");
+        bad = bad + 1;
+    }
+    ByteBuf b3 = ByteBuf();
+    putPart(b3, "\r\n", "Bx", "Content-Type: text/plain\r\n\r\n",
+        io.toBytes("1"), true);
+    putPart(b3, "\r\n", "Bx", "Content-Disposition: form-data; name=\"k\"\r\n\r\n",
+        io.toBytes("2"), false);
+    http.HttpResponse r3 = http.post(base + "/rj", io.fromBytes(b3.toBytes()),
+        "multipart/form-data; boundary=Bx");
+    if (!ok400(r3, "web.form.Form.parse: part missing form-data content-disposition.")) {
+        io.print("H3 the part verdict must outrank the closing verdict, answered "
+            + r3.statusCode.toString() + " body [" + r3.bodyText() + "]");
+        bad = bad + 1;
+    }
+    ByteBuf b4 = ByteBuf();
+    putPart(b4, "\r\n", "A", "Content-Disposition: form-data; name=\"k\"\r\n\r\n",
+        io.toBytes("1"), true);
+    putFinal(b4, "\r\n", "A", "");
+    http.HttpResponse r4 = http.post(base + "/rj", io.fromBytes(b4.toBytes()),
+        "multipart/form-data; boundary=A; boundary=Bx");
+    if (!ok400(r4, "web.form.Form.parse: multiple boundary parameters in content type.")) {
+        io.print("H4 the count check must precede parsing the body, answered "
+            + r4.statusCode.toString() + " body [" + r4.bodyText() + "]");
+        bad = bad + 1;
+    }
+    return bad;
+}
+
+int main() {
+    int bad = 0;
+    web.App app = web.App();
+    app.post("/rj", rjHandler);
+    app.listen("127.0.0.1", 0);
+    string base = "http://127.0.0.1:" + app.server().localPort().toString();
+    if (legA(base) != 0) { io.print("legA"); bad = bad | 1; }
+    if (legB(base) != 0) { io.print("legB"); bad = bad | 2; }
+    if (legC(base) != 0) { io.print("legC"); bad = bad | 4; }
+    if (legD(base) != 0) { io.print("legD"); bad = bad | 8; }
+    if (legE(base) != 0) { io.print("legE"); bad = bad | 16; }
+    if (legF(base) != 0) { io.print("legF"); bad = bad | 32; }
+    if (legG(base) != 0) { io.print("legG"); bad = bad | 64; }
+    if (legH(base) != 0) { io.print("legH"); bad = bad | 128; }
+    app.drain(5000);
+    app.close();
+    if (bad == 0) { io.print("ok"); }
+    return bad;
+}

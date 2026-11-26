@@ -11,7 +11,7 @@
 #include "BuildEnvironment.h"
 #include "BuiltinNames.h"
 #include "ModuleRegistry.h"
-#include <nlang/compiler/TypeArgSpelling.h>
+#include <nlang/core/TypeArgSpelling.h>
 #include <nlang/runtime/PrimitiveTypes.h>
 #include <algorithm>
 #include <map>

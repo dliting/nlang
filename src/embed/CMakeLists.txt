@@ -1,5 +1,5 @@
 #Embedding adapter: the public host API (include/nlang/embed) over the
-#VM. Internal VM headers (NcuLoader/VmExecutor/...) come in PRIVATE —
+#VM. Internal VM/core headers (NcuLoader/VmExecutor/...) come in PRIVATE —
 #nlang_vm only exports include/ (nvm target precedent). PRIVATE link is
 #enough for a static library: CMake still links its dependencies into
 #final binaries, without propagating VM usage requirements to hosts.
@@ -17,6 +17,7 @@ target_include_directories(nlang_embed
         ${PROJECT_SOURCE_DIR}/include
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
 )
 target_link_libraries(nlang_embed
     PRIVATE

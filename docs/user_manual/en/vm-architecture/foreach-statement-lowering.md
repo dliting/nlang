@@ -69,7 +69,7 @@ root.
 
 ### `Dict.keys()` intrinsic
 
-`INTR_Dict_Keys = 60` (include/nlang/vm/Intrinsics.h). Registered as a
+`INTR_Dict_Keys = 60` (include/nlang/core/Intrinsics.h). Registered as a
 method named `keys` on the Dict class with `paramCount=1,
 returnTypeKind=RTK_Class`. The VmExecutor handler:
 

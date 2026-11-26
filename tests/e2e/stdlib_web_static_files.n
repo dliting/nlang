@@ -1,0 +1,570 @@
+// stdlib_web_static_files — the serving contract of web.static.StaticFiles: the
+// index fallback and per-extension MIME table with the text/* charset (D-14), the
+// HEAD posture the http layer already keeps (no framework body twice), the weak
+// ETag W/"<size>-<mtimeMs>" with its four If-None-Match states and the exact 304
+// header set (ruling 26 vii), If-Modified-Since in all three HTTP-date forms with
+// the obsolete two spellings rendered from the file's own mtime (ruling 5, no
+// wall-clock assertions), addType normalization (ruling 26 i), the dotfile gate,
+// the traversal matrix judged after percent-decoding (ruling 14), the directory
+// 301 keeping the mount prefix and the query (ruling 27), the 405 decided before any
+// path is resolved (ruling 26 iv), the root checked when the handler is built
+// (D-24), setNotFound reserved to the top level (ruling 26 v) and empty segments
+// folding flat (ruling 26 iii). Every request runs over a real socket against one
+// server; the legs between them only retune the StaticFields config fields, which
+// are read per request (D-25), so the leg order below is the contract.
+import io;
+import fs;
+import system;
+import url;
+import http;
+import web.*;
+
+// Handlers and hooks are free functions, so a failure is reported through the
+// shared accumulator helpers below rather than a return value.
+
+void notFoundHook(RequestContext ctx) {
+    ctx.res.headers.set("X-NF", "1");
+    ctx.text(404, "custom");
+}
+
+// Two-digit zero padding, shared by the two obsolete HTTP-date renderers.
+string padTwo(int v) {
+    if (v < 10) { return "0" + v.toString(); }
+    return v.toString();
+}
+
+// Renders ms as rfc850-date (RFC 9110 5.6.7): full weekday name, comma, then the
+// day "-" month "-" two-digit-year date, time-of-day and the literal GMT. The
+// year slot carries exactly the last two digits (ruling 5: the parser's MUST rule
+// reads them back to this very year whatever the wall clock says).
+string renderRfc850(long ms) {
+    DateTime dt = DateTime(ms);
+    string[] dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    string[] monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    return dayNames[dt.dayOfWeek()] + ", " + padTwo(dt.day) + "-" + monthNames[dt.month - 1] + "-" + padTwo(dt.year % 100)
+        + " " + padTwo(dt.hour) + ":" + padTwo(dt.minute) + ":" + padTwo(dt.second) + " GMT";
+}
+
+// Renders ms as asctime-date (RFC 9110 5.6.7): three-letter weekday and month,
+// the day right-aligned in two columns with a leading space, time-of-day and the
+// full year, e.g. "Mon Jun  2 08:49:37 1985".
+string renderAsctime(long ms) {
+    DateTime dt = DateTime(ms);
+    string[] dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    string[] monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    string daySlot = " " + dt.day.toString();
+    if (dt.day >= 10) { daySlot = dt.day.toString(); }
+    return dayNames[dt.dayOfWeek()] + " " + monthNames[dt.month - 1] + " " + daySlot
+        + " " + padTwo(dt.hour) + ":" + padTwo(dt.minute) + ":" + padTwo(dt.second)
+        + " " + dt.year.toString();
+}
+
+// The PNG magic plus two tail bytes, one above 127, so the leg that reads the
+// binary body back has to mask to unsigned and the 0xFF cell is exercised.
+int[] pngSeeds() {
+    return [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0xFF];
+}
+
+// One checked expectation: the leg reads as a list of them, and the failure line
+// quotes what was expected against what arrived.
+int want(bool ok, string what, string detail) {
+    if (!ok) {
+        io.print(what + " -- " + detail);
+        return 1;
+    }
+    return 0;
+}
+
+// A plain request through the shared default client.
+http.HttpResponse ask(string method, string urlText) {
+    http.HttpRequest req = http.HttpRequest();
+    req.method = method;
+    req.url = Url.parse(urlText);
+    return http.request(req);
+}
+
+// A GET carrying one conditional header, which the free client functions cannot
+// attach (legs D/E are all about that header).
+http.HttpResponse askIf(string urlText, string name, string value) {
+    http.HttpRequest req = http.HttpRequest();
+    req.method = "GET";
+    req.url = Url.parse(urlText);
+    req.headers.add(name, value);
+    return http.request(req);
+}
+
+void buildFixtures() {
+    string root = fs.join("../temp/fs", "web_static");
+    string docs = fs.join(root, "docs");
+    fs.makeDirs(docs);
+    io.writeFile(fs.join(root, "index.html"), "<h1>root</h1>");
+    io.writeFile(fs.join(root, "notes.txt"), "plain body");
+    io.writeFile(fs.join(root, "style.css"), "body{color:red}");
+    io.writeFile(fs.join(root, "unknown.foo"), "unknown type");
+    io.writeFile(fs.join(root, "x.myext"), "custom type");
+    io.writeFile(fs.join(root, ".secret.txt"), "dotted");
+    io.writeFile(fs.join(root, "y.txt2"), "uppercase ext");
+    int[] seeds = pngSeeds();
+    byte[] png = byte[seeds.length()];
+    for (int i = 0; i < seeds.length(); i = i + 1) {
+        png[i] = seeds[i] as byte;
+    }
+    fs.writeBytes(fs.join(root, "logo.png"), png);
+    io.writeFile(fs.join(docs, "index.html"), "<p>dir index</p>");
+    io.writeFile(fs.join(docs, "page.html"), "<p>page</p>");
+    io.writeFile(fs.join("../temp/fs", "secret.txt"), "outside the root");
+}
+
+// Files first, then the directories leaf-up. fs.remove is a silent no-op on a
+// missing path, so the teardown needs no return checks.
+void cleanFixtures() {
+    string root = fs.join("../temp/fs", "web_static");
+    string docs = fs.join(root, "docs");
+    fs.remove(fs.join(root, "index.html"));
+    fs.remove(fs.join(root, "notes.txt"));
+    fs.remove(fs.join(root, "style.css"));
+    fs.remove(fs.join(root, "unknown.foo"));
+    fs.remove(fs.join(root, "x.myext"));
+    fs.remove(fs.join(root, ".secret.txt"));
+    fs.remove(fs.join(root, "y.txt2"));
+    fs.remove(fs.join(root, "logo.png"));
+    fs.remove(fs.join(docs, "index.html"));
+    fs.remove(fs.join(docs, "page.html"));
+    fs.remove(docs);
+    fs.remove(root);
+    fs.remove(fs.join("../temp/fs", "secret.txt"));
+}
+
+int main() {
+    int bad = 0;
+    buildFixtures();
+    string root = fs.join("../temp/fs", "web_static");
+    string notesPath = fs.join(root, "notes.txt");
+    web.App app = web.App();
+    // Bare class name, not the qualified web.static.StaticFiles spelling: the dot
+    // chain still refuses a reserved-word segment (KT_Static), so the corpus form
+    // of ruling 14 and of `import web.*;` (D-29 rule 2 opens web.static) is the
+    // one that parses.
+    StaticFiles assets = StaticFiles(root);
+    // A bound method as a function value: the mount form Task 6 leg E left here.
+    app.mount("/static", assets.serve);
+    app.setNotFound(notFoundHook);
+    // The root is checked when the handler is built, so these probes run before
+    // the server starts (D-24).
+    if (legK(root, notesPath) != 0) { bad = bad + 1; }
+    app.listen("127.0.0.1", 0);
+    string base = "http://127.0.0.1:" + app.server().localPort().toString();
+    if (legA(base) != 0) { bad = bad + 1; }
+    if (legB(base) != 0) { bad = bad + 1; }
+    if (legC(base) != 0) { bad = bad + 1; }
+    if (legD(base, assets, notesPath) != 0) { bad = bad + 1; }
+    if (legE(base) != 0) { bad = bad + 1; }
+    if (legF(base, assets) != 0) { bad = bad + 1; }
+    if (legG(base, assets) != 0) { bad = bad + 1; }
+    if (legH(base) != 0) { bad = bad + 1; }
+    if (legI(base) != 0) { bad = bad + 1; }
+    if (legJ(base) != 0) { bad = bad + 1; }
+    if (legL(base) != 0) { bad = bad + 1; }
+    if (legM(base) != 0) { bad = bad + 1; }
+    app.drain(5000);
+    app.close();
+    cleanFixtures();
+    if (bad == 0) { io.print("ok"); }
+    return bad;
+}
+
+// Leg A: the index fallback at the mount root and in a subdirectory, and a plain
+// file under the mounted prefix (the prefix strip reaches the right file, D-27).
+int legA(string base) {
+    int bad = 0;
+    http.HttpResponse res = ask("GET", base + "/static/");
+    bad = bad + want(res.statusCode == 200, "leg A GET /static/ must answer 200",
+        "answered " + res.statusCode.toString());
+    bad = bad + want(res.bodyText() == "<h1>root</h1>", "leg A the mount root must fall back to index",
+        "body was " + res.bodyText());
+    bad = bad + want(res.headers.get("Content-Type") == "text/html; charset=utf-8",
+        "leg A index.html must carry its table type", "got " + res.headers.get("Content-Type"));
+    res = ask("GET", base + "/static/docs/");
+    bad = bad + want(res.statusCode == 200 && res.bodyText() == "<p>dir index</p>",
+        "leg A a directory path must fall back to its index",
+        "answered " + res.statusCode.toString() + " with body " + res.bodyText());
+    res = ask("GET", base + "/static/docs/page.html");
+    bad = bad + want(res.statusCode == 200 && res.bodyText() == "<p>page</p>",
+        "leg A a file under the mounted prefix must be served",
+        "answered " + res.statusCode.toString() + " with body " + res.bodyText());
+    return bad;
+}
+
+// Leg B: the extension table, the text/* charset that the table itself adds, the
+// Content-Length the http layer fills from the body, and the binary body arriving
+// byte for byte with the >127 cell intact.
+int legB(string base) {
+    int bad = 0;
+    http.HttpResponse res = ask("GET", base + "/static/notes.txt");
+    bad = bad + want(res.headers.get("Content-Type") == "text/plain; charset=utf-8",
+        "leg B .txt must carry the charset", "got " + res.headers.get("Content-Type"));
+    bad = bad + want(res.headers.get("Content-Length") == "10",
+        "leg B Content-Length must match the ten-byte body",
+        "got " + res.headers.get("Content-Length"));
+    res = ask("GET", base + "/static/style.css");
+    bad = bad + want(res.headers.get("Content-Type") == "text/css; charset=utf-8",
+        "leg B .css must carry the charset", "got " + res.headers.get("Content-Type"));
+    res = ask("GET", base + "/static/logo.png");
+    bad = bad + want(res.headers.get("Content-Type") == "image/png",
+        "leg B .png must carry its table type", "got " + res.headers.get("Content-Type"));
+    bad = bad + want(res.headers.get("Content-Type").indexOf("charset") < 0,
+        "leg B only text/* gains the charset", "got " + res.headers.get("Content-Type"));
+    int[] seeds = pngSeeds();
+    string gotLen = "null";
+    if (res.body != null) { gotLen = res.body.length().toString(); }
+    bad = bad + want(res.body != null && res.body.length() == 10,
+        "leg B the png body must keep its ten bytes", "got " + gotLen);
+    if (res.body != null) {
+        for (int i = 0; i < seeds.length(); i = i + 1) {
+            int cell = res.body[i] & 0xFF;
+            bad = bad + want(cell == seeds[i],
+                "leg B byte " + i.toString() + " of the png body must survive",
+                "got " + cell.toString() + ", want " + seeds[i].toString());
+        }
+    }
+    res = ask("GET", base + "/static/unknown.foo");
+    bad = bad + want(res.headers.get("Content-Type") == "application/octet-stream",
+        "leg B an extension off the table must fall back to octet-stream",
+        "got " + res.headers.get("Content-Type"));
+    return bad;
+}
+
+// Leg C: HEAD is answered with headers only; the Content-Length the GET would
+// send stays, the ETag stays, and no framework layer eats a second body.
+int legC(string base) {
+    int bad = 0;
+    http.HttpRequest req = http.HttpRequest();
+    req.method = "HEAD";
+    req.url = Url.parse(base + "/static/notes.txt");
+    http.HttpResponse res = http.request(req);
+    bad = bad + want(res.statusCode == 200, "leg C HEAD must answer 200",
+        "answered " + res.statusCode.toString());
+    bad = bad + want(res.headers.get("Content-Length") == "10",
+        "leg C HEAD must keep the GET's Content-Length",
+        "got " + res.headers.get("Content-Length"));
+    bad = bad + want(res.headers.has("ETag"), "leg C HEAD must keep the ETag", "no ETag header");
+    bad = bad + want(res.body == null || res.body.length() == 0,
+        "leg C HEAD must carry no body", "got a body");
+    return bad;
+}
+
+// Leg D: the weak ETag spelled from fs.size/fs.modifiedTimeMs, the four
+// If-None-Match states (exact weak tag, strong form, *, a different tag), the
+// exact 304 header set with and without Cache-Control, and what falls away when
+// useETag is false (ruling 26 ii). The config fields it retunes are reset before
+// the leg returns, since they are read per request and every later leg depends
+// on the reset.
+int legD(string base, StaticFiles assets, string notesPath) {
+    int bad = 0;
+    http.HttpResponse res = ask("GET", base + "/static/notes.txt");
+    string wantTag = "W/\"" + fs.size(notesPath).toString() + "-" + fs.modifiedTimeMs(notesPath).toString() + "\"";
+    string etag = res.headers.get("ETag");
+    bad = bad + want(etag == wantTag, "leg D the weak ETag must spell size-mtimeMs",
+        "got " + etag + ", want " + wantTag);
+    res = askIf(base + "/static/notes.txt", "If-None-Match", etag);
+    bad = bad + want(res.statusCode == 304, "leg D the weak tag must round-trip to 304",
+        "answered " + res.statusCode.toString());
+    bad = bad + want(res.reasonPhrase == "Not Modified", "leg D the 304 reason phrase",
+        "got " + res.reasonPhrase);
+    bad = bad + want(res.bodyText() == "", "leg D the 304 must carry no body",
+        "got " + res.bodyText());
+    bad = bad + want(res.headers.count() == 2, "leg D the bare 304 carries Date and ETag only",
+        "carried " + res.headers.count().toString() + " headers");
+    bad = bad + want(!res.headers.has("Last-Modified"), "leg D an ETag suppresses Last-Modified on 304",
+        "the 304 carried Last-Modified");
+    res = askIf(base + "/static/notes.txt", "If-None-Match", etag.substring(2));
+    bad = bad + want(res.statusCode == 304, "leg D the strong form must match weakly",
+        "answered " + res.statusCode.toString());
+    res = askIf(base + "/static/notes.txt", "If-None-Match", "*");
+    bad = bad + want(res.statusCode == 304, "leg D the star must match",
+        "answered " + res.statusCode.toString());
+    res = askIf(base + "/static/notes.txt", "If-None-Match", "W/\"x-0\"");
+    bad = bad + want(res.statusCode == 200 && res.bodyText() == "plain body",
+        "leg D a different tag must serve the body",
+        "answered " + res.statusCode.toString() + " with body " + res.bodyText());
+    assets.maxAgeSeconds = 60;
+    res = ask("GET", base + "/static/notes.txt");
+    bad = bad + want(res.headers.get("Cache-Control") == "public, max-age=60",
+        "leg D maxAgeSeconds > 0 must send Cache-Control",
+        "got " + res.headers.get("Cache-Control"));
+    res = askIf(base + "/static/notes.txt", "If-None-Match", etag);
+    bad = bad + want(res.statusCode == 304 && res.headers.count() == 3,
+        "leg D the 304 with maxAge carries Date, ETag and Cache-Control",
+        "answered " + res.statusCode.toString() + " with " + res.headers.count().toString() + " headers");
+    assets.useETag = false;
+    res = ask("GET", base + "/static/notes.txt");
+    bad = bad + want(res.statusCode == 200 && !res.headers.has("ETag"),
+        "leg D useETag = false must drop the ETag", "answered " + res.statusCode.toString());
+    res = askIf(base + "/static/notes.txt", "If-None-Match", etag);
+    bad = bad + want(res.statusCode == 200, "leg D with no ETag nothing may match",
+        "answered " + res.statusCode.toString());
+    long ms = fs.modifiedTimeMs(notesPath);
+    res = askIf(base + "/static/notes.txt", "If-Modified-Since", HttpDate.format((ms / 1000) * 1000));
+    bad = bad + want(res.statusCode == 304 && res.headers.has("Last-Modified") && !res.headers.has("ETag"),
+        "leg D an IMS 304 without an ETag carries Last-Modified",
+        "answered " + res.statusCode.toString() + ", Last-Modified " + res.headers.get("Last-Modified"));
+    assets.useETag = true;
+    assets.maxAgeSeconds = 0;
+    return bad;
+}
+
+// Leg E: If-Modified-Since in every form. The two obsolete renderers are built
+// from the file's own mtime, so nothing here compares against the wall clock
+// (ruling 5). Equal and later are second-quantized misses, earlier serves; the
+// obsolete forms must parse, garbage and wrong-case fall back to serving, and
+// both multi-member spellings make the condition absent (RFC 9110 5.2).
+int legE(string base) {
+    int bad = 0;
+    long ms = fs.modifiedTimeMs(fs.join("../temp/fs", "web_static/notes.txt"));
+    long sec = ms / 1000;
+    http.HttpResponse res = askIf(base + "/static/notes.txt", "If-Modified-Since", HttpDate.format(sec * 1000));
+    bad = bad + want(res.statusCode == 304, "leg E an equal date must not serve",
+        "answered " + res.statusCode.toString());
+    res = askIf(base + "/static/notes.txt", "If-Modified-Since", HttpDate.format((sec + 1) * 1000));
+    bad = bad + want(res.statusCode == 304, "leg E a later date must not serve",
+        "answered " + res.statusCode.toString());
+    res = askIf(base + "/static/notes.txt", "If-Modified-Since", HttpDate.format((sec - 1) * 1000));
+    bad = bad + want(res.statusCode == 200 && res.bodyText() == "plain body",
+        "leg E an earlier date must serve",
+        "answered " + res.statusCode.toString() + " with body " + res.bodyText());
+    res = askIf(base + "/static/notes.txt", "If-Modified-Since", renderRfc850(ms));
+    bad = bad + want(res.statusCode == 304, "leg E rfc850-date must parse",
+        "answered " + res.statusCode.toString() + " for " + renderRfc850(ms));
+    res = askIf(base + "/static/notes.txt", "If-Modified-Since", renderAsctime(ms));
+    bad = bad + want(res.statusCode == 304, "leg E asctime-date must parse",
+        "answered " + res.statusCode.toString() + " for " + renderAsctime(ms));
+    res = askIf(base + "/static/notes.txt", "If-Modified-Since", "not a date");
+    bad = bad + want(res.statusCode == 200 && res.bodyText() == "plain body",
+        "leg E an unparseable date is no condition",
+        "answered " + res.statusCode.toString());
+    res = askIf(base + "/static/notes.txt", "If-Modified-Since", renderRfc850(ms).toLower());
+    bad = bad + want(res.statusCode == 200, "leg E HTTP-date names are case sensitive",
+        "answered " + res.statusCode.toString() + " for " + renderRfc850(ms).toLower());
+    string a = HttpDate.format(sec * 1000);
+    http.HttpRequest dup = http.HttpRequest();
+    dup.method = "GET";
+    dup.url = Url.parse(base + "/static/notes.txt");
+    dup.headers.add("If-Modified-Since", a);
+    dup.headers.add("If-Modified-Since", a);
+    res = http.request(dup);
+    bad = bad + want(res.statusCode == 200, "leg E two If-Modified-Since fields are no condition",
+        "answered " + res.statusCode.toString());
+    res = askIf(base + "/static/notes.txt", "If-Modified-Since", a + ", " + a);
+    bad = bad + want(res.statusCode == 200, "leg E a comma list is no condition",
+        "answered " + res.statusCode.toString());
+    return bad;
+}
+
+// Leg F: addType normalizes the extension (the leading '.' is stripped, the key
+// is case-folded), a text/* type gains the charset, and the empty argument is a
+// named configuration error (D-24, ruling 26 i).
+int legF(string base, StaticFiles assets) {
+    int bad = 0;
+    // The unknown-extension fallback the builtin table owes (octet-stream) is
+    // pinned before the registrations below, so the two states bracket addType.
+    http.HttpResponse res = ask("GET", base + "/static/x.myext");
+    bad = bad + want(res.statusCode == 200,
+        "leg F an unregistered extension must answer 200 before addType",
+        "answered " + res.statusCode.toString());
+    bad = bad + want(res.headers.get("Content-Type") == "application/octet-stream",
+        "leg F an unregistered extension must answer as octet-stream before addType",
+        "got " + res.headers.get("Content-Type"));
+    assets.addType("myext", "application/x-myext");
+    res = ask("GET", base + "/static/x.myext");
+    bad = bad + want(res.headers.get("Content-Type") == "application/x-myext",
+        "leg F a registered extension must answer with its type",
+        "got " + res.headers.get("Content-Type"));
+    assets.addType(".TXT2", "text/plain2");
+    res = ask("GET", base + "/static/y.txt2");
+    bad = bad + want(res.headers.get("Content-Type") == "text/plain2; charset=utf-8",
+        "leg F .TXT2 must normalize to txt2 and gain the charset",
+        "got " + res.headers.get("Content-Type"));
+    bool threw = false;
+    string message = "";
+    try {
+        assets.addType("", "x/y");
+    } catch (Exception ex) {
+        threw = true;
+        message = ex.message;
+    }
+    bad = bad + want(threw, "leg F an empty extension must be refused", "addType accepted it");
+    bad = bad + want(message.startsWith("web.static.StaticFiles.addType: "),
+        "leg F the addType refusal must name itself", "message was " + message);
+    return bad;
+}
+
+// Leg G: the dotfile gate is read per request, so flipping allowDotFiles
+// changes the next answer without restarting anything (D-25).
+int legG(string base, StaticFiles assets) {
+    int bad = 0;
+    http.HttpResponse res = ask("GET", base + "/static/.secret.txt");
+    bad = bad + want(res.statusCode == 404 && res.bodyText() == "not found: /static/.secret.txt",
+        "leg G a dotfile must be 404 by default",
+        "answered " + res.statusCode.toString() + " with body " + res.bodyText());
+    assets.allowDotFiles = true;
+    res = ask("GET", base + "/static/.secret.txt");
+    bad = bad + want(res.statusCode == 200 && res.bodyText() == "dotted",
+        "leg G allowDotFiles must serve the dotfile",
+        "answered " + res.statusCode.toString() + " with body " + res.bodyText());
+    return bad;
+}
+
+// Leg H: everything that could stand between the mount and a file outside the
+// root is rejected after decoding (ruling 14), and a malformed escape is the
+// request's mistake (404, not 500). The 404 body quotes the request path as it
+// arrived, and none of these answers can leak the outside file's content.
+int legH(string base) {
+    int bad = 0;
+    string[] paths = [
+        "/static/../secret.txt",
+        "/static/%2E%2E/secret.txt",
+        "/static/./notes.txt",
+        "/static/notes%00.txt",
+        "/static/%2Fetc",
+        "/static/%5Cetc",
+        "/static/c%3A%5Cwin",
+        "/static/a%2F..%2Fx",
+        "/static/a%5C..%5Cx",
+        "/static/docs/../notes.txt",
+        "/static/bad%2.n",
+        "/static/bad%zz.n"
+    ];
+    for (int i = 0; i < paths.length(); i = i + 1) {
+        string path = paths[i];
+        http.HttpResponse res = ask("GET", base + path);
+        bad = bad + want(res.statusCode == 404, "leg H " + path + " must answer 404, not 500",
+            "answered " + res.statusCode.toString());
+        bad = bad + want(res.bodyText() == "not found: " + path, "leg H " + path + " must quote the request path",
+            "body was " + res.bodyText());
+        bad = bad + want(res.headers.get("Content-Type") == "text/plain; charset=utf-8",
+            "leg H " + path + " must answer as plain text", "got " + res.headers.get("Content-Type"));
+        bad = bad + want(res.reasonPhrase == "Not Found", "leg H " + path + " reason phrase",
+            "got " + res.reasonPhrase);
+        bad = bad + want(res.bodyText().indexOf("outside") < 0,
+            "leg H " + path + " must not reach outside the root", "body was " + res.bodyText());
+    }
+    return bad;
+}
+
+// Leg I: the directory 301 spells its Location with the mount prefix and keeps
+// the query (ruling 27). The follow-up through the default client is the
+// regression gate: a Location without the prefix lands on the site root's
+// /docs and answers 404 instead.
+int legI(string base) {
+    int bad = 0;
+    http.HttpClient noFollow = http.HttpClient();
+    noFollow.maxRedirects = 0;
+    http.HttpRequest req = http.HttpRequest();
+    req.method = "GET";
+    req.url = Url.parse(base + "/static/docs");
+    http.HttpResponse res = noFollow.request(req);
+    bad = bad + want(res.statusCode == 301, "leg I a bare directory must answer 301",
+        "answered " + res.statusCode.toString());
+    bad = bad + want(res.headers.get("Location") == "/static/docs/",
+        "leg I the Location must keep the mount prefix",
+        "got " + res.headers.get("Location"));
+    bad = bad + want(res.reasonPhrase == "Moved Permanently", "leg I the 301 reason phrase",
+        "got " + res.reasonPhrase);
+    req = http.HttpRequest();
+    req.method = "GET";
+    req.url = Url.parse(base + "/static/docs?x=1&a=2");
+    res = noFollow.request(req);
+    bad = bad + want(res.statusCode == 301 && res.headers.get("Location") == "/static/docs/?x=1&a=2",
+        "leg I the 301 must re-attach the query verbatim",
+        "answered " + res.statusCode.toString() + " with Location " + res.headers.get("Location"));
+    res = http.get(base + "/static/docs");
+    bad = bad + want(res.statusCode == 200 && res.bodyText() == "<p>dir index</p>",
+        "leg I following the redirect must land back under the mount",
+        "answered " + res.statusCode.toString() + " with body " + res.bodyText());
+    return bad;
+}
+
+// Leg J: the method gate runs before any path is resolved, so the Allow answer
+// is the same for a file that exists and one that does not (ruling 26 iv).
+int legJ(string base) {
+    int bad = 0;
+    http.HttpResponse res = ask("POST", base + "/static/notes.txt");
+    bad = bad + want(res.statusCode == 405, "leg J POST must answer 405",
+        "answered " + res.statusCode.toString());
+    bad = bad + want(res.headers.get("Allow") == "GET, HEAD", "leg J the Allow set",
+        "got " + res.headers.get("Allow"));
+    bad = bad + want(res.bodyText() == "method not allowed: POST",
+        "leg J the 405 body must quote the method", "body was " + res.bodyText());
+    res = ask("DELETE", base + "/static/notes.txt");
+    bad = bad + want(res.statusCode == 405 && res.bodyText() == "method not allowed: DELETE",
+        "leg J DELETE must answer 405 too",
+        "answered " + res.statusCode.toString() + " with body " + res.bodyText());
+    res = ask("POST", base + "/static/nope.txt");
+    bad = bad + want(res.statusCode == 405 && res.headers.get("Allow") == "GET, HEAD",
+        "leg J the 405 must not depend on the path existing",
+        "answered " + res.statusCode.toString() + " with Allow " + res.headers.get("Allow"));
+    return bad;
+}
+
+// Leg K: a root that is not a directory is refused when the handler is built,
+// with a named plain Exception quoting the path (D-24) -- not an HttpException,
+// because no request is in flight to carry one.
+int legK(string root, string notesPath) {
+    int bad = 0;
+    string absent = fs.join("../temp/fs", "absent-dir");
+    bad = bad + refusedRoot(absent, "a missing root");
+    bad = bad + refusedRoot(notesPath, "a non-directory root");
+    return bad;
+}
+
+int refusedRoot(string path, string what) {
+    bool threw = false;
+    string message = "";
+    try {
+        StaticFiles badRoot = StaticFiles(path);
+        io.print(what + " must be refused at construction time: " + badRoot.index);
+    } catch (http.HttpException hex) {
+        io.print(what + " refused with an HttpException, want a plain Exception: " + hex.message);
+        threw = true;
+    } catch (Exception ex) {
+        threw = true;
+        message = ex.message;
+    }
+    if (!threw) { return 1; }
+    if (message == "") { return 1; }   // the HttpException branch already spoke
+    if (!message.startsWith("web.static.StaticFiles: ") || !message.contains(path)) {
+        io.print(what + " refusal says " + message + ", want it to name the path");
+        return 1;
+    }
+    return 0;
+}
+
+// Leg L: a 404 written by the mounted handler never visits setNotFound -- the
+// top-level hook is the only one that marks a response with X-NF (ruling 26 v).
+int legL(string base) {
+    int bad = 0;
+    http.HttpResponse res = ask("GET", base + "/static/../secret.txt");
+    bad = bad + want(res.statusCode == 404 && !res.headers.has("X-NF"),
+        "leg L a mounted 404 must not run the notFound hook",
+        "answered " + res.statusCode.toString() + " with X-NF " + res.headers.get("X-NF"));
+    res = ask("GET", base + "/nope");
+    bad = bad + want(res.statusCode == 404 && res.bodyText() == "custom" && res.headers.get("X-NF") == "1",
+        "leg L the top-level miss must run the notFound hook",
+        "answered " + res.statusCode.toString() + " with body " + res.bodyText());
+    return bad;
+}
+
+// Leg M: empty segments fold away on both sides of the prefix and inside it, so
+// // never invents a directory level (ruling 26 iii).
+int legM(string base) {
+    int bad = 0;
+    http.HttpResponse res = ask("GET", base + "/static//notes.txt");
+    bad = bad + want(res.statusCode == 200 && res.bodyText() == "plain body",
+        "leg M an empty leading segment must fold",
+        "answered " + res.statusCode.toString() + " with body " + res.bodyText());
+    res = ask("GET", base + "/static/docs//");
+    bad = bad + want(res.statusCode == 200 && res.bodyText() == "<p>dir index</p>",
+        "leg M an empty trailing segment must fold into the directory",
+        "answered " + res.statusCode.toString() + " with body " + res.bodyText());
+    return bad;
+}

@@ -13,11 +13,11 @@
 #include "nlang/compiler/Logger.h"
 #include <nlang/compiler/CastInfo.h>
 #include "nlang/runtime/Runtime.h"
-#include "nlang/vm/CompiledModule.h"
-#include "nlang/vm/Intrinsics.h"
+#include "nlang/core/CompiledModule.h"
+#include "nlang/core/Intrinsics.h"
 #include "nlang/langservice/SymbolIndex.h"
 #include "VmExecutor.h"
-#include "ModuleLoader.h"
+#include <nlang/core/ModuleLoader.h>
 #include "NcuLoader.h"
 #include "NcuLinker.h"
 #include <filesystem>

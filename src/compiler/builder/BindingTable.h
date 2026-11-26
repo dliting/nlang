@@ -5,8 +5,9 @@
 	runtime dispatches on the intrinsic id baked into the record and
 	never reads the table. Lives with the compiler (concurrency
 	import redesign): the resolver consults its projections (D10/D11)
-	from pure-compiler link targets, and the sanctioned link
-	direction is vm -> compiler.
+	from pure-compiler link targets, and the bytecode emitters that
+	key table rows through it live in src/compiler/codegen (library
+	layering split, docs/dev/library_layering_design.md §6).
 ---*/
 #pragma once
 #include <cstdint>

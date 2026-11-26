@@ -213,9 +213,9 @@ int main() {
 | `maxConnections` | 0 | `0`为不限。超过上限时新连接得到503并被关闭；这样的作答最多并发64个，再多出的连接直接关闭而不作答，客户端读到空响应。 |
 | `maxRequestsPerConnection` | 0 | `0`为不限。第N条响应之后同时关闭连接。 |
 
-`start(host, port, handler)`在套接字开始监听后即返回；`serve(host, port, handler)`在调用线程上跑同一条accept循环，是独立服务器的入口，其`main`不得返回（§10.9）。`isServing()`只在服务器还在接受新请求时回答`true`——第一次`start`之前、整个`drain()`期间、`close()`之后都是`false`——长寿命处理器（服务器推送事件、长轮询）靠轮询它决定收尾。
+`start(host, port, handler)`在套接字开始监听后即返回；`serve(host, port, handler)`在调用线程上跑同一条accept循环，是独立服务器的入口，其`main`不得返回（§10.9）。在已有监听的实例上再次启动会抛出点名所用入口的基类`Exception`——经`start`是`http.HttpServer.start: already started by this instance.`，经`serve`是`http.HttpServer.serve: ...`——因为双份accept循环会让第一个永远够不着。
 
-关闭有两种形态。`drain(graceMs = 15000)`是温和的那种：停止接受，立即关闭停泊在keep-alive等待中的连接，让在途请求在`graceMs`内做完——从状态改变那一刻起写出的每个响应都带`Connection: close`，keep-alive循环不会重启。窗口耗尽时它强关仍在的连接并返回有多少条，全部按时做完则返回`0`；它可重复，对没有在跑的服务器drain立即返回`0`。`close()`是立即的那种：监听套接字与每条活连接立刻释放，连接线程的汇合至多等两秒——永不返回的处理器可能留下自己的线程，而不是挂住调用方。`close()`同样可重复，且因为监听器被释放，同一实例上稍后的`start()`是全新的一次启动，不是拒绝。
+停止accept循环有两个开关。`drain(graceMs = 15000)`是优雅停机的开关：停止接受新连接，此后的应答都带上`Connection: close`，空闲的keep-alive等待即刻关闭，正在处理的请求则被等待做完——它返回宽限期耗尽时被强制关闭的连接数，全部在宽限期内做完就返回`0`。`close()`是立即关闭的开关：关闭监听套接字（阻塞中的`accept`经`SocketException`唤醒），强制关闭仍打开的连接，并最多等待两秒让运行中的处理器收尾。两个开关都可重复调用，这样停掉的服务器还能再启动——之后的`start()`会重新绑定地址。`isServing()`报告accept循环是否在跑：首次`start()`之前、`drain`排空期间、`close()`之后都是`false`——这正是轮询式关停循环要盯的旗标，形态就是§21.2为`accept`超时描述的那个。两个`drain`是两回事：服务器的`drain(graceMs)`是本节讲的停机开关，而`HttpBodyReader.drain(maxBytes)`（§23.4）消费的是单个响应剩下的正文字节，好让那条连接可以复用。
 
 accept循环每连接派生一条线程（§10），每条线程按顺序服务自己那条连接上的请求。处理器因此与其他处理器并发运行，且可以阻塞——等慢客户端、等`Channel`、等`Mutex`——而不会拖住整个服务器。没有线程池需要调大小：连接数即并发度，`maxConnections`就是封顶的旋钮。
 
@@ -243,7 +243,7 @@ accept循环每连接派生一条线程（§10），每条线程按顺序服务�
 | 字段 | 默认值 | 含义 |
 | --- | --- | --- |
 | `connectTimeoutMs` | 10000 | 建立连接的期限。 |
-| `readTimeoutMs` | 10000 | 读取头部与流式正文时每次读取的期限。 |
+| `readTimeoutMs` | 30000 | 读取头部与流式正文时每次读取的期限。 |
 | `callTimeoutMs` | 0 | 整次调用的时限，含等待连接与重定向；`0`表示只受各操作自身时限约束。用尽：抛`TimeoutException`。 |
 | `maxRedirects` | 10 | 为`0`时返回`3xx`响应本身而不跟随。 |
 | `maxConnsPerHost` | 0 | 同一源站并发连接数的上限；`0`为不限。在`callTimeoutMs`内拿不到连接的调用者得到`TimeoutException`。 |

@@ -1,0 +1,451 @@
+#include <nlang/core/ModuleLoader.h>
+#include "ModuleLoaderRecords.h"
+#include <nlang/runtime/NodeConsts.h>
+#include <fstream>
+#include <sstream>
+#include <stdexcept>
+#include <cstring>
+
+namespace nlang {
+
+CompiledModule ModuleLoader::Load(const std::string& filePath,
+                                  std::string* entryKeyOut) {
+    std::ifstream fs(filePath, std::ios::binary);
+    if (!fs.is_open())
+        throw std::runtime_error("Failed to open module file: " + filePath);
+    std::stringstream buffer;
+    buffer << fs.rdbuf();
+    return LoadFromBytes(filePath, buffer.str(), entryKeyOut);
+}
+
+CompiledModule ModuleLoader::LoadFromBytes(const std::string& filePath,
+                                           const std::string& bytes,
+                                           std::string* entryKeyOut) {
+    std::istringstream fs(bytes);
+
+    CompiledModule mod;
+
+    // Magic
+    char magic[8] = {};
+    fs.read(magic, 8);
+    if (std::memcmp(magic, NCU_MAGIC, sizeof(NCU_MAGIC)) != 0)
+        throw std::runtime_error("Invalid module file format");
+
+    // Version
+    uint16_t majorVer = 0, minorVer = 0;
+    fs.read(reinterpret_cast<char*>(&majorVer), sizeof(majorVer));
+    fs.read(reinterpret_cast<char*>(&minorVer), sizeof(minorVer));
+    //Truncation check: without it an early EOF leaves downstream counts
+    //uninitialized and the loader resizes with garbage.
+    if (!fs.good())
+        throw std::runtime_error("Truncated module file");
+    //v2.0: the module's dotted path (package identity of the unit).
+    uint16_t modulePathLen = 0;
+    fs.read(reinterpret_cast<char*>(&modulePathLen), sizeof(modulePathLen));
+    std::string modulePath(modulePathLen, '\0');
+    fs.read(modulePath.data(), modulePathLen);
+    mod.modulePath = std::move(modulePath);
+    if (!fs.good())
+        throw std::runtime_error("Truncated module file");
+    //v2.0: floor and ceiling pin the current version exactly — a v1.x
+    //module misparses at the first 2.0 field (module path); the older
+    //per-field format gates were removed with the 2.0 bump.
+    const uint16_t kCurrentMajorVer = NCU_FORMAT_MAJOR;
+    const uint16_t kCurrentMinorVer = NCU_FORMAT_MINOR;
+    if (majorVer < kCurrentMajorVer
+        || (majorVer == kCurrentMajorVer && minorVer < kCurrentMinorVer))
+        throw std::runtime_error(
+            "Module version " + std::to_string(majorVer) + "."
+            + std::to_string(minorVer) + " is outdated; recompile with current ncc");
+    if (majorVer > kCurrentMajorVer || minorVer > kCurrentMinorVer)
+        throw std::runtime_error(
+            "Module version " + std::to_string(majorVer) + "."
+            + std::to_string(minorVer)
+            + " was written by a newer ncc; upgrade ncc/nvm to run it");
+
+    // Module name
+    uint32_t nameLen = 0;
+    fs.read(reinterpret_cast<char*>(&nameLen), sizeof(nameLen));
+    if (!fs.good() || nameLen > (1u << 24))
+        throw std::runtime_error("Invalid module: bad name length");
+    mod.name.resize(nameLen);
+    fs.read(mod.name.data(), nameLen);
+
+    //v2.0: the entry function's qualified key (empty = no entry). The
+    //index is re-resolved by name at the end of the parse — table-
+    //layout-dependent indices are not serializable; the .npkg entry
+    //record may re-point it after LoadFromBytes.
+    uint16_t entryKeyLen = 0;
+    fs.read(reinterpret_cast<char*>(&entryKeyLen), sizeof(entryKeyLen));
+    if (!fs.good())
+        throw std::runtime_error("Invalid module: truncated entry key");
+    std::string entryKey(entryKeyLen, ' ');
+    fs.read(entryKey.data(), entryKeyLen);
+
+    // String constants
+    uint32_t strCount = 0;
+    fs.read(reinterpret_cast<char*>(&strCount), sizeof(strCount));
+    if (!fs.good() || strCount > (1u << 24))
+        throw std::runtime_error("Invalid module: bad string count");
+    mod.stringConstants.resize(strCount);
+    for (uint32_t i = 0; i < strCount; ++i) {
+        uint32_t len = 0;
+        fs.read(reinterpret_cast<char*>(&len), sizeof(len));
+        if (!fs.good() || len > (1u << 24))
+            throw std::runtime_error("Invalid module: bad string length");
+        mod.stringConstants[i].resize(len);
+        fs.read(mod.stringConstants[i].data(), len);
+    }
+
+    // v2.15 (v0.13.1): the generic-instantiation descriptor table,
+    // mirroring the saver's section (u32 count; per entry u16
+    // spellingLen + bytes, u16 compositionLen + bytes).
+    uint32_t descCount = 0;
+    fs.read(reinterpret_cast<char*>(&descCount), sizeof(descCount));
+    if (!fs.good() || descCount > (1u << 24))
+        throw std::runtime_error("Invalid module: bad descriptor count");
+    mod.descriptorTable.resize(descCount);
+    for (uint32_t i = 0; i < descCount; ++i) {
+        uint16_t spellingLen = 0;
+        fs.read(reinterpret_cast<char*>(&spellingLen), sizeof(spellingLen));
+        if (!fs.good())
+            throw std::runtime_error(
+                "Invalid module: truncated descriptor spelling");
+        mod.descriptorTable[i].spelling.resize(spellingLen);
+        fs.read(mod.descriptorTable[i].spelling.data(), spellingLen);
+        uint16_t compositionLen = 0;
+        fs.read(reinterpret_cast<char*>(&compositionLen), sizeof(compositionLen));
+        if (!fs.good())
+            throw std::runtime_error(
+                "Invalid module: truncated composition record");
+        mod.descriptorTable[i].composition.resize(compositionLen);
+        if (compositionLen > 0)
+            fs.read(reinterpret_cast<char*>(
+                        mod.descriptorTable[i].composition.data()),
+                    compositionLen);
+    }
+
+    //Composite record tables parse in this stream order; the per-field
+    //parsers live in ModuleLoaderRecords.cpp (source-size split, zero
+    //behavior change).
+    ReadFunctionRecords(fs, mod);
+    ReadStructRecords(fs, mod);
+    ReadClassRecords(fs, mod);
+    //0.9.10 v2.4: interface statics, written between the class and
+    //array-type sections.
+    ReadInterfaceRecords(fs, mod);
+
+    //v1.12: descriptors reference struct/class indices of THIS module —
+    //the function records were parsed before the tables, so bounds are
+    //only checkable now. Any violation is a corrupt or hostile module.
+    //v1.13: the version gate is gone — the floor subsumes 12.
+    {
+        for (const auto& func : mod.functions) {
+            for (const auto& ptd : func.paramTypeDescs)
+                ValidateTypeDescIndices(ptd.type, mod.structs.size(),
+                    mod.classes.size(), mod.interfaces.size());
+            ValidateTypeDescIndices(func.returnTypeDesc, mod.structs.size(),
+                mod.classes.size(), mod.interfaces.size());
+        }
+        for (const auto& st : mod.structs)
+            for (const auto& td : st.fieldTypeDescs)
+                ValidateTypeDescIndices(td, mod.structs.size(),
+                    mod.classes.size(), mod.interfaces.size());
+        for (const auto& cc : mod.classes)
+            for (const auto& td : cc.fieldTypeDescs)
+                ValidateTypeDescIndices(td, mod.structs.size(),
+                    mod.classes.size(), mod.interfaces.size());
+        //0.9.10 D3: interface constant declared types carry descriptors
+        //like any other exported type. 0.9.12 (v2.7): so do the
+        //instance-method signatures (formals and return).
+        for (const auto& iface : mod.interfaces) {
+            for (const auto& constant : iface.constants)
+                ValidateTypeDescIndices(constant.type, mod.structs.size(),
+                    mod.classes.size(), mod.interfaces.size());
+            for (const auto& sig : iface.instanceMethods) {
+                for (const auto& ptd : sig.paramTypeDescs)
+                    ValidateTypeDescIndices(ptd.type, mod.structs.size(),
+                        mod.classes.size(), mod.interfaces.size());
+                ValidateTypeDescIndices(sig.returnType, mod.structs.size(),
+                    mod.classes.size(), mod.interfaces.size());
+            }
+        }
+    }
+
+    //Array type descriptors
+    uint32_t arrayTypeCount;
+    fs.read(reinterpret_cast<char*>(&arrayTypeCount), sizeof(arrayTypeCount));
+    if (!fs.good() || arrayTypeCount > (1u << 24))
+        throw std::runtime_error("Invalid module: bad array type count");
+    mod.arrayTypes.resize(arrayTypeCount);
+    for (uint32_t i = 0; i < arrayTypeCount; ++i) {
+        fs.read(reinterpret_cast<char*>(&mod.arrayTypes[i].elemKind),
+                sizeof(mod.arrayTypes[i].elemKind));
+        fs.read(reinterpret_cast<char*>(&mod.arrayTypes[i].elemTypeIdx),
+                sizeof(mod.arrayTypes[i].elemTypeIdx));
+        //Stage-2: rank rides the record (v2.10).
+        fs.read(reinterpret_cast<char*>(&mod.arrayTypes[i].rank),
+                sizeof(mod.arrayTypes[i].rank));
+    }
+
+    //Phase 8e-9b: enum name tables.
+    {
+
+        uint32_t enumCount;
+        fs.read(reinterpret_cast<char*>(&enumCount), sizeof(enumCount));
+        if (!fs.good() || enumCount > (1u << 24))
+            throw std::runtime_error("Invalid module: bad enum count");
+        mod.enumNames.resize(enumCount);
+        for (uint32_t i = 0; i < enumCount; ++i) {
+            uint32_t valueCount;
+            fs.read(reinterpret_cast<char*>(&valueCount), sizeof(valueCount));
+            if (!fs.good() || valueCount > (1u << 24))
+                throw std::runtime_error("Invalid module: bad enum value count");
+            mod.enumNames[i].resize(valueCount);
+            for (uint32_t j = 0; j < valueCount; ++j) {
+                uint32_t len;
+                fs.read(reinterpret_cast<char*>(&len), sizeof(len));
+                if (!fs.good() || len > (1u << 24))
+                    throw std::runtime_error("Invalid module: bad enum name length");
+                mod.enumNames[i][j].resize(len);
+                fs.read(mod.enumNames[i][j].data(), len);
+            }
+        }
+        //v2.0 phase 6: qualified keys, one per enum (same count — the
+        //writer emits exactly enumCount keys right after the name tables).
+        mod.enumKeys.resize(enumCount);
+        for (uint32_t i = 0; i < enumCount; ++i) {
+            uint16_t len;
+            fs.read(reinterpret_cast<char*>(&len), sizeof(len));
+            if (!fs.good())
+                throw std::runtime_error(
+                    "Invalid module: truncated enum keys");
+            mod.enumKeys[i].resize(len);
+            fs.read(mod.enumKeys[i].data(), len);
+        }
+        //v2.9 (0.10.14): per-enum member-method tables (parallel to
+        //enumNames/enumKeys). Per enum: uint32 methodCount, then per
+        //method: uint16 function index + uint8 access byte.
+        mod.enumMethodIndices.resize(enumCount);
+        mod.enumMethodAccess.resize(enumCount);
+        for (uint32_t i = 0; i < enumCount; ++i) {
+            uint32_t methodCount;
+            fs.read(reinterpret_cast<char*>(&methodCount),
+                    sizeof(methodCount));
+            if (!fs.good() || methodCount > (1u << 20))
+                throw std::runtime_error(
+                    "Invalid module: bad enum method count");
+            mod.enumMethodIndices[i].resize(methodCount);
+            mod.enumMethodAccess[i].resize(methodCount);
+            for (uint32_t j = 0; j < methodCount; ++j) {
+                fs.read(reinterpret_cast<char*>(
+                    &mod.enumMethodIndices[i][j]),
+                    sizeof(mod.enumMethodIndices[i][j]));
+                fs.read(reinterpret_cast<char*>(
+                    &mod.enumMethodAccess[i][j]),
+                    sizeof(mod.enumMethodAccess[i][j]));
+            }
+        }
+        //v2.20 (0.13.8 item 5): per-enum declared access bytes, parallel
+        //to enumNames (the writer emits exactly enumCount bytes; the
+        //prologue guard keeps the tables parallel by construction). A
+        //FA_Default or above-FA_Public byte is a corrupt image — the
+        //consumer stub rebuilds visibility from it.
+        mod.enumAccess.resize(enumCount);
+        for (auto& acc : mod.enumAccess) {
+            fs.read(reinterpret_cast<char*>(&acc), sizeof(acc));
+            if (!fs.good() || acc == FA_Default || acc > FA_Public)
+                throw std::runtime_error(
+                    "Invalid module: bad enum access byte");
+        }
+        if (!fs.good())
+            throw std::runtime_error("Invalid module: truncated enum keys");
+    }
+
+    //v2.13 (v0.12.6): the module's static slot table (see the saver's
+    //section). Per slot: u32 name, u32 ownerKey, the ownerKind /
+    //isRuntimeConst / hasInitializer bytes, a length-prefixed TypeDesc.
+    //ownerKind has its own table-local domain (0 = class, 1 = interface,
+    //2 = static local — see CompiledStaticSlot).
+    {
+        uint32_t slotCount = 0;
+        fs.read(reinterpret_cast<char*>(&slotCount), sizeof(slotCount));
+        if (!fs.good() || slotCount > (1u << 20))
+            throw std::runtime_error("Invalid module: bad static slot count");
+        mod.staticSlots.resize(slotCount);
+        for (uint32_t i = 0; i < slotCount; ++i) {
+            auto& slot = mod.staticSlots[i];
+            uint32_t slotNameLen = 0;
+            fs.read(reinterpret_cast<char*>(&slotNameLen),
+                    sizeof(slotNameLen));
+            if (!fs.good() || slotNameLen > (1u << 24))
+                throw std::runtime_error(
+                    "Invalid module: bad static slot name length");
+            slot.name.resize(slotNameLen);
+            fs.read(slot.name.data(), slotNameLen);
+            uint32_t ownerKeyLen = 0;
+            fs.read(reinterpret_cast<char*>(&ownerKeyLen),
+                    sizeof(ownerKeyLen));
+            if (!fs.good() || ownerKeyLen > (1u << 24))
+                throw std::runtime_error(
+                    "Invalid module: bad static slot owner key length");
+            slot.ownerKey.resize(ownerKeyLen);
+            fs.read(slot.ownerKey.data(), ownerKeyLen);
+            fs.read(reinterpret_cast<char*>(&slot.ownerKind),
+                    sizeof(slot.ownerKind));
+            fs.read(reinterpret_cast<char*>(&slot.isRuntimeConst),
+                    sizeof(slot.isRuntimeConst));
+            fs.read(reinterpret_cast<char*>(&slot.hasInitializer),
+                    sizeof(slot.hasInitializer));
+            if (!fs.good() || slot.ownerKind > 2 || slot.isRuntimeConst > 1
+                || slot.hasInitializer > 1)
+                throw std::runtime_error(
+                    "Invalid module: bad static slot flags");
+            slot.type = ReadTypeDesc(fs);
+        }
+        //The class static-field blocks and interface constants were
+        //parsed before this table, so their slot references are only
+        //bounds-checkable now — every non-folded index must address this
+        //table (the runtime addresses slots by it).
+        for (const auto& cc : mod.classes)
+            for (const auto& sf : cc.staticFields)
+                if (sf.slotIdx != 0xFFFF
+                    && sf.slotIdx >= mod.staticSlots.size())
+                    throw std::runtime_error(
+                        "Invalid module: class static field slot index "
+                        "out of range");
+        for (const auto& iface : mod.interfaces)
+            for (const auto& constant : iface.constants)
+                if (constant.slotIdx != 0xFFFF
+                    && constant.slotIdx >= mod.staticSlots.size())
+                    throw std::runtime_error(
+                        "Invalid module: interface constant slot index "
+                        "out of range");
+    }
+
+    //v2.0 phase 6: cross-unit import slots, one section per table (in
+    //slot order — own entries occupy 0..n-1, imports n..n+m). Per entry:
+    //u16 modulePathLen + bytes, u16 nameLen + bytes, u32 paramCount; the
+    //function section additionally carries u16 ownerClassKeyLen + bytes
+    //(empty = namespace-level function; see SymbolImport), the
+    //0.9.10 v2.4 static flag byte (linkage identity, see SymbolImport),
+    //and the 0.9.11 v2.6 ownerKind byte + ownerOrdinal u16 (owner table
+    //kind and constructor ordinal, see SymbolImport).
+    auto readImports = [&fs](std::vector<CompiledModule::SymbolImport>& imports,
+                             bool withOwnerKey)
+    {
+        uint32_t count;
+        fs.read(reinterpret_cast<char*>(&count), sizeof(count));
+        if (!fs.good() || count > (1u << 24))
+            throw std::runtime_error("Invalid module: bad import count");
+        imports.resize(count);
+        for (auto& imp : imports)
+        {
+            uint16_t modulePathLen;
+            fs.read(reinterpret_cast<char*>(&modulePathLen),
+                    sizeof(modulePathLen));
+            if (!fs.good())
+                throw std::runtime_error(
+                    "Invalid module: bad import module path length");
+            imp.modulePath.resize(modulePathLen);
+            fs.read(imp.modulePath.data(), modulePathLen);
+            uint16_t nameLen;
+            fs.read(reinterpret_cast<char*>(&nameLen), sizeof(nameLen));
+            if (!fs.good())
+                throw std::runtime_error(
+                    "Invalid module: bad import name length");
+            imp.name.resize(nameLen);
+            fs.read(imp.name.data(), nameLen);
+            fs.read(reinterpret_cast<char*>(&imp.paramCount),
+                    sizeof(imp.paramCount));
+            if (!fs.good())
+                throw std::runtime_error("Invalid module: truncated imports");
+            if (withOwnerKey)
+            {
+                uint16_t ownerLen;
+                fs.read(reinterpret_cast<char*>(&ownerLen), sizeof(ownerLen));
+                if (!fs.good())
+                    throw std::runtime_error(
+                        "Invalid module: bad import owner key length");
+                imp.ownerClassKey.resize(ownerLen);
+                fs.read(imp.ownerClassKey.data(), ownerLen);
+                //0.9.10 v2.4: static flag (linkage identity).
+                uint8_t staticFlag = 0;
+                fs.read(reinterpret_cast<char*>(&staticFlag),
+                        sizeof(staticFlag));
+                imp.isStatic = (staticFlag != 0);
+                //0.9.11 v2.6: owner table kind + constructor ordinal.
+                //ownerKind must name one of the three owner kinds; a
+                //ownerOrdinal is only bounds-checked against the target
+                //table by the linker (the producer's table is gone).
+                fs.read(reinterpret_cast<char*>(&imp.ownerKind),
+                        sizeof(imp.ownerKind));
+                fs.read(reinterpret_cast<char*>(&imp.ownerOrdinal),
+                        sizeof(imp.ownerOrdinal));
+                if (!fs.good())
+                    throw std::runtime_error(
+                        "Invalid module: truncated import owner fields");
+                if (imp.ownerKind > 2)
+                    throw std::runtime_error(
+                        "Invalid module: bad import owner kind");
+            }
+        }
+    };
+    readImports(mod.functionImports, true);
+    readImports(mod.classImports, false);
+    readImports(mod.structImports, false);
+    readImports(mod.enumImports, false);
+    //v2.13: cross-module static-slot imports; ownerKind follows the
+    //static-slot domain (0 = class owner, 1 = interface owner — the
+    //shared reader's >2 bound admits no other value anyway).
+    readImports(mod.staticSlotImports, true);
+    if (!fs.good())
+        throw std::runtime_error("Invalid module: truncated import sections");
+
+    //Import slots are table TAILS (own entries 0..n-1, imports n..n+m),
+    //so an import count above its table's size is a corrupt or hostile
+    //image: every ownCount consumer (stub creation, linker slot walks)
+    //computes size - imports.size() and would underflow into out-of-
+    //bounds walks. The per-count read bound above only caps the vector
+    //allocation — this cross-check is the structural one, in the single
+    //reader every loader path shares.
+    auto checkImportBounds =
+        [&mod](const std::vector<CompiledModule::SymbolImport>& imports,
+               size_t tableSize, const char* tableName)
+    {
+        if (imports.size() > tableSize)
+            throw std::runtime_error(std::string(
+                "Invalid module: ") + tableName
+                + " import count exceeds the table size");
+    };
+    checkImportBounds(mod.functionImports, mod.functions.size(),
+                      "function");
+    checkImportBounds(mod.classImports, mod.classes.size(), "class");
+    checkImportBounds(mod.structImports, mod.structs.size(), "struct");
+    checkImportBounds(mod.enumImports, mod.enumNames.size(), "enum");
+    //v2.13: static-slot imports tail the slot table the same way.
+    checkImportBounds(mod.staticSlotImports, mod.staticSlots.size(),
+                      "static slot");
+
+    //Resolve the serialized entry key to an index. An empty key is the
+    //"no entry" contract (libraries); a NON-empty key that names no
+    //function is a corrupt or hostile module — the producer wrote it
+    //from its own table — so refuse it here rather than degrade to a
+    //generic no-entry error at run time.
+    if (entryKey.empty()) {
+        mod.entryPoint = -1;
+    } else {
+        const int entryIdx = mod.FindFunction(entryKey);
+        if (entryIdx < 0)
+            throw std::runtime_error(
+                "Invalid module: entry key '" + entryKey
+                + "' names no function in the module");
+        mod.entryPoint = entryIdx;
+    }
+    if (entryKeyOut)
+        *entryKeyOut = entryKey;
+
+    return mod;
+}
+
+} // namespace nlang

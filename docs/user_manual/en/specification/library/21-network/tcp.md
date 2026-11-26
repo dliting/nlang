@@ -42,7 +42,7 @@ and closing the listener ends the loop through `SocketException`.
 | `shutdownWrite()` | — | Half-close: sends the end-of-stream marker to the peer while the read side stays open (below); a later write raises `SocketException` |
 | `close()` | — | Closes the connection; idempotent. A parked reader on the peer sees end of stream |
 | `isClosed()` | → `bool` | Whether this handle has been closed |
-| `isEof()` | → `bool` | Sticky end-of-stream flag: `true` once some `read` has observed the peer's end (a read returning `0`), and it stays `true` through `close()` and further reads. Orthogonal to `isClosed()`, which reports only the local handle; an end of stream no read has observed yet leaves it `false` |
+| `isEof()` | → `bool` | Whether the end of this stream has been observed on the peer's side — a `read` returning `0` is the observation, and a `TimeoutException` never sets the flag, which is how a caller separates "the peer is done" from "nothing has arrived yet". Sticky: it stays true after `close()` and after later reads. Orthogonal to `isClosed()`, which reports only the local side; a peer close that no read has reached yet stays `false` until some read runs |
 | `peerAddress()` / `peerPort()` | → `string` / `int` | The remote end |
 | `localAddress()` / `localPort()` | → `string` / `int` | The local end |
 | `setNoDelay(on)` | — | Disables Nagle batching, for latency-sensitive protocols |
@@ -86,6 +86,30 @@ peer called `shutdownWrite` or `close`. Either side can close only
 its write side with `shutdownWrite` — the classic request/response
 shape, where the client signals "request complete" while still
 reading the reply.
+
+The three reading members — `read`, `readLine` and `readExactly` —
+answer the three ways a wait can end, and `isEof()` and `isClosed()`
+keep the answers apart:
+
+- **The deadline passes.** Each raises `TimeoutException` and
+  leaves both flags alone: "no bytes yet" is not "no more bytes
+  ever". Bytes already sitting in the receive window stay in the
+  window for the next read.
+- **The peer ends the stream.** Each records the observation, so
+  `isEof()` answers `true` from then on. `read` answers `0`, and
+  later reads answer `0` too; `readLine` returns the partial line
+  exactly as it arrived — a trailing `\r` with no `\n` behind it
+  stays ordinary content — or the empty string when the line was
+  never started, where `isEof()` is what separates that empty
+  string from an empty line off a live peer; `readExactly` raises
+  `SocketException` naming how much of the count arrived
+  (`net: connection closed after 3 of 9 bytes`).
+- **The connection is closed locally.** `close()` voids the window
+  residue, so all three raise `SocketException`
+  (`net: socket closed`) even while buffered bytes remain;
+  `isClosed()` turns `true`, while an end of stream no read has
+  observed stays `false` — closing your own side says nothing
+  about what the peer sent.
 
 The echo round trip in one process — bind, connect, accept, one
 line each way, half-close, self-exit:

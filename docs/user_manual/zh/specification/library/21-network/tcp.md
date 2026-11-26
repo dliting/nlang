@@ -34,7 +34,7 @@
 | `shutdownWrite()` | — | 半关闭：向对端发送流结束标记，读端保持打开（见下）；之后的写抛`SocketException` |
 | `close()` | — | 关闭连接；幂等。对端停泊中的读者会看到流结束 |
 | `isClosed()` | →`bool` | 这个句柄是否已关闭 |
-| `isEof()` | →`bool` | 粘滞的对端流结束标志：一旦某个`read`观察到对端结束（返回`0`的读取）即为`true`，并在`close()`与后续读取中保持`true`。与`isClosed()`正交——后者只报告本地句柄；尚未被任何读取观察到的流结束使它保持`false` |
+| `isEof()` | →`bool` | 本流是否已观测到对端把流写终——某次`read`返回`0`就是那次观测；因超时抛出的`TimeoutException`从不置位，这正是"对端已经结束"与"暂时还没有字节到来"的区分。粘滞：`close()`之后、后续读取之后都保持为真。与`isClosed()`正交，后者只报告本地一侧；尚未被任何读取触及的对端关闭保持为`false`，直到某次读取执行 |
 | `peerAddress()`/`peerPort()` | →`string`/`int` | 远端 |
 | `localAddress()`/`localPort()` | →`string`/`int` | 本地端 |
 | `setNoDelay(on)` | — | 关闭Nagle合批，用于对时延敏感的协议 |
@@ -52,6 +52,12 @@
 ## 流结束与半关闭
 
 `read`返回`0`就是字节流的有序结束：对端调用了`shutdownWrite`或`close`。任何一边都可以只用`shutdownWrite`关掉自己这一侧的写——经典的请求/应答形态：客户端宣告"请求写完"，同时还在读应答。
+
+三个读取成员——`read`、`readLine`与`readExactly`——各自回答等待结束的三种方式，`isEof()`与`isClosed()`负责把这些回答区分开：
+
+- **截止时刻到来。**三者都抛`TimeoutException`，两面旗标都不动："暂时还没有字节"不是"永远不会再有字节"。已经躺在接收窗口里的字节留在窗口中，留给下一次读取。
+- **对端结束流。**三者都记下这次观测，`isEof()`从此回答`true`。`read`回答`0`，其后的读取也回答`0`；`readLine`按原样返回残缺的行——行尾没有`\n`跟随时的那个`\r`仍是普通内容——行尚未开始时返回空串，此时把这个空串与活对端送来的空行区分开正是`isEof()`的职责；`readExactly`抛出点名已到字节数的`SocketException`（`net: connection closed after 3 of 9 bytes`）。
+- **本端关闭连接。**`close()`作废窗口残余，于是三者即使缓冲区里还有字节也一律抛`SocketException`（`net: socket closed`）；`isClosed()`变为`true`，而从未被读取观测到的流结束仍保持`false`——关闭自己这一侧，说明不了对端发送过什么。
 
 单进程里的echo往返——绑定、连接、接受、各一行、半关闭、自退出：
 

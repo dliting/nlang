@@ -176,6 +176,68 @@ add_library(nlang_compiler
     builder/ModuleRegistry.cpp
     builder/ModuleRegistryGate.cpp
     builder/ImportCycleCheck.cpp
+
+    #Bytecode codegen backend (moved from src/vm/backend
+    #with the library layering split, docs/dev/library_layering_
+    #design.md §6); the duplicate RegisterStructs.cpp row of the
+    #old vm table is listed once here.
+    codegen/DescriptorSpelling.cpp
+    codegen/VmBackend.cpp
+    codegen/VmBackendSignatures.cpp
+    codegen/WriteModuleArtifact.cpp
+    codegen/DeclPredicates.cpp
+    codegen/GenerateUnits.cpp
+    codegen/Register.cpp
+    codegen/RegisterStructs.cpp
+    codegen/Slots.cpp
+    codegen/RegisterArrayTypes.cpp
+    codegen/RegisterClass.cpp
+    codegen/ResolveBareIdentifier.cpp
+    codegen/EmitStaticInit.cpp
+    codegen/RegisterInterfaces.cpp
+    codegen/RegisterEnums.cpp
+    codegen/BuiltinClasses.cpp
+    codegen/Types.cpp
+    codegen/EmitCall.cpp
+    codegen/EmitCtorCall.cpp
+    codegen/WalkersExpr.cpp
+    codegen/WalkersExprRef.cpp
+    codegen/WalkersStmt.cpp
+    codegen/WalkersMaxArgs.cpp
+    codegen/EmitExprCore.cpp
+    codegen/EmitExprIdent.cpp
+    codegen/EmitExprCast.cpp
+    codegen/EmitExprSubscript.cpp
+    codegen/EmitExprBinary.cpp
+    codegen/EmitExprNew.cpp
+    codegen/EmitExprInitList.cpp
+    codegen/EmitExprInitListND.cpp
+    codegen/EmitInitListAggregate.cpp
+    codegen/EmitExprMember.cpp
+    codegen/EmitExprMemberFieldLoad.cpp
+    codegen/FieldOffsets.cpp
+    codegen/EmitExprMemberCall.cpp
+    codegen/EmitExprMemberStatic.cpp
+    codegen/EmitExprMemberString.cpp
+    codegen/EmitGenericBoxing.cpp
+    codegen/EmitExprMemberArray.cpp
+    codegen/EmitArrayBoundary.cpp
+    codegen/EmitArrayOpcodes.cpp
+    codegen/EmitStmtDecl.cpp
+    codegen/EmitStmtAssign.cpp
+    codegen/EmitStmtRef.cpp
+    codegen/EmitExprRef.cpp
+    codegen/EmitCapture.cpp
+    codegen/EmitCaptureStorage.cpp
+    codegen/EmitCaptureFrame.cpp
+    codegen/EmitStmtCompound.cpp
+    codegen/EmitStmtStore.cpp
+    codegen/EmitStmtFlow.cpp
+    codegen/EmitStmtForeach.cpp
+    codegen/EmitStmtForeachString.cpp
+    codegen/EmitStmtSwitch.cpp
+    codegen/EmitStmtTry.cpp
+    codegen/TypeDescBuild.cpp
 )
 
 target_include_directories(nlang_compiler
@@ -192,11 +254,15 @@ target_include_directories(nlang_compiler
         ${CMAKE_CURRENT_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/builder
-        ${PROJECT_SOURCE_DIR}/src/vm
+        ${CMAKE_CURRENT_SOURCE_DIR}/codegen
 )
 
 target_link_libraries(nlang_compiler
-    PUBLIC nlang_runtime
+    #nlang_runtime arrives transitively through nlang_core (library
+    #layering split, docs/dev/library_layering_design.md §6): the module
+    #image / bytecode vocabulary lives in core, so the compiler's public
+    #edge is core, not the runtime it wraps.
+    PUBLIC nlang_core
     PRIVATE nlang_langservice
 )
 

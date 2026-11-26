@@ -1,11 +1,13 @@
 /*---
-    TypeArgSpelling.cpp — TypeArgSpelling.h契约：规范拼写、AST侧实参
-    分类与VM行键（LinkKeyOf）。行键规则随0.12.3字典模型与0.12.6预置
+    TypeArgSpelling.cpp — TypeArgSpelling.h契约的AST半：实参分类与
+    VM行键（LinkKeyOf）；规范拼写CanonicalArgSpelling与类型参数可
+    组合性判定HasTypeParamArg两个AST无关函数拆迁同目录
+    CanonicalArgSpelling.cpp。行键规则随0.12.3字典模型与0.12.6预置
     成员裁定演进，自Register.cpp整块迁入（2026-11-09层界收正：解析器
     与后端共用一份分类；编译器库不得引用虚拟机库公共头——依赖方向是虚拟机库
     消费编译器AST，所需类型种类常量取自运行时层）。
 ---*/
-#include <nlang/compiler/TypeArgSpelling.h>
+#include <nlang/core/TypeArgSpelling.h>
 #include "ModuleRegistry.h"
 #include <nlang/compiler/GenericInstanceRegistry.h>
 #include <nlang/compiler/SnArrayTypeToken.h>
@@ -36,27 +38,6 @@ std::string ArraySpelling(const std::string& elemSpelling, uint8_t rank)
 	return spelling;
 }
 } //namespace
-
-std::string CanonicalArgSpelling(const TypeArgDesc& arg)
-{
-	if (arg.nested.empty())
-		return arg.spelling;
-	//Array arguments carry a complete leaf spelling ("int[]", "int[,]");
-	//the nested element descriptor is structure for the dispatch paths,
-	//never part of the canonical render.
-	if (arg.resolvedKind == RTK_Array)
-		return arg.spelling;
-	std::string spelling = arg.spelling;
-	spelling += "<";
-	for (size_t i = 0; i < arg.nested.size(); ++i)
-	{
-		if (i)
-			spelling += ",";
-		spelling += CanonicalArgSpelling(arg.nested[i]);
-	}
-	spelling += ">";
-	return spelling;
-}
 
 //--- VM row keys -------------------------------------------------------
 
@@ -364,20 +345,6 @@ std::vector<TypeArgDesc> BuildTypeArgsOf(const ModuleRegistry& reg,
 	for (const SnField* pArg : inst.GenericTypeArgs())
 		args.push_back(BuildTypeArgOf(reg, *pArg));
 	return args;
-}
-
-bool HasTypeParamArg(const std::vector<TypeArgDesc>& args)
-{
-	for (const auto& arg : args)
-	{
-		if (IsTypeParamArg(arg))
-			return true;
-		//A nested instantiation containing a type parameter anywhere in
-		//its subtree is composable too.
-		if (!arg.nested.empty() && HasTypeParamArg(arg.nested))
-			return true;
-	}
-	return false;
 }
 
 } //namespace nlang

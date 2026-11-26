@@ -520,7 +520,18 @@ trap release EXIT
 acquire_claims
 acquire_wdirs "$@"
 
-"$@" >"$stem.out" 2>"$stem.err"
+# The coordination namespace belongs to this gate instance (R-100): a
+# wrapped command that nests another gate must derive its claims from
+# its own argv, and no production consumer reads the forwarded names.
+# Tuning values were already captured into locals above; only the
+# child's view goes blind.
+strip_env=()
+while IFS= read -r strip_name; do
+    strip_env+=(-u "$strip_name")
+done < <(compgen -e | grep '^NLANG_GATE_' || true)
+# `--` ends env's own option scan so a wrapped command whose first word
+# starts with a dash is never eaten as an env option (review Minor-1).
+env ${strip_env[@]+"${strip_env[@]}"} -- "$@" >"$stem.out" 2>"$stem.err"
 rc=$?
 
 echo "----- $name: stdout tail ($stem.out) -----"

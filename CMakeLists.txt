@@ -221,6 +221,9 @@ endfunction()
 # Subdirectories
 add_subdirectory(src/runtime)
 add_subdirectory(src/langservice)
+#nlang_core first among the two-layer consumers: compiler and vm both
+#depend on it, never on each other (library layering split).
+add_subdirectory(src/core)
 add_subdirectory(src/compiler)
 add_subdirectory(src/vm)
 add_subdirectory(src/embed)

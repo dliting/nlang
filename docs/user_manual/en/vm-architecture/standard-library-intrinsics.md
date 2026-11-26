@@ -21,9 +21,9 @@ function.
 prelude face class `String` (`stdlib/lang.n`) — the resolver validates
 the member call against that declaration, and emission reads the intrinsic
 identifier (ID) from the binding table (`src/compiler/builder/BindingTable.cpp`,
-key `String.<method>`) in `src/vm/backend/EmitExprMemberString.cpp`. An
+key `String.<method>`) in `src/compiler/codegen/EmitExprMemberString.cpp`. An
 intrinsic's ID is module-local — the linker's operand
-remap (`NcuRemapBytecodeOperands`, `src/vm/NcuLinkerRemap.cpp`) never
+remap (`NcuRemapBytecodeOperands`, `src/core/NcuLinkerRemap.cpp`) never
 rewrites it — so cross-module imports have no ID problems.
 
 **Argument application binary interface (ABI)**: the receiver occupies `callParamBase[0]` and arguments
@@ -38,7 +38,7 @@ FileStream → the thread-family arm (`IntrinsicsThread.cpp`, IDs 129-143)
 → inline Object/List/Dict-protocol and exception-ctor arms → string →
 unknown-ID throw. Each family is independently extensible in its own TU.
 
-**Intrinsic ID allocation** (`include/nlang/vm/Intrinsics.h`). Blocks are
+**Intrinsic ID allocation** (`include/nlang/core/Intrinsics.h`). Blocks are
 contiguous. The string-method block is statically bound on both sides —
 the block bounds live in `Intrinsics.h`, and the binding table carries
 one row per method with a compile-time row-count check against the block,

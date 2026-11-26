@@ -10,7 +10,7 @@
 #include "TestNatives.h"
 #include "VmExecutor.h"
 #include <nlang/langservice/SymbolIndex.h>
-#include <nlang/vm/CompiledModule.h>
+#include <nlang/core/CompiledModule.h>
 #include <filesystem>
 #include <cstdlib>
 #include <iostream>

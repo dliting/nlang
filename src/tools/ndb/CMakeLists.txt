@@ -9,7 +9,10 @@ add_executable(ndb
 if(MSVC)
     target_sources(ndb PRIVATE ${PROJECT_SOURCE_DIR}/cmake/nlang-utf8.manifest)
 endif()
-target_include_directories(ndb PRIVATE ${PROJECT_SOURCE_DIR}/src/vm)
+target_include_directories(ndb PRIVATE
+    ${PROJECT_SOURCE_DIR}/src/vm
+    ${PROJECT_SOURCE_DIR}/src/core
+)
 target_link_libraries(ndb PRIVATE nlang_vm nlang_langservice nlang_version)
 
 # ASan runtime provisioning (see the root CMakeLists): one sweep covers

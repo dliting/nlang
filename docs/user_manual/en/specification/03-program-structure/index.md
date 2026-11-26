@@ -81,7 +81,12 @@ below `p`, recursively. The candidates are the union of project
 units, source-library units and library-package members. For a flat
 module set the wildcard is equivalent to the exact `import p;`; a
 library with submodules opens them all in one stroke. It is a
-compile-time error if the wildcard matches no unit.
+compile-time error if the wildcard matches no unit (`No modules
+matched import '<path>.*'. Check the project Sources list or -I
+import path.`). A module path may also name a segment with a
+reserved word: after `import` and after each `.` of a path, a
+reserved word reads as a segment name, so `import web.static;`
+opens the `static` submodule of `web`.
 
 An import of a path that none of those source or artifact forms
 supplies is a compile-time error. Importing the same path more than
@@ -190,7 +195,8 @@ segment by segment: when a segment after an open module path names a
 type, the segments beyond it resolve inside that type — a static method, a static field or an
 enum member, at any depth — so `p.K.m` and deeper chains such as
 `p.E.v.method()` name the same member as the bare type-name
-spelling (§4.8.8). Each member's declared
+spelling (§4.8.8), a library path behaving exactly like a project
+path. Each member's declared
 access (§4.8.2) applies on top of the gate: a foreign `private`
 member never resolves — a type reads as not a member of that
 package, a function as the standard not-found diagnostic; a

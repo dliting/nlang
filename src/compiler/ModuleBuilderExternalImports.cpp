@@ -15,10 +15,11 @@
 #include "BuiltinPrelude.h"
 #include "ModuleBuilderImportCycles.h"
 #include "ModuleBuilderImports.h"
-#include "ModuleLoader.h"
+#include <nlang/core/ModuleLoader.h>
 #include "builder/CompiledModuleNodeBuilder.hpp"
 #include "builder/ModuleRegistry.h"
-#include "nlang/vm/NcuPackage.h"
+#include "nlang/core/CompiledModule.h"
+#include "nlang/core/NcuPackage.h"
 #include <algorithm>
 #include <filesystem>
 #include <map>

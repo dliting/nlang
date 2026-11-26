@@ -1,9 +1,10 @@
 """Lexical cross-check: the reserved-word table in §1.4 of the
-specification equals the keyword set the lexer can produce. The set
-is the union of the literal rules ("word" { return KT_Word; }) and
-the keyword rules whose action computes before returning (e.g.
-"func" sets the generic-open flag first); the KT_ token name maps
-back to the word by lower-casing the suffix."""
+specification equals the keyword set the lexer can produce. The word
+face is always the rule's literal left side — the pattern admits both
+action styles (a direct "return KT_X;" and a computed one, e.g. "class"
+arming flags or every rule starting with the path-segment soft-read) —
+because the KT_ token name is only the keyword filter: lower-casing its
+suffix loses camelCase (KT_TypeName vs the word `typeName`)."""
 import re
 from pathlib import Path
 
@@ -12,12 +13,13 @@ LEXER = REPO / "src" / "compiler" / "grammar" / "nlang.l"
 SPEC_LEX = (REPO / "docs" / "user_manual" / "en" / "specification"
             / "01-lexical.md")
 
-# "word" { return KT_Word; }  -- the direct literals
-LITERAL_KW = re.compile(r'"([A-Za-z_#]+)"\s*\{\s*return\s+(KT_\w+)')
-# every KT_ token a return statement yields, including one wrapped in
-# a helper call (return KwToken(KT_X);) -- a bare "return KT_" would
-# go blind to that action style
-ALL_KT = re.compile(r"return\b[^;]*?\b(KT_\w+)")
+# "word" { ... return ... KT_Word; } -- the quoted left side is the word
+# face; the KT_ token in the return statement filters keyword rules from
+# the other quoted literals (the operators return OT_ tokens, the state
+# rules return no value). Comments inside an action carry no braces, so
+# the [^{}] spans stop at the rule boundary.
+KEYWORD_RULE = re.compile(
+    r'"([A-Za-z_#]+)"\s*\{[^{}]*\breturn\b[^;{}]*\bKT_\w+', re.S)
 # spec table rows: | `word` | ... | (mixed case admitted — typeName is
 # the language's first camelCase reserved word, v0.13.1)
 TABLE_ROW = re.compile(r"^\|\s*`([A-Za-z_#]+)`\s*\|", re.M)
@@ -25,11 +27,7 @@ TABLE_ROW = re.compile(r"^\|\s*`([A-Za-z_#]+)`\s*\|", re.M)
 
 def _lexer_keywords():
     text = LEXER.read_text(encoding="utf-8", errors="replace")
-    literals = {w for w, _ in LITERAL_KW.findall(text)}
-    literal_tokens = {t for _, t in LITERAL_KW.findall(text)}
-    computed = {t[3:].lower()
-                for t in set(ALL_KT.findall(text)) - literal_tokens}
-    return literals | computed
+    return set(KEYWORD_RULE.findall(text))
 
 
 def _spec_reserved_table():

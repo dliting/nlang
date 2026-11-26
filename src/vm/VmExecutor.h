@@ -1,7 +1,7 @@
 #pragma once
-#include "nlang/vm/CompiledModule.h"
+#include "nlang/core/CompiledModule.h"
 #include "nlang/vm/NativeHost.h"
-#include "BytecodeReader.h"
+#include <nlang/core/BytecodeReader.h>
 #include "IDebugHooks.h"
 #include "IHostFunctions.h"
 #include "IHostIo.h"
@@ -12,7 +12,7 @@
 #include "NativeLibraryLoader.h"
 #include "CallFrame.h"
 #include "ChunkedArray.h"
-#include "GenericInstDescriptor.h"
+#include <nlang/core/GenericInstDescriptor.h>
 #include "ShardFreeList.h"
 #include "VmDomainLocks.h"
 #include "VmScheduler.h"

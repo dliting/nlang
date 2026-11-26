@@ -113,10 +113,11 @@ nav:
           - gzip包: specification/library/24-gzip.md
           - regex包: specification/library/25-regex.md
           - json包: specification/library/26-json.md
+          - web包: specification/library/27-web.md
       - 二进制格式:
-          - .ncu单元映像: specification/formats/27-ncu.md
-          - .npkg包档案: specification/formats/28-npkg.md
-          - 原生应用二进制接口: specification/formats/29-abi.md
+          - .ncu单元映像: specification/formats/28-ncu.md
+          - .npkg包档案: specification/formats/29-npkg.md
+          - 原生应用二进制接口: specification/formats/30-abi.md
       - 参考:
           - 已知限制: specification/reference/known-limitations.md
           - 常见错误消息: specification/reference/common-errors.md

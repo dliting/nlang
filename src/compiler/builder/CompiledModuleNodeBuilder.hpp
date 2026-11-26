@@ -9,7 +9,7 @@
 #include "SnExpressions.h"
 #include "SnStatements.h"
 #include "BuildEnvironment.h"
-#include "nlang/vm/CompiledModule.h"
+#include "nlang/core/CompiledModule.h"
 #include <nlang/runtime/BuiltinGenericNames.h>
 #include <nlang/runtime/RnTypes.h>
 #include <string>

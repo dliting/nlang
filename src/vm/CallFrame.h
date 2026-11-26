@@ -6,8 +6,8 @@
     ——载体槽位（VmScheduler.h）持有解退记录，嵌套类无法前向声明。
 ---*/
 #pragma once
-#include "nlang/vm/CompiledModule.h"
-#include "GenericInstDescriptor.h"
+#include "nlang/core/CompiledModule.h"
+#include <nlang/core/GenericInstDescriptor.h>
 #include <cstdint>
 #include <string>
 #include <vector>

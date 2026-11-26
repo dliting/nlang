@@ -6,7 +6,7 @@
 #pragma once
 #include "VmExecutor.h"
 #include "nlang/embed/NLang.h"
-#include "nlang/vm/TypeDesc.h"
+#include "nlang/core/TypeDesc.h"
 #include <memory>
 #include <vector>
 

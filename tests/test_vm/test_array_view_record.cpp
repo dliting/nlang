@@ -15,7 +15,7 @@
 #include "nlang/compiler/Logger.h"
 #include <nlang/compiler/CastInfo.h>
 #include "nlang/runtime/Runtime.h"
-#include "nlang/vm/CompiledModule.h"
+#include "nlang/core/CompiledModule.h"
 #include "nlang/vm/NativeHost.h"
 #include "VmExecutor.h"
 #include "VmExecutorNativeHost.h"

@@ -32,7 +32,7 @@
 #include "nlang/compiler/ModuleBuilder.h"
 #include "nlang/langservice/SymbolIndex.h"
 #include "nlang/runtime/Runtime.h"
-#include "nlang/vm/CompiledModule.h"
+#include "nlang/core/CompiledModule.h"
 #include "NcuLinker.h"
 #include "NcuLoader.h"
 #include "TestNatives.h"

@@ -7,7 +7,6 @@
 #include "Logger.h"
 #include "SnTypes.h"
 #include "SnExtraTypes.h"
-#include "ICodeBackend.h"
 #include <nlang/runtime/Module.h>
 #include <list>
 #include <map>
@@ -27,6 +26,10 @@ class LLVMContext;
 
 namespace nlang
 {
+
+//The bytecode codegen backend (src/compiler/codegen/VmBackend.h, an
+//internal header; this public header holds it only behind unique_ptr).
+class VmBackend;
 
 struct BuildParams
 {
@@ -203,16 +206,14 @@ public:
 #endif
 
 	//Get the code backend.
-	ICodeBackend* Backend() const
+	VmBackend* Backend() const
 	{
 		return m_upBackend.get();
 	}
 
-	//Set the code backend.
-	void Backend(ICodeBackend* p)
-	{
-		m_upBackend.reset(p);
-	}
+	//Set the code backend. Out of line: reset() deletes the previous
+	//backend, so it needs VmBackend's dtor — defined in the internal TU.
+	void Backend(VmBackend* p);
 
 	//0.7.3 B: TU-level array token interning. Single construction
 	//entry — element field → array token; the first use creates, later
@@ -246,7 +247,7 @@ private:
 #ifdef NLANG_ENABLE_LLVM
 	llvm::Module *m_pCurrMetaModule;
 #endif
-	std::unique_ptr<ICodeBackend> m_upBackend;
+	std::unique_ptr<VmBackend> m_upBackend;
 	std::unique_ptr<ModuleRegistry> m_upRegistry;
 	std::unique_ptr<langservice::SymbolIndex> m_upLibraryIndex;
 	//Owned through shared_ptr so the incomplete cache type needs no

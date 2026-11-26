@@ -1,3 +1,36 @@
+## [0.13.13] - 2026-11-26
+
+This release absorbs both lines' in-flight versions: the master
+line's package artifacts (F1) and the dev line's web framework
+ship together under the [0.13.12] entry below, and the dev line's
+library layering refactor is [0.13.12a] (no user-visible surface
+change). Those entries sit below 0.13.13, dated by their own
+lines' release days; read them together with this one.
+
+### Changed
+
+- **Manual: web framework chapter, formats renumbered.** The `web`
+  package joins the specification's library reference as chapter
+  27, and the format references on NCU, NPKG and ABI move to
+  chapters 28/29/30. Both language trees stay in sync.
+
+## [0.13.12a] - 2026-11-25
+
+Library-layering refactor with no user-visible surface changes: a
+new internal static library `nlang_core` carries the shared
+compiled-module vocabulary — module wire format, bytecode
+spelling, disassembler, loader and linker — and the bytecode
+backend moves from `nlang_vm` into `nlang_compiler` under
+`src/compiler/codegen`. The shared vocabulary's public headers now
+live under `include/nlang/core`. This severs the former
+`nlang_vm ↔ nlang_compiler` link-time cycle: the compiler builds
+on `nlang_core` alone, and the VM stays pure execution.
+
+Language, standard library, diagnostics, exit codes and the NCU
+wire format are unchanged — byte-for-byte, verified by a
+path-normalized diff over every stdlib and example artifact built
+before and after the split.
+
 ## [0.13.12] - 2026-11-23
 
 Package archives as a distribution unit: a third-party library can now
@@ -9,7 +42,37 @@ loading. The standard library itself is repackaged into thirteen
 domain packages on the same container. Not backward compatible by
 design.
 
+Name resolution through library packages now matches its project-module
+twin: `import p.*;` opens a library package's submodule subtree the way
+it opens a project directory's, and a module-qualified chain reaches the
+static methods, static fields and enum members of a library class at any
+depth — spellings the compiler used to reject while accepting the same
+shapes written against a project module.
+
+Web framework on top of the `http` package: the `web` package brings
+routing with `:name` captures and a trailing `*` catch-all, a
+middleware chain, cookie-backed
+sessions, mounted static-file serving with `ETag`/`Last-Modified`
+revalidation, a server-sent events helper, and form parsing for both
+browser encodings — with a `MultipartBody` builder and uploads saved
+under sanitized names.
+
+Lambda review-fix pass over 0.13.10: currying, catch-variable
+capture and static-field lambda initializers arrive, and a
+shadowed-capture misroute is fixed by resolving captured access
+through the bound display-field descriptor instead of the field
+name. Not backward compatible by design.
+
+This release also absorbs the master-line releases 0.13.9 and
+0.13.10: everything user-visible on that line lands here —
+value-type references and the retired `out` parameter mechanism
+(0.13.9), lambda closures and per-iteration loop-head capture
+(0.13.10), NCU format v2.23 included. Those entries sit below
+0.13.11, each dated by its own line's release day; read them
+alongside this one.
+
 ### Added
+
 - **Library archives as an import surface.** With no source supplying a
   module, the compiler checks `<name>.ncu` in a directory and then the
   member tables of its `.npkg` files in file-name order; the first
@@ -44,8 +107,70 @@ design.
   replaced. A package whose declarations stay outside a program's
   closure is extracted but never loaded, and consumers need neither
   the library file itself nor a dedicated search-dir entry for it.
+- **The `web` package.** An application layer over `http`: `App`
+  owns the server and the middleware chain, routes register through
+  `on` and its verb shorthands with `:name` captures and a trailing
+  `*` catch-all, `mount` hands a prefix's subtree to a handler or a
+  second route table, `useSessions` turns on cookie-backed sessions,
+  and `setNotFound`/`onError` reshape misses and failures.
+- **Static file serving.** `web.static.StaticFiles` serves a mounted
+  directory: index file, `Cache-Control` max-age, `ETag` and
+  `Last-Modified` revalidation, dot-file refusal.
+- **Server-sent events.** `web.sse.Sse` writes framed SSE events
+  onto a response held open — the SSE semantics chapter 23 leaves
+  to the application.
+- **Form parsing.** `web.form.Form.parse` decodes
+  `application/x-www-form-urlencoded` and `multipart/form-data`
+  bodies into `FormData` under `FormOptions` budgets: a foreign
+  content type answers `415`, malformed grammar answers named `400`
+  diagnostics, an exhausted budget answers a named `413`.
+- **`web.form.MultipartBody`.** The client side of the same
+  message: `addField` and `addFile` register parts — `addFile`
+  copies its data at registration — and a registered `Content-Type`
+  carrying CR or LF is refused.
+- **Upload saving.** `FormFile.safeName()` cleans a client name for
+  storage: the client path stripped, control bytes out, reserved
+  device names prefixed, truncation at a UTF-8 boundary. `saveTo`
+  writes under that name plus a random hex suffix, `saveAs` writes
+  verbatim.
+- **`math.randomBytes(count)`.** Fresh bytes from the operating
+  system's cryptographically secure random source; a negative
+  count, a count over the 16 MiB ceiling or an unavailable source
+  answer named diagnostics. Session ids and multipart boundaries
+  draw from it.
+- **`fs.writeBytes(path, data)` and `fs.modifiedTimeMs(path)`.**
+  Whole-file byte writes, and a file's last-modified time in
+  milliseconds since the Unix epoch, on the clock `http.HttpDate`
+  reads — the static-file revalidation feeds on it.
+- **`net.TcpStream.isEof()`.** Whether the peer's end-of-stream has
+  been observed: sticky, and never set by a timeout, so a caller
+  separates "the peer is done" from "nothing has arrived yet".
+- **`http.HttpServer.drain(graceMs)` and `isServing()`.** The
+  graceful shutdown state machine: `drain` stops accepting, serves
+  the in-flight requests within the grace window and reports the
+  connections it forced closed; `isServing` reports whether the
+  accept loop is up. `web.App` forwards `drain` and `close`.
+- **Expression-body nesting (currying).** A lambda's expression
+  body may itself be a lambda — `(x) -> (y) -> x + y` under
+  `func<func<int, int>, int>` returns a closure that captures the
+  outer parameter. Expression bodies are normalized to a
+  single-return block before capture analysis, so every capture
+  rule (value and `&` forms, loop-head freshness, shadowing)
+  applies to both body shapes alike.
+- **Catch-variable capture.** A lambda written inside a `catch`
+  handler captures the handler's variable like any outer local —
+  `func<string> msg = () -> e.message;` reads the exception object
+  the clause bound.
+- **Lambdas as static field initializers.** A static field of
+  function type may be initialized with a lambda —
+  `public static func<int, int> dbl = (x) -> x * 2;` — evaluated
+  once by the class's static initializer at first use. Invoking it
+  through the type name (`Cfg.dbl(21)`) is the receiverless call
+  shape for a `func`-typed static field; instance field
+  initializers remain constant-expression positions.
 
 ### Changed
+
 - **Container format 1.1.** `.npkg` member-table rows now carry a kind —
   `0` a unit image, `1` a native host library — with native members
   keyed by file name (`nlang_<ns>.dll`) and no import ever resolving to
@@ -63,30 +188,55 @@ design.
   could not be opened during the scan, and a package whose member table
   names the module but whose member image is invalid is reported as a
   failed module load, not as missing.
+- **`fs.readBytes` returns `byte[]`.** The whole-file read answered
+  `int[]` with one octet per element; the octets now arrive as a
+  `byte[]`, the shape `fs.writeBytes` takes. Not backward
+  compatible by design: call sites that indexed the `int[]` re-read
+  them as `byte[]`.
+- **The default client read timeout is 30 seconds.** The `http`
+  client's default `readTimeoutMs` grew from 10000 ms to 30000 ms,
+  so a slow server-handler read on an otherwise healthy machine no
+  longer raises a spurious `TimeoutException`. The budget stays
+  bounded to catch hung connections, and each client still sets the
+  field itself.
 
-## [0.13.11] - 2026-11-23
+### Fixed
+
+- **Shadowed captures resolve by identity.** A captured reference
+  now walks the display chain by the bound display field's parent
+  class, not by field name: a lambda capturing an outer `n` while
+  an inner scope redeclares `n` reads and writes the declaring
+  scope's storage for both value and `&` captures.
+- **Qualified names and wildcard imports behave the same through
+  library packages as through project modules.** A chain such as
+  `http.HttpResponse.reasonPhraseFor(404)` — an opened module path,
+  then a type, then its member — compiled when the class lived in a
+  project module and failed when the very same class lived in a
+  library package: the resolver's library arm claimed the whole
+  chain as a module path (`Module 'http.HttpResponse' is not
+  imported`), and every remedy it suggested the compiler itself then
+  rejected — the class is not a module, and `import http.*;` was
+  refused outright for library packages. Enum members worked one
+  segment deep while class statics did not work at all. Both sides
+  now walk the chain by one rule: after an opened module path, a
+  segment that names a type hands the rest of the chain to that
+  type's scope — static methods, static fields and enum members, at
+  any depth — and `import p.*;` opens `p` with its whole submodule
+  subtree for library packages as it does for project units, so a
+  flat library package's wildcard is equivalent to its exact import.
+  Only a name that genuinely is a module path is told `is not
+  imported` now; a missing member of a reached type reads as a
+  missing member.
+
+## [0.13.11] - 2026-11-15
 
 The JSON library: a `json` package that reads, edits and writes JSON
 text, written in NLang itself and shipped in the preset package. This
-release also settles the two language-surface items the library needed
-and fixes four defects it uncovered. The lambda review-fix pass over
-0.13.10 lands with it: currying, catch-variable capture and
-static-field lambda initializers arrive, and a shadowed-capture
-misroute is fixed by resolving captured access through the bound
-display-field descriptor instead of the field name. Name resolution
-through library packages now matches its project-module twin:
-`import p.*;` opens a library package's submodule subtree the way it
-opens a project directory's, and a module-qualified chain reaches the
-static methods, static fields and enum members of a library class at
-any depth — spellings the compiler used to reject while accepting the
-same shapes written against a project module. The web framework's
-first construction tasks (the middleware chain, the request context
-and the App facade over `http`) are in the tree as a 0.13.12 preview:
-`web` is not a released interface yet and its surface changes as the
-framework closes. Not backward
-compatible by design.
+release also settles two language-surface items the library needed and
+fixes four defects it uncovered.
 
 ### Added
+
 - **The `json` package** — `json.parse(text)` turns one JSON document
   into a tree of `JsonValue` nodes; `serialize()` writes a tree back as
   compact one-line text and `serialize(spaces)` renders the indented
@@ -135,26 +285,9 @@ compatible by design.
   node by kind, edits the tree and writes it back in both the compact
   and the indented form; §26.1 shows the same program with the output it
   prints.
-- **Expression-body nesting (currying).** A lambda's expression
-  body may itself be a lambda — `(x) -> (y) -> x + y` under
-  `func<func<int, int>, int>` returns a closure that captures the
-  outer parameter. Expression bodies are normalized to a
-  single-return block before capture analysis, so every capture
-  rule (value and `&` forms, loop-head freshness, shadowing)
-  applies to both body shapes alike.
-- **Catch-variable capture.** A lambda written inside a `catch`
-  handler captures the handler's variable like any outer local —
-  `func<string> msg = () -> e.message;` reads the exception object
-  the clause bound.
-- **Lambdas as static field initializers.** A static field of
-  function type may be initialized with a lambda —
-  `public static func<int, int> dbl = (x) -> x * 2;` — evaluated
-  once by the class's static initializer at first use. Invoking it
-  through the type name (`Cfg.dbl(21)`) is the receiverless call
-  shape for a `func`-typed static field; instance field
-  initializers remain constant-expression positions.
 
 ### Changed
+
 - **`as` now spells widenings as well as narrowings.** An explicit cast
   between scalar primitives used to be accepted only when it narrowed,
   so a `long` → `double` conversion a program genuinely intended had no
@@ -197,6 +330,7 @@ compatible by design.
   declarations, not from the mirror.
 
 ### Fixed
+
 - **Constructor arguments of a widened type carry the right value.** An
   `int` actual for a `long` or `double` formal (and a `long` actual for
   a `double` formal) was staged into the call slot at the argument's own
@@ -239,31 +373,6 @@ compatible by design.
   instance of a class that implements it), and a declared type with no
   answer in that classifier fails the build naming the kind instead of
   degrading to an integer and losing the object.
-- **Shadowed captures resolve by identity.** A captured reference
-  now walks the display chain by the bound display field's parent
-  class, not by field name: a lambda capturing an outer `n` while
-  an inner scope redeclares `n` reads and writes the declaring
-  scope's storage for both value and `&` captures.
-- **Qualified names and wildcard imports behave the same through
-  library packages as through project modules.** A chain such as
-  `http.HttpResponse.reasonPhraseFor(404)` — an opened module path,
-  then a type, then its member — compiled when the class lived in a
-  project module and failed when the very same class lived in a
-  library package: the resolver's library arm claimed the whole
-  chain as a module path (`Module 'http.HttpResponse' is not
-  imported`), and every remedy it suggested the compiler itself then
-  rejected — the class is not a module, and `import http.*;` was
-  refused outright for library packages. Enum members worked one
-  segment deep while class statics did not work at all. Both sides
-  now walk the chain by one rule: after an opened module path, a
-  segment that names a type hands the rest of the chain to that
-  type's scope — static methods, static fields and enum members, at
-  any depth — and `import p.*;` opens `p` with its whole submodule
-  subtree for library packages as it does for project units, so a
-  flat library package's wildcard is equivalent to its exact import.
-  Only a name that genuinely is a module path is told `is not
-  imported` now; a missing member of a reached type reads as a
-  missing member.
 
 ## [0.13.10] - 2026-11-22
 

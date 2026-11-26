@@ -27,7 +27,7 @@
 #include <string>
 #include <vector>
 #include "nlang/common/LibrarySearchPath.h"
-#include "nlang/vm/CompiledModule.h"
+#include "nlang/core/CompiledModule.h"
 #include "SearchPathArgs.h"
 
 namespace fs = std::filesystem;

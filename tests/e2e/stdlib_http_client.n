@@ -5,7 +5,7 @@
 // call deadline (D8), a user-set Accept-Encoding is not auto-decompressed
 // (D21), a failed exchange does not poison the pool, and HEAD delivers no
 // body bytes but keeps Content-Length (HTTP-SRV-014) while asking for no
-// gzip. Review Focus 5/6.
+// gzip, and pin 0 pins the documented construction defaults. Review Focus 5/6.
 //
 // The free functions run against a second, uncapped server: they go through
 // the shared default client, whose idle connection would otherwise hold a
@@ -79,6 +79,14 @@ HttpResponse apiHandler(HttpRequest req) {
 }
 
 int main() {
+    // 0. The construction defaults chapter 23 documents: the per-read budget
+    // is deliberately wide (30 s) so a slow server-handler read passes on a
+    // healthy machine, while the connect budget, the forever call budget and
+    // the redirect cap stay at their documented values.
+    HttpClient fresh = HttpClient();
+    if (fresh.readTimeoutMs != 30000 || fresh.connectTimeoutMs != 10000
+        || fresh.callTimeoutMs != 0 || fresh.maxRedirects != 10) { return 17; }
+
     HttpServer srv = HttpServer();
     // Two slots, where the pooled client needs exactly one: a client that
     // opened a connection per request would need far more than two alive at

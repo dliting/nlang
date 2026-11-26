@@ -16,7 +16,7 @@ prelude-embedded and never ride along in a package.
 #include <string>
 #include <vector>
 
-#include "nlang/vm/NcuPackage.h"
+#include "nlang/core/NcuPackage.h"
 
 using namespace nlang;
 

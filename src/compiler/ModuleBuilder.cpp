@@ -18,7 +18,7 @@
 #include <nlang/runtime/Module.h>
 #include <nlang/compiler/SnMisc.h>
 #include "VmBackend.h"
-#include "ModuleLoader.h"
+#include <nlang/core/ModuleLoader.h>
 #include <algorithm>
 #include <filesystem>
 #include <map>
@@ -189,7 +189,7 @@ bool ModuleBuilder::CreateModule()
 
 	// Set up default VmBackend if none configured
 	if (!m_upEnv->Backend()) {
-		ICodeBackend* backend = new VmBackend();
+		VmBackend* backend = new VmBackend();
 		m_upEnv->Backend(backend);
 		backend->OnModuleCreate(*pModule);
 	}

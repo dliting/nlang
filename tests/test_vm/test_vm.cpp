@@ -1,12 +1,12 @@
 #include "test_support/test_scratch.h"
-#include "BytecodeEmitter.h"
-#include "BytecodeOps.h"
-#include "BytecodeReader.h"
-#include "nlang/vm/CompiledModule.h"
+#include <nlang/core/BytecodeEmitter.h>
+#include <nlang/core/BytecodeOps.h>
+#include <nlang/core/BytecodeReader.h>
+#include "nlang/core/CompiledModule.h"
 #include "nlang/runtime/AutoPointers.h"
 #include "nlang/runtime/NodeConsts.h"
 #include "VmExecutor.h"
-#include "ModuleLoader.h"
+#include <nlang/core/ModuleLoader.h>
 #include <algorithm>
 #include <cassert>
 #include <cstring>

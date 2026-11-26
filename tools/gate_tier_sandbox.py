@@ -3,7 +3,9 @@
 # find the MSYS bash the tier script needs (find_git_bash: the bare
 # PATH may hand back the WSL stub), how one stub batch launches
 # (run_tier: pinned machine scale, stub cmake/ctest doors, pinned
-# tier work directory) and the single failures list every scenario
+# tier work directory), how each batch's run-scoped log directory is
+# located after the fact (snapshot_runs / new_run_dir) and the single
+# failures list every scenario
 # module appends to (check). build_sandbox seeds the stub gate.sh,
 # the stub cmake/ctest pair behind .bat doors, the seed tree caches,
 # the tier/family/table/manifest files and copies of the gate-time
@@ -70,6 +72,27 @@ def run_tier(bash, sandbox, *args):
                                       / "stub-ctest.bat")),
         capture_output=True, encoding="utf-8", errors="replace",
         timeout=120, cwd=str(sandbox))
+
+
+def snapshot_runs(sandbox):
+    """The run-scoped batch directories that exist under the sandbox's
+    gates root at call time (empty before the first batch). Pair with
+    new_run_dir: snapshot, run the batch, and the difference is exactly
+    the directory that batch wrote -- batches never share a log
+    directory, so a round reads only its own artifacts."""
+    gates = sandbox / "temp" / "tier" / "gates"
+    if not gates.exists():
+        return set()
+    return {d for d in gates.iterdir() if d.is_dir()}
+
+
+def new_run_dir(sandbox, before):
+    """The run directory one batch produced: exactly the snapshot
+    difference. A batch that produced none (it died before its mkdir)
+    yields None, which callers must check() before reading artifacts
+    from it."""
+    fresh = snapshot_runs(sandbox) - before
+    return fresh.pop() if len(fresh) == 1 else None
 
 
 TIERS = """\

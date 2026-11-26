@@ -50,6 +50,8 @@ keeps it within 0-255).
 | http_hello.n | `http` package: a hello service and its client in one process (buffered GET, echo POST, keep-alive reuse) | 0 |
 | http_conc_bench.n | `http` package: 1000 virtual-thread clients on one shared client capped at 4 connections per host | 0 |
 | http_sse.n | `http` package: server-sent events over a chunked stream, early client disconnect, producer cancellation | 0 |
+| web_hello.n | `web` package: a self-terminating web app — two middleware styles, a `:id` route, a session across a login rotation, server-sent events, and a mounted static handler | 0 |
+| web_upload.n | `web` package: multipart upload round trip — form built with `MultipartBody`, sanitized on-disk name, uploaded bytes read back | 0 |
 | net_echo_server.n | TCP echo server: accept loop and one virtual thread per connection | 0 |
 | net_echo_client.n | TCP client: connect, text exchange, `readLine` framing, graceful close | 0 |
 | net_http_mini.n | mini HTTP server and client built on raw `net`: request line, Content-Length, half-close | 0 |

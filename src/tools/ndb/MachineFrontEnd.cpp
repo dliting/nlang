@@ -4,7 +4,7 @@
 // every command failure becomes an err event (IDebugFrontEnd contract).
 
 #include "MachineFrontEnd.h"
-#include "Disassembler.h"
+#include <nlang/core/Disassembler.h>
 #include <cstdio>
 #include <cstdlib>
 #include <istream>

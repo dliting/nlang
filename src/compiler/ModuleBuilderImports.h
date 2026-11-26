@@ -4,8 +4,8 @@ translation units: declarations shared between ModuleBuilderImports.cpp
 and the split external-artifact TU (ModuleBuilderExternalImports.cpp).
 ---*/
 #pragma once
-#include <nlang/vm/CompiledModule.h>
-#include <nlang/vm/NcuPackage.h>
+#include <nlang/core/CompiledModule.h>
+#include <nlang/core/NcuPackage.h>
 #include <map>
 #include <memory>
 #include <set>

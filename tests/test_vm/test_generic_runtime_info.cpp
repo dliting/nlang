@@ -10,9 +10,9 @@
 #include "nlang/compiler/Logger.h"
 #include "nlang/compiler/CastInfo.h"
 #include "nlang/runtime/Runtime.h"
-#include "nlang/vm/CompiledModule.h"
+#include "nlang/core/CompiledModule.h"
 #include "VmExecutor.h"
-#include "GenericInstDescriptor.h"
+#include <nlang/core/GenericInstDescriptor.h>
 #include "NcuLoader.h"
 #include "NcuLinker.h"
 #include <filesystem>

@@ -6,8 +6,8 @@ e2e set runs the CLI adapter over this code unchanged.
 ---*/
 
 #include "DebugSessionController.h"
-#include "Disassembler.h"
-#include "nlang/vm/CompiledModule.h"
+#include <nlang/core/Disassembler.h>
+#include "nlang/core/CompiledModule.h"
 #include <algorithm>
 #include <cctype>
 #include <stdexcept>

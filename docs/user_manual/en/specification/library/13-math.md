@@ -45,7 +45,7 @@ The package declares 26 functions.
 | `random()` | () → `double` | the next generator value, in `[0, 1)` (§13.5) |
 | `srand(seed)` | (`int seed`) → `void` | re-seeds the generator (§13.5) |
 | `randomi(min, max)` | (`int min`, `int max`) → `int` | a value drawn from the closed range `[min, max]` (§13.5) |
-| `randomBytes(count)` | (`int count`) → `byte[]` | `count` bytes from the operating system's cryptographic generator — a different source than §13.5's `random()`; `count` below `0` or above `16777216` raises `Exception`, `0` yields the empty array |
+| `randomBytes(count)` | (`int count`) → `byte[]` | `count` fresh bytes from the operating system's cryptographically secure random source, never from the generator of §13.5; raises `Exception` naming the cause — `math.randomBytes: count is negative.`, `math.randomBytes: count is too large.` (a count above the 16 MiB request ceiling) or `math.randomBytes: the system random source is unavailable.` (§13.5) |
 
 ## 13.4 Error Behavior
 
@@ -61,7 +61,10 @@ Failures split into two models.
   `randomi` with `min > max`, `randomBytes` with a `count`
   below `0` or above `16777216`, and `floor`, `ceil` or `round`
   when `x` is NaN or the rounded value lies outside the `long`
-  range.
+  range. `randomBytes` raises the same base `Exception` when
+  `count` is negative, when it exceeds the 16 MiB request
+  ceiling, or when the operating system's random source cannot
+  supply bytes.
 
 ## 13.5 Random Numbers
 
@@ -82,6 +85,15 @@ The package draws from one generator per program run.
 > those are implementation-defined and not portable.
 > `randomBytes` is not drawn from this generator: it forwards
 > to the operating system's cryptographic source.
+
+`randomBytes` shares none of this. It draws from the operating
+system's cryptographically secure pseudorandom number generator
+(CSPRNG) rather than from `std::mt19937` — what unguessable
+values like session ids and multipart boundaries are built from
+in the web package. Its draws are not reproducible and `srand`
+does not move them, so experiments that must replay take
+`random`/`randomi`, and tokens that must be unguessable take
+`randomBytes`.
 
 The two scalings, in pseudocode:
 

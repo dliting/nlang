@@ -583,7 +583,6 @@ lambda_static_field 0
 # pin and the cross-module closure escape
 lambda_static_local 0
 lambda_cross_module 0
-
 err_generic_type_arg_type compile_error Cannot resolve the field: Type.
 err_generic_infer_type_arg compile_error Cannot resolve the field: Type.
 # the internal type names (§1.4) bind no type anywhere and stay free as
@@ -2647,3 +2646,102 @@ stdlib_web_session_basic 0
 # their own, eight workers writing one shared session until last-write-wins leaves a
 # value somebody actually wrote, and one middleware instance counting every request.
 stdlib_web_session_conc 0
+# --- v0.13.12: StaticFiles over a mounted directory — the index fallback, the
+# builtin extension table with its text charset, HEAD answering headers-only, the
+# weak ETag's four states and the 304 header set, the three If-Modified-Since date
+# forms with their ignore postures (unparseable, comma lists, repeated fields), the
+# addType normalization, the dot-file gate, the traversal matrix (dot-dot, encoded
+# separators, NUL, drive letters), the directory 301 carrying the mount prefix and
+# the query back, the 405 that answers before the path is looked at, the root
+# refused at construction time, setNotFound keeping its top-level-only domain
+# inside a mounted subtree, and the empty segments folded away.
+stdlib_web_static_files 0
+# --- v0.13.12: Sse framing over a chunked channel — the four event-stream
+# headers with exactly one Connection and no gzip on the wire, the seven-frame
+# byte table (the three arities, the three line endings folding into one field
+# set, the comment's per-line colon prefix, the empty id omitting its field
+# and the empty data keeping one), the named refusals for a CR or LF inside
+# id or event, the quiet double close with the queued frame still draining
+# first, a feeder on another thread that outlives its handler, and one UTF-8
+# frame checked byte by byte.
+stdlib_web_sse_frames 0
+# --- v0.13.12: urlencoded forms through web.form.Form.parse — the raw '&'
+# split with the first '=' as the name/value border, '+' and %XX decoding over
+# UTF-8 bytes, same-name values in arrival order behind a first-seen name,
+# empty values and bare names as empty-value fields, empty segments skipped
+# while an explicit empty name stays a legal field; the media type gate's case,
+# blank and quoted-string spellings against five 415 refusals that quote no
+# client byte; the empty-body answer running ahead of the type check on both
+# the framing-free and the hand-written Content-Length: 0 arm; a malformed
+# percent escape as the named 400 with the request bytes unechoed; maxBytes
+# bounding the read at its exact value with the named 413; the three default
+# limits spelled from a fresh FormOptions with a null opts riding them;
+# maxParts leaving urlencoded fields uncapped; and the containers handed out
+# by names() and getAll() surviving caller edits.
+stdlib_web_form_urlencoded 0
+# multipart parsing core: line-anchored delimiter matching (preamble and epilogue
+# ignored, trailing horizontal whitespace on delimiter lines stripped, quoted
+# boundaries, "\n" and "\r" line endings, obs-fold continuation lines, prefix
+# lookalikes left in the body, 70- and 71-character boundaries, case-sensitive
+# boundary compare); same-name parts uncoalesced in appearance order; filename=""
+# still a file part; a missing part Content-Type registered as text/plain; binary
+# part bytes echoed byte-exact; the read-method face with files()/getFiles()
+# handing out copies; a closing delimiter alone parsing as the empty form; the
+# filename directory path stripped on both separators with no percent decoding;
+# nested multipart kept opaque bytes; and the missing-or-empty boundary and
+# no-delimiter-line shapes answered with the two fixed 400 texts.
+stdlib_web_multipart_parse 0
+# multipart 400 rejection matrix (D-19, ruling 30): five boundary spellings
+# read as missing or empty, more than one boundary parameter with the count
+# check before the empty-value verdict and before the body is read, a part
+# missing a form-data content-disposition, a disposition with a missing or
+# empty name parameter, a field name over 100 bytes on the byte measure
+# (CJK pairs pin bytes over characters), four bodies without a closing
+# boundary delimiter, a part header block over 16384 bytes (exact boundary
+# accepted, one over rejected, never accumulated across parts, the cap
+# judged before the disposition verdict) and the six check-order witnesses,
+# with controls for the repeated charset parameter, FORM-DATA case folding,
+# filename="", the closing-only body and an epilogue after the closing line.
+stdlib_web_multipart_reject 0
+# multipart budget 413s (D-18, ruling 30 i): the three caps each answer their
+# own named 413 with exact-boundary controls — maxBytes rejects a 9-byte body
+# under a cap of 8 while the exact 9 bytes parse, maxParts rejects a third
+# part under a cap of 2 while exactly 3 parts parse and a cap of 0 keeps a
+# closing-only body the empty form, maxPartBytes rejects a 9-byte part body
+# under a cap of 8 while the exact 8 bytes parse and a 9-byte file body
+# answers the same verdict — the count check outranks the part-level 400
+# verdicts, maxPartBytes measures the part body only (a 200-byte header block
+# over a 1-byte body parses, the block belonging to the grammar budget), the
+# two body caps compose as a min from both sides (the http cap answers first
+# and carries no trailing period, the web cap answers under its own tighter
+# cap with its period, and the http field assignment reaches later requests),
+# and the default trio 8388608/1000/4194304 passes a mid-sized three-part
+# form through the multipart arm.
+stdlib_web_multipart_limits 0
+# multipart builder roundtrip (rulings 37/38/39, D-21): the byte-exact CRLF
+# wire the builder writes, no break before the first part, a break before
+# every later part and the closing line, a blank line after each head block
+# and a lone closing line for the zero-part body; the part shapes; the
+# boundary's 40-lower-case-hex spelling and its per-object uniqueness; the
+# %22/%0D/%0A escape subset on name and filename with the Content-Type
+# value passed through unescaped; the empty contentType filled to
+# application/octet-stream; the three named precondition verdicts raised
+# before anything registers and addFile copying the caller's array
+# (ruling 39); and the
+# boundary scan rejecting a part body that carries the delimiter at a line
+# start, contentType() and toBytes() resolving to the same boundary.
+stdlib_web_multipart_roundtrip 0
+# upload save-to-disk (D-20, rulings 29 ii, 31, 33): safeName()'s ten-row
+# cleaning matrix in the pinned order, control bytes dropped with the tab
+# band kept, whitespace runs folded and the ends trimmed, dot segments
+# dropped, the client path stripped on both separators before the Windows
+# reserved-name verdict, reserved stems prefixed with "_", and the 120-byte
+# cap cut at a UTF-8 boundary, plus the control-character and 121-byte
+# Chinese shapes, every row checked idempotent; saveTo() splicing a fresh
+# 8-hex suffix before the extension so repeats never collide in one
+# directory; nothing created when the target directory is missing, the
+# named fs.writeBytes IOException answering instead; saveAs() writing the
+# exact path verbatim and overwriting on a repeat; and the FormFile.data
+# view reaching native bytes through fs.writeBytes then back through
+# fs.readBytes cell for cell.
+stdlib_web_upload_e2e 0
