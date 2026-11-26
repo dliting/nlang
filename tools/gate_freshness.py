@@ -211,15 +211,23 @@ def check(repo, specs):
         raise UsageError(
             "no native units under %s -- the native DLL rule has "
             "nothing to judge" % (repo / "src" / "native"))
-    #A VERSION bump rides the version/ABI every tool and native DLL
-    #embeds, with or without a source edit accompanying it: the file
-    #bounds both classes, closing the bump-without-reconfigure channel
-    #(CMAKE_CONFIGURE_DEPENDS only re-runs at the next build, and the
-    #T0/T1 batches never build).
+    #A VERSION bump rides the version string the tools' main units
+    #embed (the generated nlang_version.h), with or without a source
+    #edit accompanying it: the file bounds the tool class, closing the
+    #bump-without-reconfigure channel (CMAKE_CONFIGURE_DEPENDS only
+    #re-runs at the next build, and the T0/T1 batches never build).
+    #The native DLLs are NOT bound to VERSION: no native unit includes
+    #the version header (verified against the real tree's closure), so
+    #a bump demands a rebuild the build system has already judged
+    #unnecessary -- an unactionable false positive that re-appeared with
+    #every bump (14 STALE lines on the merged 0.13.13 trees). Their
+    #version channel is the host ABI handshake, and NativeHost.h -- the
+    #header that defines NLANG_HOST_ABI_VERSION -- is part of the
+    #closure the native rule already judges.
     version_file = repo / "VERSION"
     version_paths = [version_file] if version_file.is_file() else []
     tool_newest = _newest(input_files + version_paths)
-    native_newest = _newest(native_files + version_paths)
+    native_newest = _newest(native_files)
     stdlib_newest = _newest(stdlib_modules)
     findings = []
     for spec in specs:
@@ -284,19 +292,23 @@ def check(repo, specs):
                     "be built before gating)"
                     % (spec.path / "tests" / spec.config))
         #A version bump regenerates the tree's header at configure; a
-        #tool or native DLL older than it predates the bump's build
-        #(they embed the version/ABI). Test binaries are presence-only:
-        #their per-target input graph is the build system's, which no
-        #mtime sweep replicates, and a header/src over-approximation
-        #here is unactionable -- the rebuild the finding demands is the
-        #same one the build system just judged unnecessary. Gross
-        #version drift still reaches them: a bump rides source changes
-        #that stale the tools, and the rebuild those findings demand
+        #tool older than it predates the bump's build (the tools embed
+        #the version string). The DLLs are absent here for the same
+        #reason they are absent from the repo-side VERSION bound: no
+        #native unit includes the version header, so the rebuild this
+        #would demand is one the build system has already judged
+        #unnecessary. Test binaries are presence-only: their per-target
+        #input graph is the build system's, which no mtime sweep
+        #replicates, and a header/src over-approximation here is
+        #unactionable -- the rebuild the finding demands is the same
+        #one the build system just judged unnecessary. Gross version
+        #drift still reaches them: a bump rides source changes that
+        #stale the tools, and the rebuild those findings demand
         #relinks every affected test target.
         version_header = spec.path / "generated" / "nlang_version.h"
         if version_header.is_file():
             header_mtime = os.path.getmtime(version_header)
-            for artifact in tools + dlls:
+            for artifact in tools:
                 if os.path.getmtime(artifact) < header_mtime:
                     findings.append(
                         "STALE %s is older than %s"

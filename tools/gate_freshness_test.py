@@ -245,11 +245,19 @@ def test_submodule_stdlib_edit_stales_the_packages():
               % findings)
 
 
-def test_version_file_binds_tools_and_native_dlls():
-    #A VERSION bump rides the version/ABI the tools and DLLs embed and
-    #needs no source edit to be real; an artifact older than the repo's
-    #VERSION file predates the bump's build (recorded ruling: a bump
-    #rebuilds every config the legs run).
+def test_version_file_binds_tools_but_not_native_dlls():
+    #A VERSION bump rides the version string the tools' main units
+    #embed (NLANG_VERSION, from the generated header) and needs no
+    #source edit to be real; an artifact older than the repo's VERSION
+    #file predates the bump's build (recorded ruling: a bump rebuilds
+    #every config the legs run). The native DLLs bind to their own
+    #unit closure instead: they embed the host ABI handshake
+    #(NLANG_HOST_ABI_VERSION in nlang/vm/NativeHost.h), which is part
+    #of that closure and still staleness-checked there, but no native
+    #unit includes the generated version header, so binding the DLLs
+    #to VERSION demanded a rebuild the build system had already judged
+    #unnecessary -- every bump re-ran the finding (14 STALE lines on
+    #the merged 0.13.13 trees, an unactionable false positive).
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
         repo, tree = make_repo(tmp / "repo"), make_tree(tmp / "tree")
@@ -257,8 +265,22 @@ def test_version_file_binds_tools_and_native_dlls():
         findings = run_check(repo, ["%s:Debug" % tree])
         check(any("ncc.exe" in f and "VERSION" in f for f in findings),
               "no finding binds the tools to VERSION: %r" % findings)
-        check(any("nlang_io.dll" in f and "VERSION" in f for f in findings),
-              "no finding binds the DLLs to VERSION: %r" % findings)
+        check([f for f in findings if "nlang_io.dll" in f] == [],
+              "VERSION must not stale the native DLLs: %r" % findings)
+
+
+def test_version_bump_stales_native_dll_through_abi_header_only():
+    #The DLLs' version channel is the ABI handshake, and it is guarded
+    #through the closure: an edit to NativeHost.h (the header that
+    #defines NLANG_HOST_ABI_VERSION) must stale the DLLs on its own,
+    #with no VERSION file involved.
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        repo, tree = make_repo(tmp / "repo"), make_tree(tmp / "tree")
+        set_mtime(repo / "include" / "nlang" / "abi.h", 900)
+        findings = run_check(repo, ["%s:Debug" % tree])
+        check(any("nlang_io.dll" in f and "abi.h" in f for f in findings),
+              "the ABI header edit must stale the DLLs: %r" % findings)
 
 
 def test_empty_input_sweep_is_a_usage_error():
@@ -390,7 +412,8 @@ TESTS = [
     test_one_stale_domain_package_is_flagged_on_its_own,
     test_submodule_stdlib_copy_keeps_its_relative_path,
     test_submodule_stdlib_edit_stales_the_packages,
-    test_version_file_binds_tools_and_native_dlls,
+    test_version_file_binds_tools_but_not_native_dlls,
+    test_version_bump_stales_native_dll_through_abi_header_only,
     test_empty_input_sweep_is_a_usage_error,
     test_empty_stdlib_sweep_is_a_usage_error,
     test_repo_without_native_units_is_a_usage_error,
