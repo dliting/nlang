@@ -17,7 +17,9 @@
 #include "builder/ExprResolver.h"    //FindPreludeClassDecl
 #include "SnTypes.h"                 //SnBuiltinDataType
 #include "SyntaxTree.h"              //TheAST
+#ifndef Q_MOC_RUN
 #include <filesystem>
+#endif
 #include <fstream>
 #include <set>
 #include <string>

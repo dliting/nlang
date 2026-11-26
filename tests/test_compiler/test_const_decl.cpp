@@ -16,7 +16,9 @@ too). Structs stand alone — no inheritance to walk.
 #include <nlang/compiler/CastInfo.h>
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/ScriptLocation.h>
+#ifndef Q_MOC_RUN
 #include <filesystem>
+#endif
 #include <fstream>
 #include <string>
 #include <utility>

@@ -21,7 +21,9 @@ error; and the bitwise-and statement readings survive untouched.
 #include <nlang/compiler/TranslationUnit.h>
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnData.h>
+#ifndef Q_MOC_RUN
 #include <filesystem>
+#endif
 #include <fstream>
 #include <string>
 #include <vector>

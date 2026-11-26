@@ -18,7 +18,9 @@ form keep the FA_Public namespace default.
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnData.h>
 #include <nlang/compiler/ScriptLocation.h>
+#ifndef Q_MOC_RUN
 #include <filesystem>
+#endif
 #include <fstream>
 #include <string>
 #include <utility>

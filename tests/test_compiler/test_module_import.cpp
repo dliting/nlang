@@ -36,7 +36,9 @@ on every merged TU member (top-level and container members).
 #include "VmExecutor.h"
 #include <cstdio>
 #include <cstdint>
+#ifndef Q_MOC_RUN
 #include <filesystem>
+#endif
 #include <fstream>
 #include <memory>
 #include <set>

@@ -23,7 +23,9 @@
 #include "builder/BuiltinNames.h"
 #include "builder/BindingTable.h"    //IsHandleClassName
 #include "SyntaxTree.h"
+#ifndef Q_MOC_RUN
 #include <filesystem>
+#endif
 #include <fstream>
 #include <string>
 #include <vector>

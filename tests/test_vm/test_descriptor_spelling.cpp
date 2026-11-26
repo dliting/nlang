@@ -29,7 +29,9 @@ identical while the descriptor rows diverge by producing package.
 #include "VmExecutor.h"
 #include "builder/ModuleRegistry.h"
 #include "test_support/test_scratch.h"
+#ifndef Q_MOC_RUN
 #include <filesystem>
+#endif
 #include <fstream>
 #include <functional>
 #include <memory>

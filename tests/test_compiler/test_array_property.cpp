@@ -24,7 +24,9 @@ the old shape-inference predicate computed post hoc.
 #include "NcuLoader.h"
 #include "NcuLinker.h"
 #include "VmExecutor.h"
+#ifndef Q_MOC_RUN
 #include <filesystem>
+#endif
 #include <fstream>
 #include <functional>
 #include <memory>

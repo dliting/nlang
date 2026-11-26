@@ -17,7 +17,9 @@
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/SnExpressions.h>
 #include <nlang/compiler/SnStatements.h>
+#ifndef Q_MOC_RUN
 #include <filesystem>
+#endif
 #include <fstream>
 #include <functional>
 #include <memory>

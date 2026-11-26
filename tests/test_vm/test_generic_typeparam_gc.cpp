@@ -24,7 +24,9 @@ registration flip.
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/ScriptLocation.h>
 #include <QtTest/QtTest>
+#ifndef Q_MOC_RUN
 #include <filesystem>
+#endif
 #include <fstream>
 #include <string>
 

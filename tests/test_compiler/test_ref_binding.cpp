@@ -23,7 +23,9 @@ the & mark to a no-op.
 #include <nlang/compiler/SnExpressions.h>
 #include "builder/ModuleRegistry.h"
 #include "builder/ExprResolver.h"
+#ifndef Q_MOC_RUN
 #include <filesystem>
+#endif
 #include <fstream>
 #include <functional>
 #include <string>
