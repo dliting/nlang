@@ -475,9 +475,13 @@ native int streamCreate();
 // scope creates — and the toDevice results that omit the device —
 // to that device, and an operand living on another device raises
 // inside the scope (move it with the device-spelled toDevice).
-// Device 0 — the main stream — is nameable on every backend;
-// otherwise the device must exist (deviceCount() reports how many)
-// and a foreign id raises.
+// Device 0 is nameable on every backend; otherwise the device must
+// exist (deviceCount() reports how many) and a foreign id raises.
+// The handle names a stream of its own on that device, distinct
+// from that device's main stream: the main stream keeps its own
+// handle, 0, everywhere — pushing 0 routes a scope to device 0 on
+// the main stream, and cpu/mirror return that same 0 for every
+// in-range creation.
 native int streamCreate(int device);
 native void streamDestroy(int handle);
 native void streamPush(int handle);

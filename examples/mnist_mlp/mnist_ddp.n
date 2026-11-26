@@ -1,0 +1,171 @@
+// mnist_ddp — the multi-GPU acceptance program: main.n's two-layer
+// perceptron, trained data-parallel across two devices. Each mini-batch
+// splits into one shard per device; every parameter tensor exists once
+// per device and is updated by the allreduce-mean of the shard
+// gradients, which for equal-size shards is exactly main.n's full-batch
+// gradient (up to float reduction order). The per-epoch loss lines and
+// the test accuracy print match main.n's format so the two runs are
+// directly comparable.
+//
+// Build and run from this directory:
+//   ncc build -p mnist_ddp.nproj -o mnist_ddp.npkg
+//   nvm mnist_ddp.npkg
+//
+// The stream shape (multi_gpu_design.md §8, its device-0 half
+// revised per the M-G4 record in multi_gpu_impl_plan.md §5):
+// device 0's shard runs where the program already runs — on
+// device 0's main stream — so
+// its whole producer/consumer chain (forward, backward, the SGD step
+// feeding the next step's forward) is stream-ordered with itself and
+// needs no handoff. Device 1's chain runs on a chunk stream that
+// overlaps it. Every array the chunk consumes — parameter copies,
+// shard uploads — arrives through a device-named transfer enqueued
+// inside the scope: transfers are blocking, so their payload is
+// resident on arrival, and a device-named copy reads its device-0
+// sources on device 0's main, where those writes are already
+// ordered. The chunk's writes are read back only after streamJoin —
+// the joined stream feeding that device's main is the direction the
+// join orders, and nothing main-written is ever read on the chunk.
+//
+// Skip contract: on a machine with fewer than two devices the program
+// reports the shortfall on stderr and returns 90 — the guard is the
+// device census (cpu 0, mirror 1, cuda the CUDA count), so one check
+// covers every backend.
+import io;
+import data;
+import layers;
+import math;
+import tensor;
+
+int main() {
+    int count = tensor.deviceCount();
+    if (count < 2) {
+        io.eprint("skip: deviceCount() = " + count + " < 2");
+        return 90;
+    }
+
+    // Hyperparameters identical to main.n — batch 32 (16 rows per
+    // shard), 40 epochs, the same seed — so the loss curves are
+    // comparable run to run.
+    int trainCount = 2000;
+    int testCount = 1000;
+    int pixels = 784;
+    int classes = 10;
+
+    int hidden = 100;
+    int batch = 32;
+    int half = batch / 2;
+    int epochs = 40;
+    float lr = 0.5;
+
+    // Frozen baseline: this configuration measured 0.897 test
+    // accuracy in the single-device runs (0.896 on the two-GPU
+    // acceptance box — the accuracy wobbles at the last argmax
+    // compare); the gate sits well under both.
+    float baseline = 0.85f;
+
+    Dataset train = data.loadDataset("data/train_images.f32",
+                                     "data/train_labels.u8",
+                                     trainCount, pixels);
+    Dataset test = data.loadDataset("data/test_images.f32",
+                                    "data/test_labels.u8",
+                                    testCount, pixels);
+    // The datasets stay host-resident: each shard's rows are uploaded
+    // to its device per step through the device-named transfer — the
+    // cross-device path this example exists to exercise.
+
+    math.srand(42);
+    // The draw engine seeds exactly as main.n does and the weight
+    // inits enqueue in the same order, so the windows land
+    // identically: the two runs start from the same weights.
+    tensor.seed(7);
+    // Weights on device 0 through the plain creation path (outside any
+    // scope that is device 0 anyway).
+    Params p = layers.initParams(pixels, hidden, classes);
+
+    // The device-1 parameter set: every step re-points its fields at
+    // fresh device-1 copies of p (one transfer per parameter, the
+    // allreduce's other half).
+    Params p1;
+
+    int s1 = tensor.streamCreate(1);
+
+    double firstLoss = 0.0;
+    double lastLoss = 0.0;
+    int batches = trainCount / batch;
+    for (int epoch = 0; epoch < epochs; epoch += 1) {
+        double epochLoss = 0.0;
+        for (int b = 0; b < batches; b += 1) {
+            int first = b * batch;
+
+            // Shard 0 needs no scope: outside every push the scope
+            // device is 0, so these device-0 residents run on device
+            // 0's main stream, ordered with the loss read below and
+            // with the SGD step that produced p.
+            float[,] x0 = tensor.toDevice(
+                data.batchImages(train, first, half), 0);
+            int[] l0 = tensor.toDevice(
+                data.batchLabels(train, first, half), 0);
+            Forward f0 = layers.forward(p, x0);
+            float[,] probs0 = layers.softmaxRows(f0.logits);
+            Grads g0 = layers.backward(p, x0, f0.hidden, probs0, l0);
+
+            // Shard 1 on the device-1 chunk: the parameter copies and
+            // the shard upload cross into the scope by transfer, then
+            // the same layer functions run on device-1 residents.
+            tensor.streamPush(s1);
+            p1.w1 = tensor.toDevice(p.w1, 1);
+            p1.b1 = tensor.toDevice(p.b1, 1);
+            p1.w2 = tensor.toDevice(p.w2, 1);
+            p1.b2 = tensor.toDevice(p.b2, 1);
+            float[,] x1 = tensor.toDevice(
+                data.batchImages(train, first + half, half), 1);
+            int[] l1 = tensor.toDevice(
+                data.batchLabels(train, first + half, half), 1);
+            Forward f1 = layers.forward(p1, x1);
+            float[,] probs1 = layers.softmaxRows(f1.logits);
+            Grads g1 = layers.backward(p1, x1, f1.hidden, probs1, l1);
+            tensor.streamPop();
+
+            // Device 1's current stream waits for the chunk's writes
+            // before anything reads them: first the loss, then the
+            // gradient copies out.
+            tensor.streamJoin(s1);
+            double loss0 = layers.meanCrossEntropy(f0.logits, l0);
+            double loss1 = layers.meanCrossEntropy(f1.logits, l1);
+            epochLoss = epochLoss + (loss0 + loss1) * 0.5;
+
+            // The allreduce-mean of the shard gradients, on device 0:
+            // each shard's backward already scaled by 1/half, so the
+            // sum of the two shard-means is 2x the full-batch mean —
+            // the 0.5 below is load-bearing.
+            Grads g;
+            g.w1 = (g0.w1 + tensor.toDevice(g1.w1, 0)) * 0.5f;
+            g.b1 = (g0.b1 + tensor.toDevice(g1.b1, 0)) * 0.5f;
+            g.w2 = (g0.w2 + tensor.toDevice(g1.w2, 0)) * 0.5f;
+            g.b2 = (g0.b2 + tensor.toDevice(g1.b2, 0)) * 0.5f;
+            p = layers.sgdStep(p, g, lr);
+        }
+        epochLoss = epochLoss / batches;
+        if (epoch == 0) {
+            firstLoss = epochLoss;
+        }
+        lastLoss = epochLoss;
+        io.print("epoch " + (epoch + 1) + ": loss " + epochLoss);
+    }
+
+    // Final evaluation on device 0: the whole test plane uploads once.
+    float[,] testImages = tensor.toDevice(test.images, 0);
+    int[] testLabels = tensor.toDevice(test.labels, 0);
+    float[,] testProbs = layers.softmaxRows(
+        layers.forward(p, testImages).logits);
+    double acc = layers.accuracy(testProbs, testLabels);
+    io.print("test accuracy " + acc);
+
+    // The acceptance gate, same shape as main.n: training must reduce
+    // the mean loss, and the frozen baseline must be met.
+    assert(lastLoss < firstLoss);
+    assert(acc >= baseline);
+    tensor.streamDestroy(s1);
+    return 0;
+}

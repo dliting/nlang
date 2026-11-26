@@ -709,6 +709,26 @@ M-G3 landing (2026-11-26), rulings and deviations:
     verification (header comment, one zh word, two ledger notes);
     the plugin is rebuilt for binary consistency while the
     functional gates stay as verified in the round-2 round.
+- M-G3 box landing (2026-11-26, the 2×4090 acceptance machine at
+  tree 9d3f0451, cuda/Debug/sm_89, tests off so the legs run through
+  the e2e runner directly): the full cuda roster ran twice — 213
+  passed, 0 failed, 0 skipped on both runs, and the verdict lists are
+  byte-identical (the run-to-run determinism contract the corpus
+  carries, now demonstrated with the cross-device transfers live).
+  `op_tensor_cross_device` PASSED on two real devices — the first
+  real run of the fixed staging/peer paths, including the oneHot and
+  strided-view transfer legs and the census-guard branch below
+  threshold. The peer branch itself still executed on no machine:
+  the box reports `canAccessPeer = 0` both directions, so the box's
+  ordinary cross-device path is the staging bounce and `CopyPeer`
+  stays accepted on code review (round-2/round-3). Single-GPU
+  regression: mnist_mlp ran from the same tree, exit 0 with test
+  accuracy 0.896 against the locally measured 0.897 — float
+  reduction-order noise on the accuracy's argmax compare, the
+  baseline gate (0.85) held with wide margin. The Windows/
+  single-GPU side of the M-G3 acceptance — the reported-skip legs
+  and guard paths — was verified in the local rounds (skip
+  sentinel + stderr reason).
 
 ## 5. M-G4 — mnist_ddp.n acceptance
 
@@ -777,6 +797,138 @@ Acceptance (box):
   CHANGELOG; VERSION bumps to 0.14.13 — a new shipped example is a
   user-visible addition under AGENTS' rule even with no new symbol
   in the stdlib surface; manual sync duty per AGENTS.
+
+M-G4 implementation record (2026-11-26):
+
+- Program-shape deviations from the §5 sketch, under the user's
+  2026-11-26 ruling 不需要向下兼容，合理性优先 (and KISS):
+  - Per-step rebroadcast is a field reassignment —
+    `p1.w1 = tensor.toDevice(p.w1, 1)` × 4 — not the sketched
+    `assignInto(w1, toDevice(w, 1))`. Nothing reads a device-1
+    handle across steps (each step's forward consumes the fresh
+    fields, superseded arrays are reclaimed on their owning row),
+    so the stable handle the assignInto pair existed to keep buys
+    nothing — and the pair doubles the per-parameter transfer.
+  - No device-0 side stream: the device-0 shard runs outside every
+    push scope, so its ops land on device 0's main stream and the
+    device-0 chain orders itself. An earlier revision of this note
+    justified a device-0 Push with "handle 0 is the main stream" —
+    wrong on a device backend: `streamCreate(0)` skips slot 0
+    (`CudaStreamCreate` treats slot 0 as the device's main stream,
+    "not pool") and returns the first pooled handle, so that draft
+    ran the device-0 shard on a side stream with two undefined
+    edges (side-stream writes read on main without a join, main
+    writes read on the side stream without a fork). Review round
+    1's High, confirmed against the code. `streamJoin(s1)` remains
+    the program's one ordering edge — the direction the join
+    defines — and transfers are blocking, which covers the rest.
+  - Streams are created once (before the epoch loop) and destroyed
+    at the end, pushed per step; per-step create/destroy would
+    churn the pool slot for no gain.
+- `tools/gate_multigpu.sh` landed in the box's gate-script family
+  (probe → legs → GATE verdict line, SKIP exit 0 below two
+  devices). Two script bugs the box round surfaced and fixed: a
+  package derives its module name from the npkg file stem, so the
+  dot-joined npkg names built from the stem string were invalid
+  module names (the npkg names join with underscores now, the log
+  names keep the dots); and the accuracy awk's multi-line condition
+  is rejected by the box's awk (a single-line abs-diff form now,
+  mirroring the band check's shape).
+- Calibration (one-off per §5): fresh in-script baseline accuracy
+  0.896; ddp double-run 0.896/0.896 with a byte-identical epoch
+  sequence, and the max per-epoch deviation against the baseline
+  under printed precision (< 1e-6). Band constant committed as
+  `DDP_LOSS_BAND=0.001` — three orders above the observed maximum,
+  two below the loss scales that matter here.
+- M-G4 box landing (2026-11-26, build-cuda from the synced tree):
+  GATE multigpu PASS — cuda rebuild, two-device probe, roster
+  double-run 213/213 twice with byte-identical verdict lists and
+  zero skips, baseline re-run exit 0 at 0.896, ddp twice exit 0
+  with identical loss sequences and the accuracy gates met (floor
+  0.89, 0.01 margin against the fresh baseline), loss band
+  over=0/40, and the nvidia-smi sampler saw both device indices
+  busy during the ddp runs (peak util 14%/11%). The Windows legs:
+  `mnist_ddp_compile` PASSes (0.94 s, timing row recorded),
+  `mnist_ddp_run` lands in ctest's native Skipped through
+  `SKIP_RETURN_CODE 90` (its permanent-skip disposition is the
+  note appended to the tail of `gate_time_reference.txt`).
+- Docs shipped with the milestone: examples README rows (en/zh),
+  the 19-tensor.md stream-section example paragraph (en/zh),
+  CHANGELOG 0.14.13 (en/zh), VERSION 0.14.13. Limitations check:
+  nothing to lift — the fault-reporting limitation stands
+  untouched by an example-only change.
+
+M-G4 review round 1 disposition (2026-11-26, third-party review of
+the uncommitted milestone diff):
+
+- High — the device-0 scope named a side stream, not the main
+  stream (the rewritten bullet above). Fixed: the program opens no
+  device-0 stream and pushes no device-0 scope; its header and
+  inline comments state the real stream shape. The box's double-run
+  greenness before the fix was enqueue-timing luck at 11–14 %
+  utilization, not evidence — the box re-run with the corrected
+  program is this disposition's verification step.
+- Medium — this ledger's "handle 0 is the main stream"
+  justification: fixed by the bullet rewrite.
+- Medium — the user manual glossed device `0` as "the main stream"
+  (19-tensor.md stream section, en/zh), the source the program's
+  misreading grew from. Fixed: the sentence now separates the
+  device selector `0`, the created handle (a stream of its own on
+  that device), and the main stream's own handle `0`; mirrored
+  en/zh. The same gloss sat in the `streamCreate(int device)`
+  interface comment in stdlib/tensor.n — corrected there too
+  (found by the independent read, not listed by the review).
+  CHANGELOG 0.14.13 carries the Fixed entry (en/zh); the historical
+  0.14.11/0.14.12 entries are left as records.
+- Low — the manual's example paragraph was in implementer voice
+  ("works the same surface", "census"; zh 普查值): reworded to
+  "exercises the same stream and device surface" and the plain
+  device-count wording.
+- Low — the program's baseline comment quoted a stale measurement:
+  it now names both (0.897 single-device, 0.896 on the box) and
+  attributes the wobble to the last argmax compare.
+- Low — the gate script misdiagnosed a missing stem directory (the
+  first redirect fails and surfaces as "build broke"): the stem is
+  resolved absolute once up front and its directory created, which
+  also removes the `$root/<absolute-stem>` double-slash join.
+- Verified safe, no change: the in-scope
+  `toDevice(foreignOperand, d)` transfer (by-design gate exemption,
+  pinned by op_tensor_cross_device.n); blocking transfers giving
+  payload residence at return; the join's direction; the numerics
+  parity (the load-bearing 0.5f scalings); the ctest entries and
+  the timing row.
+- Box re-landing with the corrected program and script (2026-11-26,
+  the verification step the High's disposition named): the full
+  multigpu gate leg end to end — GATE multigpu PASS. Roster
+  double-run 213/213 twice, byte-identical verdict lists, zero
+  skips; fresh baseline 0.896; the corrected ddp twice exit 0 with
+  byte-identical 40-epoch sequences (epoch 1 prints 1.4117792876…
+  against the baseline's 1.4117792979… — reduction-order noise at
+  the 8th decimal, inside the 0.001 band at over=0/40, printed
+  maxdev 0.000000) and accuracies 0.896/0.896; the sampler saw both
+  device indices busy, peak 26%/11% — device 0's share is higher
+  than the pre-fix 14%/11%, consistent with its shard now running
+  the full loss/allreduce/SGD chain on the main stream. The leg's
+  first launch this round failed on the stem-normalization fix
+  itself — the `train_run` helper still joined the now-absolute
+  stem onto `$root` — caught by the leg's baseline step, fixed, and
+  the passing run exercised the corrected script whole.
+
+M-G4 review round 2 disposition (2026-11-26, re-review after the
+round-1 fixes):
+
+- All six round-1 findings re-derived from the code independently
+  and confirmed fixed and complete — the reviewer's edge-by-edge
+  ordering walk reaches no remaining undefined ordering at the
+  ABI level. Zero new Medium+.
+- Low — a stray mid-sentence line break in the M-G3 box-landing
+  bullet: rewrapped.
+- Low — the program header cited design §8 for the stream shape
+  after its device-0 half deviated: the citation now names the
+  plan §5 M-G4 record as the revision it follows.
+- Info — the timing row predated the final program trim:
+  re-recorded from a clean single-entry run afterwards (0.94 →
+  0.95 s, updated=1, recorder PASS).
 
 ## 6. Risks and mitigations
 

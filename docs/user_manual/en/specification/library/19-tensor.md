@@ -672,10 +672,15 @@ raises `Exception` on the spot, naming the sides and the fix —
 `tensor.toDevice(a, device)` moves it across.
 `tensor.deviceCount()` reports the bound — `0` on `cpu`, `1` on
 `mirror`, the CUDA count on `cuda` — and a foreign device raises;
-device `0`, the main stream, is nameable on every backend, `cpu`
-included. The spelling that omits the device keeps its meaning: the
-stream is created on the device of the scope it is created from,
-which is device 0 on the main stream.
+device `0` is nameable on every backend, `cpu` included. The
+created handle names a stream of its own on that device, distinct
+from that device's main stream — the main stream keeps its own
+name, handle `0`, everywhere: pushing `0` routes a scope to device
+`0` running on the main stream, and on `cpu` and `mirror` every
+in-range creation returns that same `0`. The spelling that omits
+the device keeps its meaning: the stream is created on the device
+of the scope it is created from, which is device 0 on the main
+stream.
 
 Random draws stay coherent under concurrency: inside a push
 scope, `tensor.uniform` takes a private, non-overlapping window
@@ -696,6 +701,14 @@ same draws, the same result on every backend, and the same
 on this surface, and `tests/bench/mc_streams_torch_bench.py`
 compares its wall time against a PyTorch spelling of the same
 workload.
+
+`examples/mnist_mlp/mnist_ddp.n` exercises the same stream and
+device surface across two devices: the MNIST perceptron's
+mini-batches split one shard per device, the parameters cross over
+with the device-spelled `tensor.toDevice`, and the shard gradients
+rejoin by mean before the update — a machine below two devices
+gets a reasoned skip, not a failure (the guard is the device count
+`tensor.deviceCount()` reports).
 
 ### Deployment
 

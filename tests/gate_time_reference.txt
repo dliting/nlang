@@ -71,3 +71,10 @@
 # tensor-simd分支移植注记(2026-11-26): 本表随行入库自master, 种子为空表;
 # 新ctest条目的计时行按文末录制序列用tools/gate_time_check.py record随手登记,
 # 守卫接线(calibrate/check-*)随门禁树的键控改造另行落地。
+ctest-Debug mnist_ddp_compile 0.95 1 ctest-junit-serial
+
+# mnist_ddp_run处置注记(2026-11-26): 该条目在录制舰队的所有Windows机器上
+# 永久Skip(全部单设备, 程序按§1 skip契约退出90), junit里只有notrun读数,
+# 录制器不收——它没有可录的工作量, 故不入本表; 真工作量读数只存在于验收盒
+# 直跑(tools/gate_multigpu.sh, 非ctest面)。守卫接线落地时若check_complete
+# 对它报MISSING, 处置方向是"录制永不通过的条目从required集排除", 勿补占位行。

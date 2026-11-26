@@ -6,6 +6,31 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.14.13]
+
+### Added
+
+- **`examples/mnist_mlp/mnist_ddp.n`** — data-parallel training as a
+  shipped example: the same seeded two-layer perceptron as
+  `mnist_mlp`, with each mini-batch split into one shard per device,
+  parameters copied across by the device-spelled `tensor.toDevice`,
+  and shard gradients allreduced by mean before the SGD step. On a
+  machine below two devices the program reports a reasoned skip and
+  exits 90; on `cuda` the loss curve follows the single-device run to
+  float rounding.
+
+### Fixed
+
+- **The `tensor.streamCreate(0)` gloss** — the user manual (the
+  0.14.11 entry included) glossed device `0` as "the main stream",
+  which is not what it is on a device backend: `0` names the device,
+  the created handle names a stream of its own on it, and the
+  device's main stream keeps its own name — handle `0`, which
+  `streamPush` routes a scope to without opening a side stream (on
+  `cpu` and `mirror` every in-range creation returns that same `0`).
+  The manual, the stdlib interface comments and the new `mnist_ddp`
+  example now spell this out.
+
 ## [0.14.12]
 
 ### Added

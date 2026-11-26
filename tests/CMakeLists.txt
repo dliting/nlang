@@ -2695,6 +2695,27 @@ set_tests_properties(mnist_mlp_run PROPERTIES
     DEPENDS mnist_mlp_compile
     WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/examples/mnist_mlp)
 
+#mnist_ddp: the v0.14.13 multi-GPU acceptance program (multi_gpu_design
+#§8) — mnist_mlp's same units and hyperparameters, each mini-batch split
+#into one shard per device, shard gradients allreduced by mean. The
+#skip contract: fewer than two devices and the program reports the
+#census shortfall on stderr and exits 90, which SKIP_RETURN_CODE turns
+#into a ctest Skip (the Windows fleet is single-device; the program
+#never trains there — the real double-run gate is tools/gate_multigpu.sh
+#on the 2×4090 box). The run keeps mnist_mlp_run's 300 s ceiling so a
+#two-device host could host a full 40-epoch training run.
+add_test(NAME mnist_ddp_compile
+    COMMAND ncc build -p
+        ${PROJECT_SOURCE_DIR}/examples/mnist_mlp/mnist_ddp.nproj
+        -o ${CMAKE_BINARY_DIR}/e2e_out/mnist_ddp.npkg)
+add_test(NAME mnist_ddp_run
+    COMMAND nvm ${CMAKE_BINARY_DIR}/e2e_out/mnist_ddp.npkg)
+set_tests_properties(mnist_ddp_run PROPERTIES
+    DEPENDS mnist_ddp_compile
+    WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/examples/mnist_mlp
+    SKIP_RETURN_CODE 90
+    TIMEOUT 300)
+
 #Project-mode entries are fixture compiles/runs; the FAQ CWD pin runs a
 #real compile too. Keep each well under the 3-minute unit-test ceiling.
 set_tests_properties(proj_import_visibility_compile proj_import_visibility_run
@@ -2707,7 +2728,7 @@ set_tests_properties(proj_import_visibility_compile proj_import_visibility_run
     proj_two_scripts_compile proj_imports_script_lib
     proj_imports_script_compile proj_imports_script_run
     proj_imports_lib_stmts_compile
-    mnist_mlp_compile
+    mnist_mlp_compile mnist_ddp_compile
     PROPERTIES TIMEOUT 180)
 
 #mnist_mlp_run needs its own ceiling: under the address-sanitizer tree

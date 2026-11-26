@@ -68,5 +68,6 @@ keeps it within 0-255).
 | hello_project/ | multi-file project (open the `.nproj` in nide) | 0 |
 | libdemo/ | flat search-path library (build the library unit first; consumers `import` it and it loads at run time) | 0 |
 | mnist_mlp/ | two-layer MNIST perceptron — views, broadcasting, axis reductions in batch matrix form (multi-module project; data in `data/`, gate at 0.85) | 0 |
+| mnist_mlp/mnist_ddp.n | the same perceptron trained data-parallel over two devices — one mini-batch shard per device, parameters copied by the device-spelled `tensor.toDevice`, shard gradients allreduced by mean (v0.14.13; below two devices the program reports the skip and exits 90) | 0 or 90 |
 | mc_streams/ | Monte Carlo π over four device streams — the v0.14.9 stream orchestration (Push/Pop scopes, event join, per-chunk PRNG windows; multi-module project; not gated, see its README) | 0 |
 | embed_host/ | minimal C++ embedding host (built by CMake; run `embed_host <artifact.ncu|.npkg>`) | 0 |
