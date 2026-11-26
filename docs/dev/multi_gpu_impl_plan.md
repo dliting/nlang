@@ -969,13 +969,27 @@ surgery, already docked before the feature stages start).
 | --- | --- | --- | --- | --- |
 | Windows dbg build+unit (M-G2/3: touched trees + new entries) | full | targeted | targeted | full |
 | Windows cpu e2e (M-G2/3: tensor/device/stream families) | full | targeted | targeted | full |
-| Windows asan build+unit, asan e2e subset | yes | — | — | yes |
+| Windows asan build+unit, asan e2e subset | yes | — | — | — (slim close, see note) |
 | Windows cuda bench build (tree/double-run only at M-G4) | tree+double | build | build | tree+double |
-| Windows full T1 (five legs, one batch) | yes | — | — | yes |
+| Windows full T1 (five legs, one batch) | yes | — | — | slim close (see note) |
 | box cuda build + double-run subset + new e2e | yes | yes | yes | yes |
 | box mnist single-GPU regression | yes | yes | yes | yes |
 | box gate_multigpu.sh (ddp, twice) | — | — | — | yes |
-| T2 (Release build/e2e, docs five legs) | — | — | — | yes |
+| T2 close (slim: Debug units, ASan full e2e, Release build/e2e, docs five legs) | — | — | — | yes |
+
+Close shape (owner ruling 2026-11-26, 加快速度、避免重复测试,
+implemented in gate_tier.sh's t2 and recorded in
+gate_tiering_design.md): the convergence batch runs Debug full
+units + ASan full e2e + Release build and Release e2e + the docs
+five legs. Debug full e2e is redundant with the ASan pass (same
+codegen, the instrumented run adds memory checks), the ASan subset
+is a literal subset of the full pass, and the IDE tree / ASan
+units cover their test families already through the Debug suite —
+they ride the T1 docks when the diff surface makes them relevant.
+Release keeps build AND e2e (optimized codegen is the one regime
+without another functional check). The tier coverage invariant is
+untouched: the e2e manifest stays fully selected by T1 and by the
+ASan full pass.
 
 The box stays per-milestone: it is the only machine where the
 line's subject matter (devices) executes at all, and its legs run

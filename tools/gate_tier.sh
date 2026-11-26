@@ -14,8 +14,11 @@
 #     + IDE tree + ASan units + ASan memory-risk e2e subset. The subset
 #     is DERIVED at run time from tools/gate_tiers.txt (the stale-copy
 #     lesson) — never stored.
-# T2  (version close, release-time only): T1 legs + full ASan e2e +
-#     Release build + Release e2e + docs five legs.
+# T2  (version close, release-time only): full Debug units + full
+#     ASan e2e + Release build + Release e2e + docs five legs (the
+#     slim close shape, owner ruling 2026-11-26: Debug e2e shares
+#     the ASan run's codegen, the ASan subset is inside the full
+#     pass, and the IDE tree / ASan units ride the T1 docks).
 #
 # Every leg goes through tools/gate.sh (machine lock, verdict lines
 # "GATE <leg>: PASS|FAIL"); all legs run regardless of earlier reds —
@@ -187,7 +190,14 @@ t1() { t1_legs; docs_legs; }
 
 t2() {
   DOCS=1  #version close always includes the docs five legs
-  t1_legs
+  # Slim close shape (owner ruling 2026-11-26, speed without lost
+  # coverage): Debug e2e rides the ASan full pass (same codegen —
+  # the instrumented run sees everything the plain one does plus
+  # memory), the ASan subset is a literal subset of that pass, and
+  # the IDE tree / ASan units belong to the T1 docks. Release keeps
+  # build AND e2e: optimized codegen is a distinct regime with no
+  # other functional check.
+  ctest_leg T2-debug-unit "$MASTER_TREE"
   e2e_leg T2-asan-e2e-full "$ASAN_TREE" Debug \
       "$REPO/tests/e2e/manifest.txt" 180
   leg T2-release-build bash -c \
