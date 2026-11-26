@@ -5,6 +5,7 @@
 #   gate_tier.sh T0 --master-tree DIR (--git BASE | --paths p...) [--docs]
 #   gate_tier.sh T1 --master-tree DIR --asan-tree DIR --ide-tree DIR [--docs]
 #   gate_tier.sh T2 --master-tree DIR --asan-tree DIR --ide-tree DIR
+#   gate_tier.sh T2-lite --master-tree DIR --asan-tree DIR --ide-tree DIR
 #
 # T0  (per iteration, and the close-out of an ordinary task, minutes):
 #     impact-mapped Debug unit families + matching e2e subset; any
@@ -21,6 +22,17 @@
 #     Release build + perf class (the T2-perf leg runs the ON-registered
 #     entries, its restore leg closes the cache window unconditionally)
 #     + Release e2e + docs five legs + the carrier pairing guard.
+# T2-lite (explicit operator choice, user ruling 2026-11-26 for the
+#     v0.13.13 close): the T2 subset that holds the coverage a merged
+#     release still owes — full Debug units (exclusions off), full ASan
+#     e2e, Release build + Release e2e, the coverage/schedule guards and
+#     the docs five legs. Skipped, with the owed cost stated: IDE-tree
+#     ctest and ASan units (each line was gated on its own branch before
+#     the merge, and the merged C++ surface's one conflict-resolution
+#     fix compiles green in all three trees), plain-Debug e2e (the same
+#     manifest runs under ASan and Release), the perf class and the
+#     carrier pairing. The full T2 stays the default close-out; lite is
+#     never silent — the tier name rides every log.
 #
 # Every leg goes through tools/gate.sh (named- and keyed-resource claims, verdict lines
 # "GATE <leg>: PASS|FAIL"); all legs run regardless of earlier reds —
@@ -100,7 +112,7 @@ usage() { awk 'NR>1 { if ($0 !~ /^#/) exit; sub(/^# ?/, ""); print }' "$0"; exit
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    T0|T1|T2) TIER="$1" ;;
+    T0|T1|T2|T2-lite) TIER="$1" ;;
     --master-tree) MASTER_TREE="$2"; shift ;;
     --asan-tree) ASAN_TREE="$2"; shift ;;
     --ide-tree) IDE_TREE="$2"; shift ;;
@@ -644,7 +656,7 @@ t1_legs() { # t1_legs <slow-e on|off>
   guard_legs
 }
 
-freshness_legs() { # freshness_legs <T0|T1|T2>
+freshness_legs() { # freshness_legs <T0|T1|T2|T2-lite>
   # The batch's first leg, before any test runs: every (tree, config)
   # whose artifacts this batch consumes must postdate the repo's
   # compiled inputs. Staleness discovered mid-batch voids the whole
@@ -666,6 +678,12 @@ freshness_legs() { # freshness_legs <T0|T1|T2>
         #inside the batch, before the legs that consume it.
         args+=(--ctest-tree "$IDE_TREE:Debug"
                --ctest-tree "$ASAN_TREE:Debug") ;;
+    T2-lite) #Same Release exclusion (the lite batch also builds it
+        #inside, in T2-release-build); the IDE tree is NOT consumed --
+        #no lite leg runs its tests or its tools -- so it is not judged
+        #either. Consumed: the master tree's Debug suite (the unit leg)
+        #and the ASan tree's Debug binaries (the full ASan e2e).
+        args+=(--ctest-tree "$ASAN_TREE:Debug") ;;
   esac
   leg T-preflight-fresh env "$PY_IO_ENCODING" \
       "$PY" "$REPO/tools/gate_freshness.py" check "${args[@]}"
@@ -858,10 +876,40 @@ t2() {
     --perf-names "$WORK/perf_names.txt"
 }
 
+# The lite close-out (user ruling 2026-11-26, v0.13.13): the T2 subset a
+# merged release still owes when each line was gated on its own branch
+# before the merge. Same leg functions, same discipline -- every leg
+# through gate.sh, all legs run regardless of earlier reds, the batch
+# exits non-zero on any red -- so the omission list is the ONLY
+# difference from t2(): no IDE-tree ctest, no ASan units, no plain-Debug
+# e2e (the same manifest runs under ASan and under Release), no perf
+# window and no carrier pairing. The Debug unit leg runs with the
+# exclusions off exactly like T2's (the slow set and the samples class
+# re-enter the close-out), and the coverage/schedule guards still ride
+# the batch: they are the batch's own consistency check, they cost
+# seconds, and they do not depend on the skipped legs. DOCS is set like
+# t2(): a release close-out always includes the docs five legs.
+t2_lite() {
+  DOCS=1
+  freshness_legs T2-lite || return 2
+  # The perf set still feeds every ctest leg's -E (D-6's union rides
+  # mapped or not); lite runs no T2-perf leg, so the set only excludes.
+  PERF_E=$(perf_names) || { leg T-perf-names false; return 2; }
+  ctest_leg T2-lite-debug-unit "$MASTER_TREE" ctest-Debug "" ""
+  e2e_leg T2-asan-e2e-full "$ASAN_TREE" Debug e2e-ASan \
+      "$REPO/tests/e2e/manifest.txt" 180
+  leg T2-release-build --gate-env "NLANG_GATE_WRITE_DIR=$MASTER_TREE" \
+      bash -c "cmake --build '$MASTER_TREE' --config Release"
+  e2e_leg T2-release-e2e "$MASTER_TREE" Release e2e-Release "" 120
+  guard_legs
+  docs_legs
+}
+
 case "$TIER" in
   T0) t0 ;;
   T1) t1 ;;
   T2) t2 ;;
+  T2-lite) t2_lite ;;
 esac
 batch_rc=$?
 

@@ -1248,6 +1248,72 @@ case_a19_preflight_red_aborts() {
     pass "$case_name"
 }
 
+# T2-lite is the explicit operator choice for a merged release's close-out
+# (user ruling 2026-11-26): the Debug unit suite runs with the exclusion
+# union OFF -- a close-out carries its own slow and samples members (the
+# D-20 roster) -- and the faces the ruling skips (IDE-tree ctest, ASan
+# units, plain-Debug e2e, the perf class, the carrier pairing) must be
+# absent from the assembly, not merely unexecuted. The preflight still
+# comes first and judges exactly the two Debug suites lite consumes; the
+# Release config is built inside the batch, so judging it at leg one
+# would red on artifacts the batch itself produces. The dry run turns
+# each property into a string comparison. The a10 recipe (stub doors +
+# seed cache) is needed even here: perf_names is a producer, not a leg,
+# so --dry-run does not stop it from configuring and enumerating its
+# scratch trees. The stub enumeration is empty, so a correct unit leg
+# carries no -E at all -- but an exclusion union silently turned on
+# would read the real reference table and show one, and the samples
+# members it must not hold are the close-out members themselves.
+case_a20_t2_lite_assembly() {
+    local out=a20-t2-lite.out rc first release_specs ctest_trees verdict_head
+    local legs unit_e
+    make_stub_doors a20
+    seed_fresh_stub_tree "$WS/a20-tree"
+    NLANG_GATE_TIER_WORK="$WS/a20" NLANG_GATE_CMAKE="$WS/a20-stub-cmake.bat" \
+    NLANG_GATE_CTEST="$WS/a20-stub-ctest.bat" \
+    env -u NLANG_GATE_MACHINE_SCALE \
+    bash "$TIER_SH" T2-lite --dry-run \
+        --master-tree "$WS/a20-tree" --asan-tree "$WS/a20-tree" \
+        --ide-tree "$WS/a20-tree" > "$out" 2>&1
+    rc=$?
+    first=$(sed -n 's/^LEG \([T0-9a-z-]*\):.*/\1/p' "$out" | head -1)
+    release_specs=$(grep -o -- ':Release' "$out" | wc -l)
+    ctest_trees=$(grep -o -- '--ctest-tree ' "$out" | wc -l)
+    verdict_head=$(grep -c -- '===== T2-lite verdicts =====' "$out")
+    legs=$(sed -n 's/^LEG \([T0-9a-z-]*\):.*/\1/p' "$out" \
+        | tr '\n' ' ' | sed 's/[ ]*$//')
+    if [ "$rc" -ne 0 ] || [ "$first" != "T-preflight-fresh" ]; then
+        fail "$case_name" "lite's first leg is not the preflight (rc=$rc): [$first]"
+        return
+    fi
+    if [ "$release_specs" -ne 0 ]; then
+        fail "$case_name" "the preflight judged a Release config the batch builds itself: $release_specs"
+        return
+    fi
+    if [ "$ctest_trees" -ne 2 ] || [ "$verdict_head" -ne 1 ]; then
+        fail "$case_name" "expected two judged Debug trees and one lite verdict header, got $ctest_trees/$verdict_head"
+        return
+    fi
+    if [ "$legs" != \
+        "T-preflight-fresh T2-lite-debug-unit T2-lite-debug-unit-budget T2-lite-debug-unit-timeouts T2-asan-e2e-full T2-release-build T2-release-e2e T-guards-complete T-guards-orphans T-schedule T-docs-pytest T-docs-build-en T-docs-build-zh T-docs-check-en T-docs-check-zh" ]; then
+        fail "$case_name" "the lite leg list is not the ruled assembly: [$legs]"
+        return
+    fi
+    # A samples member in the unit leg's -E would mean the exclusion
+    # union silently turned on and the close-out dropped its own
+    # members. Under the stub doors the correct leg carries no -E at
+    # all, which is exactly what the close-out owes with no perf names
+    # to subtract.
+    unit_e=$(sed -n "s/^LEG T2-lite-debug-unit:.* -E '\([^']*\)'.*/\1/p" "$out")
+    case "$unit_e" in
+      *mnist_mlp*)
+        fail "$case_name" "the lite unit leg excludes close-out members: -E [$unit_e]"
+        return
+        ;;
+    esac
+    pass "$case_name"
+}
+
 # The docs checker walks the cross-language links (en pages point at
 # ../../zh/index.html and the reverse), so a language whose sibling site has
 # not been built yet reports that sibling's home page as a missing target. The
@@ -1387,6 +1453,7 @@ run_case a11-docs-leg-order case_a11_docs_leg_order
 run_case a12-docs-site-dir-absolute case_a12_docs_site_dir_absolute
 run_case a18-preflight-first-leg case_a18_preflight_first_leg
 run_case a19-preflight-red-aborts case_a19_preflight_red_aborts
+run_case a20-t2-lite-assembly case_a20_t2_lite_assembly
 
 verdict() {
     if [ "$failures" -eq 0 ]; then

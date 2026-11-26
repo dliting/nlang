@@ -88,6 +88,7 @@ tools/gate_tier.sh T1 --master-tree build --asan-tree build-asan --ide-tree buil
 - T0(几分钟):按`tools/test_families.txt`的影响映射选出受影响的Debug单测族与e2e族;改动没命中映射时保守回退Debug全量单测。
 - T1(约1至1.5小时):Debug全量单测、Debug全量e2e、IDE树全量ctest、ASan单测、ASan e2e子集。`--docs`追加手册五腿(手册工具pytest与中英双语站点的构建加检查,吃`--master-tree`树的Release二进制)。
 - T2:版本收口门禁,在此之上加全量ASan e2e、Release构建与e2e、perf条目。
+- T2-lite:合并收口的精简形态(显式操作选择,非默认):Debug全量单测(排除关闭)、全量ASan e2e、Release构建与e2e、守卫与docs五腿;跳过IDE树ctest、ASan单测、Debug e2e、perf窗与载体配对,理由见`tools/gate_tier.sh`头部注释,自测条目a20钉住其组装。
 
 批次规则:不论前面是否变红都跑完全部腿,但只要有一条红,整批作废,修复后全批重扫。`--dry-run`只打印计划不落盘;日志与scratch默认在`temp/tier/`,用`NLANG_GATE_TIER_WORK`改位置。
 
