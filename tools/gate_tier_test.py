@@ -124,12 +124,16 @@ def run_smoke():
         #Windows pathlib globs are case-insensitive, so the planted
         #t1_debug_unit.gate would match a T1-* glob; enumerate instead
         #and demand the flat root holds nothing but the stale plants.
+        #The stray list is built before the f-string: an expression
+        #spanning lines inside one is Python 3.12+ grammar, and the
+        #ctest entry runs this file under whichever Python3 the tree
+        #resolved (3.9 on a bare miniconda configure).
         flat_files = {p.name for p in gates_root.iterdir() if p.is_file()}
+        strays = sorted(flat_files - {stale_same_name.name,
+                                      stale_other_case.name})
         check(flat_files == {stale_same_name.name, stale_other_case.name},
-              f"leg artifacts landed flat in the gates root ({sorted(
-                  flat_files - {stale_same_name.name,
-                                stale_other_case.name})}) — verdict "
-              "files must live inside the per-run directory")
+              f"leg artifacts landed flat in the gates root ({strays}) — "
+              "verdict files must live inside the per-run directory")
         check(stale_same_name.read_text() == "stale-from-another-generation\n"
               and stale_other_case.read_text() == "GATE T1-debug-unit: PASS (stale)\n",
               "the batch overwrote or consumed a stale flat artifact — "

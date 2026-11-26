@@ -48,9 +48,15 @@ _NVM_STUB = (
     'set /p exitcode=<"%~1"\n'
     'exit /b %exitcode%\n')
 #Sleeping stub-VM variant for the kill-point cases below: with
-#NLANG_STUB_SLEEP=N in the runner environment the stub VM idles ~N-1
-#seconds (ping ticks one second apart, the first echo is immediate)
-#before honouring the source's exit code. The in-process cases shrink
+#NLANG_STUB_SLEEP=N in the runner environment the stub VM idles
+#exactly N seconds before honouring the source's exit code. The
+#sleep is a PowerShell Start-Sleep -- a wall-clock timer with no
+#network in it -- because the original `ping -n N 127.0.0.1` idled
+#for as long as the machine's loopback ICMP chose to take
+#(2026-11-24 pathology: 100% loss, 4 ticks measured 19 s), which
+#reddened the kill-point cases on every tree while it lasted
+#(gate_timing_design.md section 13 item 3, cleared 2026-11-26).
+#The in-process cases shrink
 #MIN_CAP_S/MIN_WATCHDOG_S on the loaded table module (see the
 #kill-point section comment), so seconds-scale sleeps cross the
 #computed caps; the row-less subprocess case has no row and no floor
@@ -58,8 +64,8 @@ _NVM_STUB = (
 _NVM_STUB_SLEEP = (
     '@echo off\n'
     'setlocal\n'
-    'if defined NLANG_STUB_SLEEP ping -n %NLANG_STUB_SLEEP% 127.0.0.1 '
-    '>nul\n'
+    'if defined NLANG_STUB_SLEEP powershell -NoProfile -Command '
+    '"Start-Sleep -Seconds %NLANG_STUB_SLEEP%" >nul\n'
     'set /p exitcode=<"%~1"\n'
     'exit /b %exitcode%\n')
 _NDB_STUB = '@echo off\nexit /b 0\n'
@@ -424,7 +430,7 @@ def test_explicit_config_prices_entry_row_and_kills_at_budget(
         monkeypatch, capsys, request, tmp_path):
     """--config beats the path guess: the tools sit under a /Release/
     path, yet with --config=Debug the kill and the budget come from the
-    e2e-Debug entry row (ref 1 -> budget 2, watchdog 10; a ~4 s sleep is
+    e2e-Debug entry row (ref 1 -> budget 2, watchdog 10; a ~5 s sleep is
     killed at 2), the FAIL line names (TIMEOUT_BUDGET ...), the judging
     line names the config, and no guess marker prints."""
     lines, code, name = _gate_main_run(
@@ -447,7 +453,7 @@ def test_missing_config_guesses_and_coarse_row_overrun_is_advisory_only(
         monkeypatch, capsys, request, tmp_path):
     """No --config: the /Release/ tool path guesses the config (the line
     carries 猜), and an entry resolved through the coarse `default` row
-    that runs over its budget (~3 s against budget 2, watchdog 6) is
+    that runs over its budget (~4 s against budget 2, watchdog 6) is
     advisory only -- PASS, exit code 0, no FAIL, so the runner's own
     kill never reds a coarse-scope entry (R-17)."""
     lines, code, name = _gate_main_run(
@@ -513,7 +519,7 @@ def test_manifest_scope_row_prices_the_manifest_entries(
         monkeypatch, capsys, request, tmp_path):
     """M-3 at the runner: an entry owned by a manifest named
     manifest.txt is priced by that manifest's scope row (ref 0.6 ->
-    budget 2, so the ~3 s run is over budget), not by the wider
+    budget 2, so the ~4 s run is over budget), not by the wider
     `default` row (ref 25 -> budget 50, no advisory). An advisory
     naming budget=2.00 is the proof the owning scope was consulted."""
     lines, code, name = _gate_main_run(
@@ -564,7 +570,7 @@ def test_advisory_suppression_is_the_cap_kill_flag(capsys, monkeypatch):
 def test_row_less_entry_falls_back_to_timeout_visibly(request, tmp_path):
     """--timeout keeps its remaining job as the row-less fallback: with
     no e2e-Release rows in the table, the entry is priced by
-    --timeout=3 (a ~4 s sleep is killed) and the run prints a
+    --timeout=3 (a ~5 s sleep is killed) and the run prints a
     TIMEOUT-FALLBACK line so the missing row stays visible."""
     lines, rc, name = _gate_stub_run(
         request, tmp_path, manifest_name='gate_manifest.txt',
