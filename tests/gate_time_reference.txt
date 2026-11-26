@@ -85,6 +85,7 @@ ctest-IDE threads_tests 62.55 1 ctest-junit-serial - 时序敏感例外(D-12第4
 ctest-ASan threads_tests 258.23 1 ctest-junit-serial - 时序敏感例外(D-12第4条):判据依赖激励窗口与静默窗口的相对比例而非绝对秒数,登记带理由的例外行;基线行参考秒数越过SLOW_MIN_REF_S入慢集,不进每轮判定腿,由收口前慢集腿承接
 e2e-Debug stdlib_regex_size 240.56 1 e2e-serial - 慢集成员(基线行ref_s越过SLOW_MIN_REF_S),不进每轮e2e判定子集,由收口前慢集腿承接;本轮实测240.56s越过default行看门狗线10×10.0=100s,会被自己的看门狗掐死,须按本行ref_s定预算与看门狗帽;超时帽由caps()按构型放大
 e2e-ASan stdlib_regex_size 491.06 1 e2e-serial - 慢集成员的ASan构型读数(基线行e2e-Debug 240.56s越过SLOW_MIN_REF_S),插桩面由收口前慢集批次的ASan腿承接;须按本行ref_s定预算与看门狗帽,超时帽由caps()按构型放大
+e2e-Release stdlib_regex_size 16.24 1 e2e-serial - 慢集成员的Release构型读数(基线行e2e-Debug 240.56s越过SLOW_MIN_REF_S),验收面由T2-release-e2e全量腿承接;清偿2026-11-23挂账:录制轮的慢集排除曾令本条目在e2e-Release无读数、全量腿一度按default行计价,本行出自2026-11-27单条目实测record;须按本行ref_s定预算与看门狗帽,超时帽由caps()按构型放大
 e2e-Debug default 10.0 1 e2e-serial - 清单行缺省参考:兜底覆盖其余全部无逐条目行的清单条目;ref_s按粗档登记(D-3),取本轮录制轮2202条MEASURE读数按条目名max合并后2201条的p99=1.89,向上取整到10秒、下限10.0
 e2e-ASan default 10.0 1 e2e-serial - 清单行缺省参考:兜底覆盖其余全部无逐条目行的清单条目;ref_s按粗档登记(D-3),取本轮录制轮2202条MEASURE读数按条目名max合并后2201条的p99=5.13,向上取整到10秒、下限10.0
 e2e-Release default 10.0 1 e2e-serial - 清单行缺省参考:兜底覆盖其余全部无逐条目行的清单条目;ref_s按粗档登记(D-3),取本轮录制轮2202条MEASURE读数按条目名max合并后2201条的p99=0.40,向上取整到10秒、下限10.0
