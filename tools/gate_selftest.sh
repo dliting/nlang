@@ -1164,7 +1164,11 @@ seed_fresh_stub_tree() { # seed_fresh_stub_tree <tree>
   # The cache seed plus every artifact class the freshness preflight
   # judges, all created now so their mtimes clear the real repo's
   # input sweep: a batch on this tree survives leg one and its own
-  # red comes later (the uncalibrated unit leg).
+  # red comes later (the uncalibrated unit leg). The stdlib copy is
+  # recursive: the freshness rule judges every module the repo's
+  # stdlib holds -- including the web package's sub-directory arm --
+  # so the seed must mirror the whole directory shape, not just the
+  # top-level *.n files.
   local tree="$1" t
   mkdir -p "$tree/src/tools/ncc/Debug" "$tree/src/tools/nvm/Debug" \
            "$tree/src/tools/ndb/Debug" "$tree/native/Debug" \
@@ -1175,7 +1179,7 @@ seed_fresh_stub_tree() { # seed_fresh_stub_tree <tree>
   done
   : > "$tree/native/Debug/nlang_io.dll"
   : > "$tree/tests/Debug/test_stub.exe"
-  cp "$REPO"/stdlib/*.n "$tree/stdlib/"
+  cp -r "$REPO"/stdlib/. "$tree/stdlib/"
 }
 
 case_a10_gate_tier_batch() {
