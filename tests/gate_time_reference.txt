@@ -1,0 +1,73 @@
+# gate_time_reference.txt -- 按构型的参考计时表(spec docs/dev/gate_timing_design.md D-3)。
+# 机器可读:每行一个(构型, 条目), 列以空白分隔, `#`行是注释; 由tools/gate_time_check.py
+# 读取, 看门狗帽与预算只经caps()一处计算(D-5)。
+
+# 七列(顺序固定, 列名与守卫报告一致):
+#   config      构型键, 七词词汇表: ctest-Debug / ctest-IDE / ctest-ASan /
+#               ctest-Release / e2e-Debug / e2e-ASan / e2e-Release。
+#               三棵判定树build、build-ide、build-asan分别对应前三个(D-2);
+#               ctest-Release随发布扫荡树的perf形态; 三个e2e键是跑器对清单的构型。
+#   entry       ctest条目名, 或e2e清单项名, 或范围行: `default`(e2e构型的
+#               兜底参考, 仅e2e键有意义)或清单文件名(`manifest.txt` /
+#               `examples_manifest.txt`, 后者只允许出现在e2e-Release)。
+#               ctest构型逐条列条目, 没有default行。
+#   ref_s       一份参考工作量的参考秒数; 由本机录制轮回填(见文末命令序列)。
+#               0.00为占位值: 录制轮尚未跑过; 占位行不得当哨兵(D-4选型要求
+#               0 < ref_s <= 30的实测快条目)。
+#   ref_work    参考工作量的轮数(soak类按构型给轮数, 其余为1)。
+#   form        读数随录的测量形态(并行度与机器独占与否), 如ctest-junit-serial、
+#               e2e-serial; 形态一变即须重跑录制轮刷新本表。
+#   sentinel    `yes`=校准哨兵(D-4: 快、稳定、无时间断言), 其余值或省略=非哨兵;
+#               每个参与构型须有5-8条yes(守卫一)。
+#   reason      取至行尾的自由文本。两处必填: e2e构型中偏离default行的例外行;
+#               慢集成员的行未被守卫六的甲路径(族)认领时的理由(乙路径,
+#               Task 8起为硬校验)。
+
+# 慢集不是列, 按参考秒数一处推导(D-16/D-17): 条目的基线行ref_s超过
+# SLOW_MIN_REF_S即入慢集, 不进每轮判定腿, 由收口前的慢集腿承接。基线行按
+# ctest-Debug、ctest-IDE、e2e-Debug取首个存在的行, default与清单行不参与
+# 判定; ASan与Release行只是更贵构型的代价读数, 永不参与判定。慢集全仓一份,
+# 各构型共用同一成员表; 门限数字的唯一定义处是gate_time_table.py里的
+# SLOW_MIN_REF_S常量, 本表不复述该数字。
+
+# 示例块(列名与取值形态, 读列时以空白分隔, reason取至行尾):
+# config        entry                    ref_s  ref_work  form                sentinel  reason
+# ctest-Debug   nd_resolve_stress_tests  98     100       ctest-junit-serial  -         soak:轮数按构型给(D-8)
+# ctest-Debug   e2e_runner_env_gate      3      1         ctest-junit-serial  yes       哨兵:快、稳定、无时间断言
+# e2e-Debug     default                  15     1         e2e-serial          -         清单行缺省
+# ctest-Release regex_redos_perf_run     52     1         ctest-junit-serial  -         墙钟断言面(D-6)
+
+# 本机倍率放tests/gate_time_reference.local.txt(不入库, 同格式, 覆盖同
+# (构型,条目)行, D-3); 本表只记参考基准, 机器差异不进本表。
+
+# 录制轮命令序列(另一台机器照抄即可复现; 每条腿都在tools/gate.sh锁内按当时
+# 默认并行形态跑, 形态写进form列; junit读数只取`status="run"`的Passed行:
+# Failed与Timeout同为`status="fail"`无从区分(Timeout的time只是当时的生效帽),
+# Skipped为`status="notrun"`且time只是跳过判定耗时, 三者的time都不是一份
+# 工作量, 录制器不收; 未录到的条目保持0.00占位或旧值, 由腿判决行的FAIL与
+# 残留0.00行清单暴露):
+#   ctest-Debug:   ctest --test-dir build      -C Debug --output-junit <xml>
+#                  (腿集合按tools/gate_tiers.txt现行T1-debug-unit)
+#     -> tools/gate_time_check.py record --config ctest-Debug --from-junit <xml>
+#   ctest-IDE:     同上, --test-dir build-ide, 腿集T1-ide-ctest
+#     -> record --config ctest-IDE --from-junit <xml>
+#   ctest-ASan:    同上, --test-dir build-asan, 腿集T1-asan-unit
+#     -> record --config ctest-ASan --from-junit <xml>
+#   ctest-Release: 扫荡树配-DNLANG_PERF_TESTS=ON, 跑perf两条条目加按D-4挑选的
+#                  5-8条ctest-Release哨兵, ctest --test-dir <扫荡树> -C Release
+#                  --output-junit <xml>
+#     -> record --config ctest-Release --from-junit <xml>
+#   e2e-Debug:     D:/dev/miniconda3/envs/py313/python.exe -I
+#                  tests/e2e/run_e2e_tests.py <ncc> <nvm> <ndb> --record-out <file>
+#                  (全清单, Debug二进制)
+#     -> record --config e2e-Debug --from-measure <file>
+#   e2e-ASan:      同上, 换ASan树的Debug二进制(D-3: ASan二进制住在/Debug/下)
+#     -> record --config e2e-ASan --from-measure <file>
+#   e2e-Release:   同上, 换Release二进制
+#     -> record --config e2e-Release --from-measure <file>
+# 倍率分布跨机对比至少两台(roadmap挂账); 本机之外机器的补录走上述命令加
+# gate_time_reference.local.txt, 不直接覆盖本表。
+
+# tensor-simd分支移植注记(2026-11-26): 本表随行入库自master, 种子为空表;
+# 新ctest条目的计时行按文末录制序列用tools/gate_time_check.py record随手登记,
+# 守卫接线(calibrate/check-*)随门禁树的键控改造另行落地。
