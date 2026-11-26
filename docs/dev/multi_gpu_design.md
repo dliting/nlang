@@ -164,11 +164,18 @@ id rides the parameter list, never hidden plugin state (an implicit
   launcher launched on. The mirror backend registers the same
   entry set and
   widens with it.
-- The kernel-launch entries of the ops tables gain a device
-  argument (the plugin sets the context before the launch).
-- The stream entries gain a device argument likewise, and the
-  stream handle itself encodes its device — `device *
-  kNativeMaxStreams + slot`, documented in the tensor ABI header.
+- The ops-table slots need NO signature change: every slot already
+  takes its operands as `NativeArrayView` references, and the id
+  rides their `reserved[1]` — the dispatcher asserted same-device
+  upstream, the output mint follows the operands, so the plugin
+  pins the context from the operand view and picks that device's
+  current stream. (Widening ~40 slots × 3 tables to re-carry what
+  the views already carry would be ceremony.)
+- `streamCreate` gains a device argument (it is the one stream call
+  without a handle to decode yet); `streamPush/Destroy/Join` need
+  no signature change because the stream handle itself encodes its
+  device — `device * kNativeMaxStreams + slot`, documented in the
+  tensor ABI header.
   `streamPush/Destroy/Join` carry only the handle and the registry
   keeps no per-handle state, so without the encoding
   `streamCreate(0)` and `streamCreate(1)` would collide on the same
@@ -296,10 +303,12 @@ duty): M-G2 the `deviceCount()` and `streamCreate(device)`
 entries, M-G3 the `toDevice(a, device)` overload.
 
 - M-G1: the ABI + boundaries (the device-id side vector,
-  `reserved[1]`, the device arguments on `newArrayResident`, the
-  device hooks, the launch and stream entries, `AssertSameDevice`;
-  single-GPU programs bit-identical, the whole existing corpus
-  green — all its programs are single-device, all on device 0).
+  `reserved[1]`, the device arguments on `newArrayResident` and the
+  device hooks, the stream entries — device on `streamCreate`,
+  handle-encoded devices elsewhere —, `AssertSameDevice`; the ops
+  tables ride their operand views unchanged; single-GPU programs
+  bit-identical, the whole existing corpus green — all its programs
+  are single-device, all on device 0).
 - M-G2: per-device pools in the plugin (contexts, streams, alloc);
   `deviceCount()`; the e2e corpus green on device 0.
 - M-G3: cross-device transfers (`toDevice(a, d)`, peer matrix,
