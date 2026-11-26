@@ -98,14 +98,15 @@ P3内部两个变体的裁决：
 
 ## 六、边界固化
 
-拆分若只靠「记得别写回去」维持，会重蹈include注释手工维护的覆辙（`src/vm/CMakeLists.txt:174-177`的"Reverse precedent"注释即是现状补丁的自供）。验收面加机械断言（实施计划落为tools/守卫脚本+ctest条目，先RED后GREEN）：
-1. `src/vm/`全树不得出现`nlang/compiler/`或`builder/`include；
-2. `nlang_core`源树不得include AST/builder/调度器面；
-3. `src/compiler/`不得出现`nlang/vm/`（允许`nlang/core/`）；
-4. CMake两库不再互加对方的源码include目录（构建系统层面的同一条断言）；
-5. 符号面：`nlang_core`与`nlang_vm`不得引用`nlang_compiler`符号——机械形态是`nvm`/`ndisasm`的链名表不含`nlang_compiler`且实测链接通过。include面断言挡不住符号穿边（`CanonicalArgSpelling`即现状实证，§二），此断言与之互补。
+拆分若只靠「记得别写回去」维持，会重蹈include注释手工维护的覆辙（`src/vm/CMakeLists.txt:174-177`的"Reverse precedent"注释即是现状补丁的自供）。验收面加机械断言（实施计划落为tools/守卫脚本+ctest条目，先RED后GREEN）。机制为解析制：每条`#include`按编译器真实搜索解析到落点文件（引号名先看包含者旁、再公开`include/`根、再目标私有include目录；尖括号名只在`include/`根下），由落点归属判边界——拼写形式（裸名、相对路径、带前缀）不构成边界主张；解析不到而非系统头的include同样命中（要它解析通只能借用include目录，即CMake面所禁）。2026-11-26收口评审发现初版子串匹配三重盲区（模式表未枚举到的裸名、无前缀可配的相对路径、从未扫描的vm公开头树）加CMake面core侧缺位，逐洞补丁正是盲区累积之路，故机制整体换为解析制：
 
-以上include类断言的匹配一律锚定`#include`指令行，注释与字符串中的库名不算命中（如`VmBackend.h:61-63`注释含库名）。
+1. `src/vm/`与`include/nlang/vm/`两侧全树：include落点不得越出vm允许区（vm自身、`nlang/core/`与`nlang/runtime/`公开面、vendored第三方；不含langservice，P3裁决已摘除该边）；
+2. `nlang_core`两侧（`src/core/`与`include/nlang/core/`）：落点不得入compiler或vm任一树（允许区为core自身、`nlang/runtime/`公开面、vendored）；
+3. `src/compiler/`全树：落点不得入`nlang/vm/`（允许`nlang/core/`、`nlang/runtime/`公开面与编译器私有的`nlang/langservice/`）；
+4. CMake面：vm与compiler不得互链或互借源码目录，core不得链或借两者任一，vm不得回长P3裁决摘除的langservice链——按剥注释后的代码部分匹配（注释加不了依赖，纯文档提及不算命中）；
+5. 符号面：`nlang_core`与`nlang_vm`不得引用`nlang_compiler`符号——机械形态是`nvm`/`ndisasm`/`ndb`的链名表不含`nlang_compiler`且实测链接通过。include面断言挡不住符号穿边（`CanonicalArgSpelling`即现状实证，§二），此断言与之互补。
+
+以上include类断言的匹配一律锚定`#include`指令行（`.h`/`.hpp`同扫），注释与字符串中的库名不算命中（如`VmBackend.h:61-63`注释含库名）。
 
 ## 七、用户可见面与文档
 
@@ -137,3 +138,5 @@ P3内部两个变体的裁决：
 - 版本裁定变更（用户，2026-11-25）：§七原「不提升VERSION」裁定作废，本重构独立发布为`0.13.12a`。
 
 **第2轮（定点复审，修订稿）**：Critical 0/High 0/Medium 0/Low 2/Info 2。两条Medium+的处置均判定充分（拆家裁定三处联动到位、`CanonicalArgSpelling`函数体确为纯AST无关可入core、符号面断言机械可执行）；修订新写入的全部事实句与新坐标（含CMake link-only自动附加机理句）逐条重新核实相符；第1轮12条Low/Info对表全部修入到位；回归扫描无矛盾新句。新发现处置：Low（§七漏`CHANGELOG.zh-CN.md`成对登记、五类句列举6名词致口径错位→格式归ABI子项）与Info（「不属五类」判定归因由工具改回核对人＋补基线推进归置、ncc例举补`TestNatives.h`并注明例举非穷尽）修入§五/§七。Medium+清零，spec循环退出，进入实施计划。
+
+**收口评审（2026-11-26，v0.13.13合并后）**：分层守卫初版子串匹配机制经审查判Medium——三重盲区（模式表未枚举的裸名include、相对路径穿越、vm公开头树从未扫描）加CMake面core侧缺位与注释误报，守卫绿不代表边界在。处置为机制整体换解析制（§六修订）：守卫按编译器真实搜索逐include解析判落点归属，CMake面剥注释匹配并补core侧与vm的langservice禁链，符号面链名哨兵补`ndb`；fixture语料全量重写为解析形态（每个include真实解析进fixture树）并新增三对（vm公开头面、core CMake面、ndb链名哨兵），自检11对22项检查全绿，真树0违例。

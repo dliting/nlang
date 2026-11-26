@@ -14,9 +14,9 @@
 namespace nlang
 {
 
-//CanonicalSpelling (the join) moved to src/compiler/builder/
-//GenericInstSpelling.cpp with the library layering split; the pool
-//below and the load-side parser key through it via the header.
+//CanonicalSpelling (the join) lives in src/core/GenericInstSpelling.cpp
+//after the library layering split; the pool below and the load-side
+//parser key through it via the header.
 
 //--- Load-side residency: canonical-spelling parser -----------------------
 //Reversibility per Rust RFC 2603 — the structure defines the spelling,

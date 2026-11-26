@@ -1,5 +1,5 @@
 /*-----------------------------------------------------------------------------
-	nvm/intf/TypeDesc.h
+	TypeDesc.h
 	Recursive runtime-type descriptors (.ncu v1.12) — the true formal /
 	return / field types a consumer needs to rebuild imported declarations.
 -----------------------------------------------------------------------------*/
@@ -157,7 +157,8 @@ struct TypeLeafSlots
 //a wire form or nested past kMaxTypeDescDepth degrade to
 //RTK_NonSerialized; func signatures serialize as RTK_Func; struct,
 //class and interface leaves resolve through slots. Defined in
-//TypeDesc.cpp — vm-internal, may include compiler headers.
+//src/core/TypeDesc.cpp — core-internal, the include face forbids
+//compiler headers there.
 TypeDesc BuildTypeDesc(SnField* pType, const TypeLeafSlots& slots,
 	size_t depth = 0);
 
