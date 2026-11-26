@@ -34,20 +34,41 @@
 #family, a new tool), add its probe here -- do not fall back to the
 #full-suite rerun.
 
-if(NOT EXISTS "${DEPLOY_DIR}/nide.exe")
-    message(FATAL_ERROR
-        "nide.exe not found in ${DEPLOY_DIR} -- build target nide first")
-endif()
-#The debug probe drives ndb from the app directory, so a missing copy
-#must fail here as a layout defect, not inside a test.
-if(NOT EXISTS "${DEPLOY_DIR}/ndb.exe")
-    message(FATAL_ERROR
-        "ndb.exe not found in ${DEPLOY_DIR} -- the nide POST_BUILD copy "
-        "list is missing it")
-endif()
-if(NOT EXISTS "${TEST_EXE}")
-    message(FATAL_ERROR
-        "test_mainwindow.exe not found at ${TEST_EXE} -- build it first")
+#Platform layout sources. Windows: the nide POST_BUILD assembles a
+#self-contained directory (DEPLOY_DIR), copied wholesale. Linux: the
+#build tree is NOT self-contained by design (the POST_BUILD only puts
+#the tools beside the executable; the Qt runtime resolves through the
+#install prefix), so the layout assembles from the install rules into
+#CHECK_DIR and the probes run from bin/ the way a deployed nide would.
+#Library isolation from the prefix Qt is NOT attempted on Linux: ELF
+#RUNPATH wins over qt.conf and stripping it would need patchelf — the
+#portable layout's premise there is the prefix Qt.
+if(WIN32)
+    if(NOT EXISTS "${DEPLOY_DIR}/nide.exe")
+        message(FATAL_ERROR
+            "nide.exe not found in ${DEPLOY_DIR} -- build target nide first")
+    endif()
+    #The debug probe drives ndb from the app directory, so a missing copy
+    #must fail here as a layout defect, not inside a test.
+    if(NOT EXISTS "${DEPLOY_DIR}/ndb.exe")
+        message(FATAL_ERROR
+            "ndb.exe not found in ${DEPLOY_DIR} -- the nide POST_BUILD copy "
+            "list is missing it")
+    endif()
+    if(NOT EXISTS "${TEST_EXE}")
+        message(FATAL_ERROR
+            "test_mainwindow.exe not found at ${TEST_EXE} -- build it first")
+    endif()
+else()
+    if(NOT BUILD_DIR)
+        message(FATAL_ERROR
+            "BUILD_DIR is not set -- tests/CMakeLists.txt must pass the "
+            "build directory on Linux (the layout comes from install rules)")
+    endif()
+    if(NOT EXISTS "${TEST_EXE}")
+        message(FATAL_ERROR
+            "test_mainwindow not found at ${TEST_EXE} -- build it first")
+    endif()
 endif()
 #The probe run goes through the progress wrapper (see below), so both
 #halves of it must be there; failing here says "the caller did not pass
@@ -62,44 +83,72 @@ endforeach()
 
 file(REMOVE_RECURSE "${CHECK_DIR}")
 file(MAKE_DIRECTORY "${CHECK_DIR}")
-file(COPY "${DEPLOY_DIR}/" DESTINATION "${CHECK_DIR}")
-file(COPY "${TEST_EXE}" "${QT_TEST_DLL}" DESTINATION "${CHECK_DIR}")
 
-#Stdlib native modules no longer land in the tool dirs (single
-#authoritative <build>/native/<config> output since 0.11.4), so the
-#install-form layout -- DLLs beside the executable, where the loader's
-#executable-dir search finds them -- is materialized here explicitly.
-#The dir arrives as ONE path: a multi-path -D needs escaped list
-#semicolons, and escaped semicolons do not survive add_test argument
-#forwarding (the scratch-stamping add_test wrapper re-splits them),
-#which silently shipped only nlang_math.dll and killed the
-#io-importing probes (2026-11-10). The seven names below are the
-#shipped native-module set (system/net/gzip joined the set on the dev
-#line); the probe exercises io through them.
-file(COPY
-    "${NATIVE_DLL_DIR}/nlang_math.dll"
-    "${NATIVE_DLL_DIR}/nlang_io.dll"
-    "${NATIVE_DLL_DIR}/nlang_fs.dll"
-    "${NATIVE_DLL_DIR}/nlang_tensor.dll"
-    "${NATIVE_DLL_DIR}/nlang_system.dll"
-    "${NATIVE_DLL_DIR}/nlang_net.dll"
-    "${NATIVE_DLL_DIR}/nlang_gzip.dll"
-    DESTINATION "${CHECK_DIR}")
+if(WIN32)
+    file(COPY "${DEPLOY_DIR}/" DESTINATION "${CHECK_DIR}")
+    file(COPY "${TEST_EXE}" "${QT_TEST_DLL}" DESTINATION "${CHECK_DIR}")
 
-#The scratch is nested 9 levels under <build>/tests, beyond the reach of
-#the walk-up discovery used for stdlib (and native modules), so nothing
-#can rescue the check from the build tree. The install form instead
-#ships stdlib within walk-up reach of the executables; materializing it
-#beside the exe exercises FindStdLibDir's exe-relative probe — every
-#resolution class must come from the copied layout.
-file(COPY "${STDLIB_DIR}/" DESTINATION "${CHECK_DIR}/stdlib")
+    #Stdlib native modules no longer land in the tool dirs (single
+    #authoritative <build>/native/<config> output since 0.11.4), so the
+    #install-form layout -- DLLs beside the executable, where the loader's
+    #executable-dir search finds them -- is materialized here explicitly.
+    #The dir arrives as ONE path: a multi-path -D needs escaped list
+    #semicolons, and escaped semicolons do not survive add_test argument
+    #forwarding (the scratch-stamping add_test wrapper re-splits them),
+    #which silently shipped only nlang_math.dll and killed the
+    #io-importing probes (2026-11-10). The seven names below are the
+    #shipped native-module set (system/net/gzip joined the set on the dev
+    #line); the probe exercises io through them.
+    file(COPY
+        "${NATIVE_DLL_DIR}/nlang_math.dll"
+        "${NATIVE_DLL_DIR}/nlang_io.dll"
+        "${NATIVE_DLL_DIR}/nlang_fs.dll"
+        "${NATIVE_DLL_DIR}/nlang_tensor.dll"
+        "${NATIVE_DLL_DIR}/nlang_system.dll"
+        "${NATIVE_DLL_DIR}/nlang_net.dll"
+        "${NATIVE_DLL_DIR}/nlang_gzip.dll"
+        DESTINATION "${CHECK_DIR}")
 
-#Pin Qt's paths to the scratch copy: without this, Qt falls back to
-#the compiled-in plugin dir of whatever Qt build produced the DLLs
-#(QLibraryInfo::PluginsPath), and a dev machine with Qt installed
-#would silently rescue a broken deployment. Prefix=. makes the app
-#dir the only search root -- the deployment property under test.
-file(WRITE "${CHECK_DIR}/qt.conf" "[Paths]\nPrefix=.\n")
+    #The scratch is nested 9 levels under <build>/tests, beyond the reach of
+    #the walk-up discovery used for stdlib (and native modules), so nothing
+    #can rescue the check from the build tree. The install form instead
+    #ships stdlib within walk-up reach of the executables; materializing it
+    #beside the exe exercises FindStdLibDir's exe-relative probe — every
+    #resolution class must come from the copied layout.
+    file(COPY "${STDLIB_DIR}/" DESTINATION "${CHECK_DIR}/stdlib")
+
+    #Pin Qt's paths to the scratch copy: without this, Qt falls back to
+    #the compiled-in plugin dir of whatever Qt build produced the DLLs
+    #(QLibraryInfo::PluginsPath), and a dev machine with Qt installed
+    #would silently rescue a broken deployment. Prefix=. makes the app
+    #dir the only search root -- the deployment property under test.
+    file(WRITE "${CHECK_DIR}/qt.conf" "[Paths]\nPrefix=.\n")
+    set(PROBE_DIR "${CHECK_DIR}")
+else()
+    #Assemble from the install rules: bin/ (tools, IDE, Qt libraries,
+    #native modules, qt.conf), plugins/, resources/, translations/,
+    #libexec/ and stdlib/ -- then bring the probe binary beside the
+    #deployed executables, so every probe resolution mirrors what a
+    #deployed nide sees.
+    execute_process(
+        COMMAND "${CMAKE_COMMAND}" --install "${BUILD_DIR}"
+            --prefix "${CHECK_DIR}"
+        RESULT_VARIABLE install_result)
+    if(NOT install_result EQUAL 0)
+        message(FATAL_ERROR
+            "cmake --install failed (rc=${install_result}) -- the "
+            "install rules must produce the deploy layout first")
+    endif()
+    if(NOT EXISTS "${CHECK_DIR}/bin/nide")
+        message(FATAL_ERROR
+            "bin/nide not found after install -- the install rules' "
+            "Linux deploy shape is incomplete")
+    endif()
+    file(COPY "${TEST_EXE}" "${QT_TEST_DLL}" DESTINATION "${CHECK_DIR}/bin")
+    set(PROBE_DIR "${CHECK_DIR}/bin")
+endif()
+
+get_filename_component(TEST_EXE_NAME "${TEST_EXE}" NAME)
 
 #Healthy run: well under a minute (five tests, a handful of real
 #ncc/nvm/ndb child sessions). A broken layout hangs in abort (see
@@ -124,22 +173,46 @@ if(NOT PROBE_TIMEOUT)
     set(PROBE_TIMEOUT 150)
 endif()
 math(EXPR OUTER_TIMEOUT "${PROBE_TIMEOUT} + 25")
-execute_process(
-    COMMAND "${PYTHON3_EXE}" "${QTEST_PROGRESS}"
-        --qtest-log "${RESULT_FILE}"
-        --progress-log "${PROGRESS_FILE}"
-        --timeout ${PROBE_TIMEOUT}
-        -- "${CHECK_DIR}/test_mainwindow.exe"
-            testOpenStandaloneFileJoinsTree
-            testF12OpensStdLibDefinition
-            testBuildAndRun
-            testStdinRowFeedsRunningProgram
-            testDebugPagePopulatesOnStop
-    WORKING_DIRECTORY "${CHECK_DIR}"
-    #Backstop for a wedged wrapper: the inner bound kills the test exe
-    #first, so reaching this one means the wrapper never got to report.
-    TIMEOUT ${OUTER_TIMEOUT}
-    RESULT_VARIABLE result)
+#Linux probes run under the offscreen QPA (no display server); the
+#plugin resolves through the Qt install prefix's compiled-in paths —
+#the deployed layout carries the plugins/ tree for the qt.conf of a
+#real deployed run.
+if(WIN32)
+    execute_process(
+        COMMAND "${PYTHON3_EXE}" "${QTEST_PROGRESS}"
+            --qtest-log "${RESULT_FILE}"
+            --progress-log "${PROGRESS_FILE}"
+            --timeout ${PROBE_TIMEOUT}
+            -- "${PROBE_DIR}/${TEST_EXE_NAME}"
+                testOpenStandaloneFileJoinsTree
+                testF12OpensStdLibDefinition
+                testBuildAndRun
+                testStdinRowFeedsRunningProgram
+                testDebugPagePopulatesOnStop
+        WORKING_DIRECTORY "${PROBE_DIR}"
+        #Backstop for a wedged wrapper: the inner bound kills the test
+        #exe first, so reaching this one means the wrapper never got to
+        #report.
+        TIMEOUT ${OUTER_TIMEOUT}
+        RESULT_VARIABLE result)
+else()
+    execute_process(
+        COMMAND "${CMAKE_COMMAND}" -E env
+            "QT_QPA_PLATFORM=offscreen"
+            "${PYTHON3_EXE}" "${QTEST_PROGRESS}"
+            --qtest-log "${RESULT_FILE}"
+            --progress-log "${PROGRESS_FILE}"
+            --timeout ${PROBE_TIMEOUT}
+            -- "${PROBE_DIR}/${TEST_EXE_NAME}"
+                testOpenStandaloneFileJoinsTree
+                testF12OpensStdLibDefinition
+                testBuildAndRun
+                testStdinRowFeedsRunningProgram
+                testDebugPagePopulatesOnStop
+        WORKING_DIRECTORY "${PROBE_DIR}"
+        TIMEOUT ${OUTER_TIMEOUT}
+        RESULT_VARIABLE result)
+endif()
 
 if(NOT result EQUAL 0)
     #Both logs are readable whenever the wrapper did the killing (the
