@@ -12,9 +12,57 @@ namespace tensor {
 
 struct TensorOps;   //TensorOps.h (the registry side includes it)
 
+//The device-ABI contract version, owned once by this header (both
+//sides include it; the probe compares against it). v2: streamCreate
+//takes the device selector (the multi-GPU line, M-G1). The plugin's
+//nlang_device_abi_version export must return this exact value — a
+//mismatch means the descriptor layout or the stream contract moved.
+inline constexpr unsigned NLANG_DEVICE_ABI_VERSION = 2u;
+
+//The pure side of the load-time probe: true = the plugin's reported
+//version is exactly the one this registry speaks. Kept header-inline
+//so a unit test covers the reject path without a stub plugin.
+inline bool DeviceAbiMatches(unsigned reported) {
+    return reported == NLANG_DEVICE_ABI_VERSION;
+}
+
+//--- stream-handle encoding (the registry and the plugin's shared
+//contract). A stream handle is `device * kNativeMaxStreams + slot`:
+//(device 0, slot 0) — handle 0 — is the implicit main stream, the
+//sentinel every device-invisible path uses; slot 0 is reserved per
+//device, so the first pooled handle is 1. The plugin sizes its
+//per-device stream pools by kNativeMaxStreams (ABI-visible: changing
+//it is a device-ABI bump); the Push nesting cap bounds the
+//registry-side and the plugin-side push stacks with one number so
+//they can never disagree.
+inline constexpr int kNativeMaxStreams = 16;
+inline constexpr int kNativeMaxStreamPushDepth = 64;
+
+//The device census ceiling, shared the same way: the plugin clamps
+//its per-device state tables and its exported deviceCount to it, so
+//the user-facing census can never name a device the plugin cannot
+//serve. (A bound only one side knows drifts — the same reason the
+//pool width and the push cap are shared above.)
+inline constexpr int kNativeMaxDevices = 16;
+
+//Handles are non-negative by construction (Encode's domain). The
+//decoders are total over every int — C++ truncating division makes
+//the negative image defined but meaningless (Decode(-1) is (0, -1))
+//— so the contract sits with the consumers: handle <= 0 is the
+//sentinel/no-pool case, checked before any decode.
+inline int EncodeStreamHandle(int device, int slot) {
+    return device * kNativeMaxStreams + slot;
+}
+inline int DecodeStreamDevice(int handle) {
+    return handle / kNativeMaxStreams;
+}
+inline int DecodeStreamSlot(int handle) {
+    return handle % kNativeMaxStreams;
+}
+
 struct DeviceBackendDescriptor {
     const void* ops;            //the TensorOps table (registry casts)
-    const void* hooks;          //the TensorDeviceHooks (ABI v13's struct)
+    const void* hooks;          //the TensorDeviceHooks (ABI v16's struct)
     const char* name;           //"cuda" / "hip" / ...
     const char* description;    //the human-readable device line
     int deviceCount;            //the probe result (0 = no device)
@@ -22,7 +70,9 @@ struct DeviceBackendDescriptor {
     //current-stream stack live in the plugin; the registry's stream
     //natives dispatch through these). Null = the backend has no
     //stream pool (the registry's stream natives become no-ops).
-    int (*streamCreate)();      //a pool handle (>=0), -1 = exhausted
+    //--- device ABI v2: streamCreate names the device the pool slot
+    //is created on; the returned handle encodes that device (§ above).
+    int (*streamCreate)(int device);  //a pool handle, -1 = none usable
     void (*streamDestroy)(int handle);
     void (*streamPush)(int handle);   //the ops after this launch there
     void (*streamPop)();

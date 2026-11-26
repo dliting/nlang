@@ -24,6 +24,7 @@ int RunMatMulTests();
 int RunElementwiseTests();
 int RunReduceTests();
 int RunReduceStridedTests();
+int RunStreamHandleTests();
 } // namespace test_native_tensor
 
 int main(int argc, char** argv) {
@@ -66,5 +67,7 @@ int main(int argc, char** argv) {
         fails += test_native_tensor::RunReduceTests();
     if (want("reducestrided"))
         fails += test_native_tensor::RunReduceStridedTests();
+    if (want("streamhandle"))
+        fails += test_native_tensor::RunStreamHandleTests();
     return fails == 0 ? 0 : 1;
 }

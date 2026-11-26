@@ -92,7 +92,13 @@ extern "C" {
 // pointer to return).
 // v15: snapshotWindowRng — the multi-stream PRNG window draw (a private
 // engine-state copy advanced by an offset, WITHOUT advancing the live engine).
-#define NLANG_HOST_ABI_VERSION 15u
+// v16: the device id rides the payload boundary (the multi-GPU line):
+// every TensorDeviceHooks entry except sync takes a leading int32_t device
+// selector, newArrayResident takes a trailing device argument, and
+// NativeArrayView's reserved[1] carries the device id of a device-
+// resident payload (meaningful only when reserved[0] says device). One build still targets device 0; the
+// plumbing lands now so the device choice never re-enters a signature.
+#define NLANG_HOST_ABI_VERSION 16u
 
 // Every NLang runtime value occupies one 8-byte frame cell (see
 // kFrameSlotBytes in CompiledModule.h). Scalars of 4 bytes or less live
@@ -163,14 +169,19 @@ typedef struct TensorDeviceStatus {
                          // otherwise — a static string, never owned
 } TensorDeviceStatus;
 
+// ABI v16: every payload entry names the device its pointer lives on.
+// Today the VM only ever passes 0; the vendor runtime's context
+// selection belongs to the hook implementation (the VM stays vendor-
+// neutral and never links one). sync follows the CURRENT context — the
+// device selector would duplicate what the enqueue side already fixed.
 struct TensorDeviceHooks {
-    TensorDeviceStatus (*alloc)(void** out, size_t bytes);
-    TensorDeviceStatus (*zero)(void* ptr, size_t bytes);
-    TensorDeviceStatus (*free)(void* ptr);
-    TensorDeviceStatus (*copyH2D)(void* dst, const void* src,
-                                  size_t bytes);
-    TensorDeviceStatus (*copyD2H)(void* dst, const void* src,
-                                  size_t bytes);
+    TensorDeviceStatus (*alloc)(int32_t device, void** out, size_t bytes);
+    TensorDeviceStatus (*zero)(int32_t device, void* ptr, size_t bytes);
+    TensorDeviceStatus (*free)(int32_t device, void* ptr);
+    TensorDeviceStatus (*copyH2D)(int32_t device, void* dst,
+                                  const void* src, size_t bytes);
+    TensorDeviceStatus (*copyD2H)(int32_t device, void* dst,
+                                  const void* src, size_t bytes);
     TensorDeviceStatus (*sync)();
 };
 
@@ -237,6 +248,8 @@ enum NativeElemKind {
 // ABI v13: reserved[0] carries the payload residency — 0 = host, 1 =
 // device (data is a device pointer; only the device backend's kernels
 // may dereference it, host code routes the operand through its slots).
+// ABI v16: reserved[1] carries the device id of a device payload (read
+// it only when reserved[0] is 1); host payloads keep it 0.
 typedef struct NativeArrayView {
     int32_t rank;
     const int32_t* dims;
@@ -244,7 +257,7 @@ typedef struct NativeArrayView {
     int64_t elemCount;
     uint8_t elemKind;      // NativeElemKind value
     uint8_t elemCellBytes;
-    uint8_t reserved[2];   // ABI v13: reserved[0] = residency (0 host, 1 device)
+    uint8_t reserved[2];   // v13/v16: [0] = residency, [1] = device id
     int64_t offset;        // ABI v10: element units, matches strides
     int32_t stridesInline[64];  // = kMaxArrayRank (asserted below); ABI v8: widened with the rank cap
     void* data;
@@ -403,7 +416,9 @@ struct NativeHost {
     //kinds raise the Base family (I/O buffers stay host-resident —
     //io/net read and write those payloads directly). No hooks active
     //raises the Base family (backend=cpu calling toDevice's path).
-    int32_t (*newArrayResident)(NativeHost* self, uint8_t elemKind, int32_t rank, const int32_t* dims);
+    //v16: device selects which device's payload the record lands on
+    //(0 today; the VM pins the heap record's device entry to it).
+    int32_t (*newArrayResident)(NativeHost* self, uint8_t elemKind, int32_t rank, const int32_t* dims, int32_t device);
 
     //v13: ATOMIC "snapshot the PRNG state, then discard n" — copies the
     //engine's 624-word state into out624 and its block position into

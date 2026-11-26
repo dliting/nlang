@@ -54,11 +54,12 @@ void VmExecutor::RaiseDeviceStatus(const TensorDeviceStatus& st) {
 }
 
 //The device mint (newArrayResident's path and the FollowActiveDevice
-//arm): the hooks allocate and zero the payload; the record
+//arm): the hooks allocate and zero the payload on `device`; the record
 //carries the 64-bit device pointer in its payload-area descriptor
-//cells (two int32 cells) and the residency side vector marks it.
+//cells (two int32 cells), the residency side vector marks it, and the
+//device selector records which device's context owns the pointer.
 int32_t VmExecutor::AllocDeviceArrayOnHeap(uint16_t arrayTypeIdx,
-    uint8_t rank, const int32_t* dims) {
+    uint8_t rank, const int32_t* dims, int32_t device) {
     if (arrayTypeIdx >= m_currModule->arrayTypes.size())
         throw std::runtime_error("NLang VM: invalid array type index");
     const auto& at = m_currModule->arrayTypes[arrayTypeIdx];
@@ -92,14 +93,17 @@ int32_t VmExecutor::AllocDeviceArrayOnHeap(uint16_t arrayTypeIdx,
     record[3] = size;
     for (uint8_t d = 0; d < rank; ++d) record[4 + d] = dims[d];
     void* devicePtr = nullptr;
-    TensorDeviceStatus st = m_tensorHooks.alloc(&devicePtr, bytes);
+    TensorDeviceStatus st =
+        m_tensorHooks.alloc(device, &devicePtr, bytes);
     if (st.category != DEVICE_OK)
         RaiseDeviceStatus(st);
-    st = m_tensorHooks.zero(devicePtr, bytes);
+    st = m_tensorHooks.zero(device, devicePtr, bytes);
     if (st.category != DEVICE_OK)
         RaiseDeviceStatus(st);
     SetDevicePayload(heapIdx, devicePtr);
     m_arrResidency[static_cast<size_t>(heapIdx)] = 1;
+    m_arrDevice[static_cast<size_t>(heapIdx)] =
+        static_cast<uint8_t>(device);
     return heapIdx;
 }
 
@@ -153,7 +157,9 @@ void VmExecutor::DeviceLoadElement(int32_t heapIdx, int64_t elemCell,
     int64_t cellBytes, uint8_t* cell) const {
     std::memset(cell, 0, NLANG_VALUE_SIZE);
     uint8_t* base = static_cast<uint8_t*>(DevicePayloadOf(heapIdx));
-    TensorDeviceStatus st = m_tensorHooks.copyD2H(cell,
+    TensorDeviceStatus st = m_tensorHooks.copyD2H(
+        static_cast<int32_t>(m_arrDevice[static_cast<size_t>(heapIdx)]),
+        cell,
         base + static_cast<size_t>(elemCell) * cellBytes,
         static_cast<size_t>(cellBytes));
     if (st.category != DEVICE_OK)
@@ -164,6 +170,7 @@ void VmExecutor::DeviceStoreElement(int32_t heapIdx, int64_t elemCell,
     int64_t cellBytes, const uint8_t* cell) const {
     uint8_t* base = static_cast<uint8_t*>(DevicePayloadOf(heapIdx));
     TensorDeviceStatus st = m_tensorHooks.copyH2D(
+        static_cast<int32_t>(m_arrDevice[static_cast<size_t>(heapIdx)]),
         base + static_cast<size_t>(elemCell) * cellBytes, cell,
         static_cast<size_t>(cellBytes));
     if (st.category != DEVICE_OK)
@@ -172,8 +179,9 @@ void VmExecutor::DeviceStoreElement(int32_t heapIdx, int64_t elemCell,
 
 void VmExecutor::DeviceStageToHost(int32_t heapIdx, void* dst,
     size_t bytes) const {
-    TensorDeviceStatus st = m_tensorHooks.copyD2H(dst,
-        DevicePayloadOf(heapIdx), bytes);
+    TensorDeviceStatus st = m_tensorHooks.copyD2H(
+        static_cast<int32_t>(m_arrDevice[static_cast<size_t>(heapIdx)]),
+        dst, DevicePayloadOf(heapIdx), bytes);
     if (st.category != DEVICE_OK)
         const_cast<VmExecutor*>(this)->RaiseDeviceStatus(st);
 }
@@ -181,6 +189,7 @@ void VmExecutor::DeviceStageToHost(int32_t heapIdx, void* dst,
 void VmExecutor::DeviceStageFromHost(int32_t heapIdx, const void* src,
     size_t bytes) const {
     TensorDeviceStatus st = m_tensorHooks.copyH2D(
+        static_cast<int32_t>(m_arrDevice[static_cast<size_t>(heapIdx)]),
         DevicePayloadOf(heapIdx), src, bytes);
     if (st.category != DEVICE_OK)
         const_cast<VmExecutor*>(this)->RaiseDeviceStatus(st);
@@ -298,7 +307,8 @@ void VmExecutor::NativeSetTensorDeviceHooks(NativeHost* self,
 }
 
 int32_t VmExecutor::NativeNewArrayResident(NativeHost* self,
-    uint8_t elemKind, int32_t rank, const int32_t* dims) {
+    uint8_t elemKind, int32_t rank, const int32_t* dims,
+    int32_t device) {
     VmExecutor* e = Wrap(self)->executor;
     GilEnsureGuard gil(*e);
     if (elemKind != NEK_Int32 && elemKind != NEK_Int64
@@ -307,10 +317,13 @@ int32_t VmExecutor::NativeNewArrayResident(NativeHost* self,
             "newArrayResident: only int/long/float/double arrays can "
             "live on the device (byte/ubyte are host I/O buffers)");
     }
+    if (device < 0)
+        e->RaiseNlangExceptionBase(
+            "newArrayResident: device selector must not be negative");
     const uint16_t arrayTypeIdx = e->FindScalarArrayTypeIdx(elemKind,
         static_cast<uint8_t>(rank));
     const int32_t handle = e->AllocDeviceArrayOnHeap(arrayTypeIdx,
-        static_cast<uint8_t>(rank), dims);
+        static_cast<uint8_t>(rank), dims, device);
     e->RootCreatedNativeHandle(handle);
     return handle;
 }

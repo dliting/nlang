@@ -118,7 +118,8 @@ void UniformKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
         FillUniform(host, cells, sv.elemCount, span, low, chunk);
         NativeArrayView dv;
         host->getArrayView(host, handle, &dv);
-        CopyHostToDevice(host, dv.data, CellsOf<const T>(sv),
+        CopyHostToDevice(host, dv.reserved[1], dv.data,
+            CellsOf<const T>(sv),
             static_cast<size_t>(sv.elemCount) * sv.elemCellBytes);
         ReturnInt(ret, handle);
         return;

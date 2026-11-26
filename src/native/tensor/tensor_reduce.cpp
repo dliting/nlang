@@ -127,7 +127,7 @@ void DotKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
             + std::to_string(vb.elemCount) + ")");
     {
         const NativeArrayView operands[] = {va, vb};
-        AssertSameResidency(host, operands, 2);
+        AssertSameDevice(host, operands, 2);
     }
     const TensorOps& ops = OpsForResidency(va.reserved[0]);
     if constexpr (std::is_same_v<T, float>) {

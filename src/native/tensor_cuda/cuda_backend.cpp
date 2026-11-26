@@ -71,10 +71,19 @@ TensorDeviceStatus StatusOf(cudaError_t err) {
     return {DEVICE_FAULT, 0, cudaGetErrorString(err)};
 }
 
-TensorDeviceStatus HookAlloc(void** out, size_t bytes) {
+//The hooks carry the payload's device selector (host ABI v16): each
+//gates the selector against the plugin's census (CudaDeviceAccepted —
+//the same named fault the mirror returns for an unknown device), then
+//pins the thread's context for the call (SetDeviceForCall) so the
+//pool/transfer primitives act on the named device. The gate comes
+//first everywhere: a plumbing fault must name itself, never reach a
+//context the census never blessed.
+TensorDeviceStatus HookAlloc(int32_t device, void** out, size_t bytes) {
     TensorDeviceStatus sticky = DrainSticky();
     if (sticky.category != DEVICE_OK)
         return sticky;
+    if (!tensor_cuda::CudaDeviceAccepted(device))
+        return {DEVICE_FAULT, 0, "cuda: payload on unknown device"};
     //A zero-byte allocation is legitimate (an empty device array's
     //payload): the pointer is never dereferenced, so the null the
     //CUDA runtime returns for cudaMalloc(0) is handed through as ok.
@@ -82,6 +91,7 @@ TensorDeviceStatus HookAlloc(void** out, size_t bytes) {
         *out = nullptr;
         return {DEVICE_OK, 0, nullptr};
     }
+    SetDeviceForCall pin(device);
     void* ptr = PoolAllocOnStream(bytes);
     if (ptr == nullptr)
         return {DEVICE_OUT_OF_MEMORY, 0,
@@ -90,17 +100,23 @@ TensorDeviceStatus HookAlloc(void** out, size_t bytes) {
     return {DEVICE_OK, 0, nullptr};
 }
 
-TensorDeviceStatus HookZero(void* ptr, size_t bytes) {
+TensorDeviceStatus HookZero(int32_t device, void* ptr, size_t bytes) {
     TensorDeviceStatus sticky = DrainSticky();
     if (sticky.category != DEVICE_OK)
         return sticky;
+    if (!tensor_cuda::CudaDeviceAccepted(device))
+        return {DEVICE_FAULT, 0, "cuda: payload on unknown device"};
+    SetDeviceForCall pin(device);
     PoolZero(ptr, bytes);
     return StatusOf(cudaGetLastError());
 }
 
-TensorDeviceStatus HookFree(void* ptr) {
+TensorDeviceStatus HookFree(int32_t device, void* ptr) {
+    if (!tensor_cuda::CudaDeviceAccepted(device))
+        return {DEVICE_FAULT, 0, "cuda: payload on unknown device"};
     //The GC release path: a failure parks sticky (free's caller cannot
     //throw inside the sweep invariants).
+    SetDeviceForCall pin(device);
     PoolFreeOnStream(ptr);
     cudaError_t err = cudaGetLastError();
     if (err != cudaSuccess)
@@ -108,19 +124,25 @@ TensorDeviceStatus HookFree(void* ptr) {
     return {DEVICE_OK, 0, nullptr};
 }
 
-TensorDeviceStatus HookCopyH2D(void* dst, const void* src,
+TensorDeviceStatus HookCopyH2D(int32_t device, void* dst, const void* src,
                                size_t bytes) {
     TensorDeviceStatus sticky = DrainSticky();
     if (sticky.category != DEVICE_OK)
         return sticky;
+    if (!tensor_cuda::CudaDeviceAccepted(device))
+        return {DEVICE_FAULT, 0, "cuda: payload on unknown device"};
+    SetDeviceForCall pin(device);
     return StatusOf(CopyBytes(dst, src, bytes, true));
 }
 
-TensorDeviceStatus HookCopyD2H(void* dst, const void* src,
+TensorDeviceStatus HookCopyD2H(int32_t device, void* dst, const void* src,
                                size_t bytes) {
     TensorDeviceStatus sticky = DrainSticky();
     if (sticky.category != DEVICE_OK)
         return sticky;
+    if (!tensor_cuda::CudaDeviceAccepted(device))
+        return {DEVICE_FAULT, 0, "cuda: payload on unknown device"};
+    SetDeviceForCall pin(device);
     return StatusOf(CopyBytes(dst, src, bytes, false));
 }
 
@@ -808,7 +830,9 @@ void BuildOnce() {
 extern "C" {
 
 NLANG_DEVICE_EXPORT unsigned nlang_device_abi_version(void) {
-    return 1u;
+    //The descriptor header owns the number (the registry's probe compares
+    //against the same constant — they can never drift).
+    return tensor::NLANG_DEVICE_ABI_VERSION;
 }
 
 NLANG_DEVICE_EXPORT const char* nlang_device_backend_name(void) {
@@ -824,11 +848,15 @@ nlang_device_backend_init(void) {
         int deviceCount = 0;
         if (cudaGetDeviceCount(&deviceCount) != cudaSuccess)
             deviceCount = 0;
+        //Clamp with the descriptor's shared census bound — the same
+        //number the state tables are sized by — so the exported census
+        //can never name a device the plugin cannot serve.
+        desc.deviceCount = deviceCount < tensor::kNativeMaxDevices
+            ? deviceCount : tensor::kNativeMaxDevices;
         desc.ops = &tensor_cuda::g_table;
         desc.hooks = &tensor_cuda::g_hooks;
         desc.name = "cuda";
         desc.description = "NVIDIA CUDA (sm_86, CUDA 12.6)";
-        desc.deviceCount = deviceCount;
         desc.streamCreate = &tensor_cuda::CudaStreamCreate;
         desc.streamDestroy = &tensor_cuda::CudaStreamDestroy;
         desc.streamPush = &tensor_cuda::CudaStreamPush;

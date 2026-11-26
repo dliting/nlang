@@ -37,7 +37,7 @@ void ReluGradKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
         Raise(host, NEXC_Base, "tensor.reluGrad: element type mismatch");
     {
         const NativeArrayView operands[] = {vd, vz};
-        AssertSameResidency(host, operands, 2);
+        AssertSameDevice(host, operands, 2);
     }
     if (vd.rank != vz.rank)
         Raise(host, NEXC_Base, "tensor.reluGrad: rank mismatch ("

@@ -229,10 +229,10 @@ nvm --tensor-backend cuda app.npkg
 
 当有设备后端活动时，语言创建的四个数值元素种类（`int`、`long`、`float`、`double`）跟随设备（§4.10.2）：`float[3]`、`Array(dims)`与张量创建家族都铸出设备驻留数组。`byte`与`ubyte`数组从不离开宿主——它们是I/O缓冲域（文件与网络载荷），那里出现设备指针就成了外部解引用。
 
-数组按需移动，而非意外移动。`tensor.toDevice(a)`把一份拷贝落到活动设备上，`tensor.toHost(a)`落回一份；已在目标上的操作数原样返回，所以两者都可无条件调用。视图的`toDevice`把视图的元素物化进设备拷贝。操作数驻留不一致的核函数抛出`Exception`，点名两侧与修法：
+数组按需移动，而非意外移动。`tensor.toDevice(a)`把一份拷贝落到活动设备上，`tensor.toHost(a)`落回一份；已在目标上的操作数原样返回，所以两者都可无条件调用。视图的`toDevice`把视图的元素物化进设备拷贝。操作数驻留不一致的核函数抛出`Exception`，点名两侧（设备侧带编号）与修法：
 
 ```
-tensor: operands on different devices (cuda vs host);
+tensor: operands on different devices (cuda:0 vs host);
         move them with tensor.toDevice/toHost
 ```
 

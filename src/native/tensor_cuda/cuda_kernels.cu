@@ -12,7 +12,9 @@
 
     Differentiated sync discipline (spec 2026-11-16 §3): launchers
     whose kernels raise no cell errors are asynchronous — they enqueue
-    on the single stream and return cudaGetLastError() (launch-config
+    on the device's current compute stream (row 0 of the per-device
+    table until M-G2 routes kernels by operand device) and return
+    cudaGetLastError() (launch-config
     errors attribute at this op; execution faults surface at the next
     host boundary). The four error-capable launcher families (int
     binary, int binary-scalar, gather, oneHot) keep the per-op
@@ -107,97 +109,194 @@ __host__ __device__ bool IsDense(const DevView& v) {
     return true;
 }
 
-//The single stream + the cell-error flags ([0] = kind, [1] = cell).
-cudaStream_t g_stream = nullptr;
+//The per-device compute streams (device ABI v2: one row per device;
+//row 0 = device 0's main stream). The launchers read g_stream — an
+//alias for row 0: operand-driven stream selection is M-G2's work, and
+//while every enqueue rides device 0 the alias keeps the launch sites
+//untouched. The cell-error flags ([0] = kind, [1] = cell) stay
+//device-0-scoped until M-G2 routes kernels by operand device.
+//Devices at or above the shared census bound (the descriptor's
+//kNativeMaxDevices) are rejected at selection — a plugin limit, not
+//a CUDA one; no host today has 16.
+cudaStream_t g_currentStream[tensor::kNativeMaxDevices] = {};
+cudaStream_t& g_stream = g_currentStream[0];
 cudaStream_t g_stagingStream = nullptr;
 cudaEvent_t g_stagingDone = nullptr;
 int32_t* g_error = nullptr;
 bool g_ready = false;
+int g_deviceCount = 0;   //the lazy-init probe's result (0 before init)
 
-//--- the stream pool (v0.14.9: the multi-stream orchestration) ----------
+//--- the stream pool (v0.14.9: the multi-stream orchestration; device
+//ABI v2: one pool per device) ------------------------------------------
 //K independent chunk streams for embarrassingly parallel workloads
-//(Monte Carlo batches, ensembles). Push/Pop swap the compute stream
-//(the stack saves the previous stream — nestable); Join makes the
-//current stream wait for a chunk stream's completion (event record +
-//stream-wait). The pool slots are handed out round-robin and reused.
-constexpr int kMaxStreams = 16;
-cudaStream_t g_streamPool[kMaxStreams] = {};
-bool g_streamSlotUsed[kMaxStreams] = {};
-int g_streamNextSlot = 0;
-cudaStream_t g_streamStack[kMaxStreams] = {};
+//(Monte Carlo batches, ensembles). Push/Pop swap the device's current
+//stream (the stack saves (device, stream) pairs — nestable); Join makes
+//the device's current stream wait for a chunk stream's completion
+//(event record + stream-wait). Pool slots are handed out round-robin
+//per device and reused; slot 0 is each device's main stream (device 0's
+//is created at lazy init), so pooled slots start at 1. The pool width
+//and the push-nesting bound are the descriptor's shared constants —
+//the registry's own stack is bounded by the same number.
+cudaStream_t g_streamPool[tensor::kNativeMaxDevices][tensor::kNativeMaxStreams] = {};
+bool g_streamSlotUsed[tensor::kNativeMaxDevices][tensor::kNativeMaxStreams] = {};
+int g_streamNextSlot[tensor::kNativeMaxDevices] = {};
+struct SavedStream {
+    cudaStream_t stream = nullptr;
+    int device = 0;
+};
+SavedStream g_streamStack[tensor::kNativeMaxStreamPushDepth] = {};
 int g_streamStackDepth = 0;
 
 
 
 } // namespace
 
-int CudaStreamCreate() {
-    for (int probe = 0; probe < kMaxStreams; ++probe) {
-        const int slot = (g_streamNextSlot + probe) % kMaxStreams;
-        if (g_streamSlotUsed[slot])
-            continue;
-        g_streamNextSlot = (slot + 1) % kMaxStreams;
-        if (cudaStreamCreate(&g_streamPool[slot]) != cudaSuccess)
+//The RAII context pin (the header's contract: CUDA calls act on the
+//thread's current device, so every device-selected entry point pins it
+//here and restores the previous device on the way out). Callers run it
+//only after CudaLazyInit succeeded, so the ids they pin address real
+//contexts; failures here are the sticky-error discipline's job.
+SetDeviceForCall::SetDeviceForCall(int device) {
+    cudaGetDevice(&m_savedDevice);
+    cudaSetDevice(device);
+}
+
+SetDeviceForCall::~SetDeviceForCall() {
+    cudaSetDevice(m_savedDevice);
+}
+
+int CudaStreamCreate(int device) {
+    if (!CudaDeviceAccepted(device))
+        return -1;   //no context, or outside the probed census:
+                     //tensor.streamCreate's entry raises by name
+    SetDeviceForCall pin(device);
+    for (int probe = 0; probe < tensor::kNativeMaxStreams; ++probe) {
+        const int slot =
+            (g_streamNextSlot[device] + probe) % tensor::kNativeMaxStreams;
+        if (slot == 0 || g_streamSlotUsed[device][slot])
+            continue;   //slot 0 is this device's main stream, not pool
+        g_streamNextSlot[device] = (slot + 1) % tensor::kNativeMaxStreams;
+        if (cudaStreamCreate(&g_streamPool[device][slot]) != cudaSuccess)
             return -1;
-        g_streamSlotUsed[slot] = true;
-        return slot;
+        g_streamSlotUsed[device][slot] = true;
+        return tensor::EncodeStreamHandle(device, slot);
     }
-    return -1;   //the pool is exhausted (16 concurrent chunk streams)
+    return -1;   //this device's pool is exhausted
 }
 
-void CudaStreamDestroy(int slot) {
-    if (slot < 0 || slot >= kMaxStreams || !g_streamSlotUsed[slot])
+void CudaStreamDestroy(int handle) {
+    //handle <= 0 covers the main-stream sentinel (0) and the -1 an
+    //unusable create returned: nothing pooled to destroy either way.
+    if (handle <= 0)
         return;
-    cudaStreamDestroy(g_streamPool[slot]);
-    g_streamPool[slot] = nullptr;
-    g_streamSlotUsed[slot] = false;
+    const int device = tensor::DecodeStreamDevice(handle);
+    const int slot = tensor::DecodeStreamSlot(handle);
+    if (device >= tensor::kNativeMaxDevices || slot == 0 ||
+        !g_streamSlotUsed[device][slot])
+        return;
+    SetDeviceForCall pin(device);
+    cudaStreamDestroy(g_streamPool[device][slot]);
+    g_streamPool[device][slot] = nullptr;
+    g_streamSlotUsed[device][slot] = false;
 }
 
-void CudaStreamPush(int slot) {
-    if (slot < 0 || slot >= kMaxStreams || !g_streamSlotUsed[slot])
-        return;
-    g_streamStack[g_streamStackDepth++] = g_stream;
-    g_stream = g_streamPool[slot];
+void CudaStreamPush(int handle) {
+    //One frame per call, in lockstep with the registry's push stack:
+    //the registry records an entry for EVERY streamPush (cpu/mirror
+    //included), so a save skipped here would desync the stacks and
+    //the matching Pop would restore the wrong stream. A handle that
+    //names no live pool slot — the main-stream sentinel, a -1, a
+    //stale or foreign handle — still saves its frame (no swap), so
+    //every Pop restores exactly what its Push saved.
+    if (g_streamStackDepth >= tensor::kNativeMaxStreamPushDepth)
+        return;   //unreachable: the registry raises at the same cap
+                  //before calling (the shared bound keeps the two
+                  //stacks from disagreeing about where it sits)
+    //Init before the frame captures the stream: a first-ever Push
+    //before any op would otherwise save the pre-init nullptr, and the
+    //matching Pop after a mid-scope lazy init would restore it —
+    //later launches would then ride the legacy default stream
+    //implicit-synced against the created one (a silent overlap loss,
+    //and the created stream orphaned). Idempotent, and the failure
+    //changes nothing: without a device the frame and the live slot
+    //both stay nullptr exactly as before, and the save below stays
+    //unconditional so the registry lockstep holds either way.
+    (void)CudaLazyInit(nullptr);
+    bool pooled = false;
+    int device = 0, slot = 0;
+    if (handle > 0) {
+        const int d = tensor::DecodeStreamDevice(handle);
+        slot = tensor::DecodeStreamSlot(handle);
+        if (d >= 0 && d < tensor::kNativeMaxDevices && slot != 0 &&
+            g_streamSlotUsed[d][slot]) {
+            device = d;
+            pooled = true;
+        }
+    }
+    SetDeviceForCall pin(device);
+    g_streamStack[g_streamStackDepth++] = {g_currentStream[device], device};
+    if (pooled)
+        g_currentStream[device] = g_streamPool[device][slot];
 }
 
 void CudaStreamPop() {
     if (g_streamStackDepth == 0)
         return;   //the imbalance surfaces as the language-level
                   //unbalanced-Pop rejection (the caller's gate)
-    g_stream = g_streamStack[--g_streamStackDepth];
+    const SavedStream saved = g_streamStack[--g_streamStackDepth];
+    SetDeviceForCall pin(saved.device);
+    g_currentStream[saved.device] = saved.stream;
 }
 
-void CudaStreamJoin(int slot) {
-    if (slot < 0 || slot >= kMaxStreams || !g_streamSlotUsed[slot])
+void CudaStreamJoin(int handle) {
+    if (handle <= 0)
+        return;   //the main stream joins itself: nothing to wait for
+    const int device = tensor::DecodeStreamDevice(handle);
+    const int slot = tensor::DecodeStreamSlot(handle);
+    if (device >= tensor::kNativeMaxDevices || !g_streamSlotUsed[device][slot])
         return;
-    //The current stream waits for the chunk stream: an event record on
-    //the chunk stream + a stream-wait on the current stream (the join
-    //is stream-ordered — everything the chunk enqueued is visible to
-    //the current stream's subsequent ops).
+    SetDeviceForCall pin(device);
+    //The device's current stream waits for the chunk stream: an event
+    //record on the chunk stream + a stream-wait on the current stream
+    //(the join is stream-ordered — everything the chunk enqueued is
+    //visible to the current stream's subsequent ops).
     cudaEvent_t done = nullptr;
     if (cudaEventCreate(&done) != cudaSuccess)
         return;
-    cudaEventRecord(done, g_streamPool[slot]);
-    cudaStreamWaitEvent(g_stream, done, 0);
+    cudaEventRecord(done, g_streamPool[device][slot]);
+    cudaStreamWaitEvent(g_currentStream[device], done, 0);
     cudaEventDestroy(done);
 }
 
 bool CudaReady() { return g_ready; }
 
-bool CudaLazyInit(std::string* error) {
-    if (g_ready)
-        return true;
-    if (cudaSetDevice(0) != cudaSuccess) {
-        *error = "cudaSetDevice failed (no CUDA device present?)";
+//The init body: always names its failure reason — the public wrapper
+//below owns the null-error contract, so the arms never branch on it.
+static bool CudaLazyInitReason(std::string& error) {
+    //The device census first (device ABI v2): the visible devices
+    //become the selector range the plugin accepts; devices past the
+    //shared census bound (the descriptor's kNativeMaxDevices) stay
+    //unreachable — a plugin limit, not a CUDA one.
+    int deviceCount = 0;
+    if (cudaGetDeviceCount(&deviceCount) != cudaSuccess || deviceCount < 1) {
+        error = "no CUDA device present (cudaGetDeviceCount)";
         return false;
     }
+    g_deviceCount = deviceCount < tensor::kNativeMaxDevices
+        ? deviceCount : tensor::kNativeMaxDevices;
+    if (cudaSetDevice(0) != cudaSuccess) {
+        error = "cudaSetDevice(0) failed";
+        return false;
+    }
+    //Device 0's main stream — the row-0 alias g_stream; handle 0 names
+    //it everywhere.
     if (cudaStreamCreate(&g_stream) != cudaSuccess) {
-        *error = "cudaStreamCreate failed";
+        error = "cudaStreamCreate failed";
         return false;
     }
     if (cudaMallocAsync((void**)&g_error, 2 * sizeof(int32_t),
         g_stream) != cudaSuccess) {
-        *error = "device error-flag allocation failed";
+        error = "device error-flag allocation failed";
         return false;
     }
     const uint32_t none[2] = {kErrNone, 0};
@@ -205,15 +304,40 @@ bool CudaLazyInit(std::string* error) {
     //The staging stream (bulk transfers overlap the compute stream's
     //already-enqueued kernels) and its handshake event.
     if (cudaStreamCreate(&g_stagingStream) != cudaSuccess) {
-        *error = "cudaStreamCreate failed (staging)";
+        error = "cudaStreamCreate failed (staging)";
         return false;
     }
     if (cudaEventCreate(&g_stagingDone) != cudaSuccess) {
-        *error = "cudaEventCreate failed (staging handshake)";
+        error = "cudaEventCreate failed (staging handshake)";
         return false;
     }
     g_ready = true;
     return true;
+}
+
+//The public wrapper owns the null contract (PoolAlloc probes with a
+//null error): the body always names a reason, the wrapper moves it
+//out only when the caller wants one.
+bool CudaLazyInit(std::string* error) {
+    if (g_ready)
+        return true;
+    std::string reason;
+    const bool ok = CudaLazyInitReason(reason);
+    if (!ok && error != nullptr)
+        *error = reason;
+    return ok;
+}
+
+//The census gate (the header's contract): no context = no device is
+//servable; otherwise the probed census decides. Device selectors
+//arriving from the host gate here before any pin; decoded stream
+//handles check the stream-table bound instead (memory safety — a
+//different concern, see the stream entries).
+bool CudaDeviceAccepted(int device) {
+    std::string initError;
+    if (!CudaLazyInit(&initError))
+        return false;
+    return device >= 0 && device < g_deviceCount;
 }
 
 //The bulk-transfer threshold: blocks at or above it route through the

@@ -2940,11 +2940,15 @@ add_executable(test_native_tensor
     test_native_tensor/TestElementwise.cpp
     test_native_tensor/TestReduce.cpp
     test_native_tensor/TestReduceStrided.cpp
+    test_native_tensor/TestStreamHandle.cpp
 )
 target_link_libraries(test_native_tensor PRIVATE nlang_tensor_kernels)
+#backend_descriptor.h is the plugin-contract header the stream-handle
+#encoding lives in (header-only: the unit rides its inline helpers).
 target_include_directories(test_native_tensor PRIVATE
     ${PROJECT_SOURCE_DIR}/include
-    ${PROJECT_SOURCE_DIR}/src/native/tensor)
+    ${PROJECT_SOURCE_DIR}/src/native/tensor
+    ${PROJECT_SOURCE_DIR}/src/native/tensor_cuda)
 add_test(NAME native_tensor_scalar COMMAND test_native_tensor)
 set_tests_properties(native_tensor_scalar PROPERTIES
     ENVIRONMENT "NLANG_TENSOR_TIER=scalar")

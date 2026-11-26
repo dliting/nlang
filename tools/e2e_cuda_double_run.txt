@@ -51,6 +51,7 @@ stdlib_tensor_uniform
 stdlib_tensor_uniform_throw
 op_device_mirror
 op_device_mirror_throw
+op_device_mixed_message
 op_device_backend
 op_device_auto
 op_device_unknown_env

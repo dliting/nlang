@@ -91,7 +91,7 @@ void GatherKernel(NativeHost* host, uint8_t* ret, const uint8_t* args)
     ValidateIndexArray(host, vIdx, "tensor.gather");
     {
         const NativeArrayView operands[] = {va, vIdx};
-        AssertSameResidency(host, operands, 2);
+        AssertSameDevice(host, operands, 2);
     }
     //Metadata staging (plan C4): the index count determines the out
     //shape and the slot reads the values — stage a device-resident

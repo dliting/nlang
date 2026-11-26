@@ -1,18 +1,25 @@
-# check_source_size_test.py -- self-test corpus for the guard's
-# signature detection. Pins the separator rule the span heuristic
-# depends on: a pointer/reference return may bind its * or & to either
-# side ("Ret *Name(" is the repo's prevailing definition style and MUST
-# be measured; a miss here silently exempts a whole function family
-# from the <=50-line rule). Run: python check_source_size_test.py
+# check_source_size_test.py -- self-test corpus for the guard: the
+# signature detection and the allowlist config validation. Pins the
+# separator rule the span heuristic depends on: a pointer/reference
+# return may bind its * or & to either side ("Ret *Name(" is the
+# repo's prevailing definition style and MUST be measured; a miss here
+# silently exempts a whole function family from the <=50-line rule).
+# Also pins the config self-defense: duplicate JSON keys and entries
+# without path/reason must be refused (a silent duplicate-key merge
+# once deleted a whole file's exemption — the guard that went red was
+# the symptom, the config was the disease).
+# Run: python check_source_size_test.py
 # Verdict line: "GATE source_size_guard_selftest: PASS" (or FAIL),
 # exit code follows. Per the ctest-override lesson the sentinel is
 # computed from the assertions themselves, never printed unconditionally.
 
+import json
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from check_source_size import function_spans, SIG_RE
+from check_source_size import (function_spans, SIG_RE, _no_duplicate_keys,
+                               validate_allowlist)
 
 
 def make_unit(signature, body_lines):
@@ -110,6 +117,33 @@ got = [(n, s, l) for n, s, l in spans_of(overloads) if n == "Pool::Get"]
 if len(got) != 2 or [s for _, s, _ in got] != [1, 5]:
     failures.append("overloads: expected two spans starting 1 and 5, got %r"
                     % (got,))
+
+# 11. Allowlist config self-defense (the silent-merge class: duplicate
+# JSON keys are overwritten WITHOUT an error, and a pathless/reasonless
+# entry exempts nothing while looking configured).
+def expect_refused(label, fn):
+    try:
+        fn()
+    except AssertionError:
+        return
+    failures.append("%s: AssertionError expected, call returned" % label)
+
+expect_refused("duplicate-key-refused",
+               lambda: json.loads('{"path": "a", "path": "b"}',
+                                  object_pairs_hook=_no_duplicate_keys))
+expect_refused("blank-path-refused",
+               lambda: validate_allowlist([{"path": " ", "reason": "r"}]))
+expect_refused("blank-reason-refused",
+               lambda: validate_allowlist([{"path": "x.cpp", "reason": ""}]))
+
+groups = validate_allowlist(
+    [{"path": "a.cpp", "reason": "r1"},
+     {"path": "a.cpp", "reason": "r2", "function": "F"},
+     {"path": "b.cpp", "reason": "r3"}])
+if ([e["reason"] for e in groups.get("a.cpp", [])] != ["r1", "r2"]
+        or list(groups.get("b.cpp", []))[0]["reason"] != "r3"):
+    failures.append("allowlist-grouping: expected per-file groups, got %r"
+                    % (groups,))
 
 if failures:
     print("source_size_guard selftest: %d failure(s)" % len(failures))

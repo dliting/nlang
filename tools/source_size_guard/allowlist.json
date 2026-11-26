@@ -222,7 +222,9 @@
   },
   {
     "path": "include/nlang/vm/NativeHost.h",
-    "reason": "the native ABI header: the NativeHost hook table plus the device/tensor hook structs are one public ABI; the hook count tracks the native surface, so every native addition grows this header by design",
+    "reason": "the native ABI header: the NativeHost hook table plus the device/tensor hook structs are one public ABI; the hook count tracks the native surface, so every native addition grows this header by design"
+  },
+  {
     "path": "src/compiler/builder/CompiledModuleStubSupport.hpp",
     "function": "SynthTypeExprFromDesc",
     "reason": "per-kind dispatcher over the serialized TypeDesc kinds; each arm synthesizes one kind's parser-canonical shape and mirrors the producer's encode switch — the arm pairing is the invariant, splitting it severs the correspondence"

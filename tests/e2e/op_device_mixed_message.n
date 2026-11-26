@@ -1,0 +1,20 @@
+// The mixed-device diagnostic (multi-GPU spec D6's shape): a device
+// operand against a host operand raises naming both sides — the device
+// side as "cuda:<id>", the host side as "host". Pinned to the mirror
+// backend so the message is hardware-independent; the uncaught form
+// (exit 1) stays covered by op_device_mirror_throw.
+import tensor;
+
+int main() {
+    if (tensor.backend() != "mirror") return 100;
+
+    float[] device = tensor.full(4, 1.0f);
+    float[] host = tensor.toHost(device);
+    try {
+        float[] mixed = device + host;
+        return 3;
+    } catch (Exception e) {
+        if (e.message != "tensor: operands on different devices (cuda:0 vs host); move them with tensor.toDevice/toHost") return 10;
+        return 0;
+    }
+}

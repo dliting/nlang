@@ -570,10 +570,10 @@ one back; an operand already on the target is returned as-is, so
 both are safe to call unconditionally. A view's `toDevice`
 materializes the view's elements into the device copy. A kernel
 whose operands disagree on residency raises `Exception`, naming
-both sides and the fix:
+both sides — the device side carries its id — and the fix:
 
 ```
-tensor: operands on different devices (cuda vs host);
+tensor: operands on different devices (cuda:0 vs host);
         move them with tensor.toDevice/toHost
 ```
 

@@ -40,6 +40,7 @@ set(NLANG_TENSOR_KERNEL_SOURCES
     tensor/backend_registry.cpp
     tensor/plugin_loader.cpp
     tensor/backend_stream.cpp
+    tensor/backend_transfer.cpp
     tensor/tensor_random.cpp)
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "(AMD64|x86_64|amd64)")
     list(APPEND NLANG_TENSOR_KERNEL_SOURCES
@@ -235,6 +236,7 @@ if(NLANG_CUDA_ROOT)
                 -o "${NLANG_TENSOR_CUDA_OBJ}"
             DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tensor_cuda/cuda_kernels.cu"
                 "${CMAKE_CURRENT_SOURCE_DIR}/tensor_cuda/cuda_kernels.h"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tensor_cuda/backend_descriptor.h"
                 "${CMAKE_CURRENT_SOURCE_DIR}/tensor_cuda/cuda_mt19937.cuh"
             COMMENT "nvcc: cuda_kernels.cu (${NLANG_CUDA_ARCH} + PTX)")
         add_library(nlang_tensor_cuda SHARED

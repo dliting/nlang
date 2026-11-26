@@ -9,7 +9,9 @@ Excluded from scanning: src/compiler/generated/, src/3rdparty/.
 Allowlist (allowlist.json, same directory): entries
   {"path": "src/vm/VmExecutor.cpp", "function": "ExecuteFunction", "reason": "..."}
 skips one function's span rule, or without "function" skips the whole
-file's both rules. Every entry MUST carry a non-empty reason.
+file's both rules. Every entry MUST carry a non-empty path and reason;
+the JSON is parsed rejecting duplicate keys (one would silently
+overwrite its twin and could kill an exemption outright).
 
 Detection heuristics (documented limits): signatures that end with
 "= default;" / "= delete;" / ";" before any "{" are skipped; one-line
@@ -108,14 +110,36 @@ def function_spans(lines):
             i += 1
 
 
+def _no_duplicate_keys(pairs):
+    #JSON overwrites duplicate keys SILENTLY: an entry whose keys
+    #duplicate loses one side (a whole file exemption can vanish with
+    #no change to the exempted file). The guard refuses the config.
+    seen = set()
+    for key, _ in pairs:
+        assert key not in seen, f"allowlist key {key!r} duplicated: {pairs}"
+        seen.add(key)
+    return dict(pairs)
+
+
+def validate_allowlist(entries):
+    #Every entry MUST carry a non-empty path and reason (a pathless
+    #entry exempts nothing, and _no_duplicate_keys above is why the
+    #reason is demanded too: the silent-merge class of config bugs).
+    #Returns the per-file groups the scan consumes.
+    by_file = {}
+    for e in entries:
+        assert e.get("path", "").strip(), f"allowlist entry without path: {e}"
+        assert e.get("reason", "").strip(), f"allowlist entry without reason: {e}"
+        by_file.setdefault(e["path"], []).append(e)
+    return by_file
+
+
 def main():
     here = Path(__file__).resolve().parent
     repo = here.parent.parent
-    allow = json.loads((here / "allowlist.json").read_text(encoding="utf-8"))
-    by_file = {}
-    for e in allow:
-        assert e.get("reason", "").strip(), f"allowlist entry without reason: {e}"
-        by_file.setdefault(e["path"], []).append(e)
+    allow = json.loads((here / "allowlist.json").read_text(encoding="utf-8"),
+                       object_pairs_hook=_no_duplicate_keys)
+    by_file = validate_allowlist(allow)
 
     violations = []
     for p in scanned_files(repo):

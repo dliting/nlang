@@ -52,7 +52,7 @@ void BinaryKernel(NativeHost* host, uint8_t* ret, const uint8_t* args,
     if (va.elemKind != kind)
         Raise(host, NEXC_Base, "tensor: unexpected element kind");
     const NativeArrayView operands[] = {va, vb};
-    AssertSameResidency(host, operands, 2);
+    AssertSameDevice(host, operands, 2);
     int32_t outDims[nlang::kMaxArrayRank];
     const int32_t outRank = BroadcastShapes(host, va, vb, outDims);
     const int32_t handle = MintOutputLike(host, kind, outRank, outDims, va);

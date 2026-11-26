@@ -42,7 +42,8 @@ VmNativeHost* Wrap(NativeHost* self) {
 static void FillArrayView(NativeArrayView* out,
                           std::vector<int32_t>& record,
                           const CompiledArrayType& at,
-                          size_t payloadBase, uint8_t residency) {
+                          size_t payloadBase, uint8_t residency,
+                          uint8_t device) {
     //Stage-2 header: [2]=rank, [3]=elemCount, [4..]=dims, payload after
     //the padded header.
     const int32_t rank = record[2];
@@ -61,7 +62,8 @@ static void FillArrayView(NativeArrayView* out,
     out->elemCellBytes = static_cast<uint8_t>(
         ArrayElemCells(at.elemKind) * kHeapCellBytes);
     out->reserved[0] = residency;   //ABI v13: payload residency
-    out->reserved[1] = 0;
+    //ABI v16: the device id of a device payload; host payloads stay 0.
+    out->reserved[1] = residency == 1 ? device : 0;
     out->offset = 0;   //owning array: data already points at element zero
     if (residency == 1) {
         //The device record's payload area is the descriptor: two int32
@@ -85,7 +87,8 @@ static void FillViewArrayView(NativeArrayView* out,
                               std::vector<int32_t>& view,
                               std::vector<int32_t>& owner,
                               const CompiledArrayType& at,
-                              size_t ownerPayloadBase, uint8_t residency) {
+                              size_t ownerPayloadBase, uint8_t residency,
+                              uint8_t device) {
     const int32_t rank = view[2];
     for (int32_t d = 0; d < rank; ++d)
         out->stridesInline[d] =
@@ -98,7 +101,9 @@ static void FillViewArrayView(NativeArrayView* out,
     out->elemCellBytes = static_cast<uint8_t>(
         ArrayElemCells(at.elemKind) * kHeapCellBytes);
     out->reserved[0] = residency;   //ABI v13: owner payload residency
-    out->reserved[1] = 0;
+    //ABI v16: the owner's device id rides the view (a view never lives
+    //on a device other than its owner's); host owners stay 0.
+    out->reserved[1] = residency == 1 ? device : 0;
     out->offset = view[ArrayViewOffsetCell(static_cast<uint8_t>(rank))];
     if (residency == 1) {
         void* devicePtr = nullptr;
@@ -138,7 +143,8 @@ void VmExecutor::FillViewRecordArrayView(VmExecutor* e, int32_t handle,
     FillViewArrayView(out, view, owner,
         e->m_currModule->arrayTypes[static_cast<size_t>(viewTypeIdx)],
         ArrayPayloadBase(owner),
-        e->m_arrResidency[static_cast<size_t>(target)]);
+        e->m_arrResidency[static_cast<size_t>(target)],
+        e->m_arrDevice[static_cast<size_t>(target)]);
 }
 
 int VmExecutor::NativeGetArrayView(NativeHost* self, int32_t handle,
@@ -177,7 +183,8 @@ int VmExecutor::NativeGetArrayView(NativeHost* self, int32_t handle,
         e->RaiseNlangExceptionBase("getArrayView: corrupt array type index");
     FillArrayView(out, record,
                   arrayTypes[static_cast<size_t>(arrayTypeIdx)], payloadBase,
-                  e->m_arrResidency[static_cast<size_t>(handle)]);
+                  e->m_arrResidency[static_cast<size_t>(handle)],
+                  e->m_arrDevice[static_cast<size_t>(handle)]);
     return 1;
 }
 

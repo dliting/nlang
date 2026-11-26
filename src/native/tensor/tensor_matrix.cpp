@@ -68,7 +68,7 @@ void ConcatKernel(NativeHost* host, uint8_t* ret, const uint8_t* args) {
         Raise(host, NEXC_Base, "tensor.concat: element type mismatch");
     {
         const NativeArrayView operands[] = {a, b};
-        AssertSameResidency(host, operands, 2);
+        AssertSameDevice(host, operands, 2);
     }
     if (a.rank != b.rank) {
         Raise(host, NEXC_Base, "tensor.concat: rank mismatch (" + ShapeText(a)
@@ -127,7 +127,7 @@ void MatMulTyped(NativeHost* host, uint8_t* ret, NativeArrayView& a,
         Raise(host, NEXC_Base, "tensor.matmul: element type mismatch");
     {
         const NativeArrayView operands[] = {a, b};
-        AssertSameResidency(host, operands, 2);
+        AssertSameDevice(host, operands, 2);
     }
     const int32_t aRows = a.dims[0];
     const int32_t aCols = a.dims[1];

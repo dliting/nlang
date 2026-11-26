@@ -54,10 +54,16 @@ struct DeviceBackendState {
     TensorDeviceHooks hooks = {};
     bool device = false;      //hooks registered into the VM
     std::string name = "cpu"; //"cpu" / "mirror" / "cuda"
+    //Devices the backend reports (cuda: the probe count; mirror: 1;
+    //cpu: 0). Device selectors outside [0, deviceCount) are plumbing
+    //faults — nothing consults it yet (deviceCount() lands at M-G2).
+    int deviceCount = 0;
     const void* ops = nullptr; //the device TensorOps table (cuda)
     //--- v0.14.9: the multi-stream orchestration (the plugin's pool;
     //null = no stream pool — the registry's stream natives no-op).
-    int (*streamCreate)() = nullptr;
+    //--- device ABI v2: streamCreate names the device to create on;
+    //the handle encodes it (backend_descriptor.h's contract).
+    int (*streamCreate)(int device) = nullptr;
     void (*streamDestroy)(int handle) = nullptr;
     void (*streamPush)(int handle) = nullptr;
     void (*streamPop)() = nullptr;
@@ -78,7 +84,7 @@ void InitBackendSelection(NativeHost* host);
 //--- CLASS 1: compute routing -------------------------------------------
 
 //Per-call table routing by the primary operand's residency (the
-//operands agreed — AssertSameResidency ran): 0 = host → the cpu table
+//operands agreed — AssertSameDevice ran): 0 = host → the cpu table
 //(even under a device backend), 1 = device → the active device table
 //(the cpu table under mirror — its ops stay null — the plugin table
 //under cuda).
@@ -87,10 +93,11 @@ const TensorOps& OpsForResidency(uint8_t residency);
 //--- CLASS 2: transfers --------------------------------------------------
 
 //Dense byte transfers through the hooks. No compute slots, no
-//residency mixing. Raise by name when no device backend is active.
-void CopyHostToDevice(NativeHost* host, void* deviceDst,
+//residency mixing. `device` is the device side's selector (the view's
+//reserved[1]); raise by name when no device backend is active.
+void CopyHostToDevice(NativeHost* host, int32_t device, void* deviceDst,
                       const void* hostSrc, size_t bytes);
-void CopyDeviceToHost(NativeHost* host, void* hostDst,
+void CopyDeviceToHost(NativeHost* host, int32_t device, void* hostDst,
                       const void* deviceSrc, size_t bytes);
 
 //toDevice/toHost bodies: same-residency operands return the original
@@ -201,20 +208,27 @@ void RejectAxisOutOfRange(NativeHost* host, const std::string& who,
 void RejectZeroSizeSource(NativeHost* host, const std::string& who,
                           const NativeArrayView& a);
 
-//The mixed-residency diagnostic (spec D6's format): raises when the
-//operands disagree on residency.
-void AssertSameResidency(NativeHost* host, const NativeArrayView* operands,
-                         size_t count);
+//The mixed-device diagnostic (spec D6's format, extended by the
+//device id): raises when the operands disagree on the
+//(residency, device) pair — a device/host split or two different
+//devices both name the sides and the fix.
+void AssertSameDevice(NativeHost* host, const NativeArrayView* operands,
+                      size_t count);
 
 //--- the stream orchestration (v0.14.9) ----------------------------------
 //The registry-level dispatch over the backend's stream pool. Without
 //a pool (cpu/mirror) every op is a no-op that keeps the language
 //program identical across backends.
-int32_t BackendStreamCreate();
+int32_t BackendStreamCreate(int32_t device);
 void BackendStreamDestroy(int32_t handle);
-void BackendStreamPush(int32_t handle);
+void BackendStreamPush(NativeHost* host, int32_t handle);
 void BackendStreamPop(NativeHost* host);
 void BackendStreamJoin(int32_t handle);
+
+//The device of the CURRENT stream scope: the push-stack top's encoded
+//device, or 0 (the implicit main stream) outside any Push. The creation
+//mints route their device-resident mint through it.
+int32_t CurrentScopeDevice();
 
 //The push depth: 0 on the main stream, >0 inside a Push/Pop scope (a
 //chunk stream). Read by the PRNG window dispatch to pick the chunk

@@ -19,6 +19,8 @@
 #include "VmExecutorNativeHost.h"
 #include "NcuLoader.h"
 #include "NcuLinker.h"
+#include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -224,6 +226,86 @@ void NatCreate2x3(NativeHost* host, uint8_t* ret, const uint8_t* args,
     nlang::native::ReturnInt(ret, handle);
 }
 
+//--- resident-array device path (host ABI v16, the multi-GPU line) -----------
+
+//Host-memory mirror hooks (the tensor registry's mirror-backend trick):
+//every device path then exercises for real on host memory, and the
+//device selectors the mint routes here are recorded so the resident
+//mint test can pin their arrival.
+static int32_t g_seenAllocDevice = -1;
+
+TensorDeviceStatus AbiMirrorAlloc(int32_t device, void** out, size_t bytes) {
+    g_seenAllocDevice = device;
+    void* ptr = std::malloc(bytes);
+    if (ptr == nullptr)
+        return {DEVICE_OUT_OF_MEMORY, 0, "test mirror: allocation failed"};
+    *out = ptr;
+    return {DEVICE_OK, 0, nullptr};
+}
+TensorDeviceStatus AbiMirrorZero(int32_t device, void* ptr, size_t bytes) {
+    (void)device;
+    std::memset(ptr, 0, bytes);
+    return {DEVICE_OK, 0, nullptr};
+}
+TensorDeviceStatus AbiMirrorFree(int32_t device, void* ptr) {
+    (void)device;
+    std::free(ptr);
+    return {DEVICE_OK, 0, nullptr};
+}
+TensorDeviceStatus AbiMirrorCopyH2D(int32_t device, void* dst,
+                                    const void* src, size_t bytes) {
+    (void)device;
+    std::memcpy(dst, src, bytes);
+    return {DEVICE_OK, 0, nullptr};
+}
+TensorDeviceStatus AbiMirrorCopyD2H(int32_t device, void* dst,
+                                    const void* src, size_t bytes) {
+    (void)device;
+    std::memcpy(dst, src, bytes);
+    return {DEVICE_OK, 0, nullptr};
+}
+TensorDeviceStatus AbiMirrorSync() { return {DEVICE_OK, 0, nullptr}; }
+
+//int natResidentDeviceRoundtrip() — host ABI v16's device ride-along,
+//end to end: mint a device-resident array on device 1 (the trailing
+//device must reach the alloc hook and must come back through
+//getArrayView's reserved[1]), then a shaped mint for the contrast arm
+//(a host array keeps the residency pair (0, 0)).
+void NatResidentDeviceRoundtrip(NativeHost* host, uint8_t* ret,
+                                const uint8_t* args, int argc) {
+    (void)args;
+    (void)argc;
+    static const TensorDeviceHooks hooks = {
+        &AbiMirrorAlloc, &AbiMirrorZero, &AbiMirrorFree,
+        &AbiMirrorCopyH2D, &AbiMirrorCopyD2H, &AbiMirrorSync};
+    host->setTensorDeviceHooks(host, &hooks);
+    const int32_t dims[1] = {4};
+    const int32_t handle = host->newArrayResident(host, NEK_Int32, 1, dims, 1);
+    if (handle <= 0)
+        nlang::native::Raise(host, NEXC_Base, "the resident mint failed");
+    if (g_seenAllocDevice != 1)
+        nlang::native::Raise(host, NEXC_Base,
+            "the mint's device selector must reach the alloc hook");
+    NativeArrayView view;
+    host->getArrayView(host, handle, &view);
+    if (view.reserved[0] != 1)
+        nlang::native::Raise(host, NEXC_Base,
+            "the view must report device residency");
+    if (view.reserved[1] != 1)
+        nlang::native::Raise(host, NEXC_Base,
+            "the mint's device id must ride the view (reserved[1])");
+    if (view.data == nullptr)
+        nlang::native::Raise(host, NEXC_Base,
+            "the resident view's payload must point at the device buffer");
+    const int32_t hostHandle = host->newArrayShaped(host, NEK_Int32, 1, dims);
+    NativeArrayView hostView;
+    host->getArrayView(host, hostHandle, &hostView);
+    if (hostView.reserved[0] != 0 || hostView.reserved[1] != 0)
+        nlang::native::Raise(host, NEXC_Base,
+            "a host mint must keep the residency pair zeroed");
+    nlang::native::ReturnInt(ret, 1);
+}
+
 static void RegisterTestNatives(VmExecutor& exec, const std::string& tag)
 {
     exec.RegisterNative(tag + ".natViewRoundtrip", &NatViewRoundtrip);
@@ -232,6 +314,8 @@ static void RegisterTestNatives(VmExecutor& exec, const std::string& tag)
     exec.RegisterNative(tag + ".natCreate", &NatCreate);
     exec.RegisterNative(tag + ".natHighRankView", &NatHighRankView);
     exec.RegisterNative(tag + ".natCreate2x3", &NatCreate2x3);
+    exec.RegisterNative(tag + ".natResidentDeviceRoundtrip",
+                        &NatResidentDeviceRoundtrip);
 }
 
 void test_create_shaped()
@@ -284,6 +368,20 @@ void test_two_views_stride_independence()
         "}\n",
         &RegisterTestNatives);
     CHECK(rc == 0, "two live views must keep independent strides");
+    PASS();
+}
+
+void test_resident_device_roundtrip()
+{
+    TEST(resident_device_roundtrip);
+    const int rc = runSourceWithNatives("abi_resident_device",
+        "native int natResidentDeviceRoundtrip();\n"
+        "int main() {\n"
+        "    return natResidentDeviceRoundtrip() - 1;\n"
+        "}\n",
+        &RegisterTestNatives);
+    CHECK(rc == 0, "a device-resident mint must route the device to the "
+                   "alloc hook and report it back through the view");
     PASS();
 }
 
@@ -524,6 +622,7 @@ int main()
         test_high_rank_view();
         test_create_shaped();
         test_two_views_stride_independence();
+        test_resident_device_roundtrip();
         test_create_and_fill();
         test_empty_array_view();
         test_double_payload_alignment();

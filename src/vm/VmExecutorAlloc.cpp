@@ -37,8 +37,10 @@ void VmExecutor::GrowHeapShardBlockLocked(size_t shard) {
         m_slotStructIdx.Emplace(0);
         m_instDescByHeap.Emplace(nullptr);
         //v0.14.x device line: every slot starts host-resident (the
-        //per-alloc writes set device explicitly when minting one).
+        //per-alloc writes set device explicitly when minting one);
+        //the device selector pairs the residency byte slot-for-slot.
         m_arrResidency.Emplace(0);
+        m_arrDevice.Emplace(0);
     }
     m_heapShards.PushBlockDescending(shard, base, m_allocQuantum);
 }
@@ -154,10 +156,10 @@ int32_t VmExecutor::AllocArrayOnHeap(uint16_t arrayTypeIdx, uint8_t rank,
         throw std::runtime_error("NLang VM: invalid array type index");
     const auto& at = m_currModule->arrayTypes[arrayTypeIdx];
     const int32_t size = ValidateArrayDims(rank, dims);
-    //The device path skips the inline payload (the record carries the
-    //64-bit device pointer in the descriptor cells instead).
+    //The device path skips the inline payload: the mint inside writes
+    //the record's device entry (the active device — 0 until nameable).
     if (FollowActiveDeviceMint(arrayTypeIdx, residency))
-        return AllocDeviceArrayOnHeap(arrayTypeIdx, rank, dims);
+        return AllocDeviceArrayOnHeap(arrayTypeIdx, rank, dims, 0);
     //0.7.5: 8-byte scalar elements occupy two cells each (registry-
     //driven stride — see ArrayElemCells).
     const int cells = ArrayElemCells(at.elemKind);
@@ -174,10 +176,9 @@ int32_t VmExecutor::AllocArrayOnHeap(uint16_t arrayTypeIdx, uint8_t rank,
     //v0.13.1 D5: clear the descriptor carrier cell — free-list slots
     //recycle across kinds, and the optional stamp write may leave a stale stamp.
     m_instDescByHeap[static_cast<size_t>(heapIdx)] = nullptr;
-    //v0.14.x: host residency (the free-list reuse guard — a previous
-    //device tenant's mark must not survive here either; the device
-    //release path cleared it, this write re-asserts it).
+    //v0.14.x free-list reuse guard: no stale device residency/selector.
     m_arrResidency[static_cast<size_t>(heapIdx)] = 0;
+    m_arrDevice[static_cast<size_t>(heapIdx)] = 0;
     auto& record = m_structHeap[static_cast<size_t>(heapIdx)];
     record[0] = RTK_Array;
     record[1] = arrayTypeIdx;

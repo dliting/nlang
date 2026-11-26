@@ -2,7 +2,9 @@
     cuda_kernels.h — the host-side launch entry points of the CUDA
     backend's device kernels (P3 T3.3-T3.7). The TensorOps slot
     implementations in cuda_backend.cpp call these; each launcher
-    builds the operand geometry and enqueues on the single stream.
+    builds the operand geometry and enqueues on the device's current
+    compute stream (row 0 of the per-device table until M-G2 routes
+    kernels by operand device).
 
     Differentiated sync discipline (spec 2026-11-16 §3): launchers
     whose kernels raise no cell errors are asynchronous — they return
@@ -26,6 +28,7 @@
 #include <nlang/vm/NativeHost.h>
 
 #include "../tensor/TensorBackends.h"
+#include "backend_descriptor.h"
 
 #include <cuda_runtime.h>
 
@@ -54,20 +57,53 @@ struct LaunchView {
 //True when the CUDA context is initialized (lazy — spec D4).
 bool CudaReady();
 
-//--- the stream pool (v0.14.9: the multi-stream orchestration) ----------
-//Create/destroy pool streams; Push/Pop swap the compute stream (the
-//launchers read the swapped-in stream); Join makes the current stream
-//wait for a chunk stream's completion (event + stream-wait). Handles
-//are pool slot indices; the pool is bounded (16 slots).
-int CudaStreamCreate();
-void CudaStreamDestroy(int slot);
-void CudaStreamPush(int slot);
+//--- the stream pool (v0.14.9: the multi-stream orchestration; device
+//ABI v2: per-device pools) ----------------------------------------------
+//Create/destroy pool streams; Push/Pop swap the device's compute stream
+//(the launchers read the swapped-in stream); Join makes the device's
+//current stream wait for a chunk stream's completion (event +
+//stream-wait). A handle encodes (device, slot) — backend_descriptor.h's
+//contract — and slot 0 is reserved per device (that device's main
+//stream), so pooled slots run 1..kNativeMaxStreams-1. Create returns -1
+//when the device is unusable or its pool is full (tensor.streamCreate's
+//entry raises by name).
+int CudaStreamCreate(int device);
+void CudaStreamDestroy(int handle);
+void CudaStreamPush(int handle);
 void CudaStreamPop();
-void CudaStreamJoin(int slot);
+void CudaStreamJoin(int handle);
 
-//Lazy init: device 0 + the stream + the error flags. Returns false + a
-//message on failure (the caller raises the NLang exception with it).
+//RAII device-context pin (host ABI v16's device selectors): CUDA calls
+//act on the thread's CURRENT device, so every entry point handed a
+//device selector pins it for the call and restores the thread's previous
+//device on the way out. This guard is the only spelling that changes the
+//thread's device (it replaces the boot-time cudaSetDevice(0) habit);
+//callers run it only after CudaLazyInit succeeded, so the device ids
+//they pin are valid contexts.
+class SetDeviceForCall {
+public:
+    explicit SetDeviceForCall(int device);
+    ~SetDeviceForCall();
+    SetDeviceForCall(const SetDeviceForCall&) = delete;
+    SetDeviceForCall& operator=(const SetDeviceForCall&) = delete;
+
+private:
+    int m_savedDevice = 0;
+};
+
+//Lazy init: the device table + device 0's main stream + the error
+//flags. On failure a non-null error receives the message (the caller
+//raises the NLang exception with it); a null error asks for the status
+//only (the pool primitives probe without a reason string).
 bool CudaLazyInit(std::string* error);
+
+//The single authority on whether this plugin can serve `device`: lazy
+//init included (no context = no device is servable), then the probed
+//census (clamped to the descriptor's kNativeMaxDevices). Device
+//selectors arriving from the host gate on this before pinning;
+//decoded stream handles are bounded by the stream tables (a memory-
+//safety check, a different concern).
+bool CudaDeviceAccepted(int device);
 
 //The byte staging (toDevice/toHost/serializer): rides the stream.
 cudaError_t CopyBytes(void* dst, const void* src, size_t bytes,

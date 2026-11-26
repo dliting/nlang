@@ -1,7 +1,9 @@
 /*---
-    backend_registry.cpp — the device-backend selection and the THREE
-    payload-transfer choke points (design 2026-11-15-p3-routing-design).
-    See the header for the architectural contract.
+    backend_registry.cpp — the device-backend selection, the compute
+    routing and the residency-aware mints (design
+    2026-11-15-p3-routing-design). See the header for the architectural
+    contract; the CLASS 2/3 transfer and staging bodies live in
+    backend_transfer.cpp (the registry file caps at 500 lines).
 ---*/
 #include "backend_registry.h"
 #include "../tensor_cuda/backend_descriptor.h"
@@ -10,7 +12,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
-#include <vector>
 
 namespace tensor {
 
@@ -24,8 +25,12 @@ DeviceBackendState g_backend;
 //The mirror test backend's hooks: malloc-backed "device" memory. Every
 //device path (creation, element transfer, GC release, staging) then
 //exercises for real on host memory — P2's acceptance vehicle (plan
-//C3 fix).
-TensorDeviceStatus MirrorAlloc(void** out, size_t bytes) {
+//C3 fix). The mirror owns exactly one host-backed device, so any
+//selector other than 0 is a plumbing bug: it names the fault instead
+//of quietly mis-routing a payload that does not exist.
+TensorDeviceStatus MirrorAlloc(int32_t device, void** out, size_t bytes) {
+    if (device != 0)
+        return {DEVICE_FAULT, 0, "mirror: payload on unknown device"};
     void* ptr = std::malloc(bytes);
     if (ptr == nullptr)
         return {DEVICE_OUT_OF_MEMORY, 0,
@@ -33,21 +38,29 @@ TensorDeviceStatus MirrorAlloc(void** out, size_t bytes) {
     *out = ptr;
     return {DEVICE_OK, 0, nullptr};
 }
-TensorDeviceStatus MirrorZero(void* ptr, size_t bytes) {
+TensorDeviceStatus MirrorZero(int32_t device, void* ptr, size_t bytes) {
+    if (device != 0)
+        return {DEVICE_FAULT, 0, "mirror: payload on unknown device"};
     std::memset(ptr, 0, bytes);
     return {DEVICE_OK, 0, nullptr};
 }
-TensorDeviceStatus MirrorFree(void* ptr) {
+TensorDeviceStatus MirrorFree(int32_t device, void* ptr) {
+    if (device != 0)
+        return {DEVICE_FAULT, 0, "mirror: payload on unknown device"};
     std::free(ptr);
     return {DEVICE_OK, 0, nullptr};
 }
-TensorDeviceStatus MirrorCopyH2D(void* dst, const void* src,
-                                 size_t bytes) {
+TensorDeviceStatus MirrorCopyH2D(int32_t device, void* dst,
+                                 const void* src, size_t bytes) {
+    if (device != 0)
+        return {DEVICE_FAULT, 0, "mirror: payload on unknown device"};
     std::memcpy(dst, src, bytes);
     return {DEVICE_OK, 0, nullptr};
 }
-TensorDeviceStatus MirrorCopyD2H(void* dst, const void* src,
-                                 size_t bytes) {
+TensorDeviceStatus MirrorCopyD2H(int32_t device, void* dst,
+                                 const void* src, size_t bytes) {
+    if (device != 0)
+        return {DEVICE_FAULT, 0, "mirror: payload on unknown device"};
     std::memcpy(dst, src, bytes);
     return {DEVICE_OK, 0, nullptr};
 }
@@ -64,43 +77,15 @@ TensorDeviceHooks MakeMirrorHooks() {
     return h;
 }
 
-//The registry-side copy wrappers convert a non-ok status into the
-//named raise (they run on the blocking channel inside tensor natives
-//with the host in hand).
-void RaiseStatus(NativeHost* host, const TensorDeviceStatus& st) {
-    if (st.category == DEVICE_OK)
-        return;
-    if (st.category == DEVICE_BAD_INDEX)
-        Raise(host, NEXC_OutOfBounds,
-            "device index " + std::to_string(st.cell)
-            + " is out of bounds");
-    Raise(host, NEXC_Base,
-        st.detail ? std::string("tensor: ") + st.detail
-                  : std::string("tensor: device operation failed"));
-}
-
-//The per-element affine source address of flat ordinal `flat` (element
-//units) — the shared fold of the staging walks.
-int64_t AffineElementAt(const NativeArrayView& v, int64_t flat) {
-    int64_t addr = v.offset;
-    int64_t rem = flat;
-    for (int32_t d = v.rank - 1; d >= 0; --d) {
-        const int64_t dim = v.dims[d];
-        const int64_t coord = dim > 0 ? rem % dim : 0;
-        rem /= (dim > 0 ? dim : 1);
-        addr += coord * v.strides[d];
-    }
-    return addr;
-}
-
 //The CUDA plugin probe: the plugin sits next to this module (the tensor
 //native module). pluginError means the plugin is absent (auto stays
 //silent there); probeError means the plugin is present but the probe
-//failed (auto says so on stderr).
+//failed (auto says so on stderr). The errors ride std::string because
+//the device-ABI rejection names the two versions.
 struct CudaProbe {
     const DeviceBackendDescriptor* desc = nullptr;
-    const char* pluginError = nullptr;
-    const char* probeError = nullptr;
+    std::string pluginError;  //empty = none
+    std::string probeError;   //empty = none
 };
 
 CudaProbe ProbeCudaPlugin() {
@@ -109,6 +94,27 @@ CudaProbe ProbeCudaPlugin() {
     void* plugin = OpenSharedPlugin(pluginPath);
     if (plugin == nullptr) {
         probe.pluginError = "the plugin is not in the native directory";
+        return probe;
+    }
+    //Device ABI gate (device ABI v2, the multi-GPU line): resolve and
+    //compare BEFORE init — an incompatible descriptor must never be
+    //dereferenced, its layout is exactly what moved. The decision is
+    //the header's pure DeviceAbiMatches (a unit test covers the
+    //reject path without a stub plugin).
+    auto* abiFn = (unsigned (*)(void))ResolvePluginSymbol(
+        plugin, "nlang_device_abi_version");
+    if (abiFn == nullptr) {
+        CloseSharedPlugin(plugin);
+        probe.probeError = "the plugin does not export "
+            "nlang_device_abi_version";
+        return probe;
+    }
+    const unsigned reported = abiFn();
+    if (!DeviceAbiMatches(reported)) {
+        CloseSharedPlugin(plugin);
+        probe.probeError = "the plugin speaks device ABI v"
+            + std::to_string(reported) + ", this registry speaks v"
+            + std::to_string(NLANG_DEVICE_ABI_VERSION);
         return probe;
     }
     auto* initFn = (const void* (*)(void))ResolvePluginSymbol(
@@ -140,15 +146,15 @@ void ActivateCudaOrFallBack(NativeHost* host, bool explicitCuda) {
     const bool usable = probe.desc != nullptr
         && probe.desc->deviceCount >= 1;
     if (!usable) {
-        const char* reason = probe.probeError ? probe.probeError
-            : probe.pluginError;
+        const std::string& reason = !probe.probeError.empty()
+            ? probe.probeError : probe.pluginError;
         if (explicitCuda) {
             std::string msg = "tensor: backend 'cuda' failed: ";
             msg += reason;
             host->writeError(host, (msg + "\n").c_str());
             std::exit(3);
         }
-        if (probe.probeError != nullptr)
+        if (!probe.probeError.empty())
             host->writeError(host,
                 (std::string("tensor: cuda backend unavailable (")
                 + probe.probeError + ") — running on cpu\n").c_str());
@@ -158,6 +164,7 @@ void ActivateCudaOrFallBack(NativeHost* host, bool explicitCuda) {
     g_backend.hooks = *(const TensorDeviceHooks*)probe.desc->hooks;
     g_backend.device = true;
     g_backend.name = "cuda";
+    g_backend.deviceCount = probe.desc->deviceCount;
     g_backend.ops = probe.desc->ops;
     g_backend.streamCreate = probe.desc->streamCreate;
     g_backend.streamDestroy = probe.desc->streamDestroy;
@@ -181,6 +188,7 @@ void InitBackendSelection(NativeHost* host) {
         g_backend.hooks = MakeMirrorHooks();
         g_backend.device = true;
         g_backend.name = "mirror";
+        g_backend.deviceCount = 1;  //one host-backed "device"
         host->setTensorDeviceHooks(host, &g_backend.hooks);
         return;
     }
@@ -206,166 +214,6 @@ const TensorOps& OpsForResidency(uint8_t residency) {
     return CpuTensorOps();
 }
 
-//--- CLASS 2: transfers --------------------------------------------------
-
-void CopyHostToDevice(NativeHost* host, void* deviceDst,
-                      const void* hostSrc, size_t bytes) {
-    if (!g_backend.device)
-        Raise(host, NEXC_Base,
-              "tensor: no device backend active (backend=cpu)");
-    TensorDeviceStatus st = g_backend.hooks.copyH2D(deviceDst, hostSrc,
-        bytes);
-    RaiseStatus(host, st);
-}
-
-void CopyDeviceToHost(NativeHost* host, void* hostDst,
-                      const void* deviceSrc, size_t bytes) {
-    if (!g_backend.device)
-        Raise(host, NEXC_Base,
-              "tensor: no device backend active (backend=cpu)");
-    TensorDeviceStatus st = g_backend.hooks.copyD2H(hostDst, deviceSrc,
-        bytes);
-    RaiseStatus(host, st);
-}
-
-int32_t TransferToDevice(NativeHost* host, uint8_t* ret,
-                         const uint8_t* args) {
-    NativeArrayView v;
-    host->getArrayView(host, ArgInt(args, 0), &v);
-    //A same-device operand returns as-is (the array API standard's
-    //to_device contract): under backend=cpu EVERY array is already on
-    //the active device, so toDevice is a no-op there.
-    if (!g_backend.device || v.reserved[0] == 1) {
-        nlang::native::ReturnInt(ret, ArgInt(args, 0));
-        return ArgInt(args, 0);
-    }
-    //The source is HOST. A strided view materializes host-dense via
-    //the cpu table (host memory); a contiguous one transfers straight
-    //from its payload.
-    if (!IsContiguous(v)) {
-        const int32_t dense = Materialize(host, v);
-        v.elemKind = 0xEE;
-        host->getArrayView(host, dense, &v);
-    }
-    const int32_t handle = host->newArrayResident(host, v.elemKind,
-        v.rank, v.dims);
-    NativeArrayView dst;
-    host->getArrayView(host, handle, &dst);
-    CopyHostToDevice(host, dst.data,
-        static_cast<const uint8_t*>(v.data)
-            + static_cast<size_t>(v.offset) * v.elemCellBytes,
-        static_cast<size_t>(v.elemCount) * v.elemCellBytes);
-    nlang::native::ReturnInt(ret, handle);
-    return handle;
-}
-
-int32_t TransferToHost(NativeHost* host, uint8_t* ret,
-                       const uint8_t* args) {
-    NativeArrayView v;
-    host->getArrayView(host, ArgInt(args, 0), &v);
-    if (v.reserved[0] != 1) {
-        nlang::native::ReturnInt(ret, ArgInt(args, 0));
-        return ArgInt(args, 0);
-    }
-    const int32_t handle = host->newArrayShaped(host, v.elemKind,
-        v.rank, v.dims);
-    NativeArrayView dst;
-    host->getArrayView(host, handle, &dst);
-    //A contiguous device source transfers in one block; a strided one
-    //walks the affine map per element (the staging discipline — the
-    //device table's copy would need a mixed-residency pair).
-    if (IsContiguous(v)) {
-        CopyDeviceToHost(host, dst.data,
-            static_cast<const uint8_t*>(v.data)
-                + static_cast<size_t>(v.offset) * v.elemCellBytes,
-            static_cast<size_t>(v.elemCount) * v.elemCellBytes);
-    } else {
-        uint8_t* out = static_cast<uint8_t*>(dst.data);
-        for (int64_t i = 0; i < v.elemCount; ++i) {
-            CopyDeviceToHost(host, out + i * v.elemCellBytes,
-                static_cast<const uint8_t*>(v.data)
-                    + static_cast<size_t>(AffineElementAt(v, i))
-                        * v.elemCellBytes,
-                v.elemCellBytes);
-        }
-    }
-    nlang::native::ReturnInt(ret, handle);
-    return handle;
-}
-
-//--- CLASS 3: metadata staging -------------------------------------------
-
-NativeArrayView StageOperandToHost(NativeHost* host, NativeArrayView& v,
-                                   std::vector<uint8_t>* buf) {
-    if (!g_backend.device || v.reserved[0] != 1)
-        return v;
-    const size_t bytes = static_cast<size_t>(v.elemCount)
-        * v.elemCellBytes;
-    //The staged view's strides live in the buffer AFTER the payload:
-    //a returned view copy's strides pointer would dangle into this
-    //function's stack (NativeHost.h's copy warning) — the buffer is
-    //caller-owned and outlives the call's reads.
-    const size_t strideBytes = static_cast<size_t>(v.rank) * 4;
-    buf->resize(bytes + strideBytes);
-    auto* stridesOut = reinterpret_cast<int32_t*>(buf->data() + bytes);
-    int32_t dense = 1;
-    for (int32_t d = v.rank - 1; d >= 0; --d) {
-        stridesOut[d] = dense;
-        dense *= v.dims[d];
-    }
-    NativeArrayView staged = v;
-    staged.data = buf->data();
-    staged.offset = 0;   //the staging is a dense host copy
-    staged.reserved[0] = 0;
-    staged.strides = stridesOut;
-    const uint8_t* srcBase = static_cast<const uint8_t*>(v.data);
-    if (IsContiguous(v)) {
-        //Single-block D2H: the whole payload in one hooks transfer
-        //(large staged sources — gather's src — pay src bandwidth, not
-        //per-element launch cost).
-        CopyDeviceToHost(host, buf->data(),
-            srcBase + static_cast<size_t>(v.offset) * v.elemCellBytes,
-            bytes);
-    } else {
-        //Per-element affine reads: a strided view's logical cells are
-        //not contiguous in the owner — each element lands at its own
-        //affine address.
-        for (int64_t i = 0; i < v.elemCount; ++i) {
-            CopyDeviceToHost(host, buf->data() + i * v.elemCellBytes,
-                srcBase + static_cast<size_t>(AffineElementAt(v, i))
-                    * v.elemCellBytes,
-                v.elemCellBytes);
-        }
-    }
-    return staged;
-}
-
-void ReadIntListStaged(NativeHost* host, const uint8_t* args, int slot,
-                       int32_t want, const char* who, int32_t* out) {
-    NativeArrayView v;
-    host->getArrayView(host, ArgInt(args, slot), &v);
-    std::vector<uint8_t> stage;
-    v = StageOperandToHost(host, v, &stage);
-    if (v.elemKind != NEK_Int32 || v.rank != 1)
-        Raise(host, NEXC_Base, std::string(who)
-            + ": expects a rank-1 int array");
-    const int32_t* cells = static_cast<const int32_t*>(v.data);
-    int32_t at = 0;
-    int64_t idx[nlang::kMaxArrayRank] = {0};
-    int64_t addr = v.offset;
-    for (int64_t i = 0; i < v.elemCount; ++i) {
-        if (at >= nlang::kMaxArrayRank)
-            Raise(host, NEXC_Base, std::string(who)
-                + ": shape list longer than "
-                + std::to_string(nlang::kMaxArrayRank) + " cells");
-        out[at++] = cells[addr];
-        StrideWalkAdvance(v, idx, &addr);
-    }
-    if (at != want)
-        Raise(host, NEXC_Base, std::string(who) + ": expects an int[] of "
-            + std::to_string(want) + " cells");
-}
-
 //--- materialization by residency ---------------------------------------
 
 int32_t MaterializeByResidency(NativeHost* host, int32_t handle,
@@ -376,9 +224,10 @@ int32_t MaterializeByResidency(NativeHost* host, int32_t handle,
         //A strided DEVICE source materializes on-device: a device-dense
         //mint + the device table's copy (D2D). StrideCopy would read
         //the descriptor cells, and a host landing would break the
-        //sibling operands' residency.
+        //sibling operands' residency. The mint lands on the SOURCE's
+        //device — same-table D2D, never a cross-device copy.
         const int32_t dense = host->newArrayResident(host,
-            view->elemKind, view->rank, view->dims);
+            view->elemKind, view->rank, view->dims, view->reserved[1]);
         NativeArrayView dst;
         host->getArrayView(host, dense, &dst);
         const TensorOps& ops = OpsForResidency(1);
@@ -407,8 +256,12 @@ int32_t MaterializeByResidency(NativeHost* host, int32_t handle,
 
 int32_t MintArray(NativeHost* host, uint8_t elemKind, int32_t rank,
                   const int32_t* dims) {
+    //The creation family follows the CURRENT stream's device (handle 0
+    //— the main stream — decodes to device 0; the PRNG-chunk streams
+    //carry their own).
     if (g_backend.device)
-        return host->newArrayResident(host, elemKind, rank, dims);
+        return host->newArrayResident(host, elemKind, rank, dims,
+            CurrentScopeDevice());
     return host->newArrayShaped(host, elemKind, rank, dims);
 }
 
@@ -418,25 +271,37 @@ int32_t MintArray1(NativeHost* host, uint8_t elemKind, int32_t length) {
 
 int32_t MintOutputLike(NativeHost* host, uint8_t elemKind, int32_t rank,
                        const int32_t* dims, const NativeArrayView& like) {
+    //The output rides the `like` operand's device (same-device ops —
+    //a cross-device split would have raised in AssertSameDevice).
     if (like.reserved[0] == 1 && g_backend.device)
-        return host->newArrayResident(host, elemKind, rank, dims);
+        return host->newArrayResident(host, elemKind, rank, dims,
+            like.reserved[1]);
     return host->newArrayShaped(host, elemKind, rank, dims);
 }
 
-void AssertSameResidency(NativeHost* host, const NativeArrayView* operands,
-                         size_t count) {
+void AssertSameDevice(NativeHost* host, const NativeArrayView* operands,
+                      size_t count) {
     if (count < 2)
         return;
     const uint8_t first = operands[0].reserved[0];
     for (size_t i = 1; i < count; ++i) {
-        if (operands[i].reserved[0] != first) {
+        //The agreement is the (residency, device) pair: two device
+        //operands on different devices disagree just as loudly as a
+        //device/host pair does.
+        if (operands[i].reserved[0] != first
+            || (first == 1 && operands[i].reserved[1]
+                != operands[0].reserved[1])) {
             //The diagnostic shape is spec D6's: name the sides and the
-            //fix, in one line.
+            //fix, in one line. A device side names its id (the first
+            //operand's).
             std::string msg =
                 "tensor: operands on different devices (";
-            msg += first == 1 ? "cuda" : "host";
+            msg += first == 1 ? "cuda:"
+                + std::to_string(operands[0].reserved[1]) : "host";
             msg += " vs ";
-            msg += operands[i].reserved[0] == 1 ? "cuda" : "host";
+            msg += operands[i].reserved[0] == 1
+                ? "cuda:" + std::to_string(operands[i].reserved[1])
+                : "host";
             msg += "); move them with tensor.toDevice/toHost";
             Raise(host, NEXC_Base, msg);
         }
@@ -456,7 +321,7 @@ void PrepareStagedWalkOut(NativeHost* host, uint8_t elemKind, int32_t rank,
             rank, dims);
         host->getArrayView(host, twinHandle, &landing->fill);
         landing->handle = host->newArrayResident(host, elemKind, rank,
-            dims);
+            dims, srcLike.reserved[1]);
         host->getArrayView(host, landing->handle, &landing->device);
         landing->deviceIs = true;
         return;
@@ -468,7 +333,8 @@ void PrepareStagedWalkOut(NativeHost* host, uint8_t elemKind, int32_t rank,
 void LandStagedWalkOut(NativeHost* host, StagedWalkOut* landing) {
     if (!landing->deviceIs)
         return;
-    CopyHostToDevice(host, landing->device.data, landing->fill.data,
+    CopyHostToDevice(host, landing->device.reserved[1],
+        landing->device.data, landing->fill.data,
         static_cast<size_t>(landing->fill.elemCount)
             * landing->fill.elemCellBytes);
 }

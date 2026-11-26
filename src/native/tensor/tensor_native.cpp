@@ -269,10 +269,20 @@ void ViewSumI(NativeHost* host, uint8_t* ret, const uint8_t* args,
 
 void TensorStreamCreate(NativeHost* host, uint8_t* ret, const uint8_t* args,
                         int argc) {
-    (void)host;
     (void)args;
     (void)argc;
-    ReturnInt(ret, BackendStreamCreate());
+    //A chunk stream rides the scope it is created from (the main
+    //stream's device — decode(handle 0) — until the surface names a
+    //target device). A negative answer means the pool could not
+    //create one (no context, or the device's slots are exhausted):
+    //raise by name — a -1 would flow on as an ordinary int and every
+    //later stream call would silently ignore it.
+    const int32_t handle = BackendStreamCreate(CurrentScopeDevice());
+    if (handle < 0)
+        Raise(host, NEXC_Base,
+              "tensor.streamCreate: cannot create a stream on the "
+              "current device");
+    ReturnInt(ret, handle);
 }
 
 void TensorStreamDestroy(NativeHost* host, uint8_t* ret,
@@ -284,9 +294,8 @@ void TensorStreamDestroy(NativeHost* host, uint8_t* ret,
 
 void TensorStreamPush(NativeHost* host, uint8_t* ret,
                       const uint8_t* args, int argc) {
-    (void)host;
     (void)ret;
-    BackendStreamPush(ArgInt(args, 0));
+    BackendStreamPush(host, ArgInt(args, 0));
 }
 
 void TensorStreamPop(NativeHost* host, uint8_t* ret, const uint8_t* args,

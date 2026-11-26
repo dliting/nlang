@@ -64,10 +64,15 @@ void VmExecutor::FreeDeadArrayRecord(int32_t heapIdx) {
         //sweep runs inside the GC invariants; the status parks in the
         //backend sticky register (free cannot carry it out through
         //its void-shaped legacy look — the v14 signature returns it
-        //and the backend parks it internally).
-        m_tensorHooks.free(DevicePayloadOf(heapIdx));
+        //and the backend parks it internally). v16: read the device
+        //selector before the clear — it names whose context owns the
+        //pointer being released.
+        m_tensorHooks.free(
+            static_cast<int32_t>(m_arrDevice[heapIdx]),
+            DevicePayloadOf(heapIdx));
     }
     m_arrResidency[heapIdx] = 0;
+    m_arrDevice[heapIdx] = 0;
     FreeOwnedArrayStructElements(heapIdx);
 }
 

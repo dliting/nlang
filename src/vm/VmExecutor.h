@@ -1328,10 +1328,11 @@ private:
         const int32_t* dims,
         ArrayResidency residency = ArrayResidency::ForceHost);
     //The device mint (newArrayResident's path): numeric four-kind +
-    //hooks active or raise by name; allocates through the hooks and
-    //stores the device pointer in the record's descriptor cells.
+    //hooks active or raise by name; allocates through the hooks on
+    //`device` and stores the device pointer in the record's descriptor
+    //cells (the side vector pins the record's device entry to it).
     int32_t AllocDeviceArrayOnHeap(uint16_t arrayTypeIdx, uint8_t rank,
-        const int32_t* dims);
+        const int32_t* dims, int32_t device);
     //The spec D2 kind/mechanism gate: true when the mint routes to
     //AllocDeviceArrayOnHeap (numeric four-kind + FollowActiveDevice +
     //active hooks).
@@ -2272,16 +2273,12 @@ private:
     static void NativeSetTensorDeviceHooks(NativeHost* self,
         const TensorDeviceHooks* hooks);
     static int32_t NativeNewArrayResident(NativeHost* self,
-        uint8_t elemKind, int32_t rank, const int32_t* dims);
+        uint8_t elemKind, int32_t rank, const int32_t* dims,
+        int32_t device);
     static void NativeSnapshotRngForDevice(NativeHost* self,
         uint32_t* out624, uint32_t* outPosition, int64_t n);
     static void NativeSnapshotWindowRng(NativeHost* self,
         uint32_t* outWords, int64_t n, int64_t offset);
-    //v13 helpers (definitions in VmExecutorNativeCallbacks.cpp): the
-    //fill arm shared by getArrayView's owner and view paths — sets
-    //reserved[0] from the owner record's residency side vector.
-    static void FillViewResidency(VmExecutor* e, int32_t ownerHandle,
-        NativeArrayView* out);
     //v10 helpers of the two callbacks above (definitions in
     //VmExecutorNativeCallbacks.cpp): the arm fills from a view record's
     //own strides/offset, the resolver peels depth-one to the owning
@@ -2642,6 +2639,13 @@ private:
     //overrides it; SweepPhase clears released device slots back to 0 so
     //free-list reuse never inherits a stale device mark.
     ChunkedArray<uint8_t>  m_arrResidency;
+    //The device line's device selector (ABI v16): parallel to
+    //m_arrResidency, meaningful only where that says device (1) — the
+    //device id whose context owns the payload. Every lifecycle site
+    //that writes m_arrResidency writes this entry in the same step;
+    //host records keep it 0. uint8_t bounds the device count at 255 —
+    //far above any device a single process hosts.
+    ChunkedArray<uint8_t>  m_arrDevice;
     //The tensor module's device backend hooks (set once at module init
     //via setTensorDeviceHooks, immutable afterwards — the run-init
     //sequence registers natives before any user frame or carrier
