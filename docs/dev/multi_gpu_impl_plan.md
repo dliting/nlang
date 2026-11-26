@@ -933,9 +933,19 @@ round-1 fixes):
 M-G4 closeout round (2026-11-27, the first slim-T2 batch):
 
 - Verdicts: Debug units, Release build, Release e2e and the docs
-  build/check legs green; two reds, both fixed below, and the batch
-  re-swept whole (the red-voids-batch discipline; the sweep also
-  cleared the contamination described under the first red).
+  build/check legs green; two reds, both fixed below. Owner ruling
+  2026-11-27: where the only reds are a timeout calibration and a
+  docs metadata fix, the batch is not re-swept whole — the fixed
+  tests are re-run on their own (the red-voids-batch discipline
+  stays for product-surface reds). The docs suite passed in place
+  (126 tests, absolute tool paths); the regex entry re-measured
+  solo under its new 750 s sidecar and PASSED (rc=0, wall 602 s —
+  a load-polluted upper bound: the ASan tool tree was rebuilding
+  concurrently; the idle reality sits near master's 491.06 s row,
+  so the 750 cap keeps its 1.5x margin over the idle truth and
+  demonstrated 1.24x headroom even under full-load pollution).
+  Closeout acceptance per the owner ruling: docs-pytest 126 green
+  plus this solo e2e PASS — no full-batch re-sweep.
 - Red, asan full e2e — stdlib_regex_size crossed the 540 s cap
   (--timeout=180 on an ASan-tree run, the runner's x3 Debug
   scaling). The cap had only ever been priced from the 244 s Debug
