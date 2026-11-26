@@ -1,0 +1,26 @@
+// Multi-GPU M-G2: deviceCount() reports the active backend's device
+// census — cpu (no device) 0, mirror exactly 1, cuda at least 1 (never
+// an exact count: the acceptance box has 2, single-GPU machines 1).
+// This fixture runs on every leg: the cpu leg is the default on
+// GPU-less dev trees, the cuda legs come from the box double-run, and
+// the mirror branch runs on every machine through the
+// op_device_count_mirror twin.
+import tensor;
+
+int main() {
+    int n = tensor.deviceCount();
+    string b = tensor.backend();
+    if (b == "cpu") {
+        if (n != 0) return 1;
+        return 0;
+    }
+    if (b == "mirror") {
+        if (n != 1) return 2;
+        return 0;
+    }
+    if (b == "cuda") {
+        if (n < 1) return 3;
+        return 0;
+    }
+    return 100;
+}

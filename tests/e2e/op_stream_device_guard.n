@@ -1,0 +1,38 @@
+// Multi-GPU M-G2: streamCreate(device) guards the device selector at
+// the registry — cpu accepts only device 0 (the implicit main
+// "stream", handle 0), mirror and cuda require 0 <= device <
+// deviceCount(). One fixture, backend-conditional branches: the cpu
+// leg is the dev-tree default, the cuda legs ride the box double-run,
+// and mirror runs everywhere through the op_stream_device_guard_mirror
+// twin.
+import tensor;
+
+int main() {
+    string b = tensor.backend();
+    if (b != "cpu" && b != "mirror" && b != "cuda") return 100;
+
+    //Device 0 is valid on every backend. cpu/mirror hand back the
+    //implicit main "stream" (handle 0); cuda encodes a real pooled
+    //stream — only non-negativity is hardware-independent here.
+    int h = tensor.streamCreate(0);
+    if (h < 0) return 1;
+    tensor.streamDestroy(h);
+
+    //The first absent device id: cpu's census is 0 yet device 0 is the
+    //accepted main-stream device, so the guard's first refusal is 1;
+    //mirror and cuda refuse deviceCount() itself.
+    int count = tensor.deviceCount();
+    int foreign = count;
+    if (foreign < 1) {
+        foreign = 1;
+    }
+    try {
+        int bad = tensor.streamCreate(foreign);
+        return 2;
+    } catch (Exception e) {
+        string want = "tensor.streamCreate: device " + foreign
+            + " beyond the device count " + count;
+        if (e.message != want) return 10;
+        return 0;
+    }
+}

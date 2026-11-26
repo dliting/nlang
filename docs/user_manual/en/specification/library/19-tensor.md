@@ -551,8 +551,11 @@ can be accepted on a machine with no GPU. `cpu` always runs the
 host path.
 
 `tensor.backend()` reports the active backend by name
-(`"cpu"`, `"cuda"`, or `"mirror"`), so a program can state its
-own device choice.
+(`"cpu"`, `"cuda"`, or `"mirror"`), and `tensor.deviceCount()`
+reports how many devices it has: none on `cpu`, one on `mirror`,
+the CUDA count on `cuda`. Together they let a program state its
+own device choice; `deviceCount()` is also the bound for the
+device a stream is created on.
 
 ### Where arrays live
 
@@ -653,6 +656,20 @@ nesting is the main stream. A `streamPop` without a matching
 the main stream's operations see everything the joined stream
 wrote, so consuming a chunk's output after joining is race-free.
 
+On a backend with more than one device, the creation can name the
+device the stream is taken on: `tensor.streamCreate(device)`. The
+handle carries that device, and pushing it routes the arrays the
+scope creates to that device. Kernels and transfers still land on
+device 0, so a pushed-scope creation and a `toDevice` result cannot
+mix in one expression yet — the `tensor: operands on different
+devices` fault names the sides until cross-device routing lands.
+`tensor.deviceCount()` reports the bound — `0` on `cpu`, `1` on
+`mirror`, the CUDA count on `cuda` — and a foreign device raises;
+device `0`, the main stream, is nameable on every backend, `cpu`
+included. The zero-argument spelling keeps its meaning: the stream
+is created on the device of the scope it is created from, which is
+device 0 on the main stream.
+
 Random draws stay coherent under concurrency: inside a push
 scope, `tensor.uniform` takes a private, non-overlapping window
 of the global random sequence, fixed at the moment the call is
@@ -663,9 +680,11 @@ from an arbitrary seed each run; `tensor.seed(s)` pins it — a
 seeded program replays the same draws, on the main stream and in
 every push scope alike, on every run.
 
-On the `cpu` and `mirror` backends every stream call succeeds
-and does nothing: the same program text, the same draws, the
-same result on every backend — only the wall clock differs.
+On the `cpu` and `mirror` backends every in-range stream call
+succeeds and does nothing — the device-bound check joins what the
+spellings already share everywhere: the same program text, the
+same draws, the same result on every backend, and the same
+`deviceCount()` refusal — only the wall clock differs.
 `examples/mc_streams` estimates π with four concurrent streams
 on this surface, and `tests/bench/mc_streams_torch_bench.py`
 compares its wall time against a PyTorch spelling of the same

@@ -1,0 +1,10 @@
+// The mirror-pinned twin of op_device_count (the .flags leg): the
+// mirror backend owns exactly one host-backed device, so the census
+// is exactly 1 on every machine, GPU present or not.
+import tensor;
+
+int main() {
+    if (tensor.backend() != "mirror") return 100;
+    if (tensor.deviceCount() != 1) return 1;
+    return 0;
+}

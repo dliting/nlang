@@ -49,6 +49,26 @@ void CheckMainStreamSentinel() {
     NTT_PASS();
 }
 
+void CheckForeignDeviceDecode() {
+    NTT_TEST(stream_handle_foreign_decode);
+    //M-G2: a foreign-device handle decodes faithfully — the push stack
+    //reads the scope's device out of the top handle, so a handle made
+    //on another device must name that device at any census position,
+    //and decoding stays pure arithmetic (no clamp toward device 0).
+    const int boundary = tensor::kNativeMaxDevices - 1;
+    const int foreign = tensor::EncodeStreamHandle(boundary, 1);
+    NTT_CHECK(tensor::DecodeStreamDevice(foreign) == boundary,
+              "a census-boundary handle must decode to its own device");
+    NTT_CHECK(tensor::DecodeStreamSlot(foreign) == 1,
+              "a census-boundary handle must keep its slot");
+    const int deviceOneSlot1 = tensor::EncodeStreamHandle(1, 1);
+    NTT_CHECK(tensor::DecodeStreamDevice(deviceOneSlot1) == 1,
+              "one step off device 0 must decode to device 1");
+    NTT_CHECK(tensor::DecodeStreamSlot(deviceOneSlot1) == 1,
+              "device 1 slot 1 must not alias device 0's slots");
+    NTT_PASS();
+}
+
 void CheckPoolWidthPinned() {
     NTT_TEST(stream_handle_pool_width);
     //ABI-visible: the plugin sizes its per-device stream pools by this
@@ -89,6 +109,7 @@ void CheckDeviceAbiProbeMatch() {
 int RunStreamHandleTests() {
     CheckEncodeDecodeRoundTrip();
     CheckMainStreamSentinel();
+    CheckForeignDeviceDecode();
     CheckPoolWidthPinned();
     CheckDeviceAbiVersionPinned();
     CheckDeviceAbiProbeMatch();

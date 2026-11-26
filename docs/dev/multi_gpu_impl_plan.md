@@ -332,6 +332,70 @@ advance. Box: the double-run subset with both entries (207 rows),
 `op_device_count` under cuda reports 2, mnist single-GPU
 unchanged.
 
+M-G2 landing (2026-11-26), rulings and deviations:
+
+- The census guard lives at the registry
+  (`BackendStreamCreate(host, device)`): device 0 always names the
+  main stream, the first refused id is `max(1, deviceCount)`, and a
+  foreign selector raises with both the selector and the census
+  spelled ("tensor.streamCreate: device <d> beyond the device
+  count <c>"). The overload dispatches on `argc`; the zero-argument
+  spelling keeps riding the scope unchanged.
+- The sticky fault register split into one row per device (a fault
+  on one device must not blackhole the others), and every hook
+  gates the selector before draining — the order reversal keeps a
+  refused foreign call from consuming another device's parked
+  record. `HookSync` consults row 0 while every enqueue still rides
+  device 0 (M-G3 routes the enqueues).
+- The plan's "error-flag buffer" landed as a row field of the
+  kernel cell-error flags (`g_error` was that buffer, not a second
+  one): per-device flags, allocated and cleared at row init. The
+  row-0 reference aliases (`g_stagingStream`/`g_stagingDone`/
+  `g_error`) keep the pre-M-G2 transfer and flag call sites
+  untouched until M-G3's operand routing replaces them.
+- The per-device default-mempool attribute set replaced
+  `InitMemPoolOnce` (stream-ordered allocation needs no pool
+  handle; the row's one-time `UINT64_MAX` release threshold is what
+  makes the pool behave). `CudaDeviceAccepted` folding a failed row
+  init into the same "unknown device" fault is deliberate: the
+  user-visible effect of an unserviceable device is the fault.
+- Scheduling ruling (user, "尽量加快中间阶段的测试"): the ndb fix's
+  full T1 merges into M-G2's single closeout T1 instead of two
+  back-to-back full runs; the local 207-row cuda double-run drops
+  (the box double-run is the line's cuda regression — a single-4090
+  laptop adds no coverage the box will not repeat); ASan legs defer
+  to the same closeout. The intermediate check is the T0 shape: the
+  touched unit families (`native_tensor_scalar`, `library_index_tests`,
+  `langservice_tests`) + the device/stream e2e cluster — all green
+  on the rebuilt Debug tree, plus the new-surface smoke on the
+  bench tree's cpu/mirror/real-cuda legs.
+- Gate-ops finding: the e2e runner's stdlib freshness guard rejects
+  an e2e leg (rc=2, "stale-package results are meaningless") when
+  `stdlib/*.n` is newer than the tree's `stdlib.npkg` — so during a
+  prebuilt-tree gate run, only edits outside `stdlib/` are safe;
+  a `stdlib/` edit voids that batch (one T1 batch was stopped this
+  way on 2026-11-26, zero cases actually failed). Stopping a batch
+  must kill the whole process tree: the runner's python survives
+  stopping the wrapper script and keeps compiling the corpus with
+  the tree's `ncc`, locking the tree binaries (a later rebuild died
+  on LNK1168 until the orphan was found and killed).
+- Review loop (third party, two rounds, 2026-11-26): round 1 found
+  two Medium and five Low — the row-init retry (overwrote handles/
+  allocations on partial failure) and the docs promising full scope
+  routing while M-G2 routes only the creations (kernels/transfers
+  still land on device 0 until M-G3). Both fixed: the retry now
+  RESUMES (each step builds only what is still null), CUDA's
+  last-error residue is cleared on every entry/exit path of the row
+  init, and the manual (en/zh), the stdlib declaration comment and
+  the CHANGELOG (en/zh) state the half-routing and the always-valid
+  device 0 by name. Round 2: all nine findings RESOLVED, one new
+  Low (the failure returns of the row init still left a residue
+  flag that another device's ready row could mis-attribute) —
+  folded. The push-device-1 e2e defers to M-G3: its skip depends
+  on the runner's skip contract (§4, M-G3 is its first consumer),
+  and the design pins M-G2's acceptance at "corpus green on device
+  0", so the deferral hides no M-G2 regression.
+
 ## 4. M-G3 — cross-device transfers (toDevice(a, device))
 
 - stdlib/tensor.n: four `toDevice(Array<T>, int)` overloads; native

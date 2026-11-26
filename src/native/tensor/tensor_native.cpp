@@ -176,6 +176,17 @@ void TensorBackend(NativeHost* host, uint8_t* ret, const uint8_t* args,
     nlang::native::ReturnString(host, ret, ActiveDeviceBackend().name);
 }
 
+//M-G2: the device census of the active backend (cpu 0, mirror 1, cuda
+//the probe's cudaGetDeviceCount) — the selector bound for
+//streamCreate(device).
+void TensorDeviceCount(NativeHost* host, uint8_t* ret,
+                       const uint8_t* args, int argc) {
+    (void)host;
+    (void)args;
+    (void)argc;
+    nlang::native::ReturnInt(ret, ActiveDeviceBackend().deviceCount);
+}
+
 } // namespace
 
 #define TENSOR_CONST_FILL(Name, Kind, T, Value)                        \
@@ -269,15 +280,17 @@ void ViewSumI(NativeHost* host, uint8_t* ret, const uint8_t* args,
 
 void TensorStreamCreate(NativeHost* host, uint8_t* ret, const uint8_t* args,
                         int argc) {
-    (void)args;
-    (void)argc;
-    //A chunk stream rides the scope it is created from (the main
-    //stream's device — decode(handle 0) — until the surface names a
-    //target device). A negative answer means the pool could not
-    //create one (no context, or the device's slots are exhausted):
-    //raise by name — a -1 would flow on as an ordinary int and every
-    //later stream call would silently ignore it.
-    const int32_t handle = BackendStreamCreate(CurrentScopeDevice());
+    //M-G2: the one-argument spelling names the target device; the
+    //zero-argument spelling keeps riding the scope it is created from
+    //(the main stream's device — decode(handle 0)). The census guard
+    //lives in BackendStreamCreate: a foreign selector raises by name.
+    const int32_t device =
+        argc >= 1 ? ArgInt(args, 0) : CurrentScopeDevice();
+    //A negative answer means the pool could not create a stream (no
+    //context, or the device's slots are exhausted): raise by name — a
+    //-1 would flow on as an ordinary int and every later stream call
+    //would silently ignore it.
+    const int32_t handle = BackendStreamCreate(host, device);
     if (handle < 0)
         Raise(host, NEXC_Base,
               "tensor.streamCreate: cannot create a stream on the "
@@ -445,6 +458,7 @@ NLANG_DEFINE_NATIVE_INIT {
     regBlocking(registry, "tensor", "toDevice", &tensor::TensorToDevice);
     regBlocking(registry, "tensor", "toHost", &tensor::TensorToHost);
     reg(registry, "tensor", "backend", &tensor::TensorBackend);
+    reg(registry, "tensor", "deviceCount", &tensor::TensorDeviceCount);
         tensor::InitBackendSelection(host);
     return NLANG_HOST_ABI_VERSION;
 }

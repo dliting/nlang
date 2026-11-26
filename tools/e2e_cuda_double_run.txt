@@ -56,6 +56,8 @@ op_device_backend
 op_device_auto
 op_device_unknown_env
 op_device_bad_flag
+op_device_count
+op_stream_device_guard
 op_tensor_extreme_inf
 op_tensor_strided_reduce
 op_tensor_strided_matmul

@@ -111,18 +111,39 @@ __host__ __device__ bool IsDense(const DevView& v) {
 
 //The per-device compute streams (device ABI v2: one row per device;
 //row 0 = device 0's main stream). The launchers read g_stream — an
-//alias for row 0: operand-driven stream selection is M-G2's work, and
-//while every enqueue rides device 0 the alias keeps the launch sites
-//untouched. The cell-error flags ([0] = kind, [1] = cell) stay
-//device-0-scoped until M-G2 routes kernels by operand device.
+//alias for row 0: operand-driven stream selection is M-G3's work (the
+//milestone whose payloads first live on a second device), and while
+//every enqueue rides device 0 the alias keeps the launch sites
+//untouched. The cell-error flags ([0] = kind, [1] = cell) are row
+//state read through the row-0 alias until that routing lands.
 //Devices at or above the shared census bound (the descriptor's
 //kNativeMaxDevices) are rejected at selection — a plugin limit, not
 //a CUDA one; no host today has 16.
 cudaStream_t g_currentStream[tensor::kNativeMaxDevices] = {};
 cudaStream_t& g_stream = g_currentStream[0];
-cudaStream_t g_stagingStream = nullptr;
-cudaEvent_t g_stagingDone = nullptr;
-int32_t* g_error = nullptr;
+
+//The per-device state table (M-G2): the one-off singletons joined a
+//row per device, addressed by the selector every device-selected
+//entry point pins. Rows init lazily — the first call accepting device
+//d runs CudaDeviceReady on it (the context touch, the streams, the
+//cell-error flags, the default-pool attributes and the row's peer
+//enablement) before that device serves anything.
+struct CudaDeviceState {
+    cudaStream_t stagingStream = nullptr; //the bulk-transfer overlap
+    cudaEvent_t stagingDone = nullptr;    //the staging handshake
+    int32_t* error = nullptr;             //the kernel cell-error flags
+    cudaMemPool_t memPool = nullptr;      //the device's default pool
+    bool peerEnabled[tensor::kNativeMaxDevices] = {}; //the peer row
+    bool ready = false;                   //this row's lazy init done
+};
+CudaDeviceState g_dev[tensor::kNativeMaxDevices] = {};
+
+//The row-0 aliases: every transfer and flag read routes by operand
+//device at M-G3; until then every payload op names device 0, and the
+//aliases keep those call sites untouched.
+cudaStream_t& g_stagingStream = g_dev[0].stagingStream;
+cudaEvent_t& g_stagingDone = g_dev[0].stagingDone;
+int32_t*& g_error = g_dev[0].error;
 bool g_ready = false;
 int g_deviceCount = 0;   //the lazy-init probe's result (0 before init)
 
@@ -270,13 +291,120 @@ void CudaStreamJoin(int handle) {
 
 bool CudaReady() { return g_ready; }
 
+//The per-device row init (M-G2): the first call accepting device d
+//touches the context (cudaFree(0) — the documented create idiom),
+//builds the row (main stream, cell-error flags, staging stream/event
+//pair, default-pool attributes) and enables the row's peer access.
+//Idempotent in both directions: an already-ready row answers at one
+//load, and a failed attempt leaves ready unset so the next accepted
+//call retries — the retry RESUMES the row, never duplicating the
+//resources a partial attempt already built (each step builds only
+//what is still null, so no handle or allocation is overwritten and
+//no leak accrues per retry). The entry/error-flag clears keep a
+//retry or a transient fault (an OOM at flags allocation) from
+//leaving a sticky error that a later operation's status fold would
+//mis-attribute to itself. The body runs pinned; failures always name
+//their reason.
+static bool CudaDeviceReady(int device, std::string& error) {
+    if (g_dev[device].ready)
+        return true;
+    SetDeviceForCall pin(device);
+    (void)cudaGetLastError();   //a previous failed attempt's residue
+    if (cudaFree(0) != cudaSuccess) {
+        (void)cudaGetLastError(); //the reason rides `error`; the flag isn't ours
+        error = "cudaFree(0) failed on device " + std::to_string(device);
+        return false;
+    }
+    //The row's main stream — device 0's is the row-0 alias g_stream;
+    //handle 0 names it everywhere (the other rows' cells become real
+    //once M-G3 routes the enqueues by operand device).
+    if (g_currentStream[device] == nullptr
+        && cudaStreamCreate(&g_currentStream[device]) != cudaSuccess) {
+        (void)cudaGetLastError(); //the reason rides `error`; the flag isn't ours
+        error = "cudaStreamCreate failed on device "
+            + std::to_string(device);
+        return false;
+    }
+    if (g_dev[device].error == nullptr) {
+        if (cudaMallocAsync((void**)&g_dev[device].error,
+            2 * sizeof(int32_t), g_currentStream[device])
+            != cudaSuccess) {
+            (void)cudaGetLastError(); //the reason rides `error`; the flag isn't ours
+            error = "device error-flag allocation failed on device "
+                + std::to_string(device);
+            return false;
+        }
+        const uint32_t none[2] = {kErrNone, 0};
+        cudaMemcpy(g_dev[device].error, none, 2 * sizeof(int32_t),
+            cudaMemcpyHostToDevice);
+    }
+    //The staging stream (bulk transfers overlap the compute stream's
+    //already-enqueued kernels) and its handshake event.
+    if (g_dev[device].stagingStream == nullptr
+        && cudaStreamCreate(&g_dev[device].stagingStream)
+        != cudaSuccess) {
+        (void)cudaGetLastError(); //the reason rides `error`; the flag isn't ours
+        error = "cudaStreamCreate failed (staging) on device "
+            + std::to_string(device);
+        return false;
+    }
+    if (g_dev[device].stagingDone == nullptr
+        && cudaEventCreate(&g_dev[device].stagingDone) != cudaSuccess) {
+        (void)cudaGetLastError(); //the reason rides `error`; the flag isn't ours
+        error = "cudaEventCreate failed (staging handshake) on device "
+            + std::to_string(device);
+        return false;
+    }
+    //The default mempool (the stream-ordered allocations land in it;
+    //the handle is kept for the row's introspection). Its default
+    //release threshold is zero: every synchronization releases unused
+    //pool memory back to the OS, which would re-pay the allocation in
+    //sync-heavy loops. UINT64_MAX makes the allocation cost
+    //independent of size (NVIDIA's guidance for tensor workloads).
+    if (cudaDeviceGetDefaultMemPool(&g_dev[device].memPool, device)
+        == cudaSuccess) {
+        unsigned long long threshold = UINT64_MAX;
+        cudaMemPoolSetAttribute(g_dev[device].memPool,
+            cudaMemPoolAttrReleaseThreshold, &threshold);
+    }
+    //The row's peer matrix (spec §6): query each ordered pair from
+    //this device and enable what the hardware supports. The enable is
+    //one-directional, so the reverse direction is the peer's row's
+    //own job; a refusal (consumer boards ship P2P-disabled pairs) or
+    //an AlreadyEnabled repeat clears the error flag and stays silent
+    //— the staging-routed transfers serve those pairs anyway.
+    for (int peer = 0; peer < g_deviceCount; ++peer) {
+        if (peer == device)
+            continue;
+        int can = 0;
+        if (cudaDeviceCanAccessPeer(&can, device, peer)
+            != cudaSuccess) {
+            (void)cudaGetLastError(); //a probe fault is not ours either
+            continue;
+        }
+        if (!can)
+            continue;
+        if (cudaDeviceEnablePeerAccess(peer, 0) == cudaSuccess)
+            g_dev[device].peerEnabled[peer] = true;
+        (void)cudaGetLastError();   //the refusal flag is not ours to keep
+    }
+    //The best-effort arms above (the mempool attributes, the flags'
+    //initial copy) may leave an error flag set; a ready row must not
+    //hand one to the next operation's status fold.
+    (void)cudaGetLastError();
+    g_dev[device].ready = true;
+    return true;
+}
+
 //The init body: always names its failure reason — the public wrapper
 //below owns the null-error contract, so the arms never branch on it.
 static bool CudaLazyInitReason(std::string& error) {
     //The device census first (device ABI v2): the visible devices
     //become the selector range the plugin accepts; devices past the
     //shared census bound (the descriptor's kNativeMaxDevices) stay
-    //unreachable — a plugin limit, not a CUDA one.
+    //unreachable — a plugin limit, not a CUDA one. The census is the
+    //only process-wide part (device enumeration); every row — device
+    //0's included — builds itself lazily through CudaDeviceReady.
     int deviceCount = 0;
     if (cudaGetDeviceCount(&deviceCount) != cudaSuccess || deviceCount < 1) {
         error = "no CUDA device present (cudaGetDeviceCount)";
@@ -288,29 +416,8 @@ static bool CudaLazyInitReason(std::string& error) {
         error = "cudaSetDevice(0) failed";
         return false;
     }
-    //Device 0's main stream — the row-0 alias g_stream; handle 0 names
-    //it everywhere.
-    if (cudaStreamCreate(&g_stream) != cudaSuccess) {
-        error = "cudaStreamCreate failed";
+    if (!CudaDeviceReady(0, error))
         return false;
-    }
-    if (cudaMallocAsync((void**)&g_error, 2 * sizeof(int32_t),
-        g_stream) != cudaSuccess) {
-        error = "device error-flag allocation failed";
-        return false;
-    }
-    const uint32_t none[2] = {kErrNone, 0};
-    cudaMemcpy(g_error, none, 2 * sizeof(int32_t), cudaMemcpyHostToDevice);
-    //The staging stream (bulk transfers overlap the compute stream's
-    //already-enqueued kernels) and its handshake event.
-    if (cudaStreamCreate(&g_stagingStream) != cudaSuccess) {
-        error = "cudaStreamCreate failed (staging)";
-        return false;
-    }
-    if (cudaEventCreate(&g_stagingDone) != cudaSuccess) {
-        error = "cudaEventCreate failed (staging handshake)";
-        return false;
-    }
     g_ready = true;
     return true;
 }
@@ -329,15 +436,23 @@ bool CudaLazyInit(std::string* error) {
 }
 
 //The census gate (the header's contract): no context = no device is
-//servable; otherwise the probed census decides. Device selectors
-//arriving from the host gate here before any pin; decoded stream
-//handles check the stream-table bound instead (memory safety — a
-//different concern, see the stream entries).
+//servable; otherwise the probed census decides, and an in-census
+//device is only accepted once its row has initialized (the first
+//accepted call on it runs the per-device lazy init; a row that
+//cannot build its context stays unserviceable — reported through the
+//same "unknown device" fault the callers fold, the effect the user
+//sees either way). Device selectors arriving from the host gate here
+//before any pin; decoded stream handles check the stream-table bound
+//instead (memory safety — a different concern, see the stream
+//entries).
 bool CudaDeviceAccepted(int device) {
     std::string initError;
     if (!CudaLazyInit(&initError))
         return false;
-    return device >= 0 && device < g_deviceCount;
+    if (device < 0 || device >= g_deviceCount)
+        return false;
+    std::string rowError;
+    return CudaDeviceReady(device, rowError);
 }
 
 //The bulk-transfer threshold: blocks at or above it route through the
@@ -388,31 +503,14 @@ cudaError_t SyncStream() {
 //An allocation failure (out of memory) returns synchronously — the
 //caller reads the null.
 
-namespace {
-
-cudaMemPool_t g_memPool = nullptr;
-
-void InitMemPoolOnce() {
-    if (g_memPool != nullptr)
-        return;
-    if (cudaDeviceGetDefaultMemPool(&g_memPool, 0) != cudaSuccess)
-        return;
-    //The default release threshold is zero: every synchronization
-    //releases unused pool memory back to the OS, which would re-pay
-    //the allocation in sync-heavy loops. UINT64_MAX makes the
-    //allocation cost independent of size (NVIDIA's guidance for
-    //tensor workloads).
-    unsigned long long threshold = UINT64_MAX;
-    cudaMemPoolSetAttribute(g_memPool,
-        cudaMemPoolAttrReleaseThreshold, &threshold);
-}
-
-} // namespace
-
+//The stream-ordered allocation needs no pool handle — the stream
+//names the device and the device's default mempool serves it; the
+//row's one-time attribute set (CudaDeviceReady) is what makes the
+//pool behave for tensor workloads. The callers gate through
+//CudaDeviceAccepted, so the row of the pinned device is ready here.
 void* PoolAlloc(size_t bytes, cudaStream_t stream) {
     if (!CudaLazyInit(nullptr))
         return nullptr;
-    InitMemPoolOnce();
     void* ptr = nullptr;
     if (cudaMallocAsync(&ptr, bytes, stream) != cudaSuccess)
         return nullptr;

@@ -1,0 +1,21 @@
+// The mirror-pinned twin of op_stream_device_guard (the .flags leg):
+// the mirror census is 1, so streamCreate(0) yields the main "stream"
+// handle 0 and streamCreate(1) raises with the census spelled in the
+// message — on every machine, GPU present or not.
+import tensor;
+
+int main() {
+    if (tensor.backend() != "mirror") return 100;
+    int h = tensor.streamCreate(0);
+    if (h != 0) return 1;
+    tensor.streamDestroy(h);
+    try {
+        int bad = tensor.streamCreate(1);
+        return 2;
+    } catch (Exception e) {
+        if (e.message !=
+            "tensor.streamCreate: device 1 beyond the device count 1")
+            return 10;
+        return 0;
+    }
+}

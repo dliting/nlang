@@ -2383,6 +2383,14 @@ op_device_backend 0
 op_device_auto 0
 op_device_unknown_env 0
 op_device_bad_flag 2
+# Multi-GPU M-G2: the device census and the streamCreate(device) guard.
+# The plain fixtures report the active backend (cpu default, cuda via
+# the box double-run); the _mirror twins pin mirror via .flags, so all
+# four run on every machine, GPU present or not.
+op_device_count 0
+op_device_count_mirror 0
+op_stream_device_guard 0
+op_stream_device_guard_mirror 0
 # Debugger display of device-resident arrays (mirror pinned via .env, so
 # these run on every machine): the record and a view over a device owner
 # both show staged element values, never pointer fragments.

@@ -47,8 +47,21 @@ int32_t CurrentScopeDevice() {
     return DecodeStreamDevice(g_streamStack[g_streamPushDepth - 1]);
 }
 
-int32_t BackendStreamCreate(int32_t device) {
+int32_t BackendStreamCreate(NativeHost* host, int32_t device) {
     const DeviceBackendState& backend = ActiveDeviceBackend();
+    //The census guard (M-G2): device 0 names the main stream on every
+    //backend (on cpu — census 0 — it is the only accepted selector);
+    //mirror/cuda additionally accept the rest of [0, deviceCount).
+    //A foreign selector raises by name: a silent clamp would create
+    //the pool slot on the wrong device, and every later handle decode
+    //would faithfully name that wrong device.
+    const bool accepted = device == 0
+        || (device > 0 && device < backend.deviceCount);
+    if (!accepted)
+        Raise(host, NEXC_Base,
+              "tensor.streamCreate: device " + std::to_string(device)
+              + " beyond the device count "
+              + std::to_string(backend.deviceCount));
     if (backend.streamCreate)
         return backend.streamCreate(device);
     return 0;   //host/mirror: handle 0 = the implicit main "stream"

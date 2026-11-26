@@ -8,6 +8,21 @@ All notable changes to NLang are documented here. The format follows
 
 ## [0.14.11]
 
+### Added
+
+- **`tensor.deviceCount()`** — reports how many devices the active
+  backend has: none on `cpu`, exactly one on `mirror`, the CUDA count
+  on `cuda`. It is also the bound for `tensor.streamCreate(device)`.
+- **`tensor.streamCreate(device)`** — the device-spelled creation: it
+  takes a stream-pool slot on the named device, and the handle keeps
+  that device so pushing it routes the arrays the scope creates
+  there; kernels and transfers still land on device 0, so such an
+  array and a `toDevice` result fault when combined until
+  cross-device routing lands. Device `0` — the main stream — is
+  nameable everywhere; any other foreign device raises. Each
+  device's stream pool, memory pool, staging buffers and peer-access
+  enablement initialize lazily when the device is first used.
+
 ### Fixed
 
 - **ndb displays a view over a device-resident array through a staged

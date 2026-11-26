@@ -170,10 +170,13 @@ typedef struct TensorDeviceStatus {
 } TensorDeviceStatus;
 
 // ABI v16: every payload entry names the device its pointer lives on.
-// Today the VM only ever passes 0; the vendor runtime's context
-// selection belongs to the hook implementation (the VM stays vendor-
-// neutral and never links one). sync follows the CURRENT context — the
-// device selector would duplicate what the enqueue side already fixed.
+// Since the device-spelled streams the selector can be nonzero (the
+// pushed scope's creations mint on their device); until cross-device
+// routing lands, transfers still land on device 0. The vendor runtime's
+// context selection belongs to the hook implementation (the VM stays
+// vendor-neutral and never links one). sync follows the CURRENT
+// context — the device selector would duplicate what the enqueue side
+// already fixed.
 struct TensorDeviceHooks {
     TensorDeviceStatus (*alloc)(int32_t device, void** out, size_t bytes);
     TensorDeviceStatus (*zero)(int32_t device, void* ptr, size_t bytes);

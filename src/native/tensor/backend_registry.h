@@ -56,7 +56,8 @@ struct DeviceBackendState {
     std::string name = "cpu"; //"cpu" / "mirror" / "cuda"
     //Devices the backend reports (cuda: the probe count; mirror: 1;
     //cpu: 0). Device selectors outside [0, deviceCount) are plumbing
-    //faults — nothing consults it yet (deviceCount() lands at M-G2).
+    //faults — the streamCreate(device) census guard and the
+    //deviceCount() native consult it (multi-GPU M-G2).
     int deviceCount = 0;
     const void* ops = nullptr; //the device TensorOps table (cuda)
     //--- v0.14.9: the multi-stream orchestration (the plugin's pool;
@@ -219,7 +220,11 @@ void AssertSameDevice(NativeHost* host, const NativeArrayView* operands,
 //The registry-level dispatch over the backend's stream pool. Without
 //a pool (cpu/mirror) every op is a no-op that keeps the language
 //program identical across backends.
-int32_t BackendStreamCreate(int32_t device);
+//M-G2: the device selector is guarded against the activation census
+//before the pool is asked — cpu accepts only device 0 (the implicit
+//main "stream"), mirror/cuda accept [0, deviceCount); a foreign
+//selector raises by name.
+int32_t BackendStreamCreate(NativeHost* host, int32_t device);
 void BackendStreamDestroy(int32_t handle);
 void BackendStreamPush(NativeHost* host, int32_t handle);
 void BackendStreamPop(NativeHost* host);

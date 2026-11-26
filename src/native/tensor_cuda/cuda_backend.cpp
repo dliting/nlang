@@ -36,34 +36,39 @@ namespace tensor_cuda {
 
 //--- the hooks (ride the kernels TU's pool/transfer entry points) -----
 
-//The sticky device-fault register: the pool, the transfer and the
-//sync paths record a failure here when their caller cannot carry one
-//out (the GC release path's free, an execution fault surfacing at a
-//sync whose slot has no error parameter). The next status-returning
-//observation point drains it first (the CUDA sticky semantics —
-//cudaGetLastError's contract — mirrored at the hook boundary).
-TensorDeviceStatus g_stickyStatus = {DEVICE_OK, 0, nullptr};
+//The sticky device-fault register — one row per device (M-G2): a
+//fault on one device must not blackhole the observation points on
+//the others; within a device the CUDA sticky semantics still apply.
+//The pool, the transfer and the sync paths record a failure here
+//when their caller cannot carry one out (the GC release path's free,
+//an execution fault surfacing at a sync whose slot has no error
+//parameter). The next status-returning observation point on the same
+//device drains it first (cudaGetLastError's contract, mirrored at
+//the hook boundary).
+TensorDeviceStatus g_stickyStatus[tensor::kNativeMaxDevices] =
+    {{DEVICE_OK, 0, nullptr}};
 std::mutex g_stickyMutex;
 
-TensorDeviceStatus ParkSticky(TensorDeviceStatus st) {
+TensorDeviceStatus ParkSticky(int32_t device, TensorDeviceStatus st) {
     std::lock_guard<std::mutex> guard(g_stickyMutex);
-    if (g_stickyStatus.category == DEVICE_OK)
-        g_stickyStatus = st;
+    if (g_stickyStatus[device].category == DEVICE_OK)
+        g_stickyStatus[device] = st;
     return st;
 }
 
-TensorDeviceStatus DrainSticky() {
+TensorDeviceStatus DrainSticky(int32_t device) {
     std::lock_guard<std::mutex> guard(g_stickyMutex);
-    TensorDeviceStatus st = g_stickyStatus;
-    g_stickyStatus = {DEVICE_OK, 0, nullptr};
+    TensorDeviceStatus st = g_stickyStatus[device];
+    g_stickyStatus[device] = {DEVICE_OK, 0, nullptr};
     return st;
 }
 
 //The pool/transfer primitives' cudaError → status fold (the vendor
-//text rides cudaGetErrorString's static buffer).
-TensorDeviceStatus StatusOf(cudaError_t err) {
+//text rides cudaGetErrorString's static buffer). `device` is the
+//sticky row the fold consults — the device the primitive ran on.
+TensorDeviceStatus StatusOf(int32_t device, cudaError_t err) {
     if (err == cudaSuccess) {
-        TensorDeviceStatus drained = DrainSticky();
+        TensorDeviceStatus drained = DrainSticky(device);
         if (drained.category != DEVICE_OK)
             return drained;
         return {DEVICE_OK, 0, nullptr};
@@ -73,17 +78,19 @@ TensorDeviceStatus StatusOf(cudaError_t err) {
 
 //The hooks carry the payload's device selector (host ABI v16): each
 //gates the selector against the plugin's census (CudaDeviceAccepted —
-//the same named fault the mirror returns for an unknown device), then
-//pins the thread's context for the call (SetDeviceForCall) so the
-//pool/transfer primitives act on the named device. The gate comes
-//first everywhere: a plumbing fault must name itself, never reach a
-//context the census never blessed.
+//the same named fault the mirror returns for an unknown device),
+//drains that device's sticky row, then pins the thread's context for
+//the call (SetDeviceForCall) so the pool/transfer primitives act on
+//the named device. The gate comes first everywhere: a plumbing fault
+//must name itself, never reach a context the census never blessed —
+//and never consume a parked record belonging to some other device's
+//row.
 TensorDeviceStatus HookAlloc(int32_t device, void** out, size_t bytes) {
-    TensorDeviceStatus sticky = DrainSticky();
-    if (sticky.category != DEVICE_OK)
-        return sticky;
     if (!tensor_cuda::CudaDeviceAccepted(device))
         return {DEVICE_FAULT, 0, "cuda: payload on unknown device"};
+    TensorDeviceStatus sticky = DrainSticky(device);
+    if (sticky.category != DEVICE_OK)
+        return sticky;
     //A zero-byte allocation is legitimate (an empty device array's
     //payload): the pointer is never dereferenced, so the null the
     //CUDA runtime returns for cudaMalloc(0) is handed through as ok.
@@ -101,58 +108,60 @@ TensorDeviceStatus HookAlloc(int32_t device, void** out, size_t bytes) {
 }
 
 TensorDeviceStatus HookZero(int32_t device, void* ptr, size_t bytes) {
-    TensorDeviceStatus sticky = DrainSticky();
-    if (sticky.category != DEVICE_OK)
-        return sticky;
     if (!tensor_cuda::CudaDeviceAccepted(device))
         return {DEVICE_FAULT, 0, "cuda: payload on unknown device"};
+    TensorDeviceStatus sticky = DrainSticky(device);
+    if (sticky.category != DEVICE_OK)
+        return sticky;
     SetDeviceForCall pin(device);
     PoolZero(ptr, bytes);
-    return StatusOf(cudaGetLastError());
+    return StatusOf(device, cudaGetLastError());
 }
 
 TensorDeviceStatus HookFree(int32_t device, void* ptr) {
     if (!tensor_cuda::CudaDeviceAccepted(device))
         return {DEVICE_FAULT, 0, "cuda: payload on unknown device"};
-    //The GC release path: a failure parks sticky (free's caller cannot
-    //throw inside the sweep invariants).
+    //The GC release path: a failure parks sticky on the owning device's
+    //row (free's caller cannot throw inside the sweep invariants).
     SetDeviceForCall pin(device);
     PoolFreeOnStream(ptr);
     cudaError_t err = cudaGetLastError();
     if (err != cudaSuccess)
-        ParkSticky({DEVICE_FAULT, 0, cudaGetErrorString(err)});
+        ParkSticky(device, {DEVICE_FAULT, 0, cudaGetErrorString(err)});
     return {DEVICE_OK, 0, nullptr};
 }
 
 TensorDeviceStatus HookCopyH2D(int32_t device, void* dst, const void* src,
                                size_t bytes) {
-    TensorDeviceStatus sticky = DrainSticky();
-    if (sticky.category != DEVICE_OK)
-        return sticky;
     if (!tensor_cuda::CudaDeviceAccepted(device))
         return {DEVICE_FAULT, 0, "cuda: payload on unknown device"};
+    TensorDeviceStatus sticky = DrainSticky(device);
+    if (sticky.category != DEVICE_OK)
+        return sticky;
     SetDeviceForCall pin(device);
-    return StatusOf(CopyBytes(dst, src, bytes, true));
+    return StatusOf(device, CopyBytes(dst, src, bytes, true));
 }
 
 TensorDeviceStatus HookCopyD2H(int32_t device, void* dst, const void* src,
                                size_t bytes) {
-    TensorDeviceStatus sticky = DrainSticky();
-    if (sticky.category != DEVICE_OK)
-        return sticky;
     if (!tensor_cuda::CudaDeviceAccepted(device))
         return {DEVICE_FAULT, 0, "cuda: payload on unknown device"};
+    TensorDeviceStatus sticky = DrainSticky(device);
+    if (sticky.category != DEVICE_OK)
+        return sticky;
     SetDeviceForCall pin(device);
-    return StatusOf(CopyBytes(dst, src, bytes, false));
+    return StatusOf(device, CopyBytes(dst, src, bytes, false));
 }
 
 TensorDeviceStatus HookSync() {
-    TensorDeviceStatus sticky = DrainSticky();
+    //The stream sync: the authoritative observation point for the
+    //async group's execution faults. It syncs the row-0 stream (every
+    //enqueue still rides device 0 until M-G3's operand routing), so
+    //the record it consults is row 0's.
+    TensorDeviceStatus sticky = DrainSticky(0);
     if (sticky.category != DEVICE_OK)
         return sticky;
-    //The stream sync: the authoritative observation point for the
-    //async group's execution faults.
-    return StatusOf(SyncStream());
+    return StatusOf(0, SyncStream());
 }
 
 TensorDeviceHooks MakeHooks() {

@@ -470,6 +470,14 @@ native void assignIntoS(Array<long> view, long value);
 // the pushed stream; Join makes the current stream wait for a chunk
 // stream's completion. No-ops on cpu/mirror (host memory, no streams).
 native int streamCreate();
+// The device-spelled creation: the pool slot is taken on the named
+// device and the handle encodes it; streamPush routes the arrays the
+// scope creates to that device. Kernels and transfers still land on
+// device 0, so such an array and a toDevice result cannot share one
+// expression until cross-device routing lands. Device 0 — the main
+// stream — is nameable on every backend; otherwise the device must
+// exist (deviceCount() reports how many) and a foreign id raises.
+native int streamCreate(int device);
 native void streamDestroy(int handle);
 native void streamPush(int handle);
 native void streamPop();
@@ -505,7 +513,10 @@ native Array<float> oneHot(Array<int> labels, int n);
 // Device surface (v0.14.x device line): toDevice lands a copy on the
 // active device (a view materializes into the device copy); toHost
 // lands one back. A same-residency operand returns as-is. backend()
-// reports the active backend's name ("cpu"/"mirror"/"cuda").
+// reports the active backend's name ("cpu"/"mirror"/"cuda");
+// deviceCount() how many devices it has (0 on cpu, 1 on mirror, the
+// CUDA count on cuda) — the bound for streamCreate(device)'s selector
+// (device 0, the main stream, is always in range).
 native Array<float> toDevice(Array<float> a);
 native Array<double> toDevice(Array<double> a);
 native Array<int> toDevice(Array<int> a);
@@ -515,6 +526,7 @@ native Array<double> toHost(Array<double> a);
 native Array<int> toHost(Array<int> a);
 native Array<long> toHost(Array<long> a);
 native string backend();
+native int deviceCount();
 
 // Whole-array random fill: dims-shaped array, each element drawn
 // uniformly from [low, high) in row-major order. The draws ride the

@@ -223,7 +223,7 @@ nvm --tensor-backend cuda app.npkg
 
 默认值是`auto`。`auto`探测已安装的设备后端，使用第一个驱动成功启动的；若一个都没有，则无提示地落回`cpu`。因此一次构建处处可运行：在有GPU的机器上核函数被加速，在没有的机器上在宿主运行，程序不变。在CUDA插件缺席时选择`cuda`是错误而不是落回——点名一个你期望的后端却静默跑在宿主上，是一种谎话。插件在场但启动失败同理：`auto`向错误流写一行并继续跑在`cpu`上，因为装坏了值得一次报告。`mirror`是宿主侧的测试后端：它在普通宿主内存上跑遍每条设备路径，使得设备代码可以在没有GPU的机器上验收。`cpu`始终走宿主路径。
 
-`tensor.backend()`按名报告活动后端（`"cpu"`、`"cuda"`或`"mirror"`），因此程序可以陈述自己的设备选择。
+`tensor.backend()`按名报告活动后端（`"cpu"`、`"cuda"`或`"mirror"`），`tensor.deviceCount()`报告它有几个设备：`cpu`没有、`mirror`恰好一个、`cuda`报告CUDA设备数。两者合起来让程序可以陈述自己的设备选择；`deviceCount()`同时也是创建流时可点名设备的上界。
 
 ### 数组驻留在哪里
 
@@ -263,9 +263,11 @@ tensor.streamDestroy(s);         //释放句柄
 
 `streamPush`/`streamPop`像花括号一样嵌套：两者之间的所有操作都落在被推入的流上，嵌套的底层是主流。没有配对`streamPush`的`streamPop`抛出异常。`streamJoin`固定交接顺序：join之后，主流的操作能看到被汇合流写入的一切，因此join后再消费该流的产出没有数据竞争。
 
+多设备后端上，创建可以点名流取自哪个设备：`tensor.streamCreate(device)`。句柄携带该设备，推入它就把该作用域新建的数组路由到那个设备。计算与搬运目前仍落在设备0上，所以push作用域里新建的数组与`toDevice`的产出还不能在同一表达式里混用——跨设备路由落地前，由`tensor: operands on different devices`故障点名两边。`tensor.deviceCount()`报告上界——`cpu`是`0`、`mirror`是`1`、`cuda`是CUDA设备数——越界的设备抛出；设备`0`（主流）在每个后端都可点名，`cpu`也不例外。零参写法的含义不变：在创建它的作用域所属的设备上创建，在主流上就是设备0。
+
 并发之下随机数依然协调：push作用域内的`tensor.uniform`取到全局随机序列中一段私有、互不重叠的窗口，窗口在调用发生的时刻固定（按程序顺序，与执行顺序无关）——各任务块不会取到彼此的数。主流上（任何push作用域之外）取的uniform直接沿这条序列走。引擎每次运行从任意种子出发；`tensor.seed(s)`把它钉住——种子化的程序每一次运行都重放同样的取值，主流与每个push作用域皆然。
 
-在`cpu`与`mirror`后端上，每个流调用都成功且不做任何事：同样的程序文本、同样的取值、同样的结果——只有墙钟不同。`examples/mc_streams`用四条并发流在这个表面上估计π；`tests/bench/mc_streams_torch_bench.py`把它的墙钟与同一负载的PyTorch写法做对比。
+在`cpu`与`mirror`后端上，每个界内的流调用都成功且不做任何事——设备上界检查加入了这些写法本就处处共享的行为：同样的程序文本、同样的取值、同样的结果，`deviceCount()`的上界拒绝也一样——只有墙钟不同。`examples/mc_streams`用四条并发流在这个表面上估计π；`tests/bench/mc_streams_torch_bench.py`把它的墙钟与同一负载的PyTorch写法做对比。
 
 ### 部署
 
