@@ -157,15 +157,25 @@ def _fail_on_stale_tools(ncc, nvm, ndb):
     alarm on a native edit, and the no-op tool rebuild the alarm demands
     never clears it because the tools' mtime does not advance. A stale
     .so is caught by its own check below.
+
+    The same reasoning excludes src/tools/nide: the IDE sources feed
+    only the IDE targets behind NLANG_BUILD_IDE (no tool links nide),
+    so an IDE-only edit cannot advance the tools' mtime and the alarm
+    it raises is one no tool rebuild can ever clear.
     """
     def _is_native_module_source(path):
         # True when path lies under <repo>/src/native (the dlopen'd
-        # modules). The glob below is anchored at REPO_ROOT, so the
-        # repo-relative components are the tool's own inputs (src/*)
-        # versus the dlopen'd modules (src/native/*).
+        # modules) or <repo>/src/tools/nide (IDE-only targets, built
+        # behind NLANG_BUILD_IDE and never linked into a tool). The
+        # glob below is anchored at REPO_ROOT, so the repo-relative
+        # components are the tool's own inputs (src/*) versus these.
         parts = os.path.relpath(path, REPO_ROOT).split(os.sep)
-        return (len(parts) >= 2 and parts[0] == 'src'
-                and parts[1] == 'native')
+        if len(parts) < 2 or parts[0] != 'src':
+            return False
+        if parts[1] == 'native':
+            return True
+        return len(parts) >= 3 and parts[1] == 'tools' \
+            and parts[2] == 'nide'
 
     newest_src, newest_name = _newest_file(
         path
