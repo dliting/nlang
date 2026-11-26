@@ -898,8 +898,10 @@ private slots:
 
     // --- Normalized duplicate detection (same file, different spelling) ---
 
-    // The same file with different case must collide (Windows NTFS
-    // semantics -- mirrors ncc's SourceKey case folding).
+    // Case-variant duplicates follow the host's file-name semantics,
+    // mirroring the dedup key's case folding: NTFS folds case so the
+    // two spellings name one file (duplicate rejection), a POSIX file
+    // system keeps them as two legitimate sources that load together.
     void testProjectNodeLoadDuplicateFilesCaseVariant() {
         QString projPath = writeFixture("dupcase.nproj",
             "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
@@ -912,8 +914,13 @@ private slots:
 
         ProjectNode proj("", m_tmpDir.path());
         QString error;
+#ifdef _WIN32
         QVERIFY(!proj.load(projPath, &error));
         QVERIFY2(error.contains("duplicate"), qPrintable(error));
+#else
+        QVERIFY(proj.load(projPath, &error));
+        QCOMPARE(proj.fileCount(), 2);
+#endif
     }
 
     // "sub/../main.n" and "main.n" name the same file.
@@ -1079,7 +1086,9 @@ private slots:
         QVERIFY2(error.contains("duplicate"), qPrintable(error));
     }
 
-    // Case-variant duplicates must collide too (NTFS semantics).
+    // Case-variant duplicates follow the host's file-name semantics
+    // (NTFS folds and rejects; POSIX keeps both projects — see the
+    // project-node variant above).
     void testSolutionNodeLoadDuplicateProjectsCaseVariant() {
         writeFixture("app/app.nproj",
             "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
@@ -1095,8 +1104,13 @@ private slots:
 
         SolutionNode sol("");
         QString error;
+#ifdef _WIN32
         QVERIFY(!sol.load(solPath, &error));
         QVERIFY2(error.contains("duplicate"), qPrintable(error));
+#else
+        QVERIFY(sol.load(solPath, &error));
+        QCOMPARE(sol.projectCount(), 2);
+#endif
     }
 
     // A second <Projects> block in a .nsln is rejected (mirrors the

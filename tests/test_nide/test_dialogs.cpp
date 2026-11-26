@@ -353,22 +353,32 @@ private slots:
 
     //Project Properties edits the import paths and applies them on accept.
     void testEditAppliesImportPaths() {
+        //ProjectNode anchors relative import paths at the project dir,
+        //so the fixture entries must BE absolute on the running
+        //platform for the keep-as-entered assertion to hold.
+#ifdef _WIN32
+        const QString oldLib = "D:/old/lib";
+        const QString newLib = "D:/new/lib";
+#else
+        const QString oldLib = "/old/lib";
+        const QString newLib = "/new/lib";
+#endif
         QTemporaryDir dir;
         ProjectNode project("App", dir.path());
         project.addFile("main.n");
-        project.addImportPath("D:/old/lib");
+        project.addImportPath(oldLib);
         project.clearDirty();
 
         ProjectPropDialog dialog;
         inExec([&] {
-            dialog.findChild<PathListEditor*>()->addPath("D:/new/lib");
+            dialog.findChild<PathListEditor*>()->addPath(newLib);
             dialog.accept();
         });
 
         QVERIFY(dialog.editProject(project));
         QCOMPARE(project.importPathCount(), 2);
-        QCOMPARE(project.importPathAt(0), QString("D:/old/lib"));
-        QCOMPARE(project.importPathAt(1), QString("D:/new/lib"));
+        QCOMPARE(project.importPathAt(0), oldLib);
+        QCOMPARE(project.importPathAt(1), newLib);
         QVERIFY(project.isDirty());
     }
 

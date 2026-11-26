@@ -970,8 +970,16 @@ void TestTerminal::TestPtyEchoHello() {
     QSignalSpy finishedSpy(&pty, &PtyProcess::Finished);
     //"echo" is a cmd internal that never resets errorlevel: on hosts
     //whose AutoRun registry entry fails, `cmd /c echo hello` inherits
-    //that errorlevel (observed exit 1). Pin the exit code explicitly.
-    QVERIFY(pty.Start("cmd", {"/c", "echo hello&exit 0"}, "", 80, 24));
+    //that errorlevel (observed exit 1). Pin the exit code explicitly
+    //on both platforms.
+#ifdef _WIN32
+    const bool started = pty.Start("cmd", {"/c", "echo hello&exit 0"},
+                                   "", 80, 24);
+#else
+    const bool started = pty.Start("sh", {"-c", "echo hello; exit 0"},
+                                   "", 80, 24);
+#endif
+    QVERIFY(started);
     QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 15000);
     QCOMPARE(finishedSpy.at(0).at(0).toInt(), 0);
     QCOMPARE(finishedSpy.at(0).at(1).toBool(), false);
@@ -984,7 +992,12 @@ void TestTerminal::TestPtyEchoHello() {
 void TestTerminal::TestPtyExitCode() {
     PtyProcess pty;
     QSignalSpy finishedSpy(&pty, &PtyProcess::Finished);
-    QVERIFY(pty.Start("cmd", {"/c", "exit", "3"}, "", 80, 24));
+#ifdef _WIN32
+    const bool started = pty.Start("cmd", {"/c", "exit", "3"}, "", 80, 24);
+#else
+    const bool started = pty.Start("sh", {"-c", "exit 3"}, "", 80, 24);
+#endif
+    QVERIFY(started);
     QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 15000);
     QCOMPARE(finishedSpy.at(0).at(0).toInt(), 3);
     QCOMPARE(finishedSpy.at(0).at(1).toBool(), false);
@@ -993,7 +1006,12 @@ void TestTerminal::TestPtyExitCode() {
 void TestTerminal::TestPtyKill() {
     PtyProcess pty;
     QSignalSpy finishedSpy(&pty, &PtyProcess::Finished);
-    QVERIFY(pty.Start("cmd", {}, "", 80, 24));   //interactive: stays up
+#ifdef _WIN32
+    const bool started = pty.Start("cmd", {}, "", 80, 24);
+#else
+    const bool started = pty.Start("sh", {}, "", 80, 24);
+#endif
+    QVERIFY(started);   //interactive: stays up
     QVERIFY(pty.IsRunning());
     pty.Kill();
     QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 15000);
@@ -1007,8 +1025,17 @@ void TestTerminal::TestPtyKill() {
 void TestTerminal::TestPtyWriteRoundTrip() {
     PtyProcess pty;
     QSignalSpy finishedSpy(&pty, &PtyProcess::Finished);
-    QVERIFY(pty.Start("cmd", {}, "", 80, 24));
-    pty.Write("exit 7\r");
+#ifdef _WIN32
+    const bool started = pty.Start("cmd", {}, "", 80, 24);
+    const char* lineEnding = "\r";
+#else
+    const bool started = pty.Start("sh", {}, "", 80, 24);
+    //In canonical mode the tty line discipline ends a line on \n;
+    //ICRNL would translate a \r too, but write what we mean.
+    const char* lineEnding = "\n";
+#endif
+    QVERIFY(started);
+    pty.Write(QByteArray("exit 7") + lineEnding);
     QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 15000);
     QCOMPARE(finishedSpy.at(0).at(0).toInt(), 7);
     QCOMPARE(finishedSpy.at(0).at(1).toBool(), false);

@@ -23,10 +23,10 @@ Usage (mirrors how tests/CMakeLists.txt invokes it):
         -- <test.exe> [extra args...]
 
 The wrapper appends `-o <qtest-log>,txt` to the child command line. On
-`--timeout` it kills the whole child tree (taskkill /T on Windows) so a
-stuck debug child cannot outlive the suite, then exits 124. Without
-`--timeout` the child runs to completion and the child's exit code is
-passed through unchanged.
+`--timeout` it kills the whole child tree (taskkill /T on Windows, the
+process group via killpg on POSIX) so a stuck debug child cannot
+outlive the suite, then exits 124. Without `--timeout` the child runs
+to completion and the child's exit code is passed through unchanged.
 """
 
 import argparse
@@ -87,8 +87,11 @@ def kill_tree(pid: int) -> None:
         subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"],
                        capture_output=True)
     else:
+        #The child was started with start_new_session, so it leads its
+        #own process group and killpg reaches the whole tree: a bare
+        #os.kill would leave nvm/ndb grandchildren orphaned and alive.
         try:
-            os.kill(pid, 9)
+            os.killpg(pid, 9)
         except OSError:
             pass
 
@@ -125,7 +128,8 @@ def main() -> int:
 
     proc = subprocess.Popen(
         command + ["-o", args.qtest_log + ",txt"],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        start_new_session=(os.name != "nt"))
     start_mono = time.monotonic()
     saw_live = False
 

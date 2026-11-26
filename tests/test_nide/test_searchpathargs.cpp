@@ -6,21 +6,42 @@
 
 using namespace nlang;
 
+namespace {
+
+//The pure functions under test branch on QDir::isAbsolutePath, so the
+//fixtures must BE absolute on the platform they run on: drive-letter
+//spelling on Windows, root-anchored paths elsewhere. Every expected
+//value below is built from the same constants, so the join shapes the
+//assertions pin stay identical across platforms.
+#ifdef _WIN32
+const QString kProj = "D:/proj";
+const QString kGlobal = "D:/global";
+const QString kShared = "D:/shared";
+const QString kSrc = "D:/src";
+#else
+const QString kProj = "/proj";
+const QString kGlobal = "/global";
+const QString kShared = "/shared";
+const QString kSrc = "/src";
+#endif
+
+} // namespace
+
 class TestSearchPathArgs : public QObject {
     Q_OBJECT
 
 private slots:
     void testProjectThenGlobalOrder() {
         QStringList args = buildImportArgs(
-            {"D:/proj/lib"}, "D:/proj", {"D:/global/lib"});
-        QCOMPARE(args, QStringList({"-I", "D:/proj/lib",
-                                    "-I", "D:/global/lib"}));
+            {kProj + "/lib"}, kProj, {kGlobal + "/lib"});
+        QCOMPARE(args, QStringList({"-I", kProj + "/lib",
+                                    "-I", kGlobal + "/lib"}));
     }
 
     void testProjectRelativeResolvesAgainstProjectDir() {
         QStringList dirs = buildSearchDirs(
-            {"libs/acme"}, "D:/proj", {});
-        QCOMPARE(dirs, QStringList({"D:/proj/libs/acme"}));
+            {"libs/acme"}, kProj, {});
+        QCOMPARE(dirs, QStringList({kProj + "/libs/acme"}));
     }
 
     void testGlobalRelativeResolvesAgainstHome() {
@@ -33,14 +54,14 @@ private slots:
     void testDuplicatesAcrossLayersDropped() {
         //The same dir in project and global keeps only the first.
         QStringList dirs = buildSearchDirs(
-            {"D:/shared"}, "D:/proj", {"D:/shared"});
-        QCOMPARE(dirs, QStringList({"D:/shared"}));
+            {kShared}, kProj, {kShared});
+        QCOMPARE(dirs, QStringList({kShared}));
     }
 
     void testEmptyAndWhitespaceEntriesDropped() {
         QStringList dirs = buildSearchDirs(
-            {"", "  "}, "D:/proj", {"D:/ok", ""});
-        QCOMPARE(dirs, QStringList({"D:/ok"}));
+            {"", "  "}, kProj, {kGlobal + "/ok", ""});
+        QCOMPARE(dirs, QStringList({kGlobal + "/ok"}));
     }
 
     void testAppendImportArgsInterleaves() {
@@ -52,35 +73,35 @@ private slots:
         //Globals are user-configured: they keep precedence over the
         //incidental same-dir library.
         QStringList dirs = standaloneSearchDirs(
-            "D:/src/use_lib.n", {"D:/global/lib"});
-        QCOMPARE(dirs, QStringList({"D:/global/lib", "D:/src"}));
+            kSrc + "/use_lib.n", {kGlobal + "/lib"});
+        QCOMPARE(dirs, QStringList({kGlobal + "/lib", kSrc}));
     }
 
     void testStandaloneDedupsGlobalEqualToSourceDir() {
         QStringList dirs = standaloneSearchDirs(
-            "D:/src/use_lib.n", {"D:/src"});
-        QCOMPARE(dirs, QStringList({"D:/src"}));
+            kSrc + "/use_lib.n", {kSrc});
+        QCOMPARE(dirs, QStringList({kSrc}));
     }
 
     void testStandaloneWithoutGlobalsIsSourceDirOnly() {
-        QStringList dirs = standaloneSearchDirs("D:/src/use_lib.n", {});
-        QCOMPARE(dirs, QStringList({"D:/src"}));
+        QStringList dirs = standaloneSearchDirs(kSrc + "/use_lib.n", {});
+        QCOMPARE(dirs, QStringList({kSrc}));
     }
 
     void testProjectAppendsProjectDirAfterGlobals() {
         //The project dir is the compile side's implicit base dir; it
         //rides last so configured dirs keep precedence.
         QStringList dirs = projectSearchDirs(
-            {"D:/proj/lib"}, "D:/proj", {"D:/global/lib"});
+            {kProj + "/lib"}, kProj, {kGlobal + "/lib"});
         QCOMPARE(dirs, QStringList(
-            {"D:/proj/lib", "D:/global/lib", "D:/proj"}));
+            {kProj + "/lib", kGlobal + "/lib", kProj}));
     }
 
     void testProjectDedupsProjectDirEqualToEntry() {
         //An import path that resolves to the project dir itself must
         //not duplicate the appended base entry.
-        QStringList dirs = projectSearchDirs({ "." }, "D:/proj", {});
-        QCOMPARE(dirs, QStringList({"D:/proj"}));
+        QStringList dirs = projectSearchDirs({ "." }, kProj, {});
+        QCOMPARE(dirs, QStringList({kProj}));
     }
 };
 

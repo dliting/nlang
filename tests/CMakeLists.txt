@@ -1430,7 +1430,18 @@ if(NLANG_BUILD_IDE)
                     ${CMAKE_CURRENT_BINARY_DIR}/qtest_logs/${name}.progress.log
                 --timeout ${wrapper_ceiling}
                 -- $<TARGET_FILE:${target}>)
-        set_tests_properties(${name} PROPERTIES TIMEOUT ${ceiling})
+        if(UNIX)
+            #Headless hosts have no display server: the offscreen QPA
+            #renders widgets into an off-screen buffer and finds its
+            #plugin inside the Qt install prefix. Windows keeps the
+            #real windows platform — the offscreen platform has no
+            #deployed fonts there and crashes QMessageBox layout (see
+            #the mainwindow block below).
+            set_tests_properties(${name} PROPERTIES TIMEOUT ${ceiling}
+                ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+        else()
+            set_tests_properties(${name} PROPERTIES TIMEOUT ${ceiling})
+        endif()
     endfunction()
 
     # Import syntax unit tests (module import visibility): grammar-level
@@ -1950,8 +1961,14 @@ if(NLANG_BUILD_IDE)
     endif()
     get_filename_component(QT_PLATFORM_PLUGINS_DIR "${Qt5_DIR}/../../../plugins/platforms" ABSOLUTE)
     nlang_add_qtest(editor_tests test_editor)
-    set_tests_properties(editor_tests PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
+    if(WIN32)
+        #The plugin path override is the Windows deploy shape; on
+        #Linux the Qt install prefix provides the plugins, and a
+        #second ENVIRONMENT assignment REPLACES the property -- it
+        #must not stack over the qtest wrapper's offscreen QPA.
+        set_tests_properties(editor_tests PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
+    endif()
 
     # Syntax highlighter unit tests (Phase 10 Step 3).
     add_executable(test_syntaxhighlighter
@@ -1970,8 +1987,14 @@ if(NLANG_BUILD_IDE)
                 $<TARGET_FILE_DIR:test_syntaxhighlighter>)
     endif()
     nlang_add_qtest(syntaxhighlighter_tests test_syntaxhighlighter)
-    set_tests_properties(syntaxhighlighter_tests PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
+    if(WIN32)
+        #The plugin path override is the Windows deploy shape; on
+        #Linux the Qt install prefix provides the plugins, and a
+        #second ENVIRONMENT assignment REPLACES the property -- it
+        #must not stack over the qtest wrapper's offscreen QPA.
+        set_tests_properties(syntaxhighlighter_tests PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
+    endif()
 
     # Compile-log browser unit tests (Phase 10 Step 5). Widget test:
     # same QApplication/QPA harness as the editor tests.
@@ -1991,8 +2014,14 @@ if(NLANG_BUILD_IDE)
                 $<TARGET_FILE_DIR:test_compilelogbrowser>)
     endif()
     nlang_add_qtest(compilelogbrowser_tests test_compilelogbrowser)
-    set_tests_properties(compilelogbrowser_tests PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
+    if(WIN32)
+        #The plugin path override is the Windows deploy shape; on
+        #Linux the Qt install prefix provides the plugins, and a
+        #second ENVIRONMENT assignment REPLACES the property -- it
+        #must not stack over the qtest wrapper's offscreen QPA.
+        set_tests_properties(compilelogbrowser_tests PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
+    endif()
 
     # Run-error browser unit tests (v0.8.5): same harness shape as the
     # compile-log browser tests.
@@ -2012,8 +2041,14 @@ if(NLANG_BUILD_IDE)
                 $<TARGET_FILE_DIR:test_runerrorbrowser>)
     endif()
     nlang_add_qtest(runerrorbrowser_tests test_runerrorbrowser)
-    set_tests_properties(runerrorbrowser_tests PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
+    if(WIN32)
+        #The plugin path override is the Windows deploy shape; on
+        #Linux the Qt install prefix provides the plugins, and a
+        #second ENVIRONMENT assignment REPLACES the property -- it
+        #must not stack over the qtest wrapper's offscreen QPA.
+        set_tests_properties(runerrorbrowser_tests PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
+    endif()
 
     # Dialog unit tests (Phase 10 Step 6). Widget tests driving modal
     # exec() loops via zero-timeout timers; same QApplication/QPA
@@ -2034,8 +2069,14 @@ if(NLANG_BUILD_IDE)
                 $<TARGET_FILE_DIR:test_dialogs>)
     endif()
     nlang_add_qtest(dialogs_tests test_dialogs)
-    set_tests_properties(dialogs_tests PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
+    if(WIN32)
+        #The plugin path override is the Windows deploy shape; on
+        #Linux the Qt install prefix provides the plugins, and a
+        #second ENVIRONMENT assignment REPLACES the property -- it
+        #must not stack over the qtest wrapper's offscreen QPA.
+        set_tests_properties(dialogs_tests PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
+    endif()
 
     # Main-window integration tests (Phase 10 Step 7). These drive the
     # real modal flows (file dialogs, message boxes) and run the real
@@ -2076,6 +2117,15 @@ if(NLANG_BUILD_IDE)
         #the test exe's directory (see nide's POST_BUILD note).
         nlang_copy_qtwebengine_runtime(test_mainwindow)
     endif()
+    if(UNIX)
+        #The tools must sit beside the test binary (toolPath() in the
+        #main window resolves them from its own directory); the Qt
+        #runtime resolves through the install prefix here.
+        add_custom_command(TARGET test_mainwindow POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:ncc> $<TARGET_FILE:nvm> $<TARGET_FILE:ndb>
+                $<TARGET_FILE_DIR:test_mainwindow>)
+    endif()
     # House rule is a 3-minute ceiling, but this suite is the one
     # entry that drives dozens of real ncc/nvm/ndb child sessions;
     # on a loaded machine (e.g. right after a full rebuild, when
@@ -2088,8 +2138,14 @@ if(NLANG_BUILD_IDE)
     # debug tests each took 88-119s and the suite blew past 470s —
     # 15 minutes leaves honest headroom for the loaded case.
     nlang_add_qtest(mainwindow_tests test_mainwindow 900)
-    set_tests_properties(mainwindow_tests PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
+    if(WIN32)
+        #The plugin path override is the Windows deploy shape; on
+        #Linux the Qt install prefix provides the plugins, and a
+        #second ENVIRONMENT assignment REPLACES the property -- it
+        #must not stack over the qtest wrapper's offscreen QPA.
+        set_tests_properties(mainwindow_tests PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
+    endif()
 
     # Deployment self-containment check (Phase 10 Step 9). Runs a
     # curated five-test probe subset from a scratch copy of the nide
@@ -2100,10 +2156,8 @@ if(NLANG_BUILD_IDE)
     # for the division of concerns vs the full in-tree suite.
     add_test(NAME nide_deploy_check
         COMMAND ${CMAKE_COMMAND}
-            -DDEPLOY_DIR=$<TARGET_FILE_DIR:nide>
             -DTEST_EXE=$<TARGET_FILE:test_mainwindow>
             -DQT_TEST_DLL=$<TARGET_FILE:Qt5::Test>
-            -DNATIVE_DLL_DIR=$<TARGET_FILE_DIR:nlang_math>
             -DSTDLIB_DIR=${NLANG_TEST_STDLIB_DIR}
             #Scratch nested 9 levels under <build>/tests: the loader's
             #build-tree fallback walks up at most 8, so it cannot rescue
@@ -2112,9 +2166,20 @@ if(NLANG_BUILD_IDE)
             -DCHECK_DIR=${CMAKE_CURRENT_BINARY_DIR}/nide_deploy_check/c1/c2/c3/c4/c5/c6/c7/c8
             -DPYTHON3_EXE=${PYTHON3_EXECUTABLE}
             -DQTEST_PROGRESS=${PROJECT_SOURCE_DIR}/tools/qtest_progress.py
+            $<$<PLATFORM_ID:Windows>:-DDEPLOY_DIR=$<TARGET_FILE_DIR:nide>>
+            $<$<PLATFORM_ID:Windows>:-DNATIVE_DLL_DIR=$<TARGET_FILE_DIR:nlang_math>>
+            $<$<NOT:$<PLATFORM_ID:Windows>>:-DBUILD_DIR=${CMAKE_BINARY_DIR}>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/test_nide/nide_deploy_check.cmake)
+    if(WIN32)
+        #Isolate the probe from the dev Qt's plugin dir: the deployed
+        #layout carries qwindows.dll and the probe must resolve it from
+        #there. (On Linux no such override — the offscreen QPA comes
+        #from the script's execute_process environment, and the plugins/
+        #tree rides the layout for a real deployed run.)
+        set_tests_properties(nide_deploy_check PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=")
+    endif()
     set_tests_properties(nide_deploy_check PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH="
         # 150 s inner bound (see nide_deploy_check.cmake) + the
         # scratch-copy script overhead and the wrapper's tree kill.
         TIMEOUT 180)
@@ -2142,9 +2207,22 @@ if(NLANG_BUILD_IDE)
                 $<TARGET_FILE:ncc> $<TARGET_FILE:nvm> $<TARGET_FILE:ndb>
                 $<TARGET_FILE_DIR:test_searchpath_integration>)
     endif()
+    if(UNIX)
+        #Same toolPath() dependency as the mainwindow tests above.
+        add_custom_command(TARGET test_searchpath_integration POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:ncc> $<TARGET_FILE:nvm> $<TARGET_FILE:ndb>
+                $<TARGET_FILE_DIR:test_searchpath_integration>)
+    endif()
     nlang_add_qtest(searchpath_integration_tests test_searchpath_integration)
-    set_tests_properties(searchpath_integration_tests PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
+    if(WIN32)
+        #The plugin path override is the Windows deploy shape; on
+        #Linux the Qt install prefix provides the plugins, and a
+        #second ENVIRONMENT assignment REPLACES the property -- it
+        #must not stack over the qtest wrapper's offscreen QPA.
+        set_tests_properties(searchpath_integration_tests PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
+    endif()
 
     # Embedded terminal unit tests: emulator over vendored libvterm,
     # widget input/render model, pty backend with real child processes.
@@ -2166,8 +2244,14 @@ if(NLANG_BUILD_IDE)
     nlang_add_qtest(terminal_tests test_terminal)
     #nlang_add_qtest already applies the house 180s TIMEOUT; only the
     #platform plugin path is specific to this test.
-    set_tests_properties(terminal_tests PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
+    if(WIN32)
+        #The plugin path override is the Windows deploy shape; on
+        #Linux the Qt install prefix provides the plugins, and a
+        #second ENVIRONMENT assignment REPLACES the property -- it
+        #must not stack over the qtest wrapper's offscreen QPA.
+        set_tests_properties(terminal_tests PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
+    endif()
 endif()
 
 # Version single-source guard: each tool's --version must echo the

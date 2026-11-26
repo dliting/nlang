@@ -129,24 +129,35 @@ private slots:
     }
 
     void testResolveProjectPackagePath() {
+        //The resolver branches on QDir::isAbsolutePath, so the fixture
+        //anchors must BE absolute on the running platform.
+#ifdef _WIN32
+        const QString explicitDir = "D:/explicit";
+        const QString projectDir = "D:/proj";
+        const QString globalDir = "D:/global";
+#else
+        const QString explicitDir = "/explicit";
+        const QString projectDir = "/proj";
+        const QString globalDir = "/global";
+#endif
         //Explicit .nproj outputDir wins (absolute spelling kept). The
         //project artifact is the .npkg package (phase 6: one member per
         //unit, linked at load time).
         QCOMPARE(SettingsStore::resolveProjectPackagePath(
-                     "D:/explicit", "D:/proj", "D:/global", "App"),
-                 QString("D:/explicit/App.npkg"));
+                     explicitDir, projectDir, globalDir, "App"),
+                 explicitDir + "/App.npkg");
         //A relative .nproj outputDir anchors at the project dir.
         QCOMPARE(SettingsStore::resolveProjectPackagePath(
-                     "out", "D:/proj", "D:/global", "App"),
-                 QString("D:/proj/out/App.npkg"));
+                     "out", projectDir, globalDir, "App"),
+                 projectDir + "/out/App.npkg");
         //Unset .nproj + global setting: the global directory.
         QCOMPARE(SettingsStore::resolveProjectPackagePath(
-                     "", "D:/proj", "D:/global", "App"),
-                 QString("D:/global/App.npkg"));
+                     "", projectDir, globalDir, "App"),
+                 globalDir + "/App.npkg");
         //Everything unset: the project directory (today's behavior).
         QCOMPARE(SettingsStore::resolveProjectPackagePath(
-                     "", "D:/proj", "", "App"),
-                 QString("D:/proj/App.npkg"));
+                     "", projectDir, "", "App"),
+                 projectDir + "/App.npkg");
     }
 
 private:

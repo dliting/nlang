@@ -1529,12 +1529,15 @@ private slots:
         const QString oldPath = QDir(dir.path()).filePath("App/main.n");
         const QString newPath = QDir(dir.path()).filePath("App/renamed.n");
 
-        //An external read handle blocks both the disk rename AND any
-        //write through the old path (verified the hard way: Windows
-        //denies the write too), so the save check runs after the lock
-        //is released -- success paths open no dialogs.
+        //An external read handle's effect follows the host's locking
+        //semantics: Windows enforces it (blocks both the disk rename
+        //AND any write through the old path — verified the hard way),
+        //so the rename fails, a warning dialog opens, and everything
+        //stays on the old path. POSIX locks are advisory: the rename
+        //succeeds and everything follows the new name.
         QFile lock(oldPath);
         QVERIFY(lock.open(QIODevice::ReadOnly));
+#ifdef _WIN32
         inExec([&] { answerMessageBox(QMessageBox::Ok); });  // warning
         renameViaTree(window, "renamed.n");
 
@@ -1548,6 +1551,20 @@ private slots:
         currentCode(window)->appendPlainText("// still here\n");
         act(window, "actSaveFile")->trigger();
         QVERIFY(readTextFile(oldPath).contains("// still here"));
+#else
+        renameViaTree(window, "renamed.n");
+
+        QVERIFY(!QFileInfo::exists(oldPath));
+        QVERIFY(QFileInfo::exists(newPath));
+        QCOMPARE(firstFileIndex(window).data().toString(),
+                 QString("renamed.n"));
+        //The editor retargeted to the new name: a later edit saves the
+        //new path (no warning dialog opens on the success path).
+        lock.close();
+        currentCode(window)->appendPlainText("// moved\n");
+        act(window, "actSaveFile")->trigger();
+        QVERIFY(readTextFile(newPath).contains("// moved"));
+#endif
     }
 
     void testRenameCaseVariantChangesCasingEverywhere() {

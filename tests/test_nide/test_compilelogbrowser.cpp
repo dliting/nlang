@@ -10,7 +10,15 @@ using namespace nlang;
 
 namespace {
 
-const char* kErrorLine = "E:/src/main.n(line 3, char 7): Error: syntax error";
+//The double-click resolution branches on QDir::isAbsolutePath, so the
+//fixture's diagnostic path must BE absolute on the running platform.
+#ifdef _WIN32
+const char* kDiagnosticPath = "E:/src/main.n";
+#else
+const char* kDiagnosticPath = "/src/main.n";
+#endif
+const QString kErrorLine = QString("%1(line 3, char 7): Error: syntax error")
+                               .arg(kDiagnosticPath);
 
 } // namespace
 
@@ -28,7 +36,7 @@ private slots:
     void testParseValidLogLine() {
         CompileLogItemInfo info;
         QVERIFY(CompileLogBrowser::parseLogLine(kErrorLine, info));
-        QCOMPARE(info.filePath, QString("E:/src/main.n"));
+        QCOMPARE(info.filePath, QString(kDiagnosticPath));
         QCOMPARE(info.line, static_cast<size_t>(3));
         QCOMPARE(info.column, static_cast<size_t>(7));
         QCOMPARE(info.message, QString("Error: syntax error"));
@@ -55,7 +63,7 @@ private slots:
         QCOMPARE(spy.count(), 1);
         const CompileLogItemInfo info =
             spy.at(0).at(0).value<CompileLogItemInfo>();
-        QCOMPARE(info.filePath, QString("E:/src/main.n"));
+        QCOMPARE(info.filePath, QString(kDiagnosticPath));
         QCOMPARE(info.line, static_cast<size_t>(3));
         QCOMPARE(info.column, static_cast<size_t>(7));
         QCOMPARE(info.message, QString("Error: syntax error"));
@@ -123,7 +131,7 @@ private slots:
         QCOMPARE(spy.count(), 1);
         const CompileLogItemInfo info =
             spy.at(0).at(0).value<CompileLogItemInfo>();
-        QCOMPARE(info.filePath, QString("E:/src/main.n"));
+        QCOMPARE(info.filePath, QString(kDiagnosticPath));
     }
 
     void testDoubleClickOnSecondLineParsesClickedLine() {
