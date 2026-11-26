@@ -15,12 +15,12 @@ config (no named-target lists); Windows four-leg gate for shared
 commits, box legs for cuda behavior; new e2e entries add
 `tests/e2e/manifest.txt` rows (`test_name expected_exit_code`), and
 new device tests also add `tools/e2e_cuda_double_run.txt` lines
-(the runner validates that list against the manifest) — this
-branch has no `gate_time_check.py` / `gate_time_reference.txt`
-(master-tree tooling whose per-entry timing rows cover ctest
-entries, not e2e manifest rows), and new ctest entries follow the
-existing calibrated-timeout convention in
-`tests/CMakeLists.txt`; every user-visible
+(the runner validates that list against the manifest); new ctest
+entries register their timing rows through the reference-timing
+suite now carried on this branch (port at 19a79583): run the entry
+once for junit, merge with `tools/gate_time_check.py record` — the
+suite's guard wiring into `gate_tier.sh` lands with the branch's
+keyed gate-tree rework, not this line; every user-visible
 entry lands VERSION + manual (en/zh) + CHANGELOG in the same
 milestone (spec §9), and the stdlib symbol pins in
 `test_library_index.cpp` / `test_symbol_index.cpp` move with it.
@@ -318,7 +318,8 @@ the module pair is reused in place; `main()` lives in
 `mnist_ddp.n`), and ctest entries `mnist_ddp_compile` +
 `mnist_ddp_run` following `mnist_mlp`'s compile+run DEPENDS pair
 beside `mnist_mlp_run` (`tests/CMakeLists.txt:2692`; `TIMEOUT 300`
-mirrors that entry's calibrated ruling). On cpu/mirror legs the
+mirrors that entry's calibrated ruling), and their timing rows land
+through `gate_time_check.py record` (the new-entry duty). On cpu/mirror legs the
 program prints its skip line and exits 0 (`deviceCount() < 2`);
 the box's cuda leg is the real run.
 
