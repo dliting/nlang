@@ -930,6 +930,49 @@ round-1 fixes):
   re-recorded from a clean single-entry run afterwards (0.94 →
   0.95 s, updated=1, recorder PASS).
 
+M-G4 closeout round (2026-11-27, the first slim-T2 batch):
+
+- Verdicts: Debug units, Release build, Release e2e and the docs
+  build/check legs green; two reds, both fixed below, and the batch
+  re-swept whole (the red-voids-batch discipline; the sweep also
+  cleared the contamination described under the first red).
+- Red, asan full e2e — stdlib_regex_size crossed the 540 s cap
+  (--timeout=180 on an ASan-tree run, the runner's x3 Debug
+  scaling). The cap had only ever been priced from the 244 s Debug
+  reality — the design doc's anticipated "evaluate at the T2 full
+  pass" gap. Two causes: the calibration gap, and machine
+  contention — a second agent session ran its own gate batch on
+  this box at the same time, and the machine lock did not
+  serialize them because each session's shell maps /tmp to a
+  different directory (the lock's machine-wide claim presumes one
+  shell environment — noted, not re-designed). The mainline's own
+  e2e gate-time table has since measured the same box at the same
+  entry: ASan 491.06 s against the Debug row's 240.56 s; this
+  branch's Debug reality matches master's within 1.4%, so the
+  ASan reality here is ~500 s — inside 540, i.e. contention alone
+  pushed the entry over. Calibration per the design (the cap is a
+  calibration product): the sidecar tests/e2e/stdlib_regex_size.timeout
+  raised 180 → 750 (1.5x margin over the measured reality; a
+  sidecar may only raise, other entries keep their leg budgets).
+- Red, docs pytest — two failures. The spec version anchor:
+  en/zh specification index.md still read 0.14.10 while VERSION
+  crossed 0.14.11–0.14.13; both now read 0.14.13 (test_spec_version
+  pins the anchor and guards the next drift; the manual-sync
+  categories do not cover this wording, the pytest leg does).
+  test_audit_runs_programs_in_scratch_cwd hit WinError 2: the
+  batch was launched with relative tree arguments, and the snippet
+  audit spawns ncc/nvm with a scratch working directory, resolving
+  the relative exe paths against the wrong cwd. Ruling: fixed at
+  the batch level by porting master's abs_tree() into gate_tier.sh
+  (all three trees absolutized at parse time — master solved the
+  same problem the same way; the helper is kept byte-comparable
+  across the two branches for the merge); snippets.py untouched,
+  its contract (give the binaries as usable paths) unchanged.
+- The surviving legs of a killed batch kept serializing through the
+  lock after their driver's death — killing a batch means killing
+  the whole tree (gate_tier, gate.sh, the runner), not TaskStop on
+  the launch wrapper.
+
 ## 6. Risks and mitigations
 
 - **Carrier threads / contexts**: every plugin entry pins the
@@ -989,7 +1032,9 @@ they ride the T1 docks when the diff surface makes them relevant.
 Release keeps build AND e2e (optimized codegen is the one regime
 without another functional check). The tier coverage invariant is
 untouched: the e2e manifest stays fully selected by T1 and by the
-ASan full pass.
+ASan full pass. Merge obligation: master's AGENTS.md gate-tier
+paragraph ("T2收口层＝T1腿＋…") describes the old shape and must be
+rewritten to the slim one in the merge commit.
 
 The box stays per-milestone: it is the only machine where the
 line's subject matter (devices) executes at all, and its legs run

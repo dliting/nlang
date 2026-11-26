@@ -63,6 +63,32 @@ done
 
 [ -z "$TIER" ] && usage
 [ -z "$MASTER_TREE" ] && usage
+
+#The tree arguments are absolutized once, at parse time: every leg
+#derives exe paths from them, and the docs legs export them as
+#NLANG_NCC/NVM — a leg whose subprocess changes its working directory
+#(the docs snippet audit runs ncc/nvm with a scratch cwd) would
+#resolve a relative tree path against the wrong directory. cygpath
+#spells the result the way both bash (cd) and the native interpreter
+#accept; a host without cygpath keeps POSIX. Same helper as master's
+#gate_tier.sh — keep the two copies identical for the merge.
+CYGPATH_BIN=$(command -v cygpath || true)
+abs_tree() { # abs_tree <path> -> absolute Windows-style, forward slashes
+  local p="$1"
+  case "$p" in
+    /*) ;;
+    [A-Za-z]:*) printf '%s\n' "$p"; return ;;
+    *) p="$PWD/$p" ;;
+  esac
+  if [ -n "$CYGPATH_BIN" ]; then
+    printf '%s\n' "$("$CYGPATH_BIN" -w "$p" | tr '\\' '/')"
+  else
+    printf '%s\n' "$p"
+  fi
+}
+MASTER_TREE=$(abs_tree "$MASTER_TREE")
+[ -n "$ASAN_TREE" ] && ASAN_TREE=$(abs_tree "$ASAN_TREE")
+[ -n "$IDE_TREE" ] && IDE_TREE=$(abs_tree "$IDE_TREE")
 mkdir -p "$LOGS" "$WORK"
 
 leg() { # leg <name> <command...>
