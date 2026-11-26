@@ -223,7 +223,7 @@ int main() {
 
 注册随第一个请求一起定型，因为「一个在跑的应用长什么样」只该有一个答案：`use`此后回答`web.App.use: middlewares must be registered before the first request.`，`useSessions`回答`web.App.useSessions: sessions must be configured before the first request.`，迟到的路由注册撞上§27.5的`web.Router`消息。`hostPrefix`不带`secureCookies`的`useSessions`即使在首个请求之前也回答`web.App.useSessions: the __Host- cookie prefix requires the Secure attribute.`。
 
-链内的失败只受一种处置。`HttpException`（§23.8）以它自己的`status`作答，以它自己的消息作正文；status为`0`则钳到500。其他异常回答500、正文写`internal error`——解释器细节不外泄到线上——随后`onError`钩子若已设置便可重塑作答。钩子从朴素作答起步是深思熟虑的：抛出的链可能已经写了响应的一部分，而头部表被整体替换，因此抛出之前某中间件设下的`Content-Type`不会与它从未描述过的错误正文同车寄出。钩子自己再抛就仍是一眼可见的500，由http层再映射一次（§23.5）。
+链内的失败只受一种处置。`HttpException`（§23.8）以它自己的`status`作答，以它自己的消息作正文；status为`0`则钳到500。其他异常回答500、正文写`internal error`——解释器细节不外泄到线上——随后`onError`钩子若已设置便可重塑作答。钩子从朴素作答起步是深思熟虑的：抛出的链可能已经写了响应的一部分，而头部表被整体替换，因此抛出之前某中间件设下的`Content-Type`不会与它从未描述过的错误正文同车寄出。链已经打开的流式应答也一并取消：先关它的正文通道——停在上面的生产者以`ChannelClosedException`醒来——再丢弃它，上线的是重建后的朴素正文。钩子自己再抛就仍是一眼可见的500，由http层再映射一次（§23.5）。
 
 两种启动失败由下层来答，而`App`不去改它们的名字，因为`listen`与`serve`共用一条启动路径，同一个故障无论走哪扇门都保持同一个消息。重复启动已在运行的服务器回答`http.HttpServer.start: already started by this instance.`（经`serve`则同名换成`serve`）。端口被他进程占用则回答第21章的`SocketException`，即`net: bind <host>:<port> failed: <system text>`——这是调用方要接住的寻常结局，而失败的启动把应用留在未启动状态，改好端口再`listen`即可重来。
 
@@ -269,9 +269,9 @@ int main() {
 | Cookie | 说明 |
 | --- | --- |
 | `cookie(string name)` | 请求`Cookie`头（§23.3）里该名字的第一个`name=value`对；值保持百分号编码原样，因为没有任何声明说过它被编码过。 |
-| `setCookie(string name, string value, string path = "/", int maxAgeSeconds = 0, bool httpOnly = true, bool secure = false, string sameSite = "Lax")` | 追加一条`Set-Cookie`行（每条cookie需要自己的一行，头部因此累积）。`maxAgeSeconds`是三态的：`0`不写`Max-Age`（活到浏览器会话结束的cookie），正数发送它，负数发送`Max-Age: 0`、在客户端丢弃这条cookie。 |
+| `setCookie(string name, string value, string path = "/", int maxAgeSeconds = 0, bool httpOnly = true, bool secure = false, string sameSite = "Lax")` | 追加一条`Set-Cookie`行（每条cookie需要自己的一行，头部因此累积）。`maxAgeSeconds`是三态的：`0`不写`Max-Age`（活到浏览器会话结束的cookie），正数发送它，负数发送`Max-Age: 0`、在客户端丢弃这条cookie。值必须是cookie能承载的字节——按RFC 6265，是美国信息交换标准代码（ASCII，American Standard Code for Information Interchange）的可打印区间去掉空格、`"`、`,`、`;`与`\`——或整体包在一对`"`里；其余一律在调用点拒绝，因为一个`;`会把自己的属性塞进这行。 |
 
-`ctx.next()`推进链：运行下一环，链答完即返回（§27.4）。同一环推进两次是处理器缺陷——推进两次的环会把下游跑两遍，而响应只讲得通一次——因此它回答500`web: next() called more than once`。
+`ctx.next()`推进链：运行下一环，链答完即返回（§27.4）。同一环推进两次是处理器缺陷——推进两次的环会把下游跑两遍，而响应只讲得通一次——因此它回答500`web.RequestContext.next: called more than once.`。
 
 ## 27.4 Middleware
 
@@ -399,7 +399,7 @@ void feed(web.RequestContext ctx) {
 | 没有分隔行，或正文迟迟不收尾（400） | `web.form.Form.parse: no boundary delimiter in multipart body.` / `web.form.Form.parse: missing closing boundary delimiter.` |
 | 部件没有`form-data`处置行、没有`name`，或名字超100字节（400） | `web.form.Form.parse: part missing form-data content-disposition.` / `web.form.Form.parse: part content-disposition has no name parameter.` / `web.form.Form.parse: field name exceeds 100 bytes.` |
 | 部件头部块超16384字节（400） | `web.form.Form.parse: part headers exceed 16384 bytes.` |
-| urlencoded值里有坏掉的`%`转义（400） | `web: malformed percent escape in form body` |
+| urlencoded值里有坏掉的`%`转义（400） | `web.form.Form: malformed percent escape in form body.` |
 
 这些全都是`HttpException`（§23.8），因此应用就以那个状态与那句消息作答；计数预算凌驾于单部件判决之上——部件越过`maxParts`时即便它自己的头部也会撞出一句`400`，回答仍是那记`413`。
 

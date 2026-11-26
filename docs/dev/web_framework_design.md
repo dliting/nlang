@@ -155,7 +155,7 @@ class Logging : web.Middleware {
 
 ### D-4 `next()`重入保护
 
-同一上下文第二次推进抛`HttpException("web: next() called more than once", 500)`。
+同一上下文第二次推进抛`HttpException("web.RequestContext.next: called more than once.", 500)`。
 理由：Koa社区同类缺陷高频（其诊断原文即`next() called multiple times`），静默重复执行下游会造成重复副作用（重复扣款、重复写库）；框架自身的编程错误应当外泄消息而非藏进通用500。代价：多一个状态标志。
 
 ### D-5 本版中间件为全局链

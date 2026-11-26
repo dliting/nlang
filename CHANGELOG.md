@@ -13,6 +13,34 @@ lines' release days; read them together with this one.
   package joins the specification's library reference as chapter
   27, and the format references on NCU, NPKG and ABI move to
   chapters 28/29/30. Both language trees stay in sync.
+- **web: `setCookie` rejects a value a cookie cannot carry.** The
+  value faces handler code, and one byte outside the range RFC 6265
+  lets a cookie carry — a `;` above all — would smuggle its own
+  attributes into the Set-Cookie line, so an unshippable value now
+  throws a named exception at the call site instead of shipping a
+  malformed line. The full printable-ASCII edge table and the
+  double-quoted form ship as written.
+- **web: error messages follow the package's naming convention.**
+  `RequestContext.next` and `form.Form` now spell their diagnostics
+  with the `web.<class>.<method>:` prefix the rest of the package
+  already uses.
+
+### Fixed
+
+- **web: a failed chain no longer ships its half-open stream.** A
+  middleware that opened a streaming answer and then threw left the
+  body channel behind, so the writer shipped the orphan stream
+  instead of the rebuilt error body. The error stage now closes the
+  channel first — a producer parked on it wakes with
+  `ChannelClosedException` — and the plain rebuilt body is what
+  ships.
+- **http: server teardown cancels a parked streaming response.**
+  `drain()` and `close()` closed only the socket of a connection
+  whose pump was parked on its body channel — the one shape a socket
+  close cannot wake — so the producer kept pushing frames into a
+  response already declared dead. The teardown now closes the channel
+  with the socket, and the pump and the producer both wake with
+  `ChannelClosedException`.
 
 ## [0.13.12a] - 2026-11-25
 

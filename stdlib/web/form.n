@@ -534,7 +534,7 @@ class Form {
         try {
             return url.formDecode(s);
         } catch (url.UrlException e) {
-            throw http.HttpException("web: malformed percent escape in form body", 400);
+            throw http.HttpException("web.form.Form: malformed percent escape in form body.", 400);
         }
     }
 
@@ -974,13 +974,6 @@ class Form {
             cells.add(pvalue);
         }
         return cells;
-    }
-
-    // The lowercased type name of a header: cell 0 of the flat table.
-    private static string mediaTypeOf(string header) {
-        List<string> cells = Form.readMediaType(header);
-        string type = cells[0];
-        return type;
     }
 
     // The first value of one parameter plus how often that parameter

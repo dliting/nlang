@@ -189,7 +189,11 @@ by the connection close, because chunked is an HTTP/1.1 framing
 **Cancellation travels back.** If the client disconnects mid-stream,
 the server's next write fails, the library closes the channel, and
 the producer's next `send` raises `ChannelClosedException` — the
-handler's own cleanup point. Nothing polls for a dead peer.
+handler's own cleanup point. Nothing polls for a dead peer. The
+server's own teardown takes the same path: a connection force-closed
+by `drain()` or `close()` (§23.5) has its body channel closed with
+it, so a parked producer wakes instead of pushing frames into a
+dead response.
 
 ```nlang
 import io;

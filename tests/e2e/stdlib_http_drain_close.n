@@ -1,11 +1,14 @@
 // stdlib_http_drain_close — the graceful-shutdown contract of http.HttpServer.
 // drain() stops accepting, overrules every response written from then on with
 // Connection: close, force-closes the connections parked in their keep-alive
-// wait, and waits only for requests actually in flight; close() drops every
-// connection at once and releases the listening socket; both entry points can
-// be called twice. Every wait here is causal — a leg either observes the state
-// face that the other side has already moved, or signals on a channel — so the
-// grace bound decides only when a forceClose starts, never what a leg asserts.
+// wait, and waits only for requests actually in flight; when the grace window
+// runs out, the teardown reaches a stream parked in its pump — cancelling the
+// pump's channel so the producer's next send answers ChannelClosedException —
+// and close() drops every connection at once and releases the listening socket;
+// both entry points can be called twice. Every wait here is causal — a leg
+// either observes the state face that the other side has already moved, or
+// signals on a channel — so the grace bound decides only when a forceClose
+// starts, never what a leg asserts.
 import io;
 import net;
 import http;
@@ -24,6 +27,7 @@ class Harness {
     public Channel<int> gate;           //release the parked handler
     public Channel<int> go;             //release the parked body producer
     public HttpServer srv;              //client contexts watch isServing() through it
+    public Streamer producer;           //the streaming answer's producer, for leg K
     public int port;
 
     public Harness() {
@@ -40,6 +44,7 @@ class Harness {
             HttpResponse stream = HttpResponse();
             stream.bodyChannel = Channel(1);
             Streamer producer = Streamer(stream.bodyChannel, go);
+            this.producer = producer;
             thread.spawn(producer.run);
             return stream;
         }
@@ -57,26 +62,38 @@ class Harness {
 // The pumped body of leg E: the first frame goes out while the server is still
 // serving, the rest waits for the go signal, which main sends only once it has
 // seen the state face move to draining. So the frames that are still owed when
-// drain starts are the observation, not a race.
+// drain starts are the observation, not a race. The counts and the finished
+// signal are leg K's observability: `frames` is how many sends the channel
+// accepted before the cancel, `canceled` is whether the producing side saw
+// ChannelClosedException at all, and `finished` is the exit the leg waits on.
 class Streamer {
-    private Channel<byte[]> m_ch;
+    public Channel<byte[]> m_ch;
     private Channel<int> m_go;
+    public Channel<int> m_finished;
+    public int frames;
+    public int canceled;
 
     public Streamer(Channel<byte[]> ch, Channel<int> go) {
         m_ch = ch;
         m_go = go;
+        m_finished = Channel(1);
+        frames = 0;
+        canceled = 0;
     }
 
     public void run() {
         try {
-            m_ch.send(io.toBytes("FRAME 1"));
+            m_ch.send(io.toBytes("FRAME 1")); frames = frames + 1;
             m_go.recv();
-            m_ch.send(io.toBytes("FRAME 2"));
-            m_ch.send(io.toBytes("FRAME 3"));
+            m_ch.send(io.toBytes("FRAME 2")); frames = frames + 1;
+            m_ch.send(io.toBytes("FRAME 3")); frames = frames + 1;
         } catch (ChannelClosedException e) {
-            //The pump gave up on a client that vanished; nothing left to send.
+            //The pump gave up on a client that vanished, or the server's
+            //teardown cancelled the stream; nothing left to send.
+            canceled = 1;
         }
         m_ch.close();
+        m_finished.send(1);
     }
 }
 
@@ -238,6 +255,7 @@ int main() {
     bad = bad + legDoubleStartRejected();
     bad = bad + legRepeatCallsSettle();
     bad = bad + legNeverStartedReleasesCleanly();
+    bad = bad + legDrainedStreamCancelsProducer();
     io.print("ok");
     return bad;
 }
@@ -630,5 +648,52 @@ int legNeverStartedReleasesCleanly() {
     }
     loser.close();
     owner.close();
+    return bad;
+}
+
+// Leg K: the grace window's teardown reaches the pump, not just the socket. A
+// stream parked in its pump is in flight, so the grace window runs out on it;
+// forceClose then has to cancel the pump's channel — a pump parked in recv()
+// is the one shape a socket close cannot wake — and the producer, released
+// after the teardown returned, must see ChannelClosedException on its next
+// send instead of pushing one more frame into a response already declared
+// dead. Exactly one frame made it out before the cancel: the first, which the
+// client read while the server was still serving.
+int legDrainedStreamCancelsProducer() {
+    int bad = 0;
+    Harness h = Harness();
+    h.streaming = true;
+    HttpServer srv = HttpServer();
+    srv.start("127.0.0.1", 0, h.handle);
+    h.srv = srv;
+    TcpStream cli = openRequest(srv.localPort());
+    Reply head = readReply(cli);        //chunked: the body stays on the stream
+    if (head.status != 200 || head.transfer != "chunked") {
+        io.print("leg K the streaming answer is not a 200 chunked response");
+        bad = bad + 1;
+    }
+    if (readChunk(cli) != "FRAME 1") {
+        io.print("leg K the first frame did not arrive before the drain");
+        bad = bad + 1;
+    }
+    int left = srv.drain(1);            //a window the parked pump cannot fit in
+    if (left != 1) {
+        io.print("leg K the grace timeout reported " + left.toString()
+            + " residual, want exactly 1");
+        bad = bad + 1;
+    }
+    h.go.send(1);                       //the producer wakes into a cancelled stream
+    h.producer.m_finished.recv();
+    if (h.producer.frames != 1) {
+        io.print("leg K the producer pushed " + h.producer.frames.toString()
+            + " frames before the cancel, want exactly 1");
+        bad = bad + 1;
+    }
+    if (h.producer.canceled != 1) {
+        io.print("leg K the producer was not cancelled with ChannelClosedException");
+        bad = bad + 1;
+    }
+    cli.close();
+    srv.close();
     return bad;
 }

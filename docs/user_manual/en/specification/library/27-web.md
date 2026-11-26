@@ -281,14 +281,14 @@ and turns whatever the chain does or throws into a single response.
 
 Registration closes with the first request, because what a running
 app looks like is a question with one answer: `use` then answers
-`web.App.use: middlewares must be registered before the first
-request.`, `useSessions` answers
-`web.App.useSessions: sessions must be configured before the first
-request.`, and a route registration arrives at the `web.Router`
+`web.App.use: middlewares must be registered before the first request.`,
+`useSessions` answers
+`web.App.useSessions: sessions must be configured before the first request.`,
+and a route registration arrives at the `web.Router`
 message of §27.5. `useSessions` with `hostPrefix` and no
 `secureCookies` answers
-`web.App.useSessions: the __Host- cookie prefix requires the Secure
-attribute.` even before that first request.
+`web.App.useSessions: the __Host- cookie prefix requires the Secure attribute.`
+even before that first request.
 
 A failure inside the chain gets one treatment. An `HttpException`
 (§23.8) answers with its own `status` and its own message as the body;
@@ -298,7 +298,11 @@ and then the `onError` hook, if set, may reshape the answer. The hook
 starting from a plain answer is deliberate: a chain that threw has
 already written part of a response, and the header table is replaced
 wholesale so a `Content-Type` a middleware set before the throw
-cannot ship beside an error body it never described. A hook that
+cannot ship beside an error body it never described. A streaming
+answer the chain had opened is cancelled the same way: its body
+channel is closed first — a producer parked on it wakes with
+`ChannelClosedException` — and then dropped, so the rebuilt plain body
+is what ships. A hook that
 itself throws stays a visible 500, mapped once more by the http layer
 (§23.5).
 
@@ -361,13 +365,13 @@ helpers write the response, they do not send it.
 | Cookies | Notes |
 | --- | --- |
 | `cookie(string name)` | The first `name=value` pair of that name in the request's `Cookie` header (§23.3); the value stays percent-encoded because nothing said it was encoded. |
-| `setCookie(string name, string value, string path = "/", int maxAgeSeconds = 0, bool httpOnly = true, bool secure = false, string sameSite = "Lax")` | Appends one `Set-Cookie` line (each cookie needs its own line, so the header accumulates). `maxAgeSeconds` is tri-state: `0` leaves `Max-Age` out (a cookie that lives for the browser session), a positive number sends it, and a negative number sends `Max-Age: 0`, which drops the cookie on the client. |
+| `setCookie(string name, string value, string path = "/", int maxAgeSeconds = 0, bool httpOnly = true, bool secure = false, string sameSite = "Lax")` | Appends one `Set-Cookie` line (each cookie needs its own line, so the header accumulates). `maxAgeSeconds` is tri-state: `0` leaves `Max-Age` out (a cookie that lives for the browser session), a positive number sends it, and a negative number sends `Max-Age: 0`, which drops the cookie on the client. The value must be bytes a cookie can carry — the printable American Standard Code for Information Interchange (ASCII) range without spaces, `"`, `,`, `;` or `\`, per RFC 6265 — optionally wrapped in one pair of `"`; anything else is refused at the call site, because a `;` would smuggle attributes into the line. |
 
 `ctx.next()` advances the chain: it runs the next link, and returns
 once the chain has answered (§27.4). Advancing twice from the same
 link is a handler bug — a link that forwarded twice would run its
 downstream twice with a response that only makes sense once — so it
-answers the 500 `web: next() called more than once`.
+answers the 500 `web.RequestContext.next: called more than once.`.
 
 ## 27.4 Middleware
 
@@ -632,7 +636,7 @@ each grammar overrun answer their own named `400` or `413`:
 | 400 no delimiter line, or a body that never closes | `web.form.Form.parse: no boundary delimiter in multipart body.` / `web.form.Form.parse: missing closing boundary delimiter.` |
 | 400 a part without a `form-data` disposition, without a `name`, or with a name past 100 bytes | `web.form.Form.parse: part missing form-data content-disposition.` / `web.form.Form.parse: part content-disposition has no name parameter.` / `web.form.Form.parse: field name exceeds 100 bytes.` |
 | 400 a part's header block past 16384 bytes | `web.form.Form.parse: part headers exceed 16384 bytes.` |
-| 400 a urlencoded value with a broken `%` escape | `web: malformed percent escape in form body` |
+| 400 a urlencoded value with a broken `%` escape | `web.form.Form: malformed percent escape in form body.` |
 
 Every one of these is an `HttpException` (§23.8), so the app answers
 it with exactly that status and message; the count budget outranks the

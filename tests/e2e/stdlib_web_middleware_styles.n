@@ -5,7 +5,9 @@
 // second next() call mapping to a 500 whose body is the fixed message (D-4), an
 // http.HttpException keeping its own status and message through a rebuilt
 // response versus any other exception getting 500 + "internal error" with
-// onError firing only there (D-11), a fresh attribute store per request (D-6),
+// onError firing only there (D-11), the error stage cancelling a half-open
+// streaming answer so the rebuilt plain body is what ships (D-11/D18), a fresh
+// attribute store per request (D-6),
 // the attribute accessor face, every response helper, the Set-Cookie wire form
 // with the cookie() lookup (D-12), and the middleware registration face going
 // read-only once the first request has arrived, single-slot configuration
@@ -15,6 +17,8 @@ import io;
 import url;
 import http;
 import json;
+import concurrent;
+import thread;
 import web;
 
 // What the middlewares observed. A middleware is a free function or a stateless
@@ -25,12 +29,14 @@ class Trace {
     public static int downstream;        // how many entries below the first one ran
     public static int onErrorCalls;      // times the onError hook was invoked
     public static string errorMsg;       // the message of the exception it was given
+    public static StreamFailer producer; // leg N's half-open stream, for its own asserts
 
     public static void clear() {
         Trace.log = "";
         Trace.downstream = 0;
         Trace.onErrorCalls = 0;
         Trace.errorMsg = "";
+        Trace.producer = null;
     }
 }
 
@@ -132,6 +138,65 @@ void throwStatusless(RequestContext ctx) {
 
 void throwSecret(RequestContext ctx) {
     throw Exception("boom-secret-detail");
+}
+
+// The producer of leg N's half-open stream: two frames, then the close. What
+// the leg reads is whether the channel's cancel reached the sending side: the
+// error stage closes the channel on its own context before the response is
+// written, so a send that parks or lands after that must answer
+// ChannelClosedException, and `canceled` is the leg's observation of it.
+class StreamFailer {
+    public Channel<byte[]> m_ch;
+    public Channel<int> m_finished;      // the producer's exit, so the leg waits causally
+    public int canceled;                  // 1 when a send answered ChannelClosedException
+
+    public StreamFailer(Channel<byte[]> ch) {
+        m_ch = ch;
+        m_finished = Channel(1);
+        canceled = 0;
+    }
+
+    public void run() {
+        try {
+            m_ch.send(io.toBytes("STREAM"));
+            m_ch.send(io.toBytes("LATE"));
+        } catch (ChannelClosedException e) {
+            canceled = 1;
+        }
+        m_ch.close();
+        m_finished.send(1);
+    }
+}
+
+// A middleware that starts a streaming answer and then fails: the error stage
+// must cancel the half-open stream — close its channel so the parked producer
+// wakes with ChannelClosedException, and drop it — or the writer would pick
+// the orphan stream over the rebuilt body and ship the half the client was
+// never meant to see (D-11/D18).
+void startStreamThenThrow(RequestContext ctx) {
+    ctx.res.bodyChannel = Channel(1);
+    StreamFailer p = StreamFailer(ctx.res.bodyChannel);
+    Trace.producer = p;
+    thread.spawn(p.run);
+    throw Exception("stream failed after it opened");
+}
+
+// A route that hands setCookie a value it cannot ship: the semicolon would
+// smuggle its own attributes into the Set-Cookie line, so the call refuses at
+// the call site and the chain's error stage answers — onError, not the wire,
+// is where the message shows (leg O).
+void badCookieValue(RequestContext ctx) {
+    ctx.setCookie("k", "v; Path=/evil");
+    ctx.text(200, "never");
+}
+
+// The legal edges of the cookie-octet table — the first and last byte of each
+// RFC 6265 §4.1.1 range, and the double-quoted form — all ship as written, so
+// the validation cannot be wider than the table it serves (leg O).
+void exoticCookieValue(RequestContext ctx) {
+    ctx.setCookie("k", "!#$%&'()*+-.0123456789:<=>?@AZ[]^_`az{|}~");
+    ctx.setCookie("q", "\"quoted\"");
+    ctx.text(200, "ok");
 }
 
 // The onError hook: counts itself onto the wire and echoes the message it was
@@ -261,6 +326,8 @@ int main() {
     if (legCookies() != 0) { bad = bad + 1; }
     if (legFacadeForwards() != 0) { bad = bad + 1; }
     if (legLateRegistration() != 0) { bad = bad + 1; }
+    if (legStreamCancelledByErrorStage() != 0) { bad = bad + 1; }
+    if (legSetCookieRejectsSmuggledValue() != 0) { bad = bad + 1; }
     if (bad == 0) { io.print("ok"); }
     return bad;
 }
@@ -366,7 +433,7 @@ int legDoubleNext() {
         io.print("leg D the double next() answered " + res.statusCode.toString());
         bad = bad + 1;
     }
-    if (res.bodyText() != "web: next() called more than once") {
+    if (res.bodyText() != "web.RequestContext.next: called more than once.") {
         io.print("leg D the body was " + res.bodyText());
         bad = bad + 1;
     }
@@ -775,6 +842,80 @@ int legLateRegistration() {
         io.print("leg M the late onError hook did not run: " + res.statusCode.toString()
             + " onErrorCalls=" + Trace.onErrorCalls.toString()
             + " X-OnError=" + res.headers.get("X-OnError"));
+        bad = bad + 1;
+    }
+    bad = bad + closeServer(app);
+    return bad;
+}
+
+// Leg N: the error stage cancels a half-open streaming answer. A middleware
+// that set res.bodyChannel and then failed must not leave the stream to the
+// writer: the channel is closed first, so the producer's parked send answers
+// ChannelClosedException, and the rebuilt plain body is the answer that ships
+// — the orphan frames never reach the client, and the response is not framed
+// chunked on the strength of a channel the error stage just discarded.
+int legStreamCancelledByErrorStage() {
+    Trace.clear();
+    int bad = 0;
+    web.App app = web.App();
+    app.use(startStreamThenThrow);
+    app.listen("127.0.0.1", 0);
+    string base = "http://127.0.0.1:" + app.server().localPort().toString();
+    http.HttpResponse res = http.get(base + "/");
+    if (res.statusCode != 500 || res.reasonPhrase != "Internal Server Error"
+            || res.bodyText() != "internal error") {
+        io.print("leg N the rebuilt answer was " + res.statusCode.toString()
+            + " " + res.reasonPhrase + " body=" + res.bodyText());
+        bad = bad + 1;
+    }
+    if (res.headers.has("Transfer-Encoding")) {
+        io.print("leg N the rebuilt answer shipped as "
+            + res.headers.get("Transfer-Encoding") + ", not a plain body");
+        bad = bad + 1;
+    }
+    Trace.producer.m_finished.recv();
+    if (Trace.producer.canceled != 1) {
+        io.print("leg N the producer was not cancelled with ChannelClosedException");
+        bad = bad + 1;
+    }
+    bad = bad + closeServer(app);
+    return bad;
+}
+
+// Leg O: a cookie value that cannot ship is a programmer error at the call
+// site. setCookie faces handler code, so a value RFC 6265 could not carry —
+// a semicolon would smuggle its own attributes into the line — throws a
+// named exception and the chain's error stage answers 500; the legal edges of
+// the octet table, and the double-quoted form, ship as written.
+int legSetCookieRejectsSmuggledValue() {
+    Trace.clear();
+    int bad = 0;
+    web.App app = web.App();
+    app.onError(countErrors);
+    app.get("/bad", badCookieValue);
+    app.get("/exotic", exoticCookieValue);
+    app.listen("127.0.0.1", 0);
+    string base = "http://127.0.0.1:" + app.server().localPort().toString();
+    http.HttpResponse res = http.get(base + "/bad");
+    if (res.statusCode != 500) {
+        io.print("leg O the smuggled cookie value answered " + res.statusCode.toString());
+        bad = bad + 1;
+    }
+    if (Trace.errorMsg != "web.RequestContext.setCookie: value contains an octet a cookie cannot carry.") {
+        io.print("leg O onError saw [" + Trace.errorMsg + "]");
+        bad = bad + 1;
+    }
+    res = http.get(base + "/exotic");
+    if (res.statusCode != 200) {
+        io.print("leg O the exotic cookie value was refused: " + res.statusCode.toString());
+        bad = bad + 1;
+    }
+    List<string> setCookies = res.headers.getAll("Set-Cookie");
+    if (setCookies.length() != 2
+            || setCookies.get(0) != "k=!#$%&'()*+-.0123456789:<=>?@AZ[]^_`az{|}~; Path=/; HttpOnly; SameSite=Lax"
+            || setCookies.get(1) != "q=\"quoted\"; Path=/; HttpOnly; SameSite=Lax") {
+        io.print("leg O the legal cookie lines did not ship as written: "
+            + setCookies.length().toString() + " lines");
         bad = bad + 1;
     }
     bad = bad + closeServer(app);

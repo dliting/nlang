@@ -254,6 +254,39 @@ class RequestContext {
         res.body = io.toBytes("");
     }
 
+    // cookie-octet (RFC 6265 §4.1.1), as byte values: the printable ASCII
+    // range without space, minus the four octets the Set-Cookie grammar
+    // reserves for itself.
+    private static const int COOKIE_OCTET_LOW = 33;
+    private static const int COOKIE_OCTET_HIGH = 126;
+    private static const int COOKIE_OCTET_DQUOTE = 34;
+    private static const int COOKIE_OCTET_COMMA = 44;
+    private static const int COOKIE_OCTET_SEMICOLON = 59;
+    private static const int COOKIE_OCTET_BACKSLASH = 92;
+
+    // True when the value is what RFC 6265 lets a cookie carry: cookie-octets,
+    // or one DQUOTE pair around cookie-octets (the quoted form). Text outside
+    // ASCII fails byte by byte — the value ships as written, never re-encoded.
+    private static bool isCookieValue(string value) {
+        byte[] raw = io.toBytes(value);
+        int from = 0;
+        int to = raw.length();
+        if (to >= 2 && (raw[0] & 0xFF) == COOKIE_OCTET_DQUOTE
+                && (raw[to - 1] & 0xFF) == COOKIE_OCTET_DQUOTE) {
+            from = 1;
+            to = to - 1;
+        }
+        for (int i = from; i < to; i = i + 1) {
+            int c = raw[i] & 0xFF;
+            if (c < COOKIE_OCTET_LOW || c > COOKIE_OCTET_HIGH || c == COOKIE_OCTET_DQUOTE
+                    || c == COOKIE_OCTET_COMMA || c == COOKIE_OCTET_SEMICOLON
+                    || c == COOKIE_OCTET_BACKSLASH) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     // Writes one cookie as its own Set-Cookie line. The attribute order is fixed
     // (ruling 17): Path, then the optional Max-Age / HttpOnly / Secure, then
     // SameSite. maxAgeSeconds is tri-state (D-12): 0 leaves Max-Age out, i.e. a
@@ -261,6 +294,12 @@ class RequestContext {
     // Max-Age: 0, which is how a cookie is dropped on the client side.
     public void setCookie(string name, string value, string path = "/", int maxAgeSeconds = 0,
                           bool httpOnly = true, bool secure = false, string sameSite = "Lax") {
+        // The value faces handler code, not wire noise: a value RFC 6265 could
+        // not carry is a programmer error at the call site, and a ";" would
+        // smuggle its own attributes into this very line.
+        if (!isCookieValue(value)) {
+            throw Exception("web.RequestContext.setCookie: value contains an octet a cookie cannot carry.");
+        }
         string line = name + "=" + value + "; Path=" + path;
         if (maxAgeSeconds > 0) { line = line + "; Max-Age=" + maxAgeSeconds.toString(); }
         else if (maxAgeSeconds < 0) { line = line + "; Max-Age=0"; }
@@ -296,7 +335,7 @@ class RequestContext {
     public void next() {
         int depth = m_depth;
         if (depth < 0 || depth >= m_used.length() || m_used.get(depth) != 0) {
-            throw http.HttpException("web: next() called more than once", 500);
+            throw http.HttpException("web.RequestContext.next: called more than once.", 500);
         }
         m_used.set(depth, 1);
         if (depth == m_chain.length()) { return; }
@@ -1328,8 +1367,16 @@ class App {
     // A chain that failed has already written part of the answer, and that half
     // is not what the client should get: the header table is replaced wholesale,
     // so a Content-Type or an X-... a middleware set before it threw cannot ship
-    // alongside an error body it was never meant to describe (D-11).
+    // alongside an error body it was never meant to describe (D-11). A streaming
+    // answer the chain had opened is cancelled the same way: its body channel is
+    // closed first — a producer parked in send() wakes with
+    // ChannelClosedException — and then dropped, so the writer ships the rebuilt
+    // plain body instead of the orphan stream.
     private void rebuildPlain(http.HttpResponse res, int status, string message) {
+        if (res.bodyChannel != null) {
+            res.bodyChannel.close();
+            res.bodyChannel = null;
+        }
         res.headers = http.HttpHeaders();
         res.statusCode = status;
         res.reasonPhrase = HttpResponse.reasonPhraseFor(status);

@@ -113,7 +113,7 @@ nav:
           - The gzip Package: specification/library/24-gzip.md
           - The regex Package: specification/library/25-regex.md
           - The json Package: specification/library/26-json.md
-          - The Web Package: specification/library/27-web.md
+          - The web Package: specification/library/27-web.md
       - Binary Formats:
           - The `.ncu` Unit Image: specification/formats/28-ncu.md
           - The `.npkg` Package Archive: specification/formats/29-npkg.md

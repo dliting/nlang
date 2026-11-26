@@ -256,7 +256,7 @@ int legG(string base) {
             "answered " + res.statusCode.toString());
         bad = bad + want(res.reasonPhrase == "Bad Request", "leg G " + body + " reason phrase",
             "got " + res.reasonPhrase);
-        bad = bad + want(res.bodyText() == "web: malformed percent escape in form body",
+        bad = bad + want(res.bodyText() == "web.form.Form: malformed percent escape in form body.",
             "leg G " + body + " must carry the fixed 400 text", "body was [" + res.bodyText() + "]");
         bad = bad + want(res.bodyText().indexOf("%") < 0,
             "leg G " + body + " the 400 must not echo the request bytes",

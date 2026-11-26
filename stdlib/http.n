@@ -943,12 +943,25 @@ class HttpConn {
     // doing work. Atomic because the draining context reads it while this
     // context writes it; serveOne opens and closes the window (D-22).
     private AtomicInt m_inHandler;
+    // The body channel the response pump is draining, so the teardown can
+    // cancel it: a pump parked in recv() is the one shape a socket close
+    // cannot wake. Assigned by this connection's own thread right before
+    // pumpChunked parks, read by the draining thread in forceClose().
+    private Channel<byte[]> m_pumpCh;
+    // Set by forceClose() before it acts, so a writeResponse that has not yet
+    // reached its pump sees the teardown after registering and closes the
+    // channel itself: the registration and forceClose() race from both sides,
+    // and whichever side misses, the other closes — a second close is quiet.
+    // Atomic for the same reason m_inHandler is (D-22).
+    private AtomicInt m_forceClosed;
 
     public HttpConn(TcpStream s, HttpServer srv = null) {
         stream = s;
         m_srv = srv;
         connId = 0;
         m_inHandler = AtomicInt(0);
+        m_forceClosed = AtomicInt(0);
+        m_pumpCh = null;
         m_buf = byte[0];
         m_spill = byte[0];
         m_spillLen = 0;
@@ -1309,6 +1322,16 @@ class HttpConn {
             this.writeAll(headText, writeTimeoutMs);
             return;
         }
+        if (chunked || rawStream) {
+            // Register the channel the pump is about to drain, so the teardown
+            // can cancel it: a socket close cannot reach a pump parked in
+            // recv(), and the producer would keep pushing frames into a
+            // response already declared dead. The flag re-check closes the
+            // window where forceClose() ran before this assignment made the
+            // channel reachable to it.
+            m_pumpCh = res.bodyChannel;
+            if (m_forceClosed.load() != 0) { m_pumpCh.close(); }
+        }
         if (chunked) {
             // Streaming branches keep two writes: the pump's first chunk may
             // wait for the producer, and joining would bill that wait to the
@@ -1354,11 +1377,21 @@ class HttpConn {
     // socket straight out, because the orderly close() above waits out
     // CLOSE_GRACE_MS and a shutdown path cannot afford to. A reader parked
     // inside fill() wakes from this with SocketException — the native layer
-    // lets the closer win (src/native/net/net_tcp.cpp) — so the drain needs no
-    // wake-up channel: the connection thread unwinds into run()'s handler and
-    // unregisters itself there.
+    // lets the closer win (src/native/net/net_tcp.cpp) — so the drain needs
+    // no wake-up for it. The one shape that cannot see the socket close is a
+    // pump parked on its body channel, so the channel goes with the socket:
+    // the pump and a producer parked in send() both wake with
+    // ChannelClosedException (D18), and no frame reaches a dead response.
     public void forceClose() {
+        // The flag first: a writeResponse that has not parked its pump yet
+        // checks it after registering the channel and closes the channel
+        // itself, so the teardown cannot slip between the two.
+        m_forceClosed.store(1);
         try { stream.close(); } catch (Exception e) { }
+        // After the socket: the terminating chunk a cancelled pump writes on
+        // its way out must hit the closed socket, so the client reads a cut
+        // stream and not a completed one.
+        if (m_pumpCh != null) { m_pumpCh.close(); }
     }
 
     // True while a request is inside serveOne on this connection; drain() uses
