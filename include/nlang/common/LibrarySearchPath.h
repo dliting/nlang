@@ -19,7 +19,9 @@
 
 #include <algorithm>
 #include <cctype>
+#ifndef Q_MOC_RUN
 #include <filesystem>
+#endif
 #include <string>
 #include <vector>
 

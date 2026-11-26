@@ -23,7 +23,9 @@
 #include "DebugSession.h"
 #include "MachineFrontEnd.h"
 #include "SourceCache.h"
+#ifndef Q_MOC_RUN
 #include <filesystem>
+#endif
 #include <fstream>
 #include <functional>
 #include <iostream>

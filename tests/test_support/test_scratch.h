@@ -17,7 +17,9 @@ a recycled process id cannot hand a new run an old run's files.
 ---*/
 #pragma once
 
+#ifndef Q_MOC_RUN
 #include <filesystem>
+#endif
 #include <stdexcept>
 #include <string>
 #include <system_error>

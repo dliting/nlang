@@ -1,7 +1,9 @@
 #pragma once
 #include "BuildEnvironment.h"
 #include <nlang/runtime/Module.h>
+#ifndef Q_MOC_RUN
 #include <filesystem>
+#endif
 #include <fstream>
 
 namespace nlang

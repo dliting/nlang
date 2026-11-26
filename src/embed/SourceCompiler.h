@@ -5,7 +5,9 @@
     目录即不再被引用。不触碰 Interpreter 状态（失败可重试）。
 ---*/
 #pragma once
+#ifndef Q_MOC_RUN
 #include <filesystem>
+#endif
 #include <string>
 #include <vector>
 

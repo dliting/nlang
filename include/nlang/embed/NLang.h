@@ -6,7 +6,9 @@
 #pragma once
 #include <cstdint>
 #include <exception>
+#ifndef Q_MOC_RUN
 #include <filesystem>
+#endif
 #include <functional>
 #include <memory>
 #include <stdexcept>

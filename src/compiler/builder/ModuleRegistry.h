@@ -11,7 +11,9 @@ gate (module import visibility plan, spec §6).
 #include <unordered_map>
 #include <functional>
 #include <cstdint>
+#ifndef Q_MOC_RUN
 #include <filesystem>
+#endif
 #include <memory>
 #include "SyntaxNode.h"
 #include "GenericInstanceRegistry.h"
