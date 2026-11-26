@@ -2383,6 +2383,11 @@ op_device_backend 0
 op_device_auto 0
 op_device_unknown_env 0
 op_device_bad_flag 2
+# Debugger display of device-resident arrays (mirror pinned via .env, so
+# these run on every machine): the record and a view over a device owner
+# both show staged element values, never pointer fragments.
+dbgm_device_record 0 float[4]{2, 2, 2, 2}
+dbgm_device_view 0 view(strides=[1], offset=0){2, 2}
 op_tensor_extreme_inf 0
 op_tensor_strided_reduce 0
 op_tensor_strided_matmul 0

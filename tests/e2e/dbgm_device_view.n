@@ -1,0 +1,14 @@
+//e2e dbgm_device_view: the machine protocol renders a view over a
+//device-resident owner through the staged host copy (the display twin
+//of the print path's arm). Reading the unstaged owner reads its 2-cell
+//device-pointer descriptor as elements — pointer fragments. The .env
+//sidecar pins the mirror backend: device residency with no GPU, so
+//the case runs on every machine.
+import tensor;
+
+int main() {
+    float[] a = tensor.full(4, 2.0f);
+    float[] v = a[0:2];
+    int hold = 1;
+    return 0;
+}

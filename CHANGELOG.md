@@ -6,6 +6,20 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.14.11]
+
+### Fixed
+
+- **ndb displays a view over a device-resident array through a staged
+  host copy** — `p`, `info locals` and the machine protocol behind the
+  nide debugger printed the device owner's two descriptor cells as
+  element values: the display showed pointer fragments instead of the
+  elements, and a view reaching past those cells read beyond the
+  record's end. The debugger now stages the owner's payload with one
+  bulk device-to-host copy before reading — the same arm `toString`
+  uses. The display of a device-resident record keeps its existing
+  behaviour, now through that shared staging.
+
 ## [0.14.10]
 
 The Linux port — the core toolchain (compiler, VM, debugger, the

@@ -1,0 +1,11 @@
+//e2e dbgm_device_record: the machine protocol renders a device-resident
+//record through the staged host copy (the record display's device arm —
+//the same staging primitive the print path uses). The .env sidecar pins
+//the mirror backend: device residency with no GPU.
+import tensor;
+
+int main() {
+    float[] a = tensor.full(4, 2.0f);
+    int hold = 1;
+    return 0;
+}

@@ -28,22 +28,11 @@ std::string VmExecutor::DebugViewShortTag(
 
 std::string VmExecutor::FormatDebugArray(int32_t heapIdx) const {
     //v0.14.x device line: stage a device record's payload before the
-    //element loop (one bulk D2H; the debugger view reads the staged
+    //element loop (one bulk D2H through the shared staging arm — the
+    //same primitive the print path uses; the debugger reads the staged
     //cells like any host record).
     std::vector<int32_t> stagedSlot;
-    if (m_arrResidency[static_cast<size_t>(heapIdx)] == 1) {
-        stagedSlot = m_structHeap[static_cast<size_t>(heapIdx)];
-        const uint16_t stageTypeIdx = static_cast<uint16_t>(stagedSlot[1]);
-        const int stageCells = ArrayElemCells(
-            m_currModule && stageTypeIdx < m_currModule->arrayTypes.size()
-                ? m_currModule->arrayTypes[stageTypeIdx].elemKind
-                : RTK_Int32);
-        stagedSlot.resize(ArrayPayloadBase(stagedSlot)
-            + static_cast<size_t>(stagedSlot[3]) * stageCells);
-        DeviceStageToHost(heapIdx, stagedSlot.data()
-            + ArrayPayloadBase(stagedSlot),
-            static_cast<size_t>(stagedSlot[3]) * stageCells * 4);
-    }
+    StageDeviceArrayForFormat(heapIdx, stagedSlot);
     const auto& slot = stagedSlot.empty()
         ? static_cast<const std::vector<int32_t>&>(
             m_structHeap[static_cast<size_t>(heapIdx)])
@@ -99,8 +88,19 @@ std::string VmExecutor::FormatDebugViewArray(int32_t heapIdx) const {
     const int32_t length = view[3];
     int bound = length < kMaxElementsShown ? length : kMaxElementsShown;
     const int cells = ArrayElemCells(elemKind);
-    const auto& owner = m_structHeap[static_cast<size_t>(
-        view[ArrayViewTargetCell(rank)])];
+    //v0.14.x device line: a device-resident owner carries its payload in
+    //the 2-cell device-pointer descriptor — stage it before the affine
+    //walk (the display twin of the print path's FormatViewArray arm;
+    //unstaged reads show pointer fragments and run past the record end).
+    const int32_t target = view[ArrayViewTargetCell(rank)];
+    std::vector<int32_t> stagedOwner;
+    if (target > 0
+        && static_cast<size_t>(target) < m_arrResidency.size())
+        StageDeviceArrayForFormat(target, stagedOwner);
+    const auto& owner = stagedOwner.empty()
+        ? static_cast<const std::vector<int32_t>&>(
+            m_structHeap[static_cast<size_t>(target)])
+        : stagedOwner;
     const size_t ownerBase = ArrayPayloadBase(owner);
     for (int32_t i = 0; i < bound; ++i) {
         if (i > 0) result += ", ";

@@ -267,6 +267,21 @@ device/stream family on the 0-GPU Windows trees, and
 `gate_cuda_tree.sh` already reports `SKIP (reason)` when the probe
 finds no plugin/driver/device.
 
+Post-M-G1 fix (2026-11-26): ndb displayed a view over a
+device-resident owner unstaged — pointer fragments as elements,
+reads past the record end — because the debugger's
+`FormatDebugViewArray` lacked the staging arm the print path's
+`FormatViewArray` already had; the debugger's record arm carried
+the staging open-coded, drifted from the shared helper. Both
+debugger arms now route through `StageDeviceArrayForFormat`, the
+print path's own primitive (the display twin, not a new device-aware
+inspection surface — spec §10.3's "ndb stays out" still holds).
+VERSION 0.14.11 opened early with the fix: the checkpoint was
+already reserved for this line and M-G2's entry folds into the same
+section. Coverage: the `dbgm_device_record`/`dbgm_device_view` e2e
+pair pins both arms; the `.env` mirror pin keeps them running on
+every machine, no GPU required.
+
 ## 3. M-G2 — per-device pools + deviceCount()
 
 Plugin (cuda_kernels.cu) — the singletons join a

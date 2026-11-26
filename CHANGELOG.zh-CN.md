@@ -6,6 +6,12 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本
 遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.14.11]
+
+### 修复
+
+- **ndb显示设备驻留数组上的view改走暂存的宿主副本**——`p`、`info locals`以及nide图形调试器背后的机器协议把设备owner的两个描述单元当成了元素值：显示的是指针残片而非真实元素，长度超出这两个单元的view还会读出记录末尾。调试器现在先以一次整块的设备到宿主拷贝把owner的数据载荷暂存再读取——与`toString`走的是同一条臂。设备驻留记录本身的显示行为不变，现在经由同一份共享的暂存实现。
+
 ## [0.14.10]
 
 Linux移植——核心工具链（编译器、VM、调试器、ncc/nvm/ndb工具、标准库与tensor包（cpu后端与CUDA设备插件））在Linux上与Windows并列构建并运行，已在2×RTX 4090机器上端到端验证（单元测试、全量e2e、CUDA后端的tensor e2e子集、单GPU mnist训练）。

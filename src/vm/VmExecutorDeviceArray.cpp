@@ -228,8 +228,12 @@ void VmExecutor::StageDeviceArrayForFormat(int32_t heapIdx,
         return;
     stagedSlot = m_structHeap[static_cast<size_t>(heapIdx)];
     const int32_t elemCount = stagedSlot[3];
+    //The m_currModule guard keeps the debugger safe formatting before a
+    //module context; without a module row the RTK_Int32 fallback matches
+    //what the element readers assume anyway.
     const int stageCells = ArrayElemCells(
-        stagedSlot[1] < m_currModule->arrayTypes.size()
+        m_currModule
+        && stagedSlot[1] < m_currModule->arrayTypes.size()
             ? m_currModule->arrayTypes[
                 static_cast<size_t>(stagedSlot[1])].elemKind
             : RTK_Int32);
@@ -237,7 +241,7 @@ void VmExecutor::StageDeviceArrayForFormat(int32_t heapIdx,
         + static_cast<size_t>(elemCount) * stageCells);
     DeviceStageToHost(heapIdx, stagedSlot.data()
         + ArrayPayloadBase(stagedSlot),
-        static_cast<size_t>(elemCount) * stageCells * 4);
+        static_cast<size_t>(elemCount) * stageCells * kHeapCellBytes);
 }
 
 //The consumer-side gate (spec D2, called from the DLL-native dispatch):

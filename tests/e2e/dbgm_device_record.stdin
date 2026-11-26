@@ -1,0 +1,5 @@
+b dbgm_device_record.n 10
+run
+c
+locals
+c
