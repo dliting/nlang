@@ -1,6 +1,6 @@
 # 泛型签名跨模块完整化与限定泛型拼写（v0.13.14）概要设计
 
-状态：草案（2026-11-24；2026-11-27在分层合并后的树面复测刷新，生产侧坐标随2026-11-26库分层拆分校正；同日经第三方对抗评审一轮，评审13条发现全部核实成立并随本版修订——Critical-1接口实例化叶、泛型接口面并入、机制链修正、D3编码改型、ImplementsName/构造位补全等，评审补充探针语料收编入temp/g14_review/）。范围＝路线图v0.13.14条目6与7，加2026-11-24扩容的lambda/函数值族限制清偿，加2026-11-27评审钉死的泛型接口族缺陷。事实底座：temp/g13_probe/FACTS.md（2026-11-23重探针）、temp/g13m_probe/FINDINGS.md（2026-11-24 lambda族探针矩阵，含单模块对照归因）、temp/g14_repin/results.log（2026-11-27合并后全量复测，缺陷原样成立）、temp/g14_review/（2026-11-27评审补充探针：接口实例化三形崩溃、`Box<Wrapper<int>>`今日绿、裸模板接口名静默通过、实例化implements边同模块健康、跨模块泛型接口四形）、temp/g13_research.md（.NET ECMA-335与Java JVMS主流编码取证）、2026-11-24 NCU现状勘察（TypeDesc/RTK全集、v2.23布局、桩合成、文法约束、测试装置五组事实）。
+状态：草案（2026-11-24；2026-11-27在分层合并后的树面复测刷新，生产侧坐标随2026-11-26库分层拆分校正；同日经第三方对抗评审一轮，评审13条发现全部核实成立并随本版修订——Critical-1接口实例化叶、泛型接口面并入、机制链修正、D3编码改型、ImplementsName/构造位补全等，评审补充探针语料收编入temp/g14_review/；同日实施计划期以干净对照探针击穿M族判据——类成员默认私有令M1/M2/M3/m7/M6与G/G0全为探针假象，缺陷5重定域到M4、缺陷6溶解，勘正随本版入册）。范围＝路线图v0.13.14条目6与7，加lambda/函数值族限制清偿（重定域后＝调用点推断链D7＋struct func字段M4），加2026-11-27评审钉死的泛型接口族缺陷。事实底座：temp/g13_probe/FACTS.md（2026-11-23重探针）、temp/g13m_probe/FINDINGS.md（2026-11-24 lambda族探针矩阵，2026-11-27加撤回头）、temp/g14_repin/results.log（2026-11-27合并后全量复测，缺陷原样成立——注：该复测对M族语料只复现了假象本身，重判见temp/g14plan/RESULTS.md）、temp/g14_review/（2026-11-27评审补充探针：接口实例化三形崩溃、`Box<Wrapper<int>>`今日绿、裸模板接口名静默通过、实例化implements边同模块健康、跨模块泛型接口四形）、temp/g14plan/RESULTS.md（2026-11-27公开形复测与插桩trace：M族假象澄清、M4真缺陷确认、干净对照纪律）、temp/g13_research.md（.NET ECMA-335与Java JVMS主流编码取证）、2026-11-24 NCU现状勘察（TypeDesc/RTK全集、v2.23布局、桩合成、文法约束、测试装置五组事实）。
 
 ## 一、缺陷清单（全部实测钉死，2026-11-27复测原样成立）
 
@@ -8,8 +8,8 @@
 2. **implements边不序列化**。类记录wire无implements块（`src/core/ModuleSaverRecordsClasses.cpp`），桩合成无AddImplements；接口方法签名表（0.13.9 D14）使契约检查与接口分派可用，但导入类实例的implements链在消费侧不存在——`as`转型到导入接口在消费侧编译期拒绝（探针g13m D钉死，2026-11-27复测确认：``Invalid cast: `class Widget as interface Greeter` is not allowed.``，走TCK_None路径；g14_review/xiface跨模块形同判）。同模块对照健康：`class Impl implements Wrapper<int>`实例化边＋契约检查＋运行今天全通（g14_review/ctrl6），resolver侧有完整的边实参替换与开放T边管线（`ExprResolverGenericInstantiation.cpp:236-266`的FillInstanceImplementsEdges）——跨模块丢的正是这条既有语义的序列化。NLang无`is`操作数，验收用`as`＋空值检查惯用法。
 3. **限定名＋类型实参文法缺失**。声明位`lib.Pipe<int>`：`src/compiler/grammar/nlang.y`的QualifiedType只有点链臂（:2698-2709），Type规则的泛型臂全部以裸IdentifierExpr开头。调用位`lib.identity<int>(7)`：扫描探针会给出OT_TypeLt，但文法无成员链上的泛型接收臂（QualifiedGenericReceiver只接裸名，:3158-3162），且`lib.identity`此时已归约为MemberExpr——双重不可达（2026-11-27复测：语法错误精确落在该`<`）。`as`位同缺（AsGenericTarget只接裸名，:3141-3146；2026-11-24探针钉死并复测：`w as lib_qp.Widget<int>`语法错误，报错落在`>`记号）。implements位同缺（ImplementsName只有裸名泛型臂＋无实参TypeName臂，:2097-2106）：`implements lib.Shape<int>`今天文法级拒绝——缺陷2修复后消费侧将对导入实例化接口落不了implements，随本版一并补位（见§四）。implements位裸模板名现状（`class Impl implements Wrapper`）：今天被契约检查以双错挡下（virtual dispatch slot签名错配＋继承契约缺失，g14_review/impl_bare_iface，非静默通过），守卫扩臂后该形改善为清晰的provide-type-arguments诊断——属诊断改善而非行为破坏。
 4. **lambda实参进`func<T,T>`形参的调用点推断链断**。声明侧`T runTwice<T>(func<T,T> g, T v)`与体内`g(g(v))`全部编译通过；调用侧三症并存（2026-11-27复测原文）：lambda拿不到期望函数类型（`a lambda expression requires an expected function type`）、类型变量T不从后续实参绑定（`Argument 2 of "runTwice" has type "Int32"; "class T" expected`；对照i1b证明无lambda时推断健康）、实参失败级联污染调用结果类型（`Incompatible type "lib_l2b.runTwice(lambda(1 params),20)"`）。单模块与跨模块同败（l1b/l2b）——推断/转换层的一般性缺口，非导入特有；跨模块侧无独立缺陷（导入泛型函数经推断实参可用已由g13_probe/pgenfn钉死）。
-5. **func类型成员在类管线三处断裂（爆炸半径地图见temp/g13m_probe/FINDINGS.md）**。本地类：字段为func类型（M1）或方法形参为func类型（M2）令成员不可解析且连坐同类无关方法（M3）；本地struct：func字段注册通过但运行静默错值（M4，空输出rc=2，2026-11-27复测确认）；导入类：func字段消费侧不可见（M6）。对照健康位：导入类func形参方法整链通（M5，含消费侧lambda实参）、游离函数func形参通（B）。三处症状同族——根因集中在类成员管线对RTK_Func的处理（本地注册、桩字段重建、struct执行路径）。构造拼写照旧：`new`自0.9.0起为普通标识符，构造一律`Widget()`裸形（早轮探针的「字段目标赋值lambda文法拒绝」结论系`new`残留污染解析状态的假象，已撤回）。
-6. **类型名上静态方法作函数值不可解析**。`Util.thrice`报"Cannot resolve the field: thrice."（resolver在类型名上只查字段）；单模块对照G0同败——非跨模块问题。
+5. **struct的func类型字段静默错值（M4；本清单原判的其余func成员症状已澄清为探针假象）**。本地struct：func字段注册通过但运行静默错值（M4，空输出rc=2，2026-11-27公开形复测确认；struct成员默认公开，该形合法可达）。原判「本地类func字段/方法形参令成员不可解析且连坐无关方法（M1/M2/M3/m7）」「导入类func字段不可见（M6）」系探针假象：类成员默认私有（`SnField::OnAddedToParent`，`src/compiler/SyntaxNode.cpp:248`），g13m探词语料全部裸声明成员，外部访问被访问级别门正确拒绝——插桩trace钉死机制链为「FindField命中→AccessAdmitted拒绝」（temp/g14plan/RESULTS.md）；公开形复测m1p/m2p/m3p/m6p全绿（rc=42/40/26/42，含跨模块桩字段重建），原「M2本地断/M5导入通」的不对称从未存在（两份语料访问修饰符不同）。对照健康位：导入类func形参方法整链通（M5，含消费侧lambda实参）、游离函数func形参通（B）。构造拼写照旧：`new`自0.9.0起为普通标识符，构造一律`Widget()`裸形。
+6. **（已溶解）类型名上静态方法作函数值**。原判`Util.thrice`不可解析（G/G0），2026-11-27公开形复测证伪：`public static int thrice`经`func<int,int> f = Util.thrice;`绑定并正确运行（g0p rc=42）——既有resolver的类型名访问已支持静态方法函数值；原语料裸声明`static int thrice`为私有，被正确拒绝。缺陷不成立，公开形转验收面健康回归钉。
 7. **泛型接口族三断裂（2026-11-27评审实测钉死，temp/g14_review/）**。①同模块接口实例化作类型即崩溃：`Wrapper<int>`作字段/形参/返回类型今天编译期`Compiler internal error: NLang backend: interface without a table index: Wrapper`（ifinst_field/ifinst_param/ifinst_ret三形皆rc=1；机制＝`src/compiler/codegen/RegisterInterfaces.cpp:221-228`的InterfaceSlotFor无ClassSlotFor式实例化骑模板行特判、miss即抛，`m_ifaceIndexByDecl`只收根树声明与导入桩）；②接口侧无裸用守卫：裸模板接口名`Wrapper`作字段类型**静默编译通过**（ifinst_bare_tmpl_field/param两形rc=0——RejectBareGenericTypeUse只查NK_ClassDecl，接口模板漏网），静默错类型；③接口实例化签名无编码：D1不做接口臂则`Wrapper<int>`经不起TypeDesc往返（①的写侧抛出会击穿任何递归实参编码）。跨模块面对照：公开泛型接口不毒导入（xiface main_zero rc=0）；`i as lib.Wrapper`因implements边丢失被拒（缺陷2家族）。
 
 ## 二、主流语言对照与取舍（用户裁定2026-11-24：按主流语言支持程度确定）
@@ -20,8 +20,8 @@
 | 限定泛型拼写`lib.Pipe<int>` | 全位置支持 | 全限定泛型支持 | 支持 | 引入（条目7本体） |
 | 泛型接口声明/实例化（`interface Shape<T>`） | 泛型接口＋实例化全支持 | 泛型接口全支持 | 全支持 | 修复（缺陷7，随D1族一并收口） |
 | lambda实参进泛型形参 | `RunTwice((x)=>x+1,20)`支持 | 泛型方法lambda实参支持 | 支持 | 修复（推断链） |
-| func类型类成员（字段/方法形参） | 委托字段与委托形参方法支持 | 函数式接口字段与形参支持 | 支持 | 修复（成员注册） |
-| 静态方法作函数值 | 方法组转换`Util.Thrice`支持 | `Util::thrice`（专用语法） | 支持 | 修复，取C#点写法（NLang成员访问一律点）；Java专用语法不采 |
+| func类型类成员（字段/方法形参） | 委托字段与委托形参方法支持 | 函数式接口字段与形参支持 | 支持 | 已核实健康（原判据为访问修饰符假象；公开形入验收面回归钉） |
+| 静态方法作函数值 | 方法组转换`Util.Thrice`支持 | `Util::thrice`（专用语法） | 支持 | 已核实健康（g0p公开形复测rc=42；原判据为访问修饰符假象，Java专用语法不采之议随之失效） |
 | lambda自带`<T>`形参表 | 无 | 无 | 有 | 不引入（D10）：主流少数派，且NLang类型参数一律挂具名声明（类/游离函数），需求由推断链承接 |
 
 注：TypeScript列「实例化wire编码」标「—」是因为TS类型擦除、无独立线编码议题，非未考察。ECMA-335引用按6th edition勘正为§23.2.12（Type产生式载GENERICINST编码，TypeSpec行承载该签名blob；初稿引§23.2.14系错引）。
@@ -46,8 +46,8 @@
 ## 五、lambda/函数值族修复设计
 
 - **D7（缺陷4主链）两段式调用点推断**：先由非lambda实参与显式类型实参拼写（调用位显式实参即§四本版工作项，推断与显式两通道并存）绑定类型变量，代换进`func<T,T>`形参得到具体期望函数类型，再走既有lambda期望类型通道（0.13.10）定型lambda形参；全部实参检查通过后才定型调用结果。单模块与跨模块同管线——导入侧签名TypeDesc经D1/D2叶重建后参与同一推断。T无来源可绑（全部实参为lambda、无显式实参）的不可推断形须落明确诊断（不是「lambda缺期望类型」的级联噪声，评审Low-9）；多lambda交错形态的诊断质量随验收语料钉。
-- **D8（缺陷5）func类型类成员三断裂位点修复（根因未定位，先备忘后定形）**：M2本地断而M5导入通的不对称证明断裂不在线格式种类处理（方法签名RTK_Func往返健康），而在桩路径不经受的本地AST侧成员注册/解析通道。三候选位点嫌疑（仅桩字段重建一处带文件坐标，另两处待根因备忘定位）：本地类成员注册/解析pass（M1/M2/M3/m7，类级且与声明顺序无关）、桩字段重建循环（`src/compiler/builder/CompiledModuleStubMembers.hpp:115-137`的BuildClassFieldStubs，M6）、struct字段codegen（M4静默错值）。实施计划须先出根因备忘（以M2/M5不对称为判别证据）再定修复形态。M4验收必须钉运行输出而非仅编译——该缺陷编译通过但运行错值，编译通过≠健康。
-- **D9（缺陷6）**：类型名上的Access解析补静态方法臂（绑定目标＝方法组等价物：目标函数＋无接收者）；实例方法的函数值绑定维持既有成员形式现状。诊断沿用标准未找到措辞。
+- **D8（缺陷5，重定域后）struct func字段执行路径修复（根因未定位，先备忘后定形）**：类侧M1/M2/M3/m7/M6全部澄清为访问修饰符假象（§一.5），家族收缩到M4——struct成员默认公开，func字段编译注册合法，但运行静默错值（rc=2空输出），症状在struct字段codegen/store-load路径（func值句柄在值类型记录槽的存取错位或未初始化）。实施计划须先出M4根因备忘（最小语料m4r＝temp/g14plan/m4r.n；判别证据：m1p类字段同形健康、m6p跨模块健康，断点位在struct专属表示层）再定修复形态。M4验收必须钉运行输出而非仅编译——该缺陷编译通过但运行错值，编译通过≠健康（R5）。
+- **D9（缺陷6，已溶解）**：原判静态方法函数值不可解析，公开形复测（g0p rc=42）证明既有类型名访问已支持该绑定，无修复工作；公开形转验收面健康回归钉。
 - **D10（L0裁定）**：不引入lambda自带`<T>`形参表拼写——第二节对照表的直接应用。
 
 ## 六、验收面
@@ -55,7 +55,7 @@
 - **跨模块泛型类**：公开`Box<T>`导出不再中毒（g13_probe/pgen语料转正为e2e）；返回`Box<int>`、`Box<T>`字段、`as`到实例化类型；导入类实例`as`到导入接口（implements边，g13m D语料转正钉诊断消除；惯用法＝`as`＋空值检查，NLang无`is`操作数）。消费侧裸名实例化（`Box<int> box = lib.makeBox(5)`，导入类裸名直接可见——g14_review/bare_vis钉死非泛型对照形）走通全链（R4首任务冒烟点）。
 - **泛型接口族（缺陷7，评审探针转正）**：同模块接口实例化三形（字段/形参/返回）从internal error转绿（g14_review/ifinst_field/ifinst_param/ifinst_ret）；裸模板接口名作类型从静默通过转红且守卫诊断点名接口（ifinst_bare_tmpl_field/param反向钉）；接口实例化作泛型类实参继续绿（ifinst_typearg）；跨模块接口实例化签名往返（形参/返回/字段为`lib.Wrapper<int>`）；泛型接口implements边跨模块可见（xiface main_cast从`Invalid cast`转绿）。
 - **限定拼写**：声明位/调用位/`as`位/implements位`lib.Pipe<int>`全套；构造位限定形`lib.Box<int>(5)`与裸名构造`Box<int>()`各一钉；ParenHeadType组参数位随D6裁定（探针扩展或显式递延），落地即入R1逐位e2e矩阵。`as y < z`裸形负钉（今天即语法错误：报错落在`<`开启泛型读法后的`;`，2026-11-24探针钉死＋2026-11-27复测，见§四）＋`x as lib.Pipe < z`限定形负钉（今天是合法比较、新臂引入后须红——不向下兼容原则内的有意收窄，见§四）；消费侧自有同名模板`Box<T>`与`lib.Box`并存防误绑钉；implements位裸形负钉（`implements Wrapper`守卫诊断点名接口——从今天的契约检查双错改善为裸用守卫清晰诊断，非必配，g14_review/impl_bare_iface语料）。
-- **lambda族**：l1b/l2b语料转正（单模块＋跨模块`func<T,T>`收lambda实参）；M1/M2/M3/M4/M6最小化语料与C/C0转正（func类成员三断裂，M4断言运行输出非仅编译）；G/G0语料转正（静态方法函数值）；M5健康位转正为回归钉；lambda_cross_module既有正钉回归；局部赋值lambda（C1）回归；T不可推断形诊断钉（D7）。
+- **lambda族**：l1b/l2b语料转正（单模块＋跨模块`func<T,T>`收lambda实参，推断链修复的验收）；M4最小化语料（m4r）转正（struct func字段，断言运行输出非仅编译——修复验收）；M1/M2/M3/M6公开形（m1p/m2p/m3p/m6p）与G/G0公开形（g0p）转正为健康回归钉（钉住func成员面与静态函数值面当前健康，防未来回归）；M5健康位转正为回归钉；lambda_cross_module既有正钉回归；局部赋值lambda（C1）回归；T不可推断形诊断钉（D7）。
 - **伪造wire尾装置**：templateFlag清/置、RTK_GenericInst模板行越界（类族/接口族各一）、TypeParam坏ordinal、implements边TypeDesc越界、版本越界判决形。
 - **跨模块可见性诊断（评审Info-13）**：签名提及`lib.Box<int>`而消费侧未导入lib——须落「未导入模块」类清晰诊断而非内部错误，诊断原文钉语料。
 - **手册**：语言规格泛型章与函数值章同步（含泛型接口实例化拼写与implements位限定形）；已知限制逐条核对清偿；用户可见内建面".n"文件核对。
@@ -76,3 +76,4 @@
 
 - 2026-11-27第一轮第三方对抗评审（fresh reviewer，架构师＋用户双视角，代码抽查十组坐标全属实＋独立补充探针temp/g14_review/）：一Critical（接口实例化叶——D1「天然递归」对接口为假声明，照写即把缺陷7①写侧抛出带进新臂）＋五Medium（泛型接口面缺席、中毒机制链错引default臂、D3编码不足、ImplementsName漏位、构造位验收含混）＋四Low（静态字段desc校验缺口、深度帽、D7诊断、v0.13.16错引）＋三Info（ECMA-335节号、语义伪造形、可见性诊断）。全部独立复核成立（崩溃探针与裸模板名静默形均独立复现），本版全部吸收：D1改双表族设计、缺陷7入清单、机制链改写、D3改每边TypeDesc、implements位与构造位入§四/R1、D1b前置补校验臂、深度帽入§三、D7诊断钉入§六、勘正两处错引。评审语料收编temp/g14_review/。
 - 2026-11-27第二轮闭合验证（同评审代理续审）：13条旧发现全部判定正确闭合；新增面对抗（D1双表族形态自由度、D3依赖链、缺陷7三症归并、递延判据全扫）无中高级问题；新发现仅两Low（N1＝D3开放T措辞、N2＝实参不中毒未限定同模块）三Info（N3＝implements位裸形今天被契约检查双错挡下、N4＝首轮Info-11转述过译〔评审方自证其首轮「§23.2.14=LocalVarSig」指控有误，勘正方向本身成立〕、N5＝消费侧实例化链路现状不可测）。Low/Info全部随本版吸收（N1/N2已勘正、N3入§一.3与验收负钉、N5入R4与验收首任务冒烟点）。按循环完善判据——本轮仅Low/Info级——spec达到无中高级问题收敛线，进实施计划。
+- 2026-11-27第三轮（实施计划期事实重钉，主会话自查＋插桩取证，非评审代理）：z探针系列以干净对照腿（zctl）击穿前两轮评审与晨间复测共同沿用的M族判据——类成员默认私有（`SnField::OnAddedToParent`，`src/compiler/SyntaxNode.cpp:248`），g13m探词全部裸声明成员，M1/M2/M3/m7/M6与G/G0全为访问修饰符假象；公开形复测m1p/m2p/m3p/g0p/m6p全绿（rc=42/40/26/42/42），插桩trace钉死「FindField命中→AccessAdmitted拒」机制链。缺陷5重定域到M4（struct func字段运行静默错值，真缺陷）、缺陷6溶解。spec随本轮勘正：§一.5/§一.6重写、§二对照表两行改判、§五D8重定域/D9溶解、§六验收面M族/G族改公开形健康回归钉。方法论入册：探针矩阵必须带干净对照腿，「复现原文」≠「判据成立」——前两轮对抗评审与复测复现的都是同一批坏探针；评审与复测验证的是机制链的可复现性，对照腿验证的是归因的唯一性。
