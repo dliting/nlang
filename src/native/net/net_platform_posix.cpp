@@ -151,6 +151,15 @@ int NetBind(int fd, const std::string& addr, int port) {
     if (!MakeAddr(addr, port, ss, len)) return -1;
     if (ss.ss_family == AF_INET6 && AddrText(reinterpret_cast<sockaddr*>(&ss)) == "::")
         SetSockOptInt(fd, IPPROTO_IPV6, IPV6_V6ONLY, 0);   //dual-stack before bind
+    //A server that shuts down owns TIME_WAIT endpoints on its port: it
+    //force-closed its keep-alive connections, so the immediate rebind
+    //the graceful-shutdown contract calls for fails with EADDRINUSE
+    //without SO_REUSEADDR (stdlib_http_drain_close leg F on the Linux
+    //box; Windows never blocks this way). POSIX SO_REUSEADDR only
+    //bypasses TIME_WAIT for the same address pair, it cannot hijack an
+    //actively listening socket, and it is the universal server default
+    //(nginx, Go, libuv); harmless for a rare explicit client-side bind.
+    SetSockOptInt(fd, SOL_SOCKET, SO_REUSEADDR, 1);
     return bind(fd, reinterpret_cast<sockaddr*>(&ss), len) == 0 ? 0 : -1;
 }
 
