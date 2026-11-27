@@ -151,13 +151,16 @@ void ActivateCudaOrFallBack(NativeHost* host, bool explicitCuda) {
         if (explicitCuda) {
             std::string msg = "tensor: backend 'cuda' failed: ";
             msg += reason;
-            host->writeError(host, (msg + "\n").c_str());
+            msg += "\n";
+            host->writeError(host, msg.c_str(), (int64_t)msg.size());
             std::exit(3);
         }
-        if (!probe.probeError.empty())
-            host->writeError(host,
-                (std::string("tensor: cuda backend unavailable (")
-                + probe.probeError + ") — running on cpu\n").c_str());
+        if (!probe.probeError.empty()) {
+            const std::string line = std::string(
+                "tensor: cuda backend unavailable (")
+                + probe.probeError + ") — running on cpu\n";
+            host->writeError(host, line.c_str(), (int64_t)line.size());
+        }
         g_backend = DeviceBackendState{};
         return;
     }
@@ -199,8 +202,9 @@ void InitBackendSelection(NativeHost* host) {
     }
     //Unknown name: run on cpu and say so. A typo in NLANG_TENSOR_BACKEND
     //must not silently lose the acceleration the user asked for.
-    host->writeError(host, (std::string("tensor: unknown backend '")
-        + name + "' — running on cpu\n").c_str());
+    const std::string line = std::string("tensor: unknown backend '")
+        + name + "' — running on cpu\n";
+    host->writeError(host, line.c_str(), (int64_t)line.size());
     g_backend = DeviceBackendState{};
 }
 

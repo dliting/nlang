@@ -331,6 +331,17 @@ private:
 	//arm when the RHS is a bare invoke (ResolveDeclaredGenericCtorTarget).
 	void PropagateAssignTargetHint(SnAssignStmt &sn);
 	bool TryBindSubscriptStoreFuncRef(SnSubscriptAssignStmt &sn);
+	//v0.14.2/0.14.8: the tensor assignment lowerings — the fancy-index
+	//form lowers to tensor.scatterInto, the slice-carrying form to
+	//tensor.assignInto over the slice view. True = consumed (the tensor
+	//body bound; the plain store paths skip). Defined in
+	//StatementResolverTensorAssign.cpp.
+	bool TryTensorScatterInto(SnSubscriptAssignStmt &sn);
+	bool TryTensorSliceAssign(SnSubscriptAssignStmt &sn);
+	bool ResolveSliceAssignView(SnSubscriptAssignStmt &sn,
+		SnExpression *&pView);
+	bool LowerTensorSliceAssign(SnSubscriptAssignStmt &sn);
+	bool ResolveSubscriptAssignOperands(SnSubscriptAssignStmt &sn);
 	bool RejectStringBase(SnExpression &base, const ISourceLocation *pLoc);
 	void ApplyArrayElementStoreCast(SnSubscriptAssignStmt &sn);
 	void ApplyContainerStoreCasts(SnSubscriptAssignStmt &sn);

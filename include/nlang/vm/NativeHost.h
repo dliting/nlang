@@ -73,7 +73,14 @@ extern "C" {
 // let a native method read the type arguments its receiver was
 // instantiated with (the runtime generic type-parameter information:
 // count, per-argument RTK kind, per-argument canonical name).
-// Version 13: the tensor device side (the v0.14.x device line) —
+// Version 13: the string side carries byte lengths. A NLang string is
+// a UTF-8 byte sequence in which a NUL byte is ordinary content, so
+// getString takes an optional out-length and newString, newListString,
+// writeOutput, writeError, readLine and raiseException take the length
+// explicitly instead of stopping at the first NUL. The returned
+// pointers stay NUL-terminated for C readers; the length is what
+// delimits the content.
+// Version 14: the tensor device side (the v0.14.x device line) —
 // setTensorDeviceHooks (the tensor module registers its device
 // backend's allocator/mover/sync hooks at init; the VM routes device
 // records through them and never links any vendor runtime itself),
@@ -84,21 +91,21 @@ extern "C" {
 // reserved[0] now carries the array residency (0 = host payload, 1 =
 // device payload; the fill sites set it).
 //
-// v14: the device hooks are fallible — every hook returns a
+// v15: the device hooks are fallible — every hook returns a
 // TensorDeviceStatus (vendor-neutral error data; the VM converts a
 // non-ok status into the language exception at the call site, the
 // mapping table living once next to the record). alloc writes its
 // pointer through an out parameter (a failed allocation has no
 // pointer to return).
-// v15: snapshotWindowRng — the multi-stream PRNG window draw (a private
+// v16: snapshotWindowRng — the multi-stream PRNG window draw (a private
 // engine-state copy advanced by an offset, WITHOUT advancing the live engine).
-// v16: the device id rides the payload boundary (the multi-GPU line):
+// v17: the device id rides the payload boundary (the multi-GPU line):
 // every TensorDeviceHooks entry except sync takes a leading int32_t device
 // selector, newArrayResident takes a trailing device argument, and
 // NativeArrayView's reserved[1] carries the device id of a device-
 // resident payload (meaningful only when reserved[0] says device). One build still targets device 0; the
 // plumbing lands now so the device choice never re-enters a signature.
-#define NLANG_HOST_ABI_VERSION 16u
+#define NLANG_HOST_ABI_VERSION 17u
 
 // Every NLang runtime value occupies one 8-byte frame cell (see
 // kFrameSlotBytes in CompiledModule.h). Scalars of 4 bytes or less live
@@ -112,7 +119,7 @@ extern "C" {
 #define NLANG_EV_READ 1u
 #define NLANG_EV_WRITE 2u
 
-// v13: the tensor device side. The tensor module registers its active
+// v14: the tensor device side. The tensor module registers its active
 // device backend's hooks once at module init (the init sequence
 // predates any user frame); the hooks are then immutable for the
 // process lifetime. The VM routes device-resident array records through
@@ -169,7 +176,7 @@ typedef struct TensorDeviceStatus {
                          // otherwise — a static string, never owned
 } TensorDeviceStatus;
 
-// ABI v16: every payload entry names the device its pointer lives on.
+// ABI v17: every payload entry names the device its pointer lives on.
 // Since the device-spelled streams the selector can be nonzero (the
 // pushed scope's creations mint on their device); until cross-device
 // routing lands, transfers still land on device 0. The vendor runtime's
@@ -248,10 +255,10 @@ enum NativeElemKind {
 // lives at data + (offset + sum(ik * strides[k])) * elemCellBytes.
 // Owning arrays report 0 (data already points at element zero); a
 // view record reports its recorded offset into the owning payload.
-// ABI v13: reserved[0] carries the payload residency — 0 = host, 1 =
+// ABI v14: reserved[0] carries the payload residency — 0 = host, 1 =
 // device (data is a device pointer; only the device backend's kernels
 // may dereference it, host code routes the operand through its slots).
-// ABI v16: reserved[1] carries the device id of a device payload (read
+// ABI v17: reserved[1] carries the device id of a device payload (read
 // it only when reserved[0] is 1); host payloads keep it 0.
 typedef struct NativeArrayView {
     int32_t rank;
@@ -260,7 +267,7 @@ typedef struct NativeArrayView {
     int64_t elemCount;
     uint8_t elemKind;      // NativeElemKind value
     uint8_t elemCellBytes;
-    uint8_t reserved[2];   // v13/v16: [0] = residency, [1] = device id
+    uint8_t reserved[2];   // v14/v17: [0] = residency, [1] = device id
     int64_t offset;        // ABI v10: element units, matches strides
     int32_t stridesInline[64];  // = kMaxArrayRank (asserted below); ABI v8: widened with the rank cap
     void* data;
@@ -269,36 +276,51 @@ typedef struct NativeArrayView {
 struct NativeHost {
     uint32_t abiVersion;
 
+    // v13 string side. A NLang string is the UTF-8 byte sequence the VM
+    // stores, so a NUL byte is ordinary content exactly like any other
+    // byte (the language's `\0` escape produces one and `length()` counts
+    // it). Every string transfer below therefore carries a byte length:
+    // readers answer it through the optional out-param (pass NULL to
+    // ignore it), producers take it explicitly. The NUL terminator the
+    // returned pointers still carry is a convenience for C readers, never
+    // the end of the content.
+    //
     // Read a string argument by heap handle. The returned pointer is
     // valid only until the next host callback; copy it immediately.
     // Handle 0 is the live empty string (ruling D26): getString(0)
-    // returns a valid pointer to "", never NULL.
-    const char* (*getString)(NativeHost* self, int32_t handle);
+    // returns a valid pointer to "", never NULL, with *outLen 0.
+    const char* (*getString)(NativeHost* self, int32_t handle,
+                             int64_t* outLen);
 
-    // Create a heap string from UTF-8; returns its handle. Never
-    // returns 0 — empty content (and a null pointer) creates a fresh
-    // non-interned empty object (handle >= 1). A declared-string
-    // native must produce its result through this call: writing 0
-    // into the result cell is a contract violation the host reports
-    // as "returned null string" (ruling D27).
-    int32_t (*newString)(NativeHost* self, const char* utf8);
+    // Create a heap string from `len` UTF-8 bytes; returns its handle.
+    // A negative length and a null pointer both mean empty content. Never
+    // returns 0 — empty content creates a fresh non-interned empty object
+    // (handle >= 1). A declared-string native must produce its result
+    // through this call: writing 0 into the result cell is a contract
+    // violation the host reports as "returned null string" (ruling D27).
+    int32_t (*newString)(NativeHost* self, const char* utf8, int64_t len);
 
     // Create a List<string> in one call; returns its heap handle. Used by
     // fs.listFiles so native code never needs the VM's list layout.
-    int32_t (*newListString)(NativeHost* self, const char* const* items, int count);
+    // lens[i] is the byte length of items[i]; a NULL lens means every item
+    // is empty. A null item pointer is empty content too.
+    int32_t (*newListString)(NativeHost* self, const char* const* items,
+                             const int64_t* lens, int count);
 
-    // Write text verbatim to the program's standard output.
-    void (*writeOutput)(NativeHost* self, const char* text);
+    // Write `len` bytes verbatim to the program's standard output.
+    void (*writeOutput)(NativeHost* self, const char* text, int64_t len);
 
-    // Write text verbatim to the program's diagnostic channel: stderr in
-    // console mode, the session's single merged output view when a host
-    // owns the streams (io.eprint's route).
-    void (*writeError)(NativeHost* self, const char* text);
+    // Write `len` bytes verbatim to the program's diagnostic channel:
+    // stderr in console mode, the session's single merged output view when
+    // a host owns the streams (io.eprint's route).
+    void (*writeError)(NativeHost* self, const char* text, int64_t len);
 
     // Read one line from standard input (trailing CR/LF stripped).
-    // Returns null at end of input — an empty input line returns "".
-    // The returned pointer is valid only until the next host callback.
-    const char* (*readLine)(NativeHost* self);
+    // Returns null at end of input — an empty input line returns "" with
+    // *outLen 0. A NUL byte inside the line is content like any other
+    // byte. The returned pointer is valid only until the next host
+    // callback.
+    const char* (*readLine)(NativeHost* self, int64_t* outLen);
 
     // v4 input side. readToken skips whitespace (across lines) and
     // returns the next token, or null at end of input — the host raises
@@ -307,12 +329,15 @@ struct NativeHost {
     // or on invalid UTF-8 the host raises before returning, so natives
     // never observe the 1. hasInput never raises: 1 = a readLine would
     // still produce a line.
-    const char* (*readToken)(NativeHost* self);
+    const char* (*readToken)(NativeHost* self, int64_t* outLen);
     int (*readChar)(NativeHost* self, uint32_t* outChar);
     int (*hasInput)(NativeHost* self);
 
-    // Raise an NLang exception and never return.
-    void (*raiseException)(NativeHost* self, int exceptionKind, const char* message);
+    // Raise an NLang exception whose message is `len` bytes at `message`
+    // (a null pointer or a non-positive length is the empty message) and
+    // never return.
+    void (*raiseException)(NativeHost* self, int exceptionKind,
+                           const char* message, int64_t len);
 
     // PRNG access (state owned by the VM).
     uint32_t (*nextRandom)(NativeHost* self);
@@ -412,18 +437,18 @@ struct NativeHost {
 
     void (*setTensorDeviceHooks)(NativeHost* self, const TensorDeviceHooks* hooks);
 
-    //v13: mint a device-resident array record of a scalar element kind
+    //v14: mint a device-resident array record of a scalar element kind
     //with the given rank and dims, zero-initialized through the hooks;
     //returns its heap handle (rooted until the native writes it into
     //its return cell, same contract as newArrayShaped). byte/ubyte
     //kinds raise the Base family (I/O buffers stay host-resident —
     //io/net read and write those payloads directly). No hooks active
     //raises the Base family (backend=cpu calling toDevice's path).
-    //v16: device selects which device's payload the record lands on
+    //v17: device selects which device's payload the record lands on
     //(0 today; the VM pins the heap record's device entry to it).
     int32_t (*newArrayResident)(NativeHost* self, uint8_t elemKind, int32_t rank, const int32_t* dims, int32_t device);
 
-    //v13: ATOMIC "snapshot the PRNG state, then discard n" — copies the
+    //v14: ATOMIC "snapshot the PRNG state, then discard n" — copies the
     //engine's 624-word state into out624 and its block position into
     //outPosition, then advances the engine by n outputs, all inside the
     //engine mutex. One callback, not a read/discard pair: two calls
@@ -431,7 +456,7 @@ struct NativeHost {
     //the same snapshot (duplicate sequences). n may be 0 (snapshot only).
     void (*snapshotRngForDevice)(NativeHost* self, uint32_t* out624, uint32_t* outPosition, int64_t n);
 
-    //v15: draw n words at (position + offset) WITHOUT advancing the live
+    //v16: draw n words at (position + offset) WITHOUT advancing the live
     //engine — the multi-stream PRNG window; a private state copy keeps the
     //main stream coherent, and host-thread enqueue order fixes the offset.
     void (*snapshotWindowRng)(NativeHost* self, uint32_t* outWords, int64_t n, int64_t offset);
@@ -459,7 +484,7 @@ typedef void (*RegisterNativeFn)(void* registry, const char* ns,
                                  const char* name, NativeFn fn);
 typedef void (*RegisterNativeBlockingFn)(void* registry, const char* ns,
                                          const char* name, NativeFn fn);
-// v13: the init signature gains the NativeHost* — the tensor module
+// v14: the init signature gains the NativeHost* — the tensor module
 // registers its device backend's hooks through setTensorDeviceHooks at
 // init (per-executor: each executor's loader runs the module init once,
 // so the hooks land per executor with that executor's host; see the
