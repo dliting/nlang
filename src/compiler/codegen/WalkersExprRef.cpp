@@ -4,7 +4,10 @@
     precedent). MakeRefPeakDepth mirrors the MakeRef emission claim
     shapes (EmitExprRef.cpp); CalleeHasRefFormal gates the per-argument
     charge that the three invoke-family arg loops apply through
-    ArgPeakDepth.
+    ArgPeakDepth. CtorDefaultExprDepth (the shared tail of the three
+    ctor-call depth arms) joined the split for the same source-size
+    reason (0.13.13a review round 1, WalkersExpr.cpp at the 500-line
+    cap).
 ---*/
 #include "VmBackend.h"
 #include <algorithm>
@@ -129,6 +132,30 @@ uint16_t VmBackend::ArgPeakDepth(SnExpression& arg,
     if (bHasRefFormal)
         d = std::max(d, MakeRefPeakDepth(arg, visited));
     return d;
+}
+
+//Shared tail of the three ctor-call depth arms (NewExprPeakDepth /
+//CtorInvokePeakDepth / SuperCallStmtPeakDepth): return the deeper of
+//the caller-arg depth and the parent-ctor default-expression depth.
+//Mirrors InvokeExprPeakDepth's visited-set pattern — a default that
+//invokes the same ctor again would descend forever without the guard
+//(the codegen side rejects it via DefaultEmitGuard; here the walker
+//just stops descending). pCtorFn null (builtin/generic/imported) means
+//no defaults exist — argDepth passes through.
+uint16_t VmBackend::CtorDefaultExprDepth(SnFunction* pCtorFn,
+    const std::unordered_set<SnFunction*>& visited, uint16_t argDepth) {
+    if (!pCtorFn || visited.find(pCtorFn) != visited.end())
+        return argDepth;
+    auto visitedPlus = visited;
+    visitedPlus.insert(pCtorFn);
+    uint16_t defaultDepth = 0;
+    for (auto& formal : pCtorFn->Params()) {
+        if (formal.Value()) {
+            uint16_t d = ExprPeakDepth(*formal.Value(), visitedPlus);
+            if (d > defaultDepth) defaultDepth = d;
+        }
+    }
+    return argDepth > defaultDepth ? argDepth : defaultDepth;
 }
 
 } //namespace nlang

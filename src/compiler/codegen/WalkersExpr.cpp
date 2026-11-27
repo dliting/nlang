@@ -124,6 +124,14 @@ uint16_t VmBackend::ExprPeakDepth(SnExpression& expr,
         return NewArrayExprPeakDepth(expr, visited);
     if (kind == NK_InitListExpr)
         return InitListExprPeakDepth(expr, visited);
+    //0.13.13a D-1 review round 1: a call-site default lambda's snapshot
+    //fill may claim one scratch slot inside the formal-claim slice (the
+    //struct-flavored store arms a rooted fresh-record copy) — 0 for
+    //every other lambda shape, preserving the former leaf answer. The
+    //predicate CallSiteFillScratch lives beside the fill it mirrors
+    //(EmitCaptureFrame.cpp).
+    if (kind == NK_LambdaExpr)
+        return CallSiteFillScratch(static_cast<SnLambdaExpr&>(expr));
     //0.13.10 Task 6: a captured identifier read parks its chased
     //display record in an EvalAreaClaim(1) (EmitCapturedRead) — the
     //assignment walker's captured arm mirrors the same +1.
@@ -337,30 +345,6 @@ uint16_t VmBackend::MemberExprPeakDepth(SnExpression& expr,
             inv.CalleeName(), actual) - actual));
     }
     return d > id ? d : id;
-}
-
-//Shared tail of the three ctor-call depth arms (NewExprPeakDepth /
-//CtorInvokePeakDepth / SuperCallStmtPeakDepth): return the deeper of
-//the caller-arg depth and the parent-ctor default-expression depth.
-//Mirrors InvokeExprPeakDepth's visited-set pattern — a default that
-//invokes the same ctor again would descend forever without the guard
-//(the codegen side rejects it via DefaultEmitGuard; here the walker
-//just stops descending). pCtorFn null (builtin/generic/imported) means
-//no defaults exist — argDepth passes through.
-uint16_t VmBackend::CtorDefaultExprDepth(SnFunction* pCtorFn,
-    const std::unordered_set<SnFunction*>& visited, uint16_t argDepth) {
-    if (!pCtorFn || visited.find(pCtorFn) != visited.end())
-        return argDepth;
-    auto visitedPlus = visited;
-    visitedPlus.insert(pCtorFn);
-    uint16_t defaultDepth = 0;
-    for (auto& formal : pCtorFn->Params()) {
-        if (formal.Value()) {
-            uint16_t d = ExprPeakDepth(*formal.Value(), visitedPlus);
-            if (d > defaultDepth) defaultDepth = d;
-        }
-    }
-    return argDepth > defaultDepth ? argDepth : defaultDepth;
 }
 
 //NK_NewExpr arm of ExprPeakDepth.

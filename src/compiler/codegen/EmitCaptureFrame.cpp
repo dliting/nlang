@@ -77,8 +77,8 @@ void VmBackend::EmitCapturedFormalCopy(SnFormalParam& param,
     auto* pDisplayClass = static_cast<SnClassDecl*>(
         pDisplayField->Parent());
     const uint16_t displaySlot = FindLocal(pDisplayClass->Name());
-    const int fieldOff = FindClassFieldOffset(*pDisplayClass,
-        pDisplayField->Name());
+    const int fieldOff = FindDisplayFieldOffset(*pDisplayClass,
+        *pDisplayField);
     NLANG_ASSERT(fieldOff >= 0);
     EmitCapturedFieldStore(*pDisplayField, displaySlot,
         static_cast<uint16_t>(fieldOff), FindLocal(param.Name()),
@@ -99,8 +99,8 @@ void VmBackend::EmitCatchVarDisplayCopy(SnCatchClause& catchClause,
     auto* pDisplayClass = static_cast<SnClassDecl*>(
         pDisplayField->Parent());
     const uint16_t displaySlot = FindLocal(pDisplayClass->Name());
-    const int fieldOff = FindClassFieldOffset(*pDisplayClass,
-        pDisplayField->Name());
+    const int fieldOff = FindDisplayFieldOffset(*pDisplayClass,
+        *pDisplayField);
     NLANG_ASSERT(fieldOff >= 0);
     EmitStructAwareStoreField(pDisplayField->EvalDataType(),
         displaySlot, static_cast<uint16_t>(fieldOff), catchOff, emitter);
@@ -168,10 +168,13 @@ void VmBackend::EmitCallSiteLambdaHandle(SnClassDecl& display,
 }
 
 //One call-site display's member fill, in the field order the prologue's
-//recipe uses: "$this" takes the staged call receiver, every other
+//recipe uses: "$this" takes the staged call receiver, every snapshot
 //member its CaptureSource formal's staged slot (both resolved through
-//the OverrideScope). The flavor store mirrors the declaration-side
-//arms (EmitCapturedFieldStore — the field flags carry that mirror).
+//the OverrideScope), and a body-local capture mirror is skipped (no
+//call-site value exists). Offsets resolve by member identity — name
+//collisions between snapshot and mirror cells are legal here. The
+//flavor store mirrors the declaration-side arms (EmitCapturedFieldStore
+//— the field flags carry that mirror).
 void VmBackend::EmitCallSiteSnapshotMembers(SnClassDecl& display,
     uint16_t resultOffset, BytecodeEmitter& emitter)
 {
@@ -182,8 +185,21 @@ void VmBackend::EmitCallSiteSnapshotMembers(SnClassDecl& display,
         auto& snapField = static_cast<SnClassField&>(member);
         NLANG_ASSERT(snapField.Name() != "$outer"
             && "the call-site display is the chain root");
-        const int fieldOff = FindClassFieldOffset(display,
-            snapField.Name());
+        if (snapField.Name() != "$this" && !snapField.CaptureSource()) {
+            //A capture mirror of a local the lambda's own body declares
+            //(a nested lambda inside the default captured it): no
+            //call-site value exists to fill it with — the declaration's
+            //bridge store writes the cell when the body runs, and a
+            //read can never precede that store (the language rejects
+            //use-before-declaration). Skip; the identity-keyed offsets
+            //keep the filled members on their own cells regardless of
+            //how many share this member's name.
+            continue;
+        }
+        //Identity-keyed: a snapshot cell and a same-named body-local
+        //mirror cell coexist on this display (a body local shadowing
+        //the host formal), so the name walk would alias them.
+        const int fieldOff = FindDisplayFieldOffset(display, snapField);
         NLANG_ASSERT(fieldOff >= 0);
         uint16_t srcSlot = 0;
         if (snapField.Name() == "$this") {
@@ -192,8 +208,6 @@ void VmBackend::EmitCallSiteSnapshotMembers(SnClassDecl& display,
                 && "receiver capture without a staged call receiver");
             srcSlot = hit.second;
         } else {
-            NLANG_ASSERT(snapField.CaptureSource()
-                && "display field neither capture mirror nor $-slot");
             auto hit = LookupOverride(snapField.CaptureSource()->Name());
             NLANG_ASSERT(hit.first
                 && "snapshot capture whose formal is unstaged here");
@@ -202,6 +216,40 @@ void VmBackend::EmitCallSiteSnapshotMembers(SnClassDecl& display,
         EmitCapturedFieldStore(snapField, resultOffset,
             static_cast<uint16_t>(fieldOff), srcSlot, emitter);
     }
+}
+
+//The walker-side mirror of the fill loop above (ExprPeakDepth's
+//NK_LambdaExpr arm, WalkersExpr.cpp): the one scratch cell the fill may
+//claim inside the formal-claim slice — EmitStructAwareStoreField's
+//EvalAreaClaim(1), because a null display-field dst can establish a
+//fresh record and the copy crosses that allocation window. The
+//call-site marker is this TU's own Access() predicate, so walker and
+//codegen answer identically by construction. Filled members are "$this"
+//and the snapshot fields (CaptureSource set); the flavor must dispatch
+//to the struct-aware arm (promoted parks in the shared temp, ref copies
+//the 8-byte cell — neither touches the evalArea).
+uint16_t VmBackend::CallSiteFillScratch(SnLambdaExpr& lambda) {
+    auto* pDisplay = lambda.DisplayClass();
+    auto* pMethod = lambda.SyntheticMethod();
+    if (!pDisplay || !pMethod || !pMethod->Body()
+        || pMethod->Body()->DisplayClass() != pDisplay)
+        return 0;
+    for (auto& member : pDisplay->Members()) {
+        if (member.Kind() != NK_ClassField
+            || member.ContainFlags(NF_Static))
+            continue;
+        auto& field = static_cast<SnClassField&>(member);
+        const bool bFilled = field.Name() == "$this"
+            || field.CaptureSource() != nullptr;
+        if (!bFilled || field.ContainFlags(NF_Promoted)
+            || field.ContainFlags(NF_Ref))
+            continue;
+        auto* pType = field.EvalDataType();
+        if (pType && RuntimeTypeKind(pType) == RTK_Struct
+            && pType->Kind() == NK_StructDecl)
+            return 1;
+    }
+    return 0;
 }
 
 } //namespace nlang

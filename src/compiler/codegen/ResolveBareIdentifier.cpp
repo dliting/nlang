@@ -92,7 +92,10 @@ bool VmBackend::TryResolveSnapshotCaptureField(SnField* field,
                 t.kind = BareIdTarget::CaptureField;
                 t.outerHops = hop;
                 t.owner = pCls;
-                t.fieldOff = FindClassFieldOffset(*pCls, member.Name());
+                //Identity-keyed: the matched member and a same-named
+                //body-local mirror can coexist on a call-site display;
+                //the name walk would answer the mirror's offset.
+                t.fieldOff = FindDisplayFieldOffset(*pCls, snapField);
                 NLANG_ASSERT(t.fieldOff >= 0);
                 return true;
             }
@@ -286,13 +289,16 @@ VmBackend::BareIdTarget VmBackend::DisplayFieldOfCaptured(SnField* field) {
 
     BareIdTarget t;
     t.owner = pDisplayClass;
-    const std::string& name = pDisplayField->Name();
+    //Identity-keyed offset: a call-site display can hold a snapshot cell
+    //and a same-named body-local mirror cell, and the name walk would
+    //collapse them (ordinary displays carry no same-name pair, so the
+    //answer is unchanged there — identity is uniformly the right key).
     auto it = m_currFunc->localOffsets.find(pDisplayClass->Name());
     if (it != m_currFunc->localOffsets.end()) {
         //The display instance is this frame's local under the class name.
         t.kind = BareIdTarget::DisplayField;
         t.localOffset = it->second;
-        t.fieldOff = FindClassFieldOffset(*pDisplayClass, name);
+        t.fieldOff = FindDisplayFieldOffset(*pDisplayClass, *pDisplayField);
         NLANG_ASSERT(t.fieldOff >= 0);
         return t;
     }
@@ -302,7 +308,7 @@ VmBackend::BareIdTarget VmBackend::DisplayFieldOfCaptured(SnField* field) {
         && "captured reference outside any display-bearing frame");
     t.kind = BareIdTarget::CaptureField;
     t.outerHops = OuterHopsToDisplay(m_pCurrClass, pDisplayClass);
-    t.fieldOff = FindClassFieldOffset(*pDisplayClass, name);
+    t.fieldOff = FindDisplayFieldOffset(*pDisplayClass, *pDisplayField);
     NLANG_ASSERT(t.fieldOff >= 0);
     return t;
 }

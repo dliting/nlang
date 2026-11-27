@@ -24,6 +24,44 @@ int useTick(func<int> g = Knob.tick) {
     return g();
 }
 
+int handler(int n, func<int, int> h = (x) -> {
+    int m = 7;                          // a body local captured by a nested lambda
+    func<int, int> b = (z) -> z + m;
+    return b(x);
+}) {
+    return h(1);
+}
+
+int shadow(int n, func<int, int> g = (x) -> {
+    func<int, int> a = (y) -> y + n;    // the host formal n (snapshot cell)
+    int n = 7;                          // a body local of the same name (mirror cell)
+    func<int, int> b = (z) -> z + n;    // the body local n
+    return a(x) + b(x);
+}) {
+    return g(1);
+}
+
+struct Dot { int p; }
+
+int at(int k, Dot d, func<int, int> g = (y) -> y + d.p) {
+    return g(k);
+}
+
+class Cfg {
+    public int v;
+    public Cfg(int p) { this.v = p; }
+    public int get() { return this.v; }
+}
+
+int pick(int k, Cfg c, func<int, int> g = (x) -> x + c.get()) {
+    return g(k);
+}
+
+int bump(int n, func<int, int> g = (x) -> x + n) {
+    n = n + 100;                        // the host re-binds n after the closure was built
+    return g(1);
+}
+
 int main() {
     if (step(5) != 8) { return 1; }                  // g(3) = 3 + 5
     if (step(100) != 103) { return 2; }              // this call captures its own n
@@ -33,5 +71,13 @@ int main() {
     Ctr other = Ctr(1000);
     if (other.shift(1) != 1001) { return 5; }        // a second receiver, its own value
     if (useTick() != 7) { return 6; }                // the default names a static method
+    if (handler(3) != 8) { return 7; }               // 1 + 7 through the nested lambda
+    if (shadow(3) != 12) { return 8; }               // (1 + 3) + (1 + 7), two distinct cells
+    Dot d; d.p = 3;
+    Dot otherDot; otherDot.p = 4;
+    if (at(1, d) != 4) { return 9; }                 // a struct-typed formal, this call's value
+    if (at(2, otherDot) != 6) { return 10; }         // a second call site, its own struct
+    if (pick(1, Cfg(3)) + pick(2, Cfg(4)) != 10) { return 11; }  // class-typed formals
+    if (bump(3) != 4) { return 12; }                 // the snapshot froze n at bind time
     return 0;
 }

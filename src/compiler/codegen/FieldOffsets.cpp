@@ -87,6 +87,30 @@ int VmBackend::ClassAncestorFieldOffset(SnClassDecl& ancestor,
     return -1;
 }
 
+//0.13.13a D-1 review round 1: identity-keyed offset for generated
+//display classes. A call-site display can hold two instance fields with
+//the same simple name — a host formal's snapshot cell beside a
+//same-named body local's capture mirror — and the name walk of
+//FindClassFieldOffset would alias both names onto the first cell. The
+//offset arithmetic is identical; generated displays carry no superclass
+//(the "$outer" hops are fields, not inheritance) and are never handle
+//classes, so the walk covers the class's own instance fields only. A
+//miss returns -1 like the name-keyed family; the callers assert.
+int VmBackend::FindDisplayFieldOffset(SnClassDecl& display,
+                                      const SnClassField& field) {
+    NLANG_ASSERT(display.ContainFlags(NF_Generated)
+        && !display.SuperClass() && !IsHandleClassDecl(display));
+    uint16_t off = kHeapCellBytes; //skip the classIdx cell
+    for (auto& member : display.Members()) {
+        if (member.Kind() != NK_ClassField || member.ContainFlags(NF_Static))
+            continue;
+        if (&static_cast<SnField&>(member) == &field)
+            return off;
+        off += kHeapFieldStrideBytes;
+    }
+    return -1;
+}
+
 //v0.12.6 D14: the declared-type companion of FindClassFieldOffset —
 //same root→parent→own search order (statics skipped), returning the
 //field's declared type node (EvalDataType) instead of its offset. The

@@ -687,6 +687,17 @@ private:
     //struct deep-copy decision (manual 4.7.4).
     SnField* FindClassFieldDecl(SnClassDecl& classDecl,
                                 const std::string& fieldName);
+    //0.13.13a D-1 review round 1: the identity-keyed companion of
+    //FindClassFieldOffset for generated display classes. A call-site
+    //display can hold two members of the same simple name (a host
+    //formal's snapshot cell beside a same-named body local's capture
+    //mirror), which the name walk aliases onto the first cell. The
+    //offset arithmetic is FindClassFieldOffset's own; generated displays
+    //have no superclass and no handle slot, so the walk covers the
+    //class's own instance fields. A miss returns -1 like the name-keyed
+    //family (the callers assert).
+    int FindDisplayFieldOffset(SnClassDecl& display,
+                               const SnClassField& field);
     //0.9.11 D2: generalized to struct fields — returns the owning type
     //decl (SnClassDecl or SnStructDecl) for a member field of either,
     //null otherwise; the caller dispatches the offset helper by the
@@ -992,6 +1003,11 @@ private:
     //NK_InvokeExpr: call claim + arg/default-expression depth.
     static uint16_t InvokeExprPeakDepth(SnExpression& expr,
         const std::unordered_set<SnFunction*>& visited, bool isMethodContext);
+    //NK_LambdaExpr: the one scratch cell the call-site snapshot fill may
+    //claim inside the formal-claim slice (1 when the lambda takes the
+    //call-site shape and a filled member goes through the struct-aware
+    //store; 0 otherwise — every other flavor stores without a scratch).
+    static uint16_t CallSiteFillScratch(SnLambdaExpr& lambda);
     //0.9.0: the ctor-invoke arm — NewExpr claim shape {this, formals...}
     //plus default-expression depth (walker symmetry with NewExprPeakDepth).
     static uint16_t CtorInvokePeakDepth(SnInvokeExpr& invoke,
