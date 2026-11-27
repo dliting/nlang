@@ -14,8 +14,8 @@ and the input/output (IO) parking built on it.
 
 ## 30.1 Scope and Version
 
-**ABI version.** This chapter describes ABI version **13**. The
-host accepts a module whose version probe reports exactly `13`
+**ABI version.** This chapter describes ABI version **17**. The
+host accepts a module whose version probe reports exactly `17`
 and rejects every other value, including a module that exports
 no probe at all (§30.2). An ABI change bumps the version and
 replaces this chapter wholesale; the specification describes
@@ -68,7 +68,7 @@ no directory raises a host-level run-time error at the call
 
 1. resolves the export `nlang_abi_version`; a module without
    the export is rejected;
-2. calls it; a value other than `13` is rejected;
+2. calls it; a value other than `17` is rejected;
 3. resolves the export `nlang_native_init`; a module without
    the export is rejected;
 4. calls it once (§30.3).
@@ -90,7 +90,7 @@ linkage, unmangled on every platform the ABI supports:
 
 | Export | Signature | Contract |
 |---|---|---|
-| `nlang_abi_version` | `unsigned (void)` | returns `13`; the single version authority (§30.2) |
+| `nlang_abi_version` | `unsigned (void)` | returns `17`; the single version authority (§30.2) |
 | `nlang_native_init` | `int (void* registry, RegisterNativeFn reg, RegisterNativeBlockingFn regBlocking)` | called once after the probe passes |
 
 with the registration callbacks
@@ -174,8 +174,8 @@ the call (§30.5, §30.6).
 ## 30.5 The Host Function Table
 
 **Layout.** `NativeHost` is a struct of function pointers
-whose first field is `abiVersion`, a `uint32_t` holding `13`,
-followed in fixed order by the twenty-five callbacks below. Each
+whose first field is `abiVersion`, a `uint32_t` holding `17`,
+followed in fixed order by the twenty-nine callbacks below. Each
 callback takes the table itself as its first parameter, shown
 as `self` in the signatures:
 
@@ -206,6 +206,10 @@ as `self` in the signatures:
 | `typeArgCount` | `uint32_t (NativeHost* self)` |
 | `typeArgKind` | `uint8_t (NativeHost* self, uint32_t index)` |
 | `typeArgName` | `const char* (NativeHost* self, uint32_t index)` |
+| `setTensorDeviceHooks` | `void (NativeHost* self, const TensorDeviceHooks* hooks)` |
+| `newArrayResident` | `int32_t (NativeHost* self, uint8_t elemKind, int32_t rank, const int32_t* dims, int32_t device)` |
+| `snapshotRngForDevice` | `void (NativeHost* self, uint32_t* out624, uint32_t* outPosition, int64_t n)` |
+| `snapshotWindowRng` | `void (NativeHost* self, uint32_t* outWords, int64_t n, int64_t offset)` |
 
 **Strings.** Every string entry names its content
 length: text the native hands to the host arrives with an
@@ -363,6 +367,27 @@ callbacks behaving as for an out-of-range index. Concurrent
 carriers each park on their own call, and every native call sees
 its own receiver. The buffer `typeArgName` returns is valid at
 least until the native returns — copy it immediately.
+
+**Device.** The four device entries carry the tensor package's
+device-resident arrays (§19.7, §4.10). `setTensorDeviceHooks`
+installs the active device backend's hooks — allocator, element
+movers, sync — once at module init; the virtual machine routes
+device-resident array records through them and links no vendor
+runtime itself. `newArrayResident` mints a device-resident array
+record of a scalar element kind, zero-initialized through the
+hooks, and returns its heap handle — the same rooted contract as
+`newArrayShaped`; `device` selects which device's payload the
+record lands on. `snapshotRngForDevice` copies the pseudorandom
+engine's 624-word state and block position out and advances it by
+`n` outputs in one atomic step — one callback, not a
+read-then-advance pair, so concurrent carriers are never handed
+the same snapshot; `n` may be 0. `snapshotWindowRng` draws `n`
+words at `position + offset` of a private state copy without
+advancing the live engine, so the main stream stays coherent
+across parallel draws (§19.7). Every device hook is fallible: a
+non-ok status the hook reports is converted into the language
+exception at the call site (§19.6), and a record the host pins
+to a device is released through the same hooks.
 
 ## 30.6 Pinned Array Views
 

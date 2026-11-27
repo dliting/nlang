@@ -6,7 +6,7 @@
 
 ## 30.1 范围与版本
 
-**ABI版本。**本章描述ABI版本 **13**。宿主接受版本探针恰好报`13`的模块，并拒绝其他一切值，包括根本不导出探针的模块（§30.2）。ABI变更会提升版本并整章替换本章；规范只描述当前版本。
+**ABI版本。**本章描述ABI版本 **17**。宿主接受版本探针恰好报`17`的模块，并拒绝其他一切值，包括根本不导出探针的模块（§30.2）。ABI变更会提升版本并整章替换本章；规范只描述当前版本。
 
 **本章固定的内容。**模块发现与加载（§30.2）、模块导出与注册（§30.3）、调用约定与值单元（§30.4）、宿主函数表（§30.5）、固定数组视图（§30.6）与阻塞段契约及其上的IO停泊（§30.7）。
 
@@ -25,7 +25,7 @@
 **加载序列。**宿主打开模块文件，然后：
 
 1. 解析导出`nlang_abi_version`；没有该导出的模块被拒绝；
-2. 调用它；除`13`以外的值被拒绝；
+2. 调用它；除`17`以外的值被拒绝；
 3. 解析导出`nlang_native_init`；没有该导出的模块被拒绝；
 4. 调用它一次（§30.3）。
 
@@ -39,7 +39,7 @@
 
 | 导出 | 签名 | 契约 |
 |---|---|---|
-| `nlang_abi_version` | `unsigned (void)` | 返回`13`；唯一的版本权威（§30.2） |
+| `nlang_abi_version` | `unsigned (void)` | 返回`17`；唯一的版本权威（§30.2） |
 | `nlang_native_init` | `int (void* registry, RegisterNativeFn reg, RegisterNativeBlockingFn regBlocking)` | 探针通过后调用一次 |
 
 连同注册回调
@@ -95,7 +95,7 @@ void fn(NativeHost* host, uint8_t* ret,
 
 ## 30.5 宿主函数表
 
-**布局。**`NativeHost`是一个函数指针结构体，其第一个字段是`abiVersion`——一个持有`13`的`uint32_t`——之后按固定顺序跟随下列二十五个回调。每个回调都以表自身作为第一个参数，在签名中记作`self`：
+**布局。**`NativeHost`是一个函数指针结构体，其第一个字段是`abiVersion`——一个持有`17`的`uint32_t`——之后按固定顺序跟随下列二十九个回调。每个回调都以表自身作为第一个参数，在签名中记作`self`：
 
 | 回调 | 签名 |
 |---|---|
@@ -124,6 +124,10 @@ void fn(NativeHost* host, uint8_t* ret,
 | `typeArgCount` | `uint32_t (NativeHost* self)` |
 | `typeArgKind` | `uint8_t (NativeHost* self, uint32_t index)` |
 | `typeArgName` | `const char* (NativeHost* self, uint32_t index)` |
+| `setTensorDeviceHooks` | `void (NativeHost* self, const TensorDeviceHooks* hooks)` |
+| `newArrayResident` | `int32_t (NativeHost* self, uint8_t elemKind, int32_t rank, const int32_t* dims, int32_t device)` |
+| `snapshotRngForDevice` | `void (NativeHost* self, uint32_t* out624, uint32_t* outPosition, int64_t n)` |
+| `snapshotWindowRng` | `void (NativeHost* self, uint32_t* outWords, int64_t n, int64_t offset)` |
 
 **字符串。**每个字符串条目都明说内容长度：原生交给宿主的文本随带一个`int64_t len`说明要读多少字节；宿主交给原生的文本随带一个`int64_t* outLen`，原生只要字节时可传空指针。空缓冲区与不是正数的长度都表示空内容；返回的缓冲区为便利仍以NUL结尾，但长度才是内容边界，所以字符串内部任意位置都可以含NUL字节。`getString`返回`handle`背后字符串的字节并把其个数写入`outLen`；`newString`从一个Unicode转换格式（UTF-8）缓冲区的前`len`个字节创建字符串并返回其句柄；`newListString`在一次调用内从`count`个缓冲区与相应的`count`个长度创建一个`List<string>`。`getString`返回的缓冲区只有效到下一次宿主回调——原生函数立即复制它。声明返回`string`的原生函数必须向`ret`写入一个由`newString`获得的句柄：句柄0表示原生函数没有产出字符串，会抛出带函数名的宿主级错误；不再活动的句柄同样抛出。空字符串是`newString`发出的真实句柄，绝不是0。
 
@@ -167,6 +171,8 @@ void fn(NativeHost* host, uint8_t* ret,
 **模块状态。**`moduleState`返回以`tag`命名的、宿主管理的按执行器状态槽：宿主对每个执行器调用一次`ctor`，把结果与`dtor`一并存储，此后每次调用都交回同一指针；`dtor`在执行器关停时、模块本将卸载之前运行（模块从不卸载）。以这种方式存储的状态对另一个执行器永不可见——`net`包的套接字表正是依赖这一隔离。
 
 **接收者类型实参。**`typeArgCount`、`typeArgKind`与`typeArgName`读取当前调用的接收者的运行期实例化信息（§4.12.9）：接收者是本次原生调用实参区槽0中的值（§30.4）。`typeArgCount`返回接收者实例化的类型实参个数；`typeArgKind`返回第`index`个实参的种类码（§28.5的种类码），`typeArgName`返回其规范拼写的缓冲区。越界的`index`：`typeArgKind`报`0xFF`，`typeArgName`返回空指针。没有接收者的调用——自由函数或静态成员——以及接收者不是泛型实例化的调用，`typeArgCount`报`0`，另两个回调与越界时相同。并发的载体各自停泊在自己的调用上，每个原生调用看到的都是自身的接收者。`typeArgName`返回的缓冲区至少有效到原生函数返回——原生函数应立即复制它。
+
+**设备。**四个设备条目承载tensor包的驻设备数组（§19.7、§4.10）。`setTensorDeviceHooks`在模块初始化时一次装上当前设备后端的钩子——分配器、元素搬运与同步；虚拟机把驻设备的数组记录路由经过它们，自身不链接任何厂商运行期。`newArrayResident`铸造一条标量元素种类的驻设备数组记录，经钩子零初始化并返回其堆句柄——与`newArrayShaped`同一套根约定；`device`选择该记录的载荷落在哪个设备上。`snapshotRngForDevice`把伪随机引擎的624字状态与块位置拷出、并原子地把引擎推进`n`个输出——一个回调而非读-再-推两步，故并发的载体绝不会拿到同一份快照；`n`可以为0。`snapshotWindowRng`在一份私有状态拷贝上从`position + offset`处抽取`n`个字，不推进活引擎，使主流在并行抽取之间保持连贯（§19.7）。每个设备钩子都是可失败的：钩子上报的非ok状态在调用点被转换为语言异常（§19.6），宿主固定到某设备上的记录也经同一组钩子释放。
 
 ## 30.6 固定数组视图
 

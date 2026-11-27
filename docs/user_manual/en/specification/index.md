@@ -9,7 +9,7 @@ error guidance. For a guided introduction to the language, see
 informative and links here for the rules it summarizes. The English
 text is normative.
 
-The specification describes NLang 0.14.14. It is a living document:
+The specification describes NLang 0.14.15. It is a living document:
 it always describes the current language, and its version history is
 the repository history — a tag such as `v0.11.5` pins the whole tree
 at one point of the language's evolution.
@@ -91,12 +91,14 @@ before they land here.
 - [23. The http Package](library/23-http.md)
 - [24. The gzip Package](library/24-gzip.md)
 - [25. The regex Package](library/25-regex.md)
+- [26. The json Package](library/26-json.md)
+- [27. The web Package](library/27-web.md)
 
 ### Part III — Binary Formats
 
-- [26. The `.ncu` Unit Image](formats/26-ncu.md)
-- [27. The `.npkg` Package Archive](formats/27-npkg.md)
-- [28. The Native Application Binary Interface (ABI)](formats/28-abi.md)
+- [28. The `.ncu` Unit Image](formats/28-ncu.md)
+- [29. The `.npkg` Package Archive](formats/29-npkg.md)
+- [30. The Native Application Binary Interface (ABI)](formats/30-abi.md)
 
 ### Reference
 
