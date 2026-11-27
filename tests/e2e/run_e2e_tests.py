@@ -546,6 +546,23 @@ def _run_env(name, sources_dir):
     return env
 
 
+#Exit-code width the OS actually carries: POSIX wait(2) reports 8 bits
+#(WEXITSTATUS), so a program exiting 999 surfaces as 231 and the
+#suite's composed full-width codes cannot cross that boundary on a
+#POSIX host (first seen on the acceptance box: seven corpus rows with
+#expected codes over 255 failed on the exact low-byte truncation while
+#passing on Windows). The comparison runs in OS-visible width: on
+#POSIX both sides are masked to that width, which keeps every existing
+#corpus row meaningful on both hosts (rows at or under 255 compare
+#identically either way). Windows carries the full code and keeps the
+#unmasked comparison. Crash verdicts ride signals (negative return
+#codes) and bypass the mask entirely.
+def _exit_width(code):
+    if os.name != 'nt' and code is not None and code >= 0:
+        return code & 0xFF
+    return code
+
+
 def _skip_sentinel(actual, expected, stderr_text):
     """Skip-sentinel verdict for one finished run: None when the entry
     is not on the sentinel path, else the reason string ('' when the
@@ -821,6 +838,16 @@ def main():
                         else DEFAULT_TIMEOUT_FALLBACK_S)
     ncc = args[0] if len(args) > 0 else DEFAULT_NCC
     nvm = args[1] if len(args) > 1 else DEFAULT_NVM
+    #Exactly three positional tools, no more: a silent extra argument
+    #would quietly do nothing -- the cuda double-run leg passed its
+    #entry list positionally for a whole merge cycle while the runner
+    #read manifests only from NLANG_E2E_MANIFEST, and ran the full
+    #tour believing it had filtered (fail loud, not silent).
+    if len(args) > 3:
+        print("ERROR: unexpected extra positional arguments after the "
+              "three tool paths: %r (to run a subset manifest, export "
+              "NLANG_E2E_MANIFEST=<path>)" % args[3:])
+        sys.exit(2)
     #dbg_ tests run under the debugger. An explicit third argument is
     #the ndb to use — gates pass it so an ASan/Debug sweep runs dbg_
     #tests under the same config's debugger (the derived Release path
@@ -910,13 +937,36 @@ def main():
     #the orphan check would flag every other family's sidecar — suite
     #coverage is a full-tour invariant, skip it here.
     known_names = set()
-    for manifest_path, _, _ in _manifest_configs():
+    for manifest_path in (MANIFEST, EXAMPLES_MANIFEST):
+        if not os.path.isfile(manifest_path):
+            continue
         with open(manifest_path, encoding='utf-8') as mf:
             for line in mf:
                 line = line.strip()
                 if line and not line.startswith('#'):
                     known_names.add(line.split(None, 1)[0])
-    if not os.environ.get('NLANG_E2E_MANIFEST'):
+    #Override-manifest validation: the cuda double-run leg once passed
+    #its entry list positionally and the runner silently ignored it; the
+    #NLANG_E2E_MANIFEST channel must not repeat that silence — an empty
+    #or misspelled list would run nothing and report green. Every
+    #override name must key a committed-manifest entry.
+    override_path = os.environ.get('NLANG_E2E_MANIFEST')
+    if override_path:
+        override_names = set()
+        with open(override_path, encoding='utf-8') as mf:
+            for line in mf:
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    override_names.add(line.split(None, 1)[0])
+        unknown = sorted(override_names - known_names)
+        if not override_names or unknown:
+            print(f"ERROR: {override_path}: "
+                  + ("no runnable rows"
+                     if not override_names else
+                     "names that key no committed manifest entry: "
+                     + ", ".join(unknown[:10])))
+            sys.exit(2)
+    if not override_path:
         for orphan in _orphan_run_stderr_sidecars(known_names):
             #Not a per-entry run: no entry work happened, so this FAIL
             #carries no TIME row (per-entry verdicts go via
@@ -957,9 +1007,13 @@ def main():
             #Column 1: name; column 2: expected exit code / "compile_error";
             #optional column 3: expected stdout substring (maxsplit=2 keeps
             #spaces inside the substring; absent = no stdout assertion).
+            #A single-column row is a bare name and means expected exit 0
+            #(the double-run list's spelling): defaulting it here keeps one
+            #parser for both spellings. Committed manifests carry the
+            #column explicitly; the default only serves name-list files.
             parts = line.split(None, 2)
             if len(parts) < 2:
-                continue
+                parts.append('0')
             name = parts[0]
             #Environment gate: a gated entry whose capability the OS
             #oracle says is absent is skipped before any tooling runs
@@ -1189,7 +1243,8 @@ def main():
                                   f"{_describe_run_error(e)}")
                     continue
 
-                sentinel = _skip_sentinel(actual, expected, stderr_text)
+                sentinel = _skip_sentinel(_exit_width(actual),
+                                          _exit_width(expected), stderr_text)
                 if sentinel is not None:
                     if sentinel:
                         print(f"SKIP {name} ({sentinel})")
@@ -1205,7 +1260,7 @@ def main():
                                       f"without a reason")
                     continue
 
-                if actual == expected:
+                if _exit_width(actual) == _exit_width(expected):
                     #dbg_/dbgm_ tests: optional stdout-substring
                     #assertion (manifest column 3), mirroring the
                     #single-file path.
@@ -1428,7 +1483,8 @@ def main():
             if os.path.isfile(nmod_file):
                 os.remove(nmod_file)
 
-            sentinel = _skip_sentinel(actual, expected, stderr_text)
+            sentinel = _skip_sentinel(_exit_width(actual),
+                                      _exit_width(expected), stderr_text)
             if sentinel is not None:
                 if sentinel:
                     print(f"SKIP {name} ({sentinel})")
@@ -1442,7 +1498,7 @@ def main():
                                   f"without a reason")
                 continue
 
-            if actual == expected:
+            if _exit_width(actual) == _exit_width(expected):
                 #Phase 11: optional stdout-substring assertion (manifest
                 #column 3). Checked before declaring the pass so a wrong
                 #stdout is a FAIL, not a warning.

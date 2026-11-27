@@ -1,6 +1,7 @@
 # tools/e2e_cuda_double_run.txt — explicit list for the device
-# double-run legs (spec D7, review I4). Consumed by run_e2e_tests.py's
-# optional filter argument and driven by tools/gate_cuda_tree.sh.
+# double-run legs (spec D7, review I4). The runner takes it through
+# NLANG_E2E_MANIFEST (its only manifest channel) and
+# tools/gate_cuda_tree.sh sets that variable.
 #
 # Two layers, per the D7 two-layer strategy:
 #   1. the tensor-related subset — every op_tensor_*, stdlib_tensor_*
@@ -20,6 +21,7 @@
 # removal in manifest.txt cannot silently shrink this net.
 
 # --- 1. tensor subset (full) ---
+array_abi_v10
 stdlib_tensor_creation
 stdlib_tensor_elementwise
 stdlib_tensor_length_mismatch_throws
@@ -138,6 +140,25 @@ class_null_check
 class_data_only
 class_super_ctor
 class_array_field_tostring
+
+# handle/reference surface the 0.13 merge added to the control plane:
+# class handles through generic reference parameters (write, parameter,
+# member, return) and package static members ride the same handle
+# tables an active device backend must not disturb. Sampled, not full:
+# the families' pinned-cpu legs carry the language coverage.
+refbind_generic_class_write
+refbind_generic_handle_param
+refbind_generic_member_handle_param
+refbind_generic_handle_ret_value
+imported_qualified_static
+exit_code_full_passthrough
+
+# web / http / json tours: the 0.13 web-framework package consumes
+# byte buffers and strings under the same host-residency contract.
+web_hello
+http_hello
+json_tour
+url_tour
 
 # enums
 enum_switch

@@ -6,7 +6,7 @@
 #--config/--table pricing, the config path guess, the uncalibrated
 #band-max path, the entry-row versus coarse-row kill grading (D-3/R-17)
 #and the row-less --timeout fallback. The row-shape and fallback
-#contracts run one real runner subprocess over stub .cmd tools laid out
+#contracts run one real runner subprocess over stub tools laid out
 #like a build root; the kill-point cases drive the runner's main()
 #in-process with the timing-table floors shrunk on the loaded module
 #(the real floor values stay pinned in tools/gate_time_table_test.py),
@@ -37,38 +37,67 @@ import run_e2e_tests as runner
 #so the source's first line (the wanted exit code) is copied into the
 #.ncu and read back at run time. ndb is never invoked by these entries,
 #but the stale guard demands the file exists.
-_NCC_STUB = (
+#The stub bodies come in both host spellings: .cmd batch bodies for
+#Windows, shebang sh bodies for POSIX (a .cmd text file cannot be
+#spawned on a POSIX host -- the box's timing-gate entry died in EACCES
+#until the stub tree went platform-aware).
+_NCC_STUB_CMD = (
     '@echo off\n'
     'setlocal\n'
     'set /p exitcode=<"%~2"\n'
     '> "%~4" echo %exitcode%\n')
-_NVM_STUB = (
+_NVM_STUB_CMD = (
     '@echo off\n'
     'setlocal\n'
     'set /p exitcode=<"%~1"\n'
     'exit /b %exitcode%\n')
-#Sleeping stub-VM variant for the kill-point cases below: with
-#NLANG_STUB_SLEEP=N in the runner environment the stub VM idles
-#exactly N seconds before honouring the source's exit code. The
-#sleep is a PowerShell Start-Sleep -- a wall-clock timer with no
-#network in it -- because the original `ping -n N 127.0.0.1` idled
-#for as long as the machine's loopback ICMP chose to take
-#(2026-11-24 pathology: 100% loss, 4 ticks measured 19 s), which
-#reddened the kill-point cases on every tree while it lasted
-#(gate_timing_design.md section 13 item 3, cleared 2026-11-26).
-#The in-process cases shrink
-#MIN_CAP_S/MIN_WATCHDOG_S on the loaded table module (see the
-#kill-point section comment), so seconds-scale sleeps cross the
-#computed caps; the row-less subprocess case has no row and no floor
-#involved at all.
-_NVM_STUB_SLEEP = (
+_NVM_STUB_SLEEP_CMD = (
     '@echo off\n'
     'setlocal\n'
     'if defined NLANG_STUB_SLEEP powershell -NoProfile -Command '
     '"Start-Sleep -Seconds %NLANG_STUB_SLEEP%" >nul\n'
     'set /p exitcode=<"%~1"\n'
     'exit /b %exitcode%\n')
-_NDB_STUB = '@echo off\nexit /b 0\n'
+_NDB_STUB_CMD = '@echo off\nexit /b 0\n'
+_NCC_STUB_SH = (
+    '#!/bin/sh\n'
+    'read -r exitcode < "$2"\n'
+    'echo "$exitcode" > "$4"\n')
+_NVM_STUB_SH = (
+    '#!/bin/sh\n'
+    'read -r exitcode < "$1"\n'
+    'exit "$exitcode"\n')
+#Sleeping stub-VM variant for the kill-point cases below: with
+#NLANG_STUB_SLEEP=N in the runner environment the stub VM idles
+#exactly N seconds before honouring the source's exit code. The
+#sleep is a wall-clock timer with no network in it -- Windows spells
+#it as a PowerShell Start-Sleep because the original
+#`ping -n N 127.0.0.1` idled for as long as the machine's loopback
+#ICMP chose to take (2026-11-24 pathology: 100% loss, 4 ticks
+#measured 19 s), which reddened the kill-point cases on every tree
+#while it lasted (gate_timing_design.md section 13 item 3, cleared
+#2026-11-26). POSIX sleeps plainly.
+#The in-process cases shrink
+#MIN_CAP_S/MIN_WATCHDOG_S on the loaded table module (see the
+#kill-point section comment), so seconds-scale sleeps cross the
+#computed caps; the row-less subprocess case has no row and no floor
+#involved at all.
+_NVM_STUB_SLEEP_SH = (
+    '#!/bin/sh\n'
+    'if [ -n "$NLANG_STUB_SLEEP" ]; then sleep "$NLANG_STUB_SLEEP"; fi\n'
+    'read -r exitcode < "$1"\n'
+    'exit "$exitcode"\n')
+_NDB_STUB_SH = '#!/bin/sh\nexit 0\n'
+if os.name == 'nt':
+    _NCC_STUB = _NCC_STUB_CMD
+    _NVM_STUB = _NVM_STUB_CMD
+    _NVM_STUB_SLEEP = _NVM_STUB_SLEEP_CMD
+    _NDB_STUB = _NDB_STUB_CMD
+else:
+    _NCC_STUB = _NCC_STUB_SH
+    _NVM_STUB = _NVM_STUB_SH
+    _NVM_STUB_SLEEP = _NVM_STUB_SLEEP_SH
+    _NDB_STUB = _NDB_STUB_SH
 
 #Corpus and scratch naming: the manifest override resolves entries and
 #.ncu output against this file's directory, and the runner's scratch
@@ -103,9 +132,16 @@ def _make_stub_tools(root, nvm_body=_NVM_STUB):
     tools = {}
     for tool, body in (('ncc', _NCC_STUB), ('nvm', nvm_body),
                        ('ndb', _NDB_STUB)):
-        path = root / 'src' / 'tools' / tool / 'Release' / f'{tool}.cmd'
+        # The stub must be spawnable on both hosts: Windows runs .cmd
+        # bodies; POSIX cannot execute a .cmd text file (EACCES, the
+        # box's timing-gate failures), so the stub ships as an
+        # executable shebang script. The path string returned here is
+        # the only handle callers use -- no test asserts the extension.
+        path = root / 'src' / 'tools' / tool / 'Release' / tool
         path.parent.mkdir(parents=True)
         path.write_text(body, encoding='utf-8')
+        if os.name != 'nt':
+            path.chmod(0o755)
         tools[tool] = str(path)
     project = root / 'stdlib' / 'io.nproj'
     project.parent.mkdir(parents=True)

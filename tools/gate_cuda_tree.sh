@@ -78,9 +78,16 @@ if [ "$probe_rc" -ne 0 ]; then
 fi
 
 # --- 2. the double-run ---------------------------------------------
-NLANG_E2E_TENSOR_BACKEND=cuda conda run -n py313 \
+#The list rides NLANG_E2E_MANIFEST, the runner's only manifest channel
+#(a positional list argument used to be accepted and is now rejected
+#loudly -- one merge cycle ran the full tour believing it had
+#filtered). The list file is manifest-format already: bare entry
+#names, expected exit 0.
+NLANG_E2E_TENSOR_BACKEND=cuda \
+    NLANG_E2E_MANIFEST="$root/tools/e2e_cuda_double_run.txt" \
+    conda run -n py313 \
     python tests/e2e/run_e2e_tests.py "$ncc" "$nvm" "$ndb" \
-    tools/e2e_cuda_double_run.txt >"$stem.out" 2>"$stem.err"
+    >"$stem.out" 2>"$stem.err"
 rc=$?
 
 echo "----- cuda_tree: stdout tail ($stem.out) -----"
