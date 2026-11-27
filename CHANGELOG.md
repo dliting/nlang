@@ -1,3 +1,40 @@
+## [0.14.15] - 2026-11-27
+
+This release folds master's in-flight lines into the device branch.
+The web framework and the package artifact consumption (F1) ship
+together, the standard library gains the `json` and `web` packages
+plus the binary-file and random-bytes helpers, and the NativeHost
+ABI moves to 17 (the device selector). The device branch's own tensor
+and device surface is unchanged; the new lines are described in the
+manual's web chapter (27) and the format references (28/29/30).
+
+### Added
+
+- **The `web` package** — a self-contained web framework: the `App`
+  facade, the route table and the middleware chain, sessions and the
+  session store, static file serving, server-sent events and
+  multipart form handling. Two self-terminating examples ship with
+  it.
+- **The `json` package** — `json.parse` builds a `JsonValue` tree from
+  text; the full DOM (`JsonText`, the kind classes and the parser)
+  and `JsonException` name every parse failure.
+- **Package artifact consumption (F1)** — imports now resolve from
+  compiled `.npkg` artifacts, not just source: third-party packages
+  ship as artifacts (native library members included), and the import
+  semantics — dotted and wildcard imports, source-before-artifact
+  ordering, first-artifact-directory precedence — are documented.
+- **`fs.writeBytes` and `fs.modifiedTimeMs`** — the binary write and
+  the last-modified-time helpers.
+- **`math.randomBytes`** — cryptographically secure random bytes from
+  the operating system, raising a named `Exception` when the source
+  is unavailable or the count is out of range.
+
+### Changed
+
+- **NativeHost ABI 17** — the ABI version stamp moves from 16 to 17
+  for the device selector hook; the manual's ABI chapter (30) records
+  the history entry.
+
 ## [0.14.14]
 
 ### Added
