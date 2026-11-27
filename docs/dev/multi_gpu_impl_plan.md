@@ -1052,3 +1052,165 @@ fast on 64 cores. Intermediate commits iterate at T0 (impact
 mapping, minutes); nothing that could hide a device regression
 is dropped — cpu-e2e targeting follows the impact map, and the
 tier coverage invariant still binds the final T1/T2 selections.
+
+## 8. Merge close-out (master → device branch, 0.14.15)
+
+The device line (M-G1..M-G4) is complete and docked. This section
+records the close-out for folding master's in-flight lines into the
+branch: the web framework, the package-artifact consumption (F1),
+the `json` and `web` stdlib packages, the binary-file and
+random-bytes helpers, and the NativeHost ABI move to 17 (the device
+selector). The merge commit is 96f3aaab; the close-out version is
+0.14.15.
+
+### What the merge changed at the contract level
+
+- **NativeHost ABI 17.** the device branch was at 16u, master at
+  13u; the merge renumbered to 17u (the device-selector hook). The
+  stamp, the manual's ABI chapter (30), and the version-guard test
+  (tools/nlang-docs/tests/test_abi_version_stamp.py, with a negative
+  probe) all sit on 17.
+- **Stdlib symbol pin.** the merged stdlib is 511 free functions
+  across 13 packages — master added the `json` and `web` packages
+  plus fs/math helpers, +5 over the branch's 506. The pin is
+  calibrated to 511 in both test_library_index.cpp and
+  test_symbol_index.cpp, with the per-package breakdown comments
+  rewritten to the merged surface.
+- **Manual cross-links.** the merge kept master's renumbered format
+  files (28/29/30) but the branch's index.md link text (26/27/28),
+  and dropped the json/web chapter entries. Fixed in both en and zh
+  index.md: the json (26) and web (27) chapter entries are restored
+  and the formats are relinked as 28/29/30. The spec version anchor
+  moves to 0.14.15 in both index pages.
+
+### Close-out verification (T2, this box)
+
+| leg | result |
+| --- | --- |
+| Debug full ctest | 100% green (194; 1 skip: mnist_ddp_run, single-GPU box, exit-90 contract) |
+| Release build | green |
+| Release full ctest | 100% green (194; 1 skip: same) |
+| docs five legs | pytest 118 passed; build en/zh (113 pages each); check en/zh (all internal links + nav coverage OK) |
+| Debug full e2e | 2303 passed, 2 skipped (icmp absent, OS-oracle gate), 1 failed — the single failure was the skip-sentinel gap below; fixed at root cause and the sentinel path re-verified against the fixed runner (the fixture now lands as a visible SKIP) |
+| ASan full e2e | 100% green: 2303 passed, 0 failed, 3 skipped (icmp absent ×2, cross-device sentinel ×1 — the fixed runner reports the sentinel as a visible SKIP with its reason, the contract working end to end under instrumentation) |
+| Release full e2e | 100% green: 2303 passed, 0 failed, 3 skipped (same env-gated three; both sweeps priced from their own timing columns, scale 1.709 ASan / 1.823 Release) |
+
+### Adjudications (this close-out)
+
+- **Symbol pin 506 → 511.** legitimate master stdlib growth (+5:
+  fs +2, json +1, math +1, web +1), not a merge artifact — verified
+  with an exact-replica counting script that reproduces the
+  SymbolIndex top-level declaration count. Calibrated both pins; no
+  duplicate symbols in the merge.
+- **pkg_artifact_imports python.** the test was added on master with
+  the bare `python` alias (${NLANG_DOCS_PYTHON}), which resolves to
+  the WindowsApps stub on this box ("Permission denied"). Switched
+  to ${PYTHON3_EXECUTABLE} (the CMake-found interpreter, the same
+  interpreter every other e2e driver uses).
+- **version_ncc stale exe.** ncc's Release binary was linked 2s
+  before CMake regenerated nlang_version.h, so it still reported
+  0.14.14 while nvm/ndisasm (linked later) reported 0.14.15. A full
+  Release rebuild (no --target) fixed it; all three version tests
+  (ncc/nvm/ndisasm) pass.
+- **Manual cross-links.** aligned the index links to the actual file
+  names: the merge's file renames (28/29/30, plus the json/web
+  files) won the disk, but the branch's index link text was stale.
+  Restored the json/web chapter entries and relinked the formats.
+- **Docs site-dir must be absolute.** the docs build/check legs
+  resolve a relative --site-dir differently (mkdocs build resolves
+  against the config dir; the check walks the caller's dir), which
+  makes the check report zero pages for a fine site. Absolute
+  site-dirs keep the legs consistent; the gate already absolutizes
+  its work dir for the same reason.
+
+### Bidirectional merge-completeness audit
+
+Two visible regressions in one hand-resolved merge (≈200 files) make a
+completeness sweep mandatory — fixing only the visible failures would
+be surface work. The audit diffs each parent against the result (merge
+base 1ccda4d0, branch tip f1432573, master tip 8af0af44): for every
+file one side touched it collects the lines that side added
+(base→side) and requires each to appear in the merge result
+(whitespace-normalised); files one side added must exist. Both sides'
+ctest registrations are diffed separately, and the script reruns
+against any merge (scratch under `temp/`).
+
+Of the 492 suspect branch-side lines and 142 suspect master-side lines,
+every one lands in exactly one of three buckets:
+
+- **Real losses, fixed in this close-out** — the e2e runner's
+  tensor-backend pinning and `.env` sidecar, the skip-sentinel protocol
+  (`E2E_SKIP_EXIT = 90` + reason → visible SKIP), and the branch's five
+  tensor/RNG families dropped from the `T1-asan-subset` selector in
+  `tools/gate_tiers.txt` (see the adjudications below).
+- **Legitimate master-side replacements** — the `nlang_core` library
+  split replacing the branch's Linux link-ring fix, the gate-timing
+  redesign replacing the runner's old timeout handling, the emitter
+  tree moving out of `src/vm/backend` into `src/compiler/codegen`
+  (headers to `include/nlang/core`), `kWorkerLoopIterations` back to
+  master's 2M now the flat-cap workaround it was lowered for is gone,
+  and the NativeHost contract text following the merged 17u rather
+  than the branch's 16u.
+- **Pure rewording / already handled** — the size-guard wording
+  variants, the version renumbering (VERSION, CHANGELOG, both index
+  pages, SYNC_BASELINE), and the StatementResolver tensor-assign
+  declarations, which the contract fixes had already restored.
+
+No ctest entry was lost: all 148 branch-side and 164 master-side test
+registrations appear in the merged trees, and every file either side
+added exists.
+
+### Adjudications (this close-out, continued)
+
+- **Three ASan e2e failures — prior adjudication retracted.** An
+  earlier draft of this ledger wrote the three failures
+  (`op_device_unknown_env`, `op_tensor_cross_device`,
+  `stdlib_net_ping_stress`) off as pre-existing box conditions. Two
+  were wrong: they are merge regressions. The merge dropped the
+  runner's run-phase environment (`E2E_TENSOR_BACKEND`/`RUN_ENV`/
+  `_run_env`), so a fixture's `.env` sidecar never reached nvm, and it
+  dropped the skip-sentinel protocol the multi-GPU cross-device
+  fixtures use on machines with fewer than two devices. Both were
+  restored from the branch revision (a12e15f8) and adapted to master's
+  redesigned runner (verdicts routed through `_emit_verdict`).
+  ping_stress stays a genuine environment skip — this box has no ICMP
+  path and master's OS oracle gates it before the tools ever run.
+- **Tensor-backend pinning restored for the e2e run phase.** The suite
+  pins `NLANG_E2E_TENSOR_BACKEND=cpu` by default because the product
+  default is `auto` — an unpinned suite on a GPU machine would
+  silently move every float path onto the device and make the gate's
+  verdicts hardware-dependent. `.flags` CLI args still override the
+  inherited environment, and the `.env` sidecar overrides the pin for
+  the few fixtures that exercise environment-driven behavior the CLI
+  rejects outright (an unknown backend name).
+- **T1-asan-subset selector regained the memory-risk tensor
+  families.** master rewrote the selector line and the branch's
+  `op_tensor_sort`/`scatter`/`take`/`unique` and `op_rng_seed`
+  patterns fell out. `tier_coverage_check` cannot see this kind of
+  loss — the rewritten selector still matches rows — so only the
+  audit could; the derived subset and the `gate_tier_smoke` entry are
+  green with it restored.
+- **Linux link verification is an open obligation.** The merge
+  replaced the branch's link-ring fix (`$<LINK_GROUP:RESCAN>`, cmake
+  3.24) with master's `nlang_core` library split (`add_library
+  (nlang_core)` under `src/core/`, cmake 3.19, plain link order).
+  That is a strict improvement — the nlang_vm↔nlang_compiler cycle is
+  resolved architecturally instead of papered over at link time — and
+  it links clean on this box under MSVC. But branch code plus GNU ld
+  has never linked the new structure on the acceptance box (its git
+  HEAD lags origin and GitHub is unreachable from both networks).
+  After the next box sync, at least a full cmake build plus the e2e
+  suite must run there before the pairing is considered verified.
+- **Manual sync over the 266 commits since the 16cfee52 baseline.**
+  The merge parked master's whole line under the branch's baseline, so
+  the drift check reports 266 commits to judge. Master arrived with
+  its own baseline at ecb48778 — its manual was current to its tip —
+  and only four commits sit above it (a roadmap docs edit, two gate
+  fixes, a packaging-verifier path fix): no language, stdlib,
+  diagnostic-text, exit-code or ABI surface. The branch side since
+  16cfee52 is one manual commit. The merge's user-visible union — the
+  json and web chapters, the formats renumbered to 28/29/30, and the
+  NativeHost 17u device selector — is carried by this close-out's
+  manual edits, which the docs five legs verified. The baseline is
+  re-anchored to the close-out with `--update` in the pure-baseline
+  commit that follows it.
