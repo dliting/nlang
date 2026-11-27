@@ -243,12 +243,16 @@ static constexpr uint16_t INTR_FS_ReadArray = 175;
 //and toInt-radix overloads reuse the existing IndexOf/ToInt ids — the
 //staged-arg-count predicate fills the missing default slot.
 static constexpr uint16_t INTR_String_EqualsIgnoreCase = 176;
+//v0.13.13a D-4: Dict.getOrDefault — lookup with a caller-supplied
+//default; the miss path inserts nothing and never throws (unlike
+//INTR_Dict_Get).
+static constexpr uint16_t INTR_Dict_GetOrDefault = 177;
 
-//177 = next fresh id. The v0.13.0 net block (174..220) retired when
+//178 = next fresh id. The v0.13.0 net block (174..220) retired when
 //net moved out of the VM into the nlang_net native module: module
 //natives register by name through the NativeHost ABI and need no
 //intrinsic ids. 174 and 175 were reused for the stream/filesystem
-//ReadArray intrinsics; 176 is String.equalsIgnoreCase; 177..220
-//remain free.
+//ReadArray intrinsics; 176 is String.equalsIgnoreCase; 177 is
+//Dict.getOrDefault; 178..220 remain free.
 
 }  // namespace nlang

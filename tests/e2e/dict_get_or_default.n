@@ -1,0 +1,22 @@
+int main() {
+	Dict<int, int> d = {};
+	d.set(1, 10);
+	d.set(2, 20);
+	int score = 0;
+	if (d.getOrDefault(1, -1) == 10) { score += 1; }
+	if (d.getOrDefault(99, 7) == 7) { score += 2; }
+	if (!d.containsKey(99)) { score += 4; }
+	if (d.count() == 2) { score += 8; }
+	Dict<string, string> s = {};
+	s.set("hello", "world");
+	if (s.getOrDefault("hello", "z") == "world") { score += 16; }
+	if (s.getOrDefault("gone", "fallback") == "fallback") { score += 32; }
+	string msg = "";
+	try {
+		int bad = d.get(99);
+	} catch (Exception e) {
+		msg = e.message;
+	}
+	if (msg.startsWith("NLang VM: Dict key not found")) { score += 64; }
+	return score;
+}

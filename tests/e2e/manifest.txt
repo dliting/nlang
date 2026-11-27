@@ -412,6 +412,7 @@ dict_remove_missing 0
 dict_clear_then_reuse 2
 dict_count_empty 0
 dict_get_missing_throws 1
+dict_get_or_default 127
 # --- Phase 8e-5: foreach statement ---
 foreach_array_int 15
 foreach_array_string 8

@@ -1,5 +1,5 @@
 //Standard library source for the "containers" prelude package — the
-//base containers (§12.4 rule: language core and base containers stay
+//base containers (§3.9.4 rule: language core and base containers stay
 //import-free; everything else needs an import). Implicitly imported
 //into every compilation unit. Native classes: implementations live in
 //the VM (intrinsic channel). Compile-time inline only: the stdlib
@@ -27,6 +27,7 @@ class Dict<K, V> {
     public native Dict();
     public native void set(K key, V value);
     public native V& get(K key);
+    public native V getOrDefault(K key, V defaultValue);
     public native bool containsKey(K key);
     public native int remove(K key);
     public native void clear();

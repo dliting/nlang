@@ -129,6 +129,7 @@ private slots:
 
     void streamClassesDeclaredInIo();
     void handleClassesHaveDeclarations();
+    void dictSurfaceCarriesGetOrDefault();
 };
 
 void TestBuiltinSurfaceCoverage::streamClassesDeclaredInIo()
@@ -197,6 +198,34 @@ void TestBuiltinSurfaceCoverage::handleClassesHaveDeclarations()
                     "user-visible builtin needs a declaration face "
                     "(builtin-surface coverage gate)").arg(name)));
         }
+    }));
+}
+
+void TestBuiltinSurfaceCoverage::dictSurfaceCarriesGetOrDefault()
+{
+    QVERIFY(withStdlibBuild("dict_face",
+        [](ModuleBuilder& builder, ModuleBuilder::UnitImages&) {
+        auto& reg = builder.Registry();
+        //v0.13.13a D-4: every user-visible builtin method needs its
+        //.n declaration face; the Dict.getOrDefault row pins that the
+        //new intrinsic's declaration ships with the prelude, the same
+        //way the stream method families guard the io classes. A VM
+        //arm added without the containers.n declaration fails here
+        //by name instead of drifting as a C++-only surface.
+        const SnClassDecl* dict = findDeclaredClass(reg, "Dict");
+        QVERIFY2(dict != nullptr,
+            qPrintable(QString(
+                "builtin class Dict has no .n declaration — update the "
+                "coverage list")));
+        bool declared = false;
+        for (auto& fn : dict->Members()) {
+            if (fn.Kind() == NK_Function && fn.Name() == "getOrDefault")
+                declared = true;
+        }
+        QVERIFY2(declared, qPrintable(QString(
+            "Dict.getOrDefault has no .n declaration in containers — "
+            "every user-visible builtin method needs a declaration "
+            "face (builtin-surface coverage gate)")));
     }));
 }
 

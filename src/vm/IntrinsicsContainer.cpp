@@ -348,6 +348,26 @@ bool VmExecutor::ExecuteIntrinsicContainerStructural(uint16_t intrinsicId,
         throw DeferredNlangRaise{m_exceptionClassIdx,
                                  "NLang VM: Dict key not found"};
     }
+    //INTR_Dict_GetOrDefault: lookup; on a missing key the caller's
+    //default (third argument slot) is returned by value — nothing is
+    //inserted and nothing is thrown, so the map stays untouched.
+    if (intrinsicId == INTR_Dict_GetOrDefault) {
+        int32_t k;
+        std::memcpy(&k, locals + callParamBase + kFrameSlotBytes, sizeof(k));
+        int32_t handle = ReadDictHandle(callParamBase, locals, "getOrDefault");
+        auto& entries = m_dictStore[handle - 1].entries;
+        for (auto& kv : entries) {
+            if (DictKeysEqual(kv.first, k)) {
+                std::memcpy(pResult, &kv.second, sizeof(kv.second));
+                return true;
+            }
+        }
+        int32_t fallback;
+        std::memcpy(&fallback,
+            locals + callParamBase + 2 * kFrameSlotBytes, sizeof(fallback));
+        std::memcpy(pResult, &fallback, sizeof(fallback));
+        return true;
+    }
     //INTR_Dict_ContainsKey: 1 if found, 0 otherwise.
     if (intrinsicId == INTR_Dict_ContainsKey) {
         int32_t k;

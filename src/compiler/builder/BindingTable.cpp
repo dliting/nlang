@@ -118,6 +118,7 @@ static const BindingRow s_LiteralRows[] = {
 	{"containers", "Dict",            INTR_Dict_Ctor},
 	{"containers", "Dict.set",        INTR_Dict_Set},
 	{"containers", "Dict.get",        INTR_Dict_Get},
+	{"containers", "Dict.getOrDefault", INTR_Dict_GetOrDefault},
 	{"containers", "Dict.containsKey", INTR_Dict_ContainsKey},
 	{"containers", "Dict.remove",     INTR_Dict_Remove},
 	{"containers", "Dict.clear",      INTR_Dict_Clear},
