@@ -1,7 +1,10 @@
 /*---
-    StatementResolverDeclDefaults.cpp — 形参默认值契约族：前向引用、
-    构造器 this 引用、常量适配与类型兼容。
-    从 StatementResolverDecls.cpp 抽取（2026-11-02 尺寸守卫，零行为变化）。
+    StatementResolverDeclDefaults.cpp — the formal-parameter default
+    value contract family: the expected-type channel (D-1), forward
+    references, ctor instance-dependency rejection, constant fit and
+    type compat.
+    Extracted from StatementResolverDecls.cpp (2026-11-02 size guard,
+    zero behavior change).
 ---*/
 #include "StatementResolver.h"
 #include "ExprResolverCastFit.hpp"
@@ -10,31 +13,43 @@
 namespace nlang
 {
 
-//Phase 9c round 5: walk an expression subtree looking for any
+//D-1 (0.13.13a): the traversal contract shared by the default-expression
+//walkers — visit every node of the subtree. Children of a parse node are
+//always SyntaxNode subclasses (the cast contract the pre-D-1 walkers
+//documented); unlike the pre-D-1 IsExpression-only filter the walk also
+//descends through non-expression children, because a lambda's block body
+//holds its references inside statement children (D-1: defaults may carry
+//lambdas; D-5: an instance dependency penetrates the lambda body;
+//Phase 9c: a later-formal reference would compile-resolve but crash
+//codegen's FindLocal in caller context).
+template <typename Visit>
+static void WalkDefaultRefs(Node& node, const Visit& visit)
+{
+	visit(node);
+	//Children() yields Node& elements (NodeIteratorBase::value_type).
+	for (auto& child : node.Children())
+		WalkDefaultRefs(child, visit);
+}
+
+//Phase 9c round 5: walk a default subtree looking for any
 //SnIdentifierExpr whose resolved Field() equals pTarget. Used by
 //CheckDefaultForwardRefs to detect that a default expression
 //references a later formal parameter (which would compile-resolve but
 //crash codegen's FindLocal in caller context). C++/C# likewise forbid
-//forward references in default expressions.
+//forward references in default expressions. Inside a lambda body the
+//lambda's own parameters are skipped for free: their identifiers bind
+//to the lambda's parameter descriptors (separate SnField objects), so
+//the identity test against the outer formal fails (D-1).
 static bool ReferencesFormal(SnExpression& expr, SnField* pTarget)
 {
-	if (expr.Kind() == NK_IdentifierExpr) {
-		auto& id = static_cast<SnIdentifierExpr&>(expr);
-		if (id.Field() == pTarget)
-			return true;
-	}
-	for (auto& child : expr.Children()) {
-		//Children of an SnExpression are always SyntaxNode subclasses
-		//(SnExpression or SnFieldExpr in our case). IsExpression is on
-		//SyntaxNode, not Node — cast then check.
-		auto& synChild = static_cast<SyntaxNode&>(child);
-		if (!synChild.IsExpression())
-			continue;
-		auto& childExpr = static_cast<SnExpression&>(synChild);
-		if (ReferencesFormal(childExpr, pTarget))
-			return true;
-	}
-	return false;
+	bool found = false;
+	WalkDefaultRefs(expr, [&found, pTarget](Node& node)
+	{
+		if (!found && node.Kind() == NK_IdentifierExpr
+			&& static_cast<SnIdentifierExpr&>(node).Field() == pTarget)
+			found = true;
+	});
+	return found;
 }
 
 //D-5 (0.13.13a): an instance member is a NON-STATIC field of a class or
@@ -56,80 +71,6 @@ static bool IsInstanceMember(const SnField& field)
 			|| pParent->Kind() == NK_StructDecl);
 	}
 	return true;
-}
-
-//P3 review, refined by D-5 (0.13.13a): walk an expression subtree looking
-//for a field-expression (identifier, member access, or call) whose
-//binding names an instance member — the bare spelling is the implicit
-//this.field binding, and a qualified spelling resolves to the same member
-//node (NK_ClassField/NK_StructField/NK_Function-under-a-type distinguishes
-//these from formals/locals/free functions; unqualified names cannot reach
-//another type's members). The pre-D-5 predicate
-//stopped at ANY field binding and falsely rejected static spellings.
-//pOffenderField optionally receives the first instance-member binding so
-//the diagnostic can name it. Same traversal contract as ReferencesFormal
-//above; lambda bodies walk through the same children (D-5: an instance
-//dependency penetrates the lambda body).
-static bool FindInstanceMember(SnExpression& expr, SnField*& pOffenderField)
-{
-	//The field-expr family (identifier, member access, invoke) all expose
-	//the resolved binding through SnFieldExpr::Field() — a call node
-	//carries its callee there (SnInvokeExpr::Callee() reads the same
-	//slot), while the member path deliberately leaves the inner name
-	//unbound for method spellings (ExprResolverMember skips the function
-	//binding so chained access survives IsDataExpr()). The delegate-invoke
-	//shape binds Field() to a func-typed value declaration, which
-	//IsInstanceMember correctly answers false for.
-	auto kind = expr.Kind();
-	if (kind == NK_IdentifierExpr || kind == NK_MemberExpr
-		|| kind == NK_InvokeExpr) {
-		auto* pField = static_cast<SnFieldExpr&>(expr).Field();
-		if (pField && IsInstanceMember(*pField)) {
-			if (!pOffenderField)
-				pOffenderField = pField;
-			return true;
-		}
-	}
-	for (auto& child : expr.Children()) {
-		//Children of an SnExpression are always SyntaxNode subclasses
-		//(SnExpression or SnFieldExpr in our case). IsExpression is on
-		//SyntaxNode, not Node — cast then check.
-		auto& synChild = static_cast<SyntaxNode&>(child);
-		if (!synChild.IsExpression())
-			continue;
-		if (FindInstanceMember(static_cast<SnExpression&>(synChild),
-			pOffenderField))
-			return true;
-	}
-	return false;
-}
-
-//The explicit-`this` half of the D-5 surface: an SnThisExpr anywhere in
-//the subtree (used only when no member binding explains the dependency).
-static bool ReferencesExplicitThis(SnExpression& expr)
-{
-	if (expr.Kind() == NK_ThisExpr)
-		return true;
-	for (auto& child : expr.Children()) {
-		auto& synChild = static_cast<SyntaxNode&>(child);
-		if (!synChild.IsExpression())
-			continue;
-		if (ReferencesExplicitThis(static_cast<SnExpression&>(synChild)))
-			return true;
-	}
-	return false;
-}
-
-//The D-5 predicate, renamed/refined from ReferencesThis: the subtree
-//depends on the enclosing instance only when it holds an instance-member
-//binding or an explicit `this`; static members answer false. Consumed by
-//the ctor-default guard below; the lambda pass-through reuses this shape
-//once the expected-type channel (0.13.13a D-1) resolves lambda defaults.
-static bool ReferencesInstance(SnExpression& expr)
-{
-	SnField* pOffender = nullptr;
-	return FindInstanceMember(expr, pOffender)
-		|| ReferencesExplicitThis(expr);
 }
 
 //Phase 9c round 5: detect forward references in default expressions.
@@ -156,6 +97,40 @@ void StatementResolveAccessor::CheckDefaultForwardRefs(
 	}
 }
 
+//D-5 (0.13.13a): classify one ctor default subtree on the instance-
+//dependency surface. One walk classifies the whole surface (Task 1
+//review M1: the gate walked first, then the wording split re-walked to
+//recover the offender). The field-expr family (identifier, member
+//access, invoke) all expose the resolved binding through
+//SnFieldExpr::Field() — a call node carries its callee there
+//(SnInvokeExpr::Callee() reads the same slot), while the member path
+//deliberately leaves the inner name unbound for method spellings
+//(ExprResolverMember skips the function binding so chained access
+//survives IsDataExpr()). The delegate-invoke shape binds Field() to a
+//func-typed value declaration, which IsInstanceMember correctly
+//answers false for. D-1 (0.13.13a): the walk reaches references
+//written inside lambda bodies — expression or block — so a default
+//lambda whose body captures the instance is rejected instead of
+//silently capturing the wrong receiver at the call site.
+static void ClassifyCtorDefaultRefs(SnExpression &value,
+	SnField *&pMember, bool &bExplicitThis)
+{
+	WalkDefaultRefs(value, [&pMember, &bExplicitThis](Node &node)
+	{
+		auto kind = node.Kind();
+		if (kind == NK_ThisExpr)
+			bExplicitThis = true;
+		else if (!pMember
+			&& (kind == NK_IdentifierExpr || kind == NK_MemberExpr
+				|| kind == NK_InvokeExpr))
+		{
+			auto *pField = static_cast<SnFieldExpr &>(node).Field();
+			if (pField && IsInstanceMember(*pField))
+				pMember = pField;
+		}
+	});
+}
+
 //P3 review + D-5 (0.13.13a): reject a ctor default that depends on the
 //instance — an explicit `this`, or access bound to a non-static
 //class/struct member. Defaults are emitted and evaluated at the CALL
@@ -176,15 +151,15 @@ void StatementResolveAccessor::CheckCtorDefaultThisRefs(SnFunction &sn,
 {
 	if (!IsConstructorFunction(sn))
 		return;
-	if (!ReferencesInstance(*param.Value()))
-		return;
-	//Classify after the gate so the wording matches the spelling: an
-	//instance member access (wording two) must win over a `this` that is
-	//merely its receiver (e.g. `= this.m_seed`).
+	//The wording order is a property of the visitor, not of the
+	//classification walk: an instance member access (wording two) must
+	//win over a `this` that is merely its receiver (e.g. `=
+	//this.m_seed`).
 	SnField *pMember = nullptr;
-	if (FindInstanceMember(*param.Value(), pMember))
+	bool bExplicitThis = false;
+	ClassifyCtorDefaultRefs(*param.Value(), pMember, bExplicitThis);
+	if (pMember)
 	{
-		NLANG_ASSERT(pMember);
 		//The owner of a class/struct member is always a named
 		//declaration (SnClassDecl/SnStructDecl are themselves SnFields)
 		//— same upcast-to-named-base as RejectBareInterfaceConstant.
@@ -202,6 +177,8 @@ void StatementResolveAccessor::CheckCtorDefaultThisRefs(SnFunction &sn,
 			pMember->Name().c_str());
 		return;
 	}
+	if (!bExplicitThis)
+		return;
 	m_Env.Log(CLL_Error,
 		param.Value()->Location(),
 		"default value for parameter \"%s\" of constructor \"%s\" "
@@ -298,10 +275,33 @@ bool StatementResolveAccessor::RejectTypeParamDefault(SnFunction &fn,
 	return true;
 }
 
+//v0.13.13a D-1 (web-framework lang gaps Task 2): a func-typed formal
+//declares the expected type of its default expression. The deferred
+//forms (untyped lambda, bare init list) need that expectation in place
+//BEFORE resolution: the lambda arm's target gate consumes InferredTarget
+//during the resolve and flags itself resolved on every error exit, so a
+//late push is never seen (same pre-push discipline as the call-argument
+//channel's ResolveDeferredArgs, ExprResolverInvoke.cpp). The by-name
+//function-reference arms need no push — an unbound identifier resolves
+//cleanly and the ModuleBuilder sweep stays silent — and bind after the
+//resolve (see ResolveFormalDefault). Returns the formal's func type
+//when its declared type is one, nullptr otherwise.
+static SnField *PushDefaultInferredTarget(SnFormalParam &param)
+{
+	auto *pFormalType = param.EvalDataType();
+	if (!pFormalType || !IsFuncTypeDecl(pFormalType))
+		return nullptr;
+	if (auto *pLambda = UntypedLambdaOf(*param.Value()))
+		pLambda->InferredTarget(&param);
+	else if (auto *pInitList = UntypedInitListOf(*param.Value()))
+		pInitList->InferredTarget(&param);
+	return pFormalType;
+}
+
 //v0.13.9 phase 3 split (source-size guard): the default-value contract
-//for one formal — resolution, the forward-ref check, the ctor
-//instance-dependency check and type compat (the walkers above are this
-//contract's arms).
+//for one formal — the expected-type channel, resolution, the forward-ref
+//check, the ctor instance-dependency check and type compat (the walkers
+//above are this contract's arms).
 void StatementResolveAccessor::ResolveFormalDefault(SnFunction &sn,
 	std::vector<SnFormalParam *> &formals, size_t i)
 {
@@ -311,8 +311,20 @@ void StatementResolveAccessor::ResolveFormalDefault(SnFunction &sn,
 	//concrete formal type and cannot say anything useful here.
 	if (sn.IsGenericDeclaration() && RejectTypeParamDefault(sn, *param))
 		return;
+	//D-1: the deferred forms take the formal as expected type first.
+	auto *pExpectedFuncType = PushDefaultInferredTarget(*param);
 	if (!param->Value()->IsResolved())
 		m_ExprResolver.Resolve(*param->Value(), sn, sn, ERF_None);
+	//D-1: a func-typed formal binds a by-name function reference (bare
+	//name or qualified member tail) against its declared type after the
+	//resolve — the same statement-channel helper the assignment and
+	//return paths use (TryBindStatementFuncRef). The strict pending
+	//predicates answer true only for spellings that still lack a
+	//func-typed binding, and each binder logs its own mismatch text; a
+	//successful bind lands the formal's declared type, so
+	//CheckDefaultTypeCompat below sees the identity cast.
+	if (pExpectedFuncType)
+		TryBindStatementFuncRef(*param->Value(), pExpectedFuncType);
 
 	//Phase 9c round 5: default[i] may only reference formals[0..i-1].
 	if (param->Value()->IsResolved())

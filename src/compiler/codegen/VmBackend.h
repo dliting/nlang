@@ -564,6 +564,23 @@ private:
     //One captured formal's prologue copy — one flavor dispatch.
     void EmitCapturedFormalCopy(SnFormalParam& param,
         BytecodeEmitter& emitter);
+    //The flavor-dispatched store of one captured value (dstSlot's field
+    //at fieldOff takes frame slot srcSlot's value), dispatching on the
+    //capture flavor the display field's flags carry — shared by the
+    //prologue's formal copies and the call-site snapshot fill
+    //(EmitCaptureFrame.cpp).
+    void EmitCapturedFieldStore(SnField& field, uint16_t dstSlot,
+        uint16_t fieldOff, uint16_t srcSlot, BytecodeEmitter& emitter);
+    //D-1 (0.13.13a): the lambda literal at a formal's default-value
+    //root — its display's one construction point, at the call site
+    //(EmitCaptureFrame.cpp).
+    void EmitCallSiteLambdaHandle(SnClassDecl& display,
+        SnFunction& method, BytecodeEmitter& emitter,
+        uint16_t resultOffset);
+    //One call-site display's member fill from the call site's override
+    //bindings ("$this" and the snapshot fields).
+    void EmitCallSiteSnapshotMembers(SnClassDecl& display,
+        uint16_t resultOffset, BytecodeEmitter& emitter);
     //I2: a captured catch variable's handler-entry copy — the runtime
     //lands the caught exception in the clause's frame slot, and this
     //bridges that slot into the display field before any handler
@@ -589,11 +606,17 @@ private:
     static SnClassField* CapturedDisplayFieldOf(SnField* field);
     //A captured descriptor reads/writes through display storage — the
     //walker claim shapes and the emission dispatch share this predicate
-    //so their +1 claim cannot drift from the dispatch decision.
-    static bool IsCapturedField(const SnField* pField)
-    {
-        return pField != nullptr && pField->ContainFlags(NF_Captured);
-    }
+    //so their +1 claim cannot drift from the dispatch decision. Two
+    //stamps route there: the ordinary NF_Captured redirect, and the
+    //0.13.13a D-1 call-site snapshot — the default lambda's display
+    //field mirrors the host formal and the same DisplayField pointer
+    //is published beside the descriptor (first-set-wins), the
+    //walker-visible trace of the CaptureSource link the synthetic
+    //frame's reference resolves through. In the host's own frame a
+    //snapshot-captured name still answers from its slot, so the
+    //predicate over-approximates there: reserving a slot the emission
+    //never claims is safe, only under-reserving trips the drift check.
+    static bool IsCapturedField(const SnField* pField);
 
     //--- Captured-storage mutation arms — EmitCaptureStorage.cpp ---
     //Reference-typed capture store-through: re-stage the pair out of the
@@ -2278,6 +2301,12 @@ private:
     //module slot, captured display field, declaration-private slot).
     //True with t filled when one answers.
     bool TryResolveOwnedStorage(SnField* field, BareIdTarget& t);
+    //D-1 (0.13.13a) arm of TryResolveOwnedStorage: inside a synthetic
+    //frame, a declaration snapshotted onto the arriving display answers
+    //through the snapshot field's CaptureSource link, hopping the
+    //"$outer" chain from the frame's anchor class. True with t filled
+    //when a hop matches.
+    bool TryResolveSnapshotCaptureField(SnField* field, BareIdTarget& t);
     //ThisField arm of ResolveBareIdentifier: the owning class/struct walk
     //with the offset solver (structs flatten, classes walk the chain).
     //True with t filled when the field resolves to instance storage.

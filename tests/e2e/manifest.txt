@@ -871,6 +871,14 @@ ctor_default_field_reject compile_error cannot access instance member "Vec.a"
 # member accesses get the member-naming wording ---
 lang_ctor_default_statics 0
 ctor_default_instance_member_reject compile_error cannot access instance member "Seed.v"
+# --- 0.13.13a D-1: defaults may be lambdas or named function references;
+# the call site builds the closure, so each call captures its own
+# arguments (two call sites, two receivers, an explicit override, the
+# by-name static form). Instance state inside a constructor default
+# lambda keeps the member-naming rejection, and the lambda's own
+# expected-type rejection must no longer appear ---
+lang_default_func_values 0
+ctor_default_lambda_instance_reject compile_error cannot access instance member "Cfg.m_base";cannot access instance member "CfgBare.m_base";!cannot reference 'this';!a lambda expression requires an expected function type
 # --- 0.9.8: MaxArgs default descent for the function and method arms ---
 fn_default_bigcall 0
 method_default_bigcall 0

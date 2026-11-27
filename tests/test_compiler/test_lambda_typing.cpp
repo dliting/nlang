@@ -448,6 +448,202 @@ private slots:
         QCOMPARE(countResolutionErrors(out), 0);
         QCOMPARE(countErrorsContaining(out, "lambda"), 0);
     }
+
+    //The parameter-default channel (web-framework lang gaps Task 2,
+    //D-1): the formal's declared type is the default expression's
+    //expected type, so a by-name function reference binds the way an
+    //explicit call argument already does.
+    void TestFormalDefaultFuncRefByFreeName() {
+        auto out = compileOne(
+            "struct Ctx { public int n; }\n"
+            "void noop(Ctx c) { }\n"
+            "void arm(func<void, Ctx> cb = noop) { }\n"
+            "int main() { return 0; }\n");
+        QVERIFY(out.ok);
+        QCOMPARE(countErrorsContaining(
+            out, "requires an expected function type"), 0);
+    }
+
+    //A lambda default resolves deferred against the formal's func
+    //type — one leg per host kind (free function / method / ctor).
+    void TestFormalDefaultLambdaFreeHost() {
+        auto out = compileOne(
+            "struct Ctx { public int n; }\n"
+            "void arm(func<void, Ctx> cb = (c) -> { }) { }\n"
+            "int main() { return 0; }\n");
+        QVERIFY(out.ok);
+        QCOMPARE(countErrorsContaining(out,
+            "a lambda expression requires an expected function type"), 0);
+    }
+
+    void TestFormalDefaultLambdaMethodHost() {
+        auto out = compileOne(
+            "struct Ctx { public int n; }\n"
+            "class Cfg {\n"
+            "    public int m_base;\n"
+            "    public void arm(func<void, Ctx> cb = (c) -> { }) { }\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        QVERIFY(out.ok);
+        QCOMPARE(countErrorsContaining(out,
+            "a lambda expression requires an expected function type"), 0);
+    }
+
+    void TestFormalDefaultLambdaCtorHost() {
+        auto out = compileOne(
+            "struct Ctx { public int n; }\n"
+            "class Cfg {\n"
+            "    public int m_base;\n"
+            "    public Cfg(func<void, Ctx> cb = (c) -> { }) { }\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        QVERIFY(out.ok);
+        QCOMPARE(countErrorsContaining(out,
+            "a lambda expression requires an expected function type"), 0);
+    }
+
+    //A qualified static method spelled by name binds through the
+    //member-tail arm (g6a shape). func<int> is the zero-parameter
+    //spelling tick() matches (probe g6f).
+    void TestFormalDefaultQualifiedStaticFuncRef() {
+        auto out = compileOne(
+            "class Knob {\n"
+            "    public static int tick() { return 7; }\n"
+            "}\n"
+            "int apply(func<int> g = Knob.tick) { return 0; }\n"
+            "int main() { return 0; }\n");
+        QVERIFY(out.ok);
+        QCOMPARE(countErrorsContaining(
+            out, "requires an expected function type"), 0);
+    }
+
+    //The signature comparison runs after binding: tick()'s zero
+    //parameter is not func<Int32, Int32>'s one (probes g6d/g6f). The
+    //owner-prefix rendering is channel-dependent, the fragment is not.
+    void TestFormalDefaultFuncRefSignatureMismatch() {
+        auto out = compileOne(
+            "class Knob {\n"
+            "    public static int tick() { return 7; }\n"
+            "}\n"
+            "int apply(func<int, int> g = Knob.tick) { return 0; }\n"
+            "int main() { return 0; }\n");
+        QVERIFY(!out.ok);
+        QCOMPARE(countErrorsContaining(out,
+            "does not match the signature of \"func<Int32, Int32>\""), 1);
+        QCOMPARE(countErrorsContaining(
+            out, "requires an expected function type"), 0);
+    }
+
+    //Lambda mismatch legs ride the lambda diagnostic family, not the
+    //reference wording (probes g7a/g7b — the plan's ellipsis shape
+    //corrected by measurement, ledger ruling).
+    void TestFormalDefaultLambdaArityMismatch() {
+        auto out = compileOne(
+            "struct Ctx { public int n; }\n"
+            "void arm(func<void, Ctx> cb = (c, c) -> { }) { }\n"
+            "int main() { return 0; }\n");
+        QVERIFY(!out.ok);
+        QCOMPARE(countErrorsContaining(
+            out, "the lambda takes 2 parameters"), 1);
+        QCOMPARE(countErrorsContaining(out,
+            "a lambda expression requires an expected function type"), 0);
+    }
+
+    //An expression body under a void expectation is the named void
+    //mismatch, not a silent discard (probe g7b; the same lambda under
+    //func<int, int> is legal — probe g7c — so the host is func<void>).
+    void TestFormalDefaultLambdaVoidReturnMismatch() {
+        auto out = compileOne(
+            "struct Ctx { public int n; }\n"
+            "void arm(func<void, Ctx> cb = (c) -> 1) { }\n"
+            "int main() { return 0; }\n");
+        QVERIFY(!out.ok);
+        QCOMPARE(countErrorsContaining(out, "returns void"), 1);
+        QCOMPARE(countErrorsContaining(out,
+            "a lambda expression requires an expected function type"), 0);
+    }
+
+    //The constructor guard (Task 1's wording split) sees through the
+    //lambda body once the expected-type channel stops rejecting the
+    //lambda first: an instance access inside a default lambda is
+    //wording two naming the member. Step 3 registers the before-state
+    //of these legs (they fail on the lambda's own missing type).
+    void TestCtorDefaultLambdaRejectsThisAccess() {
+        auto out = compileOne(
+            "class Cfg {\n"
+            "    public int m_base;\n"
+            "    public Cfg(func<int, int> g = (x) -> x + this.m_base) { }\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        QVERIFY(!out.ok);
+        QCOMPARE(countErrorsContaining(
+            out, "cannot access instance member \"Cfg.m_base\""), 1);
+        QCOMPARE(countErrorsContaining(
+            out, "cannot reference 'this'"), 0);
+    }
+
+    void TestCtorDefaultLambdaRejectsBareFieldAccess() {
+        auto out = compileOne(
+            "class Cfg {\n"
+            "    public int m_base;\n"
+            "    public Cfg(func<int, int> g = (x) -> x + m_base) { }\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        QVERIFY(!out.ok);
+        QCOMPARE(countErrorsContaining(
+            out, "cannot access instance member \"Cfg.m_base\""), 1);
+        QCOMPARE(countErrorsContaining(
+            out, "cannot reference 'this'"), 0);
+    }
+
+    //The forward-reference check follows the reference into the lambda
+    //body while skipping the lambda's own parameters.
+    void TestFormalDefaultLambdaForwardRefRejected() {
+        auto out = compileOne(
+            "int apply(func<int, int> g = (x) -> x + later, int later)"
+            " { return 0; }\n"
+            "int main() { return 0; }\n");
+        QVERIFY(!out.ok);
+        QCOMPARE(countErrorsContaining(
+            out, "references later parameter \"later\""), 1);
+        QCOMPARE(countErrorsContaining(out,
+            "a lambda expression requires an expected function type"), 0);
+    }
+
+    //The same contract for a block body: the reference lives inside a
+    //statement child (an IsExpression-only walk would stop before it),
+    //and an unresolved-later-formal capture would crash caller-context
+    //codegen's FindLocal just like in an expression body.
+    void TestFormalDefaultLambdaBlockBodyForwardRefRejected() {
+        auto out = compileOne(
+            "int apply(func<int, int> g = (x) -> { return x + later; },"
+            " int later) { return 0; }\n"
+            "int main() { return 0; }\n");
+        QVERIFY(!out.ok);
+        QCOMPARE(countErrorsContaining(
+            out, "references later parameter \"later\""), 1);
+        QCOMPARE(countErrorsContaining(out,
+            "a lambda expression requires an expected function type"), 0);
+    }
+
+    //The ctor guard's instance dependency sees through block-body
+    //statements too: the lambda captures the receiver at the call site,
+    //where a ctor default has no valid 'this' (same wording as the
+    //expression-body legs).
+    void TestCtorDefaultLambdaBlockBodyRejectsFieldAccess() {
+        auto out = compileOne(
+            "class Cfg {\n"
+            "    public int m_base;\n"
+            "    public Cfg(func<int, int> g = (x) -> { return x + m_base;"
+            " }) { }\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        QVERIFY(!out.ok);
+        QCOMPARE(countErrorsContaining(
+            out, "cannot access instance member \"Cfg.m_base\""), 1);
+        QCOMPARE(countErrorsContaining(
+            out, "cannot reference 'this'"), 0);
+    }
 };
 
 QTEST_GUILESS_MAIN(TestLambdaTyping)

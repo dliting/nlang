@@ -15,6 +15,7 @@
 
 #include <cstddef>
 #include <map>
+#include <memory>
 #include <vector>
 
 namespace nlang
@@ -64,6 +65,10 @@ struct CapturedVar
 	SnParagraph *pDeclPara = nullptr;  //display scope hosting the storage
 	SnClassField *pField = nullptr;    //synthesized display field
 	CaptureFlavor flavor = CaptureFlavor::Value;
+	//v0.13.13a D-1: the declaration keeps its own frame storage (the
+	//host formal of a default-value lambda) — the display field is a
+	//call-time snapshot mirror, not the storage redirect.
+	bool bCallSiteStorage = false;
 };
 
 struct DisplayScope
@@ -84,6 +89,11 @@ struct LambdaSite
 	size_t boundaryDepth = 0;   //innermost enclosing lambda's visitDepth
 	SnParagraph *pAnchor = nullptr;
 	bool bReceiverCapture = false;
+	//v0.13.13a D-1: the lambda sits at the root of a formal's default
+	//value — walked with the function's paragraph stack cleared, so its
+	//capture snapshot rides the display anchored at the lambda's own
+	//block body (the call-site display, local 0 of the synthetic frame).
+	bool bCallSiteDisplay = false;
 };
 
 class CapturePass
@@ -119,6 +129,10 @@ private:
 	SnParagraph *DeclParaOfPlainLocal(SnLocalVar &local);
 	void RecordCapture(SnField *pDecl, SnParagraph *pDeclPara,
 		CaptureFlavor flavor);
+	//v0.13.13a D-1: the call-site snapshot entry's registration (RecordCapture
+	//settled the key paragraph and the off-path test).
+	void RecordSnapshotCapture(SnField *pDecl, SnParagraph *pKeyPara,
+		CaptureFlavor flavor);
 	void AssignAnchors();
 	void MarkDisplayPara(SnParagraph *pPara);
 	SnParagraph *DisplayParaOf(SnParagraph *pPara) const;
@@ -130,6 +144,9 @@ private:
 	void MarkReceiverChains();
 	void SynthDisplayFields();
 	void SynthCapturedField(SnClassDecl &cls, CapturedVar &var);
+	//v0.13.13a D-1: the snapshot shape's declaration-side publish (the
+	//CaptureSource link, the first-set-wins DisplayField).
+	void PublishSnapshotCapture(CapturedVar &var);
 	void SynthNamedField(SnClassDecl &cls, SnField &typeRow,
 		const ISourceLocation &loc, const char *name);
 	void SynthLambdaMethods();
@@ -152,6 +169,14 @@ private:
 	std::map<SnParagraph *, SnField *> m_declOwnerOfPara;
 	std::map<SnField *, CapturedVar> m_capturedOf;
 	std::map<SnParagraph *, std::vector<CapturedVar *>> m_capturedByPara;
+	//v0.13.13a D-1: call-site capture entries (the lambda inside a
+	//formal's default value) live here, not in m_capturedOf: the
+	//first-seen single-storage semantics of that map is for ordinary
+	//captures, and a dual-captured declaration (host formal snapshotted
+	//by the default lambda AND display-hosted by a later ordinary one)
+	//needs both entries. The pointers ride m_capturedByPara like the
+	//map's own values.
+	std::vector<std::unique_ptr<CapturedVar>> m_callSiteVars;
 	//Per-paragraph frame context, recorded at push: the enclosing chain
 	//(outermost..innermost, excluding the paragraph itself), the chain
 	//position where the innermost enclosing lambda's body starts (the

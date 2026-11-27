@@ -278,6 +278,22 @@ void VmBackend::EmitCaptureDisplayPrologue(SnParagraph& body,
         //reads as the null sentinel until then.
         if (pPara->LoopActivationOwner() == pPara)
             continue;
+        //D-1 (0.13.13a): the synthetic method of the lambda at a
+        //formal's default-value root ARRIVES with this display already
+        //constructed — the call site built the instance and filled the
+        //snapshot fields and "$this" there, and local 0 carries that
+        //instance into the frame. Re-running OP_New would drop the
+        //payload: alias local 0 into the name-keyed slot instead. The
+        //identity test is exact — an arrival is always the current
+        //generated class's body-root display, and only the default
+        //lambda's method frame is hosted on that class.
+        if (pPara == &body && pClass == m_pCurrClass) {
+            emitter.Emit(OpCode::OP_VarLocal);
+            emitter.EmitUint16(0);
+            emitter.Emit(OpCode::OP_Assign);
+            emitter.EmitUint16(displaySlot);
+            continue;
+        }
         EmitDisplayConstruct(*pClass, displaySlot, emitter);
     }
 }

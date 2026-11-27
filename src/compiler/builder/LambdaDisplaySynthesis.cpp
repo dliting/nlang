@@ -233,14 +233,22 @@ void CapturePass::ResolveDisplayParents()
 				for (auto &site : m_sites)
 					if (site.pLambda == pEnclosing)
 					{
-						pParent = site.pAnchor;
+						//D-1 (0.13.13a): the enclosing lambda may be the
+						//one at a formal's default-value root, anchored
+						//at its own block body — a display declared at
+						//that root IS the arrival display (local 0): no
+						//parent, or "$outer" would re-read the instance
+						//from itself and not terminate.
+						pParent = site.pAnchor == pPara
+							? nullptr : site.pAnchor;
 						break;
 					}
 			}
 		}
-		//Anchors never sit inside their lambda's own body (the anchor
-		//scan is bounded by the visit boundary), so a display can never
-		//be its own parent — the $outer chain would not terminate.
+		//A display can never be its own parent — the $outer chain would
+		//not terminate: ordinary anchors sit outside their lambda's own
+		//body (the anchor scan is bounded by the visit boundary), and
+		//the call-site self-anchor maps to a null parent above.
 		NLANG_ASSERT(pParent != pPara);
 		scope.pParentPara = pParent;
 		scope.pParentClass = pParent ? m_classOfPara[pParent] : nullptr;
@@ -314,12 +322,41 @@ void CapturePass::SynthCapturedField(SnClassDecl &cls, CapturedVar &var)
 	//dead and the field kept the plain target kind).
 	var.pField->AddFlags(NF_Captured);
 	cls.Members().push_back(var.pField);
+	if (var.bCallSiteStorage)
+	{
+		PublishSnapshotCapture(var);
+		return;
+	}
 	var.pDecl->AddFlags(NF_Captured);
 	if (auto *pLocal = dynamic_cast<SnLocalVar *>(var.pDecl))
 		pLocal->SetDisplayField(var.pField);
 	else
 		static_cast<SnFormalParam *>(var.pDecl)
 			->SetDisplayField(var.pField);
+}
+
+//D-1 (0.13.13a): the snapshot shape's declaration-side publish: the
+//call-site snapshot field is a read/write cell of the display the
+//lambda carries, so no NF_Captured redirect goes onto the host formal
+//— only the lambda's synthetic frame reaches the snapshot, through
+//the field's CaptureSource link (the backend's
+//TryResolveSnapshotCaptureField arm). DisplayField is published
+//first-set-wins: a dual-captured formal must keep the ORDINARY
+//display (published unconditionally above) for the NF_Captured redirect.
+void CapturePass::PublishSnapshotCapture(CapturedVar &var)
+{
+	var.pField->SetCaptureSource(var.pDecl);
+	if (auto *pLocal = dynamic_cast<SnLocalVar *>(var.pDecl))
+	{
+		if (!pLocal->DisplayField())
+			pLocal->SetDisplayField(var.pField);
+	}
+	else
+	{
+		auto *pFormal = static_cast<SnFormalParam *>(var.pDecl);
+		if (!pFormal->DisplayField())
+			pFormal->SetDisplayField(var.pField);
+	}
 }
 
 //Phase 4: fields, per display in walk order — captured variables first,

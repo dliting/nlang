@@ -1,0 +1,37 @@
+//0.13.13a D-1: a func-typed parameter may carry a lambda or a function
+//reference as its default value. The closure environment is established
+//at the call site, so a default lambda snapshots the arguments of that
+//call — two call sites of the same defaulted parameter capture different
+//values — and a method-hosted lambda captures the call site's receiver.
+
+class Knob {
+    public static int tick() { return 7; }
+}
+
+int step(int n, func<int, int> g = (x) -> x + n) {
+    return g(3);
+}
+
+class Ctr {
+    public int m_base;
+    public Ctr(int b) { this.m_base = b; }
+    public int shift(int d, func<int, int> f = (x) -> x + this.m_base) {
+        return f(d);
+    }
+}
+
+int useTick(func<int> g = Knob.tick) {
+    return g();
+}
+
+int main() {
+    if (step(5) != 8) { return 1; }                  // g(3) = 3 + 5
+    if (step(100) != 103) { return 2; }              // this call captures its own n
+    if (step(2, (x) -> x * 10) != 30) { return 3; }  // an explicit argument wins
+    Ctr c = Ctr(20);
+    if (c.shift(1) != 21) { return 4; }              // the lambda sees c's field
+    Ctr other = Ctr(1000);
+    if (other.shift(1) != 1001) { return 5; }        // a second receiver, its own value
+    if (useTick() != 7) { return 6; }                // the default names a static method
+    return 0;
+}

@@ -30,6 +30,11 @@ bool VmBackend::TryResolveOwnedStorage(SnField* field, BareIdTarget& t) {
         t.slotIdx = StaticLocalSlotIndexOf(*field);
         return true;
     }
+    //D-1 (0.13.13a): the call-site snapshot arm answers before the
+    //NF_Captured one below — see TryResolveSnapshotCaptureField for
+    //why the snapshot outranks the DisplayField redirect.
+    if (TryResolveSnapshotCaptureField(field, t))
+        return true;
     //0.13.10 Task 6: captured storage. Field-first, before the frame
     //locals — flat frames reuse names (AllocLocal name-keying), and the
     //display field IS the storage once NF_Captured is stamped: the
@@ -50,6 +55,76 @@ bool VmBackend::TryResolveOwnedStorage(SnField* field, BareIdTarget& t) {
         t.localOffset = it->second;
         return true;
     }
+    return false;
+}
+
+//D-1 (0.13.13a): call-site snapshot capture, the first arm of
+//TryResolveOwnedStorage inside a synthetic frame. The lambda at a
+//formal's default-value root snapshotted the host formal onto the
+//display it carries — the synthetic frame's local 0 arrives as that
+//instance (the prologue's alias arm). The declaration keeps its own
+//frame storage and carries no NF_Captured, so the reference is
+//answered through the snapshot field's CaptureSource link, hopping
+//the "$outer" chain from the frame's anchor class (hop 0 = the
+//arrival display). The arm sits BEFORE the NF_Captured one: a
+//dual-captured formal's ordinary display is not reachable from this
+//frame — its chain starts at the arrival instance — so the reference
+//must answer from the snapshot, never from the DisplayField
+//redirect. Outside a generated frame the declaration answers from
+//its own slot instead: the caller evaluates the default expression
+//before the display exists, so those references never see the
+//snapshot. A miss on the chain (the declaration is not snapshotted
+//on this lambda) falls through untouched.
+bool VmBackend::TryResolveSnapshotCaptureField(SnField* field,
+    BareIdTarget& t)
+{
+    if (!InSyntheticCaptureFrame())
+        return false;
+    auto* pCls = m_pCurrClass;
+    for (int hop = 0; pCls; ++hop) {
+        SnField* pOuter = nullptr;
+        for (auto& member : pCls->Members()) {
+            if (member.Kind() != NK_ClassField
+                || member.ContainFlags(NF_Static))
+                continue;
+            auto& snapField = static_cast<SnClassField&>(member);
+            if (snapField.CaptureSource() == field) {
+                t.kind = BareIdTarget::CaptureField;
+                t.outerHops = hop;
+                t.owner = pCls;
+                t.fieldOff = FindClassFieldOffset(*pCls, member.Name());
+                NLANG_ASSERT(t.fieldOff >= 0);
+                return true;
+            }
+            if (member.Name() == "$outer")
+                pOuter = &snapField;
+        }
+        if (!pOuter)
+            break;   //chain root without a match
+        pCls = dynamic_cast<SnClassDecl*>(pOuter->EvalDataType());
+        NLANG_ASSERT(pCls);
+    }
+    return false;
+}
+
+//Walker/dispatch predicate (see the header note): NF_Captured covers
+//the ordinary redirect; the published DisplayField pointer
+//additionally covers the 0.13.13a D-1 call-site snapshot (the
+//snapshot synthesis publishes it first-set-wins, ordinary synthesis
+//unconditionally — a dual-captured descriptor answers true through
+//either half). Locals and lambda parameters share the NK_FormalParam
+//kind, as in CapturedDisplayFieldOf; no other descriptor carries the
+//pointer.
+bool VmBackend::IsCapturedField(const SnField* pField)
+{
+    if (!pField)
+        return false;
+    if (pField->ContainFlags(NF_Captured))
+        return true;
+    if (auto* pLocal = dynamic_cast<const SnLocalVar*>(pField))
+        return pLocal->DisplayField() != nullptr;
+    if (auto* pFormal = dynamic_cast<const SnFormalParam*>(pField))
+        return pFormal->DisplayField() != nullptr;
     return false;
 }
 

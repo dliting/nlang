@@ -18,21 +18,18 @@
          shape is uniform.
 
     The read-classification family (identifier/invoke reads down to a
-    declaring paragraph) lives in LambdaCaptureClassify.cpp and the
+    declaring paragraph) lives in LambdaCaptureClassify.cpp; the
     synthesis half (one "$disp_N" class per display scope, one
-    "$lambda_M" method per lambda, bodies moved in) in
-    LambdaDisplaySynthesis.cpp; the pass internals are shared through
-    the header.
+    "$lambda_M" method per lambda) in LambdaDisplaySynthesis.cpp.
 
     Captured variables keep their descriptors (name lookups still
     resolve to them); the pass only stamps NF_Captured and the
     display-field pointer. The backend's identifier classification
-    redirects every reference through the display instance, so there is
-    exactly one storage location per captured variable.
-
-    Storage for a captured lambda parameter lives in the owner lambda's
-    synthetic frame; Phase 0 below normalizes every expression body to
-    its return paragraph BEFORE the walk, so nesting through an owner's
+    redirects every reference through the display instance, so there
+    is exactly one storage location per captured variable. A captured
+    lambda parameter's storage lives in the owner lambda's synthetic
+    frame; Phase 0 below normalizes every expression body to its
+    return paragraph BEFORE the walk, so nesting through an owner's
     expression body anchors like block-body nesting always did.
 ---*/
 #include "LambdaCaptureAnalysis.h"
@@ -58,11 +55,10 @@ CaptureFlavor FlavorOf(const SnField &decl)
 //Phase 0: every lambda's expression body is normalized to a return
 //paragraph at the lambda's own site, before any capture fact exists.
 //The walk, anchor assignment, and synthesis then see exactly one body
-//shape — a paragraph — so a lambda nested in another lambda's
-//EXPRESSION body anchors inside the owner's synthetic frame exactly
-//like block-body nesting (currying). Built here rather than at
-//synthesis time because anchoring runs first: the paragraph must exist
-//when the nested lambda's chain is recorded.
+//shape — a paragraph — so a lambda nested in an EXPRESSION body
+//anchors inside the owner's synthetic frame like block-body nesting
+//(currying). Done here, not at synthesis time: the paragraph must
+//exist when the nested lambda's chain is recorded.
 static void NormalizeLambdaExprBodies(Node &node)
 {
 	if (node.Kind() == NK_LambdaExpr)
@@ -227,9 +223,8 @@ void CapturePass::WalkForeach(SnForeachStmt &stmt)
 	WalkLoopChildren(stmt, pBody);
 }
 
-//While/do bodies own an activation boundary like every loop body (spec
-//§4.1 — a loop-body scope re-activates per iteration) but declare no
-//head locals, so nothing is registered: only the owner is stamped.
+//While/do bodies own an activation boundary like every loop body
+//(spec §4.1) but declare no head locals: only the owner is stamped.
 void CapturePass::WalkWhile(SnWhileStmt &stmt)
 {
 	SnParagraph *pBody = stmt.BodyParagraph();
@@ -322,17 +317,26 @@ void CapturePass::EnterFunction(SnFunction &func)
 	for (auto &param : func.Params())
 		m_declParaOfFormal[&param] = func.Body();
 	Walk(*func.Body());
+	//D-1 (0.13.13a): a formal's default value evaluates at the CALL
+	//site but scopes lexically around the formal. Walking the defaults
+	//with the stacks cleared records that shape: a lambda at a
+	//default's root arrives with an empty paragraph chain, marking the
+	//call-site display (EnterLambda), and a host formal's declaring
+	//paragraph is then off the walk path — RecordCapture snapshots it.
+	for (auto &param : func.Params())
+		if (auto *pValue = param.Value())
+			Walk(*pValue);
 	m_paraStack.clear();
 	m_lambdaStack.clear();
 	m_loopBodyStack.clear();
 }
 
 //The catch variable's declaring paragraph, mirroring the resolver's
-//scoping decision: a braced handler owns its paragraph (the variable is
-//scoped to its clause); a bare-statement handler keeps the enclosing
-//paragraph that hosts the try. The runtime lands the caught exception
-//in the clause's frame slot; the handler-entry copy (EmitStmtTry)
-//bridges that slot into the display field once a lambda captures it.
+//scoping decision: a braced handler owns its paragraph, a bare-
+//statement handler keeps the enclosing paragraph hosting the try. The
+//runtime lands the exception in the clause's frame slot; the handler-
+//entry copy (EmitStmtTry) bridges it into the display field once a
+//lambda captures it.
 void CapturePass::HarvestCatchVar(SnCatchClause &clause)
 {
 	auto *pVar = clause.VarLocal();
@@ -354,14 +358,18 @@ void CapturePass::EnterLambda(SnLambdaExpr &lambda)
 	site.visitDepth = m_paraStack.size();
 	site.boundaryDepth = m_lambdaStack.empty()
 		? 0 : m_lambdaStack.back().visitDepth;
+	//D-1 (0.13.13a): the empty paragraph chain says the lambda was
+	//reached through a formal's default value (EnterFunction walks the
+	//defaults after clearing the stacks) — its anchor is its own block
+	//body and its free variables take snapshot storage (RecordCapture).
+	site.bCallSiteDisplay = m_paraStack.empty();
 	for (auto &up : lambda.ParamLocals())
 		m_paramOwnerOf[up.get()] = &lambda;
 	m_lambdaStack.push_back(site);
 	//A lambda body is a fresh emission frame: paragraphs inside it take
-	//no loop-activation owner from the enclosing frame's loops. Move the
-	//stack aside rather than clearing in place — WalkLoopChildren's
-	//push/pop pairing around an enclosing loop body must stay balanced
-	//when the walk descends through this lambda and comes back.
+	//no loop-activation owner from the enclosing frame's loops. Move
+	//the stack aside rather than clearing it — WalkLoopChildren's
+	//push/pop pairing must stay balanced across this descent.
 	auto savedLoopBodies = std::move(m_loopBodyStack);
 	m_loopBodyStack.clear();
 	for (auto &child : lambda.Children())
@@ -374,11 +382,39 @@ void CapturePass::EnterLambda(SnLambdaExpr &lambda)
 	m_sites.push_back(site);
 }
 
-
 void CapturePass::RecordCapture(SnField *pDecl, SnParagraph *pDeclPara,
 	CaptureFlavor flavor)
 {
 	NLANG_ASSERT(pDeclPara);
+	//D-1 (0.13.13a): a capture seen inside a call-site display (the
+	//lambda at a formal's default-value root — see EnterLambda) has no
+	//callee frame at closure creation: the storage must ride the
+	//display the lambda itself carries, so the entry's key paragraph
+	//becomes that lambda's block body (RecordSnapshotCapture). The
+	//test is whether the declaring paragraph is on the walk path:
+	//inside the call-site lambda (its formals, block locals) keeps
+	//ordinary semantics; off-path declarations — the host's formals,
+	//the only outer names a default can reference — take the snapshot.
+	SnParagraph *pKeyPara = pDeclPara;
+	bool bCallSiteStorage = false;
+	for (auto it = m_lambdaStack.rbegin(); it != m_lambdaStack.rend(); ++it)
+	{
+		if (!it->bCallSiteDisplay)
+			continue;   //an ordinary site above: keep descending
+		if (std::find(m_paraStack.begin(), m_paraStack.end(), pDeclPara)
+			== m_paraStack.end())
+		{
+			pKeyPara = it->pLambda->BlockBody();
+			NLANG_ASSERT(pKeyPara);  //Phase 0 normalized every body
+			bCallSiteStorage = true;
+		}
+		break;   //the call-site site is the stack bottom
+	}
+	if (bCallSiteStorage)
+	{
+		RecordSnapshotCapture(pDecl, pKeyPara, flavor);
+		return;
+	}
 	auto it = m_capturedOf.find(pDecl);
 	if (it == m_capturedOf.end())
 	{
@@ -392,6 +428,31 @@ void CapturePass::RecordCapture(SnField *pDecl, SnParagraph *pDeclPara,
 	}
 }
 
+//D-1 (0.13.13a): one snapshot capture entry (the caller settled the
+//key paragraph and the off-path test): the declaration keeps its own
+//host-frame storage — the display field is a snapshot mirror
+//(SynthCapturedField). Entries dedup per (declaration, display): a
+//nested call-site lambda re-reads the same host formal and shares the
+//field. They stay out of m_capturedOf — its first-seen single-storage
+//semantics is for ordinary captures; a dual-captured host formal
+//keeps both entries.
+void CapturePass::RecordSnapshotCapture(SnField *pDecl,
+	SnParagraph *pKeyPara, CaptureFlavor flavor)
+{
+	for (auto *pOther : m_capturedByPara[pKeyPara])
+		if (pOther->pDecl == pDecl)
+			return;
+	auto up = std::make_unique<CapturedVar>();
+	up->pDecl = pDecl;
+	up->pDeclPara = pKeyPara;
+	up->flavor = flavor;
+	up->bCallSiteStorage = true;
+	auto *pVar = up.get();
+	m_callSiteVars.push_back(std::move(up));
+	m_capturedByPara[pKeyPara].push_back(pVar);
+	MarkDisplayPara(pKeyPara);
+}
+
 void CapturePass::AssignAnchors()
 {
 	//Walk order: a lambda anchors at the nearest display scope inside
@@ -400,11 +461,22 @@ void CapturePass::AssignAnchors()
 	//promotes its immediate paragraph.
 	for (auto &site : m_sites)
 	{
-		NLANG_ASSERT(!site.paraChain.empty());  //instance field
-			//initializers are constant-foldable only (no lambdas); a
-			//static field initializer's lambda anchors in the
-			//$staticInit function's body paragraph (the resolver
-			//synthesizes the assignments there)
+		//D-1 (0.13.13a): the lambda at a formal's default-value root
+		//has no enclosing paragraph (EnterFunction walks the defaults
+		//with the stacks cleared): its emission frame starts at the
+		//lambda, so the anchor is the lambda's own block body — the
+		//display constructed at the call site, delivered as local 0 of
+		//the synthetic method frame (ResolveDisplayParents maps the
+		//self-anchor to a null parent). A non-default lambda always has
+		//a chain: field initializers fold to constants or anchor in
+		//$staticInit's body paragraph.
+		if (site.paraChain.empty())
+		{
+			site.pAnchor = site.pLambda->BlockBody();
+			NLANG_ASSERT(site.pAnchor);  //Phase 0 normalized every body
+			MarkDisplayPara(site.pAnchor);
+			continue;
+		}
 		SnParagraph *pAnchor = nullptr;
 		for (size_t i = site.paraChain.size(); i > site.boundaryDepth; --i)
 		{

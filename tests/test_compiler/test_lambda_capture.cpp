@@ -369,6 +369,53 @@ private slots:
         const auto names = displayFieldNames(*pLambda);
         QCOMPARE(names.size(), size_t(0));
     }
+
+    //A lambda in a parameter default captures the enclosing formal:
+    //the display exists with that formal's name (the per-call-site
+    //fill of the capture cell is pinned at runtime by
+    //tests/e2e/lang_default_func_values.n, Review Focus 2).
+    void defaultLambdaCapturesFormal()
+    {
+        auto out = compileOne(
+            "int step(int n, func<int, int> g = (x) -> x + n) { return 0; }\n"
+            "int main() { return 0; }\n");
+        QVERIFY(out.ok);
+        QCOMPARE(allErrors(out), 0);
+        auto* pLambda = findLambda(out.builder->TreeRootView());
+        QVERIFY(pLambda != nullptr);
+        QVERIFY(pLambda->IsResolved());
+        QVERIFY(pLambda->DisplayClass() != nullptr);
+        QVERIFY(pLambda->SyntheticMethod() != nullptr);
+        const auto names = displayFieldNames(*pLambda);
+        QCOMPARE(names.size(), size_t(1));
+        if (names.size() == 1)
+            QCOMPARE(names[0], std::string("n"));
+    }
+
+    //A method-host default lambda captures the call-site receiver:
+    //the display carries the $this field (Task 9's cross-module
+    //boundary leg rides this capture semantics).
+    void methodHostDefaultLambdaCapturesReceiver()
+    {
+        auto out = compileOne(
+            "class Cfg {\n"
+            "    public int m_base;\n"
+            "    public int arm(func<int, int> g = (x) -> x + m_base)"
+            " { return 0; }\n"
+            "}\n"
+            "int main() { return 0; }\n");
+        QVERIFY(out.ok);
+        QCOMPARE(allErrors(out), 0);
+        auto* pLambda = findLambda(out.builder->TreeRootView());
+        QVERIFY(pLambda != nullptr);
+        QVERIFY(pLambda->DisplayClass() != nullptr);
+        const auto names = displayFieldNames(*pLambda);
+        bool bHasThis = false;
+        for (const auto& name : names)
+            if (name == "$this")
+                bHasThis = true;
+        QVERIFY(bHasThis);
+    }
 };
 
 #include "test_lambda_capture.moc"

@@ -302,10 +302,21 @@ public:
 	//(ownerOrdinal) so nlink single-selects the producer's row.
 	//0xFFFF = own declaration or a folded constant (no producer row).
 	uint16_t m_iProducerSlotIdx = 0xFFFF;
+	//v0.13.13a D-1 (web-framework lang gaps Task 2): a display field
+	//that snapshots a call-site declaration — the display a lambda
+	//inside a formal's default value carries, filled where the free
+	//variables live and delivered as local 0 of the lambda's synthetic
+	//method frame — names that declaration here. The backend's
+	//CaptureSource arm (ResolveBareIdentifier) finds the snapshot from
+	//the declaration side inside the synthetic frame; ordinary display
+	//fields and the "$this"/"$outer" slots keep it null.
+	SnField *CaptureSource() const { return m_pCaptureSource; }
+	void SetCaptureSource(SnField *pField) { m_pCaptureSource = pField; }
 private:
 	ImmutableNodeList *ChildrenPtr() const override;
 	SnFieldExpr *m_pType;
 	SnExpression *m_pInitializer;
+	SnField *m_pCaptureSource = nullptr;
 	std::unique_ptr<ImmutableNodeList> m_upChildren;
 };
 

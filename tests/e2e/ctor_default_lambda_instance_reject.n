@@ -1,0 +1,15 @@
+//0.13.13a D-1: once a default lambda resolves against its parameter's
+//function type, the constructor guard still rejects instance state in
+//the default — following the reference into the lambda body and naming
+//the bound member (the lambda's own expected-type rejection is gone).
+class Cfg {
+    public int m_base;
+    public Cfg(func<int, int> g = (x) -> x + this.m_base) { }
+}
+
+class CfgBare {
+    public int m_base;
+    public CfgBare(func<int, int> g = (x) -> x + m_base) { }
+}
+
+int main() { return 0; }
