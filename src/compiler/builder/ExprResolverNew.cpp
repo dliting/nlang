@@ -124,19 +124,12 @@ void ExprResolveAccessor::Access(SnNewExpr &sn)
 	sn.AddFlags(NF_Resolved);
 
 	//0.9.11 T6: the arguments resolve before the ctor is selected — the
-	//overload match reads their types. ResolveExpressionList skips the
-	//already-resolved class-name child, so Args() stays safe here.
-	if (!ResolveExpressionList(sn.Args()))
-		return;
-
-	std::vector<SnExpression*> actuals;
-	for (auto &arg : sn.Args())
-	{
-		if (&arg == sn.ClassName()) continue;  //Args() view includes it
-		actuals.push_back(&arg);
-	}
-	sn.CtorFunction(SelectCtorForArgs(sn, pTypeField, actuals,
-		sn.Location()));
+	//overload match reads their types. v0.13.13a D-2(b): the deferred-
+	//shape skip, the selection and the binding tail live in the
+	//new-expression twin of BindCtorSelection (ResolveExpressionList
+	//skips the already-resolved class-name child, so Args() stays
+	//safe here).
+	BindNewExprCtorSelection(sn, *pTypeField);
 }
 
 void ExprResolveAccessor::Access(SnNewArrayExpr &sn)

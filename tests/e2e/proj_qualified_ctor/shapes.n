@@ -3,3 +3,7 @@ class Point {
     public int y;
     public Point(int a, int b) { this.x = a; this.y = b;}
 }
+class Box {
+    public func<int, int> f;
+    public Box(func<int, int> init) { this.f = init; }
+}

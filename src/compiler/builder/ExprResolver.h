@@ -315,12 +315,25 @@ SnLambdaExpr *UntypedLambdaOf(SnExpression &expr);
 //eager caller-scope prologues (member-receiver, module-qualified), which
 //skip exactly these. Definition in ExprResolverInvoke.cpp.
 std::vector<SnExpression*> CollectDeferredArgs(SnInvokeExpr &invoke);
+//v0.13.13a D-2(b): the new-expression twin — the same untyped shapes
+//over the ctor actuals of `new T(args)` / `T<A>(args)` (the class-name
+//child of the Args() view is not an argument). Definition in
+//ExprResolverInvoke.cpp.
+std::vector<SnExpression*> CollectDeferredArgs(SnNewExpr &newExpr);
 //0.13.10: the failure-tail sweep of the qualified/thread paths — a
 //consumed member stops the walker, so an unclaimed deferred argument
 //resolves here for its missing-target diagnostic (the bare path's
 //AcceptDeferredArgs contract). Definition in ExprResolverInvoke.cpp.
 void SweepDeferredInvokeArgs(ISyntaxNodeVisitor &visitor,
 	SnInvokeExpr &invoke);
+//The sweep of an already-collected deferred-argument list — the
+//SweepDeferredInvokeArgs body without the re-collect, exported for the
+//paths that hold the list from their ResolveExpressionList skip list
+//(the new-expression ctor arm, the constructor binding tails).
+//Idempotent — resolved arguments drop out. Definition in
+//ExprResolverInvoke.cpp.
+void AcceptDeferredArgs(ISyntaxNodeVisitor &visitor,
+	const std::vector<SnExpression*> &deferredArgs);
 //0.9.0: the target shapes a collection initializer lowers to — array
 //tokens, structs, List/Dict instantiations, non-builtin user classes.
 //Scalars / string / func types / builtin classes / interfaces / enums
@@ -1108,12 +1121,16 @@ private:
 	0.9.0 (D11): resolve the deferred arguments once the overload is
 	chosen — each formal's declared type becomes the target (an init
 	list's target, or 0.13.10 a lambda's expected function type). False
-	when an argument failed (its diagnostic is logged); the invoke stays
+	when an argument failed (its diagnostic is logged); the call stays
 	unresolved, mirroring the func-ref path. 0.9.13 B2: named arguments
 	resolve through their SnNamedArgExpr wrapper, located via the
-	invoke's child list.
+	argsOwner's child list. v0.13.13a D-2(b): \p argsOwner is any node
+	whose children are the actual arguments (SnInvokeExpr, SnNewExpr) —
+	the constructor binding tails share this channel (ctor calls reject
+	named arguments before matching, so the wrapper scan never fires
+	there).
 	*/
-	bool ResolveDeferredArgs(SnInvokeExpr &invoke,
+	bool ResolveDeferredArgs(SyntaxNode &argsOwner,
 		std::vector<FormalBinding> &bindings);
 
 	/*
@@ -1129,6 +1146,25 @@ private:
 	not complete. Defined in ExprResolverNewCtor.cpp.
 	*/
 	bool BindDeferredCtorArgs(SnInvokeExpr &invoke, SnFunction *pCtor);
+	/*
+	v0.13.13a D-2(b): the new-expression twin of the tail above — the
+	`new T(args)` / `T<A>(args)` spelling. \p deferredArgs is the list
+	the caller skipped through ResolveExpressionList; a failed selection
+	sweeps exactly those. Defined in ExprResolverNewCtor.cpp.
+	*/
+	bool BindDeferredCtorArgs(SnNewExpr &newExpr, SnFunction *pCtor,
+		const std::vector<SnExpression*> &deferredArgs);
+	/*
+	The shared binding tail behind both BindDeferredCtorArgs overloads:
+	trial-bind the actuals against the selected ctor (the same
+	candidate/actuals pair MatchCtorAgainst scored), stamp the pending
+	function references, and resolve the deferred arguments under the
+	call node's scope. \p argsOwner owns the actual-argument children.
+	Defined in ExprResolverNewCtor.cpp.
+	*/
+	bool BindCtorDeferredTail(SyntaxNode &argsOwner,
+		const std::vector<SnExpression*> &actuals,
+		const std::vector<SnExpression*> &deferredArgs, SnFunction *pCtor);
 
 	/*
 	Calculate the type "distance" from source type to target type.
@@ -1355,6 +1391,16 @@ private:
 	//diagnostic is already logged); each caller wires its own receiver
 	//slots around it. Defined in ExprResolverNewCtor.cpp.
 	SnFunction *BindCtorSelection(SnInvokeExpr &invoke, SnField &type);
+	//v0.13.13a D-2(b): the new-expression twin of BindCtorSelection —
+	//reached from Access(SnNewExpr&) for `new T(args)` and the generic
+	//instantiation `T<A>(args)`: the deferred shapes skip their own
+	//resolution until the selected ctor's formals exist (their target
+	//type only exists then), the actuals select the ctor (the class-name
+	//child is not an actual), and the binding tail stamps them. A failed
+	//argument resolution sweeps the deferred shapes for their own
+	//diagnostics and leaves the call unbound. Defined in
+	//ExprResolverNewCtor.cpp.
+	void BindNewExprCtorSelection(SnNewExpr &sn, SnField &type);
 	//Binds the resolved type declaration to the new-expression: classes keep
 	//the Phase 13 func-type rejection, structs join directly (0.9.11 D2).
 	//False = the diagnostic was logged and the caller must abort.

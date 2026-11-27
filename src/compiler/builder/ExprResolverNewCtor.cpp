@@ -293,31 +293,89 @@ SnFunction *ExprResolveAccessor::BindCtorSelection(SnInvokeExpr &invoke,
 }
 
 //v0.13.13a D-2(a): the constructor twin of ResolveInvokeWithFunc's
-//binding tail. The selection (SelectCtorForArgs → MatchCtorAgainst)
-//already scored the pending references and admitted the untyped lambdas
-//silently; this stamps them — BindArgFuncRefs gives a reference its
-//bound func type, ResolveDeferredArgs hands a lambda its expected
-//function type. The trial-binding re-run mirrors MatchCtorAgainst
-//exactly (same actuals, same candidate), so the shape that won the
-//match binds here. On a failed selection the mismatch diagnostic is
-//already logged; the deferred arguments still get their own sweep so
-//they never reach the backend unresolved (SweepDeferredInvokeArgs is
-//idempotent — resolved arguments drop out).
+//binding tail — the invoke-based call forms (bare `Foo(args)`, module-
+//qualified `m.Foo(args)`). The actuals are the invoke's parameters; the
+//deferred list is (re)collected here because BindCtorSelection does not
+//hold one. See BindCtorDeferredTail for the shared stamping story.
 bool ExprResolveAccessor::BindDeferredCtorArgs(SnInvokeExpr &invoke,
 	SnFunction *pCtor)
 {
 	std::vector<SnExpression*> actuals;
 	for (auto &param : invoke.Params())
 		actuals.push_back(&param);
+	return BindCtorDeferredTail(invoke, actuals,
+		CollectDeferredArgs(invoke), pCtor);
+}
+
+//v0.13.13a D-2(b): the new-expression twin (`new T(args)`, `T<A>(args)`).
+//The class-name child is not an actual; the caller collected the
+//deferred list for its ResolveExpressionList skip list and hands it
+//over, so the failure sweep claims exactly the skipped shapes.
+bool ExprResolveAccessor::BindDeferredCtorArgs(SnNewExpr &newExpr,
+	SnFunction *pCtor, const std::vector<SnExpression*> &deferredArgs)
+{
+	std::vector<SnExpression*> actuals;
+	for (auto &arg : newExpr.Args())
+	{
+		if (&arg == newExpr.ClassName()) continue;  //Args() view includes it
+		actuals.push_back(&arg);
+	}
+	return BindCtorDeferredTail(newExpr, actuals, deferredArgs, pCtor);
+}
+
+//The shared binding tail behind both BindDeferredCtorArgs overloads.
+//The selection (SelectCtorForArgs → MatchCtorAgainst) already scored
+//the pending references and admitted the untyped shapes silently; this
+//stamps them — TryBindArgs re-runs the winning candidate's positional
+//bindings (mirroring MatchCtorAgainst exactly: same actuals, same
+//candidate, so the shape that won the match binds here),
+//BindArgFuncRefs gives a reference its bound func type, and
+//ResolveDeferredArgs hands a lambda its expected function type. On a
+//failed selection the mismatch diagnostic is already logged; the
+//deferred arguments still get their sweep so they never reach the
+//backend unresolved (the sweep is idempotent — resolved arguments drop
+//out).
+bool ExprResolveAccessor::BindCtorDeferredTail(SyntaxNode &argsOwner,
+	const std::vector<SnExpression*> &actuals,
+	const std::vector<SnExpression*> &deferredArgs, SnFunction *pCtor)
+{
 	std::vector<FormalBinding> bindings;
 	if (!pCtor || !TryBindArgs(actuals, *pCtor, bindings))
 	{
-		SweepDeferredInvokeArgs(*m_pVisitor, invoke);
+		AcceptDeferredArgs(*m_pVisitor, deferredArgs);
 		return false;
 	}
 	if (!BindArgFuncRefs(bindings))
 		return false;
-	return ResolveDeferredArgs(invoke, bindings);
+	return ResolveDeferredArgs(argsOwner, bindings);
+}
+
+//v0.13.13a D-2(b): the new-expression twin of BindCtorSelection, fed by
+//Access(SnNewExpr&) after the type name and its type arguments resolved.
+//The deferred shapes (bare brace argument, lambda) skip their own
+//resolution — their target type only exists once the ctor is selected,
+//the contract the invoke paths established; the selection then runs on
+//the resolved actuals and BindDeferredCtorArgs stamps the pair. A
+//failed argument resolution sweeps the deferred shapes for their own
+//missing-target diagnostics instead of leaving them silent.
+void ExprResolveAccessor::BindNewExprCtorSelection(SnNewExpr &sn,
+	SnField &type)
+{
+	std::vector<SnExpression*> deferredArgs = CollectDeferredArgs(sn);
+	if (!ResolveExpressionList(sn.Args(), &deferredArgs))
+	{
+		AcceptDeferredArgs(*m_pVisitor, deferredArgs);
+		return;
+	}
+	std::vector<SnExpression*> actuals;
+	for (auto &arg : sn.Args())
+	{
+		if (&arg == sn.ClassName()) continue;  //Args() view includes it
+		actuals.push_back(&arg);
+	}
+	auto *pCtor = SelectCtorForArgs(sn, &type, actuals, sn.Location());
+	sn.CtorFunction(pCtor);
+	(void)BindDeferredCtorArgs(sn, pCtor, deferredArgs);
 }
 
 } //namespace nlang

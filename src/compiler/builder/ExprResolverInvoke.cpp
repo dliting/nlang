@@ -130,31 +130,54 @@ bool ExprResolveAccessor::RejectCrossNamespaceCall(SnInvokeExpr &snInvoke)
 	return true;
 }
 
-//0.9.0: the deferred arguments of this call — untyped shapes whose
-//target type can only be the chosen overload's formal: the bare brace
-//argument, and (0.13.10) the lambda. Empty for every other argument
-//shape. 0.9.13 B2: a named argument `name = {...}` keeps its
-//SnNamedArgExpr wrapper in the deferred list (the skip-list matches
-//Params() entries by identity); the gate tests the inner expression.
+//The deferred-shape test both collectors share. 0.9.0: an untyped shape
+//whose target type can only be the chosen overload's formal — the bare
+//brace argument, and (0.13.10) the lambda. Empty for every other
+//argument shape. 0.9.13 B2: a named argument `name = {...}` is judged on
+//its inner expression; the SnNamedArgExpr wrapper stays in the list (the
+//skip-list matches the owning list's entries by identity).
+static bool IsDeferredShape(SnExpression &arg)
+{
+	SnExpression *pTest = &arg;
+	if (arg.Kind() == NK_NamedArgExpr)
+		pTest = static_cast<SnNamedArgExpr&>(arg).Inner();
+	return UntypedInitListOf(*pTest) || UntypedLambdaOf(*pTest);
+}
+
 std::vector<SnExpression*> CollectDeferredArgs(
 	SnInvokeExpr &invoke)
 {
 	std::vector<SnExpression*> deferredArgs;
 	for (auto &param : invoke.Params())
-	{
-		SnExpression *pTest = &param;
-		if (param.Kind() == NK_NamedArgExpr)
-			pTest = static_cast<SnNamedArgExpr&>(param).Inner();
-		if (UntypedInitListOf(*pTest) || UntypedLambdaOf(*pTest))
+		if (IsDeferredShape(param))
 			deferredArgs.push_back(&param);
+	return deferredArgs;
+}
+
+//v0.13.13a D-2(b): the new-expression twin (`new T(args)` and the
+//generic instantiation `T<A>(args)`) — the same untyped shapes over the
+//ctor actuals. The class-name child hangs in the Args() view but is not
+//an argument.
+std::vector<SnExpression*> CollectDeferredArgs(
+	SnNewExpr &newExpr)
+{
+	std::vector<SnExpression*> deferredArgs;
+	for (auto &arg : newExpr.Args())
+	{
+		if (&arg == newExpr.ClassName())
+			continue;
+		if (IsDeferredShape(arg))
+			deferredArgs.push_back(&arg);
 	}
 	return deferredArgs;
 }
 
 //Failure-tail sweep of the deferred arguments: resolve them
 //directly so the generic missing-target diagnostic still fires (the
-//call's own diagnostics above stay).
-static void AcceptDeferredArgs(ISyntaxNodeVisitor &visitor,
+//call's own diagnostics above stay). Idempotent — resolved arguments
+//drop out. Exported through ExprResolver.h for the ctor paths' binding
+//tails, which hold an already-collected list from their skip list.
+void AcceptDeferredArgs(ISyntaxNodeVisitor &visitor,
 	const std::vector<SnExpression*> &deferredArgs)
 {
 	for (auto *pArg : deferredArgs)
@@ -434,67 +457,9 @@ bool ExprResolveAccessor::ResolveInvokeWithFunc(SnInvokeExpr &invoke,
 	return true;
 }
 
-//0.9.0: the deferred arguments of the chosen overload — the formal's
-//declared type is the target (the same declaration field shape the
-//assignment site passes as InferredTarget; 0.13.10: a lambda argument
-//takes it as its expected function type). False when any of them
-//failed to resolve; its diagnostic is already logged.
-//0.9.13 B2: named arguments resolve through their SnNamedArgExpr wrapper.
-//0.13.10 Task 7: a deferred argument is CALLER code — it hangs off the
-//invoke in the caller's tree, never in the callee's scope. The member-
-//receiver path reaches this channel with the receiver-class context and
-//the parent-only flag still active (its callee lookup needed them);
-//anchor the resolution at the invoke itself and clear the flag, so the
-//argument's walk follows the caller's scope chain. The bare path
-//arrives with the caller context already set — the anchor is the same
-//chain, one hop shallower.
-bool ExprResolveAccessor::ResolveDeferredArgs(
-	SnInvokeExpr &invoke, std::vector<FormalBinding> &bindings)
-{
-	SyntaxNode *pSavedContext = m_pContext;
-	const bool bParentOnly = ContainFlags(ERF_SearchInParentOnly);
-	m_pContext = &invoke;
-	RemoveFlags(ERF_SearchInParentOnly);
-	bool bOK = true;
-	for (auto &b : bindings)
-	{
-		if (b.kind == FormalBinding::B_Default || !b.pCallerExpr)
-			continue;
-		if (auto *pInitList = UntypedInitListOf(*b.pCallerExpr))
-			pInitList->InferredTarget(b.pFormal);
-		else if (auto *pLambda = UntypedLambdaOf(*b.pCallerExpr))
-			pLambda->InferredTarget(b.pFormal);
-		else
-			continue;
-		//0.9.13 B2: named arguments (`name = {...}`) bind through their
-		//SnNamedArgExpr wrapper — the wrapper (not the inner) is accepted
-		//so its Access() propagates the inner's resolution to the invoke's
-		//child list. Mirror TryFixupNamedArgBinding: locate the wrapper
-		//that holds this inner; a positional brace arg has none.
-		SnExpression *pArg = b.pCallerExpr;
-		auto &children = invoke.Children();
-		for (auto it = children.begin(); it != children.end(); ++it)
-		{
-			if ((*it).Kind() != NK_NamedArgExpr)
-				continue;
-			auto &named = static_cast<SnNamedArgExpr&>(*it);
-			if (named.Inner() == b.pCallerExpr)
-			{
-				pArg = static_cast<SnExpression*>(&named);
-				break;
-			}
-		}
-		pArg->Accept(*m_pVisitor);
-		if (!pArg->IsResolved())
-			bOK = false;
-	}
-	m_pContext = pSavedContext;
-	if (bParentOnly)
-		AddFlags(ERF_SearchInParentOnly);
-	return bOK;
-}
-
 //The failure diagnostics of the invoke paths live in
-//ExprResolverInvokeDiag.cpp (LogInvokeFailure and its MaybeLog* sweeps).
+//ExprResolverInvokeDiag.cpp (LogInvokeFailure and its MaybeLog* sweeps);
+//the deferred-argument binding tail (ResolveDeferredArgs) lives with the
+//other argument binders in ExprResolverBinding.cpp.
 
 } //namespace nlang

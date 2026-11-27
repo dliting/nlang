@@ -79,6 +79,20 @@ bool anyErrorMentions(const std::vector<std::string>& errors,
     return false;
 }
 
+//Joins the diagnostics into one string so a positive-binding assertion's
+//failure message names the compiler error instead of "errors were logged".
+std::string joinErrors(const std::vector<std::string>& errors)
+{
+    std::string text;
+    for (const auto& error : errors)
+    {
+        if (!text.empty())
+            text += " | ";
+        text += error;
+    }
+    return text;
+}
+
 //Compiles one source; true when the build completed with zero error
 //diagnostics (the positive-binding contract). Diagnostics are copied
 //out so rejects can pin their named wording on the same helper.
@@ -106,6 +120,47 @@ bool buildCompile(const std::string& tag, const char* body,
     catch (const std::exception&) { }
     errorsText = logger.errorsText();
     return clean && errorsText.empty();
+}
+
+//Compiles a two-file build: a module source plus a main source that
+//imports it (the module-qualified ctor tail needs a real module path,
+//same shape as test_module_import.cpp's source-list registration).
+//The module file must be named after the module name the import
+//refers to: module resolution indexes the registered sources by file
+//stem ("Module 'shapes' not found" otherwise), exactly like ncc's
+//on-disk discovery. There is no module declaration header — the file
+//carries declarations only.
+bool buildCompileModulePair(const std::string& tag,
+    const std::string& modName, const char* moduleBody,
+    const char* mainBody, std::vector<std::string>& errorsText)
+{
+    const auto dir = nlang::test::ScratchDir("nlang_ref_tests");
+    BuildParams params;
+    params.m_SourceFiles.push_back(writeTempSource(
+        QString::fromStdString(modName + ".n"), moduleBody));
+    params.m_SourceFiles.push_back(writeTempSource(
+        QString::fromStdString(tag + ".n"), mainBody));
+    params.m_sOutputModule = tag;
+    params.m_sOutputDir = dir.string();
+    params.m_sTempDir = dir.string();
+    params.m_sStdLibDir = STDLIB_DIR;
+    MemLogger logger;
+    ModuleBuilder builder(params, logger);
+    //BuildUnitImages, not BuildArtifacts: two TUs exceed the single-file
+    //artifact path ("Single-file build produced 2 unit images"); the
+    //unit-images pipeline is test_module_import.cpp's multi-source shape
+    //and still compiles and serializes every unit.
+    bool built = false;
+    //Exception boundary (same contract as ncc main): codegen internal
+    //errors throw; without the catch the abort would kill the test run.
+    try
+    {
+        ModuleBuilder::UnitImages images = builder.BuildUnitImages();
+        built = !images.units.empty();
+    }
+    catch (const std::exception&) { }
+    errorsText = logger.errorsText();
+    return built && errorsText.empty();
 }
 
 //Compiles one source and hands the tree root to the visitor (kind
@@ -571,6 +626,111 @@ private slots:
             errors);
         QVERIFY2(!retLambda && anyErrorMentions(errors, retNeedle),
             "a return-type-mismatched lambda must name its target");
+    }
+
+    //v0.13.13a D-2(b): the generic instantiation ctor arm `T<A>(args)`
+    //binds pending function references and lambdas against the selected
+    //stamped ctor (func-typed actuals are admitted as user-template type
+    //arguments — the multi-slot guard's single-slot rationale no longer
+    //holds for substituted fields), the module-qualified tail `m.T(args)`
+    //binds through the same channel, and mismatches keep the anchored /
+    //lambda-typing wordings the bare arm established in D-2(a).
+    void ctorArgFuncRefBindingGenericQualified()
+    {
+        const char* holdDecl =
+            "class Hold<T> {\n"
+            "    public T v;\n"
+            "    public Hold(T init) { v = init; }\n"
+            "}\n"
+            "int adder(int n) { return n + 1; }\n"
+            "int two(int a, int b) { return a; }\n";
+        std::vector<std::string> errors;
+        const bool lambdaOk = buildCompile("gen_ctor_lambda",
+            (std::string(holdDecl) +
+            "int main() {\n"
+            "    Hold<func<int, int>> h = Hold<func<int, int>>((x) -> x);\n"
+            "    return 0;\n"
+            "}\n").c_str(),
+            errors);
+        QVERIFY2(lambdaOk && errors.empty(),
+            "a lambda must bind to the generic ctor's func-typed formal");
+        const bool fnRefOk = buildCompile("gen_ctor_fnref",
+            (std::string(holdDecl) +
+            "int main() {\n"
+            "    Hold<func<int, int>> h = Hold<func<int, int>>(adder);\n"
+            "    return 0;\n"
+            "}\n").c_str(),
+            errors);
+        QVERIFY2(fnRefOk && errors.empty(),
+            "a named function reference must bind through the generic ctor");
+        const bool slotOk = buildCompile("gen_ctor_slot_read",
+            (std::string(holdDecl) +
+            "int main() {\n"
+            "    Hold<func<int, int>> h = Hold<func<int, int>>(adder);\n"
+            "    return h.v(2);\n"
+            "}\n").c_str(),
+            errors);
+        QVERIFY2(slotOk && errors.empty(),
+            "the func-typed generic field must stay callable through the slot");
+        const bool namedMismatch = buildCompile("gen_ctor_fnref_mismatch",
+            (std::string(holdDecl) +
+            "int main() {\n"
+            "    Hold<int> h = Hold<int>(two);\n"
+            "    return 0;\n"
+            "}\n").c_str(),
+            errors);
+        QVERIFY2(!namedMismatch && anyErrorMentions(errors,
+            "function \"two\" does not match parameter \"init\" of "
+            "constructor \"Hold\""),
+            "a mismatched reference on the generic arm must name its target");
+        const bool lambdaMismatch = buildCompile("gen_ctor_lambda_arity",
+            (std::string(holdDecl) +
+            "int main() {\n"
+            "    Hold<func<int, int>> h = Hold<func<int, int>>((a, b) -> a);\n"
+            "    return 0;\n"
+            "}\n").c_str(),
+            errors);
+        QVERIFY2(!lambdaMismatch && anyErrorMentions(errors,
+            "the lambda takes 2 parameters; the expected type"),
+            "a mismatched lambda on the generic arm keeps lambda wording");
+        const char* boxMod =
+            "public class Box {\n"
+            "    public func<int, int> f;\n"
+            "    public Box(func<int, int> init) { f = init; }\n"
+            "}\n";
+        const bool qualLambda = buildCompileModulePair("qual_ctor_lambda",
+            "shapes", boxMod,
+            "import shapes;\n"
+            "int main() {\n"
+            "    shapes.Box b = shapes.Box((x) -> x);\n"
+            "    return 0;\n"
+            "}\n",
+            errors);
+        QVERIFY2(qualLambda && errors.empty(),
+            ("a lambda must bind through the module-qualified ctor "
+                "tail: " + joinErrors(errors)).c_str());
+        const bool qualFnRef = buildCompileModulePair("qual_ctor_fnref",
+            "shapes", boxMod,
+            "import shapes;\n"
+            "int adder(int n) { return n + 1; }\n"
+            "int main() {\n"
+            "    shapes.Box b = shapes.Box(adder);\n"
+            "    return 0;\n"
+            "}\n",
+            errors);
+        QVERIFY2(qualFnRef && errors.empty(),
+            ("a reference must bind through the module-qualified ctor "
+                "tail: " + joinErrors(errors)).c_str());
+        const bool plainLambda = buildCompile("plain_ctor_lambda",
+            "class Plain { public int n; }\n"
+            "int main() {\n"
+            "    Plain p = Plain((c) -> { });\n"
+            "    return 0;\n"
+            "}\n",
+            errors);
+        QVERIFY2(!plainLambda && !errors.empty(),
+            "a lambda against an unmatched ctor set fails with a real "
+            "diagnostic, not a silent pass or a missing-target sweep");
     }
 
     //The no-op hook (Task 9 consumes it at instantiation points):

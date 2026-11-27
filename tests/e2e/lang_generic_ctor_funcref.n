@@ -1,0 +1,23 @@
+//0.13.13a D-2(b): the generic instantiation spelling `Hold<func<int, int>>(...)`
+//binds a lambda or a function reference directly at the constructor call —
+//the selected instance's constructor carries T = func<int, int> as its
+//formal, which supplies the expected function type, and the instance field
+//stores the bound function value like any class-typed value.
+
+class Hold<T> {
+    public T v;
+    public Hold(T init) { v = init; }
+}
+
+int adder(int n) { return n + 1; }
+
+int main() {
+    Hold<func<int, int>> a = Hold<func<int, int>>((x) -> x * 2);
+    if (a.v(3) != 6) { return 1; }   // the lambda inferred, stored, then called
+    Hold<func<int, int>> b = Hold<func<int, int>>(adder);
+    if (b.v(3) != 4) { return 2; }   // the named reference stamped in place
+    func<int, int> f = adder;        // the former workaround kept as a control:
+    Hold<func<int, int>> c = Hold<func<int, int>>(f);  // bind via a typed local
+    if (c.v(10) != 11) { return 3; }
+    return 0;
+}

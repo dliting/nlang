@@ -45,6 +45,19 @@ void ExprResolveAccessor::FixupParamTypesWithBindings(SyntaxNode &argsOwner,
 		auto *pTgt = b.pFormal->EvalDataType();
 		if (!pSrc || !pTgt)
 			continue;
+		//v0.13.13a D-2: an unbound function reference against a
+		//func-typed formal belongs to the func-ref binder (the ctor
+		//tail's BindArgFuncRefs; the invoke path runs that binder
+		//before this helper). The actual still carries the referenced
+		//function's leaked RETURN type here, so an int-like return
+		//would hit the int→handle null-literal gate before the binder
+		//stamps the bound func type — the same skip predicate as
+		//ComputeBindingDistance's func-ref branch. A non-func formal
+		//keeps its existing cast diagnostic (Array(adder) etc.).
+		if (IsFuncTypeDecl(pTgt)
+			&& (IsUnboundFuncRef(*b.pCallerExpr)
+				|| IsUnboundMemberFuncRef(*b.pCallerExpr)))
+			continue;
 		TypeCastInfo castInfo(pSrc, pTgt);
 		if (castInfo.Kind() == TCK_Same)
 			continue;

@@ -10,10 +10,7 @@
 #include "SyntaxTree.h"
 #include "BuildEnvironment.h"
 #include "BuiltinNames.h"
-#include "ModuleRegistry.h"
 #include "ModuleBuilderChecks.h"
-#include "BindingTable.h"   //IsBuiltinHandleDeclName (D11)
-#include <nlang/runtime/BuiltinGenericNames.h>
 #include <memory>
 #include <vector>
 #include <nlang/runtime/StackDump.h>
@@ -88,44 +85,6 @@ bool ExprResolveAccessor::TryResolveGenericTypeArgs(
 		refFlags.push_back(pTA->ContainFlags(NF_Ref) ? 1 : 0);
 	}
 	return true;
-}
-
-//v0.12.3 dictionary model (spec D2 argument domain): the builtin
-//containers box multi-slot values inside their element storage, but a
-//user template's T-typed field is a bare value slot — function
-//arguments are multi-slot records and are rejected there (interfaces
-//stay allowed: an interface value is a single-slot object handle).
-//v0.13.0 D3: struct arguments are admitted — every boundary
-//(call formals, local binds, external field stores, foreach) deep-
-//copies the record through the substituted type, so the field's slot
-//holds one private handle. True = rejected and logged.
-static bool RejectMultiSlotTypeArgs(BuildEnvironment &env,
-	const SnClassDecl &tmpl, const std::vector<SnField*> &typeArgs,
-	const std::string &baseName, const ISourceLocation *pLoc)
-{
-	const uint32_t templateOwner = env.Registry().OwnerOf(tmpl);
-	//D11: the builtin templates are exempt wherever they are declared —
-	//prelude-owned, or a stamped package's handle class after the
-	//concurrency classes leave the prelude (Channel boxes multi-slot
-	//element values inside its storage either way).
-	if (templateOwner == ModuleRegistry::NO_OWNER
-			|| IsBuiltinHandleDeclName(env.Registry(), templateOwner,
-				tmpl.Name()))
-		return false;
-	for (auto* pArg : typeArgs)
-	{
-		if (IsFuncTypeDecl(pArg))
-		{
-			env.Log(CLL_Error, pLoc,
-				"function types cannot be type arguments of "
-				"\"%s\": a function value is a multi-slot record "
-				"(target, receiver, form), and a generic field "
-				"stores one value slot.",
-				baseName.c_str());
-			return true;
-		}
-	}
-	return false;
 }
 
 //The declared-template arm's scope probe: a generic-declaration class
@@ -348,9 +307,12 @@ bool ExprResolveAccessor::TryResolveDeclaredGenericInstance(
 	std::vector<uint8> refFlags;
 	if (!TryResolveGenericTypeArgs(genType, baseName, typeArgs, refFlags))
 		return false;
-	if (RejectMultiSlotTypeArgs(m_Env, *pClassTemplate, typeArgs, baseName,
-			genType.Location()))
-		return false;
+	//v0.13.13a D-2(b): no shape rejection here anymore. v0.12.3 rejected
+	//multi-slot type arguments (function values) for user templates;
+	//v0.13.0 D3 admitted structs through the deep copy every boundary
+	//(call formals, local binds, field stores, foreach) runs through the
+	//substituted type, and D-2 admits function values the same way — a
+	//function value lands in one handle slot like any class value.
 	auto *pInstance = GetDeclaredGenericClassDecl(*pClassTemplate,
 		typeArgs);
 	if (!pInstance)

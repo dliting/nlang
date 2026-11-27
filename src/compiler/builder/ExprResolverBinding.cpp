@@ -1,6 +1,7 @@
 /*---
-    ExprResolverBinding.cpp — 重载候选的绑定距离核算
-    从 ExprResolverCast.cpp 抽取（2026-10-12 source-size 拆分，零行为变化）。
+    ExprResolverBinding.cpp — 重载候选的绑定距离核算与选定后的实参绑定尾
+    （函数引用戳绑、deferred实参绑定）。距离核算从 ExprResolverCast.cpp
+    抽取（2026-10-12 source-size 拆分，零行为变化）。
 ---*/
 #include "ExprResolver.h"
 #include "ExprResolverCastFit.hpp"
@@ -293,6 +294,70 @@ bool ExprResolveAccessor::BindArgFuncRefs(
 			return false;
 	}
 	return true;
+}
+
+//0.9.0: the deferred arguments of the chosen overload — the formal's
+//declared type is the target (the same declaration field shape the
+//assignment site passes as InferredTarget; 0.13.10: a lambda argument
+//takes it as its expected function type). False when any of them
+//failed to resolve; its diagnostic is already logged.
+//0.9.13 B2: named arguments resolve through their SnNamedArgExpr wrapper.
+//0.13.10 Task 7: a deferred argument is CALLER code — it hangs off the
+//call node in the caller's tree, never in the callee's scope. The member-
+//receiver path reaches this channel with the receiver-class context and
+//the parent-only flag still active (its callee lookup needed them);
+//anchor the resolution at the call node itself and clear the flag, so
+//the argument's walk follows the caller's scope chain. The bare path
+//arrives with the caller context already set — the anchor is the same
+//chain, one hop shallower. v0.13.13a D-2(b): \p argsOwner is the node
+//owning the actual-argument children (SnInvokeExpr, SnNewExpr — the
+//constructor binding tails share this channel too).
+bool ExprResolveAccessor::ResolveDeferredArgs(
+	SyntaxNode &argsOwner, std::vector<FormalBinding> &bindings)
+{
+	SyntaxNode *pSavedContext = m_pContext;
+	const bool bParentOnly = ContainFlags(ERF_SearchInParentOnly);
+	m_pContext = &argsOwner;
+	RemoveFlags(ERF_SearchInParentOnly);
+	bool bOK = true;
+	for (auto &b : bindings)
+	{
+		if (b.kind == FormalBinding::B_Default || !b.pCallerExpr)
+			continue;
+		if (auto *pInitList = UntypedInitListOf(*b.pCallerExpr))
+			pInitList->InferredTarget(b.pFormal);
+		else if (auto *pLambda = UntypedLambdaOf(*b.pCallerExpr))
+			pLambda->InferredTarget(b.pFormal);
+		else
+			continue;
+		//0.9.13 B2: named arguments (`name = {...}`) bind through their
+		//SnNamedArgExpr wrapper — the wrapper (not the inner) is accepted
+		//so its Access() propagates the inner's resolution to the call
+		//node's child list. Mirror TryFixupNamedArgBinding: locate the
+		//wrapper that holds this inner; a positional brace arg has none.
+		//A constructor call never reaches this branch — SelectCtorForArgs
+		//rejects named arguments before matching.
+		SnExpression *pArg = b.pCallerExpr;
+		auto &children = argsOwner.Children();
+		for (auto it = children.begin(); it != children.end(); ++it)
+		{
+			if ((*it).Kind() != NK_NamedArgExpr)
+				continue;
+			auto &named = static_cast<SnNamedArgExpr&>(*it);
+			if (named.Inner() == b.pCallerExpr)
+			{
+				pArg = static_cast<SnExpression*>(&named);
+				break;
+			}
+		}
+		pArg->Accept(*m_pVisitor);
+		if (!pArg->IsResolved())
+			bOK = false;
+	}
+	m_pContext = pSavedContext;
+	if (bParentOnly)
+		AddFlags(ERF_SearchInParentOnly);
+	return bOK;
 }
 
 } //namespace nlang
