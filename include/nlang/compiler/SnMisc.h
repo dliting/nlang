@@ -339,6 +339,19 @@ public:
 	SnClassDecl *SuperClass() const { return m_pSuperClass; }
 	void SuperClass(SnClassDecl *pSuper) { m_pSuperClass = pSuper; }
 
+	//Template-row backlink for instantiation shells. A declared generic
+	//instantiates as a synthetic record whose members are signature
+	//deep-copies (dictionary model, see GenericInstanceRegistry), while
+	//the compiled member bodies stay with the template row — so a
+	//qualified access finds the member on the shell and the accessor
+	//lives on the template row, and visibility checks comparing record
+	//identity need the shell to name the row that declared it. Set once
+	//by GenericInstanceRegistry::AdoptInstance (the shell's owner); null
+	//for ordinary classes, builtin generic instances, func<> shells and
+	//type-parameter placeholders, which fold to themselves.
+	SnClassDecl *InstantiatedFrom() const { return m_pInstantiatedFrom; }
+	void InstantiatedFrom(SnClassDecl *pTemplate) { m_pInstantiatedFrom = pTemplate; }
+
 	//Interfaces declared via "implements I1, I2" in the class header.
 	//Returns the raw name expressions from the grammar; resolved pointers
 	//are populated via AddImplements during semantic analysis.
@@ -467,6 +480,7 @@ public:
 private:
 	SnFieldExpr *m_pSuper;
 	SnClassDecl *m_pSuperClass;
+	SnClassDecl *m_pInstantiatedFrom = nullptr;  //template row of a shell
 	std::vector<SnFieldExpr*> m_implementsNames;
 	std::vector<SnInterfaceDecl*> m_implements;
 	bool m_bIsBuiltinClass = false;
@@ -526,11 +540,18 @@ public:
 	{ return m_bIsGenericInst ? m_baseName : Name(); }
 	void SetBaseName(const std::string& name) { m_baseName = name; }
 
+	//Template-row backlink, mirror of the class side: set once by
+	//GenericInstanceRegistry::AdoptInterfaceInstance (the shell's owner),
+	//read by the visibility folds in SyntaxNode.cpp.
+	SnInterfaceDecl *InstantiatedFrom() const { return m_pInstantiatedFrom; }
+	void InstantiatedFrom(SnInterfaceDecl *pTemplate) { m_pInstantiatedFrom = pTemplate; }
+
 private:
 	std::vector<std::string> m_typeParamNames;  //declaration-side template parameters
 	bool m_bIsGenericInst = false;
 	std::vector<SnField*> m_genericTypeArgs;
 	std::string m_baseName;
+	SnInterfaceDecl *m_pInstantiatedFrom = nullptr;  //template row of a shell
 };
 
 //0.9.10 D3: an interface `static const` member. Only the declaration

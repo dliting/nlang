@@ -201,6 +201,39 @@ private slots:
             "no diagnostics expected for the instantiated generic");
     }
 
+    //v0.13.13a: cross-instance private access inside a generic template.
+    //A qualified member access on a receiver whose type names the
+    //accessor's own template resolves against an instantiation record
+    //(type-substituted signature clones), while the accessor's scope
+    //chain reaches the template row; visibility identity must fold the
+    //instantiation back to its template origin — the dictionary model
+    //keeps the compiled record there. Both the instance-method and the
+    //static-method receiver spellings exercise the same identity test.
+    void genericCrossInstancePrivateAccessBuilds()
+    {
+        const auto path = writeTempSource("generic_priv_cross.n",
+            "class Holder<T> {\n"
+            "    private int n;\n"
+            "    public Holder() { n = 7; }\n"
+            "    public int mix(Holder<T> o) { return n + o.n; }\n"
+            "    public static Holder<T> mirror(Holder<T> o) {\n"
+            "        Holder<T> m = Holder<T>();\n"
+            "        m.n = o.n;\n"
+            "        return m;\n"
+            "    }\n"
+            "}\n"
+            "int main() {\n"
+            "    Holder<int> a = Holder<int>();\n"
+            "    Holder<int> b = Holder<int>();\n"
+            "    return a.mix(b) + Holder<int>.mirror(a).mix(b);\n"
+            "}\n");
+        const auto outcome = compileSource("generic_priv_cross", path);
+        QVERIFY2(!anyErrorMentions(outcome.second, "Cannot resolve the field: n"),
+            "a private sibling of an own-template instantiation must resolve");
+        QVERIFY2(outcome.first,
+            "cross-instance private access in a generic must build clean");
+    }
+
     //Two or more type parameters: the declaration list and the use-site
     //argument list both carry commas (regression for the 0.11.0
     //single-parameter-only TypeParams shape).

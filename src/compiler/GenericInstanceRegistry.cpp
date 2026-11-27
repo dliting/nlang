@@ -88,6 +88,10 @@ void GenericInstanceRegistry::AdoptInstance(SnClassDecl* pInstance,
 	InstanceKey<SnClassDecl> key{pTemplate, typeArgs};
 	m_instances[key] = pInstance;
 	m_instanceTemplate[pInstance] = pTemplate;
+	//Node-side mirror of m_instanceTemplate: the visibility folds read it
+	//from the record with no registry handle. const_cast like InstanceOf —
+	//the registry owns both records.
+	pInstance->InstantiatedFrom(const_cast<SnClassDecl*>(pTemplate));
 }
 
 void GenericInstanceRegistry::AdoptMemberClone(SnField* pClone,
@@ -155,6 +159,7 @@ void GenericInstanceRegistry::AdoptInterfaceInstance(
 	InstanceKey<SnInterfaceDecl> key{pTemplate, typeArgs};
 	m_ifaceInstances[key] = pInstance;
 	m_ifaceInstanceTemplate[pInstance] = pTemplate;
+	pInstance->InstantiatedFrom(const_cast<SnInterfaceDecl*>(pTemplate));
 }
 
 SnInterfaceDecl* GenericInstanceRegistry::InstanceOfInterface(

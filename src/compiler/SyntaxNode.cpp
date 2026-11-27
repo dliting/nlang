@@ -184,6 +184,33 @@ std::string SnField::ToString() const
 	return ss.str();
 }
 
+namespace {
+//Fold an instantiation shell to the template record that declared its
+//members. A declared generic instantiates as a synthetic record whose
+//members are signature deep-copies (dictionary model, see
+//GenericInstanceRegistry), while the compiled member bodies stay with the
+//template row — so a qualified access finds the member on the shell while
+//the accessor is a template-row member, and the visibility rules below
+//would compare two different nodes for one source declaration. Each
+//record candidate folds through its InstantiatedFrom backlink before
+//identity compares: one hop, never chained (adopted shells are adopted
+//from template rows), and every record without the backlink — ordinary
+//classes, builtin generic instances, func<> shells, type-parameter
+//placeholders — folds to itself.
+const SyntaxNode *AccessOrigin(const SyntaxNode *pRecord)
+{
+	if (!pRecord)
+		return nullptr;
+	if (pRecord->Kind() == NK_ClassDecl)
+		if (auto pOrigin = static_cast<const SnClassDecl *>(pRecord)->InstantiatedFrom())
+			return pOrigin;
+	if (pRecord->Kind() == NK_InterfaceDecl)
+		if (auto pOrigin = static_cast<const SnInterfaceDecl *>(pRecord)->InstantiatedFrom())
+			return pOrigin;
+	return pRecord;
+}
+} //namespace
+
 bool SnField::AllowAccess(const SnField &accessor) const
 {
 	switch (AccessType())
@@ -230,19 +257,33 @@ bool SnField::AllowProtectedAccess(const SnField &accessor) const
 		return false;
 	//Only classes have a superclass chain; struct, enum, interface and
 	//namespace owners reach protected class members nowhere beyond the
-	//private rule above.
+	//private rule above. The chain runs on template-row SuperClass links,
+	//so both the declaring side and each visited candidate fold through
+	//AccessOrigin first — a member found on an instantiation shell
+	//declares itself on the template row the chain walks.
 	for (auto pClass = pOwner->Kind() == NK_ClassDecl ?
 			static_cast<const SnClassDecl *>(pOwner) : nullptr;
 		pClass; pClass = pClass->SuperClass())
-		if (pClass == pDeclaring)
+		if (AccessOrigin(pClass) == AccessOrigin(pDeclaring))
 			return true;
 	return false;
 }
 
 bool SnField::AllowPrivateAccess(const SnField &accessor) const
 {
-	return (&accessor == this) || &accessor == Parent() ||
-		accessor.Parent() == Parent() || accessor.IsDecedentOf(*this);
+	if (&accessor == this)
+		return true;
+	//Record-identity compares fold through AccessOrigin first: under the
+	//dictionary model the target may be a clone found on an instantiation
+	//shell while the accessor body compiles on the template row, and the
+	//two record sides are then different nodes for one source
+	//declaration.
+	auto pDeclaring = AccessOrigin(Parent());
+	if (AccessOrigin(&accessor) == pDeclaring)
+		return true;  //accessor is the (folded) declaring record itself
+	if (AccessOrigin(accessor.Parent()) == pDeclaring)
+		return true;  //sibling members of the same (folded) declaring record
+	return accessor.IsDecedentOf(*this);
 }
 
 void SnField::OnAddedToParent(Node& parent)
