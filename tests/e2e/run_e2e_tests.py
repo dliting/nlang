@@ -102,6 +102,25 @@ DEFAULT_NCC = os.path.join(
 DEFAULT_NVM = os.path.join(
     SCRIPT_DIR, '..', '..', 'build', 'src', 'tools', 'nvm', 'Release', 'nvm.exe')
 MANIFEST = os.path.join(SCRIPT_DIR, 'manifest.txt')
+#Tensor-backend pinning for the run phase. The product default is `auto`
+#(spec D3a — use an installed device backend, fall back to cpu), so a
+#machine with a GPU would otherwise move this whole suite's float paths
+#onto the device and make the gate's results hardware-dependent. The
+#suite therefore pins one backend explicitly; NLANG_E2E_TENSOR_BACKEND
+#selects which run this is (cpu / mirror / cuda — the double-run and the
+#conditional cuda tree). A fixture's own `.flags` still wins: the nvm CLI
+#overrides the inherited environment.
+E2E_TENSOR_BACKEND = os.environ.get('NLANG_E2E_TENSOR_BACKEND', 'cpu')
+RUN_ENV = dict(os.environ)
+RUN_ENV['NLANG_TENSOR_BACKEND'] = E2E_TENSOR_BACKEND
+#Skip sentinel (multi-GPU spec's cross-platform ruling): a fixture that
+#cannot run its case on this machine — a device census too small, a
+#capability absent — prints the reason to stderr and exits this code;
+#the manifest still expects the ordinary success (0). The runner turns
+#it into a visible SKIP with the reason (the case ran nothing, but the
+#compile ran and the contract held); a sentinel without a reason is a
+#FAIL — a silent skip could mask a real breakage.
+E2E_SKIP_EXIT = 90
 #Kill cap for an entry with no gate-time table row; --timeout=SEC
 #overrides it per invocation (see the module docstring). Row-backed
 #entries take their kill from the table instead: the old flat 30 s cap
@@ -506,6 +525,35 @@ def _runner_argv(name, ndb, nvm):
     if name.startswith('dbg_'):
         return [ndb]
     return [nvm]
+
+
+def _run_env(name, sources_dir):
+    """The run-phase environment for one entry: the suite's pinned
+    tensor backend plus the entry's own `.env` sidecar (KEY=VALUE lines,
+    '#' comments) — the only way a fixture can pin environment-driven
+    behavior such as NLANG_TENSOR_BACKEND's unknown-name diagnostic,
+    which the nvm CLI rejects before the module ever loads."""
+    env = dict(RUN_ENV)
+    path = os.path.join(sources_dir, f"{name}.env")
+    if os.path.isfile(path):
+        with open(path, encoding='utf-8') as ef:
+            for line in ef:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                key, _, value = line.partition('=')
+                env[key.strip()] = value.strip()
+    return env
+
+
+def _skip_sentinel(actual, expected, stderr_text):
+    """Skip-sentinel verdict for one finished run: None when the entry
+    is not on the sentinel path, else the reason string ('' when the
+    sentinel arrived without naming one)."""
+    if actual != E2E_SKIP_EXIT or expected == E2E_SKIP_EXIT:
+        return None
+    return next((ln.strip() for ln in stderr_text.splitlines()
+                 if ln.strip()), '')
 
 
 def _matchable_stdout(name, raw_stdout):
@@ -1125,7 +1173,8 @@ def main():
                     result = subprocess.run(
                         _runner_argv(name, ndb, nvm) + [main_nmod],
                         capture_output=True, timeout=kill_s,
-                        input=stdin_bytes)
+                        input=stdin_bytes,
+                        env=_run_env(name, test_dir))
                     actual = result.returncode
                     stderr_text = _matchable_stderr(result.stderr)
                 except Exception as e:
@@ -1138,6 +1187,22 @@ def main():
                     failed += 1
                     errors.append(f"  {name}: runtime error: "
                                   f"{_describe_run_error(e)}")
+                    continue
+
+                sentinel = _skip_sentinel(actual, expected, stderr_text)
+                if sentinel is not None:
+                    if sentinel:
+                        print(f"SKIP {name} ({sentinel})")
+                        skipped += 1
+                    else:
+                        _emit_verdict(
+                            name,
+                            f"FAIL {name} (skip sentinel without a "
+                            f"reason)",
+                            entry_started, record_file)
+                        failed += 1
+                        errors.append(f"  {name}: skip sentinel "
+                                      f"without a reason")
                     continue
 
                 if actual == expected:
@@ -1342,7 +1407,8 @@ def main():
                 result = subprocess.run(
                     _runner_argv(name, ndb, nvm) + [nmod_file] + extra_flags,
                     capture_output=True, timeout=kill_s,
-                    cwd=run_cwd, input=stdin_bytes)
+                    cwd=run_cwd, input=stdin_bytes,
+                    env=_run_env(name, sources_dir))
                 actual = result.returncode
                 stderr_text = _matchable_stderr(result.stderr)
             except Exception as e:
@@ -1361,6 +1427,20 @@ def main():
             # Clean up
             if os.path.isfile(nmod_file):
                 os.remove(nmod_file)
+
+            sentinel = _skip_sentinel(actual, expected, stderr_text)
+            if sentinel is not None:
+                if sentinel:
+                    print(f"SKIP {name} ({sentinel})")
+                    skipped += 1
+                else:
+                    _emit_verdict(
+                        name, f"FAIL {name} (skip sentinel without a "
+                        f"reason)", entry_started, record_file)
+                    failed += 1
+                    errors.append(f"  {name}: skip sentinel "
+                                  f"without a reason")
+                continue
 
             if actual == expected:
                 #Phase 11: optional stdout-substring assertion (manifest
