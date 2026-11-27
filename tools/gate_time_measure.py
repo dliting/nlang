@@ -259,6 +259,18 @@ def sample_e2e(config, tools_tree, names, manifest_path):
             if line.strip() and line.strip().split()[0] in names]
     runner = REPO_ROOT / "tests" / "e2e" / "run_e2e_tests.py"
     tools = Path(tools_tree) / "src" / "tools"
+    # Tool spelling by generator: a multi-config tree lays the binaries
+    # one config directory deep with an .exe suffix; a single-config
+    # Unix Makefiles tree (the acceptance box) puts them straight under
+    # the tool directory with no suffix.
+    if os.name == "nt":
+        tool_paths = [tools / "ncc" / cfg / "ncc.exe",
+                      tools / "nvm" / cfg / "nvm.exe",
+                      tools / "ndb" / cfg / "ndb.exe"]
+    else:
+        tool_paths = [tools / "ncc" / "ncc",
+                      tools / "nvm" / "nvm",
+                      tools / "ndb" / "ndb"]
     with tempfile.TemporaryDirectory() as tmp:
         subset = Path(tmp) / "sentinels.txt"
         record = Path(tmp) / "record.txt"
@@ -267,9 +279,9 @@ def sample_e2e(config, tools_tree, names, manifest_path):
         env = dict(os.environ, NLANG_E2E_MANIFEST=str(subset))
         proc = subprocess.run(
             [sys.executable, str(runner),
-             str(tools / "ncc" / cfg / "ncc.exe"),
-             str(tools / "nvm" / cfg / "nvm.exe"),
-             str(tools / "ndb" / cfg / "ndb.exe"),
+             str(tool_paths[0]),
+             str(tool_paths[1]),
+             str(tool_paths[2]),
              "--config=%s" % config.split("-", 1)[1],
              "--timeout=120", "--record-out", str(record)],
             cwd=str(runner.parent), env=env, capture_output=True,

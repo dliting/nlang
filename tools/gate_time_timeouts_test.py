@@ -240,9 +240,20 @@ def test_show_only_json_resolves_ctest_beside_cmake():
     with tempfile.TemporaryDirectory() as tmp:
         tools = Path(tmp) / "tools"
         tools.mkdir()
-        (tools / "cmake.bat").write_text("@echo off\r\n", encoding="ascii")
-        (tools / "ctest.bat").write_text(
-            '@echo off\r\necho {"tests": []}\r\n', encoding="ascii")
+        if os.name == "nt":
+            (tools / "cmake.bat").write_text("@echo off\r\n", encoding="ascii")
+            (tools / "ctest.bat").write_text(
+                '@echo off\r\necho {"tests": []}\r\n', encoding="ascii")
+        else:
+            # POSIX cannot spawn a .bat body: the stubs carry a shebang
+            # and the executable bit (the resolution under test now
+            # requires os.access X_OK, so the pair must be spawnable to
+            # prove the beside-cmake pick).
+            for name, body in (("cmake.bat", ""),
+                               ("ctest.bat", 'echo {"tests": []}\n')):
+                stub = tools / name
+                stub.write_text("#!/bin/sh\n" + body, encoding="ascii")
+                stub.chmod(0o755)
         saved = dict(os.environ)
         try:
             os.environ["NLANG_GATE_CMAKE"] = str(tools / "cmake.bat")

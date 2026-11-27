@@ -49,7 +49,14 @@
 
 set -u
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
-PY="D:/dev/miniconda3/envs/py313/python.exe"
+#Interpreter by host, not by hardwired Windows path: the acceptance box
+#and any POSIX host carry python3 on PATH (the box died with rc=127 on
+#every $PY leg when the tier assembly ran there). NLANG_GATE_PY lets a
+#caller pin an interpreter without editing the script.
+case "${OS:-}" in
+  Windows_NT) PY="${NLANG_GATE_PY:-D:/dev/miniconda3/envs/py313/python.exe}" ;;
+  *)          PY="${NLANG_GATE_PY:-python3}" ;;
+esac
 WORK="${NLANG_GATE_TIER_WORK:-$REPO/temp/tier}"
 # Absolutized here: mkdocs resolves --site-dir against the config file's own
 # directory, so a relative override had the build legs write under docs/ while

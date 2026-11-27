@@ -46,9 +46,15 @@ def cmake_tools():
     ctest = os.environ.get("NLANG_GATE_CTEST")
     if not ctest:
         stem = Path(cmake).resolve().parent / "ctest"
-        for suffix in (".exe", ".bat", ".cmd", ""):
+        # Executable, not merely present: a bare is_file() pick handed a
+        # POSIX host the .bat text file (is_file is true for it) and the
+        # later spawn died in PermissionError (EACCES on a non-ELF).
+        # Windows suffix order first, then the extension-less ELF.
+        suffixes = (".exe", ".bat", ".cmd", "") if os.name == "nt" \
+            else ("", ".exe", ".bat", ".cmd")
+        for suffix in suffixes:
             candidate = Path(str(stem) + suffix)
-            if candidate.is_file():
+            if candidate.is_file() and os.access(candidate, os.X_OK):
                 ctest = str(candidate)
                 break
     if not ctest:

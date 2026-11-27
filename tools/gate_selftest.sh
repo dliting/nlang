@@ -675,11 +675,17 @@ case_a7_print_write_dirs() {
     mkdir -p "$dir"
     local abs="$dir"        # mktemp/pwd already gave the POSIX absolute form
     local rel="t1"          # the leg CWD is this workspace
-    local bs
+    local bs=""
     # The Windows spelling a person pastes from Explorer. tr is the pinned
     # derivation: sed and ${x//...} double the backslashes here. cygpath -m
-    # does not absolutize, so $dir has to be absolute already.
-    bs=$(cygpath -m "$dir" | tr '/' '\\')
+    # does not absolutize, so $dir has to be absolute already. The backslash
+    # spelling exists only where cygpath does: on a POSIX host there is no
+    # second spelling to fold, so the arm is skipped instead of feeding
+    # cygpath's stderr into an empty run (the box died exactly that way,
+    # mirroring how case A2 skips its case-folding arm).
+    if command -v cygpath > /dev/null 2>&1; then
+        bs=$(cygpath -m "$dir" | tr '/' '\\')
+    fi
 
     local -a spellings=() lines=() rcs=()
     local tag rc line
@@ -696,7 +702,9 @@ case_a7_print_write_dirs() {
     a7_run build-eq "--build=$abs"
     a7_run bglue "-B$abs"
     a7_run bspace -B "$abs"
-    a7_run build-bs --build "$bs"
+    if [ -n "$bs" ]; then
+        a7_run build-bs --build "$bs"
+    fi
     a7_run test-dir --test-dir "$abs"
     a7_run test-dir-eq "--test-dir=$abs"
     a7_run site-dir --site-dir "$abs"
@@ -1375,8 +1383,14 @@ case_a18_preflight_first_leg() {
     local out=a18-preflight.out rc first t1_release t2_release
     #The tier script prints tree flags in the Windows forward-slash spelling
     #(cygpath -m of what it was given), not the POSIX form $WS carries.
+    #Without cygpath (POSIX host) the tier prints the POSIX spelling as-is,
+    #so the expected text simply is $WS.
     local ws_win
-    ws_win=$(cygpath -m "$WS")
+    if command -v cygpath > /dev/null 2>&1; then
+        ws_win=$(cygpath -m "$WS")
+    else
+        ws_win="$WS"
+    fi
     NLANG_GATE_TIER_WORK="$WS/a18" bash "$TIER_SH" T1 --docs --dry-run \
         --master-tree "$WS/no-such-tree" --asan-tree "$WS/no-such-tree" \
         --ide-tree "$WS/no-such-tree" > "$out" 2>&1

@@ -28,9 +28,12 @@ def check(cond, msg):
 
 
 def find_git_bash():
-    """The tier script is MSYS bash; the bare PATH may hand back the
-    WSL stub (C:/Windows/System32/bash.exe), which cannot see Windows
-    temp paths. Probe candidates for the MSYSTEM marker Git Bash sets."""
+    """The tier script is MSYS bash on Windows, where the bare PATH may
+    hand back the WSL stub (C:/Windows/System32/bash.exe) that cannot
+    see Windows temp paths -- hence the MSYSTEM marker probe. A POSIX
+    host has no stub hazard: its own /bin/bash runs the tier directly."""
+    if os.name != "nt":
+        return os.environ.get("NLANG_GIT_BASH") or shutil.which("bash")
     candidates = [
         os.environ.get("NLANG_GIT_BASH"),
         shutil.which("bash"),
