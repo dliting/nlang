@@ -111,8 +111,6 @@ MANIFEST = os.path.join(SCRIPT_DIR, 'manifest.txt')
 #conditional cuda tree). A fixture's own `.flags` still wins: the nvm CLI
 #overrides the inherited environment.
 E2E_TENSOR_BACKEND = os.environ.get('NLANG_E2E_TENSOR_BACKEND', 'cpu')
-RUN_ENV = dict(os.environ)
-RUN_ENV['NLANG_TENSOR_BACKEND'] = E2E_TENSOR_BACKEND
 #Skip sentinel (multi-GPU spec's cross-platform ruling): a fixture that
 #cannot run its case on this machine — a device census too small, a
 #capability absent — prints the reason to stderr and exits this code;
@@ -528,12 +526,17 @@ def _runner_argv(name, ndb, nvm):
 
 
 def _run_env(name, sources_dir):
-    """The run-phase environment for one entry: the suite's pinned
-    tensor backend plus the entry's own `.env` sidecar (KEY=VALUE lines,
-    '#' comments) — the only way a fixture can pin environment-driven
-    behavior such as NLANG_TENSOR_BACKEND's unknown-name diagnostic,
-    which the nvm CLI rejects before the module ever loads."""
-    env = dict(RUN_ENV)
+    """The run-phase environment for one entry: the caller's live
+    environment with the suite's pinned tensor backend on top, plus the
+    entry's own `.env` sidecar (KEY=VALUE lines, '#' comments) — the
+    only way a fixture can pin environment-driven behavior such as
+    NLANG_TENSOR_BACKEND's unknown-name diagnostic, which the nvm CLI
+    rejects before the module ever loads. The base is re-read per entry,
+    not snapshotted at import: the timing-gate tests set NLANG_STUB_SLEEP
+    in os.environ after this module is imported, and an import-time
+    snapshot silently starved the stub VM of its sleep variable."""
+    env = dict(os.environ)
+    env['NLANG_TENSOR_BACKEND'] = E2E_TENSOR_BACKEND
     path = os.path.join(sources_dir, f"{name}.env")
     if os.path.isfile(path):
         with open(path, encoding='utf-8') as ef:

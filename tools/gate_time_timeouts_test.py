@@ -248,9 +248,10 @@ def test_show_only_json_resolves_ctest_beside_cmake():
             # POSIX cannot spawn a .bat body: the stubs carry a shebang
             # and the executable bit (the resolution under test now
             # requires os.access X_OK, so the pair must be spawnable to
-            # prove the beside-cmake pick).
+            # prove the beside-cmake pick). The JSON quotes survive
+            # single-quoting: sh strips plain double quotes from echo.
             for name, body in (("cmake.bat", ""),
-                               ("ctest.bat", 'echo {"tests": []}\n')):
+                               ("ctest.bat", "echo '{\"tests\": []}'\n")):
                 stub = tools / name
                 stub.write_text("#!/bin/sh\n" + body, encoding="ascii")
                 stub.chmod(0o755)

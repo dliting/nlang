@@ -1163,9 +1163,18 @@ import json
 print(json.dumps({"tests": []}))
 STUB
   # .bat doors because CreateProcess spawns no script; the interpreter
-  # matches the tier's own pin and %~dp0 anchors beside the .bat.
-  printf '@echo off\r\n"D:/dev/miniconda3/envs/py313/python.exe" -I "%%~dp0%s-stub-cmake.py" %%*\r\n' "$1" > "$WS/$1-stub-cmake.bat"
-  printf '@echo off\r\n"D:/dev/miniconda3/envs/py313/python.exe" -I "%%~dp0%s-stub-ctest.py" %%*\r\n' "$1" > "$WS/$1-stub-ctest.bat"
+  # matches the tier's own pin and %~dp0 anchors beside the .bat. A
+  # POSIX host spawns through the shebang instead, anchoring the stub
+  # scripts by absolute path — the a10 batch cases died exactly here
+  # when print-perf-names could not spawn its door.
+  if [ "${OS:-}" = "Windows_NT" ]; then
+    printf '@echo off\r\n"D:/dev/miniconda3/envs/py313/python.exe" -I "%%~dp0%s-stub-cmake.py" %%*\r\n' "$1" > "$WS/$1-stub-cmake.bat"
+    printf '@echo off\r\n"D:/dev/miniconda3/envs/py313/python.exe" -I "%%~dp0%s-stub-ctest.py" %%*\r\n' "$1" > "$WS/$1-stub-ctest.bat"
+  else
+    printf '#!/bin/sh\nexec python3 -I "%s/%s-stub-cmake.py" "$@"\n' "$WS" "$1" > "$WS/$1-stub-cmake.bat"
+    printf '#!/bin/sh\nexec python3 -I "%s/%s-stub-ctest.py" "$@"\n' "$WS" "$1" > "$WS/$1-stub-ctest.bat"
+    chmod +x "$WS/$1-stub-cmake.bat" "$WS/$1-stub-ctest.bat"
+  fi
 }
 
 seed_fresh_stub_tree() { # seed_fresh_stub_tree <tree>

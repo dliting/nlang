@@ -132,15 +132,20 @@ def _make_stub_tools(root, nvm_body=_NVM_STUB):
     tools = {}
     for tool, body in (('ncc', _NCC_STUB), ('nvm', nvm_body),
                        ('ndb', _NDB_STUB)):
-        # The stub must be spawnable on both hosts: Windows runs .cmd
-        # bodies; POSIX cannot execute a .cmd text file (EACCES, the
-        # box's timing-gate failures), so the stub ships as an
-        # executable shebang script. The path string returned here is
-        # the only handle callers use -- no test asserts the extension.
-        path = root / 'src' / 'tools' / tool / 'Release' / tool
-        path.parent.mkdir(parents=True)
-        path.write_text(body, encoding='utf-8')
-        if os.name != 'nt':
+        # The stub must be spawnable on both hosts: Windows dispatches
+        # on the extension, so the .cmd spelling with a batch body;
+        # POSIX cannot execute a .cmd text file (EACCES, the box's
+        # timing-gate failures), so there the stub is an executable
+        # shebang script with no suffix. The path string returned here
+        # is the only handle callers use -- no test asserts the spelling.
+        if os.name == 'nt':
+            path = root / 'src' / 'tools' / tool / 'Release' / f'{tool}.cmd'
+            path.parent.mkdir(parents=True)
+            path.write_text(body, encoding='utf-8')
+        else:
+            path = root / 'src' / 'tools' / tool / 'Release' / tool
+            path.parent.mkdir(parents=True)
+            path.write_text(body, encoding='utf-8')
             path.chmod(0o755)
         tools[tool] = str(path)
     project = root / 'stdlib' / 'io.nproj'
