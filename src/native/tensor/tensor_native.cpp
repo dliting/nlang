@@ -273,6 +273,14 @@ void ViewSumI(NativeHost* host, uint8_t* ret, const uint8_t* args,
     (void)argc;
     NativeArrayView view;
     ArgArray(host, args, 0, &view);
+    //Under an active device backend the D2 mint gate makes the owner
+    //device-resident, so view.data is a device address — walking it on
+    //the host segfaulted (array_abi_v10 under backend=cuda, that
+    //corpus's first device-pinned run ever). Stage to a dense host
+    //copy first; the staging buffer is caller-scoped and outlives the
+    //reads below (the StagedWalkOut rule).
+    std::vector<uint8_t> stage;
+    view = StageOperandToHost(host, view, &stage);
     int64_t sum = 0;
     const int32_t* payload = static_cast<const int32_t*>(view.data);
     for (int64_t i = 0; i < view.elemCount; ++i)
