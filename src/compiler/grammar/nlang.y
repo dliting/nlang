@@ -6,9 +6,11 @@
 %lex-param { yyscan_t yyscanner }
 %locations
 %debug
-/*The grammar carries accepted conflicts (2026-11-20 re-measure, bison
-3.8.2: 50 shift/reduce + 12 reduce/reduce; the 2026-11-17 state was
-35 s/r + 12 r/r). The lambda cover grammar's 15 s/r are the lambda-body
+/*The grammar carries accepted conflicts (2026-11-27 re-measure, bison
+3.8.2: 56 shift/reduce + 12 reduce/reduce; the 2026-11-17 state was
+35 s/r + 12 r/r — the 2026-11-20 entry recorded 50/12 for the lambda
+cover arm without running bison, see the ledger's 2026-11-27 entry).
+The lambda cover grammar's 21 s/r are the lambda-body
 extension state (`ParenPrefix OT_Arrow Expression` shares the Expression
 continuation items): every conflicting lookahead is an operator, `as`,
 `.` or `[` — one that must extend the body (greedy-body binding, like
@@ -2610,6 +2612,50 @@ AccessType:	KT_Private  	{ $$ = FA_Private;      } |
 //order) and the ScriptScanner probe extension that armed
 //`Box<int>&`-shaped openers (unnecessary — the plain-'<' HeadType arms
 //complete HeadType directly and the '&' declarator shift follows).
+//Re-measured 2026-11-27 (v0.13.13a Task 4 review, bison 3.8.2): the
+//totals are 56 shift/reduce + 12 reduce/reduce. The 2026-11-20 header
+//bump (35 → 50, "the lambda cover grammar's 15 s/r") was written
+//without a bison run: the lambda cover commit itself measures 56/12
+//— its parent 92b07199 measures 35/12, and neither later grammar edit
+//(5ec27b96, 892901c3) moved the counts. The +21 sits entirely in the
+//new lambda-body extension state 404, not +15; the header's mechanism
+//note held throughout, only its counts were wrong. Full census
+//re-derived from the current .output, every family identity verified
+//from its state-table items; the 2026-11-17 numbers' new homes:
+//- state 12 (2 sr, stays 12): the top-level boundary vs the
+//  AccessTypeEmpty epsilon reduce.
+//- states 124/145 (1 rr each, were 122/143): `HeadType: MemberExpr .`
+//  vs `Expression: MemberExpr .` over '&' (statement-head and
+//  expression twins).
+//- states 127/147 (1 sr + 1 rr each, were 125/145): the same '&' rr on
+//  the identifier spellings; the sr row is the generic-head '<'.
+//- state 340 (2 sr, was 331): catch/finally after a nested try.
+//- state 366 (1 sr + 2 rr, was 351): the `T name(` empty-parens family.
+//- states 374/375 (1 sr each, were 359/360): '.' continuation after a
+//  dotted type name (TypeName vs QualifiedType, both spellings).
+//- state 377 (1 sr, was 362): '<' in `as` position (AsGenericTarget).
+//- state 404 (21 sr, NEW — the lambda cover): `LambdaExpr: ParenPrefix
+//  OT_Arrow Expression .` vs every Expression continuation lookahead
+//  (arithmetic, relational, bitwise, `as`, '.', '[' — 21 tokens; the
+//  body terminators ',' ')' ';' ']' are not continuations and stay
+//  conflict-free); shift extends the body greedily (TestGreedyBody).
+//- state 470 (1 sr + 2 rr, was 453): the const-flagged twin of 366.
+//- state 475 (1 sr, was 473): the empty-parens body-context first
+//  declarator (LocalDeclList).
+//- state 490 (1 sr, was 458): the empty-parens top-level header alone.
+//- state 545 (1 sr + 2 rr, was 523): NameExpr vs Expression in the
+//  top-level direct-init argument ('&'/'.'/'<').
+//- state 549 (1 sr, was 527): the empty-parens generic header `f<T>(`.
+//- state 550 (1 sr + 2 rr, was 528): the '&'-header empty-parens
+//  family (epsilon rr pair).
+//- states 642/707 (1 sr each, were 620/679): the '&'-header and
+//  '&'-generic-header empty-parens alones.
+//- state 709 (1 sr, was 681): the empty-parens continuation
+//  declarator (`T a, b(`).
+//- state 910 (16 sr, was 878): ClassMember's NodeFlag-singular vs
+//  NodeFlagsNonEmpty-plural overlap.
+//Sums: 56 sr + 12 rr exactly; nothing new was accepted beyond state
+//404's already-described family.
 NameExpr:	IdentifierExpr	{ $$ = new SnNameExpr($1, @1); } ;
 
 //Type non-terminal used in type contexts (declarations, params, fields).

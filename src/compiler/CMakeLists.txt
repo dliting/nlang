@@ -14,8 +14,9 @@ endif()
 
 add_custom_command(
     OUTPUT ${GENERATED_DIR}/nlang.tab.cpp ${GENERATED_DIR}/nlang.tab.h
-    #The grammar carries accepted conflicts (2026-11-20: 50 s/r + 12 r/r,
-    #see the header ledger in nlang.y), and deterministic parsers cannot
+    #The grammar carries accepted conflicts (2026-11-27 re-measure: 56
+    #s/r + 12 r/r, see the header ledger in nlang.y), and deterministic
+    #parsers cannot
     #use %expect alongside any r/r conflict, so the conflict notices are
     #silenced here; the counts are pinned by the accepted-conflict ledger
     #in nlang.y and its re-measurement gate.
