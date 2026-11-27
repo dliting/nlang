@@ -256,5 +256,9 @@
   {
     "path": "tools/nlang-docs/tests/test_snippets.py",
     "reason": "pre-existing 513-line flat pytest corpus surfaced when the tools/ Python scan was added; pay-off (split into two topic-scoped pytest corpora) tracked in docs/roadmap.md v0.13.12 pay-off items (registered 2026-11-21)"
+  },
+  {
+    "path": "src/tools/nide/terminal/PtyProcess.cpp",
+    "reason": "the platform seam for the IDE terminal's PTY process backend: the Windows ConPTY and Linux POSIX arms plus the shared spawn/resize/kill/reader/waiter Pimpl are one class; splitting fragments the Pimpl and the shared process bookkeeping"
   }
 ]

@@ -98,10 +98,13 @@ def function_spans(lines):
            and not m.group(1).isupper():  # ALL_CAPS = X-macro invocation, not a function
             name = m.group(1)
             # Skip declarations and defaulted/deleted definitions: find the
-            # first of ";" or "{" within the next 4 lines.
+            # first of ";" or "{" within the next 5 lines (5, not 4 — a
+            # 5-line signature is a common declaration shape in the
+            # launcher headers, and the break-on-"{" keeps a definition
+            # whose "{" sits that deep a definition).
             head = line
             j = i
-            while "{" not in head and j < min(i + 4, len(lines)) - 1:
+            while "{" not in head and j < min(i + 5, len(lines)) - 1:
                 j += 1
                 head += lines[j]
             if ";" in head and "{" not in head.split(";")[0]:
@@ -142,10 +145,22 @@ def check_file(p: Path, repo: Path, by_file):
     return out
 
 
+def _no_duplicate_keys(pairs):
+    #JSON overwrites duplicate keys SILENTLY: an entry whose keys
+    #duplicate loses one side (a whole file exemption can vanish with
+    #no change to the exempted file). The guard refuses the config.
+    seen = set()
+    for key, _ in pairs:
+        assert key not in seen, f"allowlist key {key!r} duplicated: {pairs}"
+        seen.add(key)
+    return dict(pairs)
+
+
 def main():
     here = Path(__file__).resolve().parent
     repo = here.parent.parent
-    allow = json.loads((here / "allowlist.json").read_text(encoding="utf-8"))
+    allow = json.loads((here / "allowlist.json").read_text(encoding="utf-8"),
+                       object_pairs_hook=_no_duplicate_keys)
     by_file = {}
     for e in allow:
         assert e.get("reason", "").strip(), f"allowlist entry without reason: {e}"

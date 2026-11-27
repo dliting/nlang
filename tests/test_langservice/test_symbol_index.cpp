@@ -26,7 +26,7 @@ static int g_failures = 0;
 //TestLoadsRealStdLib). A surface change updates the constant AND the
 //breakdown comment; the printer turns any future drift into a
 //per-package diff instead of bare FAIL lines.
-constexpr std::size_t kStdlibSymbolPin = 506;
+constexpr std::size_t kStdlibSymbolPin = 511;
 
 static void PrintIndexShape(const SymbolIndex &index)
 {
@@ -44,39 +44,34 @@ static void PrintIndexShape(const SymbolIndex &index)
 static void TestLoadsRealStdLib() {
     SymbolIndex index;
     index.LoadLibraryDir(STDLIB_DIR);
-    // 324 functions: io 19 (14 natives + 5 typed-reader wrappers; the
-    // v11 clock/park natives and the byte helpers moved from net),
-    // 286 functions: io 22 (13 natives + 5 typed-reader wrappers + 4
-    // Base64 codecs; the v11 park native and the byte helpers moved
-    // from net, the monotonic clock moved to system in v0.13.4),
-    // math 25, fs 10 (the binary read pair readBytes/readFloats),
-    // thread 7 (the K3 materialized package plus the P2-2 failure
-    // probes), tensor 215 (the v0.12.7 surface: broadcasting
-    // elementwise with scalar arms, the view family
-    // transpose(+axes)/flatten/slice/broadcastTo, axis sums, generic
-    // reshape with -1 inference, elementwise exp/log/clamp, concat,
-    // matmul, and the plain-NLang layer relu/softmax/crossEntropyLoss;
-    // the v0.13.7 vector-ops layer: neg, the reversed scalar arms,
-    // axis max/min, gather, argmax/argmin, eq, oneHot, uniform, and
-    // the activation additions reluGrad/tanh; the v0.14.0 device line:
-    // toDevice/toHost overloads for the four numeric kinds and
-    // backend(); the v0.14.11 census and device-spelled stream:
-    // deviceCount and streamCreate(int device); the v0.14.12
-    // device-spelled transfer: toDevice(a, device) for the four
-    // numeric kinds),
-    // net 56 (the script ping plus the internal _nowMs/_lastErrorText/
-    // _lastErrorCode/_throwNet/_ping/resolveList, the _errAddrInUse/
-    // _errHostNotFound constant reads, the _tcp* natives
-    // incl. the option setters and the internal _toBytes/_fromBytes,
-    // the 20 _udp* natives and the 5 _icmp* natives; class methods
-    // are not free functions), system 2 (the wall and monotonic clocks),
-    // url 4 (the percent and form codecs; the Url class members are not
-    // free functions), gzip 4 (the compress/decompress wrappers and the
-    // two native codec declarations), http 6 (the buffered convenience
-    // calls get/post/put/del/request plus the lazy defaultClient; the
-    // Http* class members are not free functions), regex 1 (the
-    // quoteMeta escaping helper; the Regex/Match classes and the engine
-    // classes are not free functions).
+    // 511 free functions across 13 packages: fs 12, gzip 4, http 6, io 22,
+    // json 1, math 26, net 56, regex 1, system 2, tensor 369, thread 7,
+    // url 4, web 1. Per-package free-function surface (class methods
+    // are not free functions and do not count):
+    //   io 22: the console/input natives, the typed readers, the file
+    //     natives, the park native, the byte helpers and the base64 codecs.
+    //   fs 12: the binary read pair readBytes/readFloats plus writeBytes
+    //     and modifiedTimeMs.
+    //   json 1: parse (the JSON entry point; the Json* classes are not
+    //     free functions).
+    //   math 26: the scalar/integer math surface plus randomBytes.
+    //   net 56: the script ping, the internal natives and the _tcp*/_udp*/
+    //     _icmp* native families.
+    //   system 2: the wall and monotonic clocks.
+    //   tensor 369: the branch's full tensor surface (broadcasting
+    //     elementwise, the view family, axis reductions, generic reshape,
+    //     elementwise exp/log/clamp, concat, matmul, the plain-NLang layer,
+    //     the vector-ops layer, and the device line toDevice/toHost/
+    //     backend()/deviceCount/streamCreate with device-spelled transfer).
+    //   thread 7: the K3 materialized package plus the failure probes.
+    //   url 4: the percent and form codecs.
+    //   gzip 4: the compress/decompress wrappers and the two native codec
+    //     declarations.
+    //   http 6: the buffered convenience calls get/post/put/del/request
+    //     plus the lazy defaultClient.
+    //   regex 1: the quoteMeta escaping helper.
+    //   web 1: hexEncode (the App/Route/Session classes are not free
+    //     functions).
     if (index.size() != kStdlibSymbolPin)
         PrintIndexShape(index);
     CHECK(index.size() == kStdlibSymbolPin);
@@ -129,23 +124,25 @@ static void TestCompletion() {
     index.LoadLibraryDir(STDLIB_DIR);
 
     const auto fsSyms = index.CompletePackage("fs");
-    CHECK(fsSyms.size() == 10);
+    CHECK(fsSyms.size() == 12);
 
     //Packages() lists free-function surfaces: the net module's free
     //functions (ping, the internal natives) put net back in the list.
     const auto namespaces = index.Packages();
-    CHECK(namespaces.size() == 11);
+    CHECK(namespaces.size() == 13);
     CHECK(namespaces[0] == "fs");
     CHECK(namespaces[1] == "gzip");
     CHECK(namespaces[2] == "http");
     CHECK(namespaces[3] == "io");
-    CHECK(namespaces[4] == "math");
-    CHECK(namespaces[5] == "net");
-    CHECK(namespaces[6] == "regex");
-    CHECK(namespaces[7] == "system");
-    CHECK(namespaces[8] == "tensor");
-    CHECK(namespaces[9] == "thread");
-    CHECK(namespaces[10] == "url");
+    CHECK(namespaces[4] == "json");
+    CHECK(namespaces[5] == "math");
+    CHECK(namespaces[6] == "net");
+    CHECK(namespaces[7] == "regex");
+    CHECK(namespaces[8] == "system");
+    CHECK(namespaces[9] == "tensor");
+    CHECK(namespaces[10] == "thread");
+    CHECK(namespaces[11] == "url");
+    CHECK(namespaces[12] == "web");
 
     //The materialized thread package indexes like any stdlib package.
     const SymbolInfo* spawn = index.Resolve("thread", "spawn");
