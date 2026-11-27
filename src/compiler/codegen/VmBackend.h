@@ -1027,6 +1027,10 @@ private:
     //NK_InvokeExpr: call claim + arg/default-expression depth.
     static uint16_t InvokeExprPeakDepth(SnExpression& expr,
         const std::unordered_set<SnFunction*>& visited, bool isMethodContext);
+    //InvokeExprPeakDepth helper: the callee's formal default-expression
+    //depth, evaluated in the caller frame (split for the line budget).
+    static uint16_t CalleeDefaultExprDepth(SnFunction *callee,
+        const std::unordered_set<SnFunction*>& visited);
     //NK_LambdaExpr: the one scratch cell the call-site snapshot fill may
     //claim inside the formal-claim slice (1 when the lambda takes the
     //call-site shape and a filled member goes through the struct-aware

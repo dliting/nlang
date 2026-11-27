@@ -96,6 +96,7 @@ add_library(nlang_compiler
     SnTypes.cpp
     SnData.cpp
     SnExpressions.cpp
+    SnExpressionsInvoke.cpp
     SnExpressionsLambda.cpp
     SnExpressionsValues.cpp
     SnChildSync.cpp
@@ -144,6 +145,7 @@ add_library(nlang_compiler
     builder/ExprResolverInitListCtor.cpp
     builder/ExprResolverInitListForm.cpp
     builder/ExprResolverInvoke.cpp
+    builder/ExprResolverInvokeNamed.cpp
     builder/ExprResolverInvokeDiag.cpp
     builder/ExprResolverInvokeMatch.cpp
     builder/ExprResolverInvokeReceiver.cpp
@@ -206,6 +208,7 @@ add_library(nlang_compiler
     codegen/WalkersStmt.cpp
     codegen/WalkersMaxArgs.cpp
     codegen/EmitExprCore.cpp
+    codegen/EmitExprDelegate.cpp
     codegen/EmitExprIdent.cpp
     codegen/EmitExprCast.cpp
     codegen/EmitExprSubscript.cpp

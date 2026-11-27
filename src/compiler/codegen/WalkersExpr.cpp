@@ -147,6 +147,24 @@ uint16_t VmBackend::ExprPeakDepth(SnExpression& expr,
     return 0;
 }
 
+//Default-expression depth of the callee's formal parameters, evaluated in
+//the caller frame; split from InvokeExprPeakDepth for the line budget.
+uint16_t VmBackend::CalleeDefaultExprDepth(SnFunction *callee,
+    const std::unordered_set<SnFunction*>& visited) {
+    uint16_t defaultDepth = 0;
+    if (callee && visited.find(callee) == visited.end()) {
+        auto visitedPlus = visited;
+        visitedPlus.insert(callee);
+        for (auto& formal : callee->Params()) {
+            if (formal.Value()) {
+                uint16_t d = ExprPeakDepth(*formal.Value(), visitedPlus);
+                if (d > defaultDepth) defaultDepth = d;
+            }
+        }
+    }
+    return defaultDepth;
+}
+
 //NK_InvokeExpr arm of ExprPeakDepth.
 uint16_t VmBackend::InvokeExprPeakDepth(SnExpression& expr,
     const std::unordered_set<SnFunction*>& visited, bool isMethodContext) {
@@ -187,18 +205,7 @@ uint16_t VmBackend::InvokeExprPeakDepth(SnExpression& expr,
     if (auto* pCalleeExpr = invoke.CalleeExpr())
         argDepth = std::max(argDepth, ExprPeakDepth(*pCalleeExpr, visited));
 
-    //Callee default expressions evaluate in the caller frame.
-    uint16_t defaultDepth = 0;
-    if (callee && visited.find(callee) == visited.end()) {
-        auto visitedPlus = visited;
-        visitedPlus.insert(callee);
-        for (auto& formal : callee->Params()) {
-            if (formal.Value()) {
-                uint16_t d = ExprPeakDepth(*formal.Value(), visitedPlus);
-                if (d > defaultDepth) defaultDepth = d;
-            }
-        }
-    }
+    uint16_t defaultDepth = CalleeDefaultExprDepth(callee, visited);
 
     return static_cast<uint16_t>(claimSize) +
         (argDepth > defaultDepth ? argDepth : defaultDepth);

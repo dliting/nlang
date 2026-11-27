@@ -3,6 +3,8 @@
     从 ExprResolver.cpp 抽取（2026-09-26 可维护性重构，零行为变化）。
     2026-10-12 source-size 拆分：候选收集与重载匹配迁入
     ExprResolverInvokeMatch.cpp。
+    v0.13.13a D-3 source-size 拆分：名字形状通道（按被调名查候选、
+    入选门与成功/失败尾）迁入 ExprResolverInvokeNamed.cpp。
 ---*/
 #include "ExprResolver.h"
 #include "RefBindJudgment.h"
@@ -303,37 +305,11 @@ void ExprResolveAccessor::Access(SnInvokeExpr &snInvoke)
 		return;
 	}
 
-	SnFunction *pCallee;
-	std::vector<FormalBinding> bindings;
-	std::vector<SnFunction*> candidates;
-	bool bNameMatchedImported = false;
-	bool bVisibilityHintLogged = false;
-	bool bAmbiguousCall = false;
-	auto res = FindFuncByInvoke(pCallee, snInvoke, bindings,
-		bNameMatchedImported, bVisibilityHintLogged, &candidates,
-		&bAmbiguousCall);
-
-	if (!AdmitChosenCallee(snInvoke, pCallee, bindings, deferredArgs))
-		return;
-
-	if (res == FFR_FuncNameNotFound && RejectCrossNamespaceCall(snInvoke))
-	{
-		AcceptDeferredArgs(*m_pVisitor, deferredArgs);
-		return;
-	}
-
-	if (res == FFR_ExactMatch || res == FFR_ApproximateMatch)
-	{
-		//M3b: the success tail is shared with the module-qualified call
-		//path. A false return means an argument failed to bind (diagnostic
-		//already logged) — leave the invoke unresolved.
-		(void)ResolveInvokeWithFunc(snInvoke, *pCallee, res, bindings);
-		return;
-	}
-
-	ResolveFailedInvoke(snInvoke, res, pCallee, bNameMatchedImported,
-		bVisibilityHintLogged, candidates, deferredArgs,
-		bAmbiguousCall);
+	//v0.13.13a D-3 split: the name-shape channel — overload lookup by
+	//callee name with its admission gates and success/failure tails —
+	//moved out for the 50-line function budget; definition in
+	//ExprResolverInvokeNamed.cpp.
+	ResolveNameShapeInvoke(snInvoke, deferredArgs);
 }
 
 //0.13.13a D-3: the postfix callee-expression shape. The callee resolves

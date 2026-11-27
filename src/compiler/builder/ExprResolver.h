@@ -885,6 +885,16 @@ private:
 	void ResolveCalleeExprInvoke(SnInvokeExpr &snInvoke, SnExpression &callee,
 		std::vector<SnExpression*> &deferredArgs);
 
+	/*
+	v0.13.13a D-3 split: the name-shape channel of Access(SnInvokeExpr&)
+	— overload lookup by callee name with its chosen-callee gates and
+	success/failure tails. Extracted from Access for the 50-line
+	function budget; the postfix callee-expression shape never reaches
+	it. Definition in ExprResolverInvokeNamed.cpp.
+	*/
+	void ResolveNameShapeInvoke(SnInvokeExpr &snInvoke,
+		std::vector<SnExpression*> &deferredArgs);
+
 	bool RejectBareMethodCall(SnInvokeExpr &snInvoke, SnFunction *pCallee);
 	bool RejectTypeNameInstanceCall(SnInvokeExpr &snInvoke,
 		SnFunction *pCallee);
