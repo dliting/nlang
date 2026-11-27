@@ -1,6 +1,9 @@
-// v0.12.3 Task 5: a function type argument is rejected — a func value
-// spans multiple signature slots and breaks the one-slot layout
-// invariant every instantiation shares (spec D2).
+// v0.13.13a D-2(b): a func value occupies one handle slot, so it passes
+// as a generic type argument for user templates like any class value —
+// v0.12.3's multi-slot rejection retired together with the
+// substituted-type boundary discipline. The boxed function round-trips
+// through the ctor formal, a field store and the get() call chain.
+int dbl(int x) { return x * 2; }
 class Box<T> {
     public T item;
     public Box(T v) { item = v; }
@@ -9,4 +12,9 @@ class Box<T> {
 class Holder {
     public Box<func<int,int>> boxed;
 }
-int main() { return 0; }
+int main() {
+    Box<func<int,int>> b = Box<func<int,int>>(dbl);
+    Holder h = Holder();
+    h.boxed = b;
+    return b.get()(3) + h.boxed.get()(4);
+}
