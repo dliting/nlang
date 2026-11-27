@@ -20,7 +20,10 @@ Usage:
                                     [--keep] [-q]
 
 --build defaults to <repo-root>/build; ncc/nvm are resolved under
-<build>/src/tools/{ncc,nvm}/Release/. The compiled module is written
+<build>/src/tools/{ncc,nvm}/<config>/ (default Release — pass
+--config Debug when probing against a Debug build, or the runner
+silently judges the tree's Release binaries, which lag a Debug-only
+rebuild). The compiled module is written
 next to the probe as <stem>_probe.ncu (ncc rejects module names with
 a second dot, so ".probe.ncu" is not an option; the name also never
 clobbers e2e artifacts).
@@ -34,8 +37,8 @@ import sys
 from pathlib import Path
 
 
-def tool_path(build_root: Path, name: str) -> Path:
-    return build_root / "src" / "tools" / name / "Release" / f"{name}.exe"
+def tool_path(build_root: Path, name: str, config: str) -> Path:
+    return build_root / "src" / "tools" / name / config / f"{name}.exe"
 
 
 def main() -> int:
@@ -46,6 +49,10 @@ def main() -> int:
                     help="expected 32-bit exit code (default: just report)")
     ap.add_argument("--build", type=Path, default=None,
                     help="build root (default: <repo-root>/build)")
+    ap.add_argument("--config", default="Release",
+                    help="tool config directory (default Release; pass "
+                    "Debug after a Debug-only rebuild, or the runner "
+                    "judges the tree's stale Release binaries)")
     ap.add_argument("--keep", action="store_true",
                     help="print the module path instead of deleting it")
     ap.add_argument("-q", "--quiet", action="store_true",
@@ -58,8 +65,8 @@ def main() -> int:
         return 2
     build_root = (args.build or
                   Path(__file__).resolve().parents[1] / "build").resolve()
-    ncc = tool_path(build_root, "ncc")
-    nvm = tool_path(build_root, "nvm")
+    ncc = tool_path(build_root, "ncc", args.config)
+    nvm = tool_path(build_root, "nvm", args.config)
     for tool in (ncc, nvm):
         if not tool.is_file():
             print(f"tool not found: {tool}", file=sys.stderr)
