@@ -265,6 +265,26 @@ private slots:
             "expression of type \"String\" is not callable; a call "
             "requires a function-typed value."), 1);
 
+        //Class-typed callee: the second postfix leg on a constructor
+        //call rides the same resolver gate. The type-name slot renders
+        //the declaration's ToString() form with its kind prefix,
+        //"class Cfg" — the same quoting convention that prints "Int32"
+        //above (a distinct EvalDataType input from the primitive
+        //handles; wording pinned from the measured ncc diagnostic).
+        auto classCall = compileOne(
+            "class Cfg {\n"
+            "    public int v;\n"
+            "    public Cfg(int p) { v = p; }\n"
+            "}\n"
+            "int main() {\n"
+            "    Cfg(1)(2);\n"
+            "    return 0;\n"
+            "}\n");
+        QVERIFY(!classCall.ok);
+        QCOMPARE(countErrorsContaining(classCall,
+            "expression of type \"class Cfg\" is not callable; a call "
+            "requires a function-typed value."), 1);
+
         //A void-valued callee (the established nullptr-EvalDataType
         //convention) reports the type name "void".
         auto voidCall = compileOne(

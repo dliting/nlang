@@ -185,7 +185,7 @@ uint16_t VmBackend::InvokeExprPeakDepth(SnExpression& expr,
             || callee->Parent()->Kind() == NK_InterfaceDecl));
     size_t claimSize = formalCount + (isMethod ? 1 : 0);
     //Phase 13: a delegate invoke materializes its callee handle into
-    //one scratch slot (claims sequential: args first, then callee —
+    //one scratch slot (claims sequential: callee first, then args —
     //over-reservation, the safe direction).
     if (!callee && VmBackend::IsDelegateInvoke(invoke))
         claimSize += 1;

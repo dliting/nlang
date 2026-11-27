@@ -2691,24 +2691,26 @@ AccessType:	KT_Private  	{ $$ = FA_Private;      } |
 //  reduce's lookahead gained '(' from the new postfix arm). Shift keeps
 //  the named-call name shape, so `mk(1)` never degrades into the
 //  callee-expression shape. Pinned by the ToString shape legs in
-//  tests/test_compiler/test_statement_diag.cpp ("mk(1)" name shape vs
-//  "(fns[0])(1)" callee shape) and by every e2e named-call leg.
+//  tests/test_compiler/test_lambda_parse.cpp TestPostfixCallShapes
+//  (the `mk(1)` name shape vs the `(cb)(1)` parenthesized callee
+//  shape) and by every e2e named-call leg.
 //- state 124 (was 1 rr, now 1 sr + 1 rr): ';' after a MemberExpr in
 //  statement position — `InvokeStmt: MemberExpr . ';'` shifts against
 //  `Expression: MemberExpr .`. Shift keeps the member-statement shape,
-//  so `obj.m(1);` stays an InvokeStmt(MemberExpr) instead of falling
-//  into the new expression-statement arm's diagnostic. Pinned by the
-//  `obj.m(1);` statement leg of tests/e2e/lang_value_call_chain.n.
+//  so `d.set(1, 10);` stays an InvokeStmt(MemberExpr) instead of
+//  falling into the new expression-statement arm's diagnostic. Pinned
+//  by every member-call statement leg — e.g. the `d.set(1, 10);`
+//  statements of tests/e2e/dict_int_int_basic.n.
 //- state 126 (1 sr, new): ';' after an InvokeExpr — `InvokeStmt:
 //  InvokeExpr . ';'` shifts against `Expression: InvokeExpr .`. Both
 //  readings build the same SnInvokeStmt; the shift just keeps the
-//  existing shorter path. Pinned by every bare call-statement leg
-//  (`cb(1);`) and the new `fns[0](1);` statement leg.
+//  existing shorter path. Pinned by every call-statement leg, e.g.
+//  the `fns[0](7);` leg of tests/e2e/lang_value_call_chain.n.
 //- state 407 (21 sr → 22, was 404): '(' joins the lambda-body
 //  extension set — the greedy body absorbs a call suffix instead of
 //  closing the lambda: `(int n) -> fns[0](n)` calls `fns[0]` inside the
 //  body. Pinned by the call-suffix leg added to TestGreedyBody in
-//  tests/test_compiler/test_lambda_parse.cpp and the matching e2e leg.
+//  tests/test_compiler/test_lambda_parse.cpp.
 //Sums: 62 sr + 12 rr exactly.
 NameExpr:	IdentifierExpr	{ $$ = new SnNameExpr($1, @1); } ;
 
