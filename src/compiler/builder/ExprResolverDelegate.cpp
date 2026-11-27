@@ -3,6 +3,7 @@
     从 ExprResolver.cpp 抽取（2026-09-26 可维护性重构，零行为变化）。
 ---*/
 #include "ExprResolver.h"
+#include "nlang/compiler/CastInfo.h"
 #include "RefBindJudgment.h"
 #include "SnExtraTypes.h"
 #include "SnMisc.h"
@@ -73,7 +74,7 @@ bool ExprResolveAccessor::CheckDelegateArgument(SnExpression &arg,
 	else if (IsUnboundMemberFuncRef(arg))
 	{
 		if (!BindMemberFuncRefToExpected(m_Env,
-			static_cast<SnMemberExpr&>(arg), pFormal))
+			static_cast<SnMemberExpr&>(arg), pFormal, this))
 			bOK = false;
 	}
 	else if (!AdmitsDelegateArgType(arg.EvalDataType(), pFormal))
@@ -103,30 +104,97 @@ static bool RejectDelegateRefMark(BuildEnvironment &env,
 		pFormal->ContainFlags(NF_Const));
 }
 
+//0.13.10 Task 5: the delegate-call constant fit. The delegate path has
+//no fixup pass, so a Double-typed float literal hits the distance-0
+//wall (Double→Float is explicit-only) and the raw call would pass 8
+//bytes into a 4-byte formal. The Java/C# constant-fit rule applies with
+//the same gate the assignment path uses: an in-range constant PRE-wraps
+//into a real conversion before the admission check (the wrap emits the
+//PrimCast, never raw bits — and the check sees the converted type, so
+//no doomed diagnostic is logged). An out-of-range constant keeps
+//ConstantFitGate's named diagnostic instead of the generic incompatible
+//one. Ref-marked slots keep the strict reject — a constant has no
+//storage to alias. True = the argument is fully handled here.
+bool ExprResolveAccessor::ConstantFitPreWrap(SnInvokeExpr &invoke,
+	SnExpression &arg, SnField *pFormal, size_t slot,
+	const std::vector<uint8> &refFlags, bool &rbRejected)
+{
+	if (slot + 1 < refFlags.size() && refFlags[slot + 1] != 0)
+		return false;
+	auto *pSrc = arg.EvalDataType();
+	if (!pSrc)
+		return false;
+	TypeCastInfo castInfo(pSrc, pFormal);
+	if (castInfo.Kind() != TCK_Explicit)
+		return false;
+	const auto fit = ConstantFitGate(arg, castInfo);
+	if (fit == CFG_Rejected)
+	{
+		//The gate already logged the named out-of-range diagnostic;
+		//the generic incompatible report would only repeat it.
+		rbRejected = true;
+		return true;
+	}
+	if (fit != CFG_Promoted)
+		return false;
+	//The wrap replaces the node inside the owning Children() list (the
+	//same locate-and-replace FixupParamTypesWithBindings runs).
+	auto &children = invoke.Children();
+	auto iFound = children.find(&arg);
+	if (iFound == children.end())
+		return false;
+	FixupExprType(iFound, castInfo);
+	return true;
+}
+
+//Shape gates of the delegate channel: no by-name dispatch (the func
+//signature has no parameter names) and exact arity. False = rejected
+//with the named diagnostic.
+static bool DelegateShapeOk(BuildEnvironment &env, SnInvokeExpr &invoke,
+	size_t nFormals)
+{
+	if (HasNamedArgument(invoke))
+	{
+		env.Log(CLL_Error, invoke.Location(),
+			"named arguments are not supported in delegate calls.");
+		return false;
+	}
+	if (ArgCountOf(invoke) != nFormals)
+	{
+		env.Log(CLL_Error, invoke.Location(),
+			"delegate call expects %zu argument(s), got %zu.",
+			nFormals, ArgCountOf(invoke));
+		return false;
+	}
+	return true;
+}
+
 void ExprResolveAccessor::BindDelegateInvoke(SnInvokeExpr &invoke,
 	SnField *pDelegateField)
 {
 	auto *pFuncDecl = static_cast<SnClassDecl*>(pDelegateField->EvalDataType());
 	const auto typeArgs = GetGenericTypeArgs(pFuncDecl);
 	const auto &refFlags = GetGenericRefFlags(pFuncDecl);
-	//The func signature has no parameter names — no by-name dispatch.
-	if (HasNamedArgument(invoke))
-	{
-		m_Env.Log(CLL_Error, invoke.Location(),
-			"named arguments are not supported in delegate calls.");
+	if (!DelegateShapeOk(m_Env, invoke, typeArgs.size() - 1))
 		return;
-	}
-	if (ArgCountOf(invoke) != typeArgs.size() - 1)
-	{
-		m_Env.Log(CLL_Error, invoke.Location(),
-			"delegate call expects %zu argument(s), got %zu.",
-			typeArgs.size() - 1, ArgCountOf(invoke));
-		return;
-	}
 	bool bOK = true;
-	size_t i = 0;
+	//Snapshot the argument pointers first: the pre-wrap's node
+	//replacement erases+inserts inside the very list Params() iterates,
+	//so no iterator of that list may be alive across a wrap (the Debug
+	//checked iterators abort on exactly this).
+	std::vector<SnExpression*> args;
 	for (auto &arg : invoke.Params())
+		args.push_back(&arg);
+	size_t i = 0;
+	for (auto *pArg : args)
 	{
+		auto &arg = *pArg;
+		if (ConstantFitPreWrap(invoke, arg, typeArgs[i + 1], i, refFlags,
+				bOK))
+		{
+			++i;
+			continue;
+		}
 		if (!CheckDelegateArgument(arg, typeArgs[i + 1], i))
 			bOK = false;
 		else if (i + 1 < refFlags.size() && refFlags[i + 1] != 0)
@@ -261,10 +329,13 @@ static bool SatisfyUnboundFormals(std::vector<FormalBinding> &outBindings)
 //0.9.11 T6: the binding core takes the actual-argument list directly (not
 //an SnInvokeExpr) — constructor matching reaches it from SnNewExpr,
 //SnInvokeExpr and SnSuperCallStmt alike. The vector shape is the common
-//denominator of the three argument views (SnInvokeExpr::Params() is an
-//SnExpressionList, SnNewExpr::Args() carries the class-name child,
-//SnSuperCallStmt::Args() is a PtrList); every call site builds the
-//resolved actual pointers once per call.
+//denominator of the three argument views (all three are SnExpressionList
+//child views; SnNewExpr::Args() also carries the class-name child, which
+//its call site skips by identity); every call site builds the resolved
+//actual pointers once per call. 0.13.11: the matching side additionally
+//needs the owning node — MatchCtorAgainst passes it to
+//FixupParamTypesWithBindings, which splices the conversion wrappers into
+//that node's children.
 bool ExprResolveAccessor::TryBindArgs(const std::vector<SnExpression*> &actuals,
 	const SnFunction &callee, std::vector<FormalBinding> &outBindings)
 {

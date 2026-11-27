@@ -11,7 +11,7 @@
 #include "nlang/compiler/CastInfo.h"
 #include "nlang/compiler/Logger.h"
 #include "nlang/runtime/Runtime.h"
-#include "nlang/vm/CompiledModule.h"
+#include "nlang/core/CompiledModule.h"
 #include "VmExecutor.h"
 #include "IHostIo.h"
 #include "NcuLoader.h"

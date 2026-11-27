@@ -25,8 +25,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from gate_time_check import main as run_cli
 from gate_time_table import load_table
 from gate_time_testutil import check, write_table
-from gate_time_schedule import (derive_e2e_subset, slow_names,
-                                slow_regex)
+from gate_time_schedule import (derive_e2e_subset, exclusion_regex,
+                                slow_names)
 
 # Stub reference table for the schedule cases (D-16/D-17: the baseline
 # row's reference seconds are the whole fast/slow input, no category
@@ -120,7 +120,7 @@ def _schedule(table, families, root, extra):
                 + list(extra))
 
 
-def test_slow_regex_is_the_one_global_set_and_keep_matched_subtracts():
+def test_exclusion_regex_is_the_one_global_set_and_keep_matched_subtracts():
     # print-slow: the joined -E regex is the ONE global slow set (sorted;
     # the same names for every config -- the config label never filters,
     # D-16), so the ctest-ASan and ctest-Debug legs subtract the same
@@ -139,26 +139,28 @@ def test_slow_regex_is_the_one_global_set_and_keep_matched_subtracts():
               "slow_names: membership must come from the baseline row's "
               "seconds, got %r" % (sorted(slow_names(rows)),))
         regex = "e2e_runner_timing_gate|mainwindow_tests|mnist_mlp_compile"
-        check(slow_regex(rows, "ctest-Debug") == regex,
-              "slow_regex: want the sorted joined regex, got %r"
-              % slow_regex(rows, "ctest-Debug"))
-        check(slow_regex(rows, "ctest-ASan") == regex,
-              "slow_regex: the config label must not filter the global "
-              "set, got %r" % slow_regex(rows, "ctest-ASan"))
-        check(slow_regex(rows, "ctest-Debug", "mnist_mlp_compile")
+        check(exclusion_regex(rows, "ctest-Debug") == regex,
+              "exclusion_regex: want the sorted joined regex, got %r"
+              % exclusion_regex(rows, "ctest-Debug"))
+        check(exclusion_regex(rows, "ctest-ASan") == regex,
+              "exclusion_regex: the config label must not filter the "
+              "global set, got %r" % exclusion_regex(rows, "ctest-ASan"))
+        check(exclusion_regex(rows, "ctest-Debug", "mnist_mlp_compile")
               == "e2e_runner_timing_gate|mainwindow_tests",
-              "slow_regex: a keep-matched regex must subtract the hit "
-              "entry (F-12 backfill), got %r"
-              % slow_regex(rows, "ctest-Debug", "mnist_mlp_compile"))
+              "exclusion_regex: a keep-matched regex must subtract the "
+              "hit entry (F-12 backfill), got %r"
+              % exclusion_regex(rows, "ctest-Debug", "mnist_mlp_compile"))
         # ctest partial match: the mapping regex "plain" as a fragment
         # must hit nothing here, "mnist_mlp" must hit its entry.
-        check(slow_regex(rows, "ctest-Debug", "mnist_mlp")
+        check(exclusion_regex(rows, "ctest-Debug", "mnist_mlp")
               == "e2e_runner_timing_gate|mainwindow_tests",
-              "slow_regex: keep-matched is a partial match like ctest "
-              "-R, got %r" % slow_regex(rows, "ctest-Debug", "mnist_mlp"))
-        check(slow_regex(rows, "ctest-Debug", ".") == "",
-              "slow_regex: a '.' mapping hits every entry, leaving no "
-              "exclusion, got %r" % slow_regex(rows, "ctest-Debug", "."))
+              "exclusion_regex: keep-matched is a partial match like "
+              "ctest -R, got %r"
+              % exclusion_regex(rows, "ctest-Debug", "mnist_mlp"))
+        check(exclusion_regex(rows, "ctest-Debug", ".") == "",
+              "exclusion_regex: a '.' mapping hits every entry, leaving "
+              "no exclusion, got %r"
+              % exclusion_regex(rows, "ctest-Debug", "."))
         # The wiring captures stdout, so the member roster (D-17: a bare
         # pattern is unreadable in a leg log) rides on stderr.
         err = io.StringIO()
@@ -170,7 +172,7 @@ def test_slow_regex_is_the_one_global_set_and_keep_matched_subtracts():
               "print-slow CLI: the value line plus the shared verdict, "
               "got rc=%r out=%r" % (rc, out))
         err_text = err.getvalue()
-        check("excludes 3 slow members" in err_text
+        check("excludes 3 members" in err_text
               and "mnist_mlp_compile" in err_text
               and regex not in err_text,
               "print-slow CLI: the member roster must ride on stderr, "
@@ -403,7 +405,7 @@ def test_check_schedule_e2e_universe():
 
 
 def run():
-    test_slow_regex_is_the_one_global_set_and_keep_matched_subtracts()
+    test_exclusion_regex_is_the_one_global_set_and_keep_matched_subtracts()
     test_check_schedule_backfill_equivalence()
     test_check_schedule_phantom_glob()
     test_check_schedule_slow_member_needs_claim()

@@ -12,8 +12,9 @@
 # stdlib package at runtime, so rebuilding that one target switches the
 # server; the compiler and the VM stay at whatever the build tree holds.
 #
-# Run it bare — it takes the machine lock itself, once per probe run, through
-# tools/gate.sh, and rebuilds as a --shared build gate:
+# Run it bare — it wraps every rebuild and every paced probe in its own
+# tools/gate.sh run, so each rebuild's visible --build token claims the tree
+# and there is nothing left for an outer wrapper to claim:
 #
 #   bash tools/http_perf/probe_pair_ab.sh <base-ref> <new-ref> <out-root> [pairs]
 #
@@ -46,7 +47,7 @@ if [ -n "$(git -C "$ROOT" status --porcelain stdlib/http.n)" ]; then
 fi
 
 build_npkg() {   # build_npkg <gate-tag-prefix>
-    "$ROOT/tools/gate.sh" --shared "$1" "$OUT/npkg" \
+    "$ROOT/tools/gate.sh" "$1" "$OUT/npkg" \
         cmake --build "$BUILD" --config Release --target nlang_stdlib_package
 }
 
@@ -55,10 +56,15 @@ run_probe() {   # run_probe <arm-dir> <gate-tag>
     mkdir -p "$dir" && cp "$SRV" "$dir/"
     PERF_PACE_QPS=$QPS PERF_OUT="$dir" \
         "$ROOT/tools/gate.sh" "$tag" "$dir/gate" \
-        bash "$ROOT/tools/http_perf/probe_pace_ab.sh"
+        bash "$ROOT/tools/http_perf/probe_pace_ab.sh" \
+        > "$dir/gate_console.out" 2>&1
     local rc=$?
-    grep -a "GATE $tag: PASS" "$dir/gate.out" > /dev/null && [ "$rc" = 0 ] \
-        || { echo "probe $tag failed (rc=$rc), see $dir/gate.out" >&2; exit 1; }
+    # gate.sh prints its verdict line to its OWN stdout; the <stem>.out/.err
+    # channels carry only the wrapped command, so the verdict must be read
+    # from the captured console transcript. rc is the exit code that same
+    # verdict line mirrors.
+    grep -a "GATE $tag: PASS" "$dir/gate_console.out" > /dev/null && [ "$rc" = 0 ] \
+        || { echo "probe $tag failed (rc=$rc), see $dir/gate_console.out" >&2; exit 1; }
     echo "$tag PASS"
 }
 

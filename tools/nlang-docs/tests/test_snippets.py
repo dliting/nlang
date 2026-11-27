@@ -406,6 +406,19 @@ def test_cli_missing_doc_fails_cleanly(tmp_path, capsys):
     assert "not found" in capsys.readouterr().err
 
 
+def test_cli_prose_page_fails_cleanly(tmp_path, capsys):
+    #A page without ```nlang blocks gets the same clean per-page error:
+    #the library's vacuous-pass ValueError must not surface as a
+    #traceback from the CLI. Dummy binaries suffice — the page has no
+    #blocks, so the audit raises before any compile.
+    prose = tmp_path / "prose.md"
+    prose.write_text("just prose\n", encoding="utf-8")
+    rc = cli_main(["snippets", "--doc", str(prose),
+                   "--ncc", "ignored", "--nvm", "ignored"])
+    assert rc == 1
+    assert "no ```nlang blocks" in capsys.readouterr().err
+
+
 def test_audit_empty_doc_fails_not_vacuous(tmp_path):
     doc = tmp_path / "page.md"
     doc.write_text("no code here\n", encoding="utf-8")

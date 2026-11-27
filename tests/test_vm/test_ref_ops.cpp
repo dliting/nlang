@@ -18,13 +18,13 @@
 #include "nlang/compiler/Logger.h"
 #include "nlang/compiler/CastInfo.h"
 #include "nlang/runtime/Runtime.h"
-#include "nlang/vm/CompiledModule.h"
+#include "nlang/core/CompiledModule.h"
 #include "VmExecutor.h"
 #include "VmBackend.h"
 #include "NcuLoader.h"
 #include "NcuLinker.h"
-#include "BytecodeOps.h"
-#include "BytecodeStrides.h"
+#include <nlang/core/BytecodeOps.h>
+#include <nlang/core/BytecodeStrides.h>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>

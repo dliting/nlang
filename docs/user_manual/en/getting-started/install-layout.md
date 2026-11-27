@@ -12,7 +12,7 @@ Layout of the installation root:
 | Directory/file | Contents |
 |---|---|
 | `bin\` | nlang.exe, ncc.exe, nvm.exe, ndisasm.exe, ndb.exe, nide.exe, embed_host.exe (the C++ embedding example host), the Qt runtime, and the standard library's native DLLs (`nlang_io.dll`, `nlang_net.dll`, ...) |
-| `stdlib\` | the standard library: one declaration source `.n` for every package — the prelude `lang.n` and `containers.n` plus the twelve standard packages — and the compiled `stdlib.npkg` library package (resolved from here by run-time dependency-closure loading) |
+| `stdlib\` | standard-library declarations: `lang.n` and `containers.n` for the two embedded preset modules, plus one `.n` source for each of the fourteen runtime library units; thirteen compiled domain packages (`concurrent.npkg`, `io.npkg`, `math.npkg`, `fs.npkg`, `tensor.npkg`, `net.npkg`, `http.npkg`, `url.npkg`, `system.npkg`, `gzip.npkg`, `regex.npkg`, `json.npkg`, `web.npkg`) provide those runtime units |
 | `examples\` | all example programs, including the multi-file project `hello_project` |
 | `docs\site\` | this help site — exactly what nide's embedded help window loads |
 | `LICENSE`, `README.md`, `README.zh-CN.md`, `CHANGELOG.md`, `CHANGELOG.zh-CN.md` | license, project description, and release log, each in English and Chinese |

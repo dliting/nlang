@@ -2,12 +2,12 @@
 //linker (peer merge by qualified name, placeholder-slot resolution,
 //uniform operand remap) with no codegen and no I/O — the design's
 //"先立后切" isolation (docs/dev/phase6_loader_design.md §7).
-#include "BytecodeEmitter.h"
-#include "BytecodeOps.h"
-#include "BytecodeReader.h"
+#include <nlang/core/BytecodeEmitter.h>
+#include <nlang/core/BytecodeOps.h>
+#include <nlang/core/BytecodeReader.h>
 #include "NcuLinker.h"
 #include "builder/SymbolSlots.hpp"
-#include "nlang/vm/CompiledModule.h"
+#include "nlang/core/CompiledModule.h"
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -522,7 +522,10 @@ static void test_link_single_unit_identity() {
     {
         BytecodeEmitter em;
         em.Emit(OpCode::OP_ConstString); em.EmitUint16(0);
+        //v2.23: the handle's operand pair — funcIdx + descIdx (the
+        //no-descriptor sentinel for a non-generic target).
         em.Emit(OpCode::OP_MakeFunc);    em.EmitUint16(1);
+        em.EmitUint16(0xFFFF);
         em.Emit(OpCode::OP_Return);
         mainf.bytecode = em.TakeBytes();
     }
@@ -541,7 +544,74 @@ static void test_link_single_unit_identity() {
           "identity string operand");
     CHECK(rd.ReadOp() == OpCode::OP_MakeFunc && rd.ReadUint16() == 1,
           "identity function operand");
+    CHECK(rd.ReadUint16() == 0xFFFF, "identity descIdx sentinel");
     CHECK(rd.ReadOp() == OpCode::OP_Return && rd.Eof(), "end of bytecode");
+
+    PASS();
+}
+
+// --- lambda/closure plan Task 5 (review M5): the MakeFunc descIdx word
+// is a descriptor-table operand — the remap walk must patch it like
+// OP_CallStatic's trailing word, or a cross-NCU generic function value
+// silently reads the wrong merged row. The producer unit (app) spells
+// the instantiation row at its OWN index; the provider unit (lib) also
+// carries the same spelling (its own call sites). lib merges first, so
+// app's row index is non-identity after the merge — the single place a
+// single-module roundtrip cannot catch.
+
+static void test_link_makefunc_desc_remap() {
+    TEST(link_makefunc_desc_remap);
+    CompiledModule lib = MakeUnit("lib");
+    lib.stringConstants = {"lib-str"};
+    lib.functions.push_back(MakeFunc("lib.main", 0));   //own 0
+    //Padding own function: without it lib.make lands at merged index 1
+    //while the placeholder slot is also 1 — an accidental identity the
+    //assertion could not distinguish from a missed remap.
+    lib.functions.push_back(MakeFunc("lib.helper", 0)); //own 1
+    CompiledFunction gf = MakeFunc("lib.make", 2);
+    gf.isGeneric = true;
+    gf.typeParamNames = {"T"};
+    lib.functions.push_back(std::move(gf));             //own 2
+    lib.descriptorTable.push_back({"lib.make<int>", {}});  //lib row 0
+
+    CompiledModule app = MakeUnit("app");
+    CompiledFunction mainf = MakeFunc("app.main", 0);
+    {
+        BytecodeEmitter em;
+        //funcIdx = the import placeholder slot for lib.make (app slot
+        //1); descIdx = app's OWN row for the instantiation spelling
+        //(row 1, so the merged index is provably non-identity).
+        em.Emit(OpCode::OP_MakeFunc); em.EmitUint16(1);
+        em.EmitUint16(1);
+        em.Emit(OpCode::OP_Return);
+        mainf.bytecode = em.TakeBytes();
+    }
+    app.functions.push_back(std::move(mainf));           //slot 0
+    app.functions.push_back(MakeFunc("lib.make", 2));    //slot 1 placeholder
+    app.functionImports.push_back({"lib", "lib.make", 2});
+    app.descriptorTable.push_back({"app.early<int>", {}});  //row 0
+    app.descriptorTable.push_back({"lib.make<int>", {}});   //row 1
+
+    std::vector<CompiledModule> units;
+    units.push_back(std::move(lib));
+    units.push_back(std::move(app));
+    CompiledModule merged = NcuLinker::Link(std::move(units), "app.main");
+
+    //Merged functions: lib.main=0, lib.helper=1, lib.make=2, app.main=3
+    //(placeholders never copy). Merged descriptors: lib row 0 first,
+    //then app's own row 0 — app's spelling row dedups into lib's, so
+    //app's descIdx 1 must remap to 0.
+    CHECK(merged.functions.size() == 4,
+          "records: lib.main + lib.helper + lib.make + app.main");
+    CHECK(merged.descriptorTable.size() == 2, "descriptor rows dedup");
+    BytecodeReader rd(merged.functions[3].bytecode.data(),
+                      merged.functions[3].bytecode.size());
+    CHECK(rd.ReadOp() == OpCode::OP_MakeFunc, "opcode");
+    const uint16_t funcIdx = rd.ReadUint16();
+    const uint16_t descIdx = rd.ReadUint16();
+    CHECK(rd.ReadOp() == OpCode::OP_Return && rd.Eof(), "end of bytecode");
+    CHECK(funcIdx == 2, "funcIdx placeholder slot 1 -> merged lib.make at 2");
+    CHECK(descIdx == 0, "descIdx app row 1 -> merged lib spelling row 0");
 
     PASS();
 }
@@ -1457,6 +1527,11 @@ int main() {
         g_fail++;
     }
     try { test_link_single_unit_identity(); }
+    catch (const std::exception& e) {
+        std::cerr << "FAILED (exception: " << e.what() << ")\n";
+        g_fail++;
+    }
+    try { test_link_makefunc_desc_remap(); }
     catch (const std::exception& e) {
         std::cerr << "FAILED (exception: " << e.what() << ")\n";
         g_fail++;

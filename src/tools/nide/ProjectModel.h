@@ -120,6 +120,15 @@ public:
     //Replace the whole list (used by the Properties dialog); marks dirty.
     void setImportPaths(const QStringList& paths);
 
+    //--- Native library members (.nproj <Natives>) ---
+    // Read-only carry: entries load from and save back to the .nproj
+    // unchanged. The IDE has no editor for them yet, but the model
+    // holds the list so a save cannot silently drop what the user
+    // hand-authored -- the build itself is ncc -p, which re-reads the
+    // saved file. Paths are absolute, project-file order.
+    int nativeMemberCount() const;
+    QString nativeMemberAt(int index) const;
+
     //--- XML persistence ---
     // Save the project to the given file path (atomically). Source paths
     // are written relative to the file's directory, and the project
@@ -154,6 +163,7 @@ private:
 
     std::vector<std::unique_ptr<FileNode>> m_files;
     std::vector<QString> m_importPaths;  // absolute library search dirs
+    std::vector<QString> m_nativeMembers;  // absolute <Natives> files (read-only carry)
 };
 
 //--- SolutionNode: the root of the solution tree.

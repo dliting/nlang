@@ -131,7 +131,7 @@ Compile the implementation into `nlang_num.dll` with any C++ compiler (add the r
 Two shapes:
 
 - Source directory (flat): drop `mylib.n` into any search directory; consumers inline the signatures at compile time. The library unit is compiled once (`ncc build mylib.n -o mylib.ncu`, section 2) and shipped alongside the consumer. Simplest — and the shape the standard library uses.
-- Precompiled package: `ncc build -p <project>.nproj -o <package>.npkg` packs the library units, for distributing without sources; dotted subdirectory libraries (e.g. `mylib/math.n`) ship in this shape as well. Unit images travel with the package and linking happens at load time — consumers point `-I` at the package directory and never need the library sources.
+- Precompiled package: `ncc build -p <project>.nproj -o <package>.npkg` packs the library units, for distributing without sources; dotted subdirectory libraries (e.g. `mylib/math.n`) ship in this shape as well. A mixed library's DLL rides the same archive — list the library file under the project's `<Natives>` block ([ncc](../cli-tools/ncc.md)). Unit images travel with the package and linking happens at load time — consumers point `-I` at the package directory and never need the library sources.
 
 Consumers see no difference: both shapes are consumed as `import <package>;`; the five search-path layers are under [ncc](../cli-tools/ncc.md).
 

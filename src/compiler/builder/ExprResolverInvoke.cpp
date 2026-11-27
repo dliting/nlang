@@ -130,12 +130,13 @@ bool ExprResolveAccessor::RejectCrossNamespaceCall(SnInvokeExpr &snInvoke)
 	return true;
 }
 
-//0.9.0: the bare brace arguments of this call — untyped init lists whose
-//target type can only be the chosen overload's formal. Empty for every
-//other argument shape. 0.9.13 B2: a named argument `name = {...}` keeps
-//its SnNamedArgExpr wrapper in the deferred list (the skip-list matches
+//0.9.0: the deferred arguments of this call — untyped shapes whose
+//target type can only be the chosen overload's formal: the bare brace
+//argument, and (0.13.10) the lambda. Empty for every other argument
+//shape. 0.9.13 B2: a named argument `name = {...}` keeps its
+//SnNamedArgExpr wrapper in the deferred list (the skip-list matches
 //Params() entries by identity); the gate tests the inner expression.
-static std::vector<SnExpression*> CollectDeferredBraceArgs(
+std::vector<SnExpression*> CollectDeferredArgs(
 	SnInvokeExpr &invoke)
 {
 	std::vector<SnExpression*> deferredArgs;
@@ -144,16 +145,16 @@ static std::vector<SnExpression*> CollectDeferredBraceArgs(
 		SnExpression *pTest = &param;
 		if (param.Kind() == NK_NamedArgExpr)
 			pTest = static_cast<SnNamedArgExpr&>(param).Inner();
-		if (UntypedInitListOf(*pTest))
+		if (UntypedInitListOf(*pTest) || UntypedLambdaOf(*pTest))
 			deferredArgs.push_back(&param);
 	}
 	return deferredArgs;
 }
 
-//Failure-tail sweep of the deferred brace arguments: resolve them
+//Failure-tail sweep of the deferred arguments: resolve them
 //directly so the generic missing-target diagnostic still fires (the
 //call's own diagnostics above stay).
-static void AcceptDeferredBraceArgs(ISyntaxNodeVisitor &visitor,
+static void AcceptDeferredArgs(ISyntaxNodeVisitor &visitor,
 	const std::vector<SnExpression*> &deferredArgs)
 {
 	for (auto *pArg : deferredArgs)
@@ -161,23 +162,36 @@ static void AcceptDeferredBraceArgs(ISyntaxNodeVisitor &visitor,
 			pArg->Accept(visitor);
 }
 
+//0.13.10: the exported pair of the deferred-argument discipline for the
+//paths that pre-resolve arguments in the caller scope (member-receiver
+//and module-qualified calls): the skip-list for their eager pass, and
+//the sweep their failure tails owe once the consumed member stops the
+//walker. Both are idempotent — an argument the success channel already
+//typed drops out of a later recompute.
+void SweepDeferredInvokeArgs(ISyntaxNodeVisitor &visitor,
+	SnInvokeExpr &invoke)
+{
+	auto deferredArgs = CollectDeferredArgs(invoke);
+	AcceptDeferredArgs(visitor, deferredArgs);
+}
+
 //0.9.0: argument prologue of Access(SnInvokeExpr&) — collect the deferred
 //bare brace arguments, resolve every other argument, and validate the
 //call syntax. On either failure the sweep runs (the brace args still get
 //their missing-target diagnostic) and the call stays unresolved.
 bool ExprResolveAccessor::ResolveInvokeArguments(SnInvokeExpr &snInvoke,
-	std::vector<SnExpression*> &deferredBraceArgs)
+	std::vector<SnExpression*> &deferredArgs)
 {
 	//0.9.0 (D11): a bare `{...}` argument has no type until an overload
 	//is chosen — the chosen formal's type becomes its target. Keep
 	//ResolveExpressionList off them and resolve them in
 	//ResolveInvokeWithFunc; every exit that leaves the call unresolved
 	//sweeps them through a direct Accept first.
-	deferredBraceArgs = CollectDeferredBraceArgs(snInvoke);
+	deferredArgs = CollectDeferredArgs(snInvoke);
 
-	if (!ResolveExpressionList(snInvoke.Params(), &deferredBraceArgs))
+	if (!ResolveExpressionList(snInvoke.Params(), &deferredArgs))
 	{
-		AcceptDeferredBraceArgs(*m_pVisitor, deferredBraceArgs);
+		AcceptDeferredArgs(*m_pVisitor, deferredArgs);
 		return false;
 	}
 
@@ -186,7 +200,7 @@ bool ExprResolveAccessor::ResolveInvokeArguments(SnInvokeExpr &snInvoke,
 	//satisfy (e.g. positional arg after named, duplicate named names).
 	if (!ValidateInvokeSyntax(snInvoke))
 	{
-		AcceptDeferredBraceArgs(*m_pVisitor, deferredBraceArgs);
+		AcceptDeferredArgs(*m_pVisitor, deferredArgs);
 		return false;
 	}
 	return true;
@@ -199,16 +213,16 @@ bool ExprResolveAccessor::ResolveInvokeArguments(SnInvokeExpr &snInvoke,
 //out actuals fail at their own retirement diagnostic first.
 bool ExprResolveAccessor::AdmitChosenCallee(SnInvokeExpr &snInvoke,
 	SnFunction *pCallee, const std::vector<FormalBinding> &bindings,
-	const std::vector<SnExpression*> &deferredBraceArgs)
+	const std::vector<SnExpression*> &deferredArgs)
 {
 	if (RejectBareMethodCall(snInvoke, pCallee))
 	{
-		AcceptDeferredBraceArgs(*m_pVisitor, deferredBraceArgs);
+		AcceptDeferredArgs(*m_pVisitor, deferredArgs);
 		return false;
 	}
 	if (RejectTypeNameInstanceCall(snInvoke, pCallee))
 	{
-		AcceptDeferredBraceArgs(*m_pVisitor, deferredBraceArgs);
+		AcceptDeferredArgs(*m_pVisitor, deferredArgs);
 		return false;
 	}
 	return true;
@@ -218,8 +232,8 @@ void ExprResolveAccessor::Access(SnInvokeExpr &snInvoke)
 {
 	NLANG_ASSERT(!snInvoke.IsResolved());
 
-	std::vector<SnExpression*> deferredBraceArgs;
-	if (!ResolveInvokeArguments(snInvoke, deferredBraceArgs))
+	std::vector<SnExpression*> deferredArgs;
+	if (!ResolveInvokeArguments(snInvoke, deferredArgs))
 		return;
 
 	if (TryBindDelegateCall(snInvoke))
@@ -228,7 +242,7 @@ void ExprResolveAccessor::Access(SnInvokeExpr &snInvoke)
 		//named formals — a deferred brace argument has no target to infer
 		//from. The delegate gate already reported it; the sweep adds the
 		//missing-target diagnostic and the call stays unresolved.
-		AcceptDeferredBraceArgs(*m_pVisitor, deferredBraceArgs);
+		AcceptDeferredArgs(*m_pVisitor, deferredArgs);
 		return;
 	}
 
@@ -242,12 +256,12 @@ void ExprResolveAccessor::Access(SnInvokeExpr &snInvoke)
 		bNameMatchedImported, bVisibilityHintLogged, &candidates,
 		&bAmbiguousCall);
 
-	if (!AdmitChosenCallee(snInvoke, pCallee, bindings, deferredBraceArgs))
+	if (!AdmitChosenCallee(snInvoke, pCallee, bindings, deferredArgs))
 		return;
 
 	if (res == FFR_FuncNameNotFound && RejectCrossNamespaceCall(snInvoke))
 	{
-		AcceptDeferredBraceArgs(*m_pVisitor, deferredBraceArgs);
+		AcceptDeferredArgs(*m_pVisitor, deferredArgs);
 		return;
 	}
 
@@ -261,7 +275,7 @@ void ExprResolveAccessor::Access(SnInvokeExpr &snInvoke)
 	}
 
 	ResolveFailedInvoke(snInvoke, res, pCallee, bNameMatchedImported,
-		bVisibilityHintLogged, candidates, deferredBraceArgs,
+		bVisibilityHintLogged, candidates, deferredArgs,
 		bAmbiguousCall);
 }
 
@@ -275,7 +289,7 @@ void ExprResolveAccessor::Access(SnInvokeExpr &snInvoke)
 void ExprResolveAccessor::ResolveFailedInvoke(SnInvokeExpr &snInvoke,
 	FindFuncResult res, SnFunction *pCallee, bool bNameMatchedImported,
 	bool bVisibilityHintLogged, const std::vector<SnFunction*> &candidates,
-	const std::vector<SnExpression*> &deferredBraceArgs,
+	const std::vector<SnExpression*> &deferredArgs,
 	bool bAmbiguousCall)
 {
 	if (bVisibilityHintLogged)
@@ -290,12 +304,12 @@ void ExprResolveAccessor::ResolveFailedInvoke(SnInvokeExpr &snInvoke,
 	//a successful inference re-opens the gate below. rbSwept marks that
 	//the helper's Accepts already diagnosed the failures — the tail sweep
 	//must not repeat them.
-	bool bArgsAdmissible = deferredBraceArgs.empty();
+	bool bArgsAdmissible = deferredArgs.empty();
 	bool bArgsSwept = false;
 	if (!bArgsAdmissible && res == FFR_FuncNameNotFound)
 	{
 		bArgsAdmissible = TryInferArrayDimsDeferredArgs(snInvoke,
-			deferredBraceArgs, bArgsSwept);
+			deferredArgs, bArgsSwept);
 	}
 	if (res == FFR_FuncNameNotFound && bArgsAdmissible
 		&& TryResolveCtorInvoke(snInvoke))
@@ -303,7 +317,7 @@ void ExprResolveAccessor::ResolveFailedInvoke(SnInvokeExpr &snInvoke,
 	LogInvokeFailure(snInvoke, res, pCallee, bNameMatchedImported,
 		candidates, bAmbiguousCall);
 	if (!bArgsSwept)
-		AcceptDeferredBraceArgs(*m_pVisitor, deferredBraceArgs);
+		AcceptDeferredArgs(*m_pVisitor, deferredArgs);
 }
 
 //Phase 9c: validate caller-side argument syntax (candidate-independent).
@@ -372,7 +386,7 @@ bool ExprResolveAccessor::BindArgFuncRefs(
 		else if (IsUnboundMemberFuncRef(*b.pCallerExpr)
 			&& !BindMemberFuncRefToExpected(m_Env,
 				*static_cast<SnMemberExpr*>(b.pCallerExpr),
-				b.pFormal->EvalDataType()))
+				b.pFormal->EvalDataType(), this))
 			return false;
 	}
 	return true;
@@ -391,7 +405,7 @@ bool ExprResolveAccessor::ResolveInvokeWithFunc(SnInvokeExpr &invoke,
 	//0.9.0: deferred bare brace arguments bind now — the chosen formal's
 	//declared type is the init list's target. A false return (diagnostic
 	//logged) leaves the invoke unresolved, mirroring the func-ref path.
-	if (!ResolveDeferredBraceArgs(invoke, bindings))
+	if (!ResolveDeferredArgs(invoke, bindings))
 		return false;
 
 	//v0.13.9 phase 3 Task 5: the &-argument judgment (RefBindJudgment.cpp)
@@ -415,22 +429,38 @@ bool ExprResolveAccessor::ResolveInvokeWithFunc(SnInvokeExpr &invoke,
 	return true;
 }
 
-//0.9.0: the deferred bare brace arguments of the chosen overload — the
-//formal's declared type is the init list's target (the same declaration
-//field shape the assignment site passes as InferredTarget). False when
-//any of them failed to resolve; its diagnostic is already logged.
+//0.9.0: the deferred arguments of the chosen overload — the formal's
+//declared type is the target (the same declaration field shape the
+//assignment site passes as InferredTarget; 0.13.10: a lambda argument
+//takes it as its expected function type). False when any of them
+//failed to resolve; its diagnostic is already logged.
 //0.9.13 B2: named arguments resolve through their SnNamedArgExpr wrapper.
-bool ExprResolveAccessor::ResolveDeferredBraceArgs(
+//0.13.10 Task 7: a deferred argument is CALLER code — it hangs off the
+//invoke in the caller's tree, never in the callee's scope. The member-
+//receiver path reaches this channel with the receiver-class context and
+//the parent-only flag still active (its callee lookup needed them);
+//anchor the resolution at the invoke itself and clear the flag, so the
+//argument's walk follows the caller's scope chain. The bare path
+//arrives with the caller context already set — the anchor is the same
+//chain, one hop shallower.
+bool ExprResolveAccessor::ResolveDeferredArgs(
 	SnInvokeExpr &invoke, std::vector<FormalBinding> &bindings)
 {
+	SyntaxNode *pSavedContext = m_pContext;
+	const bool bParentOnly = ContainFlags(ERF_SearchInParentOnly);
+	m_pContext = &invoke;
+	RemoveFlags(ERF_SearchInParentOnly);
+	bool bOK = true;
 	for (auto &b : bindings)
 	{
 		if (b.kind == FormalBinding::B_Default || !b.pCallerExpr)
 			continue;
-		auto *pInitList = UntypedInitListOf(*b.pCallerExpr);
-		if (!pInitList)
+		if (auto *pInitList = UntypedInitListOf(*b.pCallerExpr))
+			pInitList->InferredTarget(b.pFormal);
+		else if (auto *pLambda = UntypedLambdaOf(*b.pCallerExpr))
+			pLambda->InferredTarget(b.pFormal);
+		else
 			continue;
-		pInitList->InferredTarget(b.pFormal);
 		//0.9.13 B2: named arguments (`name = {...}`) bind through their
 		//SnNamedArgExpr wrapper — the wrapper (not the inner) is accepted
 		//so its Access() propagates the inner's resolution to the invoke's
@@ -451,9 +481,12 @@ bool ExprResolveAccessor::ResolveDeferredBraceArgs(
 		}
 		pArg->Accept(*m_pVisitor);
 		if (!pArg->IsResolved())
-			return false;
+			bOK = false;
 	}
-	return true;
+	m_pContext = pSavedContext;
+	if (bParentOnly)
+		AddFlags(ERF_SearchInParentOnly);
+	return bOK;
 }
 
 

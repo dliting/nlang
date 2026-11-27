@@ -83,6 +83,12 @@
 
 **D-M1 Array(dims)内联字面量**（同机器缺陷修复）：`Array([2, 3])`的括号字面量是延迟init-list实参，构造拦截门因「无形参可推断」而整体拒绝。Array的dims形参已知为int[]（spec），拦截前给字面量喂int[]目标再走常规流程（TryInferArrayDimsDeferredArgs，镜像ResolveDeferredBraceArgs模式）。
 
+**修订（2026-11-19 D-29，随2026-11-23的dev→master合并落地）**：V3的「库包禁通配」撤销。其自陈理由是分工「显式＝逐模块点名、通配＝子树路径准入」——扁平库包没有子树，通配相较精确import无可增益，故禁；D-28（docs/dev/web_framework_design.md）让库包真实拥有点分子模块后该前提消失。`import p.*;`改为一律并入`p`及其全部子模块，库包与项目包同等，`Wildcard import cannot target library package`诊断随之移除，空并集报错保留（联合改为项目单元∪库单元）。V2的限定名准入同步扩展：限定链按D-29规则1解析——已知模块路径之后的段若指名类型，后续段在该类型作用域内解析，静态方法、静态常量与枚举成员同等、任意嵌套深度同等；同名类型优先于同名子模块的m12规则不变。诊断只对确实是模块路径的名字说「is not imported」，指向类型的成员缺失按成员不存在表述（D-29规则3）。
+
+**修订（2026-11-24，0.13.12 Low 2随本版清偿）**：规则1「最长已知模块路径」的已知性从两臂扩为三臂＝注册单元（本包/工程/已内联库源）∨符号索引已注册的库包∨库目录按点分名提供源码（`BuildEnvironment::HasLibrarySource`，与导入发现共用同一映射`FindLibrarySourceMatches`）。第三方源码库的子模块未被内联时（单文件`import tp;`不内联子模块），伸入其内部的限定链不再按整链点名给出不可用的主建议，而是折叠到最长已知前缀：`import tp;`＋`tp.sub.Fn.f()`报`Module 'tp.sub' is not imported. Add 'import tp.sub;' (or 'import tp.*;')`——折叠后主建议可用，通配备选同时列出。无任何import时折叠到顶层包（`Package 'tp' is not imported`），拼写错误的子段在折叠后由成员诊断诚实点名（不再伪称整链是未导入模块）。类型锚保持原有语义：源码已知但未内联的前缀上类型探针仍查不到声明，`TypeAnchorCapturesChain`对该场景效果中性；`import tp.sub;`之后穿类的链由`RejectQualifiedTypeThroughType`给精确诊断。惰性内联（`LoadLibrarySource`）的包名由匹配根派生（`SymbolIndex::PackageUnderRoot`），与`LoadLibraryDir`同规则——此前转发根目录字符串，索引落在无人能拼出的包名下，该包对全部`IsLibraryPackage`消费者不可见。评审（2026-11-24）登记两个预存在边角（非本批回归，旧代码同形）：其一，`m_sStdLibDir`为空的构建里prelude走嵌入副本（无索引、无磁盘源），其上深链的折叠保证不成立——正常发布布局不触发；其二，拼写错误的子段下调用位的首要错误先走invoke通道（「The function "f" does not exist or is not accessible.」），成员通道的诚实诊断作为后续到达或不到达——本批的行为仍严格优于整链导入错误（回归钉见thirdPartyTypoChildNamesTheMember对Incompatible type全链行的断言）。
+
+**修订（2026-11-25，产物可知性第四臂随package_artifact线Task 8落地）**：规则1的已知性从三臂扩为四臂＝前三臂∨产物可知性（`BuildEnvironment::ArtifactKnowability`）：有效库目录上存在`<dir>/<name>.ncu`单元文件，或某包的成员表列有该名字。产物形态与源码形态同权折叠——无任何import时`tp.sub.x()`同样折叠到最长已知前缀（`Module 'tp.sub' is not imported. Add 'import tp.sub;' (or 'import tp.*;')`）；单段链读出包名（`Package 'tp' is not imported. Add 'import tp;'`）。实现面走探针缝：环境层只持函数指针（`ArtifactKnowabilityProbe`），探针与cache由`InstallArtifactCache`成对装配（定义于ModuleBuilderArtifactCache.cpp），环境层头与源文件不include NcuPackageReader——env-only链接目标（test_library_index为其守卫）不拉入reader符号；`KnowsLibraryModule`本体出定义到ExprResolverQualified.cpp，因为头文件内联体会在每个包含该头的翻译单元散发，同样把reader符号拖进不链nlang_vm的目标。探针为纯可知性：不读不采纳（读取与采纳是FindArtifactUnit在import自身解析时的事），扫描惰性、与发现阶段共用cache。
+
 ## 6 诊断契约
 
 | 场景 | 文案要点 |

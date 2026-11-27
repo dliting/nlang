@@ -4,15 +4,28 @@
 # tools/gate_tier.sh when it assembles each tier's e2e legs.
 #
 #   tier <leg-name> selector <regex over manifest test names>
+#   claim <resource-name> <ctest entry>...
 #
 # The coverage invariant: every manifest row must be selected by at
 # least one tier selector; a selector matching zero rows fails the
 # guard. The full-manifest selectors (".") make today's tiers trivially
 # complete — the guard exists so a future tier edit cannot silently
 # orphan a test family.
+#
+# A claim line names a resource and the ctest entries that hold it
+# (gate timing design D-11). tools/gate_tier.sh passes it as the ctest
+# leg's --claim argument (gate.sh serializes whole legs against it), and
+# emit-cmake turns it into RESOURCE_LOCK variables so the entries also
+# serialize inside one parallel ctest process. The window-launching
+# families (QApplication with a real GUI event loop) cannot run
+# concurrently on one session, hence the nide-gui claim over the eight
+# windowed QTest executables plus the deployment probe that launches a
+# window per resolution class.
+
+claim nide-gui mainwindow_tests editor_tests dialogs_tests syntaxhighlighter_tests compilelogbrowser_tests runerrorbrowser_tests terminal_tests searchpath_integration_tests nide_deploy_check
 
 tier T1-debug-e2e selector .
-tier T1-asan-subset selector stabilize|concurren|carrier|thread|mutex|channel|atomic|sync|list|dict|container|collect|gc|exception|throw|catch|serial|stream|struct|boxing|array|slice|view|tearing|race|refbind|const_ref|op_tensor_sort|op_tensor_scatter|op_tensor_take|op_tensor_unique|op_rng_seed
+tier T1-asan-subset selector stabilize|concurren|carrier|thread|mutex|channel|atomic|sync|list|dict|container|collect|gc|exception|throw|catch|serial|stream|struct|boxing|array|slice|view|tearing|race|drain_close|session_conc|refbind|const_ref|lambda|capture|sse|multipart
 tier T2-debug-e2e selector .
 tier T2-asan-e2e selector .
 tier T2-release-e2e selector .

@@ -1,0 +1,21 @@
+//Capturing the catch variable: the clause's descriptor must enter the
+//declaration->paragraph map so a lambda inside the handler captures
+//it, and the handler-entry bind must copy the landing slot into the
+//display field (the closure outlives the clause, storage is the
+//display's). Both shapes must read the caught value after the
+//try/catch completes: an inline literal stored to a local, and a
+//pre-declared function value rebound inside the handler.
+int main() {
+	string got = "";
+	func<string> saved = () -> "none";
+	try {
+		throw Exception("boom");
+	} catch (Exception e) {
+		func<string> msg = () -> e.message;
+		got = msg();
+		saved = () -> e.message;
+	}
+	if (got != "boom") { return 1; }
+	if (saved() != "boom") { return 2; }
+	return 0;
+}

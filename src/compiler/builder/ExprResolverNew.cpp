@@ -135,7 +135,8 @@ void ExprResolveAccessor::Access(SnNewExpr &sn)
 		if (&arg == sn.ClassName()) continue;  //Args() view includes it
 		actuals.push_back(&arg);
 	}
-	sn.CtorFunction(SelectCtorForArgs(pTypeField, actuals, sn.Location()));
+	sn.CtorFunction(SelectCtorForArgs(sn, pTypeField, actuals,
+		sn.Location()));
 }
 
 void ExprResolveAccessor::Access(SnNewArrayExpr &sn)
@@ -323,12 +324,12 @@ bool ExprResolveAccessor::TryResolveArrayDynCtorInvoke(SnInvokeExpr &snInvoke,
 //dims formal IS known (int[], spec), so this arm hands each deferred
 //literal that target and re-resolves it; the reopened gate then runs
 //the ordinary TryResolveArrayDynCtorInvoke flow. Mirrors
-//ResolveDeferredBraceArgs' wrapper discipline: named arguments keep
+//ResolveDeferredArgs' wrapper discipline: named arguments keep
 //their SnNamedArgExpr wrapper accepted (its Access propagates the inner
 //resolution into the invoke's child list).
 bool ExprResolveAccessor::TryInferArrayDimsDeferredArgs(
 	SnInvokeExpr &snInvoke,
-	const std::vector<SnExpression*> &deferredBraceArgs, bool &rbSwept)
+	const std::vector<SnExpression*> &deferredArgs, bool &rbSwept)
 {
 	rbSwept = false;
 	auto *pTypeDecl = ProbeCtorType(snInvoke.CalleeName(),
@@ -344,7 +345,7 @@ bool ExprResolveAccessor::TryInferArrayDimsDeferredArgs(
 	auto *pDimsTarget = m_Env.InternArrayTypeToken(
 		SnBuiltinDataType::InstanceOf(NK_Int32), 1);
 	bool bAllResolved = true;
-	for (auto *pArg : deferredBraceArgs)
+	for (auto *pArg : deferredArgs)
 	{
 		SnExpression *pInner = pArg;
 		if (pArg->Kind() == NK_NamedArgExpr)
@@ -416,7 +417,7 @@ bool ExprResolveAccessor::TryResolveCtorInvoke(SnInvokeExpr &snInvoke)
 	std::vector<SnExpression*> actuals;
 	for (auto &param : snInvoke.Params())
 		actuals.push_back(&param);
-	snInvoke.CtorFunction(SelectCtorForArgs(pTypeDecl, actuals,
+	snInvoke.CtorFunction(SelectCtorForArgs(snInvoke, pTypeDecl, actuals,
 		snInvoke.Location()));
 	return true;
 }
@@ -440,7 +441,7 @@ void ExprResolveAccessor::BindQualifiedCtorTail(SnMemberExpr &snMember,
 	std::vector<SnExpression*> actuals;
 	for (auto &param : invoke.Params())
 		actuals.push_back(&param);
-	auto *pCtor = SelectCtorForArgs(&type, actuals, invoke.Location());
+	auto *pCtor = SelectCtorForArgs(invoke, &type, actuals, invoke.Location());
 	invoke.CtorFunction(pCtor);
 	snMember.m_pField = pCtor ? pCtor : &type;
 	snMember.EvalDataType(&type);
@@ -453,18 +454,15 @@ void ExprResolveAccessor::BindQualifiedCtorTail(SnMemberExpr &snMember,
 bool ExprResolveAccessor::TryResolveQualifiedCtorInvoke(SnMemberExpr &snMember,
 	SnInvokeExpr &invoke, const std::string &modulePath)
 {
-	//0.13.8 item 5 (Task 4): the foreign non-public admission consumes
-	//with the not-a-member wording — falling through would re-advertise
-	//the private type as a missing function.
+	//0.13.8 item 5 (Task 4): admission denial reports the not-a-member
+	//wording — falling through would re-advertise the private type.
 	bool bDenied = false;
 	auto *pType = FindAdmittedModuleType(m_Env.Registry(), modulePath,
 		invoke.CalleeName(), m_Env.Registry().OwnerOfContext(invoke),
 		bDenied);
 	if (bDenied)
 	{
-		m_Env.Log(CLL_Error, invoke.Location(),
-			"Type '%s' is not a member of package '%s'.",
-			invoke.CalleeName().c_str(), modulePath.c_str());
+		LogModuleTypeNotFound(invoke, invoke.CalleeName(), modulePath);
 		return true;
 	}
 	if (!pType

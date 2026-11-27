@@ -230,6 +230,32 @@ def test_row_line_prints_the_seven_columns():
           "got %r" % got)
 
 
+def test_load_table_rejects_unknown_sentinel_token():
+    # The sentinel column carries the calibration mark (`yes`) and the
+    # samples class (2026-11-26 ruling); every other token is a typo
+    # away from silently scheduling nothing, so the parser owns the
+    # vocabulary. `sample` (missing the plural), `YES` (case) and a bare
+    # word in the reason slot all refuse to parse.
+    base = ("# stub vocabulary table\n"
+            "ctest-Debug vocab_entry 5.00 1 ctest-junit-serial %s "
+            "reason text\n")
+    with tempfile.TemporaryDirectory() as tmp:
+        path = write_table(tmp, base % "samples")
+        check(len(load_table(path)) == 1,
+              "load_table: the samples token must parse, got a refusal")
+        for bad in ("sample", "YES", "Samples"):
+            path = write_table(tmp, base % bad)
+            try:
+                load_table(path)
+            except ValueError as exc:
+                check("sentinel" in str(exc),
+                      "load_table: a bad token must name the sentinel "
+                      "column, got %r" % str(exc))
+            else:
+                check(False, "load_table: token %r must be rejected"
+                      % bad)
+
+
 def run():
     test_caps_work_factor_two_doubles_cap_and_budget()
     test_caps_floor_entry_watchdog_pinned_at_120()
@@ -237,4 +263,5 @@ def run():
     test_scoped_row_same_name_hits_its_own_manifest_scope()
     test_slow_names_derives_membership_from_the_baseline_row()
     test_load_table_names_the_deleted_category_column()
+    test_load_table_rejects_unknown_sentinel_token()
     test_row_line_prints_the_seven_columns()

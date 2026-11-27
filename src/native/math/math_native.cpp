@@ -2,10 +2,13 @@
 // namespace. Built as nlang_math.dll / libnlang_math.so; the VM loads it
 // through the same mechanism as a third-party native library.
 //
-// This module depends only on the stable NativeHost ABI and the C++ standard
-// library — it does not link nlang_vm. The PRNG state is owned by the VM, so
-// random/srand/randomi go through the host callbacks instead of keeping a
-// local generator.
+// This module depends only on the stable NativeHost ABI, the C++ standard
+// library and the OS random source — it does not link nlang_vm. The PRNG
+// state is owned by the VM, so random/srand/randomi go through the host
+// callbacks instead of keeping a local generator. randomBytes is the
+// deliberate exception: it pulls from the OS CSPRNG, because callers use it
+// for session ids and multipart boundaries, which must stay unpredictable
+// across runs and across processes.
 //
 // Error model: argument/range errors (clampi lo>hi, randomi min>max) and
 // int64-overflow guards (floor/ceil/round out of range or NaN, absi of
@@ -21,9 +24,21 @@
 #include <cstdint>
 #include <cstdio>
 #include <string>
+#include <vector>
+
+#ifdef _WIN32
+#include <windows.h>
+#include <bcrypt.h>
+#else
+#include <cerrno>
+#include <fcntl.h>
+#include <sys/random.h>
+#include <unistd.h>
+#endif
 
 using nlang::native::ArgDouble;
 using nlang::native::ArgInt;
+using nlang::native::NewArray;
 using nlang::native::ReturnDouble;
 using nlang::native::ReturnInt;
 using nlang::native::ReturnLong;
@@ -41,9 +56,51 @@ constexpr double kRngFloatScale = 1.0 / 16777216.0;
 constexpr double kInt64MinAsDouble = -9223372036854775808.0;
 constexpr double kInt64EndAsDouble = 9223372036854775808.0;
 
+//DoS bound for one randomBytes request: the same 16 MiB ceiling
+//fs.readFile enforces, so a script cannot ask the CSPRNG for a gigabyte.
+constexpr unsigned long long kMaxRandomBytes = 16ull * 1024ull * 1024ull;
+
 // Raise the base Exception (math argument/range errors).
 void RaiseBase(NativeHost* host, const std::string& msg) {
     nlang::native::Raise(host, NEXC_Base, msg);
+}
+
+// Pull count bytes from the OS CSPRNG into buf (count > 0). Returns false
+// when the platform entropy source is unreachable; the caller raises.
+bool FillRandom(unsigned char* buf, size_t count) {
+#ifdef _WIN32
+    //BCRYPT_USE_SYSTEM_PREFERRED_RNG: no provider handle to keep alive, the
+    //system picks the algorithm; NTSTATUS 0 (S_OK) means the buffer is full.
+    NTSTATUS status = BCryptGenRandom(nullptr, buf, static_cast<ULONG>(count),
+                                      BCRYPT_USE_SYSTEM_PREFERRED_RNG);
+    return status == 0;
+#else
+    size_t filled = 0;
+    bool useUrandom = false;   // set once getrandom() proves unavailable
+    int fd = -1;
+    while (filled < count) {
+        if (!useUrandom) {
+            //getrandom() blocks until the pool is initialised, so it is the
+            //preferred entry point; it may still return a short count.
+            ssize_t n = getrandom(buf + filled, count - filled, 0);
+            if (n > 0) { filled += static_cast<size_t>(n); continue; }
+            if (n < 0 && errno == EINTR) continue;
+            if (!(n < 0 && errno == ENOSYS)) return false;
+            useUrandom = true;  // pre-2.25 kernel: no syscall, read the device
+        }
+        if (fd < 0) {
+            fd = open("/dev/urandom", O_RDONLY);
+            if (fd < 0) return false;
+        }
+        ssize_t n = read(fd, buf + filled, count - filled);
+        if (n > 0) { filled += static_cast<size_t>(n); continue; }
+        if (n < 0 && errno == EINTR) continue;
+        if (fd >= 0) close(fd);
+        return false;
+    }
+    if (fd >= 0) close(fd);
+    return true;
+#endif
 }
 
 //--- unary double -> double --------------------------------------------------
@@ -173,14 +230,44 @@ void MathRandomi(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     ReturnInt(ret, r);
 }
 
+//--- CSPRNG bytes (OS entropy, independent of the VM-owned PRNG) ----------
+void MathRandomBytes(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
+    const int32_t count = ArgInt(a, 0);
+    if (count < 0) {
+        RaiseBase(h, "math.randomBytes: count is negative.");
+        return;
+    }
+    if (static_cast<unsigned long long>(count) > kMaxRandomBytes) {
+        RaiseBase(h, "math.randomBytes: count is too large.");
+        return;
+    }
+    //Fill the host buffer before allocating the script array, so a failing
+    //entropy source leaves no half-filled array behind. A zero-length
+    //request skips the syscall: some entry points reject an empty buffer.
+    std::vector<unsigned char> buf(static_cast<size_t>(count));
+    if (count > 0 && !FillRandom(buf.data(), buf.size())) {
+        RaiseBase(h, "math.randomBytes: the system random source is unavailable.");
+        return;
+    }
+    //Same NEK_Byte return recipe as gzip's ReturnBytes: one int32 cell per
+    //byte holding 0..255; a script reader sees the byte domain (-128..127).
+    const int32_t handle = NewArray(h, NEK_Byte, count);
+    NativeArrayView view;
+    h->getArrayView(h, handle, &view);
+    int32_t* cells = static_cast<int32_t*>(view.data);
+    for (int32_t i = 0; i < count; ++i) {
+        cells[i] = buf[static_cast<size_t>(i)];
+    }
+    ReturnInt(ret, handle);
+}
+
 } // namespace
 
 // Module entry point: register every math function under the "math"
-// namespace. Every function is pure computation (no unbounded waits), so
-// all of them use the non-blocking channel; the blocking registrar is
-// deliberately unused here.
+// namespace. All of them are pure computation except randomBytes, which may
+// enter the kernel to take entropy, so that one uses the blocking registrar
+// and the rest use the non-blocking channel.
 NLANG_DEFINE_NATIVE_INIT {
-    (void)regBlocking;
     reg(registry, "math", "sqrt",   &MathSqrt);
     reg(registry, "math", "sin",    &MathSin);
     reg(registry, "math", "cos",    &MathCos);
@@ -206,5 +293,6 @@ NLANG_DEFINE_NATIVE_INIT {
     reg(registry, "math", "random", &MathRandom);
     reg(registry, "math", "srand",  &MathSrand);
     reg(registry, "math", "randomi", &MathRandomi);
+    regBlocking(registry, "math", "randomBytes", &MathRandomBytes);
     return NLANG_HOST_ABI_VERSION;
 }

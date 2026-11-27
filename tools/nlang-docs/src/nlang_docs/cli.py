@@ -151,9 +151,15 @@ def main(argv=None):
             #file read inside the audit.
             print("snippets: page not found: %s" % doc, file=sys.stderr)
             return 1
-        return _snippet_audit(
-            doc, opts.ncc, opts.nvm,
-            Path(opts.workdir) if opts.workdir else None)
+        try:
+            return _snippet_audit(
+                doc, opts.ncc, opts.nvm,
+                Path(opts.workdir) if opts.workdir else None)
+        except ValueError as err:
+            #A page without any ```nlang block fails the vacuous-pass
+            #guard; per page that is a clean error too, not a traceback.
+            print("snippets: %s" % err, file=sys.stderr)
+            return 1
     #argparse required=True makes this unreachable today; returning
     #explicitly beats silently falling into another subcommand later.
     return None

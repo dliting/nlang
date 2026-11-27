@@ -1,0 +1,105 @@
+//0.13.10 Major-3 lift: a head promoted by a body-level & binding AND
+//captured stays per-iteration fresh — each iteration's closure sees its
+//own fresh box (Go 1.22), with the iteration's writes visible inside
+//that iteration and the outgoing iteration's references frozen at its
+//final value. The for arm pins the continue-target carry's re-box: a
+//plain field copy would share one box and every closure would read the
+//tail value. The churn leg crosses collection thresholds while old
+//boxes are still named by retained closures (no gc-stress flag — the
+//churner alone widens the reclaim window).
+struct Counter {
+    public int n;
+    public Counter(int v) { n = v; }
+}
+void bump(int& x) {
+    x = x + 1;
+}
+void sink(int& x) {
+}
+void sinkStr(string& x) {
+}
+int stringHeadFreshness() {
+    List<func<int>> lens = List<func<int>>();
+    for (string s = "s"; s.length() < 4; s = s + "+") {
+        sinkStr(s);
+        lens.add(() -> s.length());
+    }
+    if (lens.length() != 3) {
+        return 200;
+    }
+    func<int> first = lens.get(0);
+    func<int> second = lens.get(1);
+    func<int> third = lens.get(2);
+    if (first() != 1 || second() != 2 || third() != 3) {
+        return 201;
+    }
+    return 0;
+}
+int foreachPromotedHead() {
+    List<int> values = List<int>();
+    values.add(10);
+    values.add(20);
+    values.add(30);
+    List<func<int>> funcs = List<func<int>>();
+    foreach (int v in values) {
+        bump(v);
+        funcs.add(() -> v);
+    }
+    func<int> first = funcs.get(0);
+    func<int> second = funcs.get(1);
+    func<int> third = funcs.get(2);
+    return first() + 10 * second() + 100 * third();
+}
+int forPromotedHead() {
+    List<func<int>> funcs = List<func<int>>();
+    for (int i = 0; i < 3; i = i + 1) {
+        sink(i);
+        funcs.add(() -> i);
+    }
+    func<int> first = funcs.get(0);
+    func<int> second = funcs.get(1);
+    func<int> third = funcs.get(2);
+    return first() + 10 * second() + 100 * third();
+}
+int churnedFreshness() {
+    List<func<int>> keep = List<func<int>>();
+    for (int i = 0; i < 20000; i = i + 1) {
+        sink(i);
+        if (i % 5000 == 0) {
+            keep.add(() -> i);
+        }
+        Counter t = Counter(i);
+    }
+    func<int> zeroth = keep.get(0);
+    func<int> first = keep.get(1);
+    func<int> second = keep.get(2);
+    func<int> third = keep.get(3);
+    if (zeroth() != 0) {
+        return 100;
+    }
+    if (first() != 5000) {
+        return 101;
+    }
+    if (second() != 10000) {
+        return 102;
+    }
+    if (third() != 15000) {
+        return 103;
+    }
+    return 0;
+}
+int main() {
+    if (foreachPromotedHead() != 3321) {
+        return 1;
+    }
+    if (forPromotedHead() != 210) {
+        return 2;
+    }
+    if (churnedFreshness() != 0) {
+        return 3;
+    }
+    if (stringHeadFreshness() != 0) {
+        return 4;
+    }
+    return 0;
+}

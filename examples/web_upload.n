@@ -1,0 +1,88 @@
+// Example: a multipart upload round trip. The client builds a form with
+// `MultipartBody`, the server reads it with `Form.parse` and saves the file
+// under a sanitized name, and the client then checks what landed on disk.
+import fs;
+import http;
+import io;
+import url;
+import web.*;
+
+void upload(web.RequestContext ctx) {
+    web.form.FormData form = Form.parse(ctx);
+    web.form.FormFile doc = form.getFile("doc");
+    if (doc == null) {
+        ctx.text(400, "no file part");
+        return;
+    }
+    doc.saveTo("uploads");            // sanitized name plus a random suffix (D-20)
+    ctx.text(200, "saved " + doc.safeName() + " " + doc.size().toString() + " " + form.get("note"));
+}
+
+// The client side of one POST: only the multipart body changes between legs.
+http.HttpResponse sendForm(http.HttpServer srv, web.form.MultipartBody form) {
+    http.HttpRequest req = http.HttpRequest();
+    req.method = "POST";
+    req.url = Url.parse("http://127.0.0.1:" + srv.localPort().toString() + "/upload");
+    req.headers.set("Content-Type", form.contentType());
+    req.body = form.toBytes();
+    return http.request(req);
+}
+
+int main() {
+    fs.makeDirs("uploads");
+
+    web.App app = web.App();
+    app.post("/upload", upload);
+    app.listen("127.0.0.1", 0);       // port 0 = an ephemeral one
+    http.HttpServer srv = app.server();
+
+    bool ok = true;
+    string text = "line one\nline two\n";
+
+    // A browser sends the whole path as filename; the server echoes only the
+    // last segment and writes the file under an even safer name.
+    web.form.MultipartBody mp = web.form.MultipartBody();
+    mp.addField("note", "hello web");
+    mp.addFile("doc", "C:\\fakepath\\report.txt", "text/plain", io.toBytes(text));
+    io.print("ctype=" + mp.contentType().startsWith("multipart/form-data; boundary=").toString());
+    ok = ok && mp.contentType().startsWith("multipart/form-data; boundary=");
+
+    http.HttpResponse res = sendForm(srv, mp);
+    io.print("status=" + res.statusCode.toString());
+    io.print("body=[" + res.bodyText() + "]");
+    ok = ok && (res.statusCode == 200);
+    ok = ok && (res.bodyText() == "saved report.txt 18 hello web");
+
+    // The saved file has a random suffix before its extension, so list the
+    // directory instead of guessing the name.
+    List<string> names = fs.listFiles("uploads");
+    io.print("count=" + names.length().toString());
+    string disk = fs.join("uploads", names[0]);
+    io.print("suffixed=" + (names[0].startsWith("report-") && names[0].endsWith(".txt")).toString());
+    io.print("bytes=" + fs.size(disk).toString());
+    io.print("content=[" + io.fromBytes(fs.readBytes(disk)) + "]");
+    ok = ok && (names.length() == 1);
+    ok = ok && names[0].startsWith("report-") && names[0].endsWith(".txt");
+    ok = ok && (fs.size(disk) == text.length());
+    ok = ok && (io.fromBytes(fs.readBytes(disk)) == text);
+
+    // A form with nothing but a field: the handler's "no file" branch.
+    web.form.MultipartBody onlyField = web.form.MultipartBody();
+    onlyField.addField("note", "no file");
+    res = sendForm(srv, onlyField);
+    io.print("nofile=" + res.statusCode.toString() + " [" + res.bodyText() + "]");
+    ok = ok && (res.statusCode == 400);
+    ok = ok && (res.bodyText() == "no file part");
+
+    app.drain(5000);                  // let in-flight requests finish (D-22)
+    app.close();
+
+    int rc = 0;
+    if (ok == false) {
+        io.print("mismatch");
+        rc = 1;
+    } else {
+        io.print("ok");
+    }
+    return rc;
+}

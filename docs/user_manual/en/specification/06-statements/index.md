@@ -100,6 +100,12 @@ error. A constant-foldable initializer folds at compile time, like
 a class static constant (§4.8.8); any other expression runs lazily
 on the first execution.
 
+The interaction of a static local with a lambda (§7.4): a `static`
+local is not captured — a reference to it in a lambda body addresses
+the static slot directly, and both reads and writes land on the one
+storage shared by all calls; the same lambda, in different calls and
+different iterations, sees the same static local.
+
 A static local of a struct type follows the struct value model:
 the slot owns one record for life — the first store establishes it
 (a declaration without an initializer starts at the struct's
@@ -133,6 +139,13 @@ operator:
   type: the lvalue is not promoted (§5.2);
 - for a `string` lvalue only `+=` is defined; the other compound
   operators are compile-time errors (§5.3).
+
+A compound assignment is a compile-time error when either operand is
+a `struct` value: struct values have no arithmetic operators — §5.2
+fixes the operand types of `+ - * / %` to the numeric types — so
+`s += t` has no expanded form `s = s + t` to fall back on. The plain
+assignment `s = s + t` is rejected too, since its `s + t` is itself a
+compile-time error.
 
 A compound assignment whose lvalue is a `Dict` subscript raises a
 catchable run-time error at the read of the current value when the

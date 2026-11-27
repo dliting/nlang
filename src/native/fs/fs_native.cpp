@@ -1,6 +1,7 @@
 // fs native module — the dynamically-loaded implementation of the `fs`
-// namespace (names, directories, metadata and the binary whole-file read
-// pair; whole-text file content lives in io). Built as nlang_fs.dll /
+// namespace (names, directories, metadata, the binary whole-file read pair
+// and the whole-file byte write; whole-text file content lives in io).
+// Built as nlang_fs.dll /
 // libnlang_fs.so and loaded through the same mechanism as a third-party
 // native library.
 //
@@ -8,9 +9,12 @@
 // <filesystem> (used with std::error_code, so no C++ exceptions cross the
 // native ABI). Mutating/querying failures raise IOException; the three type
 // predicates never raise — a path that cannot be stat simply answers "no".
+#include "FileTimeEpoch.h"
+
 #include <nlang/vm/NativeHost.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
@@ -18,9 +22,12 @@
 #include <string>
 #include <vector>
 
+using nlang::native::ArgArray;
 using nlang::native::ArgInt;
 using nlang::native::ArgString;
+using nlang::native::FileTimeToEpochMs;
 using nlang::native::ReturnInt;
+using nlang::native::ReturnLong;
 using nlang::native::ReturnString;
 
 namespace {
@@ -98,13 +105,17 @@ void FsListFiles(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     }
     std::sort(names.begin(), names.end());
 
-    // Build the List<string> through the host; the c_str pointers stay valid
-    // for the duration of this one synchronous call.
+    // Build the List<string> through the host; the c_str pointers and the
+    // byte lengths stay valid for the duration of this one synchronous call.
     std::vector<const char*> ptrs;
+    std::vector<int64_t> lens;
     ptrs.reserve(names.size());
-    for (const std::string& n : names)
+    lens.reserve(names.size());
+    for (const std::string& n : names) {
         ptrs.push_back(n.c_str());
-    ReturnInt(ret, h->newListString(h, ptrs.data(),
+        lens.push_back(static_cast<int64_t>(n.size()));
+    }
+    ReturnInt(ret, h->newListString(h, ptrs.data(), lens.data(),
                                     static_cast<int>(ptrs.size())));
 }
 
@@ -134,7 +145,7 @@ void FsJoin(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     ReturnString(h, ret, joined);
 }
 
-//--- readBytes / readFloats -------------------------------------------------
+//--- readBytes / readFloats / writeBytes / modifiedTimeMs -------------------
 // Shared whole-file read: open check, size cap and short-read check, with
 // every failure mapped to IOException naming the path.
 std::string ReadWholeFile(NativeHost* h, const char* funcName,
@@ -177,10 +188,12 @@ void FsReadBytes(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     const std::string bytes = ReadWholeFile(h, "fs.readBytes", path);
 
     const int32_t count = static_cast<int32_t>(bytes.size());
-    const int32_t handle = h->newArray(h, NEK_Int32, count);
+    const int32_t handle = h->newArray(h, NEK_Byte, count);
     NativeArrayView view;
     h->getArrayView(h, handle, &view);
-    // One byte per cell (0..255), not a packed memcpy.
+    // One byte per cell holding 0..255, not a packed memcpy; a script reader
+    // materializes the cell in the signed byte domain and masks with & 0xFF
+    // for the unsigned value.
     int32_t* cells = static_cast<int32_t*>(view.data);
     for (size_t i = 0; i < bytes.size(); ++i)
         cells[i] = static_cast<uint8_t>(bytes[i]);
@@ -215,21 +228,94 @@ void FsReadFloats(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
     ReturnInt(ret, handle);
 }
 
+// Copy a script byte[] argument (1-D, any stride) into a byte buffer — the
+// same view-walk shape gzip's codec uses, so a sliced array writes its
+// elements and not its tail. A null array means the program handed in no
+// data at all, which is NullPointerException like the null path; anything
+// that is not a byte array is a type a file cannot hold, so IOException.
+bool LoadBytesArg(NativeHost* h, const char* funcName, const uint8_t* a,
+                  int slot, std::string& out) {
+    if (ArgInt(a, slot) == 0)
+        nlang::native::Raise(h, NEXC_NullPointer,
+                             std::string(funcName) + ": data is null.");
+    NativeArrayView view;
+    ArgArray(h, a, slot, &view);
+    if (view.rank != 1 ||
+        (view.elemKind != NEK_Byte && view.elemKind != NEK_UByte)) {
+        RaiseIo(h, std::string(funcName) + ": expected byte[] data");
+        return false;
+    }
+    const int32_t* cells = static_cast<const int32_t*>(view.data);
+    const int64_t offset = view.offset;
+    const int64_t step = view.strides[0];
+    out.assign(static_cast<size_t>(view.elemCount), '\0');
+    for (int64_t i = 0; i < view.elemCount; ++i) {
+        out[static_cast<size_t>(i)] =
+            static_cast<char>(cells[offset + i * step] & 0xFF);
+    }
+    return true;
+}
+
+void FsWriteBytes(NativeHost* h, uint8_t*, const uint8_t* a, int) {
+    CheckNotNullPath(h, "fs.writeBytes", a);
+    const std::string path = ArgString(h, a, 0);
+    std::string bytes;
+    if (!LoadBytesArg(h, "fs.writeBytes", a, 1, bytes))
+        return;
+    // trunc, not app: the pair is "replace the whole file", mirroring how
+    // readBytes returns the whole file.
+    std::ofstream out(path, std::ios_base::binary | std::ios_base::trunc);
+    if (!out.is_open())
+        RaiseIo(h, "fs.writeBytes: cannot open \"" + path + "\".");
+    out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    if (!out.good())
+        RaiseIo(h, "fs.writeBytes: write error on \"" + path + "\".");
+}
+
+// Last-modified time of a path, in milliseconds since the Unix epoch. The
+// timestamp itself comes from <filesystem>; FileTimeEpoch.h bridges it out of
+// that clock's implementation-defined epoch. Returns false when the stat
+// failed, so the caller names the path in its diagnostic.
+bool StatModifiedTimeMs(const fsys::path& path, long long& msOut) {
+    std::error_code ec;
+    const fsys::file_time_type fileTime = fsys::last_write_time(path, ec);
+    if (ec)
+        return false;
+    // Sampling order is load-bearing (see FileTimeEpoch.h): the system clock
+    // goes first, so the gap between the two reads subtracts and the answer
+    // never lands ahead of the write it reports.
+    const auto systemNow = std::chrono::system_clock::now();
+    const auto fileNow = fsys::file_time_type::clock::now();
+    msOut = FileTimeToEpochMs(fileTime, systemNow, fileNow);
+    return true;
+}
+
+void FsModifiedTimeMs(NativeHost* h, uint8_t* ret, const uint8_t* a, int) {
+    CheckNotNullPath(h, "fs.modifiedTimeMs", a);
+    const std::string path = ArgString(h, a, 0);
+    long long ms = 0;
+    if (!StatModifiedTimeMs(fsys::path(path), ms))
+        RaiseIo(h, "fs.modifiedTimeMs: cannot stat \"" + path + "\".");
+    ReturnLong(ret, static_cast<int64_t>(ms));
+}
+
 } // namespace
 
 // Module entry point. Everything touches the filesystem (unbounded
 // latency) and registers through the blocking channel — except join,
 // pure string composition on already-fetched arguments.
 NLANG_DEFINE_NATIVE_INIT {
-    regBlocking(registry, "fs", "exists",      &FsExists);
-    regBlocking(registry, "fs", "isFile",      &FsIsFile);
-    regBlocking(registry, "fs", "isDirectory", &FsIsDirectory);
-    regBlocking(registry, "fs", "size",        &FsSize);
-    regBlocking(registry, "fs", "listFiles",   &FsListFiles);
-    regBlocking(registry, "fs", "makeDirs",    &FsMakeDirs);
-    regBlocking(registry, "fs", "remove",      &FsRemove);
-    regBlocking(registry, "fs", "readBytes",   &FsReadBytes);
-    regBlocking(registry, "fs", "readFloats",  &FsReadFloats);
+    regBlocking(registry, "fs", "exists",         &FsExists);
+    regBlocking(registry, "fs", "isFile",         &FsIsFile);
+    regBlocking(registry, "fs", "isDirectory",    &FsIsDirectory);
+    regBlocking(registry, "fs", "size",           &FsSize);
+    regBlocking(registry, "fs", "listFiles",      &FsListFiles);
+    regBlocking(registry, "fs", "makeDirs",       &FsMakeDirs);
+    regBlocking(registry, "fs", "remove",         &FsRemove);
+    regBlocking(registry, "fs", "readBytes",      &FsReadBytes);
+    regBlocking(registry, "fs", "readFloats",     &FsReadFloats);
+    regBlocking(registry, "fs", "writeBytes",     &FsWriteBytes);
+    regBlocking(registry, "fs", "modifiedTimeMs", &FsModifiedTimeMs);
     reg(registry, "fs", "join",        &FsJoin);
     return NLANG_HOST_ABI_VERSION;
 }

@@ -45,8 +45,8 @@ all dependency members and native dynamic libraries are located across
 ordered directories: `-I` dirs → the program's directory → the `NLANG_PATH`
 environment variable (`;` on Windows, `:` on POSIX) → the executable
 directory / current directory → the standard-library directory (where
-`stdlib.npkg` lives); earlier dirs win and duplicates keep only the
-first. See
+the domain packages such as `io.npkg` live); earlier dirs win and
+duplicates keep only the first. See
 ["Packages and Import Search"](../specification/03-program-structure/packages.md)
 for the full rules.
 

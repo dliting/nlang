@@ -41,6 +41,7 @@ typedef NodeBits SyntaxNodeBits;
 	MACRO_IMPL(InitListExpr)			/* [e1,e2] / {k:v} / new T{} (Phase 8e-6) */	\
 	MACRO_IMPL(ThisExpr)					/* this expression */				\
 	MACRO_IMPL(TypeNameExpr)				/* typeName(T) expression (v0.13.1 D4) */	\
+	MACRO_IMPL(LambdaExpr)				/* lambda expression `(p) -> body` (0.13.10) */	\
 	MACRO_IMPL(SubscriptExpr)				/* array subscript access */		\
 	MACRO_IMPL(SliceItemExpr)			/* slice item h:s:st (v0.12.7 T11) */	\
 	MACRO_IMPL(ReturnStmt)				/* return statement */				\
@@ -103,6 +104,25 @@ enum CompNodeKind: NodeKind
 static_assert(NK_CP_END < NODE_KIND_LIMIT,
 	"Syntax node kind definition error.");
 
+//The name a diagnostic prints for a node kind. The compiler-bug paths of the
+//type-classification layers (a kind with no runtime type kind, a kind with no
+//type-argument spelling) must say WHICH construct reached them: a bare NK_*
+//number sent a developer hunting through the declaration macros. Generated
+//from the same macros that declare the kinds, so a new kind needs no edit
+//here, and two kinds sharing one value would be a duplicate-case compile
+//error — that is what keeps this table exhaustive instead of a hand-written
+//list that silently falls behind.
+inline const char* NodeKindDebugName(NodeKind k)
+{
+	switch (k)
+	{
+#define MACRO_IMPL(T) case NK_##T: return #T;
+		SYNTAX_NODE_DECL(MACRO_IMPL)
+#undef MACRO_IMPL
+	default: return "?";   //NK_BEFOR (the NK_RT_END marker) or an out-of-range kind
+	}
+}
+
 //Enumerations of extra syntax node flags.
 #define COMPILE_ONLY_NODE_FLAG_DECL(MACRO_IMPL)								\
 	MACRO_IMPL(Expression,	0, "expression")								\
@@ -119,7 +139,8 @@ static_assert(NK_CP_END < NODE_KIND_LIMIT,
 	MACRO_IMPL(ScriptEntry, 11, "synthesized script entry (D8)") \
 	MACRO_IMPL(TensorOp, 12, "lowered to a tensor module call (v0.13.7)") \
 	MACRO_IMPL(Ref, 13, "reference & mark (declarator/type-arg, v0.13.9)") \
-	MACRO_IMPL(Promoted, 14, "storage promoted to a stable boxed record (v0.13.9)")
+	MACRO_IMPL(Promoted, 14, "storage promoted to a stable boxed record (v0.13.9)") \
+	MACRO_IMPL(Captured, 15, "storage moved into a display field (0.13.10 lambda)")
 
 enum CompNodeFlag: NodeBits
 {

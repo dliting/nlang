@@ -3,13 +3,13 @@
 ## 3.1 Compilation Units
 
 A program is compiled from one or more `.n` source files. Each file
-is one compilation unit (§0.4): the file itself together with the
-library units its imports pull in (§3.9). All units of one
-compilation — the project's own sources and the library sources
-inlined through the library search path — are merged into a single
-program scope: every top-level declaration joins one namespace
-tree, and declarations in different units see each other under the
-rules of §3.6.
+is one compilation unit (§0.4). Imports may add library units from
+source or declaration stubs from compiled unit images (§3.9). All
+units of one compilation — the project's own sources and the library
+declarations resolved through the search path — join one program
+scope: every top-level declaration enters one namespace tree, and
+declarations in different units see each other under the rules of
+§3.6.
 
 The body of a compilation unit is ordered (§2.2): first the import
 list, then the using directives, then the top-level members. An
@@ -47,7 +47,7 @@ function returning `int`.
 A build has at most one entry function. If several units of one
 build each supply an entry — an explicit `main()` or a script body —
 it is a compile-time error. A build whose units supply no entry
-produces a library module with no entry function (§3.9).
+produces a library package with no entry record (§3.9).
 
 Execution of a program begins by calling its entry function; the
 value the entry returns becomes the process exit status
@@ -55,13 +55,13 @@ value the entry returns becomes the process exit status
 
 ## 3.3 Import Directives
 
-An import directive names a *package path*: a dotted name denoting
-a module of the program being compiled, a standard library package,
-or an external compiled module (§3.9). The grammar is §2.2; the two
-forms are:
+An import directive names a *module path*: a dotted name denoting one
+module, whether supplied by the project, a library source file, a loose
+`.ncu` image, or a library-package member (§3.9). The grammar is §2.2;
+the two forms are:
 
 ```nlang
-import utils.helper;      // one module or package
+import utils.helper;      // one module
 import utils.*;           // wildcard: the whole subtree
 ```
 
@@ -77,17 +77,20 @@ them. A library unit inlined through the search path opens nothing
 automatically: it sees only what it imports explicitly.
 
 The wildcard form `import p.*;` opens `p` and every module path
-below `p`, recursively, among the project's own units. It is a
-compile-time error if the wildcard matches no project unit, and a
-compile-time error if `p` names a library package — a library
-package is a single unit, so `import p;` is its only meaningful
-form. The wildcard never reaches external compiled modules, whose
-names are single-segment (§3.9).
+below `p`, recursively. The candidates are the union of project
+units, source-library units and library-package members. For a flat
+module set the wildcard is equivalent to the exact `import p;`; a
+library with submodules opens them all in one stroke. It is a
+compile-time error if the wildcard matches no unit (`No modules
+matched import '<path>.*'. Check the project Sources list or -I
+import path.`). A module path may also name a segment with a
+reserved word: after `import` and after each `.` of a path, a
+reserved word reads as a segment name, so `import web.static;`
+opens the `static` submodule of `web`.
 
-An import of a path that resolves to neither a project unit, a
-library package nor an external module is a compile-time error.
-Importing the same path more than once, from one unit or several,
-is idempotent.
+An import of a path that none of those source or artifact forms
+supplies is a compile-time error. Importing the same path more than
+once, from one unit or several, is idempotent.
 
 ## 3.4 Using Directives
 
@@ -164,7 +167,7 @@ At program scope, visibility depends on what the name denotes:
   referring unit. A function declared in another directory is not
   unqualified-visible; the diagnostic names the module that declares it.
   Visibility admits the name to lookup, not the function to the caller:
-  a foreign unit's declared access still gates the use (§7.1) — a
+  a foreign unit's declared access still gates the use (§7.1, §4.8.2) — a
   `private` or `protected` foreign function is denied on the
   unqualified and the qualified path alike, with the standard
   not-found diagnostic.
@@ -174,7 +177,7 @@ At program scope, visibility depends on what the name denotes:
   unit's own same-named declaration outright; among foreign
   candidates the admitted ones compete (§3.9.3), several admitted
   candidates diagnose an ambiguity naming every owner's package,
-  and a foreign type whose declared access denies this unit is no
+  and a foreign type whose declared access denies this unit (§4.8.2) is no
   candidate at all — the lookup reports it as unresolvable.
 - if the walk finds no binding, an unqualified identifier may still resolve
   to a built-in class name; §4.11, §4.12, §8.3 and chapter 10
@@ -187,11 +190,19 @@ A *qualified name* `p.m` reaches the members of the module or
 package `p` only through the import gate of the referring
 compilation unit (§3.3): the path `p` must be opened, by an
 explicit import or by the same-directory rule. Member lookup inside
-`p` does not continue into outer scopes. Each member's declared
-access applies on top of the gate: a `private` or `protected`
-member of a foreign package does not resolve at all — a type
-reads as not a member of that package, a function as the standard
-not-found diagnostic (§3.9.3). §3.9 defines module
+`p` does not continue into outer scopes. Longer chains resolve
+segment by segment: when a segment after an open module path names a
+type, the segments beyond it resolve inside that type — a static method, a static field or an
+enum member, at any depth — so `p.K.m` and deeper chains such as
+`p.E.v.method()` name the same member as the bare type-name
+spelling (§4.8.8), a library path behaving exactly like a project
+path. Each member's declared
+access (§4.8.2) applies on top of the gate: a foreign `private`
+member never resolves — a type reads as not a member of that
+package, a function as the standard not-found diagnostic; a
+foreign `protected` class member resolves only inside the body of
+a subclass, and a `protected` top-level declaration never leaves
+its own unit (§3.9.3). §3.9 defines module
 naming, path resolution and the gate in full.
 
 Overload selection among same-named functions is defined in

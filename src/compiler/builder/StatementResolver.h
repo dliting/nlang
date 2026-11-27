@@ -6,15 +6,23 @@
 #include "ExprResolver.h"
 #include "SnStatements.h"
 #include "SnData.h"
+#include <utility>
 #include <vector>
 
 namespace nlang
 {
 
-class StatementResolveAccessor
+class StatementResolveAccessor : public ILambdaBodyResolver
 {
 public:
 	explicit StatementResolveAccessor(BuildEnvironment &env);
+
+	//0.13.10: the lambda block body's back-channel (ILambdaBodyResolver)
+	//— the expression accessor hands the lambda's block over during
+	//typing; the walk resolves its statements like any paragraph body
+	//(the params answer through the lambda's FindField on the parent
+	//chain).
+	void ResolveLambdaBlockBody(SnLambdaExpr &lambda) override;
 
 	//--- Phase 12 Step 1: switch family model (D1/D2) ----------------------
 	//Switch discriminants and labels come in three families: int (including
@@ -192,6 +200,12 @@ private:
 	SnLocalVar *CreateDeclaratorLocal(SnLocalDeclStmt::LocalDecl &decl,
 		const ISourceLocation &loc, SnParagraph &paragraph,
 		SnField *pTypeField, bool bIsArray, SnField *pSizedArrayField);
+	//0.13.10 Task 9: descriptor half of the factory — create + publish
+	//+ array flags, no map registration. The for-init path swaps its
+	//loop-scoped heads into the paragraph map itself.
+	SnLocalVar *CreateLocalDescriptor(SnLocalDeclStmt::LocalDecl &decl,
+		const ISourceLocation &loc, SnField *pTypeField, bool bIsArray,
+		SnField *pSizedArrayField);
 	void ResolveClassBases(SnClassDecl &sn);
 	void PropagateVirtualOverrides(SnClassDecl &sn);
 	bool TryBindStatementFuncRef(SnExpression &expr,
@@ -227,15 +241,18 @@ private:
 	bool RejectCompoundSubscriptTarget(SnExpression &left,
 		const ISourceLocation *pLoc);
 	//v0.13.7: array-involved compound assignment is rejected by name —
-	//array arithmetic lowers AS a tensor call on the plain binary form
-	//(the expanded `a = a + b` takes the lowering); the string target
-	//keeps its `s += arr` toString-coercion surface. True = rejected.
+	//array arithmetic lowers AS a tensor call on the plain binary form,
+	//and the compound emitter's kind dispatch has no array arm (the
+	//operand row would masquerade as its element carrier). The expanded
+	//form `a = a + b` takes the lowering. The string target keeps its
+	//pre-existing `s += arr` toString-coercion surface. True = rejected.
 	bool RejectArrayCompoundAssign(SnCompoundAssignStmt &sn,
 		const SnField *pTargetType, const SnField *pSourceType);
 	//v0.13.9 phase ②: struct-involved compound assignment is rejected
-	//by name — structs have no arithmetic operators, so an in-place
-	//compound arm has no coherent semantics; without the gate the
-	//emitter would run int-typed ops on the record's handle cells.
+	//by name — structs have no arithmetic operators (the expanded
+	//binary form is already rejected at the cast ladder), so an
+	//in-place compound arm has no coherent semantics; without the gate
+	//the emitter would run int-typed ops on the record's handle cells.
 	//True = rejected.
 	bool RejectStructCompoundAssign(SnCompoundAssignStmt &sn,
 		const SnField *pTargetType, const SnField *pSourceType);
@@ -314,17 +331,6 @@ private:
 	//arm when the RHS is a bare invoke (ResolveDeclaredGenericCtorTarget).
 	void PropagateAssignTargetHint(SnAssignStmt &sn);
 	bool TryBindSubscriptStoreFuncRef(SnSubscriptAssignStmt &sn);
-	//v0.14.2/0.14.8: the tensor assignment lowerings — the fancy-index
-	//form lowers to tensor.scatterInto, the slice-carrying form to
-	//tensor.assignInto over the slice view. True = consumed (the tensor
-	//body bound; the plain store paths skip). Defined in
-	//StatementResolverTensorAssign.cpp.
-	bool TryTensorScatterInto(SnSubscriptAssignStmt &sn);
-	bool TryTensorSliceAssign(SnSubscriptAssignStmt &sn);
-	bool ResolveSliceAssignView(SnSubscriptAssignStmt &sn,
-		SnExpression *&pView);
-	bool LowerTensorSliceAssign(SnSubscriptAssignStmt &sn);
-	bool ResolveSubscriptAssignOperands(SnSubscriptAssignStmt &sn);
 	bool RejectStringBase(SnExpression &base, const ISourceLocation *pLoc);
 	void ApplyArrayElementStoreCast(SnSubscriptAssignStmt &sn);
 	void ApplyContainerStoreCasts(SnSubscriptAssignStmt &sn);
@@ -333,15 +339,34 @@ private:
 	void LogVoidSubscriptStoreValue(SnSubscriptAssignStmt &sn);
 	void CheckForeachSource(SnForeachStmt &sn);
 	void MatchForeachElemType(SnForeachStmt &sn, SnField *pVarField);
-	//v0.13.9 phase 3 split: the foreach loop-var registration in the
-	//enclosing paragraph. Definition in StatementResolverFlow.cpp.
-	void RegisterForeachLoopVar(SnForeachStmt &sn, SnParagraph &paragraph,
+	//v0.13.9 phase 3 split: the foreach loop-var swap into the enclosing
+	//paragraph. 0.13.10 Task 9 (loop-scoped heads): returns the binding
+	//the variable displaced — the caller restores it once the loop's
+	//subtree resolves. Definition in StatementResolverFlow.cpp.
+	SnField *RegisterForeachLoopVar(SnForeachStmt &sn, SnParagraph &paragraph,
 		SnField *pVarField);
-	//v0.13.9 phase 3: a & loop variable aliases the iteration element
-	//(Dict keys and string code points are materialized copies — their
-	//& loops name their own diagnostics). Definition in Ref.cpp.
+	//Foreach var-type resolution (phase 1 of the foreach walk, split for
+	//the source-size guard). Definition in StatementResolverFlow.cpp.
+	SnField *ResolveForeachVarType(SnForeachStmt &sn);
+	//v0.13.9 phase 3: a & loop variable aliases the iteration element;
+	//Dict keys and string code points are materialized copies, so their
+	//& loops name their own diagnostics. Definition in
+	//StatementResolverRef.cpp.
 	void RejectRefForeachSource(SnForeachStmt &sn);
-	void ResolveForInitDecl(SnForStmt &sn);
+	//0.13.10 Task 9 (loop-scoped heads): resolves the for-init declaration
+	//with its heads swapped into the enclosing paragraph map; returns the
+	//bindings the swap displaced for Access(SnForStmt&) to restore.
+	std::vector<std::pair<std::string, SnField*>> ResolveForInitDecl(
+		SnForStmt &sn);
+	//0.13.10 Task 9 (loop-scoped heads): one for-init declarator — the
+	//head's descriptor, its swap into the enclosing paragraph map, and
+	//the decomposed init assign registered in InitExtras. Returns the
+	//binding the swap displaced (an empty name marks a rejected
+	//declarator — nothing was swapped). Definition in
+	//StatementResolverFlow.cpp.
+	std::pair<std::string, SnField*> ResolveOneForInitHead(SnForStmt &sn,
+		SnLocalDeclStmt &decl, SnLocalDeclStmt::LocalDecl &d,
+		SnParagraph &paragraph, SnField *pTypeField, bool bIsArray);
 	SnAssignStmt *BuildForInitAssign(SnLocalDeclStmt &decl,
 		SnLocalDeclStmt::LocalDecl &d, SnParagraph *pParagraph);
 	static bool ExtractEnumMemberLabel(SnExpression& label,
@@ -354,6 +379,7 @@ private:
 	//or a logged rejection; a bare super() on a parent without ctors is
 	//the legal no-op shape and also answers null.
 	SnFunction *SelectSuperCtor(SnSuperCallStmt &sn, SnClassDecl *pParent);
+
 public:
 
 	//Pre-pass entry (forward-reference fix): resolve one class's
@@ -454,7 +480,11 @@ private:
 			: m_breakable(breakable), m_pLoop(nullptr)
 		{ m_breakable += 1; }
 		~FlowDepthGuard()
-		{ m_breakable -= 1; if (m_pLoop) *m_pLoop -= 1; }
+		{
+			m_breakable -= 1;
+			if (m_pLoop)
+				*m_pLoop -= 1;
+		}
 		FlowDepthGuard(const FlowDepthGuard&) = delete;
 		FlowDepthGuard& operator=(const FlowDepthGuard&) = delete;
 	private:
@@ -462,6 +492,20 @@ private:
 		int* m_pLoop;
 	};
 	ExprResolver m_ExprResolver;
+
+	//0.13.10: the lambda whose block body is being walked — return
+	//statements check against its stamped return type instead of the
+	//enclosing function's (save/restore in ResolveLambdaBlockBody, so
+	//nested lambdas stack).
+	SnLambdaExpr *m_pCurrLambda = nullptr;
+	//One return statement's lambda-context handling (the function path's
+	//mirror: bare/value/void checks against the stamped return type).
+	void ResolveLambdaReturn(SnReturnStmt &sn, SnLambdaExpr &lambda);
+	//0.9.11 D1: a value return against a return-type-less function — a
+	//constructor gets its own wording, anything else the generic void
+	//reject (defined in StatementResolverReturn.cpp).
+	void RejectValueReturnWithoutType(SnFunction &outerFunc,
+		SnExpression &resultExpr);
 };
 
 class StatementResolver
@@ -493,8 +537,10 @@ public:
 	//— the need test walks the super chain.
 	static void PreSynthesizeStaticInitializers(Node& node,
 		StatementResolveAccessor& accessor);
+
 	void Resolve(SnNamespace &root);
 private:
 	StatementResolveAccessor m_Accessor;
 };
+
 } //namespace nlang

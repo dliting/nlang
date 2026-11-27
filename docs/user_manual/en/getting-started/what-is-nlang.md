@@ -32,7 +32,7 @@ runtime module. The language itself:
   (`Mutex`, `Channel`, `Semaphore`, `WaitGroup`) provides the
   synchronization layer;
 - **Modern language staples** — exception handling, string
-  interpolation, `out` parameters, default parameters, and the
+  interpolation, default parameters, and the
   `math`/`io`/`fs`/`thread`/`concurrent` standard libraries.
 
 The six tools shipped with the package:

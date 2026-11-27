@@ -18,12 +18,12 @@ identical while the descriptor rows diverge by producing package.
 #include <nlang/compiler/BuildEnvironment.h>
 #include <nlang/compiler/Logger.h>
 #include <nlang/compiler/CastInfo.h>
-#include <nlang/compiler/TypeArgSpelling.h>
+#include <nlang/core/TypeArgSpelling.h>
 #include <nlang/compiler/SyntaxNode.h>
 #include <nlang/compiler/SyntaxTree.h>
-#include <nlang/vm/CompiledModule.h>
-#include <nlang/vm/CompiledModuleRecords.h>
-#include "GenericInstDescriptor.h"
+#include <nlang/core/CompiledModule.h>
+#include <nlang/core/CompiledModuleRecords.h>
+#include <nlang/core/GenericInstDescriptor.h>
 #include "NcuLinker.h"
 #include "NcuLoader.h"
 #include "VmExecutor.h"
@@ -71,6 +71,96 @@ bool writeFile(const std::filesystem::path& file, const char* szBody)
     return stream.good();
 }
 
+//One unit built from source text through the in-process harness (a real
+//compile — the image is the evidence). Diagnostics and any thrown
+//diagnostic come back in errorsText for assertion messages; an empty
+//image set means the build was not clean. bImportLibs makes out/ the
+//sole import search path, the -I layer resolving package imports against
+//the artifacts written there.
+ModuleBuilder::UnitImages buildUnitImages(
+    const std::filesystem::path& dir, const std::filesystem::path& out,
+    const char* szSourceName, const char* szModuleName, const char* szBody,
+    bool bImportLibs, QString& errorsText)
+{
+    //ScratchDir creates the dir, but every test resets it with a following
+    //remove_all; recreate the tree here so the source write cannot fail
+    //silently on a deleted parent (an empty build with no diagnostics).
+    std::error_code fsError;
+    std::filesystem::create_directories(dir, fsError);
+    std::filesystem::create_directories(out, fsError);
+    const std::filesystem::path src =
+        dir / (std::string(szSourceName) + ".n");
+    if (!writeFile(src, szBody))
+    {
+        errorsText += "cannot write test source "
+            + QString::fromStdString(src.string()) + " | ";
+        return {};
+    }
+    BuildParams params;
+    params.m_SourceFiles.push_back(src.string());
+    params.m_sOutputModule = szModuleName;
+    params.m_sOutputDir = out.string();
+    params.m_sTempDir = out.string();
+    params.m_sStdLibDir = STDLIB_DIR;
+    //Stage-2 builds resolve imports against out/ ONLY: BuildParams seeds
+    //"." and a stray same-named artifact in the ctest working directory
+    //could otherwise hijack which package answers an import.
+    if (bImportLibs)
+    {
+        params.m_ImportDirs.clear();
+        params.m_ImportDirs.push_back(out.string());
+    }
+    MemLogger logger;
+    ModuleBuilder builder(params, logger);
+    ModuleBuilder::UnitImages imgs;
+    bool built = false;
+    try { imgs = builder.BuildUnitImages(); built = true; }
+    catch (const std::exception& e)
+    {
+        errorsText += QString::fromLatin1(e.what()) + " | ";
+    }
+    for (const auto& e : logger.errorsText())
+        errorsText += QString::fromStdString(e) + " | ";
+    if (!built || !logger.errorsText().empty())
+        return {};
+    //A clean log with no unit image is a builder-side contract break, not
+    //a user diagnostic; name it in the failure text instead of leaving
+    //the assertion message empty.
+    if (imgs.units.empty())
+        errorsText += "no unit image was produced and nothing was logged | ";
+    return imgs;
+}
+
+//The load-side parser faces: a spelling the image can support interns,
+//anything else throws with the corrupt-image wording.
+bool internsClean(const char* szSpelling, const CompiledModule& module)
+{
+    try
+    {
+        InternDescriptorFromSpelling(szSpelling, module);
+        return true;
+    }
+    catch (const std::exception&)
+    {
+        return false;
+    }
+}
+
+bool internsThrowing(const char* szSpelling, const CompiledModule& module,
+    QString& what)
+{
+    try
+    {
+        InternDescriptorFromSpelling(szSpelling, module);
+        return false;
+    }
+    catch (const std::exception& e)
+    {
+        what = QString::fromLatin1(e.what());
+        return true;
+    }
+}
+
 //Two one-file packages, each declaring the SAME-named generic template —
 //the erasure model's hardest case for descriptor identity. The generic
 //interface rides along: its rows key the interfaces table (KeyOf exact,
@@ -112,6 +202,15 @@ QString spellingDump(const CompiledModule& unit)
         dump += QString::fromStdString(row.spelling);
     }
     return dump;
+}
+
+//True if the unit's descriptor table holds a row with this exact spelling.
+bool hasRow(const CompiledModule& unit, const std::string& spelling)
+{
+    for (const auto& row : unit.descriptorTable)
+        if (row.spelling == spelling)
+            return true;
+    return false;
 }
 } //namespace
 
@@ -225,38 +324,10 @@ private slots:
                     text.replace(at, 5, szPackage);
                 return text;
             }();
-            const fs::path src = dir / (std::string(szModuleName) + ".n");
-            if (!writeFile(src, body.c_str()))
-                return {};
-            BuildParams mainParams;
-            mainParams.m_SourceFiles.push_back(src.string());
-            mainParams.m_ImportDirs.clear();
-            mainParams.m_ImportDirs.push_back(out.string());
-            mainParams.m_sOutputModule = szModuleName;
-            mainParams.m_sOutputDir = out.string();
-            mainParams.m_sTempDir = out.string();
-            mainParams.m_sStdLibDir = STDLIB_DIR;
-            MemLogger mainLogger;
-            ModuleBuilder mainBuilder(mainParams, mainLogger);
-            ModuleBuilder::UnitImages imgs;
-            bool built = false;
-            QString thrown;
-            try
-            {
-                imgs = mainBuilder.BuildUnitImages();
-                built = true;
-            }
-            catch (const std::exception& e)
-            {
-                thrown = QString::fromLatin1(e.what());
-            }
-            for (const auto& e : mainLogger.errorsText())
-                errorsText += QString::fromStdString(e) + " | ";
-            if (!thrown.isEmpty())
-                errorsText += thrown;
-            if (!built || !mainLogger.errorsText().empty())
-                return {};
-            return imgs;
+            //One funnel with the single-unit tests: bImportLibs=true gives
+            //main the same -I resolution over out/ the duplicated copy had.
+            return buildUnitImages(dir, out, szModuleName, szModuleName,
+                body.c_str(), true, errorsText);
         };
         QString errorsA;
         QString errorsB;
@@ -269,25 +340,17 @@ private slots:
 
         const CompiledModule& unitA = imgsA.units[0];
         const CompiledModule& unitB = imgsB.units[0];
-        auto contains = [](const CompiledModule& unit,
-            const std::string& spelling)
-        {
-            for (const auto& row : unit.descriptorTable)
-                if (row.spelling == spelling)
-                    return true;
-            return false;
-        };
-        QVERIFY2(contains(unitA, "a.Pipe<int>"),
+        QVERIFY2(hasRow(unitA, "a.Pipe<int>"),
             qPrintable("package a's Pipe<int> must spell qualified — rows: "
                 + spellingDump(unitA)));
-        QVERIFY2(contains(unitB, "b.Pipe<int>"),
+        QVERIFY2(hasRow(unitB, "b.Pipe<int>"),
             qPrintable("package b's Pipe<int> must spell qualified — rows: "
                 + spellingDump(unitB)));
-        QVERIFY2(!contains(unitA, "Pipe<int>")
-            && !contains(unitB, "Pipe<int>"),
+        QVERIFY2(!hasRow(unitA, "Pipe<int>")
+            && !hasRow(unitB, "Pipe<int>"),
             qPrintable("the bare collapsed spelling must be gone — rows a: "
                 + spellingDump(unitA) + " rows b: " + spellingDump(unitB)));
-        QVERIFY2(contains(unitA, "List<int>"),
+        QVERIFY2(hasRow(unitA, "List<int>"),
             qPrintable("builtin instantiation must spell bare — rows: "
                 + spellingDump(unitA)));
     }
@@ -311,37 +374,6 @@ private slots:
         QVERIFY2(writeFile(dir / "a.n", szPipeLib),
             "lib a source could not be written");
 
-        auto buildUnit = [&dir, &out](const char* szSourceName,
-            const char* szModuleName, const char* szBody,
-            bool bImportLibs, QString& errorsText)
-            -> ModuleBuilder::UnitImages
-        {
-            const fs::path src =
-                dir / (std::string(szSourceName) + ".n");
-            if (!writeFile(src, szBody))
-                return {};
-            BuildParams params;
-            params.m_SourceFiles.push_back(src.string());
-            params.m_sOutputModule = szModuleName;
-            params.m_sOutputDir = out.string();
-            params.m_sTempDir = out.string();
-            params.m_sStdLibDir = STDLIB_DIR;
-            //The import arm needs the live-slot shape: -I resolves the
-            //imported package's .ncu stub (no sibling source-inline).
-            if (bImportLibs)
-                params.m_ImportDirs.push_back(out.string());
-            MemLogger logger;
-            ModuleBuilder builder(params, logger);
-            ModuleBuilder::UnitImages imgs;
-            bool built = false;
-            try { imgs = builder.BuildUnitImages(); built = true; }
-            catch (const std::exception&) {}
-            for (const auto& e : logger.errorsText())
-                errorsText += QString::fromStdString(e) + " | ";
-            if (!built || !logger.errorsText().empty())
-                return {};
-            return imgs;
-        };
         //The lib's .ncu must exist under out/ before main_a compiles —
         //the -I layer resolves package imports against written artifacts.
         {
@@ -363,35 +395,6 @@ private slots:
                 qPrintable("lib a must artifact clean — " + artifactsErrors));
         }
 
-        auto internsClean = [](const char* szSpelling,
-            const CompiledModule& module) -> bool
-        {
-            try
-            {
-                InternDescriptorFromSpelling(szSpelling, module);
-                return true;
-            }
-            catch (const std::exception&)
-            {
-                return false;
-            }
-        };
-        auto internsThrowing = [](const char* szSpelling,
-            const CompiledModule& module,
-            QString& what) -> bool
-        {
-            try
-            {
-                InternDescriptorFromSpelling(szSpelling, module);
-                return false;
-            }
-            catch (const std::exception& e)
-            {
-                what = QString::fromLatin1(e.what());
-                return true;
-            }
-        };
-
         //The import arm: the UNLINKED main unit still carries its live
         //import slots and has an empty merged-unit set — only
         //SymbolImport.modulePath can admit the head.
@@ -402,8 +405,8 @@ private slots:
                 bodyOfA.replace(at, 5, "a");
         }
         QString errors;
-        ModuleBuilder::UnitImages imgsMainA = buildUnit("main_a",
-            "main_a", bodyOfA.c_str(), true, errors);
+        ModuleBuilder::UnitImages imgsMainA = buildUnitImages(dir, out,
+            "main_a", "main_a", bodyOfA.c_str(), true, errors);
         QVERIFY2(!imgsMainA.units.empty(),
             qPrintable("main_a must build clean — " + errors));
         QVERIFY2(internsClean("a.Pipe<int>", imgsMainA.units[0]),
@@ -425,8 +428,8 @@ private slots:
             "    return b.f(1);\n"
             "}\n";
         QString errorsApp;
-        ModuleBuilder::UnitImages imgsApp = buildUnit("app", "app",
-            szAppBody, false, errorsApp);
+        ModuleBuilder::UnitImages imgsApp = buildUnitImages(dir, out,
+            "app", "app", szAppBody, false, errorsApp);
         QVERIFY2(!imgsApp.units.empty(),
             qPrintable("app must build clean — " + errorsApp));
         CompiledModule mergedApp = NcuLinker::Link(
@@ -444,8 +447,8 @@ private slots:
         //The merged arm: link main + lib a. The merged image keeps NO
         //import records and its self path is main_a — only the
         //nlink-populated merged-unit set can admit "a".
-        ModuleBuilder::UnitImages imgsLibA = buildUnit("a", "a",
-            szPipeLib, false, errorsApp);
+        ModuleBuilder::UnitImages imgsLibA = buildUnitImages(dir, out,
+            "a", "a", szPipeLib, false, errorsApp);
         QVERIFY2(!imgsLibA.units.empty(),
             qPrintable("lib a must build clean — " + errorsApp));
         std::vector<CompiledModule> unitsMainFirst;
@@ -512,6 +515,92 @@ private slots:
         }
         QVERIFY2(threw,
             "executor init must refuse a poisoned row before main runs");
+    }
+
+    //The func return slot is the one place `void` — the only type that
+    //names no value — can appear inside a descriptor spelling. Producer
+    //and load-side parser must spell that leaf with the same keyword:
+    //an unrecognized kind degraded to "?" on the producer side, leaving a
+    //row the parser refused to re-parse, so the whole image was refused at
+    //start-up as corrupt (the handler-container shape below).
+    void voidReturnLeafRoundTripsThroughSpelling()
+    {
+        namespace fs = std::filesystem;
+        const fs::path dir =
+            nlang::test::ScratchDir("nlang_descriptor_void_return_leaf");
+        const fs::path out = dir / "out";
+        std::error_code fsError;
+        fs::remove_all(dir, fsError);
+        fs::create_directories(out, fsError);
+
+        const char* szHookBody =
+            "void handle(int v) { }\n"
+            "int main() {\n"
+            "    List<func<void,int>> hooks = [handle];\n"
+            "    return hooks.length();\n"
+            "}\n";
+        QString errors;
+        ModuleBuilder::UnitImages imgs = buildUnitImages(dir, out,
+            "hooks", "hooks", szHookBody, false, errors);
+        QVERIFY2(!imgs.units.empty(),
+            qPrintable("the handler-list unit must build clean — "
+                + errors));
+        const CompiledModule& unit = imgs.units[0];
+        QVERIFY2(hasRow(unit, "List<func<void,int>>"),
+            qPrintable("the emitted row must spell the void return leaf — "
+                "rows: " + spellingDump(unit)));
+
+        //The load side re-parses every emitted row at executor init: the
+        //keyword the producer wrote has to resolve back onto the void
+        //return slot, or the reversibility check refuses the image.
+        QVERIFY2(internsClean("List<func<void,int>>", unit),
+            "the emitted void return leaf must re-parse at intern time");
+
+        //The degrade marker stays illegal in both directions: a row that
+        //spells "?" reports a producer vocabulary gap, and the parser must
+        //keep refusing it instead of interning a wrong identity.
+        QString what;
+        QVERIFY2(internsThrowing("List<?>", unit, what),
+            qPrintable("the degrade marker must never parse as a type "
+                "argument — got " + what));
+    }
+
+    //0.13.10 lambda review carried over the merge: a lambda expression
+    //inside a List<func<void>> element was the user-visible shape that
+    //first detonated the "?" degrade at container-creation intern time.
+    //Pins the emitted row spelling the void leaf and interning back, on
+    //the lambda path (the slot above pins the keyword path).
+    void lambdaVoidLeafInternsBack()
+    {
+        namespace fs = std::filesystem;
+        const fs::path dir =
+            nlang::test::ScratchDir("nlang_descriptor_lambda_void_leaf");
+        const fs::path out = dir / "out";
+        std::error_code fsError;
+        fs::remove_all(dir, fsError);
+        const char* szLambdaBody =
+            "int main() {\n"
+            "    List<func<void>> mut = List<func<void>>();\n"
+            "    mut.add(() -> { });\n"
+            "    func<void> first = mut.get(0);\n"
+            "    first();\n"
+            "    return 0;\n"
+            "}\n";
+        QString errors;
+        ModuleBuilder::UnitImages imgs = buildUnitImages(dir, out,
+            "main", "main", szLambdaBody, false, errors);
+        QVERIFY2(!imgs.units.empty(),
+            qPrintable("the lambda-handler unit must build clean — "
+                + errors));
+        const CompiledModule& unit = imgs.units[0];
+        QVERIFY2(hasRow(unit, "List<func<void>>"),
+            qPrintable("the container row must spell the void leaf — "
+                "rows: " + spellingDump(unit)));
+        QVERIFY2(!hasRow(unit, "List<func<?>>"),
+            qPrintable("the '?' degrade must be gone — rows: "
+                + spellingDump(unit)));
+        QVERIFY2(internsClean("List<func<void>>", unit),
+            "the lambda container row must intern back at load time");
     }
 
     //D8.4(b): the descriptor table survives the wire verbatim —

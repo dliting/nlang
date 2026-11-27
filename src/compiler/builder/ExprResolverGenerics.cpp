@@ -95,16 +95,16 @@ bool IsGenericClassDecl(SnClassDecl* pClass)
 
 //Creates (or fetches) a synthetic SnClassDecl for the given generic
 //instantiation. Phase 8e-3: List<T> (arity 1). Phase 8e-4: Dict<K,V> (arity 2).
-//Phase 13: func<R, P...> (variadic, >= 1). outFlags and refFlags are
+//Phase 13: func<R, P...> (variadic, >= 1). refFlags are
 //normalized here so callers that infer instantiations (func handle
-//coercion) can pass empty vectors while declaration-path keys stay
+//coercion) can pass an empty vector while declaration-path keys stay
 //distinct.
 //The cache is per-build (ModuleRegistry's SyntheticBuiltinRegistry):
 //the key is built from interned type-arg pointers, which only keep
 //identity within one build's syntax tree.
 //Display name e.g. "func<Int32, Int32&>"; array-typed arguments are
 //interned tokens with empty Name(), so render them via ToString
-//("Int32[]"). The flag vectors arrive normalized by the caller
+//("Int32[]"). The refFlags vector arrives normalized by the caller
 //(padded to typeArgs.size()) so the marks spell position-stable.
 static std::string RenderGenericInstName(const std::string& baseName,
 	const std::vector<SnField*>& typeArgs, const std::vector<uint8>& refFlags)

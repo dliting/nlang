@@ -21,6 +21,11 @@ native int mul(int a, int b);
 // "hello, NLang".
 native string greet(string who);
 
+// Return the file path of the loaded copy of this library itself.
+// The extraction-cache tests use it to prove which copy answered a
+// call.
+native string where();
+
 // NLang-implemented wrapper (no native keyword): twice the native
 // add. A mixed library — ordinary NLang code in the same package
 // calls the native function by its unqualified name; this body is compiled

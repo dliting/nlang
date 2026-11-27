@@ -1,0 +1,22 @@
+//Lambdas nested in another lambda's EXPRESSION body: currying is the
+//mainstream shape. The inner lambda's display must anchor inside the
+//outer lambda's synthetic frame (the expression body is normalized to
+//a return paragraph before the capture walk), and an inner capture of
+//the outer's parameter promotes that parameter into the outer frame's
+//display.
+int main() {
+	int outer = 10;
+	func<func<int, int>, int> add = (x) -> (y) -> x + y;
+	func<int, int> add3 = add(3);
+	if (add3(4) != 7) { return 1; }
+	func<func<int, int>, int> plain = (y) -> (y2) -> y2;   // zero-capture inner
+	func<int, int> plain0 = plain(0);
+	if (plain0(9) != 9) { return 2; }
+	func<func<int, int>, int> esc = (x) -> (y) -> outer + x + y;  // outer capture
+	func<int, int> esc1 = esc(1);
+	if (esc1(4) != 15) { return 3; }
+	func<func<int, int>, int> addc = (x) -> { return (y) -> x + y; };
+	func<int, int> addc20 = addc(20);
+	if (addc20(30) != 50) { return 4; }                     // block outer still works
+	return 0;
+}

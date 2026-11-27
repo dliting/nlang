@@ -1,0 +1,38 @@
+//Task 8 (spec §5.2): a display's capture fields root their heap
+//handles through the class mark phase — the &-captured struct's base
+//record and the promoted capture's box must outlive the escaping
+//lambda's owner frame while discarded structs cross the collection
+//thresholds mid-loop. No gc-stress flag: the churner alone widens the
+//reclaim window (the flag is a scheduling barrier that narrows it).
+struct Counter {
+    public int n;
+    public Counter(int v) { n = v; }
+}
+func<int> makeByref() {
+    Counter c = Counter(41);
+    Counter& rc = c;
+    func<int> f = () -> rc.n + 1;
+    return f;
+}
+func<int> makePromoted() {
+    int x = 7;
+    int& r = x;
+    func<int> g = () -> x + r;
+    return g;
+}
+int main() {
+    func<int> f = makeByref();
+    func<int> g = makePromoted();
+    int i = 0;
+    while (i < 20000) {
+        Counter t = Counter(i);
+        i = i + 1;
+    }
+    if (f() != 42) {
+        return 1;
+    }
+    if (g() != 14) {
+        return 2;
+    }
+    return 0;
+}

@@ -107,9 +107,10 @@ creation (sizes from expressions) reads them from evaluation slots.
 | OP_CallIntrinsic       | intrinsicId, callParamBase  | Invoke intrinsic by ID   |
 | OP_ParaEnd             | —                           | End of parameter list    |
 
-The uint16 `descIdx` operand on the static-call family names a row in
-the module's generic-instantiation descriptor table (the `.ncu`
-template table, §26.4 of the specification): a call into a generic
+The uint16 `descIdx` operand on the static-call family and
+`OP_MakeFunc` names a row in the module's generic-instantiation
+descriptor table (the `.ncu` template table, §28.2.1 of the
+specification): a call into a generic
 function or a generic class member carries the descriptor so the
 callee's `T` reads and kind dispatches key on the actual type
 arguments. `0xFFFF` marks a non-generic call site; `0xFFFE` inherits
@@ -120,7 +121,7 @@ generic).
 
 | Opcode              | Operands                             | Description                     |
 |---------------------|--------------------------------------|---------------------------------|
-| OP_MakeFunc         | funcIdx (uint16)                     | Static handle {funcIdx, 0, 0}   |
+| OP_MakeFunc         | funcIdx, descIdx (uint16 each)       | Static handle {funcIdx, 0, 0, descIdx}; descIdx pairs the instantiation descriptor row of a generic target |
 | OP_MakeBoundFunc    | funcIdx (uint16)                     | Reads receiver from pResult → {funcIdx, this, static} |
 | OP_MakeVFunc        | nameIdx (uint16, string constant table) | Reads receiver from pResult → {nameIdx, this, virtual} |
 | OP_CallDelegate     | calleeLocal, callParamBase           | Invoke through a handle         |
@@ -143,7 +144,7 @@ type-parameter list.
 
 | Opcode              | Operands                    | Description              |
 |---------------------|-----------------------------|--------------------------|
-| OP_TypeNameArg      | dst, paramOrdinal (uint8)   | Read the receiver's instantiation descriptor, take the ordinal-th type argument's canonical name, create a string (`typeName(T)`) |
+| OP_TypeNameArg      | dst, paramOrdinal (uint8)   | Read the receiver's instantiation descriptor, take the ordinal-th type argument's canonical spelling, create a string (`typeName(T)`) |
 | OP_TypeNameCompose  | dst, compositionIdx         | Compose a nested spelling from a composition record against the receiver's instantiation and intern it (`typeName(List<T>)`) |
 | OP_Eq_T             | dst, paramOrdinal, lhs, rhs | Compare two T-typed slots under the ordinal-th type argument's kind (scalar cell, string content, struct field value, class/array identity, function-record content); lhs/rhs `0xFFFF` marks the null-literal side |
 | OP_Ne_T             | dst, paramOrdinal, lhs, rhs | Negated verdict of OP_Eq_T |
@@ -160,7 +161,7 @@ boxing plan cannot resolve the tag — the receiver's type argument is
 the calling generic body's own placeholder, so the executing frame's
 descriptor decides.
 
-The descriptor wire format lives in [The `.ncu` Unit Image](../specification/formats/26-ncu.md);
+The descriptor wire format lives in [The `.ncu` Unit Image](../specification/formats/28-ncu.md);
 how the compiler creates and binds per-instantiation bodies is
 [Library Mechanism](library-mechanism.md)'s subject.
 

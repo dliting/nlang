@@ -37,13 +37,18 @@ std::string VmExecutor::QuoteString(const std::string& s) const {
 
 //Phase 13: shared renderer for function handles. slot[0] holds a function
 //index for static handles (form 0) or a string-constant index for
-//virtual-dispatch handles (form 1, Step 2).
+//virtual-dispatch handles (form 1, Step 2). 0.13.10: a form-0 record
+//carrying the lambda bit renders "lambda" — the record IS the judgment,
+//never the $lambda_N name shape.
 std::string VmExecutor::FormatFuncHandle(int32_t heapIdx) const {
     const auto& slot = m_structHeap[static_cast<size_t>(heapIdx)];
     if (slot[2] == kFuncFormStatic) {
         uint16_t funcIdx = static_cast<uint16_t>(slot[0]);
-        if (funcIdx < m_currModule->functions.size())
+        if (funcIdx < m_currModule->functions.size()) {
+            if (m_currModule->functions[funcIdx].isLambda)
+                return "lambda";
             return "func " + m_currModule->functions[funcIdx].name;
+        }
         return "func <invalid>";
     }
     int32_t nameIdx = slot[0];

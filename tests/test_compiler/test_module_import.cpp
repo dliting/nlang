@@ -28,9 +28,10 @@ on every merged TU member (top-level and container members).
 //Execute-level coverage (review C1): qualifying a call that returns a
 //func<...> must not be emitted as a bound method reference, so the tests
 //below link and run the built package (same pattern as test_stdlib).
-#include <nlang/vm/CompiledModule.h>
-#include <nlang/vm/Intrinsics.h>
-#include "ModuleLoader.h"
+#include <nlang/core/CompiledModule.h>
+#include <nlang/core/Intrinsics.h>
+#include <nlang/core/NcuPackage.h>
+#include <nlang/core/ModuleLoader.h>
 #include "NcuLoader.h"
 #include "NcuLinker.h"
 #include "VmExecutor.h"
@@ -40,6 +41,8 @@ on every merged TU member (top-level and container members).
 #include <filesystem>
 #endif
 #include <fstream>
+#include <functional>
+#include <iterator>
 #include <memory>
 #include <set>
 #include <string>
@@ -198,6 +201,288 @@ const SnField* findMember(
     return nullptr;
 }
 
+//Write szBody to a source file (binary mode); false when the file
+//could not be written.
+bool writeSourceFile(const std::filesystem::path& file, const char* szBody)
+{
+    std::ofstream stream(file, std::ios::binary);
+    if (!stream)
+        return false;
+    stream << szBody;
+    return stream.good();
+}
+
+//Compile one standalone source into <outDir>/<name>.ncu (single-file
+//mode): stage 1 of the gate scaffold below, and the unit-file fixtures.
+//Returns the build's errors (empty on success).
+std::vector<std::string> compileUnit(const std::filesystem::path& source,
+    const std::string& name, const std::filesystem::path& outDir,
+    const std::string& stdlibDir)
+{
+    BuildParams params;
+    //Drop the working-directory entry BuildParams seeds by default:
+    //the gate resolves every name through absolute paths only, so a
+    //stray same-named .n in the process CWD can never shadow the
+    //external artifact under test.
+    params.m_ImportDirs.clear();
+    params.m_SourceFiles.push_back(source.string());
+    params.m_sOutputModule = name;
+    params.m_sOutputDir = outDir.string();
+    params.m_sTempDir = outDir.string();
+    params.m_sStdLibDir = stdlibDir;
+    MemLogger logger;
+    ModuleBuilder builder(params, logger);
+    bool ok = false;
+    try { ok = builder.BuildArtifacts(); }
+    catch (const std::exception&) { ok = false; }
+    return ok ? std::vector<std::string>() : logger.errorsText();
+}
+
+//The third-party package under test in artifact form: pkgsrc/tp.n,
+//pkgsrc/tp/core.n, pkgsrc/tp/helper.n and pkgsrc/tp/sub.n (package tp;
+//tp calls its helper; core is the transitive surface — sub's
+//signatures use its Marker — and sub is the dotted-import surface)
+//compile in project mode into <pkgOut>/<szPackageFile> — one member
+//per unit, no entry record. No tp source stays on a search path, so a
+//consumer reaches tp through a member table only. False when the
+//build failed or the package is missing.
+bool buildThirdPartyPackage(const std::filesystem::path& pkgOut,
+    const char* szPackageFile)
+{
+    namespace fs = std::filesystem;
+    const fs::path src =
+        nlang::test::ScratchDir("nlang_import_gate") / "pkgsrc";
+    std::error_code fsError;
+    fs::remove_all(src, fsError);
+    fs::create_directories(src / "tp", fsError);
+    if (!writeSourceFile(src / "tp.n",
+            "import tp.helper;\n"
+            "public int top() { return tp.helper.Fn.f(); }\n") ||
+        !writeSourceFile(src / "tp" / "core.n",
+            "public class Marker\n"
+            "{\n"
+            "    public Marker() {}\n"
+            "    public int tag() { return 1; }\n"
+            "}\n") ||
+        !writeSourceFile(src / "tp" / "helper.n",
+            "public class Fn { public static int f() { return 42; } }\n") ||
+        !writeSourceFile(src / "tp" / "sub.n",
+            "import tp.core;\n"
+            "public Marker make() { return Marker(); }\n"
+            "public int use(Marker m) { return m.tag(); }\n"
+            "public int x() { return 7; }\n"))
+    {
+        return false;
+    }
+    BuildParams params;
+    params.m_bProjectMode = true;
+    params.m_sProjectDir = src.string();
+    params.m_SourceFiles.push_back((src / "tp.n").string());
+    params.m_SourceFiles.push_back((src / "tp" / "core.n").string());
+    params.m_SourceFiles.push_back((src / "tp" / "helper.n").string());
+    params.m_SourceFiles.push_back((src / "tp" / "sub.n").string());
+    //Same hermeticity rule as compileUnit: absolute paths only.
+    params.m_ImportDirs.clear();
+    params.m_sOutputModule = "tp";
+    params.m_sOutputDir = pkgOut.string();
+    params.m_sTempDir = pkgOut.string();
+    params.m_sStdLibDir = STDLIB_DIR;
+    MemLogger logger;
+    ModuleBuilder builder(params, logger);
+    bool ok = false;
+    try { ok = builder.BuildArtifacts(); }
+    catch (const std::exception&) { ok = false; }
+    if (!ok)
+        return false;
+    const fs::path built = pkgOut / "tp.npkg";
+    if (std::string(szPackageFile) != "tp.npkg")
+        fs::rename(built, pkgOut / szPackageFile, fsError);
+    return !fsError && fs::exists(pkgOut / szPackageFile);
+}
+
+//A PROGRAM package whose run-time closure carries tp.sub. Program
+//packages have an entry record and are not a compile-time import
+//surface: their member table is the executable closure, so dependencies
+//may duplicate members of real library packages in the same directory.
+//False when the package failed to build or carries no entry record.
+bool buildProgramPackageCarryingTpSub(const std::filesystem::path& pkgOut,
+    const char* szPackageFile)
+{
+    namespace fs = std::filesystem;
+    const fs::path src =
+        nlang::test::ScratchDir("nlang_import_gate") / "program_pkg_src";
+    std::error_code fsError;
+    fs::remove_all(src, fsError);
+    fs::create_directories(src / "tp", fsError);
+    if (!writeSourceFile(src / "main.n",
+            "int main() { return 0; }\n") ||
+        !writeSourceFile(src / "tp" / "sub.n",
+            "public int x() { return 99; }\n"))
+    {
+        return false;
+    }
+    BuildParams params;
+    params.m_bProjectMode = true;
+    params.m_sProjectDir = src.string();
+    params.m_SourceFiles.push_back((src / "main.n").string());
+    params.m_SourceFiles.push_back((src / "tp" / "sub.n").string());
+    params.m_ImportDirs.clear();
+    params.m_sOutputModule = "carrier";
+    params.m_sOutputDir = pkgOut.string();
+    params.m_sTempDir = pkgOut.string();
+    params.m_sStdLibDir = STDLIB_DIR;
+    MemLogger logger;
+    ModuleBuilder builder(params, logger);
+    bool ok = false;
+    try { ok = builder.BuildArtifacts(); }
+    catch (const std::exception&) { ok = false; }
+    const fs::path built = pkgOut / "carrier.npkg";
+    if (ok && std::string(szPackageFile) != "carrier.npkg")
+        fs::rename(built, pkgOut / szPackageFile, fsError);
+    NcuPackageReader reader;
+    std::string error;
+    return ok && !fsError
+        && reader.Open((pkgOut / szPackageFile).string(), &error)
+        && reader.EntryRecord() != nullptr;
+}
+
+//Damage the first member's image inside the package. The writer packs
+//the members sorted by module path (tp first, ahead of tp.core) back
+//to back, so the byte before the second image's magic is the last byte
+//of the first member: the container stays readable and tp fails its
+//checksum. False when the second image was not found.
+bool corruptFirstMember(const std::filesystem::path& package)
+{
+    std::ifstream stream(package, std::ios::binary);
+    std::string bytes((std::istreambuf_iterator<char>(stream)),
+        std::istreambuf_iterator<char>());
+    const std::string magic(NCU_MAGIC, 8);
+    const size_t first = bytes.find(magic);
+    const size_t second = first == std::string::npos
+        ? std::string::npos : bytes.find(magic, first + magic.size());
+    if (second == std::string::npos || second == 0)
+        return false;
+    bytes[second - 1] = static_cast<char>(bytes[second - 1] ^ 0x7F);
+    std::ofstream out(package, std::ios::binary | std::ios::trunc);
+    out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    return out.good();
+}
+
+//Two packages whose members name each other in their import records —
+//the delivery shape of a mutual dependency built in versions: each
+//producer compiled against an acyclic stub source of the other side
+//(a source-level mutual pair could never compile — the cycle ban
+//rejects it), so no producing build saw a cycle. cyc_pa builds with
+//the pb.m stub on its search path, cyc_pb with the pa.m stub; the
+//stub sources ship nowhere. False when a stage build failed or a
+//package is missing.
+bool buildMutualPackages(const std::filesystem::path& pkgOut)
+{
+    namespace fs = std::filesystem;
+    const fs::path root = nlang::test::ScratchDir("nlang_import_gate");
+    const fs::path srcsA = root / "cyc_pa";
+    const fs::path srcsB = root / "cyc_pb";
+    const fs::path stubA = root / "cyc_stub_pa";
+    const fs::path stubB = root / "cyc_stub_pb";
+    std::error_code fsError;
+    for (const fs::path* dir : {&srcsA, &srcsB, &stubA, &stubB})
+    {
+        fs::remove_all(*dir, fsError);
+        fs::create_directories(*dir / "pa", fsError);
+        fs::create_directories(*dir / "pb", fsError);
+    }
+    if (!writeSourceFile(srcsA / "pa.n",
+            "public int aroot() { return 1; }\n") ||
+        !writeSourceFile(srcsA / "pa" / "m.n",
+            "import pb.m;\n"
+            "public int a() { return pb.m.b(); }\n") ||
+        !writeSourceFile(stubB / "pb" / "m.n",
+            "public int b() { return 0; }\n") ||
+        !writeSourceFile(srcsB / "pb.n",
+            "public int broot() { return 2; }\n") ||
+        !writeSourceFile(srcsB / "pb" / "m.n",
+            "import pa.m;\n"
+            "public int b() { return pa.m.a(); }\n") ||
+        !writeSourceFile(stubA / "pa" / "m.n",
+            "public int a() { return 0; }\n"))
+    {
+        return false;
+    }
+    //One stage build: a project tree plus the other side's stub on the
+    //search path (the stub stays a library TU — excluded from codegen,
+    //so the package carries only the project's own members).
+    const auto buildStage = [&pkgOut](const fs::path& project,
+        const std::vector<fs::path>& sources,
+        const std::string& outputModule, const fs::path& importDir)
+    {
+        BuildParams params;
+        params.m_bProjectMode = true;
+        params.m_sProjectDir = project.string();
+        for (const fs::path& source : sources)
+            params.m_SourceFiles.push_back(source.string());
+        params.m_ImportDirs.clear();
+        params.m_ImportDirs.push_back(importDir.string());
+        params.m_sOutputModule = outputModule;
+        params.m_sOutputDir = pkgOut.string();
+        params.m_sTempDir = pkgOut.string();
+        params.m_sStdLibDir = STDLIB_DIR;
+        MemLogger logger;
+        ModuleBuilder builder(params, logger);
+        bool ok = false;
+        try { ok = builder.BuildArtifacts(); }
+        catch (const std::exception&) { ok = false; }
+        std::error_code fsError;
+        return ok && fs::exists(pkgOut / (outputModule + ".npkg"), fsError);
+    };
+    return buildStage(srcsA, {srcsA / "pa.n", srcsA / "pa" / "m.n"},
+               "pa", stubB)
+        && buildStage(srcsB, {srcsB / "pb.n", srcsB / "pb" / "m.n"},
+               "pb", stubA);
+}
+
+//A package whose one member imports an absent module by record: the
+//member compiles against a stub source of "ghost" that ships nowhere,
+//so the produced image names ghost in its import records while no
+//artifact answers for it (the homeless-mirror shape). False when the
+//stage build failed.
+bool buildGhostImportPackage(const std::filesystem::path& pkgOut)
+{
+    namespace fs = std::filesystem;
+    const fs::path root = nlang::test::ScratchDir("nlang_import_gate");
+    const fs::path srcs = root / "ghosty_src";
+    const fs::path stub = root / "ghost_stub";
+    std::error_code fsError;
+    fs::remove_all(srcs, fsError);
+    fs::remove_all(stub, fsError);
+    fs::create_directories(srcs, fsError);
+    fs::create_directories(stub, fsError);
+    if (!writeSourceFile(srcs / "ghosty.n",
+            "import ghost;\n"
+            "public int g() { return ghost.gstub(); }\n") ||
+        !writeSourceFile(stub / "ghost.n",
+            "public int gstub() { return 0; }\n"))
+    {
+        return false;
+    }
+    BuildParams params;
+    params.m_bProjectMode = true;
+    params.m_sProjectDir = srcs.string();
+    params.m_SourceFiles.push_back((srcs / "ghosty.n").string());
+    params.m_ImportDirs.clear();
+    params.m_ImportDirs.push_back(stub.string());
+    params.m_sOutputModule = "ghosty";
+    params.m_sOutputDir = pkgOut.string();
+    params.m_sTempDir = pkgOut.string();
+    params.m_sStdLibDir = STDLIB_DIR;
+    MemLogger logger;
+    ModuleBuilder builder(params, logger);
+    bool ok = false;
+    try { ok = builder.BuildArtifacts(); }
+    catch (const std::exception&) { ok = false; }
+    std::error_code fsError2;
+    return ok && fs::exists(pkgOut / "ghosty.npkg", fsError2);
+}
+
 //Shared scaffold of the import-gate tests: a two-stage build. Stage 1
 //compiles the external lib(s) into out/; stage 2 compiles the main
 //project that reaches them through m_ImportDirs. An infrastructure
@@ -209,12 +494,16 @@ const SnField* findMember(
 //  libsrc/lib2.n          twin lib exporting the same name (opt-in)
 //  libsrc/rlib.n          rich lib: class/struct/interface surface (opt-in)
 //  out/lib.ncu           external lib artifact (stage 1)
+//  dist/gate_test_N.npkg this call's project package (stage 2; never on
+//                         the import path — see the dist declaration)
 //  proj/main.n            main project (content injected)
 //  proj/utils/helper.n    cross-directory module
 //  proj/utils/sub/deep.n  recursive wildcard target
 //  proj/extra.n           root-directory peer (same-dir auto-import)
 //  proj/utils.n           root module named "utils" (D11 opt-in)
 //  proj/utils2/MyClass.n  module sharing a class name (Task 5 opt-in)
+//  pkgout/                third-party package artifacts (opt-in; filled
+//                         by preparePackageDir per test)
 struct GateResult
 {
     bool ok = false;
@@ -235,6 +524,7 @@ struct GateProjectOptions
     const char* szMainBody;
     bool withTwinLib = false;        //also build libsrc/lib2.n
     bool withRootUtils = false;      //also register root utils.n
+    const char* szRootUtilsBody = nullptr;  //explicit utils.n body
     bool helperImportsLib = false;   //helper.n imports the external lib
     const char* szHelperBody = nullptr;   //explicit helper.n body
     const char* szExtraBody = nullptr;    //explicit extra.n body
@@ -243,6 +533,21 @@ struct GateProjectOptions
     const char* szCoreHelperBody = nullptr; //explicit core/helper.n body
     bool withRichLib = false;        //also build libsrc/rlib.n (type surface lib)
     bool withAccessLib = false;      //also build libsrc/xlib.n (0.13.8 Task 4 access-surface lib)
+    //D-29: library packages need a package with a real subtree, which no
+    //shipped package has yet — mirror the test stdlib dir and add package k
+    //(k.n) with module k/inner.n on top of it.
+    bool withLibraryTree = false;
+    //Low 2: a third-party SOURCE root on the import path (tplib/tp.n +
+    //tplib/tp/sub.n, package tp with submodule tp.sub) that the project
+    //imports selectively — the never-inlined submodule is exactly the
+    //package no knowability table held before.
+    bool withThirdPartySource = false;
+    //Package artifacts: pkgout/ joins the import path after out/ and
+    //preparePackageDir fills it (a package, a unit file, a damaged
+    //member) — the artifact-form counterpart of the source root above.
+    //It runs after the per-call cleanup and before stage 2.
+    bool withThirdPartyPackage = false;
+    std::function<void(const std::filesystem::path& pkgOut)> preparePackageDir;
 };
 
 GateResult buildGateProject(const GateProjectOptions& opts)
@@ -253,12 +558,27 @@ GateResult buildGateProject(const GateProjectOptions& opts)
     const fs::path libSrc = root / "libsrc";
     const fs::path out = root / "out";
     const fs::path proj = root / "proj";
+    const fs::path libTree = root / "libtree";
+    const fs::path tplib = root / "tplib";
+    const fs::path pkgOut = root / "pkgout";
+    //Stage 2's output package lands here, NOT in out/: the import dirs
+    //below carry out/ (shared, reused across calls of this process), and
+    //the artifact lookup consults package MEMBER tables — an earlier
+    //call's project package left in out/ would answer for its members
+    //(utils, extra) in every later build, turning a not-found test into
+    //a silent success. out/ keeps only the stage-1 external .ncu libs.
+    const fs::path dist = root / "dist";
+    //A mirrored library tree replaces the test stdlib dir everywhere, so
+    //the gate under test differs from every other gate test only by the
+    //extra subtree package written below.
+    const bool useLibraryTree = opts.withLibraryTree
+        && !std::string(STDLIB_DIR).empty();
+    const std::string stdlibDir =
+        useLibraryTree ? libTree.string() : STDLIB_DIR;
     std::error_code fsError;
-    //ModuleManager is process-global and refuses a second Create of the
-    //same module name, so the external libs are built once per process
-    //and later calls reuse their .ncu artifacts on disk. Only the
-    //project subtree is refreshed per call; a fresh process starts
-    //from a clean root.
+    //A fresh process starts from a clean root; later calls refresh the
+    //per-call subtrees only. The external libs are built once per
+    //process and their .ncu artifacts reused from disk.
     static bool firstCall = true;
     if (firstCall)
     {
@@ -266,19 +586,45 @@ GateResult buildGateProject(const GateProjectOptions& opts)
         firstCall = false;
     }
     fs::remove_all(proj, fsError);
+    fs::remove_all(pkgOut, fsError);
     fs::create_directories(libSrc, fsError);
     fs::create_directories(out, fsError);
+    fs::create_directories(dist, fsError);
     fs::create_directories(proj / "utils" / "sub", fsError);
     fs::create_directories(proj / "utils2", fsError);
     fs::create_directories(proj / "core", fsError);
-    auto writeFile = [](const fs::path& file, const char* szBody)
+    if (opts.withThirdPartySource)
+        fs::create_directories(tplib / "tp", fsError);
+    if (opts.withThirdPartyPackage)
     {
-        std::ofstream stream(file, std::ios::binary);
-        if (!stream)
-            return false;
-        stream << szBody;
-        return stream.good();
-    };
+        fs::create_directories(pkgOut, fsError);
+        if (opts.preparePackageDir)
+            opts.preparePackageDir(pkgOut);
+    }
+    if (useLibraryTree)
+    {
+        //One mirror per process (the scratch root is wiped on the first
+        //call only): copy the library sources and its package artifacts,
+        //after which the k.n / k/inner.n writes below add the subtree.
+        fs::create_directories(libTree / "k", fsError);
+        if (!fs::exists(libTree / "io.n"))
+        {
+            std::error_code walkError;
+            fs::recursive_directory_iterator it(
+                STDLIB_DIR, fs::directory_options::skip_permission_denied,
+                walkError);
+            for (; !walkError && it != fs::recursive_directory_iterator();
+                 it.increment(walkError))
+            {
+                if (!it->is_regular_file(walkError))
+                    continue;
+                fs::copy_file(it->path(),
+                    libTree / fs::relative(it->path(), STDLIB_DIR, walkError),
+                    fs::copy_options::overwrite_existing, walkError);
+            }
+        }
+    }
+    const auto writeFile = writeSourceFile;
     //Explicit helper body wins (owner-tag tests need a custom one);
     //otherwise the lib-importing variant or the default body.
     const char* szHelper = opts.szHelperBody;
@@ -299,8 +645,8 @@ GateResult buildGateProject(const GateProjectOptions& opts)
         writeFile(proj / "extra.n", opts.szExtraBody
             ? opts.szExtraBody : "int extra() { return 9; }\n") &&
         (!opts.withRootUtils ||
-            writeFile(proj / "utils.n",
-                "int rootUtil() { return 6; }\n")) &&
+            writeFile(proj / "utils.n", opts.szRootUtilsBody
+                ? opts.szRootUtilsBody : "int rootUtil() { return 6; }\n")) &&
         (!opts.withUtils2MyClass ||
             writeFile(proj / "utils2" / "MyClass.n",
                 "int m() { return 8; }\n")) &&
@@ -336,6 +682,16 @@ GateResult buildGateProject(const GateProjectOptions& opts)
                 "private class Vault { int f() { return 4; } }\n"
                 "public class OpenBox { int f() { return 5; } }\n"
                 "public int helper() { return 9; }\n")) &&
+        (!useLibraryTree ||
+            (writeFile(libTree / "k.n",
+                "int top() { return 1; }\n") &&
+             writeFile(libTree / "k" / "inner.n",
+                "int deepTwo() { return 2; }\n"))) &&
+        (!opts.withThirdPartySource ||
+            (writeFile(tplib / "tp.n",
+                "int top() { return 11; }\n") &&
+             writeFile(tplib / "tp" / "sub.n",
+                "public class Fn { public static int f() { return 42; } }\n"))) &&
         writeFile(proj / "main.n", opts.szMainBody);
     if (!written)
     {
@@ -354,38 +710,21 @@ GateResult buildGateProject(const GateProjectOptions& opts)
         libNames[libCount++] = "xlib";
     for (int i = 0; i < libCount; ++i)
     {
-        const fs::path ncu =
-            out / (std::string(libNames[i]) + ".ncu");
-        if (fs::exists(ncu))
+        if (fs::exists(out / (std::string(libNames[i]) + ".ncu")))
             continue;
-        BuildParams libParams;
-        //Drop the working-directory entry BuildParams seeds by default:
-        //the gate resolves every name through absolute paths only, so a
-        //stray same-named .n in the process CWD can never shadow the
-        //external artifact under test.
-        libParams.m_ImportDirs.clear();
-        libParams.m_SourceFiles.push_back(
-            (libSrc / (std::string(libNames[i]) + ".n")).string());
-        libParams.m_sOutputModule = libNames[i];
-        libParams.m_sOutputDir = out.string();
-        libParams.m_sTempDir = out.string();
-        libParams.m_sStdLibDir = STDLIB_DIR;
-        MemLogger libLogger;
-        ModuleBuilder libBuilder(libParams, libLogger);
-        bool libOk = false;
-        try { libOk = libBuilder.BuildArtifacts(); }
-        catch (const std::exception&) { libOk = false; }
-        if (!libOk)
-        {
-            failure.errors = libLogger.errorsText();
+        failure.errors = compileUnit(
+            libSrc / (std::string(libNames[i]) + ".n"), libNames[i],
+            out, stdlibDir);
+        if (!failure.errors.empty())
             return failure;
-        }
     }
 
-    //Stage 2: compile the main project with out/ importable. The output
-    //module name must be unique per call (ModuleManager, see above).
+    //Stage 2: compile the main project with out/ importable. The
+    //output module name carries a per-call counter (its package never
+    //collides with an earlier call's in dist/), and the package itself
+    //goes to dist/, which no import dir lists (see the dist declaration).
     //Project mode: the multi-source build packs one member per unit into
-    //out/<gate_test_N>.npkg (single-file mode would refuse a multi-unit
+    //dist/<gate_test_N>.npkg (single-file mode would refuse a multi-unit
     //image); runGateProject links that package at load time.
     static uint32_t gateRunCount = 0;
     GateResult res;
@@ -409,11 +748,19 @@ GateResult buildGateProject(const GateProjectOptions& opts)
     //library dir, never the process CWD.
     res.params->m_ImportDirs.clear();
     res.params->m_ImportDirs.push_back(out.string());
+    //The third-party source root joins AFTER out/: its .n sources are the
+    //library under test, and out/ holds no same-named artifact.
+    if (opts.withThirdPartySource)
+        res.params->m_ImportDirs.push_back(tplib.string());
+    //The package dir is last: the artifacts under test are found only
+    //when no source and no unit file of the name precedes them.
+    if (opts.withThirdPartyPackage)
+        res.params->m_ImportDirs.push_back(pkgOut.string());
     res.params->m_sOutputModule =
         "gate_test_" + std::to_string(++gateRunCount);
-    res.params->m_sOutputDir = out.string();
-    res.params->m_sTempDir = out.string();
-    res.params->m_sStdLibDir = STDLIB_DIR;
+    res.params->m_sOutputDir = dist.string();
+    res.params->m_sTempDir = dist.string();
+    res.params->m_sStdLibDir = stdlibDir;
     res.logger = std::make_unique<MemLogger>();
     res.builder = std::make_unique<ModuleBuilder>(*res.params, *res.logger);
     try { res.ok = res.builder->BuildArtifacts(); }
@@ -466,10 +813,10 @@ std::string runFailureText(const GateRunResult& run, const char* szWhat)
 //main(): the review demanded executed (not compile-only) coverage for
 //the qualified paths, because the C1 bug compiled cleanly and only
 //crashed at runtime. The load-time path mirrors nvm — NcuLoader over
-//the output dir (external libs) and the stdlib package, NcuLinker
-//merges the images. VmExecutor::Execute throws on runtime errors, so
-//the call is wrapped and the message surfaced instead of aborting the
-//test binary.
+//the output dir, the stdlib package and the opt-in extra dirs (all of
+//the build's import dirs, in order), NcuLinker merges the images.
+//VmExecutor::Execute throws on runtime errors, so the call is wrapped
+//and the message surfaced instead of aborting the test binary.
 GateRunResult runGateProject(const GateProjectOptions& opts)
 {
     GateRunResult run;
@@ -485,7 +832,9 @@ GateRunResult runGateProject(const GateProjectOptions& opts)
     try
     {
         NcuLoader::Options loaderOpts;
-        loaderOpts.searchDirs = {res.params->m_sOutputDir, STDLIB_DIR};
+        loaderOpts.searchDirs.assign(res.params->m_ImportDirs.begin(),
+            res.params->m_ImportDirs.end());
+        loaderOpts.searchDirs.push_back(res.params->m_sStdLibDir);
         NcuLoader::Result loaded =
             NcuLoader::LoadClosure(pkg.string(), loaderOpts);
         CompiledModule mod = NcuLinker::Link(std::move(loaded.units),
@@ -649,22 +998,33 @@ private slots:
         QVERIFY(reg.IsModuleImported(0, "utils.sub.deep"));
     }
 
-    //D10: a wildcard on a library package is rejected — packages
-    //are not module trees (the '*' would be silently eaten).
-    void builtinWildcardRejected()
+    //D-29 rule 2 (replaces D10's builtinWildcardRejected): a wildcard on a
+    //library package is legal — the package joins the gate like any other
+    //module path does. Both halves are pinned: the build succeeds, and the
+    //removed sentence is no longer produced.
+    void libraryWildcardUnionsFlatPackage()
     {
         auto res = buildGateProject({
             "import io.*;\n"
             "int main() { return 0; }\n"});
-        QVERIFY2(!res.ok, "library package wildcard must fail the build");
-        QVERIFY2(containsError(res.errors,
+        QVERIFY2(res.builder != nullptr,
+            ("gate scaffold failed before the gate stage; errors: "
+             + joinErrors(res.errors)).c_str());
+        QVERIFY2(res.ok, ("flat library package wildcard must build; errors: "
+            + joinErrors(res.errors)).c_str());
+        const ModuleRegistry& reg = res.builder->Registry();
+        QVERIFY(reg.IsModuleImported(0, "io"));
+        QVERIFY2(!containsError(res.errors,
             "Wildcard import cannot target library package 'io'."),
-            "library package wildcard must get the dedicated diagnostic");
+            "the removed diagnostic must not be produced any more");
     }
 
-    //D10: a wildcard matching no project TU module path is almost
-    //certainly a typo — external .ncu names are single-segment (§3.3)
-    //and never count as matches.
+    //D10 (wording per D-29 rule 3, ruling 45): a wildcard matching no
+    //compiled-in module path is almost certainly a typo — external .ncu
+    //names are single-segment (§3.3) and never count as matches, and the
+    //advice now names both sources a module path can come from (project
+    //Sources list, library search path), the same tail the unimported
+    //module path diagnostic uses.
     void wildcardZeroMatchRejected()
     {
         auto res = buildGateProject({
@@ -672,26 +1032,31 @@ private slots:
             "int main() { return 0; }\n"});
         QVERIFY2(!res.ok, "zero-match wildcard must fail the build");
         QVERIFY2(containsError(res.errors,
-            "No project modules matched import 'nosuch.*'."),
+            "No modules matched import 'nosuch.*'. Check the project "
+            "Sources list or -I import path."),
             "zero-match wildcard must get the dedicated diagnostic");
     }
 
-    //D11 regression: a wildcard never reaches an external .ncu name.
-    //'lib' exists only as an external module, so the D11 union surface
-    //(exact project module OR 'lib.'-prefixed project module) is empty
-    //and the import fails loud instead of building with a closed gate.
-    void wildcardNeverMatchesExternalRejected()
+    //The D11 union's exact face reaches an external .ncu name too:
+    //'lib' exists only as an external module, and a wildcard over the
+    //base name imports that member exactly, as a compiled-in package
+    //root would be imported (D7.2: the two shapes agree — the retired
+    //pre-package rule had this wildcard fail with a zero-match error).
+    //'lib' has no subtree, so the prefix face adds nothing here.
+    void wildcardMatchesExternalExactMember()
     {
         auto res = buildGateProject({
             "import lib.*;\n"
-            "int main() { return 0; }\n"});
+            "int main() { return add(2, 3); }\n"});
         QVERIFY2(res.builder != nullptr,
             "gate scaffold failed before the gate stage");
-        QVERIFY2(!res.ok,
-            "wildcard on an external-only name must fail the build");
-        QVERIFY2(containsError(res.errors,
-            "No project modules matched import 'lib.*'."),
-            "external-only wildcard must get the zero-match diagnostic");
+        QVERIFY2(res.ok, "the union's exact face must import the external "
+            "module (the zero-match rule was pre-package and is retired)");
+        const ModuleRegistry& reg = res.builder->Registry();
+        QVERIFY2(reg.IsModuleImported(0, "lib"),
+            "the external module must be imported through the wildcard");
+        QVERIFY2(!reg.IsModuleImported(0, "lib.something"),
+            "a single external member has no subtree for the prefix face");
     }
 
     //D11: 'import utils.*;' is a union — the exact module "utils"
@@ -713,6 +1078,791 @@ private slots:
         QVERIFY(reg.IsModuleImported(0, "utils"));
         QVERIFY(reg.IsModuleImported(0, "utils.helper"));
         QVERIFY(reg.IsModuleImported(0, "utils.sub.deep"));
+    }
+
+    //=== D-29: qualified names and library-package wildcards ===
+    //One rule replaces three project/library splits: dispatch the longest
+    //known module path first and the type second, at any depth, with every
+    //member kind treated alike. Legs whose correctness is only visible once
+    //the machine actually runs go through runGateProject (compile + link +
+    //execute), because the C1 bug compiled cleanly and only crashed later.
+
+    //Rule 2 on a library package that owns a real subtree: `import k.*;`
+    //opens the package itself AND every module under it — the shape the
+    //multi-module web package (Task 8) is built on.
+    void libraryWildcardUnionsSubtree()
+    {
+        GateProjectOptions opts;
+        opts.withLibraryTree = true;
+        opts.szMainBody =
+            "import k.*;\n"
+            "int main() { return 0; }\n";
+        auto res = buildGateProject(opts);
+        QVERIFY2(res.builder != nullptr,
+            ("gate scaffold failed before the gate stage; errors: "
+             + joinErrors(res.errors)).c_str());
+        QVERIFY2(res.ok, ("subtree library wildcard must build; errors: "
+            + joinErrors(res.errors)).c_str());
+        const ModuleRegistry& reg = res.builder->Registry();
+        QVERIFY(reg.IsModuleImported(0, "k"));
+        QVERIFY(reg.IsModuleImported(0, "k.inner"));
+    }
+
+    //Rule 1, static method of a library class: the qualified spelling must
+    //resolve and run, not merely parse.
+    void qualifiedLibraryStaticCallRuns()
+    {
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import http;\n"
+            "int main()\n"
+            "{\n"
+            "    string p = http.HttpResponse.reasonPhraseFor(404);\n"
+            "    if (p == \"Not Found\") { return 3; }\n"
+            "    return 1;\n"
+            "}\n";
+        auto run = runGateProject(opts);
+        QVERIFY2(run.ok, runFailureText(run,
+            "qualified library static call must build and execute").c_str());
+        QVERIFY2(run.runtimeError.empty(),
+            runFailureText(run, "execution must be clean").c_str());
+        QVERIFY2(run.exitValue == 3,
+            runFailureText(run, "reasonPhraseFor(404) must answer").c_str());
+    }
+
+    //Rule 1, static constant of a library class: the bare spelling
+    //HttpParser.MODE_LENGTH already works, so the qualified one must match
+    //it instead of being refused (D-29 rule 3's remedy must itself work).
+    void qualifiedLibraryStaticConstRuns()
+    {
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import http;\n"
+            "int main()\n"
+            "{\n"
+            "    if (http.HttpParser.MODE_LENGTH != 0) { return 5; }\n"
+            "    return 4;\n"
+            "}\n";
+        auto run = runGateProject(opts);
+        QVERIFY2(run.ok, runFailureText(run,
+            "qualified library static const must build and execute").c_str());
+        QVERIFY2(run.runtimeError.empty(),
+            runFailureText(run, "execution must be clean").c_str());
+        QVERIFY2(run.exitValue == 5,
+            runFailureText(run, "MODE_LENGTH must be the constant 1").c_str());
+    }
+
+    //Rule 1, a method call on a qualified enum member constant: the user
+    //manual (04-types/enum.md §4.6.3/§4.6.4) promises a member constant's
+    //toString(), and a project module already takes it while a library
+    //package refused the chain one link past the member value.
+    void qualifiedLibraryEnumMemberChainRuns()
+    {
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import json;\n"
+            "int main()\n"
+            "{\n"
+            "    if (json.JsonKind.Object.toString() == \"Object\")\n"
+            "        { return 6; }\n"
+            "    return 7;\n"
+            "}\n";
+        auto run = runGateProject(opts);
+        QVERIFY2(run.ok, runFailureText(run,
+            "qualified enum member chain must build and execute").c_str());
+        QVERIFY2(run.runtimeError.empty(),
+            runFailureText(run, "execution must be clean").c_str());
+        QVERIFY2(run.exitValue == 6, runFailureText(run,
+            "an enum member's toString() returns the member name").c_str());
+    }
+
+    //Rule 3: a member the class does not have is a missing member, never an
+    //unimported module. MAX_DEPTH lives on JsonText (stdlib/json.n:38), so
+    //json.JsonValue.MAX_DEPTH must not be reported as 'json.JsonValue' being
+    //missing — the advice the compiler gives was itself refused by the
+    //compiler (probe temp/dlib/l7.n).
+    void qualifiedMissingMemberNamesTheMember()
+    {
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import json;\n"
+            "int main()\n"
+            "{\n"
+            "    int d = json.JsonValue.MAX_DEPTH;\n"
+            "    return d;\n"
+            "}\n";
+        auto res = buildGateProject(opts);
+        QVERIFY2(res.builder != nullptr,
+            ("gate scaffold failed before the gate stage; errors: "
+             + joinErrors(res.errors)).c_str());
+        QVERIFY2(!res.ok, "a member no class in the path has must fail");
+        QVERIFY2(!containsError(res.errors, "is not imported"),
+            ("a type member must not be diagnosed as an unimported module; "
+             "errors: " + joinErrors(res.errors)).c_str());
+        QVERIFY2(containsError(res.errors, "MAX_DEPTH"),
+            ("the diagnostic must name the missing member; errors: "
+             + joinErrors(res.errors)).c_str());
+    }
+
+    //Rule 1 binds admission as well as lookup: the qualified spelling must
+    //admit exactly what the bare spelling admits. READALL_WINDOW is a private
+    //class static const (stdlib/http.n:722), so both spellings must land on
+    //the member lookup's own wording; a route that binds the member without
+    //the access admission would accept the qualified form alone and widen the
+    //language surface silently (measured with the pre-fix and post-fix ncc on
+    //the same corpus, probe temp/t19_acc_src/).
+    void qualifiedLibraryPrivateStaticStaysDenied()
+    {
+        GateProjectOptions qualifiedOpts;
+        qualifiedOpts.szMainBody =
+            "import http;\n"
+            "int main()\n"
+            "{\n"
+            "    int w = http.HttpBodyReader.READALL_WINDOW;\n"
+            "    return w;\n"
+            "}\n";
+        auto qualifiedRes = buildGateProject(qualifiedOpts);
+        QVERIFY2(qualifiedRes.builder != nullptr,
+            ("gate scaffold failed before the gate stage; errors: "
+             + joinErrors(qualifiedRes.errors)).c_str());
+        QVERIFY2(!qualifiedRes.ok,
+            ("a private class static must not become reachable through the "
+             "qualified spelling; errors: "
+             + joinErrors(qualifiedRes.errors)).c_str());
+        QVERIFY2(!containsError(qualifiedRes.errors, "is not imported"),
+            ("an access denial is not an unimported module; errors: "
+             + joinErrors(qualifiedRes.errors)).c_str());
+        QVERIFY2(containsError(qualifiedRes.errors, "READALL_WINDOW"),
+            ("the diagnostic must name the member; errors: "
+             + joinErrors(qualifiedRes.errors)).c_str());
+
+        //The bare spelling is the control leg: the two spellings must not
+        //diverge in either direction.
+        GateProjectOptions bareOpts;
+        bareOpts.szMainBody =
+            "import http;\n"
+            "int main()\n"
+            "{\n"
+            "    int w = HttpBodyReader.READALL_WINDOW;\n"
+            "    return w;\n"
+            "}\n";
+        auto bareRes = buildGateProject(bareOpts);
+        QVERIFY2(bareRes.builder != nullptr,
+            ("gate scaffold failed before the gate stage; errors: "
+             + joinErrors(bareRes.errors)).c_str());
+        QVERIFY2(!bareRes.ok,
+            ("the bare spelling must keep rejecting the private class static; "
+             "errors: " + joinErrors(bareRes.errors)).c_str());
+        QVERIFY2(containsError(bareRes.errors, "READALL_WINDOW"),
+            ("the diagnostic must name the member; errors: "
+             + joinErrors(bareRes.errors)).c_str());
+    }
+
+    //Rule 1 at depth 2 in a project: the longest known module path
+    //(utils.helper) wins over the shallower same-named shape, and a static
+    //member resolves through it. The root utils.n (withRootUtils) is what
+    //makes this the interesting shape — the same-named root module is
+    //already in the gate, and today that is exactly where the member chain
+    //breaks (probe temp/dmod_b/main_b.n, whose layout this mirrors).
+    void qualifiedProjectDepth2StaticRuns()
+    {
+        GateProjectOptions opts;
+        //The probe layout reproduced one for one: a root module named
+        //utils that declares a class, plus the depth-2 module utils.helper.
+        opts.withRootUtils = true;
+        opts.szRootUtilsBody = "class Root { public int r() { return 1; } }\n";
+        opts.szHelperBody =
+            "class Widget { public static int answer() { return 42; } }\n";
+        opts.szMainBody =
+            "import utils.*;\n"
+            "int main()\n"
+            "{\n"
+            "    int v = utils.helper.Widget.answer();\n"
+            "    return v;\n"
+            "}\n";
+        auto run = runGateProject(opts);
+        QVERIFY2(run.ok, runFailureText(run,
+            "depth-2 qualified static call must build and execute").c_str());
+        QVERIFY2(run.runtimeError.empty(),
+            runFailureText(run, "execution must be clean").c_str());
+        QVERIFY2(run.exitValue == 42, runFailureText(run,
+            "the static member's value must arrive").c_str());
+    }
+
+    //Declaring face of the same depth-2 shape (probe temp/dmod_b/main_c.n,
+    //which already compiles today). It stays as the pin that rewriting the
+    //member-access dispatch must not break the qualified type reference
+    //behind it.
+    void qualifiedProjectDepth2TypeDeclares()
+    {
+        GateProjectOptions opts;
+        opts.withRootUtils = true;
+        opts.szRootUtilsBody = "class Root { public int r() { return 1; } }\n";
+        opts.szHelperBody = "class Widget { public int v = 7; }\n";
+        opts.szMainBody =
+            "import utils.*;\n"
+            "int main()\n"
+            "{\n"
+            "    utils.helper.Widget w = utils.helper.Widget();\n"
+            "    return w.v;\n"
+            "}\n";
+        auto run = runGateProject(opts);
+        QVERIFY2(run.ok, runFailureText(run,
+            "depth-2 qualified type declaration must build and execute").c_str());
+        QVERIFY2(run.runtimeError.empty(),
+            runFailureText(run, "execution must be clean").c_str());
+        QVERIFY2(run.exitValue == 7, runFailureText(run,
+            "the field initializer value must arrive").c_str());
+    }
+
+    //m12 at a mid-chain namesake (D-29 ruling 45's tie rule): utils.n
+    //declares class helper, the depth-2 module utils.helper sits beside
+    //it, and both spellings of utils.helper offer an `answer` — a class
+    //static (42) and a module-level function (7). The same-named type
+    //keeps its priority over the same-named child package, so the
+    //qualified call must reach the class static, exactly as the bare
+    //class-member spelling would.
+    void qualifiedNamesakeTypeShadowsSubmoduleCall()
+    {
+        GateProjectOptions opts;
+        opts.withRootUtils = true;
+        opts.szRootUtilsBody =
+            "public class helper { public static int answer() { return 42; } }\n";
+        opts.szHelperBody =
+            "int answer() { return 7; }\n"
+            "int helperFn() { return 5; }\n";
+        opts.szMainBody =
+            "import utils.*;\n"
+            "int main()\n"
+            "{\n"
+            "    int v = utils.helper.answer();\n"
+            "    return v;\n"
+            "}\n";
+        auto run = runGateProject(opts);
+        QVERIFY2(run.ok, runFailureText(run,
+            "the namesake-qualified call must build and execute").c_str());
+        QVERIFY2(run.runtimeError.empty(),
+            runFailureText(run, "execution must be clean").c_str());
+        QVERIFY2(run.exitValue == 42, runFailureText(run,
+            "the class static must win the tie, not the module function")
+            .c_str());
+    }
+
+    //The tie decides the reading of utils.helper wholesale: a member
+    //that exists only in the shadowed submodule reads as missing from
+    //the class through the qualified spelling — the collision is the
+    //user's to resolve, not the resolver's to guess around.
+    void qualifiedNamesakeCapturesSubmoduleOnlyMember()
+    {
+        GateProjectOptions opts;
+        opts.withRootUtils = true;
+        opts.szRootUtilsBody =
+            "public class helper { public static int answer() { return 42; } }\n";
+        opts.szHelperBody =
+            "int answer() { return 7; }\n"
+            "int helperFn() { return 5; }\n";
+        opts.szMainBody =
+            "import utils.*;\n"
+            "int main()\n"
+            "{\n"
+            "    return utils.helper.helperFn();\n"
+            "}\n";
+        auto res = buildGateProject(opts);
+        QVERIFY2(!res.ok, ("the qualified spelling must read the tie as "
+            "the class; errors: " + joinErrors(res.errors)).c_str());
+        QVERIFY2(containsError(res.errors, "helperFn"),
+            ("the diagnostic must name the missing member; errors: "
+             + joinErrors(res.errors)).c_str());
+    }
+
+    //Declaring face of the capture rule: a qualified type whose module
+    //path overshoots into a type (utils.helper.Widget names the class
+    //Widget of the module, so a further segment leaves module space)
+    //must fail on that fact, not on an import remedy for a path that is
+    //not a module.
+    void qualifiedTypeThroughTypeRejected()
+    {
+        GateProjectOptions opts;
+        opts.withRootUtils = true;
+        opts.szRootUtilsBody = "class Root { public int r() { return 1; } }\n";
+        opts.szHelperBody =
+            "class Widget { public static int wv() { return 9; } }\n";
+        opts.szMainBody =
+            "import utils.*;\n"
+            "int main()\n"
+            "{\n"
+            "    utils.helper.Widget.Deep v;\n"
+            "    return 0;\n"
+            "}\n";
+        auto res = buildGateProject(opts);
+        QVERIFY2(!res.ok, ("a type qualified through a type must fail; "
+            "errors: " + joinErrors(res.errors)).c_str());
+        QVERIFY2(containsError(res.errors, "cannot be qualified through"),
+            ("the diagnostic must say the segment leaves module space as "
+             "a type, not offer an import remedy; errors: "
+             + joinErrors(res.errors)).c_str());
+    }
+
+    //=== Low 2 (0.13.12): knowability of a third-party source package ===
+    //A package whose .n sits on an import dir is knowable even when no
+    //import ever inlined it (the symbol index learns only the stdlib dir
+    //at construction). Rule 3 demands a remedy the user can apply, so a
+    //chain reaching into the submodule must fold onto tp.sub — never name
+    //the class segment Fn as a module (import tp.sub.Fn is itself
+    //refused: the dotted source lookup finds no tp/sub/Fn.n).
+
+    //The call form with the parent imported: the fold is what changes —
+    //the chain tp.sub.Fn.f is claimed at tp.sub, not at tp.
+    void thirdPartySubmoduleCallFoldsToPackage()
+    {
+        GateProjectOptions opts;
+        opts.withThirdPartySource = true;
+        opts.szMainBody =
+            "import tp;\n"
+            "int main()\n"
+            "{\n"
+            "    return tp.sub.Fn.f();\n"
+            "}\n";
+        auto res = buildGateProject(opts);
+        QVERIFY2(res.builder != nullptr,
+            ("gate scaffold failed before the gate stage; errors: "
+             + joinErrors(res.errors)).c_str());
+        QVERIFY2(!res.ok, "an unimported third-party submodule must fail");
+        QVERIFY2(containsError(res.errors,
+            "Module 'tp.sub' is not imported. Add 'import tp.sub;' "
+            "(or 'import tp.*;')"),
+            ("the diagnostic must fold to the importable submodule; "
+             "errors: " + joinErrors(res.errors)).c_str());
+        QVERIFY2(!containsError(res.errors, "'tp.sub.Fn' is not imported"),
+            ("the class segment must not be named as a module; errors: "
+             + joinErrors(res.errors)).c_str());
+    }
+
+    //The same chain with no import at all: knowability from the search
+    //dir alone must still claim the chain — the generic field diagnostic
+    //names nothing the user can act on.
+    void thirdPartySubmoduleWithoutImportFolds()
+    {
+        GateProjectOptions opts;
+        opts.withThirdPartySource = true;
+        opts.szMainBody =
+            "int main()\n"
+            "{\n"
+            "    return tp.sub.Fn.f();\n"
+            "}\n";
+        auto res = buildGateProject(opts);
+        QVERIFY2(res.builder != nullptr,
+            ("gate scaffold failed before the gate stage; errors: "
+             + joinErrors(res.errors)).c_str());
+        QVERIFY2(!res.ok, "the unimported submodule chain must fail");
+        QVERIFY2(containsError(res.errors,
+            "Module 'tp.sub' is not imported. Add 'import tp.sub;' "
+            "(or 'import tp.*;')"),
+            ("the diagnostic must name the submodule, not the field; "
+             "errors: " + joinErrors(res.errors)).c_str());
+    }
+
+    //=== 0.13.12 package line: the knowability fold's artifact arm ===
+    //The same fold with the third party present only as a package: a
+    //member the package lists is knowable the same way a source on a
+    //search dir is, so the fold claims the chain at the importable
+    //member instead of dying as a generic field error on the whole
+    //chain. The source arm's shape (thirdPartySubmoduleWithoutImportFolds)
+    //and the artifact arm must agree.
+
+    //No import at all: the chain tp.sub.x() folds onto tp.sub from the
+    //member table alone.
+    void artifactFormSubmoduleWithoutImportFolds()
+    {
+        bool fixtureOk = true;
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "int main()\n"
+            "{\n"
+            "    return tp.sub.x();\n"
+            "}\n";
+        opts.withThirdPartyPackage = true;
+        opts.preparePackageDir = [&fixtureOk](const std::filesystem::path& pkgOut)
+        {
+            fixtureOk = fixtureOk
+                && buildThirdPartyPackage(pkgOut, "tp.npkg");
+        };
+        auto res = buildGateProject(opts);
+        QVERIFY2(fixtureOk, "the third-party package fixture could not be built");
+        QVERIFY2(res.builder != nullptr,
+            ("gate scaffold failed before the gate stage; errors: "
+             + joinErrors(res.errors)).c_str());
+        QVERIFY2(!res.ok, "the unimported submodule chain must fail");
+        QVERIFY2(containsError(res.errors,
+            "Module 'tp.sub' is not imported. Add 'import tp.sub;' "
+            "(or 'import tp.*;')"),
+            ("the diagnostic must name the submodule, not the field; "
+             "errors: " + joinErrors(res.errors)).c_str());
+    }
+
+    //The parent imported, the child not: tp is a member too, so the
+    //chain claims at tp.sub (the artifact sibling of
+    //thirdPartySubmoduleCallFoldsToPackage).
+    void artifactFormSubmoduleWithParentImportFolds()
+    {
+        bool fixtureOk = true;
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import tp;\n"
+            "int main()\n"
+            "{\n"
+            "    return tp.sub.x();\n"
+            "}\n";
+        opts.withThirdPartyPackage = true;
+        opts.preparePackageDir = [&fixtureOk](const std::filesystem::path& pkgOut)
+        {
+            fixtureOk = fixtureOk
+                && buildThirdPartyPackage(pkgOut, "tp.npkg");
+        };
+        auto res = buildGateProject(opts);
+        QVERIFY2(fixtureOk, "the third-party package fixture could not be built");
+        QVERIFY2(res.builder != nullptr,
+            ("gate scaffold failed before the gate stage; errors: "
+             + joinErrors(res.errors)).c_str());
+        QVERIFY2(!res.ok, "an unimported submodule call must fail");
+        QVERIFY2(containsError(res.errors,
+            "Module 'tp.sub' is not imported. Add 'import tp.sub;' "
+            "(or 'import tp.*;')"),
+            ("the diagnostic must fold to the importable submodule; "
+             "errors: " + joinErrors(res.errors)).c_str());
+        QVERIFY2(!containsError(res.errors, "Package 'tp' is not imported"),
+            ("the imported parent is not the remedy for the child chain; "
+             "errors: " + joinErrors(res.errors)).c_str());
+    }
+
+    //A single-segment artifact package reads "Package" through the
+    //artifact arm — the kind test the source form pins
+    //(thirdPartySingleSegmentReadsPackage) must hold for the package
+    //shape too: tp is knowable, so the blame is tp's own.
+    void artifactFormSingleSegmentReadsPackage()
+    {
+        bool fixtureOk = true;
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "int main()\n"
+            "{\n"
+            "    return tp.top();\n"
+            "}\n";
+        opts.withThirdPartyPackage = true;
+        opts.preparePackageDir = [&fixtureOk](const std::filesystem::path& pkgOut)
+        {
+            fixtureOk = fixtureOk
+                && buildThirdPartyPackage(pkgOut, "tp.npkg");
+        };
+        auto res = buildGateProject(opts);
+        QVERIFY2(fixtureOk, "the third-party package fixture could not be built");
+        QVERIFY2(res.builder != nullptr,
+            ("gate scaffold failed before the gate stage; errors: "
+             + joinErrors(res.errors)).c_str());
+        QVERIFY2(!res.ok, "the unimported package call must fail");
+        QVERIFY2(containsError(res.errors,
+            "Package 'tp' is not imported. Add 'import tp;'"),
+            ("a knowable single-segment package must read Package; "
+             "errors: " + joinErrors(res.errors)).c_str());
+    }
+
+    //Two packages in one search dir whose member tables both carry the
+    //same name: a silent first-wins pick would bind the import to
+    //whichever package the sorted scan hit first. The artifact form
+    //gets the source form's duplicate-package rule (RejectsModulePath):
+    //both package files named.
+    void duplicatePackageMemberIsAHardError()
+    {
+        bool fixtureOk = true;
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import tp.sub;\n"
+            "int main() { return tp.sub.x(); }\n";
+        opts.withThirdPartyPackage = true;
+        opts.preparePackageDir = [&fixtureOk](const std::filesystem::path& pkgOut)
+        {
+            fixtureOk = fixtureOk
+                && buildThirdPartyPackage(pkgOut, "aaa.npkg")
+                && buildThirdPartyPackage(pkgOut, "bbb.npkg");
+        };
+        const GateResult res = buildGateProject(opts);
+        QVERIFY2(fixtureOk, "the duplicate-package fixture could not be built");
+        QVERIFY2(!res.ok,
+            "two packages offering the same member must fail the build");
+        QVERIFY2(containsError(res.errors, "Duplicate package 'tp.sub'"),
+            joinErrors(res.errors).c_str());
+        QVERIFY2(containsError(res.errors, "aaa.npkg' and"),
+            joinErrors(res.errors).c_str());
+        QVERIFY2(containsError(res.errors, "bbb.npkg'."),
+            joinErrors(res.errors).c_str());
+    }
+
+    //A program package is a run-time closure, not a library import
+    //surface. It may carry a copy of tp.sub beside the real library
+    //package; compile-time discovery must ignore that copy rather than
+    //diagnosing two independent providers.
+    void programPackageDoesNotDuplicateLibraryMembers()
+    {
+        bool fixtureOk = true;
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import tp.sub;\n"
+            "int main() { return tp.sub.x(); }\n";
+        opts.withThirdPartyPackage = true;
+        opts.preparePackageDir = [&fixtureOk](const std::filesystem::path& pkgOut)
+        {
+            fixtureOk = fixtureOk
+                && buildThirdPartyPackage(pkgOut, "aaa-library.npkg")
+                && buildProgramPackageCarryingTpSub(
+                    pkgOut, "zzz-program.npkg");
+        };
+        const GateRunResult run = runGateProject(opts);
+        QVERIFY2(fixtureOk, "the library/program package fixture could not be built");
+        QVERIFY2(run.ok, runFailureText(run,
+            "a program closure must not duplicate a library provider").c_str());
+        QVERIFY2(run.runtimeError.empty(), runFailureText(run,
+            "the library-backed program must execute cleanly").c_str());
+        QVERIFY2(run.exitValue == 7, "the real library provider returns 7");
+    }
+
+    //Without a library package, the same member inside a program
+    //package does not satisfy an import. This pins the classification
+    //itself, rather than merely suppressing the duplicate diagnostic.
+    void programPackageIsNotAnImportProvider()
+    {
+        bool fixtureOk = true;
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import tp.sub;\n"
+            "int main() { return tp.sub.x(); }\n";
+        opts.withThirdPartyPackage = true;
+        opts.preparePackageDir = [&fixtureOk](const std::filesystem::path& pkgOut)
+        {
+            fixtureOk = fixtureOk
+                && buildProgramPackageCarryingTpSub(pkgOut, "program.npkg");
+        };
+        const GateResult res = buildGateProject(opts);
+        QVERIFY2(fixtureOk, "the program package fixture could not be built");
+        QVERIFY2(!res.ok, "a program closure must not satisfy an import");
+        QVERIFY2(containsError(res.errors, "Module 'tp.sub' not found"),
+            joinErrors(res.errors).c_str());
+    }
+
+    //The wildcard collector shares the same role boundary. A program
+    //closure carrying tp.sub contributes no candidates, so the wildcard
+    //keeps the ordinary zero-match diagnosis.
+    void programPackageDoesNotSatisfyWildcardImport()
+    {
+        bool fixtureOk = true;
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import tp.*;\n"
+            "int main() { return 0; }\n";
+        opts.withThirdPartyPackage = true;
+        opts.preparePackageDir = [&fixtureOk](const std::filesystem::path& pkgOut)
+        {
+            fixtureOk = fixtureOk
+                && buildProgramPackageCarryingTpSub(pkgOut, "program.npkg");
+        };
+        const GateResult res = buildGateProject(opts);
+        QVERIFY2(fixtureOk, "the program package fixture could not be built");
+        QVERIFY2(!res.ok, "a program closure must not satisfy a wildcard import");
+        QVERIFY2(containsError(res.errors,
+            "No modules matched import 'tp.*'."), joinErrors(res.errors).c_str());
+    }
+
+    //The diagnostic-fold probe also sees only library packages. Without an
+    //import, a member copied into a program closure must not make tp.sub
+    //look like an importable module and offer an unusable import remedy.
+    void programPackageDoesNotMakeModuleKnowable()
+    {
+        bool fixtureOk = true;
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "int main()\n"
+            "{\n"
+            "    return tp.sub.x();\n"
+            "}\n";
+        opts.withThirdPartyPackage = true;
+        opts.preparePackageDir = [&fixtureOk](const std::filesystem::path& pkgOut)
+        {
+            fixtureOk = fixtureOk
+                && buildProgramPackageCarryingTpSub(pkgOut, "program.npkg");
+        };
+        const GateResult res = buildGateProject(opts);
+        QVERIFY2(fixtureOk, "the program package fixture could not be built");
+        QVERIFY2(!res.ok, "an unknown unimported chain must fail");
+        QVERIFY2(!containsError(res.errors,
+            "Module 'tp.sub' is not imported."), joinErrors(res.errors).c_str());
+    }
+
+    //A package on the search path that failed to open is the likeliest
+    //reason a name has no home, so the not-found report names it: the
+    //compile-time mirror of the run-time closure walk's unreadable-
+    //package note (NoteTargetNotFound).
+    void notFoundNotesUnreadablePackages()
+    {
+        bool fixtureOk = true;
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import nosuch;\n"
+            "int main() { return 0; }\n";
+        opts.withThirdPartyPackage = true;
+        opts.preparePackageDir = [&fixtureOk](const std::filesystem::path& pkgOut)
+        {
+            std::ofstream out(pkgOut / "bad.npkg",
+                std::ios::binary | std::ios::trunc);
+            out << "not a package";
+            fixtureOk = out.good();
+        };
+        const GateResult res = buildGateProject(opts);
+        QVERIFY2(fixtureOk, "the unreadable package fixture could not be built");
+        QVERIFY2(!res.ok, "an import nothing answers for must fail the build");
+        QVERIFY2(containsError(res.errors, "Module 'nosuch' not found"),
+            joinErrors(res.errors).c_str());
+        QVERIFY2(containsError(res.errors, "Note: package"),
+            joinErrors(res.errors).c_str());
+        QVERIFY2(containsError(res.errors, "bad.npkg' could not be opened."),
+            joinErrors(res.errors).c_str());
+    }
+
+    //The same note on the discovery phase's homeless-mirror report: a
+    //package member's records name a module no artifact answers for
+    //(it compiled against a stub that ships nowhere), and the search
+    //dir's other package failed to open — the report says so instead
+    //of leaving the missing module unexplained.
+    void homelessMirrorNameNotesUnreadablePackages()
+    {
+        bool fixtureOk = true;
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import ghosty;\n"
+            "int main() { return ghosty.g(); }\n";
+        opts.withThirdPartyPackage = true;
+        opts.preparePackageDir = [&fixtureOk](const std::filesystem::path& pkgOut)
+        {
+            std::ofstream out(pkgOut / "bad.npkg",
+                std::ios::binary | std::ios::trunc);
+            out << "not a package";
+            fixtureOk = out.good() && buildGhostImportPackage(pkgOut);
+        };
+        const GateResult res = buildGateProject(opts);
+        QVERIFY2(fixtureOk, "the ghost-import fixture could not be built");
+        QVERIFY2(!res.ok,
+            "a mirror name nothing answers for must fail the build");
+        QVERIFY2(containsError(res.errors, "Module 'ghost' not found"),
+            joinErrors(res.errors).c_str());
+        QVERIFY2(containsError(res.errors, "bad.npkg' could not be opened."),
+            joinErrors(res.errors).c_str());
+    }
+
+    //A single-segment third-party package reads "Package" (an external
+    //.ncu reads "Module"): the kind test shares the knowability rule the
+    //fold uses.
+    void thirdPartySingleSegmentReadsPackage()
+    {
+        GateProjectOptions opts;
+        opts.withThirdPartySource = true;
+        opts.szMainBody =
+            "int main()\n"
+            "{\n"
+            "    return tp.top();\n"
+            "}\n";
+        auto res = buildGateProject(opts);
+        QVERIFY2(res.builder != nullptr,
+            ("gate scaffold failed before the gate stage; errors: "
+             + joinErrors(res.errors)).c_str());
+        QVERIFY2(!res.ok, "the unimported package call must fail");
+        QVERIFY2(containsError(res.errors,
+            "Package 'tp' is not imported. Add 'import tp;'"),
+            ("a source-provided package must read Package, not Module; "
+             "errors: " + joinErrors(res.errors)).c_str());
+    }
+
+    //A misspelled child under an imported parent: nothing importable
+    //ends at subb, so the chain is the parent's member problem — not an
+    //import remedy for a package that does not exist.
+    void thirdPartyTypoChildNamesTheMember()
+    {
+        GateProjectOptions opts;
+        opts.withThirdPartySource = true;
+        opts.szMainBody =
+            "import tp;\n"
+            "int main()\n"
+            "{\n"
+            "    return tp.subb.Fn.f();\n"
+            "}\n";
+        auto res = buildGateProject(opts);
+        QVERIFY2(res.builder != nullptr,
+            ("gate scaffold failed before the gate stage; errors: "
+             + joinErrors(res.errors)).c_str());
+        QVERIFY2(!res.ok, "the typo'd child chain must fail");
+        QVERIFY2(!containsError(res.errors, "is not imported"),
+            ("with the parent imported, a typo'd child is a member "
+             "problem, not an import problem; errors: "
+             + joinErrors(res.errors)).c_str());
+        //The first error is the callee miss (a call-position miss fires
+        //the invoke channel, not the member channel); the incompatible
+        //type line carries the full chain, so the misspelled segment is
+        //visible and the fold kept it out of import remedies.
+        QVERIFY2(containsError(res.errors,
+            "Incompatible type \"tp.subb.Fn.f()\"."),
+            ("the diagnostic must carry the chain through the "
+             "misspelled segment; errors: " + joinErrors(res.errors))
+                .c_str());
+    }
+
+    //The declaration position through a class: the qualified type's
+    //module path overshoots into Fn, and the fold must stop at tp.sub
+    //(the exact-name advice import tp.sub.Fn is refused by the compiler
+    //itself). Whether Fn is a type stays unknowable until the package is
+    //imported, so the import remedy is the honest first answer.
+    void thirdPartyTypeThroughClassFoldsToPackage()
+    {
+        GateProjectOptions opts;
+        opts.withThirdPartySource = true;
+        opts.szMainBody =
+            "import tp;\n"
+            "int main()\n"
+            "{\n"
+            "    tp.sub.Fn.Inner v;\n"
+            "    return 0;\n"
+            "}\n";
+        auto res = buildGateProject(opts);
+        QVERIFY2(res.builder != nullptr,
+            ("gate scaffold failed before the gate stage; errors: "
+             + joinErrors(res.errors)).c_str());
+        QVERIFY2(!res.ok, "the through-class qualified type must fail");
+        QVERIFY2(containsError(res.errors,
+            "Module 'tp.sub' is not imported. Add 'import tp.sub;'"),
+            ("the type-position diagnostic must fold to the submodule; "
+             "errors: " + joinErrors(res.errors)).c_str());
+        QVERIFY2(!containsError(res.errors, "'tp.sub.Fn' is not imported"),
+            ("the class segment must not be named as a module; errors: "
+             + joinErrors(res.errors)).c_str());
+    }
+
+    //The remedy the fold suggests must itself work: the wildcard opens
+    //the submodule subtree (discovery inlines tp/sub.n) and the class
+    //static resolves through the qualified chain (compile-level pin; the
+    //execute-level leg is the artifact packaging story, not this fix).
+    void thirdPartySubmoduleWildcardRemedyBuilds()
+    {
+        GateProjectOptions opts;
+        opts.withThirdPartySource = true;
+        opts.szMainBody =
+            "import tp;\n"
+            "import tp.sub.*;\n"
+            "int main()\n"
+            "{\n"
+            "    return tp.sub.Fn.f();\n"
+            "}\n";
+        auto res = buildGateProject(opts);
+        QVERIFY2(res.builder != nullptr,
+            ("gate scaffold failed before the gate stage; errors: "
+             + joinErrors(res.errors)).c_str());
+        QVERIFY2(res.ok, ("the wildcard remedy must build; errors: "
+            + joinErrors(res.errors)).c_str());
     }
 
     //D7: files of the TU's own directory are implicitly imported.
@@ -2518,6 +3668,54 @@ private slots:
             joinErrors(res.errors).c_str());
     }
 
+    //D-29 rule 1 binds admission on every qualified route, and the module
+    //function VALUE form reached ModuleFunctions without the access gate the
+    //call form has had since 0.13.8 item 5: the same spelling compiled and
+    //ran, returning the private body's value (measured pre-fix on both
+    //import arms — the external .ncu stub and the inlined library source;
+    //probe temp/t19_fnval_ext/, temp/t19_fnval_src/), while the bare spelling
+    //of the same name refused to bind. The qualified spelling may reference
+    //only what the bare spelling may reference.
+    void foreignQualifiedPrivateFuncValueRejected()
+    {
+        GateProjectOptions opts;
+        opts.withAccessLib = true;
+        opts.szMainBody =
+            "import xlib;\n"
+            "int main()\n"
+            "{\n"
+            "    func<int> g = xlib.hiddenHelper;\n"
+            "    return g();\n"
+            "}\n";
+        auto res = buildGateProject(opts);
+        QVERIFY2(res.builder != nullptr,
+            ("gate scaffold failed before the gate stage; errors: "
+             + joinErrors(res.errors)).c_str());
+        QVERIFY2(!res.ok,
+            ("a qualified foreign private function value must fail the "
+             "build; errors: " + joinErrors(res.errors)).c_str());
+        QVERIFY2(containsError(res.errors, "hiddenHelper"),
+            joinErrors(res.errors).c_str());
+        //Control leg: the public function value keeps working (the gate must
+        //not close the whole value route).
+        GateProjectOptions openOpts;
+        openOpts.withAccessLib = true;
+        openOpts.szMainBody =
+            "import xlib;\n"
+            "int main()\n"
+            "{\n"
+            "    func<int> g = xlib.openHelper;\n"
+            "    return g();\n"
+            "}\n";
+        auto openRes = buildGateProject(openOpts);
+        QVERIFY2(openRes.builder != nullptr,
+            ("gate scaffold failed before the gate stage; errors: "
+             + joinErrors(openRes.errors)).c_str());
+        QVERIFY2(openRes.ok,
+            ("the public function value must still build; errors: "
+             + joinErrors(openRes.errors)).c_str());
+    }
+
     //Case 3 (qualified arm): protected follows the same rule.
     void foreignQualifiedProtectedCallRejected()
     {
@@ -2736,6 +3934,416 @@ private slots:
             && containsError(res.errors, "core.helper"),
             ("the ambiguity diagnostic must name both packages; errors: "
              + joinErrors(res.errors)).c_str());
+    }
+
+    //Package artifacts: a package is addressed by its member table, and
+    //each member is an importable unit. The third-party package tp
+    //ships as tp.npkg with four members — tp, which calls its helper,
+    //tp.helper, tp.core (the transitive surface sub's signatures use)
+    //and tp.sub (the dotted-import surface for the tests below) — and
+    //no source of it is on the search path. `import tp;` compiles
+    //against the tp member, and the load-time closure walk finds
+    //tp.helper in the same package: 42 + 11.
+    void multiMemberPackageUnitImportsAndRuns()
+    {
+        bool fixtureOk = true;
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import tp;\n"
+            "int main() { return tp.top() + 11; }\n";
+        opts.withThirdPartyPackage = true;
+        opts.preparePackageDir = [&fixtureOk](const std::filesystem::path& pkgOut)
+        {
+            fixtureOk = fixtureOk
+                && buildThirdPartyPackage(pkgOut, "tp.npkg");
+        };
+        const GateRunResult run = runGateProject(opts);
+        QVERIFY2(fixtureOk, "the third-party package fixture could not be built");
+        QVERIFY2(run.ok, runFailureText(run,
+            "a member of a multi-member package must import, build and "
+            "execute").c_str());
+        QVERIFY2(run.runtimeError.empty(), runFailureText(run,
+            "execution must be clean").c_str());
+        QVERIFY2(run.exitValue == 53, "tp.top() must return 42 here, plus 11");
+    }
+
+    //The member table addresses a member, not the package file's name:
+    //the same members packed as other.npkg still satisfy `import tp;`.
+    void unitImportMatchesMemberTableNotPackageFileName()
+    {
+        bool fixtureOk = true;
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import tp;\n"
+            "int main() { return tp.top(); }\n";
+        opts.withThirdPartyPackage = true;
+        opts.preparePackageDir = [&fixtureOk](const std::filesystem::path& pkgOut)
+        {
+            fixtureOk = fixtureOk
+                && buildThirdPartyPackage(pkgOut, "other.npkg");
+        };
+        const GateRunResult run = runGateProject(opts);
+        QVERIFY2(fixtureOk, "the third-party package fixture could not be built");
+        QVERIFY2(run.ok, runFailureText(run,
+            "a member must import whatever its package file is called").c_str());
+        QVERIFY2(run.runtimeError.empty(), runFailureText(run,
+            "execution must be clean").c_str());
+        QVERIFY2(run.exitValue == 42, "tp.top() must return 42");
+    }
+
+    //A unit file named for the import must carry that module's image:
+    //<dir>/tp.ncu holding module other is refused at compile time in
+    //the failed-load family. This is the identity rule the run-time
+    //loader applies to package members, moved ahead of a build that
+    //would otherwise pass and fail only when the program runs.
+    void unitFileWithForeignModulePathRejected()
+    {
+        bool fixtureOk = true;
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import tp;\n"
+            "int main() { return tp.top(); }\n";
+        opts.withThirdPartyPackage = true;
+        opts.preparePackageDir = [&fixtureOk](const std::filesystem::path& pkgOut)
+        {
+            //A unit's module path is its source's name under the project
+            //root, so the image header names other — not the import.
+            const std::filesystem::path source =
+                nlang::test::ScratchDir("nlang_import_gate") / "other.n";
+            std::error_code fsError;
+            fixtureOk = fixtureOk
+                && writeSourceFile(source, "int top() { return 1; }\n")
+                && compileUnit(source, "other", pkgOut, STDLIB_DIR).empty();
+            std::filesystem::rename(pkgOut / "other.ncu",
+                pkgOut / "tp.ncu", fsError);
+            fixtureOk = fixtureOk && !fsError;
+        };
+        const GateResult res = buildGateProject(opts);
+        QVERIFY2(fixtureOk, "the foreign unit file fixture could not be built");
+        QVERIFY2(!res.ok,
+            "a unit file naming another module in its header must fail "
+            "the build");
+        QVERIFY2(containsError(res.errors, "Failed to load module 'tp'"),
+            joinErrors(res.errors).c_str());
+        QVERIFY2(containsError(res.errors, "names module 'other'"),
+            joinErrors(res.errors).c_str());
+    }
+
+    //A member whose bytes no longer match their checksum is refused at
+    //compile time in the failed-load family, naming package and member.
+    void corruptMemberImageRejected()
+    {
+        bool fixtureOk = true;
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import tp;\n"
+            "int main() { return tp.top(); }\n";
+        opts.withThirdPartyPackage = true;
+        opts.preparePackageDir = [&fixtureOk](const std::filesystem::path& pkgOut)
+        {
+            fixtureOk = fixtureOk
+                && buildThirdPartyPackage(pkgOut, "tp.npkg")
+                && corruptFirstMember(pkgOut / "tp.npkg");
+        };
+        const GateResult res = buildGateProject(opts);
+        QVERIFY2(fixtureOk, "the damaged package fixture could not be built");
+        QVERIFY2(!res.ok,
+            "a member that fails its checksum must fail the build");
+        QVERIFY2(containsError(res.errors, "Failed to load module 'tp'"),
+            joinErrors(res.errors).c_str());
+        QVERIFY2(containsError(res.errors, "member 'tp' failed its checksum"),
+            joinErrors(res.errors).c_str());
+    }
+
+    //Dotted submodule imports resolve through the same member table:
+    //`import tp.sub;` queues the tp.sub member of tp.npkg, the gate
+    //records the member's module path, and the qualified call runs
+    //through the load-time closure: 7 + 1.
+    void dottedSubmoduleImportQualified()
+    {
+        bool fixtureOk = true;
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import tp.sub;\n"
+            "int main() { return tp.sub.x() + 1; }\n";
+        opts.withThirdPartyPackage = true;
+        opts.preparePackageDir = [&fixtureOk](const std::filesystem::path& pkgOut)
+        {
+            fixtureOk = fixtureOk
+                && buildThirdPartyPackage(pkgOut, "tp.npkg");
+        };
+        const GateRunResult run = runGateProject(opts);
+        QVERIFY2(fixtureOk, "the third-party package fixture could not be built");
+        QVERIFY2(run.ok, runFailureText(run,
+            "a dotted submodule member must import, build and execute").c_str());
+        QVERIFY2(run.runtimeError.empty(), runFailureText(run,
+            "execution must be clean").c_str());
+        QVERIFY2(run.exitValue == 8, "tp.sub.x() must return 7 here, plus 1");
+    }
+
+    //The exact dotted import admits the member's BARE use too (V1
+    //continuation, the dotted sibling of the single-segment positive):
+    //the importer's gate.exact carries the member's module path, which
+    //is the external stub owner's path.
+    void dottedSubmoduleBareContinuation()
+    {
+        bool fixtureOk = true;
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import tp.sub;\n"
+            "int main() { return x() + 1; }\n";
+        opts.withThirdPartyPackage = true;
+        opts.preparePackageDir = [&fixtureOk](const std::filesystem::path& pkgOut)
+        {
+            fixtureOk = fixtureOk
+                && buildThirdPartyPackage(pkgOut, "tp.npkg");
+        };
+        const GateRunResult run = runGateProject(opts);
+        QVERIFY2(fixtureOk, "the third-party package fixture could not be built");
+        QVERIFY2(run.ok, runFailureText(run,
+            "an exact dotted import must admit the member's bare use").c_str());
+        QVERIFY2(run.runtimeError.empty(), runFailureText(run,
+            "execution must be clean").c_str());
+        QVERIFY2(run.exitValue == 8, "x() must return 7 here, plus 1");
+    }
+
+    //The dotted direct unit file: <dir>/tp.sub.ncu. A source stem cannot
+    //carry a dot (the registry rejects the shape), so the fixture builds
+    //the package in a staging dir OUTSIDE the search path and offers
+    //only the extracted member images as unit files — tp.sub and the
+    //tp.core member its records name (sub's signatures use its Marker,
+    //so the file arm must serve the transitive member too) — the file
+    //arm answers, the package never sits on the path.
+    void dottedUnitFileImport()
+    {
+        bool fixtureOk = true;
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import tp.sub;\n"
+            "int main() { return tp.sub.x() + 1; }\n";
+        opts.withThirdPartyPackage = true;
+        opts.preparePackageDir = [&fixtureOk](const std::filesystem::path& pkgOut)
+        {
+            namespace fs = std::filesystem;
+            const fs::path staging =
+                nlang::test::ScratchDir("nlang_import_gate") / "stage_pkg";
+            std::error_code fsError;
+            fs::remove_all(staging, fsError);
+            fs::create_directories(staging, fsError);
+            fixtureOk = fixtureOk
+                && buildThirdPartyPackage(staging, "tp.npkg");
+            const std::pair<const char*, const char*> members[] =
+                {{"tp.core", "tp.core.ncu"}, {"tp.sub", "tp.sub.ncu"}};
+            for (const auto& member : members)
+            {
+                std::string bytes;
+                std::string error;
+                nlang::NcuPackageReader reader;
+                if (fixtureOk
+                    && reader.Open(staging.string() + "/tp.npkg", &error))
+                    fixtureOk = reader.ExtractMember(
+                        member.first, &bytes, &error);
+                else
+                    fixtureOk = false;
+                if (fixtureOk)
+                {
+                    std::ofstream out(pkgOut / member.second,
+                        std::ios::binary | std::ios::trunc);
+                    out.write(bytes.data(),
+                        static_cast<std::streamsize>(bytes.size()));
+                    fixtureOk = out.good();
+                }
+            }
+        };
+        const GateRunResult run = runGateProject(opts);
+        QVERIFY2(fixtureOk, "the dotted unit file fixture could not be built");
+        QVERIFY2(run.ok, runFailureText(run,
+            "a dotted unit file must import, build and execute").c_str());
+        QVERIFY2(run.runtimeError.empty(), runFailureText(run,
+            "execution must be clean").c_str());
+        QVERIFY2(run.exitValue == 8, "tp.sub.x() must return 7 here, plus 1");
+    }
+
+    //Transitive closure through a mirror's import records: nothing but
+    //tp.sub's own records name tp.core (main imports one member), so the
+    //discovery fixed point must read the loaded image's import records,
+    //queue the tp.core member, and let sub's Marker-typed signatures
+    //resolve — the transitive value crosses main's frame opaquely:
+    //7 + 1.
+    void transitiveSubmoduleImport()
+    {
+        bool fixtureOk = true;
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import tp.sub;\n"
+            "int main() { return tp.sub.x() + tp.sub.use(tp.sub.make()); }\n";
+        opts.withThirdPartyPackage = true;
+        opts.preparePackageDir = [&fixtureOk](const std::filesystem::path& pkgOut)
+        {
+            fixtureOk = fixtureOk
+                && buildThirdPartyPackage(pkgOut, "tp.npkg");
+        };
+        const GateRunResult run = runGateProject(opts);
+        QVERIFY2(fixtureOk, "the third-party package fixture could not be built");
+        QVERIFY2(run.ok, runFailureText(run,
+            "a transitive member must resolve through the importer's"
+            " image records").c_str());
+        QVERIFY2(run.runtimeError.empty(), runFailureText(run,
+            "execution must be clean").c_str());
+        QVERIFY2(run.exitValue == 8, "x() is 7 and use(make()) is 1 here");
+    }
+
+    //The same records with no provider: only the extracted tp.sub unit
+    //file sits on the search path (the package and its tp.core member
+    //are staged away). The fixed point must report the module-not-found
+    //family for the transitive name — one clean diagnostic, no
+    //signature-resolution cascade behind it.
+    void transitiveSubmoduleNotFound()
+    {
+        bool fixtureOk = true;
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import tp.sub;\n"
+            "int main() { return tp.sub.x() + 1; }\n";
+        opts.withThirdPartyPackage = true;
+        opts.preparePackageDir = [&fixtureOk](const std::filesystem::path& pkgOut)
+        {
+            namespace fs = std::filesystem;
+            const fs::path staging =
+                nlang::test::ScratchDir("nlang_import_gate") / "stage_pkg";
+            std::error_code fsError;
+            fs::remove_all(staging, fsError);
+            fs::create_directories(staging, fsError);
+            fixtureOk = fixtureOk
+                && buildThirdPartyPackage(staging, "tp.npkg");
+            std::string bytes;
+            std::string error;
+            nlang::NcuPackageReader reader;
+            if (fixtureOk && reader.Open(staging.string() + "/tp.npkg", &error))
+                fixtureOk = reader.ExtractMember("tp.sub", &bytes, &error);
+            else
+                fixtureOk = false;
+            if (fixtureOk)
+            {
+                std::ofstream out(pkgOut / "tp.sub.ncu",
+                    std::ios::binary | std::ios::trunc);
+                out.write(bytes.data(),
+                    static_cast<std::streamsize>(bytes.size()));
+                fixtureOk = out.good();
+            }
+        };
+        const GateRunResult run = runGateProject(opts);
+        QVERIFY2(fixtureOk, "the transitive unit file fixture could not be built");
+        QVERIFY2(!run.ok, runFailureText(run,
+            "a transitive name with no provider must fail the build").c_str());
+        QVERIFY2(containsError(run.errors, "Module 'tp.core' not found"),
+            joinErrors(run.errors).c_str());
+        //One clean diagnostic: the pre-fix shape cascaded into
+        //signature resolution ("Type 'Marker' is not a member of
+        //package 'tp.core'" and worse).
+        QVERIFY2(run.errors.size() == 1, joinErrors(run.errors).c_str());
+    }
+
+    //A mutual package pair: each member's records name the other side's
+    //member (the versioned delivery shape — no producing build saw the
+    //cycle). The fixed point loads the second member through the
+    //first's records, and the compile-time cycle ban reports what the
+    //delivery shape could not.
+    void mutualPackagesImportCycle()
+    {
+        bool fixtureOk = true;
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import pa.m;\n"
+            "int main() { return 0; }\n";
+        opts.withThirdPartyPackage = true;
+        opts.preparePackageDir = [&fixtureOk](const std::filesystem::path& pkgOut)
+        {
+            fixtureOk = fixtureOk && buildMutualPackages(pkgOut);
+        };
+        const GateRunResult run = runGateProject(opts);
+        QVERIFY2(fixtureOk, "the mutual package fixture could not be built");
+        QVERIFY2(!run.ok, runFailureText(run,
+            "a mutual package pair must fail the build").c_str());
+        QVERIFY2(containsError(run.errors,
+                "import cycle detected: pa.m -> pb.m -> pa.m"),
+            joinErrors(run.errors).c_str());
+    }
+
+    //A wildcard over an artifact-only package: the union is the
+    //package's member table (the exact member tp plus the prefix
+    //members under tp.), not a disk subtree. Discovery queues every
+    //union member, the gate's wildcard surface counts the registered
+    //external entries, and both the package's own call and the
+    //submodule call resolve — 42 + 7.
+    void wildcardArtifactUnionImportsAndRuns()
+    {
+        bool fixtureOk = true;
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import tp.*;\n"
+            "int main() { return tp.top() + tp.sub.x(); }\n";
+        opts.withThirdPartyPackage = true;
+        opts.preparePackageDir = [&fixtureOk](const std::filesystem::path& pkgOut)
+        {
+            fixtureOk = fixtureOk
+                && buildThirdPartyPackage(pkgOut, "tp.npkg");
+        };
+        const GateRunResult run = runGateProject(opts);
+        QVERIFY2(fixtureOk, "the third-party package fixture could not be built");
+        QVERIFY2(run.ok, runFailureText(run,
+            "a wildcard must import, build and execute through the "
+            "package's member table").c_str());
+        QVERIFY2(run.runtimeError.empty(), runFailureText(run,
+            "execution must be clean").c_str());
+        QVERIFY2(run.exitValue == 49, "tp.top() is 42 and tp.sub.x() is 7");
+    }
+
+    //The exact face of a wildcard union: the base name tp is itself a
+    //member, so it joins gate.exact exactly as a compiled-in package
+    //root would (IsCompiledInModule for the source shape) — the bare
+    //name top() is visible without qualification. A prefix-only face
+    //would leave the two shapes silently disagreeing about unqualified
+    //visibility.
+    void wildcardArtifactExactMemberGrantsBareVisibility()
+    {
+        bool fixtureOk = true;
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import tp.*;\n"
+            "int main() { return top() + 1; }\n";
+        opts.withThirdPartyPackage = true;
+        opts.preparePackageDir = [&fixtureOk](const std::filesystem::path& pkgOut)
+        {
+            fixtureOk = fixtureOk
+                && buildThirdPartyPackage(pkgOut, "tp.npkg");
+        };
+        const GateRunResult run = runGateProject(opts);
+        QVERIFY2(fixtureOk, "the third-party package fixture could not be built");
+        QVERIFY2(run.ok, runFailureText(run,
+            "the exact member of a wildcard union must grant bare "
+            "visibility, as the compiled-in shape does").c_str());
+        QVERIFY2(run.runtimeError.empty(), runFailureText(run,
+            "execution must be clean").c_str());
+        QVERIFY2(run.exitValue == 43, "top() is 42 here, plus 1");
+    }
+
+    //The empty-union advice must survive the artifact arm joining the
+    //match surface: a name nothing compiled-in, nothing on disk and no
+    //package member answers for is still a typo, with the same advice
+    //naming both places a module path comes from.
+    void wildcardEmptyUnionAdviceUnchanged()
+    {
+        GateProjectOptions opts;
+        opts.szMainBody =
+            "import nosuchpkg.*;\n"
+            "int main() { return 0; }\n";
+        const GateRunResult run = runGateProject(opts);
+        QVERIFY2(!run.ok, "an empty union must fail the build");
+        QVERIFY2(containsError(run.errors,
+            "No modules matched import 'nosuchpkg.*'. Check the project "
+            "Sources list or -I import path."),
+            joinErrors(run.errors).c_str());
     }
 };
 

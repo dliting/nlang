@@ -1,7 +1,6 @@
 #pragma once
 #include "SyntaxTree.h"
 #include "BuildEnvironment.h"
-#include "BuiltinNames.h"
 #include <nlang/runtime/RuntimeNodeVisitor.h>
 #include <nlang/runtime/Runtime.h>
 #include <nlang/runtime/StackDump.h>
@@ -110,14 +109,22 @@ public:
 		SyntaxNode *pParentNode = ParentNodeOf(rn);
 		NLANG_ASSERT(pParentNode == m_Tree.Root());
 		m_Tree.Root()->Members().push_back(pNode);
-		//v0.12.2 face-name yield: a face-named builtin mirror (String)
-		//keeps its node attached — registry identity for InstanceOf,
-		//tree ownership, walks — but gives up the unqualified name, so the
-		//prelude's declared face class is the name's sole owner and
-		//DuplicateFieldChecker never sees the pair. Other builtin names
-		//keep their spellings (zero semantic change).
-		if (IsPreludeFaceClassName(pNode->Name()))
-			m_Tree.Root()->Members().unindex_field(pNode);
+		//Builtin-mirror name yield: the mirror keeps its node attached —
+		//registry identity for SnBuiltinDataType::InstanceOf, tree ownership,
+		//walks — but gives up the unqualified name, because that name is the
+		//internal identifier the runtime tables stringize from the node kind
+		//(`Int32`, `Void`, `Type`), not a spelling of the language: chapter 1
+		//lists keywords, the numeric aliases and the declared names, and the
+		//canonical diagnostics print those. Indexed, the internal names
+		//resolved as types, which admitted `Void v;` (a type with no value
+		//representation) and let a `Type`-typed actual reach the instantiation
+		//descriptor layer, which defines no spelling for it. The keyword
+		//spellings are unaffected: a keyword resolves pre-parsed through
+		//SnBuiltinDataType::InstanceOf (runtime-node identity, no name lookup).
+		//The prelude's declared face classes (String, Array) keep their own
+		//names from their declarations, so DuplicateFieldChecker never sees a
+		//pair (the v0.12.2 face-name yield, generalized to every mirror).
+		m_Tree.Root()->Members().unindex_field(pNode);
 		RegNode(rn, *pNode);
 	}
 

@@ -243,7 +243,12 @@ bool ExprResolveAccessor::ReportQualifiedCalleeMiss(
 {
 	if (res == FFR_FuncNameNotFound
 		&& TryResolveQualifiedCtorInvoke(snMember, invoke, modulePath))
+	{
+		//The ctor fallback binds its own way; an argument the ctor path
+		//left deferred still owes its missing-target diagnostic.
+		SweepDeferredInvokeArgs(*m_pVisitor, invoke);
 		return true;   //ctor bound; the caller finishes the member
+	}
 	LogInvokeFailure(invoke, res, pCallee,
 		res == FFR_Incompatible && !bAmbiguous
 			&& AnyNameMatchedImported(candidates), candidates,

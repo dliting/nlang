@@ -1,0 +1,923 @@
+// stdlib_web_middleware_styles — the middleware contract of the web package:
+// one onion chain that mixes a free-function middleware with a web.Middleware
+// subclass (D-3), the base-class default that advances instead of answering
+// (D-3), answering without next() so the return trip never happens (D-4), a
+// second next() call mapping to a 500 whose body is the fixed message (D-4), an
+// http.HttpException keeping its own status and message through a rebuilt
+// response versus any other exception getting 500 + "internal error" with
+// onError firing only there (D-11), the error stage cancelling a half-open
+// streaming answer so the rebuilt plain body is what ships (D-11/D18), a fresh
+// attribute store per request (D-6),
+// the attribute accessor face, every response helper, the Set-Cookie wire form
+// with the cookie() lookup (D-12), and the middleware registration face going
+// read-only once the first request has arrived, single-slot configuration
+// excepted (D-25). Every leg runs its own server on an ephemeral port and ends
+// by draining and closing it (D-22).
+import io;
+import url;
+import http;
+import json;
+import concurrent;
+import thread;
+import web;
+
+// What the middlewares observed. A middleware is a free function or a stateless
+// subclass, so cross-request facts a leg asserts on live in static fields; every
+// leg clears them first, so no leg reads another leg's residue.
+class Trace {
+    public static string log;            // the onion marks, in the order they ran
+    public static int downstream;        // how many entries below the first one ran
+    public static int onErrorCalls;      // times the onError hook was invoked
+    public static string errorMsg;       // the message of the exception it was given
+    public static StreamFailer producer; // leg N's half-open stream, for its own asserts
+
+    public static void clear() {
+        Trace.log = "";
+        Trace.downstream = 0;
+        Trace.onErrorCalls = 0;
+        Trace.errorMsg = "";
+        Trace.producer = null;
+    }
+}
+
+// Free-function style: marks the request leg, advances, marks the return leg in
+// lowercase, which is what makes the chain order observable in one string.
+void markA(RequestContext ctx) {
+    Trace.log = Trace.log + "A";
+    ctx.next();
+    Trace.log = Trace.log + "a";
+}
+
+void markC(RequestContext ctx) {
+    Trace.log = Trace.log + "C";
+    ctx.next();
+    Trace.log = Trace.log + "c";
+}
+
+// Subclass style, same marks; the marks differ from the free functions' so the
+// leg can tell which style wrote what.
+class Timing : web.Middleware {
+    public void process(RequestContext ctx) {
+        Trace.log = Trace.log + "B";
+        ctx.next();
+        Trace.log = Trace.log + "b";
+    }
+}
+
+// Answers with the terminal body and marks that it did, so a leg can tell "the
+// chain ran to the end" from "some middleware answered on the way down".
+class Terminal : web.Middleware {
+    public void process(RequestContext ctx) {
+        Trace.log = Trace.log + "N";
+        ctx.text(200, "N");
+    }
+}
+
+// Writes no process override at all: the base-class default alone decides what
+// happens to it, which is exactly what leg B pins.
+class NoOverride : web.Middleware { }
+
+// Answers on the way down and returns without advancing: no entry below it runs,
+// and no entry sees a return trip.
+void guard(RequestContext ctx) {
+    ctx.text(401, "missing key");
+}
+
+// Short-circuits one path and forwards the rest, so a single app shows both halves of
+// the read-point rule: the blocked request leaves the route table unread, and a row
+// registered after it is still served, while a request that does reach the table
+// closes it (D-25).
+void blockFirst(RequestContext ctx) {
+    if (ctx.path == "/first") {
+        ctx.text(401, "missing key");
+    } else {
+        ctx.next();
+    }
+}
+
+// Counts itself and marks the return trip with a header, so leg C's "no X-Post"
+// is an observation about the return trip rather than about the header table.
+void postMark(RequestContext ctx) {
+    Trace.downstream = Trace.downstream + 1;
+    ctx.next();
+    ctx.res.headers.set("X-Post", "1");
+}
+
+// Advances twice: the second advance breaks the one-advance-per-entry rule (D-4).
+void twiceForward(RequestContext ctx) {
+    ctx.next();
+    ctx.next();
+}
+
+void countedDownstream(RequestContext ctx) {
+    Trace.downstream = Trace.downstream + 1;
+    ctx.text(200, "done");
+}
+
+// Writes a header before advancing: a response rebuilt by the error mapping must
+// not carry it, which pins "rebuilt" rather than "patched" (D-11).
+void halfMark(RequestContext ctx) {
+    ctx.res.headers.set("X-Half", "1");
+    ctx.next();
+}
+
+void throwTooLarge(RequestContext ctx) {
+    Trace.downstream = Trace.downstream + 1;
+    throw http.HttpException("too large here", 413);
+}
+
+void throwTeapot(RequestContext ctx) {
+    throw http.HttpException("teapot", 418);
+}
+
+// HttpException's own default status is 0, meaning "not an HTTP status error"; a
+// middleware that throws without picking one must not put 0 on the status line.
+void throwStatusless(RequestContext ctx) {
+    throw http.HttpException("statusless");
+}
+
+void throwSecret(RequestContext ctx) {
+    throw Exception("boom-secret-detail");
+}
+
+// The producer of leg N's half-open stream: two frames, then the close. What
+// the leg reads is whether the channel's cancel reached the sending side: the
+// error stage closes the channel on its own context before the response is
+// written, so a send that parks or lands after that must answer
+// ChannelClosedException, and `canceled` is the leg's observation of it.
+class StreamFailer {
+    public Channel<byte[]> m_ch;
+    public Channel<int> m_finished;      // the producer's exit, so the leg waits causally
+    public int canceled;                  // 1 when a send answered ChannelClosedException
+
+    public StreamFailer(Channel<byte[]> ch) {
+        m_ch = ch;
+        m_finished = Channel(1);
+        canceled = 0;
+    }
+
+    public void run() {
+        try {
+            m_ch.send(io.toBytes("STREAM"));
+            m_ch.send(io.toBytes("LATE"));
+        } catch (ChannelClosedException e) {
+            canceled = 1;
+        }
+        m_ch.close();
+        m_finished.send(1);
+    }
+}
+
+// A middleware that starts a streaming answer and then fails: the error stage
+// must cancel the half-open stream — close its channel so the parked producer
+// wakes with ChannelClosedException, and drop it — or the writer would pick
+// the orphan stream over the rebuilt body and ship the half the client was
+// never meant to see (D-11/D18).
+void startStreamThenThrow(RequestContext ctx) {
+    ctx.res.bodyChannel = Channel(1);
+    StreamFailer p = StreamFailer(ctx.res.bodyChannel);
+    Trace.producer = p;
+    thread.spawn(p.run);
+    throw Exception("stream failed after it opened");
+}
+
+// A route that hands setCookie a value it cannot ship: the semicolon would
+// smuggle its own attributes into the Set-Cookie line, so the call refuses at
+// the call site and the chain's error stage answers — onError, not the wire,
+// is where the message shows (leg O).
+void badCookieValue(RequestContext ctx) {
+    ctx.setCookie("k", "v; Path=/evil");
+    ctx.text(200, "never");
+}
+
+// The legal edges of the cookie-octet table — the first and last byte of each
+// RFC 6265 §4.1.1 range, and the double-quoted form — all ship as written, so
+// the validation cannot be wider than the table it serves (leg O).
+void exoticCookieValue(RequestContext ctx) {
+    ctx.setCookie("k", "!#$%&'()*+-.0123456789:<=>?@AZ[]^_`az{|}~");
+    ctx.setCookie("q", "\"quoted\"");
+    ctx.text(200, "ok");
+}
+
+// The onError hook: counts itself onto the wire and echoes the message it was
+// handed, so a leg can see both that it ran and what it saw.
+void countErrors(RequestContext ctx, Exception e) {
+    Trace.onErrorCalls = Trace.onErrorCalls + 1;
+    Trace.errorMsg = e.message;
+    ctx.res.headers.set("X-OnError", Trace.onErrorCalls.toString());
+    ctx.res.headers.set("X-Exc-Msg", e.message);
+}
+
+// Per-request attribute store probe: each request starts from an empty store, so
+// the counter written into X-Hits is 1 for every request, never a running total.
+void countHits(RequestContext ctx) {
+    int hits = ctx.getInt("hits", 0) + 1;
+    ctx.set("hits", hits);
+    ctx.res.headers.set("X-Hits", hits.toString());
+    ctx.next();
+}
+
+// The whole accessor face in one pass. Each check that fails adds its own bit, so
+// X-Probe reads "0" exactly when every check holds and otherwise names the set
+// that broke.
+void probeAccessors(RequestContext ctx) {
+    int code = 0;
+    if (ctx.has("miss")) { code = code + 1; }
+    if (ctx.get("miss") != null) { code = code + 2; }
+    if (ctx.getString("miss") != "") { code = code + 4; }
+    if (ctx.getInt("miss") != 0 || ctx.getInt("miss", 7) != 7) { code = code + 8; }
+    ctx.set("k", 7);
+    if (ctx.getString("k") != "7") { code = code + 16; }
+    if (ctx.getInt("k") != 7) { code = code + 32; }
+    ctx.set("n", "7abc");
+    if (ctx.getInt("n", -1) != -1) { code = code + 64; }
+    ctx.set("b", "TRUE");
+    if (!ctx.getBool("b", false)) { code = code + 128; }
+    ctx.set("b", "maybe");
+    if (!ctx.getBool("b", true) || ctx.getBool("b", false)) { code = code + 256; }
+    ctx.set("d", "1");
+    if (!ctx.getBool("d", false)) { code = code + 512; }
+    ctx.set("d", "0");
+    if (ctx.getBool("d", true)) { code = code + 1024; }
+    ctx.remove("k");
+    if (ctx.has("k") || ctx.getString("k") != "" || ctx.getInt("k", -3) != -3) { code = code + 2048; }
+    ctx.res.headers.set("X-Probe", code.toString());
+    ctx.next();
+}
+
+// One response helper per path, so each response is observed on its own.
+void pickHelper(RequestContext ctx) {
+    if (ctx.path == "/text") {
+        ctx.text(200, "hi");
+    } else if (ctx.path == "/html") {
+        ctx.html(200, "<p>");
+    } else if (ctx.path == "/json") {
+        json.JsonObject doc = json.JsonObject();
+        doc.put("k", "v");
+        ctx.json(201, doc);
+    } else if (ctx.path == "/bytes") {
+        ctx.bytes(200, io.toBytes("x"), "image/png");
+    } else if (ctx.path == "/r302") {
+        ctx.redirect("/x");
+    } else if (ctx.path == "/r301") {
+        ctx.redirect("/x", 301);
+    } else if (ctx.path == "/nocontent") {
+        ctx.noContent();
+    }
+}
+
+// Writes three cookies, each exercising a different part of the attribute set,
+// and reads the request's Cookie header back on the other path.
+void cookieHandler(RequestContext ctx) {
+    if (ctx.path == "/write") {
+        ctx.setCookie("a", "1");
+        ctx.setCookie("b", "2", "/app", 60, true, true, "Strict");
+        ctx.setCookie("c", "3", "/", -1, false, false, "None");
+        ctx.text(200, "w");
+        return;
+    }
+    ctx.res.headers.set("X-C1", ctx.cookie("a"));
+    ctx.res.headers.set("X-C2", ctx.cookie("nope"));
+    ctx.res.headers.set("X-C3", ctx.cookie("b"));
+    ctx.res.headers.set("X-C4", ctx.cookie("junk"));
+    ctx.text(200, "r");
+}
+
+// The shared free-function client follows redirects, so the 302/301 pins need the
+// redirect response itself: maxRedirects = 0 hands it back untranslated.
+HttpResponse getNoRedirect(http.HttpClient cli, string urlText) {
+    http.HttpRequest req = http.HttpRequest();
+    req.url = Url.parse(urlText);
+    return cli.request(req);
+}
+
+// A request that carries its own Cookie header, which the free functions cannot
+// ask for.
+HttpResponse getWithCookie(string urlText, string cookieHeader) {
+    http.HttpRequest req = http.HttpRequest();
+    req.url = Url.parse(urlText);
+    req.headers.set("Cookie", cookieHeader);
+    return http.request(req);
+}
+
+// Teardown for every leg: drain the server, which has nothing of ours in flight
+// (a parked keep-alive connection is force-closed, not counted), then close it.
+int closeServer(web.App app) {
+    if (app.drain(5000) != 0) {
+        io.print("the server drained with a residual connection");
+        return 1;
+    }
+    app.close();
+    return 0;
+}
+
+int main() {
+    int bad = 0;
+    if (legOnionOrder() != 0) { bad = bad + 1; }
+    if (legBaseDefaultAdvances() != 0) { bad = bad + 1; }
+    if (legShortCircuit() != 0) { bad = bad + 1; }
+    if (legDoubleNext() != 0) { bad = bad + 1; }
+    if (legHttpExceptionPassesThrough() != 0) { bad = bad + 1; }
+    if (legUnlistedStatus() != 0) { bad = bad + 1; }
+    if (legOtherException() != 0) { bad = bad + 1; }
+    if (legPerRequestState() != 0) { bad = bad + 1; }
+    if (legAccessors() != 0) { bad = bad + 1; }
+    if (legResponseHelpers() != 0) { bad = bad + 1; }
+    if (legCookies() != 0) { bad = bad + 1; }
+    if (legFacadeForwards() != 0) { bad = bad + 1; }
+    if (legLateRegistration() != 0) { bad = bad + 1; }
+    if (legStreamCancelledByErrorStage() != 0) { bad = bad + 1; }
+    if (legSetCookieRejectsSmuggledValue() != 0) { bad = bad + 1; }
+    if (bad == 0) { io.print("ok"); }
+    return bad;
+}
+
+// Leg A: three middlewares of both styles around a terminal entry. Every one of
+// them sees both legs of the chain, so the marks must read ABC then N then cba.
+int legOnionOrder() {
+    Trace.clear();
+    int bad = 0;
+    web.App app = web.App();
+    app.use(markA);
+    app.use(Timing());
+    app.use(markC);
+    app.use(Terminal());
+    app.listen("127.0.0.1", 0);
+    string base = "http://127.0.0.1:" + app.server().localPort().toString();
+    http.HttpResponse res = http.get(base + "/");
+    if (Trace.log != "ABCNcba") {
+        io.print("leg A the chain logged " + Trace.log + ", want ABCNcba");
+        bad = bad + 1;
+    }
+    if (res.statusCode != 200 || res.bodyText() != "N") {
+        io.print("leg A the terminal answered " + res.statusCode.toString()
+            + " body=" + res.bodyText());
+        bad = bad + 1;
+    }
+    bad = bad + closeServer(app);
+    return bad;
+}
+
+// Leg B: a bare web.Middleware() instance and a subclass with no process override,
+// one on each side of Timing(). Neither writes a mark of its own, so the marks
+// around them are the visit evidence: B proves the bare instance advanced to
+// Timing(), C proves the subclass advanced to markC(), and the unchanged log plus
+// the terminal's 200 show the defaults contributed nothing but the advance.
+int legBaseDefaultAdvances() {
+    Trace.clear();
+    int bad = 0;
+    web.App app = web.App();
+    app.use(markA);
+    app.use(web.Middleware());
+    app.use(Timing());
+    app.use(NoOverride());
+    app.use(markC);
+    app.use(Terminal());
+    app.listen("127.0.0.1", 0);
+    string base = "http://127.0.0.1:" + app.server().localPort().toString();
+    http.HttpResponse res = http.get(base + "/");
+    if (Trace.log != "ABCNcba") {
+        io.print("leg B the chain logged " + Trace.log + ", want ABCNcba");
+        bad = bad + 1;
+    }
+    if (res.statusCode != 200 || res.bodyText() != "N") {
+        io.print("leg B the terminal answered " + res.statusCode.toString()
+            + " body=" + res.bodyText());
+        bad = bad + 1;
+    }
+    bad = bad + closeServer(app);
+    return bad;
+}
+
+// Leg C: the first middleware answers and returns, so nothing below it runs and
+// the return trip never happens.
+int legShortCircuit() {
+    Trace.clear();
+    int bad = 0;
+    web.App app = web.App();
+    app.use(guard);
+    app.use(postMark);
+    app.use(Terminal());
+    app.listen("127.0.0.1", 0);
+    string base = "http://127.0.0.1:" + app.server().localPort().toString();
+    http.HttpResponse res = http.get(base + "/");
+    if (res.statusCode != 401 || res.bodyText() != "missing key") {
+        io.print("leg C the short circuit answered " + res.statusCode.toString()
+            + " body=" + res.bodyText());
+        bad = bad + 1;
+    }
+    if (Trace.downstream != 0) {
+        io.print("leg C " + Trace.downstream.toString() + " entries below the guard ran");
+        bad = bad + 1;
+    }
+    if (res.headers.has("X-Post")) {
+        io.print("leg C the response carries X-Post, so a return trip happened");
+        bad = bad + 1;
+    }
+    bad = bad + closeServer(app);
+    return bad;
+}
+
+// Leg D: an entry that advances twice. The violation surfaces as a 500 with the
+// fixed message, and the entries below it still ran exactly once.
+int legDoubleNext() {
+    Trace.clear();
+    int bad = 0;
+    web.App app = web.App();
+    app.use(twiceForward);
+    app.use(countedDownstream);
+    app.listen("127.0.0.1", 0);
+    string base = "http://127.0.0.1:" + app.server().localPort().toString();
+    http.HttpResponse res = http.get(base + "/");
+    if (res.statusCode != 500) {
+        io.print("leg D the double next() answered " + res.statusCode.toString());
+        bad = bad + 1;
+    }
+    if (res.bodyText() != "web.RequestContext.next: called more than once.") {
+        io.print("leg D the body was " + res.bodyText());
+        bad = bad + 1;
+    }
+    if (Trace.downstream != 1) {
+        io.print("leg D the downstream entry ran " + Trace.downstream.toString() + " times, want 1");
+        bad = bad + 1;
+    }
+    bad = bad + closeServer(app);
+    return bad;
+}
+
+// Leg E: an http.HttpException from deep in the chain keeps its own status,
+// reason phrase and message; the half-written headers of the trip down are gone,
+// because the response is rebuilt. onError stays out of this path.
+int legHttpExceptionPassesThrough() {
+    Trace.clear();
+    int bad = 0;
+    web.App app = web.App();
+    app.onError(countErrors);
+    app.use(halfMark);
+    app.use(throwTooLarge);
+    app.listen("127.0.0.1", 0);
+    string base = "http://127.0.0.1:" + app.server().localPort().toString();
+    http.HttpResponse res = http.get(base + "/");
+    if (res.statusCode != 413 || res.reasonPhrase != "Content Too Large"
+            || res.bodyText() != "too large here") {
+        io.print("leg E the exception answered " + res.statusCode.toString() + " "
+            + res.reasonPhrase + " body=" + res.bodyText());
+        bad = bad + 1;
+    }
+    if (res.headers.get("Content-Type") != "text/plain; charset=utf-8") {
+        io.print("leg E the content type was " + res.headers.get("Content-Type"));
+        bad = bad + 1;
+    }
+    if (res.headers.has("X-Half")) {
+        io.print("leg E the rebuilt response kept the header written on the way in");
+        bad = bad + 1;
+    }
+    if (Trace.onErrorCalls != 0 || res.headers.has("X-OnError")) {
+        io.print("leg E onError ran on the HttpException path");
+        bad = bad + 1;
+    }
+    bad = bad + closeServer(app);
+    return bad;
+}
+
+// Leg F: a status with no entry in the reason table still carries the exception's
+// own message; the phrase falls back to "Error", which is the table's boundary.
+// The second half pins the other edge of the same mapping: an exception that
+// picked no status at all is clamped to 500 instead of asking for status 0.
+int legUnlistedStatus() {
+    Trace.clear();
+    int bad = 0;
+    web.App app = web.App();
+    app.onError(countErrors);
+    app.use(throwTeapot);
+    app.listen("127.0.0.1", 0);
+    string base = "http://127.0.0.1:" + app.server().localPort().toString();
+    http.HttpResponse res = http.get(base + "/");
+    if (res.statusCode != 418 || res.reasonPhrase != "Error" || res.bodyText() != "teapot") {
+        io.print("leg F the exception answered " + res.statusCode.toString() + " "
+            + res.reasonPhrase + " body=" + res.bodyText());
+        bad = bad + 1;
+    }
+    if (Trace.onErrorCalls != 0) {
+        io.print("leg F onError ran on the HttpException path");
+        bad = bad + 1;
+    }
+    bad = bad + closeServer(app);
+
+    // The clamp: an exception that picked no status is answered with 500 and the
+    // registered phrase for it, while its own message stays the body — the same
+    // shape serveOne gives a handler exception (D-11).
+    web.App untyped = web.App();
+    untyped.use(throwStatusless);
+    untyped.listen("127.0.0.1", 0);
+    string zeroBase = "http://127.0.0.1:" + untyped.server().localPort().toString();
+    http.HttpResponse zeroRes = http.get(zeroBase + "/");
+    if (zeroRes.statusCode != 500 || zeroRes.reasonPhrase != "Internal Server Error"
+            || zeroRes.bodyText() != "statusless") {
+        io.print("leg F the statusless exception answered " + zeroRes.statusCode.toString()
+            + " " + zeroRes.reasonPhrase + " body=" + zeroRes.bodyText());
+        bad = bad + 1;
+    }
+    bad = bad + closeServer(untyped);
+    return bad;
+}
+
+// Leg G: any other exception maps to a fixed 500 that leaks nothing of its
+// message, and onError is the only hook that sees it — after the rebuild, so its
+// own headers land on the wire.
+int legOtherException() {
+    Trace.clear();
+    int bad = 0;
+    web.App app = web.App();
+    app.onError(countErrors);
+    app.use(throwSecret);
+    app.listen("127.0.0.1", 0);
+    string base = "http://127.0.0.1:" + app.server().localPort().toString();
+    http.HttpResponse res = http.get(base + "/");
+    if (res.statusCode != 500 || res.reasonPhrase != "Internal Server Error") {
+        io.print("leg G the exception answered " + res.statusCode.toString() + " " + res.reasonPhrase);
+        bad = bad + 1;
+    }
+    if (res.bodyText() != "internal error" || res.bodyText().indexOf("boom") >= 0) {
+        io.print("leg G the body was " + res.bodyText());
+        bad = bad + 1;
+    }
+    if (Trace.onErrorCalls != 1) {
+        io.print("leg G onError ran " + Trace.onErrorCalls.toString() + " times, want 1");
+        bad = bad + 1;
+    }
+    if (res.headers.get("X-OnError") != "1") {
+        io.print("leg G the wire says X-OnError=" + res.headers.get("X-OnError") + ", want 1");
+        bad = bad + 1;
+    }
+    if (res.headers.get("X-Exc-Msg") != "boom-secret-detail") {
+        io.print("leg G onError saw " + res.headers.get("X-Exc-Msg") + ", want boom-secret-detail");
+        bad = bad + 1;
+    }
+    bad = bad + closeServer(app);
+    return bad;
+}
+
+// Leg H: two requests to one server. The attribute store belongs to the request,
+// so each one counts its own handler visit as the first.
+int legPerRequestState() {
+    Trace.clear();
+    int bad = 0;
+    web.App app = web.App();
+    app.use(countHits);
+    app.use(Terminal());
+    app.listen("127.0.0.1", 0);
+    string base = "http://127.0.0.1:" + app.server().localPort().toString();
+    http.HttpResponse first = http.get(base + "/");
+    http.HttpResponse second = http.get(base + "/");
+    if (first.headers.get("X-Hits") != "1") {
+        io.print("leg H the first request counted " + first.headers.get("X-Hits") + ", want 1");
+        bad = bad + 1;
+    }
+    if (second.headers.get("X-Hits") != "1") {
+        io.print("leg H the second request counted " + second.headers.get("X-Hits") + ", want 1");
+        bad = bad + 1;
+    }
+    bad = bad + closeServer(app);
+    return bad;
+}
+
+// Leg I: the attribute accessors, each absent key answering with its documented
+// empty value instead of raising, each stored value read back in every kind.
+int legAccessors() {
+    Trace.clear();
+    int bad = 0;
+    web.App app = web.App();
+    app.use(probeAccessors);
+    app.use(Terminal());
+    app.listen("127.0.0.1", 0);
+    string base = "http://127.0.0.1:" + app.server().localPort().toString();
+    http.HttpResponse res = http.get(base + "/probe");
+    if (res.headers.get("X-Probe") != "0") {
+        io.print("leg I the accessor probe failed checks summing to " + res.headers.get("X-Probe"));
+        bad = bad + 1;
+    }
+    if (res.statusCode != 200) {
+        io.print("leg I the probe request answered " + res.statusCode.toString());
+        bad = bad + 1;
+    }
+    bad = bad + closeServer(app);
+    return bad;
+}
+
+// Leg J: every response helper, one request each. The redirects need a client of
+// their own with the follow limit at zero, so the 3xx itself is what gets read.
+int legResponseHelpers() {
+    Trace.clear();
+    int bad = 0;
+    web.App app = web.App();
+    app.use(pickHelper);
+    app.listen("127.0.0.1", 0);
+    string base = "http://127.0.0.1:" + app.server().localPort().toString();
+    http.HttpClient cli = http.HttpClient();
+    cli.maxRedirects = 0;
+
+    http.HttpResponse textRes = getNoRedirect(cli, base + "/text");
+    if (textRes.statusCode != 200 || textRes.reasonPhrase != "OK"
+            || textRes.headers.get("Content-Type") != "text/plain; charset=utf-8"
+            || textRes.bodyText() != "hi") {
+        io.print("leg J text answered " + textRes.statusCode.toString() + " " + textRes.reasonPhrase
+            + " ct=" + textRes.headers.get("Content-Type") + " body=" + textRes.bodyText());
+        bad = bad + 1;
+    }
+
+    http.HttpResponse htmlRes = getNoRedirect(cli, base + "/html");
+    if (htmlRes.statusCode != 200 || htmlRes.headers.get("Content-Type") != "text/html; charset=utf-8"
+            || htmlRes.bodyText() != "<p>") {
+        io.print("leg J html answered " + htmlRes.statusCode.toString()
+            + " ct=" + htmlRes.headers.get("Content-Type") + " body=" + htmlRes.bodyText());
+        bad = bad + 1;
+    }
+
+    http.HttpResponse jsonRes = getNoRedirect(cli, base + "/json");
+    if (jsonRes.statusCode != 201 || jsonRes.reasonPhrase != "Created"
+            || jsonRes.headers.get("Content-Type") != "application/json"
+            || jsonRes.bodyText() != "{\"k\":\"v\"}") {
+        io.print("leg J json answered " + jsonRes.statusCode.toString() + " " + jsonRes.reasonPhrase
+            + " ct=" + jsonRes.headers.get("Content-Type") + " body=" + jsonRes.bodyText());
+        bad = bad + 1;
+    }
+
+    http.HttpResponse bytesRes = getNoRedirect(cli, base + "/bytes");
+    if (bytesRes.statusCode != 200 || bytesRes.headers.get("Content-Type") != "image/png"
+            || bytesRes.body == null || bytesRes.body.length() != 1
+            || bytesRes.bodyText() != "x") {
+        int byteLen = -1;
+        if (bytesRes.body != null) { byteLen = bytesRes.body.length(); }
+        io.print("leg J bytes answered " + bytesRes.statusCode.toString()
+            + " ct=" + bytesRes.headers.get("Content-Type") + " len=" + byteLen.toString());
+        bad = bad + 1;
+    }
+
+    http.HttpResponse foundRes = getNoRedirect(cli, base + "/r302");
+    if (foundRes.statusCode != 302 || foundRes.reasonPhrase != "Found"
+            || foundRes.headers.get("Location") != "/x") {
+        io.print("leg J redirect answered " + foundRes.statusCode.toString() + " "
+            + foundRes.reasonPhrase + " location=" + foundRes.headers.get("Location"));
+        bad = bad + 1;
+    }
+
+    http.HttpResponse movedRes = getNoRedirect(cli, base + "/r301");
+    if (movedRes.statusCode != 301 || movedRes.reasonPhrase != "Moved Permanently"
+            || movedRes.headers.get("Location") != "/x") {
+        io.print("leg J redirect(301) answered " + movedRes.statusCode.toString() + " "
+            + movedRes.reasonPhrase + " location=" + movedRes.headers.get("Location"));
+        bad = bad + 1;
+    }
+
+    http.HttpResponse emptyRes = getNoRedirect(cli, base + "/nocontent");
+    if (emptyRes.statusCode != 204 || emptyRes.reasonPhrase != "No Content"
+            || (emptyRes.body != null && emptyRes.body.length() != 0)) {
+        int emptyLen = -1;
+        if (emptyRes.body != null) { emptyLen = emptyRes.body.length(); }
+        io.print("leg J noContent answered " + emptyRes.statusCode.toString() + " "
+            + emptyRes.reasonPhrase + " len=" + emptyLen.toString());
+        bad = bad + 1;
+    }
+
+    cli.close();
+    bad = bad + closeServer(app);
+    return bad;
+}
+
+// Leg K: the Set-Cookie lines the three calls build, each attribute in its
+// documented position and the optional ones absent when they are not asked for;
+// then the cookie() face, where the first pair of a name wins and a malformed
+// segment is skipped rather than raised.
+int legCookies() {
+    Trace.clear();
+    int bad = 0;
+    web.App app = web.App();
+    app.use(cookieHandler);
+    app.listen("127.0.0.1", 0);
+    string base = "http://127.0.0.1:" + app.server().localPort().toString();
+
+    http.HttpResponse written = http.get(base + "/write");
+    List<string> lines = written.headers.getAll("Set-Cookie");
+    if (lines.length() != 3) {
+        io.print("leg K the response carries " + lines.length().toString()
+            + " Set-Cookie lines, want 3");
+        bad = bad + 1;
+    } else {
+        if (lines[0] != "a=1; Path=/; HttpOnly; SameSite=Lax") {
+            io.print("leg K the default cookie is " + lines[0]);
+            bad = bad + 1;
+        }
+        if (lines[1] != "b=2; Path=/app; Max-Age=60; HttpOnly; Secure; SameSite=Strict") {
+            io.print("leg K the full cookie is " + lines[1]);
+            bad = bad + 1;
+        }
+        if (lines[2] != "c=3; Path=/; Max-Age=0; SameSite=None") {
+            io.print("leg K the expired cookie is " + lines[2]);
+            bad = bad + 1;
+        }
+    }
+
+    http.HttpResponse read = getWithCookie(base + "/read", "a=1; a=2; junk; b=x");
+    if (read.headers.get("X-C1") != "1") {
+        io.print("leg K cookie(a) read " + read.headers.get("X-C1") + ", want the first value 1");
+        bad = bad + 1;
+    }
+    if (read.headers.get("X-C2") != "") {
+        io.print("leg K cookie(nope) read " + read.headers.get("X-C2") + ", want empty");
+        bad = bad + 1;
+    }
+    if (read.headers.get("X-C3") != "x") {
+        io.print("leg K cookie(b) read " + read.headers.get("X-C3") + ", want x");
+        bad = bad + 1;
+    }
+    if (read.headers.get("X-C4") != "") {
+        io.print("leg K cookie(junk) read " + read.headers.get("X-C4")
+            + ", want empty for a segment with no =");
+        bad = bad + 1;
+    }
+    bad = bad + closeServer(app);
+    return bad;
+}
+
+// Leg L: the facade forwards the shutdown entry points to the http layer's state
+// machine, which is the side that knows when nothing is left.
+int legFacadeForwards() {
+    int bad = 0;
+    web.App app = web.App();
+    app.use(Terminal());
+    app.listen("127.0.0.1", 0);
+    if (app.drain(5000) != 0) {
+        io.print("leg L the idle facade drained a residual");
+        bad = bad + 1;
+    }
+    app.close();
+    if (app.server().isServing()) {
+        io.print("leg L the facade server is still serving after close()");
+        bad = bad + 1;
+    }
+    return bad;
+}
+
+// Leg M: the middleware face closes with the first request whatever that request did,
+// while the route table closes only if the request reached it. The guard sits at the
+// read point, not on a clock: the chain starts being walked when handling starts, the
+// table only when the chain's last link runs (D-25).
+int legLateRegistration() {
+    Trace.clear();
+    int bad = 0;
+    web.App app = web.App();
+    app.use(blockFirst);
+    app.get("/boom", throwSecret);     // gives the late onError hook something to catch
+    app.listen("127.0.0.1", 0);
+    string base = "http://127.0.0.1:" + app.server().localPort().toString();
+    http.HttpResponse res = http.get(base + "/first");
+    if (res.statusCode != 401 || res.bodyText() != "missing key") {
+        io.print("leg M the blocked path did not short-circuit: " + res.statusCode.toString()
+            + " body=" + res.bodyText());
+        bad = bad + 1;
+    }
+
+    // The route table was never consulted, so the row added now is served.
+    app.get("/open", countedDownstream);
+    res = http.get(base + "/open");
+    if (res.statusCode != 200 || res.bodyText() != "done" || Trace.downstream != 1) {
+        io.print("leg M the late route was not served: " + res.statusCode.toString()
+            + " body=" + res.bodyText() + " downstream=" + Trace.downstream.toString());
+        bad = bad + 1;
+    }
+
+    // Both use spellings refuse: the chain is already being walked.
+    bool threwFunc = false;
+    string whyFunc = "";
+    try {
+        app.use(markA);
+    } catch (Exception ex) { threwFunc = true; whyFunc = ex.message; }
+    if (!threwFunc) {
+        whyFunc = "no exception";
+    }
+    if (!threwFunc || !whyFunc.startsWith("web.App.use: ")) {
+        io.print("leg M a late use(func) must be refused under web.App.use, got " + whyFunc);
+        bad = bad + 1;
+    }
+    bool threwInstance = false;
+    string whyInstance = "";
+    try {
+        app.use(Terminal());
+    } catch (Exception ex) { threwInstance = true; whyInstance = ex.message; }
+    if (!threwInstance) {
+        whyInstance = "no exception";
+    }
+    if (!threwInstance || !whyInstance.startsWith("web.App.use: ")) {
+        io.print("leg M a late use(Middleware) must be refused under web.App.use, got "
+            + whyInstance);
+        bad = bad + 1;
+    }
+
+    // Single-slot configuration stays open: replacing one hook appends nothing that a
+    // request in flight could have already read past (D-25's exemption).
+    bool threwConfig = false;
+    string whyConfig = "";
+    try {
+        app.onError(countErrors);
+        app.setNotFound(countedDownstream);
+    } catch (Exception ex) { threwConfig = true; whyConfig = ex.message; }
+    if (threwConfig) {
+        io.print("leg M late configuration must be accepted, got " + whyConfig);
+        bad = bad + 1;
+    }
+
+    // Accepted means effective: each slot is read at its own point of use, so the hooks
+    // registered after the first request answer the requests that come after them. A
+    // snapshot-at-start implementation would accept the write and keep answering with the
+    // old shape, and both requests below would look like an app nobody configured.
+    res = http.get(base + "/gone");
+    if (res.statusCode != 200 || res.bodyText() != "done" || Trace.downstream != 2) {
+        io.print("leg M the late not-found hook did not answer: " + res.statusCode.toString()
+            + " body=" + res.bodyText() + " downstream=" + Trace.downstream.toString());
+        bad = bad + 1;
+    }
+    res = http.get(base + "/boom");
+    if (res.statusCode != 500 || Trace.onErrorCalls != 1 || res.headers.get("X-OnError") != "1") {
+        io.print("leg M the late onError hook did not run: " + res.statusCode.toString()
+            + " onErrorCalls=" + Trace.onErrorCalls.toString()
+            + " X-OnError=" + res.headers.get("X-OnError"));
+        bad = bad + 1;
+    }
+    bad = bad + closeServer(app);
+    return bad;
+}
+
+// Leg N: the error stage cancels a half-open streaming answer. A middleware
+// that set res.bodyChannel and then failed must not leave the stream to the
+// writer: the channel is closed first, so the producer's parked send answers
+// ChannelClosedException, and the rebuilt plain body is the answer that ships
+// — the orphan frames never reach the client, and the response is not framed
+// chunked on the strength of a channel the error stage just discarded.
+int legStreamCancelledByErrorStage() {
+    Trace.clear();
+    int bad = 0;
+    web.App app = web.App();
+    app.use(startStreamThenThrow);
+    app.listen("127.0.0.1", 0);
+    string base = "http://127.0.0.1:" + app.server().localPort().toString();
+    http.HttpResponse res = http.get(base + "/");
+    if (res.statusCode != 500 || res.reasonPhrase != "Internal Server Error"
+            || res.bodyText() != "internal error") {
+        io.print("leg N the rebuilt answer was " + res.statusCode.toString()
+            + " " + res.reasonPhrase + " body=" + res.bodyText());
+        bad = bad + 1;
+    }
+    if (res.headers.has("Transfer-Encoding")) {
+        io.print("leg N the rebuilt answer shipped as "
+            + res.headers.get("Transfer-Encoding") + ", not a plain body");
+        bad = bad + 1;
+    }
+    Trace.producer.m_finished.recv();
+    if (Trace.producer.canceled != 1) {
+        io.print("leg N the producer was not cancelled with ChannelClosedException");
+        bad = bad + 1;
+    }
+    bad = bad + closeServer(app);
+    return bad;
+}
+
+// Leg O: a cookie value that cannot ship is a programmer error at the call
+// site. setCookie faces handler code, so a value RFC 6265 could not carry —
+// a semicolon would smuggle its own attributes into the line — throws a
+// named exception and the chain's error stage answers 500; the legal edges of
+// the octet table, and the double-quoted form, ship as written.
+int legSetCookieRejectsSmuggledValue() {
+    Trace.clear();
+    int bad = 0;
+    web.App app = web.App();
+    app.onError(countErrors);
+    app.get("/bad", badCookieValue);
+    app.get("/exotic", exoticCookieValue);
+    app.listen("127.0.0.1", 0);
+    string base = "http://127.0.0.1:" + app.server().localPort().toString();
+    http.HttpResponse res = http.get(base + "/bad");
+    if (res.statusCode != 500) {
+        io.print("leg O the smuggled cookie value answered " + res.statusCode.toString());
+        bad = bad + 1;
+    }
+    if (Trace.errorMsg != "web.RequestContext.setCookie: value contains an octet a cookie cannot carry.") {
+        io.print("leg O onError saw [" + Trace.errorMsg + "]");
+        bad = bad + 1;
+    }
+    res = http.get(base + "/exotic");
+    if (res.statusCode != 200) {
+        io.print("leg O the exotic cookie value was refused: " + res.statusCode.toString());
+        bad = bad + 1;
+    }
+    List<string> setCookies = res.headers.getAll("Set-Cookie");
+    if (setCookies.length() != 2
+            || setCookies.get(0) != "k=!#$%&'()*+-.0123456789:<=>?@AZ[]^_`az{|}~; Path=/; HttpOnly; SameSite=Lax"
+            || setCookies.get(1) != "q=\"quoted\"; Path=/; HttpOnly; SameSite=Lax") {
+        io.print("leg O the legal cookie lines did not ship as written: "
+            + setCookies.length().toString() + " lines");
+        bad = bad + 1;
+    }
+    bad = bad + closeServer(app);
+    return bad;
+}

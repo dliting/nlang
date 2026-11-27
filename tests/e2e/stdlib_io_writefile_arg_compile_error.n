@@ -2,6 +2,6 @@
 // is strictly string; only io.print coerces int/float.
 import io;
 int main() {
-    io.writeFile("_p11_tmp/x.txt", 42);
+    io.writeFile("../temp/fs/x.txt", 42);
     return 0;
 }

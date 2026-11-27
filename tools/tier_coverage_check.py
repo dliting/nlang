@@ -10,6 +10,13 @@
 # consumed by this guard and referenced by tools/gate_tier.sh):
 #   # comment
 #   tier <leg-name> selector <regex over manifest test names>
+#   claim <resource-name> <ctest entry>...
+# The claim line names a named resource and the entries that hold it
+# (gate timing design D-11); tools/gate_tier.sh turns it into the leg's
+# --claim argument and emit-cmake into the ctest RESOURCE_LOCK
+# properties. This guard only validates its shape (the same charset
+# gate.sh enforces at acquisition) and keeps it out of the coverage
+# math: the claim roster never selects manifest rows.
 #
 # Usage: python tier_coverage_check.py <manifest> <tiers-file>
 # Verdict line: "GATE tier_coverage_check: PASS" (or FAIL), exit code
@@ -18,6 +25,9 @@
 import re
 import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from gate_time_table import parse_claim_line
 
 
 def _manifest_names(manifest_text):
@@ -37,6 +47,14 @@ def _tiers(tiers_text):
         if not stripped or stripped.startswith("#"):
             continue
         parts = stripped.split(None, 3)
+        # A claim line names a resource and its entries (D-11); the
+        # shape is owned by gate_time_table.parse_claim_line (emit-cmake
+        # reads the same roster), and gate_tiers.txt is that roster's
+        # single source, so a typo surfaces here rather than as a silent
+        # no-lock leg. The claim line never joins the coverage math.
+        if parts[0] == "claim":
+            parse_claim_line(stripped)
+            continue
         if len(parts) != 4 or parts[0] != "tier" or parts[2] != "selector":
             raise ValueError("malformed tier line: %r" % line)
         tiers.append((parts[1], re.compile(parts[3])))

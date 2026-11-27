@@ -36,10 +36,10 @@ Error: 'examples/hello_project/hello_project.nproj' looks like a project file; u
 
 ## 产物与加载期链接
 
-NLang的产物**不含库代码**：每个参与编译的源文件产出一幅独立的**单元映像**，跨包符号（如`io.print`、`utils.helper.answer`）在映像里以**导入引用**记录。执行时，加载器沿库搜索路径发现全部依赖——`stdlib.npkg`这样的库包、外部`.ncu`——与产物一起链接成唯一的运行期模块。nvm、`ncc run`与ncc的编译后立即执行走的都是同一条装载 + 链接路径，行为一致。
+NLang的产物**不含库代码**：每个参与编译的源文件产出一幅独立的**单元映像**，跨包符号（如`io.print`、`utils.helper.answer`）在映像里以**导入引用**记录。执行时，加载器沿库搜索路径发现全部依赖——`io.npkg`、`math.npkg`这样的标准库领域包、外部`.ncu`——与产物一起链接成唯一的运行期模块。nvm、`ncc run`与ncc的编译后立即执行走的都是同一条装载 + 链接路径，行为一致。
 
 - **`.ncu`（单元映像）**——单文件编译的产物，承载入口单元。运行它时，它import的外部模块必须仍在搜索路径上可定位（标准库随工具链分发，自动找到；第三方库须`-I`指路或设`NLANG_PATH`）。
-- **`.npkg`（包归档）**——项目编译的产物：项目里每个单元一个成员（成员名即模块路径），程序包额外携带一条入口记录。同一格式也用于纯库分发（`stdlib.npkg`就是成员为`io`/`math`/`fs`/`thread`/`concurrent`的库包）。
+- **`.npkg`（包归档）**——项目编译的产物：项目里每个单元一个成员（成员名即模块路径），并带一条入口记录。库包使用同一容器但不带入口记录，其成员表就是编译期导入面。程序包可执行，不是编译期导入提供方。标准库的十三个包是：包含`thread`与`concurrent`的`concurrent.npkg`，以及各自只含同名模块的`io.npkg`、`math.npkg`、`fs.npkg`、`tensor.npkg`、`net.npkg`、`http.npkg`、`url.npkg`、`system.npkg`、`gzip.npkg`、`regex.npkg`、`json.npkg`、`web.npkg`。
 
 缺包时诊断一次报清，并列出已搜索的全部目录：
 
@@ -75,8 +75,7 @@ Runtime error: nloader failed:
 
 ## 库搜索路径
 
-被`import`的`.n`文件按一组有序目录查找：`-I`指定的目录排在最前，其后是`.nproj`的`<ImportPaths>`、源文件 / 项目目录、环境变量`NLANG_PATH`（Windows以`;`、POSIX以`:`分隔），最后是标准库目录等系统缺省。前面的目录优先，重复目录只保留第一次出现。同一组目录在运行期继续服务依赖装载（`.ncu`/`.npkg`成员定位）与native动态库加载。`--verbose`（短写法`-v`）让ncc在开始编译之前打印这份解析后的顺序（每行括注来源层，如`(-I)`、`(project import paths)`、`(local
-directory)`、`(NLANG_PATH)`、`(system)`）。
+被`import`的模块按一组有序目录查找。编译期先考虑所有源码匹配项；没有源码提供该模块时，ncc再查找独立`.ncu`映像与库包成员表。目录顺序是：`-I`指定的目录、`.nproj`的`<ImportPaths>`、源文件或项目目录、环境变量`NLANG_PATH`（Windows以`;`、POSIX以`:`分隔），最后是标准库目录等系统缺省。重复目录只保留第一次出现。产物臂内部靠前目录优先；源码则在整个搜索路径上优先于产物。同一组目录在运行期继续服务依赖装载（`.ncu`文件与`.npkg`成员）和native动态库加载。`--verbose`（短写法`-v`）让ncc在开始编译之前打印这份解析后的顺序（每行括注来源层，如`(-I)`、`(project import paths)`、`(local directory)`、`(NLANG_PATH)`、`(system)`）。
 
 `.nproj`可用`<ImportPaths>`持久化搜索目录（路径相对项目文件存储）：
 
@@ -86,5 +85,16 @@ directory)`、`(NLANG_PATH)`、`(system)`）。
   <ImportPaths><Dir path="../libs"/></ImportPaths>
 </Project>
 ```
+
+混合库的宿主原生库（§7.5）经`<Natives>`打包进档案：
+
+```xml
+<Project name="mylib">
+  <Sources><File path="mylib.n"/></Sources>
+  <Natives><Native path="nlang_mylib.dll"/></Natives>
+</Project>
+```
+
+`Native`路径与`File`路径一样相对项目文件所在目录解析。库以原生成员身份随`.npkg`分发（§28.3）：没有导入会解析到它——导入只见单元成员——运行期先把它抽取到包缓存再装载（§28.5），使用方既不需要库文件本体，也不需要为它单列搜索目录。
 
 完整的五层顺序、`native`库以及在nide中的图形配置，见[包与导入查找](../specification/03-program-structure/packages.md)。

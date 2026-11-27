@@ -207,6 +207,45 @@ static void test_loader_rejects_v2_21()
     PASS();
 }
 
+//lambda/closure plan Task 5 (NCU v2.23): the MakeFunc operand shape and
+//the function-table lambda flag break the v2.22 layout, so the floor
+//must refuse the previous format BY NUMBER — same mechanism the v2.20
+//pin exercises, naming this transition (RED until the bump lands).
+static void test_loader_rejects_v2_22()
+{
+    TEST(loader_rejects_v2_22);
+    BuildOutcome b = buildSource("refver23",
+        "int main() { return 0; }\n");
+    CHECK(b.ok, "build should succeed: " + b.diagnostics);
+    const auto modPath = scratchDir() / "refver23.ncu";
+
+    std::vector<char> bytes;
+    {
+        std::ifstream in(modPath, std::ios::binary);
+        bytes.assign(std::istreambuf_iterator<char>(in), {});
+    }
+    CHECK(bytes.size() >= 12, "module file should have a full header");
+    bytes[10] = static_cast<char>(22);
+    const auto oldPath = scratchDir() / "refver_v222.ncu";
+    {
+        std::ofstream out(oldPath, std::ios::binary);
+        out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    }
+    bool threw = false;
+    std::string what;
+    try {
+        ModuleLoader::Load(oldPath.string());
+    } catch (const std::exception& e) {
+        threw = true;
+        what = e.what();
+    }
+    CHECK(threw, "loader must refuse a v2.22 module (floor is v2.23)");
+    CHECK(what.find("Module version 2.22 is outdated")
+              != std::string::npos,
+        "rejection should name the outdated version, got: " + what);
+    PASS();
+}
+
 void run_ncu_ref_sig_tests()
 {
     test_ref_formal_flags_roundtrip();
@@ -214,4 +253,5 @@ void run_ncu_ref_sig_tests()
     test_func_key_cross_unit_bind();
     test_loader_rejects_v2_20();
     test_loader_rejects_v2_21();
+    test_loader_rejects_v2_22();
 }

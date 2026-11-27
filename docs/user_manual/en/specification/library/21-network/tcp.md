@@ -34,7 +34,7 @@ and closing the listener ends the loop through `SocketException`.
 | `read(buf, timeoutMs = 0)` | → `int` | Fills up to `buf.length` bytes of a non-empty `buf` and returns the count; `0` means end of stream — the peer closed its write side; an empty `buf` raises `SocketException`, because `0` is reserved for that end-of-stream signal. Bytes arrive in order; one `read` may return fewer bytes than asked for. Bytes already sitting in the stream's receive window (below) are handed out first, before the socket is touched, so nothing arrives out of order |
 | `write(data, count = -1, timeoutMs = 0)` | → `int` | Sends `count` bytes of `data` — all of it when `count` is `-1`; parks until the bytes are handed to the stack. `timeoutMs` bounds the whole write-all: if the peer stops reading and the deadline passes, raises `TimeoutException` with part of the payload already sent |
 | `write(s, timeoutMs = 0)` | → `int` | Text shorthand: encodes `s` as Unicode Transformation Format (UTF-8) bytes and sends them, with the same timeout behavior as the byte overload |
-| `readLine(timeoutMs = 0)` | → `string` | Reads up to and past the next `\n`, strips it (and a preceding `\r`), and returns the line; the partial line when the stream ends mid-line, and the empty string when it ends with nothing read — an empty line and end of input look the same here (`string` has no `null` value, §4.3), so `read` returning `0` is the end-of-input signal |
+| `readLine(timeoutMs = 0)` | → `string` | Reads up to and past the next `\n`, strips it (and a preceding `\r`), and returns the line; the partial line when the stream ends mid-line, and the empty string when it ends with nothing read — an empty line and end of input look the same here (`string` has no `null` value, §4.3), so `read` returning `0` is the end-of-input signal; a NUL byte inside the line is ordinary content — only the `\n` ends a line |
 | `readExactly(count, timeoutMs = 0)` | → `byte[]` | Reads exactly `count` bytes into a fresh array; raises `SocketException` when the stream ends early — the right tool for a `Content-Length`-framed body. It takes bytes from the receive window (below) whenever the window holds any, and any bytes that arrive beyond `count` stay in the window for the next read rather than being lost |
 | `peekFilled(minBytes = 1, timeoutMs = 0)` | → `byte[]` | Waits until the stream's receive window (below) holds `minBytes` bytes, until the window is full at `WINDOW_CAP`, or until the peer stops sending, then returns the window's contents as a view; parks until one of the three holds or the deadline passes. `minBytes` below `1` raises `SocketException`; a threshold above `WINDOW_CAP` is satisfied by a full window — assembling successive full windows is the caller's job. A wait that ends at its deadline raises `TimeoutException`; the one way a view comes back shorter than `minBytes` without a timeout is end of stream, so an empty view means the peer closed its write side and the window has drained. After `close()` raises `SocketException`, even while window bytes remain |
 | `consume(count)` | — | Tells the stream the caller consumed the first `count` bytes of the last `peekFilled` view, so the next view starts after them. `count` outside `1…unconsumed` raises `SocketException` — no silent clamping. After `close()` raises `SocketException`, even while window bytes remain |
@@ -42,6 +42,7 @@ and closing the listener ends the loop through `SocketException`.
 | `shutdownWrite()` | — | Half-close: sends the end-of-stream marker to the peer while the read side stays open (below); a later write raises `SocketException` |
 | `close()` | — | Closes the connection; idempotent. A parked reader on the peer sees end of stream |
 | `isClosed()` | → `bool` | Whether this handle has been closed |
+| `isEof()` | → `bool` | Whether the end of this stream has been observed on the peer's side — a `read` returning `0` is the observation, and a `TimeoutException` never sets the flag, which is how a caller separates "the peer is done" from "nothing has arrived yet". Sticky: it stays true after `close()` and after later reads. Orthogonal to `isClosed()`, which reports only the local side; a peer close that no read has reached yet stays `false` until some read runs |
 | `peerAddress()` / `peerPort()` | → `string` / `int` | The remote end |
 | `localAddress()` / `localPort()` | → `string` / `int` | The local end |
 | `setNoDelay(on)` | — | Disables Nagle batching, for latency-sensitive protocols |
@@ -85,6 +86,30 @@ peer called `shutdownWrite` or `close`. Either side can close only
 its write side with `shutdownWrite` — the classic request/response
 shape, where the client signals "request complete" while still
 reading the reply.
+
+The three reading members — `read`, `readLine` and `readExactly` —
+answer the three ways a wait can end, and `isEof()` and `isClosed()`
+keep the answers apart:
+
+- **The deadline passes.** Each raises `TimeoutException` and
+  leaves both flags alone: "no bytes yet" is not "no more bytes
+  ever". Bytes already sitting in the receive window stay in the
+  window for the next read.
+- **The peer ends the stream.** Each records the observation, so
+  `isEof()` answers `true` from then on. `read` answers `0`, and
+  later reads answer `0` too; `readLine` returns the partial line
+  exactly as it arrived — a trailing `\r` with no `\n` behind it
+  stays ordinary content — or the empty string when the line was
+  never started, where `isEof()` is what separates that empty
+  string from an empty line off a live peer; `readExactly` raises
+  `SocketException` naming how much of the count arrived
+  (`net: connection closed after 3 of 9 bytes`).
+- **The connection is closed locally.** `close()` voids the window
+  residue, so all three raise `SocketException`
+  (`net: socket closed`) even while buffered bytes remain;
+  `isClosed()` turns `true`, while an end of stream no read has
+  observed stays `false` — closing your own side says nothing
+  about what the peer sent.
 
 The echo round trip in one process — bind, connect, accept, one
 line each way, half-close, self-exit:

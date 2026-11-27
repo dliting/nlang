@@ -144,7 +144,7 @@ ncc run <program.ncu|.npkg>                       仅执行
 单文件编译产出`.ncu`单元映像；项目编译打包`.npkg`程序包（每个
 源单元一个成员，外加一条入口记录）。产物不含库代码：执行时由加载器
 沿搜索路径发现整个引用闭包并链接成唯一的运行期模块（标准库即随
-工具链分发的`stdlib.npkg`）。
+工具链分发的领域包，如`io.npkg`）。
 
 ### 调试
 
@@ -194,7 +194,7 @@ import来源共用一种语法：
 |---|---|---|
 | 项目文件 | 相对`.nproj`的点分路径 | `utils/helper.n` → `import utils.helper;` |
 | 外部模块 | 文件名主干（单段）：`.ncu`文件，或恰好暴露一个模块的`.npkg` | `lib.ncu` → `import lib;` |
-| 标准库包 | `io` / `math` / `fs` / `thread` / `concurrent` / `tensor` / `net` / `system` / `url` / `http` / `gzip` / `regex`（随工具链分发） | `import io;` |
+| 标准库包 | `io` / `math` / `fs` / `thread` / `concurrent` / `tensor` / `net` / `system` / `url` / `http` / `gzip` / `regex` / `json` / `web`（随工具链分发） | `import io;` |
 
 | 引用目标 | 需要import？ | 调用形式 |
 |---|---|---|
@@ -216,7 +216,7 @@ import来源共用一种语法：
 完整语义——解析顺序、保留路径段、单文件模式——见「声明」章
 （`docs/user_manual/zh/specification/03-program-structure/declarations.md`，Import Declaration）。
 
-编译单元使用带版本的二进制格式，当前为v2.8（导入槽与逐单元模块
+编译单元使用带版本的二进制格式，当前为v2.23（导入槽与逐单元模块
 路径——加载期链接模型）。加载器强制兼容性
 下限：下限提升后，较旧的`.ncu`会因过期被拒绝，必须用匹配的
 `ncc`重新编译。格式历史（每个版本新增或变更了什么）见
@@ -224,8 +224,8 @@ import来源共用一种语法：
 
 ## 标准库
 
-`math`、`io`、`fs`、`thread`、`concurrent`、`tensor`、`net`、`system`、`url`、`http`、`gzip`与`regex`是标准库的十二个包——源码随工具链分发
-（`stdlib/*.n`），运行期由`stdlib.npkg`提供，与其他库包同一机制；
+`math`、`io`、`fs`、`thread`、`concurrent`、`tensor`、`net`、`system`、`url`、`http`、`gzip`、`regex`、`json`与`web`是标准库的十四个包——源码随工具链分发
+（`stdlib/*.n`），运行期由十三个领域包提供（如`io.npkg`；`thread`与`concurrent`共用`concurrent.npkg`），与其他库包同一机制；
 限定调用前需要显式`import`（`thread`承载虚拟线程的派生与挂起原语；
 `concurrent`在内核并发原语之上补足`WaitGroup`）。字符串自带内建方法：
 
@@ -393,7 +393,7 @@ cd build-ide && cpack -C Release -B ../release
 3.03+——在`PATH`上或经`-DNLANG_NSIS_MAKENSIS`传入）。两者包含
 相同布局：`bin/`（`nide`、`ncc`、`nvm`、`ndisasm`、`ndb`、Qt运行时
 与标准库native动态库）、`stdlib/`（声明文件与编译好的
-`stdlib.npkg`包），外加`examples/`、生成的文档站（`docs/site/`）、
+领域包，如`io.npkg`），外加`examples/`、生成的文档站（`docs/site/`）、
 `LICENSE`、`CHANGELOG.md`与`README.md`。安装程序默认装到
 `C:\Program Files\NLang`并为IDE添加开始菜单快捷方式。
 

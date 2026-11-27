@@ -95,6 +95,28 @@ SnField *SnParagraph::FindLocal(const std::string &sName) const
 	return nullptr;
 }
 
+//0.13.10 Task 9 (loop-scoped heads): see SnStatements.h — the resolver
+//swaps a head descriptor in ahead of the loop's subtree and restores
+//the displaced binding (or erases the name) once the subtree resolves.
+SnField *SnParagraph::SwapLocal(const std::string &sName, SnField *pField)
+{
+	NLANG_ASSERT(pField);
+	SnField *pPrevious = nullptr;
+	auto it = m_Locals.find(sName);
+	if (it != m_Locals.end())
+		pPrevious = it->second;
+	m_Locals[sName] = pField;
+	return pPrevious;
+}
+
+void SnParagraph::RestoreLocal(const std::string &sName, SnField *pPrevious)
+{
+	if (pPrevious)
+		m_Locals[sName] = pPrevious;
+	else
+		m_Locals.erase(sName);
+}
+
 SnReturnStmt::SnReturnStmt(SnExpression* pResult, const ISourceLocation& loc) :
 	Super_(s_Kind, loc), m_pResult(pResult)
 {
@@ -413,10 +435,13 @@ SnField *SnSubscriptAssignStmt::FindField(const std::string& sName) const
 
 SnSuperCallStmt::SnSuperCallStmt(const PtrList<SnExpression>& args,
 	const ISourceLocation &loc) :
-	Super_(s_Kind, loc), m_args(args)
+	Super_(s_Kind, loc), m_pArgs(new SnExpressionList(this)),
+	m_pCtorFunction(nullptr)
 {
-	for (auto* pArg : m_args)
-		AddChild(pArg);
+	//push_back goes through Node::AddChild, so the statement owns the
+	//arguments and Args() stays a live view over them.
+	for (auto* pArg : args)
+		m_pArgs->push_back(pArg);
 }
 
 std::string SnSuperCallStmt::ToString() const
@@ -424,10 +449,10 @@ std::string SnSuperCallStmt::ToString() const
 	std::stringstream ss;
 	ss << "super(";
 	bool first = true;
-	for (auto* pArg : m_args) {
+	for (auto &arg : Args()) {
 		if (!first) ss << ", ";
 		first = false;
-		ss << pArg->ToString();
+		ss << arg.ToString();
 	}
 	ss << ");";
 	return ss.str();

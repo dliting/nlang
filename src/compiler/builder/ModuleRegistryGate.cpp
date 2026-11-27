@@ -32,26 +32,37 @@ bool ContainsValue(const std::vector<std::string>& list,
 void ModuleRegistry::ApplyWildcardImport(const std::string& name,
 	ImportGate& gate, std::vector<std::string>& outErrors) const
 {
-	//Recursive prefix over PROJECT module paths (D5): external names
-	//are single-segment, so a wildcard never reaches one (§3.3). The
-	//importing TU's own path counts toward the match surface.
+	//Recursive prefix over the registered module paths (D5): project
+	//modules, inlined library units and artifact units alike — D-29 rule 2
+	//(ruling 45) makes a library package's wildcard the package itself plus
+	//its whole subtree (`web` and `web.static`), which is what a dotted
+	//library layout needs, and a package's member table offers exactly that
+	//shape for an artifact package (discovery queues the union before the
+	//gates are built). The exact face is the same union: a base name that
+	//exists as an external member joins gate.exact exactly as a compiled-in
+	//package root would (D7.2, the two shapes agree on bare visibility).
+	//The importing TU's own path counts toward the match surface.
 	const std::string prefix = name + '.';
-	const bool exactExists = IsProjectModule(name);
+	const bool exactExists = IsKnownModule(name);
 	bool prefixMatched = false;
 	for (const ModuleEntry& entry : m_modules)
 	{
-		if (!entry.isExternal && entry.path.rfind(prefix, 0) == 0)
+		if (entry.path.rfind(prefix, 0) == 0)
 		{
 			prefixMatched = true;
 			break;
 		}
 	}
 	//D10: an empty union (no exact module and no prefix match) is
-	//almost certainly a typo, not a silent no-op.
+	//almost certainly a typo, not a silent no-op. The advice names both
+	//places a module path comes from, sharing the wording the unimported
+	//module path diagnostic already uses (D-29 rule 3: a remedy must itself
+	//be applicable — the library search path is now a wildcard source too).
 	if (!exactExists && !prefixMatched)
 	{
-		outErrors.push_back("No project modules matched import '"
-			+ name + ".*'. Check the project Sources list.");
+		outErrors.push_back("No modules matched import '"
+			+ name + ".*'. Check the project Sources list or -I import "
+			"path.");
 		return;
 	}
 	if (exactExists && !ContainsValue(gate.exact, name))
@@ -60,77 +71,66 @@ void ModuleRegistry::ApplyWildcardImport(const std::string& name,
 		gate.wildcards.push_back(prefix);
 }
 
-//Non-wildcard arm of ApplyImportSpec: compiled-in module, signature-only
-//library fallback, external .ncu candidate, or an unresolvable dotted path.
+//Non-wildcard arm of ApplyImportSpec: a registered module (compiled in,
+//or an artifact unit the discovery phase registered), a signature-only
+//library fallback, or an unresolvable path.
 void ModuleRegistry::ApplyNonWildcardImport(const std::string& name,
-	ImportGate& gate, std::vector<std::string>& externalOut,
-	std::vector<std::string>& outErrors,
+	ImportGate& gate, std::vector<std::string>& outErrors,
+	const std::vector<std::string>& unreadablePackages,
 	const LibraryNamespacePredicate& isLibraryNamespace) const
 {
-	//A TU compiled into this build (a project module or an inlined library
-	//TU) opens one exact gate — libraries and project modules share it.
-	if (IsCompiledInModule(name))
+	//A module compiled into this build (a project module or an inlined
+	//library TU) and an external unit found at discovery (a unit file or
+	//a package member) alike are registered names — one exact gate.
+	if (IsKnownModule(name))
 	{
 		if (!ContainsValue(gate.exact, name))
 			gate.exact.push_back(name);
 		return;
 	}
-	//A library package known to the index but not inlined this build —
-	//its .n source was not found in the effective library dirs (a
-	//search-path problem). Report it instead of silently gating a package
-	//whose call path no longer exists (the legacy builtin codegen was removed).
+	//A library package known to the index but neither inlined nor found
+	//as an artifact — neither its .n source nor its package was found in
+	//the effective library dirs (a search-path problem). Report it
+	//instead of silently gating a package whose call path no longer
+	//exists (the legacy builtin codegen was removed). The registered
+	//check comes first: a package that shipped as an artifact is found.
 	if (isLibraryNamespace(name))
 	{
 		outErrors.push_back("Library package '" + name
-			+ "' is indexed but its source was not found in the library "
-			"search path; check the configured search paths.");
+			+ "' is indexed but its source or package was not found in "
+			"the library search path; check the configured search paths.");
 		return;
 	}
-	//External .ncu names are single-segment: record the candidate for the
-	//loader and open the gate optimistically.
-	if (name.find('.') == std::string::npos)
-	{
-		if (!ContainsValue(gate.exact, name))
-			gate.exact.push_back(name);
-		if (!ContainsValue(externalOut, name))
-			externalOut.push_back(name);
-		return;
-	}
-	//A dotted path that is no project module can never resolve (external
-	//names are single-segment).
-	outErrors.push_back(ModuleNotFoundText(name));
+	outErrors.push_back(ModuleNotFoundText(name, unreadablePackages));
 }
 
 //BuildGate's per-spec arm: §5.1 priority (builtin → project module →
-//external .ncu), delegating the wildcard union to ApplyWildcardImport.
+//external unit), delegating the wildcard union to ApplyWildcardImport.
 void ModuleRegistry::ApplyImportSpec(const ImportSpec& spec,
-	ImportGate& gate, std::vector<std::string>& externalOut,
-	std::vector<std::string>& outErrors,
+	ImportGate& gate, std::vector<std::string>& outErrors,
+	const std::vector<std::string>& unreadablePackages,
 	const LibraryNamespacePredicate& isLibraryNamespace) const
 {
 	const std::string name = spec.DottedName();
-	//A wildcard on a library package is rejected BEFORE the library
-	//branch — packages are not module trees, and a silently eaten '*'
-	//would teach the wrong model.
-	if (spec.wildcard && isLibraryNamespace(name))
-	{
-		outErrors.push_back("Wildcard import cannot target library "
-			"package '" + name + "'. Use 'import " + name + ";'.");
-		return;
-	}
+	//A wildcard means the same thing for a library package as for a project
+	//package (D-29 rule 2, ruling 45): the name itself plus its subtree. The
+	//library units arrive through the discovery layer before the gate is
+	//built, so the union below sees them as compiled-in modules; a library
+	//name that is neither compiled in nor matched gets the empty-union advice
+	//above rather than a special refusal.
 	if (spec.wildcard)
 	{
 		ApplyWildcardImport(name, gate, outErrors);
 		return;
 	}
-	ApplyNonWildcardImport(name, gate, externalOut, outErrors,
+	ApplyNonWildcardImport(name, gate, outErrors, unreadablePackages,
 		isLibraryNamespace);
 }
 
 bool ModuleRegistry::BuildGate(uint32_t moduleIndex,
 	const std::vector<ImportSpec>& specs,
-	std::vector<std::string>& externalOut,
 	std::vector<std::string>& outErrors,
+	const std::vector<std::string>& unreadablePackages,
 	const LibraryNamespacePredicate& isLibraryNamespace)
 {
 	NLANG_ASSERT(moduleIndex < m_modules.size()
@@ -157,7 +157,7 @@ bool ModuleRegistry::BuildGate(uint32_t moduleIndex,
 	}
 
 	for (const ImportSpec& spec : specs)
-		ApplyImportSpec(spec, gate, externalOut, outErrors,
+		ApplyImportSpec(spec, gate, outErrors, unreadablePackages,
 			isLibraryNamespace);
 
 	if (!outErrors.empty())

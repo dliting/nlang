@@ -41,7 +41,7 @@ For run-only deployments `ncc` can be left out; the Qt runtime is needed only by
 
 ## 3. A minimal runtime set
 
-The minimum is `nvm.exe`, `stdlib\stdlib.npkg` and `nlang_io.dll`, plus the program's own `.ncu`. Place `nlang_io.dll` next to `nvm.exe` and `stdlib.npkg` inside a `stdlib\` subdirectory, then `nvm <program>.ncu` runs. The `.n` declaration sources under `stdlib\` are only used by `ncc` at compile time — at run time only the library package is loaded; bring the matching `nlang_*.dll` for each namespace the program uses. The executables link the MSVC runtime dynamically, so the target machine needs the VC++ 2015-2022 runtime (see [Installation and Layout](../getting-started/install-layout.md)).
+The minimum is `nvm.exe`, `stdlib\io.npkg` and `nlang_io.dll`, plus the program's own `.ncu` — that set runs any program whose imports stay within `io`. Place `nlang_io.dll` next to `nvm.exe` and `io.npkg` inside a `stdlib\` subdirectory, then `nvm <program>.ncu` runs. The `.n` declaration sources under `stdlib\` are only used by `ncc` at compile time — at run time only the domain packages are loaded, so bring the one for every domain the program imports; bring the matching `nlang_*.dll` for each namespace the program uses. The executables link the MSVC runtime dynamically, so the target machine needs the VC++ 2015-2022 runtime (see [Installation and Layout](../getting-started/install-layout.md)).
 
 ## 4. Deployment steps
 

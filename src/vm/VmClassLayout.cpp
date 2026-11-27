@@ -1,6 +1,6 @@
 #include "VmClassLayout.h"
 
-#include "nlang/vm/CompiledModule.h"
+#include "nlang/core/CompiledModule.h"
 #include <stdexcept>
 
 namespace nlang {

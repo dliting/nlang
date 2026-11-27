@@ -12,7 +12,7 @@
 
 ## 13.3 函数
 
-该包声明25个函数。
+该包声明26个函数。
 
 | 函数 | 签名 | 效果 |
 | --- | --- | --- |
@@ -36,13 +36,14 @@
 | `random()` | () → `double` | 生成器的下一个值，落在`[0, 1)`（§13.5） |
 | `srand(seed)` | (`int seed`) → `void` | 为生成器重新播种（§13.5） |
 | `randomi(min, max)` | (`int min`, `int max`) → `int` | 从闭区间`[min, max]`抽取的值（§13.5） |
+| `randomBytes(count)` | (`int count`) → `byte[]` | 来自操作系统密码学安全随机源的`count`个新字节，绝不取自§13.5的生成器；抛出点名原因的`Exception`——`math.randomBytes: count is negative.`、`math.randomBytes: count is too large.`（`count`越过16 MiB请求上限）或`math.randomBytes: the system random source is unavailable.`（§13.5） |
 
 ## 13.4 错误行为
 
 失败分为两种模型。
 
 - 超越函数家族的定义域错误——对负数取`sqrt`、对非正数取`log`、`asin`或`acos`的实参落在`[-1, 1]`之外——产出一个NaN的`double`（§4.2），不抛出；该包遵循C惯例。NaN会经由后续算术传播下去。
-- 实参错误抛出`Exception`（§8.3）：对最负的`int`调用`absi`；`lo > hi`时的`clampi`或`clampf`；`min > max`时的`randomi`；以及`x`为NaN或舍入结果落在`long`值域之外时的`floor`、`ceil`或`round`。
+- 实参错误抛出`Exception`（§8.3）：对最负的`int`调用`absi`；`lo > hi`时的`clampi`或`clampf`；`min > max`时的`randomi`；以及`x`为NaN或舍入结果落在`long`值域之外时的`floor`、`ceil`或`round`。`count`为负数、越过16 MiB请求上限、或操作系统随机源无法供货时，`randomBytes`抛出同一种基类`Exception`。
 
 ## 13.5 随机数
 
@@ -52,7 +53,9 @@
 - `randomi(min, max)`按取模归约从闭区间抽取；大小不能整除2^32的区间带有轻微偏置。
 - `srand(seed)`之后，序列由种子固定，且跨平台一致。任何`srand`调用之前生成器的状态是*未指明*的（§0.4）。
 
-> 实现注记。随包发布的生成器是梅森旋转（Mersenne Twister）`std::mt19937`，在程序启动时由`std::random_device`播种；不使用`std::uniform_*_distribution`——它们是实现定义的，不可移植。
+> 实现注记。随包发布的生成器是梅森旋转（Mersenne Twister）`std::mt19937`，在程序启动时由`std::random_device`播种；不使用`std::uniform_*_distribution`——它们是实现定义的，不可移植。`randomBytes`不取自这个生成器：它转发到操作系统的加密源。
+
+`randomBytes`与这套东西毫不相干。它从操作系统的密码学安全的伪随机数生成器（CSPRNG）取字节，而不是从`std::mt19937`取——web包里难以猜中的值，如会话id与multipart边界，就是用它造的。它的抽取不可复现，`srand`也左右不了它，所以必须重放的实验用`random`/`randomi`，必须难以猜中的令牌用`randomBytes`。
 
 两个缩放公式（伪代码）：
 

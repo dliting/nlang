@@ -11,11 +11,12 @@
 -----------------------------------------------------------------------------*/
 
 #include "ModuleBuilder.h"
+#include "ModuleBuilderImportCycles.h"
 #include "SyntaxTree.h"
 #include "TranslationUnit.h"
 #include "builder/ImportCycleCheck.h"
 #include "builder/ModuleRegistry.h"
-#include "nlang/vm/CompiledModule.h"
+#include "nlang/core/CompiledModule.h"
 #include <algorithm>
 #include <map>
 #include <string>
@@ -70,9 +71,12 @@ void DropSelfReference(const std::string &module,
 	targets.erase(std::remove(targets.begin(), targets.end(), module),
 		targets.end());
 }
+} //namespace
 
 //Every import record target of a loaded image (empty paths skipped —
-//an internal marker, not a module edge).
+//an internal marker, not a module edge). Lifted to
+//ModuleBuilderImportCycles.h so the discovery fixed point reads the
+//same five slot tables (spec D3.2: one table list, one collector).
 std::vector<std::string> ImageImportTargets(const CompiledModule &image)
 {
 	std::vector<std::string> targets;
@@ -92,7 +96,6 @@ std::vector<std::string> ImageImportTargets(const CompiledModule &image)
 		addTarget(imp.modulePath);
 	return targets;
 }
-} //namespace
 
 //The dependency edge table: compiled units (project, library alike —
 //each keyed by registration order, matching ModulePathOf's fill) and

@@ -2,7 +2,7 @@
 
 This chapter maps the failures of library operations — the
 built-in classes and methods of chapters 11, 12 and 17 and the
-packages of chapters 13, 14, 15, 16, 18, 19, 21, 22, 23, 24 and 25 —
+packages of chapters 13, 14, 15, 16, 18, 19, 21, 22, 23, 24, 25, 26 and 27 —
 to the exception classes of §8.3. §20.1 is
 the map; §20.2 fixes the conventions it rests on. The
 semantics of every site live in the chapter that defines the
@@ -16,14 +16,14 @@ operation; this chapter adds no failure behavior of its own.
 | `string` (§17.2) | `Exception` | `split` or `replace` with an empty argument; `toInt`, `toLong`, `toFloat`, `toDouble`, `toBool` or `toChar` on a malformed string; `charAt` on a continuation byte; `charCount` on an invalid Unicode Transformation Format (UTF-8) sequence |
 | `List` (§12.1) | `IndexOutOfBoundsException` | `get`, `set` or `removeAt` out of range |
 | `Dict` (§12.2) | `Exception` | `get` with no entry for the key |
-| `math` (§13.4) | `Exception` | `absi` of the most negative `int`; `clampi` or `clampf` with `lo > hi`; `randomi` with `min > max`; `floor`, `ceil` or `round` on a NaN or a value outside the `long` range |
+| `math` (§13.4) | `Exception` | `absi` of the most negative `int`; `clampi` or `clampf` with `lo > hi`; `randomi` with `min > max`; `floor`, `ceil` or `round` on a NaN or a value outside the `long` range; `randomBytes` on a negative `count`, a `count` past the 16 MiB request ceiling, or an unavailable system random source |
 | `io` (§14.3, §14.4) | `IOException` | `readLine` with no input channel; `readToken` or `readChar` at end of input or with no input channel (a session without stdin); the typed readers at end of input or with no input channel; `readFile`, `writeFile` or `appendFile` failure |
 | `io` (§14.3) | `Exception` | `readChar` on a byte sequence that is not valid Unicode Transformation Format (UTF-8); a typed reader on a malformed token (the string method's failure, §17.2) |
 | streams (§14.6) | `NullPointerException` | a method call through a null stream handle |
 | `system` (§15.2) | `DateTimeException` | `DateTime.parse` on malformed text or an out-of-range calendar field |
-| `fs` (§16.3) | `IOException` | `size`, `listFiles`, `makeDirs` or `remove` failure |
-| `fs` (§16.4) | `NullPointerException` | a null path to `readBytes` or `readFloats` |
-| `fs` (§16.4) | `IOException` | a `readBytes` or `readFloats` open or read failure (a file above the 16 MiB bound included) |
+| `fs` (§16.3) | `IOException` | `size`, `modifiedTimeMs`, `listFiles`, `makeDirs` or `remove` failure |
+| `fs` (§16.4) | `NullPointerException` | a null path (or null `data` for `writeBytes`) to `readBytes`, `writeBytes` or `readFloats` |
+| `fs` (§16.4) | `IOException` | a `readBytes`, `writeBytes` or `readFloats` open, read or write failure (a file above the 16 MiB bound included) |
 | `fs` (§16.4) | `Exception` | `readFloats` on a byte count that is not a multiple of four |
 | `concurrent` (§10.4) | `ChannelClosedException` | a send or receive on a closed channel |
 | `concurrent` (§10.4) | `Exception` | construction with a negative capacity |
@@ -36,8 +36,13 @@ operation; this chapter adds no failure behavior of its own.
 | `url` (§22.1–§22.4) | `UrlException` | `Url.parse` on a syntax error or an over-long reference; `resolve` on a non-absolute base; `percentDecode` or `formDecode` on a malformed escape (`queryParams` through `formDecode` included) |
 | `http` (§23.2–§23.8) | `HttpException` | a request URL that is not absolute or whose scheme is not `http`; a header name or value holding a carriage return or line feed; a header block past `maxHeaderBytes` or `maxHeaders` (431); a body read past `maxBodyBytes` (413); a malformed message read from a peer; too many redirects; a streaming body replayed across a redirect; a call on a closed client pool |
 | `http` (§23.4–§23.6) | `TimeoutException` | `HttpBodyReader.read` ending its wait at the deadline; a connection-pool wait past `callTimeoutMs` (a `net` failure below a client call passes through unaltered, §23.8) |
+| `http` (§23.5) | `Exception` | a second `start` or `serve` while the instance's listener is still running — the message names the face used |
 | `gzip` (§24.1) | `GzipException` | `compress` refused by the codec; `decompress` on input that does not decode to one complete stream |
 | `regex` (§25.2, §25.3) | `RegexException` | `Regex` construction on a pattern the engine rejects; `group` with an out-of-range index or an unknown name |
+| `json` (§26.3–§26.7) | `JsonException` | `parse` on malformed input, data after the top-level value, or nesting deeper than the limit (each with a byte offset); an accessor for a value of another kind; `getLong` or `getInt` on a number outside the `long` or `int` range; `get` for a missing key; `serialize` past the nesting limit or of a non-finite double |
+| `web` (§27.4–§27.9) | `HttpException` | a middleware calling `next()` after the chain already moved on (500); a urlencoded or multipart request body the grammar rejects (400); a form body, a part count or a single part past its configured limit (413) |
+| `web` (§27.2–§27.9) | `Exception` | `RequestContext.session()` on an app that never called `useSessions`; `App.use`, `App.useSessions` or route registration attempted after the first request; a route pattern invalid in itself or conflicting with an earlier row; the `__Host-` prefix asked for without `Secure`; `StaticFiles` built on a root that is not a directory, and `addType` with an empty extension or media type; an `Sse.send` whose id or event name holds a carriage return or line feed; `MultipartBody.addField` or `addFile` argument rejections, and a collision scan whose eight boundary re-rolls all fail |
+| `web` (§27.8) | `ChannelClosedException` | the server-sent-events stream's `send` after the client has disconnected — the disconnect closes the stream's channel, and the class belongs to the channel (§10.4) |
 
 A call through a `null` receiver raises
 `NullPointerException` in every unit (§11.2); the rows list
@@ -45,7 +50,7 @@ only the sites the defining chapters call out besides it.
 
 ## 20.2 Conventions
 
-- The library declares eight exception classes of its own:
+- The library declares nine exception classes of its own:
   `ChannelClosedException`, a direct subclass of `Exception`,
   declared by the `concurrent` package; `SocketException` and
   `TimeoutException`, subclasses of `IOException`, declared by the
@@ -53,7 +58,9 @@ only the sites the defining chapters call out besides it.
   declared by the `url` package; `HttpException` and
   `GzipException`, subclasses of `IOException` declared by the
   `http` and `gzip` packages; `RegexException`, a subclass of
-  `IOException` declared by the `regex` package; and
+  `IOException` declared by the `regex` package; `JsonException`,
+  a direct subclass of `Exception` declared by the `json`
+  package; and
   `DateTimeException`, a direct subclass of `Exception` declared by
   the `system` package (§8.3).
   Every other library failure raises a class of §8.3 (§11.4). User

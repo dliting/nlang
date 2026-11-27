@@ -15,7 +15,7 @@
 #include "nlang/compiler/Logger.h"
 #include "nlang/compiler/CastInfo.h"
 #include "nlang/runtime/Runtime.h"
-#include "nlang/vm/CompiledModule.h"
+#include "nlang/core/CompiledModule.h"
 #include "nlang/vm/NativeHost.h"
 #include "VmExecutor.h"
 #include "VmDomainLocks.h"
@@ -4240,7 +4240,8 @@ static void test_create_host_string_survives_gc()
 static void NbCreateSeam(NativeHost* host, uint8_t* ret,
                        const uint8_t*, int)
 {
-    const int32_t handle = host->newString(host, "seam-survivor");
+    const char* text = "seam-survivor";
+    const int32_t handle = host->newString(host, text, std::strlen(text));
     std::memcpy(ret, &handle, sizeof(handle));
 }
 static void test_creation_root_gap_survives_gc()
@@ -4310,7 +4311,8 @@ static void NbArraySeam(NativeHost* host, uint8_t* ret,
     for (int i = 0; i < 2000; ++i)
         handle = host->newArray(host, NEK_Int32, 8);
     (void)handle;   //rooted for the call only; not what the pin asserts
-    const int32_t survivor = host->newString(host, "arrayseam-survivor");
+    const char* text = "arrayseam-survivor";
+    const int32_t survivor = host->newString(host, text, std::strlen(text));
     std::memcpy(ret, &survivor, sizeof(survivor));
 }
 static void test_gate_gap_array_create_no_deadlock()
@@ -4381,7 +4383,8 @@ static void NbRaiseSeam(NativeHost* host, uint8_t* ret,
 {
     NativeArrayView view{};
     host->getArrayView(host, 0, &view);   //null handle raises: never returns
-    const int32_t survivor = host->newString(host, "unreachable");
+    const char* text = "unreachable";
+    const int32_t survivor = host->newString(host, text, std::strlen(text));
     std::memcpy(ret, &survivor, sizeof(survivor));
 }
 static void test_raise_gap_survives_gc()

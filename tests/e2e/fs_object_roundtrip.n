@@ -2,12 +2,12 @@ import io;
 class Holder { public int v; }
 
 int main() {
-    FileStream stream = FileStream("_phase8_tmp/object_roundtrip.bin", "w");
+    FileStream stream = FileStream("../temp/fs/object_roundtrip.bin", "w");
     Holder h = Holder();
     h.v = 42;
     stream.writeObject(h);
     stream.close();
-    FileStream stream2 = FileStream("_phase8_tmp/object_roundtrip.bin", "r");
+    FileStream stream2 = FileStream("../temp/fs/object_roundtrip.bin", "r");
     Holder h2 = stream2.readObject("Holder");
     stream2.close();
     return h2.v;

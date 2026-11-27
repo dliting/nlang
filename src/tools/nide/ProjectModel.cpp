@@ -170,6 +170,17 @@ void ProjectNode::setImportPaths(const QStringList& paths) {
     }
 }
 
+//--- Native library members (.nproj <Natives>) ---
+
+int ProjectNode::nativeMemberCount() const {
+    return static_cast<int>(m_nativeMembers.size());
+}
+
+QString ProjectNode::nativeMemberAt(int index) const {
+    Q_ASSERT(index >= 0 && index < static_cast<int>(m_nativeMembers.size()));
+    return m_nativeMembers[static_cast<size_t>(index)];
+}
+
 //--- SolutionNode ---
 
 SolutionNode::SolutionNode(const QString& name, bool ephemeral)

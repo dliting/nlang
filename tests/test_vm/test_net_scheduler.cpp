@@ -11,6 +11,7 @@
 #include <nlang/runtime/Runtime.h>
 #include <chrono>
 #include <cstdio>
+#include <future>
 #include <thread>
 #include <vector>
 
@@ -90,15 +91,15 @@ static void TestWakeOnDeadline() {
     NetClose(fd);
 }
 
-//Final review I1: the poller's registration baseline must not outlive
-//the sleep that follows its last waiter. WakeIoWaitersForFd (the
-//close path) empties the interest table, the poller thread cv-sleeps
-//before its del-vanished-fds loop can run, and the baseline keeps
-//(fd, events). A socket later opened with the same fd value (the OS
-//hands back the lowest free handle) is then skipped by the
-//equal-registration check — the kernel registration died with the
-//old fd — and its reader sleeps to the deadline instead of waking on
-//traffic.
+//Final review I1: neither half of the poller's registration may outlive the
+//sleep that follows its last waiter. Before the fix WakeIoWaitersForFd (the
+//close path) dropped the interest-table row and left the kernel entry behind,
+//and the poller cv-sleeps once the table is empty, so the sweep that deletes
+//vanished fds never ran to reap it. A socket later opened with the same fd
+//value (the OS hands back the lowest free handle) then Mod-succeeded against
+//that zombie — its interest landed on the dead socket's poll object — and its
+//reader slept to the deadline instead of waking on traffic.
+//TestCloseDropsKernelInterest pins the same window without the reuse lottery.
 static void TestStaleRegistrationOnFdReuse() {
     VmScheduler sched;
     const int id = sched.RegisterContext();
@@ -134,13 +135,82 @@ static void TestStaleRegistrationOnFdReuse() {
         std::this_thread::sleep_for(50ms);   //park registered
         NetSendTo(peer, m, 1, "127.0.0.1", NetLocalPort(fd));
     });
-    const auto t0 = steady_clock::now();
     const bool woke = WaitUntilRunnable(sched, id, 2000);
     sender.join();
     CHECK(woke);
-    CHECK(steady_clock::now() - t0 < 1500ms);   //readiness, not deadline
+    //D-12: "readiness, not deadline" is decided by the reason the
+    //harvest recorded on the wake, not by the wall clock — a slow
+    //machine may legitimately exceed any fixed threshold, and the
+    //bug shape's wake (the 2s deadline) is exactly what the reason
+    //names: Deadline. (Deterministic-test ruling: no assertion may
+    //depend on elapsed time.)
+    CHECK(sched.LastIoWakeReasonForTests(id) == IoWakeReason::Ready);
     NetClose(fd);
     NetClose(peer);
+}
+
+//The kernel-side half of the unregistration that TestCloseWakesDropsInterest
+//pins for the table: dropping the row leaves the *kernel* entry behind,
+//because wepoll keys its set by socket value and removes an entry only when it
+//dequeues that socket's close completion. A poller round does pick it up within
+//a slice, but only while the poller has a reason to round: when the close is the
+//last interest the poller cv-sleeps again and the entry is never reaped at all.
+//The next socket the OS opens with the same value — it hands back the lowest
+//free handle, so a server that closes its listener and starts a new one comes
+//back to it at once — then Mod-succeeds against that zombie: its interest lands
+//on the dead socket's poll object, and the still-pending reap deletes that entry
+//while the table keeps reporting it registered. Nothing re-registers it
+//afterwards, so the reader is left with its deadline alone: the field case is an
+//http accept loop stuck in accept(0) with a connection already in the listen
+//backlog. The close path therefore has to delete the kernel entry itself — the
+//table may never claim interest the kernel set lacks, the one skew a park cannot
+//recover from on its own.
+//
+//BeginShutdownForTests stops the poller thread before the close, so the reap
+//cannot race the reading: the thread leaves its wait without harvesting, which
+//is what turns "the kernel still holds it" into a fact about the code rather
+//than a bet on the machine (2026-11-14 ruling: no test assertion may depend on
+//timing).
+static void TestCloseDropsKernelInterest() {
+    VmScheduler sched;
+    const int id = sched.RegisterContext();
+    int fd = NetOpenUdp(NetFamily::Inet);
+    NetBind(fd, "127.0.0.1", 0);
+    sched.ParkForIo(id, fd, IO_EV_READ, steady_clock::now() + 30s, true);
+    CHECK(sched.IoPollerKernelInterestForTests(fd, IO_EV_READ));   //the park registered it
+    sched.BeginShutdownForTests();               //no reap can run behind us
+    sched.WakeIoWaitersForFd(fd);                //the close path: last waiter
+    CHECK(sched.IoPollerRegisteredForTests(fd) == 0);        //the row is gone…
+    CHECK(!sched.IoPollerKernelInterestForTests(fd, IO_EV_READ));   //…and so is the kernel entry
+    CHECK(WaitUntilRunnable(sched, id, 200));
+    NetClose(fd);
+}
+
+//The interest table is the narrowing sweep's candidate list, not an authority a
+//park may trust: every park re-declares what it needs, so an entry the kernel
+//lost behind the table's back (the reap above, a delete that failed on a dying
+//fd) is re-armed instead of being skipped as already registered. Trusting the
+//row is what made the skew unrepairable: the row alone decided that the kernel
+//still watched the fd, and no later park ever contradicted it.
+static void TestStaleRowParkReRegisters() {
+    VmScheduler sched;
+    const int id = sched.RegisterContext();
+    int fd = NetOpenUdp(NetFamily::Inet);
+    NetBind(fd, "127.0.0.1", 0);
+    sched.ParkForIo(id, fd, IO_EV_READ, steady_clock::now() + 30s, true);
+    CHECK(sched.IoPollerKernelInterestForTests(fd, IO_EV_READ));
+    sched.IoPollerDropKernelInterestForTests(fd);      //the kernel forgot it…
+    CHECK(sched.IoPollerRegisteredForTests(fd) == IO_EV_READ);   //…the table did not
+    CHECK(!sched.IoPollerKernelInterestForTests(fd, IO_EV_READ));
+    //The parked reader above still wants READ, so the narrowing sweep leaves the
+    //row alone and the only writer of the kernel set is this park.
+    const int again = sched.RegisterContext();
+    sched.ParkForIo(again, fd, IO_EV_READ, steady_clock::now() + 30s, true);
+    CHECK(sched.IoPollerKernelInterestForTests(fd, IO_EV_READ));   //re-armed, not skipped
+    sched.WakeIoWaitersForFd(fd);
+    CHECK(WaitUntilRunnable(sched, id, 200));
+    CHECK(WaitUntilRunnable(sched, again, 200));
+    NetClose(fd);
 }
 
 static void TestRemoveOnClose() {
@@ -182,12 +252,11 @@ static void TestUnionMaskAcrossParkSites() {
     sched.ParkForIo(r, a, IO_EV_READ,  steady_clock::now() + 30s, true);
     sched.ParkForIo(w, a, IO_EV_WRITE, steady_clock::now() + 30s, true);
     CHECK(sched.IoPollerRegisteredForTests(a) == (IO_EV_READ | IO_EV_WRITE));
-    //A park re-declaring the union mask the kernel already has for a takes
-    //the equal-mask shortcut in RegisterIoInterestLocked: no Add/Mod
-    //round-trip. This is the branch the erase in WakeIoWaitersForFd guards:
-    //without it the table over-reports, and a later Add/Mod on an fd the
-    //kernel has dropped fails (EEXIST on POSIX Add, ERROR_INVALID_HANDLE on
-    //IOCP), so pin the shortcut with a fresh context on the same fd.
+    //A park that re-declares a mask the row already covers (r2 wants exactly
+    //what a has) must still send the UNION to the kernel, not its own mask:
+    //wepoll's sock_set_event replaces the watched set, so a bare READ here
+    //would drop the write bit the parked writer waits for. Pin it with a fresh
+    //context on the same fd.
     const int r2 = sched.RegisterContext();
     sched.ParkForIo(r2, a, IO_EV_READ | IO_EV_WRITE, steady_clock::now() + 30s, true);
     CHECK(sched.IoPollerRegisteredForTests(a) == (IO_EV_READ | IO_EV_WRITE));
@@ -202,7 +271,7 @@ static void TestUnionMaskAcrossParkSites() {
     sched.WakeIoWaitersForFd(a);
     sched.WakeIoWaitersForFd(b);
     CHECK(WaitUntilRunnable(sched, r, 200));
-    CHECK(WaitUntilRunnable(sched, r2, 200));          //the equal-mask park drains too
+    CHECK(WaitUntilRunnable(sched, r2, 200));          //the re-declaring park drains too
     NetClose(a);
     NetClose(b);
 }
@@ -228,11 +297,10 @@ static void TestDeadlineOnlyPark() {
 //the registration when the last waiter disappears. The registration must be
 //gone by the time the call returns — the narrowing sweep only runs inside
 //harvest rounds, and an empty table lets the poller thread cv-sleep again, so
-//such a round may never happen. This invariant is exactly what
-//`TestStaleRegistrationOnFdReuse` (`:102`) relies on: `RegisterIoInterestLocked`
-//takes its equal-mask shortcut over a stale (fd, events) as if the kernel still
-//had it registered and skips the Add, leaving a new socket to wait for its
-//deadline alone.
+//such a round may never happen. `TestStaleRegistrationOnFdReuse` is what the
+//invariant buys: a socket opened on a recycled fd value has to reach the fresh
+//Add in `RegisterIoInterestLocked` instead of having its interest land on the
+//previous socket's entry, where it would wait for its deadline alone.
 static void TestCloseWakesDropsInterest() {
     VmScheduler sched;
     const int id = sched.RegisterContext();
@@ -243,6 +311,59 @@ static void TestCloseWakesDropsInterest() {
     sched.WakeIoWaitersForFd(fd);                 //the close path: last waiter
     CHECK(sched.IoPollerRegisteredForTests(fd) == 0);   //gone on return, not one round later
     CHECK(WaitUntilRunnable(sched, id, 200));
+    NetClose(fd);
+}
+
+//The close-side wake must hand the woken context to a carrier, the way every
+//other direct wake does (WakeForMutex/WakeForSemaphore end with a carrier
+//notify; the harvest and the timer sweep bulk-notify after their loops). The
+//wake here came from a socket close, which can be the only wake an infinite
+//deadline park ever gets — accept(0) has no deadline to fall back on — so a
+//missing notify parks the connection loop until some unrelated event moves the
+//queue. The state probe of the other tests cannot see this: the state flips and
+//the context is enqueued either way, only nobody is told. So the assertion is
+//made from a carrier's side: a carrier waiting on an empty queue must come back
+//with the woken context.
+//The poller is kept absent (the same injection switch TestHandleCreationFailure
+//uses): its harvest round notifies the carriers after every round, which would
+//cover for the close path's own notify and make the test pass for the wrong
+//reason.
+static void TestCloseWakeDispatchesCarrier() {
+    VmScheduler sched;
+    sched.SetIoPollerCreateFailsForTests(true);
+    //Born parked so the run queue starts empty: in production a context parks
+    //only after a dispatch took it out of the queue, and a queue entry the
+    //carrier could pop would answer the question without the wake.
+    const int ioId = sched.RegisterParkedPromiseContext();
+    int fd = NetOpenUdp(NetFamily::Inet);
+    NetBind(fd, "127.0.0.1", 0);
+    sched.ParkForIo(ioId, fd, IO_EV_READ, steady_clock::now() + 30s, true);
+    //White-box completion of the K7 park handshake (test_threads.cpp:3782):
+    //a production park stores the frames at the park site, and a wake enqueues
+    //only a context whose frames have landed.
+    sched.ParkContextFrames(ioId, {});
+
+    sched.ConfigureCarriers(1);
+    std::promise<void> installed;
+    auto started = installed.get_future();
+    std::promise<int> popped;
+    auto got = popped.get_future();
+    std::thread carrier([&sched, &installed, &popped] {
+        sched.InstallSelfCarrier(0);
+        installed.set_value();                   //the slot exists before the wake
+        popped.set_value(sched.PopNextRunnable());   //waits for the wake to enqueue
+    });
+    started.get();
+    std::this_thread::sleep_for(50ms);         //the carrier is in its wait
+    sched.WakeIoWaitersForFd(fd);               //the close path: last waiter
+    const bool dispatched = got.wait_for(2s) == std::future_status::ready;
+    CHECK(dispatched);                          //a carrier came back for it
+    if (dispatched) {
+        CHECK(got.get() == ioId);               //with the woken context
+    } else {
+        sched.RequestStop();                    //ends the carrier's wait: joinable
+    }
+    carrier.join();
     NetClose(fd);
 }
 
@@ -338,10 +459,13 @@ int main() {
     TestWakeOnDeadline();
     TestRemoveOnClose();
     TestStaleRegistrationOnFdReuse();
+    TestCloseDropsKernelInterest();
+    TestStaleRowParkReRegisters();
     TestRegisterAtPark();
     TestUnionMaskAcrossParkSites();
     TestDeadlineOnlyPark();
     TestCloseWakesDropsInterest();
+    TestCloseWakeDispatchesCarrier();
     TestHarvestNarrowsVanishedInterest();
     TestParkAfterShutdown();
     TestHandleCreationFailure();

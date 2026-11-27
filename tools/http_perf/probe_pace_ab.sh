@@ -11,7 +11,7 @@
 # there whatever the spacing. That flat step is what points at a timed wait
 # rather than at per-request work.
 #
-# Run it through the machine lock like every other measurement on this box:
+# Run it through tools/gate.sh like every other measurement on this box:
 #
 #   tools/gate.sh pace-ab temp/t15 bash tools/http_perf/probe_pace_ab.sh
 #

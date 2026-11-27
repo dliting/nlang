@@ -12,7 +12,7 @@
 #include <nlang/compiler/BuildEnvironment.h>
 #include <nlang/compiler/Logger.h>
 #include <nlang/compiler/CastInfo.h>
-#include <nlang/vm/Intrinsics.h>
+#include <nlang/core/Intrinsics.h>
 #include "builder/ModuleRegistry.h"
 #include "builder/ExprResolver.h"    //FindPreludeClassDecl
 #include "SnTypes.h"                 //SnBuiltinDataType

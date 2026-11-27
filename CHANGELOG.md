@@ -1,11 +1,3 @@
-# Changelog
-
-**English** | [中文](CHANGELOG.zh-CN.md)
-
-All notable changes to NLang are documented here. The format follows
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
-[Semantic Versioning](https://semver.org/).
-
 ## [0.14.14]
 
 ### Added
@@ -594,6 +586,543 @@ deployment detail, not a program detail.
 - The CUDA plugin needs the CUDA 12.6 toolchain at build time and a
   compatible driver at run time; the host runtime itself has no GPU
   dependency.
+
+## [0.13.13] - 2026-11-26
+
+This release absorbs both lines' in-flight versions: the master
+line's package artifacts (F1) and the dev line's web framework
+ship together under the [0.13.12] entry below, and the dev line's
+library layering refactor is [0.13.12a] (no user-visible surface
+change). Those entries sit below 0.13.13, dated by their own
+lines' release days; read them together with this one.
+
+### Changed
+
+- **Manual: web framework chapter, formats renumbered.** The `web`
+  package joins the specification's library reference as chapter
+  27, and the format references on NCU, NPKG and ABI move to
+  chapters 28/29/30. Both language trees stay in sync.
+- **web: `setCookie` rejects a value a cookie cannot carry.** The
+  value faces handler code, and one byte outside the range RFC 6265
+  lets a cookie carry — a `;` above all — would smuggle its own
+  attributes into the Set-Cookie line, so an unshippable value now
+  throws a named exception at the call site instead of shipping a
+  malformed line. The full printable-ASCII edge table and the
+  double-quoted form ship as written.
+- **web: error messages follow the package's naming convention.**
+  `RequestContext.next` and `form.Form` now spell their diagnostics
+  with the `web.<class>.<method>:` prefix the rest of the package
+  already uses.
+
+### Fixed
+
+- **web: a failed chain no longer ships its half-open stream.** A
+  middleware that opened a streaming answer and then threw left the
+  body channel behind, so the writer shipped the orphan stream
+  instead of the rebuilt error body. The error stage now closes the
+  channel first — a producer parked on it wakes with
+  `ChannelClosedException` — and the plain rebuilt body is what
+  ships.
+- **http: server teardown cancels a parked streaming response.**
+  `drain()` and `close()` closed only the socket of a connection
+  whose pump was parked on its body channel — the one shape a socket
+  close cannot wake — so the producer kept pushing frames into a
+  response already declared dead. The teardown now closes the channel
+  with the socket, and the pump and the producer both wake with
+  `ChannelClosedException`.
+
+## [0.13.12a] - 2026-11-25
+
+Library-layering refactor with no user-visible surface changes: a
+new internal static library `nlang_core` carries the shared
+compiled-module vocabulary — module wire format, bytecode
+spelling, disassembler, loader and linker — and the bytecode
+backend moves from `nlang_vm` into `nlang_compiler` under
+`src/compiler/codegen`. The shared vocabulary's public headers now
+live under `include/nlang/core`. This severs the former
+`nlang_vm ↔ nlang_compiler` link-time cycle: the compiler builds
+on `nlang_core` alone, and the VM stays pure execution.
+
+Language, standard library, diagnostics, exit codes and the NCU
+wire format are unchanged — byte-for-byte, verified by a
+path-normalized diff over every stdlib and example artifact built
+before and after the split.
+
+## [0.13.12] - 2026-11-23
+
+Package archives as a distribution unit: a third-party library can now
+ship as one `.npkg` archive that the compiler and the runtime both
+consume directly — imports resolve through its member table at compile
+time, unit images link at load time, and a mixed library's native DLL
+rides the same archive, extracted to the user package cache before
+loading. The standard library itself is repackaged into thirteen
+domain packages on the same container. Not backward compatible by
+design.
+
+Name resolution through library packages now matches its project-module
+twin: `import p.*;` opens a library package's submodule subtree the way
+it opens a project directory's, and a module-qualified chain reaches the
+static methods, static fields and enum members of a library class at any
+depth — spellings the compiler used to reject while accepting the same
+shapes written against a project module.
+
+Web framework on top of the `http` package: the `web` package brings
+routing with `:name` captures and a trailing `*` catch-all, a
+middleware chain, cookie-backed
+sessions, mounted static-file serving with `ETag`/`Last-Modified`
+revalidation, a server-sent events helper, and form parsing for both
+browser encodings — with a `MultipartBody` builder and uploads saved
+under sanitized names.
+
+Lambda review-fix pass over 0.13.10: currying, catch-variable
+capture and static-field lambda initializers arrive, and a
+shadowed-capture misroute is fixed by resolving captured access
+through the bound display-field descriptor instead of the field
+name. Not backward compatible by design.
+
+This release also absorbs the master-line releases 0.13.9 and
+0.13.10: everything user-visible on that line lands here —
+value-type references and the retired `out` parameter mechanism
+(0.13.9), lambda closures and per-iteration loop-head capture
+(0.13.10), NCU format v2.23 included. Those entries sit below
+0.13.11, each dated by its own line's release day; read them
+alongside this one.
+
+### Added
+
+- **Library archives as an import surface.** With no source supplying a
+  module, the compiler checks `<name>.ncu` in a directory and then the
+  member tables of its `.npkg` files in file-name order; the first
+  directory with a provider wins. A matched artifact contributes
+  declaration stubs, never bodies; source keeps priority over artifacts
+  across the whole search path, so shipping sources next to an archive
+  stays deterministic. A wildcard `import a.b.*;` takes the union of
+  source modules and package members, and an artifact-only module feeds
+  the unimported-name diagnosis the way a source module does: writing
+  `tp.sub.Fn.f()` without an import still suggests `import tp.sub;`. A
+  program package — one with an entry record — is an executable
+  closure, not a compile-time import provider; at run time the entry
+  archive's own members load first, then the search path serves the
+  rest of the closure.
+- **The standard library in thirteen domain packages.** The runtime
+  standard library ships as `concurrent.npkg` (`thread` and
+  `concurrent`) plus the single-module packages `io.npkg`, `math.npkg`,
+  `fs.npkg`, `tensor.npkg`, `net.npkg`, `http.npkg`, `url.npkg`,
+  `system.npkg`, `gzip.npkg`, `regex.npkg`, `json.npkg` and
+  `web.npkg`. Archive file names describe distribution domains; imports
+  resolve the member module paths. The preset modules `lang` and
+  `containers` stay embedded at compile time with no runtime members.
+- **Native members in a package archive.** A mixed library's host DLL
+  packs into its archive through the project file's `<Natives>` block.
+  The operating system cannot map a library straight out of an
+  archive, so opening a package also extracts each native member to a
+  per-package directory under the user package cache —
+  `NLANG_PKG_CACHE_ROOT` relocates the root — and loading appends that
+  directory to the native search path. A loose library beside the
+  executable or on an earlier layer still outranks the packed copy; a
+  cached copy matching the member is left alone, one that differs is
+  replaced. A package whose declarations stay outside a program's
+  closure is extracted but never loaded, and consumers need neither
+  the library file itself nor a dedicated search-dir entry for it.
+- **The `web` package.** An application layer over `http`: `App`
+  owns the server and the middleware chain, routes register through
+  `on` and its verb shorthands with `:name` captures and a trailing
+  `*` catch-all, `mount` hands a prefix's subtree to a handler or a
+  second route table, `useSessions` turns on cookie-backed sessions,
+  and `setNotFound`/`onError` reshape misses and failures.
+- **Static file serving.** `web.static.StaticFiles` serves a mounted
+  directory: index file, `Cache-Control` max-age, `ETag` and
+  `Last-Modified` revalidation, dot-file refusal.
+- **Server-sent events.** `web.sse.Sse` writes framed SSE events
+  onto a response held open — the SSE semantics chapter 23 leaves
+  to the application.
+- **Form parsing.** `web.form.Form.parse` decodes
+  `application/x-www-form-urlencoded` and `multipart/form-data`
+  bodies into `FormData` under `FormOptions` budgets: a foreign
+  content type answers `415`, malformed grammar answers named `400`
+  diagnostics, an exhausted budget answers a named `413`.
+- **`web.form.MultipartBody`.** The client side of the same
+  message: `addField` and `addFile` register parts — `addFile`
+  copies its data at registration — and a registered `Content-Type`
+  carrying CR or LF is refused.
+- **Upload saving.** `FormFile.safeName()` cleans a client name for
+  storage: the client path stripped, control bytes out, reserved
+  device names prefixed, truncation at a UTF-8 boundary. `saveTo`
+  writes under that name plus a random hex suffix, `saveAs` writes
+  verbatim.
+- **`math.randomBytes(count)`.** Fresh bytes from the operating
+  system's cryptographically secure random source; a negative
+  count, a count over the 16 MiB ceiling or an unavailable source
+  answer named diagnostics. Session ids and multipart boundaries
+  draw from it.
+- **`fs.writeBytes(path, data)` and `fs.modifiedTimeMs(path)`.**
+  Whole-file byte writes, and a file's last-modified time in
+  milliseconds since the Unix epoch, on the clock `http.HttpDate`
+  reads — the static-file revalidation feeds on it.
+- **`net.TcpStream.isEof()`.** Whether the peer's end-of-stream has
+  been observed: sticky, and never set by a timeout, so a caller
+  separates "the peer is done" from "nothing has arrived yet".
+- **`http.HttpServer.drain(graceMs)` and `isServing()`.** The
+  graceful shutdown state machine: `drain` stops accepting, serves
+  the in-flight requests within the grace window and reports the
+  connections it forced closed; `isServing` reports whether the
+  accept loop is up. `web.App` forwards `drain` and `close`.
+- **Expression-body nesting (currying).** A lambda's expression
+  body may itself be a lambda — `(x) -> (y) -> x + y` under
+  `func<func<int, int>, int>` returns a closure that captures the
+  outer parameter. Expression bodies are normalized to a
+  single-return block before capture analysis, so every capture
+  rule (value and `&` forms, loop-head freshness, shadowing)
+  applies to both body shapes alike.
+- **Catch-variable capture.** A lambda written inside a `catch`
+  handler captures the handler's variable like any outer local —
+  `func<string> msg = () -> e.message;` reads the exception object
+  the clause bound.
+- **Lambdas as static field initializers.** A static field of
+  function type may be initialized with a lambda —
+  `public static func<int, int> dbl = (x) -> x * 2;` — evaluated
+  once by the class's static initializer at first use. Invoking it
+  through the type name (`Cfg.dbl(21)`) is the receiverless call
+  shape for a `func`-typed static field; instance field
+  initializers remain constant-expression positions.
+
+### Changed
+
+- **Container format 1.1.** `.npkg` member-table rows now carry a kind —
+  `0` a unit image, `1` a native host library — with native members
+  keyed by file name (`nlang_<ns>.dll`) and no import ever resolving to
+  them. Members are written sorted by name and the header records no
+  timestamps, so packing the same set twice produces byte-identical
+  archives. A reader accepts major `1` with a minor not above its own:
+  an older tool rejects 1.1 archives, and the current reader still
+  reads 1.0.
+- **Two new diagnostics around packages.** Two library packages in the
+  winning directory both containing the same module are a compile-time
+  error naming both archives (`Duplicate package 'a.b.c':
+  '<first>.npkg' and '<second>.npkg'.`), so a leftover package from a
+  repackaging cannot silently shadow its replacement. The
+  module-not-found diagnostic appends a note for every package that
+  could not be opened during the scan, and a package whose member table
+  names the module but whose member image is invalid is reported as a
+  failed module load, not as missing.
+- **`fs.readBytes` returns `byte[]`.** The whole-file read answered
+  `int[]` with one octet per element; the octets now arrive as a
+  `byte[]`, the shape `fs.writeBytes` takes. Not backward
+  compatible by design: call sites that indexed the `int[]` re-read
+  them as `byte[]`.
+- **The default client read timeout is 30 seconds.** The `http`
+  client's default `readTimeoutMs` grew from 10000 ms to 30000 ms,
+  so a slow server-handler read on an otherwise healthy machine no
+  longer raises a spurious `TimeoutException`. The budget stays
+  bounded to catch hung connections, and each client still sets the
+  field itself.
+
+### Fixed
+
+- **Shadowed captures resolve by identity.** A captured reference
+  now walks the display chain by the bound display field's parent
+  class, not by field name: a lambda capturing an outer `n` while
+  an inner scope redeclares `n` reads and writes the declaring
+  scope's storage for both value and `&` captures.
+- **Qualified names and wildcard imports behave the same through
+  library packages as through project modules.** A chain such as
+  `http.HttpResponse.reasonPhraseFor(404)` — an opened module path,
+  then a type, then its member — compiled when the class lived in a
+  project module and failed when the very same class lived in a
+  library package: the resolver's library arm claimed the whole
+  chain as a module path (`Module 'http.HttpResponse' is not
+  imported`), and every remedy it suggested the compiler itself then
+  rejected — the class is not a module, and `import http.*;` was
+  refused outright for library packages. Enum members worked one
+  segment deep while class statics did not work at all. Both sides
+  now walk the chain by one rule: after an opened module path, a
+  segment that names a type hands the rest of the chain to that
+  type's scope — static methods, static fields and enum members, at
+  any depth — and `import p.*;` opens `p` with its whole submodule
+  subtree for library packages as it does for project units, so a
+  flat library package's wildcard is equivalent to its exact import.
+  Only a name that genuinely is a module path is told `is not
+  imported` now; a missing member of a reached type reads as a
+  missing member.
+
+## [0.13.11] - 2026-11-15
+
+The JSON library: a `json` package that reads, edits and writes JSON
+text, written in NLang itself and shipped in the preset package. This
+release also settles two language-surface items the library needed and
+fixes four defects it uncovered.
+
+### Added
+
+- **The `json` package** — `json.parse(text)` turns one JSON document
+  into a tree of `JsonValue` nodes; `serialize()` writes a tree back as
+  compact one-line text and `serialize(spaces)` renders the indented
+  form (spaces per level, a value of 0 or less stays compact).
+  `toString()` shows the same text as `serialize()`.
+- **Reading a document** — `kind()` answers which of `JsonKind`'s six
+  kinds a node holds, and the typed accessors (`getString`, `getBool`,
+  `getLong`, `getInt`, `getDouble`, `getObject`, `getArray`) answer for
+  the kind that is there and raise `JsonException` naming the kind when
+  asked for another. `JsonArray` gives `add` (six value types), `get`,
+  `set`, `removeAt` and `length`; `JsonObject` gives `put` (six value
+  types), `get`, `has`, `remove`, `names` and `count`.
+- **Building a document** — the scalars are constructible directly
+  (`JsonNull()`, `JsonBool(true)`, `JsonNumber(7)`, `JsonString("s")`),
+  so a tree can be assembled without parsing anything first.
+- **A strict grammar with located errors** — the grammar is RFC 8259
+  read strictly: no comments, no trailing commas, no leading `+` or
+  leading-zero integers, no `NaN` or `Infinity`, and the literals
+  `true`, `false` and `null` only in lower case. Every violation raises
+  a catchable `JsonException` whose message carries the byte offset of
+  the offending byte, so the position still holds after re-reading the
+  file.
+- **Numbers keep their source text** — a number parsed from text
+  serializes back with the exact characters it was written with (`1.0`,
+  `1e3`, `-0`, a 30-digit integer); `getLong` and `getInt` answer exact
+  whole values inside their own range, and the `JsonException` they
+  raise names what failed — a value outside the range or a value with a
+  fraction — while `getDouble` answers for every number. An
+  exponent past `double` range (`1e999`) is rejected where it is found.
+  A `JsonNumber` built from a non-finite `double` refuses to serialize:
+  JSON has no such literal.
+- **Text round-trips through escapes** — `parse` composes a `\uXXXX`
+  surrogate pair into the character it names and turns a lone half
+  surrogate into the replacement character U+FFFD; `serialize()` escapes
+  only the double quote, the backslash and bytes below `0x20`, so every
+  other byte, UTF-8 sequences included, passes through as it came.
+- **A duplicate key keeps one place** — the last value written wins, and
+  the key keeps the position where it first appeared, so re-serializing
+  a document preserves the original key order.
+- **Depth is a catchable error in both directions** — `JsonText.MAX_DEPTH`
+  (200) bounds nesting while parsing and while serializing, so a
+  pathologically deep document fails as `JsonException` instead of
+  exhausting the VM's frames, which is a host-level error no `catch`
+  reaches.
+- **A tour example** — `examples/json_tour.n` parses a document, reads a
+  node by kind, edits the tree and writes it back in both the compact
+  and the indented form; §26.1 shows the same program with the output it
+  prints.
+
+### Changed
+
+- **`as` now spells widenings as well as narrowings.** An explicit cast
+  between scalar primitives used to be accepted only when it narrowed,
+  so a `long` → `double` conversion a program genuinely intended had no
+  spelling that silenced the precision-loss warning. `as` now takes any
+  pair of scalar types whose conversion the implicit rules already
+  allow — the conversion is the same one, the cast only says it is
+  meant. An `enum` member on the left of `as` collapses to the `int` it
+  already is at runtime, so `Colour.Red as double` needs no detour
+  through an `int` variable.
+- **A native extension receives its strings by byte length (the native
+  ABI moves to 13).** Every string parameter now arrives with an
+  `int64_t` content length beside it and every string result leaves
+  with an `int64_t*` out length, and a NUL byte is ordinary string
+  content on both sides: `io.toBytes`/`io.fromBytes` and
+  `TcpStream.readLine` round-trip a string that contains a NUL, where
+  the NUL used to cut the text short. A returned buffer stays
+  NUL-terminated as a convenience only; the length is the content
+  boundary. The C++ wrappers keep taking and returning `std::string`,
+  but all native modules must be rebuilt for ABI 13. Extensions that
+  read the host function table directly must also update their callback
+  signatures; the ABI chapter lists them.
+- **An internal type name is no longer a type spelling.** The runtime's
+  internal type names — `Int32`, `UInt32`, `ULong`, `Float`, `String`,
+  `Void`, `Type` among them — are the display spellings the rendered
+  signatures print; a program could
+  also use them as types, because the mirror the compiler
+  builds of the runtime's builtin types indexed those names in the
+  global namespace. Some of them compiled into something that then
+  failed at load: `Void v;` named a type with no value representation,
+  and `Type t;` reached the generic instantiation layer, which defines
+  no spelling for a metaclass, so the module was refused only once it
+  was running. Those names now resolve like any undeclared name
+  (`Cannot resolve the field: Void.`), because the types of the language
+  are its keywords and numeric aliases (§1.4) together with the names a
+  program declares: write `int` or `int32`, write `string`, and write
+  the declared class, interface, struct or enum name. The preset
+  package's own face classes keep the messages they already had —
+  `"String" is a builtin face class; it cannot be used as a type. Use
+  the string keyword instead.` — because those names come from
+  declarations, not from the mirror.
+
+### Fixed
+
+- **Constructor arguments of a widened type carry the right value.** An
+  `int` actual for a `long` or `double` formal (and a `long` actual for
+  a `double` formal) was staged into the call slot at the argument's own
+  width, so the rest of the slot kept whatever the previous expression
+  left there: a `Box(42)` written just after a call returning a `double`
+  received a stale high half. Bare constructor calls, direct
+  initialization, struct spellings, `super(...)` and module-qualified
+  construction now stage every actual at the formal's declared width.
+- **A class method declared after an abstract member links again.** A
+  consumer that reads a class from source — which is how every shipped
+  package arrives — numbered the class's methods without counting its
+  abstract members, so each method declared after one came out one row
+  short: `nlink` refused the call with "provides no member with that
+  signature", and where a name and an arity coincidentally matched it
+  silently bound the wrong method. An abstract member now occupies its
+  method-table row in the consumer's count as it does in the provider's.
+- **A function type with no return value inside a type argument
+  loads.** `List<func<void, Ctx>>` — a list of functions taking a `Ctx`
+  and returning no value — compiled, and then the whole module was
+  refused at start-up with "corrupt descriptor spelling: unresolved
+  link key '?'": a type argument has to be spelled into the
+  instantiation record, and the compiler and the
+  virtual machine each kept their own list of the spellings, with
+  `void` on neither. The compiler wrote the placeholder `?` for the
+  `void` it could not name and the loader, which had never seen `?`,
+  rejected the image. The two now read one shared table, so a type
+  argument the compiler cannot spell is a compile-time contract
+  violation instead of a record the virtual machine can only refuse
+  after the image is written.
+- **An interface-typed field or local keeps its object alive.** A class
+  field, local or parameter declared with an interface type reached the
+  collector as an integer rather than as an object reference: the
+  classifier mapping a declared type to a runtime type kind answered for
+  class, struct and enum declarations and had no answer for `interface`,
+  so it fell back to the integer. The collector skipped the slot and
+  freed the receiver as soon as a collection ran, and the program then
+  died on the next call with `method not found: …` — the slot named a
+  record the allocator had already handed out again. An interface-typed
+  slot now classifies as an object reference (an interface value is an
+  instance of a class that implements it), and a declared type with no
+  answer in that classifier fails the build naming the kind instead of
+  degrading to an integer and losing the object.
+
+## [0.13.10] - 2026-11-22
+
+Lambda expressions and closures deliver the program of
+`docs/dev/lambda_closure_design.md`: `->` writes a function value
+in place wherever a `func` type is expected, captured outer locals
+move to heap storage shared with the enclosing scope, loop heads
+bind a fresh variable per iteration, and closures gain their own
+identity surface. The module format rises to NCU v2.23; modules
+compiled by earlier compilers are rejected with the
+outdated-version diagnostic. Not backward compatible by design.
+
+### Added
+
+- **Lambda expressions.** `(params) -> body` produces a function
+  value at the same consumer positions as a function reference —
+  declarations, assignments, returns, call arguments, array
+  elements, init-list entries. The parameter list takes bare
+  identifiers (the type and `&` marker come from the expected
+  type), typed identifiers (exact positional match, no variance)
+  or the empty form; the body is an expression (its value is the
+  return value) or a brace block (returning through `return`; a
+  `func<void>` block needs no `return`). A lambda with no expected
+  function type is a compile error, as are default-valued or
+  generic parameter lists and a lambda as a field initializer.
+- **Capture.** An outer local referenced in a lambda body is
+  captured: its storage moves to the heap and is shared by the
+  lambda and the enclosing code — writes on either side are
+  visible to the other, and several lambdas capturing one variable
+  share the single storage. `const` locals stay const, `static`
+  locals are not captured (the body addresses the static slot
+  directly), instance-member access captures the receiver, and an
+  `&` reference captures the binding itself, writing through to
+  the referent's storage.
+- **Closure identity and rendering.** Two evaluations of one
+  lambda literal within a single activation of its scope are equal
+  under `==`; re-activating the scope — calling the containing
+  function again, entering the next loop iteration — yields an
+  unequal closure. `toString` renders `"lambda"` off the function
+  record's lambda flag; `==`/`!=`/`null` otherwise follow the
+  function-value rules.
+- **Reference-form returns on closures.** A lambda under a
+  `func<int&, int&>` expectation may declare `&` parameters and an
+  `&` return: writes through a `&` parameter reach the caller's
+  storage, and returning a reference to a captured variable is
+  legal — its storage is already on the heap. A lambda recurses
+  through the local it is bound to.
+- **Lambdas in generic context.** A lambda inside a generic
+  function or a generic class method captures type-parameter-typed
+  variables with their real runtime instantiation: `typeName(T)`
+  and `==` dispatch on the actual type argument, matching the
+  behavior outside the generic body.
+- **Zero-parameter lambdas spawn.** `thread.spawn` accepts a
+  `func<void>` lambda written in place as the spawn target; a
+  value-returning spawn with a lambda goes through the explicit
+  delegate local, like the bound-method form.
+
+### Changed
+
+- **Loop heads bind per iteration.** A variable declared in a
+  `for` or `foreach` head is a new variable on each iteration: a
+  lambda captured in an iteration holds that iteration's value,
+  not the loop's tail value. Without capture there is no
+  observable difference; a single-statement loop body is exactly
+  the braced form.
+- **NCU v2.23.** Function records carry a lambda flag after the
+  generic flag, and function-value handles pair their
+  instantiation descriptor — `OP_MakeFunc` takes a `descIdx`
+  operand beside `funcIdx` so a generic target's handle names its
+  descriptor row. Modules from earlier toolchains must be
+  recompiled.
+
+## [0.13.9] - 2026-11-20
+
+Value-type references complete the four-phase program of
+`docs/dev/value_type_reference_design.md`: struct records become
+stable in-place storage, `&` becomes the explicit reference notation
+for locals, formals, returns and foreach variables, and the `out`
+parameter mechanism retires in favor of reference formals. Phase 1
+(deep value comparison, generic struct type arguments) shipped with
+0.13.0; this release delivers phases 2-4. Not backward compatible by
+design.
+
+### Changed
+
+- **Struct records are stable (phase 2).** Assigning a struct or
+  storing into a field/element updates the destination record's cells
+  in place instead of rebinding the slot to a fresh copy; List/Dict/Set
+  element writes land in the stored record; a static slot holds one
+  record for its lifetime; record access works at cell granularity
+  (the whole-record lock is gone) and wide rows carry their hi cells
+  through in-place copies. Writes through a reference and writes to a
+  container element are the same storage — there is no copy-out/
+  copy-in window left to observe.
+- **The `&` reference notation (phase 3).** `&` marks locals, formals,
+  returns and foreach variables as references; container getters
+  expose stored records by reference; on class and other
+  identity-reference types `&` reads as an equivalent mark. Value
+  semantics remain the default for scalars, enums, structs and
+  strings.
+- **Reference formals replace `out` parameters (phase 4).** Every
+  stdlib signature that used `out` now declares `&` (`net`'s
+  `recvFrom(buf, string& peerAddress, int& peerPort, …)` and the ICMP
+  variant, the http parser's consumed counter); the shipped example is
+  renamed `reference_formals.n`. Each retired spelling gets a named
+  migration diagnostic that points at the `&` form: `out parameters
+  are retired; declare "x" as a reference formal instead.`, `the out
+  argument marker is retired; pass "x" to a reference formal
+  instead.`, `the out type marker is retired; use the reference mark
+  instead.` `out` remains a reserved word.
+- **Migration behavior differences** (design §3.10): when an exception
+  interrupts a call, partial writes through a reference formal stay
+  visible — the `out` write-back never fired after an unwind; when the
+  same variable is both a reference argument and receives the call's
+  result, the return value wins — the `out` write-back used to
+  overwrite it after the call returned; reference formals accept
+  fields and array elements as arguments, where `out` accepted only
+  local variables (a capability gain, not a break).
+- **Debugger front ends can surface pending stops.**
+  `DebugSessionController::HasPendingStop(contextId)` is true while a
+  context's stop is decided but not yet resumed (it holds the freeze
+  token or waits in the freeze queue) — pending-stop indicators no
+  longer need to bet on timing.
+
+### Removed
+
+- **The `out` wire format.** The module format rises to NCU v2.22:
+  `OP_CallStaticOut`, `OP_CallMethodDirectOut` and `OP_CallDelegateOut`
+  are gone together with the out-mask write-back channel and the
+  `PTDF_Out` bit — bit 0 of the function-value qualifier byte and of
+  the parameter-descriptor flags byte are freed (bit 1 marks `&`, bit
+  2 marks `const`). Modules compiled by earlier compilers are rejected
+  with the outdated-version diagnostic and must be recompiled.
 
 ## [0.13.8] - 2026-11-15
 

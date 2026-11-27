@@ -1,0 +1,142 @@
+// v0.13.11: an implicitly widened constructor argument must be staged at the
+// formal's width, not the argument's own. Each row first evaluates a call
+// whose result is the double 100.0, so the shared eval-area cells hold
+// 0x4059000000000000; an argument written at its own narrower width then
+// reads back that double's high half (42 becomes 4636737291354636330)
+// instead of its value. Every constructor call spelling is pinned: bare
+// class call, direct initialization, struct spellings, super(...), and the
+// module-qualified call.
+import io;
+import widenlib;
+
+class Box {
+    public long l;
+    public Box(long v) { l = v; }
+}
+class DBox {
+    public double d;
+    public DBox(double v) { d = v; }
+}
+class Mixed {
+    public int a;
+    public long b;
+    public double c;
+    public Mixed(int x, long y, double z) { a = x; b = y; c = z; }
+}
+class Base {
+    public long l;
+    public Base(long v) { l = v; }
+}
+class Child : Base {
+    public Child(int v) { super(v); }
+}
+struct Wrap {
+    long l;
+    public Wrap(long v) { l = v; }
+}
+class Def {
+    public long a;
+    public int b;
+    public Def(long x, int y = 7) { a = x; b = y; }
+}
+
+double seedDouble() { return 100.0; }
+long takeLong(long v) { return v; }
+
+int checkLong(string label, long got, long want) {
+    if (got == want) { return 0; }
+    io.print(label + " got [" + got.toString() + "] want [" + want.toString() + "]");
+    return 1;
+}
+
+int checkDouble(string label, double got, double want) {
+    if (got == want) { return 0; }
+    io.print(label + " got [" + got.toString() + "] want [" + want.toString() + "]");
+    return 1;
+}
+
+int rowBareClassCall() {
+    double s = seedDouble();
+    return checkLong("bare class call", Box(42).l, 42);
+}
+
+int rowDirectInit() {
+    double s = seedDouble();
+    Box b(42);
+    return checkLong("direct initialization", b.l, 42);
+}
+
+int rowStructDirect() {
+    double s = seedDouble();
+    Wrap w(42);
+    return checkLong("struct direct initialization", w.l, 42);
+}
+
+int rowStructInvoke() {
+    double s = seedDouble();
+    return checkLong("struct bare call", Wrap(42).l, 42);
+}
+
+int rowSuperCall() {
+    double s = seedDouble();
+    return checkLong("super(int) into parent(long)", Child(42).l, 42);
+}
+
+int rowIntToDouble() {
+    double s = seedDouble();
+    return checkDouble("int into double formal", DBox(42).d, 42.0);
+}
+
+int rowWidenWithDefault() {
+    double s = seedDouble();
+    Def d(42);
+    int bad = checkLong("widened argument before a defaulted formal", d.a, 42);
+    return bad + checkLong("defaulted formal", d.b, 7);
+}
+
+int rowMixedArgs() {
+    double s = seedDouble();
+    Mixed m(1, 2, 3.5);
+    int bad = checkLong("int formal of a mixed list", m.a, 1);
+    bad = bad + checkLong("long formal of a mixed list", m.b, 2);
+    return bad + checkDouble("double formal of a mixed list", m.c, 3.5);
+}
+
+int rowQualifiedCrossModule() {
+    double s = seedDouble();
+    return checkLong("module-qualified call", widenlib.WBox(42).l, 42);
+}
+
+int rowLocalVarArg() {
+    double s = seedDouble();
+    int v = 41;
+    v = v + 1;
+    return checkLong("local variable argument", Box(v).l, 42);
+}
+
+int rowAddExprArg() {
+    double s = seedDouble();
+    return checkLong("addition expression argument", Box(40 + 2).l, 42);
+}
+
+int rowLongArgControl() {
+    double s = seedDouble();
+    return checkLong("long argument (already exact)", Box(takeLong(42)).l, 42);
+}
+
+int main() {
+    int bad = 0;
+    bad = bad + rowBareClassCall();
+    bad = bad + rowDirectInit();
+    bad = bad + rowStructDirect();
+    bad = bad + rowStructInvoke();
+    bad = bad + rowSuperCall();
+    bad = bad + rowIntToDouble();
+    bad = bad + rowWidenWithDefault();
+    bad = bad + rowMixedArgs();
+    bad = bad + rowQualifiedCrossModule();
+    bad = bad + rowLocalVarArg();
+    bad = bad + rowAddExprArg();
+    bad = bad + rowLongArgControl();
+    return bad;
+}

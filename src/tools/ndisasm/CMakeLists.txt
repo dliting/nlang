@@ -3,8 +3,7 @@ add_executable(ndisasm main.cpp)
 if(MSVC)
     target_sources(ndisasm PRIVATE ${PROJECT_SOURCE_DIR}/cmake/nlang-utf8.manifest)
 endif()
-target_include_directories(ndisasm PRIVATE ${PROJECT_SOURCE_DIR}/src/vm)
-target_link_libraries(ndisasm PRIVATE ${NLANG_CORE_LINK} nlang_version)
+target_link_libraries(ndisasm PRIVATE nlang_core nlang_version)
 
 # ASan runtime provisioning (see the root CMakeLists): one sweep covers
 # this directory's executable targets.

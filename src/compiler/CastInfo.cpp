@@ -177,9 +177,9 @@ void TypeCastInfo::CalcCastKind()
 		m_Kind = TCK_None;
 		return;
 	}
-	//Enum types are int32 at runtime — treat them as NK_Int32 for casting.
-	if (srcKind == NK_EnumDecl) srcKind = NK_Int32;
-	if (tgtKind == NK_EnumDecl) tgtKind = NK_Int32;
+	//Enum types are int32 at runtime — see CastOperandKind().
+	srcKind = CastOperandKind(srcKind);
+	tgtKind = CastOperandKind(tgtKind);
 	//Struct types: same struct type → TCK_Same; otherwise incompatible.
 	if (srcKind == NK_StructDecl && tgtKind == NK_StructDecl)
 	{

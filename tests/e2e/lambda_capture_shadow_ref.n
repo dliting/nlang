@@ -1,0 +1,19 @@
+//Reference binds under shadowing: a &-returning lambda must rebind the
+//outer m's display field through the $outer chain even when an inner
+//same-named field sits on the first hop. The reference write lands in
+//the outer m, the shadowed inner m stays untouched.
+int main() {
+	int m = 5;
+	func<int, int> outer = (a) -> {
+		func<int&> shadow = () -> m;
+		int m = 50;
+		func<int, int> inner = (c) -> m + c;
+		int& r = shadow();
+		r = r + a;
+		if (inner(0) != 50) { return 90; }
+		return m;
+	};
+	if (outer(2) != 50) { return 1; }  // inner m untouched
+	if (m != 7) { return 2; }          // outer m written through the ref
+	return 0;
+}

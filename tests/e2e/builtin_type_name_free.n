@@ -1,0 +1,42 @@
+//The runtime's internal type names are ordinary identifiers, so a program
+//may declare its own types under them. Yielding no unqualified name leaves
+//`Int32`, `Void` and `Type` unclaimed (§1.4: the types of the language are
+//its keywords and aliases together with the names a program declares), and
+//each spelling below binds the local declaration instead. Under the old
+//indexing the mirror owned the name, so `class Int32` was rejected as
+//conflicting with an existing definition. The generic type argument is the
+//shape that matters most: it resolves to the USER class called `Type`, where
+//the mirror used to answer the internal name and hand the
+//instantiation-descriptor layer a metaclass it has no spelling for.
+class Int32
+{
+    public int v;
+    public Int32(int x) { v = x; }
+}
+
+class Type
+{
+    public int v;
+    public Type(int x) { v = x; }
+}
+
+struct Void
+{
+    public int n = 3;
+}
+
+Int32 make(Type t) {
+    return Int32(t.v + 1);
+}
+
+int main() {
+    Int32 c = Int32(5);
+    Void s;
+    if (c.v != 5 || s.n != 3) { return 1; }
+    List<Type> l = List<Type>();
+    l.add(Type(6));
+    if (l.length() != 1 || l[0].v != 6) { return 2; }
+    Int32 w = make(Type(7));
+    if (w.v != 8) { return 3; }
+    return 0;
+}

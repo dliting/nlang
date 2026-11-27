@@ -90,3 +90,9 @@ native void srand(int x);
 // Random int in the closed range [min, max].
 // Raises Exception when min > max.
 native int randomi(int min, int max);
+
+// Cryptographically strong random bytes from the OS CSPRNG
+// (BCryptGenRandom on Windows, getrandom() or /dev/urandom on POSIX).
+// count < 0 or count above the 16777216-byte cap raises Exception;
+// count == 0 returns an empty array.
+native byte[] randomBytes(int count);

@@ -1,6 +1,7 @@
 add_executable(ncc
     main.cpp
     ProjectFile.cpp
+    RunProgram.cpp
 )
 
 #UTF-8 active code page (full-Unicode argv and paths; see the manifest).
@@ -11,9 +12,18 @@ endif()
 target_include_directories(ncc
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
 )
 
-target_link_libraries(ncc PRIVATE ${NLANG_CORE_LINK} nlang_langservice nlang_version tinyxml2)
+target_link_libraries(ncc
+    PRIVATE
+        nlang_compiler
+        nlang_runtime
+        nlang_vm
+        nlang_langservice
+        tinyxml2
+        nlang_version
+)
 
 # ASan runtime provisioning (see the root CMakeLists): one sweep covers
 # this directory's executable targets.

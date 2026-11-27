@@ -28,9 +28,9 @@ end to end; this suite pins the wire contract itself.
 #include <nlang/compiler/Logger.h>
 #include <nlang/compiler/CastInfo.h>
 #include <nlang/compiler/SnExpressions.h>
-#include <nlang/vm/CompiledModule.h>
-#include <nlang/vm/ExprDesc.h>
-#include "ModuleLoader.h"
+#include <nlang/core/CompiledModule.h>
+#include <nlang/core/ExprDesc.h>
+#include <nlang/core/ModuleLoader.h>
 #include "CompiledModuleDefaultSupport.hpp"
 #include <cstdint>
 #include <cstring>

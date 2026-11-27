@@ -7,7 +7,7 @@
 #include "BuildEnvironment.h"
 #include "BuiltinNames.h"
 #include "ModuleRegistry.h"
-#include <nlang/vm/CompiledModule.h>
+#include <nlang/core/CompiledModule.h>
 #include <algorithm>
 #include <map>
 #include <set>
@@ -55,6 +55,26 @@ std::string JoinDots(const std::vector<std::string>& segs)
 		joined += segs[i];
 	}
 	return joined;
+}
+
+//Inverse of JoinDots: split a dotted path into its segments. A name with no
+//dot yields the one-element path; the empty name yields the empty path.
+std::vector<std::string> SplitDots(const std::string& dotted)
+{
+	std::vector<std::string> segs;
+	if (dotted.empty())
+		return segs;
+	size_t start = 0;
+	for (;;)
+	{
+		const size_t dot = dotted.find('.', start);
+		segs.push_back(dotted.substr(start,
+			dot == std::string::npos ? std::string::npos
+				: dot - start));
+		if (dot == std::string::npos)
+			return segs;
+		start = dot + 1;
+	}
 }
 
 //Collect the identifier names of a member chain's OUTER side, leftmost

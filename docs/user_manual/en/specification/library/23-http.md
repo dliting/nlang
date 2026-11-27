@@ -90,7 +90,8 @@ exits 23 only when both answers are right (the self-check idiom of
   on a shared client. A request body is a `byte[]`; `io.toBytes`
   encodes text as Unicode Transformation Format (UTF-8) (§14.5), and
   `bodyText()` decodes it back.
-- `srv.close()` releases the listening socket. A server meant for
+- `srv.close()` releases the listening socket and ends the server —
+  the graceful form is `srv.drain(...)` (§23.5). A server meant for
   other machines binds `0.0.0.0` instead of `127.0.0.1`; a standalone
   server process calls `serve(...)` instead of `start(...)`, because
   `main` returning ends the process (§10.9).
@@ -122,6 +123,7 @@ fields the library fills after receiving.
 | `HttpResponse` field | Notes |
 | --- | --- |
 | `statusCode`, `reasonPhrase` | `200` and `"OK"` at construction. The library names the phrase for the statuses it produces itself (§23.5); a status you invent keeps `"OK"` until you set the phrase, which is fine — the phrase is informational, and a client reads `statusCode`. |
+| `HttpResponse.reasonPhraseFor(status)` | The phrase registered for a status code (RFC 9110 §15 and the status registry it points to). The library reads this one table for the statuses it produces itself, so the status line and the error body sent with it agree; a status outside the table gets `"Error"`. The wire carries the `reasonPhrase` field's own value, so assign the result to that field when you pick a status and want its standard phrase. |
 | `version` | `"HTTP/1.1"` at construction; the parser stores what the peer announced. |
 | `headers` | An `HttpHeaders` map (§23.3). |
 | `body` | The buffered body, sent with a `Content-Length` the library computes. `null` means no body. A status below 200, a 204 or a 304 goes out without a body whatever this field holds, and a `HEAD` request is answered with the length but not the bytes. |
@@ -187,7 +189,11 @@ by the connection close, because chunked is an HTTP/1.1 framing
 **Cancellation travels back.** If the client disconnects mid-stream,
 the server's next write fails, the library closes the channel, and
 the producer's next `send` raises `ChannelClosedException` — the
-handler's own cleanup point. Nothing polls for a dead peer.
+handler's own cleanup point. Nothing polls for a dead peer. The
+server's own teardown takes the same path: a connection force-closed
+by `drain()` or `close()` (§23.5) has its body channel closed with
+it, so a parked producer wakes instead of pushing frames into a
+dead response.
 
 ```nlang
 import io;
@@ -292,9 +298,30 @@ instead of silently sending an empty body (§23.6).
 `start(host, port, handler)` returns once the socket is listening;
 `serve(host, port, handler)` runs the same accept loop on the calling
 thread and is the entry point for a standalone server, whose `main`
-must not return (§10.9). `close()` stops accepting and wakes the
-blocked `accept` call; connections already in flight finish the
-requests of their own keep-alive loop.
+must not return (§10.9). A second start on a live listener raises the
+base `Exception` naming the face used —
+`http.HttpServer.start: already started by this instance.` through
+`start`, `http.HttpServer.serve: ...` through `serve` — because a
+doubled accept loop would leave the first one unreachable forever.
+
+Two switches stop the accept loop. `drain(graceMs = 15000)` is the
+graceful one: it stops accepting new connections, answers from then
+on carry `Connection: close`, idle keep-alive waits are closed at
+once, and in-flight requests are waited out — it returns the number
+of connections it force-closed when the grace window ran out, `0`
+when everything finished inside it. `close()` is the immediate one:
+it closes the listening socket (a blocked `accept` wakes through
+`SocketException`), force-closes the open connections, and waits up
+to two seconds for running handlers to finish. Both switches are
+repeatable, and a server stopped this way can start again — a later
+`start()` binds the address anew. `isServing()` reports whether the
+accept loop is up: `false` before the first `start()`, while a drain
+runs, and after `close()` — the flag a handler-polling shutdown loop
+watches, in the shape §21.2 describes for `accept` timeouts. The two
+`drain`s are different tools: the server's `drain(graceMs)` is the
+shutdown switch described here, while `HttpBodyReader.drain(maxBytes)`
+(§23.4) consumes one response's leftover body bytes so that one
+connection can be reused.
 
 The accept loop spawns one thread per connection (§10), and each
 thread serves its connection's requests in order. A handler therefore
@@ -344,7 +371,7 @@ the answer the client had not read yet.
 | Field | Default | Meaning |
 | --- | --- | --- |
 | `connectTimeoutMs` | 10000 | Deadline for establishing the connection. |
-| `readTimeoutMs` | 10000 | Deadline for each read of the head and of a streaming body. |
+| `readTimeoutMs` | 30000 | Deadline for each read of the head and of a streaming body. |
 | `callTimeoutMs` | 0 | Budget for the whole call, pool wait and redirects included; `0` waits as long as the per-operation timeouts allow. Exhausted: `TimeoutException`. |
 | `maxRedirects` | 10 | `0` returns the `3xx` response itself instead of following it. |
 | `maxConnsPerHost` | 0 | Cap on simultaneous connections to one origin; `0` is unlimited. A borrower that cannot get a connection within `callTimeoutMs` gets `TimeoutException`. |

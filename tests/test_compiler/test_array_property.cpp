@@ -17,10 +17,10 @@ the old shape-inference predicate computed post hoc.
 #include <nlang/compiler/CastInfo.h>
 #include <nlang/compiler/SnExpressions.h>
 #include <nlang/compiler/SyntaxNode.h>
-#include <nlang/vm/CompiledModule.h>
+#include <nlang/core/CompiledModule.h>
 //Internal header: ModuleLoader is opaque in the public API (same pattern
 //as test_module_import; the src/vm include dir is on this target).
-#include "ModuleLoader.h"
+#include <nlang/core/ModuleLoader.h>
 #include "NcuLoader.h"
 #include "NcuLinker.h"
 #include "VmExecutor.h"

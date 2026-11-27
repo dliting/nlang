@@ -1,0 +1,92 @@
+// stdlib_math_random_bytes — the CSPRNG byte surface (spec D-13: session ids
+// and multipart boundaries must be unpredictable). Pins that every call takes
+// fresh entropy, the length contract including the empty request, the
+// byte-domain shape of the returned array, and the two named range errors.
+import io;
+import math;
+
+int main() {
+    int bad = 0;
+
+    // Leg A: two same-length draws are not the same buffer and the first is
+    // not all zero — together they pin "entropy was taken" over "a reused
+    // scratch array was handed back twice".
+    byte[] a = math.randomBytes(32);
+    byte[] b = math.randomBytes(32);
+    if (a.length() != 32 || b.length() != 32) { bad = bad + 1; }
+    int diffAt = -1;
+    int nonZeroAt = -1;
+    for (int i = 0; i < 32; i = i + 1) {
+        if (diffAt < 0 && a[i] != b[i]) { diffAt = i; }
+        if (nonZeroAt < 0 && a[i] != 0) { nonZeroAt = i; }
+    }
+    if (diffAt < 0) {
+        io.print("two 32-byte draws came back identical");
+        bad = bad + 1;
+    }
+    if (nonZeroAt < 0) {
+        io.print("the first 32-byte draw is all zero");
+        bad = bad + 1;
+    }
+
+    // Leg B: the length contract, empty request included.
+    if (math.randomBytes(0).length() != 0) { bad = bad + 1; }
+    if (math.randomBytes(1).length() != 1) { bad = bad + 1; }
+    if (math.randomBytes(1024).length() != 1024) { bad = bad + 1; }
+
+    // Leg C: what the script sees stays in the byte domain (-128..127, the
+    // same signed materialization every other byte[] reader gets), and the
+    // masked read the hex helpers rely on lands in 0..255. The native fill
+    // writes full 0..255 cells, so across 32 draws at least one high bit must
+    // survive: a fill that dropped it would leave every masked value below 128.
+    int outside = 0;
+    int highSeen = 0;
+    for (int i = 0; i < a.length(); i = i + 1) {
+        int v = a[i];
+        if (v < -128 || v > 127) { outside = outside + 1; }
+        int u = v & 0xFF;
+        if (u < 0 || u > 255) { outside = outside + 1; }
+        if (u >= 128) { highSeen = highSeen + 1; }
+    }
+    if (outside != 0) {
+        io.print("cells outside the byte domain: " + outside);
+        bad = bad + 1;
+    }
+    if (highSeen == 0) {
+        io.print("no byte with the high bit set across 32 draws");
+        bad = bad + 1;
+    }
+
+    // Leg D: both out-of-range shapes raise the base Exception with the exact
+    // message the manual will quote.
+    int negBad = 0;
+    string msgNeg = "";
+    try {
+        math.randomBytes(-1);
+        negBad = 1;
+    } catch (Exception e) {
+        msgNeg = e.message;
+    }
+    if (msgNeg != "math.randomBytes: count is negative.") { negBad = 1; }
+    if (negBad != 0) {
+        io.print("count is negative: raised [" + msgNeg + "]");
+        bad = bad + 1;
+    }
+
+    int bigBad = 0;
+    string msgBig = "";
+    try {
+        math.randomBytes(16777217);
+        bigBad = 1;
+    } catch (Exception e) {
+        msgBig = e.message;
+    }
+    if (msgBig != "math.randomBytes: count is too large.") { bigBad = 1; }
+    if (bigBad != 0) {
+        io.print("count is too large: raised [" + msgBig + "]");
+        bad = bad + 1;
+    }
+
+    io.print("ok");
+    return bad;
+}

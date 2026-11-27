@@ -203,6 +203,35 @@ public:
 		return bPending;
 	}
 
+	//One-shot flag: the previous token was '.' or the `import` keyword,
+	//so the next token sits at a module-path segment position — dotted
+	//paths like `web.static` and `import web.static;` may name a module
+	//whose segment is spelled with a reserved word, and the scanner is
+	//the only party that sees the dot/keyword context (0.13.12 Task 21).
+	//Armed by the '.' rule and the import rule; taken (and cleared) by
+	//the next keyword (which then re-reads as the identifier the Name
+	//rule would produce), by the Name rule, and by the single-char
+	//catch-all. Comments and blanks leave it — exactly the reach of the
+	//class-name flag above — so `import /*c*/ web.static;` and a '.' at
+	//end of line keep the segment reading. Tokens with their own actions
+	//that never claim (e.g. `>`) also leave it, but such a token can only
+	//occur where the parse is already a syntax error, which stays a
+	//syntax error, so the soft reading never widens valid programs. Inert
+	//in editor mode (the arm self-gates), so the IDE token stream and its
+	//highlighting are untouched.
+	void ArmPathSegment()
+	{
+		if (ScanType() == CT_Compiler)
+			m_bPendingPathSegment = true;
+	}
+
+	bool TakePendingPathSegment()
+	{
+		bool bPending = m_bPendingPathSegment;
+		m_bPendingPathSegment = false;
+		return bPending;
+	}
+
 	//0.13.1a Task 3: expression-position generic spelling, resolved with
 	//the C# "grammar ambiguities" rule (ECMA-334 §7.6.4.2): the
 	//disambiguation is a SHAPE rule, no identifier case test and no
@@ -272,6 +301,9 @@ private:
 
 	//previous token was "class" (see MarkClassDeclHead()).
 	bool m_bPendingClassDeclName;
+
+	//previous token was '.' or "import" (see ArmPathSegment()).
+	bool m_bPendingPathSegment;
 
 	//0.13.1a Task 3: the '<' after an identifier probing as a generic
 	//receiver opener (see ProbeTypeArgumentOpener). Consumed by the

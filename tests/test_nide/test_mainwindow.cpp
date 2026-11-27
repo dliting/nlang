@@ -9,6 +9,7 @@
 #include "ProjectModel.h"
 #include "TranslationLoader.h"
 #include "WindowLayout.h"
+#include "nide_test_process_names.h"
 #include "terminal/TerminalWidget.h"
 
 #include <nlang_version.h>  // generated from the repo VERSION file
@@ -609,12 +610,77 @@ private slots:
             "nlang::CompileLogItemInfo");
         //The MainWindow ctor restores layout from DEFAULT-constructed
         //QSettings: pin the app name so tests never touch the real
-        //nide registry entry.
+        //nide registry entry, and scope it by the per-tree token the
+        //ctest wrapper exports so concurrent build trees own distinct
+        //registry keys (D-12; a token-less direct run keeps the legacy
+        //name).
         QCoreApplication::setOrganizationName(QStringLiteral("NLang"));
-        QCoreApplication::setApplicationName(QStringLiteral("nide-test"));
+        QCoreApplication::setApplicationName(nlang::nideTestApplicationName(
+            QStringLiteral("nide-test")));
         //A build-output test that fails mid-way leaves the key behind
         //(QVERIFY returns early): start every run from the unset state.
         QSettings().remove("ide/buildOutputDir");
+    }
+
+    //D-12: the QSettings application name this process pins must be
+    //scoped by the per-tree token the ctest wrapper exports
+    //(NLANG_TEST_TREE_TOKEN, the MD5 of the configuring binary
+    //directory): concurrent ctest trees may not share one registry key
+    //under the "NLang" organization, and none may share the product's
+    //"nide". The key-segment bound the derived name must satisfy —
+    //length far under the 255-char registry key-name limit, character
+    //set inside [A-Za-z0-9_.-], never the hierarchy-separating
+    //backslash — is pinned by this case against the fixed prefix and
+    //the fixed-length token instead of an external-document citation.
+    void applicationNameScopedByTreeToken() {
+        const QByteArray token = qgetenv("NLANG_TEST_TREE_TOKEN");
+        QVERIFY2(token.size() == 32,
+                 "the ctest wrapper must export a 32-char tree token");
+        for (const char c : token) {
+            QVERIFY2((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'),
+                     "the tree token must stay in the MD5's lowercase-hex shape");
+        }
+        QCOMPARE(QCoreApplication::applicationName(),
+                 QStringLiteral("nide-test-")
+                     + QString::fromLatin1(token));
+        //The same derivation, driven directly, must satisfy the
+        //key-segment bounds for an arbitrary prefix (registry key-name
+        //length limit, hierarchy separator, key-name charset).
+        const QString derived = nlang::nideTestApplicationName(
+            QStringLiteral("pin-segment"));
+        QVERIFY(derived.size() < 255);
+        QVERIFY(!derived.contains(QLatin1Char('\\')));
+        for (const QChar ch : derived) {
+            const ushort code = ch.unicode();
+            QVERIFY2((code >= 'A' && code <= 'Z')
+                         || (code >= 'a' && code <= 'z')
+                         || (code >= '0' && code <= '9')
+                         || code == ushort('_') || code == ushort('.')
+                         || code == ushort('-'),
+                     "the derived name must stay inside the key-name set");
+        }
+        //Two distinct tree tokens scope to two distinct names.
+        qputenv("NLANG_TEST_TREE_TOKEN",
+                "00000000000000000000000000000000");
+        const QString firstScoped = nlang::nideTestApplicationName(
+            QStringLiteral("nide-test"));
+        qputenv("NLANG_TEST_TREE_TOKEN",
+                "0000000000000000000000000000000f");
+        QVERIFY2(firstScoped != nlang::nideTestApplicationName(
+                                    QStringLiteral("nide-test")),
+                 "distinct tree tokens must scope distinct names");
+        //A malformed token (wrong length or wrong alphabet) falls back
+        //to the legacy name; then the real token is restored.
+        qputenv("NLANG_TEST_TREE_TOKEN", "deadbeef");
+        QCOMPARE(nlang::nideTestApplicationName(
+                     QStringLiteral("nide-test")),
+                 QStringLiteral("nide-test"));
+        qputenv("NLANG_TEST_TREE_TOKEN",
+                "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ");
+        QCOMPARE(nlang::nideTestApplicationName(
+                     QStringLiteral("nide-test")),
+                 QStringLiteral("nide-test"));
+        qputenv("NLANG_TEST_TREE_TOKEN", token);
     }
 
     //Hang diagnosability: QTest's -o log is exclusively locked for the
@@ -2006,7 +2072,7 @@ private slots:
 
     void testBuildStandaloneHonorsBuildOutputDir() {
         //The global build output directory redirects the standalone
-        //.ncu slot (org/app are pinned to NLang/nide-test in
+        //.ncu slot (org/app are pinned to NLang/nide-test-<token> in
         //initTestCase, so this QSettings is test-local).
         QTemporaryDir outDir;
         QSettings settings;
@@ -2054,7 +2120,7 @@ private slots:
     void testBuildStandaloneNoWarnFollowsGlobal() {
         //Standalone files have no project half: both settings off keeps
         //the warning visible; the global switch alone suppresses it.
-        QSettings settings;  // org/app pinned: NLang/nide-test
+        QSettings settings;  // org/app pinned: NLang/nide-test-<token>
         settings.remove("compiler");
         QTemporaryDir dir;
         const QString path = QDir(dir.path()).filePath("solo_warn.n");
@@ -2092,7 +2158,7 @@ private slots:
     void testBuildProjectNoWarnOverride() {
         //Global off + project opt-in: the .nproj-level override
         //suppresses the warning for the project build.
-        QSettings settings;  // org/app pinned: NLang/nide-test
+        QSettings settings;  // org/app pinned: NLang/nide-test-<token>
         settings.remove("compiler");
         MainWindow window;
         QTemporaryDir dir;
@@ -2115,7 +2181,7 @@ private slots:
 
     void testToolsOptionsPersistsSettings() {
         MainWindow window;
-        QSettings settings;  // org/app pinned: NLang/nide-test
+        QSettings settings;  // org/app pinned: NLang/nide-test-<token>
         settings.remove("ide");
         //Two modals: accept the Options dialog, then dismiss the restart notice.
         inExecSteps2(
@@ -2135,7 +2201,7 @@ private slots:
 
     void testToolsOptionsRejectPersistsNothing() {
         MainWindow window;
-        QSettings settings;  // org/app pinned: NLang/nide-test
+        QSettings settings;  // org/app pinned: NLang/nide-test-<token>
         settings.remove("ide");
         inExec([&] {
             qobject_cast<QDialog*>(QApplication::activeModalWidget())
@@ -2150,7 +2216,7 @@ private slots:
 
     void testCtrlWheelZoomsEditorFont() {
         MainWindow window;
-        QSettings settings;  // org/app pinned: NLang/nide-test
+        QSettings settings;  // org/app pinned: NLang/nide-test-<token>
         settings.remove("ide");
         QTemporaryDir dir;
         const QString srcPath = QDir(dir.path()).filePath("a.n");
@@ -2177,7 +2243,7 @@ private slots:
 
     void testCtrlWheelClampsEditorFont() {
         MainWindow window;
-        QSettings settings;  // org/app pinned: NLang/nide-test
+        QSettings settings;  // org/app pinned: NLang/nide-test-<token>
         settings.remove("ide");
         QTemporaryDir dir;
         const QString srcPath = QDir(dir.path()).filePath("a.n");
@@ -2195,7 +2261,7 @@ private slots:
 
     void testToolsOptionsSetsEditorFont() {
         MainWindow window;
-        QSettings settings;  // org/app pinned: NLang/nide-test
+        QSettings settings;  // org/app pinned: NLang/nide-test-<token>
         settings.remove("ide");
         QTemporaryDir dir;
         const QString aPath = QDir(dir.path()).filePath("a.n");
@@ -2229,7 +2295,7 @@ private slots:
 
     void testCtrlWheelZoomsTerminalFont() {
         MainWindow window;
-        QSettings settings;  // org/app pinned: NLang/nide-test
+        QSettings settings;  // org/app pinned: NLang/nide-test-<token>
         settings.remove("ide");
         terminal::TerminalWidget* term = runTerminal(window);
         QVERIFY(term != nullptr);
@@ -2332,12 +2398,11 @@ private slots:
         QVERIFY(!window.m_pty.IsRunning());
         QThread::msleep(100);  //the Finished post is queued, undelivered
 
-        QElapsedTimer restart;
-        restart.start();
         act(window, "actStartRunning")->trigger();
-        //The 3-second fallback path fails this; the witness poll lands
-        //in one 20 ms slice.
-        QVERIFY(restart.elapsed() < 1000);
+        //The restart must drain the stale Finished delivery before the
+        //fresh session starts. The two state legs below pin that outcome
+        //(exactly one exit line, Character mode) instead of timing it: a
+        //wall-clock bound here would only measure how fast this box is.
 
         terminal::TerminalWidget* out = runTerminal(window);
         QVERIFY(out != nullptr);

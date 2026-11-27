@@ -1,0 +1,15 @@
+//0.13.10 review M3: consumer module. A closure escapes its producing
+//module: the captured display is created in lib's frame and read from
+//this module's bytecode. Identity: two mk() activations yield unequal
+//closures; rendering stays "lambda" across the boundary.
+import lib;
+
+int main() {
+    func<int, int> f = lib.mk();
+    if (f.toString() != "lambda") { return 1; }
+    if (f(2) != 42) { return 2; }          // captured n = 40 crosses with it
+    func<int, int> g = lib.mk();
+    if (f == g) { return 3; }              // distinct activations, distinct closures
+    if (g(0) != 40) { return 4; }
+    return 0;
+}

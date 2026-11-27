@@ -32,7 +32,8 @@ the standard library and their implementations are built into the
 virtual machine.
 
 - `thread.spawn(f)` takes a zero-argument function value (§7.4):
-  a free function, a bound method, or a variable holding one. It
+  a free function, a bound method, a zero-parameter lambda
+  (`() -> …`), or a variable holding one. It
   starts a new context and returns its handle immediately. A
   delegate of type `func<void>` yields a `Thread` handle; a
   delegate of type `func<T>` yields a `Future<T>` handle (§10.5).
@@ -89,7 +90,7 @@ fields are a *data race*: a half-written transitional value may be
 read, but memory is never corrupted. The internal structure of a container or a string is
 therefore never torn by concurrency, and shared mutable state is
 coordinated with a `Mutex` (§10.2). A native call that declares a
-blocking section (§28.7) releases the locks it holds while it
+blocking section (§30.7) releases the locks it holds while it
 waits, so other contexts run; a native that declares none runs
 without holding them, and its stores take the category locks
 through self-guarded callbacks.

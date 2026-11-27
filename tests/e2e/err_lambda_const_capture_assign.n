@@ -1,0 +1,9 @@
+//0.13.10 Task 11: capture does not change the declared semantics of
+//the captured variable (spec 3.3, tail item) — a const local stays
+//const inside the lambda body; assigning to it through the captured
+//name is a compile error, not a deferred runtime surprise.
+int main() {
+    const int k = 5;
+    func<int> f = () -> { k = 7; return k; };
+    return f();
+}

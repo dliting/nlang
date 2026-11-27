@@ -6,7 +6,7 @@
 #include "DebugSessionController.h"
 #include "MachineFrontEnd.h"
 #include "TestNatives.h"
-#include "Disassembler.h"
+#include <nlang/core/Disassembler.h>
 #include "CrashReporter.h"
 #include "nlang/common/LibrarySearchPath.h"
 #include "nlang/langservice/SymbolIndex.h"
@@ -91,6 +91,8 @@ static CompiledModule LoadLinkedProgram(VmExecutor& executor,
         loaderOpts.searchDirs.push_back(e.dir);
     const NcuLoader::Result loaded =
         NcuLoader::LoadClosure(modulePath, loaderOpts);
+    for (const auto& cacheDir : loaded.nativeCacheDirs)
+        executor.AddNativeSearchDir(cacheDir);
     return NcuLinker::Link(loaded.units, loaded.entryKey);
 }
 

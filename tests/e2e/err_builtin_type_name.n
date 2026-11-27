@@ -1,0 +1,22 @@
+//compile_error: the runtime's internal type names are not type spellings.
+//The mirror the compiler builds of the runtime's builtin data types keeps
+//its node attached to the tree root — registry identity, tree ownership —
+//but yields no unqualified name: `Int32`, `Type` and `Void` are display
+//names, the identifiers the runtime tables stringize from the node kind and
+//some rendered diagnostics print (§1.4), not spellings of the language. The
+//mirrors used to index the global namespace, so each field below resolved —
+//`Void v;` to a type with no value representation, `Type t;` to a metaclass
+//the instantiation-descriptor layer defines no spelling for — and such a
+//shape either degraded silently or was refused only once the image was
+//already running. The keyword spellings are untouched: `int`, `void` and
+//`string` resolve pre-parsed through runtime-node identity, with no name
+//lookup on the path at all.
+class C {
+    public Int32 a;
+    public Type t;
+    public Void v;
+}
+
+int main() {
+    return 0;
+}

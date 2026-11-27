@@ -3,7 +3,8 @@ test_primitivetypes.cpp - registry-derived facts about the 12 scalar
 primitives (0.7.5 basic types). Pins the registry as the single source
 of truth: row count and index order, slot widths, RTK code allocation
 (0/1 legacy scalars, 10..19 new, descriptor-only 8/9 absent), kind/rtk
-round-trips, Rn singleton wiring, and the derived category predicates.
+round-trips, Rn singleton wiring, the derived category predicates, and the
+X-macro-generated node-kind debug names the compiler-bug diagnostics print.
 Console-style suite (same shape as test_array_token). In-process host:
 Runtime::StaticInit() must run before anything else.
 ---*/
@@ -14,6 +15,7 @@ Runtime::StaticInit() must run before anything else.
 #include <nlang/compiler/ModuleBuilder.h>
 #include <nlang/compiler/BuildEnvironment.h>
 #include <nlang/compiler/SnTypes.h>
+#include <nlang/compiler/SyntaxNodeConsts.h>
 #include <nlang/compiler/CastInfo.h>
 #include <nlang/compiler/Logger.h>
 #include <cstdio>
@@ -176,6 +178,44 @@ static void test_nodekind_layout()
     CHECK(IsPrimitiveType(NK_Char), "char must be a primitive type");
     CHECK(IsPrimitiveType(NK_String), "string stays a primitive type");
     CHECK(!IsPrimitiveType(NK_Type), "type is an extend type");
+    PASS();
+}
+
+//The node-kind vocabulary the compiler-bug diagnostics print must name every
+//kind the declaration macros declare: NodeKindDebugName is generated from the
+//same X-macro, so the pin here is that the generated name equals the
+//declaration token for every kind (a kind introduced outside the macros, or a
+//kind value aliased onto another, lands on the "?" arm instead). The
+//count sentinels (NK_PRIMITIVE_DT_COUNT and friends) are not kinds and are
+//deliberately outside the generated list.
+static void test_nodekind_debug_names()
+{
+    TEST(nodekind_debug_names);
+    struct KindName { NodeKind kind; const char* name; };
+    static const KindName kKinds[] = {
+#define MACRO_IMPL(T) { NK_##T, #T },
+        SYNTAX_NODE_DECL(MACRO_IMPL)
+#undef MACRO_IMPL
+    };
+    //The kind numbering is dense: a count sentinel's value is reused by the
+    //kind that follows it (NK_Type takes NK_PRIMITIVE_DT_COUNT's value,
+    //NK_Function takes NK_DT_COUNT's), so the macro list covers every kind
+    //value below NK_CP_END except the NK_BEFOR/NK_RT_END marker itself —
+    //hence vocabulary size minus one. A kind declared outside the macros
+    //shows up here before it can hide in a diagnostic.
+    CHECK(static_cast<size_t>(NK_CP_END) - 1
+            == sizeof(kKinds) / sizeof(kKinds[0]),
+        "the generated kind list must cover the whole node vocabulary");
+    for (const KindName &entry : kKinds)
+    {
+        const std::string got = NodeKindDebugName(entry.kind);
+        CHECK(got == entry.name,
+            std::string("debug name must equal the declaration token: got ")
+            + got + ", expected " + entry.name);
+    }
+    //An unnamed kind stays printable rather than reading as garbage.
+    CHECK(std::string(NodeKindDebugName(NODE_KIND_LIMIT - 1)) == "?",
+        "an out-of-range kind must render as ?");
     PASS();
 }
 
@@ -416,6 +456,7 @@ int main()
     test_rn_instances();
     test_categories();
     test_nodekind_layout();
+    test_nodekind_debug_names();
     test_cast_matrix();
     test_lossy_warning();
 

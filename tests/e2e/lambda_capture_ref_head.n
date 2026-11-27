@@ -1,0 +1,52 @@
+//0.13.10 Major-3 lift: reference-form foreach heads and &-promoted
+//heads are capturable. The reference head's pair re-binds per
+//iteration, so each closure's pair names its own element cell — reads
+//and writes through any one closure alias that element, never the tail
+//binding a shared display would leave (C++ range-for reference
+//captures; the spec §3.3 per-iteration binding).
+int readEachBinding() {
+    List<int> values = List<int>();
+    values.add(10);
+    values.add(20);
+    values.add(30);
+    List<func<int>> funcs = List<func<int>>();
+    foreach (int& v in values) {
+        funcs.add(() -> v);
+    }
+    func<int> first = funcs.get(0);
+    func<int> second = funcs.get(1);
+    func<int> third = funcs.get(2);
+    return first() + 10 * second() + 100 * third();
+}
+
+//The pair really aliases the element cell: a write through the head
+//lands in the list, and the closures observe the same cell after it.
+int writeThroughBinding() {
+    List<int> values = List<int>();
+    values.add(10);
+    values.add(20);
+    List<func<int>> funcs = List<func<int>>();
+    foreach (int& v in values) {
+        v = v * 2;
+        funcs.add(() -> v);
+    }
+    if (values.get(0) != 20) {
+        return 10;
+    }
+    if (values.get(1) != 40) {
+        return 11;
+    }
+    func<int> first = funcs.get(0);
+    func<int> second = funcs.get(1);
+    return first() + second();
+}
+
+int main() {
+    if (readEachBinding() != 3210) {
+        return 1;
+    }
+    if (writeThroughBinding() != 60) {
+        return 2;
+    }
+    return 0;
+}

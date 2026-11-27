@@ -366,6 +366,11 @@ object_gethashcode_override 1
 string_gethashcode 7
 string_equals 7
 box_primitive 0
+# §4.11.3 names three entry points into an Object position; the argument one
+# needs its own rung in the overload ladder, so both directions are pinned —
+# scalars/string/enum box on the way in, a struct still has no path.
+boxed_arg_object 0
+boxed_arg_struct_reject compile_error has type "struct Point"; "class Object" expected
 # --- Phase 8e-1.5: explicit unbox/downcast via `expr as T` ---
 unbox_primitive 5
 unbox_type_mismatch_throws 1
@@ -532,7 +537,58 @@ err_generic_t_eq_static 0
 err_generic_t_order compile_error cannot be applied to a type parameter
 err_generic_t_arith compile_error cannot be applied to a type parameter
 err_static_t_order_stays compile_error cannot be applied to a type parameter
-err_generic_func_value compile_error cannot be referenced as a value
+# --- 0.13.10 Task 5: generic function values (the 0.13.1a reject retires) ---
+generic_free_func_value 0
+generic_static_func_value 0
+generic_func_value_equality 0
+# --- 0.13.10 Task 6: lambda capture (display synthesis and promotion) ---
+lambda_capture_counter 0
+lambda_capture_recur 0
+# --- 0.13.10 Task 7: lambda toString, equality, native binding, containers ---
+lambda_tostring 0
+lambda_equality 0
+lambda_thread_spawn 0
+lambda_list_contains 0
+# --- 0.13.10 Task 6 follow-up: captured promoted storage emission shapes ---
+lambda_capture_promoted 0
+# --- 0.13.10 Task 8: GC rooting of display capture fields ---
+lambda_capture_gc_survive 0
+# --- 0.13.10 Task 9: per-iteration loop-head capture freshness ---
+lambda_capture_loop_fresh 0
+lambda_capture_uncaptured_head 0
+# --- 0.13.10 Major-3 lift: reference-form and promoted heads capturable ---
+lambda_capture_ref_head 0
+lambda_capture_promoted_head 0
+lambda_capture_single_stmt_body 0
+lambda_capture_struct_head 0
+lambda_void_in_list 0
+err_for_head_out_of_scope compile_error Cannot resolve the field: i
+err_for_head_duplicate_declarator compile_error local 'i' is already declared in this scope
+# --- 0.13.10 Task 10: displays in generic context (composed instantiation rows) ---
+lambda_generic_capture 0
+# --- 0.13.10 Task 11: lambda family closeout (ref returns, const capture) ---
+lambda_ref_return 0
+lambda_ref_chain 0
+err_lambda_const_capture_assign compile_error cannot assign to const local "k".
+err_lambda_this_in_static compile_error this is not available in a static method.
+# --- 0.13.10 review fix pass: shadowed-capture identity, expression-body
+# nesting (currying), catch-variable capture, static-field lambda, and the
+# receiverless static delegate invoke it rides on ---
+lambda_capture_shadow 0
+lambda_capture_shadow_ref 0
+lambda_nested_expr 0
+lambda_catch_capture 0
+lambda_static_field 0
+# minors closure (user ruling 2026-11-23): the static-local-not-captured
+# pin and the cross-module closure escape
+lambda_static_local 0
+lambda_cross_module 0
+err_generic_type_arg_type compile_error Cannot resolve the field: Type.
+err_generic_infer_type_arg compile_error Cannot resolve the field: Type.
+# the internal type names (§1.4) bind no type anywhere and stay free as
+# ordinary identifiers ---
+err_builtin_type_name compile_error Cannot resolve the field: Int32.;Cannot resolve the field: Type.;Cannot resolve the field: Void.
+builtin_type_name_free 0
 # --- P3.8: lock class field default values (int/float/string/class-ref) ---
 class_field_defaults 7
 # --- P3.8: cover switch on string discriminator ---
@@ -612,6 +668,8 @@ boxed_tostring 0
 boxed_field_gc 0
 boxed_struct_field_gc 0
 boxed_array_elem_gc 0
+iface_field_gc 0
+iface_local_gc 0
 object_array_null_store 7
 list_int_indexof_zero 7
 dict_float_zero_key 7
@@ -1005,6 +1063,8 @@ stdlib_math_random_deterministic 0
 stdlib_math_randomi_range 0
 stdlib_math_randomi_minmax_throws 1
 stdlib_math_clamp_lo_gt_hi_throws 1
+# --- CSPRNG byte surface (session ids and multipart boundaries) ---
+stdlib_math_random_bytes 0
 stdlib_io_print 0 hello
 stdlib_io_write 0 AB
 stdlib_io_write_prompt 0 Name: Hi Alice
@@ -1067,6 +1127,8 @@ stdlib_fs_join 0
 stdlib_fs_remove_nonempty_throws 1
 stdlib_fs_remove_nonempty_caught 0
 stdlib_fs_size_missing_caught 0
+# --- byte write/read pair and file mtime (static-file ETag, upload save) ---
+stdlib_fs_write_time 0
 switch_multi_case 40
 switch_multi_case_enum 0
 switch_multi_three 0
@@ -1177,6 +1239,7 @@ func_tostring_member 0
 func_tostring_cast 0
 func_ref_void_return 41
 func_ref_list_store 0
+func_ref_list_void 0
 func_array_subscript_store 25
 null_overload_ambiguity_reject compile_error ambiguous
 # fitted-constant overload scoring: a fitting literal reaches an
@@ -1427,6 +1490,8 @@ delegate_arg_upcast 2
 delegate_arg_array_exact 9
 delegate_arg_array_reject compile_error incompatible
 delegate_arg_widen_reject compile_error incompatible
+delegate_arg_const_fit 0
+delegate_const_fit_range_reject compile_error out of range
 qhead_call compile_error Malformed qualified type reference
 qhead_deep compile_error Malformed qualified type reference
 qhead_index compile_error Malformed qualified type reference
@@ -2251,10 +2316,18 @@ stdlib_http_pool 0
 stdlib_net_tcp_readline_utf8 0
 stdlib_net_tcp_read_exactly_split 0
 stdlib_net_window 0
+# --- three read faces against peer EOF vs timeout, and the isEof()/isClosed()
+#quadrants that keep the two sides apart ---
+stdlib_net_eof_contrast 0
 stdlib_http_big_head 0
 stdlib_http_single_write 0
 stdlib_http_date_cache 0
 stdlib_http_reject503 0
+# --- HttpServer graceful shutdown: drain returns 0 once its in-flight count
+#settles, force-closes an idle keep-alive wait, reports the residual count when
+#the grace window runs out, resets so the same instance can start again, refuses
+#a second start, and stays idempotent across repeated drain/close calls ---
+stdlib_http_drain_close 0
 #v0.13.6 closed-handle pin: after close() every method of a net handle
 #raises SocketException, close is idempotent, isClosed reports true, and
 #after shutdownWrite() writes raise while reads work until end of stream.
@@ -2279,7 +2352,7 @@ identifiers_former_keywords 0
 err_catch_generic_type compile_error cannot tell instantiations apart
 err_generic_static_infer_mismatch compile_error has type
 err_generic_static_infer_unbound compile_error cannot infer type argument
-err_generic_qualified_func_value compile_error cannot be referenced as a value
+generic_qualified_static_func_value 0
 err_generic_static_ctor 0
 generic_cast_distinguish 0
 array_cast_generic_elem 0
@@ -2449,6 +2522,25 @@ stabilize_array_oob 1
 xacc_fn_private compile_error The function "hiddenHelper" does not exist or is not accessible.
 xacc_type_private compile_error Type 'Vault' is not a member of package 'lib'.
 xacc_ok_public 28
+stdlib_json_parse_basic 0
+stdlib_json_parse_reject 0
+stdlib_json_token_construction 0
+stdlib_json_numbers 0
+# --- v0.13.11: a constructor call stages an implicitly widened argument at
+# the formal's width, not the argument's own (bare call, direct
+# initialization, struct spellings, super(...), module-qualified call).
+ctor_arg_implicit_widen 0
+# --- v0.13.11: `as` is the explicit spelling of a scalar conversion the
+# language admits implicitly (widening long -> double/float, int ->
+# long/double), warning-free; an enum operand of `as` collapses to the
+# int32 it is at runtime.
+scalar_widen_as 0 ok
+cast_as_enum 0 ok
+stdlib_json_unicode 0
+stdlib_json_serialize 0
+stdlib_json_depth 0
+stdlib_json_roundtrip 0
+stdlib_json_edit 0
 stabilize_list_set 42
 stabilize_dict_set 42
 stabilize_static_store 42
@@ -2580,6 +2672,7 @@ refbind_iface_dispatch 0
 err_outret_decl_free compile_error out parameters are retired
 err_outret_decl_class compile_error out parameters are retired
 err_outret_decl_iface compile_error out parameters are retired
+err_outret_decl_generic compile_error out parameters are retired
 err_outret_call_marker compile_error the out argument marker is retired
 err_outret_func_mark compile_error the out type marker is retired
 err_outret_anchored compile_error
@@ -2592,3 +2685,132 @@ op_stream_pop_reject 1
 op_rng_seed 0
 op_tensor_cross_device 0
 op_tensor_scatter_empty_index 0
+# --- v0.13.12: the web middleware chain — both middleware styles in onion
+# order, the base-class default, short-circuiting, next() re-entry, exception
+# mapping and the onError boundary, per-request isolation, the attribute
+# accessors, the response helpers and cookie read/write.
+stdlib_web_middleware_styles 0
+# --- v0.13.12: name resolution per ruling 45 / spec D-29 — a qualified name
+# resolves by its longest known module path at any depth and for every member
+# kind (a qualified library class static constant, a method call on a
+# qualified library enum member, and the bare and qualified spellings of one
+# static agreeing), and `import http.*;` opens a flat library package. The
+# library-subtree face of that wildcard needs Task 8's multi-module layout,
+# so it is pinned here only by the libraryWildcardUnionsSubtree unit leg.
+stdlib_web_qualified_names 0
+# --- v0.13.12: the route table — the exact table beating an earlier parameter
+# row, path captures decoded on the way out, the trailing '*' eating the rest,
+# the method face with HEAD riding GET and an explicit head winning, the 405
+# Allow list, a mount handing its subtree over without falling back, the
+# registration-time conflict matrix, and paramInt answering an out-of-range
+# path parameter with the caller's default.
+stdlib_web_routes_matrix 0
+# --- v0.13.12: sessions — the cookie round-trip with its tri-state attributes, a
+# returning session that wrote getting no cookie of its own, the id rotating under a
+# login while the old record dies with it, destroy() dropping both record and cookie, a
+# sweep judged against an instant the test supplies, and the two refusals around a
+# store (none configured, and configured after the first request).
+stdlib_web_session_basic 0
+# --- v0.13.12: sessions under contention — eight workers each counting a session of
+# their own, eight workers writing one shared session until last-write-wins leaves a
+# value somebody actually wrote, and one middleware instance counting every request.
+stdlib_web_session_conc 0
+# --- v0.13.12: StaticFiles over a mounted directory — the index fallback, the
+# builtin extension table with its text charset, HEAD answering headers-only, the
+# weak ETag's four states and the 304 header set, the three If-Modified-Since date
+# forms with their ignore postures (unparseable, comma lists, repeated fields), the
+# addType normalization, the dot-file gate, the traversal matrix (dot-dot, encoded
+# separators, NUL, drive letters), the directory 301 carrying the mount prefix and
+# the query back, the 405 that answers before the path is looked at, the root
+# refused at construction time, setNotFound keeping its top-level-only domain
+# inside a mounted subtree, and the empty segments folded away.
+stdlib_web_static_files 0
+# --- v0.13.12: Sse framing over a chunked channel — the four event-stream
+# headers with exactly one Connection and no gzip on the wire, the seven-frame
+# byte table (the three arities, the three line endings folding into one field
+# set, the comment's per-line colon prefix, the empty id omitting its field
+# and the empty data keeping one), the named refusals for a CR or LF inside
+# id or event, the quiet double close with the queued frame still draining
+# first, a feeder on another thread that outlives its handler, and one UTF-8
+# frame checked byte by byte.
+stdlib_web_sse_frames 0
+# --- v0.13.12: urlencoded forms through web.form.Form.parse — the raw '&'
+# split with the first '=' as the name/value border, '+' and %XX decoding over
+# UTF-8 bytes, same-name values in arrival order behind a first-seen name,
+# empty values and bare names as empty-value fields, empty segments skipped
+# while an explicit empty name stays a legal field; the media type gate's case,
+# blank and quoted-string spellings against five 415 refusals that quote no
+# client byte; the empty-body answer running ahead of the type check on both
+# the framing-free and the hand-written Content-Length: 0 arm; a malformed
+# percent escape as the named 400 with the request bytes unechoed; maxBytes
+# bounding the read at its exact value with the named 413; the three default
+# limits spelled from a fresh FormOptions with a null opts riding them;
+# maxParts leaving urlencoded fields uncapped; and the containers handed out
+# by names() and getAll() surviving caller edits.
+stdlib_web_form_urlencoded 0
+# multipart parsing core: line-anchored delimiter matching (preamble and epilogue
+# ignored, trailing horizontal whitespace on delimiter lines stripped, quoted
+# boundaries, "\n" and "\r" line endings, obs-fold continuation lines, prefix
+# lookalikes left in the body, 70- and 71-character boundaries, case-sensitive
+# boundary compare); same-name parts uncoalesced in appearance order; filename=""
+# still a file part; a missing part Content-Type registered as text/plain; binary
+# part bytes echoed byte-exact; the read-method face with files()/getFiles()
+# handing out copies; a closing delimiter alone parsing as the empty form; the
+# filename directory path stripped on both separators with no percent decoding;
+# nested multipart kept opaque bytes; and the missing-or-empty boundary and
+# no-delimiter-line shapes answered with the two fixed 400 texts.
+stdlib_web_multipart_parse 0
+# multipart 400 rejection matrix (D-19, ruling 30): five boundary spellings
+# read as missing or empty, more than one boundary parameter with the count
+# check before the empty-value verdict and before the body is read, a part
+# missing a form-data content-disposition, a disposition with a missing or
+# empty name parameter, a field name over 100 bytes on the byte measure
+# (CJK pairs pin bytes over characters), four bodies without a closing
+# boundary delimiter, a part header block over 16384 bytes (exact boundary
+# accepted, one over rejected, never accumulated across parts, the cap
+# judged before the disposition verdict) and the six check-order witnesses,
+# with controls for the repeated charset parameter, FORM-DATA case folding,
+# filename="", the closing-only body and an epilogue after the closing line.
+stdlib_web_multipart_reject 0
+# multipart budget 413s (D-18, ruling 30 i): the three caps each answer their
+# own named 413 with exact-boundary controls — maxBytes rejects a 9-byte body
+# under a cap of 8 while the exact 9 bytes parse, maxParts rejects a third
+# part under a cap of 2 while exactly 3 parts parse and a cap of 0 keeps a
+# closing-only body the empty form, maxPartBytes rejects a 9-byte part body
+# under a cap of 8 while the exact 8 bytes parse and a 9-byte file body
+# answers the same verdict — the count check outranks the part-level 400
+# verdicts, maxPartBytes measures the part body only (a 200-byte header block
+# over a 1-byte body parses, the block belonging to the grammar budget), the
+# two body caps compose as a min from both sides (the http cap answers first
+# and carries no trailing period, the web cap answers under its own tighter
+# cap with its period, and the http field assignment reaches later requests),
+# and the default trio 8388608/1000/4194304 passes a mid-sized three-part
+# form through the multipart arm.
+stdlib_web_multipart_limits 0
+# multipart builder roundtrip (rulings 37/38/39, D-21): the byte-exact CRLF
+# wire the builder writes, no break before the first part, a break before
+# every later part and the closing line, a blank line after each head block
+# and a lone closing line for the zero-part body; the part shapes; the
+# boundary's 40-lower-case-hex spelling and its per-object uniqueness; the
+# %22/%0D/%0A escape subset on name and filename with the Content-Type
+# value passed through unescaped; the empty contentType filled to
+# application/octet-stream; the three named precondition verdicts raised
+# before anything registers and addFile copying the caller's array
+# (ruling 39); and the
+# boundary scan rejecting a part body that carries the delimiter at a line
+# start, contentType() and toBytes() resolving to the same boundary.
+stdlib_web_multipart_roundtrip 0
+# upload save-to-disk (D-20, rulings 29 ii, 31, 33): safeName()'s ten-row
+# cleaning matrix in the pinned order, control bytes dropped with the tab
+# band kept, whitespace runs folded and the ends trimmed, dot segments
+# dropped, the client path stripped on both separators before the Windows
+# reserved-name verdict, reserved stems prefixed with "_", and the 120-byte
+# cap cut at a UTF-8 boundary, plus the control-character and 121-byte
+# Chinese shapes, every row checked idempotent; saveTo() splicing a fresh
+# 8-hex suffix before the extension so repeats never collide in one
+# directory; nothing created when the target directory is missing, the
+# named fs.writeBytes IOException answering instead; saveAs() writing the
+# exact path verbatim and overwriting on a repeat; and the FormFile.data
+# view reaching native bytes through fs.writeBytes then back through
+# fs.readBytes cell for cell.
+stdlib_web_upload_e2e 0

@@ -214,7 +214,8 @@ syntax error: references cannot be stored as elements (§4.7.9); the
 (§7.4).
 
 A user-declared generic class rejects function type arguments: a
-function value is a multi-slot record (target, receiver, form). A
+function value is a multi-slot record (target, receiver, form,
+instantiation descriptor row). A
 struct type argument is admitted — constructor formals, local binds,
 and `foreach` loop variables each establish a fresh record copied
 from the source, while field stores and field-to-field moves update
@@ -331,7 +332,7 @@ dispatch at the consumer's call sites work exactly as in the
 declaring unit (§4.12.10).
 
 *Informative:* a unit also carries a template table — one row per
-instantiation the unit registers (canonical name and
+instantiation the unit registers (canonical spelling and
 composition record). Linking merges the rows of all units; objects
 constructed across units carry their instantiation information as
 usual (§4.12.9), and equality, casting and `typeName` behave
@@ -342,7 +343,7 @@ compiled row; per-object state lives in the instances. A bound
 method reference to a template member works: `func<int> f = b.get;`
 (§7.4). Instantiations are not transparent at runtime: every object
 constructed from an instantiation carries a piece of *instantiation
-information* — the template name and the kind and canonical name
+information* — the template name and the kind and canonical spelling
 of each argument — read by equality dispatch, casts and `typeName`
 (§4.12.2, §4.12.9).
 
@@ -442,7 +443,7 @@ class Holder<T> {
 }
 ```
 
-The key is the canonical name `typeName(T)` produces, so
+The key is the canonical spelling `typeName(T)` produces, so
 `Holder<int>` and `Holder<Box<int>>` each take their own slot.
 
 ## 4.12.10 Generic free functions

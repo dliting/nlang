@@ -267,6 +267,17 @@ static void TestEmptySourceThrowsLoadError() {        //§4 边界（钉死）
     PASS();
 }
 
+//The deployed fixture mirrors the build-tree stdlib dir, which ships one
+//package per domain. The monolithic package of an older build sorts
+//before system/tensor/url/web in the loader's filename order, so a copy
+//left behind would shadow their packages for every test below.
+static void TestDeployDirHasNoLegacyPackage() {
+    TEST(TestDeployDirHasNoLegacyPackage);
+    CHECK(!fs::exists(fs::path(EMBED_DEPLOY_DIR) / "stdlib.npkg"),
+          "deploy dir carries the legacy monolithic stdlib.npkg");
+    PASS();
+}
+
 //§6.1 从 Task 3 移到这里：io.print 依赖 native 解析，接线在 Step 3
 //才落——放在 Task 3 会在 D6 之前留下一个必然失败的用例。
 static void TestRunSourceBoilerplateFree() {          //§6.1
@@ -287,7 +298,7 @@ static void TestV1LoadPathNativeWiring() {            //§6.13（D6 回归）
     itp.load(EMBED_IO_NCU);       //io_demo imports the stdlib io module
     OutputSink sink; InstallSink(itp, sink);
     CHECK(itp.run() == 0, "v1 load+run still works");
-    //emitBoth uses io.print/io.eprint at runtime: closure (stdlib.npkg)
+    //emitBoth uses io.print/io.eprint at runtime: closure (io.npkg)
     //and native (nlang_io.dll) must both resolve from the search dirs,
     //not from beside the test exe.
     Value r = itp.call("io_demo.emitBoth", {});
@@ -515,7 +526,7 @@ static void TestHostFunctionInAdHocScript() {         //§6.8
     //Declarations for `import hostfns_lib` resolve from the PREBUILT
     //hostfns_lib.ncu in the fixture dir (external .ncu import path — a
     //deployed library ships the unit, not the source); the deploy dir
-    //supplies the stdlib half (io.n/stdlib.npkg/natives). hostfns_lib
+    //supplies the stdlib half (io.n/io.npkg/natives). hostfns_lib
     //is the main-free variant of hostfns: the v1 load() entry contract
     //pins main() into hostfns.ncu, while Layer 6 forbids importing a
     //main-defining module — one unit cannot serve both families.
@@ -854,6 +865,7 @@ static void TestPreludeExplicitImportDirless() {
 
 int main() {
     initialize();
+    TestDeployDirHasNoLegacyPackage();
     TestSourceCompilerProducesArtifact();
     TestSourceCompilerCollectsDiagnostics();
     TestDiagnosticsSurviveBuilderDestruction();

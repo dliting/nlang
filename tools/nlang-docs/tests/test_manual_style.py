@@ -110,3 +110,41 @@ def test_spacing_allows_compact_code_links_urls():
 
 def test_manual_tree_compact_spacing():
     assert ms.find_spacing_violations() == []
+
+
+def test_duplicated_substring_flags_nested_replacement():
+    # A botched edit nested the retired sentence inside its own
+    # replacement: a long run with CJK ideographs repeats on one line.
+    old = "一个旗标字节（bit `0`置位标记`out`参数，随后是一个长度前缀类型描述符。"
+    text = "新句前缀" + old + "中缀" + old + "结尾\n"
+    assert ms.duplicated_substring_lines_in_text(
+        text, min_len=20, require_ideograph=True
+    ) != []
+
+
+def test_duplicated_substring_en_rule_flags_ascii_repeats():
+    sentence = "A botched edit nested the retired sentence inside."
+    doubled = sentence + " " + sentence + "\n"
+    assert ms.duplicated_substring_lines_in_text(doubled, min_len=20) != []
+    assert ms.duplicated_substring_lines_in_text(
+        doubled, min_len=20, require_ideograph=True
+    ) == []
+
+
+def test_duplicated_substring_allows_shared_diagnostic_suffixes():
+    # Two quoted diagnostics legitimately sharing a long ASCII suffix
+    # carry no ideographs, so the zh rule does not flag them.
+    text = (
+        "不匹配时（`a List initializer takes positional entries; "
+        "the keyed form is only valid for Dict, struct, and class "
+        "initializers`、`an array initializer takes positional "
+        "entries; the keyed form is only valid for Dict, struct, and "
+        "class initializers`）。\n"
+    )
+    assert ms.duplicated_substring_lines_in_text(
+        text, min_len=20, require_ideograph=True
+    ) == []
+
+
+def test_manual_tree_has_no_duplicated_long_substring():
+    assert ms.find_duplicated_substring_lines() == []

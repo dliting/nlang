@@ -1,0 +1,438 @@
+/*---
+    WalkersMaxArgs.cpp — 帧尺寸 walker 调用实参域：maxArgs 递归走查族
+    （callParamBase 尺寸依据，服务 ComputeCallSlotStats）。
+    从 WalkersStmt.cpp 拆出（2026-09-25 可维护性重构，零行为变化）。
+---*/
+#include "VmBackend.h"
+#include <nlang/runtime/BuiltinGenericNames.h>
+#include <nlang/compiler/SnMisc.h>
+#include <nlang/compiler/SnData.h>
+#include <unordered_set>
+
+namespace nlang {
+//MaxArgs walker statement domain: recurses over the function body and
+//tracks the largest callParamBase claim into maxArgs.
+void VmBackend::MaxArgsWalkStmt(SnStatement& stmt, uint16_t& maxArgs) {
+    NodeKind kind = stmt.Kind();
+    if (kind == NK_Paragraph) {
+        for (auto& child : static_cast<SnParagraph&>(stmt).Statements())
+            MaxArgsWalkStmt(child, maxArgs);
+    } else if (kind == NK_ReturnStmt) {
+        auto* r = static_cast<SnReturnStmt&>(stmt).Result();
+        if (r) MaxArgsWalkExpr(*r, maxArgs);
+    } else if (kind == NK_InvokeStmt) {
+        MaxArgsWalkExpr(*static_cast<SnInvokeStmt&>(stmt).Expr(), maxArgs);
+    } else if (kind == NK_AssignStmt) {
+        MaxArgsAssignStmt(stmt, maxArgs);
+    } else if (kind == NK_IfStmt) {
+        auto& ifStmt = static_cast<SnIfStmt&>(stmt);
+        MaxArgsWalkExpr(*ifStmt.Cond(), maxArgs);
+        if (ifStmt.ThenStmt()) MaxArgsWalkStmt(*ifStmt.ThenStmt(), maxArgs);
+        if (ifStmt.ElseStmt()) MaxArgsWalkStmt(*ifStmt.ElseStmt(), maxArgs);
+    } else if (kind == NK_WhileStmt) {
+        auto& w = static_cast<SnWhileStmt&>(stmt);
+        MaxArgsWalkExpr(*w.Cond(), maxArgs);
+        if (w.Body()) MaxArgsWalkStmt(*w.Body(), maxArgs);
+    } else if (kind == NK_DoStmt) {
+        auto& dw = static_cast<SnDoStmt&>(stmt);
+        MaxArgsWalkExpr(*dw.Cond(), maxArgs);
+        if (dw.Body()) MaxArgsWalkStmt(*dw.Body(), maxArgs);
+    } else if (kind == NK_ForStmt) {
+        MaxArgsForStmt(stmt, maxArgs);
+    } else if (kind == NK_SwitchStmt) {
+        MaxArgsSwitchStmt(stmt, maxArgs);
+    } else if (kind == NK_ForeachStmt) {
+        MaxArgsForeachStmt(stmt, maxArgs);
+    } else if (kind == NK_AssertStmt) {
+        MaxArgsWalkExpr(*static_cast<SnAssertStmt&>(stmt).Cond(), maxArgs);
+    } else if (kind == NK_TryStmt) {
+        MaxArgsTryStmt(stmt, maxArgs);
+    } else if (kind == NK_SuperCallStmt) {
+        MaxArgsSuperCallStmt(stmt, maxArgs);
+    } else if (kind == NK_ThrowStmt) {
+        auto* e = static_cast<SnThrowStmt&>(stmt).Expr();
+        if (e) MaxArgsWalkExpr(*e, maxArgs);
+    } else if (kind == NK_CompoundAssignStmt) {
+        MaxArgsCompoundAssignStmt(stmt, maxArgs);
+    } else if (kind == NK_SubscriptAssignStmt) {
+        MaxArgsSubscriptAssignStmt(stmt, maxArgs);
+    }
+}
+
+//MaxArgs walker expression domain: recurses into child expressions for
+//nested calls; isMethodContext as in ExprPeakDepth.
+void VmBackend::MaxArgsWalkExpr(SnExpression& expr, uint16_t& maxArgs,
+    bool isMethodContext) {
+    if (expr.Kind() == NK_InvokeExpr) {
+        MaxArgsInvokeExpr(expr, maxArgs, isMethodContext);
+        return;
+    }
+    //v0.13.7: a tensor-flagged binary IS a 2-arg tensor call — account
+    //its claim like an invoke, then recurse into the operand
+    //sub-expressions for nested calls.
+    if (expr.Kind() == NK_BinaryExpr) {
+        auto& bin = static_cast<SnBinaryExpr&>(expr);
+        if (bin.ContainFlags(NF_TensorOp)) {
+            //The plan is AT MOST a 2-arg tensor primitive — TensorFnFor
+            //only names the fixed 2-formal (or 1-formal neg) overloads in
+            //stdlib/tensor.n; over-reserving covers the 1-arg neg.
+            uint16_t claimSize = 2;
+            if (claimSize > maxArgs)
+                maxArgs = claimSize;
+            for (auto &param : bin.TensorCallPlan()->Params())
+                MaxArgsWalkExpr(param, maxArgs);
+            return;
+        }
+        MaxArgsWalkExpr(*bin.Left(), maxArgs);
+        if (bin.Right()) MaxArgsWalkExpr(*bin.Right(), maxArgs);
+    } else if (expr.Kind() == NK_CastExpr) {
+        MaxArgsWalkExpr(*static_cast<SnCastExpr&>(expr).Source(), maxArgs);
+    } else if (expr.Kind() == NK_AsExpr) {
+        MaxArgsWalkExpr(*static_cast<SnAsExpr&>(expr).Operand(), maxArgs);
+    } else if (expr.Kind() == NK_NamedArgExpr) {
+        MaxArgsWalkExpr(*static_cast<SnNamedArgExpr&>(expr).Inner(), maxArgs);
+    } else if (expr.Kind() == NK_OutArgExpr) {
+        //Phase 9e: out arg — walk the inner identifier.
+        MaxArgsWalkExpr(*static_cast<SnOutArgExpr&>(expr).Inner(), maxArgs);
+    } else if (expr.Kind() == NK_SliceItemExpr) {
+        //v0.12.7 Task 11: slice parts evaluate into the parent
+        //subscript's claim slots — walk them for nested invokes only.
+        auto& item = static_cast<SnSliceItemExpr&>(expr);
+        if (item.Head())
+            MaxArgsWalkExpr(*item.Head(), maxArgs);
+        if (item.Stop())
+            MaxArgsWalkExpr(*item.Stop(), maxArgs);
+        if (item.Step())
+            MaxArgsWalkExpr(*item.Step(), maxArgs);
+    } else if (expr.Kind() == NK_SubscriptExpr) {
+        MaxArgsSubscriptExpr(expr, maxArgs);
+    } else if (expr.Kind() == NK_MemberExpr) {
+        MaxArgsMemberExpr(expr, maxArgs);
+    } else if (expr.Kind() == NK_NewExpr) {
+        MaxArgsNewExpr(expr, maxArgs);
+    } else if (expr.Kind() == NK_NewArrayExpr) {
+        MaxArgsWalkExpr(*static_cast<SnNewArrayExpr&>(expr).Size(), maxArgs);
+    } else if (expr.Kind() == NK_InitListExpr) {
+        MaxArgsInitListExpr(expr, maxArgs);
+    }
+}
+
+//MaxArgs walker, NK_AssignStmt arm.
+void VmBackend::MaxArgsAssignStmt(SnStatement& stmt, uint16_t& maxArgs) {
+    //Walk the Left() lvalue too — `li[i].f = v` receivers emit
+    //a synthetic get() call needing 2 callParamBase slots.
+    auto& as = static_cast<SnAssignStmt&>(stmt);
+    auto* l = as.Left();
+    if (l) MaxArgsWalkExpr(*l, maxArgs);
+    auto* v = as.Right();
+    if (v) MaxArgsWalkExpr(*v, maxArgs);
+}
+
+//MaxArgs walker, NK_ForStmt arm.
+void VmBackend::MaxArgsForStmt(SnStatement& stmt, uint16_t& maxArgs) {
+    auto& f = static_cast<SnForStmt&>(stmt);
+    if (f.Init()) MaxArgsWalkStmt(*f.Init(), maxArgs);
+    //Round-10: decomposed init assigns (local-decl split) may
+    //contain calls — mirror the codegen's InitExtras loop.
+    for (auto* pExtra : f.InitExtras()) MaxArgsWalkStmt(*pExtra, maxArgs);
+    if (f.Cond()) MaxArgsWalkExpr(*f.Cond(), maxArgs);
+    if (f.Fini()) MaxArgsWalkStmt(*f.Fini(), maxArgs);
+    if (f.Body()) MaxArgsWalkStmt(*f.Body(), maxArgs);
+}
+
+//MaxArgs walker, NK_SwitchStmt arm.
+void VmBackend::MaxArgsSwitchStmt(SnStatement& stmt, uint16_t& maxArgs) {
+    auto& sw = static_cast<SnSwitchStmt&>(stmt);
+    MaxArgsWalkExpr(*sw.Cond(), maxArgs);
+    for (auto* c : sw.Cases()) {
+        //SnCaseClause inherits SyntaxNode, not SnStatement.
+        for (auto* pLabel : c->Labels())
+            MaxArgsWalkExpr(*pLabel, maxArgs);
+        if (c->Body()) {
+            for (auto& s : c->Body()->Statements())
+                MaxArgsWalkStmt(s, maxArgs);
+        }
+    }
+    //Round-10: default clause body — emitted after the cases.
+    if (sw.Default()) MaxArgsWalkStmt(*sw.Default(), maxArgs);
+}
+
+//MaxArgs walker, NK_ForeachStmt arm.
+void VmBackend::MaxArgsForeachStmt(SnStatement& stmt, uint16_t& maxArgs) {
+    auto& fe = static_cast<SnForeachStmt&>(stmt);
+    //Round-11: the List/Dict expansion body-prelude lowers to a
+    //synthetic get(i) call that bulk-writes {this, index} into
+    //callParamBase — reserve them (SubscriptExpr precedent).
+    if (maxArgs < 2) maxArgs = 2;
+    MaxArgsWalkExpr(*fe.Iterable(), maxArgs);
+    if (fe.Body()) MaxArgsWalkStmt(*fe.Body(), maxArgs);
+}
+
+//MaxArgs walker, NK_TryStmt arm.
+void VmBackend::MaxArgsTryStmt(SnStatement& stmt, uint16_t& maxArgs) {
+    auto& ts = static_cast<SnTryStmt&>(stmt);
+    if (ts.TryBody()) MaxArgsWalkStmt(*ts.TryBody(), maxArgs);
+    for (auto* c : ts.Catches()) {
+        if (c->Body()) MaxArgsWalkStmt(*c->Body(), maxArgs);
+    }
+    if (ts.FinallyBody()) MaxArgsWalkStmt(*ts.FinallyBody(), maxArgs);
+}
+
+//MaxArgs-side counterpart of CtorDefaultExprDepth: the nested calls
+//inside a callee's default expressions bulk-copy their own argument
+//slots into the CALLER's callParamBase while the default stages, so the
+//caller's maxArgs must cover them too (without the descent the overflow
+//lands on the enclosing call's own {this, args...} claim and silently
+//corrupts the arguments — ctor arms since 0.9.6, function/method arms
+//since 0.9.8). The subtrees go through the same MaxArgs arms as an
+//ordinary call site. The member-level guard set breaks the cycle a
+//self-referential default would cause: this walker runs before
+//DefaultEmitGuard rejects the recursion at codegen. The manual
+//insert/erase needs no RAII — the walk only reads the AST, so nothing
+//between the two can throw.
+void VmBackend::CalleeDefaultMaxArgs(SnFunction* pCalleeFn, uint16_t& maxArgs) {
+    if (!pCalleeFn) return;
+    if (!m_calleeDefaultMaxArgsWalking.insert(pCalleeFn).second) return;
+    for (auto& fp : pCalleeFn->Params())
+        if (fp.Value()) MaxArgsWalkExpr(*fp.Value(), maxArgs);
+    m_calleeDefaultMaxArgsWalking.erase(pCalleeFn);
+}
+
+//MaxArgs walker, NK_SuperCallStmt arm. Instance method: the parent
+//class comes from m_pCurrClass (set for the class being emitted).
+void VmBackend::MaxArgsSuperCallStmt(SnStatement& stmt, uint16_t& maxArgs) {
+    //super(args) claims 1 (this) + totalFormals slots at call time —
+    //omitted trailing formals stage their defaults (P3), so the claim
+    //covers the parent ctor's full formal count.
+    auto& sc = static_cast<SnSuperCallStmt&>(stmt);
+    //0.9.11 T6: the resolver-selected parent ctor (registered filter,
+    //walker/codegen symmetry); null (builtin table path, no selection,
+    //or an unregistered selection whose call codegen skips) falls back
+    //to the caller-arg count — over-reserving, never under.
+    SnFunction* pParentCtor = RegisteredCtor(sc.CtorFunction());
+    const size_t totalFormals = pParentCtor
+        ? pParentCtor->Params().size() : sc.ArgCount();
+    uint16_t claimSize = static_cast<uint16_t>(1 + totalFormals);
+    if (claimSize > maxArgs) maxArgs = claimSize;
+    CalleeDefaultMaxArgs(pParentCtor, maxArgs);
+    for (auto &arg : sc.Args())
+        MaxArgsWalkExpr(arg, maxArgs);
+}
+
+//MaxArgs walker, NK_CompoundAssignStmt arm.
+void VmBackend::MaxArgsCompoundAssignStmt(SnStatement& stmt, uint16_t& maxArgs) {
+    //Walk Left() receiver too — `mk().x += 1` hides a call
+    //needing callParamBase slots (C1-family asymmetry).
+    auto& ca = static_cast<SnCompoundAssignStmt&>(stmt);
+    //0.8.4: a bare subscript LHS on a container base (li[i] += v)
+    //lowers to get() + set(); the set() bulk-copies 3 slots
+    //([this, index, value]) into callParamBase — reserve them.
+    //MaxArgsSubscriptExpr already walks base/index and reserves 2
+    //for the read path's get().
+    if (ca.Left() && ca.Left()->Kind() == NK_SubscriptExpr
+        && IsContainerSubscript(
+            *static_cast<SnSubscriptExpr&>(*ca.Left()).Array())
+        && maxArgs < 3)
+        maxArgs = 3;
+    if (ca.Left()) MaxArgsWalkExpr(*ca.Left(), maxArgs);
+    if (ca.Right()) MaxArgsWalkExpr(*ca.Right(), maxArgs);
+}
+
+//MaxArgs walker, NK_SubscriptAssignStmt arm.
+void VmBackend::MaxArgsSubscriptAssignStmt(SnStatement& stmt, uint16_t& maxArgs) {
+    auto& sa = static_cast<SnSubscriptAssignStmt&>(stmt);
+    //v0.14.2: a bound tensor body IS a 3-arg tensor call — account its
+    //claim like an invoke, then recurse into the params for nested
+    //calls (the binary-lowering walker symmetry).
+    if (sa.TensorBody()) {
+        if (maxArgs < 3) maxArgs = 3;
+        for (auto &param : sa.TensorBody()->Params())
+            MaxArgsWalkExpr(param, maxArgs);
+        return;
+    }
+    //List/Dict subscript store lowers to a set() call that
+    //bulk-copies 3 slots into callParamBase — reserve them.
+    //Array stores read their claim slots directly (StoreElement
+    //takes explicit operand offsets) and touch no call params.
+    if (IsContainerSubscript(*sa.Array()) && maxArgs < 3)
+        maxArgs = 3;
+    //Phase 10 audit C1: walk the array base too — a call in the
+    //base (`makeArr(...)[0] = v`) needs its arg slots reserved or
+    //the bulk-copy overflows callParamBase into evalArea.
+    //StmtPeakDepth already walked it; this closes the asymmetry.
+    MaxArgsWalkExpr(*sa.Array(), maxArgs);
+    for (auto *pIndex : sa.Indices())
+        MaxArgsWalkExpr(*pIndex, maxArgs);
+    MaxArgsWalkExpr(*sa.Value(), maxArgs);
+}
+
+//Extra claim slots for a built-in string method with a staged trailing
+//argument (the 1-arg substring form): such a call bulk-copies 1+staged
+//slots into callParamBase — reserve the same count from the same shared
+//predicate ExprPeakDepth/codegen consume, or the i=2 write lands on
+//evalArea slot 0 and clobbers a live parked operand (`a +
+//s.substring(1)` compared garbage). Name-based overreserve for a free
+//function sharing the name is the safe direction (frame bytes only).
+static uint16_t StringMethodTrailingReserve(const SnInvokeExpr& invoke,
+                                            size_t formalCount) {
+    const uint16_t staged = StringMethodStagedArgCount(
+        invoke.CalleeName(), static_cast<uint16_t>(formalCount));
+    return static_cast<uint16_t>(staged - formalCount);
+}
+
+//MaxArgs walker, NK_InvokeExpr arm.
+void VmBackend::MaxArgsInvokeExpr(SnExpression& expr, uint16_t& maxArgs,
+    bool isMethodContext) {
+    auto& invoke = static_cast<SnInvokeExpr&>(expr);
+    //0.9.0: a ctor-carrying invoke shares the NewExpr claim shape.
+    //0.9.11 D2: the struct twin joins (same claim layout).
+    if (invoke.CtorClass() || invoke.CtorStruct() || invoke.ArrayDynCtor()) {
+        MaxArgsCtorInvoke(invoke, maxArgs);
+        return;
+    }
+    auto* callee = invoke.Callee();
+    size_t formalCount = callee ? callee->Params().size() : 0;
+    if (!callee) { for (auto& p : invoke.Params()) ++formalCount; }
+    //Method call detection: trust isMethodContext flag (set
+    //when Inner of MemberExpr) OR callee->Parent() is class.
+    //Built-in method calls have callee=null, so the flag is
+    //the only reliable signal.
+    bool isMethod = isMethodContext || (callee && callee->Parent()
+        && (callee->Parent()->Kind() == NK_ClassDecl
+            || callee->Parent()->Kind() == NK_StructDecl
+            || callee->Parent()->Kind() == NK_InterfaceDecl));
+    size_t slotBase = isMethod ? 1 : 0;
+    uint16_t claimSize = static_cast<uint16_t>(
+        formalCount + slotBase);
+    //Phase 13: delegate invoke callee scratch slot — mirror
+    //ExprPeakDepth (over-reservation, safe direction).
+    if (!callee && IsDelegateInvoke(invoke))
+        claimSize = static_cast<uint16_t>(claimSize + 1);
+    //Phase 11 Step 3 symmetry: see StringMethodTrailingReserve above.
+    if (!callee)
+        claimSize = static_cast<uint16_t>(
+            claimSize + StringMethodTrailingReserve(invoke, formalCount));
+    if (claimSize > maxArgs) maxArgs = claimSize;
+    //A default expression evaluates at this call site; any nested
+    //call inside it bulk-copies its own argument slots into the
+    //CALLER's callParamBase — reserve them (InvokeExprPeakDepth has
+    //descended the same subtrees since Phase 9c; this closes the
+    //callParamBase-side asymmetry, ctor arms use the same helper).
+    CalleeDefaultMaxArgs(callee, maxArgs);
+    //Also walk the invoke's own params for nested calls.
+    for (auto& param : invoke.Params())
+        MaxArgsWalkExpr(param, maxArgs);
+}
+
+//0.9.0: a ctor-carrying invoke bulk-copies {this, formals...} into
+//callParamBase exactly like the NewExpr arm (MaxArgsNewExpr).
+void VmBackend::MaxArgsCtorInvoke(SnInvokeExpr& invoke, uint16_t& maxArgs) {
+    size_t argCount = 0;
+    for (auto& param : invoke.Params()) ++argCount;
+    //P3: omitted trailing formals stage their defaults, so the claim
+    //covers the ctor's full formal count.
+    //0.9.11 T6 (D10): class and struct invokes both carry the
+    //resolver-selected ctor in the AST; the registered filter keeps the
+    //walker in step with codegen (null = builtin table path or no
+    //selection, mirroring EmitCtorInvocation(nullptr)).
+    SnFunction* pCtorFn = RegisteredCtor(invoke.CtorFunction());
+    const size_t totalFormals = pCtorFn
+        ? pCtorFn->Params().size() : argCount;
+    uint16_t claimSize = static_cast<uint16_t>(1 + totalFormals);
+    if (claimSize > maxArgs) maxArgs = claimSize;
+    CalleeDefaultMaxArgs(pCtorFn, maxArgs);
+    for (auto& param : invoke.Params())
+        MaxArgsWalkExpr(param, maxArgs);
+}
+
+//MaxArgs walker, NK_SubscriptExpr arm.
+void VmBackend::MaxArgsSubscriptExpr(SnExpression& expr, uint16_t& maxArgs) {
+    auto& sub = static_cast<SnSubscriptExpr&>(expr);
+    //List/Dict subscript lowers to a synthetic get() call that
+    //bulk-copies 2 slots (this + index) into callParamBase —
+    //mirror the codegen so maxArgs never under-reserves the
+    //region (a lone `li[0]` with no other calls would size
+    //callParamBase at 1 and the get() would overflow it).
+    if (IsContainerSubscript(*sub.Array()) && maxArgs < 2)
+        maxArgs = 2;
+    MaxArgsWalkExpr(*sub.Array(), maxArgs);
+    for (auto *pIndex : sub.Indices())
+        MaxArgsWalkExpr(*pIndex, maxArgs);
+}
+
+//MaxArgs walker, NK_MemberExpr arm.
+void VmBackend::MaxArgsMemberExpr(SnExpression& expr, uint16_t& maxArgs) {
+    auto& member = static_cast<SnMemberExpr&>(expr);
+    MaxArgsWalkExpr(*member.Outer(), maxArgs, false);
+    //If Inner is InvokeExpr, pass method-context flag so
+    //slot 0 is reserved for `this` — EXCEPT delegate invokes
+    //(a func-typed field): their args are staged without this
+    //and the invoke branch adds the callee scratch instead
+    //(mirror ExprPeakDepth's MemberExpr branch).
+    if (member.Inner()
+        && member.Inner()->Kind() == NK_InvokeExpr) {
+        auto& innerInvoke =
+            static_cast<SnInvokeExpr&>(*member.Inner());
+        MaxArgsWalkExpr(*member.Inner(), maxArgs,
+            !IsDelegateInvoke(innerInvoke));
+    } else {
+        MaxArgsWalkExpr(*member.Inner(), maxArgs, false);
+    }
+}
+
+//MaxArgs walker, NK_NewExpr arm.
+void VmBackend::MaxArgsNewExpr(SnExpression& expr, uint16_t& maxArgs) {
+    //claimSize for ctor call = 1 (this) + totalFormals — omitted
+    //trailing formals stage their defaults (P3), mirroring
+    //EmitCtorInvocation exactly. Skip the class-name child by identity
+    //(Args() view includes it — see the NewExpr codegen handler).
+    auto& newExpr = static_cast<SnNewExpr&>(expr);
+    size_t argCount = 0;
+    for (auto& arg : newExpr.Args()) {
+        if (&arg == newExpr.ClassName()) continue;
+        ++argCount;
+    }
+    //0.9.11 T6 (D10): class and struct new-expressions both carry the
+    //resolver-selected ctor in the AST (see MaxArgsCtorInvoke for the
+    //registered-filter rationale).
+    SnFunction* pCtorFn = RegisteredCtor(newExpr.CtorFunction());
+    const size_t totalFormals = pCtorFn
+        ? pCtorFn->Params().size() : argCount;
+    uint16_t claimSize = static_cast<uint16_t>(1 + totalFormals);
+    if (claimSize > maxArgs) maxArgs = claimSize;
+    CalleeDefaultMaxArgs(pCtorFn, maxArgs);
+    for (auto& arg : newExpr.Args()) {
+        if (&arg == newExpr.ClassName()) continue;
+        MaxArgsWalkExpr(arg, maxArgs);
+    }
+}
+
+//MaxArgs walker, NK_InitListExpr arm.
+void VmBackend::MaxArgsInitListExpr(SnExpression& expr, uint16_t& maxArgs) {
+    //Phase 9c follow-up: collection inits emit implicit calls:
+    //  - Dict: OP_CallMethod "set" with 3 slots (this, key, value)
+    //  - List: OP_CallMethod "add" with 2 slots (this, value)
+    //Track for maxArgs so callParamBase is sized correctly when
+    //the legacy floor (8) is eventually removed.
+    auto& init = static_cast<SnInitListExpr&>(expr);
+    SnField* pTarget = init.EvalDataType();
+    if (pTarget && pTarget->Kind() == NK_ClassDecl) {
+        auto* pClassDecl = static_cast<SnClassDecl*>(pTarget);
+        const std::string& bn = pClassDecl->BaseName();
+        if (bn == kBuiltinDictTypeName && 3 > maxArgs) maxArgs = 3;
+        else if (bn == kBuiltinListTypeName && 2 > maxArgs) maxArgs = 2;
+        //K3 task 4: Channel's `{}` form stages (this, capacity) before
+        //the intrinsic ctor call — the same sizing contract as List's
+        //implicit add. Without this arm a function whose other calls all
+        //take one slot sizes callParamBase at 1, and the capacity store
+        //aliases evalArea[0] (the init-list's own handle slot).
+        else if (bn == kBuiltinChannelTypeName && 2 > maxArgs) maxArgs = 2;
+    }
+    //0.10.10: keys are expressions too — a Dict key can carry
+    //implicit calls of its own (helper(1): v).
+    for (auto& entry : init.Entries()) {
+        if (entry.pKey) MaxArgsWalkExpr(*entry.pKey, maxArgs);
+        if (entry.pValue) MaxArgsWalkExpr(*entry.pValue, maxArgs);
+    }
+}
+} //namespace nlang

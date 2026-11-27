@@ -1,0 +1,46 @@
+// v0.13.11 json: core grammar acceptance, DOM reads through kind(), error wording.
+import io;
+import json;
+
+// Returns 0 when parse(text) rejects with JsonException, 1 when it accepts.
+int checkReject(string text) {
+    try {
+        JsonValue doc = json.parse(text);
+        return 1;
+    } catch (JsonException e) {
+        return 0;
+    }
+}
+
+int main() {
+    int bad = 0;
+    JsonValue doc = json.parse("{\"name\": \"nlang\", \"port\": 8080, \"debug\": true, \"tags\": [\"a\", \"b\"], \"db\": {\"host\": \"localhost\"}, \"nothing\": null}");
+    if (doc.kind() != JsonKind.Object) { bad = bad + 1; }
+    JsonObject root = doc.getObject();
+    if (root.get("name").getString() != "nlang") { bad = bad + 1; }
+    if (root.get("port").getInt() != 8080) { bad = bad + 1; }
+    if (root.get("debug").getBool() != true) { bad = bad + 1; }
+    if (root.get("tags").getArray().length() != 2) { bad = bad + 1; }
+    if (root.get("tags").getArray().get(1).getString() != "b") { bad = bad + 1; }
+    if (root.get("db").getObject().get("host").getString() != "localhost") { bad = bad + 1; }
+    if (root.get("nothing").kind() != JsonKind.Null) { bad = bad + 1; }
+    if (root.has("port") != true) { bad = bad + 1; }
+    if (root.count() != 6) { bad = bad + 1; }
+    List<string> keys = root.names();
+    if (keys.length() != 6) { bad = bad + 1; }
+    if (keys.get(0) != "name") { bad = bad + 1; }
+    if (root.get("port").getLong() == 8080) { } else { bad = bad + 1; }
+    // Grammar core rejects that drive the parser RED (full matrix lands in Task 3):
+    if (checkReject("True") != 0) { bad = bad + 1; }
+    if (checkReject("nul") != 0) { bad = bad + 1; }
+    if (checkReject("") != 0) { bad = bad + 1; }
+    // Accessor mismatch carries the fixed wording (D-10).
+    string msg = "";
+    try { root.get("name").getInt(); } catch (JsonException e) { msg = e.message; }
+    if (msg != "json: expected number, got string") { bad = bad + 1; }
+    // Missing key wording (D-10).
+    string missing = "";
+    try { root.get("absent"); } catch (JsonException e) { missing = e.message; }
+    if (missing != "json: object has no key \"absent\"") { bad = bad + 1; }
+    return bad;
+}

@@ -126,4 +126,7 @@ installer's `examples/conc_*.n`.
 - **Value-returning `spawn` takes bare function references or bound
   delegate values**: `thread.spawn(obj.method)` as a typed spawn
   currently needs the explicit delegate local (`func<int> d =
-  obj.method;`) or a free function; the void shape is unaffected.
+  obj.method;`) or a free function; a lambda takes the same route —
+  `func<int> d = () -> obj.method();` — writing the literal directly
+  as the argument does not resolve. The void shape is unaffected
+  (`thread.spawn(() -> …)` works).

@@ -1,0 +1,25 @@
+// generic_free_func_value.n — 0.13.10 Task 5: a generic free function's
+// VALUE binds through the expected func type's instantiation (the
+// template row serves every reference; the descriptor row is what
+// varies). The body avoids ordering on T (err_generic_t_order stays).
+T pick<T>(T a, T b) {
+    return b;
+}
+string kindOf<T>(T v) {
+    return typeName(T);
+}
+int main() {
+    func<int, int, int> f = pick;
+    if (f(3, 5) != 5) { return 3; }
+    func<float, float, float> g = pick;
+    if (g(3.5, 7.5) != 7.5) { return 4; }
+    //cross-instantiation isolation: neither row leaks into the other
+    if (f(7, 9) != 9) { return 5; }
+    if (g(1.5, 2.5) != 2.5) { return 6; }
+    //a T-only-in-return shape infers from the expected return slot
+    func<string, int> k = kindOf;
+    if (k(42) != "int") { return 7; }
+    func<string, float> m = kindOf;
+    if (m(1.5) != "float") { return 8; }
+    return 0;
+}

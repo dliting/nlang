@@ -1,0 +1,438 @@
+// stdlib_web_multipart_limits — the three budget overruns of
+// web.form.Form.parse on multipart bodies answer 413 and name the budget
+// they hit (spec 6.9, D-18, ruling 30 i steps ① and ③): maxBytes bounds
+// the whole request body on the multipart arm too (step ④ is shared by
+// both arms), maxParts bounds the registered part count, and maxPartBytes
+// bounds one part's body — fields and files share that one gate, and the
+// gate measures the part body only, never the header block (the block has
+// its own 16384-byte grammar budget in the reject corpus). Every budget is
+// bracketed from both sides: the exact value parses, one byte (or one
+// part) past it is rejected. The maxParts check outranks the per-part
+// grammar checks — an over-budget part that would also fail the disposition
+// name rule names maxParts, and its header bytes are never scanned. The
+// two body caps compose as a min from both sides: with the http-layer
+// maxBodyBytes tightened below the web-layer maxBytes the http message
+// answers (no trailing period), and with the web-layer cap below the http
+// cap the web message answers (trailing period); maxBodyBytes is written
+// explicitly before each of those two requests because the field, not a
+// formal, carries the value into every later request. The default trio
+// 8388608/1000/4194304 is re-pinned through the multipart arm reading the
+// same fields: a three-part message with 12-byte bodies parses on fresh
+// options. Each endpoint pins its own trio of limits as literals inside
+// its handler lambda (a const could not be rewritten per leg, and an
+// endpoint name cannot be registered twice); request shapes that share one
+// limit set ride the same endpoint. The "parts=" echo pins that a budget
+// overrun rejects the whole form whatever registered before it.
+import io;
+import http;
+import web.*;
+
+// The multipart fixture's byte accumulator (shared corpus shape):
+// List<byte> is the language's only growable byte sequence, and the two
+// public statics below run io.toBytes per element (stdlib/http.n), so put
+// carries UTF-8 text while putByte/putBytes carry raw octets (a 0xFF cell
+// stores as -128 and stays 0xFF on the wire; every unsigned compare uses
+// & 0xFF).
+class ByteBuf {
+    private List<byte> m_v;
+    public ByteBuf() { m_v = {}; }
+    public void put(string ascii) { HttpParser.appendAscii(m_v, ascii); }
+    public void putByte(int v) { m_v.add(v as byte); }
+    public void putBytes(byte[] src) { for (int i = 0; i < src.length(); i = i + 1) { m_v.add(src[i]); } }
+    public byte[] toBytes() { return HttpParser.toByteArray(m_v); }
+}
+
+// The delimiter's own line break belongs to the delimiter line (D-19), so
+// putPart writes it before the part instead of after the previous body;
+// skipping it before the first part is the no-preamble spelling where the
+// body opens on "--boundary" (D-19). Each header arrives with its own eol
+// already spelled by the leg, and the headers argument carries the trailing
+// blank line that separates headers from the body.
+void putPart(ByteBuf b, string eol, string bnd, string headers, byte[] body, bool firstPart) {
+    if (!firstPart) { b.put(eol); }
+    b.put("--" + bnd + eol);
+    b.put(headers);
+    b.putBytes(body);
+}
+
+void putFinal(ByteBuf b, string eol, string bnd, string epilogue) {
+    b.put(eol + "--" + bnd + "--" + eol + epilogue);
+}
+
+// A fixed 413 checked as one unit: status, reason phrase and the byte-exact
+// named message. The two 413 layers use different messages (the http layer
+// spells none and carries no trailing period; the web layer names its
+// field), so the body compare is what tells the layers apart.
+bool ok413(http.HttpResponse res, string wantBody) {
+    if (res.statusCode != 413) { return false; }
+    if (res.reasonPhrase != "Content Too Large") { return false; }
+    return res.bodyText() == wantBody;
+}
+
+// A parse that stayed under every budget, answered by the part count.
+bool okParts(http.HttpResponse res, int want) {
+    return res.statusCode == 200
+        && res.bodyText() == "parts=" + want.toString();
+}
+
+// The first line of every ordinary part of this corpus.
+string cdLine(string name) {
+    return "Content-Disposition: form-data; name=\"" + name + "\"";
+}
+
+// Exactly n copies of one filler character (ASCII, so the byte count is
+// the character count).
+string filler(int n) {
+    string s = "";
+    for (int i = 0; i < n; i = i + 1) { s = s + "b"; }
+    return s;
+}
+
+// One field part (named k, body spelled by the leg) closed by the standard
+// final delimiter: 60 + body.length() bytes in total.
+string fieldMsg(string body) {
+    ByteBuf b = ByteBuf();
+    putPart(b, "\r\n", "Bx", cdLine("k") + "\r\n\r\n", io.toBytes(body), true);
+    putFinal(b, "\r\n", "Bx", "");
+    return io.fromBytes(b.toBytes());
+}
+
+// One file part (named k, filename d.bin, body spelled by the leg): the
+// same shape on the file channel.
+string fileMsg(string body) {
+    ByteBuf b = ByteBuf();
+    putPart(b, "\r\n", "Bx",
+        cdLine("k") + "; filename=\"d.bin\"\r\n\r\n", io.toBytes(body), true);
+    putFinal(b, "\r\n", "Bx", "");
+    return io.fromBytes(b.toBytes());
+}
+
+// Three field parts (k1..k3, one-byte bodies) — the shape the maxParts
+// bracket drives.
+string threeFieldMsg() {
+    ByteBuf b = ByteBuf();
+    putPart(b, "\r\n", "Bx", cdLine("k1") + "\r\n\r\n", io.toBytes("1"), true);
+    putPart(b, "\r\n", "Bx", cdLine("k2") + "\r\n\r\n", io.toBytes("2"), false);
+    putPart(b, "\r\n", "Bx", cdLine("k3") + "\r\n\r\n", io.toBytes("3"), false);
+    putFinal(b, "\r\n", "Bx", "");
+    return io.fromBytes(b.toBytes());
+}
+
+// Three field parts whose third one carries a form-data disposition with no
+// name parameter: under maxParts = 2 the third part trips both the count
+// budget and the missing-name grammar rule, so the answer names maxParts
+// only if the count check really precedes the part-level verdicts
+// (ruling 30 i: step ① before step ⑤).
+string threeFieldMsgLastNoName() {
+    ByteBuf b = ByteBuf();
+    putPart(b, "\r\n", "Bx", cdLine("k1") + "\r\n\r\n", io.toBytes("1"), true);
+    putPart(b, "\r\n", "Bx", cdLine("k2") + "\r\n\r\n", io.toBytes("2"), false);
+    putPart(b, "\r\n", "Bx", "Content-Disposition: form-data\r\n\r\n",
+        io.toBytes("3"), false);
+    putFinal(b, "\r\n", "Bx", "");
+    return io.fromBytes(b.toBytes());
+}
+
+// Three field parts with 12-byte bodies: rides the default trio untouched
+// (leg E), comfortably under all three default budgets.
+string threeTwelvesMsg() {
+    ByteBuf b = ByteBuf();
+    string body = filler(12);
+    putPart(b, "\r\n", "Bx", cdLine("k1") + "\r\n\r\n", io.toBytes(body), true);
+    putPart(b, "\r\n", "Bx", cdLine("k2") + "\r\n\r\n", io.toBytes(body), false);
+    putPart(b, "\r\n", "Bx", cdLine("k3") + "\r\n\r\n", io.toBytes(body), false);
+    putFinal(b, "\r\n", "Bx", "");
+    return io.fromBytes(b.toBytes());
+}
+
+// One field part (body "1") under the header block headers, closed by the
+// standard final delimiter: the shape leg C4 drives with a padded block.
+string onePart(string headers) {
+    ByteBuf b = ByteBuf();
+    putPart(b, "\r\n", "Bx", headers, io.toBytes("1"), true);
+    putFinal(b, "\r\n", "Bx", "");
+    return io.fromBytes(b.toBytes());
+}
+
+// A multipart message sized to exactly 18 + bodyLen bytes: the part keeps
+// only the blank line that ends its header block, so the whole message
+// length is what the leg pins (the two body caps judge the message before
+// the walk ever consults the part grammar).
+string sizedMsg(int bodyLen) {
+    ByteBuf b = ByteBuf();
+    putPart(b, "\r\n", "Bx", "\r\n", io.toBytes(filler(bodyLen)), true);
+    putFinal(b, "\r\n", "Bx", "");
+    return io.fromBytes(b.toBytes());
+}
+
+// Ruling 30 ii: the header block runs from the end of the first delimiter
+// line through the end of the terminating blank line. The pad spaces are
+// trailing horizontal whitespace on the first line (OWS), which the parser
+// strips, so the part itself stays legal — the budget and the grammar are
+// pinned apart. Leg C4 uses it to show a 200-byte header block with a
+// 1-byte body passes a maxPartBytes of 8: that budget measures the part
+// body alone.
+string headBlock(string firstLine, int total) {
+    string base = firstLine + "\r\n\r\n";
+    int pad = total - io.toBytes(base).length();
+    ByteBuf b = ByteBuf();
+    b.put(firstLine);
+    for (int i = 0; i < pad; i = i + 1) { b.putByte(0x20); }
+    b.put("\r\n\r\n");
+    return io.fromBytes(b.toBytes());
+}
+
+// Leg A: the web-layer maxBytes on the multipart arm (step ④, shared by
+// both arms — Task 10 pinned it on urlencoded only). The message is 9
+// bytes: --Bxy-- + CRLF, a closing-delimiter-only body. maxBytes = 8
+// rejects it with the named 413 before the arm runs; the control at the
+// exact value parses (the compare is >), and the closing-only body lands
+// on the early-return arm's empty form — the parts echo pins that the
+// verdict came from the budget, not from a parse failure.
+int legA(string base) {
+    int bad = 0;
+    string msg = "--Bxy--\r\n";   // exactly 9 bytes, boundary Bxy
+    http.HttpResponse r1 = http.post(base + "/lmA1", msg,
+        "multipart/form-data; boundary=Bxy");
+    if (!ok413(r1, "web.form.Form.parse: form body exceeds maxBytes (8 bytes).")) {
+        io.print("A1 maxBytes 8 must answer the web 413, answered "
+            + r1.statusCode.toString() + " body [" + r1.bodyText() + "]");
+        bad = bad + 1;
+    }
+    http.HttpResponse r2 = http.post(base + "/lmA2", msg,
+        "multipart/form-data; boundary=Bxy");
+    if (!okParts(r2, 0)) {
+        io.print("A2 the exact 9-byte budget must parse, answered "
+            + r2.statusCode.toString() + " body [" + r2.bodyText() + "]");
+        bad = bad + 1;
+    }
+    return bad;
+}
+
+// Leg B: the maxParts budget — B1 three parts under a cap of 2 answers the
+// named 413 (the two parts registered before the overrun do not soften the
+// whole-form rejection), B2 the exact cap parses all three (the compare is
+// "already registered >= cap"), and B3 a cap of 0 over a closing-only body
+// parses the empty form (the early-return arm in front of the loop never
+// counts parts). The order witness rides /lmB1 again with the same limits:
+// a body whose third part is over budget and also missing the name
+// parameter names maxParts, not the missing name (step ① before step ⑤).
+int legB(string base) {
+    int bad = 0;
+    string wantText = "web.form.Form.parse: form exceeds maxParts (2 parts).";
+    string ct = "multipart/form-data; boundary=Bx";
+    http.HttpResponse r1 = http.post(base + "/lmB1", threeFieldMsg(), ct);
+    if (!ok413(r1, wantText)) {
+        io.print("B1 a third part over the cap must answer the named 413, answered "
+            + r1.statusCode.toString() + " body [" + r1.bodyText() + "]");
+        bad = bad + 1;
+    }
+    http.HttpResponse r2 = http.post(base + "/lmB2", threeFieldMsg(), ct);
+    if (!okParts(r2, 3)) {
+        io.print("B2 the exact cap of 3 must parse, answered "
+            + r2.statusCode.toString() + " body [" + r2.bodyText() + "]");
+        bad = bad + 1;
+    }
+    http.HttpResponse r3 = http.post(base + "/lmB3", "--Bx--\r\n", ct);
+    if (!okParts(r3, 0)) {
+        io.print("B3 a cap of 0 over a closing-only body must parse, answered "
+            + r3.statusCode.toString() + " body [" + r3.bodyText() + "]");
+        bad = bad + 1;
+    }
+    http.HttpResponse r4 = http.post(base + "/lmB1", threeFieldMsgLastNoName(), ct);
+    if (!ok413(r4, wantText)) {
+        io.print("B4 the count check must outrank the missing-name verdict, answered "
+            + r4.statusCode.toString() + " body [" + r4.bodyText() + "]");
+        bad = bad + 1;
+    }
+    return bad;
+}
+
+// Leg C: the maxPartBytes budget with a cap of 8 — a 9-byte field body is
+// rejected with the named 413, the exact 8-byte body parses (the compare is
+// >), a 9-byte file body is rejected by the same gate (fields and files
+// share it), and the reverse control pins the division of labor: a 200-byte
+// header block over a 1-byte body parses, so this budget measures the part
+// body only — the header block belongs to the 16384-byte grammar budget.
+int legC(string base) {
+    int bad = 0;
+    string wantText = "web.form.Form.parse: part exceeds maxPartBytes (8 bytes).";
+    string ct = "multipart/form-data; boundary=Bx";
+    http.HttpResponse r1 = http.post(base + "/lmC1", fieldMsg(filler(9)), ct);
+    if (!ok413(r1, wantText)) {
+        io.print("C1 a 9-byte field body over the cap must answer the named 413, answered "
+            + r1.statusCode.toString() + " body [" + r1.bodyText() + "]");
+        bad = bad + 1;
+    }
+    http.HttpResponse r2 = http.post(base + "/lmC1", fieldMsg(filler(8)), ct);
+    if (!okParts(r2, 1)) {
+        io.print("C2 the exact 8-byte body must parse, answered "
+            + r2.statusCode.toString() + " body [" + r2.bodyText() + "]");
+        bad = bad + 1;
+    }
+    http.HttpResponse r3 = http.post(base + "/lmC1", fileMsg(filler(9)), ct);
+    if (!ok413(r3, wantText)) {
+        io.print("C3 a 9-byte file body must answer the same 413, answered "
+            + r3.statusCode.toString() + " body [" + r3.bodyText() + "]");
+        bad = bad + 1;
+    }
+    http.HttpResponse r4 = http.post(base + "/lmC1",
+        onePart(headBlock(cdLine("k"), 200)), ct);
+    if (!okParts(r4, 1)) {
+        io.print("C4 a 200-byte header block with a 1-byte body must parse, answered "
+            + r4.statusCode.toString() + " body [" + r4.bodyText() + "]");
+        bad = bad + 1;
+    }
+    return bad;
+}
+
+// Leg D: the two body caps compose as a min, pinned from both sides. D1
+// tightens the http layer to 64 below the web default, so the http message
+// answers and carries no trailing period; D2 restores 128 and tightens the
+// web layer to 32, so the web message answers with its trailing period.
+// maxBodyBytes is written explicitly before each request (it is a field of
+// the shared server object, and the reader construction re-reads it for
+// every request — the post-listen assignment reaches later requests), and
+// both messages are sized to the exact byte the corresponding cap rejects.
+// The leg ends by restoring the http default so no later leg rides a cap
+// this leg happened to leave behind.
+int legD(string base, web.App app) {
+    int bad = 0;
+    http.HttpServer srv = app.server();
+    srv.maxBodyBytes = 64;
+    http.HttpResponse r1 = http.post(base + "/lmD1", sizedMsg(47),
+        "multipart/form-data; boundary=Bx");   // 65 bytes total
+    if (!ok413(r1, "http: body exceeds 64 bytes")) {
+        io.print("D1 the http layer must answer under its 64-byte cap, answered "
+            + r1.statusCode.toString() + " body [" + r1.bodyText() + "]");
+        bad = bad + 1;
+    }
+    srv.maxBodyBytes = 128;
+    http.HttpResponse r2 = http.post(base + "/lmD2", sizedMsg(22),
+        "multipart/form-data; boundary=Bx");   // 40 bytes total
+    if (!ok413(r2, "web.form.Form.parse: form body exceeds maxBytes (32 bytes).")) {
+        io.print("D2 the web layer must answer under its 32-byte cap, answered "
+            + r2.statusCode.toString() + " body [" + r2.bodyText() + "]");
+        bad = bad + 1;
+    }
+    // Leave the server as it was found: the cap is a field of the shared
+    // object, and leg E's default-trio pass-through must not ride a cap
+    // this leg happened to leave behind.
+    srv.maxBodyBytes = 16777216;
+    return bad;
+}
+
+// Leg E: the default trio read through the multipart arm — the handler
+// builds fresh options (the constructor already pinned the values in
+// Task 10; this leg pins that the multipart walk reads the same fields),
+// echoes defaults=ok only when all three reads match the defaults, and
+// parses a three-part message with 12-byte bodies under untouched
+// defaults.
+int legE(string base) {
+    int bad = 0;
+    http.HttpResponse r1 = http.post(base + "/lmE1", threeTwelvesMsg(),
+        "multipart/form-data; boundary=Bx");
+    if (r1.statusCode != 200 || r1.bodyText() != "defaults=ok|parts=3") {
+        io.print("E1 the default trio must parse a mid-sized form, answered "
+            + r1.statusCode.toString() + " body [" + r1.bodyText() + "]");
+        bad = bad + 1;
+    }
+    return bad;
+}
+
+int main() {
+    int bad = 0;
+    web.App app = web.App();
+    // Each handler pins its own trio of limits as literals; an endpoint
+    // carries exactly one limit set, and shapes sharing a set ride the
+    // same endpoint (ruling 30 i budgets compose per request, and a const
+    // could not be rewritten per leg).
+    app.post("/lmA1", (ctx) -> {
+        web.form.FormOptions o = web.form.FormOptions();
+        o.maxBytes = 8;
+        o.maxParts = 1000;
+        o.maxPartBytes = 4194304;
+        web.form.FormData f = Form.parse(ctx, o);
+        ctx.text(200, "parts=" + f.partCount().toString());
+    });
+    app.post("/lmA2", (ctx) -> {
+        web.form.FormOptions o = web.form.FormOptions();
+        o.maxBytes = 9;
+        o.maxParts = 1000;
+        o.maxPartBytes = 4194304;
+        web.form.FormData f = Form.parse(ctx, o);
+        ctx.text(200, "parts=" + f.partCount().toString());
+    });
+    app.post("/lmB1", (ctx) -> {
+        web.form.FormOptions o = web.form.FormOptions();
+        o.maxBytes = 8388608;
+        o.maxParts = 2;
+        o.maxPartBytes = 4194304;
+        web.form.FormData f = Form.parse(ctx, o);
+        ctx.text(200, "parts=" + f.partCount().toString());
+    });
+    app.post("/lmB2", (ctx) -> {
+        web.form.FormOptions o = web.form.FormOptions();
+        o.maxBytes = 8388608;
+        o.maxParts = 3;
+        o.maxPartBytes = 4194304;
+        web.form.FormData f = Form.parse(ctx, o);
+        ctx.text(200, "parts=" + f.partCount().toString());
+    });
+    app.post("/lmB3", (ctx) -> {
+        web.form.FormOptions o = web.form.FormOptions();
+        o.maxBytes = 8388608;
+        o.maxParts = 0;
+        o.maxPartBytes = 4194304;
+        web.form.FormData f = Form.parse(ctx, o);
+        ctx.text(200, "parts=" + f.partCount().toString());
+    });
+    app.post("/lmC1", (ctx) -> {
+        web.form.FormOptions o = web.form.FormOptions();
+        o.maxBytes = 8388608;
+        o.maxParts = 1000;
+        o.maxPartBytes = 8;
+        web.form.FormData f = Form.parse(ctx, o);
+        ctx.text(200, "parts=" + f.partCount().toString());
+    });
+    app.post("/lmD1", (ctx) -> {
+        web.form.FormOptions o = web.form.FormOptions();
+        o.maxBytes = 8388608;
+        o.maxParts = 1000;
+        o.maxPartBytes = 4194304;
+        web.form.FormData f = Form.parse(ctx, o);
+        ctx.text(200, "parts=" + f.partCount().toString());
+    });
+    app.post("/lmD2", (ctx) -> {
+        web.form.FormOptions o = web.form.FormOptions();
+        o.maxBytes = 32;
+        o.maxParts = 1000;
+        o.maxPartBytes = 4194304;
+        web.form.FormData f = Form.parse(ctx, o);
+        ctx.text(200, "parts=" + f.partCount().toString());
+    });
+    // Fresh options, nothing assigned: the three default reads gate the
+    // defaults=ok echo (leg E).
+    app.post("/lmE1", (ctx) -> {
+        web.form.FormOptions o = web.form.FormOptions();
+        bool defaultsOk = o.maxBytes == 8388608 && o.maxParts == 1000
+            && o.maxPartBytes == 4194304;
+        web.form.FormData f = Form.parse(ctx, o);
+        if (defaultsOk) {
+            ctx.text(200, "defaults=ok|parts=" + f.partCount().toString());
+        } else {
+            ctx.text(200, "defaults=mismatch|parts=" + f.partCount().toString());
+        }
+    });
+    app.listen("127.0.0.1", 0);
+    string base = "http://127.0.0.1:" + app.server().localPort().toString();
+    if (legA(base) != 0) { io.print("legA"); bad = bad | 1; }
+    if (legB(base) != 0) { io.print("legB"); bad = bad | 2; }
+    if (legC(base) != 0) { io.print("legC"); bad = bad | 4; }
+    if (legD(base, app) != 0) { io.print("legD"); bad = bad | 8; }
+    if (legE(base) != 0) { io.print("legE"); bad = bad | 16; }
+    app.drain(5000);
+    app.close();
+    if (bad == 0) { io.print("ok"); }
+    return bad;
+}

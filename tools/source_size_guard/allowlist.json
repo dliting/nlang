@@ -12,7 +12,7 @@
     "reason": "one grammar category's syntax-node class declarations (the misc family: class/interface/namespace nodes); the macro-generated Visit surface ties the family to one header"
   },
   {
-    "path": "include/nlang/vm/CompiledModule.h",
+    "path": "include/nlang/core/CompiledModule.h",
     "reason": "wire-format contract file: the record structs, the version constants and the full version history must stay together, and every format bump appends a history entry — file length tracks the format history by design"
   },
   {
@@ -20,7 +20,7 @@
     "reason": "resolver class pair plus the shared helper-declaration surface of the resolver TU family; C++ has no partial class, splitting would fragment the pair"
   },
   {
-    "path": "src/vm/VmBackend.h",
+    "path": "src/compiler/codegen/VmBackend.h",
     "reason": "single-class VmBackend declaration; C++ has no partial class, splitting would fragment the class"
   },
   {
@@ -81,42 +81,42 @@
     "reason": "one per-intrinsic switch family kept in one TU (the switch itself is allowlisted above); file length tracks the String face's growth, arms stay short handlers"
   },
   {
-    "path": "src/vm/ModuleLoader.cpp",
+    "path": "src/core/ModuleLoader.cpp",
     "function": "ModuleLoader::Load",
     "reason": "section-tag dispatch reader; one short arm per tag"
   },
   {
-    "path": "src/vm/ModuleLoader.cpp",
+    "path": "src/core/ModuleLoader.cpp",
     "function": "ModuleLoader::LoadFromBytes",
     "reason": "section-tag dispatch reader; same body as ModuleLoader::Load, which delegates here"
   },
   {
-    "path": "src/vm/ModuleLoaderRecords.cpp",
+    "path": "src/core/ModuleLoaderRecords.cpp",
     "function": "ReadFunctionRecords",
     "reason": "field-by-field wire-format record parser in on-disk order; the layout is the spec"
   },
   {
-    "path": "src/vm/ModuleLoaderRecords.cpp",
+    "path": "src/core/ModuleLoaderRecords.cpp",
     "function": "ReadStructRecords",
     "reason": "field-by-field wire-format record parser in on-disk order; the layout is the spec"
   },
   {
-    "path": "src/vm/ModuleLoaderRecordsClasses.cpp",
+    "path": "src/core/ModuleLoaderRecordsClasses.cpp",
     "function": "ReadClassRecords",
     "reason": "field-by-field wire-format record parser in on-disk order; the layout is the spec"
   },
   {
-    "path": "src/vm/ModuleSaver.cpp",
+    "path": "src/core/ModuleSaver.cpp",
     "function": "WriteCompiledModule",
     "reason": "sequential field-group writer in on-disk-format order"
   },
   {
-    "path": "src/vm/ModuleSaverRecordsClasses.cpp",
+    "path": "src/core/ModuleSaverRecordsClasses.cpp",
     "function": "WriteClassRecords",
     "reason": "field-by-field wire-format record writer in on-disk order; the layout is the spec"
   },
   {
-    "path": "src/vm/TypeDesc.cpp",
+    "path": "src/compiler/codegen/TypeDescBuild.cpp",
     "function": "BuildTypeDesc",
     "reason": "recursive type-descriptor builder over declaration forms"
   },
@@ -151,7 +151,7 @@
     "reason": "recursive serialization template; lambda type parameters force single-header instantiation"
   },
   {
-    "path": "src/vm/DisassemblerWalk.cpp",
+    "path": "src/core/DisassemblerWalk.cpp",
     "function": "InstructionStride",
     "reason": "table-driven opcode stride switch (one case label per opcode, data table in switch form)"
   },
@@ -173,7 +173,7 @@
     "reason": "one container-family header: the node-child list class templates over the shared dual-storage invariants; C++ has no partial class, splitting would fragment the family"
   },
   {
-    "path": "src/vm/backend/WalkersMaxArgs.cpp",
+    "path": "src/compiler/codegen/WalkersMaxArgs.cpp",
     "function": "VmBackend::MaxArgsWalkExpr",
     "reason": "kind-dispatch walker chain: one arm per expression node kind (same shape as the DebugClient wire-event dispatch and InstructionStride)"
   },
@@ -243,5 +243,18 @@
     "path": "src/compiler/builder/ClassFieldInitializerInjection.cpp",
     "function": "CloneConstantInitializer",
     "reason": "per-fold-kind dispatcher; each arm rebuilds one constant family through the grammar's own literal shape"
+  },
+  {
+    "path": "src/compiler/builder/StatementResolver.h",
+    "reason": "statement-resolver class pair (accessor + visitor) and their declaration surface; C++ has no partial class, splitting would fragment the pair (the same shape as the allowlisted ExprResolver.h)"
+  },
+  {
+    "path": "src/core/ModuleSaverRecordsFuncs.cpp",
+    "function": "WriteFunctionRecords",
+    "reason": "sequential field-group writer in on-disk-format order (the function table's twin of the allowlisted WriteCompiledModule)"
+  },
+  {
+    "path": "tools/nlang-docs/tests/test_snippets.py",
+    "reason": "pre-existing 513-line flat pytest corpus surfaced when the tools/ Python scan was added; pay-off (split into two topic-scoped pytest corpora) tracked in docs/roadmap.md v0.13.12 pay-off items (registered 2026-11-21)"
   }
 ]

@@ -1,5 +1,4 @@
 add_library(nlang_vm
-    OpCodeTable.cpp
     VmScheduler.cpp
     GcWorldStop.cpp
     VmSchedulerTimer.cpp
@@ -51,6 +50,7 @@ add_library(nlang_vm
     VmExecutorFormatArray.cpp
     VmExecutorIntrinsics.cpp
     VmExecutorNativeHost.cpp
+    VmExecutorNativeHostText.cpp
     VmExecutorNativeLoader.cpp
     VmExecutorNativeCallbacks.cpp
     VmExecutorNativeArray.cpp
@@ -70,83 +70,8 @@ add_library(nlang_vm
     IntrinsicsMutex.cpp
     IntrinsicsSemaphore.cpp
     IntrinsicsAtomic.cpp
-    GenericInstDescriptor.cpp
-    backend/DescriptorSpelling.cpp
-    backend/VmBackend.cpp
-    backend/VmBackendSignatures.cpp
-    backend/WriteModuleArtifact.cpp
-    backend/DeclPredicates.cpp
-    backend/GenerateUnits.cpp
-    backend/Register.cpp
-    backend/RegisterStructs.cpp
-    backend/Slots.cpp
-    backend/RegisterArrayTypes.cpp
-    backend/RegisterClass.cpp
-    backend/ResolveBareIdentifier.cpp
-    backend/EmitStaticInit.cpp
-    backend/RegisterInterfaces.cpp
-    backend/RegisterEnums.cpp
-    backend/RegisterStructs.cpp
-    backend/BuiltinClasses.cpp
-    backend/Types.cpp
-    backend/EmitCall.cpp
-    backend/EmitCtorCall.cpp
-    backend/WalkersExpr.cpp
-    backend/WalkersExprRef.cpp
-    backend/WalkersStmt.cpp
-    backend/WalkersMaxArgs.cpp
-    backend/EmitExprCore.cpp
-    backend/EmitExprIdent.cpp
-    backend/EmitExprCast.cpp
-    backend/EmitExprSubscript.cpp
-    backend/EmitExprBinary.cpp
-    backend/EmitExprNew.cpp
-    backend/EmitExprInitList.cpp
-    backend/EmitExprInitListND.cpp
-    backend/EmitInitListAggregate.cpp
-    backend/EmitExprMember.cpp
-    backend/EmitExprMemberFieldLoad.cpp
-    backend/FieldOffsets.cpp
-    backend/EmitExprMemberCall.cpp
-    backend/EmitExprMemberStatic.cpp
-    backend/EmitExprMemberString.cpp
-    backend/EmitGenericBoxing.cpp
-    backend/EmitExprMemberArray.cpp
-    backend/EmitArrayBoundary.cpp
-    backend/EmitArrayOpcodes.cpp
-    backend/EmitStmtDecl.cpp
-    backend/EmitStmtAssign.cpp
-    backend/EmitStmtRef.cpp
-    backend/EmitExprRef.cpp
-    backend/EmitStmtCompound.cpp
-    backend/EmitStmtStore.cpp
-    backend/EmitStmtFlow.cpp
-    backend/EmitStmtForeach.cpp
-    backend/EmitStmtForeachString.cpp
-    backend/EmitStmtSwitch.cpp
-    backend/EmitStmtTry.cpp
     CrashReporter.cpp
-    Disassembler.cpp
-    DisassemblerPrim.cpp
-    DisassemblerWalk.cpp
-    DisassemblerFormat.cpp
-    DisassemblerCalls.cpp
-    ModuleLoader.cpp
-    ModuleLoaderRecords.cpp
-    ModuleLoaderRecordsInterfaces.cpp
-    ModuleLoaderRecordsClasses.cpp
-    ModuleSaver.cpp
-    ModuleSaverRecordsClasses.cpp
-    ModuleSaverRecordsInterfaces.cpp
-    ModuleSaverRecordsEnums.cpp
-    NcuPackage.cpp
-    NcuLinker.cpp
-    NcuLinkerRemap.cpp
-    NcuLinkerSlots.cpp
-    NcuLinkerInterfaces.cpp
-    NcuLoader.cpp
     NativeLibraryLoader.cpp
-    TypeDesc.cpp
 )
 
 #The IO poller abstraction (IoPoller.h) is a VM facility — the net
@@ -167,15 +92,11 @@ target_include_directories(nlang_vm
         $<INSTALL_INTERFACE:include>
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
-        #Phase 5: codegen spells table keys through the compile-time
-        #registry (VmBackend::KeyOf -> ModuleRegistry::QualifiedName).
-        #Reverse precedent: src/compiler/CMakeLists.txt lists src/vm.
-        ${PROJECT_SOURCE_DIR}/src/compiler
 )
 
 target_link_libraries(nlang_vm
-    PUBLIC nlang_runtime
-    PRIVATE nlang_compiler nlang_langservice ${CMAKE_DL_LIBS}
+    PUBLIC nlang_core
+    PRIVATE ${CMAKE_DL_LIBS}
 )
 
 if(WIN32)

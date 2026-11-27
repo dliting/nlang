@@ -9,12 +9,13 @@
 #include "nlang/compiler/Logger.h"
 #include <nlang/compiler/CastInfo.h>
 #include "nlang/runtime/Runtime.h"
-#include "nlang/vm/CompiledModule.h"
+#include "nlang/core/CompiledModule.h"
 #include "nlang/vm/NativeHost.h"
 #include "VmExecutor.h"
 #include "NcuLoader.h"
 #include "NcuLinker.h"
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -431,6 +432,90 @@ void test_decl_comma_size_named_reject()
     PASS();
 }
 
+//The two D-8 workload axes of the reject soak. NLANG_TEST_ROUNDS is the
+//round count this config's registration asks for (tests/CMakeLists.txt
+//gives 100 to plain trees and 30 to the instrumented ASan tree so the
+//same detector fits every timed leg); NLANG_TEST_WORK_FACTOR scales the
+//whole workload uniformly for the work-factor rehearsal the timing
+//checker drives. A missing or malformed value is named on stderr and
+//falls back, so the self-report line always states the rounds actually
+//run rather than the ones someone meant to set.
+static constexpr int DEFAULT_SOAK_ROUNDS = 100;
+static constexpr long MAX_ENV_COUNT = 1000000;
+
+static int positiveEnvCount(const char *name, int fallback)
+{
+    const char *raw = std::getenv(name);
+    if (raw == nullptr || *raw == '\0')
+        return fallback;
+    char *end = nullptr;
+    const long value = std::strtol(raw, &end, 10);
+    if (*end != '\0' || value < 1 || value > MAX_ENV_COUNT) {
+        std::cerr << "warning: " << name << "=\"" << raw
+            << "\" is not a positive count; using " << fallback << "\n";
+        return fallback;
+    }
+    return static_cast<int>(value);
+}
+
+static int soakRounds()
+{
+    //A sub-unity factor cannot happen here (positiveEnvCount already
+    //refuses it), so this is exactly max(factor, 1) x rounds. Each
+    //input is capped at MAX_ENV_COUNT on its own, yet the product of
+    //two capped inputs can reach 1e12 and overflow int, so the product
+    //carries the same named bound: the soak length stays representable
+    //and the self-report states the rounds actually run instead of a
+    //wrapped value (the clamp names itself, as malformed inputs do).
+    const int rounds = positiveEnvCount("NLANG_TEST_ROUNDS",
+        DEFAULT_SOAK_ROUNDS);
+    const int factor = positiveEnvCount("NLANG_TEST_WORK_FACTOR", 1);
+    const long long product = 1LL * rounds * factor;
+    if (product > MAX_ENV_COUNT)
+    {
+        std::cerr << "warning: rounds x factor = " << product
+            << " exceeds the soak bound; using " << MAX_ENV_COUNT << "\n";
+        return static_cast<int>(MAX_ENV_COUNT);
+    }
+    return static_cast<int>(product);
+}
+
+//ScopedEnv pins an environment variable for one check and restores (or
+//unsets) it on scope exit: CHECK returns early, so plain set/restore
+//pairs would leak the value into the cases that follow. An empty value
+//unsets under MSVC's _putenv_s, matching POSIX unsetenv.
+class ScopedEnv
+{
+public:
+    ScopedEnv(const char *name, const char *value) : m_name(name)
+    {
+        const char *prev = std::getenv(name);
+        m_hadPrev = prev != nullptr;
+        if (m_hadPrev)
+            m_prev = prev;
+        setRaw(value);
+    }
+    ~ScopedEnv() { setRaw(m_hadPrev ? m_prev.c_str() : nullptr); }
+    ScopedEnv(const ScopedEnv&) = delete;
+    ScopedEnv& operator=(const ScopedEnv&) = delete;
+
+private:
+    void setRaw(const char *value)
+    {
+#ifdef _WIN32
+        _putenv_s(m_name.c_str(), value != nullptr ? value : "");
+#else
+        if (value != nullptr)
+            ::setenv(m_name.c_str(), value, 1);
+        else
+            ::unsetenv(m_name.c_str());
+#endif
+    }
+    std::string m_name;
+    std::string m_prev;
+    bool m_hadPrev = false;
+};
+
 void test_decl_comma_size_reject_stress()
 {
     TEST(decl_comma_size_reject_stress);
@@ -450,8 +535,14 @@ void test_decl_comma_size_reject_stress()
         "int main() {\n    int x = 1, a[2, 1 + 2 * 3] = 5;\n    return 0;\n}\n",
         "int main() {\n    int x = 1, a[2, 1 + 2 * 3] = {5};\n    return 0;\n}\n",
     };
+    const int rounds = soakRounds();
+    //D-8 self-report (the single source): the timing checker reads this
+    //line from the junit <system-out> and requires rounds to equal the
+    //table row's reference work times the run's work factor, which
+    //catches a registration or table that stopped steering this loop.
+    std::cout << "rounds=" << rounds << "\n";
     int srcIdx = 0;
-    for (int i = 0; i < 200; ++i)
+    for (int i = 0; i < rounds; ++i)
     {
         srcIdx = 0;
         for (const char *src : sources)
@@ -469,6 +560,49 @@ void test_decl_comma_size_reject_stress()
                 "stress iteration must keep the named diagnostic");
             ++srcIdx;
         }
+    }
+    PASS();
+}
+
+void test_soak_rounds_env_scaling()
+{
+    TEST(soak_rounds_env_scaling);
+    //Pin the two D-8 workload axes: the soak length is the registered
+    //rounds times the work factor, and a missing or sub-unity factor
+    //never shrinks the soak below its registered reference workload
+    //(the checker's self-report assertion trusts that contract). Every
+    //axis is pinned per block, so an ambient factor from a rehearsal
+    //reconfigure cannot sway a block that means factor 1.
+    {
+        const ScopedEnv rounds("NLANG_TEST_ROUNDS", "7");
+        const ScopedEnv factor("NLANG_TEST_WORK_FACTOR", "2");
+        CHECK(soakRounds() == 14, "rounds must follow rounds x factor");
+    }
+    {
+        const ScopedEnv rounds("NLANG_TEST_ROUNDS", "7");
+        const ScopedEnv factor("NLANG_TEST_WORK_FACTOR", "0");
+        CHECK(soakRounds() == 7, "a sub-unity factor must not shrink the soak");
+    }
+    {
+        const ScopedEnv rounds("NLANG_TEST_ROUNDS", "9");
+        const ScopedEnv factor("NLANG_TEST_WORK_FACTOR", nullptr);
+        CHECK(soakRounds() == 9, "a missing factor means factor 1");
+    }
+    {
+        const ScopedEnv rounds("NLANG_TEST_ROUNDS", "seven");
+        const ScopedEnv factor("NLANG_TEST_WORK_FACTOR", "1");
+        CHECK(soakRounds() == DEFAULT_SOAK_ROUNDS,
+            "a malformed count must fall back, not vanish");
+    }
+    {
+        const ScopedEnv rounds("NLANG_TEST_ROUNDS", "1000000");
+        const ScopedEnv factor("NLANG_TEST_WORK_FACTOR", "1000000");
+        //Each input is capped at MAX_ENV_COUNT on its own, but the
+        //product of two capped inputs (1e12) overflows int: the product
+        //must clamp to the same bound, not wrap into garbage that the
+        //self-report would then print as the rounds actually run.
+        CHECK(soakRounds() == MAX_ENV_COUNT,
+            "an overflowing product must clamp, not wrap");
     }
     PASS();
 }
@@ -495,14 +629,15 @@ int main(int argc, char *argv[])
     Runtime::StaticInit();
     TypeCastInfo::StaticInit();
 
-    //--stress runs only the 200-iteration reject soak; the default run
-    //excludes it. The two forms are a partition registered as separate
-    //ctest entries (nd_resolve_tests / nd_resolve_stress_tests), so a
-    //routine sweep skips the soak by name while the full suite still
-    //covers it — the soak dominates the file (141 s Debug / 766 s ASan
-    //measured 2026-11-14) while everything else is seconds. An
-    //unrecognized argument fails loud instead of masquerading as a
-    //green fast run.
+    //--stress runs only the reject soak; the default run excludes it.
+    //The two forms are a partition registered as separate ctest entries
+    //(nd_resolve_tests / nd_resolve_stress_tests), so a routine sweep
+    //skips the soak by name while the full suite still covers it: the
+    //soak dominates the file (its per-config seconds live in
+    //tests/gate_time_reference.txt) while everything else is seconds.
+    //The soak length comes from the D-8 axes (see soakRounds) and is
+    //self-reported as rounds=<n> on stdout. An unrecognized argument
+    //fails loud instead of masquerading as a green fast run.
     bool stressOnly = false;
     for (int i = 1; i < argc; ++i) {
         if (std::string(argv[i]) == "--stress") {
@@ -528,6 +663,7 @@ int main(int argc, char *argv[])
             test_nd_rank_cap_diagnostics();
             test_brace_row_is_depth_mismatch();
             test_decl_comma_size_named_reject();
+            test_soak_rounds_env_scaling();
             test_leading_comma_diagnostics();
             test_nd_initlist_dynamic_row_expr();
             test_nd_initlist_dynamic_mixed_rows();

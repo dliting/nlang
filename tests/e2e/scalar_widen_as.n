@@ -1,0 +1,21 @@
+// 0.13.11: `as` is the explicit spelling of every scalar conversion the
+// language admits implicitly, so an intentionally lossy widening can be
+// written down — and stays warning-free, unlike the bare form
+// (scalar_widen_as.stderr pins the absent 'loses precision' through the
+// real CLI). The rounding is the target's own: 2^53 + 1 lands on 2^53 in
+// both float widths.
+import io;
+int main() {
+    long odd = 9007199254740993;            // 2^53 + 1
+    double asDouble = odd as double;
+    if (asDouble != 9007199254740992.0) { return 1; }
+    float asFloat = odd as float;
+    if (asFloat != 9007199254740992.0) { return 2; }
+    int n = 7;
+    long widenLong = n as long;
+    if (widenLong != 7) { return 3; }
+    double widenDouble = n as double;
+    if (widenDouble != 7.0) { return 4; }
+    io.print("ok");
+    return 0;
+}

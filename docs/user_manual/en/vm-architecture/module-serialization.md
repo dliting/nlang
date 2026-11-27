@@ -108,7 +108,14 @@ entry member's module path plus the function name), a member table
 determinism), and the embedded `.ncu` unit images. Each member carries
 an FNV-1a 64 checksum (against accidental corruption — not a security
 mechanism). A library package is the same container without an entry
-record — the standard library's `stdlib.npkg` is a library package
-whose members are `io`/`math`/`fs`. The loader requires each member
-image's header module path to match its member-table entry: a
-mislabeled artifact is refused, not silently accepted.
+record. The loader requires each member image's header module path to
+match its member-table entry: a mislabeled artifact is refused, not
+silently accepted.
+
+The standard library uses thirteen library packages. `concurrent.npkg`
+contains the `thread` and `concurrent` module members; `io.npkg`,
+`math.npkg`, `fs.npkg`, `tensor.npkg`, `net.npkg`, `http.npkg`,
+`url.npkg`, `system.npkg`, `gzip.npkg`, `regex.npkg`, `json.npkg`, and
+`web.npkg` each contain the same-named module. The archive file name is
+distribution metadata: compile-time and run-time import resolution use
+the member table's module paths.

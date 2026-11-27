@@ -22,7 +22,7 @@ may open once `net.ipv4.ping_group_range` covers that user or group.
 A `timeoutMs` of `0` sets no deadline: echo requests keep coming
 until one is answered, so a host that never answers leaves `ping`
 waiting indefinitely. Each echo request runs on the host's native
-worker pool (§28.5): one that carries a deadline is queued at high
+worker pool (§30.5): one that carries a deadline is queued at high
 priority, one with no deadline at normal priority, since a wait of
 unbounded length has no latency of its own to protect. That queue
 order is why a positive timeout is the right choice for an address
@@ -38,7 +38,9 @@ int main() {
         int rtt = net.ping("127.0.0.1", 3000);
         io.print("loopback rtt=" + rtt.toString() + "ms\n");
     } catch (TimeoutException e) {
-        io.print("no answer inside the deadline\n");
+        io.print("no echo before the deadline\n");
+    } catch (SocketException e) {
+        io.print("icmp unavailable: " + e.message + "\n");
     }
     return 0;
 }
@@ -50,7 +52,7 @@ int main() {
 |---|---|---|
 | `IcmpSocket.bind(host = "0.0.0.0")` | static → `IcmpSocket` | Opens an ICMP socket bound to `host` |
 | `sendTo(icmpMessage, host)` | → `int` | Sends one complete ICMP message — type, code and checksum included — to `host`; on a Windows raw socket a zero checksum field is computed for you |
-| `recvFrom(buf, peerAddress&, timeoutMs = 0)` | → `int` | Takes the next ICMP message and reports its source address through the reference parameter; returns the received byte count; parks until one arrives or the deadline passes |
+| `recvFrom(buf, peerAddress&, timeoutMs = 0)` | → `int` | Takes the next ICMP message and reports its source address through the `peerAddress` reference parameter (§4.7.9); returns the received byte count; parks until one arrives or the deadline passes |
 | `close()` | — | Closes the socket; idempotent |
 
 `IcmpSocket` speaks raw ICMP: the caller assembles the message

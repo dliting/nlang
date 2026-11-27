@@ -27,7 +27,7 @@
 | interpolation_tour.n | `"${}"`插值/toString隐式转换 | 9 |
 | cast_operator.n | as拆箱与引用下转（数值转换走隐式赋值） | 10 |
 | const_assert.n | const局部/assert/增量赋值 | 11 |
-| out_params.n | out参数多返回值 | 12 |
+| reference_formals.n | 引用形参（`&`）多返回值 | 12 |
 | ndarray_tour.n | 矩形多维数组/逗号下标/rank()/shape()/length | 13 |
 | switch_tour.n | switch/enum分支 | 0 |
 | enum_methods.n | enum方法与this | 0 |
@@ -40,9 +40,12 @@
 | tensor_tour.n | tensor包：跨元素类型的创建、逐元素与归约核 | 0 |
 | url_tour.n | url包：解析/查看/resolve/查询参数/百分号转义 | 0 |
 | regex_tour.n | regex包：匹配、命名捕获组、全部匹配、替换模板 | 0 |
+| json_tour.n | json包：解析、经kind()读取、DOM编辑、紧凑与缩进序列化、字节偏移诊断 | 0 |
 | http_hello.n | http包：同一进程里的hello服务与其客户端（缓冲GET、echo POST、持久连接复用） | 0 |
 | http_conc_bench.n | http包：1000个虚拟线程客户端共用一个客户端，每主机至多4条连接 | 0 |
 | http_sse.n | http包：分块流上的服务器推送事件（SSE）、客户端提前断开、生产者取消 | 0 |
+| web_hello.n | web包：自终止的web应用——两风格中间件、`:id`路由、登录换id后的会话往返、服务器推送事件、挂载的静态资源处理器 | 0 |
+| web_upload.n | web包：multipart上传往返——用`MultipartBody`构造表单、落盘名清洗、按字节回读正文 | 0 |
 | net_echo_server.n | TCP echo服务器：accept循环与每连接一个虚拟线程 | 0 |
 | net_echo_client.n | TCP客户端：connect、文本往返、readLine分帧、优雅关闭 | 0 |
 | net_http_mini.n | 建立在裸`net`之上的迷你HTTP服务器与客户端：请求行、Content-Length、半关闭 | 0 |

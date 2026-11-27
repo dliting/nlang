@@ -20,21 +20,42 @@ the whole run, so nothing outside can tail it. Two channels fix that:
 Usage (mirrors how tests/CMakeLists.txt invokes it):
     python qtest_progress.py --qtest-log <dir>/<name>.txt \
         --progress-log <dir>/<name>.progress.log [--timeout 170] \
+        [--table FILE --config Debug --entry <ctest-name>] \
         -- <test.exe> [extra args...]
 
 The wrapper appends `-o <qtest-log>,txt` to the child command line. On
 `--timeout` it kills the whole child tree (taskkill /T on Windows, the
 process group via killpg on POSIX) so a stuck debug child cannot
 outlive the suite, then exits 124. Without `--timeout` the child runs
-to completion and the child's exit code is passed through unchanged.
+to completion and the child's exit code is
+passed through unchanged.
+
+With --config/--entry the wrapper also judges the finished run against
+the entry's budget from the gate-time reference table (D-5: the same
+rows and the single caps() site the configure-time TIMEOUT watchdog was
+derived from; --timeout above stays the configure-time watchdog
+headroom). A normal end over budget prints a BUDGET-EXCEEDED line on
+this wrapper's stdout (ctest records it in the junit <system-out>, the
+post-hoc checker dedups on it) and turns rc 0 into 1; a nonzero child
+rc passes through untouched. The machine scale arrives through the leg
+environment (NLANG_GATE_MACHINE_SCALE); a missing one prices with
+SCALE_BAND_MAX and labels the run uncalibrated.
 """
 
 import argparse
 import datetime
+import importlib.util
 import os
 import subprocess
 import sys
 import time
+
+#The uncalibrated note and other budget wording are Chinese; ctest stores
+#this wrapper's stdout into junit XML and the budget checker reads it
+#back, so pin the text streams to UTF-8 (the zh-CN ANSI code page of a
+#registered environment would otherwise encode those bytes as cp936).
+sys.stdout.reconfigure(encoding='utf-8')
+sys.stderr.reconfigure(encoding='utf-8')
 
 POLL_SECONDS = 0.25
 
@@ -96,6 +117,64 @@ def kill_tree(pid: int) -> None:
             pass
 
 
+def _load_gate_time_table():
+    """The leaf timing-table module (gate_time_table.py, next to this
+    wrapper) loaded by path: caps() is the single budget/watchdog site
+    every consumer shares (D-5), and loading the leaf keeps this
+    standalone tool free of the checker package's sibling imports."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "gate_time_table.py")
+    spec = importlib.util.spec_from_file_location("gate_time_table", path)
+    #An absent tool file is missing input, not a silent fallback.
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _inline_budget(args):
+    """This entry's budget and a one-line provenance note. A missing or
+    unreadable budget never stays silent: budget is None and the note
+    names the cause (no flags, no reference row, table unreadable, bad
+    scale environment), which the wrapper logs next to START. The work
+    factor scales the budget through the same D-1 site the configure-
+    time TIMEOUT was derived from, so a doubled soak workload moves the
+    budget and the watchdog together. Returns (budget_s, note)."""
+    if not args.config or not args.entry:
+        return None, "no --config/--entry given (budget judgment off)"
+    table = args.table or os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), os.pardir,
+        "tests", "gate_time_reference.txt")
+    try:
+        table_module = _load_gate_time_table()
+    except (OSError, ValueError, AttributeError) as exc:
+        return None, f"gate_time_table load failed: {exc}"
+    key = "ctest-" + args.config
+    scalar_env = os.environ.get("NLANG_GATE_MACHINE_SCALE")
+    try:
+        scalar = (float(scalar_env) if scalar_env
+                  else float(table_module.SCALE_BAND_MAX))
+        factor = float(os.environ.get("NLANG_TEST_WORK_FACTOR")
+                       or table_module.DEFAULT_WORK_FACTOR)
+    except ValueError as exc:
+        return None, f"bad NLANG_GATE_MACHINE_SCALE/NLANG_TEST_WORK_FACTOR: " \
+                     f"{exc}"
+    try:
+        budget, _watchdog = table_module.caps(
+            key, args.entry, work_factor=factor, scalar=scalar,
+            table_path=table)
+    except KeyError:
+        return None, f"no reference row for {key} {args.entry}"
+    except (ValueError, OSError) as exc:
+        return None, str(exc)
+    note = (f"{key} {args.entry} budget={budget:.2f} scale={scalar:g}"
+            f" factor={factor:g}")
+    if not scalar_env:
+        note += " 未做本机校准（缺标量，按SCALE_BAND_MAX计价）"
+    return budget, note
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--qtest-log", required=True,
@@ -104,6 +183,14 @@ def main() -> int:
                     help="timestamped mirror written by this wrapper")
     ap.add_argument("--timeout", type=float, default=None,
                     help="kill the child tree after this many seconds")
+    ap.add_argument("--table", default=None,
+                    help="gate-time reference table (default "
+                         "tests/gate_time_reference.txt)")
+    ap.add_argument("--config", default=None,
+                    help="bare config segment of this tree "
+                         "(Debug|IDE|ASan|Release)")
+    ap.add_argument("--entry", default=None,
+                    help="ctest entry name this run belongs to")
     ap.add_argument("command", nargs=argparse.REMAINDER,
                     help="-- <test.exe> [args]")
     args = ap.parse_args()
@@ -114,6 +201,7 @@ def main() -> int:
         ap.error("no test executable given")
 
     live_log = live_log_path(args.qtest_log, command[0])
+    budget, budget_note = _inline_budget(args)
 
     #Every log describes THIS run only: drop stale files so a hang is
     #never misread from an earlier run's leftovers.
@@ -138,6 +226,16 @@ def main() -> int:
 
     with open(args.progress_log, "w", encoding="utf-8", buffering=1) as out:
         out.write(f"[{clock_now()} +    0.0s] START {' '.join(command)}\n")
+        #The provenance note goes to the progress log always, and to
+        #the wrapper's own stdout (which ctest records in the junit
+        #<system-out>) when no budget could be derived: a green run
+        #stays one clean line per entry, an unpriced entry stays
+        #visible. The BUDGET-EXCEEDED line below carries its own
+        #budget=/actual= numbers, so the stdout note is the only
+        #missing piece when the budget is None.
+        out.write(f"[{clock_now()}] BUDGET {budget_note}\n")
+        if budget is None:
+            print(f"BUDGET {budget_note}", flush=True)
         live_offset = 0
         prev_epoch = None
         while True:
@@ -175,6 +273,19 @@ def main() -> int:
                     last = last_result_line(args.qtest_log)
                     if last:
                         out.write(f"[{clock_now()}] last result: {last}\n")
+                #Budget judgment on the finished run (the kill path
+                #stays 124: that span measured the cap, not the
+                #workload). A green-but-slow run turns red here; an
+                #already-failing child keeps its own rc (one verdict
+                #per entry).
+                if budget is not None and total > budget:
+                    line = (f"BUDGET-EXCEEDED {args.entry} "
+                            f"(TIMEOUT_BUDGET budget={budget:.2f} "
+                            f"actual={total:.2f})")
+                    print(line, flush=True)
+                    out.write(f"[{clock_now()}] {line}\n")
+                    if rc == 0:
+                        return 1
                 return rc
 
             if args.timeout is not None and elapsed() > args.timeout:

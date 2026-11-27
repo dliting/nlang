@@ -4,6 +4,7 @@
 #include "SyntaxNodeVisitor.h"
 #include "BuiltinNames.h"
 #include "SnArrayTypeToken.h"
+#include <nlang/compiler/BuildEnvironment.h>
 #include <nlang/compiler/TypeArgInference.h>
 #include <nlang/runtime/BuiltinGenericNames.h>
 #include <nlang/runtime/Flagable.h>
@@ -159,6 +160,26 @@ Shared by ExprResolver (argument positions) and StatementResolver
 bool BindFuncRefToExpected(BuildEnvironment &env, SnIdentifierExpr &idExpr,
 	SnField *pExpected);
 
+//0.13.10 Task 5: signature unification of a GENERIC declaration against
+//an expected func instantiation (the value-binding twin of the invoke
+//channel's inference). True = outArgs filled, indexed by type-parameter
+//ordinal; false = arity/shape mismatch (the binder's existing
+//"does not match the signature" diagnostic stays the report).
+bool UnifyGenericFuncRefAgainst(const SnFunction &func,
+	SnClassDecl *pFuncDecl, GenericInstanceRegistry &generics,
+	std::vector<SnField*> &outArgs);
+
+//0.13.10 Task 5: unify a generic CLASS's type parameters from the
+//expected func instantiation's slots (the inferred static-reference
+//arm, Tag.tag against func<string>). True = outBindings filled, indexed
+//by the class's type-parameter ordinal. On failure rbUnderdetermined
+//marks the CS0411 shape: the signature mentions none of the class's
+//parameters, so the expected type gives no binding.
+bool UnifyClassStaticRefAgainst(const SnFunction &method,
+	SnClassDecl &tmpl, SnClassDecl *pFuncDecl,
+	GenericInstanceRegistry &generics, std::vector<SnField*> &outBindings,
+	bool &rbUnderdetermined);
+
 /*
 Phase 13 Step 2: bind a pending bound-method reference (receiver.name in
 a value position, see IsUnboundMemberFuncRef) to the expected func<...>
@@ -174,7 +195,8 @@ structurally, like the unqualified-name form.
 resolving the statement.
 */
 bool BindMemberFuncRefToExpected(BuildEnvironment &env,
-	SnMemberExpr &snMember, SnField *pExpected);
+	SnMemberExpr &snMember, SnField *pExpected,
+	ExprResolveAccessor *pAccessor = nullptr);
 
 /*
 Phase 13: loose pending predicate — true while a bare function
@@ -215,6 +237,10 @@ inline bool IsModuleOwnedFunction(const SnField &func)
 //carry no receiver and always take the static OP_MakeFunc form; wording
 //and gate checks branch on this predicate (the VM side keeps its own
 //static copy in EmitExprMember.cpp: subsystem boundary).
+//Class-decl collector shared by the func-ref bind TUs (walks the
+//subtree, collects NK_ClassDecl nodes depth-first).
+void CollectClassDecls(SyntaxNode &node, std::vector<SnClassDecl*> &out);
+
 inline bool IsReceiverlessFuncRefTarget(const SnField &func)
 {
 	return IsModuleOwnedFunction(func) || func.ContainFlags(NF_Static);
@@ -254,6 +280,7 @@ bool HasNamedArgument(SnInvokeExpr& invoke);
 size_t ArgCountOf(SnInvokeExpr& invoke);
 bool HasOutArgument(SnInvokeExpr& invoke);
 std::string JoinDots(const std::vector<std::string>& segs);
+std::vector<std::string> SplitDots(const std::string& dotted);
 std::vector<std::string> OuterIdentifierChain(
 	const SnMemberExpr& snMember);
 bool IsGenericClassDecl(SnClassDecl* pClass);
@@ -276,6 +303,24 @@ bool IsFuncTypeDecl(SnField *pType);
 //the expression is not a brace list awaiting a target. Definition in
 //ExprResolverInitList.cpp.
 SnInitListExpr *UntypedInitListOf(SnExpression &expr);
+//0.13.10: the lambda counterpart of UntypedInitListOf — the node whose
+//expected function type can only come from its parent (the deferred
+//call arguments, the statement-side propagations). Null when the
+//expression is not a lambda awaiting a target. Definition in
+//ExprResolverLambda.cpp.
+SnLambdaExpr *UntypedLambdaOf(SnExpression &expr);
+//0.13.10: the deferred arguments of an invoke — the untyped shapes whose
+//target type can only come from the chosen overload's formal (the bare
+//brace argument and the lambda). Shared by the bare call path and the
+//eager caller-scope prologues (member-receiver, module-qualified), which
+//skip exactly these. Definition in ExprResolverInvoke.cpp.
+std::vector<SnExpression*> CollectDeferredArgs(SnInvokeExpr &invoke);
+//0.13.10: the failure-tail sweep of the qualified/thread paths — a
+//consumed member stops the walker, so an unclaimed deferred argument
+//resolves here for its missing-target diagnostic (the bare path's
+//AcceptDeferredArgs contract). Definition in ExprResolverInvoke.cpp.
+void SweepDeferredInvokeArgs(ISyntaxNodeVisitor &visitor,
+	SnInvokeExpr &invoke);
 //0.9.0: the target shapes a collection initializer lowers to — array
 //tokens, structs, List/Dict instantiations, non-builtin user classes.
 //Scalars / string / func types / builtin classes / interfaces / enums
@@ -331,6 +376,20 @@ constexpr int kMaxGenericInstantiationDepth = 16;
 
 
 /*
+0.13.10: the lambda block body's resolution back-channel. The statement
+resolver owns the statement machinery (locals, returns) the expression
+accessor lacks, so the lambda typing arm hands it the block. Implemented
+by StatementResolveAccessor, which wires itself at construction.
+*/
+class ILambdaBodyResolver
+{
+public:
+	virtual ~ILambdaBodyResolver() = default;
+	virtual void ResolveLambdaBlockBody(SnLambdaExpr &lambda) = 0;
+};
+
+
+/*
 The syntax node accessor for expression resolving.
 This class should be used with \a ExprResolver.
 */
@@ -364,11 +423,9 @@ public:
 	//The name itself is consumed by TryBindArgs when matching formals.
 	void Access(SnNamedArgExpr &);
 
-	//Phase 9e: resolve an out argument `out ident` at a call site.
-	//Validates the identifier binds to a caller-frame slot (local var or
-	//formal param — both register as NK_FormalParam-kind fields), then
-	//propagates the inner's EvalDataType. Consumed by TryBindArgs, which
-	//requires the matched formal to carry NF_Out.
+	//v0.13.9 phase 4: the out argument marker is retired — a pure
+	//diagnostic arm that rejects `out ident` at a call site and points
+	//at the reference-formal spelling.
 	void Access(SnOutArgExpr &);
 
 	void Access(SnMemberExpr &);
@@ -406,6 +463,12 @@ public:
 	//instantiation at run time (rejected in static members).
 	void Access(SnTypeNameExpr &);
 
+	//0.13.10: resolve a lambda `(p) -> body`. Current scope: the
+	//parameter-shape gate — every cover-list item that arrived as a raw
+	//expression is rejected by name (spec §3.5). Typing through the
+	//expected-type channel lands in the same entry.
+	void Access(SnLambdaExpr &);
+
 	//Resolve class declaration.
 	void Access(SnClassDecl &);
 
@@ -420,6 +483,16 @@ public:
 	{
 		NLANG_ASSERT(false && "invalid expression.");
 	}
+
+	//0.13.10 Task 5: the inferred static-reference arm (Tag.tag against
+	//an expected func<...>): unify the CLASS's type parameters from the
+	//expected func slots, create/adopt the instantiation through
+	//GetDeclaredGenericClassDecl, and rebind the member pair to the
+	//clone — the explicit-spelling shape. False = unification mismatch
+	//(the named diagnostic is logged; the caller stops the statement).
+	bool BindInferredGenericStaticClone(BuildEnvironment &env,
+		SnMemberExpr &snMember, SnFunction &tmplMethod, SnClassDecl &tmpl,
+		SnClassDecl *pFuncDecl);
 private:
 	explicit ExprResolveAccessor(BuildEnvironment &env) : m_Env(env),
 		m_pVisitor(nullptr), m_pContext(nullptr), m_pAccessor(nullptr)
@@ -468,18 +541,19 @@ private:
 	std::vector<RescueStash> m_rescueStash;
 
 	//0.9.0: argument prologue of Access(SnInvokeExpr&) — collects the
-	//deferred bare brace arguments into the out vector, resolves every
-	//other argument, and validates the call syntax. False = the call is
-	//consumed as failed (the sweep already reported the brace args).
+	//deferred arguments (untyped brace shapes, 0.13.10 also lambdas)
+	//into the out vector, resolves every other argument, and validates
+	//the call syntax. False = the call is consumed as failed (the sweep
+	//already reported the deferred args).
 	bool ResolveInvokeArguments(SnInvokeExpr &snInvoke,
-		std::vector<SnExpression*> &deferredBraceArgs);
+		std::vector<SnExpression*> &deferredArgs);
 
 	//Chosen-callee admission gates of Access(SnInvokeExpr&) — the Phase
 	//9e out-on-dispatched veto and the Phase 12 bare-method reject.
 	//False = rejected (diagnostic logged, brace-arg sweep run).
 	bool AdmitChosenCallee(SnInvokeExpr &snInvoke, SnFunction *pCallee,
 		const std::vector<FormalBinding> &bindings,
-		const std::vector<SnExpression*> &deferredBraceArgs);
+		const std::vector<SnExpression*> &deferredArgs);
 
 	//0.7.3 B: token binder at the binding tails. The array-valued
 	//property is derived from the interned SnArrayTypeToken carried in
@@ -490,13 +564,19 @@ private:
 	void BindArrayTypeToken(SnExpression &expr);
 
 	//2026-09-26 decomposition of Access(SnAsExpr&): the array-operand
-	//guard and the cast-kind adjudication (func→string arm + the two
+	//guard and the cast-kind adjudication (the shape-decided arm + the two
 	//reject families). Each returns true when the expression is
-	//consumed (rejected with a named diagnostic, or resolved as the
-	//func→string rendering); false falls through to the binding tail.
+	//consumed (rejected with a named diagnostic, or resolved as a
+	//shape-decided rendering); false falls through to the binding tail.
 	bool RejectAsArrayOperand(SnAsExpr &sn);
 	bool ResolveAsCastKind(SnAsExpr &sn, SnField *pSrcType,
 		SnField *pTgtType, TypeCastKind kind);
+	//0.13.11 split of ResolveAsCastKind: the two `as` verdicts the operand
+	//and target shapes decide on their own — the typed null (`null as T[]`,
+	//v0.12.7) and the function-value rendering (`f as string`, Phase 13) —
+	//both settled before the conversion-matrix verdict is consulted.
+	bool TryResolveAsShapeCase(SnAsExpr &sn, SnField *pSrcType,
+		SnField *pTgtType);
 
 	//2026-10-29 decomposition of Access(SnAsExpr&): resolve the cast
 	//target and run its type-position gate (the v0.12.2 face gate — a
@@ -857,9 +937,14 @@ private:
 	silent: the caller owns the class/struct-flavored diagnostics, so no
 	out-bindings are handed back (codegen rebuilds them from the selected
 	ctor's Params()). Returns the selected ctor, or null on no viable
-	bind; rbAmbiguous separates the tie from a plain no-match.
+	bind; rbAmbiguous separates the tie from a plain no-match. 0.13.11: on
+	a successful match the winning bindings convert the arguments of
+	\p argsOwner (the node owning the actual-argument children) to the
+	formals' types in place, mirroring the invoke path's call-site
+	conversion.
 	*/
-	SnFunction *MatchCtorAgainst(const std::vector<SnExpression*> &actuals,
+	SnFunction *MatchCtorAgainst(SyntaxNode &argsOwner,
+		const std::vector<SnExpression*> &actuals,
 		const std::vector<SnFunction*> &candidates, bool &rbAmbiguous);
 
 	/*
@@ -897,7 +982,7 @@ private:
 	/*
 	The failure tail of Access(SnInvokeExpr) — the 0.9.0 ctor fallback
 	(TryResolveCtorInvoke) ahead of the shared diagnostics. Split out of
-	Access for the 50-line function budget. deferredBraceArgs gates the
+	Access for the 50-line function budget. deferredArgs gates the
 	ctor route (count-only binding has no target for a brace argument)
 	and receives the missing-target sweep on the way out.
 	*/
@@ -905,7 +990,7 @@ private:
 		SnFunction *pCallee, bool bNameMatchedImported,
 		bool bVisibilityHintLogged,
 		const std::vector<SnFunction*> &candidates,
-		const std::vector<SnExpression*> &deferredBraceArgs,
+		const std::vector<SnExpression*> &deferredArgs,
 		bool bAmbiguousCall = false);
 
 	/*
@@ -1011,20 +1096,24 @@ private:
 	Phase 9c: apply implicit cast wrappers (SnCastExpr) to caller-side
 	expressions in bindings where needed (TCK_Auto / TCK_Box). B_Default
 	entries are skipped — their type was validated against the formal at
-	declaration time (StatementResolver Step 2).
+	declaration time (StatementResolver Step 2). 0.13.11: \p argsOwner is
+	any node whose children are the actual arguments (SnInvokeExpr,
+	SnNewExpr, SnSuperCallStmt), so the constructor call paths convert
+	their arguments too.
 	*/
-	void FixupParamTypesWithBindings(SnInvokeExpr &invoke,
+	void FixupParamTypesWithBindings(SyntaxNode &argsOwner,
 		std::vector<FormalBinding> &bindings);
 
 	/*
-	0.9.0 (D11): resolve the deferred bare brace arguments once the
-	overload is chosen — each formal's declared type becomes the init
-	list's target. False when an argument failed (its diagnostic is
-	logged); the invoke stays unresolved, mirroring the func-ref path.
-	0.9.13 B2: named arguments resolve through their SnNamedArgExpr
-	wrapper, located via the invoke's child list.
+	0.9.0 (D11): resolve the deferred arguments once the overload is
+	chosen — each formal's declared type becomes the target (an init
+	list's target, or 0.13.10 a lambda's expected function type). False
+	when an argument failed (its diagnostic is logged); the invoke stays
+	unresolved, mirroring the func-ref path. 0.9.13 B2: named arguments
+	resolve through their SnNamedArgExpr wrapper, located via the
+	invoke's child list.
 	*/
-	bool ResolveDeferredBraceArgs(SnInvokeExpr &invoke,
+	bool ResolveDeferredArgs(SnInvokeExpr &invoke,
 		std::vector<FormalBinding> &bindings);
 
 	/*
@@ -1087,8 +1176,15 @@ private:
 	ConstantFitGateResult ConstantFitGate(SnExpression &srcExpr,
 		TypeCastInfo &castInfo);
 	bool SkipNullIdentityWrap(SnExpression &srcExpr, TypeCastInfo &castInfo);
-	bool TryFixupNamedArgBinding(SnInvokeExpr &invoke, FormalBinding &b,
+	bool TryFixupNamedArgBinding(SyntaxNode &argsOwner, FormalBinding &b,
 		TypeCastInfo &castInfo);
+	//0.13.10 Task 5: the delegate-call constant-fit pre-pass (defined in
+	//ExprResolverDelegate.cpp; free-function extraction would lose the
+	//private gate access). rbRejected = an out-of-range constant was
+	//already named by the gate. True = the argument is fully handled.
+	bool ConstantFitPreWrap(SnInvokeExpr &invoke, SnExpression &arg,
+		SnField *pFormal, size_t slot,
+		const std::vector<uint8> &refFlags, bool &rbRejected);
 
 	/*
 	2026-09-27 decomposition of Access(SnBinaryExpr&)
@@ -1206,9 +1302,10 @@ private:
 	//StatementResolveAccessor's m_ExprResolver — the super(...) parent-ctor
 	//path (SelectSuperCtor), whose texts are byte-identical with
 	//kindWord="class". Returns the selected ctor (the caller consumes the
-	//binding); null after logging on a mismatch. Defined in
-	//ExprResolverNewCtor.cpp.
-	SnFunction *MatchCtorOrLogMismatch(
+	//binding); null after logging on a mismatch. \p argsOwner is the node
+	//owning the actual-argument children, handed to MatchCtorAgainst for
+	//the call-site argument conversion. Defined in ExprResolverNewCtor.cpp.
+	SnFunction *MatchCtorOrLogMismatch(SyntaxNode &argsOwner,
 		const std::vector<SnExpression*> &actuals,
 		const std::vector<SnFunction*> &candidates,
 		const ISourceLocation *pLoc, const char *kindWord,
@@ -1219,7 +1316,9 @@ private:
 	//ambiguity / no-match; the intrinsic-arity shapes keep the legacy
 	//arity texts. Null = a diagnostic was logged (or the type has no
 	//ctor and no arguments — the legal bare-allocation shape).
-	SnFunction *SelectCtorForArgs(SnField *pTypeDecl,
+	//\p argsOwner is the node owning the actual-argument children, passed
+	//through to MatchCtorAgainst for the call-site argument conversion.
+	SnFunction *SelectCtorForArgs(SyntaxNode &argsOwner, SnField *pTypeDecl,
 		const std::vector<SnExpression*> &actuals,
 		const ISourceLocation *pLoc);
 	//Binds the resolved type declaration to the new-expression: classes keep
@@ -1279,7 +1378,7 @@ private:
 	//(its own diagnostic already logged; rbSwept tells the caller the
 	//failure-tail sweep must not re-accept the diagnosed arguments).
 	bool TryInferArrayDimsDeferredArgs(SnInvokeExpr &snInvoke,
-		const std::vector<SnExpression*> &deferredBraceArgs,
+		const std::vector<SnExpression*> &deferredArgs,
 		bool &rbSwept);
 	//The LHS declared type published by the assign resolver for the
 	//RHS invoke (`Channel<int> c = Channel(4);` ctor arm and the
@@ -1288,6 +1387,11 @@ private:
 	//Consumed (cleared) by ResolveDeclaredGenericCtorTarget; cleared
 	//after RHS resolution otherwise.
 	SnField *m_pAssignTargetHint = nullptr;
+
+	//0.13.10: the lambda block body's back-channel (ILambdaBodyResolver
+	//above). Set by the statement resolver at construction; null means
+	//no statement pass owns this resolution (a named diagnostic fires).
+	ILambdaBodyResolver *m_pLambdaBodyResolver = nullptr;
 
 	//0.13.1a Task 5: the free-function sweep's last generic-inference
 	//failure (reset at each sweep entry; retained for the named
@@ -1469,6 +1573,25 @@ private:
 	//addressed field's declared type for struct/class targets.
 	void PropagateNestedInitListTargets(SnInitListExpr &sn,
 		SnField *pTargetField, SnField *pElemType, bool bIsArray);
+
+	//0.13.10: the phases of Access(SnLambdaExpr&) typing — the expected-
+	//type channel (spec §3.2): target validation, the positional
+	//parameter fill, and the two body arms. Definitions in
+	//ExprResolverLambda.cpp.
+	void TypeLambda(SnLambdaExpr &sn);
+	//The positional parameter fill: a bare parameter takes the expected
+	//type's positional argument; an explicit spelling resolves its type
+	//token and must match position-for-position (no variance). Fills one
+	//param descriptor per parameter. False = reported (diagnostic logged).
+	bool FillLambdaParams(SnLambdaExpr &sn, SnClassDecl &funcDecl);
+	//The expression body arm: resolve with the lambda as the scope base
+	//(the param descriptors answer the body's name lookup), then
+	//adjudicate the body's value against the expected return type.
+	void ResolveLambdaExprBody(SnLambdaExpr &sn, SnField *pReturnType);
+	//The block body arm: the back-channel walk plus the 「块体无return
+	//即void」 check — a return-less block against a non-void return type
+	//is a named error, never a silent garbage value.
+	void ResolveLambdaBlockBodyChannel(SnLambdaExpr &sn, SnField *pReturnType);
 	void CheckClassInitListForm(SnInitListExpr &sn, SnClassDecl *pClassDecl);
 	//0.9.11 T6 (D10): select the zero-formal ctor for an init list —
 	//the ctor-selection step of CheckClassInitListForm, split out for
@@ -1603,6 +1726,16 @@ private:
 	//RejectUnimportedModuleCall).
 	void RejectUnimportedQualifiedType(SnQualifiedTypeExpr &qtype,
 		const std::string &nsPath);
+	//D-29 rule 1's m12 tie at the declaration position: a middle segment
+	//that names a type leaves module space, so the overshoot is named for
+	//what it is. True = diagnosed.
+	bool RejectQualifiedTypeThroughType(SnQualifiedTypeExpr &qtype,
+		const std::vector<std::string> &moduleSegs) const;
+	//Access(SnQualifiedTypeExpr&)'s tail: look the type up inside the
+	//opened module and bind the qualified node to its declaration.
+	void BindModuleQualifiedType(SnQualifiedTypeExpr &qtype,
+		ModuleRegistry &reg, const std::string &nsPath,
+		uint32_t curModule);
 
 	/*
 	2026-09-27 decomposition of the module-qualified resolution
@@ -1612,12 +1745,38 @@ private:
 	*/
 	bool TryResolveModuleCallTarget(SnMemberExpr &snMember,
 		SnInvokeExpr *&rpInvoke, std::string &rModulePath);
-	//The extended-module arm's claim walk (definition beside
-	//TryResolveModuleCallTarget for the source-size cap): true = the
-	//chain addresses an unimported child package; false = a known
-	//prefix's next segment is a type, the normal member path's
-	//qualified type access.
-	bool ClaimsExtendedModulePath(const std::string &modulePath);
+	//D-29 rule 1 (ruling 45): where the module path of a dotted name ends
+	//— the longest prefix that is a known module (registered unit or
+	//library module the symbol index knows), scanning every prefix length
+	//instead of stopping at the first. Definitions beside
+	//TryResolveModuleCallTarget for the source-size cap; shared by the
+	//module-qualified call, the module type reference, the qualified member
+	//value and the declaration position (ExprResolverTypes.cpp).
+	bool LongestKnownModulePrefix(const std::vector<std::string> &segs,
+		std::string &rPrefix, size_t &rTailStart) const;
+	//D-29 rule 1's knowability, extended (0.13.12 Low 2, then the
+	//package line): a module path is known when the build registered it,
+	//the symbol index knows it, an effective library dir offers its
+	//source, or an artifact answers for it (a unit file, or a package
+	//member listing). The source and artifact arms keep a never-imported
+	//third-party package claimable — folded onto an import remedy that
+	//exists — instead of dying as a generic field error.
+	bool KnowsLibraryModule(const std::string &name) const;
+	//D-29 rule 1 (ruling 45), the m12 tie: true when a known module-path
+	//prefix's next segment names a type declared in that module — the
+	//type captures the chain wherever the anchor sits, at any depth, so
+	//the module-claim routes decline and the type reading owns it. The
+	//optional outs name the anchor (its module and the type segment) for
+	//the declaration position's diagnostic. probeLimit bounds which
+	//segments may capture; see the definition.
+	bool TypeAnchorCapturesChain(const std::vector<std::string> &segs,
+		size_t probeLimit, std::string *rpAnchorModule = nullptr,
+		std::string *rpAnchorType = nullptr) const;
+	//D-29 rule 3 (ruling 45): fold a chain that overshoots a known library
+	//module onto that module, so an "is not imported" diagnostic only ever
+	//suggests an import that exists; see the definition.
+	std::string BlameModulePath(
+		const std::vector<std::string> &segs) const;
 	bool RejectUnimportedModuleCall(SnMemberExpr &snMember,
 		const std::string &modulePath);
 	bool TryResolveModuleQualifiedArgs(SnMemberExpr &snMember,
@@ -1718,6 +1877,11 @@ private:
 	//declined, the generic path keeps the expression.
 	bool RouteQualifiedValueChain(SnMemberExpr &snMember,
 		std::vector<std::string> &segs);
+	//The not-a-member wording shared by the qualified-type admission sites
+	//(0.13.8 item 5): the literal lives in one place so the channels that
+	//fold a foreign non-public type into not-found cannot drift apart.
+	void LogModuleTypeNotFound(SyntaxNode &site, const std::string &typeName,
+		const std::string &modulePath);
 	//The type admission of the qualified VALUE routes (0.13.8 item 5):
 	//the foreign non-public arm folds into not-found — the not-a-member
 	//wording covers both shapes and the member consumes on the miss.
@@ -1726,12 +1890,15 @@ private:
 		const std::string &modulePath, const std::string &typeName);
 	void FinishConsumedMember(SnMemberExpr &snMember);
 
-	//Phase 5: package-qualified VALUE access (`alib.Color.Green`, the
-	//enum-constant chain). The de-shelled tree has no namespace node for
-	//the generic receiver route to anchor on, so the chain resolves
+	//D-29 rule 1 (ruling 45), Phase 5: package-qualified VALUE access
+	//(`alib.Color.Green`, `json.JsonValue.MAX_DEPTH`) — the module path is the
+	//longest known prefix and the tail must be exactly `Type.member`, with
+	//every member kind resolved alike. The de-shelled tree has no namespace
+	//node for the generic receiver route to anchor on, so the chain resolves
 	//through the registry (FindModuleType). Calls keep
 	//TryResolveModuleQualified; a chain whose tip is not a plain
-	//identifier declines and keeps the generic path.
+	//identifier, and a member the type does not declare, decline and keep the
+	//generic path.
 	bool TryResolveQualifiedTypeValue(SnMemberExpr &snMember);
 
 	//v2.2: module-qualified free-function VALUE reference (`lib.seven`):
@@ -1783,6 +1950,22 @@ public:
 		m_Accessor.m_pAssignTargetHint = pTarget;
 	}
 
+	//0.13.10: pass-through for the lambda block body's back-channel —
+	//the statement resolver wires itself at construction.
+	void SetLambdaBodyResolver(ILambdaBodyResolver &resolver)
+	{
+		m_Accessor.m_pLambdaBodyResolver = &resolver;
+	}
+
+	//0.13.10 Task 5: the owning accessor for binding channels that need
+	//the instantiation machinery (the inferred generic-static function
+	//reference creates the instance through
+	//ExprResolveAccessor::GetDeclaredGenericClassDecl).
+	ExprResolveAccessor& Accessor()
+	{
+		return m_Accessor;
+	}
+
 	//Resolve the child data type nodes in a specified field.
 	//\note The data types in expressions will not be resolved.
 	bool ResolveDataTypes(SnField &, SnField &outerType);
@@ -1823,28 +2006,32 @@ public:
 	//0.9.11 T6 (D10): statement-side entry of the ctor overload match —
 	//the super(...) selection in StatementResolverSuper. Same contract as
 	//the accessor member of the same name; the match reads only the
-	//resolved actuals and the candidate signatures, so no Resolve()
-	//context is required.
-	SnFunction *MatchCtorAgainst(const std::vector<SnExpression*> &actuals,
+	//resolved actuals and the candidate signatures, and wraps converted
+	//arguments in place under \p argsOwner, so no Resolve() context is
+	//required.
+	SnFunction *MatchCtorAgainst(SyntaxNode &argsOwner,
+		const std::vector<SnExpression*> &actuals,
 		const std::vector<SnFunction*> &candidates, bool &rbAmbiguous)
 	{
-		return m_Accessor.MatchCtorAgainst(actuals, candidates, rbAmbiguous);
+		return m_Accessor.MatchCtorAgainst(argsOwner, actuals, candidates,
+			rbAmbiguous);
 	}
 
 	//Statement-side entry of the ctor overload match PLUS its two named
 	//mismatch diagnostics — the super(...) selection in
 	//StatementResolverSuper. Same contract as the accessor member of the
 	//same name (kindWord="class" there); the match and its logging read
-	//only the resolved actuals and the candidate signatures, so no
-	//Resolve() context is required.
-	SnFunction *MatchCtorOrLogMismatch(
+	//only the resolved actuals and the candidate signatures, and wrap
+	//converted arguments in place under \p argsOwner, so no Resolve()
+	//context is required.
+	SnFunction *MatchCtorOrLogMismatch(SyntaxNode &argsOwner,
 		const std::vector<SnExpression*> &actuals,
 		const std::vector<SnFunction*> &candidates,
 		const ISourceLocation *pLoc, const char *kindWord,
 		const std::string &typeName)
 	{
-		return m_Accessor.MatchCtorOrLogMismatch(actuals, candidates,
-			pLoc, kindWord, typeName);
+		return m_Accessor.MatchCtorOrLogMismatch(argsOwner, actuals,
+			candidates, pLoc, kindWord, typeName);
 	}
 
 	void ResolveFieldExprAs(SnFieldExpr &expr, SnField *pField)

@@ -91,6 +91,6 @@ Program exited with code 9.
 
 `ndb --machine <program.ncu|.npkg> [-I <dir>...] [--verbose | -v]`在stdin/stdout上暴露同一会话的tab分隔行协议，供嵌入前端使用——nide的图形调试器就构建在它之上。nide图形界面的用法见[在nide中调试](../getting-started/debugging.md)，协议细节见[调试器架构](../vm-architecture/debugging.md)。
 
-交互式与`--machine`两种形态都接受`-I <dir>`（可多次指定），用于定位全部依赖成员与native动态库；搜索目录的拼接顺序与nvm相同：`-I` → 模块目录 → `NLANG_PATH` → 可执行文件目录 / 当前目录 → 标准库目录（`stdlib.npkg`所在处）。
+交互式与`--machine`两种形态都接受`-I <dir>`（可多次指定），用于定位全部依赖成员与native动态库；搜索目录的拼接顺序与nvm相同：`-I` → 模块目录 → `NLANG_PATH` → 可执行文件目录 / 当前目录 → 标准库目录（`io.npkg`等领域包所在处）。
 
 `--verbose`（短写法`-v`）在会话开始前打印解析后的搜索路径（每行一个目录并括注来源层，同nvm），随后照常进行。`--machine`形态下这份列表输出到**stderr**——stdout是协议通道，不得混入非协议行。

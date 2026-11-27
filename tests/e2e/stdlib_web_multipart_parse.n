@@ -1,0 +1,625 @@
+// stdlib_web_multipart_parse — the multipart half of web.form.Form.parse
+// (spec 6.9, D-19, D-20): line-anchored delimiter matching (preamble and
+// epilogue ignored, trailing horizontal whitespace on delimiter lines
+// tolerated, quoted boundaries, horizontal whitespace around a media
+// type parameter value stripped, "\n" and "\r" line endings, obs-fold
+// continuation lines, prefix-lookalike body lines kept in the body, 70- and
+// 71-character boundaries accepted, boundary compare case-sensitive), parts
+// with the same name uncoalesced behind one first-seen name in appearance
+// order, filename="" still a file part, a missing part Content-Type
+// registered as the bare "text/plain", binary part bytes carried byte-exact
+// through the whole parse with no string roundtrip, the read-method
+// surface with files() and getFiles() handing out copies, a closing-
+// delimiter-only body as the empty form, filename directory paths stripped
+// on both separators with no percent decoding, nested multipart kept
+// opaque, and the two fixed 400s for a missing or empty boundary and a
+// body with no delimiter line. Every leg drives one shared App over a real
+// socket.
+import io;
+import url;
+import http;
+import web.*;
+
+// One checked expectation: the leg reads as a list of them, and the failure
+// line quotes what was expected against what arrived.
+int want(bool ok, string what, string detail) {
+    if (!ok) {
+        io.print(what + " -- " + detail);
+        return 1;
+    }
+    return 0;
+}
+
+// The multipart fixture's byte accumulator (shared corpus shape):
+// List<byte> is the language's only growable byte sequence, and the two
+// public statics below run io.toBytes per element (stdlib/http.n), so put
+// carries UTF-8 text while putByte/putBytes carry raw octets (a 0xFF cell
+// stores as -128 and stays 0xFF on the wire; every unsigned compare uses
+// & 0xFF).
+class ByteBuf {
+    private List<byte> m_v;
+    public ByteBuf() { m_v = {}; }
+    public void put(string ascii) { HttpParser.appendAscii(m_v, ascii); }
+    public void putByte(int v) { m_v.add(v as byte); }
+    public void putBytes(byte[] src) { for (int i = 0; i < src.length(); i = i + 1) { m_v.add(src[i]); } }
+    public byte[] toBytes() { return HttpParser.toByteArray(m_v); }
+}
+
+// The delimiter's own line break belongs to the delimiter line (D-19), so
+// putPart writes it before the part instead of after the previous body;
+// skipping it before the first part is the no-preamble spelling where the
+// body opens on "--boundary" (D-19). Each header arrives with its own eol
+// already spelled by the leg, and the headers argument carries the trailing
+// blank line that separates headers from the body.
+void putPart(ByteBuf b, string eol, string bnd, string headers, byte[] body, bool firstPart) {
+    if (!firstPart) { b.put(eol); }
+    b.put("--" + bnd + eol);
+    b.put(headers);
+    b.putBytes(body);
+}
+
+void putFinal(ByteBuf b, string eol, string bnd, string epilogue) {
+    b.put(eol + "--" + bnd + "--" + eol + epilogue);
+}
+
+// The corpus's only observation channel: the three section counts plus, in
+// names() order, every name with its field values angle-bracketed (an
+// empty value shows as <>) and its file parts spelled "@" + filename +
+// ";" + contentType + ";" + size.
+string mpDigestOf(web.form.FormData f) {
+    List<web.form.FormFile> all = f.files();
+    List<string> ns = f.names();
+    string s = "parts=" + f.partCount().toString();
+    s = s + "/fields=" + f.fieldCount().toString();
+    s = s + "/files=" + all.length().toString();
+    for (int i = 0; i < ns.length(); i = i + 1) {
+        string n = ns[i];
+        s = s + "|" + n + "=";
+        List<string> vs = f.getAll(n);
+        for (int j = 0; j < vs.length(); j = j + 1) { s = s + "<" + vs[j] + ">"; }
+        List<web.form.FormFile> fs = f.getFiles(n);
+        for (int k = 0; k < fs.length(); k = k + 1) {
+            web.form.FormFile fl = fs[k];
+            s = s + "@" + fl.filename + ";" + fl.contentType + ";" + fl.size().toString();
+        }
+    }
+    return s;
+}
+
+// Digest every parsed part of the request.
+void handleMultipart(RequestContext ctx) {
+    web.form.FormData f = Form.parse(ctx);
+    ctx.text(200, mpDigestOf(f));
+}
+
+// Echo the raw bytes of the "doc" file part: the wire bytes of a binary
+// part must arrive back unchanged, never through a string roundtrip.
+void handleEcho(RequestContext ctx) {
+    web.form.FormData f = Form.parse(ctx);
+    web.form.FormFile doc = f.getFile("doc");
+    if (doc == null) { ctx.text(400, "no file"); return; }
+    ctx.bytes(200, doc.data, "application/octet-stream");
+}
+
+// The read-method surface of leg H: every answer is taken into a local
+// before its length or method is read (ruling 12), and the copy check runs
+// last so the refetched counts see the untouched form.
+void handleOrder(RequestContext ctx) {
+    web.form.FormData f = Form.parse(ctx);
+    List<string> ns = f.names();
+    string names = "";
+    for (int i = 0; i < ns.length(); i = i + 1) {
+        if (i > 0) { names = names + "/"; }
+        string n = ns[i];
+        names = names + n;
+    }
+    int pc = f.partCount();
+    int fc = f.fieldCount();
+    int filec = f.fileCount();
+    web.form.FormFile doc1 = f.getFile("doc");
+    string first = doc1.filename;
+    int size = doc1.size();
+    string text = doc1.text();
+    string type = doc1.contentType;
+    List<web.form.FormFile> dd = f.getFiles("doc");
+    int filesDoc = dd.length();
+    web.form.FormFile doc2 = dd[1];
+    string secondDoc = doc2.filename;
+    List<web.form.FormFile> all = f.files();
+    int allFiles = all.length();
+    web.form.FormFile lastAll = all[1];
+    string secondAll = lastAll.filename;
+    web.form.FormFile zz = f.getFile("zz");
+    string missing = "obj";
+    if (zz == null) { missing = "null"; }
+    List<web.form.FormFile> zzFiles = f.getFiles("zz");
+    int noFiles = zzFiles.length();
+    bool hasDocYes = f.has("doc");
+    string hasDoc = "false";
+    if (hasDocYes) { hasDoc = "true"; }
+    bool hasZzYes = f.has("zz");
+    string hasZz = "false";
+    if (hasZzYes) { hasZz = "true"; }
+    string getDoc = f.get("doc");
+    List<web.form.FormFile> allCopy = f.files();
+    List<web.form.FormFile> docCopy = f.getFiles("doc");
+    web.form.FormFile fresh1 = web.form.FormFile();
+    allCopy.add(fresh1);
+    web.form.FormFile fresh2 = web.form.FormFile();
+    docCopy.add(fresh2);
+    int localFiles = allCopy.length();
+    int localDoc = docCopy.length();
+    List<web.form.FormFile> reFiles = f.files();
+    int refetchFiles = reFiles.length();
+    List<web.form.FormFile> reDoc = f.getFiles("doc");
+    int refetchDoc = reDoc.length();
+    string s = "names=" + names + ";pc=" + pc.toString() + ";fc=" + fc.toString();
+    s = s + ";filec=" + filec.toString() + ";first=" + first + ";size=" + size.toString();
+    s = s + ";text=" + text + ";type=" + type + ";filesDoc=" + filesDoc.toString();
+    s = s + ";secondDoc=" + secondDoc + ";allFiles=" + allFiles.toString();
+    s = s + ";secondAll=" + secondAll + ";missing=" + missing + ";noFiles=" + noFiles.toString();
+    s = s + ";hasDoc=" + hasDoc + ";hasZz=" + hasZz + ";getDoc=" + getDoc;
+    s = s + ";localFiles=" + localFiles.toString() + ";localDoc=" + localDoc.toString();
+    s = s + ";refetchFiles=" + refetchFiles.toString() + ";refetchDoc=" + refetchDoc.toString();
+    ctx.text(200, s);
+}
+
+// A POST carrying a hand-built byte body: leg G's 0x00/0xFF octets must
+// travel as bytes, and every leg reuses one exact body for its requests.
+http.HttpResponse askMp(string urlText, string contentType, byte[] body) {
+    http.HttpRequest req = http.HttpRequest();
+    req.method = "POST";
+    req.url = Url.parse(urlText);
+    req.headers.set("Content-Type", contentType);
+    req.body = body;
+    return http.request(req);
+}
+
+// The fixed-400 answer checked as one unit: status, reason phrase and the
+// byte-exact message.
+int want400(http.HttpResponse res, string what, string wantText) {
+    int bad = 0;
+    bad = bad + want(res.statusCode == 400, what + " must answer 400",
+        "answered " + res.statusCode.toString());
+    bad = bad + want(res.reasonPhrase == "Bad Request", what + " reason phrase",
+        "got " + res.reasonPhrase);
+    bad = bad + want(res.bodyText() == wantText, what + " must carry the fixed 400 text",
+        "body was [" + res.bodyText() + "]");
+    return bad;
+}
+
+// Leg A: one field and one named file side by side over CRLF — the first
+// delimiter opens the body with no leading break, the value ends before the
+// next delimiter's own break (no \r\n inside the value), the file part
+// never enters the field channel, filename and Content-Type come back
+// verbatim, and the view keeps the exact body length.
+int legA(string base) {
+    int bad = 0;
+    ByteBuf b = ByteBuf();
+    putPart(b, "\r\n", "Bx", "Content-Disposition: form-data; name=\"title\"\r\n\r\n",
+        io.toBytes("中文"), true);
+    putPart(b, "\r\n", "Bx",
+        "Content-Disposition: form-data; name=\"doc\"; filename=\"报告.txt\"\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n",
+        io.toBytes("BODY12345"), false);
+    putFinal(b, "\r\n", "Bx", "");
+    http.HttpResponse res = http.post(base + "/mp", io.fromBytes(b.toBytes()),
+        "multipart/form-data; boundary=Bx");
+    bad = bad + want(res.statusCode == 200, "leg A must be accepted",
+        "answered " + res.statusCode.toString());
+    bad = bad + want(res.bodyText() ==
+        "parts=2/fields=1/files=1|title=<中文>|doc=@报告.txt;text/plain; charset=utf-8;9",
+        "leg A field, file, verbatim echoes and view length", "body was [" + res.bodyText() + "]");
+    return bad;
+}
+
+// Leg B: three same-name fields stay distinct in arrival order, empty
+// values included (RFC 7578 §5.2 MUST NOT be coalesced, D-19).
+int legB(string base) {
+    int bad = 0;
+    ByteBuf b = ByteBuf();
+    putPart(b, "\r\n", "Bx", "Content-Disposition: form-data; name=\"tag\"\r\n\r\n",
+        io.toBytes("one"), true);
+    putPart(b, "\r\n", "Bx", "Content-Disposition: form-data; name=\"tag\"\r\n\r\n",
+        io.toBytes("two"), false);
+    putPart(b, "\r\n", "Bx", "Content-Disposition: form-data; name=\"tag\"\r\n\r\n",
+        io.toBytes(""), false);
+    putFinal(b, "\r\n", "Bx", "");
+    http.HttpResponse res = http.post(base + "/mp", io.fromBytes(b.toBytes()),
+        "multipart/form-data; boundary=Bx");
+    bad = bad + want(res.statusCode == 200, "leg B must be accepted",
+        "answered " + res.statusCode.toString());
+    bad = bad + want(res.bodyText() == "parts=3/fields=3/files=0|tag=<one><two><>",
+        "leg B same-name order and empty values kept", "body was [" + res.bodyText() + "]");
+    return bad;
+}
+
+// Leg C: filename="" still routes to the file channel (D-19), the missing
+// part Content-Type registers the bare "text/plain" default (no charset),
+// and a zero-length body is a legal empty array rather than null.
+int legC(string base) {
+    int bad = 0;
+    ByteBuf b = ByteBuf();
+    putPart(b, "\r\n", "Bx", "Content-Disposition: form-data; name=\"doc\"; filename=\"\"\r\n\r\n",
+        io.toBytes(""), true);
+    putFinal(b, "\r\n", "Bx", "");
+    http.HttpResponse res = http.post(base + "/mp", io.fromBytes(b.toBytes()),
+        "multipart/form-data; boundary=Bx");
+    bad = bad + want(res.statusCode == 200, "leg C must be accepted",
+        "answered " + res.statusCode.toString());
+    bad = bad + want(res.bodyText() == "parts=1/fields=0/files=1|doc=@;text/plain;0",
+        "leg C existence routing, text/plain default and empty data",
+        "body was [" + res.bodyText() + "]");
+    return bad;
+}
+
+// Leg D: part header grammar — the header name's case is ignored, an
+// unknown header and a colon-less line are ignored, Content-Transfer-
+// Encoding stays opaque (no base64 decoding), parameter names are case-
+// insensitive while the parameter value keeps its case (D-19, ruling 29 iii).
+int legD(string base) {
+    int bad = 0;
+    ByteBuf b = ByteBuf();
+    putPart(b, "\r\n", "Bx",
+        "content-disPOSITION: form-data; NAME=\"RaW\"\r\nCONTENT-TRANSFER-ENCODING: base64\r\nX-Custom-Thing: whatever\r\nnocolonhere\r\n\r\n",
+        io.toBytes("aGVsbG8="), true);
+    putFinal(b, "\r\n", "Bx", "");
+    http.HttpResponse res = http.post(base + "/mp", io.fromBytes(b.toBytes()),
+        "multipart/form-data; boundary=Bx");
+    bad = bad + want(res.statusCode == 200, "leg D must be accepted",
+        "answered " + res.statusCode.toString());
+    bad = bad + want(res.bodyText() == "parts=1/fields=1/files=0|RaW=<aGVsbG8=>",
+        "leg D case rules and opaque transfer encoding", "body was [" + res.bodyText() + "]");
+    return bad;
+}
+
+// Leg E: the nine-shape tolerance matrix — a quoted boundary holding ';',
+// preamble plus epilogue plus trailing whitespace on both delimiter lines
+// (hand-written body, no assembler), all-LF and all-CR bodies, an obs-fold
+// continuation, prefix lookalikes "--Bx-" and "--BxY" left in the body,
+// 70- and 71-character boundaries accepted on the receive side, and a
+// mid-line --Bx inside the preamble ignored.
+int legE(string base) {
+    int bad = 0;
+    string oneField = "parts=1/fields=1/files=0|k=<1>";
+
+    // E1: quoted boundary containing ';'.
+    ByteBuf b1 = ByteBuf();
+    putPart(b1, "\r\n", "X;Y", "Content-Disposition: form-data; name=\"k\"\r\n\r\n",
+        io.toBytes("1"), true);
+    putFinal(b1, "\r\n", "X;Y", "");
+    http.HttpResponse res = http.post(base + "/mp", io.fromBytes(b1.toBytes()),
+        "multipart/form-data; boundary=\"X;Y\"");
+    bad = bad + want(res.statusCode == 200 && res.bodyText() == oneField,
+        "leg E1 quoted boundary with a semicolon",
+        "answered " + res.statusCode.toString() + " with body [" + res.bodyText() + "]");
+
+    // E2: preamble, epilogue and trailing horizontal whitespace on both
+    // delimiter lines, one hand-written body end to end.
+    string e2 = "This is a preamble\r\n--Bx  \r\nContent-Disposition: form-data; name=\"k\"\r\n\r\n1\r\n--Bx--  \r\nepilogue text\r\n";
+    res = http.post(base + "/mp", e2, "multipart/form-data; boundary=Bx");
+    bad = bad + want(res.statusCode == 200 && res.bodyText() == oneField,
+        "leg E2 preamble epilogue and trailing whitespace",
+        "answered " + res.statusCode.toString() + " with body [" + res.bodyText() + "]");
+
+    // E3: a body whose only line ending is "\n".
+    ByteBuf b3 = ByteBuf();
+    putPart(b3, "\n", "Bx", "Content-Disposition: form-data; name=\"k\"\n\n",
+        io.toBytes("1"), true);
+    putFinal(b3, "\n", "Bx", "");
+    res = http.post(base + "/mp", io.fromBytes(b3.toBytes()), "multipart/form-data; boundary=Bx");
+    bad = bad + want(res.statusCode == 200 && res.bodyText() == oneField,
+        "leg E3 an all-LF body",
+        "answered " + res.statusCode.toString() + " with body [" + res.bodyText() + "]");
+
+    // E4: a body whose only line ending is "\r".
+    ByteBuf b4 = ByteBuf();
+    putPart(b4, "\r", "Bx", "Content-Disposition: form-data; name=\"k\"\r\r",
+        io.toBytes("1"), true);
+    putFinal(b4, "\r", "Bx", "");
+    res = http.post(base + "/mp", io.fromBytes(b4.toBytes()), "multipart/form-data; boundary=Bx");
+    bad = bad + want(res.statusCode == 200 && res.bodyText() == oneField,
+        "leg E4 an all-CR body",
+        "answered " + res.statusCode.toString() + " with body [" + res.bodyText() + "]");
+
+    // E5: an obs-fold continuation line joining the header above it.
+    ByteBuf b5 = ByteBuf();
+    putPart(b5, "\r\n", "Bx", "Content-Disposition: form-data;\r\n   name=\"fold\"\r\n\r\n",
+        io.toBytes("1"), true);
+    putFinal(b5, "\r\n", "Bx", "");
+    res = http.post(base + "/mp", io.fromBytes(b5.toBytes()), "multipart/form-data; boundary=Bx");
+    bad = bad + want(res.statusCode == 200
+        && res.bodyText() == "parts=1/fields=1/files=0|fold=<1>",
+        "leg E5 obs-fold continuation",
+        "answered " + res.statusCode.toString() + " with body [" + res.bodyText() + "]");
+
+    // E6: --Bx- and --BxY look like the delimiter but match nothing: the
+    // boundary may only be followed by blanks, --, a line ending or the
+    // body end, so both lines stay inside the body verbatim.
+    ByteBuf b6 = ByteBuf();
+    putPart(b6, "\r\n", "Bx", "Content-Disposition: form-data; name=\"keep\"\r\n\r\n",
+        io.toBytes("--Bx-\r\n--BxY"), true);
+    putFinal(b6, "\r\n", "Bx", "");
+    res = http.post(base + "/mp", io.fromBytes(b6.toBytes()), "multipart/form-data; boundary=Bx");
+    bad = bad + want(res.statusCode == 200
+        && res.bodyText() == "parts=1/fields=1/files=0|keep=<--Bx-\r\n--BxY>",
+        "leg E6 delimiter lookalikes kept in the body",
+        "answered " + res.statusCode.toString() + " with body [" + res.bodyText() + "]");
+
+    // E7 and E8: 70 and 71 character boundaries — the receive side never
+    // refuses on length (D-19: the 1..70 duty is the builder's).
+    string bnd70 = "";
+    for (int i = 0; i < 70; i = i + 1) { bnd70 = bnd70 + "A"; }
+    string bnd71 = bnd70 + "A";
+    string[] longBnds = [bnd70, bnd71];
+    for (int w = 0; w < longBnds.length(); w = w + 1) {
+        string bnd = longBnds[w];
+        ByteBuf bL = ByteBuf();
+        putPart(bL, "\r\n", bnd, "Content-Disposition: form-data; name=\"k\"\r\n\r\n",
+            io.toBytes("1"), true);
+        putFinal(bL, "\r\n", bnd, "");
+        res = http.post(base + "/mp", io.fromBytes(bL.toBytes()),
+            "multipart/form-data; boundary=" + bnd);
+        bad = bad + want(res.statusCode == 200 && res.bodyText() == oneField,
+            "leg E7/E8 a " + bnd.length().toString() + "-character boundary",
+            "answered " + res.statusCode.toString() + " with body [" + res.bodyText() + "]");
+    }
+
+    // E9: a --Bx that appears mid-line in the preamble is not a delimiter
+    // (the match is anchored to line starts only).
+    ByteBuf b9 = ByteBuf();
+    b9.put("mid --Bx preamble\r\n");
+    putPart(b9, "\r\n", "Bx", "Content-Disposition: form-data; name=\"k\"\r\n\r\n",
+        io.toBytes("1"), true);
+    putFinal(b9, "\r\n", "Bx", "");
+    res = http.post(base + "/mp", io.fromBytes(b9.toBytes()), "multipart/form-data; boundary=Bx");
+    bad = bad + want(res.statusCode == 200 && res.bodyText() == oneField,
+        "leg E9 a mid-line boundary string in the preamble",
+        "answered " + res.statusCode.toString() + " with body [" + res.bodyText() + "]");
+    return bad;
+}
+
+// Leg F: a zero-length field body is a legal empty value (D-19 closes the
+// "empty body is legal" rule; leg C witnesses the file side).
+int legF(string base) {
+    int bad = 0;
+    ByteBuf b = ByteBuf();
+    putPart(b, "\r\n", "Bx", "Content-Disposition: form-data; name=\"empty\"\r\n\r\n",
+        io.toBytes(""), true);
+    putFinal(b, "\r\n", "Bx", "");
+    http.HttpResponse res = http.post(base + "/mp", io.fromBytes(b.toBytes()),
+        "multipart/form-data; boundary=Bx");
+    bad = bad + want(res.statusCode == 200, "leg F must be accepted",
+        "answered " + res.statusCode.toString());
+    bad = bad + want(res.bodyText() == "parts=1/fields=1/files=0|empty=<>",
+        "leg F an empty field body", "body was [" + res.bodyText() + "]");
+    return bad;
+}
+
+// Leg G: a binary part of {0, 255, 65} travels byte-exact both as the
+// echoed file bytes and as the digested size; 0xFF stores as -128 in the
+// byte cell but stays 0xFF on the wire (every cell compared through
+// & 0xFF). The same body is sent twice through hand-built requests so no
+// string roundtrip can touch the octets (D-19).
+int legG(string base) {
+    int bad = 0;
+    ByteBuf msg = ByteBuf();
+    msg.putByte(0);
+    msg.putByte(255);
+    msg.putByte(65);
+    byte[] bin = msg.toBytes();
+    ByteBuf b = ByteBuf();
+    putPart(b, "\r\n", "Bx",
+        "Content-Disposition: form-data; name=\"doc\"; filename=\"bin.dat\"\r\nContent-Type: application/octet-stream\r\n\r\n",
+        bin, true);
+    putFinal(b, "\r\n", "Bx", "");
+    byte[] full = b.toBytes();
+
+    http.HttpResponse res = askMp(base + "/echo", "multipart/form-data; boundary=Bx", full);
+    bad = bad + want(res.statusCode == 200, "leg G the echo must answer 200",
+        "answered " + res.statusCode.toString());
+    bad = bad + want(res.body.length() == 3, "leg G the echoed part is three bytes",
+        "got " + res.body.length().toString() + " bytes");
+    int[] want0 = [0, 255, 65];
+    for (int i = 0; i < want0.length(); i = i + 1) {
+        int got = res.body[i] & 0xFF;
+        bad = bad + want(got == want0[i], "leg G echoed byte " + i.toString(),
+            "got " + got.toString() + " want " + want0[i].toString());
+    }
+    res = askMp(base + "/mp", "multipart/form-data; boundary=Bx", full);
+    bad = bad + want(res.statusCode == 200
+        && res.bodyText() == "parts=1/fields=0/files=1|doc=@bin.dat;application/octet-stream;3",
+        "leg G the binary part digest",
+        "answered " + res.statusCode.toString() + " with body [" + res.bodyText() + "]");
+    return bad;
+}
+
+// Leg H: five parts with both channels mixed under one name — field a,
+// files doc f1 and f2, field b, field doc — and the full read surface:
+// partCount is the two-channel sum while names dedupes, the channels never
+// bleed into each other, getFile/getFiles/files answer in appearance order,
+// an absent name answers null / an empty list, and files()/getFiles() hand
+// out copies the caller may mutate.
+int legH(string base) {
+    int bad = 0;
+    ByteBuf b = ByteBuf();
+    putPart(b, "\r\n", "Bx", "Content-Disposition: form-data; name=\"a\"\r\n\r\n",
+        io.toBytes("1"), true);
+    putPart(b, "\r\n", "Bx", "Content-Disposition: form-data; name=\"doc\"; filename=\"f1\"\r\n\r\n",
+        io.toBytes("A"), false);
+    putPart(b, "\r\n", "Bx", "Content-Disposition: form-data; name=\"doc\"; filename=\"f2\"\r\n\r\n",
+        io.toBytes("BB"), false);
+    putPart(b, "\r\n", "Bx", "Content-Disposition: form-data; name=\"b\"\r\n\r\n",
+        io.toBytes("2"), false);
+    putPart(b, "\r\n", "Bx", "Content-Disposition: form-data; name=\"doc\"\r\n\r\n",
+        io.toBytes("3"), false);
+    putFinal(b, "\r\n", "Bx", "");
+    http.HttpResponse res = http.post(base + "/order", io.fromBytes(b.toBytes()),
+        "multipart/form-data; boundary=Bx");
+    bad = bad + want(res.statusCode == 200, "leg H must be accepted",
+        "answered " + res.statusCode.toString());
+    bad = bad + want(res.bodyText() ==
+        "names=a/doc/b;pc=5;fc=3;filec=2;first=f1;size=1;text=A;type=text/plain;filesDoc=2;secondDoc=f2;allFiles=2;secondAll=f2;missing=null;noFiles=0;hasDoc=true;hasZz=false;getDoc=3;localFiles=3;localDoc=3;refetchFiles=2;refetchDoc=2",
+        "leg H the whole read-method surface with the copy check",
+        "body was [" + res.bodyText() + "]");
+    return bad;
+}
+
+// Leg I: a body that is only the closing delimiter parses as the empty
+// form — the preamble before it is ignored, zero parts are legal (D-19).
+int legI(string base) {
+    int bad = 0;
+    http.HttpResponse res = http.post(base + "/mp", "--Bx--\r\n",
+        "multipart/form-data; boundary=Bx");
+    bad = bad + want(res.statusCode == 200, "leg I must be accepted",
+        "answered " + res.statusCode.toString());
+    bad = bad + want(res.bodyText() == "parts=0/fields=0/files=0",
+        "leg I a closing-delimiter-only body", "body was [" + res.bodyText() + "]");
+    return bad;
+}
+
+// Leg J: four Content-Type spellings that leave the boundary missing or
+// empty — no parameter at all, an empty bare value, an empty quoted value
+// and trailing blanks (stripped to empty, D-19) — every one the named 400
+// with a non-empty body so the empty-body short circuit cannot shadow it.
+int legJ(string base) {
+    int bad = 0;
+    string wantText = "web.form.Form.parse: missing boundary parameter.";
+    string[] cts = [
+        "multipart/form-data",
+        "multipart/form-data; boundary=",
+        "multipart/form-data; boundary=\"\"",
+        "multipart/form-data; boundary=  "
+    ];
+    for (int i = 0; i < cts.length(); i = i + 1) {
+        string ct = cts[i];
+        http.HttpResponse res = http.post(base + "/mp", "x=1", ct);
+        bad = bad + want400(res, "leg J [" + ct + "]", wantText);
+    }
+    return bad;
+}
+
+// Leg K: three bodies that carry no delimiter line — plain text, a
+// delimiter indented one space (line-start anchoring, the indented line is
+// preamble), and a body spelled entirely with --bx/--bx-- while the
+// boundary is Bx (the boundary compare is case-sensitive: only the media
+// type name and parameter names fold case, parameter values stay verbatim).
+int legK(string base) {
+    int bad = 0;
+    string wantText = "web.form.Form.parse: no boundary delimiter in multipart body.";
+    http.HttpResponse res = http.post(base + "/mp", "just some text",
+        "multipart/form-data; boundary=Bx");
+    bad = bad + want400(res, "leg K1 a body with no delimiter", wantText);
+    res = http.post(base + "/mp", "   --Bx\r\nno delimiter at line start here\r\n",
+        "multipart/form-data; boundary=Bx");
+    bad = bad + want400(res, "leg K2 an indented delimiter line", wantText);
+    ByteBuf b = ByteBuf();
+    putPart(b, "\r\n", "bx", "Content-Disposition: form-data; name=\"k\"\r\n\r\n",
+        io.toBytes("1"), true);
+    putFinal(b, "\r\n", "bx", "");
+    res = http.post(base + "/mp", io.fromBytes(b.toBytes()), "multipart/form-data; boundary=Bx");
+    bad = bad + want400(res, "leg K3 a case-mismatched boundary", wantText);
+    return bad;
+}
+
+// Leg L: three file parts under one name whose filename parameters carry
+// a Windows path (what browsers actually send), a POSIX path and a dot-
+// segment with a percent run — the parser strips the directory on both
+// separators and otherwise touches nothing (D-20; the dot-segment and
+// length duties belong to safeName(), Task 14).
+int legL(string base) {
+    int bad = 0;
+    ByteBuf b = ByteBuf();
+    putPart(b, "\r\n", "Bx",
+        "Content-Disposition: form-data; name=\"doc\"; filename=\"C:\\fakepath\\x.png\"\r\n\r\n",
+        io.toBytes(""), true);
+    putPart(b, "\r\n", "Bx",
+        "Content-Disposition: form-data; name=\"doc\"; filename=\"a/b/c.txt\"\r\n\r\n",
+        io.toBytes(""), false);
+    putPart(b, "\r\n", "Bx",
+        "Content-Disposition: form-data; name=\"doc\"; filename=\"..%20x.txt\"\r\n\r\n",
+        io.toBytes(""), false);
+    putFinal(b, "\r\n", "Bx", "");
+    http.HttpResponse res = http.post(base + "/mp", io.fromBytes(b.toBytes()),
+        "multipart/form-data; boundary=Bx");
+    bad = bad + want(res.statusCode == 200, "leg L must be accepted",
+        "answered " + res.statusCode.toString());
+    bad = bad + want(res.bodyText() ==
+        "parts=3/fields=0/files=3|doc=@x.png;text/plain;0@c.txt;text/plain;0@..%20x.txt;text/plain;0",
+        "leg L path stripping on both separators with no decoding",
+        "body was [" + res.bodyText() + "]");
+    return bad;
+}
+
+// Leg M: a field whose body is itself a full multipart document under a
+// different boundary — nested multipart stays opaque bytes (D-19): no
+// recursion, no line-ending normalization, and the inner closing line at a
+// line start is no delimiter for the outer boundary.
+int legM(string base) {
+    int bad = 0;
+    string inner = "--In\r\nContent-Disposition: form-data; name=\"k\"\r\n\r\n1\r\n--In--\r\n";
+    ByteBuf b = ByteBuf();
+    putPart(b, "\r\n", "Bx", "Content-Disposition: form-data; name=\"nested\"\r\n\r\n",
+        io.toBytes(inner), true);
+    putFinal(b, "\r\n", "Bx", "");
+    http.HttpResponse res = http.post(base + "/mp", io.fromBytes(b.toBytes()),
+        "multipart/form-data; boundary=Bx");
+    bad = bad + want(res.statusCode == 200, "leg M must be accepted",
+        "answered " + res.statusCode.toString());
+    bad = bad + want(res.bodyText() ==
+        "parts=1/fields=1/files=0|nested=<--In\r\nContent-Disposition: form-data; name=\"k\"\r\n\r\n1\r\n--In--\r\n>",
+        "leg M the nested document stays opaque bytes", "body was [" + res.bodyText() + "]");
+    return bad;
+}
+
+// Leg N: horizontal whitespace padding the boundary parameter value (D-19;
+// RFC 2046 §5.1 tells recipients to ignore whitespace around a boundary):
+// one space between '=' and the quoted "Bx" must be accepted, the padding
+// and the quotes staying out of the boundary value, and must parse to
+// exactly the parts the whitespace-free spelling parses to.
+int legN(string base) {
+    int bad = 0;
+    ByteBuf b = ByteBuf();
+    putPart(b, "\r\n", "Bx", "Content-Disposition: form-data; name=\"title\"\r\n\r\n",
+        io.toBytes("中文"), true);
+    putFinal(b, "\r\n", "Bx", "");
+    http.HttpResponse plain = http.post(base + "/mp", io.fromBytes(b.toBytes()),
+        "multipart/form-data; boundary=Bx");
+    http.HttpResponse spaced = http.post(base + "/mp", io.fromBytes(b.toBytes()),
+        "multipart/form-data; boundary= \"Bx\"");
+    bad = bad + want(plain.statusCode == 200, "leg N the plain spelling must be accepted",
+        "answered " + plain.statusCode.toString());
+    bad = bad + want(spaced.statusCode == 200, "leg N the spaced quoted spelling must be accepted",
+        "answered " + spaced.statusCode.toString() + " body [" + spaced.bodyText() + "]");
+    bad = bad + want(spaced.bodyText() == plain.bodyText(),
+        "leg N the spaced spelling parses to the same parts",
+        "plain [" + plain.bodyText() + "] vs spaced [" + spaced.bodyText() + "]");
+    return bad;
+}
+
+int main() {
+    int bad = 0;
+    web.App app = web.App();
+    app.post("/mp", handleMultipart);
+    app.post("/echo", handleEcho);
+    app.post("/order", handleOrder);
+    app.listen("127.0.0.1", 0);
+    string base = "http://127.0.0.1:" + app.server().localPort().toString();
+    if (legA(base) != 0) { bad = bad + 1; }
+    if (legB(base) != 0) { bad = bad + 1; }
+    if (legC(base) != 0) { bad = bad + 1; }
+    if (legD(base) != 0) { bad = bad + 1; }
+    if (legE(base) != 0) { bad = bad + 1; }
+    if (legF(base) != 0) { bad = bad + 1; }
+    if (legG(base) != 0) { bad = bad + 1; }
+    if (legH(base) != 0) { bad = bad + 1; }
+    if (legI(base) != 0) { bad = bad + 1; }
+    if (legJ(base) != 0) { bad = bad + 1; }
+    if (legK(base) != 0) { bad = bad + 1; }
+    if (legL(base) != 0) { bad = bad + 1; }
+    if (legM(base) != 0) { bad = bad + 1; }
+    if (legN(base) != 0) { bad = bad + 1; }
+    app.drain(5000);
+    app.close();
+    if (bad == 0) { io.print("ok"); }
+    return bad;
+}

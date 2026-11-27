@@ -2,6 +2,6 @@
 // IOException; uncaught, it exits 1.
 import io;
 int main() {
-    string s = io.readFile("_p11_tmp/definitely_missing.txt");
+    string s = io.readFile("../temp/fs/definitely_missing.txt");
     return 0;
 }

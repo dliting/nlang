@@ -266,14 +266,19 @@ static SnField* AssignLeftField(SnAssignStmt &sn)
 //so an untyped `[]`/`{...}` RHS inherits the LHS field as its target.
 //0.9.0: member stores (`b.m = {...}`) read the resolved field the same
 //way — the left walk has already bound the member's inner identifier.
+//0.13.10: an untyped lambda RHS inherits the LHS field as its expected
+//function type the same way. A subscript store has no declared field
+//(AssignLeftField answers null), which leaves the lambda to its
+//no-target diagnostic — the intended shape.
 void StatementResolveAccessor::PropagateInitListTarget(SnAssignStmt &sn)
 {
-	auto *pInitList = UntypedInitListOf(*sn.Right());
-	if (!pInitList)
-		return;
 	SnField* pLeftField = AssignLeftField(sn);
-	if (pLeftField)
+	if (!pLeftField)
+		return;
+	if (auto *pInitList = UntypedInitListOf(*sn.Right()))
 		pInitList->InferredTarget(pLeftField);
+	else if (auto *pLambda = UntypedLambdaOf(*sn.Right()))
+		pLambda->InferredTarget(pLeftField);
 }
 
 //K3 task 4 / 0.13.1a Task 5: when the RHS is a bare invoke, hand the

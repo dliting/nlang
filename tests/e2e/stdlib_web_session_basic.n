@@ -1,0 +1,716 @@
+// stdlib_web_session_basic — the session face of the web package (spec D-12 and
+// D-13, rulings 23/24/25): the first cookie line a new session gets, a returning
+// session that is recognised without a cookie being resent, a session that is only
+// read and so neither stored nor answered with a cookie, a forged id reported as
+// expired, rotate() moving the data to a fresh id while the old record dies,
+// destroy() and its Max-Age: 0 line, user cookies and the session cookie side by
+// side, a deterministic sweepExpired(), the missing store, a store configured after
+// the first request, a session write that outlives a handler which then threw, and the
+// Secure and __Host- cookie policy. Every leg answers over its own real TCP server on an
+// ephemeral port; no assertion reads a clock, the two sweep instants are derived
+// from the expiry instant the store itself wrote.
+import io;
+import url;
+import http;
+import web;
+
+// What the handlers left behind for main() to assert on, and the one server legs
+// A to G share. Top-level variables cannot sit next to an explicit main(), so this
+// is a holder class; every leg clears what it owns before it starts.
+class SessionTrace {
+    public static string idA = "";         // the id leg A's first cookie carried
+    public static string idB = "";         // leg E's rotated id
+    public static string idC = "";         // leg D's id after a forged cookie
+    public static web.Session stamp;       // leg H's live session, for its expiry instant
+    public static string errorMsg = "";    // what the onError hook was handed
+    public static int onErrorCalls = 0;    // how often it ran
+
+    public static void clear() {
+        SessionTrace.idA = "";
+        SessionTrace.idB = "";
+        SessionTrace.idC = "";
+        SessionTrace.stamp = null;
+        SessionTrace.errorMsg = "";
+        SessionTrace.onErrorCalls = 0;
+    }
+}
+
+class Harness {
+    public static web.App app;
+    public static web.MemorySessionStore store;
+    public static string base = "";
+}
+
+// Writes one entry: the session is new on the first visit and known afterwards, so
+// the echo tells the leg which of the two happened (ruling 25's two flags).
+void handleLogin(RequestContext ctx) {
+    web.Session s = ctx.session();
+    s.set("visits", 1);
+    ctx.text(200, "login:" + s.isNew.toString() + ":" + s.isExpired.toString());
+}
+
+// Reads the count, writes it back one higher, and echoes what it read before the
+// write, so "recognised this session" and "kept this session's own number" are both
+// visible in one body.
+void handleCount(RequestContext ctx) {
+    web.Session s = ctx.session();
+    int visits = s.getInt("visits", 0);
+    s.set("visits", visits + 1);
+    ctx.text(200, visits.toString() + ":" + s.isNew.toString() + ":" + s.isExpired.toString());
+}
+
+// Reads without writing: nothing of this request's should outlive it.
+void handlePeek(RequestContext ctx) {
+    web.Session s = ctx.session();
+    ctx.text(200, s.getInt("visits", 0).toString());
+}
+
+// The same read-only pass on a brand new session, and the id it was given, so the
+// leg can ask the store whether a record appeared for it.
+void handleAnon(RequestContext ctx) {
+    web.Session s = ctx.session();
+    ctx.text(200, s.isNew.toString() + ":" + s.id);
+}
+
+// The permission step: a value is stored and the id changes underneath it, which is
+// what a login does against session fixation (D-12).
+void handleLogin2(RequestContext ctx) {
+    web.Session s = ctx.session();
+    s.set("user", "ada");
+    s.rotate();
+    ctx.text(200, s.id);
+}
+
+void handleWhoami(RequestContext ctx) {
+    web.Session s = ctx.session();
+    ctx.text(200, s.getString("user", "") + ":" + s.isNew.toString() + ":" + s.isExpired.toString());
+}
+
+void handleLogout(RequestContext ctx) {
+    web.Session s = ctx.session();
+    s.destroy();
+    ctx.noContent();
+}
+
+// Two user cookies of their own around a session write, so the three Set-Cookie
+// lines can be read side by side (ruling 17's accumulation).
+void handleCookies(RequestContext ctx) {
+    ctx.setCookie("theme", "dark");
+    ctx.setCookie("sid2", "x", "/app", 86400);
+    web.Session s = ctx.session();
+    s.set("theme", "dark");
+    ctx.text(200, "c");
+}
+
+// Writes one entry and leaves the live session for main(), whose sweep instants are
+// built from the expiry instant this request's save() wrote (D-12's sliding expiry).
+void handleStamp(RequestContext ctx) {
+    web.Session s = ctx.session();
+    s.set("k", 1);
+    SessionTrace.stamp = s;
+    ctx.text(200, s.isNew.toString() + ":" + s.isExpired.toString());
+}
+
+// Takes a session on an app that was never given a store: the throw is the point.
+void handleNeedSession(RequestContext ctx) {
+    web.Session s = ctx.session();
+    ctx.text(200, s.id);
+}
+
+void handlePing(RequestContext ctx) {
+    ctx.text(200, "p");
+}
+
+// Writes to the session and then throws, so the leg can tell whether what the handler
+// already did to the session survives the exception.
+void handleWriteThenThrow(RequestContext ctx) {
+    web.Session s = ctx.session();
+    s.set("visits", 1);
+    throw Exception("leg K throws after the session write");
+}
+
+// The onError hook echoes the message it was handed, which is how leg I sees the
+// exception without the body having to carry it (D-11).
+void echoError(RequestContext ctx, Exception e) {
+    SessionTrace.onErrorCalls = SessionTrace.onErrorCalls + 1;
+    SessionTrace.errorMsg = e.message;
+    ctx.res.headers.set("X-Exc-Msg", e.message);
+}
+
+// A request that carries its own Cookie header, which the free client functions
+// cannot ask for.
+HttpResponse getWithCookie(string urlText, string cookieHeader) {
+    http.HttpRequest req = http.HttpRequest();
+    req.url = Url.parse(urlText);
+    req.headers.set("Cookie", cookieHeader);
+    return http.request(req);
+}
+
+// The id out of one Set-Cookie line: name=value up to the first attribute.
+string cookieId(string line) {
+    int semi = line.indexOf(";");
+    if (semi < 0) { semi = line.length(); }
+    int eq = line.indexOf("=");
+    if (eq < 0) { return ""; }
+    return line.substring(eq + 1, semi);
+}
+
+// A session id is 32 lower-case hex characters, because it is 16 CSPRNG bytes (D-13).
+bool isSessionId(string id) {
+    const string HEX = "0123456789abcdef";
+    if (id.length() != 32) { return false; }
+    int i = 0;
+    while (i < 32) {
+        if (HEX.indexOf(id.substring(i, i + 1)) < 0) { return false; }
+        i = i + 1;
+    }
+    return true;
+}
+
+// Teardown for every leg: drain the server, which has nothing of ours in flight,
+// then close it (D-22).
+int closeServer(web.App app) {
+    if (app.drain(5000) != 0) {
+        io.print("the server drained with a residual connection");
+        return 1;
+    }
+    app.close();
+    return 0;
+}
+
+int main() {
+    int bad = 0;
+    SessionTrace.clear();
+    if (setupShared() != 0) { bad = bad + 1; }
+    if (legNewCookie() != 0) { bad = bad + 1; }
+    if (legReturnSeen() != 0) { bad = bad + 1; }
+    if (legReadOnly() != 0) { bad = bad + 1; }
+    if (legForgedId() != 0) { bad = bad + 1; }
+    if (legRotate() != 0) { bad = bad + 1; }
+    if (legDestroy() != 0) { bad = bad + 1; }
+    if (legCookiesCoexist() != 0) { bad = bad + 1; }
+    if (closeServer(Harness.app) != 0) { bad = bad + 1; }
+    if (legAnonRead() != 0) { bad = bad + 1; }
+    if (legSweep() != 0) { bad = bad + 1; }
+    if (legNoStore() != 0) { bad = bad + 1; }
+    if (legLateConfig() != 0) { bad = bad + 1; }
+    if (legWriteBeforeThrow() != 0) { bad = bad + 1; }
+    if (legSecureCookie() != 0) { bad = bad + 1; }
+    if (legHostPrefix() != 0) { bad = bad + 1; }
+    if (legPrefixNeedsSecure() != 0) { bad = bad + 1; }
+    if (bad == 0) { io.print("ok"); }
+    return bad;
+}
+
+// Legs A to G share one app and one store: they are stages of one session's life,
+// and the store is the thing the later stages read back to check the earlier ones.
+int setupShared() {
+    Harness.app = web.App();
+    Harness.store = web.MemorySessionStore();
+    Harness.app.useSessions(Harness.store);
+    Harness.app.get("/login", handleLogin);
+    Harness.app.get("/count", handleCount);
+    Harness.app.get("/peek", handlePeek);
+    Harness.app.get("/login2", handleLogin2);
+    Harness.app.get("/whoami", handleWhoami);
+    Harness.app.get("/logout", handleLogout);
+    Harness.app.get("/cookies", handleCookies);
+    Harness.app.listen("127.0.0.1", 0);
+    Harness.base = "http://127.0.0.1:" + Harness.app.server().localPort().toString();
+    return 0;
+}
+
+// Leg A: the first cookie of a new session. The shape is pinned as a whole line
+// because every attribute in it is a decision (D-12): HttpOnly, Path=/, SameSite=Lax
+// and no Max-Age at all, the session cookie being the 0 side of the tri-state.
+int legNewCookie() {
+    int bad = 0;
+    http.HttpResponse res = http.get(Harness.base + "/login");
+    if (res.statusCode != 200 || res.bodyText() != "login:true:false") {
+        io.print("leg A answered " + res.statusCode.toString() + " body=" + res.bodyText());
+        bad = bad + 1;
+    }
+    List<string> lines = res.headers.getAll("Set-Cookie");
+    if (lines.length() != 1) {
+        io.print("leg A sent " + lines.length().toString() + " Set-Cookie lines");
+        return bad + 1;
+    }
+    string line = lines.get(0);
+    const string name = "nlang_session";
+    if (!line.startsWith(name + "=")) {
+        io.print("leg A the cookie line is " + line);
+        bad = bad + 1;
+    }
+    // The name and its '=' come before the 32-character id, then the first attribute.
+    if (line.indexOf(";") != name.length() + 1 + 32) {
+        io.print("leg A the first ';' is at " + line.indexOf(";").toString() + " of " + line);
+        bad = bad + 1;
+    }
+    string id = cookieId(line);
+    if (!isSessionId(id)) {
+        io.print("leg A the id is not 32 lower-case hex characters: " + id);
+        bad = bad + 1;
+    }
+    string want = name + "=" + id + "; Path=/; HttpOnly; SameSite=Lax";
+    if (line != want) {
+        io.print("leg A the cookie line is " + line + ", want " + want);
+        bad = bad + 1;
+    }
+    SessionTrace.idA = id;
+    return bad;
+}
+
+// Leg B: the same session comes back. The id it brings is the one it was given, so
+// nothing about the cookie changed and no Set-Cookie is spent on it (ruling 24).
+int legReturnSeen() {
+    int bad = 0;
+    http.HttpResponse res = getWithCookie(Harness.base + "/count", "nlang_session=" + SessionTrace.idA);
+    if (res.bodyText() != "1:false:false") {
+        io.print("leg B the count leg read " + res.bodyText() + ", want 1:false:false");
+        bad = bad + 1;
+    }
+    if (res.headers.getAll("Set-Cookie").length() != 0) {
+        io.print("leg B a returning session got a Set-Cookie anyway");
+        bad = bad + 1;
+    }
+    return bad;
+}
+
+// Leg C: a session that is only read. Its record must stay exactly as it was, and
+// the response must not claim a cookie changed.
+int legReadOnly() {
+    int bad = 0;
+    http.HttpResponse res = getWithCookie(Harness.base + "/peek", "nlang_session=" + SessionTrace.idA);
+    if (res.bodyText() != "2") {
+        io.print("leg C the read-only pass saw " + res.bodyText() + ", want 2");
+        bad = bad + 1;
+    }
+    if (res.headers.getAll("Set-Cookie").length() != 0) {
+        io.print("leg C a read-only request answered with a Set-Cookie");
+        bad = bad + 1;
+    }
+    web.Session rec = Harness.store.load(SessionTrace.idA);
+    if (rec == null) {
+        io.print("leg C the record of the visited session is gone");
+        bad = bad + 1;
+    } else if (rec.getInt("visits", 0) != 2) {
+        io.print("leg C the record now counts " + rec.getInt("visits", -1).toString() + ", want 2");
+        bad = bad + 1;
+    }
+    return bad;
+}
+
+// Leg D: a cookie nobody ever saw before. The store has no record for it, which is
+// the one case isExpired reports (ruling 25), and the write gets a fresh id. The id
+// that fresh write left behind is then presented on its own: it is a session like any
+// other, so the request that comes back to it is neither new nor expired.
+int legForgedId() {
+    int bad = 0;
+    string forged = "00000000000000000000000000000000";
+    http.HttpResponse res = getWithCookie(Harness.base + "/login", "nlang_session=" + forged);
+    if (res.bodyText() != "login:true:true") {
+        io.print("leg D the forged cookie read " + res.bodyText() + ", want login:true:true");
+        bad = bad + 1;
+    }
+    List<string> lines = res.headers.getAll("Set-Cookie");
+    if (lines.length() != 1) {
+        io.print("leg D sent " + lines.length().toString() + " Set-Cookie lines");
+        bad = bad + 1;
+    } else {
+        string id = cookieId(lines.get(0));
+        if (id == forged || !isSessionId(id)) {
+            io.print("leg D the cookie carried " + id);
+            bad = bad + 1;
+        }
+        SessionTrace.idC = id;
+        http.HttpResponse back = getWithCookie(Harness.base + "/whoami", "nlang_session=" + id);
+        if (back.bodyText() != ":false:false") {
+            io.print("leg D the id it just minted reports " + back.bodyText() + ", want :false:false");
+            bad = bad + 1;
+        }
+    }
+    return bad;
+}
+
+// Leg E: rotate() at a permission step. The data follows the new id, the old record
+// is gone, and the response trades the cookie for the new id.
+int legRotate() {
+    int bad = 0;
+    http.HttpResponse res = getWithCookie(Harness.base + "/login2", "nlang_session=" + SessionTrace.idA);
+    List<string> lines = res.headers.getAll("Set-Cookie");
+    if (lines.length() != 1) {
+        io.print("leg E sent " + lines.length().toString() + " Set-Cookie lines");
+        return bad + 1;
+    }
+    string idB = cookieId(lines.get(0));
+    if (idB == SessionTrace.idA || !isSessionId(idB)) {
+        io.print("leg E the rotated id is " + idB);
+        bad = bad + 1;
+    }
+    if (res.bodyText() != idB) {
+        io.print("leg E the handler saw " + res.bodyText() + " and the cookie " + idB);
+        bad = bad + 1;
+    }
+    SessionTrace.idB = idB;
+    if (Harness.store.load(SessionTrace.idA) != null) {
+        io.print("leg E the old id still has a record in the store");
+        bad = bad + 1;
+    }
+    http.HttpResponse who = getWithCookie(Harness.base + "/whoami", "nlang_session=" + idB);
+    if (who.bodyText() != "ada:false:false") {
+        io.print("leg E the new id reports " + who.bodyText() + ", want ada:false:false");
+        bad = bad + 1;
+    }
+    return bad;
+}
+
+// Leg F: destroy(). The server forgets the record, and the cookie is dropped by the
+// Max-Age: 0 line rather than by an expired-at computation (D-12), which carries the
+// id that is actually in the client.
+int legDestroy() {
+    int bad = 0;
+    http.HttpResponse res = getWithCookie(Harness.base + "/logout", "nlang_session=" + SessionTrace.idB);
+    if (res.statusCode != 204) {
+        io.print("leg F the logout answered " + res.statusCode.toString());
+        bad = bad + 1;
+    }
+    List<string> lines = res.headers.getAll("Set-Cookie");
+    if (lines.length() != 1) {
+        io.print("leg F sent " + lines.length().toString() + " Set-Cookie lines");
+        bad = bad + 1;
+    } else {
+        string want = "nlang_session=" + SessionTrace.idB + "; Path=/; Max-Age=0; HttpOnly; SameSite=Lax";
+        if (lines.get(0) != want) {
+            io.print("leg F the cookie line is " + lines.get(0) + ", want " + want);
+            bad = bad + 1;
+        }
+    }
+    if (Harness.store.load(SessionTrace.idB) != null) {
+        io.print("leg F the destroyed session still has a record");
+        bad = bad + 1;
+    }
+    http.HttpResponse who = getWithCookie(Harness.base + "/whoami", "nlang_session=" + SessionTrace.idB);
+    if (who.bodyText() != ":true:true") {
+        io.print("leg F the destroyed id now reads " + who.bodyText() + ", want :true:true");
+        bad = bad + 1;
+    }
+    return bad;
+}
+
+// Leg G: the session cookie is one more Set-Cookie line and does not displace the
+// app's own cookies (ruling 17: every cookie is its own line).
+int legCookiesCoexist() {
+    int bad = 0;
+    http.HttpResponse res = http.get(Harness.base + "/cookies");
+    List<string> lines = res.headers.getAll("Set-Cookie");
+    if (lines.length() != 3) {
+        io.print("leg G sent " + lines.length().toString() + " Set-Cookie lines");
+        return bad + 1;
+    }
+    if (lines.get(0) != "theme=dark; Path=/; HttpOnly; SameSite=Lax") {
+        io.print("leg G the first line is " + lines.get(0));
+        bad = bad + 1;
+    }
+    if (lines.get(1) != "sid2=x; Path=/app; Max-Age=86400; HttpOnly; SameSite=Lax") {
+        io.print("leg G the second line is " + lines.get(1));
+        bad = bad + 1;
+    }
+    string session = lines.get(2);
+    if (!session.startsWith("nlang_session=") || !session.endsWith("; Path=/; HttpOnly; SameSite=Lax")) {
+        io.print("leg G the session line is " + session);
+        bad = bad + 1;
+    }
+    if (!isSessionId(cookieId(session))) {
+        io.print("leg G the session line carries " + cookieId(session));
+        bad = bad + 1;
+    }
+    return bad;
+}
+
+// Leg C's second shape: an anonymous request that only reads gets a session, uses it
+// for nothing, and leaves neither a record nor a cookie behind (D-12's no-write rule).
+int legAnonRead() {
+    int bad = 0;
+    web.App app = web.App();
+    web.MemorySessionStore store = web.MemorySessionStore();
+    app.useSessions(store);
+    app.get("/anon", handleAnon);
+    app.listen("127.0.0.1", 0);
+    string base = "http://127.0.0.1:" + app.server().localPort().toString();
+    http.HttpResponse res = http.get(base + "/anon");
+    string body = res.bodyText();
+    if (!body.startsWith("true:")) {
+        io.print("leg C2 the anonymous request reports " + body);
+        bad = bad + 1;
+    }
+    if (res.headers.getAll("Set-Cookie").length() != 0) {
+        io.print("leg C2 a session that was never written got a Set-Cookie");
+        bad = bad + 1;
+    }
+    string id = body.substring(5);
+    if (store.load(id) != null) {
+        io.print("leg C2 an unwritten session still got stored");
+        bad = bad + 1;
+    }
+    bad = bad + closeServer(app);
+    return bad;
+}
+
+// Leg H: expiry, told deterministically. The store wrote the expiry instant into the
+// live session; the sweep is then asked at that instant and one millisecond past it,
+// which is the whole of the boundary (nowMs > expiresAtMs), and the sweeper is asked
+// twice at the same instant to show it is idempotent.
+int legSweep() {
+    int bad = 0;
+    web.App app = web.App();
+    web.MemorySessionStore big = web.MemorySessionStore(600000, 60000);
+    app.useSessions(big);
+    app.get("/s", handleStamp);
+    app.listen("127.0.0.1", 0);
+    string base = "http://127.0.0.1:" + app.server().localPort().toString();
+
+    http.HttpResponse first = http.get(base + "/s");
+    if (first.bodyText() != "true:false") {
+        io.print("leg S the first visit reports " + first.bodyText() + ", want true:false");
+        bad = bad + 1;
+    }
+    string id = SessionTrace.stamp.id;
+    long deadline = SessionTrace.stamp.expiresAtMs;
+    if (big.load(id) == null) {
+        io.print("leg S the visited session has no record to sweep");
+        bad = bad + 1;
+    }
+    if (big.sweepExpired(deadline) != 0) {
+        io.print("leg S the sweep at the expiry instant itself removed a record");
+        bad = bad + 1;
+    }
+    if (big.sweepExpired(deadline + 1) != 1) {
+        io.print("leg S the sweep one millisecond past the expiry removed something else than 1");
+        bad = bad + 1;
+    }
+    if (big.load(id) != null) {
+        io.print("leg S the swept record came back");
+        bad = bad + 1;
+    }
+
+    http.HttpResponse again = getWithCookie(base + "/s", "nlang_session=" + id);
+    if (again.bodyText() != "true:true") {
+        io.print("leg S the swept id now reports " + again.bodyText() + ", want true:true");
+        bad = bad + 1;
+    }
+    if (big.sweepExpired(deadline + 1) != 0) {
+        io.print("leg S the second sweep at the same instant removed a record again");
+        bad = bad + 1;
+    }
+    bad = bad + closeServer(app);
+    return bad;
+}
+
+// Leg I: a handler asks for a session on an app that was never given a store. That is
+// an app configuration mistake, so the client gets the plain 500 and the hook gets the
+// reason (D-11), not a half-written session.
+int legNoStore() {
+    int bad = 0;
+    SessionTrace.errorMsg = "";
+    SessionTrace.onErrorCalls = 0;
+    web.App app = web.App();
+    app.onError(echoError);
+    app.get("/need", handleNeedSession);
+    app.listen("127.0.0.1", 0);
+    string base = "http://127.0.0.1:" + app.server().localPort().toString();
+    http.HttpResponse res = http.get(base + "/need");
+    if (res.statusCode != 500 || res.bodyText() != "internal error") {
+        io.print("leg I the unconfigured session answered " + res.statusCode.toString()
+            + " body=" + res.bodyText());
+        bad = bad + 1;
+    }
+    string want = "web.App.useSessions: no session store configured.";
+    if (!SessionTrace.errorMsg.startsWith(want)) {
+        io.print("leg I the hook was handed " + SessionTrace.errorMsg);
+        bad = bad + 1;
+    }
+    if (res.headers.get("X-Exc-Msg") != want) {
+        io.print("leg I the response header carries " + res.headers.get("X-Exc-Msg"));
+        bad = bad + 1;
+    }
+    if (SessionTrace.onErrorCalls != 1) {
+        io.print("leg I the hook ran " + SessionTrace.onErrorCalls.toString() + " times");
+        bad = bad + 1;
+    }
+    bad = bad + closeServer(app);
+    return bad;
+}
+
+// Leg J: the store is configuration, and configuration is read-only once requests are
+// flowing (D-25): a store handed over after the first request would be read by some
+// in-flight request half-configured.
+int legLateConfig() {
+    int bad = 0;
+    web.App app = web.App();
+    app.get("/p", handlePing);
+    app.listen("127.0.0.1", 0);
+    string base = "http://127.0.0.1:" + app.server().localPort().toString();
+    http.HttpResponse res = http.get(base + "/p");
+    if (res.statusCode != 200) {
+        io.print("leg J the warm-up request answered " + res.statusCode.toString());
+        bad = bad + 1;
+    }
+
+    bool refused = false;
+    try {
+        app.useSessions(web.MemorySessionStore());
+    } catch (Exception ex) {
+        refused = true;
+        string want = "web.App.useSessions: sessions must be configured before the first request.";
+        if (!ex.message.startsWith(want)) {
+            io.print("leg J the late store was refused with " + ex.message);
+            bad = bad + 1;
+        }
+    }
+    if (!refused) {
+        io.print("leg J a store configured after the first request was accepted");
+        bad = bad + 1;
+    }
+    bad = bad + closeServer(app);
+    return bad;
+}
+
+// Leg K: a handler that wrote to the session and then threw. The client still gets the
+// cookie for the id that write minted, and the write is still there when the session
+// comes back: what a handler did to the session belongs to the request, not to the part
+// of the handler that happened to survive.
+int legWriteBeforeThrow() {
+    int bad = 0;
+    SessionTrace.errorMsg = "";
+    SessionTrace.onErrorCalls = 0;
+    web.App app = web.App();
+    web.MemorySessionStore store = web.MemorySessionStore();
+    app.useSessions(store);
+    app.onError(echoError);
+    app.get("/boom", handleWriteThenThrow);
+    app.get("/peek", handlePeek);
+    app.listen("127.0.0.1", 0);
+    string base = "http://127.0.0.1:" + app.server().localPort().toString();
+    http.HttpResponse res = http.get(base + "/boom");
+    if (res.statusCode != 500) {
+        io.print("leg K the throwing handler answered " + res.statusCode.toString());
+        bad = bad + 1;
+    }
+    if (SessionTrace.onErrorCalls != 1) {
+        io.print("leg K the hook ran " + SessionTrace.onErrorCalls.toString() + " times");
+        bad = bad + 1;
+    }
+    List<string> lines = res.headers.getAll("Set-Cookie");
+    if (lines.length() != 1) {
+        io.print("leg K the thrown request sent " + lines.length().toString() + " Set-Cookie lines");
+        bad = bad + 1;
+        return bad + closeServer(app);
+    }
+    string id = cookieId(lines.get(0));
+    if (!isSessionId(id)) {
+        io.print("leg K the thrown request's cookie carried " + id);
+        bad = bad + 1;
+        return bad + closeServer(app);
+    }
+    http.HttpResponse again = getWithCookie(base + "/peek", "nlang_session=" + id);
+    if (again.bodyText() != "1") {
+        io.print("leg K the session written before the throw reads " + again.bodyText() + ", want 1");
+        bad = bad + 1;
+    }
+    bad = bad + closeServer(app);
+    return bad;
+}
+
+// Leg L: the Secure attribute, which the app asks for by hand because only the app
+// knows whether it is ever reachable over anything but TLS (D-12).
+int legSecureCookie() {
+    int bad = 0;
+    web.App app = web.App();
+    web.MemorySessionStore store = web.MemorySessionStore();
+    app.useSessions(store, true);
+    app.get("/login", handleLogin);
+    app.listen("127.0.0.1", 0);
+    string base = "http://127.0.0.1:" + app.server().localPort().toString();
+    http.HttpResponse res = http.get(base + "/login");
+    List<string> lines = res.headers.getAll("Set-Cookie");
+    if (lines.length() != 1) {
+        io.print("leg L sent " + lines.length().toString() + " Set-Cookie lines");
+        return bad + closeServer(app);
+    }
+    const string name = "nlang_session";
+    string id = cookieId(lines.get(0));
+    string want = name + "=" + id + "; Path=/; HttpOnly; Secure; SameSite=Lax";
+    if (lines.get(0) != want) {
+        io.print("leg L the cookie line is " + lines.get(0) + ", want " + want);
+        bad = bad + 1;
+    }
+    bad = bad + closeServer(app);
+    return bad;
+}
+
+// Leg M: the __Host- prefix. It changes the name, so the leg checks both halves of the
+// bargain — the line the browser is handed and the name the next request is read back
+// by (D-12).
+int legHostPrefix() {
+    int bad = 0;
+    web.App app = web.App();
+    web.MemorySessionStore store = web.MemorySessionStore();
+    app.useSessions(store, true, true);
+    app.get("/count", handleCount);
+    app.listen("127.0.0.1", 0);
+    string base = "http://127.0.0.1:" + app.server().localPort().toString();
+    http.HttpResponse res = http.get(base + "/count");
+    const string name = "__Host-nlang_session";
+    List<string> lines = res.headers.getAll("Set-Cookie");
+    if (lines.length() != 1) {
+        io.print("leg M sent " + lines.length().toString() + " Set-Cookie lines");
+        return bad + closeServer(app);
+    }
+    string line = lines.get(0);
+    string id = cookieId(line);
+    if (!isSessionId(id)) {
+        io.print("leg M the prefixed cookie carried " + id);
+        bad = bad + 1;
+    }
+    // The name is 7 bytes longer than the default one, then comes '=' and the 32-byte id.
+    if (line.indexOf(";") != name.length() + 1 + 32) {
+        io.print("leg M the first ';' is at " + line.indexOf(";").toString() + " of " + line);
+        bad = bad + 1;
+    }
+    string want = name + "=" + id + "; Path=/; HttpOnly; Secure; SameSite=Lax";
+    if (line != want) {
+        io.print("leg M the cookie line is " + line + ", want " + want);
+        bad = bad + 1;
+    }
+    http.HttpResponse again = getWithCookie(base + "/count", name + "=" + id);
+    if (again.bodyText() != "1:false:false") {
+        io.print("leg M the prefixed id read " + again.bodyText() + ", want 1:false:false");
+        bad = bad + 1;
+    }
+    bad = bad + closeServer(app);
+    return bad;
+}
+
+// Leg N: the prefix without Secure is a configuration mistake, refused where it is made
+// (D-25's read-once registration face): a browser drops a __Host- cookie whose line
+// lacks Secure, so the app would look like it had sessions and never get one back.
+int legPrefixNeedsSecure() {
+    int bad = 0;
+    web.App app = web.App();
+    bool refused = false;
+    try {
+        app.useSessions(web.MemorySessionStore(), false, true);
+    } catch (Exception ex) {
+        refused = true;
+        string want = "web.App.useSessions: the __Host- cookie prefix requires the Secure attribute.";
+        if (!ex.message.startsWith(want)) {
+            io.print("leg N the prefix without Secure was refused with " + ex.message);
+            bad = bad + 1;
+        }
+    }
+    if (!refused) {
+        io.print("leg N the __Host- prefix was accepted without Secure");
+        bad = bad + 1;
+    }
+    return bad;
+}

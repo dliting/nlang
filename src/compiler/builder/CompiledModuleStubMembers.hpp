@@ -16,7 +16,7 @@
 #include "SnData.h"
 #include "SnExpressions.h"
 #include "SyntaxTree.h"
-#include "nlang/vm/CompiledModule.h"
+#include "nlang/core/CompiledModule.h"
 #include <stdexcept>
 #include <string>
 #include <unordered_map>

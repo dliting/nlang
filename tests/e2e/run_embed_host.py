@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
 """Smoke test for examples/embed_host (embedding API e2e).
 
-Usage (ctest passes the host, compiler, package and every native DLL):
-    python run_embed_host.py <embed_host.exe> <ncc.exe> <stdlib.npkg> <native_dll> [...]
+Usage (ctest passes the host, compiler, package dir and every native DLL):
+    python run_embed_host.py <embed_host.exe> <ncc.exe> <stdlib_dir> <native_dll> [...]
 
 Compiles a small stdlib-importing script, runs it through the embed_host
 example host in a temp dir, and asserts the redirected output prefix and
 the reported exit code. The temp dir carries the run-time closure: the
 example exe and the native DLLs side by side (the native loader only
-searches the exe dir) and stdlib.npkg next to the .ncu (a link-time
-search dir). Paths are absolute with forward slashes (Windows subprocess
+searches the exe dir) and every stdlib package from <stdlib_dir> (the
+one-package-per-domain library) next to the .ncu (a link-time search
+dir). Paths are absolute with forward slashes (Windows subprocess
 discipline).
 """
 
+import glob
 import os
 import shutil
 import subprocess
@@ -40,17 +42,23 @@ def main():
     if len(sys.argv) < 5:
         print(__doc__)
         return 2
-    embed_host, ncc, stdlib_npkg = (
+    embed_host, ncc, stdlib_dir = (
         os.path.abspath(a).replace('\\', '/') for a in sys.argv[1:4])
     native_dlls = [os.path.abspath(a).replace('\\', '/')
                    for a in sys.argv[4:]]
+    packages = sorted(glob.glob(os.path.join(stdlib_dir, '*.npkg')))
+    if not packages:
+        print('no stdlib package (*.npkg) under %s' % stdlib_dir)
+        return 2
 
     with tempfile.TemporaryDirectory() as tmp:
         src = os.path.join(tmp, 'embed_demo.n')
         with open(src, 'w', encoding='utf-8', newline='\n') as f:
             f.write(DEMO_SOURCE)
         ncu = os.path.join(tmp, 'embed_demo.ncu')
-        shutil.copyfile(stdlib_npkg, os.path.join(tmp, 'stdlib.npkg'))
+        for package in packages:
+            shutil.copyfile(package,
+                            os.path.join(tmp, os.path.basename(package)))
 
         compiled = subprocess.run(
             [ncc, 'build', src, '-o', ncu],

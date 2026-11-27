@@ -1,0 +1,48 @@
+// Ruling 45 / spec D-29 acceptance face: a qualified name is resolved by
+// its longest known module path at any depth, every member kind alike, and
+// `import <library>.*;` opens a library package. A qualified static
+// constant, a method chained off a qualified library enum member, and the
+// bare spelling made visible by that wildcard all have to work; bare and
+// qualified spellings of one class static have to denote the same member.
+// Only the flat library packages http and json are in play here (both are
+// already in the preset package), so this corpus does not wait for the
+// multi-module layout of Task 8 — the library-subtree face of the wildcard
+// is pinned there and meanwhile by the libraryWildcardUnionsSubtree unit leg.
+// Legs 5 and 6 add the two promised spellings that use a reserved word as a
+// module-path segment (Task 21).
+import http.*;
+import json;
+import web.static;
+
+int main() {
+    // 1. Qualified access to a static constant of a library class.
+    if (http.HttpParser.MODE_LENGTH == 0) { return 1; }
+
+    // 2. A method call on a qualified enum member of a library package
+    //    (the spelling 04-types/enum.md §4.6.4 shows in both languages).
+    if (json.JsonKind.Object.toString() != "Object") { return 2; }
+
+    // 3. The bare class spelling, admitted by the library wildcard import.
+    string bare = HttpResponse.reasonPhraseFor(404);
+    if (bare != "Not Found") { return 3; }
+
+    // 4. The qualified spelling reaches the same static, not a sibling.
+    string qual = http.HttpResponse.reasonPhraseFor(404);
+    if (qual != bare) { return 4; }
+
+    // 5. A reserved word survives a module-path segment: the promised
+    //    `import web.static;` and the qualified spelling reach the class,
+    //    its root-validating constructor and its public field face.
+    web.static.StaticFiles sf = web.static.StaticFiles(".");
+    if (sf.index != "index.html") { return 5; }
+
+    // 6. The same spelling reaches the class's own validation: addType
+    //    refuses an empty extension, proving the call really binds
+    //    StaticFiles.addType and no sibling.
+    try {
+        sf.addType("", "text/plain");
+        return 6;
+    } catch (Exception e) {
+    }
+    return 0;
+}

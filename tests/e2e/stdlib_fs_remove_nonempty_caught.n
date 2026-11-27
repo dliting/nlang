@@ -3,10 +3,10 @@
 import io;
 import fs;
 int main() {
-    fs.makeDirs("_p11_tmp/fs_rmc/dir");
-    io.writeFile("_p11_tmp/fs_rmc/dir/f.txt", "x");
+    fs.makeDirs("../temp/fs/fs_rmc/dir");
+    io.writeFile("../temp/fs/fs_rmc/dir/f.txt", "x");
     try {
-        fs.remove("_p11_tmp/fs_rmc/dir");
+        fs.remove("../temp/fs/fs_rmc/dir");
         return 1;  //should have thrown
     } catch (IOException e) {
         if (e.message == "") return 2;

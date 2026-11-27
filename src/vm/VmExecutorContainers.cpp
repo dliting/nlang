@@ -217,12 +217,14 @@ bool VmExecutor::FuncRecordValuesEqual(int32_t a, int32_t b) const
         || static_cast<size_t>(a) >= m_structHeap.size()
         || static_cast<size_t>(b) >= m_structHeap.size())
         return false;
-    //The record is {target, receiver, form} in cells 0..2 (OpMakeFunc
-    //and the bound/virtual creates); OpFuncEquality compares exactly
-    //these three cells.
+    //The record is {target, receiver, form, descIdx} in cells 0..3
+    //(OpMakeFunc and the bound/virtual creates); OpFuncEquality
+    //compares exactly these four cells — v2.23 adds the descriptor
+    //row, so two instantiations of one generic never compare equal.
     const auto& recA = m_structHeap[static_cast<size_t>(a)];
     const auto& recB = m_structHeap[static_cast<size_t>(b)];
-    return recA[0] == recB[0] && recA[1] == recB[1] && recA[2] == recB[2];
+    return recA[0] == recB[0] && recA[1] == recB[1] && recA[2] == recB[2]
+        && recA[3] == recB[3];
 }
 
 //Phase 8e-3 fix-up: read this.__handle from callParamBase[0] for a List

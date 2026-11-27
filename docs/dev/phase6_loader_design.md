@@ -239,4 +239,7 @@ stub 机制保留但只承担**签名解析**职责，不再参与运行期表�
    后续决策项（非 d2）：多成员 .npkg 的编译期消费面——按成员创建
    stub 需要点分外部路径的导入门语义（现行门规则：外部导入限
    单段），定案后解除 `LoadModuleArtifact` 的单成员拒绝。
+     （2026-11-25 了结：package_artifact_design D3 已定多成员面，
+     桩按成员创建、五张槽表读取；实现见 ModuleBuilderExternalImports
+     与 ModuleBuilderImportCycles。）
 4. 测试与门（§7）；全部通过即提交。

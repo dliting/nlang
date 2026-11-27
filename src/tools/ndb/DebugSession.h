@@ -1,7 +1,7 @@
 #pragma once
 #include "DebugSessionController.h"
 #include "SourceCache.h"
-#include "nlang/vm/CompiledModule.h"
+#include "nlang/core/CompiledModule.h"
 #include <iosfwd>
 #include <string>
 

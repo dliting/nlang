@@ -35,7 +35,7 @@ and the file carries no wrapper syntax. Functions come in two kinds,
 freely mixed (a *mixed library*):
 
 - **plain NLang functions** — have bodies; compiled into their own
-  package's unit image (a member of e.g. `stdlib.npkg`) and linked with
+  package's unit image (a member of e.g. `io.npkg`) and linked with
   the consumer at run time, then executed as bytecode;
 - **`native` functions** — signature plus documentation comment only (no
   body); at run time dispatched through the host application binary interface (ABI) into
@@ -112,7 +112,9 @@ Consequences of one shared model:
 A library TU is compiled in but is deliberately *not* a project module:
 
 - it does not join the same-directory auto-visibility pool (that rule applies to project files only), and it does not inject its directory's other files;
-- wildcards never pull library TUs in as project modules;
+- a wildcard can open a library package's whole subtree, yet library
+  TUs still never become project modules (they gain no same-directory
+  visibility, and the package keeps its dotted name);
 - a library never sees the consuming project's modules; it only sees
   what it itself imports;
 - one build may contain only one package of each dotted name: two roots
@@ -129,7 +131,7 @@ same way several project files are.
 
 Generated code contains no library code, so execution begins by
 gathering the import closure and linking it into one runtime module
-(`src/vm/NcuLoader.cpp`, `src/vm/NcuLinker.cpp`):
+(`src/core/NcuLoader.cpp`, `src/core/NcuLinker.cpp`):
 
 1. **Loading** (nloader) — starting from the entry artifact: members of
    a `.npkg` resolve inside the package first; an import slot's target
@@ -148,8 +150,9 @@ gathering the import closure and linking it into one runtime module
 
 `nvm`, `ncc run`, ncc's compile-and-execute, and ndb sessions all take
 this same path — there is no second load/link implementation among the
-tools. At run time the standard library is simply `stdlib.npkg` on the
-search path, no different from any other library package.
+tools. At run time the standard library is simply its domain packages
+(`io.npkg`, `math.npkg`, ...) on the search path, no different from any
+other library package.
 
 ## 4. Search paths
 
@@ -221,8 +224,9 @@ argument-to-string codegen.
   modifiable and recompilable, and preserves one resolution path; the
   per-build re-parse cost of a handful of `.n` files is negligible until
   measured otherwise. Codegen emits only the consumer's own units;
-  library units' images ship with their packages (the standard library
-  is `stdlib.npkg`), and linking happens at load time —
+  library units' images ship with their packages (the standard
+  library's are the domain packages such as `io.npkg`), and linking
+  happens at load time —
   distribute-without-source and source inlining thereby coexist, both
   dispatching per function, so mixed native/managed libraries hold on
   either side.

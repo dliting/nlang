@@ -1,7 +1,7 @@
 #pragma once
-#include "nlang/vm/CompiledModule.h"
+#include "nlang/core/CompiledModule.h"
 #include "nlang/vm/NativeHost.h"
-#include "BytecodeReader.h"
+#include <nlang/core/BytecodeReader.h>
 #include "IDebugHooks.h"
 #include "IHostFunctions.h"
 #include "IHostIo.h"
@@ -13,7 +13,7 @@
 #include "NativeLibraryLoader.h"
 #include "CallFrame.h"
 #include "ChunkedArray.h"
-#include "GenericInstDescriptor.h"
+#include <nlang/core/GenericInstDescriptor.h>
 #include "ShardFreeList.h"
 #include "VmDomainLocks.h"
 #include "VmScheduler.h"
@@ -1459,6 +1459,12 @@ private:
     void MarkFuncReceiver(int32_t idx, std::vector<int32_t>& worklist);
     void MarkBoxedPayload(int32_t idx);
     void MarkClassFields(int32_t idx, std::vector<int32_t>& worklist);
+    //Pre-guard field-root routing: declared kinds whose cell holds
+    //something other than a plain struct-heap index (string handle,
+    //instantiation-dependent T, display capture base) — true when
+    //the kind alone decided the root.
+    bool RouteFieldRoot(uint8_t declaredKind, int32_t refIdx,
+                        std::vector<int32_t>& worklist);
     void MarkListElements(int32_t idx, std::vector<int32_t>& worklist);
     void MarkDictEntries(int32_t idx, std::vector<int32_t>& worklist);
     void MarkChannelElements(int32_t idx, std::vector<int32_t>& worklist);
@@ -2086,11 +2092,13 @@ private:
     //string split / fs.listFiles intrinsics.
     int32_t AllocBoxedValue(uint8_t typeTag, int64_t val);
 
-    //Phase 13: allocate one function-handle heap record (3 slots:
-    //[0]=target, [1]=this, [2]=form; m_slotKinds=RTK_Func). Always
+    //Phase 13: allocate one function-handle heap record (4 slots:
+    //[0]=target, [1]=this, [2]=form, [3]=descriptor row (v2.23;
+    //kInstDescNone sentinel); m_slotKinds=RTK_Func). Always
     //allocates — handles are never interned, two references to the same
     //function are distinct records compared by content.
-    int32_t AllocFuncRecord(int32_t target, int32_t thisIdx, int32_t form);
+    int32_t AllocFuncRecord(int32_t target, int32_t thisIdx, int32_t form,
+                            int32_t descIdx);
 
     //Phase 13: render a function handle for toString / container
     //formatting ("func <name>" for static handles, "method <name>" for
@@ -2125,9 +2133,11 @@ private:
     int ResolveDelegateTarget(const std::vector<int32_t>& handle);
 
     //Free-function delegate ABI (identical to OP_CallStatic, natives
-    //included).
+    //included); the handle's descriptor cell fills the callee frame
+    //(v2.23 — kInstDescNone for a non-generic target).
     bool CallDelegateFree(const CompiledFunction& callee,
-        uint16_t callParamBase, uint8_t* locals, uint8_t* pResult);
+        int32_t handleDescIdx, uint16_t callParamBase, uint8_t* locals,
+        uint8_t* pResult);
 
     //Bound-method delegate ABI: the captured receiver rides at callee
     //slot 0, caller args shift right by one.
@@ -2206,20 +2216,26 @@ private:
         uint64_t savedRootOwner, ExecutionContext* ctx, size_t stolenDepth);
 
     //NativeHost ABI plumbing (definitions in VmExecutorNativeHost.cpp).
-    int32_t BuildListString(const char* const* items, int count);
+    int32_t BuildListString(const char* const* items, const int64_t* lens,
+                            int count);
     NativeLibraryLoader& EnsureNativeLoader();
     void EnsureNativeAvailable(const std::string& name);
     //NativeHost function-table callbacks (static; they restore the
     //VmExecutor through the VmNativeHost wrapper whose first member is the
-    //public table).
-    static const char* NativeGetString(NativeHost* self, int32_t handle);
-    static int32_t NativeNewString(NativeHost* self, const char* utf8);
+    //public table). v13: the string family carries byte lengths, because a
+    //NUL byte is ordinary string content (contract in NativeHost.h).
+    static const char* NativeGetString(NativeHost* self, int32_t handle,
+        int64_t* outLen);
+    static int32_t NativeNewString(NativeHost* self, const char* utf8,
+        int64_t len);
     static int32_t NativeNewListString(NativeHost* self,
-        const char* const* items, int count);
-    static void NativeWriteOutput(NativeHost* self, const char* text);
-    static void NativeWriteError(NativeHost* self, const char* text);
-    static const char* NativeReadLine(NativeHost* self);
-    static const char* NativeReadToken(NativeHost* self);
+        const char* const* items, const int64_t* lens, int count);
+    static void NativeWriteOutput(NativeHost* self, const char* text,
+        int64_t len);
+    static void NativeWriteError(NativeHost* self, const char* text,
+        int64_t len);
+    static const char* NativeReadLine(NativeHost* self, int64_t* outLen);
+    static const char* NativeReadToken(NativeHost* self, int64_t* outLen);
     static int NativeReadChar(NativeHost* self, uint32_t* outChar);
     static int NativeHasInput(NativeHost* self);
 
@@ -2228,7 +2244,7 @@ private:
     //never rebuilt.
     TokenView& EnsureInputView();
     static void NativeRaiseException(NativeHost* self, int exceptionKind,
-        const char* message);
+        const char* message, int64_t len);
     static uint32_t NativeNextRandom(NativeHost* self);
     static void NativeSeedRandom(NativeHost* self, int32_t seed);
     //v6 array side (contract in NativeHost.h): pinned payload view and

@@ -1,9 +1,10 @@
 # Stdlib dir every STDLIB_DIR-defining test compiles and loads against:
 # the BUILD-TREE copy (root CMakeLists "Standard library package") — the
 # same dir the tools resolve via FindStdLibDir. It carries the library
-# sources for compile-time signature resolution AND stdlib.npkg for the
-# load-time closure (NcuLoader search dirs), so tests resolve stdlib
-# exactly like production instead of half source-tree, half nowhere.
+# sources for compile-time signature resolution AND the per-domain
+# packages (<domain>.npkg) for the load-time closure (NcuLoader search
+# dirs), so tests resolve stdlib exactly like production instead of half
+# source-tree, half nowhere.
 # Each such test calls nlang_stdlib_test() at its definition site,
 # ordering it after the package producer so targeted builds work on a
 # fresh build tree too.
@@ -11,11 +12,11 @@ set(NLANG_TEST_STDLIB_DIR ${CMAKE_BINARY_DIR}/stdlib)
 
 # Tests that compile or load against NLANG_TEST_STDLIB_DIR call this
 # helper right after their target definition: it orders the build after
-# nlang_stdlib_package, the producer of the dir's sources and
-# stdlib.npkg, so a targeted build of just the test still sees a
-# populated dir on a fresh tree (full builds always pack first). Kept as
-# a per-test call at the definition site -- the former centralized list
-# at the end of this file kept drifting when new tests were added.
+# nlang_stdlib_package, the producer of the dir's sources and packages,
+# so a targeted build of just the test still sees a populated dir on a
+# fresh tree (full builds always pack first). Kept as a per-test call at
+# the definition site -- the former centralized list at the end of this
+# file kept drifting when new tests were added.
 function(nlang_stdlib_test target)
     add_dependencies(${target} nlang_stdlib_package)
 endfunction()
@@ -28,7 +29,11 @@ endfunction()
 # this explicit (19/20 concurrent same-test pairs failed; isolated
 # TEMP roots: all green). std::filesystem::temp_directory_path()
 # resolves TMP/TEMP on Windows, so stamping each test separates the
-# trees. The root must also stay NEUTRAL: tests walk UP from it
+# trees; the same MD5 rides the wrapper environment as
+# NLANG_TEST_TREE_TOKEN, so a test process can derive a per-tree
+# identity (the nide tests' QSettings application name, D-12) instead
+# of guessing which tree launched it. The root must also stay NEUTRAL:
+# tests walk UP from it
 # (FindStdLibDir absence cases, the docs bare-build dev-label fallback)
 # and must not hit a stdlib dir or the repo VERSION file — which rules
 # out any path inside the source or build trees. The system temp dir is
@@ -41,32 +46,93 @@ endfunction()
 # multi-path -D with \; — hand the test script a single directory or
 # file instead (the nide_deploy_check native-DLL loss made this
 # explicit: only the first of four paths reached the probe).
-#Per-tree scratch root: the Windows temp var is TEMP, the POSIX one is
-#TMPDIR (what std::filesystem::temp_directory_path() consults); fall
-#back to /tmp when it is unset.
 string(MD5 NLANG_TEST_SCRATCH_TOKEN "${CMAKE_BINARY_DIR}")
-if(WIN32)
-    set(NLANG_TEST_SCRATCH_ROOT
-        "$ENV{TEMP}/nlang_test_scratch_${NLANG_TEST_SCRATCH_TOKEN}")
-    set(NLANG_TEST_SCRATCH_ENV
-        "TMP=${NLANG_TEST_SCRATCH_ROOT};TEMP=${NLANG_TEST_SCRATCH_ROOT}")
-else()
-    if(DEFINED ENV{TMPDIR})
-        set(NLANG_TEST_SCRATCH_ROOT
-            "$ENV{TMPDIR}/nlang_test_scratch_${NLANG_TEST_SCRATCH_TOKEN}")
-    else()
-        set(NLANG_TEST_SCRATCH_ROOT
-            "/tmp/nlang_test_scratch_${NLANG_TEST_SCRATCH_TOKEN}")
-    endif()
-    set(NLANG_TEST_SCRATCH_ENV
-        "TMPDIR=${NLANG_TEST_SCRATCH_ROOT}")
-endif()
+set(NLANG_TEST_SCRATCH_ROOT
+    "$ENV{TEMP}/nlang_test_scratch_${NLANG_TEST_SCRATCH_TOKEN}")
 file(MAKE_DIRECTORY "${NLANG_TEST_SCRATCH_ROOT}")
+
+# Merge-style ENVIRONMENT setter: every NEW test-environment write goes
+# through it, because a bare set_tests_properties(... ENVIRONMENT ...)
+# replaces the whole property and would clobber the scratch TMP/TEMP the
+# add_test wrapper below installs. It reads what is already attached, then
+# replaces a same-variable entry or appends the new VAR=value pair, so a
+# later site extends an earlier one instead of overwriting the whole list
+# (D-12 item 2). The 13 bare sites that roster named are all migrated, so
+# no bare ENVIRONMENT write remains; the env-merge probe in
+# tools/gate_time_selftest.sh re-reads this file's registrations from the
+# configured tree and keeps that count at zero (a regression arrives with
+# the offending entry named, not as a silent TMP loss).
+function(nlang_test_env name)
+    # get_property(TEST) returns an empty value for an unset property (the
+    # documented behaviour), so an entry with no ENVIRONMENT yet merges
+    # against an empty list.
+    get_property(merged TEST ${name} PROPERTY ENVIRONMENT)
+    foreach(pair IN LISTS ARGN)
+        string(FIND "${pair}" "=" sep_pos)
+        if(sep_pos LESS 0)
+            message(FATAL_ERROR
+                "nlang_test_env(${name}): ${pair} is not VAR=value")
+        endif()
+        string(SUBSTRING "${pair}" 0 ${sep_pos} pair_var)
+        foreach(item IN LISTS merged)
+            if(item MATCHES "^${pair_var}=")
+                list(REMOVE_ITEM merged "${item}")
+            endif()
+        endforeach()
+        list(APPEND merged "${pair}")
+    endforeach()
+    set_tests_properties(${name} PROPERTIES ENVIRONMENT "${merged}")
+endfunction()
 function(add_test)
     _add_test(${ARGV})
-    set_tests_properties(${ARGV1} PROPERTIES
-        ENVIRONMENT "${NLANG_TEST_SCRATCH_ENV}")
+    # Derived watchdog cap (gate timing design D-2): the generated
+    # gate_time_thresholds.cmake included below defines one
+    # GATE_TIMEOUT_<name> variable per entry that has a reference row,
+    # with names sanitizing every character outside [A-Za-z0-9_] to '_'
+    # exactly as tools/gate_time_check.py emit-cmake does. An entry with
+    # no variable here stays unmanaged and falls to the leg's ctest
+    # --timeout fallback (the ownership split stated in
+    # tools/gate_tier.sh). The same generated file defines one
+    # GATE_RESOURCE_<name> variable per entry listed in the claim roster
+    # (tools/gate_tiers.txt claim lines, D-11), holding the resource
+    # names that entry holds; ctest never runs tests sharing a
+    # RESOURCE_LOCK concurrently, so the window-launching families
+    # serialize inside one parallel ctest process (gate.sh --claim
+    # covers concurrency between legs). The sanitized key serves both
+    # lookups.
+    string(REGEX REPLACE "[^A-Za-z0-9_]" "_" nlang_gate_entry_key
+        "${ARGV1}")
+    if(DEFINED GATE_TIMEOUT_${nlang_gate_entry_key})
+        set_tests_properties(${ARGV1} PROPERTIES
+            TIMEOUT "${GATE_TIMEOUT_${nlang_gate_entry_key}}")
+    endif()
+    if(DEFINED GATE_RESOURCE_${nlang_gate_entry_key})
+        # Unquoted expansion: RESOURCE_LOCK is a list property, and the
+        # unquoted variable hands over one element per claim name.
+        set_tests_properties(${ARGV1} PROPERTIES
+            RESOURCE_LOCK ${GATE_RESOURCE_${nlang_gate_entry_key}})
+    endif()
+    nlang_test_env(${ARGV1}
+        TMP=${NLANG_TEST_SCRATCH_ROOT} TEMP=${NLANG_TEST_SCRATCH_ROOT}
+        NLANG_TEST_TREE_TOKEN=${NLANG_TEST_SCRATCH_TOKEN}
+        # Native-member extraction cache root (NcuPackageCache.cpp): every
+        # test process that opens a package with native members extracts
+        # there — never into the real per-user cache.
+        NLANG_PKG_CACHE_ROOT=${NLANG_TEST_SCRATCH_ROOT}/pkg-cache)
 endfunction()
+
+# Derived ctest TIMEOUT watchdog caps (gate timing design D-1/D-2): the
+# configure step runs tools/gate_time_check.py emit-cmake over the
+# committed reference table tests/gate_time_reference.txt and includes the
+# generated file, which gives the add_test wrapper above one
+# GATE_TIMEOUT_<name> variable per row-holding entry. The config-key
+# predicate and the cap generation live in gate_time_keys.cmake -- the
+# single site, shared verbatim with the gate_time_selftest.sh stub
+# fixture (R-20) -- and that file documents the design branches.
+if(Python3_FOUND)
+    set(NLANG_GATE_PYTHON "${Python3_EXECUTABLE}")
+    include("${CMAKE_CURRENT_LIST_DIR}/gate_time_keys.cmake")
+endif()
 
 
 # Shared test facilities (test_support/test_scratch.h) are reached as
@@ -84,7 +150,6 @@ add_executable(test_scratch
 )
 
 add_test(NAME scratch_tests COMMAND test_scratch)
-set_tests_properties(scratch_tests PROPERTIES TIMEOUT 60)
 
 add_executable(test_vm
     test_vm/test_vm.cpp
@@ -96,7 +161,13 @@ target_include_directories(test_vm
         ${PROJECT_SOURCE_DIR}/include
 )
 
-target_link_libraries(test_vm PRIVATE ${NLANG_CORE_LINK})
+target_link_libraries(test_vm
+    PRIVATE
+        nlang_vm
+        nlang_core
+        nlang_compiler
+        nlang_runtime
+)
 
 add_test(NAME vm_tests COMMAND test_vm)
 
@@ -112,7 +183,13 @@ target_include_directories(test_static_init
         ${PROJECT_SOURCE_DIR}/include
 )
 
-target_link_libraries(test_static_init PRIVATE ${NLANG_CORE_LINK})
+target_link_libraries(test_static_init
+    PRIVATE
+        nlang_vm
+        nlang_core
+        nlang_compiler
+        nlang_runtime
+)
 
 add_test(NAME static_init_tests COMMAND test_static_init)
 
@@ -126,13 +203,19 @@ add_executable(test_nculinker
 target_include_directories(test_nculinker
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/src/compiler
         ${PROJECT_SOURCE_DIR}/include
         #ModuleRegistry.h includes public compiler headers by bare name
         #(same export nlang_compiler itself uses).
         ${PROJECT_SOURCE_DIR}/include/nlang/compiler
 )
-target_link_libraries(test_nculinker PRIVATE ${NLANG_CORE_LINK})
+target_link_libraries(test_nculinker
+    PRIVATE
+        nlang_vm
+        nlang_core
+        nlang_runtime
+)
 add_test(NAME nculinker_tests COMMAND test_nculinker)
 
 # nloader unit tests: synthetic .ncu images and .npkg archives drive the
@@ -145,9 +228,15 @@ add_executable(test_nculoader
 target_include_directories(test_nculoader
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/include
 )
-target_link_libraries(test_nculoader PRIVATE ${NLANG_CORE_LINK})
+target_link_libraries(test_nculoader
+    PRIVATE
+        nlang_vm
+        nlang_core
+        nlang_runtime
+)
 add_test(NAME nculoader_tests COMMAND test_nculoader)
 
 # NativeHost ABI unit tests: mock host verifies the C ABI function table and
@@ -196,7 +285,9 @@ target_include_directories(test_native_loader
         ${PROJECT_SOURCE_DIR}/src/vm
         ${PROJECT_SOURCE_DIR}/include
 )
-target_link_libraries(test_native_loader PRIVATE ${NLANG_CORE_LINK})
+target_link_libraries(test_native_loader
+    PRIVATE nlang_vm nlang_core
+)
 target_compile_definitions(test_native_loader
     PRIVATE
         FIXTURE_DIR="$<TARGET_FILE_DIR:nlang_sample>"
@@ -223,9 +314,13 @@ add_executable(test_native_host
 target_include_directories(test_native_host
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/include
 )
-target_link_libraries(test_native_host PRIVATE ${NLANG_CORE_LINK} nlang_langservice)
+target_link_libraries(test_native_host
+    PRIVATE
+        nlang_vm nlang_core nlang_compiler nlang_runtime nlang_langservice
+)
 nlang_stdlib_test(test_native_host)
 target_compile_definitions(test_native_host
     PRIVATE
@@ -243,9 +338,10 @@ target_include_directories(test_io_input
         ${PROJECT_SOURCE_DIR}/src/vm
         ${PROJECT_SOURCE_DIR}/include
 )
-target_link_libraries(test_io_input PRIVATE ${NLANG_CORE_LINK})
+target_link_libraries(test_io_input
+    PRIVATE nlang_vm nlang_core nlang_runtime
+)
 add_test(NAME io_input_tests COMMAND test_io_input)
-set_tests_properties(io_input_tests PROPERTIES TIMEOUT 180)
 
 # Third-party native library fixture (a real DLL shipped inside a package).
 add_library(nlang_mylib SHARED
@@ -260,6 +356,15 @@ add_library(nlang_mixlib SHARED
 )
 target_include_directories(nlang_mixlib PRIVATE ${PROJECT_SOURCE_DIR}/include)
 
+# Package-native probe fixture: records its own load into a mark file
+# (PKGPROBE_ATTACH_MARK) at attach and answers a self-path probe, so the
+# e2e corpus can tell "the module mapped into the process" apart from
+# "the file merely extracted to the package cache".
+add_library(nlang_pkgprobe SHARED
+    fixtures/native/pkgprobe/pkgprobe_native.cpp
+)
+target_include_directories(nlang_pkgprobe PRIVATE ${PROJECT_SOURCE_DIR}/include)
+
 # Third-party library integration tests: a package dir holding mylib.n and
 # the nlang_mylib.dll fixture, imported and run through the same path as the
 # standard library (real compile + real run).
@@ -269,9 +374,13 @@ add_executable(test_thirdparty
 target_include_directories(test_thirdparty
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/include
 )
-target_link_libraries(test_thirdparty PRIVATE ${NLANG_CORE_LINK} nlang_langservice)
+target_link_libraries(test_thirdparty
+    PRIVATE
+        nlang_vm nlang_core nlang_compiler nlang_runtime nlang_langservice
+)
 nlang_stdlib_test(test_thirdparty)
 target_compile_definitions(test_thirdparty
     PRIVATE
@@ -291,14 +400,21 @@ add_executable(test_library_source
 add_executable(test_ncu_package
     test_vm/test_ncu_package.cpp
 )
-target_link_libraries(test_ncu_package PRIVATE ${NLANG_CORE_LINK})
+target_link_libraries(test_ncu_package
+    PRIVATE
+        nlang_vm nlang_core nlang_runtime
+)
 add_test(NAME ncu_package_tests COMMAND test_ncu_package)
 target_include_directories(test_library_source
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/include
 )
-target_link_libraries(test_library_source PRIVATE ${NLANG_CORE_LINK} nlang_langservice)
+target_link_libraries(test_library_source
+    PRIVATE
+        nlang_vm nlang_core nlang_compiler nlang_runtime nlang_langservice
+)
 nlang_stdlib_test(test_library_source)
 target_compile_definitions(test_library_source
     PRIVATE
@@ -316,9 +432,13 @@ add_executable(test_perunit
 target_include_directories(test_perunit
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/include
 )
-target_link_libraries(test_perunit PRIVATE ${NLANG_CORE_LINK} nlang_langservice)
+target_link_libraries(test_perunit
+    PRIVATE
+        nlang_vm nlang_core nlang_compiler nlang_runtime nlang_langservice
+)
 nlang_stdlib_test(test_perunit)
 target_compile_definitions(test_perunit
     PRIVATE
@@ -363,8 +483,7 @@ add_test(NAME ncc_thirdparty_run
         -I ${mylib_pkg_dir}
         -o ${CMAKE_BINARY_DIR}/e2e_out/use_mylib.ncu)
 set_tests_properties(ncc_thirdparty_run PROPERTIES
-    PASS_REGULAR_EXPRESSION "hello, world"
-    TIMEOUT 180)
+    PASS_REGULAR_EXPRESSION "hello, world")
 
 # --- Default / environment search-path coverage (no -I) ---
 # Base layer: the example, its mylib.n and the DLL all sit in the package
@@ -374,8 +493,7 @@ add_test(NAME ncc_thirdparty_default_run
         ${mylib_pkg_dir}/use_mylib.n
         -o ${CMAKE_BINARY_DIR}/e2e_out/default_run.ncu)
 set_tests_properties(ncc_thirdparty_default_run PROPERTIES
-    PASS_REGULAR_EXPRESSION "hello, world"
-    TIMEOUT 180)
+    PASS_REGULAR_EXPRESSION "hello, world")
 
 # Environment layer: a source copy with NO package beside it; the package is
 # reached only through NLANG_PATH (single dir — ';' is CMake's list separator;
@@ -393,9 +511,8 @@ add_test(NAME ncc_thirdparty_env_run
         -o ${CMAKE_BINARY_DIR}/e2e_out/env_run.ncu)
 set_tests_properties(ncc_thirdparty_env_run PROPERTIES
     PASS_REGULAR_EXPRESSION "hello, world"
-    ENVIRONMENT "NLANG_PATH=${mylib_pkg_dir}"
-    DEPENDS nlang_mylib_env_src
-    TIMEOUT 180)
+    DEPENDS nlang_mylib_env_src)
+nlang_test_env(ncc_thirdparty_env_run NLANG_PATH=${mylib_pkg_dir})
 
 # --- --verbose search-path observability (compile and run forms) ---
 # The (-I) attribution line proves the resolved search listing was
@@ -410,8 +527,7 @@ add_test(NAME ncc_verbose_search_path
         -o ${CMAKE_BINARY_DIR}/e2e_out/verbose_run.ncu)
 set_tests_properties(ncc_verbose_search_path PROPERTIES
     PASS_REGULAR_EXPRESSION "\\(-I\\)"
-    DEPENDS nlang_mylib_pkg
-    TIMEOUT 180)
+    DEPENDS nlang_mylib_pkg)
 
 # The `ncc run` form composes its own search path (module dir base).
 add_test(NAME ncc_run_verbose_search_path
@@ -422,8 +538,7 @@ add_test(NAME ncc_run_verbose_search_path
         --verbose)
 set_tests_properties(ncc_run_verbose_search_path PROPERTIES
     PASS_REGULAR_EXPRESSION "\\(-I\\)"
-    DEPENDS ncc_thirdparty_run
-    TIMEOUT 180)
+    DEPENDS ncc_thirdparty_run)
 
 # -v is the short form of --verbose; each tool parses its own command
 # line, so each parse site gets one pin: the e2e verbose_short_flag and
@@ -438,8 +553,7 @@ add_test(NAME ncc_run_verbose_short
         -v)
 set_tests_properties(ncc_run_verbose_short PROPERTIES
     PASS_REGULAR_EXPRESSION "\\(-I\\)"
-    DEPENDS ncc_thirdparty_run
-    TIMEOUT 180)
+    DEPENDS ncc_thirdparty_run)
 
 # The compile form parses -v in ncc's main loop (the e2e verbose_short_flag
 # entry pins nvm's parse and dbg_verbose_short pins ndb's shared one).
@@ -451,8 +565,7 @@ add_test(NAME ncc_verbose_short
         -o ${CMAKE_BINARY_DIR}/e2e_out/verbose_short.ncu)
 set_tests_properties(ncc_verbose_short PROPERTIES
     PASS_REGULAR_EXPRESSION "\\(-I\\)"
-    DEPENDS nlang_mylib_pkg
-    TIMEOUT 180)
+    DEPENDS nlang_mylib_pkg)
 
 # nvm native search: -I (DLL off-module) and the default module-dir search.
 # A Python harness builds the module first (ctest regexes cannot sequence
@@ -463,7 +576,6 @@ if(Python3_FOUND)
             ${CMAKE_CURRENT_SOURCE_DIR}/check_nvm_native.py
             $<TARGET_FILE:ncc> $<TARGET_FILE:nvm>
             ${mylib_pkg_dir} ${CMAKE_BINARY_DIR}/e2e_out)
-    set_tests_properties(nvm_native_paths PROPERTIES TIMEOUT 180)
 
     # ndb --machine: the third-party DLL reached via -I, driven by `run`.
     add_test(NAME ndb_native_machine
@@ -471,7 +583,6 @@ if(Python3_FOUND)
             ${CMAKE_CURRENT_SOURCE_DIR}/check_ndb_native.py
             $<TARGET_FILE:ncc> $<TARGET_FILE:ndb>
             ${mylib_pkg_dir} ${CMAKE_BINARY_DIR}/e2e_out)
-    set_tests_properties(ndb_native_machine PROPERTIES TIMEOUT 180)
 endif()
 
 # Phase 11 stdlib unit tests: in-process compile+run of real .n sources
@@ -483,10 +594,18 @@ add_executable(test_stdlib
 target_include_directories(test_stdlib
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/include
 )
 
-target_link_libraries(test_stdlib PRIVATE ${NLANG_CORE_LINK} nlang_langservice)
+target_link_libraries(test_stdlib
+    PRIVATE
+        nlang_vm
+        nlang_core
+        nlang_compiler
+        nlang_runtime
+        nlang_langservice
+)
 nlang_stdlib_test(test_stdlib)
 target_compile_definitions(test_stdlib
     PRIVATE
@@ -494,6 +613,25 @@ target_compile_definitions(test_stdlib
 )
 
 add_test(NAME stdlib_tests COMMAND test_stdlib)
+
+# stdlib distribution layout: one package per domain, read through the
+# real NcuPackageReader (member tables = the domain's unit lists).
+add_executable(test_stdlib_layout
+    test_vm/test_stdlib_layout.cpp
+)
+
+target_link_libraries(test_stdlib_layout
+    PRIVATE
+        nlang_vm
+        nlang_runtime
+)
+nlang_stdlib_test(test_stdlib_layout)
+target_compile_definitions(test_stdlib_layout
+    PRIVATE
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+)
+
+add_test(NAME stdlib_layout COMMAND test_stdlib_layout)
 
 # NativeHost ABI v7 array-access tests: real VmExecutor + bare-name
 # in-process natives exercising getArrayView/newArray end to end
@@ -505,10 +643,18 @@ add_executable(test_native_array_abi
 target_include_directories(test_native_array_abi
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/include
 )
 
-target_link_libraries(test_native_array_abi PRIVATE ${NLANG_CORE_LINK} nlang_langservice)
+target_link_libraries(test_native_array_abi
+    PRIVATE
+        nlang_vm
+        nlang_core
+        nlang_compiler
+        nlang_runtime
+        nlang_langservice
+)
 nlang_stdlib_test(test_native_array_abi)
 target_compile_definitions(test_native_array_abi
     PRIVATE
@@ -533,10 +679,18 @@ add_executable(test_generic_runtime_info
 target_include_directories(test_generic_runtime_info
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/include
 )
 
-target_link_libraries(test_generic_runtime_info PRIVATE ${NLANG_CORE_LINK} nlang_langservice)
+target_link_libraries(test_generic_runtime_info
+    PRIVATE
+        nlang_vm
+        nlang_core
+        nlang_compiler
+        nlang_runtime
+        nlang_langservice
+)
 nlang_stdlib_test(test_generic_runtime_info)
 target_compile_definitions(test_generic_runtime_info
     PRIVATE
@@ -544,6 +698,36 @@ target_compile_definitions(test_generic_runtime_info
 )
 
 add_test(NAME generic_runtime_info_tests COMMAND test_generic_runtime_info)
+
+# lambda/closure plan Task 5: 4-slot function records + the MakeFunc
+# descIdx pairing (NCU v2.23), compile+execute in-process; the heap
+# stays inspectable so the record cells pin the ABI.
+add_executable(test_func_records
+    test_vm/test_func_records.cpp
+)
+
+target_include_directories(test_func_records
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_func_records
+    PRIVATE
+        nlang_vm
+        nlang_core
+        nlang_compiler
+        nlang_runtime
+        nlang_langservice
+)
+nlang_stdlib_test(test_func_records)
+target_compile_definitions(test_func_records
+    PRIVATE
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+)
+
+add_test(NAME func_records_tests COMMAND test_func_records)
 
 # v0.13.9 phase ②: the record-stabilization write primitive
 # (OP_CopyStructInPlace / CopyStructInPlace), compile+execute
@@ -555,10 +739,18 @@ add_executable(test_stabilize_copy
 target_include_directories(test_stabilize_copy
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/include
 )
 
-target_link_libraries(test_stabilize_copy PRIVATE ${NLANG_CORE_LINK} nlang_langservice)
+target_link_libraries(test_stabilize_copy
+    PRIVATE
+        nlang_vm
+        nlang_core
+        nlang_compiler
+        nlang_runtime
+        nlang_langservice
+)
 nlang_stdlib_test(test_stabilize_copy)
 target_compile_definitions(test_stabilize_copy
     PRIVATE
@@ -578,13 +770,23 @@ add_executable(test_ref_ops
 target_include_directories(test_ref_ops
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
-        #VmBackend.h (the EvalSlotClassOfKind pin) privately includes
-        #compiler-side headers — the same reverse precedent nlang_vm lists.
+        ${PROJECT_SOURCE_DIR}/src/core
+        #VmBackend.h (the EvalSlotClassOfKind pin) lives in
+        #src/compiler/codegen since the layering split; its private
+        #builder/ includes resolve inside that tree.
         ${PROJECT_SOURCE_DIR}/src/compiler
+        ${PROJECT_SOURCE_DIR}/src/compiler/codegen
         ${PROJECT_SOURCE_DIR}/include
 )
 
-target_link_libraries(test_ref_ops PRIVATE ${NLANG_CORE_LINK} nlang_langservice)
+target_link_libraries(test_ref_ops
+    PRIVATE
+        nlang_vm
+        nlang_core
+        nlang_compiler
+        nlang_runtime
+        nlang_langservice
+)
 nlang_stdlib_test(test_ref_ops)
 target_compile_definitions(test_ref_ops
     PRIVATE
@@ -606,13 +808,23 @@ add_executable(test_interface_rtk_gc
 target_include_directories(test_interface_rtk_gc
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
-        #VmBackend.h (the RuntimeTypeKind/EvalSlotClassOfKind pins)
-        #privately includes compiler-side headers — same as test_ref_ops.
+        ${PROJECT_SOURCE_DIR}/src/core
+        #VmBackend.h (the RuntimeTypeKind/EvalSlotClassOfKind pins) lives
+        #in src/compiler/codegen since the layering split — same as
+        #test_ref_ops.
         ${PROJECT_SOURCE_DIR}/src/compiler
+        ${PROJECT_SOURCE_DIR}/src/compiler/codegen
         ${PROJECT_SOURCE_DIR}/include
 )
 
-target_link_libraries(test_interface_rtk_gc PRIVATE ${NLANG_CORE_LINK} nlang_langservice)
+target_link_libraries(test_interface_rtk_gc
+    PRIVATE
+        nlang_vm
+        nlang_core
+        nlang_compiler
+        nlang_runtime
+        nlang_langservice
+)
 nlang_stdlib_test(test_interface_rtk_gc)
 target_compile_definitions(test_interface_rtk_gc
     PRIVATE
@@ -620,6 +832,39 @@ target_compile_definitions(test_interface_rtk_gc
 )
 
 add_test(NAME interface_rtk_gc_tests COMMAND test_interface_rtk_gc)
+
+# 0.13.10 Task 8: display capture-field kind pins — a &-capture display
+# field declares RTK_ByrefBase (the class mark phase's base-handle
+# label), a promoted capture keeps RTK_Promoted, a value capture keeps
+# its declared kind. Byte pins over real-compiled modules; the survival
+# runs are tests/e2e/lambda_capture_gc_survive.n.
+add_executable(test_display_capture_kinds
+    test_vm/test_display_capture_kinds.cpp
+)
+
+target_include_directories(test_display_capture_kinds
+    PRIVATE
+        ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
+        ${PROJECT_SOURCE_DIR}/src/compiler
+        ${PROJECT_SOURCE_DIR}/include
+)
+
+target_link_libraries(test_display_capture_kinds
+    PRIVATE
+        nlang_vm
+        nlang_core
+        nlang_compiler
+        nlang_runtime
+        nlang_langservice
+)
+nlang_stdlib_test(test_display_capture_kinds)
+target_compile_definitions(test_display_capture_kinds
+    PRIVATE
+        STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
+)
+
+add_test(NAME display_capture_kinds_tests COMMAND test_display_capture_kinds)
 
 # v0.13.9 phase ③ Task 4: scalar/string local promotion — a &-bound local
 # or value formal gets its storage compiled into one stable boxed record
@@ -632,13 +877,21 @@ add_executable(test_promote_local
 target_include_directories(test_promote_local
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         #VmExecutor's build chain pulls compiler-side headers, same as
         #test_ref_ops above.
         ${PROJECT_SOURCE_DIR}/src/compiler
         ${PROJECT_SOURCE_DIR}/include
 )
 
-target_link_libraries(test_promote_local PRIVATE ${NLANG_CORE_LINK} nlang_langservice)
+target_link_libraries(test_promote_local
+    PRIVATE
+        nlang_vm
+        nlang_core
+        nlang_compiler
+        nlang_runtime
+        nlang_langservice
+)
 nlang_stdlib_test(test_promote_local)
 target_compile_definitions(test_promote_local
     PRIVATE
@@ -658,11 +911,19 @@ add_executable(test_ref_params
 target_include_directories(test_ref_params
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/src/compiler
         ${PROJECT_SOURCE_DIR}/include
 )
 
-target_link_libraries(test_ref_params PRIVATE ${NLANG_CORE_LINK} nlang_langservice)
+target_link_libraries(test_ref_params
+    PRIVATE
+        nlang_vm
+        nlang_core
+        nlang_compiler
+        nlang_runtime
+        nlang_langservice
+)
 nlang_stdlib_test(test_ref_params)
 target_compile_definitions(test_ref_params
     PRIVATE
@@ -674,10 +935,18 @@ add_test(NAME ref_params_tests COMMAND test_ref_params)
 target_include_directories(test_array_view_record
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/include
 )
 
-target_link_libraries(test_array_view_record PRIVATE ${NLANG_CORE_LINK} nlang_langservice)
+target_link_libraries(test_array_view_record
+    PRIVATE
+        nlang_vm
+        nlang_core
+        nlang_compiler
+        nlang_runtime
+        nlang_langservice
+)
 nlang_stdlib_test(test_array_view_record)
 target_compile_definitions(test_array_view_record
     PRIVATE
@@ -695,10 +964,18 @@ add_executable(test_nd_tokens
 target_include_directories(test_nd_tokens
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/include
 )
 
-target_link_libraries(test_nd_tokens PRIVATE ${NLANG_CORE_LINK} nlang_langservice)
+target_link_libraries(test_nd_tokens
+    PRIVATE
+        nlang_vm
+        nlang_core
+        nlang_compiler
+        nlang_runtime
+        nlang_langservice
+)
 nlang_stdlib_test(test_nd_tokens)
 target_compile_definitions(test_nd_tokens
     PRIVATE
@@ -715,10 +992,18 @@ add_executable(test_nd_resolve
 target_include_directories(test_nd_resolve
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/include
 )
 
-target_link_libraries(test_nd_resolve PRIVATE ${NLANG_CORE_LINK} nlang_langservice)
+target_link_libraries(test_nd_resolve
+    PRIVATE
+        nlang_vm
+        nlang_core
+        nlang_compiler
+        nlang_runtime
+        nlang_langservice
+)
 nlang_stdlib_test(test_nd_resolve)
 target_compile_definitions(test_nd_resolve
     PRIVATE
@@ -727,20 +1012,28 @@ target_compile_definitions(test_nd_resolve
 
 add_test(NAME nd_resolve_tests COMMAND test_nd_resolve)
 
-#The decl-comma reject soak dominates this file (141 s Debug / 766 s
-#ASan measured 2026-11-14; everything else is seconds), so it runs as
-#its own ctest entry via --stress: routine sweeps exclude it by name
-#(slow tests run at commit time only) and the full suite covers both
-#entries. --stress selects ONLY the soak — the two entries are a
-#partition, not a superset. The soak needs its own ceiling: the 180 s
-#family timeout cannot hold the ASan measurement, same shape as the
-#mnist_mlp_run ruling. The 900 s cap once hosted the ASan band, but
-#phase 3's resolver work moved it: 2026-11-19 direct measurement on an
-#idle machine — Debug 187.5 s, ASan 908 s (4.84x compile-heavy factor),
-#the cap clipped it by seconds. 1260 s hosts the measured ASan band
-#with the same ~39% oscillation slack the regex_redos_run cap carries.
+#The decl-comma reject soak dominates this file (everything else is
+#seconds), so it runs as its own ctest entry via --stress: routine
+#sweeps exclude it by name (slow tests run at commit time only) and the
+#full suite covers both entries. --stress selects ONLY the soak — the
+#two entries are a partition, not a superset. The round count follows
+#the D-8 rounds axis: the reference rows price ref_work=100 for the
+#plain trees and 30 for the ASan tree, so the registration hands the
+#test that count through NLANG_TEST_ROUNDS; the test self-reports
+#rounds=<n> on stdout and check-budget cross-checks it against the
+#row's reference work times the run's work factor, which catches a
+#registration or table that stopped steering the loop. The sanitizer
+#predicate spells fsanitize=address exactly as the config-key branch
+#in tests/gate_time_keys.cmake does. Wall clock stays priced by the
+#per-config reference columns: the watchdog cap derives from
+#tests/gate_time_reference.txt like every other entry's (the derived-caps
+#block at the top of this file), no hand-picked ceiling.
 add_test(NAME nd_resolve_stress_tests COMMAND test_nd_resolve --stress)
-set_tests_properties(nd_resolve_stress_tests PROPERTIES TIMEOUT 1260)
+if(CMAKE_CXX_FLAGS MATCHES "fsanitize=address")
+    nlang_test_env(nd_resolve_stress_tests NLANG_TEST_ROUNDS=30)
+else()
+    nlang_test_env(nd_resolve_stress_tests NLANG_TEST_ROUNDS=100)
+endif()
 
 # Stride-table integrity: every opcode resolves to an extent in
 # [1, 9] (the rewrite regression — inline-braced constexpr rows
@@ -755,7 +1048,12 @@ target_include_directories(test_stride_table
         ${PROJECT_SOURCE_DIR}/include
 )
 
-target_link_libraries(test_stride_table PRIVATE ${NLANG_CORE_LINK})
+target_link_libraries(test_stride_table
+    PRIVATE
+        nlang_vm
+        nlang_core
+        nlang_runtime
+)
 
 add_test(NAME stride_table_tests COMMAND test_stride_table)
 
@@ -769,10 +1067,17 @@ add_executable(test_struct_ctor
 target_include_directories(test_struct_ctor
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/include
 )
 
-target_link_libraries(test_struct_ctor PRIVATE ${NLANG_CORE_LINK})
+target_link_libraries(test_struct_ctor
+    PRIVATE
+        nlang_vm
+        nlang_core
+        nlang_compiler
+        nlang_runtime
+)
 nlang_stdlib_test(test_struct_ctor)
 target_compile_definitions(test_struct_ctor
     PRIVATE
@@ -794,10 +1099,17 @@ add_executable(test_struct_field_init
 target_include_directories(test_struct_field_init
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/include
 )
 
-target_link_libraries(test_struct_field_init PRIVATE ${NLANG_CORE_LINK})
+target_link_libraries(test_struct_field_init
+    PRIVATE
+        nlang_vm
+        nlang_core
+        nlang_compiler
+        nlang_runtime
+)
 nlang_stdlib_test(test_struct_field_init)
 target_compile_definitions(test_struct_field_init
     PRIVATE
@@ -821,7 +1133,12 @@ target_include_directories(test_class_layout
         ${PROJECT_SOURCE_DIR}/include
 )
 
-target_link_libraries(test_class_layout PRIVATE ${NLANG_CORE_LINK})
+target_link_libraries(test_class_layout
+    PRIVATE
+        nlang_vm
+        nlang_core
+        nlang_runtime
+)
 
 add_test(NAME class_layout_tests COMMAND test_class_layout)
 
@@ -840,7 +1157,13 @@ target_include_directories(test_array_flags
         ${PROJECT_SOURCE_DIR}/include
 )
 
-target_link_libraries(test_array_flags PRIVATE ${NLANG_CORE_LINK})
+target_link_libraries(test_array_flags
+    PRIVATE
+        nlang_vm
+        nlang_core
+        nlang_compiler
+        nlang_runtime
+)
 
 add_test(NAME array_flags_tests COMMAND test_array_flags)
 
@@ -859,7 +1182,13 @@ target_include_directories(test_function_size
         ${PROJECT_SOURCE_DIR}/include
 )
 
-target_link_libraries(test_function_size PRIVATE ${NLANG_CORE_LINK})
+target_link_libraries(test_function_size
+    PRIVATE
+        nlang_vm
+        nlang_core
+        nlang_compiler
+        nlang_runtime
+)
 
 add_test(NAME function_size_tests COMMAND test_function_size)
 
@@ -878,7 +1207,13 @@ target_include_directories(test_import_cycle
         ${PROJECT_SOURCE_DIR}/include
 )
 
-target_link_libraries(test_import_cycle PRIVATE ${NLANG_CORE_LINK})
+target_link_libraries(test_import_cycle
+    PRIVATE
+        nlang_vm
+        nlang_core
+        nlang_compiler
+        nlang_runtime
+)
 
 add_test(NAME import_cycle_tests COMMAND test_import_cycle)
 
@@ -900,7 +1235,13 @@ target_include_directories(test_default_exprdesc
         ${PROJECT_SOURCE_DIR}/include
 )
 
-target_link_libraries(test_default_exprdesc PRIVATE ${NLANG_CORE_LINK})
+target_link_libraries(test_default_exprdesc
+    PRIVATE
+        nlang_vm
+        nlang_core
+        nlang_compiler
+        nlang_runtime
+)
 
 add_test(NAME default_exprdesc_tests COMMAND test_default_exprdesc)
 
@@ -917,7 +1258,13 @@ target_include_directories(test_array_token
         ${PROJECT_SOURCE_DIR}/include
 )
 
-target_link_libraries(test_array_token PRIVATE ${NLANG_CORE_LINK})
+target_link_libraries(test_array_token
+    PRIVATE
+        nlang_vm
+        nlang_core
+        nlang_compiler
+        nlang_runtime
+)
 
 add_test(NAME array_token_tests COMMAND test_array_token)
 
@@ -929,8 +1276,13 @@ add_executable(test_library_index
 target_include_directories(test_library_index
     PRIVATE
         ${PROJECT_SOURCE_DIR}/include
+        ${PROJECT_SOURCE_DIR}/tests
 )
-target_link_libraries(test_library_index PRIVATE ${NLANG_CORE_LINK})
+target_link_libraries(test_library_index
+    PRIVATE
+        nlang_compiler
+        nlang_runtime
+)
 nlang_stdlib_test(test_library_index)
 target_compile_definitions(test_library_index
     PRIVATE
@@ -951,7 +1303,13 @@ target_include_directories(test_primitivetypes
         ${PROJECT_SOURCE_DIR}/include
 )
 
-target_link_libraries(test_primitivetypes PRIVATE ${NLANG_CORE_LINK})
+target_link_libraries(test_primitivetypes
+    PRIVATE
+        nlang_runtime
+        nlang_compiler
+        nlang_vm
+        nlang_core
+)
 
 add_test(NAME primitivetypes_tests COMMAND test_primitivetypes)
 
@@ -967,10 +1325,17 @@ add_executable(test_primops
 target_include_directories(test_primops
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/include
 )
 
-target_link_libraries(test_primops PRIVATE ${NLANG_CORE_LINK})
+target_link_libraries(test_primops
+    PRIVATE
+        nlang_vm
+        nlang_core
+        nlang_compiler
+        nlang_runtime
+)
 nlang_stdlib_test(test_primops)
 target_compile_definitions(test_primops
     PRIVATE
@@ -987,9 +1352,16 @@ add_executable(test_threads
 target_include_directories(test_threads
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/include
 )
-target_link_libraries(test_threads PRIVATE ${NLANG_CORE_LINK})
+target_link_libraries(test_threads
+    PRIVATE
+        nlang_vm
+        nlang_core
+        nlang_compiler
+        nlang_runtime
+)
 nlang_stdlib_test(test_threads)
 target_compile_definitions(test_threads
     PRIVATE
@@ -1008,7 +1380,11 @@ target_include_directories(test_gcworldstop
         ${PROJECT_SOURCE_DIR}/src/vm
         ${PROJECT_SOURCE_DIR}/include
 )
-target_link_libraries(test_gcworldstop PRIVATE ${NLANG_CORE_LINK})
+target_link_libraries(test_gcworldstop
+    PRIVATE
+        nlang_vm
+        nlang_core
+)
 
 add_test(NAME gcworldstop_tests COMMAND test_gcworldstop)
 
@@ -1022,7 +1398,11 @@ target_include_directories(test_domainlocks
         ${PROJECT_SOURCE_DIR}/src/vm
         ${PROJECT_SOURCE_DIR}/include
 )
-target_link_libraries(test_domainlocks PRIVATE ${NLANG_CORE_LINK})
+target_link_libraries(test_domainlocks
+    PRIVATE
+        nlang_vm
+        nlang_core
+)
 
 add_test(NAME domainlocks_tests COMMAND test_domainlocks)
 
@@ -1090,7 +1470,11 @@ target_include_directories(test_net_scheduler
         ${PROJECT_SOURCE_DIR}/src/native
         ${PROJECT_SOURCE_DIR}/include
 )
-target_link_libraries(test_net_scheduler PRIVATE ${NLANG_CORE_LINK})
+target_link_libraries(test_net_scheduler
+    PRIVATE
+        nlang_vm
+        nlang_core
+)
 if(WIN32)
     target_link_libraries(test_net_scheduler PRIVATE ws2_32 iphlpapi)
 endif()
@@ -1114,7 +1498,11 @@ target_include_directories(test_net_adopt
         ${PROJECT_SOURCE_DIR}/src/native
         ${PROJECT_SOURCE_DIR}/include
 )
-target_link_libraries(test_net_adopt PRIVATE ${NLANG_CORE_LINK})
+target_link_libraries(test_net_adopt
+    PRIVATE
+        nlang_vm
+        nlang_core
+)
 if(WIN32)
     target_link_libraries(test_net_adopt PRIVATE ws2_32 iphlpapi)
 endif()
@@ -1136,7 +1524,11 @@ target_include_directories(test_net_jobs
         ${PROJECT_SOURCE_DIR}/src/native
         ${PROJECT_SOURCE_DIR}/include
 )
-target_link_libraries(test_net_jobs PRIVATE ${NLANG_CORE_LINK})
+target_link_libraries(test_net_jobs
+    PRIVATE
+        nlang_vm
+        nlang_core
+)
 if(WIN32)
     target_link_libraries(test_net_jobs PRIVATE ws2_32 iphlpapi)
 endif()
@@ -1161,7 +1553,11 @@ target_include_directories(test_net_icmp
         ${PROJECT_SOURCE_DIR}/src/native
         ${PROJECT_SOURCE_DIR}/include
 )
-target_link_libraries(test_net_icmp PRIVATE ${NLANG_CORE_LINK})
+target_link_libraries(test_net_icmp
+    PRIVATE
+        nlang_vm
+        nlang_core
+)
 if(WIN32)
     target_link_libraries(test_net_icmp PRIVATE ws2_32 iphlpapi)
 endif()
@@ -1177,9 +1573,13 @@ add_executable(test_module_state
 target_include_directories(test_module_state
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/include
 )
-target_link_libraries(test_module_state PRIVATE ${NLANG_CORE_LINK} nlang_langservice)
+target_link_libraries(test_module_state
+    PRIVATE
+        nlang_vm nlang_core nlang_compiler nlang_runtime nlang_langservice
+)
 nlang_stdlib_test(test_module_state)
 add_dependencies(test_module_state nlang_net)
 target_compile_definitions(test_module_state
@@ -1199,7 +1599,11 @@ target_include_directories(test_work_pool
         ${PROJECT_SOURCE_DIR}/src/vm
         ${PROJECT_SOURCE_DIR}/include
 )
-target_link_libraries(test_work_pool PRIVATE ${NLANG_CORE_LINK})
+target_link_libraries(test_work_pool
+    PRIVATE
+        nlang_vm
+        nlang_core
+)
 
 add_test(NAME work_pool_tests COMMAND test_work_pool)
 
@@ -1213,7 +1617,11 @@ target_include_directories(test_chunkedarray
         ${PROJECT_SOURCE_DIR}/src/vm
         ${PROJECT_SOURCE_DIR}/include
 )
-target_link_libraries(test_chunkedarray PRIVATE ${NLANG_CORE_LINK})
+target_link_libraries(test_chunkedarray
+    PRIVATE
+        nlang_vm
+        nlang_core
+)
 
 add_test(NAME chunkedarray_tests COMMAND test_chunkedarray)
 
@@ -1227,7 +1635,11 @@ target_include_directories(test_shardalloc
         ${PROJECT_SOURCE_DIR}/src/vm
         ${PROJECT_SOURCE_DIR}/include
 )
-target_link_libraries(test_shardalloc PRIVATE ${NLANG_CORE_LINK})
+target_link_libraries(test_shardalloc
+    PRIVATE
+        nlang_vm
+        nlang_core
+)
 
 add_test(NAME shardalloc_tests COMMAND test_shardalloc)
 
@@ -1239,9 +1651,16 @@ add_executable(test_stdlib_concurrency
 target_include_directories(test_stdlib_concurrency
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/include
 )
-target_link_libraries(test_stdlib_concurrency PRIVATE ${NLANG_CORE_LINK})
+target_link_libraries(test_stdlib_concurrency
+    PRIVATE
+        nlang_vm
+        nlang_core
+        nlang_compiler
+        nlang_runtime
+)
 nlang_stdlib_test(test_stdlib_concurrency)
 target_compile_definitions(test_stdlib_concurrency
     PRIVATE
@@ -1260,10 +1679,19 @@ add_executable(test_builtin_binding
 target_include_directories(test_builtin_binding
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/src/compiler
+        #VmBackend.h moved to src/compiler/codegen with the layering split.
+        ${PROJECT_SOURCE_DIR}/src/compiler/codegen
         ${PROJECT_SOURCE_DIR}/include
 )
-target_link_libraries(test_builtin_binding PRIVATE ${NLANG_CORE_LINK})
+target_link_libraries(test_builtin_binding
+    PRIVATE
+        nlang_vm
+        nlang_core
+        nlang_compiler
+        nlang_runtime
+)
 nlang_stdlib_test(test_builtin_binding)
 target_compile_definitions(test_builtin_binding
     PRIVATE
@@ -1303,11 +1731,18 @@ add_executable(test_debugger
 target_include_directories(test_debugger
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/src/tools/ndb
         ${PROJECT_SOURCE_DIR}/include
 )
 
-target_link_libraries(test_debugger PRIVATE ${NLANG_CORE_LINK})
+target_link_libraries(test_debugger
+    PRIVATE
+        nlang_vm
+        nlang_core
+        nlang_compiler
+        nlang_runtime
+)
 nlang_stdlib_test(test_debugger)
 target_compile_definitions(test_debugger
     PRIVATE
@@ -1327,16 +1762,25 @@ target_include_directories(test_strings
         ${PROJECT_SOURCE_DIR}/src/vm
         ${PROJECT_SOURCE_DIR}/include
 )
-target_link_libraries(test_strings PRIVATE ${NLANG_CORE_LINK})
+target_link_libraries(test_strings
+    PRIVATE
+        nlang_vm
+        nlang_core
+        nlang_compiler
+        nlang_runtime
+)
 add_test(NAME string_gc_tests COMMAND test_strings)
-set_tests_properties(string_gc_tests PROPERTIES TIMEOUT 180)
 
 # ScriptScanner location tests (compiler-mode column tracking).
 add_executable(test_scanner
     test_compiler/test_scanner.cpp
 )
 
-target_link_libraries(test_scanner PRIVATE ${NLANG_CORE_LINK})
+target_link_libraries(test_scanner
+    PRIVATE
+        nlang_compiler
+        nlang_runtime
+)
 
 add_test(NAME scanner_tests COMMAND test_scanner)
 
@@ -1346,9 +1790,28 @@ add_executable(test_ast_containment
     test_compiler/test_ast_containment.cpp
 )
 
-target_link_libraries(test_ast_containment PRIVATE ${NLANG_CORE_LINK})
+target_link_libraries(test_ast_containment
+    PRIVATE
+        nlang_compiler
+        nlang_runtime
+)
 
 add_test(NAME ast_containment_tests COMMAND test_ast_containment)
+
+# Lambda cover-grammar parse tests (lambda/closure plan Task 2): the
+# unified-prefix split, SnLambdaExpr node shapes, and the ParenPrefix
+# post-check rejections.
+add_executable(test_lambda_parse
+    test_compiler/test_lambda_parse.cpp
+)
+
+target_link_libraries(test_lambda_parse
+    PRIVATE
+        nlang_compiler
+        nlang_runtime
+)
+
+add_test(NAME lambda_parse_tests COMMAND test_lambda_parse)
 
 # Script-mode wrap unit tests (v0.9.1): entry synthesis driven in
 # process through the real build -> load -> link pipeline; entry
@@ -1361,10 +1824,17 @@ add_executable(test_script_wrap
 target_include_directories(test_script_wrap
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/include
 )
 
-target_link_libraries(test_script_wrap PRIVATE ${NLANG_CORE_LINK})
+target_link_libraries(test_script_wrap
+    PRIVATE
+        nlang_vm
+        nlang_core
+        nlang_compiler
+        nlang_runtime
+)
 
 target_compile_definitions(test_script_wrap
     PRIVATE
@@ -1372,7 +1842,6 @@ target_compile_definitions(test_script_wrap
 )
 
 add_test(NAME script_wrap_tests COMMAND test_script_wrap)
-set_tests_properties(script_wrap_tests PROPERTIES TIMEOUT 180)
 
 # ncc .nproj loader unit tests (Phase 10 Step 0).
 add_executable(test_projectfile
@@ -1409,19 +1878,84 @@ if(NLANG_BUILD_IDE)
     # Every Qt test also writes its full log to qtest_logs/<name>.txt;
     # read that file after any failure.
     file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/qtest_logs)
+    #The qtest_progress wrapper kills its child tree this many seconds
+    #before the entry's ctest TIMEOUT fires, so ctest still records the
+    #kill as a clean timeout of the wrapper (exit 124).
+    set(QTEST_WRAPPER_HEADROOM_S 10)
     function(nlang_add_qtest name target)
-        #Optional third argument: the per-entry ceiling in seconds
-        #(default is the house 3-minute rule).
-        set(ceiling 180)
-        if(ARGC GREATER 2)
-            set(ceiling ${ARGV2})
+        #Cap ownership (gate timing design D-2): an entry with a
+        #reference row inherits its derived TIMEOUT from the add_test
+        #wrapper, and this helper only keeps its own --timeout under
+        #that cap. The hand-computed ceiling (explicit third argument,
+        #else the house 3-minute rule, else 600 s in an instrumented
+        #tree) is the fallback for a row-less entry, where the wrapper
+        #attaches no TIMEOUT and this function sets the ceiling itself.
+        string(REGEX REPLACE "[^A-Za-z0-9_]" "_" nlang_qtest_cap_key
+            "${name}")
+        if(DEFINED GATE_TIMEOUT_${nlang_qtest_cap_key})
+            set(nlang_qtest_derived TRUE)
+            set(ceiling "${GATE_TIMEOUT_${nlang_qtest_cap_key}}")
+        else()
+            set(nlang_qtest_derived FALSE)
+            #Optional third argument: the per-entry ceiling in seconds
+            #(default is the house 3-minute rule).
+            set(default_ceiling 180)
+            set(ceiling ${default_ceiling})
+            set(ceiling_given FALSE)
+            if(ARGC GREATER 2)
+                set(ceiling ${ARGV2})
+                set(ceiling_given TRUE)
+            endif()
+            #The house rule is a Debug-tree measurement. The address
+            #sanitizer multiplies these families' wall time by 2.7x-8.7x
+            #(measured on the 2026-11-20 merge batch:
+            #module_import_tests 25.6 s Debug against 183.3 s
+            #instrumented, generic_decl_tests 10.8 s against 94.5 s), so
+            #a Debug-sized fallback ceiling leaves an instrumented tree
+            #no headroom and flakes without pointing at a regression.
+            #That leg judges memory errors and timing regressions are
+            #judged in the Debug tree, so its ceiling only has to bound
+            #a hung child; 600 s is 3.3x the heaviest instrumented
+            #family measured today. A ceiling written out per family is
+            #a measurement of that family, so it stands as given. (The
+            #sanitizer test is the same predicate
+            #_nlang_sweep_asan_runtime uses to recognise an instrumented
+            #tree.)
+            if(NOT ceiling_given AND
+                    CMAKE_CXX_FLAGS MATCHES "fsanitize=address")
+                set(ceiling 600)
+            endif()
         endif()
-        math(EXPR wrapper_ceiling "${ceiling} - 10")
+        # ctest honors a fractional TIMEOUT (the derived caps carry
+        # fractional seconds) but math() parses integers only, so the
+        # wrapper headroom comes off the floor of the cap: the wrapper
+        # then leads ctest's kill by headroom..headroom+1 s, never by
+        # less. Integer fallback ceilings are unaffected.
+        string(REGEX REPLACE "\\.[0-9]*$" "" nlang_qtest_wrapper_base
+            "${ceiling}")
+        math(EXPR wrapper_ceiling
+            "${nlang_qtest_wrapper_base} - ${QTEST_WRAPPER_HEADROOM_S}")
         #Run through tools/qtest_progress.py: it mirrors the -o result
         #log with a timestamp per completed test function, so a hung
         #run shows exactly which function was in flight. The wrapper
         #kills the child tree just under the ctest ceiling (a stuck
         #nvm/ndb debug child cannot outlive the suite) and exits 124.
+        #The inline budget judgment (D-5) prices this entry from the
+        #table at run time under the tree's enumeration key (the first
+        #of the config-key set minus its ctest- prefix): the timed
+        #sweep's own reference column, matching the seconds the leg's
+        #post-hoc checker compares against. A row-less entry keeps a
+        #visible "no reference row" note from the wrapper and stays
+        #under the --timeout watchdog alone.
+        set(nlang_qtest_gate_args "")
+        if(NLANG_GATE_TIMEOUT_KEYS)
+            list(GET NLANG_GATE_TIMEOUT_KEYS 0 nlang_qtest_config_key)
+            string(REGEX REPLACE "^ctest-" "" nlang_qtest_config
+                "${nlang_qtest_config_key}")
+            set(nlang_qtest_gate_args
+                --table "${PROJECT_SOURCE_DIR}/tests/gate_time_reference.txt"
+                --config ${nlang_qtest_config} --entry ${name})
+        endif()
         add_test(NAME ${name}
             COMMAND ${Python3_EXECUTABLE}
                 ${PROJECT_SOURCE_DIR}/tools/qtest_progress.py
@@ -1429,18 +1963,21 @@ if(NLANG_BUILD_IDE)
                 --progress-log
                     ${CMAKE_CURRENT_BINARY_DIR}/qtest_logs/${name}.progress.log
                 --timeout ${wrapper_ceiling}
+                ${nlang_qtest_gate_args}
                 -- $<TARGET_FILE:${target}>)
+        if(NOT nlang_qtest_derived)
+            set_tests_properties(${name} PROPERTIES TIMEOUT ${ceiling})
+        endif()
         if(UNIX)
             #Headless hosts have no display server: the offscreen QPA
             #renders widgets into an off-screen buffer and finds its
             #plugin inside the Qt install prefix. Windows keeps the
-            #real windows platform — the offscreen platform has no
-            #deployed fonts there and crashes QMessageBox layout (see
-            #the mainwindow block below).
-            set_tests_properties(${name} PROPERTIES TIMEOUT ${ceiling}
+            #real windows platform -- the offscreen platform has no
+            #deployed fonts there and crashes QMessageBox layout. A
+            #later nlang_test_env merge keeps this entry (different
+            #VAR), so plugin-path overrides never evict it.
+            set_tests_properties(${name} PROPERTIES
                 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
-        else()
-            set_tests_properties(${name} PROPERTIES TIMEOUT ${ceiling})
         endif()
     endfunction()
 
@@ -1451,7 +1988,14 @@ if(NLANG_BUILD_IDE)
     add_executable(test_import_parse
         test_compiler/test_import_parse.cpp
     )
-    target_link_libraries(test_import_parse PRIVATE ${NLANG_CORE_LINK} Qt5::Test)
+    target_link_libraries(test_import_parse
+        PRIVATE
+            nlang_compiler
+            nlang_runtime
+            nlang_vm
+            nlang_core
+            Qt5::Test
+    )
     nlang_stdlib_test(test_import_parse)
     target_compile_definitions(test_import_parse
         PRIVATE
@@ -1477,7 +2021,14 @@ if(NLANG_BUILD_IDE)
         PRIVATE
             ${PROJECT_SOURCE_DIR}/src/compiler
     )
-    target_link_libraries(test_generic_decl PRIVATE ${NLANG_CORE_LINK} Qt5::Test)
+    target_link_libraries(test_generic_decl
+        PRIVATE
+            nlang_compiler
+            nlang_runtime
+            nlang_vm
+            nlang_core
+            Qt5::Test
+    )
     nlang_stdlib_test(test_generic_decl)
     target_compile_definitions(test_generic_decl
         PRIVATE
@@ -1503,7 +2054,14 @@ if(NLANG_BUILD_IDE)
         PRIVATE
             ${PROJECT_SOURCE_DIR}/src/compiler
     )
-    target_link_libraries(test_type_access_prefix PRIVATE ${NLANG_CORE_LINK} Qt5::Test)
+    target_link_libraries(test_type_access_prefix
+        PRIVATE
+            nlang_compiler
+            nlang_runtime
+            nlang_vm
+            nlang_core
+            Qt5::Test
+    )
     nlang_stdlib_test(test_type_access_prefix)
     target_compile_definitions(test_type_access_prefix
         PRIVATE
@@ -1529,7 +2087,14 @@ if(NLANG_BUILD_IDE)
         PRIVATE
             ${PROJECT_SOURCE_DIR}/src/compiler
     )
-    target_link_libraries(test_ref_declarator PRIVATE ${NLANG_CORE_LINK} Qt5::Test)
+    target_link_libraries(test_ref_declarator
+        PRIVATE
+            nlang_compiler
+            nlang_runtime
+            nlang_vm
+            nlang_core
+            Qt5::Test
+    )
     nlang_stdlib_test(test_ref_declarator)
     target_compile_definitions(test_ref_declarator
         PRIVATE
@@ -1553,7 +2118,14 @@ if(NLANG_BUILD_IDE)
         PRIVATE
             ${PROJECT_SOURCE_DIR}/src/compiler
     )
-    target_link_libraries(test_ref_binding PRIVATE ${NLANG_CORE_LINK} Qt5::Test)
+    target_link_libraries(test_ref_binding
+        PRIVATE
+            nlang_compiler
+            nlang_runtime
+            nlang_vm
+            nlang_core
+            Qt5::Test
+    )
     nlang_stdlib_test(test_ref_binding)
     target_compile_definitions(test_ref_binding
         PRIVATE
@@ -1573,7 +2145,14 @@ if(NLANG_BUILD_IDE)
     add_executable(test_const_decl
         test_compiler/test_const_decl.cpp
     )
-    target_link_libraries(test_const_decl PRIVATE ${NLANG_CORE_LINK} Qt5::Test)
+    target_link_libraries(test_const_decl
+        PRIVATE
+            nlang_compiler
+            nlang_runtime
+            nlang_vm
+            nlang_core
+            Qt5::Test
+    )
     nlang_stdlib_test(test_const_decl)
     target_compile_definitions(test_const_decl
         PRIVATE
@@ -1599,7 +2178,14 @@ if(NLANG_BUILD_IDE)
             ${PROJECT_SOURCE_DIR}/src/vm
             ${PROJECT_SOURCE_DIR}/src/compiler
     )
-    target_link_libraries(test_generic_descriptor PRIVATE ${NLANG_CORE_LINK} Qt5::Test)
+    target_link_libraries(test_generic_descriptor
+        PRIVATE
+            nlang_vm
+            nlang_core
+            nlang_compiler
+            nlang_runtime
+            Qt5::Test
+    )
     nlang_add_qtest(generic_descriptor_tests test_generic_descriptor)
 
     # Descriptor two-key contract (0.13.8 Task 7): row keys stay bare
@@ -1612,9 +2198,17 @@ if(NLANG_BUILD_IDE)
     target_include_directories(test_descriptor_spelling
         PRIVATE
             ${PROJECT_SOURCE_DIR}/src/vm
+            ${PROJECT_SOURCE_DIR}/src/core
             ${PROJECT_SOURCE_DIR}/src/compiler
     )
-    target_link_libraries(test_descriptor_spelling PRIVATE ${NLANG_CORE_LINK} Qt5::Test)
+    target_link_libraries(test_descriptor_spelling
+        PRIVATE
+            nlang_compiler
+            nlang_runtime
+            nlang_vm
+            nlang_core
+            Qt5::Test
+    )
     nlang_stdlib_test(test_descriptor_spelling)
     target_compile_definitions(test_descriptor_spelling
         PRIVATE
@@ -1639,13 +2233,20 @@ if(NLANG_BUILD_IDE)
     target_include_directories(test_generic_typeparam_gc
         PRIVATE
             ${PROJECT_SOURCE_DIR}/src/vm
-            #VmBackend.h includes builder/BindingTable.h (the intrinsic
-            #binding table lives compiler-side since the concurrency
-            #import redesign) — same internal-header reach as
-            #test_builtin_binding.
+            #VmBackend.h (incl. its builder/BindingTable.h reach) lives
+            #in src/compiler/codegen since the layering split — same
+            #internal-header reach as test_builtin_binding.
             ${PROJECT_SOURCE_DIR}/src/compiler
+            ${PROJECT_SOURCE_DIR}/src/compiler/codegen
     )
-    target_link_libraries(test_generic_typeparam_gc PRIVATE ${NLANG_CORE_LINK} Qt5::Test)
+    target_link_libraries(test_generic_typeparam_gc
+        PRIVATE
+            nlang_compiler
+            nlang_runtime
+            nlang_vm
+            nlang_core
+            Qt5::Test
+    )
     nlang_add_qtest(generic_typeparam_gc_tests test_generic_typeparam_gc)
 
     # Prelude String/Array face declarations (v0.12.2 Task 1): in-process
@@ -1661,7 +2262,14 @@ if(NLANG_BUILD_IDE)
         PRIVATE
             ${PROJECT_SOURCE_DIR}/src/compiler
     )
-    target_link_libraries(test_prelude_faces PRIVATE ${NLANG_CORE_LINK} Qt5::Test)
+    target_link_libraries(test_prelude_faces
+        PRIVATE
+            nlang_compiler
+            nlang_runtime
+            nlang_vm
+            nlang_core
+            Qt5::Test
+    )
     nlang_stdlib_test(test_prelude_faces)
     target_compile_definitions(test_prelude_faces
         PRIVATE
@@ -1688,7 +2296,14 @@ if(NLANG_BUILD_IDE)
         PRIVATE
             ${PROJECT_SOURCE_DIR}/src/compiler
     )
-    target_link_libraries(test_builtin_surface_coverage PRIVATE ${NLANG_CORE_LINK} Qt5::Test)
+    target_link_libraries(test_builtin_surface_coverage
+        PRIVATE
+            nlang_compiler
+            nlang_runtime
+            nlang_vm
+            nlang_core
+            Qt5::Test
+    )
     nlang_stdlib_test(test_builtin_surface_coverage)
     target_compile_definitions(test_builtin_surface_coverage
         PRIVATE
@@ -1712,14 +2327,22 @@ if(NLANG_BUILD_IDE)
         test_compiler/test_module_import.cpp
     )
     #ModuleRegistry.h lives in the compiler's internal builder dir and
-    #VmExecutor.h/ModuleLoader.h in the vm's src dir (both are opaque in
-    #the public headers).
+    #VmExecutor.h in the vm's src dir (opaque in the public headers);
+    #ModuleLoader.h is a public core header.
     target_include_directories(test_module_import
         PRIVATE
             ${PROJECT_SOURCE_DIR}/src/compiler
             ${PROJECT_SOURCE_DIR}/src/vm
+            ${PROJECT_SOURCE_DIR}/src/core
     )
-    target_link_libraries(test_module_import PRIVATE ${NLANG_CORE_LINK} Qt5::Test)
+    target_link_libraries(test_module_import
+        PRIVATE
+            nlang_compiler
+            nlang_runtime
+            nlang_vm
+            nlang_core
+            Qt5::Test
+    )
     nlang_stdlib_test(test_module_import)
     target_compile_definitions(test_module_import
         PRIVATE
@@ -1748,8 +2371,16 @@ if(NLANG_BUILD_IDE)
         PRIVATE
             ${PROJECT_SOURCE_DIR}/src/compiler
             ${PROJECT_SOURCE_DIR}/src/vm
+            ${PROJECT_SOURCE_DIR}/src/core
     )
-    target_link_libraries(test_array_property PRIVATE ${NLANG_CORE_LINK} Qt5::Test)
+    target_link_libraries(test_array_property
+        PRIVATE
+            nlang_compiler
+            nlang_runtime
+            nlang_vm
+            nlang_core
+            Qt5::Test
+    )
     nlang_stdlib_test(test_array_property)
     target_compile_definitions(test_array_property
         PRIVATE
@@ -1773,10 +2404,17 @@ if(NLANG_BUILD_IDE)
     add_executable(test_statement_diag
         test_compiler/test_statement_diag.cpp
     )
-    #nlang_vm is required at link time (nlang_compiler references the VM
-    #backend/module-loader symbols in the build path) — same shape as
-    #test_array_property.
-    target_link_libraries(test_statement_diag PRIVATE ${NLANG_CORE_LINK} Qt5::Test)
+    #nlang_core is required at link time (nlang_compiler references the
+    #core module-loader / bytecode-spelling symbols in the build path) —
+    #same shape as test_array_property.
+    target_link_libraries(test_statement_diag
+        PRIVATE
+            nlang_compiler
+            nlang_runtime
+            nlang_vm
+            nlang_core
+            Qt5::Test
+    )
     if(WIN32)
         add_custom_command(TARGET test_statement_diag POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -1785,13 +2423,94 @@ if(NLANG_BUILD_IDE)
     endif()
     nlang_add_qtest(statement_diag_tests test_statement_diag)
 
+    #Lambda parameter-shape gate (lambda/closure plan Task 3): asserts
+    #the raw-expression rejection diagnostic COUNT through the real
+    #ModuleBuilder pipeline (the decomposed local-decl revisit is the
+    #double-report trap), and the parse-layer rejections of the
+    #default-value / '<'-led spellings.
+    add_executable(test_lambda_params
+        test_compiler/test_lambda_params.cpp
+    )
+    target_link_libraries(test_lambda_params
+        PRIVATE
+            nlang_compiler
+            nlang_runtime
+            nlang_vm
+            nlang_core
+            Qt5::Test
+    )
+    if(WIN32)
+        add_custom_command(TARGET test_lambda_params POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:Qt5::Core> $<TARGET_FILE:Qt5::Test>
+                $<TARGET_FILE_DIR:test_lambda_params>)
+    endif()
+    nlang_add_qtest(lambda_param_tests test_lambda_params)
+
+    #Lambda typing through the expected-type channel (lambda/closure
+    #plan Task 4): asserts the resolution artifacts on the tree (NF_Resolved,
+    #the stamped func<...> instantiation, one param descriptor per
+    #parameter) and the typing diagnostic COUNTS through the real
+    #ModuleBuilder pipeline. The emission seam ("NLang backend") stays
+    #filtered until Tasks 5-7 light the lowering up.
+    add_executable(test_lambda_typing
+        test_compiler/test_lambda_typing.cpp
+    )
+    target_link_libraries(test_lambda_typing
+        PRIVATE
+            nlang_compiler
+            nlang_runtime
+            nlang_vm
+            nlang_core
+            Qt5::Test
+    )
+    if(WIN32)
+        add_custom_command(TARGET test_lambda_typing POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:Qt5::Core> $<TARGET_FILE:Qt5::Test>
+                $<TARGET_FILE_DIR:test_lambda_typing>)
+    endif()
+    nlang_add_qtest(lambda_typing_tests test_lambda_typing)
+
+    #Display synthesis and capture promotion (lambda/closure plan
+    #Task 6): asserts the synthesis artifacts on the tree — the display
+    #class field sets (captured name, & base+offset pair, $this, $outer
+    #chase), the shared-display identity across sibling lambdas, the
+    #recursive self-capture, and the static-context this reject that the
+    #redirect must not swallow.
+    add_executable(test_lambda_capture
+        test_compiler/test_lambda_capture.cpp
+    )
+    target_link_libraries(test_lambda_capture
+        PRIVATE
+            nlang_compiler
+            nlang_runtime
+            nlang_vm
+            nlang_core
+            Qt5::Test
+    )
+    if(WIN32)
+        add_custom_command(TARGET test_lambda_capture POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:Qt5::Core> $<TARGET_FILE:Qt5::Test>
+                $<TARGET_FILE_DIR:test_lambda_capture>)
+    endif()
+    nlang_add_qtest(lambda_capture_tests test_lambda_capture)
+
     #Override-signature / interface-contract diagnostics (P1): asserts
     #diagnostic COUNTS (the e2e manifest only does substring existence)
     #and the alias type-node identity fact the signature predicate sits on.
     add_executable(test_method_contracts
         test_compiler/test_method_contracts.cpp
     )
-    target_link_libraries(test_method_contracts PRIVATE ${NLANG_CORE_LINK} Qt5::Test)
+    target_link_libraries(test_method_contracts
+        PRIVATE
+            nlang_compiler
+            nlang_runtime
+            nlang_vm
+            nlang_core
+            Qt5::Test
+    )
     if(WIN32)
         add_custom_command(TARGET test_method_contracts POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -1961,14 +2680,8 @@ if(NLANG_BUILD_IDE)
     endif()
     get_filename_component(QT_PLATFORM_PLUGINS_DIR "${Qt5_DIR}/../../../plugins/platforms" ABSOLUTE)
     nlang_add_qtest(editor_tests test_editor)
-    if(WIN32)
-        #The plugin path override is the Windows deploy shape; on
-        #Linux the Qt install prefix provides the plugins, and a
-        #second ENVIRONMENT assignment REPLACES the property -- it
-        #must not stack over the qtest wrapper's offscreen QPA.
-        set_tests_properties(editor_tests PROPERTIES
-            ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
-    endif()
+    nlang_test_env(editor_tests
+        QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR})
 
     # Syntax highlighter unit tests (Phase 10 Step 3).
     add_executable(test_syntaxhighlighter
@@ -1987,14 +2700,8 @@ if(NLANG_BUILD_IDE)
                 $<TARGET_FILE_DIR:test_syntaxhighlighter>)
     endif()
     nlang_add_qtest(syntaxhighlighter_tests test_syntaxhighlighter)
-    if(WIN32)
-        #The plugin path override is the Windows deploy shape; on
-        #Linux the Qt install prefix provides the plugins, and a
-        #second ENVIRONMENT assignment REPLACES the property -- it
-        #must not stack over the qtest wrapper's offscreen QPA.
-        set_tests_properties(syntaxhighlighter_tests PROPERTIES
-            ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
-    endif()
+    nlang_test_env(syntaxhighlighter_tests
+        QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR})
 
     # Compile-log browser unit tests (Phase 10 Step 5). Widget test:
     # same QApplication/QPA harness as the editor tests.
@@ -2014,14 +2721,8 @@ if(NLANG_BUILD_IDE)
                 $<TARGET_FILE_DIR:test_compilelogbrowser>)
     endif()
     nlang_add_qtest(compilelogbrowser_tests test_compilelogbrowser)
-    if(WIN32)
-        #The plugin path override is the Windows deploy shape; on
-        #Linux the Qt install prefix provides the plugins, and a
-        #second ENVIRONMENT assignment REPLACES the property -- it
-        #must not stack over the qtest wrapper's offscreen QPA.
-        set_tests_properties(compilelogbrowser_tests PROPERTIES
-            ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
-    endif()
+    nlang_test_env(compilelogbrowser_tests
+        QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR})
 
     # Run-error browser unit tests (v0.8.5): same harness shape as the
     # compile-log browser tests.
@@ -2041,14 +2742,8 @@ if(NLANG_BUILD_IDE)
                 $<TARGET_FILE_DIR:test_runerrorbrowser>)
     endif()
     nlang_add_qtest(runerrorbrowser_tests test_runerrorbrowser)
-    if(WIN32)
-        #The plugin path override is the Windows deploy shape; on
-        #Linux the Qt install prefix provides the plugins, and a
-        #second ENVIRONMENT assignment REPLACES the property -- it
-        #must not stack over the qtest wrapper's offscreen QPA.
-        set_tests_properties(runerrorbrowser_tests PROPERTIES
-            ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
-    endif()
+    nlang_test_env(runerrorbrowser_tests
+        QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR})
 
     # Dialog unit tests (Phase 10 Step 6). Widget tests driving modal
     # exec() loops via zero-timeout timers; same QApplication/QPA
@@ -2069,14 +2764,8 @@ if(NLANG_BUILD_IDE)
                 $<TARGET_FILE_DIR:test_dialogs>)
     endif()
     nlang_add_qtest(dialogs_tests test_dialogs)
-    if(WIN32)
-        #The plugin path override is the Windows deploy shape; on
-        #Linux the Qt install prefix provides the plugins, and a
-        #second ENVIRONMENT assignment REPLACES the property -- it
-        #must not stack over the qtest wrapper's offscreen QPA.
-        set_tests_properties(dialogs_tests PROPERTIES
-            ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
-    endif()
+    nlang_test_env(dialogs_tests
+        QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR})
 
     # Main-window integration tests (Phase 10 Step 7). These drive the
     # real modal flows (file dialogs, message boxes) and run the real
@@ -2103,6 +2792,26 @@ if(NLANG_BUILD_IDE)
     if(TARGET nlang_docs)
         add_dependencies(test_mainwindow nlang_docs)
     endif()
+#mnist_ddp: the v0.14.13 multi-GPU acceptance program (multi_gpu_design
+#§8) — mnist_mlp's same units and hyperparameters, each mini-batch split
+#into one shard per device, shard gradients allreduced by mean. The
+#skip contract: fewer than two devices and the program reports the
+#census shortfall on stderr and exits 90, which SKIP_RETURN_CODE turns
+#into a ctest Skip (the Windows fleet is single-device; the program
+#never trains there — the real double-run gate is tools/gate_multigpu.sh
+#on the 2×4090 box). The run keeps mnist_mlp_run's 300 s ceiling so a
+#two-device host could host a full 40-epoch training run.
+add_test(NAME mnist_ddp_compile
+    COMMAND ncc build -p
+        ${PROJECT_SOURCE_DIR}/examples/mnist_mlp/mnist_ddp.nproj
+        -o ${CMAKE_BINARY_DIR}/e2e_out/mnist_ddp.npkg)
+add_test(NAME mnist_ddp_run
+    COMMAND nvm ${CMAKE_BINARY_DIR}/e2e_out/mnist_ddp.npkg)
+set_tests_properties(mnist_ddp_run PROPERTIES
+    DEPENDS mnist_ddp_compile
+    WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/examples/mnist_mlp
+    SKIP_RETURN_CODE 90
+    TIMEOUT 300)
     if(WIN32)
         add_custom_command(TARGET test_mainwindow POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -2118,9 +2827,9 @@ if(NLANG_BUILD_IDE)
         nlang_copy_qtwebengine_runtime(test_mainwindow)
     endif()
     if(UNIX)
-        #The tools must sit beside the test binary (toolPath() in the
-        #main window resolves them from its own directory); the Qt
-        #runtime resolves through the install prefix here.
+        #The tools must sit beside the test binary (toolPath() resolves
+        #them from the executable's own directory); the Qt runtime
+        #resolves through the install prefix here.
         add_custom_command(TARGET test_mainwindow POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 $<TARGET_FILE:ncc> $<TARGET_FILE:nvm> $<TARGET_FILE:ndb>
@@ -2138,14 +2847,8 @@ if(NLANG_BUILD_IDE)
     # debug tests each took 88-119s and the suite blew past 470s —
     # 15 minutes leaves honest headroom for the loaded case.
     nlang_add_qtest(mainwindow_tests test_mainwindow 900)
-    if(WIN32)
-        #The plugin path override is the Windows deploy shape; on
-        #Linux the Qt install prefix provides the plugins, and a
-        #second ENVIRONMENT assignment REPLACES the property -- it
-        #must not stack over the qtest wrapper's offscreen QPA.
-        set_tests_properties(mainwindow_tests PROPERTIES
-            ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
-    endif()
+    nlang_test_env(mainwindow_tests
+        QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR})
 
     # Deployment self-containment check (Phase 10 Step 9). Runs a
     # curated five-test probe subset from a scratch copy of the nide
@@ -2154,10 +2857,42 @@ if(NLANG_BUILD_IDE)
     # test per resolution class (Qt stack, stdlib, ncc/nvm, PTY, ndb)
     # must resolve purely from the copy. See nide_deploy_check.cmake
     # for the division of concerns vs the full in-tree suite.
+    # The script's inner bound must stay inside the entry's own watchdog
+    # cap: a bound sitting behind the cap can never fire, because ctest
+    # kills first and the failure then arrives with the unreadable log the
+    # script's bound exists to avoid. A static number cannot serve every
+    # tree (the ctest-IDE row prices the cap at the 120 s floor while the
+    # ctest-ASan row prices it at 164.5 s), so when this tree's table has a
+    # row for the entry, derive the bound from the generated cap: the
+    # script's outer backstop sits at PROBE_TIMEOUT + 25 and ctest needs a
+    # final 10 s of its own, hence the 35 s headroom below the cap. The
+    # floor stops a tiny reference row from producing a self-killing inner
+    # bound; it mirrors MIN_CAP_S in tools/gate_time_table.py. A tree with
+    # no row here passes no bound: the script's default applies and the
+    # entry stays under the leg's flat --timeout fallback.
+    set(NLANG_DEPLOY_PROBE_HEADROOM_S 35)
+    set(NLANG_DEPLOY_PROBE_FLOOR_S 60)
+    set(NLANG_DEPLOY_PROBE_ARGS "")
+    if(DEFINED GATE_TIMEOUT_nide_deploy_check)
+        # Floor the generated cap (its repr is a float, e.g. 164.5) before
+        # subtracting: the bound is handed to the script as an integer.
+        string(REGEX REPLACE "\\..*$" "" nlang_deploy_cap_seconds
+            "${GATE_TIMEOUT_nide_deploy_check}")
+        math(EXPR nlang_deploy_probe_timeout
+            "${nlang_deploy_cap_seconds} - ${NLANG_DEPLOY_PROBE_HEADROOM_S}")
+        if(nlang_deploy_probe_timeout LESS ${NLANG_DEPLOY_PROBE_FLOOR_S})
+            set(nlang_deploy_probe_timeout ${NLANG_DEPLOY_PROBE_FLOOR_S})
+        endif()
+        set(NLANG_DEPLOY_PROBE_ARGS
+            -DPROBE_TIMEOUT=${nlang_deploy_probe_timeout})
+    endif()
     add_test(NAME nide_deploy_check
         COMMAND ${CMAKE_COMMAND}
+            $<$<PLATFORM_ID:Windows>:-DDEPLOY_DIR=$<TARGET_FILE_DIR:nide>>
             -DTEST_EXE=$<TARGET_FILE:test_mainwindow>
             -DQT_TEST_DLL=$<TARGET_FILE:Qt5::Test>
+            $<$<PLATFORM_ID:Windows>:-DNATIVE_DLL_DIR=$<TARGET_FILE_DIR:nlang_math>>
+            $<$<NOT:$<PLATFORM_ID:Windows>>:-DBUILD_DIR=${CMAKE_BINARY_DIR}>
             -DSTDLIB_DIR=${NLANG_TEST_STDLIB_DIR}
             #Scratch nested 9 levels under <build>/tests: the loader's
             #build-tree fallback walks up at most 8, so it cannot rescue
@@ -2166,23 +2901,9 @@ if(NLANG_BUILD_IDE)
             -DCHECK_DIR=${CMAKE_CURRENT_BINARY_DIR}/nide_deploy_check/c1/c2/c3/c4/c5/c6/c7/c8
             -DPYTHON3_EXE=${PYTHON3_EXECUTABLE}
             -DQTEST_PROGRESS=${PROJECT_SOURCE_DIR}/tools/qtest_progress.py
-            $<$<PLATFORM_ID:Windows>:-DDEPLOY_DIR=$<TARGET_FILE_DIR:nide>>
-            $<$<PLATFORM_ID:Windows>:-DNATIVE_DLL_DIR=$<TARGET_FILE_DIR:nlang_math>>
-            $<$<NOT:$<PLATFORM_ID:Windows>>:-DBUILD_DIR=${CMAKE_BINARY_DIR}>
+            ${NLANG_DEPLOY_PROBE_ARGS}
             -P ${CMAKE_CURRENT_SOURCE_DIR}/test_nide/nide_deploy_check.cmake)
-    if(WIN32)
-        #Isolate the probe from the dev Qt's plugin dir: the deployed
-        #layout carries qwindows.dll and the probe must resolve it from
-        #there. (On Linux no such override — the offscreen QPA comes
-        #from the script's execute_process environment, and the plugins/
-        #tree rides the layout for a real deployed run.)
-        set_tests_properties(nide_deploy_check PROPERTIES
-            ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=")
-    endif()
-    set_tests_properties(nide_deploy_check PROPERTIES
-        # 150 s inner bound (see nide_deploy_check.cmake) + the
-        # scratch-copy script overhead and the wrapper's tree kill.
-        TIMEOUT 180)
+    nlang_test_env(nide_deploy_check QT_QPA_PLATFORM_PLUGIN_PATH=)
 
     # Library search-path end-to-end tests: a global library dir is indexed
     # and offered in completion and built via -I; a project <ImportPaths>
@@ -2208,21 +2929,17 @@ if(NLANG_BUILD_IDE)
                 $<TARGET_FILE_DIR:test_searchpath_integration>)
     endif()
     if(UNIX)
-        #Same toolPath() dependency as the mainwindow tests above.
+        #The tools must sit beside the test binary (toolPath() resolves
+        #them from the executable's own directory); the Qt runtime
+        #resolves through the install prefix here.
         add_custom_command(TARGET test_searchpath_integration POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 $<TARGET_FILE:ncc> $<TARGET_FILE:nvm> $<TARGET_FILE:ndb>
                 $<TARGET_FILE_DIR:test_searchpath_integration>)
     endif()
     nlang_add_qtest(searchpath_integration_tests test_searchpath_integration)
-    if(WIN32)
-        #The plugin path override is the Windows deploy shape; on
-        #Linux the Qt install prefix provides the plugins, and a
-        #second ENVIRONMENT assignment REPLACES the property -- it
-        #must not stack over the qtest wrapper's offscreen QPA.
-        set_tests_properties(searchpath_integration_tests PROPERTIES
-            ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
-    endif()
+    nlang_test_env(searchpath_integration_tests
+        QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR})
 
     # Embedded terminal unit tests: emulator over vendored libvterm,
     # widget input/render model, pty backend with real child processes.
@@ -2242,16 +2959,11 @@ if(NLANG_BUILD_IDE)
                 $<TARGET_FILE_DIR:test_terminal>)
     endif()
     nlang_add_qtest(terminal_tests test_terminal)
-    #nlang_add_qtest already applies the house 180s TIMEOUT; only the
-    #platform plugin path is specific to this test.
-    if(WIN32)
-        #The plugin path override is the Windows deploy shape; on
-        #Linux the Qt install prefix provides the plugins, and a
-        #second ENVIRONMENT assignment REPLACES the property -- it
-        #must not stack over the qtest wrapper's offscreen QPA.
-        set_tests_properties(terminal_tests PROPERTIES
-            ENVIRONMENT "QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR}")
-    endif()
+    #The TIMEOUT cap comes from this entry's derived reference-row cap
+    #like every other qtest entry's; only the platform plugin path is
+    #specific to this test.
+    nlang_test_env(terminal_tests
+        QT_QPA_PLATFORM_PLUGIN_PATH=${QT_PLATFORM_PLUGINS_DIR})
 endif()
 
 # Version single-source guard: each tool's --version must echo the
@@ -2280,23 +2992,18 @@ if(Python3_FOUND)
         COMMAND ${PYTHON3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/check_version.py
             $<TARGET_FILE:nlang> nlang ${NLANG_VERSION})
-    set_tests_properties(version_ncc version_nvm version_ndisasm version_ndb
-        version_nlang
-        PROPERTIES TIMEOUT 60)
     # nvm flag-position guard: --gc-stress=N must parse from any
     # argument position, with the module exit code unchanged.
     add_test(NAME nvm_gc_stress_position
         COMMAND ${PYTHON3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/check_nvm_gc_stress.py
             $<TARGET_FILE:nvm> $<TARGET_FILE:ncc>)
-    set_tests_properties(nvm_gc_stress_position PROPERTIES TIMEOUT 60)
     # K2 slice 6: --carriers=N is parity-neutral for a spawn-free program
     # and refuses out-of-range values with an explicit diagnostic.
     add_test(NAME nvm_carriers_flag
         COMMAND ${PYTHON3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/check_nvm_carriers.py
             $<TARGET_FILE:nvm> $<TARGET_FILE:ncc>)
-    set_tests_properties(nvm_carriers_flag PROPERTIES TIMEOUT 60)
     # nlang script runner: the three behavior faces of the tool (script
     # mode end to end incl. the D3 empty-script mapping, -c inline
     # statements incl. the non-ASCII wide-argv path, and the CLI
@@ -2307,8 +3014,6 @@ if(Python3_FOUND)
                 ${CMAKE_CURRENT_SOURCE_DIR}/check_nlang_tool.py
                 ${nlang_case} $<TARGET_FILE:nlang>)
     endforeach()
-    set_tests_properties(nlang_run_script nlang_c_inline nlang_cli_rejects
-        PROPERTIES TIMEOUT 120)
     # .ncu byte-reproducibility guard: the same compiler and source must
     # yield identical module bytes on every run (regression net for the
     # uninitialized class-field access serialization bug).
@@ -2316,13 +3021,11 @@ if(Python3_FOUND)
         COMMAND ${PYTHON3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/check_ncu_determinism.py
             $<TARGET_FILE:ncc>)
-    set_tests_properties(ncu_determinism PROPERTIES TIMEOUT 180)
     # Phase 4c guard: no hardcoded standard library may return to the VM
     # (signature table, math/io/fs intrinsic families, their id blocks).
     add_test(NAME no_builtin_stdlib
         COMMAND ${PYTHON3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/check_no_builtin_stdlib.py)
-    set_tests_properties(no_builtin_stdlib PROPERTIES TIMEOUT 60)
     # langservice: index real stdlib/*.n, resolve / complete / locate.
     add_executable(test_langservice
         test_langservice/test_symbol_index.cpp
@@ -2337,7 +3040,6 @@ if(Python3_FOUND)
             STDLIB_DIR="${NLANG_TEST_STDLIB_DIR}"
     )
     add_test(NAME langservice_tests COMMAND test_langservice)
-    set_tests_properties(langservice_tests PROPERTIES TIMEOUT 60)
     # UTF-8 path guard: the CLI executables' UTF-8 active code page
     # (manifest) must survive argv ingestion, file I/O, and echo — a
     # mixed CJK+emoji directory covers both the mojibake and the
@@ -2348,7 +3050,6 @@ if(Python3_FOUND)
             $<TARGET_FILE:ncc> $<TARGET_FILE:nvm>
             $<TARGET_FILE:ndisasm> $<TARGET_FILE:ndb>
             ${CMAKE_BINARY_DIR})
-    set_tests_properties(cli_utf8_paths PROPERTIES TIMEOUT 120)
     # .nproj UTF-8 contract guard: legacy-encoded project files are
     # rejected with a named UTF-8 error (UTF-8 BOM accepted and
     # skipped; UTF-16 gets a dedicated hint).
@@ -2356,14 +3057,12 @@ if(Python3_FOUND)
         COMMAND ${PYTHON3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/check_nproj_utf8.py
             $<TARGET_FILE:ncc> ${CMAKE_BINARY_DIR})
-    set_tests_properties(nproj_utf8 PROPERTIES TIMEOUT 120)
     # Source-size guard: hand-written sources stay <=500 lines per file
     # and <=50 lines per function; registered exceptions live in
     # tools/source_size_guard/allowlist.json, each with a reason.
     add_test(NAME source_size_guard
         COMMAND ${PYTHON3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/../tools/source_size_guard/check_source_size.py)
-    set_tests_properties(source_size_guard PROPERTIES TIMEOUT 60)
 endif()
 
 # End-to-end test: compile-only (exits 0)
@@ -2404,14 +3103,13 @@ add_test(NAME project_run
 add_test(NAME libdemo_compile
     COMMAND ncc build ${PROJECT_SOURCE_DIR}/examples/libdemo/mylib.n
         -o ${CMAKE_CURRENT_BINARY_DIR}/mylib.ncu)
-set_tests_properties(libdemo_compile PROPERTIES TIMEOUT 180)
 add_test(NAME libdemo_run
     COMMAND ncc ${PROJECT_SOURCE_DIR}/examples/libdemo/main.n
         -I ${CMAKE_CURRENT_BINARY_DIR}
         -I ${PROJECT_SOURCE_DIR}/examples/libdemo
         -o ${CMAKE_CURRENT_BINARY_DIR}/main_run.ncu)
 set_tests_properties(libdemo_run
-    PROPERTIES DEPENDS libdemo_compile TIMEOUT 180)
+    PROPERTIES DEPENDS libdemo_compile)
 
 #--- Module import visibility matrix (module import visibility Task 10) --
 #Project-mode fixtures in tests/e2e/proj_*: the e2e runner gates only
@@ -2527,15 +3225,26 @@ add_test(NAME proj_generic_sourceless_compile
 add_test(NAME proj_generic_sourceless_run
     COMMAND nvm ${CMAKE_BINARY_DIR}/e2e_out/proj_generic_sourceless.npkg
         -I ${CMAKE_BINARY_DIR}/e2e_out)
-set_tests_properties(proj_generic_sourceless_lib_compile PROPERTIES
-    TIMEOUT 180)
 set_tests_properties(proj_generic_sourceless_compile PROPERTIES
-    DEPENDS proj_generic_sourceless_lib_compile
-    TIMEOUT 180)
+    DEPENDS proj_generic_sourceless_lib_compile)
 set_tests_properties(proj_generic_sourceless_run PROPERTIES
     DEPENDS proj_generic_sourceless_compile
-    PASS_REGULAR_EXPRESSION "4"
-    TIMEOUT 180)
+    PASS_REGULAR_EXPRESSION "4")
+
+#F1 package-artifact corpus: a Python driver uses the real ncc/nvm tools
+#inside one isolated scratch tree. It covers a multi-member library package,
+#dotted and wildcard imports, transitive closure, source-before-artifact
+#selection across directories, source/artifact behavior and diagnostic parity,
+#and first-artifact-directory precedence.
+if(Python3_FOUND)
+    add_test(NAME pkg_artifact_imports
+        COMMAND ${NLANG_DOCS_PYTHON}
+            ${PROJECT_SOURCE_DIR}/tests/e2e/pkg_artifact_imports/run.py
+            $<TARGET_FILE:ncc>
+            $<TARGET_FILE:nvm>
+            $<TARGET_FILE:nlang_pkgprobe>
+            ${CMAKE_BINARY_DIR}/e2e_out)
+endif()
 
 #Concurrency import redesign F11: the Channel init-list arm must find
 #the template row through the alias (ClassSlotFor), not the current
@@ -2779,56 +3488,49 @@ set_tests_properties(mnist_mlp_run PROPERTIES
     DEPENDS mnist_mlp_compile
     WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/examples/mnist_mlp)
 
-#mnist_ddp: the v0.14.13 multi-GPU acceptance program (multi_gpu_design
-#§8) — mnist_mlp's same units and hyperparameters, each mini-batch split
-#into one shard per device, shard gradients allreduced by mean. The
-#skip contract: fewer than two devices and the program reports the
-#census shortfall on stderr and exits 90, which SKIP_RETURN_CODE turns
-#into a ctest Skip (the Windows fleet is single-device; the program
-#never trains there — the real double-run gate is tools/gate_multigpu.sh
-#on the 2×4090 box). The run keeps mnist_mlp_run's 300 s ceiling so a
-#two-device host could host a full 40-epoch training run.
-add_test(NAME mnist_ddp_compile
-    COMMAND ncc build -p
-        ${PROJECT_SOURCE_DIR}/examples/mnist_mlp/mnist_ddp.nproj
-        -o ${CMAKE_BINARY_DIR}/e2e_out/mnist_ddp.npkg)
-add_test(NAME mnist_ddp_run
-    COMMAND nvm ${CMAKE_BINARY_DIR}/e2e_out/mnist_ddp.npkg)
-set_tests_properties(mnist_ddp_run PROPERTIES
-    DEPENDS mnist_ddp_compile
-    WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/examples/mnist_mlp
-    SKIP_RETURN_CODE 90
-    TIMEOUT 300)
-
 #Project-mode entries are fixture compiles/runs; the FAQ CWD pin runs a
-#real compile too. Keep each well under the 3-minute unit-test ceiling.
-set_tests_properties(proj_import_visibility_compile proj_import_visibility_run
-    proj_same_dir_compile proj_same_dir_run ndisasm_qualified_func_name
-    proj_dup_import_compile
-    proj_wildcard_exact_union_compile proj_wildcard_exact_union_run
-    proj_pkg_run_compile proj_pkg_run_run
-    proj_not_imported_compile proj_bare_cross_dir_compile
-    duplicate_package_path_compile ncc_no_o_output_cwd
-    proj_two_scripts_compile proj_imports_script_lib
-    proj_imports_script_compile proj_imports_script_run
-    proj_imports_lib_stmts_compile
-    mnist_mlp_compile mnist_ddp_compile
-    PROPERTIES TIMEOUT 180)
+#real compile too. Their watchdog caps derive from the reference rows
+#like every other entry's (the derived-caps block at the top of this
+#file).
 
-#mnist_mlp_run needs its own ceiling: under the address-sanitizer tree
-#the training run measures 165-192 s on this machine (minute-scale
-#machine oscillation, not a regression band), so the shared 180 s family
-#timeout produced false TIMEOUT flakes at the pre-commit sweep. Raised
-#to 300 s by user ruling on 2026-11-12.
-set_tests_properties(mnist_mlp_run PROPERTIES TIMEOUT 300)
+#mnist_mlp_run is the heaviest routine entry: under the address-
+#sanitizer tree the training run measures 165-192 s on this machine
+#(minute-scale machine oscillation, not a regression band), which is
+#what the per-config reference columns price -- each tree's watchdog cap
+#follows its own measured seconds instead of one hand-picked family
+#ceiling (the old shared 180 s produced false TIMEOUT flakes at the
+#pre-commit sweep, hence the 2026-11-12 ruling for a 300 s hand ceiling;
+#the table carries that margin now).
 
-#regex_redos pins the D9 linear bound (v0.13.7). Its own ceiling: the run
-#is timing-sensitive and the e2e runner's shared 30 s per-test cap cannot
-#host it; 300 s mirrors the mnist_mlp_run ruling (five 20 s caps worst
-#case total 100 s plus harness slack, inside the ceiling). The ASan tree
-#runs ~1.76x the Debug time (2026-11-14: Debug 171.9 s, ASan 302.7 s,
-#direct run on an idle machine) and clipped the 300 s cap, so 420 s hosts
-#the measured ASan band with oscillation slack.
+#regex_redos pins the D9 linear bound (v0.13.7), in two halves so each one is
+#judged where it is meaningful:
+#  regex_redos_{compile,run} — the correctness half, in every tree and config
+#    (Debug, ASan, IDE). No wall-clock assertion inside the program: the same
+#    wall-capped fixture in three trees is a bet on machine load, and the ASan
+#    tree measures ~1.76x the Debug time on this workload (2026-11-14 idle
+#    machine: Debug 171.9 s, ASan 302.7 s), so caps set from Debug readings
+#    left ASan no headroom (2026-11-20: 47584 ms against the 45000 ms cap).
+#    The derived caps are what settled that: each tree's watchdog cap comes
+#    from its own reference column in tests/gate_time_reference.txt, so an
+#    engine that went exponential again on these shapes still sits past its
+#    tree's cap, while the inputs are a quarter of the perf half's so the
+#    routine legs pay for correctness only.
+#  regex_redos_perf_{compile,run} — the timed half, registered only when
+#    NLANG_PERF_TESTS=ON, i.e. on the tree the release sweep builds. The
+#    bounded-time claim belongs there: it is about a wall-clock budget, and the
+#    routine legs (Debug, ASan, IDE) would each pay minutes for it while their
+#    own speed is not what the claim measures. The ctest CONFIGS test property
+#    looked like the cheaper way to say "Release only", but it does not filter
+#    for this generator — measured 2026-11-20, `ctest -C Debug` ran the
+#    CONFIGS-Release entry and took 221.42 s — so the entries are simply absent
+#    unless asked for, and the run command names the configuration:
+#      cmake -S . -B <tree> -DNLANG_PERF_TESTS=ON …
+#      ctest --test-dir <tree> -C Release -R "^regex_redos_perf"
+#    Its caps are calibrated on the Release readings (see the fixture header:
+#    1203 ms worst shape, 3096 ms scan, caps ~6.5x above), so the whole entry is
+#    bounded by ~52 s of asserted work; an engine that ignores those caps
+#    entirely is still killed, because the entry's watchdog cap derives from
+#    its Release-column reference seconds in tests/gate_time_reference.txt.
 add_test(NAME regex_redos_compile
     COMMAND ncc build
         ${PROJECT_SOURCE_DIR}/tests/e2e/stdlib_regex_redos.n
@@ -2836,7 +3538,17 @@ add_test(NAME regex_redos_compile
 add_test(NAME regex_redos_run
     COMMAND nvm ${CMAKE_BINARY_DIR}/e2e_out/regex_redos.ncu)
 set_tests_properties(regex_redos_run PROPERTIES
-    DEPENDS regex_redos_compile TIMEOUT 420)
+    DEPENDS regex_redos_compile)
+if(NLANG_PERF_TESTS)
+    add_test(NAME regex_redos_perf_compile
+        COMMAND ncc build
+            ${PROJECT_SOURCE_DIR}/tests/e2e/stdlib_regex_redos_perf.n
+            -o ${CMAKE_BINARY_DIR}/e2e_out/regex_redos_perf.ncu)
+    add_test(NAME regex_redos_perf_run
+        COMMAND nvm ${CMAKE_BINARY_DIR}/e2e_out/regex_redos_perf.ncu)
+    set_tests_properties(regex_redos_perf_run PROPERTIES
+        DEPENDS regex_redos_perf_compile)
+endif()
 
 #--- Docs-pipeline unit tests (pytest) ---------------------------------------
 #The nlang-docs subproject's pytest suite pins the linkcheck and offline-
@@ -2862,11 +3574,150 @@ if(NLANG_BUILD_DOCS)
                 NLANG_NVM=$<TARGET_FILE:nvm>
                 ${NLANG_DOCS_PYTHON} -m pytest ${NLANG_DOCS_DIR}/tests -q
             WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
-        set_tests_properties(nlang_docs_pytest PROPERTIES TIMEOUT 180)
     else()
         message(STATUS "nlang_docs_pytest skipped: pytest is not importable "
             "via '${NLANG_DOCS_PYTHON}' (pip install pytest to enable)")
     endif()
+endif()
+
+#--- gate.sh selftest (bash) -------------------------------------------------
+#The write-directory lock is a shell mechanism, so its pin is a shell test.
+#bash is not a build requirement, so a machine without it loses one gate
+#entry -- but the skip must say so, exactly like the pytest block above
+#reports a missing pytest instead of silently dropping the entry.
+#A file named "bash" in PATH is not yet a bash that can run this script:
+#PATH may resolve to WSL's bash, or to a shell without the digest tool the
+#lock key needs. Probe it with the print mode, which takes no lock and
+#writes no file, so asking at configure time is cheap and side-effect free.
+find_program(BASH_PROGRAM bash)
+if(BASH_PROGRAM)
+    execute_process(
+        COMMAND ${BASH_PROGRAM} ${PROJECT_SOURCE_DIR}/tools/gate.sh
+                --print-write-dirs --build ${PROJECT_SOURCE_DIR}
+        RESULT_VARIABLE NLANG_GATE_BASH_PROBE
+        OUTPUT_VARIABLE NLANG_GATE_BASH_OUT
+        ERROR_QUIET OUTPUT_STRIP_TRAILING_WHITESPACE)
+    #An absent sha256sum leaves the key empty ("key  path ..." with two
+    #spaces), so a non-empty hex run is what proves the tool is there.
+    #[0-9a-f]+ rather than {16}: CMake's MATCHES does not support bounded
+    #repetition at all (measured on CMake 3.25.2 -- the {16} form never
+    #matches), and the exact 16-hex shape is A7's assertion to make.
+    if(NLANG_GATE_BASH_PROBE EQUAL 0
+            AND NLANG_GATE_BASH_OUT MATCHES "^key [0-9a-f]+ path ")
+        add_test(NAME nlang_gate_selftest
+            COMMAND ${BASH_PROGRAM} ${PROJECT_SOURCE_DIR}/tools/gate_selftest.sh
+            WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+    else()
+        message(STATUS "nlang_gate_selftest skipped: '${BASH_PROGRAM}' cannot "
+            "print a write-directory key (needs bash with sha256sum and "
+            "cygpath or realpath)")
+    endif()
+else()
+    message(STATUS "nlang_gate_selftest skipped: bash not found in PATH")
+endif()
+
+# gate_time_check selftest: hermetic corpus for the reference timing
+# guards (tools/gate_time_check.py). Stdlib only, so plain Python3
+# suffices -- registering it through the pytest probe would drop the
+# entry wherever pytest is absent (build-dev registers zero pytest
+# entries), and the corpus must run in every configured tree.
+if(Python3_FOUND)
+    add_test(NAME gate_time_check_selftest
+        COMMAND ${PYTHON3_EXECUTABLE}
+            ${PROJECT_SOURCE_DIR}/tools/gate_time_check_test.py
+        WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+else()
+    message(STATUS "gate_time_check_selftest skipped: Python3 not found")
+endif()
+
+# gate_freshness selftest: hermetic corpus for the batch freshness
+# preflight (tools/gate_freshness.py), registered the same way as the
+# timing corpus -- plain Python3, every configured tree, no pytest
+# probe to depend on.
+if(Python3_FOUND)
+    add_test(NAME gate_freshness_selftest
+        COMMAND ${PYTHON3_EXECUTABLE}
+            ${PROJECT_SOURCE_DIR}/tools/gate_freshness_test.py
+        WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+else()
+    message(STATUS "gate_freshness_selftest skipped: Python3 not found")
+endif()
+
+# Layering guard (tools/layering_guard.py): the library DAG's include/CMake
+# face per docs/dev/library_layering_design.md section 6, green ever since
+# the nlang_core split sealed the compiler/vm boundary (task 6 of
+# docs/dev/library_layering_plan.md); the entry ran pinned WILL_FAIL while
+# the split was in flight. The selftest entry judges the fixture corpus
+# under tests/fixtures/layering and is green from the start. Stdlib only,
+# like the gate_time_check selftest above.
+if(Python3_FOUND)
+    add_test(NAME layering_guard
+        COMMAND ${PYTHON3_EXECUTABLE}
+            ${PROJECT_SOURCE_DIR}/tools/layering_guard.py
+        WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+    add_test(NAME layering_guard_selftest
+        COMMAND ${PYTHON3_EXECUTABLE}
+            ${PROJECT_SOURCE_DIR}/tools/layering_guard.py
+            --selftest
+        WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+else()
+    message(STATUS "layering_guard skipped: Python3 not found")
+endif()
+
+# gate_tier.sh assembly smoke (tools/gate_tier_test.py): drives the leg
+# dispatch against a stub gate.sh in a sandbox, so it needs bash but no
+# build tree and no lock to wait on (the stub replaces gate.sh). The probe
+# variables come from the gate selftest block above: a bash that cannot
+# print a write-directory key is not one this script can drive either.
+# No ENVIRONMENT property here: the test pins its own child environment
+# (the machine scale stays off the suite configuration, D-4).
+if(Python3_FOUND)
+    if(BASH_PROGRAM AND NLANG_GATE_BASH_PROBE EQUAL 0
+            AND NLANG_GATE_BASH_OUT MATCHES "^key [0-9a-f]+ path ")
+        add_test(NAME gate_tier_smoke
+            COMMAND ${PYTHON3_EXECUTABLE}
+                ${PROJECT_SOURCE_DIR}/tools/gate_tier_test.py
+            WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+    else()
+        message(STATUS "gate_tier_smoke skipped: bash missing or unable to "
+            "print a write-directory key (the gate selftest message above "
+            "names the cause)")
+    endif()
+else()
+    message(STATUS "gate_tier_smoke skipped: Python3 not found")
+endif()
+
+# Derived-caps selftest (tools/gate_time_selftest.sh): reconfigures a scratch
+# stub project over a stub reference table with the real emit-cmake generator
+# and audits every stub entry's TIMEOUT from `ctest --show-only=json-v1`, so
+# nothing compiles and the audit is independent of this tree's build state.
+# The fixture configures nested CMake runs, so it must drive the same
+# cmake/ctest/python trio this configure resolved rather than whatever PATH a
+# later ctest invocation carries: the three paths ride the test environment
+# (through the merge helper, keeping the wrapper's scratch TMP/TEMP intact).
+# The bash probe guard mirrors the gate selftest block: PATH may resolve
+# "bash" to WSL's bash, which cannot exec the Windows-path cmake/ctest pair
+# handed to it here any more than it can drive gate.sh.
+if(BASH_PROGRAM AND Python3_FOUND
+        AND NLANG_GATE_BASH_PROBE EQUAL 0
+        AND NLANG_GATE_BASH_OUT MATCHES "^key [0-9a-f]+ path ")
+    add_test(NAME nlang_gate_time_selftest
+        COMMAND ${BASH_PROGRAM}
+            ${PROJECT_SOURCE_DIR}/tools/gate_time_selftest.sh
+        WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+    # The env-merge probe audits the registrations of THIS configure's
+    # tree (D-12 item 2), so the tree path and its scratch root ride the
+    # same channel as the toolchain trio: the probe's expectation is the
+    # very string this configure stamped into every entry, not a guess.
+    nlang_test_env(nlang_gate_time_selftest
+        NLANG_GATE_CMAKE=${CMAKE_COMMAND}
+        NLANG_GATE_CTEST=${CMAKE_CTEST_COMMAND}
+        NLANG_GATE_PYTHON=${Python3_EXECUTABLE}
+        NLANG_GATE_PROD_TREE=${CMAKE_BINARY_DIR}
+        NLANG_GATE_SCRATCH_ROOT=${NLANG_TEST_SCRATCH_ROOT})
+else()
+    message(STATUS "nlang_gate_time_selftest skipped: bash or Python3 "
+        "unavailable (the gate selftest messages above name the bash cause)")
 endif()
 
 # In-process VM tests resolve the stdlib native modules through the
@@ -2888,7 +3739,10 @@ target_include_directories(test_embed
         ${PROJECT_SOURCE_DIR}/src/embed
         ${PROJECT_SOURCE_DIR}/include
 )
-target_link_libraries(test_embed PRIVATE ${NLANG_CORE_LINK} nlang_embed)
+target_link_libraries(test_embed
+    PRIVATE
+        nlang_embed
+)
 add_test(NAME embed_value_tests COMMAND test_embed)
 
 #Embedding fixtures: real ncc output (build-time, mylib pattern). The
@@ -2931,10 +3785,17 @@ add_executable(test_embed_vm
 target_include_directories(test_embed_vm
     PRIVATE
         ${PROJECT_SOURCE_DIR}/src/vm
+        ${PROJECT_SOURCE_DIR}/src/core
         ${PROJECT_SOURCE_DIR}/src/embed
         ${PROJECT_SOURCE_DIR}/include
 )
-target_link_libraries(test_embed_vm PRIVATE ${NLANG_CORE_LINK} nlang_embed)
+target_link_libraries(test_embed_vm
+    PRIVATE
+        nlang_vm
+        nlang_core
+        nlang_runtime
+        nlang_embed
+)
 target_compile_definitions(test_embed_vm
     PRIVATE EMBED_VALUES_NCU="${embed_fixture_dir}/values_demo.ncu")
 add_dependencies(test_embed_vm nlang_embed_fixtures)
@@ -2943,7 +3804,10 @@ add_test(NAME embed_vm_tests COMMAND test_embed_vm)
 add_executable(test_embed_api
     test_embed/test_embed_api.cpp
 )
-target_link_libraries(test_embed_api PRIVATE ${NLANG_CORE_LINK} nlang_embed)
+target_link_libraries(test_embed_api
+    PRIVATE
+        nlang_embed
+)
 target_compile_definitions(test_embed_api
     PRIVATE
         EMBED_VALUES_NCU="${embed_fixture_dir}/values_demo.ncu"
@@ -2957,17 +3821,25 @@ add_test(NAME embed_api_tests COMMAND test_embed_api)
 
 #Embedding source-entry tests (spec: 2026-10-15-embedding-source-entry).
 #Deployed-stdlib fixture: one host-specified directory in the full
-#deployment shape -- stdlib declaration sources + stdlib.npkg + native
-#DLLs -- so import discovery, closure loading and native resolution all
-#resolve from addImportDir dirs (the ONE-list contract). No DLL copies
-#land next to the test exes anymore (the copy target is gone), but the
-#loader's build-tree fallback still rescues a load if the
-#AddNativeSearchDir wiring regresses -- the wiring is exercised (the
-#happy path proves host dirs resolve first), not absence-probed.
+#deployment shape -- stdlib declaration sources + the per-domain stdlib
+#packages + native DLLs -- so import discovery, closure loading and
+#native resolution all resolve from addImportDir dirs (the ONE-list
+#contract). No DLL copies land next to the test exes anymore (the copy
+#target is gone), but the loader's build-tree fallback still rescues a
+#load if the AddNativeSearchDir wiring regresses -- the wiring is
+#exercised (the happy path proves host dirs resolve first), not
+#absence-probed.
 set(embed_deploy_dir ${CMAKE_BINARY_DIR}/embed_deploy)
+#copy_directory never deletes: the monolithic package an older build
+#left here outlives its removal from the stdlib dir, and in the loader's
+#filename order it shadows the domain packages sorting after it (system,
+#tensor, url, web). The build-tree target clears the same two files.
 add_custom_target(nlang_embed_deploy ALL
     COMMAND ${CMAKE_COMMAND} -E copy_directory
                 ${NLANG_TEST_STDLIB_DIR} ${embed_deploy_dir}
+    COMMAND ${CMAKE_COMMAND} -E remove
+                ${embed_deploy_dir}/stdlib.npkg
+                ${embed_deploy_dir}/stdlib.nproj
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 $<TARGET_FILE:nlang_io>
                 $<TARGET_FILE:nlang_math>
@@ -2987,7 +3859,10 @@ target_include_directories(test_embed_source
         ${PROJECT_SOURCE_DIR}/src/embed
         ${PROJECT_SOURCE_DIR}/include
 )
-target_link_libraries(test_embed_source PRIVATE ${NLANG_CORE_LINK} nlang_embed)
+target_link_libraries(test_embed_source
+    PRIVATE
+        nlang_embed
+)
 target_compile_definitions(test_embed_source
     PRIVATE
         EMBED_DEPLOY_DIR="${embed_deploy_dir}"
@@ -2996,9 +3871,6 @@ target_compile_definitions(test_embed_source
         EMBED_IO_NCU="${embed_fixture_dir}/io_demo.ncu")
 add_dependencies(test_embed_source nlang_embed_fixtures nlang_embed_deploy)
 add_test(NAME embed_source_tests COMMAND test_embed_source)
-#House rule: every test stays under a 3-minute ceiling (a hang must not
-#block the full gate for 25 minutes).
-set_tests_properties(embed_source_tests PROPERTIES TIMEOUT 180)
 
 #Embedding example smoke: run a stdlib-importing script through
 #examples/embed_host and assert the redirected output (Task 11).
@@ -3008,11 +3880,10 @@ if(Python3_FOUND)
             ${PROJECT_SOURCE_DIR}/tests/e2e/run_embed_host.py
             $<TARGET_FILE:embed_host>
             $<TARGET_FILE:ncc>
-            ${NLANG_TEST_STDLIB_DIR}/stdlib.npkg
+            ${NLANG_TEST_STDLIB_DIR}
             $<TARGET_FILE:nlang_io>
             $<TARGET_FILE:nlang_system>
             $<TARGET_FILE:nlang_gzip>)
-    set_tests_properties(embed_host_smoke PROPERTIES TIMEOUT 120)
 endif()
 
 
@@ -3044,25 +3915,32 @@ add_executable(test_native_tensor
     test_native_tensor/TestMatMul.cpp
     test_native_tensor/TestElementwise.cpp
     test_native_tensor/TestReduce.cpp
-    test_native_tensor/TestReduceStrided.cpp
-    test_native_tensor/TestStreamHandle.cpp
 )
 target_link_libraries(test_native_tensor PRIVATE nlang_tensor_kernels)
-#backend_descriptor.h is the plugin-contract header the stream-handle
-#encoding lives in (header-only: the unit rides its inline helpers).
 target_include_directories(test_native_tensor PRIVATE
     ${PROJECT_SOURCE_DIR}/include
-    ${PROJECT_SOURCE_DIR}/src/native/tensor
-    ${PROJECT_SOURCE_DIR}/src/native/tensor_cuda)
+    ${PROJECT_SOURCE_DIR}/src/native/tensor)
 add_test(NAME native_tensor_scalar COMMAND test_native_tensor)
-set_tests_properties(native_tensor_scalar PROPERTIES
-    ENVIRONMENT "NLANG_TENSOR_TIER=scalar")
+nlang_test_env(native_tensor_scalar NLANG_TENSOR_TIER=scalar)
 add_test(NAME native_tensor_sse2 COMMAND test_native_tensor)
-set_tests_properties(native_tensor_sse2 PROPERTIES
-    ENVIRONMENT "NLANG_TENSOR_TIER=sse2")
+nlang_test_env(native_tensor_sse2 NLANG_TENSOR_TIER=sse2)
 add_test(NAME native_tensor_avx2 COMMAND test_native_tensor)
-set_tests_properties(native_tensor_avx2 PROPERTIES
-    ENVIRONMENT "NLANG_TENSOR_TIER=avx2")
+nlang_test_env(native_tensor_avx2 NLANG_TENSOR_TIER=avx2)
+
+# fs native unit tests: the bridge from a <filesystem> timestamp to Unix epoch
+# milliseconds (src/native/fs/FileTimeEpoch.h) that fs.modifiedTimeMs answers
+# with. Both clock samples are injected, so the millisecond arithmetic is
+# pinned to one right answer on any machine — the property an e2e corpus
+# cannot pin, because a real file's timestamp granularity is not its own to
+# control.
+add_executable(test_native_fs
+    test_native_fs/test_file_time_epoch.cpp
+)
+target_include_directories(test_native_fs PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
+    ${PROJECT_SOURCE_DIR}/src/native/fs
+)
+add_test(NAME native_fs_tests COMMAND test_native_fs)
 
 #--- e2e runner unit tests (pytest) ------------------------------------------
 #The runner's environment-gating logic (env_gates.txt parse + the pure
@@ -3076,8 +3954,48 @@ if(NLANG_RUNNER_PYTEST_PROBE EQUAL 0)
         COMMAND ${NLANG_DOCS_PYTHON} -m pytest
             ${PROJECT_SOURCE_DIR}/tests/e2e/test_runner_env_gate.py -q
         WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/tests/e2e)
-    set_tests_properties(e2e_runner_env_gate PROPERTIES TIMEOUT 60)
 else()
     message(STATUS "e2e_runner_env_gate skipped: pytest is not importable "
         "via '${NLANG_DOCS_PYTHON}' (pip install pytest to enable)")
+endif()
+
+#The runner's scratch namespace (NLANG_E2E_SCRATCH_TAG): the path geometry
+#that keeps concurrent shards out of each other's scratch dirs, plus the
+#teardown containment check (one real subprocess per tagged run).
+if(NLANG_RUNNER_PYTEST_PROBE EQUAL 0)
+    add_test(NAME e2e_runner_scratch_isolation
+        COMMAND ${NLANG_DOCS_PYTHON} -m pytest
+            ${PROJECT_SOURCE_DIR}/tests/e2e/test_runner_scratch_isolation.py -q
+        WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/tests/e2e)
+else()
+    message(STATUS "e2e_runner_scratch_isolation skipped: pytest is not "
+        "importable via '${NLANG_DOCS_PYTHON}' (pip install pytest to enable)")
+endif()
+
+#The runner's per-entry timing rows: a TIME row after every PASS/FAIL
+#verdict line plus the --record-out MEASURE rows (the gate-time reference
+#recorder's only e2e input). One real runner subprocess over stub .cmd
+#tools laid out like a build root pins the row shapes end to end.
+if(NLANG_RUNNER_PYTEST_PROBE EQUAL 0)
+    add_test(NAME e2e_runner_timing_gate
+        COMMAND ${NLANG_DOCS_PYTHON} -m pytest
+            ${PROJECT_SOURCE_DIR}/tests/e2e/test_runner_timing_gate.py -q
+        WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/tests/e2e)
+else()
+    message(STATUS "e2e_runner_timing_gate skipped: pytest is not "
+        "importable via '${NLANG_DOCS_PYTHON}' (pip install pytest to enable)")
+endif()
+
+#The runner's stale-artifact refusal, package half: the generated
+#projects name the package set, and a missing or stale package refuses
+#the run by name. In-process over placeholder files (the guard only
+#stats the tools) with stamps pinned -- no runner subprocess, no sleeping.
+if(NLANG_RUNNER_PYTEST_PROBE EQUAL 0)
+    add_test(NAME e2e_runner_package_guard
+        COMMAND ${NLANG_DOCS_PYTHON} -m pytest
+            ${PROJECT_SOURCE_DIR}/tests/e2e/test_runner_package_guard.py -q
+        WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}/tests/e2e)
+else()
+    message(STATUS "e2e_runner_package_guard skipped: pytest is not "
+        "importable via '${NLANG_DOCS_PYTHON}' (pip install pytest to enable)")
 endif()

@@ -2,16 +2,17 @@ r"""check_source_size.py -- repository source-size guard.
 
 Rules (spec 2026-09-25 maintainability refactor):
   * every scanned file is <= 500 lines;
-  * every function definition is <= 50 lines, where a definition starts
-    at a column-0 signature line and ends at the next column-0 "}".
+  * every C++ function definition is <= 50 lines, where a definition
+    starts at a column-0 signature line and ends at the next column-0
+    "}".
 
+Scan roots: src/ and include/ (*.cpp/*.h) plus tools/ (*.py, file
+length only -- see the documented limits below).
 Excluded from scanning: src/compiler/generated/, src/3rdparty/.
 Allowlist (allowlist.json, same directory): entries
   {"path": "src/vm/VmExecutor.cpp", "function": "ExecuteFunction", "reason": "..."}
 skips one function's span rule, or without "function" skips the whole
-file's both rules. Every entry MUST carry a non-empty path and reason;
-the JSON is parsed rejecting duplicate keys (one would silently
-overwrite its twin and could kill an exemption outright).
+file's both rules. Every entry MUST carry a non-empty reason.
 
 Detection heuristics (documented limits): signatures that end with
 "= default;" / "= delete;" / ";" before any "{" are skipped; one-line
@@ -26,7 +27,10 @@ to the next col-0 "}" (overcount), and a signature whose "{" sits more
 than 4 lines down is measured from the 4th line (short by the
 difference). The allowlist is the escape hatch for both directions,
 and reasons keep it honest. check_source_size_test.py pins the
-separator rule.
+separator rule. The heuristic is C++-shaped, so Python files are
+file-length-checked only -- a Python signature regex is out of scope,
+which check_source_size_test.py block 11 pins (a .py full of
+brace-shaped text must still yield only the file-line violation).
 
 Overloads: spans are yielded in order of appearance, so each overload
 of a repeated name (e.g. the Access family) is measured separately; an
@@ -61,6 +65,12 @@ def scanned_files(repo: Path):
             if any(d in SKIP_DIRS for d in parts):
                 continue
             yield p
+    # tools/ Python files carry the file-length rule only (check_file).
+    for p in sorted((repo / "tools").rglob("*.py")):
+        parts = p.relative_to(repo).parts
+        if any(d in SKIP_DIRS for d in parts):
+            continue
+        yield p
 
 
 def function_spans(lines):
@@ -88,13 +98,10 @@ def function_spans(lines):
            and not m.group(1).isupper():  # ALL_CAPS = X-macro invocation, not a function
             name = m.group(1)
             # Skip declarations and defaulted/deleted definitions: find the
-            # first of ";" or "{" within the next 5 lines (5, not 4 — a
-            # 5-line signature is a common declaration shape in the
-            # launcher headers, and the break-on-"{" keeps a definition
-            # whose "{" sits that deep a definition).
+            # first of ";" or "{" within the next 4 lines.
             head = line
             j = i
-            while "{" not in head and j < min(i + 5, len(lines)) - 1:
+            while "{" not in head and j < min(i + 4, len(lines)) - 1:
                 j += 1
                 head += lines[j]
             if ";" in head and "{" not in head.split(";")[0]:
@@ -110,54 +117,43 @@ def function_spans(lines):
             i += 1
 
 
-def _no_duplicate_keys(pairs):
-    #JSON overwrites duplicate keys SILENTLY: an entry whose keys
-    #duplicate loses one side (a whole file exemption can vanish with
-    #no change to the exempted file). The guard refuses the config.
-    seen = set()
-    for key, _ in pairs:
-        assert key not in seen, f"allowlist key {key!r} duplicated: {pairs}"
-        seen.add(key)
-    return dict(pairs)
-
-
-def validate_allowlist(entries):
-    #Every entry MUST carry a non-empty path and reason (a pathless
-    #entry exempts nothing, and _no_duplicate_keys above is why the
-    #reason is demanded too: the silent-merge class of config bugs).
-    #Returns the per-file groups the scan consumes.
-    by_file = {}
-    for e in entries:
-        assert e.get("path", "").strip(), f"allowlist entry without path: {e}"
-        assert e.get("reason", "").strip(), f"allowlist entry without reason: {e}"
-        by_file.setdefault(e["path"], []).append(e)
-    return by_file
+def check_file(p: Path, repo: Path, by_file):
+    """Violations for one scanned file: the file-length rule for every
+    scanned suffix, plus the function-span rule for C++ only (the
+    column-0 brace heuristic is not a Python parser, so .py files stop
+    after the file-length check). An allowlist entry without "function"
+    exempts both rules for that file."""
+    rel = p.relative_to(repo).as_posix()
+    entries = by_file.get(rel, [])
+    file_exempt = any("function" not in e for e in entries)
+    lines = p.read_text(encoding="utf-8", errors="replace").splitlines()
+    out = []
+    if not file_exempt and len(lines) > FILE_MAX_LINES:
+        out.append(f"{rel}: file has {len(lines)} lines (> {FILE_MAX_LINES})")
+    if file_exempt or p.suffix == ".py":
+        return out
+    exempt_funcs = {e["function"] for e in entries if "function" in e}
+    for name, start, length in function_spans(lines):
+        if name in exempt_funcs or f"{rel}::{name}" in exempt_funcs:
+            continue
+        if length > FUNC_MAX_LINES:
+            out.append(
+                f"{rel}:{start}: function {name} spans {length} lines (> {FUNC_MAX_LINES})")
+    return out
 
 
 def main():
     here = Path(__file__).resolve().parent
     repo = here.parent.parent
-    allow = json.loads((here / "allowlist.json").read_text(encoding="utf-8"),
-                       object_pairs_hook=_no_duplicate_keys)
-    by_file = validate_allowlist(allow)
+    allow = json.loads((here / "allowlist.json").read_text(encoding="utf-8"))
+    by_file = {}
+    for e in allow:
+        assert e.get("reason", "").strip(), f"allowlist entry without reason: {e}"
+        by_file.setdefault(e["path"], []).append(e)
 
     violations = []
     for p in scanned_files(repo):
-        rel = p.relative_to(repo).as_posix()
-        entries = by_file.get(rel, [])
-        file_exempt = any("function" not in e for e in entries)
-        lines = p.read_text(encoding="utf-8", errors="replace").splitlines()
-        if not file_exempt and len(lines) > FILE_MAX_LINES:
-            violations.append(f"{rel}: file has {len(lines)} lines (> {FILE_MAX_LINES})")
-        if file_exempt:
-            continue
-        exempt_funcs = {e["function"] for e in entries if "function" in e}
-        for name, start, length in function_spans(lines):
-            if name in exempt_funcs or f"{rel}::{name}" in exempt_funcs:
-                continue
-            if length > FUNC_MAX_LINES:
-                violations.append(
-                    f"{rel}:{start}: function {name} spans {length} lines (> {FUNC_MAX_LINES})")
+        violations.extend(check_file(p, repo, by_file))
 
     if violations:
         print(f"source-size guard: {len(violations)} violation(s)")

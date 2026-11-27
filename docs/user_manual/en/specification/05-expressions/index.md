@@ -155,17 +155,20 @@ conversion is one of the following:
 - an explicit numeric conversion: a narrowing or sign-changing
   integer conversion, `float` or `double` to an integer, or
   `char` to or from an integer;
+- an implicit conversion between two scalar primitive types: a
+  widening of the matrix of §4.4, spelled out — `l as double`, `i as
+  float`, `b as int` — and the operator reports no precision-loss
+  warning where the implicit form does (§4.5). An enumeration takes
+  the place of the `int` it is in every `as` pair (§4.6);
 - a function value to `string`; §5.3 fixes the rendering. This
   pair converts implicitly as well (§4.4); the cast is the
   explicit spelling of the same rendering, and with the unboxing
   above it is the only way into `string` through `as`.
 
-An implicit conversion that is not one of these — widening
-integers, an integer to a floating-point type, `float` to
-`double`, or any type but a function value or `Object` to
-`string` — is a compile-time error with `as`: it applies without
-the operator (§4.4). A pair with no conversion path is a
-compile-time error; `bool` has no `as` path
+An implicit conversion that is not one of these — any type but a
+function value or `Object` to `string` (§4.4) — is a compile-time
+error with `as`: it applies without the operator. A pair with no
+conversion path is a compile-time error; `bool` has no `as` path
 to or from any type but `Object` (§4.2): its conversion to
 `string` is implicit and takes no operator.
 
@@ -175,6 +178,9 @@ At run time:
   truncates the fractional part toward zero, so `7.9` becomes `7`
   and `−3.7` becomes `−3`; an integer to another integer keeps
   the low bits of the target's width, so `300 as byte` is `44`;
+  an integer to `float` or `double`, and `float` to `double`,
+  take the nearest representable value, so `9007199254740993`
+  (2^53+1) `as double` is `9007199254740992`;
 - to `char`: the value must be a Unicode scalar value (§4.2);
   otherwise the cast raises a catchable run-time error
   (chapter 8);
@@ -202,8 +208,7 @@ parameter's type (§4.4). The result of a call is the callee's
 return type; a call to a `void` function is used as a statement
 (chapter 6). Calling a function value whose value is `null` is a
 catchable run-time error (chapter 8). Default arguments, named
-arguments, `out` parameters and overloading are defined in
-chapter 7.
+arguments and overloading are defined in chapter 7.
 
 ## 5.7 Member Access and Subscript
 
@@ -304,6 +309,10 @@ value (§7.4):
   formed;
 - a bound reference to a virtual or interface method dispatches
   against the receiver's runtime class at each call (§4.8.9, §4.9.4).
+
+A lambda expression — `(params) -> body` — produces a function value
+as well: capture semantics, closure identity and the error list are
+§7.4.
 
 The type of the value is `func<R, P1, ..., Pn>`, matching the
 signature of the denoted function exactly (§7.4). A function

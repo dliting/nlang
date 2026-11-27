@@ -1,0 +1,500 @@
+/*---
+    NcuLinker.cpp — nlink 链接器主体：对等合并→占位槽解析→统一重映射。
+    内核同源于已删除的 backend/Import.cpp Phase A/B（编译期合并路径），
+    语义为「N 个对等映像合并」（设计 §5）。Pass B（占位槽解析）在
+    NcuLinkerSlots.cpp（2026-10-02 尺寸守卫触发的拆分）。
+---*/
+#include "NcuLinker.h"
+#include "NcuLinkerRemap.h"
+#include "NcuLinkerSlots.h"
+#include "NcuLinkerInterfaces.h"
+#include <nlang/core/ExprDesc.h>
+#include <map>
+#include <stdexcept>
+#include <string>
+#include <tuple>
+#include <unordered_map>
+#include <unordered_set>
+
+namespace nlang {
+namespace {
+
+//(name, paramCount, intrinsicId) → 合并下标。只有纯内建桩（无字节码、
+//行为＝intrinsic 派发）允许去重；用户函数永不按名去重——裸方法键
+//（"add"/"toString"）跨类同名同参合法并存。
+using BuiltinStubIndex =
+	std::map<std::tuple<std::string, uint32_t, uint16_t>, uint32_t>;
+
+static std::string JoinProblems(const std::vector<std::string>& problems) {
+    std::string joined;
+    for (size_t i = 0; i < problems.size(); ++i) {
+        if (i) joined += "\n  ";
+        joined += problems[i];
+    }
+    return joined;
+}
+
+//全量表内查找；查不到即映像损坏（映射按构造覆盖单元全部下标）。
+static uint32_t Lookup(const std::unordered_map<uint32_t, uint32_t>& m,
+                       uint32_t idx) {
+    auto it = m.find(idx);
+    if (it == m.end())
+        throw std::runtime_error("nlink: table index "
+            + std::to_string(idx) + " has no mapping (corrupt image)");
+    return it->second;
+}
+
+//闭包形状与槽位不变量：单元身份唯一、各导入节不大于对应表、
+//enumKeys/enumNames 平行。任何违反都是损坏或误用，立即拒绝。
+static void ValidateClosure(const std::vector<CompiledModule>& units) {
+    if (units.empty())
+        throw std::runtime_error("nlink: empty link closure");
+    std::unordered_set<std::string> paths;
+    for (const auto& u : units) {
+        if (u.modulePath.empty())
+            throw std::runtime_error(
+                "nlink: a unit has no module path (unlinked or corrupt image)");
+        if (!paths.insert(u.modulePath).second)
+            throw std::runtime_error("nlink: duplicate module path '"
+                + u.modulePath + "' in the link closure");
+        if (u.enumKeys.size() != u.enumNames.size())
+            throw std::runtime_error("nlink: unit '" + u.modulePath
+                + "': enumKeys and enumNames diverge (corrupt image)");
+        if (u.enumMethodIndices.size() != u.enumNames.size()
+            || u.enumMethodAccess.size() != u.enumNames.size())
+            throw std::runtime_error("nlink: unit '" + u.modulePath
+                + "': enum method tables and enumNames diverge (corrupt image)");
+        //v2.20: the type-level access table joins the parallel chain.
+        if (u.enumAccess.size() != u.enumNames.size())
+            throw std::runtime_error("nlink: unit '" + u.modulePath
+                + "': enumAccess and enumNames diverge (corrupt image)");
+        auto checkTable = [&](const char* kind, size_t imports,
+                              size_t table) {
+            if (imports > table)
+                throw std::runtime_error("nlink: unit '" + u.modulePath
+                    + "': " + kind + "Imports (" + std::to_string(imports)
+                    + ") exceed the " + kind + " table ("
+                    + std::to_string(table) + ")");
+        };
+        checkTable("function", u.functionImports.size(), u.functions.size());
+        checkTable("class", u.classImports.size(), u.classes.size());
+        checkTable("struct", u.structImports.size(), u.structs.size());
+        checkTable("enum", u.enumImports.size(), u.enumNames.size());
+        checkTable("staticSlot", u.staticSlotImports.size(),
+            u.staticSlots.size());
+    }
+}
+
+// --- Pass A：各单元自有条目并入合并表（占位槽永不拷贝） ---
+
+static void MergeStrings(const CompiledModule& u, CompiledModule& merged,
+                         NcuOperandMaps& m,
+                         std::unordered_map<std::string, uint32_t>& interned) {
+    for (uint32_t i = 0; i < u.stringConstants.size(); ++i) {
+        auto it = interned.find(u.stringConstants[i]);
+        if (it != interned.end()) {
+            m.strings[i] = it->second;
+            continue;
+        }
+        m.strings[i] = static_cast<uint32_t>(merged.stringConstants.size());
+        merged.stringConstants.push_back(u.stringConstants[i]);
+        interned.emplace(u.stringConstants[i], m.strings[i]);
+    }
+}
+
+//v2.15 (v0.13.1): descriptor rows merge by full entry (spelling +
+//composition bytes): a static entry's identity is its spelling (the
+//intern contract); composition entries fold only on identical bytes.
+static void MergeDescriptors(
+    const CompiledModule& u, CompiledModule& merged, NcuOperandMaps& m,
+    std::map<std::pair<std::string, std::vector<uint8_t>>, uint32_t>&
+        interned) {
+    for (uint32_t i = 0; i < u.descriptorTable.size(); ++i) {
+        const auto key = std::make_pair(u.descriptorTable[i].spelling,
+                                        u.descriptorTable[i].composition);
+        auto it = interned.find(key);
+        if (it != interned.end()) {
+            m.descriptors[i] = it->second;
+            continue;
+        }
+        m.descriptors[i] =
+            static_cast<uint32_t>(merged.descriptorTable.size());
+        merged.descriptorTable.push_back(u.descriptorTable[i]);
+        interned.emplace(key, m.descriptors[i]);
+    }
+}
+
+//同限定名 == 同类型（两侧都是表键；跨单元重名只有各单元都注册的无主
+//内建类，同版本 ncc 产出恒等）。
+static void MergeClasses(const CompiledModule& u, CompiledModule& merged,
+                         NcuOperandMaps& m, UnitPushes& p) {
+    const size_t ownCount = u.classes.size() - u.classImports.size();
+    for (uint32_t i = 0; i < ownCount; ++i) {
+        int existing = merged.FindClass(u.classes[i].name);
+        if (existing >= 0) {
+            m.classes[i] = static_cast<uint32_t>(existing);
+            continue;
+        }
+        m.classes[i] = static_cast<uint32_t>(merged.classes.size());
+        merged.classes.push_back(u.classes[i]);
+        p.classes.push_back(m.classes[i]);
+    }
+}
+
+static void MergeStructs(const CompiledModule& u, CompiledModule& merged,
+                         NcuOperandMaps& m, UnitPushes& p) {
+    const size_t ownCount = u.structs.size() - u.structImports.size();
+    //v2.6 record checks (corrupt-image guards, mirroring the loader's
+    //count caps): the defaults block is dense by contract, and a struct
+    //constructor is always an own function of the defining unit — an
+    //index into the import tail or past the table cannot name one.
+    const size_t funcOwnCount = u.functions.size() - u.functionImports.size();
+    for (uint32_t i = 0; i < ownCount; ++i) {
+        const CompiledStruct& st = u.structs[i];
+        if (st.fieldDefaults.size() != st.fieldCount)
+            throw std::runtime_error("nlink: struct '" + st.name
+                + "': fieldDefaults size " + std::to_string(st.fieldDefaults.size())
+                + " != fieldCount " + std::to_string(st.fieldCount)
+                + " (corrupt image)");
+        for (auto ci : st.constructorIndices)
+            if (ci >= funcOwnCount)
+                throw std::runtime_error("nlink: struct '" + st.name
+                    + "': constructor index " + std::to_string(ci)
+                    + " outside the unit's own function table (corrupt image)");
+        int existing = merged.FindStruct(u.structs[i].name);
+        if (existing >= 0) {
+            m.structs[i] = static_cast<uint32_t>(existing);
+            continue;
+        }
+        m.structs[i] = static_cast<uint32_t>(merged.structs.size());
+        merged.structs.push_back(u.structs[i]);
+        p.structs.push_back(m.structs[i]);
+    }
+}
+
+//enumNames 不携带类型身份，去重一律按 enumKeys 的限定键；占位槽
+//（空 names＋目标键）不拷贝，由槽解析直接定址。
+static void MergeEnums(const CompiledModule& u, CompiledModule& merged,
+                       NcuOperandMaps& m, UnitPushes& p) {
+    const size_t ownCount = u.enumKeys.size() - u.enumImports.size();
+    for (uint32_t i = 0; i < ownCount; ++i) {
+        int existing = merged.FindEnum(u.enumKeys[i]);
+        if (existing >= 0) {
+            m.enums[i] = static_cast<uint32_t>(existing);
+            continue;
+        }
+        m.enums[i] = static_cast<uint32_t>(merged.enumKeys.size());
+        merged.enumNames.push_back(u.enumNames[i]);
+        merged.enumKeys.push_back(u.enumKeys[i]);
+        //v2.9: the method tables ride the same push (the provider unit
+        //owns their function-index remap, recorded through p.enums).
+        merged.enumMethodIndices.push_back(u.enumMethodIndices[i]);
+        merged.enumMethodAccess.push_back(u.enumMethodAccess[i]);
+        //v2.20: the type-level access byte rides the same push.
+        merged.enumAccess.push_back(u.enumAccess[i]);
+        p.enums.push_back(m.enums[i]);
+    }
+}
+
+//v2.13 (v0.12.6): static slots are STORAGE, not symbols — no name dedup.
+//Each unit's own entries append in unit order (import tail entries get
+//their mapping from slot resolution, not here); the provider owns the remap.
+static void MergeStaticSlots(const CompiledModule& u, CompiledModule& merged,
+                             NcuOperandMaps& m, UnitPushes& p) {
+    const size_t ownCount = u.staticSlots.size() - u.staticSlotImports.size();
+    for (uint32_t i = 0; i < ownCount; ++i) {
+        m.slots[i] = static_cast<uint32_t>(merged.staticSlots.size());
+        merged.staticSlots.push_back(u.staticSlots[i]);
+        p.slots.push_back(m.slots[i]);
+    }
+}
+
+static void MergeFunctions(const CompiledModule& u, CompiledModule& merged,
+                           NcuOperandMaps& m, UnitPushes& p,
+                           BuiltinStubIndex& builtinStubs) {
+    const size_t ownCount = u.functions.size() - u.functionImports.size();
+    for (uint32_t i = 0; i < ownCount; ++i) {
+        const CompiledFunction& src = u.functions[i];
+        //纯内建桩＝intrinsicId 非空且无字节码；带字节码的记录是真实
+        //函数体，即使撞上（名，形参数，intrinsicId）也永不并入去重桶。
+        const bool pureIntrinsicStub =
+            src.intrinsicId != INTR_None && src.bytecode.empty();
+        if (pureIntrinsicStub) {
+            const auto key = std::make_tuple(src.name,
+                static_cast<uint32_t>(src.paramCount), src.intrinsicId);
+            auto it = builtinStubs.find(key);
+            if (it != builtinStubs.end()) {
+                m.functions[i] = it->second;
+                continue;
+            }
+            m.functions[i] = static_cast<uint32_t>(merged.functions.size());
+            merged.functions.push_back(src);
+            builtinStubs.emplace(key, m.functions[i]);
+        } else {
+            m.functions[i] = static_cast<uint32_t>(merged.functions.size());
+            merged.functions.push_back(src);
+        }
+        p.functions.push_back(m.functions[i]);
+    }
+}
+
+//0.9.10 v2.4 + v0.12.6 Task 8: the interface merge with placeholder-row
+//preference lives in NcuLinkerInterfaces.cpp (Pass C consumes its pushes
+//through UnitPushes, NcuLinkerInterfaces.h).
+
+static void MergeUnitTables(const std::vector<CompiledModule>& units,
+                            CompiledModule& merged,
+                            std::vector<NcuOperandMaps>& maps,
+                            std::vector<UnitPushes>& pushes) {
+    std::unordered_map<std::string, uint32_t> internedStrings;
+    std::map<std::pair<std::string, std::vector<uint8_t>>, uint32_t>
+        internedDescriptors;
+    BuiltinStubIndex builtinStubs;
+    for (size_t ui = 0; ui < units.size(); ++ui) {
+        merged.mergedUnitPackagePaths.push_back(units[ui].modulePath);
+        MergeStrings(units[ui], merged, maps[ui], internedStrings);
+        MergeDescriptors(units[ui], merged, maps[ui], internedDescriptors);
+        MergeClasses(units[ui], merged, maps[ui], pushes[ui]);
+        MergeStructs(units[ui], merged, maps[ui], pushes[ui]);
+        MergeEnums(units[ui], merged, maps[ui], pushes[ui]);
+        MergeStaticSlots(units[ui], merged, maps[ui], pushes[ui]);
+        MergeFunctions(units[ui], merged, maps[ui], pushes[ui],
+                       builtinStubs);
+        MergeInterfaces(units[ui], merged, maps[ui], pushes, ui);
+    }
+}
+
+// --- Pass C：元数据与字节码统一重映射（槽解析后映射才完整） ---
+
+static void MergeArrayTypes(const CompiledModule& u, CompiledModule& merged,
+                            NcuOperandMaps& m) {
+    //elemTypeIdx 可能是占位槽下标：先经所属表映射，再按行键去重。
+    for (uint32_t i = 0; i < u.arrayTypes.size(); ++i) {
+        CompiledArrayType at = u.arrayTypes[i];
+        //Row-identity remap: the element's named table picks the map;
+        //interface rows (Task 12 D14 identity tier) dedup after it.
+        if (at.elemTypeIdx != 0xFFFF) {
+            const auto* rowMap = at.elemKind == RTK_Struct ? &m.structs
+                : at.elemKind == RTK_Class ? &m.classes
+                : at.elemKind == RTK_Interface ? &m.interfaces : nullptr;
+            if (rowMap)
+                at.elemTypeIdx = static_cast<uint16_t>(
+                    Lookup(*rowMap, at.elemTypeIdx));
+        }
+        int existing = merged.FindArray(at.elemKind, at.elemTypeIdx, at.rank);
+        if (existing >= 0) {
+            m.arrayTypes[i] = static_cast<uint32_t>(existing);
+            continue;
+        }
+        m.arrayTypes[i] = static_cast<uint32_t>(merged.arrayTypes.size());
+        merged.arrayTypes.push_back(at);
+    }
+}
+
+static void RemapClassMetadata(CompiledModule& merged,
+                               const NcuOperandMaps& m,
+                               const std::vector<uint32_t>& pushed) {
+    for (uint32_t idx : pushed) {
+        CompiledClass& cc = merged.classes[idx];
+        if (cc.superClassIdx >= 0)
+            cc.superClassIdx = static_cast<int16_t>(
+                Lookup(m.classes, static_cast<uint32_t>(cc.superClassIdx)));
+        for (auto& i : cc.fieldStructIndices)
+            if (i != 0xFFFF) i = static_cast<uint16_t>(Lookup(m.structs, i));
+        //v0.13.1 D3: a T-typed field carries its type-parameter ordinal
+        //in the class-index slot — not a class row, nothing to remap.
+        for (size_t fi = 0; fi < cc.fieldClassIndices.size(); ++fi)
+            if (cc.fieldClassIndices[fi] != 0xFFFF
+                && cc.fieldTypeKinds[fi] != RTK_TypeParam)
+                cc.fieldClassIndices[fi] = static_cast<uint16_t>(
+                    Lookup(m.classes, cc.fieldClassIndices[fi]));
+        for (auto& i : cc.methodIndices)
+            if (i != 0xFFFF) i = static_cast<uint16_t>(Lookup(m.functions, i));
+        //v2.6: plural ctor record — every declaration-order index
+        //remaps (the cross-unit ownerOrdinal addresses this list).
+        for (auto& i : cc.constructorIndices)
+            if (i != 0xFFFF) i = static_cast<uint16_t>(Lookup(m.functions, i));
+        //v2.13 (v0.12.6): the synthesized $staticInit record address —
+        //0xFFFF keeps its "no initializer machinery" meaning.
+        if (cc.staticInitFuncIdx != 0xFFFF)
+            cc.staticInitFuncIdx = static_cast<uint16_t>(
+                Lookup(m.functions, cc.staticInitFuncIdx));
+        for (auto& td : cc.fieldTypeDescs)
+            RemapTypeDesc(td, m.structs, m.classes, m.interfaces);
+        //v2.13 (v0.12.6): declared static fields — slotIdx addresses the
+        //merged storage table, the type descriptor the merged type tables.
+        for (auto& sf : cc.staticFields) {
+            if (sf.slotIdx != 0xFFFF)
+                sf.slotIdx = static_cast<uint16_t>(
+                    Lookup(m.slots, sf.slotIdx));
+            RemapTypeDesc(sf.type, m.structs, m.classes, m.interfaces);
+        }
+    }
+}
+
+//v2.13 (v0.12.6): the static slot records the unit pushed carry
+//unit-local type descriptors — remap them like the field descriptors.
+static void RemapStaticSlotMetadata(CompiledModule& merged,
+                                    const NcuOperandMaps& m,
+                                    const std::vector<uint32_t>& pushed) {
+    for (uint32_t idx : pushed)
+        RemapTypeDesc(merged.staticSlots[idx].type, m.structs, m.classes, m.interfaces);
+}
+
+//默认值的字符串通道持有生产者侧下标（CompiledModule.h 的
+//DefaultValueDesc 契约）；v2.3 表达式默认值（RTK_Expr）的
+//ED_Literal_String 臂同走字符串映射。字节流畸形则拒绝链接而非静默
+//携带坏默认值。函数形参默认值、0.9.10 接口常量与 0.9.11 struct 字段
+//默认值共用。
+static void RemapDefaultValueStrings(DefaultValueDesc& dv,
+                                     const NcuOperandMaps& m,
+                                     const std::string& context) {
+    if (dv.tag == RTK_String)
+        dv.stringIdx = Lookup(m.strings, dv.stringIdx);
+    if (!dv.exprBytes.empty()
+        && !ExprDescRemapStrings(dv.exprBytes,
+            [&m](uint32_t idx) { return Lookup(m.strings, idx); }))
+        throw std::runtime_error("nlink: " + context
+            + ": malformed default expression (corrupt image)");
+}
+
+static void RemapStructMetadata(CompiledModule& merged,
+                                const NcuOperandMaps& m,
+                                const std::vector<uint32_t>& pushed) {
+    for (uint32_t idx : pushed) {
+        CompiledStruct& cs = merged.structs[idx];
+        for (auto& i : cs.fieldStructIndices)
+            if (i != 0xFFFF) i = static_cast<uint16_t>(Lookup(m.structs, i));
+        for (auto& i : cs.fieldClassIndices)
+            if (i != 0xFFFF) i = static_cast<uint16_t>(Lookup(m.classes, i));
+        //v2.6: ctor indices are function-table indices (the ordinal
+        //position in the list is the cross-unit ownerOrdinal).
+        for (auto& i : cs.constructorIndices)
+            if (i != 0xFFFF) i = static_cast<uint16_t>(Lookup(m.functions, i));
+        for (auto& td : cs.fieldTypeDescs)
+            RemapTypeDesc(td, m.structs, m.classes, m.interfaces);
+        //v2.6: field defaults carry producer-pool string indices.
+        const std::string context = "struct '" + cs.name + "'";
+        for (auto& dv : cs.fieldDefaults)
+            RemapDefaultValueStrings(dv, m, context);
+    }
+}
+
+//v2.9 (0.10.14): enum method indices are producer function-table indices,
+//remapped in the class/struct pass shape. The access bytes carry no indices.
+static void RemapEnumMethodIndices(CompiledModule& merged,
+                                   const NcuOperandMaps& m,
+                                   const std::vector<uint32_t>& pushed) {
+    for (uint32_t idx : pushed)
+        for (auto& i : merged.enumMethodIndices[idx])
+            if (i != 0xFFFF)
+                i = static_cast<uint16_t>(Lookup(m.functions, i));
+}
+
+//合并记录已整体拷贝（含单元局部编码的 bytecode/描述符/默认值），这里
+//以本单元映射原地重映射。
+static void FinalizeFunction(CompiledFunction& f, const NcuOperandMaps& m) {
+    NcuRemapBytecodeOperands(f.bytecode, m,
+        [&f](const char* tableKind, uint16_t idx) {
+            throw std::runtime_error(std::string("nlink: function '")
+                + f.name + "': bytecode operand references " + tableKind
+                + " index " + std::to_string(idx)
+                + " outside the unit's table (corrupt image)");
+        });
+    for (auto& tb : f.tryBlocks)
+        if (tb.exceptionClassIdx != 0xFFFF)
+            tb.exceptionClassIdx = static_cast<uint16_t>(
+                Lookup(m.classes, tb.exceptionClassIdx));
+    for (auto& ptd : f.paramTypeDescs)
+        RemapTypeDesc(ptd.type, m.structs, m.classes, m.interfaces);
+    RemapTypeDesc(f.returnTypeDesc, m.structs, m.classes, m.interfaces);
+    const std::string context = "function '" + f.name + "'";
+    for (auto& dv : f.defaultValues)
+        RemapDefaultValueStrings(dv, m, context);
+}
+
+//0.9.10 v2.4: interface static indices are function-table indices —
+//remapped like the class method block; D3 constants carry unit-local type
+//descriptors and pooled string defaults, remapped through the same maps as
+//function records. 0.9.12 (v2.7): instance-method signatures ride the same
+//channels and carry no indices beyond the descriptors.
+static void RemapInterfaceMetadata(CompiledInterface& iface,
+                                   const NcuOperandMaps& m) {
+    const std::string context = "interface '" + iface.name + "'";
+    for (auto& i : iface.staticMethodIndices)
+        i = static_cast<uint16_t>(Lookup(m.functions, i));
+    //v2.13 (v0.12.6): reserved interface initializer record — remap
+    //alongside the static methods when created.
+    if (iface.staticInitFuncIdx != 0xFFFF)
+        iface.staticInitFuncIdx = static_cast<uint16_t>(
+            Lookup(m.functions, iface.staticInitFuncIdx));
+    for (auto& constant : iface.constants) {
+        RemapTypeDesc(constant.type, m.structs, m.classes, m.interfaces);
+        //v0.12.6 Task 7 (D11): a runtime constant's slot addresses the
+        //merged storage table (the class staticFields shape); folded
+        //constants keep their 0xFFFF marker untouched.
+        if (constant.slotIdx != 0xFFFF)
+            constant.slotIdx = static_cast<uint16_t>(
+                Lookup(m.slots, constant.slotIdx));
+        RemapDefaultValueStrings(constant.value, m, context);
+    }
+    for (auto& sig : iface.instanceMethods) {
+        for (auto& ptd : sig.paramTypeDescs)
+            RemapTypeDesc(ptd.type, m.structs, m.classes, m.interfaces);
+        RemapTypeDesc(sig.returnType, m.structs, m.classes, m.interfaces);
+        for (auto& dv : sig.defaultValues)
+            RemapDefaultValueStrings(dv, m, context);
+    }
+}
+
+static void FinalizeUnits(const std::vector<CompiledModule>& units,
+                          CompiledModule& merged,
+                          std::vector<NcuOperandMaps>& maps,
+                          const std::vector<UnitPushes>& pushes) {
+    for (size_t ui = 0; ui < units.size(); ++ui) {
+        MergeArrayTypes(units[ui], merged, maps[ui]);
+        RemapClassMetadata(merged, maps[ui], pushes[ui].classes);
+        RemapStructMetadata(merged, maps[ui], pushes[ui].structs);
+        RemapEnumMethodIndices(merged, maps[ui], pushes[ui].enums);
+        RemapStaticSlotMetadata(merged, maps[ui], pushes[ui].slots);
+        for (uint32_t idx : pushes[ui].functions)
+            FinalizeFunction(merged.functions[idx], maps[ui]);
+        for (uint32_t idx : pushes[ui].interfaces)
+            RemapInterfaceMetadata(merged.interfaces[idx], maps[ui]);
+    }
+}
+
+static void ResolveEntry(CompiledModule& merged, const std::string& entryKey) {
+    if (entryKey.empty()) {
+        merged.entryPoint = -1;
+        return;
+    }
+    int idx = merged.FindFunction(entryKey);
+    if (idx < 0)
+        throw std::runtime_error("nlink: entry key '" + entryKey
+            + "' names no function in the linked module");
+    merged.entryPoint = idx;
+}
+
+} //namespace
+
+CompiledModule NcuLinker::Link(std::vector<CompiledModule> units,
+                               const std::string& entryKey) {
+    ValidateClosure(units);
+    CompiledModule merged;
+    merged.modulePath = units[0].modulePath;
+    merged.name = units[0].name;
+    std::vector<NcuOperandMaps> maps(units.size());
+    std::vector<UnitPushes> pushes(units.size());
+    MergeUnitTables(units, merged, maps, pushes);
+    std::vector<std::string> problems;
+    NcuResolveSlots(units, merged, maps, problems);
+    if (!problems.empty())
+        throw std::runtime_error("nlink failed:\n  "
+            + JoinProblems(problems));
+    FinalizeUnits(units, merged, maps, pushes);
+    ResolveEntry(merged, entryKey);
+    return merged;
+}
+
+} //namespace nlang

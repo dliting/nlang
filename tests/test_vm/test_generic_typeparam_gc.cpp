@@ -15,11 +15,11 @@ registration flip.
 //member of that name.
 #include "test_support/test_scratch.h"
 #include "VmBackend.h"
-#include "ModuleLoader.h"
-#include "BytecodeEmitter.h"
-#include "BytecodeOps.h"
-#include <nlang/vm/CompiledModuleRecords.h>
-#include <nlang/vm/CompiledModule.h>
+#include <nlang/core/ModuleLoader.h>
+#include <nlang/core/BytecodeEmitter.h>
+#include <nlang/core/BytecodeOps.h>
+#include <nlang/core/CompiledModuleRecords.h>
+#include <nlang/core/CompiledModule.h>
 #include <nlang/compiler/GenericInstanceRegistry.h>
 #include <nlang/compiler/SnMisc.h>
 #include <nlang/compiler/ScriptLocation.h>
@@ -84,6 +84,18 @@ private slots:
 
 		auto* pPlain = NewBareClass("Plain");
 		QCOMPARE(VmBackend::RuntimeTypeKind(pPlain), RTK_Class);
+	}
+
+	//An interface-typed declared slot holds a heap object reference just
+	//like a class-typed one, so it classifies as RTK_Class: the GC traces a
+	//slot by its DECLARED kind (frame local roots, class-field marks), and
+	//classifying the slot as an int32 leaves the collector free the live
+	//receiver (tests/e2e/iface_field_gc.n, iface_local_gc.n).
+	void runtimeTypeKindClassifiesInterfaceSlots()
+	{
+		auto* pIface = new SnInterfaceDecl(new std::string("IGreeter"),
+			new PtrList<SnField>(), ScriptLocation());
+		QCOMPARE(VmBackend::RuntimeTypeKind(pIface), RTK_Class);
 	}
 
 	//Serialization pin (passes today: both sides move the kind as a raw

@@ -8,11 +8,16 @@
 # measured, and no client code of the same language competes with its own
 # server for a carrier. All five servers answer the same fixed-size bodies.
 #
-# Run it through the machine lock, like every other gate: a measurement is only
-# worth what the machine it ran on was doing, and the other worktrees' gates
-# share this box.
+# Run it through tools/gate.sh, like every other gate: gate.sh takes the
+# write-directory claims for you, so declare the tree the rebuilds write with
+# the one-shot NLANG_GATE_WRITE_DIR= prefix (the rebuilds happen inside this
+# script, invisible to the gate's command line). A measurement is only worth
+# what the machine it ran on was doing: the other servers in the same run are
+# the contemporaneous control (load moves every row together), and the other
+# worktrees' gates share this box.
 #
-#   tools/gate.sh http-perf temp/t12_perf bash tools/http_perf/run_baseline.sh
+#   NLANG_GATE_WRITE_DIR=E:/cases/nlang/dev/build-dev \
+#     tools/gate.sh http-perf temp/t12_perf bash tools/http_perf/run_baseline.sh
 #
 # The table is printed at the end; it can also be regenerated from the run's
 # JSON at any time:
@@ -123,10 +128,11 @@ die_log() {   # die_log <what failed> <log file> -- quote the log's tail instead
 
 # One run per output directory: two instances would append to the same rows.csv
 # and overwrite each other's per-row JSON mid-write, which reads as doubled rows
-# and half-written files rather than as two runs. The machine lock in
-# tools/gate.sh serialises this run against the other gates; this lock covers
-# two copies of the rig itself, and lives in PERF_OUT so parallel output
-# directories stay parallel.
+# and half-written files rather than as two runs. gate.sh's write-directory
+# claims serialise this run against the other gates writing the same trees
+# (the machine-wide lock is gone, D-10); this lock covers two copies of the
+# rig itself, and lives in PERF_OUT so parallel output directories stay
+# parallel.
 if ! mkdir "$OUT/.lock" 2>/dev/null; then
     die "$OUT/.lock exists: another run is under way, or a killed run left it
    behind (remove that directory to take over)"

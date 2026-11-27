@@ -253,6 +253,11 @@ void SymbolIndex::LoadFileOnce(const std::string& path,
     LoadFileWithPackage(path, package);
 }
 
+std::string SymbolIndex::PackageUnderRoot(const std::string& path,
+    const std::string& root) {
+    return PackageFromFilePath(fs::path(path), fs::path(root));
+}
+
 void SymbolIndex::LoadLibraryDir(const std::string& dir) {
     fs::path root(dir);
     if (!fs::is_directory(root))

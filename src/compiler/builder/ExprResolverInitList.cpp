@@ -128,9 +128,8 @@ bool ExprResolveAccessor::RejectBraceArrayInitTarget(SnInitListExpr &sn,
 //0.10.10: the slot types init-list entries bind against — the array
 //element type / the List value slot / the Dict key+value slots
 //(`List<func<int,int>> l = [bar];`, `Dict<string,int> d = {k: 1};`).
-//A null pair = the target carries no per-slot type (a user class/struct
-//target is per-field); the func-ref binding and the slot casts then
-//address the declared field instead.
+//A null pair = no per-slot type (a user class/struct target is
+//per-field); the func-ref binding and slot casts address the field.
 InitListSlotTypes ExprResolveAccessor::ResolveInitListSlotTypes(
     SnField *pTargetField, bool bIsArray)
 {
@@ -138,11 +137,12 @@ InitListSlotTypes ExprResolveAccessor::ResolveInitListSlotTypes(
     if (bIsArray)
     {
         //Stage-2 ND: an un-peeled ND token target carries the element
-        //inside - slot types are always the leaf element.
-        SnField *pSlot = pTargetField;
-        if (pSlot && pSlot->Kind() == NK_ArrayTypeToken)
-            pSlot = static_cast<SnArrayTypeToken*>(pSlot)->ElemTypeOf();
-        slots.pValueType = pSlot;
+        //inside - slot types are always the leaf element. The peel is
+        //the shared dual-spelling primitive (0.13.10): a token-only
+        //hand peel keyed the Array<E> spelling's entry casts on the
+        //class row and every element came back incompatible.
+        SnField *pSlot = ArrayElementRowOf(pTargetField);
+        slots.pValueType = pSlot ? pSlot : pTargetField;
         return slots;
     }
     if (pTargetField->Kind() == NK_ClassDecl)
@@ -353,12 +353,24 @@ bool ExprResolveAccessor::RejectNonEmptyChannelInit(SnInitListExpr &sn,
 //0.9.0: nested bare brace entries inherit the slot type they store into
 //— the element type for array/List/Dict targets, or the addressed
 //field's declared type for struct/class targets (InitListEntryFieldType).
+//Deferred entry targets: a nested bare brace inherits the slot target;
+//a lambda entry inherits it as its expected function type.
+static void PropagateDeferredEntryTarget(SnExpression *pValue,
+    SnField *pTarget)
+{
+    if (!pValue || !pTarget)
+        return;
+    if (auto *pNested = UntypedInitListOf(*pValue))
+        pNested->InferredTarget(pTarget);
+    else if (auto *pLambda = UntypedLambdaOf(*pValue))
+        pLambda->InferredTarget(pTarget);
+}
+
 void ExprResolveAccessor::PropagateNestedInitListTargets(SnInitListExpr &sn,
     SnField *pTargetField, SnField *pElemType, bool bIsArray)
 {
-    //Stage-2 ND: rows of a rank>=2 target infer the sub-array token
-    //(rank-1) so each row resolves as a normal rank-1 array literal
-    //and its leaves cast against the element type inside the row.
+    //Stage-2 ND: rows of a rank>=2 target infer the rank-1 sub-array
+    //token so each row resolves as a normal rank-1 array literal.
     if (bIsArray && pElemType && pTargetField
         && pTargetField->Kind() == NK_ArrayTypeToken
         && static_cast<SnArrayTypeToken*>(pTargetField)->Rank() >= 2)
@@ -367,27 +379,17 @@ void ExprResolveAccessor::PropagateNestedInitListTargets(SnInitListExpr &sn,
         auto *pRowTarget = m_Env.InternArrayTypeToken(pElemType,
             static_cast<uint8_t>(pToken->Rank() - 1));
         for (auto &entry : sn.Entries())
-        {
-            auto *pValue = entry.pValue;
-            auto *pNested = pValue ? UntypedInitListOf(*pValue) : nullptr;
-            if (pNested)
-                pNested->InferredTarget(pRowTarget);
-        }
+            PropagateDeferredEntryTarget(entry.pValue, pRowTarget);
         return;
     }
 
     const auto &entries = sn.Entries();
     for (size_t nIdx = 0; nIdx < entries.size(); ++nIdx)
     {
-        auto *pValue = entries[nIdx].pValue;
-        auto *pNested = pValue ? UntypedInitListOf(*pValue) : nullptr;
-        if (!pNested)
-            continue;
         SnField *pNestedTarget = pElemType;
         if (!pNestedTarget && !bIsArray)
             pNestedTarget = InitListEntryFieldType(*pTargetField, sn, nIdx);
-        if (pNestedTarget)
-            pNested->InferredTarget(pNestedTarget);
+        PropagateDeferredEntryTarget(entries[nIdx].pValue, pNestedTarget);
     }
 }
 

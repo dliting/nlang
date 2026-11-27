@@ -1,0 +1,35 @@
+// The json package tour: parse, read through kind(), edit the DOM,
+// serialize compact and indented, and catch a syntax error. The manual's
+// json chapter reproduces this file verbatim as its tour; keep them in
+// step when either changes.
+import io;
+import json;
+
+int main() {
+    string text = "{\"books\": [{\"title\": \"The Art\", \"year\": 1999, \"available\": true}, {\"title\": \"Compilers\", \"year\": 2006, \"available\": false}], \"count\": 2}";
+    JsonValue doc = json.parse(text);
+    JsonObject root = doc.getObject();
+    JsonArray books = root.get("books").getArray();
+    int i = 0;
+    while (i < books.length()) {
+        JsonObject book = books.get(i).getObject();
+        io.print(book.get("title").getString() + " (" + book.get("year").getInt() + ")");
+        i = i + 1;
+    }
+    // DOM edits keep insertion order: the second book gains a rating and
+    // drops its availability flag.
+    JsonObject second = books.get(1).getObject();
+    second.put("rating", 4);
+    second.remove("available");
+    io.print(root.serialize());
+    io.print(root.serialize(2));
+    // A syntax error arrives as a catchable JsonException carrying the
+    // byte offset where the document went wrong.
+    try {
+        json.parse("{\"year\": 199");
+    } catch (JsonException e) {
+        io.print("rejected: " + e.message);
+    }
+    io.print("ok");
+    return 0;
+}

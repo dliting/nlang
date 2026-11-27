@@ -27,11 +27,14 @@ CLAIM_FILES = [
     "docs/user_manual/zh/getting-started/install-layout.md",
     "docs/user_manual/en/specification/03-program-structure/packages.md",
     "docs/user_manual/zh/specification/03-program-structure/packages.md",
+    "docs/user_manual/en/specification/library/11-conventions.md",
+    "docs/user_manual/zh/specification/library/11-conventions.md",
 ]
 
-# "the eleven standard packages", "the standard twelve packages".
+# "the eleven standard packages", "the standard twelve packages", and
+# the §11.1 wording "is thirteen packages" (no "standard").
 EN_CLAIM = re.compile(
-    r"\b(?:(ten|eleven|twelve|thirteen|fourteen) standard packages"
+    r"\b(?:(ten|eleven|twelve|thirteen|fourteen) (?:standard )?packages"
     r"|standard (ten|eleven|twelve|thirteen|fourteen) packages)\b")
 # "十二个标准包", "十二个包". 十 is required, so 每个包/一个包 never match.
 ZH_CLAIM = re.compile(r"(十[一二三四]?)(?=个(?:标准)?包)")
@@ -69,7 +72,7 @@ def test_package_count_claims_match_stdlib():
             claims += 1
             word = m.group(1) or m.group(2)
             if EN_WORDS[word] != expected:
-                wrong.append(f"{rel}: '{word} standard packages' != {expected}")
+                wrong.append(f"{rel}: '{word} packages' != {expected}")
         for m in ZH_CLAIM.finditer(text):
             claims += 1
             if ZH_WORDS[m.group(1)] != expected:

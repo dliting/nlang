@@ -78,11 +78,13 @@ slot[1] = 值位（int32 / float 位模式 / string 对象句柄）
 
 ```cpp
 struct GenericInstKey {
-    std::string baseName;            // "List" / "Dict" / "func"
+    std::string baseName;            // "List" / "Dict" / "func" / "Channel"
     std::vector<SnField*> typeArgs;  // resolved type-argument fields
-    std::vector<uint8> outFlags;     // out-marked params (func)
-    std::vector<uint8> arrayFlags;   // array-typed type args
+    std::vector<uint8> refFlags;     // reference-marked params (func)
 };
+// Array-ness needs no flag vector: an array-typed argument IS the
+// interned SnArrayTypeToken in typeArgs, so pointer identity keeps
+// List<int> and List<int[]> as distinct keys.
 ```
 
 每次缓存未命中都会创建一个新的SnClassDecl，例如名为`"List<int>"`，其方法携带**替换后的签名**（T → int / Point / ...）供静态类型检查使用。一份多态签名登记表驱动替换：

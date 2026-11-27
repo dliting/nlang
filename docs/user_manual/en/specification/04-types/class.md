@@ -59,14 +59,29 @@ only its `public` members are reachable, except `protected`
 members inside a subclass body (§4.8.11). A constructor that is
 not `public` cannot be called from outside the class.
 
+The modifiers also govern top-level declarations (§2.2), with the
+opposite default: a top-level class, struct, interface, enum or
+function written without a modifier is `public`. A `private` or
+`protected` top-level declaration is reachable only inside the unit
+that declares it, so an importer's qualified name never finds it;
+`protected` adds nothing over `private` at top level, because a
+package holds a single module (§3.9).
+
 *Informative:* the diagnostics name the offending member, for
-instance `constructor of class "C" is not accessible`.
+instance `constructor of class "C" is not accessible`. A foreign
+spelling of a non-public type reports `Type 'Vault' is not a member
+of package 'lib'.`, and a foreign call of a non-public function
+reports `The function "hiddenHelper" does not exist or is not
+accessible.`
 
 ## 4.8.3 Fields and field initializers
 
-A field may carry an initializer (§2.4). The initializer must be a
-constant expression: a literal of any type with unary negation
-allowed; it may not reference a field or `this`. The default is
+A field may carry an initializer (§2.4). An instance field's
+initializer must be a constant expression: a literal of any type with
+unary negation allowed; it may not reference a field or `this`. A
+static field's initializer instead runs at first use and may be a
+runtime expression, a lambda included (see "Lazy initialization"
+below). The default is
 injected into every constructor of the class before the body runs,
 base class first: a constructor that calls `super(...)` receives
 the injection just after that call, one without `super(...)` at
@@ -173,7 +188,11 @@ to it inside the class denotes it directly. A static method and an
 instance member may share a name when their parameter lists
 differ; an exact same-signature collision is a compile-time error.
 Statics take no part in virtual dispatch (§4.8.9); a subclass
-inherits its parent's statics.
+inherits its parent's statics. A class declared in a package may also
+be reached through its module-qualified name: once the package's path
+is open (§3.3), `p.K.member` names the same member as the bare
+`K.member` — the rule holds for static methods, static fields and
+enum members alike (§3.6).
 
 ```nlang
 class Util {
@@ -336,8 +355,8 @@ constructors; there is no `super.method(...)` form.
 
 A subclass method that shares an ancestor virtual method's name
 must match its signature exactly: the same parameter types and
-count, the same return type, and the same `out` modifiers. A
-mismatch is a compile-time error. Once a name is bound to a virtual
+count, and the same return type. A mismatch is a compile-time
+error. Once a name is bound to a virtual
 contract — an inherited virtual method or an implemented interface
 method (§4.9.1) — the name must not be overloaded in the class or
 any subclass: the same-name methods must map one-to-one onto the
@@ -491,7 +510,7 @@ const struct Vec {
   root `Object` is exempt: it declares no fields, §4.11).
   Structs have no inheritance and are each sealed on their own
   (§4.7). The const marker rides the type record of the compiled
-  module (§26.4), so writes to an imported const aggregate are
+  module (§28.4), so writes to an imported const aggregate are
   rejected on the consumer side too (§4.8.11).
 - A member read of a `List` or `Dict` field of a const aggregate
   is rewritten to a shallow copy — the built-in `copy()` (§12.1,

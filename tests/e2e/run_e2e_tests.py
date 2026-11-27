@@ -3,18 +3,49 @@
 
 Usage:
     conda run -n py313 python run_e2e_tests.py [ncc_path] [nvm_path]
-        [ndb_path] [filter_file] [--timeout=SEC]
-
-Every run pins NLANG_TENSOR_BACKEND (default `cpu`) so a machine with a
-GPU cannot silently move the suite onto the device; set
-NLANG_E2E_TENSOR_BACKEND=mirror|cuda for the device double-runs.
+        [--timeout=SEC] [--config=Debug|ASan|Release] [--table=FILE]
+        [--record-out FILE]
 
 Reads manifest.txt (name + expected_exit_code [+ optional expected stdout
 substring]), compiles each <name>.n, runs the .ncu, and reports results.
---timeout=SEC raises the flat 30 s per-test subprocess cap for this
-invocation only: the ASan-instrumented tree runs ~7x slower than Release,
-and its gate run needs more headroom for the pattern-budget case
-(stdlib_regex_size crosses the size limit with 25000 literal atoms).
+Every entry of a pass runs with that pass's fixed CWD (manifest.txt:
+tests/e2e/, examples_manifest.txt: its own scratch dir), so a corpus that
+writes files must address them under ../temp/, which .gitignore keeps out
+of the repository — never next to the corpora.
+NLANG_E2E_SCRATCH_TAG=<name> namespaces this run's scratch under
+../temp/<name>/ and moves the manifest pass's run CWD into it, so several
+runners can work one manifest at the same time (the shard tool gives each
+shard its own tag); unset, every path and CWD is exactly as above.
+--timeout=SEC now prices only entries with no gate-time table row (the
+fallback kill point; absent, the fallback is DEFAULT_TIMEOUT_FALLBACK_S).
+Row-backed entries take their kill from the table below, so this flag no
+longer carries per-config headroom.
+Every per-entry verdict line (PASS or FAIL) is followed by a
+TIME <name> <seconds> line with that entry's own wall-clock span; SKIP
+lines and the startup checks carry no timing. --record-out FILE
+additionally writes one raw `MEASURE <name> <seconds> form=e2e-serial`
+row per verdict — the gate-time reference recorder's only e2e input,
+so the TIME and MEASURE rows are the plan's single e2e timing outlet.
+Every entry's kill point is derived at startup from the gate-time
+reference table (default tests/gate_time_reference.txt, --table=FILE
+overrides; tools/gate_time_table.py holds the single caps() site every
+gate consumer shares): an entry with its own row under the judging
+config is killed at that row's budget and its FAIL line names
+(TIMEOUT_BUDGET budget=... watchdog=...); an entry priced through a
+coarse `default` or manifest-scope row is killed at that row's watchdog
+cap and names (TIMEOUT_WATCHDOG watchdog=...), and finishing over that
+coarse budget without being killed prints an `advisory: <name> 超预算`
+line without turning the run red (a coarse row pins a scope's pace,
+never one entry's own). An entry with no row at all prints a
+TIMEOUT-FALLBACK line naming the missing row and runs under --timeout.
+--config=CFG names the judging config (the gate legs pass it, derived
+from the reference key they sweep); without it the config is guessed
+from the tool path — Release or Debug (the ASan tree runs the Debug
+binaries, and its leg passes --config=ASan) — and the guess is printed.
+NLANG_GATE_MACHINE_SCALE (the calibrated machine scalar) scales every
+budget; without it budgets price at SCALE_BAND_MAX and both the startup
+note and any kill say 未做本机校准. NLANG_TEST_WORK_FACTOR scales
+row-backed budgets and watchdog caps through the same formula.
 For compile_error tests the optional third column is instead the substring
 ncc's compile diagnostics must contain (rejection reason pinning) — works
 for single-file tests and for cross-module directory tests (checked against
@@ -34,16 +65,12 @@ passing test (io.eprint's console target) — same substring and leading-'!'
 negation semantics as the compile-phase .stderr file.
 Also reads examples_manifest.txt (when present): entries resolve against
 ../../examples, their .ncu and scratch artifacts live under
-_examples_tmp/ (their run CWD), removed at end of run.
+../temp/examples/ (their run CWD), removed at end of run.
 Reads env_gates.txt (when present): `name <capability...>` rows gate an
 entry behind a machine capability (icmp: OS loopback echo answers; dns:
 reserved-TLD NXDOMAIN honesty). When the out-of-band OS oracle says the
 capability is absent (VPN filter drivers, DNS hijacks), the entry is
 skipped with a printed SKIP line — counted, never silently green.
-Skip sentinel: a fixture whose case the machine cannot serve (e.g. a
-two-device test on a single-GPU box) exits E2E_SKIP_EXIT naming the
-reason on stderr; the runner reports SKIP with that reason (a sentinel
-without a reason is a FAIL — see E2E_SKIP_EXIT).
 """
 
 import os
@@ -53,6 +80,20 @@ import socket
 import subprocess
 import shutil
 import shlex
+import time
+import re
+from collections import namedtuple
+
+#The startup notice, kill notes and advisory lines are Chinese (project
+#docs language) and are parsed by the gate guards and junit post-
+#processing, so their encoding must not follow the leg environment; the
+#consumers decode UTF-8 (the pytest harness with encoding='utf-8', ctest
+#into junit XML). Pin the text streams — measured under the registered ctest
+#environment on a zh-CN machine, the child otherwise encodes them cp936,
+#which crashed the parent's subprocess reader thread (a UnicodeDecodeError
+#surfacing as stdout=None despite capture_output=True).
+sys.stdout.reconfigure(encoding='utf-8')
+sys.stderr.reconfigure(encoding='utf-8')
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.normpath(os.path.join(SCRIPT_DIR, '..', '..'))
@@ -61,43 +102,91 @@ DEFAULT_NCC = os.path.join(
 DEFAULT_NVM = os.path.join(
     SCRIPT_DIR, '..', '..', 'build', 'src', 'tools', 'nvm', 'Release', 'nvm.exe')
 MANIFEST = os.path.join(SCRIPT_DIR, 'manifest.txt')
-#Flat per-test subprocess cap (compile and run), overridable per invocation
-#with --timeout=SEC (see the module docstring).
-TIMEOUT_SEC = 30
-#Skip sentinel (multi-GPU spec's cross-platform ruling): a fixture that
-#cannot run its case on this machine — a device census too small, a
-#capability absent — prints the reason to stderr and exits this code;
-#the manifest still expects the ordinary success (0). The runner turns
-#it into a visible SKIP with the reason (the case ran nothing, but the
-#compile ran and the contract held); a sentinel without a reason is a
-#FAIL — a silent skip could mask a real breakage.
-E2E_SKIP_EXIT = 90
+#Kill cap for an entry with no gate-time table row; --timeout=SEC
+#overrides it per invocation (see the module docstring). Row-backed
+#entries take their kill from the table instead: the old flat 30 s cap
+#and its Debug x3 config branch are reference rows now, and 90 s keeps
+#the ceiling the x3 branch gave row-less entries under Debug.
+DEFAULT_TIMEOUT_FALLBACK_S = 90
+#Coarse-scope budget for the 超预算 advisory of the entry being run
+#(set by main() before each entry): _emit_verdict is the single verdict
+#outlet and reads it there, so no branch has to plumb it. None means
+#this entry's verdicts carry no advisory (priced by its own row, or no
+#row at all).
+ENTRY_ADVISORY_BUDGET = None
+#Seconds spelling for the per-entry TIME/MEASURE rows: fixed decimals,
+#so the rows stay byte-parseable for the gate-time reference recorder.
+_TIMING_SECONDS_FMT = '{:.2f}'
+#Root of every scratch dir the runner owns: tests/temp/, which .gitignore
+#keeps out of the repository.
+SCRATCH_ROOT = os.path.normpath(os.path.join(SCRIPT_DIR, '..', 'temp'))
+#Scratch namespace for concurrent runs, selected by
+#NLANG_E2E_SCRATCH_TAG (the shard tool sets one tag per shard). Concurrent
+#runs share the manifest, the sources and the .ncu output dir, but they
+#cannot share scratch: every run wipes its scratch per entry and again at
+#teardown, and wiping a file a sibling process still holds open raises on
+#Windows. The fs-writing corpora spell their scratch the literal relative
+#path ../temp/fs/..., resolved against the run CWD, so a tag nests its
+#whole scratch set one level down and moves the run CWD with it — the same
+#literal then resolves inside the tag:
+#    tests/temp/<tag>/cwd/../temp/fs == tests/temp/<tag>/temp/fs
+#Renaming the scratch dir instead would mean editing every corpus that
+#writes files. Unset, every path keeps its historical spelling and the
+#manifest pass keeps running in tests/e2e.
+_SCRATCH_DIRS = namedtuple('ScratchDirs', ('ns', 'fs', 'imports',
+                                           'examples', 'run_cwd'))
+#One directory name, nothing else: separators, '.'/'..' and blank space are
+#all out, so a tag cannot escape tests/temp/ or name an ambiguous dir.
+_SCRATCH_TAG_RE = re.compile(r'[A-Za-z0-9][A-Za-z0-9_-]*\Z')
 
 
-def _skip_sentinel(actual, expected, stderr_text):
-    """Skip-sentinel verdict for one finished run: None when the entry
-    is not on the sentinel path, else the reason string ('' when the
-    sentinel arrived without naming one)."""
-    if actual != E2E_SKIP_EXIT or expected == E2E_SKIP_EXIT:
-        return None
-    return next((ln.strip() for ln in stderr_text.splitlines()
-                 if ln.strip()), '')
-#Tensor-backend pinning for the run phase. The product default is `auto`
-#(spec D3a — use an installed device backend, fall back to cpu), so a
-#machine with a GPU would otherwise move this whole suite's float paths
-#onto the device and make the gate's results hardware-dependent. The
-#suite therefore pins one backend explicitly; NLANG_E2E_TENSOR_BACKEND
-#selects which run this is (cpu / mirror / cuda — the double-run and the
-#conditional cuda tree). A fixture's own `.flags` still wins: the nvm CLI
-#overrides the inherited environment.
-E2E_TENSOR_BACKEND = os.environ.get('NLANG_E2E_TENSOR_BACKEND', 'cpu')
-RUN_ENV = dict(os.environ)
-RUN_ENV['NLANG_TENSOR_BACKEND'] = E2E_TENSOR_BACKEND
-PHASE8_TMP = os.path.join(SCRIPT_DIR, '_phase8_tmp')
-PHASE11_TMP = os.path.join(SCRIPT_DIR, '_p11_tmp')
+def _validated_scratch_tag(tag):
+    """Accept only a plain directory name as a scratch tag: the tag comes
+    from an environment variable and the layout relies on it naming one
+    directory under tests/temp/, nothing else. A name, not a path, so the
+    allowed characters are the ones that can never mean anything else."""
+    if not tag:
+        return ''
+    if not _SCRATCH_TAG_RE.match(tag):
+        raise ValueError(
+            f'NLANG_E2E_SCRATCH_TAG must be a single directory name, '
+            f'got {tag!r}')
+    return tag
+
+
+def scratch_paths(tag):
+    """(ns, fs, imports, examples, run_cwd) scratch dirs for one scratch
+    tag; untagged keeps the historical dirs and no private run CWD."""
+    tag = _validated_scratch_tag(tag)
+    if not tag:
+        return _SCRATCH_DIRS(
+            ns=None,
+            fs=os.path.join(SCRATCH_ROOT, 'fs'),
+            imports=os.path.join(SCRATCH_ROOT, 'imports'),
+            examples=os.path.join(SCRATCH_ROOT, 'examples'),
+            run_cwd=None)
+    ns = os.path.join(SCRATCH_ROOT, tag)
+    return _SCRATCH_DIRS(
+        ns=ns,
+        #<ns>/temp/fs, the sibling ../temp/fs resolves to from <ns>/cwd.
+        fs=os.path.join(ns, 'temp', 'fs'),
+        imports=os.path.join(ns, 'imports'),
+        examples=os.path.join(ns, 'examples'),
+        run_cwd=os.path.join(ns, 'cwd'))
+
+
+SCRATCH_TAG = _validated_scratch_tag(
+    os.environ.get('NLANG_E2E_SCRATCH_TAG', ''))
+_SCRATCH = scratch_paths(SCRATCH_TAG)
+#Namespace root a tagged run owns outright, None when untagged.
+SCRATCH_NS = _SCRATCH.ns
+#Scratch for corpora that write files by relative path (../temp/fs/...).
+FS_SCRATCH = _SCRATCH.fs
 #Per-test artifact dir for multi-module imports (see the directory-form
 #compile block): holds ONLY the earlier modules' .ncu files.
-IMPORTS_TMP = os.path.join(SCRIPT_DIR, '_imports_tmp')
+IMPORTS_TMP = _SCRATCH.imports
+#Run CWD of a tagged manifest pass, None when untagged (see run_dir_for).
+RUN_CWD = _SCRATCH.run_cwd
 
 #Shipped examples (examples/) run through the same compile+run gate.
 #Entries resolve against EXAMPLES_DIR; their .ncu/stdin/scratch all
@@ -106,7 +195,50 @@ IMPORTS_TMP = os.path.join(SCRIPT_DIR, '_imports_tmp')
 EXAMPLES_MANIFEST = os.path.join(SCRIPT_DIR, 'examples_manifest.txt')
 EXAMPLES_DIR = os.path.normpath(
     os.path.join(SCRIPT_DIR, '..', '..', 'examples'))
-EXAMPLES_TMP = os.path.join(SCRIPT_DIR, '_examples_tmp')
+EXAMPLES_TMP = _SCRATCH.examples
+
+
+def reset_scratch_dir(path):
+    """Wipe and recreate one scratch dir: an entry must not meet another
+    entry's leftovers, and the dir has to exist for relative writes. The
+    wipe is scoped to the path handed in, so a concurrent run under
+    another tag — and any file it still holds open — stays untouched."""
+    if os.path.isdir(path):
+        shutil.rmtree(path)
+    os.makedirs(path, exist_ok=True)
+
+
+def prepare_scratch():
+    """Create the scratch this run owns before its first entry: the fs
+    scratch corpora write into, plus the private run CWD of a tagged run
+    (an untagged run works in tests/e2e, which is already there)."""
+    reset_scratch_dir(FS_SCRATCH)
+    if RUN_CWD:
+        reset_scratch_dir(RUN_CWD)
+
+
+def teardown_scratch():
+    """Drop this run's scratch: a stale file left behind would be the next
+    run's first file-path corpus reading someone else's output. A tagged
+    run owns a whole namespace root, so one removal clears everything under
+    it without reaching into a sibling tag's files."""
+    if SCRATCH_NS:
+        if os.path.isdir(SCRATCH_NS):
+            shutil.rmtree(SCRATCH_NS)
+        return
+    for scratch in (FS_SCRATCH, IMPORTS_TMP, EXAMPLES_TMP):
+        if os.path.isdir(scratch):
+            shutil.rmtree(scratch)
+
+
+def run_dir_for(out_dir):
+    """CWD the program runs in, so its relative paths resolve where this
+    run owns them. A tagged manifest pass runs in its private dir; every
+    other pass keeps running in its out_dir, as before (tests/e2e for the
+    manifest pass, the examples scratch for the examples pass)."""
+    if out_dir == SCRIPT_DIR and RUN_CWD:
+        return RUN_CWD
+    return out_dir
 
 
 def _newest_file(paths):
@@ -149,26 +281,14 @@ def _fail_on_stale_tools(ncc, nvm, ndb):
     set pressured a no-op tool rebuild on every stdlib edit and tempted
     the timestamp-forging `touch` that once let a pre-merge nvm.exe
     pass this guard for a full task (2026-11-08).
-
-    The native modules (src/native) are dlopen'd shared libraries the
-    tools load at runtime, not statically linked into them, so a native
-    source change rebuilds only that module's .so, not the tools. The
-    tool check below therefore excludes src/native — including it would
-    alarm on a native edit, and the no-op tool rebuild the alarm demands
-    never clears it because the tools' mtime does not advance. A stale
-    .so is caught by its own check below.
-
-    The same reasoning excludes src/tools/nide: the IDE sources feed
-    only the IDE targets behind NLANG_BUILD_IDE (no tool links nide),
-    so an IDE-only edit cannot advance the tools' mtime and the alarm
-    it raises is one no tool rebuild can ever clear.
+    The native modules (src/native, dlopen'd at runtime) and the IDE
+    sources (src/tools/nide, built only behind NLANG_BUILD_IDE) are
+    excluded the same way: no tool links either, so their edits can
+    never advance the tools' mtime and the alarm they raise is one no
+    tool rebuild can ever clear. A stale native .so is caught by its
+    own check; a stale IDE binary belongs to the IDE tree's gate.
     """
-    def _is_native_module_source(path):
-        # True when path lies under <repo>/src/native (the dlopen'd
-        # modules) or <repo>/src/tools/nide (IDE-only targets, built
-        # behind NLANG_BUILD_IDE and never linked into a tool). The
-        # glob below is anchored at REPO_ROOT, so the repo-relative
-        # components are the tool's own inputs (src/*) versus these.
+    def _is_non_tool_source(path):
         parts = os.path.relpath(path, REPO_ROOT).split(os.sep)
         if len(parts) < 2 or parts[0] != 'src':
             return False
@@ -183,7 +303,7 @@ def _fail_on_stale_tools(ncc, nvm, ndb):
                         'include/**/*.h', 'include/**/*.hpp')
         for path in glob.glob(os.path.join(REPO_ROOT, pattern),
                               recursive=True)
-        if not _is_native_module_source(path))
+        if not _is_non_tool_source(path))
     for tool in (ncc, nvm, ndb):
         if not os.path.isfile(tool):
             print(f"ERROR: tool not found: {tool}")
@@ -194,59 +314,55 @@ def _fail_on_stale_tools(ncc, nvm, ndb):
                   f"running the suite (stale-binary results are "
                   f"meaningless)")
             sys.exit(2)
-    #Native-module staleness: each module is a dlopen'd shared library
-    #the tools load at runtime, so it must be at least as new as its own
-    #sources — a stale .so would be loaded by a fresh tool and misreport
-    #module behavior as a test bug. The newest .so is bound against the
-    #newest native source (over-approximation, as above: a false alarm
-    #costs one native-module rebuild, which clears it). The .so live in
-    #the build's native/ directory, three levels up from ncc's own dir.
-    native_dir = os.path.normpath(os.path.join(
-        os.path.dirname(ncc), '..', '..', '..', 'native'))
-    newest_so, newest_so_name = _newest_file(
-        glob.glob(os.path.join(native_dir, 'libnlang_*.so')) +
-        glob.glob(os.path.join(native_dir, 'nlang_*.dll')))
-    newest_native_src, newest_native_name = _newest_file(
-        glob.glob(os.path.join(REPO_ROOT, 'src', 'native', '**', '*.cpp'),
-                  recursive=True))
-    if newest_so_name and newest_so < newest_native_src:
-        print(f"ERROR: {_display_path(newest_so_name)} is older "
-              f"than {newest_native_name} - rebuild the native module "
-              f"before running the suite (a stale .so is loaded by a "
-              f"fresh tool)")
-        sys.exit(2)
     #Load-time closure hazard: any .npkg in the tests directory is on
-    #the module-local search path and shadows the system stdlib package
+    #the module-local search path and shadows the system stdlib packages
     #for every module run from here (an experiment leftover here once
     #made manual runs pass while the harness failed).
     for pkg in glob.glob(os.path.join(SCRIPT_DIR, '*.npkg')):
         print(f"ERROR: {pkg} shadows the system stdlib for modules run "
               f"from tests/e2e; remove it")
         sys.exit(2)
-    #Stale-package hazard: stdlib.npkg is compiled by ncc from the
-    #stdlib/*.n sources (the nlang_stdlib_package step), so the package
-    #must be at least as new as BOTH of its inputs — a package older
-    #than the newest source misses the edit (the 2026-10-31 redesign ran
-    #green against a pre-flip npkg for a full task), and a package older
-    #than ncc was built by a superseded compiler. Derived from the ncc
-    #path (<build>/src/tools/ncc/<cfg>/ncc.exe); skipped when no npkg
-    #sits at that layout (an installed tool tree ships its package
-    #beside the binaries, not under a build root).
+    #Stale-package hazard: the stdlib packages are compiled by ncc from
+    #the stdlib sources (the nlang_stdlib_package step), so each must be
+    #at least as new as BOTH of its inputs — a package older than the
+    #newest source misses the edit (the 2026-10-31 redesign ran green
+    #against a pre-flip npkg for a full task), and a package older than
+    #ncc was built by a superseded compiler. The tree's generated
+    #projects name the package set (<build>/stdlib/<domain>.nproj, one
+    #per domain): a project without its package means the packing step
+    #has not run, and every import of that domain would fail at load
+    #time. Derived from the ncc path (<build>/src/tools/ncc/<cfg>/
+    #ncc.exe); skipped when no project sits at that layout (an installed
+    #tool tree ships its packages beside the binaries, not under a build
+    #root).
     build_root = os.path.dirname(os.path.dirname(os.path.dirname(
         os.path.dirname(os.path.dirname(ncc)))))
-    npkg = os.path.join(build_root, 'stdlib', 'stdlib.npkg')
-    if os.path.isfile(npkg):
+    projects = sorted(glob.glob(os.path.join(
+        build_root, 'stdlib', '*.nproj')))
+    if projects:
+        #The packing step's own source globs: the top-level units and the
+        #web package's dotted sub-module arm.
         newest_n, newest_n_name = _newest_file(
-            glob.glob(os.path.join(REPO_ROOT, 'stdlib', '*.n')))
-        for bound, bound_name in (
-                (os.path.getmtime(ncc), _display_path(ncc)),
-                (newest_n, newest_n_name)):
-            if os.path.getmtime(npkg) < bound:
-                print(f"ERROR: {_display_path(npkg)} is "
-                      f"older than {bound_name} - rebuild the "
-                      f"nlang_stdlib_package target before running the "
-                      f"suite (stale-package results are meaningless)")
+            [path
+             for pattern in ('stdlib/*.n', 'stdlib/web/*.n')
+             for path in glob.glob(os.path.join(REPO_ROOT, pattern))])
+        for project in projects:
+            npkg = os.path.splitext(project)[0] + '.npkg'
+            if not os.path.isfile(npkg):
+                print(f"ERROR: {_display_path(npkg)} is missing - build "
+                      f"the nlang_stdlib_package target before running "
+                      f"the suite (a missing package fails every import "
+                      f"of its domain at load time)")
                 sys.exit(2)
+            for bound, bound_name in (
+                    (os.path.getmtime(ncc), _display_path(ncc)),
+                    (newest_n, newest_n_name)):
+                if os.path.getmtime(npkg) < bound:
+                    print(f"ERROR: {_display_path(npkg)} is "
+                          f"older than {bound_name} - rebuild the "
+                          f"nlang_stdlib_package target before running the "
+                          f"suite (stale-package results are meaningless)")
+                    sys.exit(2)
 
 
 def _manifest_configs():
@@ -350,19 +466,11 @@ def _orphan_run_stderr_sidecars(known_names):
             orphans.append(stem)
     return orphans
 
-#Tests that need CWD=SCRIPT_DIR for their relative file paths, plus a
-#scratch dir pre-cleaned before and removed after the run.
-def _needs_script_cwd(name):
-    return (name.startswith('file_stream_') or name.startswith('fs_struct_')
-            or name.startswith('fs_object_') or name.startswith('stdlib_io_')
-            or name.startswith('stdlib_fs_')
-            or name.startswith('stream_long_'))
-
 #Test name suffixes that mark intentional throw-tests. Tests ending in
 #these suffixes are excluded from the P3.7 hidden-throw detector: their
 #exit=1 is by design (runtime throws → exit 1 = expected 1).
 INTENTIONAL_THROW_SUFFIXES = (
-    '_throws', '_throw', '_null', '_oob', '_bounds', '_eos',
+    '_throws', '_null', '_oob', '_bounds', '_eos',
     '_missing', '_bad_mode', '_cycle',
 )
 
@@ -398,25 +506,6 @@ def _runner_argv(name, ndb, nvm):
     if name.startswith('dbg_'):
         return [ndb]
     return [nvm]
-
-
-def _run_env(name, sources_dir):
-    """The run-phase environment for one entry: the suite's pinned
-    tensor backend plus the entry's own `.env` sidecar (KEY=VALUE lines,
-    '#' comments) — the only way a fixture can pin environment-driven
-    behavior such as NLANG_TENSOR_BACKEND's unknown-name diagnostic,
-    which the nvm CLI rejects before the module ever loads."""
-    env = dict(RUN_ENV)
-    path = os.path.join(sources_dir, f"{name}.env")
-    if os.path.isfile(path):
-        with open(path, encoding='utf-8') as ef:
-            for line in ef:
-                line = line.strip()
-                if not line or line.startswith('#'):
-                    continue
-                key, _, value = line.partition('=')
-                env[key.strip()] = value.strip()
-    return env
 
 
 def _matchable_stdout(name, raw_stdout):
@@ -497,71 +586,191 @@ def _split_timeout_arg(argv):
     return rest, timeout
 
 
-def _is_debug_config(ncc):
-    """True when the tools were built in the Debug config.
+def _split_record_out_arg(argv):
+    """Pull a '--record-out <file>' (or '--record-out=<file>', the
+    --timeout= spelling of this same file) raw-measure sink out of argv
+    (the positional tool paths stay untouched), mirroring
+    _split_timeout_arg: the flag is set by the recording scripts, not
+    typed by hand, so a flag with no usable path after it — dangling or
+    empty — propagates as a plain ValueError rather than being silently
+    left among the positionals or disabling recording as a falsy path.
+    The last occurrence wins."""
+    record_out = None
+    rest = []
+    index = 0
+    while index < len(argv):
+        arg = argv[index]
+        value = None
+        if arg == '--record-out':
+            if index + 1 < len(argv):
+                value = argv[index + 1]
+                index += 2
+            else:
+                index += 1  #dangling flag: value stays None
+        elif arg.startswith('--record-out='):
+            value = arg.split('=', 1)[1]
+            index += 1
+        else:
+            rest.append(arg)
+            index += 1
+            continue
+        if not value:
+            raise ValueError('--record-out requires a file path')
+        record_out = value
+    return rest, record_out
 
-    Windows multi-config generators put the config in the tool path
-    (build/src/tools/ncc/Release/ncc.exe). Single-config generators
-    (Linux Makefiles/Ninja) record it in CMakeCache.txt instead — the
-    tool path there carries no config component, so a path-shape check
-    alone would silently never fire the Debug scaling on them.
-    """
-    if '/Debug/' in ncc.replace(os.sep, '/'):
-        return True
-    cache_path = os.path.normpath(os.path.join(
-        os.path.dirname(ncc), '..', '..', '..', 'CMakeCache.txt'))
-    try:
-        with open(cache_path, encoding='utf-8') as cache:
-            for line in cache:
-                if line.startswith('CMAKE_BUILD_TYPE'):
-                    return 'Debug' in line.split('=', 1)[1]
-    except OSError:
-        pass    #no cache readable: assume the path shape said enough
-    return False
+
+def _split_gate_flag_arg(argv):
+    """Pull the last '--config CFG'/'--config=CFG' and
+    '--table FILE'/'--table=FILE' gate flags out of argv, mirroring
+    _split_record_out_arg: a space-separated spelling left among the
+    positionals silently prices the run from the checked-in table
+    instead of the named file (measured with the stub-table cases), so
+    both spellings must be honoured here. The last occurrence of each
+    flag wins; a dangling or empty value propagates as a plain
+    ValueError rather than falling back, and an unknown --config value
+    fails in _resolve_judging_config."""
+    flag_names = {'--config': 'config', '--table': 'table'}
+    values = {'config': None, 'table': None}
+    rest = []
+    index = 0
+    while index < len(argv):
+        arg = argv[index]
+        head, sep, inline = arg.partition('=')
+        if arg in flag_names:
+            name = flag_names[arg]
+            if index + 1 < len(argv):
+                value = argv[index + 1]
+                index += 2
+            else:
+                value = None  # dangling flag: caught below
+                index += 1
+        elif sep and head in flag_names:
+            name = flag_names[head]
+            value = inline
+            index += 1
+        else:
+            rest.append(arg)
+            index += 1
+            continue
+        if not value:
+            raise ValueError('%s requires a value' % arg)
+        values[name] = value
+    return rest, values['config'], values['table']
 
 
-def _test_runtime_cap(name, sources_dir, effective_timeout):
-    """Runtime subprocess cap for one test: <name>.timeout raises it.
+def _load_gate_time_table():
+    """The leaf timing-table module (tools/gate_time_table.py) loaded by
+    path — the same importlib trick tools/qtest_progress.py uses: one
+    caps()/resolve site is shared by every consumer, and loading the
+    leaf keeps the runner free of the checker package's sibling
+    imports."""
+    import importlib.util
+    path = os.path.join(REPO_ROOT, 'tools', 'gate_time_table.py')
+    spec = importlib.util.spec_from_file_location('gate_time_table', path)
+    #An absent tool file is missing input, not a silent fallback.
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f'cannot load {path}')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
-    Same sibling-file discovery shape as .stdin/.flags. The file holds
-    the test's needed budget in seconds and may only RAISE the cap —
-    the effective value (the 30s default, the invocation's
-    --timeout=SEC, scaled x3 under Debug) is the floor, so an
-    invocation-explicit calibration (the gate's --timeout=120) is
-    never silently reduced by a test-side file.
-    """
-    timeout_path = os.path.join(sources_dir, f"{name}.timeout")
-    if not os.path.isfile(timeout_path):
-        return effective_timeout
-    try:
-        with open(timeout_path, encoding='utf-8') as tf:
-            requested = int(tf.read().strip())
-    except (OSError, ValueError):
-        return effective_timeout
-    return max(requested, effective_timeout)
+
+def _resolve_judging_config(config, ncc):
+    """Which config key's rows price this run: e2e-<--config> when the
+    leg named one, else the two-way tool-path guess the retired config
+    branch used (a Release build tree, versus Debug — an ASan sweep
+    runs the Debug binaries but its leg passes --config=ASan). Returns
+    (key, guessed segment or None); an unknown --config raises ValueError
+    like the other gate flags."""
+    if config:
+        if config not in ('Debug', 'ASan', 'Release'):
+            raise ValueError('--config must be Debug, ASan or Release, '
+                             'got %r' % (config,))
+        return 'e2e-' + config, None
+    guess = 'Release' if '/Release/' in ncc.replace(os.sep, '/') else 'Debug'
+    return 'e2e-' + guess, guess
+
+
+def _price_e2e_entry(table_mod, rows, config_key, name, manifest_scope,
+                     work_factor, scalar, uncalibrated):
+    """(kill_s, kill_note, advisory_budget_s) for one entry, graded by
+    the row that prices it: the entry's own row -> kill at the budget,
+    kill note naming (TIMEOUT_BUDGET ...), no advisory (the kill already
+    carries the cap); a coarse `default` or manifest-scope row -> kill
+    at the watchdog cap, note naming (TIMEOUT_WATCHDOG ...), and an
+    advisory when the entry finishes over the budget; no row ->
+    (None, '', None) and the caller applies the --timeout fallback
+    visibly. An uncalibrated run labels its kill notes so the log says
+    why the budget is machine-wide."""
+    row = table_mod.resolve_scoped_row(rows, config_key, name,
+                                       manifest_scope)
+    if row is None:
+        return None, '', None
+    budget, watchdog = table_mod.caps_values(row.ref_s, work_factor,
+                                             scalar)
+    if row.entry == name:
+        kill_s, advisory = budget, None
+        note = f'(TIMEOUT_BUDGET budget={budget:.2f} ' \
+               f'watchdog={watchdog:.2f})'
+    else:
+        kill_s, advisory = watchdog, budget
+        note = f'(TIMEOUT_WATCHDOG watchdog={watchdog:.2f})'
+    if uncalibrated:
+        note += ' 未做本机校准'
+    return kill_s, f' {note}', advisory
+
+
+def _is_cap_kill(exc):
+    """Whether the exception is the runner's own kill — a TimeoutExpired
+    at the derived kill point. _kill_note attaches the cap-provenance
+    note on exactly this predicate, and the pricing sites pass it to
+    _emit_verdict as cap_killed: whether a verdict is a cap kill is a
+    fact of the call site, never text to be substring-matched (entry
+    names and compiler error texts can contain TIMEOUT)."""
+    return isinstance(exc, subprocess.TimeoutExpired)
+
+
+def _kill_note(exc, note):
+    """Only the runner's own kill — a TimeoutExpired at the derived kill
+    point — carries the cap-provenance note: any other exception text
+    already describes the entry's own failure, not a cap."""
+    return note if note and _is_cap_kill(exc) else ''
+
+
+def _emit_verdict(name, verdict, entry_started, record_file,
+                  cap_killed=False):
+    """Single outlet for one per-entry verdict: the coarse-scope budget
+    advisory when this entry finished over it (a runner kill at the
+    derived cap — cap_killed, the same predicate _kill_note uses for the
+    cap note — measured the cap, not the workload, so it needs no second
+    line), then the verdict line verbatim (its consumers — shard A/B
+    diff, gate logs — grep the PASS/FAIL glyphs), then the entry's TIME
+    row, and when --record-out is active the matching MEASURE row with
+    the same seconds reading. No branch may print a verdict directly:
+    that keeps the TIME rows adjacent to every verdict without repeating
+    the timing logic across the branches."""
+    span = time.monotonic() - entry_started
+    if (ENTRY_ADVISORY_BUDGET is not None and span > ENTRY_ADVISORY_BUDGET
+            and not cap_killed):
+        print(f"advisory: {name} 超预算 "
+              f"budget={ENTRY_ADVISORY_BUDGET:.2f} "
+              f"actual={_TIMING_SECONDS_FMT.format(span)}")
+    print(verdict)
+    seconds = _TIMING_SECONDS_FMT.format(span)
+    print(f"TIME {name} {seconds}")
+    if record_file:
+        print(f"MEASURE {name} {seconds} form=e2e-serial",
+              file=record_file)
 
 
 def main():
-    global TIMEOUT_SEC
-    # POSIX: raise the per-process file-descriptor limit before the suite.
-    # A test that opens many concurrent connections in one process
-    # (net_conc_bench: 1000 clients + 1000 server accepts) needs more than
-    # the default 1024. The limit is inherited by every child the harness
-    # spawns, so raising it once here covers the whole run. Best-effort:
-    # a container may cap the hard limit below the target, in which case
-    # the raise is refused and the default limit still applies.
-    if os.name == 'posix':
-        import resource
-        try:
-            soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
-            resource.setrlimit(
-                resource.RLIMIT_NOFILE,
-                (min(max(soft, 4096), hard), hard))
-        except (ValueError, OSError):
-            pass
+    global ENTRY_ADVISORY_BUDGET
     args, timeout = _split_timeout_arg(sys.argv[1:])
-    if timeout is not None:
-        TIMEOUT_SEC = timeout
+    args, record_out = _split_record_out_arg(args)
+    args, config, table_arg = _split_gate_flag_arg(args)
+    timeout_fallback = (timeout if timeout is not None
+                        else DEFAULT_TIMEOUT_FALLBACK_S)
     ncc = args[0] if len(args) > 0 else DEFAULT_NCC
     nvm = args[1] if len(args) > 1 else DEFAULT_NVM
     #dbg_ tests run under the debugger. An explicit third argument is
@@ -574,27 +783,57 @@ def main():
     tools_dir = os.path.dirname(os.path.dirname(os.path.dirname(nvm)))
     ndb = args[2] if len(args) > 2 else os.path.join(
         tools_dir, 'ndb', 'Release', 'ndb.exe')
-    #Optional fourth argument: a filter file restricting the run to the
-    #named manifest entries (one name per line, '#' comments). The
-    #device double-run legs (tools/e2e_cuda_double_run.txt, spec D7)
-    #pin an explicit subset so a device run stays inside the 3-minute
-    #per-test cap; the full-suite regression net stays with the cpu
-    #mode. A name in the file that keys no manifest entry fails the
-    #run — a stale list would otherwise shrink the net silently.
-    #Read from the filtered `args`, not the raw argv: a '--timeout=SEC'
-    #flag after the three tool paths would otherwise occupy the filter
-    #slot (sys.argv[4]) and be mistaken for a filter file.
-    filter_path = args[3] if len(args) > 3 else None
     _fail_on_stale_tools(ncc, nvm, ndb)
-    #Debug (and ASan, which builds the Debug config) runs several times
-    #slower than Release: asserts on, no optimization, gc-stress
-    #amplified. A flat 30s cap that is generous in Release pushes the
-    #slowest stress tests against their ceiling under Debug, turning
-    #any concurrent machine load into timeout flakes. Scale the
-    #per-test cap by config, read off the tool path; x3 keeps every
-    #test far from its limit and stays under the 3-minute project cap.
-    if _is_debug_config(ncc):
-        TIMEOUT_SEC *= 3
+    #Gate-time budget pricing: the judging config comes from --config
+    #(the legs derive it from the reference key they sweep) or, missing
+    #that, from the two-way tool-path guess the retired config branch
+    #used. The table loads once here — it is the repository's and the
+    #legs', not hand-typed — so a malformed row or an unknown --config
+    #stops the run visibly before any entry work instead of silently
+    #running the historical flat cap.
+    try:
+        config_key, guessed = _resolve_judging_config(config, ncc)
+    except ValueError as e:
+        print(f"ERROR: {e}")
+        sys.exit(2)
+    table_path = table_arg or os.path.join(REPO_ROOT, 'tests',
+                                           'gate_time_reference.txt')
+    try:
+        gate_table = _load_gate_time_table()
+        gate_rows = gate_table.effective_rows(table_path)
+    except (OSError, ValueError) as e:
+        print(f"ERROR: gate-time table {table_path}: {e}")
+        sys.exit(2)
+    scale_env = os.environ.get('NLANG_GATE_MACHINE_SCALE')
+    try:
+        #Budget-only scaling (D-4/D-8): the scalar is this machine's
+        #calibration, the work factor the soak knob; a missing scalar
+        #prices at SCALE_BAND_MAX (the widest safe band) and says so.
+        scalar = (float(scale_env) if scale_env
+                  else float(gate_table.SCALE_BAND_MAX))
+        work_factor = float(os.environ.get('NLANG_TEST_WORK_FACTOR')
+                            or gate_table.DEFAULT_WORK_FACTOR)
+    except ValueError as e:
+        print(f"ERROR: {e} (NLANG_GATE_MACHINE_SCALE / "
+              f"NLANG_TEST_WORK_FACTOR)")
+        sys.exit(2)
+    if guessed:
+        print(f"TIMEOUT judging config={config_key} "
+              f"(构型按路径猜为{guessed}，--config=Debug|ASan|Release可显式指定)")
+    else:
+        print(f"TIMEOUT judging config={config_key}")
+    if not scale_env:
+        band = (scalar * max(work_factor, 1.0)
+                * gate_table.SAFETY_MULTIPLIER)
+        #The old flat cap priced back through this band is the reference
+        #the startup line quotes (11.25 s at the default band: 90 / (4*2);
+        #a work factor above 1 widens the band and shrinks it further)
+        #— derived, so a custom work factor keeps the arithmetic honest.
+        short_ref = DEFAULT_TIMEOUT_FALLBACK_S / band
+        print(f"TIMEOUT budget: 未做本机校准（缺标量NLANG_GATE_MACHINE_SCALE，"
+              f"按SCALE_BAND_MAX计价）: 预算=参考秒数×{band:g}，"
+              f"参考秒数{short_ref:g}对应旧Debug平帽90s；处置是经门禁跑完成校准，"
+              f"或导出NLANG_GATE_MACHINE_SCALE")
 
     if not os.path.isfile(MANIFEST):
         print(f"ERROR: manifest.txt not found at {MANIFEST}")
@@ -631,36 +870,38 @@ def main():
                     known_names.add(line.split(None, 1)[0])
     if not os.environ.get('NLANG_E2E_MANIFEST'):
         for orphan in _orphan_run_stderr_sidecars(known_names):
+            #Not a per-entry run: no entry work happened, so this FAIL
+            #carries no TIME row (per-entry verdicts go via
+            #_emit_verdict, this startup check does not).
             print(f"FAIL {orphan} (run.stderr sidecar matches no manifest entry)")
             failed += 1
             errors.append(
                 f"  {orphan}: run.stderr sidecar matches no manifest entry")
 
-    filter_names = None
-    if filter_path is not None:
-        with open(filter_path, encoding='utf-8') as ff:
-            filter_names = set()
-            for line in ff:
-                line = line.strip()
-                if line and not line.startswith('#'):
-                    filter_names.add(line)
-        for stale in sorted(filter_names - known_names):
-            print(f"FAIL {stale} (filter names no manifest entry)")
-            failed += 1
-            errors.append(
-                f"  {stale}: filter names no manifest entry")
-        if failed:
-            sys.exit(1)
+    #Scratch for this run (per-tag namespace when NLANG_E2E_SCRATCH_TAG is
+    #set): created before the first entry, dropped in teardown_scratch.
+    prepare_scratch()
+    #Raw-measure sink (--record-out): opened after every startup guard
+    #so an aborted run leaves no half-written file; one MEASURE row per
+    #per-entry verdict, written by _emit_verdict.
+    record_file = (open(record_out, 'w', encoding='utf-8')
+                   if record_out else None)
 
     for manifest_path, sources_dir, out_dir in _manifest_configs():
+      #The coarse scope that owns this pass's entries: one of the two
+      #committed manifests, recognized by file name; a subset or
+      #override manifest (NLANG_E2E_MANIFEST) has no scope row of its
+      #own, so its entries price through their own row or the
+      #`default` row only.
+      manifest_scope = os.path.basename(manifest_path)
+      if manifest_scope not in gate_table.MANIFEST_SCOPES:
+          manifest_scope = None
       with open(manifest_path, 'r', encoding='utf-8') as f:
         #Scratch dir for the examples pass: reset once before its lines
         #(each example writes distinct files, so per-entry reset is not
         #needed); the manifest pass never creates it.
         if out_dir == EXAMPLES_TMP:
-            if os.path.isdir(EXAMPLES_TMP):
-                shutil.rmtree(EXAMPLES_TMP)
-            os.makedirs(EXAMPLES_TMP)
+            reset_scratch_dir(EXAMPLES_TMP)
         for line in f:
             line = line.strip()
             if not line or line.startswith('#'):
@@ -672,8 +913,6 @@ def main():
             if len(parts) < 2:
                 continue
             name = parts[0]
-            if filter_names is not None and name not in filter_names:
-                continue
             #Environment gate: a gated entry whose capability the OS
             #oracle says is absent is skipped before any tooling runs
             #(the reason is authoritative — the machine cannot perform
@@ -683,27 +922,39 @@ def main():
                 print(f"SKIP {name} ({gate_reason})")
                 skipped += 1
                 continue
+            #Per-entry kill point and advisory budget from the table
+            #(_price_e2e_entry grades own-row vs coarse-scope vs no
+            #row): kill_s drives the four subprocess timeouts below,
+            #kill_note labels only a runner kill there, and the coarse
+            #advisory rides the ENTRY_ADVISORY_BUDGET global that
+            #_emit_verdict reads.
+            kill_s, kill_note, advisory = _price_e2e_entry(
+                gate_table, gate_rows, config_key, name, manifest_scope,
+                work_factor, scalar, not scale_env)
+            if kill_s is None:
+                kill_s = timeout_fallback
+                print(f"TIMEOUT-FALLBACK {name}: no {config_key} row for "
+                      f"it in {table_path}, kill = "
+                      f"{_TIMING_SECONDS_FMT.format(kill_s)} s")
+            ENTRY_ADVISORY_BUDGET = advisory
+            #Per-entry timing origin: from here to the entry's verdict
+            #line is the entry's own work, which is what the TIME and
+            #MEASURE rows report.
+            entry_started = time.monotonic()
             #Expected may be an int (runtime exit code) or the literal
             #"compile_error" to assert that ncc rejects the source.
             if parts[1] == "compile_error":
                 expected = "compile_error"
             else:
                 expected = int(parts[1])
-                #A process exit status is only 8 bits on POSIX (the kernel
-                #reports result & 0xFF to the parent), so a full-value
-                #expectation (exit_code_full_passthrough's 300) is reachable
-                #on Windows but not on Linux. Mask to the platform's visible
-                #range so the assertion stays meaningful; the low byte still
-                #discriminates correct logic from a wrong value.
-                if os.name != 'nt':
-                    expected &= 0xFF
             expected_stdout = parts[2] if len(parts) > 2 else ""
 
             test_file = os.path.join(sources_dir, f"{name}.n")
             test_dir = os.path.join(sources_dir, name)
             if not os.path.isfile(test_file) and not os.path.isdir(test_dir):
                 if out_dir != SCRIPT_DIR:
-                    print(f"FAIL {name} (file missing)")
+                    _emit_verdict(name, f"FAIL {name} (file missing)",
+                                  entry_started, record_file)
                     failed += 1
                     errors.append(f"  {name}: file missing")
                 else:
@@ -715,9 +966,12 @@ def main():
             #dir, which must never happen under examples/. Multi-module
             #examples are gated by ctest (project_compile/project_run).
             if os.path.isdir(test_dir) and out_dir != SCRIPT_DIR:
-                print(f"FAIL {name} (directory-form entry not allowed"
-                      " in the examples manifest; gate multi-module"
-                      " examples via ctest instead)")
+                _emit_verdict(
+                    name,
+                    f"FAIL {name} (directory-form entry not allowed"
+                    " in the examples manifest; gate multi-module"
+                    " examples via ctest instead)",
+                    entry_started, record_file)
                 failed += 1
                 errors.append(f"  {name}: directory-form entry not "
                               f"allowed in the examples manifest")
@@ -731,14 +985,17 @@ def main():
             if os.path.isdir(test_dir):
                 order_path = os.path.join(test_dir, 'order.txt')
                 if not os.path.isfile(order_path):
-                    print(f"FAIL {name} (missing order.txt in test dir)")
+                    _emit_verdict(
+                        name, f"FAIL {name} (missing order.txt in test dir)",
+                        entry_started, record_file)
                     failed += 1
                     errors.append(f"  {name}: missing order.txt")
                     continue
                 with open(order_path, 'r', encoding='utf-8') as of:
                     modules = [m.strip() for m in of.read().split() if m.strip()]
                 if not modules:
-                    print(f"FAIL {name} (order.txt is empty)")
+                    _emit_verdict(name, f"FAIL {name} (order.txt is empty)",
+                                  entry_started, record_file)
                     failed += 1
                     errors.append(f"  {name}: empty order.txt")
                     continue
@@ -789,9 +1046,13 @@ def main():
                     try:
                         r = subprocess.run(
                             [ncc, 'build', src, '-o', out, '-I', imports_dir],
-                            capture_output=True, timeout=TIMEOUT_SEC)
+                            capture_output=True, timeout=kill_s)
                     except Exception as e:
-                        print(f"FAIL {name} (compile error: {e})")
+                        _emit_verdict(name,
+                                      f"FAIL {name} (compile error: "
+                                      f"{e}){_kill_note(e, kill_note)}",
+                                      entry_started, record_file,
+                                      cap_killed=_is_cap_kill(e))
                         failed += 1
                         errors.append(f"  {name}: compile error: {e}")
                         compile_ok = False
@@ -818,7 +1079,9 @@ def main():
                                                    reject_stderr)
                         if bad:
                             negate, want = bad
-                            print(f"FAIL {name} (diagnostic mismatch)")
+                            _emit_verdict(
+                                name, f"FAIL {name} (diagnostic mismatch)",
+                                entry_started, record_file)
                             failed += 1
                             errors.append(
                                 f"  {name}: expected diagnostic "
@@ -826,16 +1089,23 @@ def main():
                                 f"{want!r}; stderr: "
                                 f"{reject_stderr[:300]}")
                             continue
-                        print(f"PASS {name} (compile error as expected)")
+                        _emit_verdict(
+                            name,
+                            f"PASS {name} (compile error as expected)",
+                            entry_started, record_file)
                         passed += 1
                         continue
-                    print(f"FAIL {name} (compilation failed)")
+                    _emit_verdict(name, f"FAIL {name} (compilation failed)",
+                                  entry_started, record_file)
                     failed += 1
                     errors.append(f"  {name}: compilation failed")
                     continue
 
                 if expected == "compile_error":
-                    print(f"FAIL {name} (expected compile_error but compiled ok)")
+                    _emit_verdict(
+                        name,
+                        f"FAIL {name} (expected compile_error but compiled ok)",
+                        entry_started, record_file)
                     failed += 1
                     errors.append(f"  {name}: expected compile_error, compiled")
                     continue
@@ -854,31 +1124,20 @@ def main():
                 try:
                     result = subprocess.run(
                         _runner_argv(name, ndb, nvm) + [main_nmod],
-                        capture_output=True,
-                        timeout=_test_runtime_cap(name, test_dir,
-                                                  TIMEOUT_SEC),
-                        input=stdin_bytes, env=_run_env(name, test_dir))
+                        capture_output=True, timeout=kill_s,
+                        input=stdin_bytes)
                     actual = result.returncode
                     stderr_text = _matchable_stderr(result.stderr)
                 except Exception as e:
-                    print(f"FAIL {name} (runtime error: "
-                          f"{_describe_run_error(e)})")
+                    _emit_verdict(
+                        name,
+                        f"FAIL {name} (runtime error: "
+                        f"{_describe_run_error(e)}){_kill_note(e, kill_note)}",
+                        entry_started, record_file,
+                        cap_killed=_is_cap_kill(e))
                     failed += 1
                     errors.append(f"  {name}: runtime error: "
                                   f"{_describe_run_error(e)}")
-                    continue
-
-                sentinel = _skip_sentinel(actual, expected, stderr_text)
-                if sentinel is not None:
-                    if sentinel:
-                        print(f"SKIP {name} ({sentinel})")
-                        skipped += 1
-                    else:
-                        print(f"FAIL {name} (skip sentinel without a "
-                              f"reason)")
-                        failed += 1
-                        errors.append(f"  {name}: skip sentinel "
-                                      f"without a reason")
                     continue
 
                 if actual == expected:
@@ -888,7 +1147,10 @@ def main():
                     if expected_stdout:
                         stdout_text = _matchable_stdout(name, result.stdout)
                         if expected_stdout not in stdout_text:
-                            print(f"FAIL {name} (stdout missing {expected_stdout!r})")
+                            _emit_verdict(
+                                name,
+                                f"FAIL {name} (stdout missing {expected_stdout!r})",
+                                entry_started, record_file)
                             failed += 1
                             errors.append(f"  {name}: stdout missing {expected_stdout!r}")
                             continue
@@ -903,37 +1165,38 @@ def main():
                         negate = want.startswith('!')
                         want = want.lstrip('!').strip()
                         if (want in stderr_text) == negate:
-                            print(f"FAIL {name} (run stderr expectation mismatch)")
+                            _emit_verdict(
+                                name,
+                                f"FAIL {name} (run stderr expectation mismatch)",
+                                entry_started, record_file)
                             failed += 1
                             errors.append(
                                 f"  {name}: expected run stderr "
                                 f"{'NOT containing' if negate else 'containing'} "
                                 f"{want!r}; stderr: {stderr_text[:300]}")
                             continue
-                    print(f"PASS {name} (exit={actual})")
+                    _emit_verdict(name, f"PASS {name} (exit={actual})",
+                                  entry_started, record_file)
                     passed += 1
                 else:
-                    print(f"FAIL {name} (expected={expected}, actual={actual})")
+                    _emit_verdict(
+                        name,
+                        f"FAIL {name} (expected={expected}, actual={actual})",
+                        entry_started, record_file)
                     failed += 1
                     errors.append(f"  {name}: expected={expected} actual={actual}")
                     if stderr_text:
                         errors.append(f"    stderr: {stderr_text.splitlines()[0]}")
                 continue
 
-            #Pass-1 (manifest.txt) entries only. The examples pass always
-            #runs with CWD = its own scratch dir, and a future example
-            #whose name happens to start with one of the prefixes below
-            #must not churn the phase scratch dirs mid-pass.
-            needs_script_cwd = out_dir == SCRIPT_DIR and _needs_script_cwd(name)
-            #Phase 8/11: ensure the scratch dirs exist and are clean for
-            #file-path tests (file_stream_*/fs_*_*/stdlib_io_*/stdlib_fs_*).
-            if needs_script_cwd:
-                if os.path.isdir(PHASE8_TMP):
-                    shutil.rmtree(PHASE8_TMP)
-                os.makedirs(PHASE8_TMP, exist_ok=True)
-                if os.path.isdir(PHASE11_TMP):
-                    shutil.rmtree(PHASE11_TMP)
-                os.makedirs(PHASE11_TMP, exist_ok=True)
+            #Manifest pass only: its CWD (tests/e2e/, or the tagged run's
+            #private dir) resolves ../temp/fs/... to FS_SCRATCH, so that
+            #dir has to exist and be empty when the program starts — one
+            #entry must not see another's leftovers. The examples pass
+            #owns its own pre-cleaned CWD (see the out_dir handling in
+            #main).
+            if out_dir == SCRIPT_DIR:
+                reset_scratch_dir(FS_SCRATCH)
 
             # Compile
             #0.7.5: <name>.ncc.flags (if present) supplies extra ncc CLI
@@ -950,26 +1213,30 @@ def main():
             #compile look successful; the rejection gate owns the slot.
             if expected == "compile_error" and os.path.isfile(nmod_file):
                 os.remove(nmod_file)
+            #Fixed compile CWD: ncc takes an explicit -o, and a compiler
+            #that ignored it would drop the artifact in the CWD — pinned to
+            #out_dir so concurrent runs cannot pick each other's up.
             try:
                 compile_result = subprocess.run(
                     [ncc, 'build', test_file, '-o', nmod_file] + ncc_extra,
-                    capture_output=True, timeout=TIMEOUT_SEC)
+                    capture_output=True, timeout=kill_s, cwd=out_dir)
             except Exception as e:
-                print(f"FAIL {name} (compile error: {e})")
+                _emit_verdict(name,
+                              f"FAIL {name} (compile error: "
+                              f"{e}){_kill_note(e, kill_note)}",
+                              entry_started, record_file,
+                              cap_killed=_is_cap_kill(e))
                 failed += 1
                 errors.append(f"  {name}: compile error: {e}")
                 continue
 
             if not os.path.isfile(nmod_file):
-                # ncc may output .ncu in CWD; try looking there. Only a
-                # successful compile can have produced it — on a non-zero
-                # exit the file is a stale artifact from an earlier run
-                # (a manual red-light probe, for instance) and must not
-                # mask the expected rejection.
-                cwd_nmod = os.path.join(os.getcwd(), f"{name}.ncu")
-                if compile_result.returncode == 0 and os.path.isfile(cwd_nmod):
-                    shutil.move(cwd_nmod, nmod_file)
-                elif expected == "compile_error":
+                #No artifact where the pinned compile CWD and -o put it: the
+                #compile did not produce one. On a non-zero exit a file that
+                #did survive an earlier run (a manual red-light probe, for
+                #instance) is stale and must not mask the expected rejection,
+                #which is why the slot is deleted before the compile.
+                if expected == "compile_error":
                     #For compile_error tests an optional column 3 is the
                     #substring ncc's diagnostics (stderr) must contain —
                     #it pins the rejection reason, not just the failure.
@@ -983,7 +1250,9 @@ def main():
                                                    stderr_text)
                         if bad:
                             negate, want = bad
-                            print(f"FAIL {name} (diagnostic mismatch)")
+                            _emit_verdict(
+                                name, f"FAIL {name} (diagnostic mismatch)",
+                                entry_started, record_file)
                             failed += 1
                             errors.append(
                                 f"  {name}: expected diagnostic "
@@ -991,11 +1260,15 @@ def main():
                                 f"{want!r}; stderr: "
                                 f"{stderr_text[:300]}")
                             continue
-                    print(f"PASS {name} (compile error as expected)")
+                    _emit_verdict(
+                        name, f"PASS {name} (compile error as expected)",
+                        entry_started, record_file)
                     passed += 1
                     continue
                 else:
-                    print(f"FAIL {name} (compilation failed)")
+                    _emit_verdict(
+                        name, f"FAIL {name} (compilation failed)",
+                        entry_started, record_file)
                     failed += 1
                     errors.append(f"  {name}: compilation failed")
                     continue
@@ -1003,7 +1276,10 @@ def main():
             #If we reach here, compilation succeeded. If the manifest said
             #compile_error, that's a FAIL (we expected rejection).
             if expected == "compile_error":
-                print(f"FAIL {name} (expected compile_error but compiled ok)")
+                _emit_verdict(
+                    name,
+                    f"FAIL {name} (expected compile_error but compiled ok)",
+                    entry_started, record_file)
                 failed += 1
                 errors.append(f"  {name}: expected compile_error, compiled")
                 if os.path.isfile(nmod_file):
@@ -1024,7 +1300,9 @@ def main():
                     'utf-8', errors='replace')
                     if compile_result.stderr else '')
                 if (want in got_stderr) == negate:
-                    print(f"FAIL {name} (stderr expectation mismatch)")
+                    _emit_verdict(
+                        name, f"FAIL {name} (stderr expectation mismatch)",
+                        entry_started, record_file)
                     failed += 1
                     errors.append(
                         f"  {name}: expected stderr "
@@ -1035,12 +1313,12 @@ def main():
                     continue
 
             # Run
-            #Phase 8/11: file-path tests need CWD = tests/e2e/ so their
-            #relative paths (_phase8_tmp/..., _p11_tmp/...) resolve.
-            run_cwd = SCRIPT_DIR if needs_script_cwd else None
-            #Shipped examples always run in the scratch dir: several
-            #write files next to their CWD (fs_example/, io_example.txt).
-            run_cwd = out_dir if out_dir != SCRIPT_DIR else run_cwd
+            #One fixed CWD per pass: manifest entries run in tests/e2e/ (or
+            #in the scratch tag's own dir, see run_dir_for) so their
+            #../temp/fs/... scratch paths resolve, and shipped examples run
+            #in their scratch dir because several write files next to their
+            #CWD (fs_example/, io_example.txt).
+            run_cwd = run_dir_for(out_dir)
             #Phase 11: <name>.stdin (if present) is piped to the program —
             #io.readLine tests drive stdin through it.
             stdin_path = os.path.join(sources_dir, f"{name}.stdin")
@@ -1063,16 +1341,16 @@ def main():
             try:
                 result = subprocess.run(
                     _runner_argv(name, ndb, nvm) + [nmod_file] + extra_flags,
-                    capture_output=True,
-                    timeout=_test_runtime_cap(name, sources_dir,
-                                              TIMEOUT_SEC),
-                    cwd=run_cwd, input=stdin_bytes,
-                    env=_run_env(name, sources_dir))
+                    capture_output=True, timeout=kill_s,
+                    cwd=run_cwd, input=stdin_bytes)
                 actual = result.returncode
                 stderr_text = _matchable_stderr(result.stderr)
             except Exception as e:
-                print(f"FAIL {name} (runtime error: "
-                      f"{_describe_run_error(e)})")
+                _emit_verdict(
+                    name, f"FAIL {name} (runtime error: "
+                    f"{_describe_run_error(e)}){_kill_note(e, kill_note)}",
+                    entry_started, record_file,
+                    cap_killed=_is_cap_kill(e))
                 failed += 1
                 errors.append(f"  {name}: runtime error: "
                               f"{_describe_run_error(e)}")
@@ -1084,18 +1362,6 @@ def main():
             if os.path.isfile(nmod_file):
                 os.remove(nmod_file)
 
-            sentinel = _skip_sentinel(actual, expected, stderr_text)
-            if sentinel is not None:
-                if sentinel:
-                    print(f"SKIP {name} ({sentinel})")
-                    skipped += 1
-                else:
-                    print(f"FAIL {name} (skip sentinel without a reason)")
-                    failed += 1
-                    errors.append(f"  {name}: skip sentinel "
-                                  f"without a reason")
-                continue
-
             if actual == expected:
                 #Phase 11: optional stdout-substring assertion (manifest
                 #column 3). Checked before declaring the pass so a wrong
@@ -1103,7 +1369,10 @@ def main():
                 if expected_stdout:
                     stdout_text = _matchable_stdout(name, result.stdout)
                     if expected_stdout not in stdout_text:
-                        print(f"FAIL {name} (stdout missing {expected_stdout!r})")
+                        _emit_verdict(
+                            name,
+                            f"FAIL {name} (stdout missing {expected_stdout!r})",
+                            entry_started, record_file)
                         failed += 1
                         errors.append(f"  {name}: stdout missing {expected_stdout!r}")
                         continue
@@ -1121,8 +1390,9 @@ def main():
                     want = want.lstrip('!').strip()
                     got_stdout = _matchable_stdout(name, result.stdout)
                     if (want in got_stdout) == negate:
-                        print(f"FAIL {name} (run stdout expectation "
-                              f"mismatch)")
+                        _emit_verdict(
+                            name, f"FAIL {name} (run stdout expectation "
+                            f"mismatch)", entry_started, record_file)
                         failed += 1
                         errors.append(
                             f"  {name}: expected run stdout "
@@ -1141,14 +1411,18 @@ def main():
                     negate = want.startswith('!')
                     want = want.lstrip('!').strip()
                     if (want in stderr_text) == negate:
-                        print(f"FAIL {name} (run stderr expectation mismatch)")
+                        _emit_verdict(
+                            name,
+                            f"FAIL {name} (run stderr expectation mismatch)",
+                            entry_started, record_file)
                         failed += 1
                         errors.append(
                             f"  {name}: expected run stderr "
                             f"{'NOT containing' if negate else 'containing'} "
                             f"{want!r}; stderr: {stderr_text[:300]}")
                         continue
-                print(f"PASS {name} (exit={actual})")
+                _emit_verdict(name, f"PASS {name} (exit={actual})",
+                              entry_started, record_file)
                 passed += 1
                 #P3.7 hidden-throw detector: a test that "passes" only
                 #because the runtime threw (exit 1) coinciding with an
@@ -1164,23 +1438,36 @@ def main():
                     print(warn)
                     warnings.append(f"  {name}: {stderr_text.splitlines()[0] if stderr_text else ''}")
             else:
-                print(f"FAIL {name} (expected={expected}, actual={actual})")
+                _emit_verdict(
+                    name,
+                    f"FAIL {name} (expected={expected}, actual={actual})",
+                    entry_started, record_file)
                 failed += 1
                 errors.append(f"  {name}: expected={expected} actual={actual}")
+                #Same shape as the directory-fixture path above: a failing
+                #run's stderr is the only record of *why* — the test's own
+                #io.eprint diagnosis, or an uncaught 'Runtime error' whose
+                #exit code collides with an explicit return 1. Dropped here,
+                #the evidence is gone before anyone reads the log.
+                if stderr_text:
+                    errors.append(
+                        f"    stderr: {stderr_text.splitlines()[0]}")
 
-    #Final cleanup: remove scratch dirs if they exist.
-    if os.path.isdir(PHASE8_TMP):
-        shutil.rmtree(PHASE8_TMP)
-    if os.path.isdir(PHASE11_TMP):
-        shutil.rmtree(PHASE11_TMP)
-    if os.path.isdir(IMPORTS_TMP):
-        shutil.rmtree(IMPORTS_TMP)
-    if os.path.isdir(EXAMPLES_TMP):
-        shutil.rmtree(EXAMPLES_TMP)
+    #Close the --record-out sink before the final summary: MEASURE rows
+    #sit in the file object's block buffer (text mode with a file target
+    #is not line-buffered), so this explicit close — not the writes — is
+    #what leaves the file holding every row written up to this point no
+    #matter how the run ends below.
+    if record_file:
+        record_file.close()
+
+    #Final cleanup: drop the scratch dirs this run owns.
+    teardown_scratch()
 
     print()
-    print(f"Results: {passed} passed, {failed} failed, "
-          f"{skipped} skipped (env-gated or skip sentinel)")
+    summary = (f"Results: {passed} passed, {failed} failed, "
+               f"{skipped} skipped (env-gated)")
+    print(summary)
     if warnings:
         print(f"Warnings ({len(warnings)} — possible masked bugs):")
         for w in warnings:

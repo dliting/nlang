@@ -12,7 +12,7 @@
 
 `ping`在等待期间停泊调用上下文（§21.1）。Windows上它走`IcmpSendEcho2`，不需要管理员权限；Linux上它走数据报ICMP套接字，普通用户在`net.ipv4.ping_group_range`覆盖到该用户或组之后即可打开。
 
-`timeoutMs`传`0`就是不设截止时刻：回声请求一直重发到有一个得到应答为止，对端永不应答时`ping`就这样无限等下去。每个回声请求都交给宿主的原生工作池（见§28.5）：带截止时刻的排在高优先级队列，不设截止时刻的排在普通队列——无限长的等待本身没有要保的时延。这也正是探可能离线的地址应当传正超时值的理由：这样的ping在自己的时限内得出应答或`TimeoutException`，而不是排在普通队列里。
+`timeoutMs`传`0`就是不设截止时刻：回声请求一直重发到有一个得到应答为止，对端永不应答时`ping`就这样无限等下去。每个回声请求都交给宿主的原生工作池（见§30.5）：带截止时刻的排在高优先级队列，不设截止时刻的排在普通队列——无限长的等待本身没有要保的时延。这也正是探可能离线的地址应当传正超时值的理由：这样的ping在自己的时限内得出应答或`TimeoutException`，而不是排在普通队列里。
 
 ```nlang
 import io;
@@ -23,7 +23,9 @@ int main() {
         int rtt = net.ping("127.0.0.1", 3000);
         io.print("loopback rtt=" + rtt.toString() + "ms\n");
     } catch (TimeoutException e) {
-        io.print("no answer inside the deadline\n");
+        io.print("no echo before the deadline\n");
+    } catch (SocketException e) {
+        io.print("icmp unavailable: " + e.message + "\n");
     }
     return 0;
 }
@@ -35,7 +37,7 @@ int main() {
 |---|---|---|
 | `IcmpSocket.bind(host = "0.0.0.0")` | 静态→`IcmpSocket` | 打开一个绑定到`host`的ICMP套接字 |
 | `sendTo(icmpMessage, host)` | →`int` | 发送一条完整的ICMP消息——类型、代码与校验和都包含在内——到`host`；Windows原始套接字下，校验和字段为0时由库代为计算 |
-| `recvFrom(buf, peerAddress&, timeoutMs = 0)` | →`int` | 取走下一条ICMP消息，经引用形参报告它的源地址；返回实收字节数；停泊直到有消息到来或截止时刻到来 |
+| `recvFrom(buf, peerAddress&, timeoutMs = 0)` | →`int` | 取走下一条ICMP消息，经`peerAddress`引用形参（§4.7.9）报告它的源地址；返回实收字节数；停泊直到有消息到来或截止时刻到来 |
 | `close()` | — | 关闭套接字；幂等 |
 
 `IcmpSocket`说的是原始ICMP：消息字节由调用方组装，校验和也算在内。Windows上原始套接字需要管理员权限；Linux上用免特权的原始数据报形态，受与`net.ping`相同的`net.ipv4.ping_group_range`约束。`IcmpSocket`关闭后遵循§21.1的关闭句柄规则：`sendTo`与`recvFrom`抛`SocketException`。只做普通的可达性检查，请用`net.ping`。

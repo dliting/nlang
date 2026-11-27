@@ -32,7 +32,7 @@
 #include "nlang/compiler/ModuleBuilder.h"
 #include "nlang/langservice/SymbolIndex.h"
 #include "nlang/runtime/Runtime.h"
-#include "nlang/vm/CompiledModule.h"
+#include "nlang/core/CompiledModule.h"
 #include "NcuLinker.h"
 #include "NcuLoader.h"
 #include "TestNatives.h"
@@ -223,7 +223,7 @@ inline std::vector<std::string> ResolveSearchDirs(
 }
 
 //Run tail, the ncc compile-and-run sequence after the artifact exists:
-//the loader completes the closure from the search dirs (stdlib.npkg
+//the loader completes the closure from the search dirs (stdlib package
 //members, third-party .ncu packages, -I source library packages), the
 //linker resolves the import slots, the executor runs the entry point.
 //An empty script links without an entry point and maps to exit 0
@@ -244,6 +244,8 @@ inline RunOutcome ExecuteArtifact(const std::filesystem::path& artifact,
     try {
         const NcuLoader::Result loaded =
             NcuLoader::LoadClosure(artifact.string(), loaderOpts);
+        for (const auto& cacheDir : loaded.nativeCacheDirs)
+            executor.AddNativeSearchDir(cacheDir);
         const CompiledModule linked =
             NcuLinker::Link(loaded.units, loaded.entryKey);
         //Empty script (D3): linked but no entry point. Executing anyway

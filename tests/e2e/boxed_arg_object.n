@@ -1,0 +1,75 @@
+// 4.11.3: boxing is implicit at every entry point into an Object position, and
+// an argument is one of them. box_primitive.n and int_family_box.n pin the
+// initializer and assignment entries; this corpus pins the call-site entry the
+// same rule promises there — a free function, a member call, a generic class
+// instantiated at Object — plus the two properties that make the overload sweep
+// still readable: an exact formal wins, and so does a widened one, because
+// boxing is the last rung of the ladder, not the cheapest.
+
+enum Color { Red }
+
+// The argument's own text; the null literal reaches the formal unboxed, which
+// the same section pins ("null is not boxed").
+string echo(Object o) {
+    if (o == null) { return "null"; }
+    return o.toString();
+}
+
+// The box carries the value, not a rendering of it: each kind unboxes back.
+double echoDouble(Object o) { return o as double; }
+float echoFloat(Object o) { return o as float; }
+int echoEnum(Object o) { return o as int; }
+
+// An int argument must bind the int formal, not the Object one.
+int pick(int v) { return 1; }
+int pick(Object o) { return 2; }
+
+// ... and the widened formal outranks boxing as well.
+int pickWide(long v) { return 1; }
+int pickWide(Object o) { return 2; }
+
+class Holder {
+    public Object m_value;
+
+    // The member-call path boxes exactly like the free-function path: what the
+    // argument converts to is the parameter's type.
+    public int take(Object value) {
+        m_value = value;
+        if (m_value == null) { return 1; }
+        return 0;
+    }
+
+    public int backToInt() {
+        int n = m_value as int;
+        if (n != 7) { return 1; }
+        return 0;
+    }
+}
+
+int main() {
+    if (echo(42) != "42") { return 1; }
+    if (echo(true) != "true") { return 2; }
+    if (echo("hi") != "hi") { return 3; }
+    if (echo(null) != "null") { return 4; }
+    if (echoDouble(2.5) != 2.5) { return 5; }
+    if (echoFloat(3.5f) != 3.5f) { return 6; }
+    if (echoEnum(Color.Red) != 0) { return 7; }
+    if (pick(5) != 1) { return 8; }
+    if (pickWide(5) != 1) { return 9; }
+    Holder h = Holder();
+    if (h.take(7) != 0) { return 10; }
+    if (h.backToInt() != 0) { return 11; }
+    // A generic formal instantiated at Object is an Object position like any
+    // other: the element boxes on the way in and reads back out of the store.
+    List<Object> list = {};
+    list.add(9);
+    if (list.get(0).toString() != "9") { return 12; }
+    Dict<string, Object> bag = {};
+    bag.set("k", 9);
+    if (bag.get("k").toString() != "9") { return 13; }
+    // The array edge is the one-hop upcast of 4.1 (not boxing); pinned next to
+    // the boxing rungs so the two ways into an Object formal stay neighbours.
+    int[] arr = [1, 2];
+    if (echo(arr) != "[1, 2]") { return 14; }
+    return 0;
+}

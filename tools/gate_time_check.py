@@ -44,11 +44,13 @@
 #                    (stale: re-run configure, one line; fresh: a
 #                    hand-written TIMEOUT override per entry, line-named
 #                    when it sits in tests/CMakeLists.txt)
-#   print-slow       the schedule-axis wiring input (D-16/D-17): the slow
-#                    set (an entry whose baseline row prices above
-#                    SLOW_MIN_REF_S) as one -E regex, minus whatever
-#                    --keep-matched (the leg's -R regex) hits; the member
-#                    roster goes to stderr for the leg's log
+#   print-slow       the schedule-axis wiring input (D-16/D-17/D-20): the
+#                    exclusion union -- the slow set (an entry whose
+#                    baseline row prices above SLOW_MIN_REF_S) plus the
+#                    samples roster (the sentinel column's samples class)
+#                    -- as one -E regex, minus whatever --keep-matched
+#                    (the leg's -R regex) hits; the member roster goes
+#                    to stderr for the leg's log
 #   derive-e2e-subset the round's e2e lines: explicit fast entry rows ∪
 #                    mapping hits, manifest order (the T0 selection, one
 #                    site)

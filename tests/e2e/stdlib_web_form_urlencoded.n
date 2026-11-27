@@ -1,0 +1,384 @@
+// stdlib_web_form_urlencoded — the urlencoded half of web.form.Form.parse
+// (spec 6.9, D-17, ruling 18): the raw '&' split with the first '=' as the
+// name/value border, '+' and %XX decoding with the decoded bytes taken as
+// UTF-8, same-name values kept in appearance order behind a first-seen
+// name, empty values and bare segments as empty-value fields, the empty
+// segment skipped while an explicit empty name stays a legal field. The
+// media type gate is pinned from both sides: three spellings of the
+// accepted type (case, surrounding whitespace, a quoted-string parameter
+// holding a ';') still parse, while five non-form spellings answer 415 with
+// the fixed text and no request bytes in it. The empty-body answer runs
+// before the type check (ruling 18 i) on both framing arms — no framing at
+// all, and a hand-written Content-Length: 0 — while one byte of an
+// unsupported type gets the 415. A malformed percent escape on either side
+// of the '=' is the named 400 with the request bytes unechoed (ruling 18
+// ii). maxBytes guards the read (exactly at the limit parses, one past it
+// is the named 413), a fresh FormOptions spells the three default limits,
+// a null opts rides those defaults, maxParts never caps urlencoded fields,
+// and the containers handed out by names() and getAll() are copies a
+// caller may mutate without touching the form. Every leg drives one shared
+// App over a real socket.
+import io;
+import url;
+import http;
+import web.*;
+
+// One checked expectation: the leg reads as a list of them, and the failure
+// line quotes what was expected against what arrived.
+int want(bool ok, string what, string detail) {
+    if (!ok) {
+        io.print(what + " -- " + detail);
+        return 1;
+    }
+    return 0;
+}
+
+// The corpus's only observation channel: fields in names() order, each
+// spelled as name + "=" + value-count + ":" with every value in order
+// wrapped in angle brackets, and a ";" closing the field. An empty value
+// therefore shows as <> and an empty name starts the digest right on its
+// "=", so leg H's "the first entry of names() is the empty string" reads
+// out of the digest verbatim.
+string digestOf(web.form.FormData f) {
+    string digest = "";
+    List<string> ns = f.names();
+    for (int i = 0; i < ns.length(); i = i + 1) {
+        string name = ns[i];
+        List<string> vs = f.getAll(name);
+        digest = digest + name + "=" + vs.length().toString() + ":";
+        for (int j = 0; j < vs.length(); j = j + 1) {
+            digest = digest + "<" + vs[j] + ">";
+        }
+        digest = digest + ";";
+    }
+    return digest;
+}
+
+// The shared parse-and-answer handler: legs A through H drive it with
+// different bodies and Content-Type spellings.
+void handleForm(RequestContext ctx) {
+    web.form.FormData f = Form.parse(ctx);
+    ctx.text(200, digestOf(f));
+}
+
+// maxBytes tightened to 8, so leg I brackets the boundary from both sides.
+void handleForm8(RequestContext ctx) {
+    FormOptions o = FormOptions();
+    o.maxBytes = 8;
+    web.form.FormData f = Form.parse(ctx, o);
+    ctx.text(200, digestOf(f));
+}
+
+// A null opts rides the defaults (spec 6.9). The null travels in a
+// declared local because this toolchain types a bare null literal as
+// Int32 at an argument position, not as the formal's class type.
+void handleFormNull(RequestContext ctx) {
+    FormOptions o = null;
+    web.form.FormData f = Form.parse(ctx, o);
+    ctx.text(200, digestOf(f));
+}
+
+// The three limits of a fresh FormOptions spelled from its public fields.
+void handleOpts(RequestContext ctx) {
+    FormOptions o = FormOptions();
+    ctx.text(200, o.maxBytes + "|" + o.maxParts + "|" + o.maxPartBytes);
+}
+
+// Only the field count answers, so leg K can show 1001 fields surviving a
+// default maxParts of 1000: that cap belongs to multipart parts alone.
+void handleFormMany(RequestContext ctx) {
+    web.form.FormData f = Form.parse(ctx);
+    ctx.text(200, f.fieldCount().toString());
+}
+
+// Mutating both containers the parse handed out, then digesting the form
+// again: the digest must come back unchanged (names() and getAll() copy).
+void handleFormAlias(RequestContext ctx) {
+    web.form.FormData f = Form.parse(ctx);
+    List<string> ns = f.names();
+    ns.add("zzz");
+    List<string> vs = f.getAll("a");
+    vs.add("injected");
+    ctx.text(200, digestOf(f));
+}
+
+// The fixed 415 answer checked as one unit: status, reason phrase, and the
+// byte-exact message that names the parse but quotes no request bytes.
+int want415(http.HttpResponse res, string what) {
+    int bad = 0;
+    bad = bad + want(res.statusCode == 415, what + " must answer 415",
+        "answered " + res.statusCode.toString());
+    bad = bad + want(res.reasonPhrase == "Unsupported Media Type",
+        what + " reason phrase", "got " + res.reasonPhrase);
+    bad = bad + want(res.bodyText() == "web.form.Form.parse: unsupported content type for form parsing.",
+        what + " must carry the fixed 415 text", "body was [" + res.bodyText() + "]");
+    return bad;
+}
+
+// A POST with a hand-built request (the free post() cannot omit or hand-set
+// the headers these legs need); an empty contentType skips the Content-Type
+// header and an empty contentLength skips the Content-Length header, and
+// the body always travels with the request (an empty string is a
+// zero-length body).
+http.HttpResponse askForm(string urlText, string contentType, string body, string contentLength) {
+    http.HttpRequest req = http.HttpRequest();
+    req.method = "POST";
+    req.url = Url.parse(urlText);
+    if (contentType != "") { req.headers.set("Content-Type", contentType); }
+    if (contentLength != "") { req.headers.set("Content-Length", contentLength); }
+    req.body = io.toBytes(body);
+    return http.request(req);
+}
+
+// Leg A: one body carrying every splitting and decoding rule at once — the
+// raw '&' cut, the first '=' as the border, same-name values in order
+// behind the first-seen name, '+' as a space, a %XX run decoding to valid
+// UTF-8, an empty value and a bare segment both as empty-value fields.
+int legA(string base) {
+    int bad = 0;
+    http.HttpResponse res = http.post(base + "/form",
+        "a=1&b=hello+world&a=%E4%B8%AD&empty=&bare", "application/x-www-form-urlencoded");
+    bad = bad + want(res.statusCode == 200, "leg A the rich body must be accepted",
+        "answered " + res.statusCode.toString());
+    bad = bad + want(res.bodyText() == "a=2:<1><中>;b=1:<hello world>;empty=1:<>;bare=1:<>;",
+        "leg A split, decode and order in one witness", "body was [" + res.bodyText() + "]");
+    return bad;
+}
+
+// Leg B: a run of same-name pairs stays contiguous in the value list even
+// though another name was registered between them — the order rides the
+// name's own list, not the arrival interleaving.
+int legB(string base) {
+    int bad = 0;
+    http.HttpResponse res = http.post(base + "/form", "z=1&y=2&z=3",
+        "application/x-www-form-urlencoded");
+    bad = bad + want(res.statusCode == 200, "leg B must be accepted",
+        "answered " + res.statusCode.toString());
+    bad = bad + want(res.bodyText() == "z=2:<1><3>;y=1:<2>;",
+        "leg B an interleaved name must not split z's value list",
+        "body was [" + res.bodyText() + "]");
+    return bad;
+}
+
+// Leg C: a charset parameter on the accepted type does not take the body
+// out of urlencoded, and decoding neither invents nor trims whitespace —
+// %2B is a plus while '+' is a space, and %20 keeps its space cell (D-17).
+int legC(string base) {
+    int bad = 0;
+    http.HttpResponse res = http.post(base + "/form", "q=%2B%20x&d=+x&r=%41",
+        "application/x-www-form-urlencoded; charset=utf-8");
+    bad = bad + want(res.statusCode == 200, "leg C with a charset parameter must be accepted",
+        "answered " + res.statusCode.toString());
+    bad = bad + want(res.bodyText() == "q=1:<+ x>;d=1:< x>;r=1:<A>;",
+        "leg C plus versus escaped plus and no extra trimming",
+        "body was [" + res.bodyText() + "]");
+    return bad;
+}
+
+// Leg D: the media type scanner accepts all three spellings — leading
+// whitespace with a full-uppercase name and whitespace before the ';', a
+// quoted-string parameter containing a ';' (the case that will bite the
+// boundary in Task 11), and no whitespace after the ';' at all.
+int legD(string base) {
+    int bad = 0;
+    string[] types = [
+        " APPLICATION/X-WWW-FORM-URLENCODED ; Charset=UTF-8",
+        "application/x-www-form-urlencoded; hint=\"a;b\"; charset=utf-8",
+        "application/x-www-form-urlencoded;charset=utf-8"
+    ];
+    for (int i = 0; i < types.length(); i = i + 1) {
+        string ctype = types[i];
+        http.HttpResponse res = http.post(base + "/form", "k=1", ctype);
+        bad = bad + want(res.statusCode == 200, "leg D [" + ctype + "] must still be accepted",
+            "answered " + res.statusCode.toString());
+        bad = bad + want(res.bodyText() == "k=1:<1>;",
+            "leg D [" + ctype + "] must still parse the body", "body was [" + res.bodyText() + "]");
+    }
+    return bad;
+}
+
+// Leg E: the 415 matrix, every request with a non-empty body — a known
+// type with a parameter, another application type, no Content-Type header
+// at all, an empty header value, and a value with no media type grammar.
+int legE(string base) {
+    int bad = 0;
+    http.HttpResponse res = http.post(base + "/form", "x=1", "text/plain; charset=utf-8");
+    bad = bad + want415(res, "leg E text/plain with a parameter");
+    res = http.post(base + "/form", "x=1", "application/json");
+    bad = bad + want415(res, "leg E application/json");
+    res = askForm(base + "/form", "", "x=1", "");
+    bad = bad + want415(res, "leg E with no Content-Type header");
+    res = http.post(base + "/form", "x=1", "");
+    bad = bad + want415(res, "leg E an empty Content-Type value");
+    res = http.post(base + "/form", "x=1", "not-a-media-type");
+    bad = bad + want415(res, "leg E a head with no media type grammar");
+    return bad;
+}
+
+// Leg F: the empty-body answer runs before the type check (ruling 18 i).
+// A GET has neither framing nor type; a hand-written Content-Length: 0 is
+// the only way to reach the MODE_LENGTH arm, because the client writes no
+// Content-Length of its own for an empty body (stdlib/http.n:1971-1973).
+// The 415 fires only once there is truly a body to refuse.
+int legF(string base) {
+    int bad = 0;
+    http.HttpResponse res = http.get(base + "/form");
+    bad = bad + want(res.statusCode == 200, "leg F a GET must answer 200",
+        "answered " + res.statusCode.toString());
+    bad = bad + want(res.bodyText() == "", "leg F the GET digest must be empty",
+        "body was [" + res.bodyText() + "]");
+    res = askForm(base + "/form", "application/x-www-form-urlencoded", "", "0");
+    bad = bad + want(res.statusCode == 200, "leg F a Content-Length: 0 POST must answer 200",
+        "answered " + res.statusCode.toString());
+    bad = bad + want(res.bodyText() == "", "leg F the framed empty digest must be empty",
+        "body was [" + res.bodyText() + "]");
+    res = askForm(base + "/form", "text/plain", "", "0");
+    bad = bad + want(res.statusCode == 200, "leg F an empty body outranks the type check",
+        "answered " + res.statusCode.toString());
+    bad = bad + want(res.bodyText() == "", "leg F the refused-type empty digest must be empty",
+        "body was [" + res.bodyText() + "]");
+    res = askForm(base + "/form", "text/plain", "x", "");
+    bad = bad + want415(res, "leg F one byte of an unsupported type");
+    return bad;
+}
+
+// Leg G: malformed percent escapes on either side of the '=' — a truncated
+// run, a non-hexadecimal run, and the same on the name side — all answer
+// the named 400, and the body quotes no request byte back (url.formDecode's
+// own message would echo the body, so it must be replaced wholesale).
+int legG(string base) {
+    int bad = 0;
+    string[] bodies = ["b=abc%4", "a=%zz", "%zz=1"];
+    for (int i = 0; i < bodies.length(); i = i + 1) {
+        string body = bodies[i];
+        http.HttpResponse res = http.post(base + "/form", body, "application/x-www-form-urlencoded");
+        bad = bad + want(res.statusCode == 400, "leg G " + body + " must answer 400",
+            "answered " + res.statusCode.toString());
+        bad = bad + want(res.reasonPhrase == "Bad Request", "leg G " + body + " reason phrase",
+            "got " + res.reasonPhrase);
+        bad = bad + want(res.bodyText() == "web.form.Form: malformed percent escape in form body.",
+            "leg G " + body + " must carry the fixed 400 text", "body was [" + res.bodyText() + "]");
+        bad = bad + want(res.bodyText().indexOf("%") < 0,
+            "leg G " + body + " the 400 must not echo the request bytes",
+            "body was [" + res.bodyText() + "]");
+    }
+    return bad;
+}
+
+// Leg H: an explicit empty name is a legal field while empty segments carry
+// no field — the leading '&' segment, the middle '&&' segment and the
+// trailing one all disappear, and the digest starting on its '=' is the
+// witness that names()[0] is the empty string (digestOf reads names()
+// through a local and spells its first entry).
+int legH(string base) {
+    int bad = 0;
+    http.HttpResponse res = http.post(base + "/form", "&=1&&b=2&", "application/x-www-form-urlencoded");
+    bad = bad + want(res.statusCode == 200, "leg H must be accepted",
+        "answered " + res.statusCode.toString());
+    bad = bad + want(res.bodyText() == "=1:<1>;b=1:<2>;",
+        "leg H empty segments skipped, empty name kept first",
+        "body was [" + res.bodyText() + "]");
+    return bad;
+}
+
+// Leg I: maxBytes bounds the read at exactly its value — eight bytes into
+// an eight-byte cap parse (the body is also a bare name, so one witness
+// pins both), nine bytes answer the named 413 quoting the cap. The http
+// layer's own 16 MiB body cap is far above both, so only the web-layer cap
+// can fire here.
+int legI(string base) {
+    int bad = 0;
+    http.HttpResponse res = http.post(base + "/form8", "abcdefgh", "application/x-www-form-urlencoded");
+    bad = bad + want(res.statusCode == 200, "leg I exactly at the cap must parse",
+        "answered " + res.statusCode.toString());
+    bad = bad + want(res.bodyText() == "abcdefgh=1:<>;", "leg I the at-cap body must parse as a bare name",
+        "body was [" + res.bodyText() + "]");
+    res = http.post(base + "/form8", "abcdefghi", "application/x-www-form-urlencoded");
+    bad = bad + want(res.statusCode == 413, "leg I one past the cap must answer 413",
+        "answered " + res.statusCode.toString());
+    bad = bad + want(res.reasonPhrase == "Content Too Large", "leg I the 413 reason phrase",
+        "got " + res.reasonPhrase);
+    bad = bad + want(res.bodyText() == "web.form.Form.parse: form body exceeds maxBytes (8 bytes).",
+        "leg I the 413 must quote the cap it enforced", "body was [" + res.bodyText() + "]");
+    return bad;
+}
+
+// Leg J: the three default limits as a fresh FormOptions spells them (the
+// constructor body assigns them, ruling 11), and a null opts rides those
+// same defaults through the same 8 MiB cap.
+int legJ(string base) {
+    int bad = 0;
+    http.HttpResponse res = http.get(base + "/opts");
+    bad = bad + want(res.statusCode == 200, "leg J the defaults endpoint must answer 200",
+        "answered " + res.statusCode.toString());
+    bad = bad + want(res.bodyText() == "8388608|1000|4194304",
+        "leg J the three defaults spelled from the public fields",
+        "body was [" + res.bodyText() + "]");
+    res = http.post(base + "/formnull", "a=1", "application/x-www-form-urlencoded");
+    bad = bad + want(res.statusCode == 200 && res.bodyText() == "a=1:<1>;",
+        "leg J a null opts must parse like the defaults",
+        "answered " + res.statusCode.toString() + " with body [" + res.bodyText() + "]");
+    return bad;
+}
+
+// Leg K: 1001 distinct fields under the default opts answer 1001 — the
+// default maxParts of 1000 caps multipart parts only (D-18), so a urlencoded
+// body over that count must not be refused.
+int legK(string base) {
+    int bad = 0;
+    string body = "";
+    for (int i = 0; i < 1001; i = i + 1) {
+        if (i > 0) { body = body + "&"; }
+        body = body + "k" + i.toString() + "=" + i.toString();
+    }
+    http.HttpResponse res = http.post(base + "/formmany", body, "application/x-www-form-urlencoded");
+    bad = bad + want(res.statusCode == 200, "leg K 1001 fields must ride the default opts",
+        "answered " + res.statusCode.toString());
+    bad = bad + want(res.bodyText() == "1001", "leg K maxParts must not cap urlencoded fields",
+        "body was [" + res.bodyText() + "]");
+    return bad;
+}
+
+// Leg L: the containers the parse hands out are copies — the handler added
+// a name and injected a value into what names() and getAll() returned, and
+// the form's own digest still spells a single value for "a".
+int legL(string base) {
+    int bad = 0;
+    http.HttpResponse res = http.post(base + "/formalias", "a=1", "application/x-www-form-urlencoded");
+    bad = bad + want(res.statusCode == 200, "leg L must answer 200",
+        "answered " + res.statusCode.toString());
+    bad = bad + want(res.bodyText() == "a=1:<1>;",
+        "leg L mutating the handed-out containers must not touch the form",
+        "body was [" + res.bodyText() + "]");
+    return bad;
+}
+
+int main() {
+    int bad = 0;
+    web.App app = web.App();
+    app.get("/form", handleForm);
+    app.post("/form", handleForm);
+    app.post("/form8", handleForm8);
+    app.post("/formnull", handleFormNull);
+    app.get("/opts", handleOpts);
+    app.post("/formmany", handleFormMany);
+    app.post("/formalias", handleFormAlias);
+    app.listen("127.0.0.1", 0);
+    string base = "http://127.0.0.1:" + app.server().localPort().toString();
+    if (legA(base) != 0) { bad = bad + 1; }
+    if (legB(base) != 0) { bad = bad + 1; }
+    if (legC(base) != 0) { bad = bad + 1; }
+    if (legD(base) != 0) { bad = bad + 1; }
+    if (legE(base) != 0) { bad = bad + 1; }
+    if (legF(base) != 0) { bad = bad + 1; }
+    if (legG(base) != 0) { bad = bad + 1; }
+    if (legH(base) != 0) { bad = bad + 1; }
+    if (legI(base) != 0) { bad = bad + 1; }
+    if (legJ(base) != 0) { bad = bad + 1; }
+    if (legK(base) != 0) { bad = bad + 1; }
+    if (legL(base) != 0) { bad = bad + 1; }
+    app.drain(5000);
+    app.close();
+    if (bad == 0) { io.print("ok"); }
+    return bad;
+}

@@ -193,13 +193,13 @@ void ExprResolveAccessor::LogLegacyCtorArity(SnField *pTypeDecl,
 //declaration in ExprResolver.h for the sharing story (ctor calls and
 //the super(...) parent-ctor path).
 SnFunction *ExprResolveAccessor::MatchCtorOrLogMismatch(
-	const std::vector<SnExpression*> &actuals,
+	SyntaxNode &argsOwner, const std::vector<SnExpression*> &actuals,
 	const std::vector<SnFunction*> &candidates,
 	const ISourceLocation *pLoc, const char *kindWord,
 	const std::string &typeName)
 {
 	bool bAmbiguous = false;
-	auto *pCtor = MatchCtorAgainst(actuals, candidates, bAmbiguous);
+	auto *pCtor = MatchCtorAgainst(argsOwner, actuals, candidates, bAmbiguous);
 	if (pCtor)
 		return pCtor;
 	if (bAmbiguous)
@@ -214,7 +214,8 @@ SnFunction *ExprResolveAccessor::MatchCtorOrLogMismatch(
 	return nullptr;
 }
 
-SnFunction *ExprResolveAccessor::SelectCtorForArgs(SnField *pTypeDecl,
+SnFunction *ExprResolveAccessor::SelectCtorForArgs(SyntaxNode &argsOwner,
+	SnField *pTypeDecl,
 	const std::vector<SnExpression*> &actuals, const ISourceLocation *pLoc)
 {
 	const char *kindWord = pTypeDecl->Kind() == NK_StructDecl
@@ -246,7 +247,7 @@ SnFunction *ExprResolveAccessor::SelectCtorForArgs(SnField *pTypeDecl,
 		return nullptr;
 	}
 	if (!candidates.empty())
-		return MatchCtorOrLogMismatch(actuals, candidates, pLoc,
+		return MatchCtorOrLogMismatch(argsOwner, actuals, candidates, pLoc,
 			kindWord, pTypeDecl->Name());
 
 	//No AST candidates: the intrinsic-arity shapes (builtin/generic

@@ -7,11 +7,11 @@
 #include "Logger.h"
 #include "SnTypes.h"
 #include "SnExtraTypes.h"
-#include "ICodeBackend.h"
 #include <nlang/runtime/Module.h>
 #include <list>
 #include <map>
 #include <memory>
+#include <unordered_map>
 
 //Forward declarations.
 #ifdef NLANG_ENABLE_LLVM
@@ -26,6 +26,10 @@ class LLVMContext;
 
 namespace nlang
 {
+
+//The bytecode codegen backend (src/compiler/codegen/VmBackend.h, an
+//internal header; this public header holds it only behind unique_ptr).
+class VmBackend;
 
 struct BuildParams
 {
@@ -55,6 +59,11 @@ struct BuildParams
 	//from m_sProjectDir, which callers also set as the package root
 	//for multi-source single builds (tests).
 	bool m_bProjectMode = false;
+	//Native library files packed into the .npkg as non-unit members
+	//(.nproj <Natives>). Member key is the file name; no import name
+	//resolves to them and the run-time loader consumes them via its
+	//own extraction seam. Absolute paths, project-file order.
+	std::vector<std::string> m_nativeMembers;
 	//Directory holding the standard library declaration files
 	//(stdlib/io.n, ...). Located by the host tool (ncc/nide via
 	//langservice::FindStdLibDir) and passed in; empty means no
@@ -91,6 +100,19 @@ class SnArrayTypeToken;
 //Library declaration index (nlang_langservice); opaque here so this
 //public header does not depend on the langservice headers.
 namespace langservice { class SymbolIndex; }
+//The import pipeline's view of the package artifacts on the search path
+//(src/compiler/ModuleBuilderImports.h); opaque here for the same reason.
+struct ArtifactPackageCache;
+class BuildEnvironment;
+//The artifact arm's knowability probe (the import pipeline installs it
+//together with the cache it reads): true when an artifact answers for
+//an import name on the effective library dirs. The environment layer
+//itself never opens a package - the reader lives with the pipeline - so
+//link targets that use only the environment stay free of the artifact
+//implementation.
+using ArtifactKnowabilityProbe = bool (*)(
+	const BuildEnvironment &env, ArtifactPackageCache &cache,
+	const std::string &name);
 
 //The context during building a nlang module.
 class NLANG_COMPILER_API BuildEnvironment : public Flagable<ModuleBuildFlagBits>
@@ -117,11 +139,42 @@ public:
 	//party). Thin wrapper over the library index so internal passes need
 	//not depend on the langservice headers.
 	bool IsLibraryPackage(const std::string& name) const;
+	//True when some effective library dir offers the dotted name as a .n
+	//source (existence probe over the same <dir>/<a/b/c>.n mapping the
+	//import discovery uses, memoized per build): a third-party package is
+	//knowable to diagnostics before any import inlines it.
+	bool HasLibrarySource(const std::string& name) const;
 	//Load one library declaration file into the index (idempotent).
 	//packageRoot: the matched search root the file was found under — the
 	//index entry's package is the path relative to THAT root.
 	void LoadLibrarySource(const std::string& path,
 		const std::string& packageRoot);
+	//The artifact discovery's view of the search path's packages (opened
+	//member tables and lookups memoized). Null until the import
+	//pipeline's discovery phase starts one: a consumer that runs no
+	//pipeline holds nothing.
+	const std::shared_ptr<ArtifactPackageCache>& ArtifactPackages() const
+	{
+		return m_spArtifactPackages;
+	}
+	//Start a fresh view; the discovery phase calls it once per build.
+	void ResetArtifactPackages(
+		std::shared_ptr<ArtifactPackageCache> spPackages)
+	{
+		m_spArtifactPackages = std::move(spPackages);
+	}
+
+	//True when an artifact answers for the import name on the effective
+	//library dirs (the unit file, or a package member listing) -
+	//knowability only, nothing is read or adopted. False until the
+	//import pipeline installed its probe with the cache: a consumer
+	//that ran no pipeline knows no search-path view.
+	bool ArtifactKnowability(const std::string& name) const;
+	//The probe's install pairs with ResetArtifactPackages above.
+	void SetArtifactKnowabilityProbe(ArtifactKnowabilityProbe fnProbe)
+	{
+		m_fnArtifactKnowability = fnProbe;
+	}
 
 	//Get the current module been compiled.
 	Module* CurrModule() const
@@ -153,16 +206,14 @@ public:
 #endif
 
 	//Get the code backend.
-	ICodeBackend* Backend() const
+	VmBackend* Backend() const
 	{
 		return m_upBackend.get();
 	}
 
-	//Set the code backend.
-	void Backend(ICodeBackend* p)
-	{
-		m_upBackend.reset(p);
-	}
+	//Set the code backend. Out of line: reset() deletes the previous
+	//backend, so it needs VmBackend's dtor — defined in the internal TU.
+	void Backend(VmBackend* p);
 
 	//0.7.3 B: TU-level array token interning. Single construction
 	//entry — element field → array token; the first use creates, later
@@ -196,9 +247,18 @@ private:
 #ifdef NLANG_ENABLE_LLVM
 	llvm::Module *m_pCurrMetaModule;
 #endif
-	std::unique_ptr<ICodeBackend> m_upBackend;
+	std::unique_ptr<VmBackend> m_upBackend;
 	std::unique_ptr<ModuleRegistry> m_upRegistry;
 	std::unique_ptr<langservice::SymbolIndex> m_upLibraryIndex;
+	//Owned through shared_ptr so the incomplete cache type needs no
+	//destructor here; only the import pipeline creates it.
+	std::shared_ptr<ArtifactPackageCache> m_spArtifactPackages;
+	//The probe reading m_spArtifactPackages above; installed with the
+	//cache by the import pipeline (InstallArtifactCache).
+	ArtifactKnowabilityProbe m_fnArtifactKnowability = nullptr;
+	//Memoized existence probes of HasLibrarySource: mutable so the const
+	//probe can cache (a legal deep chain asks each prefix once per build).
+	mutable std::unordered_map<std::string, bool> m_LibrarySourceProbes;
 	//0.7.3 B: interned array tokens, keyed by element field. Owns the
 	//tokens for this environment's lifetime.
 	//Key = (element type, rank): T[] and T[,] are distinct identities.

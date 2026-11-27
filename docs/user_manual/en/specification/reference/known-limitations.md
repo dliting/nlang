@@ -117,9 +117,11 @@ This page collects the language-level limitations visible to user programs, with
 - **Types and global fields have no import gate**: function visibility
   follows this file's import set (§3.3), but class, struct and enum
   type names and global fields are reachable by their unqualified name
-  program-wide, whatever package declares them (§3.6). A cross-module
-  visibility gate for types and fields is future work; until then a
-  program's type names form one shared namespace.
+  program-wide, whatever package declares them (§3.6) — provided they are
+  `public`; a `private` or `protected` declaration stays inside the unit that
+  declares it (§4.8.2). A cross-module visibility gate that sorts the public
+  names by package is future work; until then a program's public type names
+  form one shared namespace.
 
 ### Functions and statements
 
@@ -139,10 +141,6 @@ This page collects the language-level limitations visible to user programs, with
 - **No control flow in finally bodies**: `break` / `continue` / `return` /
   `throw` inside a `finally` body is a compile error (a finally body must
   not swallow the in-flight control flow or exception).
-
-- **No lambda expressions / closures**: only references
-  to named functions and methods exist. Bound method references carry
-  receiver state and cover the common callback scenarios.
 
 ### Concurrency
 

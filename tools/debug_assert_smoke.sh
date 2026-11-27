@@ -17,9 +17,9 @@
 #      parking path only exist in that combination (final review M6),
 #   5. fail on any NLANG_ASSERT stack dump in the captured stderr.
 #
-# The Debug stdlib pack writes into temp/ so the shared build-tree
-# stdlib.npkg (which Release e2e gates consume) is never overwritten
-# with a Debug-packed copy.
+# The Debug stdlib packs write into temp/ so the shared build-tree
+# stdlib packages (which Release e2e gates consume) are never
+# overwritten with Debug-packed copies.
 #
 # Usage (from the repository root, via tools/gate.sh):
 #   tools/gate.sh debug-assert-smoke temp/gate_debug_assert_smoke \
@@ -64,12 +64,23 @@ cmake --build "$build_dir" --config Debug --target ncc nvm nlang_native_modules 
 mkdir -p "$workdir"
 
 echo "[2/6] packing the standard library with Debug ncc"
-"$ncc_exe" build -p "$build_dir/stdlib/stdlib.nproj" \
-    -o "$workdir/stdlib.npkg" \
-    >"$workdir/pack.out" 2>"$workdir/pack.err" \
-    || { tail -n 15 "$workdir/pack.err"; fail "Debug stdlib pack failed"; }
-grep -q "stack dump:" "$workdir/pack.err" \
-    && fail "stack dump during Debug stdlib pack"
+#One pack per domain project the tree's configure generated: every
+#stdlib unit is a project unit of exactly one of them. The workdir's own
+#packages are cleared first, so none from an earlier layout lingers.
+rm -f "$workdir"/*.npkg
+shopt -s nullglob
+pack_projects=("$build_dir"/stdlib/*.nproj)
+shopt -u nullglob
+[ ${#pack_projects[@]} -gt 0 ] \
+    || fail "no stdlib project under $build_dir/stdlib (reconfigure the tree)"
+for nproj in "${pack_projects[@]}"; do
+    domain=$(basename "$nproj" .nproj)
+    "$ncc_exe" build -p "$nproj" -o "$workdir/$domain.npkg" \
+        >"$workdir/pack_$domain.out" 2>"$workdir/pack_$domain.err" \
+        || { tail -n 15 "$workdir/pack_$domain.err"; fail "Debug stdlib pack failed ($domain)"; }
+    grep -q "stack dump:" "$workdir/pack_$domain.err" \
+        && fail "stack dump during Debug stdlib pack ($domain)"
+done
 
 echo "[3/6] compiling a minimal program with Debug ncc"
 cat >"$workdir/minimal.n" <<'EOF'

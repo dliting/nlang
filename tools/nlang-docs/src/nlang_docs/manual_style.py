@@ -206,3 +206,44 @@ def find_spacing_violations():
         for lineno, excerpt in spacing_violations_in_text(text):
             out.append((str(path), lineno, excerpt))
     return out
+
+
+# A botched replacement splices the new sentence around the old one and
+# leaves the retired text nested inside its replacement on a single
+# line. Legitimate prose never repeats a long run verbatim within one
+# line. One legitimate pattern does: two quoted diagnostics sharing a
+# long ASCII suffix (their repeat carries no CJK ideographs, only
+# possibly CJK punctuation between the code spans), so the zh rule
+# requires an ideograph inside the repeated run while the en rule,
+# whose pages wrap before two long quotes meet on one line, flags any
+# repeat outright.
+_DUPLICATED_SUBSTRING_MIN = 60
+_CJK_IDEOGRAPH = re.compile(r"[㐀-鿿]")
+
+
+def duplicated_substring_lines_in_text(
+    text: str, min_len: int = _DUPLICATED_SUBSTRING_MIN,
+    require_ideograph: bool = False,
+):
+    hits = []
+    for lineno, line in enumerate(text.splitlines(), 1):
+        last_start = len(line) - 2 * min_len
+        for i in range(last_start + 1):
+            run = line[i:i + min_len]
+            if line.find(run, i + min_len) != -1 and (
+                not require_ideograph or _CJK_IDEOGRAPH.search(run)
+            ):
+                hits.append((lineno, line.strip()))
+                break
+    return hits
+
+
+def find_duplicated_substring_lines():
+    out = []
+    for path, lang in iter_manual_pages():
+        text = path.read_text(encoding="utf-8")
+        for lineno, excerpt in duplicated_substring_lines_in_text(
+            text, require_ideograph=(lang == "zh")
+        ):
+            out.append((str(path), lineno, excerpt))
+    return out

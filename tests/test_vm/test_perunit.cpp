@@ -15,7 +15,8 @@
 #include "nlang/compiler/BuildEnvironment.h"
 #include "nlang/compiler/Logger.h"
 #include "nlang/runtime/Runtime.h"
-#include "nlang/vm/CompiledModule.h"
+#include "nlang/core/CompiledModule.h"
+#include "nlang/core/NcuPackage.h"
 #include "VmExecutor.h"
 #include "NcuLinker.h"
 #include "NcuLoader.h"
@@ -994,6 +995,181 @@ void TestMemberOrdinalRecordShape() {
         "the two f overloads carry distinct member ordinals (1, 2)");
 }
 
+// --- shape 19: abstract member occupies a method-table row ---
+//
+// An abstract class member (bodyless declaration, NF_Abstract — 0.13.1c)
+// gets a signature-only function record, so the producer's methodIndices
+// hold a row for it and every later member's ordinal counts it. The
+// consumer replays that order from the library source (the stdlib flow),
+// where the member has no body: dropping it from the replay shifts every
+// later ordinal down by one, and a non-virtual (slot-dispatched) call then
+// names the wrong row — nlink reports a signature miss. Virtual members
+// dodge the path (name-based dispatch, no import record), which is why the
+// shape needs a final method after the abstract one. Method table here is
+// [area (abstract), twice] — the twice import record must carry ordinal 1.
+void TestAbstractMemberMethodOrdinal() {
+    const char* const libSrc =
+        "class Shape {\n"
+        "  public virtual int area();\n"
+        "  public int twice() {\n"
+        "    return 8;\n"
+        "  }\n"
+        "}\n"
+        "class Square : Shape {\n"
+        "  public int area() {\n"
+        "    return 4;\n"
+        "  }\n"
+        "}\n";
+    const char* const mainSrc =
+        "import alib;\n"
+        "int main() {\n"
+        "  alib.Square s = alib.Square();\n"
+        "  if (s.area() != 4) {\n"
+        "    return 7;\n"
+        "  }\n"
+        "  return s.twice();\n"
+        "}\n";
+
+    const auto shapeDir = scenarioDir("ord_abs_shape");
+    writeFiles(shapeDir, { { "alib.n", libSrc }, { "main.n", mainSrc } });
+    const PerUnitBuild b = perUnitBuild(shapeDir, { "main.n", "alib.n" });
+    CHECK(b.ok, "abstract-member scenario compiles per unit");
+    if (b.ok) {
+        bool ordinalOne = false;
+        for (const auto& imp : b.images.units[0].functionImports) {
+            if (imp.modulePath == "alib" && imp.name == "twice"
+                && imp.paramCount == 1 && !imp.isStatic
+                && imp.ownerClassKey == "alib.Shape" && imp.ownerKind == 1
+                && imp.ownerOrdinal == 1)
+                ordinalOne = true;
+        }
+        CHECK(ordinalOne,
+            "the member after an abstract one carries ordinal 1");
+    }
+
+    //Run leg: distinct names (the process-wide registry keeps earlier
+    //builds' names), same shape — the final call must reach the producer.
+    const auto runDir = scenarioDir("ord_abs_run");
+    writeFiles(runDir, {
+        { "alib.n",
+          "class Form {\n"
+          "  public virtual int side() {\n"
+          "    return 0;\n"
+          "  }\n"
+          "  public virtual int measure();\n"
+          "  public int twice() {\n"
+          "    return 8;\n"
+          "  }\n"
+          "}\n"
+          "class Quad : Form {\n"
+          "  public int measure() {\n"
+          "    return 4;\n"
+          "  }\n"
+          "}\n" },
+        { "main.n",
+          "import alib;\n"
+          "int main() {\n"
+          "  alib.Quad q = alib.Quad();\n"
+          "  if (q.measure() != 4) {\n"
+          "    return 7;\n"
+          "  }\n"
+          "  return q.twice();\n"
+          "}\n" } });
+    CapturingIo cap;
+    const PerUnitRun r = perUnitRun(runDir, cap, { "main.n", "alib.n" });
+    CHECK(r.ok, "abstract-member consumer builds and links");
+    if (!r.ok)
+        std::fprintf(stderr, "log: %s\n", r.log.c_str());
+    CHECK(r.rc == 8, "the final method runs the producer's body (8)");
+}
+
+// --- shape 20: project package carries native library members (1.1) ---
+//
+// The .nproj's native members ride the packed .npkg beside the unit
+// images: keyed by FILE NAME, kind Native, bytes read at pack time —
+// and invisible to module resolution (the closure below still sees
+// only the two units). Pinned end to end: pack, reopen the archive,
+// then load, link and execute the program package exactly as nvm
+// runs it from the command line.
+void TestProjectPackageNativeMembers() {
+    const auto dir = scenarioDir("pkg_native_member");
+    writeFiles(dir, {
+        { "helper.n",
+          "int helper(int x) {\n"
+          "  return x * 2;\n"
+          "}\n" },
+        { "main.n",
+          "import helper;\n"
+          "int main() {\n"
+          "  return helper.helper(21);\n"
+          "}\n" } });
+    const fs::path nativeFile = dir / "nlang_net.dll";
+    const std::string nativeBytes = "MZ fake native payload 0123456789";
+    {
+        std::ofstream out(nativeFile, std::ios::binary);
+        out << nativeBytes;
+    }
+    BuildParams params;
+    params.m_SourceFiles.push_back((dir / "helper.n").string());
+    params.m_SourceFiles.push_back((dir / "main.n").string());
+    params.m_sProjectDir = dir.string();
+    params.m_bProjectMode = true;   //project mode ships the package
+    params.m_sOutputModule = "natprog";
+    params.m_sOutputDir = dir.string();
+    params.m_sTempDir = dir.string();
+    params.m_sStdLibDir = STDLIB_DIR;
+    params.m_ImportDirs = { dir.string(), STDLIB_DIR };
+    params.m_nativeMembers.push_back(nativeFile.string());
+    ListCompileLogger logger;
+    ModuleBuilder builder(params, logger);
+    CHECK(builder.BuildArtifacts(), "project packs the package");
+    const fs::path pkg = dir / "natprog.npkg";
+    CHECK(fs::exists(pkg), "package artifact written");
+
+    //The archive carries the native member under its file name, marked
+    //Native, byte-identical — and the unit members keep their own kind.
+    {
+        NcuPackageReader reader;
+        std::string error;
+        CHECK(reader.Open(pkg.string(), &error), "package reopens");
+        const auto& paths = reader.MemberPaths();
+        const auto& kinds = reader.MemberKinds();
+        CHECK(paths.size() == 3 && kinds.size() == 3
+                  && paths[0] == "helper" && kinds[0] == NcuMemberKind::Unit
+                  && paths[1] == "main" && kinds[1] == NcuMemberKind::Unit
+                  && paths[2] == "nlang_net.dll"
+                  && kinds[2] == NcuMemberKind::Native,
+              "native member keyed by file name, kind Native");
+        std::string bytes;
+        CHECK(reader.ExtractMember("nlang_net.dll", &bytes, &error),
+              "native member extracts");
+        CHECK(bytes == nativeBytes, "native bytes are the file's own");
+    }
+
+    //The run-time closure sees only the units; the program still runs.
+    NcuLoader::Options loaderOpts;
+    NcuLoader::Result loaded;
+    try {
+        loaded = NcuLoader::LoadClosure(pkg.string(), loaderOpts);
+    } catch (const std::exception& e) {
+        CHECK(false, (std::string("package load failed: ") + e.what()).c_str());
+        return;
+    }
+    CHECK(loaded.units.size() == 2,
+          "native member does not join the closure");
+    CompiledModule linked;
+    try {
+        linked = NcuLinker::Link(std::move(loaded.units), loaded.entryKey);
+    } catch (const std::exception& e) {
+        CHECK(false, (std::string("link failed: ") + e.what()).c_str());
+        return;
+    }
+    CapturingIo cap;
+    VmExecutor exec;
+    exec.SetHostIo(&cap);
+    CHECK(exec.Execute(linked) == 42, "package entry runs (21*2)");
+}
+
 } // namespace
 
 int main() {
@@ -1019,6 +1195,8 @@ int main() {
     TestStructCtorNoGhostCompilation();
     TestClassStaticOverloadCrossUnit();
     TestMemberOrdinalRecordShape();
+    TestAbstractMemberMethodOrdinal();
+    TestProjectPackageNativeMembers();
     std::fprintf(stderr, "=== Results: %d passed, %d failed ===\n",
                  g_pass, g_fail);
     return g_fail > 0 ? 1 : 0;

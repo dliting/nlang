@@ -56,7 +56,7 @@ int main() {
 - 处理器是一个接收`HttpRequest`、返回`HttpResponse`的函数——类型`func<HttpResponse, HttpRequest>`。如上文的顶层函数`handle`、绑定方法、或该类型的变量，都是处理器。
 - `start(host, port, handler)`绑定监听套接字、启动accept线程后返回，于是同一进程还能当客户端。端口`0`请求任意空闲端口，随后`localPort()`（连同`localAddress()`）报出实际选定的端口——本例因此无需占用固定端口。
 - `http.get`与`http.post`是§23.7的自由函数，跑在共享客户端上。请求正文是`byte[]`；`io.toBytes`按Unicode转换格式（UTF-8）把文本编成字节（§14.5），`bodyText()`再解码回来。
-- `srv.close()`释放监听套接字。要给别的机器用的服务器绑定`0.0.0.0`而非`127.0.0.1`；独立服务器进程调用`serve(...)`而非`start(...)`，因为`main`返回即进程结束（§10.9）。
+- `srv.close()`释放监听套接字并终结服务器——温和形式是`srv.drain(...)`（§23.5）。要给别的机器用的服务器绑定`0.0.0.0`而非`127.0.0.1`；独立服务器进程调用`serve(...)`而非`start(...)`，因为`main`返回即进程结束（§10.9）。
 
 随附示例在同一形态上展开：`examples/http_hello.n`跨多个请求保持连接存活，`examples/http_conc_bench.n`用一个客户端驱动一千个并发工作者，`examples/http_sse.n`推送事件流并在客户端挂断时停止生产者。
 
@@ -80,6 +80,7 @@ int main() {
 | `HttpResponse`字段 | 说明 |
 | --- | --- |
 | `statusCode`、`reasonPhrase` | 构造时为`200`与`"OK"`。库为自己产生的状态给出理由短语（§23.5）；你自造的状态在你设置短语之前保持`"OK"`，这无妨——短语仅供参考，对端读的是`statusCode`。 |
+| `HttpResponse.reasonPhraseFor(status)` | 状态码登记的理由短语（RFC 9110 §15及其指向的状态注册表）。库为自己产生的状态读的就是这一张表，状态行与随之送出的错误正文因此一致；未列入表的状态返`Error`。线上发出的是`reasonPhrase`字段自己的值：想为自己选定的状态配上标准短语，就把它的返回值赋给那个字段。 |
 | `version` | 构造时为`"HTTP/1.1"`；解析器存下对端声明的版本。 |
 | `headers` | 一个`HttpHeaders`映射（§23.3）。 |
 | `body` | 缓冲正文，随库计算的`Content-Length`发出。`null`表示无正文。状态低于200、204或304一律不带正文发出，无论此字段装了什么；`HEAD`请求得到长度而得不到字节。 |
@@ -122,7 +123,7 @@ int main() {
 
 **流式响应。** 处理器把`bodyChannel`设为一个`Channel<byte[]>`（§10.4）而非`body`，正文便以chunked流出。客户端读得慢时`send`阻塞，这就是背压：生产者跑到套接字前面的距离不会超过通道容量。关闭通道即写出结束块；`HEAD`请求不泵送而直接关闭通道，因此阻塞在`send`里的生产者也能收场。给`HTTP/1.0`客户端的流式应答退化为由连接关闭来分帧的原始字节，因为chunked是HTTP/1.1的分帧方式（RFC 9112 §9）。
 
-**取消逆向传播。** 客户端在流中途断开，服务器下一次写入失败，库关闭通道，生产者下一次`send`抛`ChannelClosedException`——这正是处理器自己的清理点。没有任何轮询在探测对端是否已死。
+**取消逆向传播。** 客户端在流中途断开，服务器下一次写入失败，库关闭通道，生产者下一次`send`抛`ChannelClosedException`——这正是处理器自己的清理点。没有任何轮询在探测对端是否已死。服务器自身的停机走同一条路径：被`drain()`或`close()`强制关闭的连接（§23.5），其正文通道随连接一并关闭——停着的生产者随之醒来，而不是继续往已判死的响应里推帧。
 
 ```nlang
 import io;
@@ -212,7 +213,9 @@ int main() {
 | `maxConnections` | 0 | `0`为不限。超过上限时新连接得到503并被关闭；这样的作答最多并发64个，再多出的连接直接关闭而不作答，客户端读到空响应。 |
 | `maxRequestsPerConnection` | 0 | `0`为不限。第N条响应之后同时关闭连接。 |
 
-`start(host, port, handler)`在套接字开始监听后即返回；`serve(host, port, handler)`在调用线程上跑同一条accept循环，是独立服务器的入口，其`main`不得返回（§10.9）。`close()`停止接受并唤醒阻塞中的`accept`；已在处理的连接在自己的keep-alive循环里把手头的请求做完。
+`start(host, port, handler)`在套接字开始监听后即返回；`serve(host, port, handler)`在调用线程上跑同一条accept循环，是独立服务器的入口，其`main`不得返回（§10.9）。在已有监听的实例上再次启动会抛出点名所用入口的基类`Exception`——经`start`是`http.HttpServer.start: already started by this instance.`，经`serve`是`http.HttpServer.serve: ...`——因为双份accept循环会让第一个永远够不着。
+
+停止accept循环有两个开关。`drain(graceMs = 15000)`是优雅停机的开关：停止接受新连接，此后的应答都带上`Connection: close`，空闲的keep-alive等待即刻关闭，正在处理的请求则被等待做完——它返回宽限期耗尽时被强制关闭的连接数，全部在宽限期内做完就返回`0`。`close()`是立即关闭的开关：关闭监听套接字（阻塞中的`accept`经`SocketException`唤醒），强制关闭仍打开的连接，并最多等待两秒让运行中的处理器收尾。两个开关都可重复调用，这样停掉的服务器还能再启动——之后的`start()`会重新绑定地址。`isServing()`报告accept循环是否在跑：首次`start()`之前、`drain`排空期间、`close()`之后都是`false`——这正是轮询式关停循环要盯的旗标，形态就是§21.2为`accept`超时描述的那个。两个`drain`是两回事：服务器的`drain(graceMs)`是本节讲的停机开关，而`HttpBodyReader.drain(maxBytes)`（§23.4）消费的是单个响应剩下的正文字节，好让那条连接可以复用。
 
 accept循环每连接派生一条线程（§10），每条线程按顺序服务自己那条连接上的请求。处理器因此与其他处理器并发运行，且可以阻塞——等慢客户端、等`Channel`、等`Mutex`——而不会拖住整个服务器。没有线程池需要调大小：连接数即并发度，`maxConnections`就是封顶的旋钮。
 
@@ -240,7 +243,7 @@ accept循环每连接派生一条线程（§10），每条线程按顺序服务�
 | 字段 | 默认值 | 含义 |
 | --- | --- | --- |
 | `connectTimeoutMs` | 10000 | 建立连接的期限。 |
-| `readTimeoutMs` | 10000 | 读取头部与流式正文时每次读取的期限。 |
+| `readTimeoutMs` | 30000 | 读取头部与流式正文时每次读取的期限。 |
 | `callTimeoutMs` | 0 | 整次调用的时限，含等待连接与重定向；`0`表示只受各操作自身时限约束。用尽：抛`TimeoutException`。 |
 | `maxRedirects` | 10 | 为`0`时返回`3xx`响应本身而不跟随。 |
 | `maxConnsPerHost` | 0 | 同一源站并发连接数的上限；`0`为不限。在`callTimeoutMs`内拿不到连接的调用者得到`TimeoutException`。 |

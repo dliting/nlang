@@ -147,7 +147,8 @@ Both the interactive and `--machine` forms accept `-I <dir>` (repeatable)
 to locate all dependency members and native dynamic libraries; the search dirs
 are assembled in the same order as nvm: `-I` → program directory →
 `NLANG_PATH` → executable directory / current directory → the
-standard-library directory (where `stdlib.npkg` lives).
+standard-library directory (where the domain packages such as
+`io.npkg` live).
 
 `--verbose` (short form `-v`) prints the resolved search path (one
 directory per line,

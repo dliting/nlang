@@ -2,8 +2,8 @@
 //base containers (§12.4 rule: language core and base containers stay
 //import-free; everything else needs an import). Implicitly imported
 //into every compilation unit. Native classes: implementations live in
-//the VM (intrinsic channel). Compile-time inline only: stdlib.npkg
-//excludes this file.
+//the VM (intrinsic channel). Compile-time inline only: the stdlib
+//packages exclude this file.
 
 //Resizing sequence of elements of one type. Elements are boxed at the
 //runtime boundary for primitive type arguments (erasure); class and
