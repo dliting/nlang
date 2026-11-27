@@ -167,6 +167,38 @@ static bool SliceAssignShape(SnSubscriptAssignStmt &sn)
 		|| baseKind == NK_Float || baseKind == NK_Double;
 }
 
+//v0.14.17: the MIXED form — a slice item alongside an array-valued
+//(fancy) item — is named-rejected before any lowering: the plain
+//fancy assignment (no slice item) is the 0.14.2 scatterInto surface
+//and stays legal, but the mixed list would lower into a view read
+//that folds the array handle into a scalar axis offset — a silent
+//miswrite. The mixed form's corpus-level answer is an explicit
+//two-step (gather + slice assign) until the advanced-indexing copy
+//semantics are designed. True = the statement is consumed (the
+//diagnostic fired; the plain store paths must not run).
+bool StatementResolveAccessor::RejectMixedFancySlice(
+	SnSubscriptAssignStmt &sn)
+{
+	bool hasSlice = false;
+	SnExpression *pFancy = nullptr;
+	for (auto *pIdx : sn.Indices())
+	{
+		if (!pIdx)
+			continue;
+		if (pIdx->Kind() == NK_SliceItemExpr)
+			hasSlice = true;
+		else if (!pFancy
+			&& ArrayElementRowOf(pIdx->EvalDataType()))
+			pFancy = pIdx;
+	}
+	if (!hasSlice || !pFancy)
+		return false;
+	m_Env.Log(CLL_Error, pFancy->Location(),
+		"an array-valued subscript item cannot be mixed with a slice "
+		"item; use tensor.gather for the fancy selection first.");
+	return true;
+}
+
 //The read half of the slice-assign lowering: detach the operands,
 //resolve `base[items]` as a plain read (yielding the slice VIEW —
 //the read path's normalization, gates and residency are the single
@@ -271,6 +303,8 @@ bool StatementResolveAccessor::LowerTensorSliceAssign(
 bool StatementResolveAccessor::TryTensorSliceAssign(
 	SnSubscriptAssignStmt &sn)
 {
+	if (RejectMixedFancySlice(sn))
+		return true;
 	if (!SliceAssignShape(sn))
 		return false;
 	//The values-arm spelling selects the overload family (the same

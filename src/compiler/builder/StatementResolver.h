@@ -338,6 +338,11 @@ private:
 	//StatementResolverTensorAssign.cpp.
 	bool TryTensorScatterInto(SnSubscriptAssignStmt &sn);
 	bool TryTensorSliceAssign(SnSubscriptAssignStmt &sn);
+	//v0.14.17: the mixed form — a slice item alongside an array-valued
+	//(fancy) item — cannot lower to a view write (the array handle
+	//would fold into a scalar axis offset, a silent miswrite). Named
+	//rejection before any lowering; true = the statement is consumed.
+	bool RejectMixedFancySlice(SnSubscriptAssignStmt &sn);
 	bool ResolveSliceAssignView(SnSubscriptAssignStmt &sn,
 		SnExpression *&pView);
 	bool LowerTensorSliceAssign(SnSubscriptAssignStmt &sn);

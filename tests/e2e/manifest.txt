@@ -2507,6 +2507,15 @@ op_tensor_take_along_axis 0
 op_tensor_take_along_axis 0
 op_tensor_take_along_throw 1
 op_tensor_take_along_empty 1
+#Slice assignment (0.14.8): the corpora shipped with the feature but
+#never registered here — no gate ever ran them, and the assembly
+#re-resolution crash hid in assertion-bearing builds until v0.14.17.
+#The ro/shape rows are uncaught-Exception corpora (exit 1 by design,
+#like the throw families).
+op_tensor_slice_assign 0
+op_tensor_slice_assign_ro 1
+op_tensor_slice_assign_shape 1
+op_tensor_slice_assign_empty 0
 op_tensor_unique 0
 op_tensor_unique 0
 op_tensor_scatter_add 0

@@ -265,9 +265,22 @@ bool ExprResolveAccessor::TrySizedArrayCreation(SnSubscriptExpr &sn)
 //Every present part must resolve to an integer (enum masquerades as
 //Int32, mirroring CheckCreationDim's ladder); the item itself binds
 //Int32 so generic consumers see a resolved data expression.
+//v0.14.17: the slice-assign assembly re-resolves the statement's
+//already-resolved index nodes through a fresh SnSubscriptExpr, so an
+//already-resolved item early-returns instead of tripping the old
+//assertion (same skip discipline as Access(SnNameExpr&)). The node
+//carries its full products (EvalDataType + NF_Resolved; the parts
+//carry theirs), and every downstream consumer — SliceAxisCount, the
+//view binder, the emitter — reads node kind and stored state only,
+//so the early return drops nothing. Without it, EVERY slice
+//assignment form crashed assertion-bearing builds: the 0.14.8
+//corpora never registered in the e2e manifest, so no gate ever ran
+//them and Release's NDEBUG hid the crash (the re-resolution there
+//was idempotent by luck of every consumer reading stored state).
 void ExprResolveAccessor::Access(SnSliceItemExpr &sn)
 {
-	NLANG_ASSERT(!sn.IsResolved());
+	if (sn.IsResolved())
+		return;
 	SnExpression *parts[] = { sn.Head(), sn.Stop(), sn.Step() };
 	for (SnExpression *pPart : parts)
 	{
