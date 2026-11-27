@@ -1,0 +1,18 @@
+//0.13.13a D-2: `new` stays outside the function-reference discharge
+//surface. `new App(bump)` is still parsed as two juxtaposed identifiers
+//and rejected as such: the probe pinning the current shape reported two
+//diagnostics for the one statement (temp/gaps_probe/results.log lines
+//18-19) — "syntax error" at the second identifier and "Invalid
+//statement." at the statement head.
+
+class Ctx { public int n; }
+
+void bump(Ctx c) { c.n = c.n + 1; }
+
+class App {
+    public func<void, Ctx> m_cb;
+    public App(func<void, Ctx> cb) { m_cb = cb; }
+    public int go(Ctx ctx) { m_cb(ctx); return ctx.n; }
+}
+
+int main() { App a = new App(bump); return a.go(Ctx()); }

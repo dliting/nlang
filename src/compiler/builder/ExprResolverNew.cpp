@@ -402,29 +402,15 @@ bool ExprResolveAccessor::TryResolveCtorInvoke(SnInvokeExpr &snInvoke)
 		&& RejectAbstractInstantiation(
 			static_cast<SnClassDecl&>(*pTypeDecl), snInvoke.Location()))
 		return true;
-	//ResolveFieldExprAs carries the type in both Field() (member chains
-	//like Point(1,4).x assert on it via IsDataExpr) and EvalDataType
-	//(SnClassDecl/SnStructDecl is its own type). 0.9.11 D2: the kind
-	//decides which ctor slot the invoke carries; CtorFunction() records
-	//the selected constructor for codegen and the frame walkers. The
-	//parameters are already resolved (this runs in the invoke failure
-	//branch), so the overload match reads them directly.
-	ResolveFieldExprAs(snInvoke, pTypeDecl);
-	if (pTypeDecl->Kind() == NK_StructDecl)
-		snInvoke.CtorStruct(static_cast<SnStructDecl*>(pTypeDecl));
-	else
-		snInvoke.CtorClass(static_cast<SnClassDecl*>(pTypeDecl));
-	std::vector<SnExpression*> actuals;
-	for (auto &param : snInvoke.Params())
-		actuals.push_back(&param);
-	snInvoke.CtorFunction(SelectCtorForArgs(snInvoke, pTypeDecl, actuals,
-		snInvoke.Location()));
+	//Type binding, kind-decided ctor slot, selection and the deferred-
+	//argument binding live in the shared tail (BindCtorSelection).
+	BindCtorSelection(snInvoke, *pTypeDecl);
 	return true;
 }
 
 //The shared tail of TryResolveQualifiedCtorInvoke (and its struct twin):
-//bind the type onto the invoke, select the ctor, and wire the member
-//(0.9.12 D-new-7: Field() answers "what was called" — bind the selected
+//run the shared BindCtorSelection tail, then wire the member (0.9.12
+//D-new-7: Field() answers "what was called" — bind the selected
 //constructor so the invoke-receiver classifier sees a value-producing
 //call here, not a type name. EvalDataType answers "what it produces" and
 //stays the type. On failed selection (the diagnostic is already logged)
@@ -433,16 +419,7 @@ bool ExprResolveAccessor::TryResolveCtorInvoke(SnInvokeExpr &snInvoke)
 void ExprResolveAccessor::BindQualifiedCtorTail(SnMemberExpr &snMember,
 	SnInvokeExpr &invoke, SnField &type)
 {
-	ResolveFieldExprAs(invoke, &type);
-	if (type.Kind() == NK_StructDecl)
-		invoke.CtorStruct(static_cast<SnStructDecl*>(&type));
-	else
-		invoke.CtorClass(static_cast<SnClassDecl*>(&type));
-	std::vector<SnExpression*> actuals;
-	for (auto &param : invoke.Params())
-		actuals.push_back(&param);
-	auto *pCtor = SelectCtorForArgs(invoke, &type, actuals, invoke.Location());
-	invoke.CtorFunction(pCtor);
+	auto *pCtor = BindCtorSelection(invoke, type);
 	snMember.m_pField = pCtor ? pCtor : &type;
 	snMember.EvalDataType(&type);
 }

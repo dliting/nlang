@@ -162,6 +162,29 @@ static void AcceptDeferredArgs(ISyntaxNodeVisitor &visitor,
 			pArg->Accept(visitor);
 }
 
+//v0.13.13a D-2(a): the second arm that KNOWS its formal once selection
+//completes — a lambda infers its expected type from the chosen ctor's
+//formal, the same contract the Array(dims) arm established for brace
+//literals. True when every deferred argument (named wrappers judged on
+//their inner, mirroring CollectDeferredArgs) is an untyped lambda;
+//brace and mixed shapes keep the gate closed (no other ctor formal
+//shape can infer a brace target).
+static bool DeferredArgsAreLambdasOnly(
+	const std::vector<SnExpression*> &deferredArgs)
+{
+	if (deferredArgs.empty())
+		return false;
+	for (auto *pArg : deferredArgs)
+	{
+		SnExpression *pInner = pArg;
+		if (pArg->Kind() == NK_NamedArgExpr)
+			pInner = static_cast<SnNamedArgExpr&>(*pArg).Inner();
+		if (!UntypedLambdaOf(*pInner))
+			return false;
+	}
+	return true;
+}
+
 //0.13.10: the exported pair of the deferred-argument discipline for the
 //paths that pre-resolve arguments in the caller scope (member-receiver
 //and module-qualified calls): the skip-list for their eager pass, and
@@ -310,6 +333,16 @@ void ExprResolveAccessor::ResolveFailedInvoke(SnInvokeExpr &snInvoke,
 	{
 		bArgsAdmissible = TryInferArrayDimsDeferredArgs(snInvoke,
 			deferredArgs, bArgsSwept);
+		//v0.13.13a D-2(a): a lambda-only deferred set rides the ctor
+		//route too — BindDeferredCtorArgs resolves it against the
+		//selected ctor's formal (a failed selection sweeps it, so the
+		//generic ctor text plus the lambda's own diagnostic stay the
+		//complete report, mirroring the old LogInvokeFailure pair).
+		//Pending function references never reach the deferred list
+		//(they resolve as plain expressions); their gate is the empty
+		//set above.
+		if (!bArgsAdmissible)
+			bArgsAdmissible = DeferredArgsAreLambdasOnly(deferredArgs);
 	}
 	if (res == FFR_FuncNameNotFound && bArgsAdmissible
 		&& TryResolveCtorInvoke(snInvoke))
@@ -360,37 +393,9 @@ bool ExprResolveAccessor::ValidateInvokeSyntax(const SnInvokeExpr &invoke)
 //The candidate collection and overload matching of the invoke paths
 //(SearchFuncScope / SearchEnumScope / SearchSuperclassChain /
 //CollectInvokeCandidates / FindFuncByInvoke / MatchInvokeAgainst) live
-//in ExprResolverInvokeMatch.cpp (2026-10-12 source-size split).
-
-//M3b: the SUCCESS tail of Access(SnInvokeExpr), shared with the
-//module-qualified call path so both bind a callee exactly alike.
-//Phase 13: the func-ref argument binder of ResolveInvokeWithFunc
-//(source-size split). Argument-position function references bind
-//against the formal func types of the chosen overload
-//(ComputeBindingDistance already required an exact signature match for
-//candidacy). Step 2 adds the receiver-bound member form (c.foo).
-bool ExprResolveAccessor::BindArgFuncRefs(
-	std::vector<FormalBinding> &bindings)
-{
-	for (auto &b : bindings)
-	{
-		if (b.kind == FormalBinding::B_Default || !b.pCallerExpr)
-			continue;
-		if (IsUnboundFuncRef(*b.pCallerExpr))
-		{
-			if (!BindFuncRefToExpected(m_Env,
-				*static_cast<SnIdentifierExpr*>(b.pCallerExpr),
-				b.pFormal->EvalDataType()))
-				return false;
-		}
-		else if (IsUnboundMemberFuncRef(*b.pCallerExpr)
-			&& !BindMemberFuncRefToExpected(m_Env,
-				*static_cast<SnMemberExpr*>(b.pCallerExpr),
-				b.pFormal->EvalDataType(), this))
-			return false;
-	}
-	return true;
-}
+//in ExprResolverInvokeMatch.cpp (2026-10-12 source-size split). The
+//func-ref argument binder BindArgFuncRefs joined ExprResolverBinding.cpp
+//in the same spirit (v0.13.13a source-size split).
 
 //M3b: the SUCCESS tail of Access(SnInvokeExpr), shared with the
 //module-qualified call path so both bind a callee exactly alike.
@@ -488,7 +493,6 @@ bool ExprResolveAccessor::ResolveDeferredArgs(
 		AddFlags(ERF_SearchInParentOnly);
 	return bOK;
 }
-
 
 //The failure diagnostics of the invoke paths live in
 //ExprResolverInvokeDiag.cpp (LogInvokeFailure and its MaybeLog* sweeps).

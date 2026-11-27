@@ -1117,6 +1117,20 @@ private:
 		std::vector<FormalBinding> &bindings);
 
 	/*
+	v0.13.13a D-2(a): the constructor twin of ResolveInvokeWithFunc's
+	binding tail — run after the ctor is selected: the chosen ctor's
+	formals stamp the pending function references (BindArgFuncRefs) and
+	give the untyped lambdas their expected type (ResolveDeferredArgs).
+	Null \p pCtor (selection already logged its mismatch) or an
+	unbindable argument shape sweeps the deferred arguments as plain
+	expressions, mirroring the invoke-failure tail: each answers with its
+	own missing-target diagnostic instead of staying silent. The call
+	stays consumed either way — false only reports that full binding did
+	not complete. Defined in ExprResolverNewCtor.cpp.
+	*/
+	bool BindDeferredCtorArgs(SnInvokeExpr &invoke, SnFunction *pCtor);
+
+	/*
 	Calculate the type "distance" from source type to target type.
 	\return
 	1) If the source type can be implicitly covert to target type:
@@ -1310,6 +1324,16 @@ private:
 		const std::vector<SnFunction*> &candidates,
 		const ISourceLocation *pLoc, const char *kindWord,
 		const std::string &typeName);
+	//v0.13.13a D-2(a): the anchored mismatch text for a pending function
+	//reference among the actuals — re-runs the silent trial bindings and,
+	//where FuncRefBindingDistance rejected one, names the reference, the
+	//formal and the ctor instead of the generic no-match text. True = the
+	//named diagnostic fired. Defined in ExprResolverBinding.cpp (the
+	//decision authority FuncRefBindingDistance lives there).
+	bool MaybeLogCtorFuncRefMismatch(
+		const std::vector<SnExpression*> &actuals,
+		const std::vector<SnFunction*> &candidates,
+		const ISourceLocation *pLoc, const std::string &typeName);
 	//0.9.11 T6 (D10): selects the constructor a call binds to. Collects
 	//the same-name candidate set (class Members() / struct Ctors()),
 	//runs MatchCtorAgainst, and reports the catalog diagnostics on
@@ -1321,6 +1345,16 @@ private:
 	SnFunction *SelectCtorForArgs(SyntaxNode &argsOwner, SnField *pTypeDecl,
 		const std::vector<SnExpression*> &actuals,
 		const ISourceLocation *pLoc);
+	//v0.13.13a: the shared ctor-call tail of the two invoke-based call
+	//forms (bare `Foo(args)`, module-qualified `m.Foo(args)`): bind the
+	//type onto the invoke (the kind decides the CtorStruct/CtorClass
+	//slot), select the ctor for the resolved actuals, record it for
+	//codegen, and bind the deferred arguments against it (D-2(a):
+	//pending function references stamped, lambdas inferred). Returns
+	//the selected ctor — null = the call is unbound (the selection
+	//diagnostic is already logged); each caller wires its own receiver
+	//slots around it. Defined in ExprResolverNewCtor.cpp.
+	SnFunction *BindCtorSelection(SnInvokeExpr &invoke, SnField &type);
 	//Binds the resolved type declaration to the new-expression: classes keep
 	//the Phase 13 func-type rejection, structs join directly (0.9.11 D2).
 	//False = the diagnostic was logged and the caller must abort.

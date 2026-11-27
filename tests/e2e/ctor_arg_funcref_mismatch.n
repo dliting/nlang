@@ -1,0 +1,17 @@
+//0.13.13a D-2(a): a function reference whose signature does not match the
+//selected constructor's func-typed formal is rejected by name — the
+//diagnostic names the reference, the formal it was aimed at and the
+//constructor. Here `two` takes two parameters against the one-parameter
+//formal `cb`.
+
+class Ctx { public int n; }
+
+void two(Ctx a, Ctx b) { }
+
+class App {
+    public func<void, Ctx> m_cb;
+    public App(func<void, Ctx> cb) { m_cb = cb; }
+    public int go(Ctx ctx) { m_cb(ctx); return ctx.n; }
+}
+
+int main() { App a = App(two); return a.go(Ctx()); }

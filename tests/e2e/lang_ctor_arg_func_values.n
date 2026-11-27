@@ -1,0 +1,43 @@
+//0.13.13a D-2(a): a function reference or a lambda may be passed directly
+//as an argument of a bare constructor call. The selected constructor's
+//func-typed formal supplies the expected function type, so the reference
+//and the lambda bind in place — no typed local has to carry them first.
+
+class Ctx { public int n; }
+
+void bump(Ctx c) { c.n = c.n + 1; }
+
+class Log {
+    public int hits;
+    public void note(Ctx c) { this.hits = this.hits + 1; }
+    public int reported() { return this.hits; }
+}
+
+class App {
+    public func<void, Ctx> m_cb;
+    public App(func<void, Ctx> cb) { m_cb = cb; }
+    public int go(Ctx ctx) { m_cb(ctx); return ctx.n; }
+}
+
+int main() {
+    App a = App(bump);                     // a named function reference
+    Ctx x = Ctx();
+    x.n = 1;
+    if (a.go(x) != 2) { return 1; }        // bump ran through the field
+    Log lg = Log();
+    App b = App(lg.note);                  // a member function reference
+    Ctx y = Ctx();
+    y.n = 5;
+    if (b.go(y) != 5) { return 2; }        // note leaves n alone
+    if (lg.reported() != 1) { return 3; }  // note ran through the field
+    App c = App((ctx) -> { ctx.n = ctx.n + 10; });  // a lambda argument
+    Ctx z = Ctx();
+    z.n = 7;
+    if (c.go(z) != 17) { return 4; }
+    func<void, Ctx> f = bump;              // the former workaround kept as
+    Ctx w = Ctx();                         // a control: bind via a typed local
+    w.n = 3;
+    App d = App(f);
+    if (d.go(w) != 4) { return 5; }
+    return 0;
+}

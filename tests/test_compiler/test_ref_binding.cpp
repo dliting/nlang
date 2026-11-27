@@ -489,6 +489,90 @@ private slots:
         QVERIFY2(paramOk, "parameter & return must compile clean");
     }
 
+    //v0.13.13a D-2(a): a bare constructor call binds pending function
+    //references and lambdas against the selected ctor's func-typed
+    //formal; a mismatched reference names the argument, the formal and
+    //the ctor, and a mismatched lambda reuses the lambda typing wording
+    //it reports at every other position (the e2e ctor_arg_* rows pin
+    //both).
+    void ctorArgFuncRefBinding()
+    {
+        const char* appDecl =
+            "class Ctx { public int n; }\n"
+            "void bump(Ctx c) { c.n = c.n + 1; }\n"
+            "void two(Ctx a, Ctx b) { }\n"
+            "class Log {\n"
+            "    public int hits;\n"
+            "    public void note(Ctx c) { this.hits = this.hits + 1; }\n"
+            "}\n"
+            "class App {\n"
+            "    public func<void, Ctx> m_cb;\n"
+            "    public App(func<void, Ctx> cb) { m_cb = cb; }\n"
+            "    public int go(Ctx ctx) { m_cb(ctx); return ctx.n; }\n"
+            "}\n";
+        //Mismatch wording: the reference form gets the ctor-anchored
+        //text; the lambda form keeps the TypeLambda texts it already
+        //reports at the assignment and default positions.
+        const char* arityNeedle =
+            "the lambda takes 2 parameters; the expected type "
+            "\"class func<Void, Ctx>\" expects 1.";
+        const char* retNeedle =
+            "the expected type \"class func<Void, Ctx>\" returns void; "
+            "the lambda's expression body yields a value.";
+        std::vector<std::string> errors;
+        const bool fnRefOk = buildCompile("ctor_arg_fnref_bare",
+            (std::string(appDecl) +
+            "int main() { App a = App(bump); return a.go(Ctx()); }\n").c_str(),
+            errors);
+        QVERIFY2(fnRefOk && errors.empty(),
+            "a named function reference must bind to the ctor formal");
+        const bool memberOk = buildCompile("ctor_arg_member_fnref",
+            (std::string(appDecl) +
+            "int main() {\n"
+            "    Log lg = Log();\n"
+            "    App a = App(lg.note);\n"
+            "    return a.go(Ctx());\n"
+            "}\n").c_str(),
+            errors);
+        QVERIFY2(memberOk && errors.empty(),
+            "a member function reference must bind to the ctor formal");
+        const bool lambdaOk = buildCompile("ctor_arg_lambda_bare",
+            (std::string(appDecl) +
+            "int main() {\n"
+            "    App a = App((c) -> { c.n = c.n + 1; });\n"
+            "    return a.go(Ctx());\n"
+            "}\n").c_str(),
+            errors);
+        QVERIFY2(lambdaOk && errors.empty(),
+            "a lambda argument must bind to the ctor formal");
+        const bool arityNamed = buildCompile("ctor_arg_fnref_arity",
+            (std::string(appDecl) +
+            "int main() { App a = App(two); return a.go(Ctx()); }\n").c_str(),
+            errors);
+        QVERIFY2(!arityNamed && anyErrorMentions(errors,
+            "function \"two\" does not match parameter \"cb\" of "
+            "constructor \"App\""),
+            "an arity-mismatched reference must name its target");
+        const bool arityLambda = buildCompile("ctor_arg_lambda_arity",
+            (std::string(appDecl) +
+            "int main() {\n"
+            "    App a = App((c, c) -> { });\n"
+            "    return a.go(Ctx());\n"
+            "}\n").c_str(),
+            errors);
+        QVERIFY2(!arityLambda && anyErrorMentions(errors, arityNeedle),
+            "an arity-mismatched lambda must name its target");
+        const bool retLambda = buildCompile("ctor_arg_lambda_ret",
+            (std::string(appDecl) +
+            "int main() {\n"
+            "    App a = App((c) -> 1);\n"
+            "    return a.go(Ctx());\n"
+            "}\n").c_str(),
+            errors);
+        QVERIFY2(!retLambda && anyErrorMentions(errors, retNeedle),
+            "a return-type-mismatched lambda must name its target");
+    }
+
     //The no-op hook (Task 9 consumes it at instantiation points):
     //identity types (class/interface/array token) classify as no-op
     //marks; slot-copy types (scalar/enum/struct/string) do not.

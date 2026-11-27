@@ -221,4 +221,78 @@ int ExprResolveAccessor::ComputeBindingDistance(
 	return nDistance;
 }
 
+//v0.13.13a D-2(a): the final verdict for a ctor call whose actuals hold a
+//pending function reference that no formal accepted — the scoring sweep
+//above is silent by contract, so MatchCtorOrLogMismatch would say only
+//"no constructor matches the argument list". Re-run the trial bindings
+//per candidate and replay the FuncRefBindingDistance verdict for that
+//reference: the (formal, ctor) that rejected it gets named. Candidates
+//are scanned in declaration order (the same set order the match used);
+//the first rejecting anchor wins.
+bool ExprResolveAccessor::MaybeLogCtorFuncRefMismatch(
+	const std::vector<SnExpression*> &actuals,
+	const std::vector<SnFunction*> &candidates,
+	const ISourceLocation *pLoc, const std::string &typeName)
+{
+	for (auto *pActual : actuals)
+	{
+		SnExpression *pValue = (pActual->Kind() == NK_NamedArgExpr)
+			? static_cast<SnNamedArgExpr*>(pActual)->Inner() : pActual;
+		if (!IsUnboundFuncRef(*pValue)
+			&& !IsUnboundMemberFuncRef(*pValue))
+			continue;
+		for (auto *pCandidate : candidates)
+		{
+			std::vector<FormalBinding> tryBind;
+			if (!TryBindArgs(actuals, *pCandidate, tryBind))
+				continue;
+			for (auto &b : tryBind)
+			{
+				if (b.kind == FormalBinding::B_Default
+					|| b.pCallerExpr != pValue)
+					continue;
+				if (FuncRefBindingDistance(m_Env, b) < 0)
+				{
+					m_Env.Log(CLL_Error, pLoc,
+						"function \"%s\" does not match parameter \"%s\" "
+						"of constructor \"%s\"",
+						pValue->ToString().c_str(),
+						b.pFormal->Name().c_str(), typeName.c_str());
+					return true;
+				}
+			}
+		}
+	}
+	return false;
+}
+
+//Phase 13: the func-ref argument binder of ResolveInvokeWithFunc (moved
+//here from ExprResolverInvoke.cpp in the v0.13.13a source-size split —
+//this TU owns the func-ref binding verdicts). Argument-position function
+//references bind against the formal func types of the chosen overload
+//(ComputeBindingDistance already required an exact signature match for
+//candidacy). Step 2 adds the receiver-bound member form (c.foo).
+bool ExprResolveAccessor::BindArgFuncRefs(
+	std::vector<FormalBinding> &bindings)
+{
+	for (auto &b : bindings)
+	{
+		if (b.kind == FormalBinding::B_Default || !b.pCallerExpr)
+			continue;
+		if (IsUnboundFuncRef(*b.pCallerExpr))
+		{
+			if (!BindFuncRefToExpected(m_Env,
+				*static_cast<SnIdentifierExpr*>(b.pCallerExpr),
+				b.pFormal->EvalDataType()))
+				return false;
+		}
+		else if (IsUnboundMemberFuncRef(*b.pCallerExpr)
+			&& !BindMemberFuncRefToExpected(m_Env,
+				*static_cast<SnMemberExpr*>(b.pCallerExpr),
+				b.pFormal->EvalDataType(), this))
+			return false;
+	}
+	return true;
+}
+
 } //namespace nlang

@@ -879,6 +879,13 @@ ctor_default_instance_member_reject compile_error cannot access instance member 
 # expected-type rejection must no longer appear ---
 lang_default_func_values 0
 ctor_default_lambda_instance_reject compile_error cannot access instance member "Cfg.m_base";cannot access instance member "CfgBare.m_base";!cannot reference 'this';!a lambda expression requires an expected function type
+# --- 0.13.13a D-2(a): function references and lambdas as bare ctor-call
+# arguments (the selected ctor's func-typed formal supplies the expected
+# function type); a signature mismatch names the formal and the ctor, and
+# `new` stays juxtaposition syntax (both probe diagnostics pinned) ---
+lang_ctor_arg_func_values 0
+ctor_arg_funcref_mismatch compile_error does not match parameter "cb" of constructor "App"
+new_two_identifiers_reject compile_error syntax error;Invalid statement.
 # --- 0.9.8: MaxArgs default descent for the function and method arms ---
 fn_default_bigcall 0
 method_default_bigcall 0

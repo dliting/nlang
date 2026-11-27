@@ -203,11 +203,17 @@ SnFunction *ExprResolveAccessor::MatchCtorOrLogMismatch(
 	if (pCtor)
 		return pCtor;
 	if (bAmbiguous)
+	{
 		m_Env.Log(CLL_Error, pLoc,
 			"ambiguous constructor call to %s \"%s\": multiple "
 			"constructors match the argument list",
 			kindWord, typeName.c_str());
-	else
+		return nullptr;
+	}
+	//v0.13.13a D-2(a): a rejected function reference among the actuals
+	//names its own anchor instead of the generic text (the scoring sweep
+	//stays silent; this is the final verdict's named note).
+	if (!MaybeLogCtorFuncRefMismatch(actuals, candidates, pLoc, typeName))
 		m_Env.Log(CLL_Error, pLoc,
 			"no constructor of %s \"%s\" matches the argument list",
 			kindWord, typeName.c_str());
@@ -255,6 +261,63 @@ SnFunction *ExprResolveAccessor::SelectCtorForArgs(SyntaxNode &argsOwner,
 	//at all rejects only when arguments were supplied.
 	LogLegacyCtorArity(pTypeDecl, actuals, pLoc, kindWord);
 	return nullptr;
+}
+
+//The shared ctor-call tail of the two invoke-based call forms (bare
+//`Foo(args)` and module-qualified `m.Foo(args)`). ResolveFieldExprAs
+//carries the type in both Field() (member chains like Point(1,4).x
+//assert on it via IsDataExpr) and EvalDataType (SnClassDecl/SnStructDecl
+//is its own type). 0.9.11 D2: the kind decides which ctor slot the
+//invoke carries; CtorFunction() records the selected constructor for
+//codegen and the frame walkers. The parameters are already resolved in
+//both paths, so the overload match reads them directly.
+SnFunction *ExprResolveAccessor::BindCtorSelection(SnInvokeExpr &invoke,
+	SnField &type)
+{
+	ResolveFieldExprAs(invoke, &type);
+	if (type.Kind() == NK_StructDecl)
+		invoke.CtorStruct(static_cast<SnStructDecl*>(&type));
+	else
+		invoke.CtorClass(static_cast<SnClassDecl*>(&type));
+	std::vector<SnExpression*> actuals;
+	for (auto &param : invoke.Params())
+		actuals.push_back(&param);
+	auto *pCtor = SelectCtorForArgs(invoke, &type, actuals,
+		invoke.Location());
+	invoke.CtorFunction(pCtor);
+	//v0.13.13a D-2(a): the selected ctor's formals are the targets —
+	//stamp the pending function references and infer the lambdas'
+	//expected types (the invoke path's ResolveInvokeWithFunc twin).
+	(void)BindDeferredCtorArgs(invoke, pCtor);
+	return pCtor;
+}
+
+//v0.13.13a D-2(a): the constructor twin of ResolveInvokeWithFunc's
+//binding tail. The selection (SelectCtorForArgs → MatchCtorAgainst)
+//already scored the pending references and admitted the untyped lambdas
+//silently; this stamps them — BindArgFuncRefs gives a reference its
+//bound func type, ResolveDeferredArgs hands a lambda its expected
+//function type. The trial-binding re-run mirrors MatchCtorAgainst
+//exactly (same actuals, same candidate), so the shape that won the
+//match binds here. On a failed selection the mismatch diagnostic is
+//already logged; the deferred arguments still get their own sweep so
+//they never reach the backend unresolved (SweepDeferredInvokeArgs is
+//idempotent — resolved arguments drop out).
+bool ExprResolveAccessor::BindDeferredCtorArgs(SnInvokeExpr &invoke,
+	SnFunction *pCtor)
+{
+	std::vector<SnExpression*> actuals;
+	for (auto &param : invoke.Params())
+		actuals.push_back(&param);
+	std::vector<FormalBinding> bindings;
+	if (!pCtor || !TryBindArgs(actuals, *pCtor, bindings))
+	{
+		SweepDeferredInvokeArgs(*m_pVisitor, invoke);
+		return false;
+	}
+	if (!BindArgFuncRefs(bindings))
+		return false;
+	return ResolveDeferredArgs(invoke, bindings);
 }
 
 } //namespace nlang
