@@ -2162,7 +2162,7 @@ xgen_source_inline 10
 kl_generic_struct_arg 0
 kl_generic_struct_independence 0
 kl_generic_struct_transfer_corner 0
-generic_func_arg compile_error multi-slot
+generic_func_arg 14
 generic_gc_tslot_survives 0
 # Task 1's transient window gates flip with instance execution:
 generic_body_method_call 1
