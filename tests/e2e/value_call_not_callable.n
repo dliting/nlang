@@ -1,0 +1,8 @@
+//v0.13.13a D-3 reverse leg: the postfix call arm requires a
+//function-typed callee; calls on int and string values are rejected at
+//parse time with the not-callable diagnostic.
+int main() {
+    int x = 1(2);
+    string y = "s"(1);
+    return x;
+}

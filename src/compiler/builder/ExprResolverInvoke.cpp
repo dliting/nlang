@@ -282,6 +282,17 @@ void ExprResolveAccessor::Access(SnInvokeExpr &snInvoke)
 	if (!ResolveInvokeArguments(snInvoke, deferredArgs))
 		return;
 
+	//0.13.13a D-3: the postfix shape — the callee is a child expression,
+	//not a name. The name-based channels below (delegate field lookup,
+	//overload search by CalleeName) never apply: an empty CalleeName
+	//would read as a not-found. The callee's own resolution decides the
+	//binding.
+	if (auto *pCalleeExpr = snInvoke.CalleeExpr())
+	{
+		ResolveCalleeExprInvoke(snInvoke, *pCalleeExpr, deferredArgs);
+		return;
+	}
+
 	if (TryBindDelegateCall(snInvoke))
 	{
 		//A delegate call gates arguments against func signature slots, not
@@ -323,6 +334,44 @@ void ExprResolveAccessor::Access(SnInvokeExpr &snInvoke)
 	ResolveFailedInvoke(snInvoke, res, pCallee, bNameMatchedImported,
 		bVisibilityHintLogged, candidates, deferredArgs,
 		bAmbiguousCall);
+}
+
+//0.13.13a D-3: the postfix callee-expression shape. The callee resolves
+//through the ordinary expression channels; its type decides the binding.
+//Double-report discipline: a callee that failed to resolve already
+//logged its own diagnostic — the invoke adds nothing. A resolved
+//non-func-typed callee gets the not-callable report (a null
+//EvalDataType means void — the established void-invoke convention).
+//The successful binding runs against the callee's func instantiation
+//through the shared delegate channel (BindDelegateInvokeAgainst) with a
+//null value field: the postfix shape's codegen evaluates the callee
+//expression itself, so there is no callee field to load.
+void ExprResolveAccessor::ResolveCalleeExprInvoke(SnInvokeExpr &snInvoke,
+	SnExpression &callee, std::vector<SnExpression*> &deferredArgs)
+{
+	if (!callee.IsResolved())
+		callee.Accept(*m_pVisitor);
+	if (!callee.IsResolved())
+	{
+		AcceptDeferredArgs(*m_pVisitor, deferredArgs);
+		return;
+	}
+	auto *pType = callee.EvalDataType();
+	if (!pType || !IsFuncTypeDecl(pType))
+	{
+		m_Env.Log(CLL_Error, snInvoke.Location(),
+			"expression of type \"%s\" is not callable; a call "
+			"requires a function-typed value.",
+			pType ? pType->ToString().c_str() : "void");
+		AcceptDeferredArgs(*m_pVisitor, deferredArgs);
+		return;
+	}
+	BindDelegateInvokeAgainst(snInvoke, static_cast<SnClassDecl*>(pType),
+		nullptr);
+	//Delegate calls gate arguments against the func's signature slots,
+	//not named formals — a deferred brace argument has no target to
+	//infer from (the named delegate path's discipline, unchanged).
+	AcceptDeferredArgs(*m_pVisitor, deferredArgs);
 }
 
 //The failure tail of Access(SnInvokeExpr). 0.9.0: an unresolved call

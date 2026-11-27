@@ -1318,6 +1318,9 @@ func_out_return_reject compile_error the out type marker is retired
 func_bound_virtual_out_reject compile_error the out type marker is retired
 func_compare_operand_reject compile_error only be compared with a function value or null
 func_bare_method_reject compile_error without a receiver
+# v0.13.13a D-3: a call is a postfix operation on any function-typed value
+lang_value_call_chain 132
+value_call_not_callable compile_error is not callable
 array_length_elem_get 0
 array_length_elem_subscript 0
 array_length_call_result 0

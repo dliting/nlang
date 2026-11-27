@@ -1,0 +1,31 @@
+//v0.13.13a D-3: a call is a postfix operation on any function-typed
+//value. Subscript results, parenthesized values, and intermediate call
+//results are all callable and chain with the existing receiver shapes;
+//a call nested in the callee expression must not clobber the outer
+//call's staged arguments (callee is evaluated before the actuals ride
+//the staging area).
+int dbl(int x) { return x * 2; }
+int inc(int x) { return x + 1; }
+
+func<int, int> pick(int k) { return dbl; }
+
+class Runner {
+    public int run(int n) { return n + 100; }
+}
+
+int main() {
+    int total = 0;
+    List<func<int, int>> fns = [dbl, inc];
+    total = total + fns[0](1);
+    total = total + fns[1](1);
+    Dict<string, func<int, int>> funcs = {};
+    funcs["one"] = dbl;
+    total = total + funcs["one"](3);
+    func<int, int> cb = inc;
+    total = total + (cb)(10);
+    total = total + pick(1)(5);
+    Runner r = Runner();
+    total = total + r.run(1);
+    fns[0](7);
+    return total;
+}

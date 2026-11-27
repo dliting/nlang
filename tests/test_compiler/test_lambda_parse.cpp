@@ -361,6 +361,102 @@ static void TestGreedyBody()
             CHECK(pLambda->ExprBody()->Kind() == nlang::NK_BinaryExpr);
         delete pExpr;
     }
+
+    //v0.13.13a D-3: the call suffix joins the body-continuation set
+    //('(' in the body state's lookahead, conflict state 407 — shift).
+    //An identifier callee still shifts into the named-invoke arm; a
+    //call on a parenthesized prefix extends the body through the new
+    //postfix arm (the callee-expression shape).
+    {
+        nlang::SnExpression *pNamed = ParseOneSpan("(x) -> cb(x + 1)");
+        CHECK(pNamed != nullptr);
+        if (pNamed)
+        {
+            CHECK(pNamed->Kind() == nlang::NK_LambdaExpr);
+            auto *pLambda = static_cast<nlang::SnLambdaExpr *>(pNamed);
+            CHECK(pLambda->ExprBody() != nullptr);
+            if (pLambda->ExprBody())
+            {
+                CHECK(pLambda->ExprBody()->Kind() == nlang::NK_InvokeExpr);
+                auto *pInvoke = static_cast<const nlang::SnInvokeExpr *>(
+                    pLambda->ExprBody());
+                CHECK(pInvoke->CalleeExpr() == nullptr);
+            }
+            delete pNamed;
+        }
+    }
+    {
+        nlang::SnExpression *pParen = ParseOneSpan("(x) -> (cb)(x + 1)");
+        CHECK(pParen != nullptr);
+        if (pParen)
+        {
+            CHECK(pParen->Kind() == nlang::NK_LambdaExpr);
+            auto *pLambda = static_cast<nlang::SnLambdaExpr *>(pParen);
+            CHECK(pLambda->ExprBody() != nullptr);
+            if (pLambda->ExprBody())
+            {
+                CHECK(pLambda->ExprBody()->Kind() == nlang::NK_InvokeExpr);
+                auto *pInvoke = static_cast<const nlang::SnInvokeExpr *>(
+                    pLambda->ExprBody());
+                CHECK(pInvoke->CalleeExpr() != nullptr);
+            }
+            delete pParen;
+        }
+    }
+}
+
+//v0.13.13a D-3: the two invoke shapes stay distinguishable through the
+//parse and render apart in ToString (conflict ① of the 2026-11-27
+//accepted-conflict ledger: after an identifier the '(' shifts into the
+//InvokeExpr arm, so named calls keep the bare-name shape).
+static void TestPostfixCallShapes()
+{
+    //Named callee: the existing shape, unchanged by the new arms.
+    nlang::SnExpression *pNamed = ParseOneSpan("mk(1)");
+    CHECK(pNamed != nullptr);
+    if (pNamed)
+    {
+        CHECK(pNamed->Kind() == nlang::NK_InvokeExpr);
+        auto *pInvoke = static_cast<const nlang::SnInvokeExpr *>(pNamed);
+        CHECK(pInvoke->CalleeExpr() == nullptr);
+        CHECK(pInvoke->ToString() == "mk(1)");
+        delete pNamed;
+    }
+    //Parenthesized callee: the postfix-arm shape — the callee rides as
+    //a child expression and renders parenthesized.
+    nlang::SnExpression *pParen = ParseOneSpan("(cb)(1)");
+    CHECK(pParen != nullptr);
+    if (pParen)
+    {
+        CHECK(pParen->Kind() == nlang::NK_InvokeExpr);
+        auto *pInvoke = static_cast<const nlang::SnInvokeExpr *>(pParen);
+        CHECK(pInvoke->CalleeExpr() != nullptr);
+        if (pInvoke->CalleeExpr())
+            CHECK(pInvoke->CalleeExpr()->Kind()
+                == nlang::NK_IdentifierExpr);
+        const std::string parenRendered = pInvoke->ToString();
+        CHECK(parenRendered == "(cb)(1)");
+        delete pParen;
+    }
+    //Chained call: the inner named call becomes the outer callee — the
+    //outer layer takes the callee-expression shape without parentheses
+    //(`mk(1)(2)` is exactly the curried-constructor spelling).
+    nlang::SnExpression *pChain = ParseOneSpan("mk(1)(2)");
+    CHECK(pChain != nullptr);
+    if (pChain)
+    {
+        CHECK(pChain->Kind() == nlang::NK_InvokeExpr);
+        auto *pOuter = static_cast<const nlang::SnInvokeExpr *>(pChain);
+        CHECK(pOuter->CalleeExpr() != nullptr);
+        if (pOuter->CalleeExpr())
+        {
+            CHECK(pOuter->CalleeExpr()->Kind() == nlang::NK_InvokeExpr);
+            auto *pInner = static_cast<const nlang::SnInvokeExpr *>(
+                pOuter->CalleeExpr());
+            CHECK(pInner->CalleeExpr() == nullptr);
+        }
+        delete pChain;
+    }
 }
 
 int main()
@@ -390,6 +486,8 @@ int main()
     TestLambdaContainment();
     std::fprintf(stderr, "containment ok\n");
     TestGreedyBody();
+    std::fprintf(stderr, "greedy ok\n");
+    TestPostfixCallShapes();
     if (g_failures == 0)
         std::printf("lambda_parse: all passed\n");
     else

@@ -158,7 +158,8 @@ void ExprResolveAccessor::BindArrayTypeToken(SnExpression& expr) {
 		expr.EvalDataType(m_Env.InternArrayTypeToken(pElem));
 }
 
-bool ExprResolveAccessor::ResolveExpressionList(SnExpressionList &exprs,
+template <class LIST_T>
+bool ExprResolveAccessor::ResolveExpressionList(LIST_T &exprs,
 	const std::vector<SnExpression*> *pDeferredArgs)
 {
 	bool bOK = true;
@@ -205,7 +206,8 @@ bool ExprResolveAccessor::ResolveExpressionList(SnExpressionList &exprs,
 //change is fine — the call's arguments were parsed positionally) and
 //resolve through the normal expression path, so a rescued comparison
 //that fails types reports its REAL error, never the shape diagnostic.
-void ExprResolveAccessor::ApplyRescueStash(SnExpressionList &exprs)
+template <class LIST_T>
+void ExprResolveAccessor::ApplyRescueStash(LIST_T &exprs)
 {
 	for (size_t i = 0; i < m_rescueStash.size(); )
 	{
@@ -237,6 +239,18 @@ void ExprResolveAccessor::ApplyRescueStash(SnExpressionList &exprs)
 		}
 	}
 }
+
+//Both argument-list shapes the machinery serves: new-expression args
+//(bypass view) and invoke params (postfix-callee-filtered view,
+//0.13.13a D-3). New list shapes need a line here.
+template bool ExprResolveAccessor::ResolveExpressionList<SnExpressionList>(
+	SnExpressionList &, const std::vector<SnExpression*> *);
+template bool ExprResolveAccessor::ResolveExpressionList<SnInvokeParamList>(
+	SnInvokeParamList &, const std::vector<SnExpression*> *);
+template void ExprResolveAccessor::ApplyRescueStash<SnExpressionList>(
+	SnExpressionList &);
+template void ExprResolveAccessor::ApplyRescueStash<SnInvokeParamList>(
+	SnInvokeParamList &);
 
 bool ExprResolver::ResolveDataTypes(SnField &sn, SnField &outerType)
 {

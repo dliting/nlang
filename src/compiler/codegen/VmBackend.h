@@ -70,6 +70,24 @@ class ModuleRegistry;
 //placeholder and instance tables; nlang/compiler/GenericInstanceRegistry.h).
 class GenericInstanceRegistry;
 
+//0.13.13a D-3: the ctor-chain argument snapshot. The two argument-list
+//view types differ by owner shape — a new-expression's args carry the
+//class-name child, while an invoke's params exclude the postfix callee
+//from the view — and every ctor-chain consumer below works on plain
+//pointers, so each call site materializes once through this helper
+//(pSkip names the class-name child for new-expression args, null
+//otherwise).
+template <class LIST_T>
+inline std::vector<SnExpression*> SnapshotCtorArgs(LIST_T& args,
+                                                   SnExpression* pSkip)
+{
+    std::vector<SnExpression*> snapshot;
+    for (auto& arg : args)
+        if (&arg != pSkip)
+            snapshot.push_back(&arg);
+    return snapshot;
+}
+
 class VmBackend {
 public:
     //0.13.1a Task 5: one erased-container boundary slot's plan — a box
@@ -654,6 +672,12 @@ private:
     //key's GenericRefFlags carry the & marks: [0] the return slot,
     //[i+1] the argument positions.
     static SnClassDecl* DelegateFuncTypeOfField(const SnField* pSlot);
+    //v0.13.13a D-3: the func<...> key behind either delegate-call
+    //shape — the postfix shape carries it on the callee expression's
+    //EvalDataType (the resolver admitted the shape through
+    //IsFuncTypeDecl), the named shape on its value field. Shared by
+    //emission and the walkers so the key lookup cannot miss a shape.
+    static SnClassDecl* DelegateFuncTypeOfInvoke(const SnInvokeExpr& invoke);
     //Any & mark on the key's ARGUMENT positions — gates the walker's
     //MakeRef charge and the argument-side pair staging.
     static bool DelegateKeyHasRefArg(const SnInvokeExpr& invoke);
@@ -1950,8 +1974,9 @@ private:
     void EmitScalarLiteral(SnLiteralExpr& lit, NodeKind typeKind,
                            BytecodeEmitter& emitter, uint16_t resultOffset);
 
-    //SnInvokeExpr arms: delegate invoke (callee handle + dispatch) and
-    //the free-function OP_CallStatic tail.
+    //SnInvokeExpr arms: delegate invoke (callee handle + args staging +
+    //dispatch — callee evaluated before the actuals are staged, see
+    //EmitExprCore.cpp) and the free-function OP_CallStatic tail.
     void EmitDelegateInvoke(const SnInvokeExpr& invoke,
                             BytecodeEmitter& emitter, uint16_t resultOffset,
                             bool bRawRefResult);
@@ -1966,8 +1991,9 @@ private:
     //kInstDescForwardCaller for a same-generic-row callee, kInstDescNone
     //otherwise (see EmitExprCore.cpp for the rule).
     uint16_t StaticCallDescIdxFor(const SnFunction& callee) const;
-    //The staged-invoke dispatch tail: delegate handle or the
-    //Round-11-guarded free-function call. bRawRefResult (Task 6)
+    //The staged-invoke dispatch tail: the Round-11-guarded
+    //free-function/member call (delegate shapes are routed before
+    //argument staging and never reach here). bRawRefResult (Task 6)
     //suppresses the value-side deref for &-returning callees.
     void EmitInvokeDispatch(SnInvokeExpr& invoke, SnFunction* callee,
                             BytecodeEmitter& emitter, uint16_t resultOffset,
@@ -2070,7 +2096,7 @@ private:
     //v0.12.7: `Array(dims)` dynamic-rank construction — the elem type
     //comes from the declared instantiation's type argument.
     void EmitArrayDynCtor(SnClassDecl& instance,
-                          SnExpressionList& params,
+                          const std::vector<SnExpression*>& dims,
                           uint16_t resultOffset);
 
     //SnBinaryExpr arms: unary, short-circuit And/Or, and the binary tail
@@ -2117,21 +2143,22 @@ private:
     //ctor-invoke twin (`Foo(args)` without new, invoke.CtorClass()):
     //Round-12 class-resolution guard, class-slot resolution, and the
     //ctor invocation ({this, args} claim → OP_New → OP_CallMethodDirect)
-    //or the plain alloc when the class has no ctor. pSkipArg drops the
-    //class-name child the NewExpr arg view carries (null for invokes —
-    //Params() has no such child). pCtorFn is the AST-selected ctor
-    //(0.9.11 T6): registered → its function slot; null (builtin/generic,
-    //no AST ctor) → the CtorSlotFor table path; selected but unregistered
-    //→ plain alloc (the mirror of EmitStructCtor's third branch).
+    //or the plain alloc when the class has no ctor. ctorArgs is the
+    //caller-side snapshot (SnapshotCtorArgs): the NewExpr arm's class-
+    //name child is already skipped at the call site, and the invoke
+    //twin's Params() view never carries one (0.13.13a D-3). pCtorFn is
+    //the AST-selected ctor (0.9.11 T6): registered → its function slot;
+    //null (builtin/generic, no AST ctor) → the CtorSlotFor table path;
+    //selected but unregistered → plain alloc (the mirror of
+    //EmitStructCtor's third branch).
     void EmitNewObject(SnClassDecl* pClassDecl, SnFunction* pCtorFn,
-                       SnExpressionList& ctorArgs, SnExpression* pSkipArg,
+                       const std::vector<SnExpression*>& ctorArgs,
                        uint16_t resultOffset);
     //Ctor-selection tail of EmitNewObject: registered selection → its
     //function slot, table fallback, else plain OP_New alloc.
     void EmitNewCtorDispatch(SnClassDecl* pClassDecl, SnFunction* pCtorFn,
-                             SnExpressionList& ctorArgs,
-                             SnExpression* pSkipArg, uint16_t classIdx,
-                             uint16_t resultOffset);
+                             const std::vector<SnExpression*>& ctorArgs,
+                             uint16_t classIdx, uint16_t resultOffset);
     //0.9.11 D2/D3: struct construction lowering for the explicit call
     //forms (the direct-init `S name(args);` spelling decomposes into a
     //NewExpr, bare/qualified `S(args)` into the ctor-invoke twin).
@@ -2141,7 +2168,7 @@ private:
     //declarations, init lists, and copies constructor-free — only these
     //call forms reach here).
     void EmitStructCtor(SnStructDecl& structDecl, SnFunction* pCtorFn,
-                        SnExpressionList& ctorArgs, SnExpression* pSkipArg,
+                        const std::vector<SnExpression*>& ctorArgs,
                         uint16_t resultOffset);
     //Ctor call lowering: one FormalBinding per formal (caller args first,
     //then the defaults of the omitted trailing formals) emitted through
@@ -2150,9 +2177,10 @@ private:
     //table path — the legacy positional shape, nothing to default);
     //alloc selects the allocator opcode; thisSlot is UINT16_MAX (the
     //object under construction does not exist yet, so a ctor default must
-    //not reference `this`).
+    //not reference `this`). callerArgs is the caller-side snapshot
+    //already freed of the NewExpr class-name child (SnapshotCtorArgs).
     void EmitCtorInvocation(SnFunction* pCtorFn,
-                            SnExpressionList& ctorArgs, SnExpression* pSkipArg,
+                            const std::vector<SnExpression*>& callerArgs,
                             BytecodeEmitter& emitter, uint16_t ctorIdx,
                             const CtorAlloc& alloc, uint16_t resultOffset);
 

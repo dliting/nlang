@@ -6,15 +6,15 @@
 %lex-param { yyscan_t yyscanner }
 %locations
 %debug
-/*The grammar carries accepted conflicts (2026-11-27 re-measure, bison
-3.8.2: 56 shift/reduce + 12 reduce/reduce; the 2026-11-17 state was
+/*The grammar carries accepted conflicts (2026-11-27 Task 5 re-measure,
+bison 3.8.2: 62 shift/reduce + 12 reduce/reduce; the 2026-11-17 state was
 35 s/r + 12 r/r — the 2026-11-20 entry recorded 50/12 for the lambda
-cover arm without running bison, see the ledger's 2026-11-27 entry).
-The lambda cover grammar's 21 s/r are the lambda-body
+cover arm without running bison, see the ledger's 2026-11-27 entries).
+The lambda cover grammar's 22 s/r are the lambda-body
 extension state (`ParenPrefix OT_Arrow Expression` shares the Expression
 continuation items): every conflicting lookahead is an operator, `as`,
-`.` or `[` — one that must extend the body (greedy-body binding, like
-assignment in C) — and bison's shift default resolves all of them to
+`.`, `[` or `(` — one that must extend the body (greedy-body binding,
+like assignment in C) — and bison's shift default resolves all of them to
 exactly that; the body terminators (`,` `)` `;` `]`) are not Expression
 continuations and never conflict, and the resolution is pinned by
 TestGreedyBody in test_compiler/test_lambda_parse.cpp. The group's
@@ -1144,6 +1144,25 @@ Statement:	';' {
 				} |
 				SuperCallStmt {
 					$$ = $1;
+				} |
+				//v0.13.13a D-3: a call on a general callee expression as a
+				//statement (`fns[0](1);`, `mk(1)(2);`). Named call
+				//statements never reach this arm: after an `InvokeExpr`
+				//the ';' shifts into the InvokeStmt arms (conflict ②,
+				//shift wins), so they keep their existing shape. Only a
+				//call may stand as a statement — a bare value expression
+				//(`g;`) still fails, now with an exact diagnosis.
+				Expression ';' {
+					if ($1->Kind() != NK_InvokeExpr)
+					{
+						parser.Log(CLL_Error, @1,
+							"only a call can be an expression statement.");
+						delete $1;
+						$$ = nullptr;
+					}
+					else
+						$$ = new SnInvokeStmt(
+							static_cast<SnInvokeExpr *>($1), @1);
 				} |
 				Paragraph {
 					$$ = $1;
@@ -2656,6 +2675,41 @@ AccessType:	KT_Private  	{ $$ = FA_Private;      } |
 //  NodeFlagsNonEmpty-plural overlap.
 //Sums: 56 sr + 12 rr exactly; nothing new was accepted beyond state
 //404's already-described family.
+//Re-measured 2026-11-27 (v0.13.13a Task 5, bison 3.8.2): the postfix-
+//call arms — `Expression: Expression '(' ConcreteParamList ')'` and the
+//`Statement: Expression ';'` wrapper — move the totals 56/12 → 62/12.
+//Every conflicted state renumbered as listed; the 2026-11-27 Task 4
+//numbers' new homes: 12→12, 124→124, 127→127, 145→145, 147→147,
+//340→342, 366→368, 374→376, 375→377, 377→379, 404→407, 470→473,
+//475→478, 490→493, 545→548, 549→552, 550→553, 642→646, 707→711,
+//709→713, 910→914. The six new shift/reduce conflicts, each read from
+//the state tables and resolved as intended:
+//- states 34/289/313 (1 each, new): '(' after a bare identifier in the
+//  plain expression-head, the named-argument and the arm-restricted
+//  identifier contexts — `InvokeExpr: TT_Identifier . '('` shifts
+//  against the `IdentifierExpr: TT_Identifier .` default reduce (the
+//  reduce's lookahead gained '(' from the new postfix arm). Shift keeps
+//  the named-call name shape, so `mk(1)` never degrades into the
+//  callee-expression shape. Pinned by the ToString shape legs in
+//  tests/test_compiler/test_statement_diag.cpp ("mk(1)" name shape vs
+//  "(fns[0])(1)" callee shape) and by every e2e named-call leg.
+//- state 124 (was 1 rr, now 1 sr + 1 rr): ';' after a MemberExpr in
+//  statement position — `InvokeStmt: MemberExpr . ';'` shifts against
+//  `Expression: MemberExpr .`. Shift keeps the member-statement shape,
+//  so `obj.m(1);` stays an InvokeStmt(MemberExpr) instead of falling
+//  into the new expression-statement arm's diagnostic. Pinned by the
+//  `obj.m(1);` statement leg of tests/e2e/lang_value_call_chain.n.
+//- state 126 (1 sr, new): ';' after an InvokeExpr — `InvokeStmt:
+//  InvokeExpr . ';'` shifts against `Expression: InvokeExpr .`. Both
+//  readings build the same SnInvokeStmt; the shift just keeps the
+//  existing shorter path. Pinned by every bare call-statement leg
+//  (`cb(1);`) and the new `fns[0](1);` statement leg.
+//- state 407 (21 sr → 22, was 404): '(' joins the lambda-body
+//  extension set — the greedy body absorbs a call suffix instead of
+//  closing the lambda: `(int n) -> fns[0](n)` calls `fns[0]` inside the
+//  body. Pinned by the call-suffix leg added to TestGreedyBody in
+//  tests/test_compiler/test_lambda_parse.cpp and the matching e2e leg.
+//Sums: 62 sr + 12 rr exactly.
 NameExpr:	IdentifierExpr	{ $$ = new SnNameExpr($1, @1); } ;
 
 //Type non-terminal used in type contexts (declarations, params, fields).
@@ -3034,6 +3088,19 @@ Expression:	ParenthesesExpr	{ $$ = $1; } |
 					auto *pNew = new SnNewExpr($1, $3, @1);
 					pNew->SpanText(parser.CaptureSpanText(@1, @4));
 					$$ = pNew;
+				} |
+				//v0.13.13a D-3: the call suffix joins the general postfix
+				//chain — any value expression can be called if it
+				//resolves to a func<...> value (`fns[0](1)`, `(cb)(1)`,
+				//`mk(1)(2)`). The identifier position never reaches this
+				//arm: after `TT_Identifier` the '(' shifts into the
+				//InvokeExpr arm (conflict ①, shift wins), so bare named
+				//calls keep their SnInvokeExpr name shape. The callee-
+				//expression resolution gates the type and the resolver
+				//reports the not-callable diagnostic (value-call channel,
+				//ExprResolverInvoke.cpp).
+				Expression '(' ConcreteParamList ')' {
+					$$ = new SnInvokeExpr($1, $3, @1);
 				} |
 				Expression '+' Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_Add, $1, $3, @1); } |
 				Expression '-' Expression	{ $$ = new SnBinaryExpr(SnBinaryExpr::OP_Sub, $1, $3, @1); } |

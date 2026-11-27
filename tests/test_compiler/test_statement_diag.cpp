@@ -1,11 +1,14 @@
 /*---
-    test_statement_diag.cpp — 语句级诊断行为单元测试。
-    钉「局部声明初始化错误只报一次」：local-decl 被分解为 AssignStmt 并在
-    遍历中途插入段落子列表、立即解析（StatementResolverDecls.cpp），段落
-    遍历随后重访该语句——Access(SnAssignStmt) 的每个出口都标记
-    NF_Resolved，未标记的错误出口会让重访再次解析并双报诊断。
-    每个用例断言诊断的**出现次数**（而非仅存在性）：e2e 只做子串存在性
-    断言，抓不住双报回归。
+    test_statement_diag.cpp — statement-level diagnostic behaviour tests.
+    Pins "a local-declaration initializer error is reported exactly
+    once": a local-decl decomposes into an AssignStmt inserted into the
+    paragraph child list mid-walk and resolved immediately
+    (StatementResolverDecls.cpp); the paragraph walk then revisits that
+    statement — every exit of Access(SnAssignStmt) marks NF_Resolved,
+    and an unflagged error exit would let the revisit resolve it again
+    and double-report the diagnostic. Each case asserts the diagnostic's
+    occurrence count (not just its presence): the e2e suites only assert
+    substring presence and cannot catch double-report regressions.
 ---*/
 #include "test_support/test_scratch.h"
 #include <QtTest/QtTest>
@@ -233,6 +236,49 @@ private slots:
             "}\n");
         QVERIFY(spellingMember.ok);
         QVERIFY(spellingMember.logger->errorsText().empty());
+    }
+
+    //v0.13.13a D-3: a call on a non-function value is a value call the
+    //resolver rejects with the typed not-callable diagnosis — wording
+    //pinned verbatim, statement position (the postfix-call statement
+    //arm makes the spelling legal at parse level; the resolver owns the
+    //rejection). Exactly one report per bad call: the double-report
+    //discipline this file exists for.
+    void TestValueCallNotCallable() {
+        auto intCall = compileOne(
+            "int main() {\n"
+            "    1(2);\n"
+            "    return 0;\n"
+            "}\n");
+        QVERIFY(!intCall.ok);
+        QCOMPARE(countErrorsContaining(intCall,
+            "expression of type \"Int32\" is not callable; a call "
+            "requires a function-typed value."), 1);
+
+        auto strCall = compileOne(
+            "int main() {\n"
+            "    \"s\"(1);\n"
+            "    return 0;\n"
+            "}\n");
+        QVERIFY(!strCall.ok);
+        QCOMPARE(countErrorsContaining(strCall,
+            "expression of type \"String\" is not callable; a call "
+            "requires a function-typed value."), 1);
+
+        //A void-valued callee (the established nullptr-EvalDataType
+        //convention) reports the type name "void".
+        auto voidCall = compileOne(
+            "void h(int p) {\n"
+            "}\n"
+            "int main() {\n"
+            "    func<void, int> vf = h;\n"
+            "    vf(1)(2);\n"
+            "    return 0;\n"
+            "}\n");
+        QVERIFY(!voidCall.ok);
+        QCOMPARE(countErrorsContaining(voidCall,
+            "expression of type \"void\" is not callable; a call "
+            "requires a function-typed value."), 1);
     }
 };
 

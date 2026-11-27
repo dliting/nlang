@@ -515,8 +515,13 @@ private:
 	//Resolve every expression in the list, skipping already-resolved ones
 	//and anything in pDeferredArgs — the bare brace arguments that wait
 	//for the callee's formal type (0.9.0). Null skips nothing. The exit
-	//applies the identity-rescue stashes targeting this list.
-	bool ResolveExpressionList(SnExpressionList &exprs,
+	//applies the identity-rescue stashes targeting this list. The list
+	//view type varies with the owner shape (new-expr args vs. invoke
+	//params — 0.13.13a D-3 filters the postfix callee out of the
+	//latter), so the machinery is generic over it; the definition lives
+	//in ExprResolver.cpp with an explicit instantiation per list type.
+	template <class LIST_T>
+	bool ResolveExpressionList(LIST_T &exprs,
 		const std::vector<SnExpression*> *pDeferredArgs = nullptr);
 
 	//0.13.1c identity rescue: one staged splice. The fragment parse of a
@@ -527,7 +532,12 @@ private:
 	//splices the rescued arguments in its place, and resolves them.
 	struct RescueStash
 	{
-		SnExpressionList *pList;
+		//Identity token of the target list: the address of the list
+		//view object whose ResolveExpressionList exit applies this
+		//splice. Void because the concrete view type differs between
+		//the owner shapes (0.13.13a D-3); comparison happens from the
+		//template context where &exprs converts implicitly.
+		void *pList;
 		SnNewExpr *pMisread;
 		std::vector<SnExpression*> rescued;
 	};
@@ -548,8 +558,10 @@ private:
 
 	//0.13.1c identity rescue: apply the staged splices targeting this
 	//list, then the caller recomputes the list's resolution result over
-	//the repaired children.
-	void ApplyRescueStash(SnExpressionList &exprs);
+	//the repaired children. Generic over the list view type like its
+	//caller (the splice itself works at the raw Children() level).
+	template <class LIST_T>
+	void ApplyRescueStash(LIST_T &exprs);
 
 	std::vector<RescueStash> m_rescueStash;
 
@@ -861,6 +873,18 @@ private:
 		std::vector<SnFunction*> &candidates, bool &rbImportedMatch,
 		bool &rbVisibilityHintLogged);
 	bool TryBindDelegateCall(SnInvokeExpr &snInvoke);
+
+	/*
+	0.13.13a D-3: the postfix shape of a call — the callee is a child
+	expression (`f(1)(2)`, `(cb)(1)`) rather than a name. Resolve the
+	callee, then bind the invoke against the callee's func type through
+	the shared delegate channel. A callee that fails to resolve has
+	already reported its own diagnostic: the invoke reports nothing more,
+	and a non-func-typed callee reports the not-callable error.
+	*/
+	void ResolveCalleeExprInvoke(SnInvokeExpr &snInvoke, SnExpression &callee,
+		std::vector<SnExpression*> &deferredArgs);
+
 	bool RejectBareMethodCall(SnInvokeExpr &snInvoke, SnFunction *pCallee);
 	bool RejectTypeNameInstanceCall(SnInvokeExpr &snInvoke,
 		SnFunction *pCallee);
@@ -1054,6 +1078,15 @@ private:
 	logged here, success resolves it.
 	*/
 	void BindDelegateInvoke(SnInvokeExpr &invoke, SnField *pDelegateField);
+
+	/*
+	0.13.13a D-3: the binding body behind BindDelegateInvoke, split out so
+	the postfix callee-expression shape can enter with a null value field
+	(its codegen receiver loads the callee expression instead — the shape
+	marker there is the callee child, and Field() stays null).
+	*/
+	void BindDelegateInvokeAgainst(SnInvokeExpr &invoke, SnClassDecl *pFuncDecl,
+		SnField *pDelegateField);
 
 	/*
 	2026-09-27 decomposition of the delegate-binding family

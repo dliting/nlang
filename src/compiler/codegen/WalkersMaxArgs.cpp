@@ -313,6 +313,12 @@ void VmBackend::MaxArgsInvokeExpr(SnExpression& expr, uint16_t& maxArgs,
     //Also walk the invoke's own params for nested calls.
     for (auto& param : invoke.Params())
         MaxArgsWalkExpr(param, maxArgs);
+    //v0.13.13a D-3: the postfix callee expression evaluates at this
+    //call site too — a call nested in it bulk-copies its own argument
+    //slots into the caller's callParamBase (same reservation as the
+    //params walk above).
+    if (auto* pCalleeExpr = invoke.CalleeExpr())
+        MaxArgsWalkExpr(*pCalleeExpr, maxArgs);
 }
 
 //0.9.0: a ctor-carrying invoke bulk-copies {this, formals...} into

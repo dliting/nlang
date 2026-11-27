@@ -169,10 +169,15 @@ static bool DelegateShapeOk(BuildEnvironment &env, SnInvokeExpr &invoke,
 	return true;
 }
 
-void ExprResolveAccessor::BindDelegateInvoke(SnInvokeExpr &invoke,
-	SnField *pDelegateField)
+//0.13.13a D-3: the binding body shared by both delegate-call shapes.
+//pFuncDecl is the func instantiation being invoked; pDelegateField is
+//the callee value's field, stored into Field() for the codegen receiver
+//load — null for the postfix callee-expression shape, whose codegen
+//evaluates the callee expression into the delegate slot instead (the
+//shape marker there is the callee child itself).
+void ExprResolveAccessor::BindDelegateInvokeAgainst(SnInvokeExpr &invoke,
+	SnClassDecl *pFuncDecl, SnField *pDelegateField)
 {
-	auto *pFuncDecl = static_cast<SnClassDecl*>(pDelegateField->EvalDataType());
 	const auto typeArgs = GetGenericTypeArgs(pFuncDecl);
 	const auto &refFlags = GetGenericRefFlags(pFuncDecl);
 	if (!DelegateShapeOk(m_Env, invoke, typeArgs.size() - 1))
@@ -218,6 +223,18 @@ void ExprResolveAccessor::BindDelegateInvoke(SnInvokeExpr &invoke,
 		invoke.EvalDataType(typeArgs[0]);
 	invoke.AddFlags(NF_Resolved);
 	BindArrayTypeToken(invoke);
+}
+
+//The named callee shape: the callee names a value field holding the
+//func (FindDelegateTarget's gate admitted it), so the shared binding
+//runs against that field's type with the field itself as the codegen
+//receiver source.
+void ExprResolveAccessor::BindDelegateInvoke(SnInvokeExpr &invoke,
+	SnField *pDelegateField)
+{
+	BindDelegateInvokeAgainst(invoke,
+		static_cast<SnClassDecl*>(pDelegateField->EvalDataType()),
+		pDelegateField);
 }
 
 //Phase 9c: try to bind an invoke's actual arguments to a candidate

@@ -90,7 +90,7 @@ bool VmBackend::EmitMemberStaticDelegateCall(SnInvokeExpr& invoke,
     //through the key's return deref tag (same contract as the member
     //delegate arm).
     const uint8_t refDerefKind = DelegateReturnDerefKind(
-        DelegateFuncTypeOfField(invoke.Field()));
+        DelegateFuncTypeOfInvoke(invoke));
     EmitDelegateDispatch(emitter, calleeSlot, resultOffset, refDerefKind);
     emitter.Emit(OpCode::OP_ParaEnd);
     return true;

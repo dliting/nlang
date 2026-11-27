@@ -39,13 +39,29 @@ SnClassDecl* VmBackend::DelegateFuncTypeOfField(const SnField* pSlot) {
     return pFuncType->IsFuncType() ? pFuncType : nullptr;
 }
 
+//v0.13.13a D-3: the func<...> key behind either delegate-call shape.
+//The postfix shape's resolver gate admitted the callee expression only
+//when its type is a func instantiation, so reading the EvalDataType
+//back here re-checks rather than re-decides; the named shape keeps
+//going through its value field.
+SnClassDecl* VmBackend::DelegateFuncTypeOfInvoke(const SnInvokeExpr& invoke) {
+    if (auto* pCalleeExpr = invoke.CalleeExpr()) {
+        auto* pType = pCalleeExpr->EvalDataType();
+        if (!pType || pType->Kind() != NK_ClassDecl)
+            return nullptr;
+        auto* pFuncType = static_cast<SnClassDecl*>(pType);
+        return pFuncType->IsFuncType() ? pFuncType : nullptr;
+    }
+    return DelegateFuncTypeOfField(invoke.Field());
+}
+
 //Any & mark on the key's ARGUMENT positions (refFlags[1..]) — gates the
 //walker's MakeRef charge so it cannot drift from the argument-side
 //pair staging in EmitUnresolvedInvokeArgs.
 bool VmBackend::DelegateKeyHasRefArg(const SnInvokeExpr& invoke) {
     if (!IsDelegateInvoke(invoke))
         return false;
-    auto* pFuncType = DelegateFuncTypeOfField(invoke.Field());
+    auto* pFuncType = DelegateFuncTypeOfInvoke(invoke);
     if (!pFuncType)
         return false;
     const auto& refFlags = pFuncType->GenericRefFlags();
@@ -61,7 +77,7 @@ bool VmBackend::DelegateKeyHasRefArg(const SnInvokeExpr& invoke) {
 bool VmBackend::DelegateKeyHasRefReturn(const SnInvokeExpr& invoke) {
     if (!IsDelegateInvoke(invoke))
         return false;
-    auto* pFuncType = DelegateFuncTypeOfField(invoke.Field());
+    auto* pFuncType = DelegateFuncTypeOfInvoke(invoke);
     if (!pFuncType)
         return false;
     const auto& refFlags = pFuncType->GenericRefFlags();

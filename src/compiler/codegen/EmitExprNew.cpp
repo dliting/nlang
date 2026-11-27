@@ -24,11 +24,13 @@ void VmBackend::Access(SnNewExpr& expr) {
     //(the direct-init `S name(args);` spelling decomposes into a struct-
     //typed new expression); CtorFunction() carries the selected ctor.
     if (auto* pStructDecl = newExpr.StructDecl())
-        EmitStructCtor(*pStructDecl, newExpr.CtorFunction(), newExpr.Args(),
-                       newExpr.ClassName(), m_resultOffset);
+        EmitStructCtor(*pStructDecl, newExpr.CtorFunction(),
+                       SnapshotCtorArgs(newExpr.Args(), newExpr.ClassName()),
+                       m_resultOffset);
     else
         EmitNewObject(newExpr.ClassDecl(), newExpr.CtorFunction(),
-                      newExpr.Args(), newExpr.ClassName(), m_resultOffset);
+                      SnapshotCtorArgs(newExpr.Args(), newExpr.ClassName()),
+                      m_resultOffset);
 }
 
 //Shared new-object emission: `new Foo(args)` and the 0.9.0 ctor-invoke
@@ -37,8 +39,8 @@ void VmBackend::Access(SnNewExpr& expr) {
 //front-end saw no errors.
 void VmBackend::EmitNewObject(SnClassDecl* pClassDecl,
                               SnFunction* pCtorFn,
-                              SnExpressionList& ctorArgs,
-                              SnExpression* pSkipArg, uint16_t resultOffset) {
+                              const std::vector<SnExpression*>& ctorArgs,
+                              uint16_t resultOffset) {
     if (!pClassDecl) {
         //Round-12: the resolver failed to bind a class declaration to
         //this construction.
@@ -56,7 +58,7 @@ void VmBackend::EmitNewObject(SnClassDecl* pClassDecl,
     //constructed class before any argument evaluation (a no-op for
     //classes with no initializer).
     EmitClassInitGate(*pClassDecl, *m_pCurrEmitter);
-    EmitNewCtorDispatch(pClassDecl, pCtorFn, ctorArgs, pSkipArg, classIdx,
+    EmitNewCtorDispatch(pClassDecl, pCtorFn, ctorArgs, classIdx,
                         resultOffset);
 }
 
@@ -68,8 +70,8 @@ void VmBackend::EmitNewObject(SnClassDecl* pClassDecl,
 //unevaluated, no call.
 void VmBackend::EmitNewCtorDispatch(SnClassDecl* pClassDecl,
                                     SnFunction* pCtorFn,
-                                    SnExpressionList& ctorArgs,
-                                    SnExpression* pSkipArg, uint16_t classIdx,
+                                    const std::vector<SnExpression*>& ctorArgs,
+                                    uint16_t classIdx,
                                     uint16_t resultOffset) {
     SnFunction* pRegistered = RegisteredCtor(pCtorFn);
     //v0.13.1 D1: a concrete instantiation's construction carries its
@@ -78,7 +80,7 @@ void VmBackend::EmitNewCtorDispatch(SnClassDecl* pClassDecl,
     if (pRegistered) {
         const uint16_t ctorIdx =
             static_cast<uint16_t>(FunctionSlotFor(*pRegistered));
-        EmitCtorInvocation(pRegistered, ctorArgs, pSkipArg, *m_pCurrEmitter,
+        EmitCtorInvocation(pRegistered, ctorArgs, *m_pCurrEmitter,
                            ctorIdx, CtorAlloc{false, classIdx, 0, descIdx},
                            resultOffset);
         return;
@@ -89,7 +91,7 @@ void VmBackend::EmitNewCtorDispatch(SnClassDecl* pClassDecl,
         //(defensive: the resolver selects for every user-type call).
         const uint16_t ctorIdx = CtorSlotFor(*pClassDecl, classIdx);
         if (ctorIdx != 0xFFFF) {
-            EmitCtorInvocation(nullptr, ctorArgs, pSkipArg, *m_pCurrEmitter,
+            EmitCtorInvocation(nullptr, ctorArgs, *m_pCurrEmitter,
                                ctorIdx, CtorAlloc{false, classIdx, 0, descIdx},
                                resultOffset);
             return;
@@ -108,23 +110,18 @@ void VmBackend::EmitNewCtorDispatch(SnClassDecl* pClassDecl,
 //of the omitted trailing formals — P3), allocate the object into
 //resultOffset (OP_New for a class, OP_AllocStruct for a struct — see
 //CtorAlloc), bulk-copy the claim to callParamBase, then
-//OP_CallMethodDirect on the ctor. pSkipArg is the class-name child the
-//NewExpr arg view carries (skipped by identity; null for the invoke
-//twin). The resolver rejects named/out args and range-checks the count,
-//so every supplied entry is a positional value expression. pCtorFn is
-//the AST ctor for the default-binding pass; null for builtins/generics
-//and for shapes the front end never binds one for.
+//OP_CallMethodDirect on the ctor. callerArgs is the caller-side snapshot
+//already freed of the NewExpr class-name child (SnapshotCtorArgs; the
+//invoke twin's Params() view never carries one — 0.13.13a D-3). The
+//resolver rejects named/out args and range-checks the count, so every
+//supplied entry is a positional value expression. pCtorFn is the AST
+//ctor for the default-binding pass; null for builtins/generics and for
+//shapes the front end never binds one for.
 void VmBackend::EmitCtorInvocation(SnFunction* pCtorFn,
-                                   SnExpressionList& ctorArgs,
-                                   SnExpression* pSkipArg,
+                                   const std::vector<SnExpression*>& callerArgs,
                                    BytecodeEmitter& emitter, uint16_t ctorIdx,
                                    const CtorAlloc& alloc,
                                    uint16_t resultOffset) {
-    std::vector<SnExpression*> callerArgs;
-    for (auto& param : ctorArgs) {
-        if (&param == pSkipArg) continue;
-        callerArgs.push_back(&param);
-    }
     //Defaults-aware bindings (P3): builtins/generics carry no AST ctor,
     //so BuildCtorBindings returns the caller-arg count and leaves the
     //bindings empty — EmitCtorCallBindings then falls back to the
@@ -164,8 +161,7 @@ void VmBackend::EmitCtorInvocation(SnFunction* pCtorFn,
 //evaluated and no call is emitted (D3: the call forms still compile).
 void VmBackend::EmitStructCtor(SnStructDecl& structDecl,
                                SnFunction* pCtorFn,
-                               SnExpressionList& ctorArgs,
-                               SnExpression* pSkipArg,
+                               const std::vector<SnExpression*>& ctorArgs,
                                uint16_t resultOffset) {
     BytecodeEmitter& emitter = *m_pCurrEmitter;
     const uint16_t structIdx =
@@ -182,7 +178,7 @@ void VmBackend::EmitStructCtor(SnStructDecl& structDecl,
     }
     const uint16_t ctorIdx =
         static_cast<uint16_t>(FunctionSlotFor(*pRegistered));
-    EmitCtorInvocation(pRegistered, ctorArgs, pSkipArg, emitter, ctorIdx,
+    EmitCtorInvocation(pRegistered, ctorArgs, emitter, ctorIdx,
                        CtorAlloc{true, structIdx, fieldCount},
                        resultOffset);
 }
@@ -241,15 +237,17 @@ void VmBackend::EmitNewArrayND(SnField* pElemType,
 //time against the dims argument (OP_AllocArrayDyn). The resolver gates
 //the shape: exactly one array-valued argument.
 void VmBackend::EmitArrayDynCtor(SnClassDecl& instance,
-                                 SnExpressionList& params,
+                                 const std::vector<SnExpression*>& dims,
                                  uint16_t resultOffset) {
     BytecodeEmitter& emitter = *m_pCurrEmitter;
     auto& typeArgs = instance.GenericTypeArgs();
     NLANG_ASSERT(typeArgs.size() == 1 && typeArgs[0] != nullptr);
+    //The resolver gate above: exactly one array-valued argument.
+    NLANG_ASSERT(dims.size() == 1);
     uint16_t elemArrayTypeIdx = RegisterArrayType(typeArgs[0]);
     EvalAreaClaim dimsClaim(*this, 1);
     uint16_t dimsSlot = dimsClaim.base();
-    EmitExpression(*params.begin(), emitter, dimsSlot);
+    EmitExpression(*dims.front(), emitter, dimsSlot);
     emitter.Emit(OpCode::OP_NullCheck);
     emitter.EmitUint16(dimsSlot);
     EmitAllocArrayDyn(resultOffset, elemArrayTypeIdx, dimsSlot, typeArgs[0],

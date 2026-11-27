@@ -277,6 +277,22 @@ private:
 
 typedef MutableChildNodeList<SnExpression> SnExpressionList;
 
+//v0.13.13a D-3: the postfix invoke carries its callee as a child node so
+//the generic tree walks (capture analysis, serialization, diagnostics)
+//reach it, but the callee is not an argument: the Params() view filters
+//it out and every argument consumer (arity, binding, codegen staging,
+//frame walkers, ToString) sees the true argument list. operator() is
+//defined after SnInvokeExpr (it needs CalleeExpr()); the shared-children
+//+ filtered-view pattern is SnEnumDecl's (KindFieldFilter members).
+struct InvokeParamNodeFilter
+{
+	bool operator()(const Node *pNode) const;
+};
+
+//The argument list view of an SnInvokeExpr.
+typedef MutableChildNodeList<SnExpression, InvokeParamNodeFilter>
+	SnInvokeParamList;
+
 //0.10.10: one entry in a collection initializer — an optional key
 //expression and a value expression. The target shape decides how the
 //key is read: a value slot (Dict), a field name (bare identifier on
@@ -469,10 +485,20 @@ public:
 	SnInvokeExpr(std::string *pCalleeName,
 		UniquePtrList<SnExpression> upParams, const ISourceLocation &loc);
 
+	//v0.13.13a D-3: the postfix call on a general callee expression —
+	//`fns[0](1)`, `(cb)(1)`, `mk(1)(2)`. The callee rides as a child
+	//expression instead of a name: the value-call resolver channel
+	//requires its resolved type to be a func<...> instantiation and the
+	//backend materializes it into the delegate slot from the expression.
+	//The callee name stays empty for this shape.
+	SnInvokeExpr(SnExpression *pCallee,
+		UniquePtrList<SnExpression> upParams, const ISourceLocation &loc);
+
 	~SnInvokeExpr() override;
 
-	//Get the param expressions.
-	SnExpressionList &Params() const
+	//Get the param expressions (the postfix callee child, if any, is
+	//filtered out of this view — see InvokeParamNodeFilter).
+	SnInvokeParamList &Params() const
 	{
 		return *m_pParams;
 	}
@@ -481,6 +507,15 @@ public:
 	const std::string &CalleeName() const
 	{
 		return *m_upCalleeName;
+	}
+
+	//v0.13.13a D-3: the callee expression of a value-call invoke (the
+	//postfix-arm shape), nullptr for every name-carrying invoke. The
+	//backend's delegate predicate and both frame walkers dispatch on it
+	//exactly like the null-callee delegate shape.
+	SnExpression *CalleeExpr() const
+	{
+		return m_pCalleeExpr;
 	}
 
 	SnFunction *Callee() const
@@ -544,7 +579,10 @@ public:
 	}
 private:
 	std::unique_ptr<std::string> m_upCalleeName;
-	SnExpressionList* m_pParams;
+	SnInvokeParamList* m_pParams;
+	//v0.13.13a D-3: the callee child of the postfix-call shape (null for
+	//name-carrying invokes); owned through the Children() wiring.
+	SnExpression *m_pCalleeExpr = nullptr;
 	std::vector<FormalBinding> m_Bindings;
 	SnClassDecl *m_pCtorClass = nullptr;
 	SnStructDecl *m_pCtorStruct = nullptr;
@@ -552,6 +590,18 @@ private:
 	SnClassDecl *m_pArrayDynCtor = nullptr;
 	std::vector<SnField*> m_inferredTypeArgs;
 };
+
+//The postfix callee child is excluded from the Params() view; an
+//unwired node (Parent() null — the list pushes arguments up before
+//AddChildTo wires them) is an argument and passes.
+inline bool InvokeParamNodeFilter::operator()(const Node *pNode) const
+{
+	auto pOwner = pNode->Parent();
+	if (!pOwner || pOwner->Kind() != NK_InvokeExpr)
+		return true;
+	return static_cast<const SnInvokeExpr *>(pOwner)->CalleeExpr()
+		!= static_cast<const Node *>(pNode);
+}
 
 /*
 Member field access expression.

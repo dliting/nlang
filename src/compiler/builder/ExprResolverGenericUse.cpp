@@ -178,8 +178,12 @@ bool ExprResolveAccessor::LogValueHeadMiss(SnGenericTypeExpr &genType,
 //and that node's parent is the call (or outer creation) whose argument
 //list splices. Returns the misread node and sets \p ppList to the
 //argument list, or returns null when the shape does not splice.
+//ppList is the target list's identity token (RescueStash.pList): the
+//owner shape decides the concrete view type (invoke params are the
+//postfix-callee-filtered view since 0.13.13a D-3), and the token is
+//only ever compared for address identity.
 static SnNewExpr *FindRescuableMisread(SnGenericTypeExpr &genType,
-	SnExpressionList *&ppList)
+	void *&ppList)
 {
 	auto *pParent = genType.Parent();
 	if (!pParent || pParent->Kind() != NK_NewExpr)
@@ -191,9 +195,11 @@ static SnNewExpr *FindRescuableMisread(SnGenericTypeExpr &genType,
 	if (!pOwner)
 		return nullptr;
 	if (pOwner->Kind() == NK_InvokeExpr)
-		ppList = &static_cast<SnInvokeExpr *>(pOwner)->Params();
+		ppList = static_cast<void *>(
+			&static_cast<SnInvokeExpr *>(pOwner)->Params());
 	else if (pOwner->Kind() == NK_NewExpr)
-		ppList = &static_cast<SnNewExpr *>(pOwner)->Args();
+		ppList = static_cast<void *>(
+			&static_cast<SnNewExpr *>(pOwner)->Args());
 	return ppList ? pMisread : nullptr;
 }
 
@@ -205,7 +211,7 @@ static SnNewExpr *FindRescuableMisread(SnGenericTypeExpr &genType,
 //diagnostic unchanged.
 bool ExprResolveAccessor::TryRescueComparisonReading(SnGenericTypeExpr &genType)
 {
-	SnExpressionList *pList = nullptr;
+	void *pList = nullptr;
 	auto *pMisread = FindRescuableMisread(genType, pList);
 	if (!pMisread)
 		return false;

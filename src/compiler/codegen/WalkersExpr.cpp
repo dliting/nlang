@@ -58,11 +58,15 @@ bool VmBackend::IsContainerSubscript(SnExpression& baseExpr) {
 //(called with slotBase=1 from the MemberExpr handler) would overflow
 //into user variable space.
 //Phase 13: a delegate invoke is a resolved invoke whose Field() carries
-//a func-typed value (local/param/field) rather than an SnFunction. Shared
-//by codegen and both frame-size walkers so their claim shapes stay in
-//lockstep (walker symmetry, 6th instance).
+//a func-typed value (local/param/field) rather than an SnFunction.
+//v0.13.13a D-3 adds the postfix shape: the callee is an expression
+//evaluating to the func value (Field() stays null). Shared by codegen
+//and both frame-size walkers so their claim shapes stay in lockstep
+//(walker symmetry, 6th instance).
 bool VmBackend::IsDelegateInvoke(const SnInvokeExpr& invoke)
 {
+    if (invoke.CalleeExpr())
+        return true;
     return invoke.Field() != nullptr
         && invoke.Field()->Kind() != NK_Function;
 }
@@ -177,6 +181,11 @@ uint16_t VmBackend::InvokeExprPeakDepth(SnExpression& expr,
     for (auto& param : invoke.Params())
         argDepth = std::max(argDepth,
             ArgPeakDepth(param, visited, bHasRefFormal));
+    //v0.13.13a D-3: the postfix callee expression evaluates into the
+    //staged claim slot, so its own sub-expression depth joins the max
+    //above (the claim is live while the callee emits).
+    if (auto* pCalleeExpr = invoke.CalleeExpr())
+        argDepth = std::max(argDepth, ExprPeakDepth(*pCalleeExpr, visited));
 
     //Callee default expressions evaluate in the caller frame.
     uint16_t defaultDepth = 0;

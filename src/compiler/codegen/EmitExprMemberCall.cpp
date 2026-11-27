@@ -225,7 +225,7 @@ void VmBackend::EmitMemberDelegateInvoke(SnInvokeExpr& invoke,
     //normalizes through the key's return deref tag (same contract as
     //the bare-form delegate arm).
     const uint8_t refDerefKind = bRawRefResult ? kNoRefDeref
-        : DelegateReturnDerefKind(DelegateFuncTypeOfField(invoke.Field()));
+        : DelegateReturnDerefKind(DelegateFuncTypeOfInvoke(invoke));
     EmitDelegateDispatch(emitter, calleeSlot, resultOffset,
                          refDerefKind);
     emitter.Emit(OpCode::OP_ParaEnd);

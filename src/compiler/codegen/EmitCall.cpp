@@ -288,8 +288,7 @@ void VmBackend::EmitUnresolvedInvokeArgs(const SnInvokeExpr& invoke,
     //empty flag vector and keep the plain value path. No resolution
     //gate on Field(): codegen runs only post-resolution, and a local
     //descriptor never carries NF_Resolved (only the bound invoke does).
-    auto* pFuncType = invoke.Field()
-        ? DelegateFuncTypeOfField(invoke.Field()) : nullptr;
+    auto* pFuncType = DelegateFuncTypeOfInvoke(invoke);
     const auto& refFlags = pFuncType ? pFuncType->GenericRefFlags()
         : std::vector<uint8_t>{};
     uint16_t paramIdx = static_cast<uint16_t>(slotBase);

@@ -150,21 +150,40 @@ void VmBackend::Access(SnLiteralExpr& expr) {
     return;
 }
 
-//Delegate invoke arm: materialize the bound callee handle into a scratch
-//evalArea slot (the field form must not disturb callParamBase), then
-//dispatch through EmitDelegateDispatch.
+//Delegate invoke arm: materialize the callee handle into a scratch
+//evalArea slot, stage the actual arguments, then dispatch through
+//EmitDelegateDispatch. Callee first, args second (v0.13.13a D-3): a
+//call nested in a postfix callee expression (a container subscript,
+//a chained call) stages its own arguments at callParamBase, so
+//staging the caller's actuals before evaluating the callee let the
+//nested call clobber them. The claim keeps the handle out of any
+//nested staging either way, and callee-first is also the
+//left-to-right evaluation order of the mainstream postfix-call
+//spelling.
 //Task 8: a raw &-return binds the pair itself (binding targets, nested
 //ref-calls); a value read normalizes through the key's return deref tag.
 void VmBackend::EmitDelegateInvoke(const SnInvokeExpr& invoke,
                                    BytecodeEmitter& emitter,
                                    uint16_t resultOffset,
                                    bool bRawRefResult) {
-    auto target = ResolveBareIdentifier(invoke.Field());
     EvalAreaClaim calleeClaim(*this, 1);
     uint16_t calleeSlot = calleeClaim.base();
-    EmitDelegateCalleeLoad(invoke, target, calleeSlot, emitter);
+    //v0.13.13a D-3: the postfix shape carries the callee as an
+    //expression — evaluate it into the staged slot (its value IS the
+    //func handle, the resolver admitted only func-typed callees); the
+    //named shape loads the value field's handle.
+    if (auto* pCalleeExpr = invoke.CalleeExpr())
+        EmitExpression(*pCalleeExpr, emitter, calleeSlot);
+    else {
+        auto target = ResolveBareIdentifier(invoke.Field());
+        EmitDelegateCalleeLoad(invoke, target, calleeSlot, emitter);
+    }
+    //Binding-aware positional staging at callParamBase (the
+    //OP_CallDelegate read position), after the handle is parked.
+    EmitCallArgs(invoke, nullptr, emitter, /*slotBase=*/0,
+                 /*pArgPlans=*/nullptr, /*thisSlot=*/UINT16_MAX);
     const uint8_t refDerefKind = bRawRefResult ? kNoRefDeref
-        : DelegateReturnDerefKind(DelegateFuncTypeOfField(invoke.Field()));
+        : DelegateReturnDerefKind(DelegateFuncTypeOfInvoke(invoke));
     EmitDelegateDispatch(emitter, calleeSlot, resultOffset,
         refDerefKind);
     emitter.Emit(OpCode::OP_ParaEnd);
@@ -282,18 +301,19 @@ void VmBackend::Access(SnInvokeExpr& expr) {
 
         //0.9.0: a ctor-carrying invoke (`Foo(args)` without new) shares
         //the NewExpr emission; dispatched first — the delegate predicate
-        //in the dispatch tail would misread the bound class as a func
-        //value.
+        //in the bare shape would misread the bound class as a func value.
         //v0.12.7: the Array face's dynamic-rank ctor — the Array<E> record
         //is not a class object; route to the array-alloc emission.
         if (invoke.ArrayDynCtor()) {
-            EmitArrayDynCtor(*invoke.ArrayDynCtor(), invoke.Params(),
+            EmitArrayDynCtor(*invoke.ArrayDynCtor(),
+                             SnapshotCtorArgs(invoke.Params(), nullptr),
                              resultOffset);
             return;
         }
         if (invoke.CtorClass()) {
             EmitNewObject(invoke.CtorClass(), invoke.CtorFunction(),
-                          invoke.Params(), nullptr, resultOffset);
+                          SnapshotCtorArgs(invoke.Params(), nullptr),
+                          resultOffset);
             return;
         }
         //0.9.11 D2: the struct twin (`S(args)` / `m.S(args)` — bare or
@@ -301,7 +321,8 @@ void VmBackend::Access(SnInvokeExpr& expr) {
         //is bound by the resolver).
         if (invoke.CtorStruct()) {
             EmitStructCtor(*invoke.CtorStruct(), invoke.CtorFunction(),
-                           invoke.Params(), nullptr, resultOffset);
+                           SnapshotCtorArgs(invoke.Params(), nullptr),
+                           resultOffset);
             return;
         }
 
@@ -324,6 +345,15 @@ void VmBackend::EmitBareInvokeShape(SnInvokeExpr& invoke,
     //class and the gate is a no-op.
     auto* callee = invoke.Callee();
     EmitStaticFieldGate(callee, emitter);
+    //v0.13.13a D-3: the delegate shapes (named handle, postfix value
+    //call) stage their own arguments inside EmitDelegateInvoke — the
+    //callee handle must be materialized before the actuals ride
+    //callParamBase — so the shared positional staging below must not
+    //precede them.
+    if (IsDelegateInvoke(invoke)) {
+        EmitDelegateInvoke(invoke, emitter, resultOffset, bRawRefResult);
+        return;
+    }
     //Phase 9c: binding-aware argument emission. Handles positional,
     //named, and default-param bindings via EmitCallArgs.
     EmitCallArgs(invoke, callee, emitter, /*slotBase=*/0,
@@ -339,17 +369,12 @@ void VmBackend::EmitInvokeDispatch(SnInvokeExpr& invoke, SnFunction* callee,
                                    BytecodeEmitter& emitter,
                                    uint16_t resultOffset,
                                    bool bRawRefResult) {
-    //Phase 13: delegate invoke — the resolver bound the callee name to
-    //a func-typed value (local/param, or an implicit this-field)
-    //instead of a function declaration (Callee() null, Field() set).
-    //Args are already staged at callParamBase by the positional emit
-    //above; materialize the handle into a scratch evalArea slot (the
-    //field form must not disturb callParamBase) and dispatch.
-    if (IsDelegateInvoke(invoke)) {
-        EmitDelegateInvoke(invoke, emitter, resultOffset,
-            bRawRefResult);
-        return;
-    }
+    //v0.13.13a D-3: the delegate shapes (named handle, postfix value
+    //call) are routed by the caller BEFORE argument staging, so an
+    //invoke reaching this tail as a delegate is a routing break — the
+    //binary-operator plan path (the only other caller) always carries
+    //a bound SnFunction callee, never a func-value delegate.
+    NLANG_ASSERT(!IsDelegateInvoke(invoke));
 
     // Find function index
     if (!callee) {
