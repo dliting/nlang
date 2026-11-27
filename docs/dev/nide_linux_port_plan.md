@@ -55,7 +55,7 @@
 
 1. README依赖表更正（Qt模块加WebEngineWidgets）+Linux构建/安装段；README.zh-CN.md成对。
 2. CPack Linux分支：TGZ生成器、包名`-linux64`（对照:485-505的WIN32分支）；**Linux包冒烟验证**（verify_package.py加TGZ臂或一次性清单——审核M5：install/CPack的Linux闭包无现成验证载体）。
-3. **VERSION提升**（审核L5：用户可见功能变更同步提升VERSION的义务不分分支）+CHANGELOG新版本节记录Linux平台支持（开放项：按次版本提升为0.15.0——新平台支持属功能级；在0.14.13收口发布之后收口本任务，收口时按届时HEAD再核）。
+3. **VERSION提升**（审核L5：用户可见功能变更同步提升VERSION的义务不分分支）+CHANGELOG新版本节记录Linux平台支持。**裁决（用户2026-11-27）：版本为0.14.14**——保持0.14.x线，补丁+1；CHANGELOG新增/规范锚/中英镜像随之对齐。
 4. 手册核对：`docs/user_manual`是否含平台限定表述，有则中英成对更正并跑`tools/manual_sync_check.py`；README不在五类同步面内，但公开文本零前代痕迹门禁仍适用。
 
 ## 收口

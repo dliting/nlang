@@ -25,7 +25,9 @@ no toolchain, no build:
 2. **Install** — run the installer (defaults to `C:\Program Files\NLang`, adds
    a Start Menu entry for the IDE; expect a UAC prompt). No installation
    preferred? Unzip the portable archive to any writable folder and run
-   `bin\nide.exe`.
+   `bin\nide.exe`. On Linux, unpack the portable tarball to any writable
+   folder and run `bin/nide` (the Qt 5.15 runtime the package was built
+   against must be present — see the Linux development setup below).
 3. **Read the manual** — launch **NLang IDE** and open its **Help menu**: the
    complete documentation site ships in the package and works fully offline.
    The *Getting Started* chapters walk the language, the CLI and the IDE one
@@ -55,7 +57,7 @@ Building from source instead? The rest of this page covers that.
 | Flex | 2.6+ | Yes (dev) | Lexer generator. Windows: [win_flex_bison](https://github.com/lexxmark/winflexbison) |
 | Bison | 3.0+ | Yes (dev) | Parser generator. Windows: [win_flex_bison](https://github.com/lexxmark/winflexbison) |
 | Python3 | 3.13+ | Optional | Build scripts. Conda `py313` env recommended on Windows |
-| Qt5 | 5.15+ | IDE only | Core, Xml, Widgets modules |
+| Qt5 | 5.15+ | IDE only | Core, Gui, Widgets, WebEngineWidgets modules |
 | LLVM | 15+ | Optional | Code generation backend (`-DNLANG_ENABLE_LLVM=ON`) |
 
 ### Windows Development Setup
@@ -73,6 +75,28 @@ Building from source instead? The rest of this page covers that.
    tools/docs-requirements.txt`, interpreter selectable via
    `-DNLANG_DOCS_PYTHON=<path>`; docs off with `-DNLANG_BUILD_DOCS=OFF`).
    `-DPYTHON3_EXECUTABLE=<path>` overrides the build-script interpreter.
+
+### Linux Development Setup
+
+1. Install the toolchain: `build-essential` (GCC), `flex`, `bison`,
+   and a Qt 5.15 install with the `Core`, `Gui`, `Widgets` and
+   `WebEngineWidgets` modules — either the distro's `qtbase5-dev` +
+   `qtwebengine5-dev` packages or a prefix-installed Qt pointed at via
+   `-DCMAKE_PREFIX_PATH`.
+2. CMake must be 3.24+ (the GNU linker arm of the static-library link
+   group needs `$<LINK_GROUP:RESCAN>`; Ubuntu 22.04's bundled 3.22 is
+   too old — use a newer CMake, e.g. under `/opt/cmake`).
+3. Configure with the Qt prefix (skip `-DCMAKE_PREFIX_PATH` when the
+   distro packages are discoverable):
+   ```bash
+   cmake -B build -DCMAKE_PREFIX_PATH=/opt/qt/5.15 \
+                  -DNLANG_BUILD_IDE=ON -DNLANG_BUILD_TESTS=ON
+   ```
+   CUDA builds additionally pass `-DNLANG_CUDA_ROOT` and
+   `-DNLANG_CUDA_ARCH` (see the multi-GPU design notes).
+4. Headless hosts run the widget tests with the offscreen QPA (set
+   automatically for ctest on Linux); fontconfig must be present for
+   text rendering.
 
 ## Building
 

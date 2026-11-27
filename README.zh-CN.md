@@ -23,7 +23,9 @@ NLang IDE：左侧解决方案树（项目与独立`.n`文件）、中部编辑�
    [releases页面](https://github.com/dliting/nlang/releases)。
 2. **安装**——运行安装程序（默认安装到`C:\Program Files\NLang`，
    并为IDE添加开始菜单项；会有UAC提示）。不想安装？把便携版
-   压缩包解压到任意可写目录，运行`bin\nide.exe`即可。
+   压缩包解压到任意可写目录，运行`bin\nide.exe`即可。Linux上把
+   便携tar包解压到任意可写目录，运行`bin/nide`（需要包构建时所
+   用的Qt 5.15运行时在位——见下方Linux开发环境配置）。
 3. **阅读手册**——启动**NLang IDE**并打开其**帮助菜单**：
    完整的文档站随包分发，完全离线可用。「入门」章节按主题逐页
    讲解语言、命令行与IDE，并附可运行的示例程序。
@@ -51,7 +53,7 @@ NLang IDE：左侧解决方案树（项目与独立`.n`文件）、中部编辑�
 | Flex | 2.6+ | 是（开发） | 词法分析器生成器。Windows：[win_flex_bison](https://github.com/lexxmark/winflexbison) |
 | Bison | 3.0+ | 是（开发） | 语法分析器生成器。Windows：[win_flex_bison](https://github.com/lexxmark/winflexbison) |
 | Python3 | 3.13+ | 可选 | 构建脚本。Windows上推荐conda `py313`环境 |
-| Qt5 | 5.15+ | 仅IDE | Core、Xml、Widgets模块 |
+| Qt5 | 5.15+ | 仅IDE | Core、Gui、Widgets、WebEngineWidgets模块 |
 | LLVM | 15+ | 可选 | 代码生成后端（`-DNLANG_ENABLE_LLVM=ON`） |
 
 ### Windows开发环境配置
@@ -70,6 +72,24 @@ NLang IDE：左侧解决方案树（项目与独立`.n`文件）、中部编辑�
    解释器可用`-DNLANG_DOCS_PYTHON=<path>`指定；关闭文档用
    `-DNLANG_BUILD_DOCS=OFF`）。`-DPYTHON3_EXECUTABLE=<path>`覆盖
    构建脚本使用的解释器。
+
+### Linux开发环境配置
+
+1. 安装工具链：`build-essential`（GCC）、`flex`、`bison`，以及带
+   `Core`、`Gui`、`Widgets`、`WebEngineWidgets`模块的Qt 5.15——
+   用发行版的`qtbase5-dev`+`qtwebengine5-dev`包，或用
+   `-DCMAKE_PREFIX_PATH`指向前缀式安装的Qt。
+2. CMake须3.24+（静态库链接组的GNU链接臂依赖
+   `$<LINK_GROUP:RESCAN>`；Ubuntu 22.04自带的3.22不够——用更新的
+   CMake，如置于`/opt/cmake`下的版本）。
+3. 带Qt前缀配置（发行版包可被发现时省略`-DCMAKE_PREFIX_PATH`）：
+   ```bash
+   cmake -B build -DCMAKE_PREFIX_PATH=/opt/qt/5.15                   -DNLANG_BUILD_IDE=ON -DNLANG_BUILD_TESTS=ON
+   ```
+   CUDA构建额外传`-DNLANG_CUDA_ROOT`与`-DNLANG_CUDA_ARCH`（见
+   多GPU设计笔记）。
+4. 无显示主机跑widget测试用offscreen QPA（Linux下ctest自动设置）；
+   文本渲染需要fontconfig。
 
 ## 构建
 

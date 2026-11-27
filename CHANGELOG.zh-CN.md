@@ -6,6 +6,12 @@
 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本
 遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.14.14]
+
+### 新增
+
+- **NLang IDE（nide）在Linux上构建并随包分发**——Qt5 Widgets桌面IDE进入Linux构建：解决方案树、编辑器、构建/运行与内嵌终端面板（libvterm驱动pty）、嵌入式帮助浏览器（Qt WebEngine）、中英文翻译，以及自包含的部署布局（工具、Qt运行时闭包、平台插件、stdlib与native模块与可执行文件同层，配前缀相对的`qt.conf`）。Linux包以便携压缩包分发（`NLang-<version>-linux64.tar.gz`）；前提是装有带`Core`、`Gui`、`Widgets`、`WebEngineWidgets`模块的Qt 5.15。widget测试经offscreen QPA无头运行；POSIX pty臂补上了真实工作目录、写满循环输入与陈旧pid守卫。Windows构建不受影响。
+
 ## [0.14.13]
 
 ### 新增

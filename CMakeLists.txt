@@ -554,6 +554,13 @@ if(WIN32)
         # Start Menu shortcut; executables are in the default bin/ dir.
         set(CPACK_PACKAGE_EXECUTABLES "nide;NLang IDE")
     endif()
+elseif(UNIX)
+    #The portable-archive counterpart of the Windows zip: the same
+    #install layout, unpack-and-run. TGZ over XZ for the widest tar
+    #compatibility; the premise is a prefix-installed Qt (see the
+    #install rules' Linux arm).
+    set(CPACK_GENERATOR "TGZ")
+    set(CPACK_PACKAGE_FILE_NAME "NLang-${NLANG_VERSION}-linux64")
 endif()
 
 include(CPack)

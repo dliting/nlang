@@ -6,6 +6,23 @@ All notable changes to NLang are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.14.14]
+
+### Added
+
+- **The NLang IDE (nide) builds and ships on Linux** — the Qt5 Widgets
+  IDE joins the Linux build: solution tree, editors, build/run and the
+  embedded terminal panel (libvterm over a pty), the embedded help
+  browser (Qt WebEngine), the Chinese/English translations and the
+  self-contained deploy layout (tools, Qt runtime closure, platform
+  plugins, stdlib and native modules beside the executable, with a
+  prefix-relative `qt.conf`). Linux packages ship as portable archives
+  (`NLang-<version>-linux64.tar.gz`); the premise is a Qt 5.15 install
+  with the `Core`, `Gui`, `Widgets` and `WebEngineWidgets` modules.
+  Widget tests run headless through the offscreen QPA; the POSIX pty
+  arm gained a real working directory, full-write input and a
+  stale-pid guard. Windows builds are unchanged.
+
 ## [0.14.13]
 
 ### Added
