@@ -47,8 +47,26 @@ endfunction()
 # file instead (the nide_deploy_check native-DLL loss made this
 # explicit: only the first of four paths reached the probe).
 string(MD5 NLANG_TEST_SCRATCH_TOKEN "${CMAKE_BINARY_DIR}")
+#The base comes from the environment, not from a platform guess:
+#Windows hosts carry TEMP (and TMP), POSIX hosts carry TMPDIR. The
+#CMake-side base and the per-test TMP/TEMP/TMPDIR below resolve to one
+#scratch root, so std::filesystem::temp_directory_path (TMP/TEMP on
+#Windows, TMPDIR under libstdc++) lands per-tree on every host —
+#reading only $ENV{TEMP} left a Linux configure building the path on an
+#empty base and dying in file(MAKE_DIRECTORY) over /nlang_test_scratch
+#with a permission error.
+if(NOT "$ENV{TEMP}" STREQUAL "")
+    set(NLANG_TEMP_BASE "$ENV{TEMP}")
+elseif(NOT "$ENV{TMP}" STREQUAL "")
+    set(NLANG_TEMP_BASE "$ENV{TMP}")
+elseif(WIN32)
+    message(FATAL_ERROR
+        "the test scratch base needs TEMP or TMP in the configure environment")
+else()
+    set(NLANG_TEMP_BASE "/tmp")
+endif()
 set(NLANG_TEST_SCRATCH_ROOT
-    "$ENV{TEMP}/nlang_test_scratch_${NLANG_TEST_SCRATCH_TOKEN}")
+    "${NLANG_TEMP_BASE}/nlang_test_scratch_${NLANG_TEST_SCRATCH_TOKEN}")
 file(MAKE_DIRECTORY "${NLANG_TEST_SCRATCH_ROOT}")
 
 # Merge-style ENVIRONMENT setter: every NEW test-environment write goes
@@ -114,6 +132,11 @@ function(add_test)
     endif()
     nlang_test_env(${ARGV1}
         TMP=${NLANG_TEST_SCRATCH_ROOT} TEMP=${NLANG_TEST_SCRATCH_ROOT}
+        #TMPDIR is the POSIX twin of TMP/TEMP: std::filesystem
+        #temp_directory_path and the C library temp names read it, so
+        #without this pair the per-tree scratch separation only exists
+        #on Windows hosts. Windows ignores the variable outright.
+        TMPDIR=${NLANG_TEST_SCRATCH_ROOT}
         NLANG_TEST_TREE_TOKEN=${NLANG_TEST_SCRATCH_TOKEN}
         # Native-member extraction cache root (NcuPackageCache.cpp): every
         # test process that opens a package with native members extracts
