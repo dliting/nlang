@@ -3237,8 +3237,11 @@ set_tests_properties(proj_generic_sourceless_run PROPERTIES
 #selection across directories, source/artifact behavior and diagnostic parity,
 #and first-artifact-directory precedence.
 if(Python3_FOUND)
+    #Like every other e2e driver, run under the CMake-found interpreter
+    #(${PYTHON3_EXECUTABLE}); ${NLANG_DOCS_PYTHON} defaults to the bare
+    #"python" alias, which is not resolvable on every host.
     add_test(NAME pkg_artifact_imports
-        COMMAND ${NLANG_DOCS_PYTHON}
+        COMMAND ${PYTHON3_EXECUTABLE}
             ${PROJECT_SOURCE_DIR}/tests/e2e/pkg_artifact_imports/run.py
             $<TARGET_FILE:ncc>
             $<TARGET_FILE:nvm>
@@ -3915,11 +3918,16 @@ add_executable(test_native_tensor
     test_native_tensor/TestMatMul.cpp
     test_native_tensor/TestElementwise.cpp
     test_native_tensor/TestReduce.cpp
+    test_native_tensor/TestReduceStrided.cpp
+    test_native_tensor/TestStreamHandle.cpp
 )
 target_link_libraries(test_native_tensor PRIVATE nlang_tensor_kernels)
+#backend_descriptor.h is the plugin-contract header the stream-handle
+#encoding lives in (header-only: the unit rides its inline helpers).
 target_include_directories(test_native_tensor PRIVATE
     ${PROJECT_SOURCE_DIR}/include
-    ${PROJECT_SOURCE_DIR}/src/native/tensor)
+    ${PROJECT_SOURCE_DIR}/src/native/tensor
+    ${PROJECT_SOURCE_DIR}/src/native/tensor_cuda)
 add_test(NAME native_tensor_scalar COMMAND test_native_tensor)
 nlang_test_env(native_tensor_scalar NLANG_TENSOR_TIER=scalar)
 add_test(NAME native_tensor_sse2 COMMAND test_native_tensor)
