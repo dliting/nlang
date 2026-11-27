@@ -75,6 +75,11 @@ class SnClassDecl;
 class SnStructDecl;
 class SnIdentifierExpr;
 class SnMemberExpr;
+//Builder-layer accessor (builder/ExprResolver.h). A friend declaration
+//looks the name up instead of declaring it, so GCC needs it visible
+//before the BindMemberFuncRefToExpected parameter below; MSVC's laxer
+//lookup tolerated the omission.
+class ExprResolveAccessor;
 
 class NLANG_COMPILER_API SnExpression: public SyntaxNode
 {
