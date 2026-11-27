@@ -1,0 +1,51 @@
+// Set<T> method-surface matrix (spec D-6): first/duplicate add, the
+// contains/remove tri-states, insertion-ordered values() under a
+// duplicate add, copy independence, the values()-format toString, the
+// string element type riding Dict key equality, and the bare generic
+// spelling (typeName / identity cast) of a source-level prelude class.
+// Every leg ORs one bit; all legs holding returns 255.
+int main() {
+	int score = 0;
+	Set<int> s = Set<int>();
+	// Bit 1: add inserts a fresh element.
+	if (s.add(30)) { score |= 1; }
+	s.add(10);
+	s.add(20);
+	// Bit 2: a duplicate add reports false and leaves count untouched.
+	if (!s.add(10) && s.count() == 3) { score |= 2; }
+	// Bit 4: the contains/remove tri-states — a present key, an absent
+	// key, a removal that reports true and clears contains, a removal
+	// of an absent element reporting false.
+	if (s.contains(30) && s.contains(20) && !s.contains(99)) { score |= 4; }
+	// Bit 8: values() snapshots the key table in insertion order, and
+	// the duplicate add above kept 10 at its first position.
+	List<int> v = s.values();
+	if (v.length() == 3 && v.get(0) == 30 && v.get(1) == 10
+		&& v.get(2) == 20) { score |= 8; }
+	Set<int> c = s.copy();
+	c.add(40);
+	s.remove(30);
+	// Bit 16: copy independence both ways — the copy's add never
+	// reaches the original, and the original's remove never reaches
+	// the copy.
+	if (c.contains(40) && !s.contains(40) && c.contains(30)
+		&& !s.contains(30) && c.count() == 4 && s.count() == 2) { score |= 16; }
+	// Bit 32: toString follows the values() list format (the same
+	// "[30, 10]" style the pinned List format spells).
+	if (s.toString() == "[10, 20]" && s.toString() == s.values().toString()) { score |= 32; }
+	// Bit 64: the string element type end to end — membership, the
+	// duplicate leg, and removal all ride the same Dict key equality.
+	Set<string> w = Set<string>();
+	if (w.add("hello") && !w.add("hello") && w.contains("hello")
+		&& !w.contains("world") && !w.remove("world")
+		&& w.remove("hello") && !w.contains("hello")) { score |= 64; }
+	// Bit 128: the bare generic spelling of the source-level prelude
+	// class — typeName spells "Set<int>", the identity cast round-trips
+	// the same value, and the snapshot view matches.
+	if (typeName(Set<int>) == "Set<int>" && typeName(Set<string>) == "Set<string>") {
+		Set<int> same = s as Set<int>;
+		if (same.count() == s.count() && same.toString() == s.toString()
+			&& same.contains(10) && !same.contains(30)) { score |= 128; }
+	}
+	return score;
+}

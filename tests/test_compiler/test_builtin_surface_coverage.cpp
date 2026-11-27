@@ -23,6 +23,7 @@
 #include "builder/BuiltinNames.h"
 #include "builder/BindingTable.h"    //IsHandleClassName
 #include "SyntaxTree.h"
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -130,6 +131,7 @@ private slots:
     void streamClassesDeclaredInIo();
     void handleClassesHaveDeclarations();
     void dictSurfaceCarriesGetOrDefault();
+    void setSurfaceCarriesFullMethodFace();
 };
 
 void TestBuiltinSurfaceCoverage::streamClassesDeclaredInIo()
@@ -226,6 +228,39 @@ void TestBuiltinSurfaceCoverage::dictSurfaceCarriesGetOrDefault()
             "Dict.getOrDefault has no .n declaration in containers — "
             "every user-visible builtin method needs a declaration "
             "face (builtin-surface coverage gate)")));
+    }));
+}
+
+void TestBuiltinSurfaceCoverage::setSurfaceCarriesFullMethodFace()
+{
+    QVERIFY(withStdlibBuild("set_face",
+        [](ModuleBuilder& builder, ModuleBuilder::UnitImages&) {
+        auto& reg = builder.Registry();
+        //v0.13.13a D-6: Set is the prelude's first source-form class —
+        //the coverage gate guards its declared face the way the
+        //Dict.getOrDefault row guards the intrinsic surface: a method
+        //that ships without its .n declaration fails here by name.
+        const SnClassDecl* set = findDeclaredClass(reg, "Set");
+        QVERIFY2(set != nullptr,
+            qPrintable(QString(
+                "container class Set has no .n declaration — update the "
+                "coverage list")));
+        std::vector<std::string> names;
+        for (auto& fn : set->Members())
+            if (fn.Kind() == NK_Function)
+                names.push_back(fn.Name());
+        //The eight pinned methods (spec D-6), each declared exactly
+        //once; the ninth function member is the constructor.
+        for (const char* method : {"add", "contains", "remove", "count",
+            "clear", "copy", "values", "toString"})
+        {
+            auto hits = std::count(names.begin(), names.end(),
+                std::string(method));
+            QVERIFY2(hits == 1, qPrintable(QString(
+                "Set.%1 must be declared exactly once in the "
+                "containers face — found %2").arg(method).arg(int(hits))));
+        }
+        QCOMPARE(int(names.size()), 9);
     }));
 }
 

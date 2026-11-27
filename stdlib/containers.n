@@ -2,8 +2,9 @@
 //base containers (§3.9.4 rule: language core and base containers stay
 //import-free; everything else needs an import). Implicitly imported
 //into every compilation unit. Native classes: implementations live in
-//the VM (intrinsic channel). Compile-time inline only: the stdlib
-//packages exclude this file.
+//the VM (intrinsic channel); Set is the exception — the one class
+//written in NLang source, forwarding to Dict. Compile-time inline
+//only: the stdlib packages exclude this file.
 
 //Resizing sequence of elements of one type. Elements are boxed at the
 //runtime boundary for primitive type arguments (erasure); class and
@@ -35,4 +36,33 @@ class Dict<K, V> {
     public native List<K> keys();
     public native Dict<K, V> copy();
     public native string toString();
+}
+
+//Set of unique elements with insertion-ordered iteration. Membership
+//equality is the Dict key rule, unchanged. This is the first
+//source-form class in the prelude: the methods forward to a
+//Dict<T, int> key table (set presence = key presence), so the
+//container carries no storage semantics of its own. Iterate with
+//`for x in s.values()`. Lookup cost follows Dict (linear scan, not
+//O(1) hashing).
+class Set<T> {
+    private Dict<T, int> table;
+
+    public Set() { table = Dict<T, int>(); }
+    public bool add(T item) {
+        if (table.containsKey(item)) { return false; }
+        table.set(item, 0);
+        return true;
+    }
+    public bool contains(T item) { return table.containsKey(item); }
+    public bool remove(T item) { return table.remove(item) != 0; }
+    public int count() { return table.count(); }
+    public void clear() { table.clear(); }
+    public Set<T> copy() {
+        Set<T> c = Set<T>();
+        c.table = table.copy();
+        return c;
+    }
+    public List<T> values() { return table.keys(); }
+    public string toString() { return table.keys().toString(); }
 }

@@ -2774,3 +2774,13 @@ stdlib_web_multipart_roundtrip 0
 # view reaching native bytes through fs.writeBytes then back through
 # fs.readBytes cell for cell.
 stdlib_web_upload_e2e 0
+
+# --- v0.13.13a: Set<T> as the third base container (spec D-6) — the
+# source-level prelude class over Dict keys: first/duplicate add, the
+# contains/remove tri-states, the insertion-ordered values() snapshot
+# surviving a duplicate add, copy independence in both directions, the
+# values()-format toString, the string element type riding Dict key
+# equality, and the bare generic spelling (typeName "Set<int>" plus a
+# round-trip identity cast) of a prelude source class; every leg ORs
+# one bit, all legs holding returns 255.
+set_container_matrix 255

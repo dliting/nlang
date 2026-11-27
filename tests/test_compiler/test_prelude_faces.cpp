@@ -156,6 +156,7 @@ private slots:
     void stringFaceDeclaredWith23MethodsAndNoBase();
     void arrayFaceDeclaredWith6MethodsAndNoBase();
     void stringFaceBindingRowsStampIntrinsics();
+    void setFaceDeclaredWithSourceMethodSurface();
     void preludeStaticFieldsAreStringEmptyOnly();
 };
 
@@ -275,6 +276,30 @@ void TestPreludeFaces::stringFaceBindingRowsStampIntrinsics()
                 QVERIFY(fn->isNative);
             }
         }
+    }));
+}
+
+//v0.13.13a D-6: Set joins the prelude as its first source-form class.
+//Pin the structural face: nine function members (the constructor plus
+//the eight methods forwarding to the key table) over the one private
+//Dict field, and no member on the native declaration channel — the
+//bodies are NLang source, which is exactly what separates Set from the
+//List/Dict intrinsic faces above.
+void TestPreludeFaces::setFaceDeclaredWithSourceMethodSurface()
+{
+    QVERIFY(withBuild("set_face", "int main() { return 0; }",
+        [](ModuleBuilder& builder, ModuleBuilder::UnitImages&) {
+        auto* pSet = FindPreludeClassDecl(builder.Registry(), "Set");
+        QVERIFY(pSet != nullptr);
+        QCOMPARE(countNativeMethods(*pSet), 9);
+        QCOMPARE(pSet->FieldCount(), size_t(1));
+        for (auto& member : pSet->Members())
+            if (member.Kind() == NK_Function)
+                QVERIFY2(!member.ContainFlags(NF_Native),
+                    qPrintable(QString("Set.%1 must stay source-form — "
+                        "the prelude's source classes declare no native "
+                        "members").arg(
+                            QString::fromStdString(member.Name()))));
     }));
 }
 
