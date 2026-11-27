@@ -605,8 +605,9 @@ static void TestThreeSegmentBaseGivesNamedDiagnosis() {
           "the ':' slot accepts a dotted type (else Step 3 did not land)");
 }
 
-//(§4-10 负例) D9：限定类型上写泛型实参今天得到裸语法错误。本阶段只钉「不误接受」，
-//指名文案是阶段 7 的缺口——所以断言吃的是实测到的那句，不是愿望。
+//(§4-10 负例) D9：限定类型上写泛型实参仍被拒绝。v0.13.13a D-3 把调用并入通用后缀链后，
+//该拼写改按关系表达式解析、在语句位吃「只有调用可作表达式语句」；拒绝仍在，指名文案
+//仍是阶段 7 的缺口——所以断言吃的是实测到的那句，不是愿望。
 static void TestQualifiedGenericArgStaysRejected() {
     const Files files = {
         { "alib.n", "struct Vec { int x; }\n" },
@@ -622,8 +623,9 @@ static void TestQualifiedGenericArgStaysRejected() {
     auto dirLog = scenarioDir("qgen_neg_log");
     writeFiles(dirLog, files);
     const std::string log = compileLog(dirLog);
-    CHECK(log.find("syntax error") != std::string::npos,
-          "the measured rejection is the grammar one (D9 deferred wording)");
+    CHECK(log.find("only a call can be an expression statement.")
+              != std::string::npos,
+          "the measured rejection rides the statement-position gate (D9 deferred wording)");
     CHECK(log.find("Compiler internal error") == std::string::npos,
           "and it is a diagnostic, not an internal failure");
 }
