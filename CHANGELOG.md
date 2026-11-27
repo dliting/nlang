@@ -1,3 +1,46 @@
+## [0.14.16] - 2026-11-27
+
+The acceptance-box leg of the 0.14.15 merge: the merged world is now
+verified on Linux (GNU ld, GCC, CUDA sm_89) at build, unit, e2e and
+device level. This release fixes everything the sweep surfaced —
+runtime defects on the device and network paths, POSIX semantics in
+the tool suite, and a timing-gate probe family that had never
+actually run under a gate.
+
+### Fixed
+
+- **`tensor.viewSumI` under an active device backend** — the function
+  dereferenced the raw payload pointer, which the D2 mint gate makes
+  a device address; it segfaulted. Views are staged to host memory
+  first, like every other native consumer.
+- **TCP graceful-shutdown rebind on Linux** — a server that
+  force-closed its keep-alive connections left TIME_WAIT endpoints
+  and the immediate rebind failed with "address already in use";
+  stream sockets now bind with SO_REUSEADDR (UDP keeps the strict
+  duplicate-bind contract).
+- **Exit codes beyond 255 in the e2e suite** — POSIX carries 8 exit
+  bits, so corpora pricing composed full-width codes failed on every
+  POSIX host with exact low-byte truncation. The runner compares in
+  the OS-visible width; Windows keeps the full code.
+- **The cuda double-run list** — it rode a retired positional filter
+  argument the runner silently ignored, so the leg had been running
+  the entire 2300-entry tour instead of its 223 entries. It moves to
+  the manifest channel, gains the device-ABI row and the control
+  surface the 0.13 merge added, and the runner refuses empty
+  override manifests and extra positional arguments.
+- **The timing-gate probes** — the run-phase environment snapshot
+  starved the stub VM of its sleep variable (every kill-point probe
+  measured a no-op pass), and the stub tools had lost the Windows
+  spelling. The probes now pass on both hosts.
+- **Package-native members** — the probe corpus hardcoded the
+  Windows library name, so POSIX resolved the loader's request to
+  the build tree's copy instead of the package cache; members keep
+  the host spelling and the corpus runs from a neutral directory.
+- **POSIX host support in the gate tooling** — interpreter paths,
+  cygpath arms, stub executables and the bash probe are branched per
+  host; the qtest offscreen property no longer evicts the per-tree
+  scratch environment; the Linux box runs the gate selftests green.
+
 ## [0.14.15] - 2026-11-27
 
 This release folds master's in-flight lines into the device branch.

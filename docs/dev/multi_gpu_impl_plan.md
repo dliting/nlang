@@ -1210,7 +1210,92 @@ added exists.
   diagnostic-text, exit-code or ABI surface. The branch side since
   16cfee52 is one manual commit. The merge's user-visible union — the
   json and web chapters, the formats renumbered to 28/29/30, and the
-  NativeHost 17u device selector — is carried by this close-out's
+  NativeHost 17u selector — is carried by this close-out's
   manual edits, which the docs five legs verified. The baseline is
   re-anchored to the close-out with `--update` in the pure-baseline
   commit that follows it.
+
+### Acceptance-box leg (2026-11-27, the Linux obligation discharged)
+
+GitHub reachability was restored through the Clash proxy and every
+ref was pushed (tensor-simd, master, dev, tag v0.14.10). The box
+synced to the merged world and ran the full program: three build
+trees (Debug, Debug+CUDA sm_89, IDE+Qt5.15 offscreen), both ctest
+sweeps, calibrated full cpu e2e (SCALE=0.137) and the cuda double-run
+over its 223-entry list on the real GPU. Final state: **builds green
+on GNU ld — the nlang_core split links cleanly, the open obligation
+is discharged**; cuda double-run 219/0; cpu e2e 2303/2/1 where the
+two failures are the recorded observations below; both ctest sweeps
+fully green.
+
+**Fixes the sweep surfaced (63a63bf1..a08251ef, all pushed):**
+
+- `SnExpressions.h` friend parameter named a builder-layer class with
+  no namespace-scope declaration; GCC requires friend-declaration
+  names to be visible, MSVC's laxer lookup tolerated it (63a63bf1).
+- POSIX exit codes carry 8 bits; the seven corpora pricing composed
+  full-width codes (999/7080/42042) failed on exact low-byte
+  truncation. The runner now compares in OS-visible width — POSIX
+  masks both sides, Windows is unchanged, crash signals bypass the
+  mask (43d889e6).
+- The cuda double-run list had ridden the runner's retired positional
+  filter argument, silently ignored for a whole merge cycle — the leg
+  ran the full 2306-entry tour believing it had filtered. The list
+  moved to `NLANG_E2E_MANIFEST`, extra positional arguments fail
+  loud, an empty override is refused, and bare-name rows price from
+  the main manifest (43d889e6, 84f60de6, 9ea3ddab). The list itself
+  gained the ABI row (`array_abi_v10`) and the control-surface
+  families the merge added: reference-parameter handles, package
+  statics, the exit passthrough, web/http/json/url samples.
+- `ViewSumI` dereferenced `view.data` raw — under an active backend
+  the D2 mint gate makes the owner device-resident, so that pointer
+  is a device address and the corpus segfaulted on its first
+  device-pinned run ever. It now stages through
+  `StageOperandToHost`; it was the one raw dereference left in the
+  native tree (1eb9d863).
+- `NetBind` gained SO_REUSEADDR after the graceful-shutdown rebind
+  hit EADDRINUSE on TIME_WAIT endpoints (stdlib_http_drain_close leg
+  F) — then lost it on stream sockets only, after the unconditional
+  set broke the duplicate-bind AddrInUse contract
+  (stdlib_net_udp_bind_code). UDP has no TIME_WAIT to survive
+  (c6614d97, 8cd1adeb).
+- `nlang_add_qtest` set the offscreen platform with a raw
+  set_tests_properties, REPLACING the ENVIRONMENT the add_test
+  wrapper had just merged — 33 qtest entries lost their per-tree
+  scratch on the box and mainwindow_tests' tree-token assertion
+  failed with it; Windows never took the UNIX branch. The platform
+  variable goes through the merge helper (daa38c6b).
+- The gate toolchain carried six Windows assumptions (interpreter
+  path, cygpath arms, bash probe, calibration tool paths, executable
+  stub bodies, .bat spelling) — branched per host with Windows
+  behavior unchanged (d5b41d17, 9ea3ddab, a08251ef). The
+  timing-gate probes additionally hid two product-side defects:
+  `_run_env` snapshotted the environment at import time (a 0.14.15
+  leftover) starving the stub VM of NLANG_STUB_SLEEP, and the stub
+  spelling had lost the Windows .cmd half — the entry was never
+  registered on Windows (pytest probe), so both defects had never
+  run in a gate.
+- The package-probe corpus hardcoded the `.dll` member name the
+  Windows loader happens to spell; POSIX resolved the loader name to
+  the build tree's copy through the "." search directory (single-
+  config layout puts it exactly at the ctest cwd). The corpus ships
+  the host-named member and runs from a neutral working directory
+  (c4b9228d, 9ea3ddab).
+
+**Observations left on the books:** `stdlib_regex_size` exceeds its
+65.9 s kill point on the box (libstdc++ std::regex is several times
+slower than MSVC's — a performance platform gap, green on Windows);
+`net_conc_bench` (examples bench) times out on a readLine under the
+full sweep — 3/3 on the box, needs a serial single-entry run to
+characterize before any corpus or runtime change.
+
+**Adjudications (this leg):** the obligation was verified at build
+and run level, not just link level — three trees, both ctest sweeps,
+both e2e tours; Windows Debug CUDA plugin never links (nvcc ships
+Release runtime objects; the historical cuda gate rides the Release
+bench tree — recorded as an existing constraint, not fixed);
+Windows-side verification mistakes (offscreen on Windows, a
+mis-scoped ctest -R) were retracted and rerun rather than
+reported through; the gate tooling's Linux port is treated as an
+unbranch-scoped obligation, fixed in the same batch rather than
+deferred to the roadmap.
