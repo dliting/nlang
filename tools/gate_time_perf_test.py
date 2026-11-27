@@ -115,9 +115,17 @@ def _stub_pair(tmp):
     for label, script in (("cmake", "stub_cmake.py"),
                           ("ctest", "stub_ctest.py")):
         bat = tools / (label + ".bat")
-        bat.write_text('@echo off\r\n"%s" -I "%s" %%*\r\n'
-                       % (sys.executable, tools / script),
-                       encoding="ascii")
+        if os.name == "nt":
+            bat.write_text('@echo off\r\n"%s" -I "%s" %%*\r\n'
+                           % (sys.executable, tools / script),
+                           encoding="ascii")
+        else:
+            # POSIX cannot spawn a .bat body: the same stub ships as an
+            # executable shebang script forwarding "$@" to the stub.
+            bat.write_text('#!/bin/sh\nexec "%s" -I "%s" "$@"\n'
+                           % (sys.executable, tools / script),
+                           encoding="utf-8")
+            bat.chmod(0o755)
         pair[label] = str(bat)
     return pair["cmake"], pair["ctest"]
 

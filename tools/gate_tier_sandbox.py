@@ -270,16 +270,34 @@ def build_sandbox(sandbox):
         with path.open("w", encoding="utf-8", newline="\n") as handle:
             handle.write(text)
     write_lf(sandbox / "tools" / "gate.sh", STUB_GATE)
+    if os.name != "nt":
+        # The tier assembly invokes the stub through bash, which needs
+        # no executable bit — this chmod only keeps the sandbox stub
+        # shippable as a directly-spawned script, the way a POSIX user
+        # would run it by hand.
+        (sandbox / "tools" / "gate.sh").chmod(0o755)
     write_lf(sandbox / "tools" / "stub-cmake.py", STUB_CMAKE)
     write_lf(sandbox / "tools" / "stub-ctest.py", STUB_CTEST)
     for label, script in (("cmake", "stub-cmake.py"),
                           ("ctest", "stub-ctest.py")):
         # .bat form because CreateProcess spawns no bash script --
-        # the same door shape the timeouts corpus pins.
-        (sandbox / "tools" / ("stub-%s.bat" % label)).write_text(
-            '@echo off\r\n"%s" -I "%s" %%*\r\n'
-            % (sys.executable, sandbox / "tools" / script),
-            encoding="ascii")
+        # the same door shape the timeouts corpus pins. POSIX keeps the
+        # door name but ships a spawnable shebang body: the tier
+        # assembly runs print-perf-names through these doors, and a
+        # non-executable stub on the box reddened every batch case
+        # that exercises the perf set.
+        door = sandbox / "tools" / ("stub-%s.bat" % label)
+        if os.name == "nt":
+            door.write_text(
+                '@echo off\r\n"%s" -I "%s" %%*\r\n'
+                % (sys.executable, sandbox / "tools" / script),
+                encoding="ascii")
+        else:
+            door.write_text(
+                '#!/bin/sh\nexec "%s" -I "%s" "$@"\n'
+                % (sys.executable, sandbox / "tools" / script),
+                encoding="utf-8")
+            door.chmod(0o755)
     write_lf(sandbox / "tools" / "gate_tiers.txt", TIERS)
     write_lf(sandbox / "tools" / "test_families.txt", FAMILIES)
     write_lf(sandbox / "tests" / "e2e" / "manifest.txt", MANIFEST)

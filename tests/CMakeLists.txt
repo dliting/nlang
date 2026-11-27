@@ -3266,8 +3266,17 @@ set_tests_properties(proj_generic_sourceless_run PROPERTIES
 if(Python3_FOUND)
     #Like every other e2e driver, run under the CMake-found interpreter
     #(${PYTHON3_EXECUTABLE}); ${NLANG_DOCS_PYTHON} defaults to the bare
-    #"python" alias, which is not resolvable on every host.
+    #"python" alias, which is not resolvable on every host. The working
+    #directory is a neutral scratch dir, not the default build/tests:
+    #on a single-config POSIX tree that directory IS the probe
+    #library's build location (build-ide/tests/libnlang_pkgprobe.so),
+    #and nvm's "." system search then answered from the build tree
+    #instead of the package cache — on Windows the multi-config
+    #Debug/ subdirectory keeps "." clean, which is why only the box
+    #saw it.
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/e2e_out")
     add_test(NAME pkg_artifact_imports
+        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/e2e_out
         COMMAND ${PYTHON3_EXECUTABLE}
             ${PROJECT_SOURCE_DIR}/tests/e2e/pkg_artifact_imports/run.py
             $<TARGET_FILE:ncc>

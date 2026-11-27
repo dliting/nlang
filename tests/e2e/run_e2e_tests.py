@@ -936,25 +936,36 @@ def main():
     #leg (NLANG_E2E_MANIFEST set) sees only its family's entries, so
     #the orphan check would flag every other family's sidecar — suite
     #coverage is a full-tour invariant, skip it here.
-    known_names = set()
+    #Override manifests (tier subsets, the cuda double-run list) hold
+    #entries of the MAIN tour: their corpora resolve against tests/e2e,
+    #so an examples-manifest name would run the wrong corpus file. The
+    #override channel therefore validates and prices against the main
+    #manifest only — the first read also stopped examples rows from
+    #shadowing main-tour rows of the same name (class_basic: expected
+    #42 in the tour, 3 in the examples sample). The orphan-sidecar
+    #check below still spans both manifests: suite coverage is a
+    #full-tour invariant.
     committed_rows = {}
-    for manifest_path in (MANIFEST, EXAMPLES_MANIFEST):
-        if not os.path.isfile(manifest_path):
-            continue
-        with open(manifest_path, encoding='utf-8') as mf:
+    with open(MANIFEST, encoding='utf-8') as mf:
+        for line in mf:
+            line = line.strip()
+            if line and not line.startswith('#'):
+                parts = line.split(None, 2)
+                if parts:
+                    committed_rows[parts[0]] = (
+                        parts[1] if len(parts) > 1 else '')
+    known_names = set(committed_rows)
+    if os.path.isfile(EXAMPLES_MANIFEST):
+        with open(EXAMPLES_MANIFEST, encoding='utf-8') as mf:
             for line in mf:
                 line = line.strip()
                 if line and not line.startswith('#'):
-                    parts = line.split(None, 2)
-                    if parts:
-                        known_names.add(parts[0])
-                        committed_rows[parts[0]] = (
-                            parts[1] if len(parts) > 1 else '')
+                    known_names.add(line.split(None, 1)[0])
     #Override-manifest validation: the cuda double-run leg once passed
     #its entry list positionally and the runner silently ignored it; the
-    #NLANG_E2E_MANIFEST channel must not repeat that silence — an empty
-    #or misspelled list would run nothing and report green. Every
-    #override name must key a committed-manifest entry.
+    #NLANG_E2E_MANIFEST channel must not repeat that silence. An EMPTY
+    #override (nothing runnable) is refused outright — a misspelled row
+    #needs no guard, it fails its entry loudly at run time.
     override_path = os.environ.get('NLANG_E2E_MANIFEST')
     if override_path:
         override_names = set()
@@ -963,13 +974,8 @@ def main():
                 line = line.strip()
                 if line and not line.startswith('#'):
                     override_names.add(line.split(None, 1)[0])
-        unknown = sorted(override_names - known_names)
-        if not override_names or unknown:
-            print(f"ERROR: {override_path}: "
-                  + ("no runnable rows"
-                     if not override_names else
-                     "names that key no committed manifest entry: "
-                     + ", ".join(unknown[:10])))
+        if not override_names:
+            print(f"ERROR: {override_path}: no runnable rows")
             sys.exit(2)
     if not override_path:
         for orphan in _orphan_run_stderr_sidecars(known_names):
