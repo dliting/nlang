@@ -267,15 +267,21 @@ def test_native_member_cache(ncc, nvm, pkgprobe_dll, root):
     case_root = root / 'native_member_cache'
 
     # Library: pkgprobe declares the natives, plain is a plain NLang
-    # unit, and the DLL rides the archive as a native member. The
-    # directory copy of the DLL is deleted after packing, so every run
-    # below must find the cache copy — no loose neighbor can answer.
+    # unit, and the probe library rides the archive as a native member.
+    # The member keeps the host spelling the loader resolves
+    # (nlang_pkgprobe.dll on Windows, libnlang_pkgprobe.so on POSIX —
+    # the hardcoded .dll name once shipped a member no POSIX loader
+    # could ever find, and the run silently answered from the build
+    # tree's copy instead). The directory copy is deleted after
+    # packing, so every run below must find the cache copy — no loose
+    # neighbor can answer.
+    probe_name = pkgprobe_dll.name
     library_root = case_root / 'library'
     write_text(
         library_root / 'pkgprobe.n',
         '// Declarations for the package-native probe; the bodies live\n'
-        '// in nlang_pkgprobe.dll, which this package ships as a native\n'
-        '// archive member.\n'
+        '// in the probe library file, which this package ships as a\n'
+        '// native archive member.\n'
         'native int value();\n'
         'native string where();\n')
     write_text(
@@ -283,14 +289,14 @@ def test_native_member_cache(ncc, nvm, pkgprobe_dll, root):
         'int triple(int x) {\n'
         '    return x * 3;\n'
         '}\n')
-    shutil.copy(pkgprobe_dll, library_root / 'nlang_pkgprobe.dll')
+    shutil.copy(pkgprobe_dll, library_root / probe_name)
     library_project = write_project(
         library_root, 'probelib', ['pkgprobe.n', 'plain.n'],
-        ['nlang_pkgprobe.dll'])
+        [probe_name])
     package_dir = case_root / 'packages'
     library_package = package_dir / 'probelib.npkg'
     build_package(ncc, library_project, library_package)
-    (library_root / 'nlang_pkgprobe.dll').unlink()
+    (library_root / probe_name).unlink()
 
     marks_root = case_root / 'marks'
     runs_root = case_root / 'runs'
@@ -333,13 +339,13 @@ def test_native_member_cache(ncc, nvm, pkgprobe_dll, root):
             f'native call through the cache printed {result.stdout!r}, '
             'expected 7341 then a path')
     if (not lines[1].replace('\\', '/').startswith(cache_text + '/')
-            or Path(lines[1]).name != 'nlang_pkgprobe.dll'):
+            or Path(lines[1]).name != probe_name):
         raise CorpusFailure(
             f'where() answered outside the package cache: {lines[1]!r}')
     if not (marks_root / 'attach_caller.mark').exists():
         raise CorpusFailure(
-            'attach mark missing: the probe DLL never mapped into the '
-            'calling process')
+            'attach mark missing: the probe library never mapped into '
+            'the calling process')
 
     # Arm two — extracted, not loaded: this program imports only the
     # plain unit, so the package's native declarations never enter the
@@ -362,9 +368,9 @@ def test_native_member_cache(ncc, nvm, pkgprobe_dll, root):
             'expected 9')
     if mark_plain.exists():
         raise CorpusFailure(
-            'attach mark present: the probe DLL mapped in although its '
-            'declarations are outside the closure')
-    if not list(cache_plain.glob('*/nlang_pkgprobe.dll')):
+            'attach mark present: the probe library mapped in although '
+            'its declarations are outside the closure')
+    if not list(cache_plain.glob(f'*/{probe_name}')):
         raise CorpusFailure(
             'cache copy missing: opening the package must extract its '
             'native members even when no arm of the program loads them')
@@ -372,7 +378,7 @@ def test_native_member_cache(ncc, nvm, pkgprobe_dll, root):
     # Arm three — re-extraction on corruption: a corrupted cache copy
     # must not survive; the next open re-extracts it and the run
     # behaves as if nothing happened.
-    cached = list(cache_caller.glob('*/nlang_pkgprobe.dll'))
+    cached = list(cache_caller.glob(f'*/{probe_name}'))
     if len(cached) != 1:
         raise CorpusFailure(
             f'expected exactly one cached probe copy, found {len(cached)}')
