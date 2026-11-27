@@ -626,6 +626,58 @@ private slots:
             errors);
         QVERIFY2(!retLambda && anyErrorMentions(errors, retNeedle),
             "a return-type-mismatched lambda must name its target");
+        //v0.13.13a Task 4: an int-returning reference at a bare ctor
+        //site — the pre-stamp fixup pass must tolerate its leaked return
+        //type (the void-returning references above can never reach that
+        //shape, so the bare arm had never exercised one; the generic and
+        //qualified arms' int-returning legs pin the same skip arm from
+        //their sides).
+        const char* boxDecl =
+            "class Box {\n"
+            "    public func<int, int> m_f;\n"
+            "    public Box(func<int, int> init) { m_f = init; }\n"
+            "}\n"
+            "int one(int n) { return n; }\n";
+        const bool intRetOk = buildCompile("ctor_arg_fnref_int_ret_bare",
+            (std::string(boxDecl) +
+            "int main() {\n"
+            "    Box b = Box(one);\n"
+            "    return b.m_f(1);\n"
+            "}\n").c_str(),
+            errors);
+        QVERIFY2(intRetOk && errors.empty(),
+            ("an int-returning reference must bind at a bare ctor site: "
+                + joinErrors(errors)).c_str());
+        //Review fix (Task 4, Minor 1): a reference BindArgFuncRefs
+        //rejects fails after the ctor is already selected — the sweep
+        //contract (ExprResolver.h) says the deferred arguments still get
+        //their own missing-target notes on this exit, so the sibling
+        //lambda answers beside the reference's default-parameter error
+        //instead of staying silent.
+        const char* pairDecl =
+            "class Pair {\n"
+            "    public func<int, int> f;\n"
+            "    public func<int, int> g;\n"
+            "    public Pair(func<int, int> a, func<int, int> b) {\n"
+            "        f = a; g = b;\n"
+            "    }\n"
+            "}\n"
+            "int dflt2(int a = 0) { return a; }\n";
+        const bool dfltSweep = buildCompile("ctor_arg_fnref_dflt_sweep",
+            (std::string(pairDecl) +
+            "int main() {\n"
+            "    Pair p = Pair(dflt2, (x) -> x);\n"
+            "    return 0;\n"
+            "}\n").c_str(),
+            errors);
+        QVERIFY2(!dfltSweep
+            && anyErrorMentions(errors,
+                "functions with default parameters cannot be referenced: "
+                "\"dflt2\".")
+            && anyErrorMentions(errors,
+                "a lambda expression requires an expected function type."),
+            "a reference rejected after selection must not silence its "
+            "sibling lambda's sweep diagnostic");
     }
 
     //v0.13.13a D-2(b): the generic instantiation ctor arm `T<A>(args)`
@@ -728,7 +780,19 @@ private slots:
             "    return 0;\n"
             "}\n",
             errors);
-        QVERIFY2(!plainLambda && !errors.empty(),
+        //Review fix (Task 4, Minor 2): pin the diagnostic pair — the
+        //selection failure names the missing constructor (the legacy
+        //arity text for the no-candidate shape), and the swept lambda
+        //answers with its own missing-target wording. The probe-pinned
+        //pair: `class "Plain" has no constructor; Plain() cannot take
+        //arguments` + `a lambda expression requires an expected
+        //function type.`
+        QVERIFY2(!plainLambda
+            && anyErrorMentions(errors,
+                "class \"Plain\" has no constructor; Plain() cannot take "
+                "arguments")
+            && anyErrorMentions(errors,
+                "a lambda expression requires an expected function type."),
             "a lambda against an unmatched ctor set fails with a real "
             "diagnostic, not a silent pass or a missing-target sweep");
     }

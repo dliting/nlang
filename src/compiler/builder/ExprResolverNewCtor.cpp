@@ -330,11 +330,12 @@ bool ExprResolveAccessor::BindDeferredCtorArgs(SnNewExpr &newExpr,
 //bindings (mirroring MatchCtorAgainst exactly: same actuals, same
 //candidate, so the shape that won the match binds here),
 //BindArgFuncRefs gives a reference its bound func type, and
-//ResolveDeferredArgs hands a lambda its expected function type. On a
-//failed selection the mismatch diagnostic is already logged; the
-//deferred arguments still get their sweep so they never reach the
-//backend unresolved (the sweep is idempotent — resolved arguments drop
-//out).
+//ResolveDeferredArgs hands a lambda its expected function type. On
+//either failure exit — a failed selection or a reference rejected by
+//BindArgFuncRefs — the diagnostic is already logged; the deferred
+//arguments still get their sweep so they never reach the backend
+//unresolved and each answers with its own missing-target diagnostic
+//(the sweep is idempotent — resolved arguments drop out).
 bool ExprResolveAccessor::BindCtorDeferredTail(SyntaxNode &argsOwner,
 	const std::vector<SnExpression*> &actuals,
 	const std::vector<SnExpression*> &deferredArgs, SnFunction *pCtor)
@@ -346,7 +347,10 @@ bool ExprResolveAccessor::BindCtorDeferredTail(SyntaxNode &argsOwner,
 		return false;
 	}
 	if (!BindArgFuncRefs(bindings))
+	{
+		AcceptDeferredArgs(*m_pVisitor, deferredArgs);
 		return false;
+	}
 	return ResolveDeferredArgs(argsOwner, bindings);
 }
 

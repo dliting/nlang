@@ -1,7 +1,9 @@
 /*---
-    ExprResolverBinding.cpp — 重载候选的绑定距离核算与选定后的实参绑定尾
-    （函数引用戳绑、deferred实参绑定）。距离核算从 ExprResolverCast.cpp
-    抽取（2026-10-12 source-size 拆分，零行为变化）。
+    ExprResolverBinding.cpp — binding-distance accounting for overload
+    candidates plus the post-selection argument-binding tail (function
+    reference stamping, deferred-argument binding). The distance
+    accounting was extracted from ExprResolverCast.cpp (2026-10-12
+    source-size split, zero behavior change).
 ---*/
 #include "ExprResolver.h"
 #include "ExprResolverCastFit.hpp"
