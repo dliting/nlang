@@ -491,7 +491,6 @@ ctest-ASan net_jobs_tests 0.08 1 ctest-junit-serial
 ctest-ASan net_platform_tests 2.09 1 ctest-junit-serial
 ctest-ASan net_scheduler_tests 0.78 1 ctest-junit-serial
 ctest-ASan net_slots_tests 0.09 1 ctest-junit-serial
-ctest-ASan nide_deploy_check 16.45 1 ctest-junit-serial
 ctest-ASan nlang_c_inline 2.34 1 ctest-junit-serial
 ctest-ASan nlang_cli_rejects 1.11 1 ctest-junit-serial
 ctest-ASan nlang_gate_selftest 59.53 1 ctest-junit-serial - 慢集成员(基线行参考秒数越过SLOW_MIN_REF_S):门禁自测逐用例构造场景、驱动真实门禁脚本并轮询等待腿终态,累计分钟级;不进每轮判定腿,由收口前慢集腿承接
@@ -502,7 +501,6 @@ ctest-ASan nvm_carriers_flag 2.10 1 ctest-junit-serial
 ctest-ASan nvm_gc_stress_position 1.40 1 ctest-junit-serial
 ctest-ASan nvm_native_paths 3.00 1 ctest-junit-serial
 ctest-ASan perunit_tests 26.36 1 ctest-junit-serial
-ctest-ASan prelude_faces_tests 3.77 1 ctest-junit-serial
 ctest-ASan primitivetypes_tests 0.79 1 ctest-junit-serial
 ctest-ASan primops_tests 3.64 1 ctest-junit-serial
 ctest-ASan proj_ambiguous_bare_compile 0.96 1 ctest-junit-serial
@@ -611,9 +609,6 @@ ctest-ASan e2e_runner_env_gate 1.76 1 ctest-junit-serial
 ctest-ASan e2e_runner_scratch_isolation 1.88 1 ctest-junit-serial
 ctest-ASan nlang_docs_pytest 33.09 1 ctest-junit-serial
 ctest-ASan e2e_runner_timing_gate 164.64 1 ctest-junit-serial - ICMP v4 loopback pathological window measured seconds (as-logged, not a healthy-clock reference); the recalibration obligation for this row was closed by the 2026-11-26 user ruling (no thaw; the exemption is the steady-state verdict); twin refs: ctest-Debug 35.79, ctest-IDE 36.04
-ctest-ASan lambda_capture_tests 1.80 1 ctest-junit-serial
-ctest-ASan lambda_param_tests 0.71 1 ctest-junit-serial
-ctest-ASan lambda_typing_tests 2.27 1 ctest-junit-serial
 ctest-Debug layering_guard 0.22 1 ctest-junit-serial
 ctest-Debug layering_guard_selftest 0.13 1 ctest-junit-serial
 ctest-IDE layering_guard 0.23 1 ctest-junit-serial
