@@ -381,8 +381,20 @@ add_custom_target(nlang_stdlib_package ALL
 option(NLANG_BUILD_DOCS
     "Build the mkdocs documentation site (needs the pinned Python env)"
     ON)
-set(NLANG_DOCS_PYTHON "python" CACHE STRING
-    "Python interpreter for the docs target (py313's python.exe)")
+#Interpreter default: the CMake-found Python, not the bare "python"
+#alias — a bare alias that does not exist (or lacks pytest) silently
+#dropped the pytest-based ctest entries at configure time (the runner
+#timing-gate entry was never registered on a whole machine class, so
+#its defects had no gate exposure). An explicit cache value still wins.
+if(NLANG_DOCS_PYTHON STREQUAL "")
+    set(NLANG_DOCS_PYTHON "${PYTHON3_EXECUTABLE}" CACHE STRING
+        "Python interpreter for the docs target (py313's python.exe)"
+        FORCE)
+elseif(NLANG_DOCS_PYTHON STREQUAL "python" AND PYTHON3_EXECUTABLE)
+    set(NLANG_DOCS_PYTHON "${PYTHON3_EXECUTABLE}" CACHE STRING
+        "Python interpreter for the docs target (py313's python.exe)"
+        FORCE)
+endif()
 set(NLANG_DOCS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/tools/nlang-docs)
 #The subproject is invoked without installing it (offline builds must
 #not need pip): its src/ goes through PYTHONPATH.
