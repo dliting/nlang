@@ -1996,11 +1996,15 @@ if(NLANG_BUILD_IDE)
             #renders widgets into an off-screen buffer and finds its
             #plugin inside the Qt install prefix. Windows keeps the
             #real windows platform -- the offscreen platform has no
-            #deployed fonts there and crashes QMessageBox layout. A
-            #later nlang_test_env merge keeps this entry (different
-            #VAR), so plugin-path overrides never evict it.
-            set_tests_properties(${name} PROPERTIES
-                ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+            #deployed fonts there and crashes QMessageBox layout.
+            #set_tests_properties REPLACES the ENVIRONMENT property, so
+            #this must go through the merge helper: a raw set here would
+            #evict the scratch pairs (TMP/TEMP/TMPDIR/tree token/pkg
+            #cache) the add_test wrapper merged in a step earlier --
+            #which on the Linux box silently stripped 33 qtest entries
+            #of their per-tree scratch and failed mainwindow_tests'
+            #tree-token assertion.
+            nlang_test_env(${name} QT_QPA_PLATFORM=offscreen)
         endif()
     endfunction()
 
