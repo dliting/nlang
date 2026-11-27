@@ -937,6 +937,7 @@ def main():
     #the orphan check would flag every other family's sidecar — suite
     #coverage is a full-tour invariant, skip it here.
     known_names = set()
+    committed_rows = {}
     for manifest_path in (MANIFEST, EXAMPLES_MANIFEST):
         if not os.path.isfile(manifest_path):
             continue
@@ -944,7 +945,11 @@ def main():
             for line in mf:
                 line = line.strip()
                 if line and not line.startswith('#'):
-                    known_names.add(line.split(None, 1)[0])
+                    parts = line.split(None, 2)
+                    if parts:
+                        known_names.add(parts[0])
+                        committed_rows[parts[0]] = (
+                            parts[1] if len(parts) > 1 else '')
     #Override-manifest validation: the cuda double-run leg once passed
     #its entry list positionally and the runner silently ignored it; the
     #NLANG_E2E_MANIFEST channel must not repeat that silence — an empty
@@ -1007,13 +1012,16 @@ def main():
             #Column 1: name; column 2: expected exit code / "compile_error";
             #optional column 3: expected stdout substring (maxsplit=2 keeps
             #spaces inside the substring; absent = no stdout assertion).
-            #A single-column row is a bare name and means expected exit 0
-            #(the double-run list's spelling): defaulting it here keeps one
-            #parser for both spellings. Committed manifests carry the
-            #column explicitly; the default only serves name-list files.
+            #A single-column row is a bare name (the double-run list's
+            #spelling) and prices its verdict against the committed
+            #manifest's own expectation — "same exit codes as the
+            #pinned-cpu suite" is the list's stated contract. Guessing a
+            #0 here once fabricated 103 failures: every throws family
+            #(expected 1), compile_error row and the exit-code
+            #passthrough corpora (expected 42) read as a mismatch.
             parts = line.split(None, 2)
             if len(parts) < 2:
-                parts.append('0')
+                parts.append(committed_rows.get(parts[0], '0'))
             name = parts[0]
             #Environment gate: a gated entry whose capability the OS
             #oracle says is absent is skipped before any tooling runs
