@@ -9,6 +9,10 @@
 #
 #  icmp  the OS gets loopback ICMP echo answers (ping exit code)
 #  dns   the resolver fails a reserved TLD (.invalid, RFC 2606)
+#  fds   the soft RLIMIT_NOFILE covers the concurrency examples' two
+#        process-local socket populations (client + server arms);
+#        POSIX defaults of 1024 run the 1000-client bench out of
+#        descriptors mid-run. Windows has no comparable cliff.
 
 stdlib_net_ping_loopback icmp
 stdlib_net_ping_stress icmp
@@ -20,3 +24,7 @@ stdlib_net_ping_stress icmp
 #only the ping case until the two lines were merged).
 stdlib_net_ping_error_text dns
 stdlib_net_resolve_text dns
+#The 1000-client bench: client and server arms live in one process, so
+#~2000 sockets must open alongside the std fds — the fds oracle gates
+#it (visible SKIP on a constrained host, full run where limits allow).
+net_conc_bench fds

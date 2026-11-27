@@ -431,7 +431,32 @@ def _probe_dns():
     except socket.gaierror:
         return True
 
-ENV_PROBES = {'icmp': _probe_icmp, 'dns': _probe_dns}
+#Client and server live in ONE process for the concurrency examples:
+#net_conc_bench holds ~2000 open sockets (1000 client arms + 1000
+#server arms) on top of the std fds. A POSIX soft RLIMIT_NOFILE of
+#1024 (the decades-old default) runs out of descriptors mid-bench —
+#accept answered EMFILE, the acceptor retired, and every arm past the
+#cliff timed out in readLine (the box failed 3/3 at 1000 clients,
+#passed at 100, passed at 1000 with ulimit -n 4096). Windows carries
+#no comparable default cliff, so there the oracle just answers yes.
+BENCH_SOCKET_BUDGET = 2200
+
+def _probe_fds():
+    """True when the process may open as many descriptors as the
+    concurrency examples need (soft RLIMIT_NOFILE >= the socket
+    budget)."""
+    if os.name == 'nt':
+        return True
+    try:
+        import resource
+    except ImportError:
+        return False
+    soft, _hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    if soft == resource.RLIM_INFINITY:
+        return True
+    return soft >= BENCH_SOCKET_BUDGET
+
+ENV_PROBES = {'icmp': _probe_icmp, 'dns': _probe_dns, 'fds': _probe_fds}
 
 def parse_env_gates(path):
     """name -> set of capability keys. Unknown keys and keyless rows
