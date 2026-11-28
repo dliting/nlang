@@ -210,8 +210,8 @@ subscript or the result of another call — and it mixes freely
 with the member-access and subscript suffixes of §5.7 into a
 chain: `makeAdder(3)(4)`, `funcs["one"](7)`, `obj.cb(x)`.
 A callee expression that is not of a function type is a
-compile-time error (`expression of type "int" is not callable;
-a call requires a function-typed value.`). Each argument must
+compile-time error (`expression of type "Int32" is not
+callable; a call requires a function-typed value.`). Each argument must
 be assignable to its parameter's type (§4.4). The result of a call is the callee's
 return type; a call to a `void` function is used as a statement
 (chapter 6). Calling a function value whose value is `null` is a
