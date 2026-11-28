@@ -318,7 +318,12 @@ static void test_dict_keys_recast_carries_token()
     std::function<void(const SyntaxNode&)> findKeys =
         [&](const SyntaxNode& node) {
             if (node.Kind() == NK_MemberExpr
-                && node.ToString().find("keys") != std::string::npos) {
+                && node.ToString().find("keys") != std::string::npos
+                //Same prelude filter as collectGenericTypeExprs: the Set
+                //face's source body calls table.keys(), so a prelude-side
+                //member expr must not masquerade as the user's keys call.
+                && !out.builder->Registry().IsPreludeModule(
+                    out.builder->Registry().OwnerOfContext(node))) {
                 auto* pField = static_cast<const SnExpression&>(node)
                     .EvalDataType();
                 if (pField && pField->Kind() == NK_ClassDecl)
@@ -331,12 +336,15 @@ static void test_dict_keys_recast_carries_token()
     findKeys(root);
     CHECK(pKeys, "keys() call resolved to a synthetic List class");
     //The Dict decl's instantiation carries the array-typed key slot; the
-    //keys() re-cast must share its interned token.
+    //keys() re-cast must share its interned token. Both the Dict and the
+    //List decl have an array-typed first type arg, so the instantiation
+    //name picks the Dict out of the two.
     SnClassDecl* pDict = nullptr;
     for (auto* pExpr : exprs) {
         if (!pExpr->TypeArgs().empty()
             && pExpr->TypeArgs()[0]
-            && pExpr->TypeArgs()[0]->Kind() == NK_ArrayTypeExpr)
+            && pExpr->TypeArgs()[0]->Kind() == NK_ArrayTypeExpr
+            && instantiationOf(*pExpr)->Name() == "Dict")
             pDict = instantiationOf(*pExpr);
     }
     CHECK(pDict, "Dict<int[],int> instantiation found");
