@@ -16,17 +16,19 @@
 int foo(int a, int b = 0) { return a + b; }
 int foo(int a, int b = a + 1) { return b; }       // 引用更前面的形参
 int foo(int a, int b = 0, int c) { return c; }     // 默认值不在末尾
+int apply(func<int, int> g = (x) -> x + 1) { return g(1); }   // 函数值默认值
 ```
 
 - `foo(5)` → `b`取默认值
 - `foo(5, 10)` → `b`为10，默认值不评估
 - 默认表达式在调用点求值（不是在声明处）
 - 默认表达式与形参类型不匹配是编译错误
+- 形参类型是函数类型时，默认表达式可以是函数引用或lambda，对照声明的函数类型精确检查（§7.4）
 - enum方法**不**支持默认参数（§4.6.2）
 
-class或struct构造函数的形参默认值不能引用`this`——显式`this.a`与裸字段名的隐式形式都是编译错误，因为默认表达式在构造调用点求值，此时被构造的对象尚不存在（§4.8.6、§4.7.5）。
+class或struct构造函数的形参默认值在构造调用点求值，此时被构造的对象尚不存在（§4.8.6、§4.7.5）：引用`this`是编译错误——显式`this.a`与裸字段名的隐式形式都在内，两条诊断分别给出`cannot reference 'this'`与`cannot access instance member "Seed.v"`，被引用的成员在诊断中点名。默认表达式可以读取与调用静态成员，所属类内非限定名与经类型名限定都合法（§4.8.8）。
 
-跨越`.ncu`边界的默认表达式以小表达式树的形式传递，覆盖一个可折叠的子集（§28.6）；子集之外的默认值由必须把它实体化的使用方报告为错误。在同一工程里一起编译的源码直接使用默认值。
+跨越`.ncu`边界的默认表达式以小表达式树的形式传递，覆盖一个可折叠的子集（§28.6）；子集之外的默认值由必须把它实体化的使用方报告为错误。在同一工程里一起编译的源码直接使用默认值。lambda默认不参与跨模块传递：库单元（无`main`入口的单元）里被导出的声明带lambda默认是编译期错误——捕获`this`或实例成员的形态由诊断点名（`a default lambda that captures 'this' or an instance member cannot be exported.`），其余导出形态报`lambda expressions are supported in default values of non-exported declarations.`；含`main`的程序单元与库内不导出的声明不受此限。
 
 ### 命名实参
 

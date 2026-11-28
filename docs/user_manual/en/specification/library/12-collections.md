@@ -1,8 +1,11 @@
 # 12. Collections
 
-`List<T>` and `Dict<K, V>` are the two built-in container classes:
-generic classes declared in the `containers` prelude package
-(§4.12.1, §4.12.6).
+`List<T>`, `Dict<K, V>` and `Set<T>` are the three built-in
+container classes: generic classes declared in the `containers`
+prelude package (§4.12.1, §4.12.6). The `List` and `Dict` methods
+are answered over the built-in run-time channel, while `Set` is
+written as source code in the prelude package and its methods
+forward to a `Dict` key table (§12.3).
 This chapter defines their method surface — every method with its
 signature, effect and failure behavior — how elements and keys are
 matched, and how a container instantiated with `Object` mixes value
@@ -102,6 +105,7 @@ A `Dict<K, V>` (§4.12) maps keys of type `K` to values of type `V`.
 | --- | --- | --- | --- |
 | `set(key, value)` | `void set(K key, V value)` | stores `value` under `key`; re-storing a key replaces the value in place and keeps the key's position | — |
 | `get(key)` | `V& get(K key)` | the value stored under `key` — a reference-preserving read like `List`'s (see §12.1) | no entry for `key` raises `Exception` |
+| `getOrDefault(key, defaultValue)` | `V getOrDefault(K key, V defaultValue)` | the value stored under `key`; with no entry, returns `defaultValue` — no entry is created and nothing is raised, in contrast to `get`'s missing-key raise. The result is a copy, not a reference-preserving read | — |
 | `containsKey(key)` | `bool containsKey(K key)` | whether an entry for `key` exists | — |
 | `remove(key)` | `int remove(K key)` | removes the entry for `key`; yields `1` if one was removed, `0` if the key was not found | — |
 | `clear()` | `void clear()` | removes every entry | — |
@@ -136,3 +140,49 @@ apply (§12.1).
 *Informative:* every `set`, `get`, `containsKey` and `remove` on a
 `Dict` scans the entries linearly — acceptable for typical small
 scripts; no O(1) hashtable lookup is provided.
+
+## 12.3 Set
+
+A `Set<T>` (§4.12) holds each element once: `add`ing an
+already-equal element changes nothing. Element equality is the
+kind-aware equality of §12.1 — the same rule `Dict` uses for its
+keys (§12.2): struct elements compare by field value, strings by
+content, class and array elements by identity.
+
+`Set<T>` is written as source code in the `containers` prelude
+package, and every method forwards to a private `Dict<T, int>` key
+table inside it — an element is in the set when it is a key of that
+table — so its storage and ordering rules are `Dict`'s key rules
+(§12.2); it has no storage semantics of its own.
+
+| Method | Signature | Effect | Failure behavior |
+| --- | --- | --- | --- |
+| `add(item)` | `bool add(T item)` | appends `item` in insertion order when absent; yields whether an element was added | — |
+| `contains(item)` | `bool contains(T item)` | whether `item` is in the set | — |
+| `remove(item)` | `bool remove(T item)` | removes `item` when present; yields whether a removal happened | — |
+| `count()` | `int count()` | the element count | — |
+| `clear()` | `void clear()` | removes every element | — |
+| `copy()` | `Set<T> copy()` | a fresh set carrying the same element handles (shallow copy) | — |
+| `values()` | `List<T> values()` | a fresh `List<T>` holding every element in insertion order | — |
+| `toString()` | `string toString()` | `[e1, e2, ...]` (§11.2) | — |
+
+Three return shapes differ from the matching `Dict` methods, each
+on purpose: `add` returns `bool` (`Dict`'s `set` is `void`) because
+whether an insertion happened is exactly the question a set
+answers; `remove` returns `bool` rather than `Dict`'s `0`/`1`
+`int`, because a set stores no value to hand back; and `values()`
+answers `Dict.keys()` — likewise a fresh snapshot list in insertion
+order — named from the element's point of view, since a set's
+members are the elements themselves. `Dict` itself still provides
+no `values()` (§12.2).
+
+Iteration goes through the `values()` snapshot:
+`foreach (int x in s.values())` (§6.4, §12.2); a `Set` value itself
+is not one of the iterable `foreach` sources (§6.4).
+
+With `T` written as `Object`, the boxing rules of `List` apply
+(§12.1).
+
+*Informative:* lookup follows `Dict`'s linear scan (§12.2): `add`,
+`contains` and `remove` are all O(n), and `values()` copies the
+whole key table per call; no O(1) hashtable lookup is provided.

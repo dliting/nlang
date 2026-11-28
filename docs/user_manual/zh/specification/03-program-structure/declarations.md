@@ -134,7 +134,7 @@ int apply(BinOp f) { ... }   // 参数与返回类型
 
 ### 预置包与同名优先级
 
-每次构建自动导入两个预置包（随工具链发布）：`lang`（`stdlib/lang.n`）声明异常家族、层次根`Object`与声明持有类`String`与`Array`；`containers`（`stdlib/containers.n`）声明基础容器`List<T>`与`Dict<K,V>`。包内一律是普通class声明——构造器元数与方法面就是文件里声明的样子。见[库约定](../library/11-conventions.md)。
+每次构建自动导入两个预置包（随工具链发布）：`lang`（`stdlib/lang.n`）声明异常家族、层次根`Object`与声明持有类`String`与`Array`；`containers`（`stdlib/containers.n`）声明基础容器`List<T>`、`Dict<K,V>`与`Set<T>`。包内一律是普通class声明——构造器元数与方法面就是文件里声明的样子。见[库约定](../library/11-conventions.md)。
 
 自己的代码在根级别声明同名class会**遮蔽**预置声明——任何位置都是最内层声明获胜（类型引用、构造调用、成员查找）：
 

@@ -1,3 +1,78 @@
+## [0.13.13a] - 2026-11-28
+
+A function-value batch: a function reference or a lambda written
+where a `func` type is expected — a parameter default or a
+constructor argument — now binds against the type the declaration
+gives it instead of being rejected; any expression that yields a
+function value can be called directly; and a constructor parameter
+default can name static members. Exported function-typed defaults
+ride the `.ncu` across module boundaries. The standard library
+gained the base container `Set<T>` and `Dict.getOrDefault`.
+
+### Added
+
+- **The `Set<T>` base container.** The `containers` prelude gained a
+  third base container beside `List` and `Dict`: each element stored
+  once, in insertion order, compared by the same kind-aware equality
+  that decides `Dict` keys (§12.2). The method surface is `add`,
+  `contains`, `remove`, `count`, `clear`, `copy`, `values()` and
+  `toString()` (§12.3). Like its siblings it needs no import, and it
+  lives as source in the prelude rather than in the VM.
+- **`Dict.getOrDefault(key, defaultValue)`.** The value stored under
+  `key`, or `defaultValue` on a miss — no entry is created and
+  nothing is raised, where `get` raises (§12.2).
+
+### Changed
+
+- **Function references and lambdas as `func` parameter defaults.**
+  A free function, a static method or a lambda can be written as a
+  parameter default — `int apply(func<int, int> g = (x) -> x + 1)` —
+  and a call that omits the argument takes it; the same spelling
+  previously failed with the `requires an expected function type`
+  error (§7.2, §7.4).
+- **Function references and lambdas as constructor arguments.**
+  `App(noop)`, `App((c) -> {})` and `Hold<func<int, int>>((x) -> x)`
+  bind against the selected constructor's parameter type — bare,
+  qualified and generic-instantiation spellings alike — where the
+  same argument previously had to pass through a typed local first
+  (§4.8.6).
+- **Calls are a postfix operation on any function-typed value.**
+  `mws[0](ctx)`, `funcs["one"](7)`, `obj.cb(2)` and `makeAdder(3)(4)`
+  compile; the call suffix chains onto any callable expression, and
+  a non-function receiver is a resolved expression reported as not
+  callable instead of a syntax error (§5.6).
+- **Static members in constructor parameter defaults.** A
+  constructor default may name any static member resolvable from its
+  declaration — `Store(int ttlMs = Config.DEFAULT_TTL_MS)` in bare,
+  own-qualified or other-class spelling — because a constructor
+  default never needs the instance under construction; explicit
+  `this` and instance-member access stay rejected, and the
+  diagnostic names the actual spelling instead of blaming `this` for
+  a qualified constant (§4.8.6).
+- **Function-typed defaults cross module boundaries.** An exported
+  parameter default written as a function reference, a qualified
+  static field read or a lambda is encoded in the `.ncu` and
+  rebuilt at the consumer; a lambda default whose captures the
+  consumer cannot see is rejected at its declaration (§28.6). The
+  NCU format version stays 2.23 — the new default-value encodings
+  ride the existing record — and the thirteen shipped `.npkg`
+  packages are byte-unchanged.
+
+### Fixed
+
+- **Generic type parameters no longer lose their bare name to a
+  global class.** Declaring a class with the same name as a type
+  parameter (`class V` beside a generic that uses `V`) resolved the
+  bare name to the global class inside the declaration, and a user
+  `K` or `V` could break the prelude containers' own method bodies;
+  a bare name in scope of a type parameter now resolves to the
+  parameter (§4.12.2).
+- **Private members of a generic class resolve across
+  instantiations.** A private field or method of a generic class,
+  accessed from another instantiation of the same class, failed with
+  `Cannot resolve the field` while the same access on non-private
+  members succeeded (§4.12.2).
+
 ## [0.13.13] - 2026-11-26
 
 This release absorbs both lines' in-flight versions: the master

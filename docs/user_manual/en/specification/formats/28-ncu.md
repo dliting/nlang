@@ -403,11 +403,33 @@ byte:
 | `0x22` | a binary expression: an operator byte (`0` `+`, `1` `-`, `2` `*`, `3` `/`, `4` `%`, `5` `<<`, `6` `>>`, `7` `&`, `8` `|`, `9` `^`), then two child trees |
 | `0x23` | a call: a u16 length and the callee's qualified key, a u32 parameter count, a u8 argument count, then that many child trees |
 | `0x24` | unary bitwise complement `~`, then one child tree |
+| `0x25` | a function value by name: u16 length + bytes, the qualified key of the referenced free function or static method (§7.4) |
+| `0x26` | a qualified static field read: u16 length + bytes, the qualified key of the static field (§4.8.8) |
 
 A default expression tree nests at most 16 levels and spans at
 most 4096 bytes; the writer records a default whose expression
 would exceed either ceiling as `0xFC`, and a reader rejects a
 tree that exceeds either.
+
+The qualified keys carried by `0x25` and `0x26` are confined to
+keys under the producing unit's own package path — when the
+referenced target is an imported or prelude one, the writer falls
+back to `0xFC` and the consumer rejects the default as outside the
+subset. A lambda default never rides this tree and is recorded as
+`0xFC`: the compiler eliminates the only case that could cross the
+boundary at the declaration site — an exported declaration carrying
+a lambda default in a library unit (a unit with no `main` entry) is
+a compile-time error, and the forms capturing `this` or an instance
+member get their own diagnostic (§7.2).
+
+The two new node kinds do not raise the format version: only
+freshly written images use `0x25` and `0x26`, and the byte surface
+of existing corpora that use none of the new default forms is
+unchanged. The archive surface is likewise unchanged: the prelude
+sources `lang.n` and `containers.n` are inlined into the compiler
+binary at compile time and go into no `.npkg` archive, so the new
+content they carry with this batch — `Set` and `getOrDefault` —
+changes no byte of the thirteen library package archives (§3.9.4).
 
 ## 28.7 Import Slots
 

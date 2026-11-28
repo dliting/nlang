@@ -10,12 +10,14 @@ dispatched on the receiver.
 The prelude packages sit beside them: `lang` (`stdlib/lang.n`)
 declares the `Exception` family, the hierarchy root `Object`, the
 declaration-holder class `String` and the generic array face `Array<T>`; `containers`
-(`stdlib/containers.n`) declares the base containers `List<T>` and
-`Dict<K,V>`. Every build imports both automatically, so their
+(`stdlib/containers.n`) declares the base containers `List<T>`,
+`Dict<K,V>` and `Set<T>`. Every build imports both automatically,
+so their
 declarations need no import statement, and an explicit `import lang;`
 or `import containers;` is legal and deduplicates (§3.9.4). The
 always-visible names they declare — `Object`, the `Exception`
-family, `String`, `Array`, `List<T>` and `Dict<K,V>` — are the whole
+family, `String`, `Array`, `List<T>`, `Dict<K,V>` and `Set<T>` —
+are the whole
 set (§3.9.4).
 
 Every method of the built-in value and container classes is built
@@ -33,8 +35,8 @@ itself only holds the array method declarations and cannot be
 extended.
 
 The method surfaces are defined across the specification: the
-`string` methods in chapter 17, the `List` and `Dict` methods in
-chapter 12, the default rendering of every value in §11.2, the
+`string` methods in chapter 17, the `List`, `Dict` and `Set`
+methods in chapter 12, the default rendering of every value in §11.2, the
 concurrency handle classes and the package classes of `thread` and
 `concurrent` in chapter 10 and chapter 18, the stream handle
 classes in chapter 14, and the exception classes in §8.3.
@@ -79,14 +81,15 @@ the class's source name, `@`, and a lowercase hexadecimal rendering
 of an implementation-chosen object number (`Point@1a`). A `null`
 receiver raises `NullPointerException` (§4.8.10, §8.3).
 
-Each built-in type renders as follows; `List`, `Dict`, class and
-function values also answer `toString()` as a method:
+Each built-in type renders as follows; `List`, `Dict`, `Set`,
+class and function values also answer `toString()` as a method:
 
 | Receiver | Rendering |
 | --- | --- |
 | `string` | the string itself |
 | `List` | `[e1, e2, ...]` — elements rendered by the rules below |
 | `Dict` | `{k1: v1, k2: v2, ...}` — entries rendered by the rules below, in insertion order (§12.2) |
+| `Set` | `[e1, e2, ...]` — elements rendered by the rules below, in insertion order (§12.3) |
 | array | `[...]`, nested per dimension (§4.10, §5.3) |
 | enumeration | the member name (§4.6) |
 | function value | `func name` or `method name` (§7.4) |

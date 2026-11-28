@@ -36,6 +36,7 @@ parameters.
 int foo(int a, int b = 0) { return a + b; }
 int foo(int a, int b = a + 1) { return b; }       // references earlier param
 int foo(int a, int b = 0, int c) { return c; }     // default not at end
+int apply(func<int, int> g = (x) -> x + 1) { return g(1); }   // a function-value default
 ```
 
 - `foo(5)` → `b` gets default value
@@ -43,19 +44,35 @@ int foo(int a, int b = 0, int c) { return c; }     // default not at end
 - Default expressions are evaluated at the call site (not at declaration)
 - Type mismatch between default expression and parameter type is a compile
   error
+- When the formal's type is a function type, the default expression may
+  be a function reference or a lambda, checked exactly against the
+  declared function type (§7.4)
 - Enum methods do **not** support default parameters (§4.6.2)
 
-A class or struct constructor's default parameter expressions cannot
-reference `this` — both the explicit `this.a` form and the implicit
-bare-field form are compile errors, because defaults evaluate at the
-construction call site, where the object under construction does not
-exist yet (§4.8.6, §4.7.5).
+A class or struct constructor's formal default values are evaluated at
+the construction call site, where the object under construction does
+not exist yet (§4.8.6, §4.7.5): referencing `this` is a compile-time
+error — both the explicit `this.a` form and the implicit bare-field
+form, the two diagnostics giving `cannot reference 'this'` and
+`cannot access instance member "Seed.v"` respectively, with the
+referenced member named in the diagnostic. A default expression may
+read and call static members; the unqualified form inside the owning
+class and the qualified form through the type name are both legal
+(§4.8.8).
 
 A default expression that crosses a `.ncu` boundary travels as a
 small expression tree over a foldable subset (§28.6); a default
 outside that subset is reported as an error by the consumer that
 must materialize it. Sources compiled together in one project use
-defaults directly.
+defaults directly. A lambda default never travels across the
+boundary: a lambda default on an exported declaration in a library
+unit (a unit with no `main` entry) is a compile-time error — the
+forms capturing `this` or an instance member get a diagnostic that
+names them (`a default lambda that captures 'this' or an instance
+member cannot be exported.`), and other exported forms report
+`lambda expressions are supported in default values of non-exported
+declarations.`; units with a `main` and non-exported declarations
+inside a library are not restricted.
 
 ### Named arguments
 

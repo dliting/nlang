@@ -62,6 +62,11 @@ Point r;                        // bare declaration: no constructor runs
 Point s = Point{5};             // init list: no constructor runs
 ```
 
+The constructor calls above are ordinary expressions: each
+produces a struct value, and assigning it to a declaration target
+copies the value into the record that position already owns
+(§4.7.4).
+
 `new Point(...)` runs the constructor too; the value is placed on
 the heap, matching the class-typed `new` (§4.8.4).
 

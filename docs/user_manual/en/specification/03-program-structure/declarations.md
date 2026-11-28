@@ -216,7 +216,8 @@ Every build automatically imports the two prelude packages, both
 shipped with the toolchain: `lang` (`stdlib/lang.n`) declares the
 exception family, the hierarchy root `Object`, and the declaration
 holders `String` and `Array`; `containers` (`stdlib/containers.n`)
-declares the base containers `List<T>` and `Dict<K,V>`. All of them
+declares the base containers `List<T>`, `Dict<K,V>` and `Set<T>`.
+All of them
 are ordinary class declarations — constructor arity and method
 surface are exactly what the files declare. See
 [Library Conventions](../library/11-conventions.md).

@@ -45,10 +45,9 @@ interface method late-bound at each call — are §5.9.
 
 A function reference is formed only where a function type is
 expected: in a local declaration, an initializer, an assignment, a
-return, an argument, an array element or a brace entry (§5.8). A
-constructor-call argument is the exception: a reference formed
-directly there is a compile-time error, so bind the reference to a
-`func` local first and pass the local (see Restrictions). With no
+return, an argument — constructor-call arguments included
+(§4.8.4) — a formal default-value position (§7.2), an array
+element or a brace entry (§5.8). With no
 expected type the reference is a compile-time error. The
 denoted signature must match the expected function type exactly:
 no variance, no conversion of the parameters or the result. A
@@ -146,10 +145,11 @@ int main() {
 
 Binding happens at **consumer sites** where an expected function type
 exists: declaration/assignment right-hand sides (including fields and
-subscript stores), return positions, call arguments, container-method
-arguments (`l.add(bar)`), and init-list entries (`[bar]`). A
-constructor-call argument is the exception: pass a `func` local
-there, not the bare name (see Restrictions). A reference with no
+subscript stores), return positions, call arguments — a
+constructor-call argument position carries the corresponding
+formal's declared type, so a bare name can be written directly
+(§4.8.4) — formal default-value positions (§7.2), container-method
+arguments (`l.add(bar)`), and init-list entries (`[bar]`). A reference with no
 expected function type is a compile error naming the reference.
 
 ### Lambda expressions
@@ -157,9 +157,9 @@ expected function type is a compile error naming the reference.
 *Informative:* `->` introduces a lambda expression — a function value
 written in place. A lambda shares the consumer positions of a function
 reference: declarations, assignments, return positions, call
-arguments, array elements, and brace entries — a constructor-call
-argument is again the exception: the lambda must land in a `func`
-local first (see Restrictions). Every lambda is checked against an
+arguments (constructor calls and formal default-value positions
+included, §4.8.4, §7.2), array elements, and brace entries.
+Every lambda is checked against an
 expected function type; a lambda with no expected function type is a
 compile-time error.
 
@@ -303,8 +303,9 @@ int main() {
 }
 ```
 
-Invoking the returned function value goes through a name: a chained
-call like `add(3)(4)` is not part of the expression grammar. A
+The returned function value can be invoked directly: a call is
+a postfix operation, and `add(3)(4)` continues with a call
+applied to the result of the first one (§5.6). A
 function that returns a lambda gives every call its own captured
 storage — a factory of independent counters:
 
@@ -359,7 +360,7 @@ A closure's `toString` renders as `"lambda"`; the `==`/`!=` and
 
 ### Invocation
 
-*Informative:* three call shapes:
+*Informative:* call shapes:
 
 - **Bare identifier** — `f(x)`. A `func`-typed local/parameter/field
   **shadows** any same-named function.
@@ -367,6 +368,10 @@ A closure's `toString` renders as `"lambda"`; the `==`/`!=` and
 - **Static field** — `Cfg.dbl(x)` where `dbl` is a `func`-typed static
   field; the type name qualifies, no receiver exists, and the field's
   current handle is invoked.
+- **Any function-value expression** — a call is a postfix
+  operation: any expression that evaluates to a function type can
+  start a call and mixes with the other suffix operators (§5.6):
+  `funcs.get(0)(7)`, `funcs["one"](3)`, `makeAdder(3)(4)`.
 
 Arguments are staged per the `func` type's signature, and the receiver
 of a bound method is handled automatically by the call. Named arguments
@@ -399,10 +404,6 @@ comparisons with non-`func` operands are compile errors.
   the expected `func` type.
 - Referencing functions or methods with **default parameters** —
   defaults are filled only on the direct-call path.
-- A **`func`-typed formal parameter with a default value**
-  (`void apply(func<int, int> g = plus1)`) — rejected outright: the
-  declaration-side default expression has no expected function type
-  in that position, so no function can declare such a default.
 - **Static method references** — a static method binds as a function
   value through the type name (`Util.twice`), including inherited
   statics, interface statics, native statics, and the unqualified form inside
@@ -433,11 +434,6 @@ comparisons with non-`func` operands are compile errors.
   error (chapter 14).
 - **A lambda with no expected function type** — a lambda literal in no
   consumer position.
-- **A lambda literal or bare function reference as a constructor-call
-  argument** (`Handler((x) -> x + 1)`, `Handler(plus1)`) — the
-  constructor-call position carries no expected function type, so
-  bind the value to a `func` local first and pass the local. The fix
-  is scheduled in the future-features list of `docs/roadmap.md`.
 - **A lambda parameter-list entry that is not a parameter shape**
   (`invalid lambda parameter list` — a bare expression mixed into the
   parameter list).

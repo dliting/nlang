@@ -2,7 +2,7 @@
 
 # 12. 集合
 
-`List<T>`与`Dict<K, V>`是两个内建容器类：`containers`预置包声明的泛型类（§4.12.1、§4.12.6）。本章定义它们的方法面——每个方法的签名、效果与失败行为——元素与键如何匹配，以及以`Object`实例化时容器如何混装不同类型的值。类型参数规则、构造与下标语法糖留在泛型一章（§4.12.2–§4.12.5、§4.12.7）。
+`List<T>`、`Dict<K, V>`与`Set<T>`是三个内建容器类：`containers`预置包声明的泛型类（§4.12.1、§4.12.6），其中`List`与`Dict`的方法由运行期内在通道应答，`Set`在预置包内以源码写出、方法转发到一张`Dict`键表（§12.3）。本章定义它们的方法面——每个方法的签名、效果与失败行为——元素与键如何匹配，以及以`Object`实例化时容器如何混装不同类型的值。类型参数规则、构造与下标语法糖留在泛型一章（§4.12.2–§4.12.5、§4.12.7）。
 
 经由`null`容器引用调用任何方法，抛出可捕获的`NullPointerException`，消息为`NLang VM: null reference error`——与其他类引用一致（§4.8.10、§8.3）。容器的存入或取出按§9.1的类别移动值。下标形式`li[i]`与`d[k]`是`get`与`set`的语法糖（§5.7、§4.12.7），容器方法按通常规则接受具名实参（§7.2）。
 
@@ -69,6 +69,7 @@ int main() {
 | --- | --- | --- | --- |
 | `set(key, value)` | `void set(K key, V value)` | 把`value`存到`key`下；重新存一个键会替换值并保持该键的位置 | — |
 | `get(key)` | `V& get(K key)` | `key`下所存的值——与`List`相同的保引用读取（见§12.1） | `key`没有条目抛出`Exception` |
+| `getOrDefault(key, defaultValue)` | `V getOrDefault(K key, V defaultValue)` | `key`下所存的值；没有条目时返回`defaultValue`，不建立条目、不抛出——与`get`的缺键抛出相对。返回值是拷贝，不是保引用读取 | — |
 | `containsKey(key)` | `bool containsKey(K key)` | `key`的条目是否存在 | — |
 | `remove(key)` | `int remove(K key)` | 移除`key`的条目；移除了产出`1`，键未找到产出`0` | — |
 | `clear()` | `void clear()` | 移除所有条目 | — |
@@ -84,3 +85,28 @@ int main() {
 `K`或`V`写`Object`时，`List`的装箱规则同样适用（§12.1）。
 
 *资料性：*`Dict`的每次`set`、`get`、`containsKey`与`remove`都对条目做线性扫描——对典型的小脚本可以接受；不提供O(1)哈希表查找。
+
+## 12.3 Set
+
+`Set<T>`（§4.12）持有不重复的元素：`add`一个已相等的元素不产生任何变化。元素的判等就是§12.1的区分种类的相等性——与`Dict`的键规则同一条（§12.2）：结构体元素按字段值比较，`string`按内容，类与数组元素按恒等。
+
+`Set<T>`由`containers`预置包以源码写出，每个方法转发到内部一张私有的`Dict<T, int>`键表（元素在集合中即元素是键表的键），所以它的存储与顺序规则就是`Dict`键的规则（§12.2），没有自己的存储语义。
+
+| 方法 | 签名 | 效果 | 失败行为 |
+| --- | --- | --- | --- |
+| `add(item)` | `bool add(T item)` | `item`不在集合中时按插入序追加；返回是否新增了元素 | — |
+| `contains(item)` | `bool contains(T item)` | `item`是否在集合中 | — |
+| `remove(item)` | `bool remove(T item)` | `item`在集合中时移除；返回是否发生了移除 | — |
+| `count()` | `int count()` | 元素数 | — |
+| `clear()` | `void clear()` | 移除所有元素 | — |
+| `copy()` | `Set<T> copy()` | 新集合，元素句柄照抄（浅拷贝） | — |
+| `values()` | `List<T> values()` | 一个新的`List<T>`，按插入序持有全部元素 | — |
+| `toString()` | `string toString()` | `[e1, e2, ...]`（§11.2） | — |
+
+三处返回值族与`Dict`的同形方法不同，各有理由：`add`返回`bool`（`Dict`的`set`是`void`），因为「是否插入了」正是集合要回答的全部信息；`remove`返回`bool`而非`Dict`的`0`/`1`的`int`，因为集合没有存值可交还；`values()`对应`Dict.keys()`——同样是按插入序的新快照列表——命名取自元素的视角，集合的成员就是元素本身。`Dict`自身仍不提供`values()`（§12.2）。
+
+迭代经`values()`快照进行：`foreach (int x in s.values())`（§6.4、§12.2）；`Set`值本身不在`foreach`可迭代的源头之列（§6.4）。
+
+`T`写`Object`时，`List`的装箱规则同样适用（§12.1）。
+
+*资料性：*查找随`Dict`的线性扫描（§12.2），`add`、`contains`与`remove`都是O(n)，`values()`每次调用拷贝整个键表；不提供O(1)哈希查找。

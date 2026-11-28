@@ -108,6 +108,10 @@ A constructor call `C(args)` allocates the object and runs the
 selected constructor (§5.8); `C()` for a class with no declared
 constructor allocates and zero-initializes the fields. Inside the
 class body the class's own name still denotes a constructor call.
+A constructor-call argument position carries the declared type of
+its formal, so a function reference or a lambda can be written
+directly in the argument, without binding it to a `func` local
+first (§7.4).
 
 ```nlang
 Node a = Node(42);        // constructor call: heap-allocates and runs the ctor

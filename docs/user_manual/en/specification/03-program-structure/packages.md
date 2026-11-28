@@ -320,8 +320,8 @@ core and the base containers are always in scope, while every other
 standard-library module must be named by the importing unit (§3.3).
 The always-visible names are declared by the preset modules `lang`
 and `containers` — `Object`, the `Exception` family of §8.3,
-`String` and `Array` in `lang`; `List<T>` and `Dict<K,V>` in
-`containers` — and are the whole set. These two modules are embedded
+`String` and `Array` in `lang`; `List<T>`, `Dict<K,V>` and
+`Set<T>` in `containers` — and are the whole set. These two modules are embedded
 at compile time and have no `.npkg` runtime members. A program that
 uses any other standard-library name imports its module, including
 the stream handle classes `ByteStream` and `FileStream` (§14.6).

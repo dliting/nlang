@@ -6,8 +6,8 @@ A class declared with *type parameters* — `class Box<T> { ... }`,
 `class Pair<K, V> { ... }` — is a *generic class*. Using one
 supplies *type arguments* in angle brackets after the name:
 `Box<int>`, `Pair<string, int>`. The standard library's containers
-are generic classes: `List<T>` and `Dict<K, V>` are prelude names,
-visible without an import (§4.12.6); `Channel<T>` (package
+are generic classes: `List<T>`, `Dict<K, V>` and `Set<T>` are
+prelude names, visible without an import (§4.12.6); `Channel<T>` (package
 `concurrent`) and `Future<T>` (package `thread`) are used the same
 way.
 
@@ -221,8 +221,8 @@ and `foreach` loop variables each establish a fresh record copied
 from the source, while field stores and field-to-field moves update
 records in place per §4.7.4, so the field's value slot holds one
 private copy. The built-in containers accept struct type
-arguments alike (a struct key in a `Dict` compares by field value,
-§12.2).
+arguments alike (a struct key in a `Dict` or a `Set` compares by
+field value, §12.2, §12.3).
 
 An array type argument — `List<int[]>` — stores the array values as
 raw references; the primitive-boxing rule does not apply to them.
@@ -245,11 +245,15 @@ array form — `List<int> arr[2];` — while the creation form
 alias may name an instantiation (§3.4): after `using IL =
 List<int>;`, `IL` works as a type and as a construction target.
 
-## 4.12.6 Built-in containers List and Dict
+## 4.12.6 Built-in containers List, Dict and Set
 
 `List<T>` is a growable, ordered, index-addressable collection of
-elements of type `T`, and `Dict<K, V>` is an associative array
-mapping keys of type `K` to values of type `V`. Both are prelude
+elements of type `T`, `Dict<K, V>` is an associative array mapping
+keys of type `K` to values of type `V`, and `Set<T>` is a
+collection of distinct elements — element equality follows the
+`Dict` key rule (§12.2); it is written as source code in the
+prelude package and its methods forward to a `Dict` key table
+(§12.3). All three are prelude
 names, visible without an import (§3.9.4), and ordinary generic
 classes: each instantiation is a distinct type (§4.12.1),
 construction follows §4.12.3, and type arguments follow §4.12.5.
@@ -352,9 +356,10 @@ of each argument — read by equality dispatch, casts and `typeName`
 `typeName` takes a type expression and returns its canonical
 spelling as a string. Spellings of concrete types fold at compile
 time — `typeName(int)` is `"int"`, `typeName(int[,])` is
-`"int[,]"` (rank in brackets), and the built-in containers keep
-their bare names: `typeName(List<List<int>>)` is
-`"List<List<int>>"`. A user unit's generic template spells with
+`"int[,]"` (rank in brackets), and the built-in containers
+`List`, `Dict` and `Set` keep their bare names:
+`typeName(List<List<int>>)` is `"List<List<int>>"`, and
+`typeName(Set<int>)` is `"Set<int>"`. A user unit's generic template spells with
 its owning package path prefixed (§3.9.3): in a unit compiled
 from `demo.n`, `typeName(Box<int>)` is `"demo.Box<int>"`, and the
 same-named template imported from package `alib` spells

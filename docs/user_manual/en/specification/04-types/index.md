@@ -12,8 +12,8 @@ Every expression has exactly one type. The types are:
 - class types (§4.8);
 - interface types (§4.9);
 - the class `Object` (§4.11);
-- generic class instantiations, the built-in containers `List`
-  and `Dict` among them (§4.12);
+- generic class instantiations, the built-in containers `List`,
+  `Dict` and `Set` among them (§4.12);
 - function types (§7.4).
 
 Types fall into two value categories. The *value types* are the
