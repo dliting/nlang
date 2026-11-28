@@ -66,10 +66,10 @@ int main() {
 ```
 
 ```text
-Error: imported function 'lib.addCast' has a default for parameter 1 outside the cross-module subset; supported: int/float/double/long/ulong/string/bool/char/null literals, formal parameter references, unary negation, calls to the exporting module's free functions, and + - * / % arithmetic over those
+Error: imported function 'lib.addCast' has a default for parameter 1 outside the cross-module subset; supported: int/float/double/long/ulong/string/bool/char/null literals, formal parameter references, unary - and ~, + - * / % << >> & | ^ combinations over those, calls of exported free functions or static members, and by-name references to free functions or static members as function values
 ```
 
-默认表达式跨`.ncu`边界时限定在可序列化子集内：字面量（含string与null）、更前面形参的引用、对生产方自身自由函数的调用、一元负号，以及`+` `-` `*` `/` `%`的算术组合——它们照常在每次调用点求值。转换、成员访问、把调用嵌作实参等形态不在子集内，导入该函数时在消费侧报上错误。同一工程内源码一起编译不受此限制——默认表达式直接使用。默认参数语义见[默认参数](../07-functions/parameters.md)。
+默认表达式跨`.ncu`边界时限定在可序列化子集内：字面量（含string与null）、更前面形参的引用、一元`-`与`~`、其上的`+` `-` `*` `/` `%` `<<` `>>` `&` `|` `^`组合、对导出的自由函数或静态成员的调用、限定的静态字段读取，以及把自由函数或静态成员按名字引用作为函数值——它们照常在每次调用点求值。转换、实例成员访问、把调用嵌作实参等形态不在子集内，导入该函数时在消费侧报上错误。同一工程内源码一起编译不受此限制——默认表达式直接使用。默认参数语义见[默认参数](../07-functions/parameters.md)。
 
 ### 被导入函数与其记录不符
 

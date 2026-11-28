@@ -86,16 +86,18 @@ int main() {
 ```
 
 ```text
-Error: imported function 'lib.addCast' has a default for parameter 1 outside the cross-module subset; supported: int/float/double/long/ulong/string/bool/char/null literals, formal parameter references, unary negation, calls to the exporting module's free functions, and + - * / % arithmetic over those
+Error: imported function 'lib.addCast' has a default for parameter 1 outside the cross-module subset; supported: int/float/double/long/ulong/string/bool/char/null literals, formal parameter references, unary - and ~, + - * / % << >> & | ^ combinations over those, calls of exported free functions or static members, and by-name references to free functions or static members as function values
 ```
 
 A default expression crosses the `.ncu` boundary only inside the
 serialized subset: literals (including string and null), references to
-earlier formal parameters, calls to the producing module's own free
-functions, unary negation, and `+` `-` `*` `/` `%` arithmetic over
-those — still evaluated at each call site. Casts, member access, and
-calls nested as arguments sit outside the subset; importing the
-function rejects them on the consumer side with the error above.
+earlier formal parameters, unary `-` and `~`, `+` `-` `*` `/` `%` `<<`
+`>>` `&` `|` `^` combinations over those, calls of exported free
+functions or static members, qualified reads of static fields, and
+by-name references to free functions or static members as function
+values — still evaluated at each call site. Casts, instance member
+access, and calls nested as arguments sit outside the subset; importing
+the function rejects them on the consumer side with the error above.
 Compiling the sources together in one project build does not hit this
 restriction — the default expression is used directly. See →
 [Default Parameters](../07-functions/parameters.md).
