@@ -1,0 +1,83 @@
+//Type-parameter name capture: inside a generic declaration, the
+//declaration's own type parameter must shadow an outer (global) class of
+//the same name. A program declaring class V or class K used to bind the
+//prelude Dict/Set member signatures to the user classes instead of the
+//declarations' own parameters.
+class V
+{
+    public int tag;
+
+    public V()
+    {
+        tag = 7;
+    }
+}
+
+class K
+{
+    public int tag;
+
+    public K()
+    {
+        tag = 11;
+    }
+}
+
+//User generic whose parameter name collides with the global class above:
+//inside Box, V names Box's own parameter, never the global class.
+class Box<V>
+{
+    private Dict<V, int> table;
+
+    public Box()
+    {
+        table = Dict<V, int>();
+    }
+
+    public bool put(V key, int value)
+    {
+        if (table.containsKey(key))
+        {
+            return false;
+        }
+        table.set(key, value);
+        return true;
+    }
+
+    public int get(V key)
+    {
+        return table.getOrDefault(key, -1);
+    }
+}
+
+int main()
+{
+    //Prelude containers whose formal names K/V collide with the global
+    //classes above still resolve their own formals (the Set method bodies
+    //compile into every program since the source-form prelude).
+    Dict<string, int> d = Dict<string, int>();
+    d.set("a", 3);
+    if (d.get("a") != 3)
+    {
+        return 1;
+    }
+    Set<int> s = Set<int>();
+    if (!s.add(5) || s.add(5) || !s.contains(5) || s.count() != 1)
+    {
+        return 2;
+    }
+
+    //Box's parameter V carries int through every erased slot: puts, hits
+    //and the getOrDefault miss all key on ints, not on the global class.
+    Box<int> b = Box<int>();
+    if (!b.put(2, 20) || b.put(2, 21) || b.get(2) != 20 || b.get(9) != -1)
+    {
+        return 3;
+    }
+
+    //Outside the generic declaration the global classes keep their own
+    //meaning: construction and field reads address the declared classes.
+    V v = V();
+    K k = K();
+    return v.tag + k.tag - 18;
+}

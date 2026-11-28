@@ -238,6 +238,16 @@ bool IsQualifiedInterfaceConstantAccess(const SnIdentifierExpr &idExpr,
 	return static_cast<SnFieldExpr *>(pOuter)->Field() == pOwner;
 }
 
+//0.13.13a (type-parameter name capture): the bare candidates a type
+//parameter outranks by lexical shadowing — nodes that name a type. Value
+//kinds (functions, fields, enum members) are not outranked: a type
+//parameter names no value, so value-position bindings never change.
+bool IsTypeDeclarationKind(NodeKind kind)
+{
+	return kind == NK_ClassDecl || kind == NK_InterfaceDecl
+		|| kind == NK_StructDecl || kind == NK_EnumDecl;
+}
+
 } //namespace
 
 SnField *ExprResolveAccessor::FindBareValueField(SnIdentifierExpr &idExpr,
@@ -314,6 +324,20 @@ void ExprResolveAccessor::Access(SnIdentifierExpr &idExpr)
 		TryResolveBuiltinNameFallback(idExpr, curModule);
 		return;
 	}
+
+	//0.13.13a: type-parameter name capture. A found type-declaration
+	//candidate must still yield to an enclosing generic declaration's
+	//same-named type parameter: inside `class Dict<K,V>` — or a user
+	//`class Box<V>` — the parameter shadows the outer type, exactly as a
+	//parameter shadows an outer variable. The placeholder binder's
+	//contract (ExprResolver.h) covers every reference inside the
+	//template; the not-found fallback above already binds it, this arm
+	//closes the found path. A miss there is side-effect-free and keeps
+	//the global binding.
+	if (IsTypeDeclarationKind(pField->Kind())
+		&& BindTypeParamPlaceholderIfAny(idExpr)
+			== TypeParamBindResult::Bound)
+		return;
 
 	//0.9.10 D3.4: interface constants are qualified-only. This runs
 	//before the implicit-this gate, which would otherwise report the
