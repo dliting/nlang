@@ -244,6 +244,18 @@ struct RawDecoder
                 text += ")";
                 return text;
             }
+            case ED_FuncRef:
+            case ED_StaticMember:
+            {
+                uint16_t keyLen = 0;
+                if (!takeU16(keyLen) || off + keyLen > bytes.size())
+                    return "!ref";
+                const std::string key(reinterpret_cast<const char*>(
+                    bytes.data() + off), keyLen);
+                off += keyLen;
+                return std::string(tag == ED_FuncRef ? "(ref "
+                    : "(member ") + key + ")";
+            }
             default:
                 ok = false;
                 return "!tag";
@@ -272,6 +284,27 @@ static const DefaultValueDesc* secondDefault(const CompiledModule& mod,
     if (idx < 0 || mod.functions[idx].defaultValues.size() < 2)
         return nullptr;
     return &mod.functions[idx].defaultValues[1];
+}
+
+//Decodes one function's second-formal default and compares it against
+//the canonical S-expression. False = mismatch, with the reason in
+//*pReason (the CHECK call site prefixes the function name).
+static bool checkSecondShape(const CompiledModule& mod, const char* szFunc,
+    const std::string& expect, std::string* pReason)
+{
+    const DefaultValueDesc* pDv = secondDefault(mod, szFunc);
+    if (!pDv) { *pReason = "second default missing"; return false; }
+    if (pDv->tag != RTK_Expr) {
+        *pReason = "expected RTK_Expr, tag " + std::to_string(pDv->tag);
+        return false;
+    }
+    RawDecoder decoder(pDv->exprBytes);
+    const std::string shape = decoder.whole();
+    if (!decoder.ok || shape != expect) {
+        *pReason = "expected " + expect + ", got " + shape;
+        return false;
+    }
+    return true;
 }
 
 //Compound shapes must decode to the canonical S-expressions; every arm
@@ -334,16 +367,9 @@ static void test_wire_shapes_compound()
     };
     for (const Expectation& expect : kExpects)
     {
-        const DefaultValueDesc* pDv = secondDefault(mod, expect.func);
-        CHECK(pDv, expect.func + std::string(": second default missing"));
-        CHECK(pDv->tag == RTK_Expr,
-            expect.func + std::string(": expected RTK_Expr, tag ")
-            + std::to_string(pDv->tag));
-        RawDecoder decoder(pDv->exprBytes);
-        const std::string shape = decoder.whole();
-        CHECK(decoder.ok && shape == expect.shape,
-            expect.func + std::string(": expected ")
-            + expect.shape + ", got " + shape);
+        std::string reason;
+        CHECK(checkSecondShape(mod, expect.func, expect.shape, &reason),
+            std::string(expect.func) + ": " + reason);
     }
 
     //Call arm: the key is qualified by the PRODUCING module's path and
@@ -357,6 +383,53 @@ static void test_wire_shapes_compound()
         + ".helper p1 (formal 0))";
     CHECK(decoder.ok && shape == expectKey,
         "callsHelper: expected " + expectKey + ", got " + shape);
+    PASS();
+}
+
+//The three cross-module forms Task 8 adds must encode as RTK_Expr with
+//the producing module's path prefixing the qualified key. A form that
+//falls back to RTK_Unfoldable makes the default unusable by every
+//importing module even though the spelling is legal at language level
+//the producer compiled it from.
+static void test_wire_shapes_new_forms()
+{
+    TEST(wire_shapes_new_forms);
+    std::unique_ptr<CompileOutcome> out;
+    CompiledModule mod = compileAndLoad(
+        "int helper(int x) { return x + 3; }\n"
+        "class Knob {\n"
+        "    public static int K = 7;\n"
+        "    public static int tick() { return 9; }\n"
+        "}\n"
+        "int byName(int a, func<int,int> b = helper) { return a; }\n"
+        "int staticRef(int a, func<int> b = Knob.tick) { return a; }\n"
+        "int staticField(int a, int b = Knob.K) { return b; }\n"
+        "int staticCall(int a, int b = Knob.tick()) { return b; }\n"
+        "int main() { return 0; }\n",
+        out);
+    CHECK(out && out->ok,
+        "build failed: " + (out ? joinErrors(*out) : std::string("?")));
+    CHECK(out->logger->errors().empty(),
+        "clean compile expected: " + joinErrors(*out));
+
+    struct Expectation { const char* func; std::string shape; };
+    const Expectation kExpects[] = {
+        //By-name free function: the key carries the producer's path.
+        {"byName", "(ref " + mod.modulePath + ".helper)"},
+        //By-name static method: three segments, class in the middle.
+        {"staticRef", "(ref " + mod.modulePath + ".Knob.tick)"},
+        //Static field read.
+        {"staticField", "(member " + mod.modulePath + ".Knob.K)"},
+        //Qualified static call: the call arm's key space extends the
+        //same way; paramCount is the callee's (zero here).
+        {"staticCall", "(call " + mod.modulePath + ".Knob.tick p0)"},
+    };
+    for (const Expectation& expect : kExpects)
+    {
+        std::string reason;
+        CHECK(checkSecondShape(mod, expect.func, expect.shape, &reason),
+            std::string(expect.func) + ": " + reason);
+    }
     PASS();
 }
 
@@ -581,6 +654,140 @@ static void pushU32(std::vector<uint8_t>& bytes, uint32_t v)
         reinterpret_cast<const uint8_t*>(&v) + 4);
 }
 
+//--- new-form reader legs (built with the byte push helpers) ------------
+
+//The consumer rebuilds every qualified key as the dotted member chain
+//it spells — a two-segment free-function key must hit the producing
+//module's function table (the call arm's rule), while a three-segment
+//class-member key binds through the CONSUMER's import registry at the
+//use site, so the producing module's table need not name the class.
+static void test_reader_rebuilds_new_forms()
+{
+    TEST(reader_rebuilds_new_forms);
+    const CompiledModule cm = readerFixtureModule();
+    const std::vector<std::string> formals = {"a", "b"};
+
+    struct RefCase { uint8_t tag; const char* key; };
+    const RefCase kValid[] = {
+        {ED_FuncRef, "lib.helper"},       //free function, table-backed
+        {ED_FuncRef, "lib.Knob.tick"},    //static method, import-bound
+        {ED_StaticMember, "lib.Knob.K"},  //static field, import-bound
+    };
+    for (const RefCase& valid : kValid)
+    {
+        DefaultValueDesc dv;
+        dv.tag = RTK_Expr;
+        dv.exprBytes.push_back(valid.tag);
+        pushU16(dv.exprBytes,
+            static_cast<uint16_t>(std::strlen(valid.key)));
+        dv.exprBytes.insert(dv.exprBytes.end(), valid.key,
+            valid.key + std::strlen(valid.key));
+        SnExpression* pExpr = SynthDefaultExpr(dv, cm, "caller", 1,
+            formals, stubLocation());
+        CHECK(pExpr && pExpr->Kind() == NK_MemberExpr,
+            std::string(valid.key) + ": expected a member chain rebuild");
+    }
+
+    //A three-segment static call key flows through the existing call
+    //arm unchanged: leaf invoke on the rebuilt class chain.
+    {
+        DefaultValueDesc dv;
+        dv.tag = RTK_Expr;
+        dv.exprBytes.push_back(ED_Call);
+        const char* key = "lib.Knob.tick";
+        pushU16(dv.exprBytes, static_cast<uint16_t>(std::strlen(key)));
+        dv.exprBytes.insert(dv.exprBytes.end(), key, key + std::strlen(key));
+        pushU32(dv.exprBytes, 0);   //paramCount = 0
+        dv.exprBytes.push_back(0);  //argCount = 0
+        SnExpression* pExpr = SynthDefaultExpr(dv, cm, "caller", 1,
+            formals, stubLocation());
+        CHECK(pExpr && pExpr->Kind() == NK_MemberExpr,
+            "static call rebuilds a member-chain invoke");
+    }
+
+    //Rejections: an unqualified key (the writer always prefixes the
+    //producing path), and a two-segment key missing from the table.
+    struct RejectCase { uint8_t tag; const char* key; const char* part; };
+    const RejectCase kRejects[] = {
+        {ED_FuncRef, "helper", "unqualified reference key"},
+        {ED_FuncRef, "lib.nope", "not a function of the producing module"},
+    };
+    for (const RejectCase& bad : kRejects)
+    {
+        DefaultValueDesc dv;
+        dv.tag = RTK_Expr;
+        dv.exprBytes.push_back(bad.tag);
+        pushU16(dv.exprBytes, static_cast<uint16_t>(std::strlen(bad.key)));
+        dv.exprBytes.insert(dv.exprBytes.end(), bad.key,
+            bad.key + std::strlen(bad.key));
+        bool threw = false;
+        std::string message;
+        try {
+            SynthDefaultExpr(dv, cm, "caller", 1, formals, stubLocation());
+        } catch (const std::exception& e) {
+            threw = true;
+            message = e.what();
+        }
+        CHECK(threw && message.find(bad.part) != std::string::npos,
+            std::string(bad.key) + ": expected throw containing '"
+            + bad.part + "', got " + (threw ? message : "no throw"));
+    }
+
+    //A key truncated below its declared length is malformed on both
+    //new tags.
+    {
+        DefaultValueDesc dv;
+        dv.tag = RTK_Expr;
+        dv.exprBytes = {ED_StaticMember, 4, 0, 'l', 'i', 'b'};
+        bool threw = false;
+        std::string message;
+        try {
+            SynthDefaultExpr(dv, cm, "caller", 1, formals, stubLocation());
+        } catch (const std::exception& e) {
+            threw = true;
+            message = e.what();
+        }
+        CHECK(threw
+            && message.find("truncated stream") != std::string::npos,
+            "truncated member key: expected the named throw, got "
+            + (threw ? message : "no throw"));
+    }
+    PASS();
+}
+
+//The consumer's RTK_Unfoldable reject message enumerates the FULL
+//supported subset; the assertion pins the whole assembled sentence so a
+//tail edit cannot silently drop or mistranscribe one of the forms.
+static void test_rejects_unfoldable_message()
+{
+    TEST(rejects_unfoldable_message);
+    const CompiledModule cm = readerFixtureModule();
+    const std::vector<std::string> formals = {"a", "b"};
+    DefaultValueDesc dv;
+    dv.tag = RTK_Unfoldable;
+    bool threw = false;
+    std::string message;
+    try {
+        SynthDefaultExpr(dv, cm, "caller", 1, formals, stubLocation());
+    } catch (const std::exception& e) {
+        threw = true;
+        message = e.what();
+    }
+    const std::string expect =
+        "imported function 'caller' has a default for parameter 1 outside"
+        " the cross-module subset; supported: int/float/double/long/ulong/"
+        "string/bool/char/null literals, formal parameter references,"
+        " unary - and ~, + - * / % << >> & | ^ combinations over those,"
+        " calls of exported free functions or static members, and"
+        " by-name references to free functions or static members as"
+        " function values";
+    CHECK(threw, "RTK_Unfoldable default must throw");
+    CHECK(message == expect,
+        "expected the exact sentence '" + expect + "', got '" + message
+        + "'");
+    PASS();
+}
+
 //The remap rewrites RTK_String producer-pool indices in place, fully
 //validates the stream, and rejects the malformed family NcuLinker must
 //never link.
@@ -643,6 +850,35 @@ static void test_remap_strings()
     badCall.insert(badCall.end(), shortKey, shortKey + 4);
     CHECK(!ExprDescRemapStrings(badCall, identity),
         "call header truncated before paramCount is rejected");
+
+    //The new name-key tags pass through the remap unchanged (key bytes
+    //name symbols, not string-pool indices) and their truncation
+    //family is rejected like the rest.
+    std::vector<uint8_t> member{ED_StaticMember};
+    const char* memberKey = "lib.Knob.K";
+    pushU16(member, static_cast<uint16_t>(std::strlen(memberKey)));
+    member.insert(member.end(), memberKey, memberKey
+        + std::strlen(memberKey));
+    CHECK(ExprDescRemapStrings(member, identity),
+        "static member stream remaps as a no-op");
+    std::vector<uint8_t> cutRef{ED_FuncRef, 5, 0, 'l', 'i', 'b'};
+    CHECK(!ExprDescRemapStrings(cutRef, identity),
+        "reference key truncated below its length is rejected");
+    //A func ref riding as a call argument validates through the call
+    //arm's child loop.
+    std::vector<uint8_t> refArg{ED_Call};
+    const char* fnKey = "lib.helper";
+    pushU16(refArg, static_cast<uint16_t>(std::strlen(fnKey)));
+    refArg.insert(refArg.end(), fnKey, fnKey + std::strlen(fnKey));
+    pushU32(refArg, 1);
+    refArg.push_back(1);
+    refArg.push_back(ED_FuncRef);
+    const char* fnRefKey = "lib.Knob.tick";
+    pushU16(refArg, static_cast<uint16_t>(std::strlen(fnRefKey)));
+    refArg.insert(refArg.end(), fnRefKey, fnRefKey
+        + std::strlen(fnRefKey));
+    CHECK(ExprDescRemapStrings(refArg, identity),
+        "call carrying a function reference remaps");
     PASS();
 }
 
@@ -651,10 +887,13 @@ int main()
     Runtime::StaticInit();
     TypeCastInfo::StaticInit();   //cast table (0.7.5: no longer inside Runtime::StaticInit)
     test_wire_shapes_compound();
+    test_wire_shapes_new_forms();
     test_wire_shapes_literal_boundary();
     test_producer_boundary_unfoldable();
     test_reader_rejects_malformed();
     test_reader_rebuilds_formal_ref();
+    test_reader_rebuilds_new_forms();
+    test_rejects_unfoldable_message();
     test_remap_strings();
     std::cerr << "\ndefault_exprdesc: " << g_pass << " passed, "
         << g_fail << " failed\n";

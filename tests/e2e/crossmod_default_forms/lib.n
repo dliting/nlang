@@ -1,0 +1,70 @@
+//Cross-module carrying of the expanded default-expression subset
+//(v0.13.13a): a by-name reference to a producing-module free function,
+//a qualified static field read, a qualified static method call, and a
+//qualified static method reference as a function value. The consumer
+//compiles even when every argument is explicit (the defaults still
+//ride the import), and the omitted-argument legs below prove the
+//rebuilt expressions evaluate at the use site.
+int noop(int x)
+{
+    return x;
+}
+
+int incr(int x)
+{
+    return x + 1;
+}
+
+//Free-function by-name default (ED_FuncRef, two-segment key).
+int applyTwice(func<int, int> f = noop, int v = 2)
+{
+    return f(f(v));
+}
+
+class Knob
+{
+    public static int K = 7;
+
+    public static int tick()
+    {
+        return 13;
+    }
+
+    public static int cb(int x)
+    {
+        return x + 2;
+    }
+}
+
+//Static field read default (ED_StaticMember, static-member key).
+class Cfg
+{
+    public int v;
+
+    public Cfg(int x = Knob.K)
+    {
+        v = x;
+    }
+}
+
+//Static method call default (ED_Call, three-segment static key).
+class Cfg2
+{
+    public int v;
+
+    public Cfg2(int x = Knob.tick())
+    {
+        v = x;
+    }
+}
+
+//Static method reference default, invoked inside the ctor body.
+class CbCfg
+{
+    public int result;
+
+    public CbCfg(func<int, int> f = Knob.cb)
+    {
+        result = f(41);
+    }
+}

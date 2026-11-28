@@ -1,0 +1,54 @@
+//Consumer of the expanded cross-module default subset. Every leg first
+//passes its arguments explicitly — the rebuilt defaults are never
+//evaluated there, but carrying them is what let the import compile at
+//all — then omits them so the rebuilt expressions run at the call
+//site. Expected exit 0.
+import lib;
+
+int main()
+{
+    //Explicit legs: incr(incr(2)) = 4, ctor args win over defaults.
+    if (lib.applyTwice(lib.incr, 2) != 4)
+    {
+        return 1;
+    }
+    lib.Cfg a = lib.Cfg(100);
+    if (a.v != 100)
+    {
+        return 2;
+    }
+    lib.Cfg2 b = lib.Cfg2(1);
+    if (b.v != 1)
+    {
+        return 3;
+    }
+    lib.CbCfg c = lib.CbCfg(lib.incr);
+    if (c.result != 42)
+    {
+        return 4;
+    }
+
+    //Omitted legs: noop(noop(2)) = 2, Knob.K = 7, Knob.tick() = 13,
+    //Knob.cb(41) = 43 — each value can only come from the rebuilt
+    //default expression riding the import.
+    if (lib.applyTwice() != 2)
+    {
+        return 5;
+    }
+    lib.Cfg d = lib.Cfg();
+    if (d.v != 7)
+    {
+        return 6;
+    }
+    lib.Cfg2 e = lib.Cfg2();
+    if (e.v != 13)
+    {
+        return 7;
+    }
+    lib.CbCfg g = lib.CbCfg();
+    if (g.result != 43)
+    {
+        return 8;
+    }
+    return 0;
+}

@@ -2785,3 +2785,8 @@ stdlib_web_upload_e2e 0
 # one bit, all legs holding returns 255.
 set_container_matrix 255
 generic_param_shadow_capture 0
+# Cross-module carrying of the expanded default subset: free-
+# function by-name defaults, static field reads, static method calls
+# and static method references as function values; explicit-arg legs
+# prove the import carries them, omitted legs prove they evaluate.
+crossmod_default_forms 0

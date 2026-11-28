@@ -190,10 +190,61 @@ inline SnExpression *SynthModuleChainExpr(const std::string &modulePath,
 	return pChain;
 }
 
+//ED_FuncRef/ED_StaticMember arm: validate the qualified reference key,
+//then rebuild `chain.leaf` — the AST the parser builds for that source
+//spelling, bound at the consumer's use site through its own import
+//registry (the same rebinding path as the ED_Call member invoke).
+//Two-segment keys name a producing-module free function and must hit
+//its function table; deeper keys name a static member of a producing-
+//module class or interface, whose table row (if any) lives under a
+//different spelling (class statics key bare — methods dispatch by
+//receiver), so the module-path prefix is the authority there.
+inline SnExpression *SynthExprDescRef(ExprDescCursor &cur,
+	const CompiledModule &cm, const std::string &funcName,
+	const ISourceLocation &loc)
+{
+	uint16_t keyLen = 0;
+	if (!cur.U16(keyLen) || keyLen == 0)
+		ThrowMalformedDefault(funcName, "truncated stream");
+	std::vector<char> keyBuf(keyLen);
+	if (!cur.Bytes(keyBuf.data(), keyLen))
+		ThrowMalformedDefault(funcName, "truncated stream");
+	const std::string key(keyBuf.data(), keyLen);
+	const size_t firstDot = key.find('.');
+	const size_t lastDot = key.find_last_of('.');
+	if (firstDot == std::string::npos || firstDot == 0
+		|| lastDot + 1 == key.size())
+		ThrowMalformedDefault(funcName, "unqualified reference key");
+	if (firstDot == lastDot)
+	{
+		//Free-function leg: the function table is the authority (its
+		//keys carry the producing module's prefix).
+		if (cm.FindFunction(key) < 0)
+			throw std::runtime_error("imported function '" + funcName
+				+ "' has a default expression naming '" + key
+				+ "', which is not a function of the producing module");
+	}
+	else
+	{
+		//Static-member leg ("<module>.<Class>.<member>").
+		const std::string prefix = cm.modulePath + ".";
+		if (key.size() <= prefix.size()
+			|| key.compare(0, prefix.size(), prefix) != 0)
+			ThrowMalformedDefault(funcName,
+				"reference key not prefixed by the producing module");
+	}
+	return new SnMemberExpr(
+		SynthModuleChainExpr(key.substr(0, lastDot), loc),
+		new SnIdentifierExpr(new std::string(key.substr(lastDot + 1)), loc),
+		loc);
+}
+
 //ED_Call arm: validate the producing-module target against cm's
 //function table, then create `modulePath.leaf(args...)` — the AST the
 //parser builds for that source spelling, resolved by the normal
-//module-qualified call path.
+//module-qualified call path. A three-or-more-segment key names a
+//static method instead (no table row under that spelling): the
+//producing-module prefix gates it, the use-site bind checks the rest.
 inline SnExpression *SynthExprDescCall(ExprDescCursor &cur,
 	const CompiledModule &cm, const std::string &funcName,
 	const std::vector<std::string> &stubFormalNames,
@@ -210,16 +261,38 @@ inline SnExpression *SynthExprDescCall(ExprDescCursor &cur,
 	if (!cur.U32(paramCount) || !cur.U8(argCount))
 		ThrowMalformedDefault(funcName, "truncated call");
 	std::string key(keyBuf.data(), keyLen);
-	const int targetIdx = cm.FindFunction(key);
-	if (targetIdx < 0 || cm.functions[targetIdx].paramCount != paramCount
-		|| argCount != paramCount)
-		throw std::runtime_error("imported function '" + funcName
-			+ "' has a default expression calling '" + key
-			+ "', which is not a function of the producing module");
+	const size_t firstDot = key.find('.');
 	const size_t lastDot = key.find_last_of('.');
 	if (lastDot == std::string::npos || lastDot == 0
 		|| lastDot + 1 == key.size())
 		ThrowMalformedDefault(funcName, "unqualified call key");
+	if (firstDot == lastDot)
+	{
+		//Free-function leg: the function table is the authority (its
+		//keys carry the producing module's prefix; the row pins the
+		//declaring arity).
+		const int targetIdx = cm.FindFunction(key);
+		if (targetIdx < 0 || cm.functions[targetIdx].paramCount != paramCount
+			|| argCount != paramCount)
+			throw std::runtime_error("imported function '" + funcName
+				+ "' has a default expression calling '" + key
+				+ "', which is not a function of the producing module");
+	}
+	else
+	{
+		//Static-method leg ("<module>.<Class>.<method>"): class statics
+		//key bare in the table, so no row exists under this spelling —
+		//the producer's own path prefix gates the wire, and the
+		//consumer's import-registry bind at the use site checks the
+		//member itself.
+		const std::string prefix = cm.modulePath + ".";
+		if (key.size() <= prefix.size()
+			|| key.compare(0, prefix.size(), prefix) != 0)
+			ThrowMalformedDefault(funcName,
+				"call key not prefixed by the producing module");
+		if (argCount != paramCount)
+			ThrowMalformedDefault(funcName, "call arity mismatch");
+	}
 
 	auto *pArgs = new PtrList<SnExpression>();
 	for (uint8_t i = 0; i < argCount; ++i)
@@ -293,6 +366,9 @@ inline SnExpression *SynthExprDescNode(ExprDescCursor &cur,
 		case ED_Call:
 			return SynthExprDescCall(cur, cm, funcName,
 				stubFormalNames, loc, depth);
+		case ED_FuncRef:
+		case ED_StaticMember:
+			return SynthExprDescRef(cur, cm, funcName, loc);
 		default:
 			ThrowMalformedDefault(funcName, "unknown node tag");
 	}
@@ -325,9 +401,11 @@ inline SnExpression *SynthDefaultExpr(const DefaultValueDesc &dv,
 			std::to_string(static_cast<unsigned long>(paramIdx)) +
 			" outside the cross-module subset; supported: "
 			"int/float/double/long/ulong/string/bool/char/null "
-			"literals, formal parameter references, unary negation, "
-			"calls to the exporting module's free functions, and "
-			"+ - * / % arithmetic over those");
+			"literals, formal parameter references, unary - and ~, "
+			"+ - * / % << >> & | ^ combinations over those, calls of "
+			"exported free functions or static members, and by-name "
+			"references to free functions or static members as "
+			"function values");
 	}
 	return SynthScalarDefault(dv, cm, loc);
 }

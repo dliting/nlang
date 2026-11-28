@@ -10,6 +10,7 @@
 #include <nlang/compiler/SnData.h>
 #include <nlang/compiler/SnExpressions.h>
 #include <nlang/compiler/SyntaxNodeConsts.h>
+#include "builder/ModuleRegistry.h"
 #include <nlang/runtime/NodeConsts.h>
 #include <nlang/runtime/RnTypes.h>
 #include <nlang/runtime/StackDump.h>
@@ -369,29 +370,115 @@ bool VmBackend::EncodeBinaryDesc(SnBinaryExpr& bin,
                           depth + 1);
 }
 
-//Call arm of the ExprDesc encoder: a producing-module free function,
-//fully applied (D4); args encode with allowCall=false (no nested calls,
-//D3). The consumer rebuilds a call qualified by THIS module's path.
-bool VmBackend::EncodeCallDesc(SnInvokeExpr& invoke,
-                               const std::vector<SnFormalParam*>& formals,
-                               std::vector<uint8_t>& out, int depth) {
-    auto* pCallee = invoke.Callee();
-    if (!pCallee || pCallee->IsImported()) return false;
-    //Free functions only — methods/enums ride the method path and
-    //their keys are enclosure-qualified.
-    auto* pParent = pCallee->Parent();
-    if (pParent && (pParent->Kind() == NK_ClassDecl
-                    || pParent->Kind() == NK_EnumDecl))
-        return false;
-    const std::string key = KeyOf(*pCallee);
-    const std::string prefix = m_compiledModule.modulePath + ".";
-    if (key.size() <= prefix.size()
-        || key.compare(0, prefix.size(), prefix) != 0)
-        return false;
+//True when key starts with "<modulePath>.": the producing-module
+//authority shared by every qualified-key arm (ED_Call, ED_FuncRef,
+//ED_StaticMember). Imported or prelude-owned targets fail it and keep
+//the RTK_Unfoldable stamp — the consumer rebinds the rebuilt chain
+//through its own import registry, which only speaks this module's
+//spellings.
+static bool HasModulePrefix(const std::string& key,
+                            const std::string& modulePath) {
+    const std::string prefix = modulePath + ".";
+    return key.size() > prefix.size()
+        && key.compare(0, prefix.size(), prefix) == 0;
+}
+
+//Wire chain key of a type member: "<package>.<Enclosure...>.<name>".
+//KeyOf/LinkKeyOf spells class statics bare (methods dispatch by
+//receiver through their unqualified name), so the dotted chain is
+//assembled here from the declaration's enclosure walk; the registry
+//package supplies the module prefix (the same path-derived value the
+//free-function keys carry). An empty result flags an ownerless member;
+//prelude/foreign members come back under their own unit's path and are
+//then refused by HasModulePrefix. Non-generic interface statics
+//assemble to exactly their EnclosureMethodKey spelling.
+std::string VmBackend::StaticMemberKey(const SnField& member) const {
+    NLANG_ASSERT(m_pRegistry && "StaticMemberKey before SetModuleRegistry");
+    std::vector<std::string> enclosures;  //innermost first
+    for (SyntaxNode* pEnc = member.Parent();
+         pEnc && (pEnc->Kind() == NK_ClassDecl
+                  || pEnc->Kind() == NK_InterfaceDecl
+                  || pEnc->Kind() == NK_EnumDecl);
+         pEnc = pEnc->Parent())
+        enclosures.push_back(static_cast<SnField*>(pEnc)->Name());
+    if (enclosures.empty()) return std::string();
+    //The owner comes from the ancestor walk, never the flat owner tag
+    //PackageOf reads: class and enum members carry no tag of their own,
+    //so the flat lookup would come back ownerless for every own-unit
+    //static and silently degrade the fold to RTK_Unfoldable (the same
+    //distinction IsOwnUnit draws).
+    const uint32_t owner = m_pRegistry->OwnerOfContext(member);
+    if (owner == ModuleRegistry::NO_OWNER) return std::string();
+    const std::string package = m_pRegistry->ModulePathOf(owner);
+    if (package.empty()) return std::string();
+    std::string key = package;
+    for (auto it = enclosures.rbegin(); it != enclosures.rend(); ++it) {
+        key += '.';
+        key += *it;
+    }
+    key += '.';
+    key += member.Name();
+    return key;
+}
+
+//Member-value arm of the ExprDesc encoder: a by-name static method
+//reference becomes ED_FuncRef, a static field read becomes
+//ED_StaticMember; both carry the StaticMemberKey chain so the consumer
+//rebuilds the dotted name and re-binds it at its own use site.
+bool VmBackend::EncodeMemberRefDesc(SnField& member,
+                                    std::vector<uint8_t>& out) {
+    const std::string key = StaticMemberKey(member);
+    if (!HasModulePrefix(key, m_compiledModule.modulePath)) return false;
+    AppendU8(out, member.Kind() == NK_Function ? ED_FuncRef
+                                               : ED_StaticMember);
+    AppendU16(out, static_cast<uint16_t>(key.size()));
+    AppendBytes(out, key.data(), key.size());
+    return true;
+}
+
+//True when the member expression spells its receiver as the chain of
+//enclosing type names (the static-reference spelling `Knob.tick`,
+//`A.B.f`), never a value receiver: the ExprDesc wire carries the key
+//alone, so a bound instance reference (`a.tick` through a formal)
+//would silently lose its receiver on the wire.
+static bool SpellsEnclosingChain(const SnMemberExpr& member,
+                                 const SnField& field) {
+    std::vector<std::string> expected;  //innermost enclosure first
+    for (SyntaxNode* pEnc = field.Parent();
+         pEnc && (pEnc->Kind() == NK_ClassDecl
+                  || pEnc->Kind() == NK_InterfaceDecl
+                  || pEnc->Kind() == NK_EnumDecl);
+         pEnc = pEnc->Parent())
+        expected.push_back(static_cast<SnField*>(pEnc)->Name());
+    std::vector<std::string> spelled;   //innermost receiver segment first
+    SnExpression* pOuter = member.Outer();
+    while (pOuter->Kind() == NK_MemberExpr) {
+        auto& mid = static_cast<SnMemberExpr&>(*pOuter);
+        SnFieldExpr* pInner = mid.Inner();
+        if (!pInner || pInner->Kind() != NK_IdentifierExpr) return false;
+        spelled.push_back(static_cast<SnIdentifierExpr*>(pInner)->Name());
+        pOuter = mid.Outer();
+    }
+    if (pOuter->Kind() != NK_IdentifierExpr) return false;
+    spelled.push_back(
+        static_cast<SnIdentifierExpr*>(pOuter)->Name());
+    return spelled == expected;
+}
+
+//Shared ED_Call frame emitter for the two call spellings (the bare-name
+//invoke arm and the qualified static member call in the member arm):
+//module-prefix gate, full application (D4), args encoded with
+//allowCall=false (D3). The spellings differ only in how the target key
+//is assembled; the frame bytes — and the consumer's rebuild — are one.
+bool VmBackend::AppendCallFrame(const std::string& key, size_t paramCount,
+                                SnInvokeExpr& invoke,
+                                const std::vector<SnFormalParam*>& formals,
+                                std::vector<uint8_t>& out, int depth) {
+    if (!HasModulePrefix(key, m_compiledModule.modulePath)) return false;
     size_t argCount = 0;
     for (auto& arg : invoke.Params())
         ++argCount;
-    if (argCount != pCallee->Params().size() || argCount > UINT8_MAX)
+    if (argCount != paramCount || argCount > UINT8_MAX)
         return false;
     AppendU8(out, ED_Call);
     AppendU16(out, static_cast<uint16_t>(key.size()));
@@ -403,6 +490,37 @@ bool VmBackend::EncodeCallDesc(SnInvokeExpr& invoke,
             return false;
     }
     return true;
+}
+
+//Call arm of the ExprDesc encoder: a producing-module free function or
+//static method, fully applied (D4); args encode with allowCall=false
+//(no nested calls, D3). The consumer rebuilds a call qualified by THIS
+//module's path. The qualified `Type.member(args)` spelling is not here
+//— the grammar builds it as a member with an invoke inner, folded by
+//the member arm, which shares AppendCallFrame with this arm.
+bool VmBackend::EncodeCallDesc(SnInvokeExpr& invoke,
+                               const std::vector<SnFormalParam*>& formals,
+                               std::vector<uint8_t>& out, int depth) {
+    auto* pCallee = invoke.Callee();
+    if (!pCallee || pCallee->IsImported()) return false;
+    //Free functions of this module, or static methods of this module's
+    //classes/interfaces (D-5 language surface; the receiverless
+    //type-name shape EmitMemberStaticCall emits). Instance methods need
+    //a receiver the wire cannot carry; enum members keep the old reject
+    //(enclosure-keyed dispatch is their only binding path).
+    auto* pParent = pCallee->Parent();
+    std::string key;
+    if (pParent && (pParent->Kind() == NK_ClassDecl
+                    || pParent->Kind() == NK_InterfaceDecl)) {
+        if (!pCallee->ContainFlags(NF_Static)) return false;
+        key = StaticMemberKey(*pCallee);
+    } else if (pParent && pParent->Kind() == NK_EnumDecl) {
+        return false;
+    } else {
+        key = KeyOf(*pCallee);  //free function: "<module>.<name>"
+    }
+    return AppendCallFrame(key, pCallee->Params().size(), invoke,
+                           formals, out, depth);
 }
 
 //Recursive ExprDesc encoder (see CompiledModule.h → ExprDesc.h for the
@@ -431,7 +549,62 @@ bool VmBackend::EncodeExprDesc(SnExpression& expr,
                 return true;
             }
         }
+        //By-name function value (`= helper` in a func-typed formal, the
+        //Phase 13 bound state: Field() is the function symbol): emit the
+        //qualified key so the consumer rebuilds the name and re-binds it
+        //against the formal's func type at its own use site.
+        if (pField->Kind() == NK_Function) {
+            const std::string key = KeyOf(*pField);
+            if (!HasModulePrefix(key, m_compiledModule.modulePath))
+                return false;  //imported or prelude target: old reject
+            AppendU8(out, ED_FuncRef);
+            AppendU16(out, static_cast<uint16_t>(key.size()));
+            AppendBytes(out, key.data(), key.size());
+            return true;
+        }
         return false;
+    }
+
+    case NK_MemberExpr: {
+        //Static member spellings in a default value. The grammar builds
+        //the qualified call `Knob.tick()` as a member whose inner is a
+        //named invoke (nlang.y MemberExpr: Expression '.' InvokeExpr),
+        //so the inner kind separates the three spells: a by-name static
+        //method reference (`= Knob.tick`, ED_FuncRef), a static field
+        //read (`= Knob.K`, ED_StaticMember), and a static method call
+        //(`= Knob.tick()`, ED_Call). All three require the type-name
+        //receiver the resolver guarantees for static shapes
+        //(EmitExprMemberStatic D3), re-proven here by
+        //SpellsEnclosingChain: a bound instance reference cannot ride
+        //the key-only wire.
+        auto& member = static_cast<SnMemberExpr&>(expr);
+        auto* pField = member.Field();
+        auto* pInner = member.Inner();
+        if (!pField || !pInner || !pField->ContainFlags(NF_Static)
+            || (pField->Kind() != NK_Function
+                && pField->Kind() != NK_ClassField))
+            return false;
+        if (!SpellsEnclosingChain(member, *pField))
+            return false;
+        if (pInner->Kind() == NK_InvokeExpr) {
+            //Static method call: the receiver and the target both ride
+            //the StaticMemberKey. A call in a call-argument slot stays
+            //out of the subset (D3). Callee() answers the bound
+            //function symbol (null for a non-function target — a `()`
+            //suffix on a static field keeps the old reject); the
+            //receiver-spell gate above already proved the type-name
+            //chain against this member.
+            if (!allowCall) return false;
+            auto& invoke = static_cast<SnInvokeExpr&>(*pInner);
+            auto* pCallee = invoke.Callee();
+            if (!pCallee || pCallee->IsImported()) return false;
+            return AppendCallFrame(StaticMemberKey(*pCallee),
+                                   pCallee->Params().size(), invoke,
+                                   formals, out, depth);
+        }
+        if (pInner->Kind() != NK_IdentifierExpr)
+            return false;  //not a plain static read/reference spell
+        return EncodeMemberRefDesc(*pField, out);
     }
 
     case NK_BinaryExpr:
@@ -444,7 +617,7 @@ bool VmBackend::EncodeExprDesc(SnExpression& expr,
                               out, depth);
 
     default:
-        return false;  //casts, member access, init lists, …: old reject
+        return false;  //casts, init lists, non-static member access, …
     }
 }
 

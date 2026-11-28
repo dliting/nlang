@@ -1914,6 +1914,26 @@ private:
     bool EncodeCallDesc(SnInvokeExpr& invoke,
                         const std::vector<SnFormalParam*>& formals,
                         std::vector<uint8_t>& out, int depth);
+    //Shared ED_Call frame emitter for the two call spellings (the
+    //bare-name invoke arm and the qualified static member call in the
+    //member arm): module-prefix gate, full application (D4), args
+    //encoded with allowCall=false (D3). The spellings differ only in
+    //how the target key is assembled.
+    bool AppendCallFrame(const std::string& key, size_t paramCount,
+                         SnInvokeExpr& invoke,
+                         const std::vector<SnFormalParam*>& formals,
+                         std::vector<uint8_t>& out, int depth);
+    //Member-reference tail of the member arm: a by-name static method
+    //reference (ED_FuncRef) or a static field read (ED_StaticMember),
+    //keyed by StaticMemberKey. Callers guarantee the NF_Static +
+    //type-name-receiver shape.
+    bool EncodeMemberRefDesc(SnField& member, std::vector<uint8_t>& out);
+    //Wire chain key of a type member: "<module>.<Enclosure...>.<name>".
+    //KeyOf/LinkKeyOf spells class statics bare (methods dispatch by
+    //receiver), so the encoder assembles the chain from the enclosure
+    //walk; the registry package supplies the module prefix. An empty
+    //result flags an out-of-subset member (prelude-owned or ownerless).
+    std::string StaticMemberKey(const SnField& member) const;
     //Literal arm: the same kind set ExtractLiteralDefault folds.
     bool EncodeLiteralDesc(SnLiteralExpr& lit, std::vector<uint8_t>& out);
     static BoxingTagResult BoxingTagFor(SnField* pT);

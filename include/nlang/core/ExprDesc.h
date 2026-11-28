@@ -21,9 +21,17 @@ namespace nlang {
 //    ED_Neg       + 1 child ExprDesc (unary negation)
 //    ED_BitNot    + 1 child ExprDesc (bitwise complement)
 //    ED_Binary    + u8 op code (EDB_*) + 2 child ExprDescs
-//    ED_Call      + u16 keyLen + qualified key bytes ("<module>.<func>")
+//    ED_Call      + u16 keyLen + qualified key bytes ("<module>.<func>"
+//                 or "<module>.<Class>.<method>" for a static method)
 //                 + u32 paramCount + u8 argCount + argCount child ExprDescs
+//    ED_FuncRef     + u16 keyLen + qualified key bytes ("<module>.<func>"
+//                 or "<module>.<Class>.<method>", a by-name function value)
+//    ED_StaticMember+ u16 keyLen + qualified key bytes
+//                 ("<module>.<Class>.<field>", a static field read)
 //
+//Qualified keys are always prefixed by the PRODUCING module's path; the
+//consumer rebuilds the dotted chain and binds it through its own import
+//registry (the same rebinding path as ED_Call's module-qualified invoke).
 //Anything the source module writes outside this grammar stays
 //RTK_Unfoldable (unchanged consumer-side reject).
 inline constexpr uint8_t ED_FormalRef = 0x20;
@@ -31,6 +39,8 @@ inline constexpr uint8_t ED_Neg       = 0x21;
 inline constexpr uint8_t ED_Binary    = 0x22;
 inline constexpr uint8_t ED_Call      = 0x23;
 inline constexpr uint8_t ED_BitNot    = 0x24;
+inline constexpr uint8_t ED_FuncRef   = 0x25;
+inline constexpr uint8_t ED_StaticMember = 0x26;
 //Binary op codes, in SnBinaryExpr::Operator order (+ - * / % << >> & ^ |).
 inline constexpr uint8_t EDB_Add = 0;
 inline constexpr uint8_t EDB_Sub = 1;
@@ -144,6 +154,12 @@ inline bool ExprDescRemapStrings(std::vector<uint8_t> &bytes,
         }
         case ED_Call:
             return ExprDescRemapCall(bytes, lookup, depth, cur);
+        case ED_FuncRef:
+        case ED_StaticMember:
+        {
+            uint16_t keyLen = 0;
+            return cur.U16(keyLen) && cur.Skip(keyLen);
+        }
         default:
             return false;
     }
