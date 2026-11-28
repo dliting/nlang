@@ -1905,8 +1905,9 @@ private:
     bool EncodeExprDesc(SnExpression& expr,
                         const std::vector<SnFormalParam*>& formals,
                         std::vector<uint8_t>& out, bool allowCall, int depth);
-    //EncodeExprDesc arms: arithmetic (negation + five binaries) and the
-    //producing-module call.
+    //EncodeExprDesc arms: arithmetic (negation + five binaries), the
+    //producing-module call, the bare-name reference (formal or function
+    //value) and the static member spellings.
     bool EncodeBinaryDesc(SnBinaryExpr& bin,
                           const std::vector<SnFormalParam*>& formals,
                           std::vector<uint8_t>& out, bool allowCall,
@@ -1914,6 +1915,13 @@ private:
     bool EncodeCallDesc(SnInvokeExpr& invoke,
                         const std::vector<SnFormalParam*>& formals,
                         std::vector<uint8_t>& out, int depth);
+    bool EncodeNameRefDesc(SnIdentifierExpr& name,
+                           const std::vector<SnFormalParam*>& formals,
+                           std::vector<uint8_t>& out);
+    bool EncodeStaticSpellDesc(SnMemberExpr& member,
+                               const std::vector<SnFormalParam*>& formals,
+                               std::vector<uint8_t>& out, bool allowCall,
+                               int depth);
     //Shared ED_Call frame emitter for the two call spellings (the
     //bare-name invoke arm and the qualified static member call in the
     //member arm): module-prefix gate, full application (D4), args

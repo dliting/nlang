@@ -201,6 +201,7 @@ add_library(nlang_compiler
     codegen/RegisterEnums.cpp
     codegen/BuiltinClasses.cpp
     codegen/Types.cpp
+    codegen/VmBackendExprDesc.cpp
     codegen/EmitCall.cpp
     codegen/EmitCtorCall.cpp
     codegen/WalkersExpr.cpp

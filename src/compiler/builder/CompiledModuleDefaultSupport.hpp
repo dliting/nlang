@@ -239,16 +239,18 @@ inline SnExpression *SynthExprDescRef(ExprDescCursor &cur,
 		loc);
 }
 
-//ED_Call arm: validate the producing-module target against cm's
-//function table, then create `modulePath.leaf(args...)` — the AST the
-//parser builds for that source spelling, resolved by the normal
-//module-qualified call path. A three-or-more-segment key names a
-//static method instead (no table row under that spelling): the
-//producing-module prefix gates it, the use-site bind checks the rest.
-inline SnExpression *SynthExprDescCall(ExprDescCursor &cur,
+//ED_Call arm's target header: read the dotted key and arity fields and
+//validate the producing-module target. A free-function key (single dot)
+//is checked against cm's function table (its keys carry the producing
+//module's prefix; the row pins the declaring arity). A three-or-more-
+//segment key names a static method: class statics key bare in the
+//table, so no row exists under that spelling — the producing-module
+//prefix gates the wire, and the use-site bind checks the member.
+//Returns the key, the last-dot offset splitting receiver chain from
+//leaf spelling, and the argument count to synthesize.
+inline void ReadExprDescCallTarget(ExprDescCursor &cur,
 	const CompiledModule &cm, const std::string &funcName,
-	const std::vector<std::string> &stubFormalNames,
-	const ISourceLocation &loc, int depth)
+	std::string &key, size_t &lastDot, uint8_t &argCount)
 {
 	uint16_t keyLen = 0;
 	if (!cur.U16(keyLen) || keyLen == 0)
@@ -257,20 +259,18 @@ inline SnExpression *SynthExprDescCall(ExprDescCursor &cur,
 	if (!cur.Bytes(keyBuf.data(), keyLen))
 		ThrowMalformedDefault(funcName, "truncated call key");
 	uint32_t paramCount = 0;
-	uint8_t argCount = 0;
+	argCount = 0;
 	if (!cur.U32(paramCount) || !cur.U8(argCount))
 		ThrowMalformedDefault(funcName, "truncated call");
-	std::string key(keyBuf.data(), keyLen);
+	key.assign(keyBuf.data(), keyLen);
 	const size_t firstDot = key.find('.');
-	const size_t lastDot = key.find_last_of('.');
+	lastDot = key.find_last_of('.');
 	if (lastDot == std::string::npos || lastDot == 0
 		|| lastDot + 1 == key.size())
 		ThrowMalformedDefault(funcName, "unqualified call key");
 	if (firstDot == lastDot)
 	{
-		//Free-function leg: the function table is the authority (its
-		//keys carry the producing module's prefix; the row pins the
-		//declaring arity).
+		//Free-function leg: the function table is the authority.
 		const int targetIdx = cm.FindFunction(key);
 		if (targetIdx < 0 || cm.functions[targetIdx].paramCount != paramCount
 			|| argCount != paramCount)
@@ -280,11 +280,7 @@ inline SnExpression *SynthExprDescCall(ExprDescCursor &cur,
 	}
 	else
 	{
-		//Static-method leg ("<module>.<Class>.<method>"): class statics
-		//key bare in the table, so no row exists under this spelling —
-		//the producer's own path prefix gates the wire, and the
-		//consumer's import-registry bind at the use site checks the
-		//member itself.
+		//Static-method leg ("<module>.<Class>.<method>").
 		const std::string prefix = cm.modulePath + ".";
 		if (key.size() <= prefix.size()
 			|| key.compare(0, prefix.size(), prefix) != 0)
@@ -293,7 +289,21 @@ inline SnExpression *SynthExprDescCall(ExprDescCursor &cur,
 		if (argCount != paramCount)
 			ThrowMalformedDefault(funcName, "call arity mismatch");
 	}
+}
 
+//ED_Call arm: after the target validates (see ReadExprDescCallTarget),
+//create `modulePath.leaf(args...)` — the AST the parser builds for
+//that source spelling, resolved by the normal module-qualified call
+//path.
+inline SnExpression *SynthExprDescCall(ExprDescCursor &cur,
+	const CompiledModule &cm, const std::string &funcName,
+	const std::vector<std::string> &stubFormalNames,
+	const ISourceLocation &loc, int depth)
+{
+	std::string key;
+	size_t lastDot = 0;
+	uint8_t argCount = 0;
+	ReadExprDescCallTarget(cur, cm, funcName, key, lastDot, argCount);
 	auto *pArgs = new PtrList<SnExpression>();
 	for (uint8_t i = 0; i < argCount; ++i)
 		pArgs->push_back(SynthExprDescNode(cur, cm, funcName,
