@@ -55,6 +55,15 @@ public:
 		NodeKind condKind);
 	void Visitor(ISyntaxNodeVisitor *pVisitor);
 
+	//0.13.13a Task 9: pins the program/library identity of the current
+	//compilation before any default-value check runs — a merged root
+	//with an entry candidate is a program (lambda defaults stay local
+	//and legal); one without is an importable library, whose authors
+	//get the producer-side reject (CheckDefaultLambdaExport). Mirrors
+	//VmBackend::CollectEntryCandidates. Definition in
+	//StatementResolverDeclDefaults.cpp.
+	void MarkEntryPresence(SnNamespace &root);
+
 private:
 	//Named decomposition phases shared across the per-concern TUs.
 	SnParagraph *FindEnclosingParagraph(SyntaxNode *pNode);
@@ -81,6 +90,20 @@ private:
 	//through a bare field) — defaults evaluate at the call site, outside
 	//the object under construction. No-op for non-ctor functions.
 	void CheckCtorDefaultThisRefs(SnFunction &sn, SnFormalParam &param);
+	//0.13.13a Task 9: a library compilation (no entry candidate, see
+	//MarkEntryPresence) rejects a lambda default on an importable
+	//declaration at the producer — the cross-module wire carries no
+	//closure, so every consumer would hit the RTK_Unfoldable reject at
+	//its own use site (ruling B: graded fallback keeps the same-module
+	//tier). The wording splits by cause: a lambda that reaches 'this'
+	//or an instance member gets the capture sentence, any other lambda
+	//the scope sentence. Definition in StatementResolverDeclDefaults.cpp.
+	void CheckDefaultLambdaExport(SnFunction &sn, SnFormalParam &param);
+	//Runs the two host-shape guards over one default: the ctor-instance
+	//rule (D-5) plus the library-scope lambda rule (Task 9). The caller
+	//owns the resolved/non-imported predicates; the entry-candidate flag
+	//is consulted inside.
+	void CheckFormalDefaultHosts(SnFunction &sn, SnFormalParam &param);
 	//0.7.5 constant-fit arm of the check above: an explicit-only
 	//default must be an in-range constant (assignment-side rule).
 	void CheckDefaultConstantFit(SnFormalParam *param,
@@ -455,6 +478,11 @@ public:
 private:
 	BuildEnvironment &m_Env;
 	ISyntaxNodeVisitor *m_pVisitor;
+	//0.13.13a Task 9: entry-presence flag consumed by
+	//CheckDefaultLambdaExport (fail-safe true: an accessor that was
+	//never marked simply never rejects). Refreshed by
+	//MarkEntryPresence at the top of every Resolve.
+	bool m_bCompilationHasEntry = true;
 	SnField *m_pCurrType;
 	SnClassDecl *m_pCurrClass = nullptr;
 	bool m_inFinallyBody = false;

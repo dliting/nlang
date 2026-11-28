@@ -2790,3 +2790,8 @@ generic_param_shadow_capture 0
 # and static method references as function values; explicit-arg legs
 # prove the import carries them, omitted legs prove they evaluate.
 crossmod_default_forms 0
+# Export-side guards for default lambdas in library compilations (no
+# entry candidate): the scope sentence for a plain lambda default, the
+# capture sentence when the lambda reaches 'this' or an instance member.
+crossmod_default_lambda_reject compile_error lambda expressions are supported in default values of non-exported declarations
+method_default_lambda_export_reject compile_error a default lambda that captures 'this' or an instance member cannot be exported

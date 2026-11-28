@@ -1,0 +1,6 @@
+//Library compilation (no main): a lambda default on an exportable
+//declaration is rejected at the producer — the cross-module wire carries
+//no closure, so importing modules could never evaluate it. Capturing a
+//formal parameter is fine inside the producing module; it is the export
+//that the scope sentence names.
+int step(int n, func<int,int> g = (x) -> x + n) { return g(n); }

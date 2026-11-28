@@ -170,6 +170,10 @@ void StatementResolver::Resolve(SnNamespace &root)
 	PreResolveClassBases(root, m_Accessor);
 	PreSynthesizeStaticInitializers(root, m_Accessor);
 	PreInjectClassFieldInitializers(root, m_Accessor);
+	//0.13.13a Task 9: pin the program/library identity before the walk
+	//reaches any formal default (RegisterUnits ran earlier in the
+	//pipeline, so the registry already owns every root-level main).
+	m_Accessor.MarkEntryPresence(root);
 	root.Accept(visitor);
 }
 

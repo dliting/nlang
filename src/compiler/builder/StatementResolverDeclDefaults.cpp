@@ -9,6 +9,7 @@
 #include "StatementResolver.h"
 #include "ExprResolverCastFit.hpp"
 #include "ModuleRegistry.h"
+#include <nlang/core/TypeArgSpelling.h>
 
 namespace nlang
 {
@@ -111,14 +112,20 @@ void StatementResolveAccessor::CheckDefaultForwardRefs(
 //answers false for. D-1 (0.13.13a): the walk reaches references
 //written inside lambda bodies — expression or block — so a default
 //lambda whose body captures the instance is rejected instead of
-//silently capturing the wrong receiver at the call site.
+//silently capturing the wrong receiver at the call site. Task 9
+//adds the lambda-presence output for the export-side guard
+//(CheckDefaultLambdaExport) — the same single walk classifies all
+//three facts.
 static void ClassifyCtorDefaultRefs(SnExpression &value,
-	SnField *&pMember, bool &bExplicitThis)
+	SnField *&pMember, bool &bExplicitThis, bool &bLambda)
 {
-	WalkDefaultRefs(value, [&pMember, &bExplicitThis](Node &node)
+	WalkDefaultRefs(value,
+		[&pMember, &bExplicitThis, &bLambda](Node &node)
 	{
 		auto kind = node.Kind();
-		if (kind == NK_ThisExpr)
+		if (kind == NK_LambdaExpr)
+			bLambda = true;
+		else if (kind == NK_ThisExpr)
 			bExplicitThis = true;
 		else if (!pMember
 			&& (kind == NK_IdentifierExpr || kind == NK_MemberExpr
@@ -157,7 +164,9 @@ void StatementResolveAccessor::CheckCtorDefaultThisRefs(SnFunction &sn,
 	//this.m_seed`).
 	SnField *pMember = nullptr;
 	bool bExplicitThis = false;
-	ClassifyCtorDefaultRefs(*param.Value(), pMember, bExplicitThis);
+	bool bLambda = false;   //ctor wording never consults the lambda fact
+	ClassifyCtorDefaultRefs(*param.Value(), pMember, bExplicitThis,
+		bLambda);
 	if (pMember)
 	{
 		//The owner of a class/struct member is always a named
@@ -186,6 +195,108 @@ void StatementResolveAccessor::CheckCtorDefaultThisRefs(SnFunction &sn,
 		"the call site, where no valid 'this' exists.",
 		param.Name().c_str(),
 		sn.Name().c_str());
+}
+
+//0.13.13a Task 9: importable-scope gate — the declaration sits at
+//namespace or type-member level, the shape the module registry exports
+//into .ncu stubs. A default written inside a function body belongs to a
+//local declaration: it is never serialized, so a lambda default there
+//stays legal even in a library compilation.
+static bool ReachesImportScope(const SyntaxNode &node)
+{
+	for (const SyntaxNode *pParent = node.Parent(); pParent;
+		pParent = pParent->Parent())
+	{
+		switch (pParent->Kind())
+		{
+			case NK_Namespace:
+			case NK_ClassDecl:
+			case NK_StructDecl:
+			case NK_InterfaceDecl:
+			case NK_EnumDecl:
+				break;      //importable nesting: keep walking to the root
+			default:
+				return false;   //a statement node — local declaration
+		}
+	}
+	return true;
+}
+
+//0.13.13a Task 9 (ruling B): the producer-side reject for default
+//lambdas in a library compilation. The cross-module wire (ExprDesc) is
+//a closed scalar grammar — carrying a lambda would need a whole closure
+//ABI (capture-class key, capture-frame layout, consumer-side closure
+//materialization), disproportionate for default values. Rejecting where
+//the library author wrote the default beats the status quo, where the
+//producer stamps a silent RTK_Unfoldable and every consumer hits the
+//subset message at its own use site. The wording names the binding
+//reason: a lambda reaching 'this' or an instance member could never be
+//exported (the captured receiver would dangle in any importing module),
+//so the capture sentence outranks the scope sentence; a lambda over
+//parameters and statics alone is exportable-in-principle and hears the
+//scope sentence. The ctor host with an instance fact already carries
+//the D-5 ctor sentence (CheckCtorDefaultThisRefs ran first) — stay
+//silent. Same-module lambdas are unaffected (the flag is false only for
+//entry-less compilations; Task 2 pinned the capture semantics there).
+void StatementResolveAccessor::CheckDefaultLambdaExport(SnFunction &sn,
+	SnFormalParam &param)
+{
+	if (!ReachesImportScope(sn))
+		return;
+	SnField *pMember = nullptr;
+	bool bExplicitThis = false;
+	bool bLambda = false;
+	ClassifyCtorDefaultRefs(*param.Value(), pMember, bExplicitThis,
+		bLambda);
+	if (!bLambda)
+		return;
+	if (IsConstructorFunction(sn) && (pMember || bExplicitThis))
+		return;
+	m_Env.Log(CLL_Error, param.Value()->Location(),
+		pMember || bExplicitThis
+			? "default value for parameter \"%s\": a default lambda that "
+				"captures 'this' or an instance member cannot be exported."
+			: "default value for parameter \"%s\": lambda expressions are "
+				"supported in default values of non-exported declarations.",
+		param.Name().c_str());
+}
+
+//Host-shape guards for one default of a resolved non-imported
+//declaration (the caller owns those two predicates). The consumer-side
+//RTK_Unfoldable reject stays as the stale-artifact backstop.
+void StatementResolveAccessor::CheckFormalDefaultHosts(SnFunction &sn,
+	SnFormalParam &param)
+{
+	CheckCtorDefaultThisRefs(sn, param);
+	if (!m_bCompilationHasEntry)
+		CheckDefaultLambdaExport(sn, param);
+}
+
+//0.13.13a Task 9: mirror of VmBackend::CollectEntryCandidates — the
+//toolchain's own program/library boundary (ResolveEntryPoint keeps
+//entryPoint = -1 for a root with no candidate, and such a compilation
+//builds an importable library). Computed once per compilation here so
+//every formal-default check sees one answer; the registry already owns
+//the root-level mains (RegisterUnits precedes the resolve in the
+//pipeline).
+void StatementResolveAccessor::MarkEntryPresence(SnNamespace &root)
+{
+	bool bHasEntry = false;
+	for (auto &member : root.Members())
+	{
+		if (member.Kind() != NK_Function)
+			continue;
+		auto &func = static_cast<SnFunction &>(member);
+		if (func.Name() != "main" || IsTypeMember(func))
+			continue;
+		const uint32_t owner = m_Env.Registry().OwnerOf(func);
+		if (owner == ModuleRegistry::NO_OWNER
+			|| m_Env.Registry().IsLibraryModule(owner))
+			continue;
+		bHasEntry = true;
+		break;
+	}
+	m_bCompilationHasEntry = bHasEntry;
 }
 
 //0.7.5: an explicit-only default must clear the same constant-fit bar
@@ -331,11 +442,13 @@ void StatementResolveAccessor::ResolveFormalDefault(SnFunction &sn,
 		CheckDefaultForwardRefs(formals, i);
 
 	//P3 review: a ctor default cannot depend on the instance
-	//(D-5: static members are fine) — imported stubs skip like
-	//CheckDefaultTypeCompat (the producer unit already validated its
-	//own defaults).
+	//(D-5: static members are fine); 0.13.13a Task 9: a library
+	//compilation (no entry candidate) rejects a lambda default on an
+	//importable declaration at the producer (ruling B). Imported stubs
+	//skip both guards like CheckDefaultTypeCompat (the producer unit
+	//already validated its own defaults).
 	if (param->Value()->IsResolved() && !sn.IsImported())
-		CheckCtorDefaultThisRefs(sn, *param);
+		CheckFormalDefaultHosts(sn, *param);
 
 	//Verify default's type is compatible with the formal's
 	//declared type. Literals may already be IsResolved() from

@@ -488,6 +488,78 @@ static void test_producer_boundary_unfoldable()
     PASS();
 }
 
+//Cross-module default lambdas (0.13.13a ruling B): a library compile
+//(no entry candidate) rejects a lambda default at the producer instead
+//of stamping a silently unusable RTK_Unfoldable — the wire carries no
+//closure, so every importing module would hit the consumer-side reject
+//at its own use site. The wording splits by cause: an instance-capturing
+//lambda (method hosts) gets the capture sentence, everything else the
+//scope sentence. A program compilation (main present) keeps the same
+//sources green — the guard is about export, not about lambda defaults
+//at large (the same-module capture semantics are pinned in Task 2's
+//legs).
+static void test_exported_default_lambda_reject()
+{
+    TEST(exported_default_lambda_reject);
+
+    //Library free function whose lambda captures its own formal: the
+    //cross-module scope sentence.
+    {
+        std::unique_ptr<CompileOutcome> out;
+        compileAndLoad(
+            "int step(int n, func<int,int> g = (x) -> x + n)"
+            " { return g(n); }\n", out);
+        CHECK(out && !out->ok,
+            "a library default lambda must reject at the producer");
+        CHECK(joinErrors(*out).find("lambda expressions are supported"
+            " in default values of non-exported declarations")
+            != std::string::npos,
+            "expected the scope sentence, got: " + joinErrors(*out));
+    }
+
+    //Library method whose lambda reads an instance field: the capture
+    //sentence outranks the scope one — the capture is the binding
+    //reason the value cannot be exported at all (a closure over a
+    //dangling receiver is meaningless in any importing module).
+    {
+        std::unique_ptr<CompileOutcome> out;
+        compileAndLoad(
+            "class Box {\n"
+            "    public int k = 1;\n"
+            "    public int use(int d, func<int,int> g ="
+            " (x) -> x + k) { return g(d); }\n"
+            "}\n", out);
+        CHECK(out && !out->ok,
+            "a library method default lambda capturing an instance"
+            " member must reject at the producer");
+        CHECK(joinErrors(*out).find("a default lambda that captures"
+            " 'this' or an instance member cannot be exported")
+            != std::string::npos,
+            "expected the capture sentence, got: " + joinErrors(*out));
+    }
+
+    //Program witness: the same two sources plus main compile clean —
+    //no diagnostic may leak onto the program side.
+    {
+        std::unique_ptr<CompileOutcome> out;
+        compileAndLoad(
+            "int step(int n, func<int,int> g = (x) -> x + n)"
+            " { return g(n); }\n"
+            "class Box {\n"
+            "    public int k = 1;\n"
+            "    public int use(int d, func<int,int> g ="
+            " (x) -> x + k) { return g(d); }\n"
+            "}\n"
+            "int main() { return step(2); }\n", out);
+        CHECK(out && out->ok,
+            "a program's default lambdas must compile: "
+            + (out ? joinErrors(*out) : std::string("?")));
+        CHECK(out->logger->errors().empty(),
+            "clean compile expected: " + joinErrors(*out));
+    }
+    PASS();
+}
+
 //--- reader hardening ----------------------------------------------------
 
 //The stub location type from CompiledModuleStubSupport.hpp.
@@ -890,6 +962,7 @@ int main()
     test_wire_shapes_new_forms();
     test_wire_shapes_literal_boundary();
     test_producer_boundary_unfoldable();
+    test_exported_default_lambda_reject();
     test_reader_rejects_malformed();
     test_reader_rebuilds_formal_ref();
     test_reader_rebuilds_new_forms();

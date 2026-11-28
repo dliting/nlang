@@ -1,0 +1,8 @@
+//Library compilation (no main): a method default lambda that reads an
+//instance field captures the receiver. Inside one program the capture
+//is legal (the caller provides the receiver); across a module boundary
+//the receiver would dangle, so the producer rejects it by name.
+class Box {
+    public int k = 1;
+    public int use(int d, func<int,int> g = (x) -> x + k) { return g(d); }
+}
